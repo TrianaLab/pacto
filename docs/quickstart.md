@@ -101,7 +101,7 @@ Scaling: 1-3
 
 ## Next steps
 
-- [Customize your contract]({{ site.baseurl }}{% link contract-model.md %}) to match your service
+- [Customize your contract]({{ site.baseurl }}{% link contract-reference.md %}) to match your service
 - Read the guide for [developers]({{ site.baseurl }}{% link developers.md %}) or [platform engineers]({{ site.baseurl }}{% link platform-engineers.md %})
 - Explore [example contracts]({{ site.baseurl }}{% link examples/index.md %}) for common services like PostgreSQL and Redis
 - Learn how to [build plugins]({{ site.baseurl }}{% link plugins.md %}) for artifact generation

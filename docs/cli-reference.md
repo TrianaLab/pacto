@@ -180,7 +180,7 @@ Changes (2):
   [POTENTIAL_BREAKING] scaling.min (modified): scaling.min modified
 ```
 
-See [Change Classification]({{ site.baseurl }}{% link schema-reference.md %}#change-classification-rules) for the full rules.
+See [Change Classification]({{ site.baseurl }}{% link contract-reference.md %}#change-classification-rules) for the full rules.
 
 ---
 
