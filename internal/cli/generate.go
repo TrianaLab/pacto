@@ -1,12 +1,16 @@
 package cli
 
 import (
+	"strings"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/internal/app"
 )
 
 func newGenerateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
+	var options []string
+
 	cmd := &cobra.Command{
 		Use:   "generate <plugin> [path | oci://ref]",
 		Short: "Generate artifacts from a contract using a plugin",
@@ -25,6 +29,7 @@ func newGenerateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				Path:      path,
 				OutputDir: outputDir,
 				Plugin:    pluginName,
+				Options:   parseOptions(options),
 			})
 			if err != nil {
 				return err
@@ -36,6 +41,21 @@ func newGenerateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	}
 
 	cmd.Flags().StringP("output", "o", "", "output directory (default: <plugin>-output/)")
+	cmd.Flags().StringArrayVar(&options, "option", nil, "plugin option as key=value (can be repeated)")
 
 	return cmd
+}
+
+// parseOptions converts a slice of "key=value" strings into a map.
+func parseOptions(options []string) map[string]any {
+	if len(options) == 0 {
+		return nil
+	}
+	m := make(map[string]any, len(options))
+	for _, opt := range options {
+		if k, v, ok := strings.Cut(opt, "="); ok {
+			m[k] = v
+		}
+	}
+	return m
 }
