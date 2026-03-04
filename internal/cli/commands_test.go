@@ -12,6 +12,7 @@ import (
 
 	"github.com/trianalab/pacto/internal/app"
 	"github.com/trianalab/pacto/internal/cli"
+	"github.com/trianalab/pacto/internal/plugin"
 	"github.com/trianalab/pacto/internal/testutil"
 	"github.com/trianalab/pacto/pkg/contract"
 )
@@ -277,6 +278,45 @@ func TestGenerateCommand_Success(t *testing.T) {
 
 	if !strings.Contains(out.String(), "Generated 1 file(s) using test-plugin") {
 		t.Errorf("expected generate output, got %q", out.String())
+	}
+}
+
+func TestGenerateCommand_WithOptions(t *testing.T) {
+	orig, _ := os.Getwd()
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	path := testutil.WriteTestBundle(t)
+	outputDir := filepath.Join(dir, "gen-out")
+
+	var capturedOpts map[string]any
+	runner := &testutil.MockPluginRunner{
+		RunFn: func(_ context.Context, _ string, req plugin.GenerateRequest) (*plugin.GenerateResponse, error) {
+			capturedOpts = req.Options
+			return &plugin.GenerateResponse{
+				Files:   []plugin.GeneratedFile{{Path: "out.txt", Content: "hello"}},
+				Message: "done",
+			}, nil
+		},
+	}
+	svc := app.NewService(nil, runner)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"generate", "test-plugin", path, "--output", outputDir, "--option", "file=config.yaml", "--option", "format=json"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("generate with options failed: %v", err)
+	}
+
+	if capturedOpts["file"] != "config.yaml" {
+		t.Errorf("expected file=config.yaml, got %v", capturedOpts["file"])
+	}
+	if capturedOpts["format"] != "json" {
+		t.Errorf("expected format=json, got %v", capturedOpts["format"])
 	}
 }
 

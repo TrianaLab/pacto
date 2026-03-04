@@ -20,3 +20,6 @@ docs/Gemfile.lock
 
 # TODO
 TODO.md
+
+# Config
+config.yaml
