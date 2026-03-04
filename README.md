@@ -1,4 +1,4 @@
-[![CI](https://github.com/TrianaLab/pacto/actions/workflows/coverage.yml/badge.svg)](https://github.com/TrianaLab/pacto/actions/workflows/coverage.yml)
+[![CI](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml/badge.svg)](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml)
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/trianalab/pacto)](https://pkg.go.dev/github.com/trianalab/pacto)
 [![Go Report Card](https://goreportcard.com/badge/github.com/trianalab/pacto)](https://goreportcard.com/report/github.com/trianalab/pacto)
 [![codecov](https://codecov.io/gh/TrianaLab/pacto/graph/badge.svg?token=DI2AL1DL9T)](https://codecov.io/gh/TrianaLab/pacto)

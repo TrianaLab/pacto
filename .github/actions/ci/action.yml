@@ -1,0 +1,35 @@
+name: CI
+description: Shared CI steps — setup Go, lint, unit tests, e2e tests
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v6.0.2
+
+    - uses: actions/setup-go@v6.3.0
+      with:
+        go-version: '1.25'
+
+    - uses: actions/cache@v5.0.3
+      with:
+        path: |
+          ~/.cache/go-build
+          ${{ env.GOPATH }}/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: go mod download
+      shell: bash
+
+    - name: Run linter
+      uses: golangci/golangci-lint-action@v9.2.0
+
+    - name: Run unit tests
+      run: go test ./...
+      shell: bash
+
+    - name: Run e2e tests
+      run: go test -tags e2e ./tests/e2e/ -count=1 -timeout 120s
+      shell: bash

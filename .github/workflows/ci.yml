@@ -1,12 +1,22 @@
-name: Coverage
+name: CI
 
 on:
   push:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: ./.github/actions/ci
+
   coverage:
+    needs: ci
     runs-on: ubuntu-latest
 
     steps:
