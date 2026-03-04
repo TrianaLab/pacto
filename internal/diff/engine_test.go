@@ -243,7 +243,7 @@ paths:
 	if result.Classification != Breaking {
 		t.Errorf("expected BREAKING, got %s", result.Classification)
 	}
-	assertHasChangePath(t, result, "openapi.paths[/users]", Removed, Breaking)
+	assertHasChange(t, result, "openapi.paths[/users]", Removed, Breaking)
 }
 
 func TestCompare_SchemaPropertyAdded_NonBreaking(t *testing.T) {
@@ -259,7 +259,7 @@ func TestCompare_SchemaPropertyAdded_NonBreaking(t *testing.T) {
 
 	result := Compare(old, new, oldFS, newFS)
 
-	assertHasChangePath(t, result, "schema.properties[debug]", Added, NonBreaking)
+	assertHasChange(t, result, "schema.properties[debug]", Added, NonBreaking)
 }
 
 func TestCompare_OverallClassification_MaxSeverity(t *testing.T) {
@@ -277,17 +277,6 @@ func TestCompare_OverallClassification_MaxSeverity(t *testing.T) {
 
 // assertHasChange checks that a change with the given path, type, and classification exists.
 func assertHasChange(t *testing.T, result *Result, path string, ct ChangeType, cls Classification) {
-	t.Helper()
-	for _, c := range result.Changes {
-		if c.Path == path && c.Type == ct && c.Classification == cls {
-			return
-		}
-	}
-	t.Errorf("expected change {path=%s, type=%s, classification=%s} not found in %v", path, ct, cls, result.Changes)
-}
-
-// assertHasChangePath checks for a change with an exact path match (for parameterized paths like openapi.paths[/users]).
-func assertHasChangePath(t *testing.T, result *Result, path string, ct ChangeType, cls Classification) {
 	t.Helper()
 	for _, c := range result.Changes {
 		if c.Path == path && c.Type == ct && c.Classification == cls {

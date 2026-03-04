@@ -6,7 +6,7 @@ import (
 )
 
 func TestDiffOpenAPI_BothFSNil(t *testing.T) {
-	changes := diffOpenAPI("openapi.yaml", nil, nil)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}
@@ -15,7 +15,7 @@ func TestDiffOpenAPI_BothFSNil(t *testing.T) {
 func TestDiffOpenAPI_EmptyPath(t *testing.T) {
 	oldFS := fstest.MapFS{}
 	newFS := fstest.MapFS{}
-	changes := diffOpenAPI("", oldFS, newFS)
+	changes := diffOpenAPI("", "", oldFS, newFS)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}
@@ -30,7 +30,7 @@ paths:
       summary: Health
 `)},
 	}
-	changes := diffOpenAPI("openapi.yaml", nil, newFS)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", nil, newFS)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}
@@ -39,7 +39,7 @@ paths:
 func TestDiffOpenAPI_BothReadError(t *testing.T) {
 	oldFS := fstest.MapFS{}
 	newFS := fstest.MapFS{}
-	changes := diffOpenAPI("missing.yaml", oldFS, newFS)
+	changes := diffOpenAPI("missing.yaml", "missing.yaml", oldFS, newFS)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}
@@ -55,7 +55,7 @@ paths:
       summary: Health
 `)},
 	}
-	changes := diffOpenAPI("openapi.yaml", oldFS, newFS)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}
@@ -71,7 +71,7 @@ paths:
 `)},
 	}
 	newFS := fstest.MapFS{}
-	changes := diffOpenAPI("openapi.yaml", oldFS, newFS)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}

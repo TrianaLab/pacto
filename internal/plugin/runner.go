@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/trianalab/pacto/internal/oci"
 )
 
 // Runner executes a plugin by name with the given request.
@@ -62,8 +64,8 @@ func findPlugin(name string) (string, error) {
 		return path, nil
 	}
 
-	if home, err := os.UserHomeDir(); err == nil {
-		pluginPath := filepath.Join(home, ".config", "pacto", "plugins", binaryName)
+	if configDir, err := oci.PactoConfigDir(); err == nil {
+		pluginPath := filepath.Join(configDir, "plugins", binaryName)
 		if info, err := os.Stat(pluginPath); err == nil && !info.IsDir() {
 			return pluginPath, nil
 		}

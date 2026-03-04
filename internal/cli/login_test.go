@@ -34,7 +34,7 @@ func TestWritePactoConfig_NewFile(t *testing.T) {
 		t.Fatalf("expected config file: %v", err)
 	}
 
-	var cfg pactoLoginConfig
+	var cfg oci.PactoConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
@@ -59,8 +59,8 @@ func TestWritePactoConfig_MergeExisting(t *testing.T) {
 	}
 
 	// Write initial config with one registry
-	initial := pactoLoginConfig{
-		Auths: map[string]pactoLoginAuth{
+	initial := oci.PactoConfig{
+		Auths: map[string]oci.PactoAuth{
 			"docker.io": {Auth: "existing"},
 		},
 	}
@@ -80,7 +80,7 @@ func TestWritePactoConfig_MergeExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var cfg pactoLoginConfig
+	var cfg oci.PactoConfig
 	if err := json.Unmarshal(result, &cfg); err != nil {
 		t.Fatal(err)
 	}

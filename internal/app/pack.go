@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/trianalab/pacto/internal/oci"
 )
@@ -40,7 +39,7 @@ func (s *Service) Pack(_ context.Context, opts PackOptions) (*PackResult, error)
 		output = fmt.Sprintf("%s-%s.tar.gz", c.Service.Name, c.Service.Version)
 	}
 
-	if err := os.WriteFile(output, data, 0644); err != nil {
+	if err := writeFileFn(output, data, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write %s: %w", output, err)
 	}
 

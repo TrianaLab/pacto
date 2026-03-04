@@ -23,7 +23,7 @@ func newDiffCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				return err
 			}
 
-			format := v.GetString("output-format")
+			format := v.GetString(outputFormatKey)
 			if err := printDiffResult(cmd, result, format); err != nil {
 				return err
 			}

@@ -2,6 +2,7 @@ package validation
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 
 	"github.com/trianalab/pacto/pkg/contract"
@@ -43,6 +44,9 @@ func Validate(c *contract.Contract, rawYAML []byte, bundleFS fs.FS) ValidationRe
 	return result
 }
 
+// Function variable for testing.
+var jsonUnmarshalFn = json.Unmarshal
+
 // yamlToGeneric converts YAML bytes to a generic interface{} suitable for
 // JSON Schema validation. It goes through JSON to ensure type compatibility
 // with the JSON Schema library.
@@ -62,7 +66,9 @@ func yamlToGeneric(data []byte) (interface{}, error) {
 	}
 
 	var result interface{}
-	_ = json.Unmarshal(jsonBytes, &result)
+	if err := jsonUnmarshalFn(jsonBytes, &result); err != nil {
+		return nil, err
+	}
 
 	return result, nil
 }
@@ -79,7 +85,11 @@ func convertYAMLToJSON(v interface{}) interface{} {
 	case map[interface{}]interface{}:
 		result := make(map[string]interface{}, len(v))
 		for key, val := range v {
-			result[key.(string)] = convertYAMLToJSON(val)
+			strKey, ok := key.(string)
+			if !ok {
+				strKey = fmt.Sprintf("%v", key)
+			}
+			result[strKey] = convertYAMLToJSON(val)
 		}
 		return result
 	case []interface{}:
