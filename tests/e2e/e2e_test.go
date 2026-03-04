@@ -666,6 +666,9 @@ func TestLoginCommand(t *testing.T) {
 		tmpHome := t.TempDir()
 		os.Setenv("HOME", tmpHome)
 		defer os.Setenv("HOME", origHome)
+		origXDG := os.Getenv("XDG_CONFIG_HOME")
+		os.Setenv("XDG_CONFIG_HOME", "")
+		defer os.Setenv("XDG_CONFIG_HOME", origXDG)
 
 		output, err := runCommand(t, nil, "login", "registry.example.com", "-u", "testuser", "-p", "testpass")
 		if err != nil {
@@ -715,6 +718,9 @@ func TestLoginCommand(t *testing.T) {
 		tmpHome := t.TempDir()
 		os.Setenv("HOME", tmpHome)
 		defer os.Setenv("HOME", origHome)
+		origXDG := os.Getenv("XDG_CONFIG_HOME")
+		os.Setenv("XDG_CONFIG_HOME", "")
+		defer os.Setenv("XDG_CONFIG_HOME", origXDG)
 
 		// Login to first registry
 		_, err := runCommand(t, nil, "login", "registry1.example.com", "-u", "user1", "-p", "pass1")
