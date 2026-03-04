@@ -5,6 +5,15 @@ nav_order: 2
 ---
 
 # Installation
+{: .no_toc }
+
+---
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+- TOC
+{:toc}
+</details>
 
 ## Via installer script
 

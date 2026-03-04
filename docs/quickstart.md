@@ -5,8 +5,17 @@ nav_order: 3
 ---
 
 # Quickstart
+{: .no_toc }
 
 Get a valid Pacto contract running in under two minutes.
+
+---
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+- TOC
+{:toc}
+</details>
 
 ## 1. Install Pacto
 

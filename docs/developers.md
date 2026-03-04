@@ -5,8 +5,17 @@ nav_order: 5
 ---
 
 # Pacto for Developers
+{: .no_toc }
 
 As a developer, you own the service contract. Pacto gives you a structured way to declare your service's operational interface alongside your code — ensuring that platform engineers, CI systems, and other teams have an accurate, machine-readable description of what your service needs to run.
+
+---
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+- TOC
+{:toc}
+</details>
 
 ---
 

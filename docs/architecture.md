@@ -5,8 +5,17 @@ nav_order: 11
 ---
 
 # Architecture
+{: .no_toc }
 
 Pacto follows a clean, layered architecture with strict dependency direction. This page describes the internal design for contributors and plugin authors.
+
+---
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+- TOC
+{:toc}
+</details>
 
 ---
 

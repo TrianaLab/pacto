@@ -5,8 +5,17 @@ nav_order: 9
 ---
 
 # Plugin Development
+{: .no_toc }
 
 Pacto uses an out-of-process plugin architecture for artifact generation. Plugins are standalone executables that receive a contract via JSON on stdin and write generated file descriptions to stdout.
+
+---
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+- TOC
+{:toc}
+</details>
 
 This design is:
 - **Language-agnostic** — write plugins in Go, Python, Rust, Bash, or anything

@@ -5,8 +5,17 @@ nav_order: 6
 ---
 
 # Pacto for Platform Engineers
+{: .no_toc }
 
 As a platform engineer (DevOps, SRE, infrastructure), Pacto gives you a machine-readable, validated contract for every service. You can use it to generate deployment manifests, enforce policies, build dependency graphs, and detect breaking changes — all deterministically.
+
+---
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+- TOC
+{:toc}
+</details>
 
 ---
 

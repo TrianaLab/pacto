@@ -5,8 +5,17 @@ nav_order: 7
 ---
 
 # CLI Reference
+{: .no_toc }
 
 All commands support `--output-format json` for programmatic consumption and `--help` for detailed usage.
+
+---
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+- TOC
+{:toc}
+</details>
 
 ---
 

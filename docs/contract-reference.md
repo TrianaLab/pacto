@@ -5,8 +5,17 @@ nav_order: 4
 ---
 
 # Contract Reference (v1.0)
+{: .no_toc }
 
 A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface. This page covers every section, field, validation rule, and change classification rule.
+
+---
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+- TOC
+{:toc}
+</details>
 
 The canonical JSON Schema is available at [`schema/pacto-v1.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/schema/pacto-v1.0.schema.json).
 

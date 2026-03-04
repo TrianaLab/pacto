@@ -6,8 +6,17 @@ has_children: true
 ---
 
 # Example Contracts
+{: .no_toc }
 
 This section provides ready-to-use Pacto contracts for common infrastructure services. Use these as references when writing your own contracts or as dependencies in your service contracts.
+
+---
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+- TOC
+{:toc}
+</details>
 
 {: .tip }
 These contracts represent the **operational interface** of each service — not a deployment recipe. They describe what the service exposes, how it behaves, and what the platform needs to know.
