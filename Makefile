@@ -26,8 +26,10 @@ lint:
 	gofmt -s -l .
 	go vet ./...
 
+BUNDLE := $(shell command -v /opt/homebrew/opt/ruby@3.3/bin/bundle 2>/dev/null || command -v /opt/homebrew/opt/ruby/bin/bundle 2>/dev/null || command -v bundle 2>/dev/null)
+
 docs:
-	cd docs && bundle install && bundle exec jekyll serve --livereload
+	cd docs && $(BUNDLE) install && $(BUNDLE) exec jekyll serve --livereload
 
 clean:
 	rm -f pacto coverage.out coverage.html
