@@ -40,12 +40,7 @@ configuration:
   schema: configuration/schema.json
 
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
-
-  network:
-    defaultInterface: http
+  workload: service
 
   state:
     type: stateless

@@ -13,9 +13,7 @@ interfaces:
     port: 5432
 
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
+  workload: service
 
   state:
     type: stateful

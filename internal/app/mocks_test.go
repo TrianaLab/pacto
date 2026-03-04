@@ -37,9 +37,7 @@ interfaces:
     type: http
     port: 8080
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:

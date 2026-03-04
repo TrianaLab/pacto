@@ -55,9 +55,7 @@ This is where you tell the platform *how* your service behaves:
 
 ```yaml
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
+  workload: service
 
   state:
     type: stateless
@@ -120,9 +118,7 @@ pacto push ghcr.io/your-org/my-service-pacto:1.0.0 -p my-service/pacto.yaml
 
 ```yaml
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:
@@ -137,31 +133,11 @@ scaling:
   max: 10
 ```
 
-### Background worker
-
-```yaml
-runtime:
-  workload:
-    type: worker
-    concurrency: event-driven
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: medium
-  health:
-    interface: health-check
-    path: /ready
-```
-
 ### Stateful service (database proxy, cache)
 
 ```yaml
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
+  workload: service
   state:
     type: stateful
     persistence:
@@ -183,9 +159,7 @@ scaling:
 
 ```yaml
 runtime:
-  workload:
-    type: scheduled
-    concurrency: finite
+  workload: scheduled
   state:
     type: stateless
     persistence:

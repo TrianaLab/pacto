@@ -5,7 +5,7 @@ import (
 )
 
 // diffRuntime compares runtime semantics: workload, state, persistence,
-// lifecycle, health, and network.
+// lifecycle, and health.
 func diffRuntime(old, new *contract.Contract) []Change {
 	var changes []Change
 
@@ -13,11 +13,8 @@ func diffRuntime(old, new *contract.Contract) []Change {
 	newRT := new.Runtime
 
 	// Workload
-	if oldRT.Workload.Type != newRT.Workload.Type {
-		changes = append(changes, newChange("runtime.workload.type", Modified, oldRT.Workload.Type, newRT.Workload.Type))
-	}
-	if oldRT.Workload.Concurrency != newRT.Workload.Concurrency {
-		changes = append(changes, newChange("runtime.workload.concurrency", Modified, oldRT.Workload.Concurrency, newRT.Workload.Concurrency))
+	if oldRT.Workload != newRT.Workload {
+		changes = append(changes, newChange("runtime.workload", Modified, oldRT.Workload, newRT.Workload))
 	}
 
 	// State
@@ -48,9 +45,6 @@ func diffRuntime(old, new *contract.Contract) []Change {
 		changes = append(changes, newChange("runtime.health.initialDelaySeconds", Modified,
 			intPtrVal(oldRT.Health.InitialDelaySeconds), intPtrVal(newRT.Health.InitialDelaySeconds)))
 	}
-
-	// Network
-	changes = append(changes, diffNetwork(oldRT.Network, newRT.Network)...)
 
 	return changes
 }
@@ -86,28 +80,6 @@ func diffLifecycle(old, new *contract.Lifecycle) []Change {
 	if intPtrVal(old.GracefulShutdownSeconds) != intPtrVal(new.GracefulShutdownSeconds) {
 		changes = append(changes, newChange("runtime.lifecycle.gracefulShutdownSeconds", Modified,
 			intPtrVal(old.GracefulShutdownSeconds), intPtrVal(new.GracefulShutdownSeconds)))
-	}
-
-	return changes
-}
-
-func diffNetwork(old, new *contract.Network) []Change {
-	var changes []Change
-
-	if old == nil && new == nil {
-		return nil
-	}
-	if old == nil {
-		changes = append(changes, newChange("runtime.network", Added, nil, new.DefaultInterface))
-		return changes
-	}
-	if new == nil {
-		changes = append(changes, newChange("runtime.network", Removed, old.DefaultInterface, nil))
-		return changes
-	}
-
-	if old.DefaultInterface != new.DefaultInterface {
-		changes = append(changes, newChange("runtime.network.defaultInterface", Modified, old.DefaultInterface, new.DefaultInterface))
 	}
 
 	return changes

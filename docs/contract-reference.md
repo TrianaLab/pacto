@@ -1,44 +1,133 @@
 ---
-title: Schema Reference
+title: Contract Reference
 layout: default
-nav_order: 8
+nav_order: 4
 ---
 
-# Schema Reference
+# Contract Reference (v1.0)
 
-This page provides the complete API-level reference for the Pacto contract schema (v1.0), including all types, enumerations, constraints, validation rules, and change classification rules.
+A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface. This page covers every section, field, validation rule, and change classification rule.
 
 The canonical JSON Schema is available at [`schema/pacto-v1.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/schema/pacto-v1.0.schema.json).
 
 ---
 
-## Root object
+## Bundle structure
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `pactoVersion` | string | Yes | Specification version. Enum: `"1.0"` |
-| `service` | [Service](#service) | Yes | Service identity |
-| `interfaces` | [Interface](#interface)[] | Yes | Service boundaries (min: 1) |
-| `configuration` | [Configuration](#configuration) | No | Configuration model |
-| `dependencies` | [Dependency](#dependency)[] | No | Service dependencies |
-| `runtime` | [Runtime](#runtime) | Yes | Runtime semantics |
-| `scaling` | [Scaling](#scaling) | No | Scaling parameters |
-| `metadata` | object | No | Free-form key-value pairs |
+A Pacto bundle is a self-contained directory (or OCI artifact) with the following layout:
 
-`additionalProperties: false` — no extra fields allowed at any level.
+```
+/
+├── pacto.yaml
+├── interfaces/
+│   ├── openapi.yaml
+│   ├── service.proto
+│   └── events.yaml
+└── configuration/
+    └── schema.json
+```
+
+All files referenced by `pacto.yaml` must exist within the bundle.
 
 ---
 
-## Service
+## Full example
+
+```yaml
+pactoVersion: "1.0"
+
+service:
+  name: payments-api
+  version: 2.1.0
+  owner: team/payments
+  image:
+    ref: ghcr.io/acme/payments-api:2.1.0
+    private: true
+
+interfaces:
+  - name: rest-api
+    type: http
+    port: 8080
+    visibility: public
+    contract: interfaces/openapi.yaml
+
+  - name: grpc-api
+    type: grpc
+    port: 9090
+    visibility: internal
+    contract: interfaces/service.proto
+
+  - name: order-events
+    type: event
+    visibility: internal
+    contract: interfaces/events.yaml
+
+configuration:
+  schema: configuration/schema.json
+
+dependencies:
+  - ref: ghcr.io/acme/auth-pacto@sha256:abc123def456
+    required: true
+    compatibility: "^2.0.0"
+
+  - ref: ghcr.io/acme/notifications-pacto:1.0.0
+    required: false
+    compatibility: "~1.0.0"
+
+runtime:
+  workload: service
+
+  state:
+    type: stateful
+    persistence:
+      scope: local
+      durability: persistent
+    dataCriticality: high
+
+  lifecycle:
+    upgradeStrategy: ordered
+    gracefulShutdownSeconds: 30
+
+  health:
+    interface: rest-api
+    path: /health
+    initialDelaySeconds: 15
+
+scaling:
+  min: 2
+  max: 10
+
+metadata:
+  team: payments
+  tier: critical
+```
+
+---
+
+## Sections
+
+### `pactoVersion`
+
+The contract specification version. Currently only `"1.0"` is supported.
+
+```yaml
+pactoVersion: "1.0"
+```
+
+---
+
+### `service`
+
+Identifies the service.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` |
-| `version` | string | Yes | Valid semver (e.g., `1.0.0`, `2.1.0-rc.1`) |
+| `version` | string | Yes | Valid semver (e.g., `2.1.0`) |
 | `owner` | string | No | |
 | `image` | [Image](#image) | No | |
 
-### Image
+#### Image
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -47,17 +136,19 @@ The canonical JSON Schema is available at [`schema/pacto-v1.0.schema.json`](http
 
 ---
 
-## Interface
+### `interfaces`
+
+Declares the service's communication boundaries. **At least one interface is required.**
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Non-empty. Must be unique across interfaces |
 | `type` | string | Yes | Enum: `http`, `grpc`, `event` |
-| `port` | integer | Conditional | Range: 1–65535. Required for `http` and `grpc` |
+| `port` | integer | Conditional | Range: 1-65535. Required for `http` and `grpc` |
 | `visibility` | string | No | Enum: `public`, `internal`. Default: `internal` |
 | `contract` | string | Conditional | Non-empty. Required for `grpc` and `event` |
 
-### Conditional requirements
+#### Conditional requirements
 
 | Interface type | Required fields |
 |---|---|
@@ -65,17 +156,26 @@ The canonical JSON Schema is available at [`schema/pacto-v1.0.schema.json`](http
 | `grpc` | `port`, `contract` |
 | `event` | `contract` |
 
+{: .note }
+Interface names must be unique within a contract. The `contract` field for `http` interfaces is optional but recommended (typically an OpenAPI spec).
+
 ---
 
-## Configuration
+### `configuration`
+
+Defines the service's configuration model.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `schema` | string | Yes | Non-empty. Must reference a file in the bundle |
 
+Required configuration keys are derived from the JSON Schema's `required` array.
+
 ---
 
-## Dependency
+### `dependencies`
+
+Declares dependencies on other services via their Pacto contracts.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -83,32 +183,33 @@ The canonical JSON Schema is available at [`schema/pacto-v1.0.schema.json`](http
 | `required` | boolean | No | Default: `false` |
 | `compatibility` | string | Yes | Non-empty. Valid semver constraint |
 
+{: .tip }
+Use digest-pinned references (`@sha256:...`) for production contracts. Tag-based references produce a validation warning.
+
 ---
 
-## Runtime
+### `runtime`
+
+Describes how the service behaves at runtime. This is the most important section for platform engineers.
 
 | Field | Type | Required |
 |-------|------|----------|
-| `workload` | [Workload](#workload) | Yes |
-| `network` | [Network](#network) | No |
+| `workload` | string | Yes |
 | `state` | [State](#state) | Yes |
 | `lifecycle` | [Lifecycle](#lifecycle) | No |
 | `health` | [Health](#health) | Yes |
 
-### Workload
+#### `runtime.workload`
 
-| Field | Type | Required | Enum values |
-|-------|------|----------|-------------|
-| `type` | string | Yes | `service`, `worker`, `job`, `scheduled` |
-| `concurrency` | string | Yes | `long-lived`, `finite`, `event-driven` |
+A plain string describing the workload type. Enum: `service`, `job`, `scheduled`.
 
-### Network
+| Value | Description |
+|-------|-------------|
+| `service` | Long-running process |
+| `job` | Runs to completion |
+| `scheduled` | Runs on a schedule |
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `defaultInterface` | string | No | Must match a declared interface name |
-
-### State
+#### `runtime.state`
 
 | Field | Type | Required | Enum values |
 |-------|------|----------|-------------|
@@ -116,28 +217,32 @@ The canonical JSON Schema is available at [`schema/pacto-v1.0.schema.json`](http
 | `persistence` | [Persistence](#persistence) | Yes | |
 | `dataCriticality` | string | Yes | `low`, `medium`, `high` |
 
-#### Persistence
+##### Persistence
 
 | Field | Type | Required | Enum values |
 |-------|------|----------|-------------|
 | `scope` | string | Yes | `local`, `shared` |
 | `durability` | string | Yes | `ephemeral`, `persistent` |
 
-#### State invariants
+##### State invariants
 
 | Condition | Constraint |
 |---|---|
 | `type: stateless` | `durability` must be `ephemeral` |
 | `durability: persistent` | `type` must be `stateful` or `hybrid` |
 
-### Lifecycle
+These invariants are enforced by both the JSON Schema and cross-field validation.
+
+#### `runtime.lifecycle`
+
+Optional. Describes upgrade and shutdown behavior.
 
 | Field | Type | Required | Enum values / Constraints |
 |-------|------|----------|-------------|
 | `upgradeStrategy` | string | No | `rolling`, `recreate`, `ordered` |
 | `gracefulShutdownSeconds` | integer | No | Minimum: 0 |
 
-### Health
+#### `runtime.health`
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -147,14 +252,32 @@ The canonical JSON Schema is available at [`schema/pacto-v1.0.schema.json`](http
 
 ---
 
-## Scaling
+### `scaling`
+
+Optional. Defines replica bounds.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `min` | integer | Yes | Minimum: 0 |
 | `max` | integer | Yes | Minimum: 0. Must be >= `min` |
 
-**Constraint:** Scaling must not be applied to `job` workloads.
+{: .warning }
+Scaling must not be applied to `job` workloads.
+
+---
+
+### `metadata`
+
+Optional. Free-form key-value pairs for organizational use. Not validated beyond type.
+
+```yaml
+metadata:
+  team: payments
+  tier: critical
+  on-call: "#payments-oncall"
+```
+
+`additionalProperties: false` — no extra fields allowed at any level (except inside `metadata`).
 
 ---
 
@@ -184,7 +307,6 @@ Validates semantic references and consistency:
 | `health.interface` matches a declared interface | `HEALTH_INTERFACE_NOT_FOUND` |
 | Health interface is not `event` type | `HEALTH_INTERFACE_INVALID` |
 | `health.path` required for `http` health interface | `HEALTH_PATH_REQUIRED` |
-| `network.defaultInterface` matches a declared interface | `NETWORK_INTERFACE_NOT_FOUND` |
 | Referenced files exist in the bundle | `FILE_NOT_FOUND` |
 | Dependency refs are valid OCI references | `INVALID_OCI_REF` |
 | Compatibility ranges are valid semver constraints | `INVALID_COMPATIBILITY` |
@@ -243,8 +365,7 @@ Validates cross-concern consistency:
 
 | Field | Change | Classification |
 |-------|--------|----------------|
-| `runtime.workload.type` | Modified | **BREAKING** |
-| `runtime.workload.concurrency` | Modified | POTENTIAL_BREAKING |
+| `runtime.workload` | Modified | **BREAKING** |
 | `runtime.state.type` | Modified | **BREAKING** |
 | `runtime.state.persistence.scope` | Modified | **BREAKING** |
 | `runtime.state.persistence.durability` | Modified | **BREAKING** |
@@ -256,9 +377,6 @@ Validates cross-concern consistency:
 | `runtime.health.interface` | Modified | POTENTIAL_BREAKING |
 | `runtime.health.path` | Modified | POTENTIAL_BREAKING |
 | `runtime.health.initialDelaySeconds` | Modified | NON_BREAKING |
-| `runtime.network` | Added | NON_BREAKING |
-| `runtime.network` | Removed | POTENTIAL_BREAKING |
-| `runtime.network.defaultInterface` | Modified | POTENTIAL_BREAKING |
 
 ### Scaling
 

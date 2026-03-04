@@ -235,7 +235,6 @@ func TestPrintExplainResult_Full(t *testing.T) {
 		PactoVersion: "1.0",
 		Runtime: app.ExplainRuntime{
 			WorkloadType:    "service",
-			Concurrency:     "finite",
 			StateType:       "stateless",
 			Scope:           "local",
 			Durability:      "ephemeral",
@@ -289,7 +288,6 @@ func TestPrintExplainResult_Minimal(t *testing.T) {
 		PactoVersion: "1.0",
 		Runtime: app.ExplainRuntime{
 			WorkloadType: "service",
-			Concurrency:  "finite",
 			StateType:    "stateless",
 		},
 	}

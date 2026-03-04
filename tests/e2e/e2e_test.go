@@ -915,9 +915,7 @@ dependencies:
     compatibility: "^2.0.0"
 
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:

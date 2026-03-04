@@ -113,55 +113,6 @@ func TestDiffLifecycle_GracefulShutdownChanged(t *testing.T) {
 	}
 }
 
-func TestDiffNetwork_BothNil(t *testing.T) {
-	changes := diffNetwork(nil, nil)
-	if len(changes) != 0 {
-		t.Errorf("expected 0 changes, got %d", len(changes))
-	}
-}
-
-func TestDiffNetwork_OldNil(t *testing.T) {
-	newNet := &contract.Network{DefaultInterface: "api"}
-	changes := diffNetwork(nil, newNet)
-	if len(changes) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(changes))
-	}
-	if changes[0].Type != Added {
-		t.Errorf("expected Added, got %s", changes[0].Type)
-	}
-}
-
-func TestDiffNetwork_NewNil(t *testing.T) {
-	oldNet := &contract.Network{DefaultInterface: "api"}
-	changes := diffNetwork(oldNet, nil)
-	if len(changes) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(changes))
-	}
-	if changes[0].Type != Removed {
-		t.Errorf("expected Removed, got %s", changes[0].Type)
-	}
-}
-
-func TestDiffNetwork_DefaultInterfaceChanged(t *testing.T) {
-	oldNet := &contract.Network{DefaultInterface: "api"}
-	newNet := &contract.Network{DefaultInterface: "grpc"}
-	changes := diffNetwork(oldNet, newNet)
-	if len(changes) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(changes))
-	}
-	if changes[0].Path != "runtime.network.defaultInterface" {
-		t.Errorf("expected path runtime.network.defaultInterface, got %s", changes[0].Path)
-	}
-}
-
-func TestDiffNetwork_NoChange(t *testing.T) {
-	net := &contract.Network{DefaultInterface: "api"}
-	changes := diffNetwork(net, net)
-	if len(changes) != 0 {
-		t.Errorf("expected 0 changes, got %d", len(changes))
-	}
-}
-
 func TestIntPtrVal_Nil(t *testing.T) {
 	if got := intPtrVal(nil); got != 0 {
 		t.Errorf("expected 0, got %d", got)
@@ -175,35 +126,19 @@ func TestIntPtrVal_NonNil(t *testing.T) {
 	}
 }
 
-func TestDiffRuntime_WorkloadTypeChanged(t *testing.T) {
+func TestDiffRuntime_WorkloadChanged(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	new.Runtime.Workload.Type = "worker"
+	new.Runtime.Workload = "job"
 	changes := diffRuntime(old, new)
 	found := false
 	for _, c := range changes {
-		if c.Path == "runtime.workload.type" {
+		if c.Path == "runtime.workload" {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected runtime.workload.type change")
-	}
-}
-
-func TestDiffRuntime_ConcurrencyChanged(t *testing.T) {
-	old := minimalContract()
-	new := minimalContract()
-	new.Runtime.Workload.Concurrency = "long-lived"
-	changes := diffRuntime(old, new)
-	found := false
-	for _, c := range changes {
-		if c.Path == "runtime.workload.concurrency" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected runtime.workload.concurrency change")
+		t.Error("expected runtime.workload change")
 	}
 }
 

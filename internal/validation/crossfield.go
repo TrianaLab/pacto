@@ -19,7 +19,6 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateInterfacePorts(c, &result)
 	validateInterfaceContracts(c, &result)
 	validateHealthInterface(c, &result)
-	validateNetworkDefaultInterface(c, &result)
 	validateInterfaceFiles(c, bundleFS, &result)
 	validateConfigFiles(c, bundleFS, &result)
 	validateDependencyRefs(c, &result)
@@ -139,33 +138,6 @@ func validateHealthInterface(c *contract.Contract, result *ValidationResult) {
 	}
 }
 
-func validateNetworkDefaultInterface(c *contract.Contract, result *ValidationResult) {
-	if c.Runtime.Network == nil {
-		return
-	}
-
-	name := c.Runtime.Network.DefaultInterface
-	if name == "" {
-		return
-	}
-
-	found := false
-	for _, iface := range c.Interfaces {
-		if iface.Name == name {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		result.AddError(
-			"runtime.network.defaultInterface",
-			"NETWORK_INTERFACE_NOT_FOUND",
-			fmt.Sprintf("network defaultInterface %q does not match any declared interface", name),
-		)
-	}
-}
-
 func validateInterfaceFiles(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
 	if bundleFS == nil {
 		return
@@ -263,7 +235,7 @@ func validateScaling(c *contract.Contract, result *ValidationResult) {
 }
 
 func validateJobScaling(c *contract.Contract, result *ValidationResult) {
-	if c.Runtime.Workload.Type == contract.WorkloadTypeJob && c.Scaling != nil {
+	if c.Runtime.Workload == contract.WorkloadTypeJob && c.Scaling != nil {
 		result.AddError(
 			"scaling",
 			"JOB_SCALING_NOT_ALLOWED",

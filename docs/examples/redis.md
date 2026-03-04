@@ -36,12 +36,7 @@ configuration:
   schema: configuration/schema.json
 
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
-
-  network:
-    defaultInterface: resp
+  workload: service
 
   state:
     type: stateful
@@ -72,8 +67,6 @@ metadata:
 - **`state.type: stateful`** with **`durability: persistent`** — Redis with AOF/RDB persistence enabled needs durable storage
 - **`dataCriticality: medium`** — data is important but can be rebuilt from source if needed
 - **`upgradeStrategy: ordered`** — prevents data loss during upgrades
-- **`concurrency: long-lived`** — Redis maintains persistent client connections
-
 ### Variant: Ephemeral cache
 
 For a pure cache without persistence:

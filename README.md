@@ -1,4 +1,4 @@
-[![Build Status](https://github.com/TrianaLab/pacto/actions/workflows/ci-pr.yml/badge.svg)](https://github.com/TrianaLab/pacto/actions)
+[![CI](https://github.com/TrianaLab/pacto/actions/workflows/coverage.yml/badge.svg)](https://github.com/TrianaLab/pacto/actions/workflows/coverage.yml)
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/trianalab/pacto)](https://pkg.go.dev/github.com/trianalab/pacto)
 [![Go Report Card](https://goreportcard.com/badge/github.com/trianalab/pacto)](https://goreportcard.com/report/github.com/trianalab/pacto)
 [![codecov](https://codecov.io/gh/TrianaLab/pacto/graph/badge.svg?token=DI2AL1DL9T)](https://codecov.io/gh/TrianaLab/pacto)
@@ -17,11 +17,10 @@ Full documentation is available at **[trianalab.github.io/pacto](https://trianal
 
 - [Installation](https://trianalab.github.io/pacto/installation)
 - [Quickstart](https://trianalab.github.io/pacto/quickstart)
-- [Contract Model](https://trianalab.github.io/pacto/contract-model)
+- [Contract Reference](https://trianalab.github.io/pacto/contract-reference)
 - [For Developers](https://trianalab.github.io/pacto/developers)
 - [For Platform Engineers](https://trianalab.github.io/pacto/platform-engineers)
 - [CLI Reference](https://trianalab.github.io/pacto/cli-reference)
-- [Schema Reference](https://trianalab.github.io/pacto/schema-reference)
 - [Plugin Development](https://trianalab.github.io/pacto/plugins)
 - [Architecture](https://trianalab.github.io/pacto/architecture)
 - [Examples](https://trianalab.github.io/pacto/examples) (PostgreSQL, Redis, RabbitMQ, NGINX, Cron Worker)
@@ -44,9 +43,7 @@ interfaces:
     contract: interfaces/openapi.yaml
 
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
+  workload: service
   state:
     type: stateful
     persistence:
@@ -74,6 +71,8 @@ scaling:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
 ```
+
+> **Note:** The installer script may request elevated permissions (sudo) to install the binary to `/usr/local/bin`. You can use `--no-sudo` to install without elevated permissions or set `PACTO_INSTALL_DIR` to a custom directory.
 
 ### Via Go
 

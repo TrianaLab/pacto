@@ -36,12 +36,7 @@ configuration:
   schema: configuration/schema.json
 
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
-
-  network:
-    defaultInterface: sql
+  workload: service
 
   state:
     type: stateful

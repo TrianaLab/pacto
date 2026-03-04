@@ -57,6 +57,11 @@ func NewClient(keychain authn.Keychain, opts ...ClientOption) *Client {
 	return c
 }
 
+// remoteOptions builds the remote.Option slice for all OCI operations.
+func (c *Client) remoteOptions(ctx context.Context) []remote.Option {
+	return append([]remote.Option{remote.WithAuthFromKeychain(c.keychain), remote.WithContext(ctx)}, c.remoteOpts...)
+}
+
 // Push converts a Bundle to an OCI image and pushes it to the given reference.
 // Returns the digest of the pushed image.
 func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) (string, error) {
@@ -70,8 +75,7 @@ func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) 
 		return "", fmt.Errorf("failed to build OCI image: %w", err)
 	}
 
-	remoteOpts := append([]remote.Option{remote.WithAuthFromKeychain(c.keychain), remote.WithContext(ctx)}, c.remoteOpts...)
-	if err := remote.Write(r, img, remoteOpts...); err != nil {
+	if err := remote.Write(r, img, c.remoteOptions(ctx)...); err != nil {
 		return "", wrapRemoteError(ref, err)
 	}
 
@@ -90,8 +94,7 @@ func (c *Client) Pull(ctx context.Context, ref string) (*contract.Bundle, error)
 		return nil, fmt.Errorf("invalid reference %q: %w", ref, err)
 	}
 
-	remoteOpts := append([]remote.Option{remote.WithAuthFromKeychain(c.keychain), remote.WithContext(ctx)}, c.remoteOpts...)
-	img, err := remote.Image(r, remoteOpts...)
+	img, err := remote.Image(r, c.remoteOptions(ctx)...)
 	if err != nil {
 		return nil, wrapRemoteError(ref, err)
 	}
@@ -111,8 +114,7 @@ func (c *Client) Resolve(ctx context.Context, ref string) (string, error) {
 		return "", fmt.Errorf("invalid reference %q: %w", ref, err)
 	}
 
-	remoteOpts := append([]remote.Option{remote.WithAuthFromKeychain(c.keychain), remote.WithContext(ctx)}, c.remoteOpts...)
-	desc, err := remote.Head(r, remoteOpts...)
+	desc, err := remote.Head(r, c.remoteOptions(ctx)...)
 	if err != nil {
 		return "", wrapRemoteError(ref, err)
 	}

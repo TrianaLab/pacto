@@ -42,12 +42,7 @@ configuration:
   schema: configuration/schema.json
 
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
-
-  network:
-    defaultInterface: amqp
+  workload: service
 
   state:
     type: stateful
