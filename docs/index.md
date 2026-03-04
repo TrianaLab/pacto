@@ -36,9 +36,11 @@ Pacto introduces a **formal service contract** — a versioned, machine-validate
 - Enables **deterministic platform behavior** — no guessing about workload type or persistence
 - Remains **infrastructure-agnostic** — no Kubernetes, no cloud provider, no platform assumptions
 
-**Without Pacto** — knowledge is fragmented across wikis, Slack threads, Helm values, and tribal memory:
+**Without Pacto** — knowledge is scattered across wikis, Slack threads, Helm values, and tribal memory:
 
-> *"Is payments-api stateful? What port does it use? Does it need persistent storage? What does it depend on?"*
+> *"Is ai-orchestrator stateful? What port? Does it need persistent storage? What databases does it depend on? Can we safely roll it out? What events does it emit?"*
+>
+> Nobody knows. The on-call engineer pages the original author at 2 AM.
 
 **With Pacto** — one file answers every operational question:
 
@@ -46,33 +48,47 @@ Pacto introduces a **formal service contract** — a versioned, machine-validate
 pactoVersion: "1.0"
 
 service:
-  name: payments-api
-  version: 2.1.0
-  owner: team/payments
+  name: ai-orchestrator
+  version: 1.2.0
+  owner: team/ai-platform
 
 interfaces:
   - name: rest-api
     type: http
-    port: 8080
+    port: 8000
     visibility: public
+  - name: agent-events
+    type: event
+    contract: events/agent-lifecycle.proto
+
+configuration:
+  schema: config.schema.json
 
 runtime:
   workload: service
   state:
     type: stateful
-    persistence: { scope: local, durability: persistent }
+    persistence: { scope: shared, durability: persistent }
     dataCriticality: high
+  lifecycle:
+    upgradeStrategy: rolling
+    gracefulShutdownSeconds: 30
   health:
     interface: rest-api
     path: /health
 
 dependencies:
-  - ref: ghcr.io/acme/auth-pacto@sha256:abc123
+  - ref: ghcr.io/acme/postgres-pacto:16.4.0
     required: true
-    compatibility: "^2.0.0"
+    compatibility: "^16.0.0"
+  - ref: ghcr.io/acme/qdrant-pacto:1.9.0
+    required: true
+    compatibility: "^1.8.0"
 
 scaling: { min: 2, max: 10 }
 ```
+
+Stateful with shared persistent storage and high data criticality? The platform provisions PVCs and enables backups. Rolling upgrade with a 30-second graceful shutdown? The deployment strategy is set automatically. Two infrastructure dependencies? `pacto graph` resolves and validates the full tree. A public REST API on port 8000 and an event contract? Services, ingresses, and schema validation are all derived from this single source of truth.
 
 ---
 
