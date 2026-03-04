@@ -106,7 +106,7 @@ func TestBundle() *contract.Bundle {
 }
 
 // WriteTestBundle creates a valid bundle directory structure in a temp dir
-// and returns the path to pacto.yaml.
+// and returns the bundle directory path.
 func WriteTestBundle(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -118,7 +118,7 @@ func WriteTestBundle(t *testing.T) string {
 	if err := os.WriteFile(pactoPath, ValidPactoYAML(), 0644); err != nil {
 		t.Fatal(err)
 	}
-	return pactoPath
+	return bundleDir
 }
 
 // ErrBundleStore returns a MockBundleStore where all methods return the given error.

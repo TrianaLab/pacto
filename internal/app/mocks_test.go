@@ -22,7 +22,8 @@ var (
 	writeTestBundle = testutil.WriteTestBundle
 )
 
-// writeInvalidBundle creates a bundle directory with an invalid contract.
+// writeInvalidBundle creates a bundle directory with an invalid contract
+// and returns the directory path.
 func writeInvalidBundle(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -51,10 +52,11 @@ runtime:
 	if err := os.WriteFile(pactoPath, content, 0644); err != nil {
 		t.Fatal(err)
 	}
-	return pactoPath
+	return dir
 }
 
-// writeUnparseableBundle creates a bundle directory with unparseable YAML.
+// writeUnparseableBundle creates a bundle directory with unparseable YAML
+// and returns the directory path.
 func writeUnparseableBundle(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -62,7 +64,7 @@ func writeUnparseableBundle(t *testing.T) string {
 	if err := os.WriteFile(pactoPath, []byte(`{{{invalid`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	return pactoPath
+	return dir
 }
 
 // errFS is an fs.FS that returns errors from Open.

@@ -6,18 +6,18 @@ import (
 )
 
 func TestDiff_LocalFiles(t *testing.T) {
-	oldPath := writeTestBundle(t)
-	newPath := writeTestBundle(t)
+	oldDir := writeTestBundle(t)
+	newDir := writeTestBundle(t)
 	svc := NewService(nil, nil)
-	result, err := svc.Diff(context.Background(), DiffOptions{OldPath: oldPath, NewPath: newPath})
+	result, err := svc.Diff(context.Background(), DiffOptions{OldPath: oldDir, NewPath: newDir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.OldPath != oldPath {
-		t.Errorf("expected OldPath=%s, got %s", oldPath, result.OldPath)
+	if result.OldPath != oldDir {
+		t.Errorf("expected OldPath=%s, got %s", oldDir, result.OldPath)
 	}
-	if result.NewPath != newPath {
-		t.Errorf("expected NewPath=%s, got %s", newPath, result.NewPath)
+	if result.NewPath != newDir {
+		t.Errorf("expected NewPath=%s, got %s", newDir, result.NewPath)
 	}
 	if result.Classification == "" {
 		t.Error("expected non-empty classification")
@@ -25,18 +25,18 @@ func TestDiff_LocalFiles(t *testing.T) {
 }
 
 func TestDiff_OldPathError(t *testing.T) {
-	newPath := writeTestBundle(t)
+	newDir := writeTestBundle(t)
 	svc := NewService(nil, nil)
-	_, err := svc.Diff(context.Background(), DiffOptions{OldPath: "/nonexistent/pacto.yaml", NewPath: newPath})
+	_, err := svc.Diff(context.Background(), DiffOptions{OldPath: "/nonexistent/dir", NewPath: newDir})
 	if err == nil {
 		t.Error("expected error for nonexistent old path")
 	}
 }
 
 func TestDiff_NewPathError(t *testing.T) {
-	oldPath := writeTestBundle(t)
+	oldDir := writeTestBundle(t)
 	svc := NewService(nil, nil)
-	_, err := svc.Diff(context.Background(), DiffOptions{OldPath: oldPath, NewPath: "/nonexistent/pacto.yaml"})
+	_, err := svc.Diff(context.Background(), DiffOptions{OldPath: oldDir, NewPath: "/nonexistent/dir"})
 	if err == nil {
 		t.Error("expected error for nonexistent new path")
 	}

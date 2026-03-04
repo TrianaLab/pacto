@@ -77,8 +77,8 @@ func TestInitThenValidateSucceeds(t *testing.T) {
 	}
 
 	root2 := cli.NewRootCommand(svc, "test")
-	path := filepath.Join(dir, "test-svc", "pacto.yaml")
-	root2.SetArgs([]string{"validate", path})
+	svcDir := filepath.Join(dir, "test-svc")
+	root2.SetArgs([]string{"validate", svcDir})
 	var validateOut bytes.Buffer
 	root2.SetOut(&validateOut)
 	if err := root2.Execute(); err != nil {
@@ -92,7 +92,6 @@ func TestInitThenValidateSucceeds(t *testing.T) {
 
 func TestValidateFailsOnBrokenContract(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "pacto.yaml")
 
 	broken := []byte(`
 pactoVersion: "1.0"
@@ -115,13 +114,13 @@ runtime:
     interface: wrong-name
     path: /health
 `)
-	if err := os.WriteFile(path, broken, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), broken, 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"validate", path})
+	root.SetArgs([]string{"validate", dir})
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&out)
@@ -173,8 +172,8 @@ func TestValidateJSONOutput(t *testing.T) {
 	}
 
 	root2 := cli.NewRootCommand(svc, "test")
-	path := filepath.Join(dir, "json-test", "pacto.yaml")
-	root2.SetArgs([]string{"validate", "--output-format", "json", path})
+	svcDir := filepath.Join(dir, "json-test")
+	root2.SetArgs([]string{"validate", "--output-format", "json", svcDir})
 	var out bytes.Buffer
 	root2.SetOut(&out)
 

@@ -9,12 +9,12 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"github.com/trianalab/pacto/internal/oci"
 	"golang.org/x/term"
 )
 
 var (
 	readPasswordFn      = func(fd int) ([]byte, error) { return term.ReadPassword(fd) }
-	userHomeDirFn       = os.UserHomeDir
 	jsonMarshalIndentFn = json.MarshalIndent
 )
 
@@ -22,7 +22,7 @@ func newLoginCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login <registry>",
 		Short: "Log in to an OCI registry",
-		Long:  "Stores credentials for an OCI registry in ~/.docker/config.json using Docker's standard format.",
+		Long:  "Stores credentials for an OCI registry in ~/.config/pacto/config.json.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			registry := args[0]
@@ -43,7 +43,7 @@ func newLoginCommand() *cobra.Command {
 				password = string(pw)
 			}
 
-			if err := writeDockerConfig(registry, username, password); err != nil {
+			if err := writePactoConfig(registry, username, password); err != nil {
 				return err
 			}
 
@@ -58,26 +58,25 @@ func newLoginCommand() *cobra.Command {
 	return cmd
 }
 
-// dockerConfig represents the relevant subset of ~/.docker/config.json.
-type dockerConfig struct {
-	Auths map[string]dockerAuth `json:"auths"`
+// pactoLoginConfig represents the relevant subset of pacto's config.json.
+type pactoLoginConfig struct {
+	Auths map[string]pactoLoginAuth `json:"auths"`
 }
 
-type dockerAuth struct {
+type pactoLoginAuth struct {
 	Auth string `json:"auth"`
 }
 
-// writeDockerConfig writes credentials to ~/.docker/config.json.
-func writeDockerConfig(registry, username, password string) error {
-	home, err := userHomeDirFn()
+// writePactoConfig writes credentials to ~/.config/pacto/config.json.
+func writePactoConfig(registry, username, password string) error {
+	configPath, err := oci.PactoConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to find home directory: %w", err)
+		return fmt.Errorf("failed to determine config path: %w", err)
 	}
 
-	configDir := filepath.Join(home, ".docker")
-	configPath := filepath.Join(configDir, "config.json")
+	configDir := filepath.Dir(configPath)
 
-	var cfg dockerConfig
+	var cfg pactoLoginConfig
 
 	data, err := os.ReadFile(configPath)
 	if err == nil {
@@ -87,12 +86,12 @@ func writeDockerConfig(registry, username, password string) error {
 	}
 
 	if cfg.Auths == nil {
-		cfg.Auths = make(map[string]dockerAuth)
+		cfg.Auths = make(map[string]pactoLoginAuth)
 	}
 
 	// Base64-encode "username:password" per Docker convention.
 	encoded := encodeAuth(username, password)
-	cfg.Auths[registry] = dockerAuth{Auth: encoded}
+	cfg.Auths[registry] = pactoLoginAuth{Auth: encoded}
 
 	out, err := jsonMarshalIndentFn(cfg, "", "  ")
 	if err != nil {

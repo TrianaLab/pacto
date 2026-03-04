@@ -15,9 +15,9 @@ func TestPack_Success(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	path := writeTestBundle(t)
+	bundleDir := writeTestBundle(t)
 	svc := NewService(nil, nil)
-	result, err := svc.Pack(context.Background(), PackOptions{Path: path})
+	result, err := svc.Pack(context.Background(), PackOptions{Path: bundleDir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -35,11 +35,11 @@ func TestPack_Success(t *testing.T) {
 
 func TestPack_CustomOutput(t *testing.T) {
 	dir := t.TempDir()
-	path := writeTestBundle(t)
+	bundleDir := writeTestBundle(t)
 	output := filepath.Join(dir, "custom.tar.gz")
 
 	svc := NewService(nil, nil)
-	result, err := svc.Pack(context.Background(), PackOptions{Path: path, Output: output})
+	result, err := svc.Pack(context.Background(), PackOptions{Path: bundleDir, Output: output})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -52,9 +52,9 @@ func TestPack_CustomOutput(t *testing.T) {
 }
 
 func TestPack_InvalidContract(t *testing.T) {
-	path := writeInvalidBundle(t)
+	dir := writeInvalidBundle(t)
 	svc := NewService(nil, nil)
-	_, err := svc.Pack(context.Background(), PackOptions{Path: path})
+	_, err := svc.Pack(context.Background(), PackOptions{Path: dir})
 	if err == nil {
 		t.Error("expected error for invalid contract")
 	}
@@ -62,16 +62,15 @@ func TestPack_InvalidContract(t *testing.T) {
 
 func TestPack_FileNotFound(t *testing.T) {
 	svc := NewService(nil, nil)
-	_, err := svc.Pack(context.Background(), PackOptions{Path: "/nonexistent/pacto.yaml"})
+	_, err := svc.Pack(context.Background(), PackOptions{Path: "/nonexistent/dir"})
 	if err == nil {
-		t.Error("expected error for nonexistent file")
+		t.Error("expected error for nonexistent directory")
 	}
 }
 
 func TestPack_BundleToTarGzError(t *testing.T) {
 	// Create a valid bundle with an unreadable file to cause BundleToTarGz to fail
-	path := writeTestBundle(t)
-	bundleDir := filepath.Dir(path)
+	bundleDir := writeTestBundle(t)
 	unreadable := filepath.Join(bundleDir, "unreadable.txt")
 	if err := os.WriteFile(unreadable, []byte("secret"), 0644); err != nil {
 		t.Fatal(err)
@@ -83,7 +82,7 @@ func TestPack_BundleToTarGzError(t *testing.T) {
 
 	svc := NewService(nil, nil)
 	_, err := svc.Pack(context.Background(), PackOptions{
-		Path:   path,
+		Path:   bundleDir,
 		Output: filepath.Join(t.TempDir(), "out.tar.gz"),
 	})
 	if err == nil {
@@ -92,11 +91,11 @@ func TestPack_BundleToTarGzError(t *testing.T) {
 }
 
 func TestPack_WriteError(t *testing.T) {
-	path := writeTestBundle(t)
+	bundleDir := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	// Try to write to a path that doesn't exist and can't be created
 	_, err := svc.Pack(context.Background(), PackOptions{
-		Path:   path,
+		Path:   bundleDir,
 		Output: "/dev/null/impossible/output.tar.gz",
 	})
 	if err == nil {

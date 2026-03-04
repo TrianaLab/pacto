@@ -103,7 +103,7 @@ Use `pacto graph` to visualize your dependency tree.
 ### 5. Validate before pushing
 
 ```bash
-pacto validate my-service/pacto.yaml
+pacto validate my-service
 ```
 
 Validation catches errors in three layers:
@@ -115,8 +115,8 @@ Validation catches errors in three layers:
 ### 6. Pack and push
 
 ```bash
-pacto pack my-service/pacto.yaml
-pacto push ghcr.io/your-org/my-service-pacto:1.0.0 -p my-service/pacto.yaml
+pacto pack my-service
+pacto push ghcr.io/your-org/my-service-pacto -p my-service
 ```
 
 ---
@@ -188,7 +188,7 @@ runtime:
 Before releasing a new version, diff against the previous one:
 
 ```bash
-pacto diff ghcr.io/acme/my-service-pacto:1.0.0 my-service/pacto.yaml
+pacto diff oci://ghcr.io/acme/my-service-pacto:1.0.0 my-service
 ```
 
 ```

@@ -177,7 +177,7 @@ chmod +x pacto-plugin-readme
 mv pacto-plugin-readme /usr/local/bin/
 
 # Use it
-pacto generate readme my-service/pacto.yaml
+pacto generate readme my-service
 ```
 
 ---

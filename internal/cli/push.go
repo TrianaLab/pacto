@@ -29,7 +29,7 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringP("path", "p", "", "path to pacto.yaml (default: pacto.yaml)")
+	cmd.Flags().StringP("path", "p", "", "path to contract directory (default: current directory)")
 
 	return cmd
 }

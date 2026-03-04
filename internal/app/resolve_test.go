@@ -9,14 +9,14 @@ import (
 )
 
 func TestDefaultPath_Empty(t *testing.T) {
-	if got := defaultPath(""); got != DefaultContractPath {
-		t.Errorf("expected %q, got %q", DefaultContractPath, got)
+	if got := defaultPath(""); got != "." {
+		t.Errorf("expected %q, got %q", ".", got)
 	}
 }
 
 func TestDefaultPath_NonEmpty(t *testing.T) {
-	if got := defaultPath("custom.yaml"); got != "custom.yaml" {
-		t.Errorf("expected custom.yaml, got %q", got)
+	if got := defaultPath("custom"); got != "custom" {
+		t.Errorf("expected custom, got %q", got)
 	}
 }
 
@@ -27,15 +27,53 @@ func TestIsOCIRef_True(t *testing.T) {
 }
 
 func TestIsOCIRef_False(t *testing.T) {
-	if isOCIRef("pacto.yaml") {
+	if isOCIRef("my-service") {
 		t.Error("expected false for local path")
 	}
 }
 
+func TestResolveLocalPath_Success(t *testing.T) {
+	dir := writeTestBundle(t)
+	filePath, bundleDir, err := resolveLocalPath(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if filePath != filepath.Join(dir, "pacto.yaml") {
+		t.Errorf("expected filePath=%s, got %s", filepath.Join(dir, "pacto.yaml"), filePath)
+	}
+	if bundleDir != dir {
+		t.Errorf("expected bundleDir=%s, got %s", dir, bundleDir)
+	}
+}
+
+func TestResolveLocalPath_NotADirectory(t *testing.T) {
+	dir := writeTestBundle(t)
+	filePath := filepath.Join(dir, "pacto.yaml")
+	_, _, err := resolveLocalPath(filePath)
+	if err == nil {
+		t.Error("expected error for file path instead of directory")
+	}
+}
+
+func TestResolveLocalPath_MissingPactoYAML(t *testing.T) {
+	dir := t.TempDir()
+	_, _, err := resolveLocalPath(dir)
+	if err == nil {
+		t.Error("expected error for directory without pacto.yaml")
+	}
+}
+
+func TestResolveLocalPath_NonexistentDir(t *testing.T) {
+	_, _, err := resolveLocalPath("/nonexistent/dir")
+	if err == nil {
+		t.Error("expected error for nonexistent directory")
+	}
+}
+
 func TestResolveBundle_LocalPath(t *testing.T) {
-	path := writeTestBundle(t)
+	dir := writeTestBundle(t)
 	svc := NewService(nil, nil)
-	bundle, err := svc.resolveBundle(context.Background(), path)
+	bundle, err := svc.resolveBundle(context.Background(), dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,16 +87,31 @@ func TestResolveBundle_LocalPath(t *testing.T) {
 
 func TestResolveBundle_LocalPath_NotFound(t *testing.T) {
 	svc := NewService(nil, nil)
-	_, err := svc.resolveBundle(context.Background(), "/nonexistent/pacto.yaml")
+	_, err := svc.resolveBundle(context.Background(), "/nonexistent/dir")
 	if err == nil {
-		t.Error("expected error for nonexistent file")
+		t.Error("expected error for nonexistent directory")
+	}
+}
+
+func TestResolveBundle_LocalPath_UnreadableFile(t *testing.T) {
+	dir := writeTestBundle(t)
+	pactoPath := filepath.Join(dir, "pacto.yaml")
+	if err := os.Chmod(pactoPath, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(pactoPath, 0644) })
+
+	svc := NewService(nil, nil)
+	_, err := svc.resolveBundle(context.Background(), dir)
+	if err == nil {
+		t.Error("expected error when pacto.yaml is unreadable")
 	}
 }
 
 func TestResolveBundle_LocalPath_InvalidYAML(t *testing.T) {
-	path := writeUnparseableBundle(t)
+	dir := writeUnparseableBundle(t)
 	svc := NewService(nil, nil)
-	_, err := svc.resolveBundle(context.Background(), path)
+	_, err := svc.resolveBundle(context.Background(), dir)
 	if err == nil {
 		t.Error("expected error for invalid YAML")
 	}
@@ -140,16 +193,16 @@ func TestExtractBundleFS_WithDirectory(t *testing.T) {
 }
 
 func TestPrepareBundleDir_LocalPath(t *testing.T) {
-	path := writeTestBundle(t)
-	dir, cleanup, err := prepareBundleDir(path, nil)
+	dir := writeTestBundle(t)
+	bundleDir, cleanup, err := prepareBundleDir(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if cleanup != nil {
 		t.Error("expected no cleanup for local path")
 	}
-	if dir != filepath.Dir(path) {
-		t.Errorf("expected %s, got %s", filepath.Dir(path), dir)
+	if bundleDir != dir {
+		t.Errorf("expected %s, got %s", dir, bundleDir)
 	}
 }
 
@@ -209,8 +262,8 @@ func TestPrepareBundleDir_OCIExtractError(t *testing.T) {
 }
 
 func TestLoadAndValidateLocal_Success(t *testing.T) {
-	path := writeTestBundle(t)
-	c, rawYAML, bundleFS, err := loadAndValidateLocal(path)
+	dir := writeTestBundle(t)
+	c, rawYAML, bundleFS, err := loadAndValidateLocal(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -226,23 +279,37 @@ func TestLoadAndValidateLocal_Success(t *testing.T) {
 }
 
 func TestLoadAndValidateLocal_FileNotFound(t *testing.T) {
-	_, _, _, err := loadAndValidateLocal("/nonexistent/pacto.yaml")
+	_, _, _, err := loadAndValidateLocal("/nonexistent/dir")
 	if err == nil {
-		t.Error("expected error for nonexistent file")
+		t.Error("expected error for nonexistent directory")
+	}
+}
+
+func TestLoadAndValidateLocal_UnreadableFile(t *testing.T) {
+	dir := writeTestBundle(t)
+	pactoPath := filepath.Join(dir, "pacto.yaml")
+	if err := os.Chmod(pactoPath, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(pactoPath, 0644) })
+
+	_, _, _, err := loadAndValidateLocal(dir)
+	if err == nil {
+		t.Error("expected error when pacto.yaml is unreadable")
 	}
 }
 
 func TestLoadAndValidateLocal_InvalidContract(t *testing.T) {
-	path := writeUnparseableBundle(t)
-	_, _, _, err := loadAndValidateLocal(path)
+	dir := writeUnparseableBundle(t)
+	_, _, _, err := loadAndValidateLocal(dir)
 	if err == nil {
 		t.Error("expected error for invalid contract")
 	}
 }
 
 func TestLoadAndValidateLocal_ValidationFails(t *testing.T) {
-	path := writeInvalidBundle(t)
-	_, _, _, err := loadAndValidateLocal(path)
+	dir := writeInvalidBundle(t)
+	_, _, _, err := loadAndValidateLocal(dir)
 	if err == nil {
 		t.Error("expected error for invalid bundle")
 	}

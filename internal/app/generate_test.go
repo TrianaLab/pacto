@@ -12,14 +12,14 @@ import (
 )
 
 func TestGenerate_Success(t *testing.T) {
-	path := writeTestBundle(t)
+	bundleDir := writeTestBundle(t)
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
 
 	runner := &mockPluginRunner{}
 	svc := NewService(nil, runner)
 	result, err := svc.Generate(context.Background(), GenerateOptions{
-		Path:      path,
+		Path:      bundleDir,
 		OutputDir: outputDir,
 		Plugin:    "test-plugin",
 	})
@@ -56,11 +56,11 @@ func TestGenerate_DefaultOutputDir(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	path := writeTestBundle(t)
+	bundleDir := writeTestBundle(t)
 	runner := &mockPluginRunner{}
 	svc := NewService(nil, runner)
 	result, err := svc.Generate(context.Background(), GenerateOptions{
-		Path:   path,
+		Path:   bundleDir,
 		Plugin: "my-plugin",
 	})
 	if err != nil {
@@ -74,7 +74,7 @@ func TestGenerate_DefaultOutputDir(t *testing.T) {
 func TestGenerate_NilRunner(t *testing.T) {
 	svc := NewService(nil, nil)
 	_, err := svc.Generate(context.Background(), GenerateOptions{
-		Path:   "pacto.yaml",
+		Path:   ".",
 		Plugin: "test-plugin",
 	})
 	if err == nil {
@@ -83,7 +83,7 @@ func TestGenerate_NilRunner(t *testing.T) {
 }
 
 func TestGenerate_PluginError(t *testing.T) {
-	path := writeTestBundle(t)
+	bundleDir := writeTestBundle(t)
 	dir := t.TempDir()
 	runner := &mockPluginRunner{
 		RunFn: func(_ context.Context, _ string, _ plugin.GenerateRequest) (*plugin.GenerateResponse, error) {
@@ -92,7 +92,7 @@ func TestGenerate_PluginError(t *testing.T) {
 	}
 	svc := NewService(nil, runner)
 	_, err := svc.Generate(context.Background(), GenerateOptions{
-		Path:      path,
+		Path:      bundleDir,
 		OutputDir: filepath.Join(dir, "out"),
 		Plugin:    "bad-plugin",
 	})
@@ -105,7 +105,7 @@ func TestGenerate_ResolveError(t *testing.T) {
 	runner := &mockPluginRunner{}
 	svc := NewService(nil, runner)
 	_, err := svc.Generate(context.Background(), GenerateOptions{
-		Path:   "/nonexistent/pacto.yaml",
+		Path:   "/nonexistent/dir",
 		Plugin: "test-plugin",
 	})
 	if err == nil {
@@ -114,11 +114,11 @@ func TestGenerate_ResolveError(t *testing.T) {
 }
 
 func TestGenerate_OutputDirError(t *testing.T) {
-	path := writeTestBundle(t)
+	bundleDir := writeTestBundle(t)
 	runner := &mockPluginRunner{}
 	svc := NewService(nil, runner)
 	_, err := svc.Generate(context.Background(), GenerateOptions{
-		Path:      path,
+		Path:      bundleDir,
 		OutputDir: "/dev/null/impossible/dir",
 		Plugin:    "test-plugin",
 	})
@@ -150,7 +150,7 @@ func TestGenerate_PrepareBundleDirError(t *testing.T) {
 }
 
 func TestGenerate_WriteFileError(t *testing.T) {
-	path := writeTestBundle(t)
+	bundleDir := writeTestBundle(t)
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
 
@@ -169,7 +169,7 @@ func TestGenerate_WriteFileError(t *testing.T) {
 
 	svc := NewService(nil, runner)
 	_, err := svc.Generate(context.Background(), GenerateOptions{
-		Path:      path,
+		Path:      bundleDir,
 		OutputDir: outputDir,
 		Plugin:    "test-plugin",
 	})
@@ -198,7 +198,7 @@ func TestGenerate_OCIRef(t *testing.T) {
 }
 
 func TestGenerate_WriteFileError_FlatPath(t *testing.T) {
-	path := writeTestBundle(t)
+	bundleDir := writeTestBundle(t)
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
 
@@ -218,7 +218,7 @@ func TestGenerate_WriteFileError_FlatPath(t *testing.T) {
 
 	svc := NewService(nil, runner)
 	_, err := svc.Generate(context.Background(), GenerateOptions{
-		Path:      path,
+		Path:      bundleDir,
 		OutputDir: outputDir,
 		Plugin:    "test-plugin",
 	})

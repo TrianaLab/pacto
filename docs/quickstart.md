@@ -43,11 +43,11 @@ my-service/
 ## 3. Validate the contract
 
 ```bash
-pacto validate my-service/pacto.yaml
+pacto validate my-service
 ```
 
 ```
-my-service/pacto.yaml is valid
+my-service is valid
 ```
 
 The generated contract passes all three validation layers out of the box.
@@ -55,7 +55,7 @@ The generated contract passes all three validation layers out of the box.
 ## 4. Pack the bundle
 
 ```bash
-pacto pack my-service/pacto.yaml
+pacto pack my-service
 ```
 
 ```
@@ -65,11 +65,11 @@ Packed my-service@0.1.0 -> my-service-0.1.0.tar.gz
 ## 5. Push to a registry
 
 ```bash
-# Authenticate first
+# Authenticate first (or use gh auth for GitHub registries)
 pacto login ghcr.io -u your-username
 
-# Push the bundle
-pacto push ghcr.io/your-org/my-service-pacto:0.1.0 -p my-service/pacto.yaml
+# Push the bundle (auto-tags with contract version)
+pacto push ghcr.io/your-org/my-service-pacto -p my-service
 ```
 
 ```
@@ -86,7 +86,7 @@ pacto pull ghcr.io/your-org/my-service-pacto:0.1.0
 ## 7. Inspect the contract
 
 ```bash
-pacto explain my-service/pacto.yaml
+pacto explain my-service
 ```
 
 ```

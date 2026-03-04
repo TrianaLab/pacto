@@ -25,10 +25,10 @@ func TestPackCommand(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	path := testutil.WriteTestBundle(t)
+	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"pack", path})
+	root.SetArgs([]string{"pack", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -49,10 +49,10 @@ func TestPackCommand_JSON(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	path := testutil.WriteTestBundle(t)
+	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"pack", "--output-format", "json", path})
+	root.SetArgs([]string{"pack", "--output-format", "json", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -68,20 +68,20 @@ func TestPackCommand_JSON(t *testing.T) {
 func TestPackCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"pack", "/nonexistent/pacto.yaml"})
+	root.SetArgs([]string{"pack", "/nonexistent/dir"})
 
 	err := root.Execute()
 	if err == nil {
-		t.Error("expected pack to fail for nonexistent file")
+		t.Error("expected pack to fail for nonexistent directory")
 	}
 }
 
 func TestDiffCommand(t *testing.T) {
-	path1 := testutil.WriteTestBundle(t)
-	path2 := testutil.WriteTestBundle(t)
+	dir1 := testutil.WriteTestBundle(t)
+	dir2 := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"diff", path1, path2})
+	root.SetArgs([]string{"diff", dir1, dir2})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -95,14 +95,14 @@ func TestDiffCommand(t *testing.T) {
 }
 
 func TestDiffCommand_Error(t *testing.T) {
-	path := testutil.WriteTestBundle(t)
+	dir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"diff", "/nonexistent/pacto.yaml", path})
+	root.SetArgs([]string{"diff", "/nonexistent/dir", dir})
 
 	err := root.Execute()
 	if err == nil {
-		t.Error("expected diff to fail for nonexistent file")
+		t.Error("expected diff to fail for nonexistent directory")
 	}
 }
 
@@ -112,10 +112,10 @@ func TestPushCommand_Error(t *testing.T) {
 			return "", fmt.Errorf("push failed")
 		},
 	}
-	path := testutil.WriteTestBundle(t)
+	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"push", "ghcr.io/acme/svc:1.0.0", "--path", path})
+	root.SetArgs([]string{"push", "ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
 
 	err := root.Execute()
 	if err == nil {
@@ -125,10 +125,10 @@ func TestPushCommand_Error(t *testing.T) {
 
 func TestPushCommand_Success(t *testing.T) {
 	store := &testutil.MockBundleStore{}
-	path := testutil.WriteTestBundle(t)
+	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"push", "ghcr.io/acme/svc:1.0.0", "--path", path})
+	root.SetArgs([]string{"push", "ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -172,10 +172,10 @@ func TestPullCommand_Error(t *testing.T) {
 }
 
 func TestGraphCommand(t *testing.T) {
-	path := testutil.WriteTestBundle(t)
+	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"graph", path})
+	root.SetArgs([]string{"graph", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -191,19 +191,19 @@ func TestGraphCommand(t *testing.T) {
 func TestGraphCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"graph", "/nonexistent/pacto.yaml"})
+	root.SetArgs([]string{"graph", "/nonexistent/dir"})
 
 	err := root.Execute()
 	if err == nil {
-		t.Error("expected graph to fail for nonexistent file")
+		t.Error("expected graph to fail for nonexistent directory")
 	}
 }
 
 func TestExplainCommand(t *testing.T) {
-	path := testutil.WriteTestBundle(t)
+	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"explain", path})
+	root.SetArgs([]string{"explain", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -217,10 +217,10 @@ func TestExplainCommand(t *testing.T) {
 }
 
 func TestExplainCommand_JSON(t *testing.T) {
-	path := testutil.WriteTestBundle(t)
+	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"explain", "--output-format", "json", path})
+	root.SetArgs([]string{"explain", "--output-format", "json", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -236,18 +236,18 @@ func TestExplainCommand_JSON(t *testing.T) {
 func TestExplainCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"explain", "/nonexistent/pacto.yaml"})
+	root.SetArgs([]string{"explain", "/nonexistent/dir"})
 
 	err := root.Execute()
 	if err == nil {
-		t.Error("expected explain to fail for nonexistent file")
+		t.Error("expected explain to fail for nonexistent directory")
 	}
 }
 
 func TestGenerateCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"generate", "test-plugin", "/nonexistent/pacto.yaml"})
+	root.SetArgs([]string{"generate", "test-plugin", "/nonexistent/dir"})
 
 	err := root.Execute()
 	if err == nil {
@@ -263,12 +263,12 @@ func TestGenerateCommand_Success(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	path := testutil.WriteTestBundle(t)
+	bundleDir := testutil.WriteTestBundle(t)
 	outputDir := filepath.Join(dir, "gen-out")
 	runner := &testutil.MockPluginRunner{}
 	svc := app.NewService(nil, runner)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"generate", "test-plugin", path, "--output", outputDir})
+	root.SetArgs([]string{"generate", "test-plugin", bundleDir, "--output", outputDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -289,7 +289,7 @@ func TestGenerateCommand_WithOptions(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	path := testutil.WriteTestBundle(t)
+	bundleDir := testutil.WriteTestBundle(t)
 	outputDir := filepath.Join(dir, "gen-out")
 
 	var capturedOpts map[string]any
@@ -304,7 +304,7 @@ func TestGenerateCommand_WithOptions(t *testing.T) {
 	}
 	svc := app.NewService(nil, runner)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"generate", "test-plugin", path, "--output", outputDir, "--option", "file=config.yaml", "--option", "format=json"})
+	root.SetArgs([]string{"generate", "test-plugin", bundleDir, "--output", outputDir, "--option", "file=config.yaml", "--option", "format=json"})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -334,6 +334,7 @@ func TestLoginCommand_MissingUsername(t *testing.T) {
 func TestLoginCommand_WithPassword(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
@@ -376,29 +377,19 @@ func TestInitCommand_JSON(t *testing.T) {
 func TestDiffCommand_Breaking(t *testing.T) {
 	// Create two bundles with different service names to trigger breaking change
 	dir1 := t.TempDir()
-	bundleDir1 := filepath.Join(dir1, "bundle")
-	if err := os.MkdirAll(bundleDir1, 0755); err != nil {
-		t.Fatal(err)
-	}
-	path1 := filepath.Join(bundleDir1, "pacto.yaml")
-	if err := os.WriteFile(path1, testutil.ValidPactoYAML(), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir1, "pacto.yaml"), testutil.ValidPactoYAML(), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	dir2 := t.TempDir()
-	bundleDir2 := filepath.Join(dir2, "bundle")
-	if err := os.MkdirAll(bundleDir2, 0755); err != nil {
-		t.Fatal(err)
-	}
-	path2 := filepath.Join(bundleDir2, "pacto.yaml")
 	modified := strings.Replace(string(testutil.ValidPactoYAML()), "name: test-svc", "name: renamed-svc", 1)
-	if err := os.WriteFile(path2, []byte(modified), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir2, "pacto.yaml"), []byte(modified), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"diff", path1, path2})
+	root.SetArgs([]string{"diff", dir1, dir2})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -441,11 +432,6 @@ func TestValidateCommand_Error(t *testing.T) {
 
 func TestValidateCommand_InvalidContract(t *testing.T) {
 	dir := t.TempDir()
-	bundleDir := filepath.Join(dir, "bundle")
-	if err := os.MkdirAll(bundleDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(bundleDir, "pacto.yaml")
 	// Valid YAML but fails validation (health interface not found)
 	content := []byte(`pactoVersion: "1.0"
 service:
@@ -467,13 +453,13 @@ runtime:
     interface: nonexistent
     path: /health
 `)
-	if err := os.WriteFile(path, content, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"validate", path})
+	root.SetArgs([]string{"validate", dir})
 
 	err := root.Execute()
 	if err == nil {
@@ -484,7 +470,8 @@ runtime:
 func TestLoginCommand_WriteConfigError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
-	// Make home read-only so .docker dir cannot be created
+	t.Setenv("XDG_CONFIG_HOME", "")
+	// Make home read-only so config dir cannot be created
 	if err := os.Chmod(dir, 0555); err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +483,7 @@ func TestLoginCommand_WriteConfigError(t *testing.T) {
 
 	err := root.Execute()
 	if err == nil {
-		t.Error("expected error when writeDockerConfig fails")
+		t.Error("expected error when writePactoConfig fails")
 	}
 }
 
@@ -517,11 +504,11 @@ type cliErrWriter struct{}
 func (cliErrWriter) Write([]byte) (int, error) { return 0, fmt.Errorf("write error") }
 
 func TestDiffCommand_OutputError(t *testing.T) {
-	path1 := testutil.WriteTestBundle(t)
-	path2 := testutil.WriteTestBundle(t)
+	dir1 := testutil.WriteTestBundle(t)
+	dir2 := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"diff", "--output-format", "json", path1, path2})
+	root.SetArgs([]string{"diff", "--output-format", "json", dir1, dir2})
 	root.SetOut(cliErrWriter{})
 
 	err := root.Execute()
@@ -531,10 +518,10 @@ func TestDiffCommand_OutputError(t *testing.T) {
 }
 
 func TestValidateCommand_OutputError(t *testing.T) {
-	path := testutil.WriteTestBundle(t)
+	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"validate", "--output-format", "json", path})
+	root.SetArgs([]string{"validate", "--output-format", "json", bundleDir})
 	root.SetOut(cliErrWriter{})
 
 	err := root.Execute()
