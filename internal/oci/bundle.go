@@ -157,10 +157,16 @@ func imageToBundle(img v1.Image) (*contract.Bundle, error) {
 	return &contract.Bundle{Contract: c, FS: fsys}, nil
 }
 
+const (
+	maxFileSize  = 10 << 20 // 10 MB per file
+	maxTotalSize = 50 << 20 // 50 MB total
+)
+
 // extractTar reads a tar stream and returns an in-memory FS.
 func extractTar(r io.Reader) (fs.FS, error) {
 	memFS := fstest.MapFS{}
 	tr := tar.NewReader(r)
+	var totalSize int64
 
 	for {
 		header, err := tr.Next()
@@ -181,9 +187,17 @@ func extractTar(r io.Reader) (fs.FS, error) {
 			continue
 		}
 
-		data, err := io.ReadAll(tr)
+		data, err := io.ReadAll(io.LimitReader(tr, maxFileSize+1))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read %s: %w", name, err)
+		}
+		if int64(len(data)) > maxFileSize {
+			return nil, fmt.Errorf("file %s exceeds maximum size of %d bytes", name, maxFileSize)
+		}
+
+		totalSize += int64(len(data))
+		if totalSize > maxTotalSize {
+			return nil, fmt.Errorf("extracted bundle exceeds maximum total size of %d bytes", maxTotalSize)
 		}
 
 		memFS[name] = &fstest.MapFile{Data: data, Mode: 0644}

@@ -24,7 +24,7 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 		if oldIface.Type != newIface.Type {
 			changes = append(changes, newChange("interfaces.type", Modified, name+": "+oldIface.Type, name+": "+newIface.Type))
 		}
-		if intPtrVal(oldIface.Port) != intPtrVal(newIface.Port) {
+		if intPtrChanged(oldIface.Port, newIface.Port) {
 			ct := Modified
 			if oldIface.Port == nil {
 				ct = Added
@@ -42,7 +42,7 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 			if oldIface.Contract != newIface.Contract {
 				changes = append(changes, newChange("interfaces.contract", Modified, name+": "+oldIface.Contract, name+": "+newIface.Contract))
 			}
-			changes = append(changes, diffOpenAPI(oldIface.Contract, oldFS, newFS)...)
+			changes = append(changes, diffOpenAPI(oldIface.Contract, newIface.Contract, oldFS, newFS)...)
 		} else if oldIface.Contract != newIface.Contract {
 			changes = append(changes, newChange("interfaces.contract", Modified, oldIface.Contract, newIface.Contract))
 		}
@@ -78,8 +78,10 @@ func diffConfiguration(old, new *contract.Contract, oldFS, newFS fs.FS) []Change
 	}
 
 	// Diff the JSON Schema files.
-	if old.Configuration.Schema != "" {
-		changes = append(changes, diffSchema(old.Configuration.Schema, oldFS, newFS)...)
+	oldSchema := old.Configuration.Schema
+	newSchema := new.Configuration.Schema
+	if oldSchema != "" && newSchema != "" {
+		changes = append(changes, diffSchema(oldSchema, newSchema, oldFS, newFS)...)
 	}
 
 	return changes

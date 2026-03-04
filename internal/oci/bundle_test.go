@@ -560,6 +560,67 @@ func TestExtractTar_TruncatedFile(t *testing.T) {
 	}
 }
 
+func TestExtractTar_FileExceedsMaxSize(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	// Create a file that exceeds the per-file size limit.
+	bigData := make([]byte, maxFileSize+1)
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "huge.bin",
+		Size: int64(len(bigData)),
+		Mode: 0644,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(bigData); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := extractTar(bytes.NewReader(buf.Bytes()))
+	if err == nil {
+		t.Fatal("expected error for file exceeding max size")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestExtractTar_TotalSizeExceeded(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	// Create enough files to exceed the total size limit.
+	// Each file is just under the per-file limit but together they exceed maxTotalSize.
+	fileSize := maxFileSize
+	numFiles := (maxTotalSize / fileSize) + 1
+	data := make([]byte, fileSize)
+	for i := 0; i < numFiles; i++ {
+		if err := tw.WriteHeader(&tar.Header{
+			Name: fmt.Sprintf("file%d.bin", i),
+			Size: int64(fileSize),
+			Mode: 0644,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := extractTar(bytes.NewReader(buf.Bytes()))
+	if err == nil {
+		t.Fatal("expected error for total size exceeded")
+	}
+	if !strings.Contains(err.Error(), "maximum total size") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestBundleToTarGz_WithDirectories(t *testing.T) {
 	fsys := fstest.MapFS{
 		"dir":          &fstest.MapFile{Mode: fs.ModeDir | 0755},

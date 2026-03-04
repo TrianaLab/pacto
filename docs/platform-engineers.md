@@ -97,7 +97,7 @@ Owner: team/payments
 Pacto Version: 1.0
 
 Runtime:
-  Workload: service (long-lived)
+  Workload: service
   State: stateful
   Persistence: local/persistent
   Data Criticality: high
@@ -154,7 +154,6 @@ This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes m
 | `workload.type` | Kubernetes Resource | Notes |
 |---|---|---|
 | `service` | Deployment or StatefulSet | Based on `state.type` |
-| `worker` | Deployment | No Service needed if no interfaces |
 | `job` | Job | No scaling, runs to completion |
 | `scheduled` | CronJob | Schedule defined externally |
 

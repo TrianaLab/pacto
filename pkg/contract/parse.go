@@ -17,6 +17,7 @@ func Parse(r io.Reader) (*Contract, error) {
 	if err := decoder.Decode(&c); err != nil {
 		return nil, &ParseError{
 			Message: fmt.Sprintf("failed to parse YAML: %v", err),
+			Err:     err,
 		}
 	}
 

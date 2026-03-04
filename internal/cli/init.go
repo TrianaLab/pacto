@@ -15,14 +15,14 @@ func newInitCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 
-			result, err := svc.Init(app.InitOptions{
+			result, err := svc.Init(cmd.Context(), app.InitOptions{
 				Name: name,
 			})
 			if err != nil {
 				return err
 			}
 
-			format := v.GetString("output-format")
+			format := v.GetString(outputFormatKey)
 			return printInitResult(cmd, result, format)
 		},
 	}
