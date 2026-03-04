@@ -23,7 +23,7 @@ coverage:
 	@go tool cover -func=coverage.out | tail -1
 
 lint:
-	gofmt -s -l .
+	gofmt -s -l $(shell find . -name '*.go' -not -path './plugins/*')
 	go vet ./...
 
 BUNDLE := $(shell command -v /opt/homebrew/opt/ruby@3.3/bin/bundle 2>/dev/null || command -v /opt/homebrew/opt/ruby/bin/bundle 2>/dev/null || command -v bundle 2>/dev/null)
