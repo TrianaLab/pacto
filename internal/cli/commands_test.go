@@ -334,6 +334,7 @@ func TestLoginCommand_MissingUsername(t *testing.T) {
 func TestLoginCommand_WithPassword(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
@@ -469,6 +470,7 @@ runtime:
 func TestLoginCommand_WriteConfigError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	// Make home read-only so config dir cannot be created
 	if err := os.Chmod(dir, 0555); err != nil {
 		t.Fatal(err)

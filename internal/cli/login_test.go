@@ -22,6 +22,7 @@ func TestEncodeAuth(t *testing.T) {
 func TestWritePactoConfig_NewFile(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	if err := writePactoConfig("ghcr.io", "user", "pass"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -50,6 +51,7 @@ func TestWritePactoConfig_NewFile(t *testing.T) {
 func TestWritePactoConfig_MergeExisting(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	pactoDir := filepath.Join(dir, ".config", "pacto")
 	if err := os.MkdirAll(pactoDir, 0700); err != nil {
@@ -94,6 +96,7 @@ func TestWritePactoConfig_MergeExisting(t *testing.T) {
 func TestWritePactoConfig_ReadOnlyHome(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	// Make home read-only so config dir cannot be created
 	if err := os.Chmod(dir, 0555); err != nil {
 		t.Fatal(err)
@@ -109,6 +112,7 @@ func TestWritePactoConfig_ReadOnlyHome(t *testing.T) {
 func TestWritePactoConfig_WriteFileError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	// Pre-create config dir, then make it read-only.
 	pactoDir := filepath.Join(dir, ".config", "pacto")
@@ -129,6 +133,7 @@ func TestWritePactoConfig_WriteFileError(t *testing.T) {
 func TestWritePactoConfig_InvalidExistingJSON(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	pactoDir := filepath.Join(dir, ".config", "pacto")
 	if err := os.MkdirAll(pactoDir, 0700); err != nil {
@@ -168,6 +173,7 @@ func TestLoginCommand_ReadPasswordSuccess(t *testing.T) {
 
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	cmd := newLoginCommand()
 	cmd.SetOut(&bytes.Buffer{})
@@ -180,6 +186,7 @@ func TestLoginCommand_ReadPasswordSuccess(t *testing.T) {
 }
 
 func TestWritePactoConfig_PactoConfigPathError(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
 	old := oci.ExportedUserHomeDirFn()
 	oci.SetUserHomeDirFn(func() (string, error) { return "", fmt.Errorf("no home") })
 	defer oci.SetUserHomeDirFn(old)
@@ -202,6 +209,7 @@ func TestReadPasswordFn_Default(t *testing.T) {
 func TestWritePactoConfig_MarshalError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	old := jsonMarshalIndentFn
 	jsonMarshalIndentFn = func(any, string, string) ([]byte, error) {
