@@ -1,0 +1,25 @@
+// Sticky top header bar (the bar with search, toggle, GitHub link)
+.main-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--body-background-color);
+}
+
+// Show logo and title side-by-side
+.site-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.site-logo {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+}
+
+// Invert the black-on-transparent logo in dark mode so it remains visible
+[data-theme="dark"] .site-logo {
+  filter: invert(1);
+}
