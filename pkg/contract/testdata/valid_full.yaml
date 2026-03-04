@@ -38,12 +38,7 @@ dependencies:
     compatibility: "~1.0.0"
 
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
-
-  network:
-    defaultInterface: rest-api
+  workload: service
 
   state:
     type: stateful

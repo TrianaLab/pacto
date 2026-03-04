@@ -21,7 +21,7 @@ func minimalContract() *contract.Contract {
 		},
 		Configuration: &contract.Configuration{Schema: "configuration/schema.json"},
 		Runtime: contract.Runtime{
-			Workload: contract.Workload{Type: "service", Concurrency: "finite"},
+			Workload: "service",
 			State: contract.State{
 				Type:            "stateless",
 				Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},

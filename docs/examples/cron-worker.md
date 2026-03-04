@@ -27,9 +27,7 @@ interfaces:
     visibility: internal
 
 runtime:
-  workload:
-    type: scheduled
-    concurrency: finite
+  workload: scheduled
 
   state:
     type: stateless
@@ -50,8 +48,7 @@ metadata:
 
 ### Key decisions
 
-- **`workload.type: scheduled`** — runs on a cron schedule, not continuously
-- **`concurrency: finite`** — each execution starts, processes, and exits
+- **`workload: scheduled`** — runs on a cron schedule, not continuously
 - **No `scaling` section** — job workloads don't scale horizontally (enforced by validation)
 - **No `lifecycle` section** — upgrade strategy doesn't apply to jobs
 - **Schedule in `metadata`** — the cron expression is platform-specific, so it belongs in metadata rather than in the contract's core fields
@@ -62,9 +59,7 @@ For a job that runs once (e.g., a database migration):
 
 ```yaml
 runtime:
-  workload:
-    type: job
-    concurrency: finite
+  workload: job
   state:
     type: stateless
     persistence:

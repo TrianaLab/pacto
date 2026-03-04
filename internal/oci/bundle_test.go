@@ -37,7 +37,7 @@ func testBundle() *contract.Bundle {
 			Service:      contract.ServiceIdentity{Name: "test-svc", Version: "1.0.0"},
 			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
 			Runtime: contract.Runtime{
-				Workload: contract.Workload{Type: "service", Concurrency: "finite"},
+				Workload: "service",
 				State: contract.State{
 					Type:            "stateless",
 					Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
@@ -56,9 +56,7 @@ interfaces:
     type: http
     port: 8080
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:

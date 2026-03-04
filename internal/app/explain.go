@@ -27,7 +27,6 @@ type ExplainResult struct {
 // ExplainRuntime is a simplified runtime summary.
 type ExplainRuntime struct {
 	WorkloadType    string `json:"workloadType"`
-	Concurrency     string `json:"concurrency"`
 	StateType       string `json:"stateType"`
 	Scope           string `json:"scope"`
 	Durability      string `json:"durability"`
@@ -66,8 +65,7 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		Owner:        c.Service.Owner,
 		PactoVersion: c.PactoVersion,
 		Runtime: ExplainRuntime{
-			WorkloadType:    c.Runtime.Workload.Type,
-			Concurrency:     c.Runtime.Workload.Concurrency,
+			WorkloadType:    c.Runtime.Workload,
 			StateType:       c.Runtime.State.Type,
 			Scope:           c.Runtime.State.Persistence.Scope,
 			Durability:      c.Runtime.State.Persistence.Durability,

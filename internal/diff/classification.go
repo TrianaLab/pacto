@@ -39,8 +39,7 @@ var rules = map[classificationKey]Classification{
 	{"configuration", Removed}:         Breaking,
 
 	// Runtime — workload
-	{"runtime.workload.type", Modified}:        Breaking,
-	{"runtime.workload.concurrency", Modified}: PotentialBreaking,
+	{"runtime.workload", Modified}: Breaking,
 
 	// Runtime — state
 	{"runtime.state.type", Modified}:                   Breaking,
@@ -58,11 +57,6 @@ var rules = map[classificationKey]Classification{
 	{"runtime.health.interface", Modified}:           PotentialBreaking,
 	{"runtime.health.path", Modified}:                PotentialBreaking,
 	{"runtime.health.initialDelaySeconds", Modified}: NonBreaking,
-
-	// Runtime — network
-	{"runtime.network.defaultInterface", Modified}: PotentialBreaking,
-	{"runtime.network", Added}:                     NonBreaking,
-	{"runtime.network", Removed}:                   PotentialBreaking,
 
 	// Scaling
 	{"scaling.min", Modified}: PotentialBreaking,

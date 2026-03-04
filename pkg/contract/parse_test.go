@@ -35,11 +35,8 @@ func TestParse_ValidMinimal(t *testing.T) {
 	if c.Interfaces[0].Port == nil || *c.Interfaces[0].Port != 8080 {
 		t.Error("expected interface port 8080")
 	}
-	if c.Runtime.Workload.Type != "service" {
-		t.Errorf("expected workload type service, got %s", c.Runtime.Workload.Type)
-	}
-	if c.Runtime.Workload.Concurrency != "finite" {
-		t.Errorf("expected workload concurrency finite, got %s", c.Runtime.Workload.Concurrency)
+	if c.Runtime.Workload != "service" {
+		t.Errorf("expected workload service, got %s", c.Runtime.Workload)
 	}
 	if c.Runtime.State.Type != "stateless" {
 		t.Errorf("expected state type stateless, got %s", c.Runtime.State.Type)
@@ -98,21 +95,8 @@ func TestParse_ValidFull_Service(t *testing.T) {
 
 func TestParse_ValidFull_Workload(t *testing.T) {
 	c := parseFullContract(t)
-	if c.Runtime.Workload.Type != "service" {
-		t.Errorf("expected workload type service, got %s", c.Runtime.Workload.Type)
-	}
-	if c.Runtime.Workload.Concurrency != "long-lived" {
-		t.Errorf("expected workload concurrency long-lived, got %s", c.Runtime.Workload.Concurrency)
-	}
-}
-
-func TestParse_ValidFull_Network(t *testing.T) {
-	c := parseFullContract(t)
-	if c.Runtime.Network == nil {
-		t.Fatal("expected network to be present")
-	}
-	if c.Runtime.Network.DefaultInterface != "rest-api" {
-		t.Errorf("expected network defaultInterface rest-api, got %s", c.Runtime.Network.DefaultInterface)
+	if c.Runtime.Workload != "service" {
+		t.Errorf("expected workload service, got %s", c.Runtime.Workload)
 	}
 }
 
@@ -226,9 +210,7 @@ pactoVersion: "1.0"
 service:
   name: my-svc
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:
@@ -263,9 +245,7 @@ service:
   name: my-svc
   version: "1.0.0"
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:

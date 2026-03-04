@@ -43,12 +43,7 @@ configuration:
 #     compatibility: "^1.0.0"
 
 runtime:
-  workload:
-    type: service
-    concurrency: finite
-
-  network:
-    defaultInterface: api
+  workload: service
 
   state:
     type: stateless

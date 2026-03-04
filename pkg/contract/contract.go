@@ -63,38 +63,18 @@ type Dependency struct {
 
 // Runtime describes how the service behaves at runtime.
 type Runtime struct {
-	Workload  Workload   `yaml:"workload" json:"workload"`
-	Network   *Network   `yaml:"network,omitempty" json:"network,omitempty"`
+	Workload  string     `yaml:"workload" json:"workload"`
 	State     State      `yaml:"state" json:"state"`
 	Lifecycle *Lifecycle `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
 	Health    Health     `yaml:"health" json:"health"`
 }
 
-// Workload describes the workload characteristics of the service.
-type Workload struct {
-	Type        string `yaml:"type" json:"type"`
-	Concurrency string `yaml:"concurrency" json:"concurrency"`
-}
-
 // WorkloadType constants.
 const (
 	WorkloadTypeService   = "service"
-	WorkloadTypeWorker    = "worker"
 	WorkloadTypeJob       = "job"
 	WorkloadTypeScheduled = "scheduled"
 )
-
-// Concurrency constants.
-const (
-	ConcurrencyLongLived   = "long-lived"
-	ConcurrencyFinite      = "finite"
-	ConcurrencyEventDriven = "event-driven"
-)
-
-// Network describes network defaults.
-type Network struct {
-	DefaultInterface string `yaml:"defaultInterface" json:"defaultInterface"`
-}
 
 // State describes the state semantics of the service.
 type State struct {

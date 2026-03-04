@@ -19,7 +19,7 @@ func validContract() *contract.Contract {
 			{Name: "api", Type: "http", Port: &port, Visibility: "internal"},
 		},
 		Runtime: contract.Runtime{
-			Workload: contract.Workload{Type: "service", Concurrency: "finite"},
+			Workload: "service",
 			State: contract.State{
 				Type:            "stateless",
 				Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
@@ -37,46 +37,6 @@ func TestValidateServiceVersion_InvalidSemver(t *testing.T) {
 	validateServiceVersion(c, &result)
 	if result.IsValid() {
 		t.Error("expected error for invalid semver")
-	}
-}
-
-func TestValidateNetworkDefaultInterface_NilNetwork(t *testing.T) {
-	c := validContract()
-	c.Runtime.Network = nil
-	var result ValidationResult
-	validateNetworkDefaultInterface(c, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for nil network")
-	}
-}
-
-func TestValidateNetworkDefaultInterface_EmptyDefaultInterface(t *testing.T) {
-	c := validContract()
-	c.Runtime.Network = &contract.Network{DefaultInterface: ""}
-	var result ValidationResult
-	validateNetworkDefaultInterface(c, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for empty default interface")
-	}
-}
-
-func TestValidateNetworkDefaultInterface_NotFound(t *testing.T) {
-	c := validContract()
-	c.Runtime.Network = &contract.Network{DefaultInterface: "nonexistent"}
-	var result ValidationResult
-	validateNetworkDefaultInterface(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for nonexistent default interface")
-	}
-}
-
-func TestValidateNetworkDefaultInterface_Found(t *testing.T) {
-	c := validContract()
-	c.Runtime.Network = &contract.Network{DefaultInterface: "api"}
-	var result ValidationResult
-	validateNetworkDefaultInterface(c, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for valid default interface")
 	}
 }
 

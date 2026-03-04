@@ -36,6 +36,12 @@ Pacto introduces a **formal service contract** — a versioned, machine-validate
 - Enables **deterministic platform behavior** — no guessing about workload type or persistence
 - Remains **infrastructure-agnostic** — no Kubernetes, no cloud provider, no platform assumptions
 
+**Without Pacto** — knowledge is fragmented across wikis, Slack threads, Helm values, and tribal memory:
+
+> *"Is payments-api stateful? What port does it use? Does it need persistent storage? What does it depend on?"*
+
+**With Pacto** — one file answers every operational question:
+
 ```yaml
 pactoVersion: "1.0"
 
@@ -49,17 +55,12 @@ interfaces:
     type: http
     port: 8080
     visibility: public
-    contract: interfaces/openapi.yaml
 
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
+  workload: service
   state:
     type: stateful
-    persistence:
-      scope: local
-      durability: persistent
+    persistence: { scope: local, durability: persistent }
     dataCriticality: high
   health:
     interface: rest-api
@@ -69,6 +70,8 @@ dependencies:
   - ref: ghcr.io/acme/auth-pacto@sha256:abc123
     required: true
     compatibility: "^2.0.0"
+
+scaling: { min: 2, max: 10 }
 ```
 
 ---

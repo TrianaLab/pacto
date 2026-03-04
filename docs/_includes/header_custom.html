@@ -8,11 +8,19 @@
   var iconDark = document.getElementById("theme-icon-dark");
   var iconLight = document.getElementById("theme-icon-light");
   var stored = localStorage.getItem("jtd-theme");
-  var current = stored || "dark";
+  var current;
+
+  function systemTheme() {
+    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
+      return "light";
+    }
+    return "dark";
+  }
+
+  current = stored || systemTheme();
 
   function applyTheme(theme) {
     jtd.setTheme(theme);
-    localStorage.setItem("jtd-theme", theme);
     current = theme;
     iconDark.style.display = theme === "dark" ? "none" : "inline";
     iconLight.style.display = theme === "dark" ? "inline" : "none";
@@ -21,7 +29,17 @@
   applyTheme(current);
 
   toggle.addEventListener("click", function() {
-    applyTheme(current === "dark" ? "light" : "dark");
+    current = current === "dark" ? "light" : "dark";
+    localStorage.setItem("jtd-theme", current);
+    applyTheme(current);
   });
+
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function(e) {
+      if (!localStorage.getItem("jtd-theme")) {
+        applyTheme(e.matches ? "dark" : "light");
+      }
+    });
+  }
 })();
 </script>

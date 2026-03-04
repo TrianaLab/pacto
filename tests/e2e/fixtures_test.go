@@ -72,11 +72,7 @@ dependencies:
     compatibility: "^1.0.0"
 
 runtime:
-  workload:
-    type: service
-    concurrency: finite
-  network:
-    defaultInterface: api
+  workload: service
   state:
     type: stateless
     persistence:
@@ -128,11 +124,7 @@ dependencies:
     compatibility: "^2.0.0"
 
 runtime:
-  workload:
-    type: service
-    concurrency: finite
-  network:
-    defaultInterface: api
+  workload: service
   state:
     type: stateless
     persistence:
@@ -175,9 +167,7 @@ configuration:
   schema: configuration/schema.json
 
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
+  workload: service
   state:
     type: stateful
     persistence:
@@ -215,9 +205,7 @@ configuration:
   schema: configuration/schema.json
 
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
+  workload: service
   state:
     type: stateful
     persistence:
@@ -255,9 +243,7 @@ configuration:
   schema: configuration/schema.json
 
 runtime:
-  workload:
-    type: service
-    concurrency: long-lived
+  workload: service
   state:
     type: stateful
     persistence:
@@ -286,9 +272,7 @@ interfaces:
     type: http
     port: 8080
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:

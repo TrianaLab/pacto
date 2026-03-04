@@ -112,27 +112,8 @@
       "properties": {
 
         "workload": {
-          "type": "object",
-          "required": ["type", "concurrency"],
-          "additionalProperties": false,
-          "properties": {
-            "type": {
-              "type": "string",
-              "enum": ["service", "worker", "job", "scheduled"]
-            },
-            "concurrency": {
-              "type": "string",
-              "enum": ["long-lived", "finite", "event-driven"]
-            }
-          }
-        },
-
-        "network": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "defaultInterface": { "type": "string" }
-          }
+          "type": "string",
+          "enum": ["service", "job", "scheduled"]
         },
 
         "state": {

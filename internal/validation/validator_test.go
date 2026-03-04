@@ -120,9 +120,7 @@ interfaces:
     type: http
     port: 8080
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:
@@ -172,9 +170,7 @@ interfaces:
     type: http
     port: 8080
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:
@@ -202,9 +198,7 @@ interfaces:
     type: http
     port: 8080
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:
@@ -241,9 +235,7 @@ interfaces:
     type: http
     port: 8080
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:
@@ -277,9 +269,7 @@ interfaces:
   - name: api
     type: http
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:
@@ -317,9 +307,7 @@ interfaces:
     type: event
     contract: interfaces/events.yaml
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:
@@ -349,9 +337,7 @@ interfaces:
     type: grpc
     port: 9090
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:
@@ -390,9 +376,7 @@ interfaces:
   - name: events
     type: event
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:
@@ -430,9 +414,7 @@ interfaces:
     type: http
     port: 8080
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:
@@ -476,9 +458,7 @@ interfaces:
     type: http
     port: 9090
 runtime:
-  workload:
-    type: service
-    concurrency: finite
+  workload: service
   state:
     type: stateless
     persistence:
@@ -516,9 +496,7 @@ interfaces:
     type: http
     port: 8080
 runtime:
-  workload:
-    type: job
-    concurrency: finite
+  workload: job
   state:
     type: stateless
     persistence:
