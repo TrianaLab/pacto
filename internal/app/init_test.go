@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,7 +27,7 @@ func TestInit_ReadOnlyDir(t *testing.T) {
 	defer func() { _ = os.Chdir(orig) }()
 
 	svc := NewService(nil, nil)
-	_, err := svc.Init(InitOptions{Name: "new-svc"})
+	_, err := svc.Init(context.Background(), InitOptions{Name: "new-svc"})
 	if err == nil {
 		t.Error("expected error when creating dirs in read-only directory")
 	}
@@ -41,7 +42,7 @@ func TestInit_Success(t *testing.T) {
 	defer func() { _ = os.Chdir(orig) }()
 
 	svc := NewService(nil, nil)
-	result, err := svc.Init(InitOptions{Name: "my-svc"})
+	result, err := svc.Init(context.Background(), InitOptions{Name: "my-svc"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestInit_Success(t *testing.T) {
 
 func TestInit_EmptyName(t *testing.T) {
 	svc := NewService(nil, nil)
-	_, err := svc.Init(InitOptions{Name: ""})
+	_, err := svc.Init(context.Background(), InitOptions{Name: ""})
 	if err == nil {
 		t.Error("expected error for empty name")
 	}
@@ -102,7 +103,7 @@ func TestInit_DirectoryExists(t *testing.T) {
 	}
 
 	svc := NewService(nil, nil)
-	_, err := svc.Init(InitOptions{Name: "existing"})
+	_, err := svc.Init(context.Background(), InitOptions{Name: "existing"})
 	if err == nil {
 		t.Error("expected error for existing directory")
 	}
@@ -128,7 +129,7 @@ func TestInit_WriteFileErrors(t *testing.T) {
 			defer func() { writeFileFn = old }()
 
 			svc := NewService(nil, nil)
-			_, err := svc.Init(InitOptions{Name: "test-svc"})
+			_, err := svc.Init(context.Background(), InitOptions{Name: "test-svc"})
 			if err == nil {
 				t.Errorf("expected error when writing %s fails", failFile)
 			}

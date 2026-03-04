@@ -97,58 +97,6 @@ metadata:
 `, registryHost, registryHost)
 }
 
-func myAppContractV2(registryHost string) string {
-	return fmt.Sprintf(`pactoVersion: "1.0"
-
-service:
-  name: my-app
-  version: 2.0.0
-  owner: team/platform
-
-interfaces:
-  - name: api
-    type: http
-    port: 8080
-    visibility: internal
-    contract: interfaces/openapi.yaml
-
-configuration:
-  schema: configuration/schema.json
-
-dependencies:
-  - ref: %s/postgres-pacto:1.0.0
-    required: true
-    compatibility: "^1.0.0"
-  - ref: %s/redis-pacto:2.0.0
-    required: true
-    compatibility: "^2.0.0"
-
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-  health:
-    interface: api
-    path: /health
-    initialDelaySeconds: 5
-
-scaling:
-  min: 2
-  max: 10
-
-metadata:
-  team: platform
-  tier: premium
-`, registryHost, registryHost)
-}
-
 const postgresContractV1 = `pactoVersion: "1.0"
 
 service:
@@ -324,15 +272,6 @@ func writeMyAppV1Bundle(t *testing.T, registryHost string) string {
 	dir := filepath.Join(t.TempDir(), "my-app-v1")
 	return writeBundleDir(t, dir, myAppContractV1(registryHost), map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "my-app", "1.0.0"),
-	})
-}
-
-// writeMyAppV2Bundle creates the my-app@2.0.0 bundle directory.
-func writeMyAppV2Bundle(t *testing.T, registryHost string) string {
-	t.Helper()
-	dir := filepath.Join(t.TempDir(), "my-app-v2")
-	return writeBundleDir(t, dir, myAppContractV2(registryHost), map[string]string{
-		"openapi.yaml": fmt.Sprintf(openapiTemplate, "my-app", "2.0.0"),
 	})
 }
 

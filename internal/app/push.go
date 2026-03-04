@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/trianalab/pacto/pkg/contract"
@@ -36,8 +35,8 @@ type PushResult struct {
 
 // Push validates a contract bundle, builds an OCI image, and pushes it to a registry.
 func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, error) {
-	if s.BundleStore == nil {
-		return nil, fmt.Errorf("OCI registry client not configured")
+	if err := s.requireBundleStore(); err != nil {
+		return nil, err
 	}
 
 	path := defaultPath(opts.Path)

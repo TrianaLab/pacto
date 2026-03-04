@@ -149,7 +149,7 @@ REQUEST=$(cat)
 # Extract fields using jq
 NAME=$(echo "$REQUEST" | jq -r '.contract.service.name')
 VERSION=$(echo "$REQUEST" | jq -r '.contract.service.version')
-WORKLOAD=$(echo "$REQUEST" | jq -r '.contract.runtime.workload.type')
+WORKLOAD=$(echo "$REQUEST" | jq -r '.contract.runtime.workload')
 STATE=$(echo "$REQUEST" | jq -r '.contract.runtime.state.type')
 
 # Generate a README
@@ -199,9 +199,7 @@ type Contract struct {
         Version string `json:"version"`
     } `json:"service"`
     Runtime struct {
-        Workload struct {
-            Type string `json:"type"`
-        } `json:"workload"`
+        Workload string `json:"workload"`
         State struct {
             Type string `json:"type"`
         } `json:"state"`
@@ -236,7 +234,7 @@ func main() {
     content := fmt.Sprintf("# %s v%s\nWorkload: %s\nState: %s\n",
         req.Contract.Service.Name,
         req.Contract.Service.Version,
-        req.Contract.Runtime.Workload.Type,
+        req.Contract.Runtime.Workload,
         req.Contract.Runtime.State.Type,
     )
 

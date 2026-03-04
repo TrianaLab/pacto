@@ -24,7 +24,7 @@ All commands support `--output-format json` for programmatic consumption and `--
 | Flag | Description |
 |------|-------------|
 | `--output-format` | Output format: `text` (default) or `json` |
-| `--config` | Path to config file (default: `pacto.yaml` or `~/.config/pacto/config.yaml`) |
+| `--config` | Path to config file (searches `./pacto.yaml` and `~/.config/pacto/` if not set) |
 
 ---
 

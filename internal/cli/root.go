@@ -8,6 +8,8 @@ import (
 	"github.com/trianalab/pacto/internal/app"
 )
 
+const outputFormatKey = "output-format"
+
 // NewRootCommand constructs the Cobra command tree with the given app service.
 func NewRootCommand(svc *app.Service, version string) *cobra.Command {
 	v := viper.New()
@@ -22,11 +24,11 @@ func NewRootCommand(svc *app.Service, version string) *cobra.Command {
 
 	// Persistent flags
 	root.PersistentFlags().String("config", "", "config file path")
-	root.PersistentFlags().String("output-format", "text", "output format (text, json)")
+	root.PersistentFlags().String(outputFormatKey, "text", "output format (text, json)")
 
 	// Bind to Viper
 	_ = v.BindPFlag("config", root.PersistentFlags().Lookup("config"))
-	_ = v.BindPFlag("output-format", root.PersistentFlags().Lookup("output-format"))
+	_ = v.BindPFlag(outputFormatKey, root.PersistentFlags().Lookup(outputFormatKey))
 
 	// Env prefix
 	v.SetEnvPrefix("PACTO")

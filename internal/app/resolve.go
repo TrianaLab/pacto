@@ -43,19 +43,10 @@ func resolveLocalPath(dir string) (filePath, bundleDir string, err error) {
 	return filePath, dir, nil
 }
 
-// resolveBundle loads a contract bundle from either a local directory or an OCI
-// reference (prefixed with "oci://"). For local directories it reads pacto.yaml
-// from disk and uses the directory as the bundle FS. For OCI references it
-// delegates to the configured BundleStore.
-func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
-	if ociRef, ok := strings.CutPrefix(ref, ociPrefix); ok {
-		if s.BundleStore == nil {
-			return nil, fmt.Errorf("OCI registry not configured")
-		}
-		return s.BundleStore.Pull(ctx, ociRef)
-	}
-
-	filePath, bundleDir, err := resolveLocalPath(ref)
+// loadLocalBundle reads a local contract directory, parses pacto.yaml, and
+// returns a Bundle with Contract, RawYAML, and FS populated.
+func loadLocalBundle(dir string) (*contract.Bundle, error) {
+	filePath, bundleDir, err := resolveLocalPath(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -77,33 +68,36 @@ func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bund
 	}, nil
 }
 
+// resolveBundle loads a contract bundle from either a local directory or an OCI
+// reference (prefixed with "oci://"). For local directories it reads pacto.yaml
+// from disk and uses the directory as the bundle FS. For OCI references it
+// delegates to the configured BundleStore.
+func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
+	if ociRef, ok := strings.CutPrefix(ref, ociPrefix); ok {
+		if err := s.requireBundleStore(); err != nil {
+			return nil, err
+		}
+		return s.BundleStore.Pull(ctx, ociRef)
+	}
+
+	return loadLocalBundle(ref)
+}
+
 // loadAndValidateLocal reads a local contract directory, parses pacto.yaml,
 // validates it, and returns the parsed contract and bundle FS. This is the
 // shared helper for pack and push commands that must validate before proceeding.
 func loadAndValidateLocal(dir string) (*contract.Contract, []byte, fs.FS, error) {
-	filePath, bundleDir, err := resolveLocalPath(dir)
+	bundle, err := loadLocalBundle(dir)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	rawYAML, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to read %s: %w", filePath, err)
-	}
-
-	c, err := contract.Parse(bytes.NewReader(rawYAML))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("invalid contract: %w", err)
-	}
-
-	bundleFS := os.DirFS(bundleDir)
-
-	result := validation.Validate(c, rawYAML, bundleFS)
+	result := validation.Validate(bundle.Contract, bundle.RawYAML, bundle.FS)
 	if !result.IsValid() {
 		return nil, nil, nil, fmt.Errorf("contract validation failed with %d error(s)", len(result.Errors))
 	}
 
-	return c, rawYAML, bundleFS, nil
+	return bundle.Contract, bundle.RawYAML, bundle.FS, nil
 }
 
 // isOCIRef reports whether ref uses the oci:// scheme.

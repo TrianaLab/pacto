@@ -32,4 +32,4 @@ docs:
 	cd docs && $(BUNDLE) install && $(BUNDLE) exec jekyll serve --livereload
 
 clean:
-	rm -f pacto coverage.out coverage.html
+	rm -f "$(GOBIN)/pacto" coverage.out coverage.html

@@ -75,6 +75,32 @@ type Result struct {
 	Changes        []Change       `json:"changes"`
 }
 
+// fileSetReader reads a file from an FS and returns a set of string keys.
+type fileSetReader func(fsys fs.FS, path string) (map[string]bool, error)
+
+// diffFileSet is a shared helper for diffOpenAPI and diffSchema.
+// It reads old/new key sets using the provided reader, then delegates to diffStringSet.
+func diffFileSet(oldPath, newPath string, oldFS, newFS fs.FS, reader fileSetReader, setName, itemLabel string) []Change {
+	if oldFS == nil || newFS == nil || oldPath == "" || newPath == "" {
+		return nil
+	}
+
+	oldSet, oldErr := reader(oldFS, oldPath)
+	newSet, newErr := reader(newFS, newPath)
+
+	if oldErr != nil && newErr != nil {
+		return nil
+	}
+	if oldErr != nil {
+		return nil
+	}
+	if newErr != nil {
+		return nil
+	}
+
+	return diffStringSet(oldSet, newSet, setName, itemLabel)
+}
+
 // Compare compares two contracts and produces a classified diff result.
 // oldFS and newFS provide access to referenced files (OpenAPI specs, JSON Schemas)
 // within each contract's bundle. Either may be nil if file-level diffs are not needed.

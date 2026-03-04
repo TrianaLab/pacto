@@ -10,27 +10,8 @@ import (
 // added/removed paths. This is the integration boundary — a richer
 // implementation can be swapped in (e.g., oasdiff) without changing
 // the engine interface.
-func diffOpenAPI(contractPath string, oldFS, newFS fs.FS) []Change {
-	if oldFS == nil || newFS == nil || contractPath == "" {
-		return nil
-	}
-
-	oldPaths, oldErr := readOpenAPIPaths(oldFS, contractPath)
-	newPaths, newErr := readOpenAPIPaths(newFS, contractPath)
-
-	if oldErr != nil && newErr != nil {
-		return nil
-	}
-	if oldErr != nil {
-		// File didn't exist before, now it does — non-breaking addition.
-		return nil
-	}
-	if newErr != nil {
-		// File existed before, now it's gone — handled by interface removal.
-		return nil
-	}
-
-	return diffStringSet(oldPaths, newPaths, "openapi.paths", "API path")
+func diffOpenAPI(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
+	return diffFileSet(oldPath, newPath, oldFS, newFS, readOpenAPIPaths, "openapi.paths", "API path")
 }
 
 // readOpenAPIPaths parses an OpenAPI file and extracts the top-level path keys.
