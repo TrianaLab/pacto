@@ -61,28 +61,31 @@ Creates a complete bundle with a valid `pacto.yaml`, a placeholder OpenAPI spec,
 Validate a contract through all three validation layers.
 
 ```bash
-pacto validate [path | oci://ref]
+pacto validate [dir | oci://ref]
 ```
 
 **Arguments:**
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `path` | No | Path to `pacto.yaml` or `oci://` reference (default: `pacto.yaml`) |
+| `dir` | No | Directory containing `pacto.yaml` or `oci://` reference (default: current directory) |
 
 **Exit code:** Non-zero if validation fails.
 
 **Examples:**
 
 ```bash
-# Validate a local contract
-pacto validate my-service/pacto.yaml
+# Validate a local contract (directory containing pacto.yaml)
+pacto validate my-service
+
+# Validate from current directory
+pacto validate
 
 # Validate from an OCI registry
 pacto validate oci://ghcr.io/acme/my-service-pacto:1.0.0
 
 # JSON output
-pacto validate --output-format json my-service/pacto.yaml
+pacto validate --output-format json my-service
 ```
 
 ---
@@ -92,20 +95,20 @@ pacto validate --output-format json my-service/pacto.yaml
 Create a tar.gz archive of the bundle directory.
 
 ```bash
-pacto pack [path] [-o output]
+pacto pack [dir] [-o output]
 ```
 
 **Arguments & flags:**
 
 | Argument/Flag | Required | Description |
 |----------|----------|-------------|
-| `path` | No | Path to `pacto.yaml` (default: `pacto.yaml`) |
+| `dir` | No | Directory containing `pacto.yaml` (default: current directory) |
 | `-o, --output` | No | Output file path (default: `<name>-<version>.tar.gz`) |
 
 **Example:**
 
 ```bash
-$ pacto pack my-service/pacto.yaml
+$ pacto pack my-service
 Packed my-service@0.1.0 -> my-service-0.1.0.tar.gz
 ```
 
@@ -118,21 +121,27 @@ The contract is validated before packing. If validation fails, no archive is cre
 Push a validated contract bundle to an OCI registry.
 
 ```bash
-pacto push <ref> [-p path]
+pacto push <ref> [-p dir]
 ```
 
 **Arguments & flags:**
 
 | Argument/Flag | Required | Description |
 |----------|----------|-------------|
-| `ref` | Yes | OCI reference (e.g., `ghcr.io/org/name:tag`) |
-| `-p, --path` | No | Path to `pacto.yaml` (default: `pacto.yaml`) |
+| `ref` | Yes | OCI reference (e.g., `ghcr.io/org/name:tag`). If no tag is specified, the contract version is used automatically. |
+| `-p, --path` | No | Path to contract directory (default: current directory) |
 
-**Example:**
+**Examples:**
 
 ```bash
-$ pacto push ghcr.io/acme/my-service-pacto:1.0.0 -p my-service/pacto.yaml
+# Push with auto-tag (uses contract version)
+$ pacto push ghcr.io/acme/my-service-pacto -p my-service
 Pushed my-service@1.0.0 -> ghcr.io/acme/my-service-pacto:1.0.0
+Digest: sha256:a1b2c3d4...
+
+# Push with explicit tag
+$ pacto push ghcr.io/acme/my-service-pacto:latest -p my-service
+Pushed my-service@1.0.0 -> ghcr.io/acme/my-service-pacto:latest
 Digest: sha256:a1b2c3d4...
 ```
 
@@ -174,15 +183,15 @@ pacto diff <old> <new>
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `old` | Yes | Path or `oci://` reference to the old contract |
-| `new` | Yes | Path or `oci://` reference to the new contract |
+| `old` | Yes | Directory or `oci://` reference to the old contract |
+| `new` | Yes | Directory or `oci://` reference to the new contract |
 
 **Exit code:** Non-zero if breaking changes are detected.
 
 **Example:**
 
 ```bash
-$ pacto diff oci://ghcr.io/acme/svc-pacto:1.0.0 my-service/pacto.yaml
+$ pacto diff oci://ghcr.io/acme/svc-pacto:1.0.0 my-service
 Classification: POTENTIAL_BREAKING
 Changes (2):
   [NON_BREAKING] service.version (modified): service.version modified
@@ -198,19 +207,19 @@ See [Change Classification]({{ site.baseurl }}{% link contract-reference.md %}#c
 Resolve and display the dependency graph.
 
 ```bash
-pacto graph [path | oci://ref]
+pacto graph [dir | oci://ref]
 ```
 
 **Arguments:**
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `path` | No | Path to `pacto.yaml` or `oci://` reference (default: `pacto.yaml`) |
+| `dir` | No | Directory containing `pacto.yaml` or `oci://` reference (default: current directory) |
 
 **Example:**
 
 ```bash
-$ pacto graph my-service/pacto.yaml
+$ pacto graph my-service
 my-service@1.0.0
   - auth-service@2.3.0 (ghcr.io/acme/auth-pacto@sha256:abc)
     - user-store@1.0.0 (ghcr.io/acme/user-store-pacto:1.0.0)
@@ -228,14 +237,14 @@ Reports cycles, version conflicts, and unreachable dependencies.
 Produce a human-readable summary of a contract.
 
 ```bash
-pacto explain [path | oci://ref]
+pacto explain [dir | oci://ref]
 ```
 
 **Arguments:**
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `path` | No | Path to `pacto.yaml` or `oci://` reference (default: `pacto.yaml`) |
+| `dir` | No | Directory containing `pacto.yaml` or `oci://` reference (default: current directory) |
 
 ---
 
@@ -244,7 +253,7 @@ pacto explain [path | oci://ref]
 Generate artifacts from a contract using a plugin.
 
 ```bash
-pacto generate <plugin> [path | oci://ref] [-o output]
+pacto generate <plugin> [dir | oci://ref] [-o output]
 ```
 
 **Arguments & flags:**
@@ -252,13 +261,13 @@ pacto generate <plugin> [path | oci://ref] [-o output]
 | Argument/Flag | Required | Description |
 |----------|----------|-------------|
 | `plugin` | Yes | Plugin name (looks for `pacto-plugin-<name>`) |
-| `path` | No | Path to `pacto.yaml` or `oci://` reference (default: `pacto.yaml`) |
+| `dir` | No | Directory containing `pacto.yaml` or `oci://` reference (default: current directory) |
 | `-o, --output` | No | Output directory (default: `<plugin>-output/`) |
 
 **Example:**
 
 ```bash
-$ pacto generate helm my-service/pacto.yaml -o manifests/
+$ pacto generate helm my-service -o manifests/
 Generated 3 file(s) using helm
 Output: manifests/
 ```
@@ -281,7 +290,39 @@ pacto login <registry> -u <username> [-p <password>]
 | `-u, --username` | Yes | Registry username |
 | `-p, --password` | No | Registry password (prompted securely if omitted) |
 
-Credentials are stored in `~/.docker/config.json` using Docker's standard format.
+**Example:**
+
+```bash
+$ pacto login ghcr.io -u my-username
+Password: ********
+Login successful
+```
+
+Credentials are stored in `~/.config/pacto/config.json` (or `$XDG_CONFIG_HOME/pacto/config.json`), keeping them separate from Docker's configuration.
+
+### GitHub Container Registry (ghcr.io)
+
+For GitHub registries (`ghcr.io` and `docker.pkg.github.com`), pacto can automatically reuse credentials from the [GitHub CLI](https://cli.github.com/) — no `pacto login` required.
+
+If you already have `gh` installed and authenticated, pacto will use `gh auth token` to obtain a token transparently. To verify your setup:
+
+```bash
+# Check if gh is authenticated
+gh auth status
+
+# Verify the token is available
+gh auth token
+```
+
+To push container images or packages, your token needs the `write:packages` scope. If you authenticated `gh` without it, refresh your scopes:
+
+```bash
+gh auth refresh --scopes write:packages
+```
+
+After this, `pacto push ghcr.io/...` will work without any additional login step.
+
+If `gh` is not installed or not authenticated, pacto silently falls back to the next credential source in the chain.
 
 ---
 
@@ -298,13 +339,16 @@ pacto version 1.0.0
 
 ## Authentication
 
-Pacto follows the OCI credential resolution chain:
+Pacto follows this credential resolution chain:
 
 1. Explicit CLI flags (`--username`, `--password`)
 2. Environment variables (`PACTO_REGISTRY_USERNAME`, `PACTO_REGISTRY_PASSWORD`, `PACTO_REGISTRY_TOKEN`)
-3. Docker config (`~/.docker/config.json`)
-4. Docker credential helpers
-5. Cloud auto-detection (ECR, GCR, ACR)
-6. Anonymous fallback
+3. Pacto config (`~/.config/pacto/config.json`, written by `pacto login`)
+4. GitHub CLI (`gh auth token`, for `ghcr.io` and `docker.pkg.github.com` only)
+5. Docker config (`~/.docker/config.json`) and credential helpers
+6. Cloud auto-detection (ECR, GCR, ACR)
+7. Anonymous fallback
+
+For GitHub registries, step 4 means you can skip `pacto login` entirely if you have `gh` authenticated with the `write:packages` scope (see [`pacto login`](#pacto-login) above).
 
 No credentials are ever stored in contract files.

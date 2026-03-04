@@ -284,8 +284,8 @@ runtime:
     path: /health
 `
 
-// writeBundleDir writes a contract YAML and companion files to a temporary directory.
-// Returns the path to the pacto.yaml file.
+// writeBundleDir writes a contract YAML and companion files to a directory.
+// Returns the directory path.
 func writeBundleDir(t *testing.T, dir, contractYAML string, ifaceFiles map[string]string) string {
 	t.Helper()
 
@@ -315,55 +315,50 @@ func writeBundleDir(t *testing.T, dir, contractYAML string, ifaceFiles map[strin
 		t.Fatal(err)
 	}
 
-	return pactoPath
+	return dir
 }
 
 // writeMyAppV1Bundle creates the my-app@1.0.0 bundle directory.
 func writeMyAppV1Bundle(t *testing.T, registryHost string) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "my-app-v1")
-	writeBundleDir(t, dir, myAppContractV1(registryHost), map[string]string{
+	return writeBundleDir(t, dir, myAppContractV1(registryHost), map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "my-app", "1.0.0"),
 	})
-	return filepath.Join(dir, "pacto.yaml")
 }
 
 // writeMyAppV2Bundle creates the my-app@2.0.0 bundle directory.
 func writeMyAppV2Bundle(t *testing.T, registryHost string) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "my-app-v2")
-	writeBundleDir(t, dir, myAppContractV2(registryHost), map[string]string{
+	return writeBundleDir(t, dir, myAppContractV2(registryHost), map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "my-app", "2.0.0"),
 	})
-	return filepath.Join(dir, "pacto.yaml")
 }
 
 // writePostgresBundle creates the postgres-pacto@1.0.0 bundle directory.
 func writePostgresBundle(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "postgres-pacto")
-	writeBundleDir(t, dir, postgresContractV1, map[string]string{
+	return writeBundleDir(t, dir, postgresContractV1, map[string]string{
 		"db.proto": fmt.Sprintf(protoTemplate, "postgres", "Postgres"),
 	})
-	return filepath.Join(dir, "pacto.yaml")
 }
 
 // writeRedisV1Bundle creates the redis-pacto@1.0.0 bundle directory.
 func writeRedisV1Bundle(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "redis-pacto-v1")
-	writeBundleDir(t, dir, redisContractV1, map[string]string{
+	return writeBundleDir(t, dir, redisContractV1, map[string]string{
 		"cache.proto": fmt.Sprintf(protoTemplate, "redis", "Redis"),
 	})
-	return filepath.Join(dir, "pacto.yaml")
 }
 
 // writeRedisV2Bundle creates the redis-pacto@2.0.0 bundle directory.
 func writeRedisV2Bundle(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "redis-pacto-v2")
-	writeBundleDir(t, dir, redisContractV2, map[string]string{
+	return writeBundleDir(t, dir, redisContractV2, map[string]string{
 		"cache.proto": fmt.Sprintf(protoTemplate, "redis", "Redis"),
 	})
-	return filepath.Join(dir, "pacto.yaml")
 }

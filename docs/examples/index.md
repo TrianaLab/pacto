@@ -53,5 +53,5 @@ dependencies:
 Then use `pacto graph` to visualize the full dependency tree:
 
 ```bash
-pacto graph pacto.yaml
+pacto graph .
 ```

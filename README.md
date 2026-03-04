@@ -95,11 +95,11 @@ make build
 pacto init my-service
 
 # Validate
-pacto validate my-service/pacto.yaml
+pacto validate my-service
 
 # Pack and push
-pacto pack my-service/pacto.yaml
-pacto push ghcr.io/your-org/my-service-pacto:1.0.0 -p my-service/pacto.yaml
+pacto pack my-service
+pacto push ghcr.io/your-org/my-service-pacto -p my-service
 ```
 
 ## License

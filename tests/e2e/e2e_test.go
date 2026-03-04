@@ -128,8 +128,8 @@ func TestValidateCommand(t *testing.T) {
 			t.Fatalf("init failed: %v", err)
 		}
 
-		path := filepath.Join(dir, "valid-svc", "pacto.yaml")
-		output, err := runCommand(t, nil, "validate", path)
+		svcDir := filepath.Join(dir, "valid-svc")
+		output, err := runCommand(t, nil, "validate", svcDir)
 		if err != nil {
 			t.Fatalf("validate failed: %v\noutput: %s", err, output)
 		}
@@ -139,12 +139,11 @@ func TestValidateCommand(t *testing.T) {
 
 	t.Run("local invalid", func(t *testing.T) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "pacto.yaml")
-		if err := os.WriteFile(path, []byte(brokenContract), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(brokenContract), 0644); err != nil {
 			t.Fatal(err)
 		}
 
-		output, err := runCommand(t, nil, "validate", path)
+		output, err := runCommand(t, nil, "validate", dir)
 		if err == nil {
 			t.Fatal("expected validate to fail on broken contract")
 		}
@@ -163,8 +162,8 @@ func TestValidateCommand(t *testing.T) {
 			t.Fatalf("init failed: %v", err)
 		}
 
-		path := filepath.Join(dir, "json-validate", "pacto.yaml")
-		output, err := runCommand(t, nil, "--output-format", "json", "validate", path)
+		svcDir := filepath.Join(dir, "json-validate")
+		output, err := runCommand(t, nil, "--output-format", "json", "validate", svcDir)
 		if err != nil {
 			t.Fatalf("validate json failed: %v\noutput: %s", err, output)
 		}
@@ -204,8 +203,8 @@ func TestPackCommand(t *testing.T) {
 			t.Fatalf("init failed: %v", err)
 		}
 
-		path := filepath.Join(dir, "pack-svc", "pacto.yaml")
-		output, err := runCommand(t, nil, "pack", path)
+		svcDir := filepath.Join(dir, "pack-svc")
+		output, err := runCommand(t, nil, "pack", svcDir)
 		if err != nil {
 			t.Fatalf("pack failed: %v\noutput: %s", err, output)
 		}
@@ -233,8 +232,8 @@ func TestPackCommand(t *testing.T) {
 			t.Fatalf("init failed: %v", err)
 		}
 
-		path := filepath.Join(dir, "pack-json", "pacto.yaml")
-		output, err := runCommand(t, nil, "--output-format", "json", "pack", path)
+		svcDir := filepath.Join(dir, "pack-json")
+		output, err := runCommand(t, nil, "--output-format", "json", "pack", svcDir)
 		if err != nil {
 			t.Fatalf("pack json failed: %v\noutput: %s", err, output)
 		}
@@ -330,12 +329,11 @@ func TestPushPullLifecycle(t *testing.T) {
 
 	t.Run("invalid contract push error", func(t *testing.T) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "pacto.yaml")
-		if err := os.WriteFile(path, []byte(brokenContract), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(brokenContract), 0644); err != nil {
 			t.Fatal(err)
 		}
 
-		_, err := runCommand(t, reg, "push", reg.host+"/broken:1.0.0", "-p", path)
+		_, err := runCommand(t, reg, "push", reg.host+"/broken:1.0.0", "-p", dir)
 		if err == nil {
 			t.Fatal("expected push to fail for invalid contract")
 		}
@@ -662,8 +660,8 @@ func TestGenerateCommand(t *testing.T) {
 }
 
 func TestLoginCommand(t *testing.T) {
-	t.Run("docker config write", func(t *testing.T) {
-		// Override HOME to avoid writing to real docker config
+	t.Run("pacto config write", func(t *testing.T) {
+		// Override HOME to avoid writing to real config
 		origHome := os.Getenv("HOME")
 		tmpHome := t.TempDir()
 		os.Setenv("HOME", tmpHome)
@@ -676,21 +674,21 @@ func TestLoginCommand(t *testing.T) {
 
 		assertContains(t, output, "Login succeeded for registry.example.com")
 
-		// Verify docker config was written
-		configPath := filepath.Join(tmpHome, ".docker", "config.json")
+		// Verify pacto config was written
+		configPath := filepath.Join(tmpHome, ".config", "pacto", "config.json")
 		data, err := os.ReadFile(configPath)
 		if err != nil {
-			t.Fatalf("expected docker config at %s: %v", configPath, err)
+			t.Fatalf("expected pacto config at %s: %v", configPath, err)
 		}
 
 		var cfg map[string]interface{}
 		if err := json.Unmarshal(data, &cfg); err != nil {
-			t.Fatalf("invalid docker config JSON: %v", err)
+			t.Fatalf("invalid pacto config JSON: %v", err)
 		}
 
 		auths, ok := cfg["auths"].(map[string]interface{})
 		if !ok {
-			t.Fatal("expected auths in docker config")
+			t.Fatal("expected auths in pacto config")
 		}
 
 		regAuth, ok := auths["registry.example.com"].(map[string]interface{})
@@ -731,7 +729,7 @@ func TestLoginCommand(t *testing.T) {
 		}
 
 		// Verify both registries are in config
-		configPath := filepath.Join(tmpHome, ".docker", "config.json")
+		configPath := filepath.Join(tmpHome, ".config", "pacto", "config.json")
 		data, err := os.ReadFile(configPath)
 		if err != nil {
 			t.Fatal(err)
@@ -781,17 +779,17 @@ func TestFullLifecycle(t *testing.T) {
 	}
 	assertContains(t, output, "Created lifecycle-svc/")
 
-	pactoPath := filepath.Join(dir, "lifecycle-svc", "pacto.yaml")
+	svcDir := filepath.Join(dir, "lifecycle-svc")
 
 	// 2. Validate
-	output, err = runCommand(t, reg, "validate", pactoPath)
+	output, err = runCommand(t, reg, "validate", svcDir)
 	if err != nil {
 		t.Fatalf("validate failed: %v\noutput: %s", err, output)
 	}
 	assertContains(t, output, "is valid")
 
 	// 3. Pack
-	output, err = runCommand(t, reg, "pack", pactoPath)
+	output, err = runCommand(t, reg, "pack", svcDir)
 	if err != nil {
 		t.Fatalf("pack failed: %v\noutput: %s", err, output)
 	}
@@ -799,7 +797,7 @@ func TestFullLifecycle(t *testing.T) {
 
 	// 4. Push
 	ref := reg.host + "/lifecycle-svc:0.1.0"
-	output, err = runCommand(t, reg, "push", ref, "-p", pactoPath)
+	output, err = runCommand(t, reg, "push", ref, "-p", svcDir)
 	if err != nil {
 		t.Fatalf("push failed: %v\noutput: %s", err, output)
 	}
@@ -814,29 +812,28 @@ func TestFullLifecycle(t *testing.T) {
 	assertContains(t, output, "Pulled lifecycle-svc@0.1.0")
 
 	// 6. Validate pulled contract
-	pulledPactoPath := filepath.Join(pullDir, "pacto.yaml")
-	output, err = runCommand(t, reg, "validate", pulledPactoPath)
+	output, err = runCommand(t, reg, "validate", pullDir)
 	if err != nil {
 		t.Fatalf("validate pulled failed: %v\noutput: %s", err, output)
 	}
 	assertContains(t, output, "is valid")
 
 	// 7. Explain
-	output, err = runCommand(t, reg, "explain", pactoPath)
+	output, err = runCommand(t, reg, "explain", svcDir)
 	if err != nil {
 		t.Fatalf("explain failed: %v\noutput: %s", err, output)
 	}
 	assertContains(t, output, "Service: lifecycle-svc@0.1.0")
 
 	// 8. Diff (same contract - no changes)
-	output, err = runCommand(t, reg, "diff", pactoPath, pulledPactoPath)
+	output, err = runCommand(t, reg, "diff", svcDir, pullDir)
 	if err != nil {
 		t.Fatalf("diff failed: %v\noutput: %s", err, output)
 	}
 	assertContains(t, output, "No changes detected")
 
 	// 9. Graph (no deps in default init scaffold)
-	output, err = runCommand(t, reg, "graph", pactoPath)
+	output, err = runCommand(t, reg, "graph", svcDir)
 	if err != nil {
 		t.Fatalf("graph failed: %v\noutput: %s", err, output)
 	}
@@ -844,7 +841,7 @@ func TestFullLifecycle(t *testing.T) {
 
 	// 10. Generate
 	genDir := filepath.Join(dir, "gen-lifecycle")
-	output, err = runCommand(t, reg, "generate", "test", pactoPath, "-o", genDir)
+	output, err = runCommand(t, reg, "generate", "test", svcDir, "-o", genDir)
 	if err != nil {
 		t.Fatalf("generate failed: %v\noutput: %s", err, output)
 	}
@@ -931,12 +928,11 @@ scaling:
   max: 3
 `, reg.host, reg.host)
 
-		writeBundleDir(t, dir, conflictYAML, map[string]string{
+		conflictDir := writeBundleDir(t, dir, conflictYAML, map[string]string{
 			"openapi.yaml": fmt.Sprintf(openapiTemplate, "conflict-app", "1.0.0"),
 		})
-		conflictPath := filepath.Join(dir, "pacto.yaml")
 
-		output, err := runCommand(t, reg, "graph", conflictPath)
+		output, err := runCommand(t, reg, "graph", conflictDir)
 		if err != nil {
 			t.Fatalf("graph failed: %v\noutput: %s", err, output)
 		}

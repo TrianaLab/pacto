@@ -184,13 +184,13 @@ Pacto contracts enable programmatic policy enforcement:
 
 ```bash
 # Block services without health checks
-pacto validate service/pacto.yaml
+pacto validate service
 
 # Block breaking changes in CI
 pacto diff old-version new-version
 
 # Verify dependency graph has no cycles
-pacto graph service/pacto.yaml
+pacto graph service
 ```
 
 ### Example CI gate
@@ -199,13 +199,13 @@ pacto graph service/pacto.yaml
 # In your CI pipeline
 steps:
   - name: Validate contract
-    run: pacto validate pacto.yaml
+    run: pacto validate .
 
   - name: Check for breaking changes
-    run: pacto diff oci://ghcr.io/acme/my-service-pacto:latest pacto.yaml
+    run: pacto diff oci://ghcr.io/acme/my-service-pacto:latest .
 
   - name: Verify dependencies
-    run: pacto graph pacto.yaml
+    run: pacto graph .
 ```
 
 ---

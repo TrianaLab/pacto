@@ -8,9 +8,9 @@ import (
 
 func newExplainCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "explain [path | oci://ref]",
+		Use:   "explain [dir | oci://ref]",
 		Short: "Human-readable contract summary",
-		Long:  "Parses a pacto.yaml (local or oci:// reference) and produces a human-readable summary of the service contract.",
+		Long:  "Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var path string

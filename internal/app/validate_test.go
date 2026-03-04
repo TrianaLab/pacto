@@ -9,9 +9,9 @@ import (
 )
 
 func TestValidate_LocalValid(t *testing.T) {
-	path := writeTestBundle(t)
+	dir := writeTestBundle(t)
 	svc := NewService(nil, nil)
-	result, err := svc.Validate(context.Background(), ValidateOptions{Path: path})
+	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -21,9 +21,9 @@ func TestValidate_LocalValid(t *testing.T) {
 }
 
 func TestValidate_LocalInvalid(t *testing.T) {
-	path := writeInvalidBundle(t)
+	dir := writeInvalidBundle(t)
 	svc := NewService(nil, nil)
-	result, err := svc.Validate(context.Background(), ValidateOptions{Path: path})
+	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -44,13 +44,13 @@ func TestValidate_DefaultPath(t *testing.T) {
 
 func TestValidate_FileNotFound(t *testing.T) {
 	svc := NewService(nil, nil)
-	result, err := svc.Validate(context.Background(), ValidateOptions{Path: "/nonexistent/pacto.yaml"})
+	result, err := svc.Validate(context.Background(), ValidateOptions{Path: "/nonexistent/dir"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Should return a result with PARSE_ERROR
 	if result.Valid {
-		t.Error("expected invalid result for nonexistent file")
+		t.Error("expected invalid result for nonexistent directory")
 	}
 	if len(result.Errors) == 0 {
 		t.Error("expected at least one error")

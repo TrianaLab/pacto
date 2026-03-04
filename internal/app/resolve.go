@@ -18,17 +18,34 @@ const ociPrefix = "oci://"
 // DefaultContractPath is the default filename looked up when no path is given.
 const DefaultContractPath = "pacto.yaml"
 
-// defaultPath returns the given path if non-empty, otherwise DefaultContractPath.
+// defaultPath returns the given path if non-empty, otherwise "." (current directory).
 func defaultPath(path string) string {
 	if path == "" {
-		return DefaultContractPath
+		return "."
 	}
 	return path
 }
 
-// resolveBundle loads a contract bundle from either a local path or an OCI
-// reference (prefixed with "oci://"). For local paths it reads the file from
-// disk and uses the parent directory as the bundle FS. For OCI references it
+// resolveLocalPath validates that dir is a directory containing pacto.yaml
+// and returns the full file path and the bundle directory.
+func resolveLocalPath(dir string) (filePath, bundleDir string, err error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to access %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return "", "", fmt.Errorf("%s is not a directory", dir)
+	}
+	filePath = filepath.Join(dir, DefaultContractPath)
+	if _, err := os.Stat(filePath); err != nil {
+		return "", "", fmt.Errorf("no pacto.yaml found in %s", dir)
+	}
+	return filePath, dir, nil
+}
+
+// resolveBundle loads a contract bundle from either a local directory or an OCI
+// reference (prefixed with "oci://"). For local directories it reads pacto.yaml
+// from disk and uses the directory as the bundle FS. For OCI references it
 // delegates to the configured BundleStore.
 func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
 	if ociRef, ok := strings.CutPrefix(ref, ociPrefix); ok {
@@ -38,30 +55,40 @@ func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bund
 		return s.BundleStore.Pull(ctx, ociRef)
 	}
 
-	rawYAML, err := os.ReadFile(ref)
+	filePath, bundleDir, err := resolveLocalPath(ref)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", ref, err)
+		return nil, err
+	}
+
+	rawYAML, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", filePath, err)
 	}
 
 	c, err := contract.Parse(bytes.NewReader(rawYAML))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse %s: %w", ref, err)
+		return nil, fmt.Errorf("failed to parse %s: %w", filePath, err)
 	}
 
 	return &contract.Bundle{
 		Contract: c,
 		RawYAML:  rawYAML,
-		FS:       os.DirFS(filepath.Dir(ref)),
+		FS:       os.DirFS(bundleDir),
 	}, nil
 }
 
-// loadAndValidateLocal reads a local contract file, parses it, validates it,
-// and returns the parsed contract and bundle FS. This is the shared helper for
-// pack and push commands that must validate before proceeding.
-func loadAndValidateLocal(path string) (*contract.Contract, []byte, fs.FS, error) {
-	rawYAML, err := os.ReadFile(path)
+// loadAndValidateLocal reads a local contract directory, parses pacto.yaml,
+// validates it, and returns the parsed contract and bundle FS. This is the
+// shared helper for pack and push commands that must validate before proceeding.
+func loadAndValidateLocal(dir string) (*contract.Contract, []byte, fs.FS, error) {
+	filePath, bundleDir, err := resolveLocalPath(dir)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to read %s: %w", path, err)
+		return nil, nil, nil, err
+	}
+
+	rawYAML, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to read %s: %w", filePath, err)
 	}
 
 	c, err := contract.Parse(bytes.NewReader(rawYAML))
@@ -69,7 +96,7 @@ func loadAndValidateLocal(path string) (*contract.Contract, []byte, fs.FS, error
 		return nil, nil, nil, fmt.Errorf("invalid contract: %w", err)
 	}
 
-	bundleFS := os.DirFS(filepath.Dir(path))
+	bundleFS := os.DirFS(bundleDir)
 
 	result := validation.Validate(c, rawYAML, bundleFS)
 	if !result.IsValid() {

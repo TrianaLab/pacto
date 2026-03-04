@@ -92,11 +92,11 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 }
 
 // prepareBundleDir returns a directory path containing the bundle files.
-// For local paths it returns the parent directory directly. For OCI bundles
-// it writes the in-memory FS to a temp directory.
+// For local directories it returns ref directly. For OCI bundles it writes
+// the in-memory FS to a temp directory.
 func prepareBundleDir(ref string, bundleFS fs.FS) (dir string, cleanup func(), err error) {
 	if !isOCIRef(ref) {
-		return filepath.Dir(ref), nil, nil
+		return ref, nil, nil
 	}
 
 	tmpDir, err := mkdirTempFn("", "pacto-bundle-*")

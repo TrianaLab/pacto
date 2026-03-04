@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/trianalab/pacto/internal/oci"
 )
 
 func TestEncodeAuth(t *testing.T) {
@@ -17,21 +19,21 @@ func TestEncodeAuth(t *testing.T) {
 	}
 }
 
-func TestWriteDockerConfig_NewFile(t *testing.T) {
+func TestWritePactoConfig_NewFile(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	if err := writeDockerConfig("ghcr.io", "user", "pass"); err != nil {
+	if err := writePactoConfig("ghcr.io", "user", "pass"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	configPath := filepath.Join(dir, ".docker", "config.json")
+	configPath := filepath.Join(dir, ".config", "pacto", "config.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("expected config file: %v", err)
 	}
 
-	var cfg dockerConfig
+	var cfg pactoLoginConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
@@ -45,38 +47,38 @@ func TestWriteDockerConfig_NewFile(t *testing.T) {
 	}
 }
 
-func TestWriteDockerConfig_MergeExisting(t *testing.T) {
+func TestWritePactoConfig_MergeExisting(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	dockerDir := filepath.Join(dir, ".docker")
-	if err := os.MkdirAll(dockerDir, 0700); err != nil {
+	pactoDir := filepath.Join(dir, ".config", "pacto")
+	if err := os.MkdirAll(pactoDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 
 	// Write initial config with one registry
-	initial := dockerConfig{
-		Auths: map[string]dockerAuth{
+	initial := pactoLoginConfig{
+		Auths: map[string]pactoLoginAuth{
 			"docker.io": {Auth: "existing"},
 		},
 	}
 	data, _ := json.MarshalIndent(initial, "", "  ")
-	if err := os.WriteFile(filepath.Join(dockerDir, "config.json"), data, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(pactoDir, "config.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
 
 	// Add a second registry
-	if err := writeDockerConfig("ghcr.io", "user", "pass"); err != nil {
+	if err := writePactoConfig("ghcr.io", "user", "pass"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Read and verify both exist
-	result, err := os.ReadFile(filepath.Join(dockerDir, "config.json"))
+	result, err := os.ReadFile(filepath.Join(pactoDir, "config.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var cfg dockerConfig
+	var cfg pactoLoginConfig
 	if err := json.Unmarshal(result, &cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -89,57 +91,56 @@ func TestWriteDockerConfig_MergeExisting(t *testing.T) {
 	}
 }
 
-func TestWriteDockerConfig_ReadOnlyHome(t *testing.T) {
+func TestWritePactoConfig_ReadOnlyHome(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
-	// Make home read-only so .docker dir cannot be created
+	// Make home read-only so config dir cannot be created
 	if err := os.Chmod(dir, 0555); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0755) })
 
-	err := writeDockerConfig("ghcr.io", "user", "pass")
+	err := writePactoConfig("ghcr.io", "user", "pass")
 	if err == nil {
 		t.Error("expected error when home directory is read-only")
 	}
 }
 
-func TestWriteDockerConfig_WriteFileError(t *testing.T) {
+func TestWritePactoConfig_WriteFileError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	// Pre-create .docker dir, then make it read-only.
-	// MkdirAll succeeds (dir exists), but WriteFile fails (dir not writable).
-	dockerDir := filepath.Join(dir, ".docker")
-	if err := os.MkdirAll(dockerDir, 0700); err != nil {
+	// Pre-create config dir, then make it read-only.
+	pactoDir := filepath.Join(dir, ".config", "pacto")
+	if err := os.MkdirAll(pactoDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(dockerDir, 0555); err != nil {
+	if err := os.Chmod(pactoDir, 0555); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(dockerDir, 0755) })
+	t.Cleanup(func() { _ = os.Chmod(pactoDir, 0755) })
 
-	err := writeDockerConfig("ghcr.io", "user", "pass")
+	err := writePactoConfig("ghcr.io", "user", "pass")
 	if err == nil {
-		t.Error("expected error when WriteFile fails on read-only .docker dir")
+		t.Error("expected error when WriteFile fails on read-only config dir")
 	}
 }
 
-func TestWriteDockerConfig_InvalidExistingJSON(t *testing.T) {
+func TestWritePactoConfig_InvalidExistingJSON(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	dockerDir := filepath.Join(dir, ".docker")
-	if err := os.MkdirAll(dockerDir, 0700); err != nil {
+	pactoDir := filepath.Join(dir, ".config", "pacto")
+	if err := os.MkdirAll(pactoDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 
 	// Write invalid JSON
-	if err := os.WriteFile(filepath.Join(dockerDir, "config.json"), []byte("{invalid"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(pactoDir, "config.json"), []byte("{invalid"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
-	err := writeDockerConfig("ghcr.io", "user", "pass")
+	err := writePactoConfig("ghcr.io", "user", "pass")
 	if err == nil {
 		t.Error("expected error for invalid existing JSON")
 	}
@@ -178,14 +179,14 @@ func TestLoginCommand_ReadPasswordSuccess(t *testing.T) {
 	}
 }
 
-func TestWriteDockerConfig_UserHomeDirError(t *testing.T) {
-	old := userHomeDirFn
-	userHomeDirFn = func() (string, error) { return "", fmt.Errorf("no home") }
-	defer func() { userHomeDirFn = old }()
+func TestWritePactoConfig_PactoConfigPathError(t *testing.T) {
+	old := oci.ExportedUserHomeDirFn()
+	oci.SetUserHomeDirFn(func() (string, error) { return "", fmt.Errorf("no home") })
+	defer oci.SetUserHomeDirFn(old)
 
-	err := writeDockerConfig("ghcr.io", "user", "pass")
+	err := writePactoConfig("ghcr.io", "user", "pass")
 	if err == nil {
-		t.Error("expected error when UserHomeDir fails")
+		t.Error("expected error when PactoConfigPath fails")
 	}
 }
 
@@ -198,7 +199,7 @@ func TestReadPasswordFn_Default(t *testing.T) {
 	}
 }
 
-func TestWriteDockerConfig_MarshalError(t *testing.T) {
+func TestWritePactoConfig_MarshalError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -208,8 +209,22 @@ func TestWriteDockerConfig_MarshalError(t *testing.T) {
 	}
 	defer func() { jsonMarshalIndentFn = old }()
 
-	err := writeDockerConfig("ghcr.io", "user", "pass")
+	err := writePactoConfig("ghcr.io", "user", "pass")
 	if err == nil {
 		t.Error("expected error when MarshalIndent fails")
+	}
+}
+
+func TestWritePactoConfig_XDGConfigHome(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	if err := writePactoConfig("ghcr.io", "user", "pass"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	configPath := filepath.Join(dir, "pacto", "config.json")
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("expected config file at %s: %v", configPath, err)
 	}
 }

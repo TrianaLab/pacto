@@ -10,9 +10,9 @@ import (
 
 func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "validate [path | oci://ref]",
+		Use:   "validate [dir | oci://ref]",
 		Short: "Validate a pacto contract",
-		Long:  "Validates a pacto.yaml (local or oci:// reference) against the specification, checking structural, cross-field, and semantic rules.",
+		Long:  "Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, checking structural, cross-field, and semantic rules.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := ""
