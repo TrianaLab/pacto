@@ -7,6 +7,8 @@ remote_theme: just-the-docs/just-the-docs@v0.10.1
 
 color_scheme: dark
 
+logo: "/assets/images/logo.png"
+
 permalink: pretty
 
 aux_links:

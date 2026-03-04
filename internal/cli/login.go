@@ -58,15 +58,6 @@ func newLoginCommand() *cobra.Command {
 	return cmd
 }
 
-// pactoLoginConfig represents the relevant subset of pacto's config.json.
-type pactoLoginConfig struct {
-	Auths map[string]pactoLoginAuth `json:"auths"`
-}
-
-type pactoLoginAuth struct {
-	Auth string `json:"auth"`
-}
-
 // writePactoConfig writes credentials to ~/.config/pacto/config.json.
 func writePactoConfig(registry, username, password string) error {
 	configPath, err := oci.PactoConfigPath()
@@ -76,7 +67,7 @@ func writePactoConfig(registry, username, password string) error {
 
 	configDir := filepath.Dir(configPath)
 
-	var cfg pactoLoginConfig
+	var cfg oci.PactoConfig
 
 	data, err := os.ReadFile(configPath)
 	if err == nil {
@@ -86,12 +77,12 @@ func writePactoConfig(registry, username, password string) error {
 	}
 
 	if cfg.Auths == nil {
-		cfg.Auths = make(map[string]pactoLoginAuth)
+		cfg.Auths = make(map[string]oci.PactoAuth)
 	}
 
 	// Base64-encode "username:password" per Docker convention.
 	encoded := encodeAuth(username, password)
-	cfg.Auths[registry] = pactoLoginAuth{Auth: encoded}
+	cfg.Auths[registry] = oci.PactoAuth{Auth: encoded}
 
 	out, err := jsonMarshalIndentFn(cfg, "", "  ")
 	if err != nil {

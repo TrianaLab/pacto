@@ -1,6 +1,9 @@
 package graph
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // Conflict represents a version conflict where the same service
 // is required at incompatible versions.
@@ -22,9 +25,13 @@ func detectConflicts(root *Node) []Conflict {
 			for v := range vs {
 				list = append(list, fmt.Sprintf("%s@%s", name, v))
 			}
+			sort.Strings(list)
 			conflicts = append(conflicts, Conflict{Name: name, Versions: list})
 		}
 	}
+	sort.Slice(conflicts, func(i, j int) bool {
+		return conflicts[i].Name < conflicts[j].Name
+	})
 	return conflicts
 }
 

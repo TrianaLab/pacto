@@ -111,9 +111,11 @@ func TestFindPlugin_InConfigDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Point HOME to our temp dir so UserHomeDir returns it, and empty PATH so
-	// LookPath won't find anything.
+	// Point HOME to our temp dir so UserHomeDir returns it, clear
+	// XDG_CONFIG_HOME so PactoConfigDir falls back to $HOME/.config, and
+	// empty PATH so LookPath won't find anything.
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("PATH", "")
 
 	path, err := findPlugin("test")

@@ -6,7 +6,7 @@ import (
 )
 
 func TestDiffSchema_BothFSNil(t *testing.T) {
-	changes := diffSchema("schema.json", nil, nil)
+	changes := diffSchema("schema.json", "schema.json", nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}
@@ -15,7 +15,7 @@ func TestDiffSchema_BothFSNil(t *testing.T) {
 func TestDiffSchema_EmptyPath(t *testing.T) {
 	oldFS := fstest.MapFS{}
 	newFS := fstest.MapFS{}
-	changes := diffSchema("", oldFS, newFS)
+	changes := diffSchema("", "", oldFS, newFS)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}
@@ -24,7 +24,7 @@ func TestDiffSchema_EmptyPath(t *testing.T) {
 func TestDiffSchema_BothReadError(t *testing.T) {
 	oldFS := fstest.MapFS{}
 	newFS := fstest.MapFS{}
-	changes := diffSchema("missing.json", oldFS, newFS)
+	changes := diffSchema("missing.json", "missing.json", oldFS, newFS)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}
@@ -35,7 +35,7 @@ func TestDiffSchema_OldReadError(t *testing.T) {
 	newFS := fstest.MapFS{
 		"schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{}}`)},
 	}
-	changes := diffSchema("schema.json", oldFS, newFS)
+	changes := diffSchema("schema.json", "schema.json", oldFS, newFS)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}
@@ -46,7 +46,7 @@ func TestDiffSchema_NewReadError(t *testing.T) {
 		"schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{}}`)},
 	}
 	newFS := fstest.MapFS{}
-	changes := diffSchema("schema.json", oldFS, newFS)
+	changes := diffSchema("schema.json", "schema.json", oldFS, newFS)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}

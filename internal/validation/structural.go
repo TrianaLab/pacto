@@ -26,6 +26,11 @@ func mustCompileSchema(data []byte) *jsonschema.Schema {
 	return s
 }
 
+// Function variable for testing.
+var addResourceFn = func(c *jsonschema.Compiler, url string, doc any) error {
+	return c.AddResource(url, doc)
+}
+
 func compileSchema(data []byte) (*jsonschema.Schema, error) {
 	c := jsonschema.NewCompiler()
 
@@ -34,7 +39,9 @@ func compileSchema(data []byte) (*jsonschema.Schema, error) {
 		return nil, fmt.Errorf("failed to unmarshal schema: %w", err)
 	}
 
-	_ = c.AddResource("pacto-v1.0.schema.json", schemaDoc)
+	if err := addResourceFn(c, "pacto-v1.0.schema.json", schemaDoc); err != nil {
+		return nil, fmt.Errorf("failed to add schema resource: %w", err)
+	}
 
 	schema, err := c.Compile("pacto-v1.0.schema.json")
 	if err != nil {

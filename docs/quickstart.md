@@ -95,7 +95,7 @@ Owner: team/my-team
 Pacto Version: 1.0
 
 Runtime:
-  Workload: service (finite)
+  Workload: service
   State: stateless
   Persistence: local/ephemeral
   Data Criticality: low

@@ -41,7 +41,7 @@ func diffRuntime(old, new *contract.Contract) []Change {
 	if oldRT.Health.Path != newRT.Health.Path {
 		changes = append(changes, newChange("runtime.health.path", Modified, oldRT.Health.Path, newRT.Health.Path))
 	}
-	if intPtrVal(oldRT.Health.InitialDelaySeconds) != intPtrVal(newRT.Health.InitialDelaySeconds) {
+	if intPtrChanged(oldRT.Health.InitialDelaySeconds, newRT.Health.InitialDelaySeconds) {
 		changes = append(changes, newChange("runtime.health.initialDelaySeconds", Modified,
 			intPtrVal(oldRT.Health.InitialDelaySeconds), intPtrVal(newRT.Health.InitialDelaySeconds)))
 	}
@@ -77,12 +77,22 @@ func diffLifecycle(old, new *contract.Lifecycle) []Change {
 		}
 		changes = append(changes, newChange("runtime.lifecycle.upgradeStrategy", ct, old.UpgradeStrategy, new.UpgradeStrategy))
 	}
-	if intPtrVal(old.GracefulShutdownSeconds) != intPtrVal(new.GracefulShutdownSeconds) {
+	if intPtrChanged(old.GracefulShutdownSeconds, new.GracefulShutdownSeconds) {
 		changes = append(changes, newChange("runtime.lifecycle.gracefulShutdownSeconds", Modified,
 			intPtrVal(old.GracefulShutdownSeconds), intPtrVal(new.GracefulShutdownSeconds)))
 	}
 
 	return changes
+}
+
+func intPtrChanged(a, b *int) bool {
+	if a == nil && b == nil {
+		return false
+	}
+	if a == nil || b == nil {
+		return true
+	}
+	return *a != *b
 }
 
 func intPtrVal(p *int) int {

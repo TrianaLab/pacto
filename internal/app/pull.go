@@ -21,8 +21,8 @@ type PullResult struct {
 
 // Pull fetches a contract bundle from an OCI registry and extracts it to disk.
 func (s *Service) Pull(ctx context.Context, opts PullOptions) (*PullResult, error) {
-	if s.BundleStore == nil {
-		return nil, fmt.Errorf("OCI registry client not configured")
+	if err := s.requireBundleStore(); err != nil {
+		return nil, err
 	}
 
 	bundle, err := s.BundleStore.Pull(ctx, opts.Ref)

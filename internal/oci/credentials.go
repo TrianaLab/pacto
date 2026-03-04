@@ -29,9 +29,9 @@ func SetUserHomeDirFn(fn func() (string, error)) func() (string, error) {
 	return old
 }
 
-// PactoConfigPath returns the path to pacto's dedicated config file.
-// It respects $XDG_CONFIG_HOME, defaulting to ~/.config/pacto/config.json.
-func PactoConfigPath() (string, error) {
+// PactoConfigDir returns the pacto configuration directory.
+// It respects $XDG_CONFIG_HOME, defaulting to ~/.config/pacto.
+func PactoConfigDir() (string, error) {
 	configDir := os.Getenv("XDG_CONFIG_HOME")
 	if configDir == "" {
 		home, err := userHomeDirFn()
@@ -40,7 +40,17 @@ func PactoConfigPath() (string, error) {
 		}
 		configDir = filepath.Join(home, ".config")
 	}
-	return filepath.Join(configDir, "pacto", "config.json"), nil
+	return filepath.Join(configDir, "pacto"), nil
+}
+
+// PactoConfigPath returns the path to pacto's dedicated config file.
+// It respects $XDG_CONFIG_HOME, defaulting to ~/.config/pacto/config.json.
+func PactoConfigPath() (string, error) {
+	dir, err := PactoConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.json"), nil
 }
 
 // NewKeychain builds a keychain that tries, in order:
@@ -76,11 +86,13 @@ func (k staticKeychain) Resolve(_ authn.Resource) (authn.Authenticator, error) {
 // pactoConfigKeychain reads credentials from pacto's dedicated config file.
 type pactoConfigKeychain struct{}
 
-type pactoConfig struct {
-	Auths map[string]pactoAuth `json:"auths"`
+// PactoConfig represents the structure of pacto's config.json file.
+type PactoConfig struct {
+	Auths map[string]PactoAuth `json:"auths"`
 }
 
-type pactoAuth struct {
+// PactoAuth represents a single registry auth entry.
+type PactoAuth struct {
 	Auth string `json:"auth"`
 }
 
@@ -95,7 +107,7 @@ func (k *pactoConfigKeychain) Resolve(target authn.Resource) (authn.Authenticato
 		return authn.Anonymous, nil
 	}
 
-	var cfg pactoConfig
+	var cfg PactoConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return authn.Anonymous, nil
 	}

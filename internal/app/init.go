@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -92,7 +93,7 @@ const defaultConfigSchema = `{
 `
 
 // Init scaffolds a new pacto project directory with the full bundle structure.
-func (s *Service) Init(opts InitOptions) (*InitResult, error) {
+func (s *Service) Init(_ context.Context, opts InitOptions) (*InitResult, error) {
 	name := opts.Name
 	if name == "" {
 		return nil, fmt.Errorf("service name is required")

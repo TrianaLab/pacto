@@ -25,7 +25,7 @@ func newExplainCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				return err
 			}
 
-			format := v.GetString("output-format")
+			format := v.GetString(outputFormatKey)
 			return printExplainResult(cmd, result, format)
 		},
 	}

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/trianalab/pacto/internal/oci"
@@ -26,4 +27,12 @@ func NewService(store oci.BundleStore, pluginRunner PluginRunner) *Service {
 		BundleStore:  store,
 		PluginRunner: pluginRunner,
 	}
+}
+
+// requireBundleStore returns an error if the BundleStore is not configured.
+func (s *Service) requireBundleStore() error {
+	if s.BundleStore == nil {
+		return fmt.Errorf("OCI registry client not configured")
+	}
+	return nil
 }

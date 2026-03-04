@@ -6,6 +6,7 @@ import "fmt"
 type ParseError struct {
 	Path    string
 	Message string
+	Err     error // underlying cause, if any
 }
 
 func (e *ParseError) Error() string {
@@ -13,6 +14,10 @@ func (e *ParseError) Error() string {
 		return fmt.Sprintf("parse error at %s: %s", e.Path, e.Message)
 	}
 	return fmt.Sprintf("parse error: %s", e.Message)
+}
+
+func (e *ParseError) Unwrap() error {
+	return e.Err
 }
 
 // ValidationError represents a validation failure that makes a contract invalid.
