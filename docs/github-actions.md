@@ -23,39 +23,7 @@ The [TrianaLab/pacto-actions](https://github.com/TrianaLab/pacto-actions) action
 
 After `setup`, the `pacto` binary is available for subsequent steps — so you can call any CLI command (like `pacto validate`) directly.
 
----
-
-## Quick example
-
-```yaml
-- uses: TrianaLab/pacto-actions@v1
-  with:
-    command: setup
-
-- run: pacto validate ./contracts/my-service
-
-- uses: TrianaLab/pacto-actions@v1
-  with:
-    command: diff
-    old: oci://ghcr.io/my-org/my-service:latest
-    new: ./contracts/my-service
-
-- uses: TrianaLab/pacto-actions@v1
-  if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-  env:
-    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  with:
-    command: push
-    ref: ghcr.io/my-org/my-service
-    path: ./contracts/my-service
-```
-
-{: .note }
-For `ghcr.io` registries, the default `GITHUB_TOKEN` already has the `write:packages` scope needed by the `push` command.
-
----
-
-## Further reading
+For usage examples, inputs, outputs, and advanced configuration see:
 
 - [Pacto CLI on GitHub Marketplace](https://github.com/marketplace/actions/pacto-cli)
-- [pacto-actions README](https://github.com/TrianaLab/pacto-actions) — full list of inputs, outputs, and advanced configuration
+- [pacto-actions README](https://github.com/TrianaLab/pacto-actions)
