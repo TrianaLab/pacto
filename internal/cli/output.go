@@ -196,6 +196,16 @@ func printGenerateResult(cmd *cobra.Command, result *app.GenerateResult, format 
 	})
 }
 
+func printDocResult(cmd *cobra.Command, result *app.DocResult, format string) error {
+	return formatResult(cmd, format, result, func() error {
+		_, _ = fmt.Fprint(cmd.OutOrStdout(), result.Markdown)
+		if result.Path != "" {
+			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Wrote %s\n", result.Path)
+		}
+		return nil
+	})
+}
+
 func printJSON(cmd *cobra.Command, v any) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")

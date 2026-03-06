@@ -517,6 +517,105 @@ func TestDiffCommand_OutputError(t *testing.T) {
 	}
 }
 
+func TestDocCommand(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("doc failed: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "# test-svc") {
+		t.Errorf("expected markdown heading, got %q", out.String())
+	}
+}
+
+func TestDocCommand_JSON(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--output-format", "json", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("doc json failed: %v", err)
+	}
+
+	if !strings.Contains(out.String(), `"markdown"`) {
+		t.Errorf("expected JSON output, got %q", out.String())
+	}
+}
+
+func TestDocCommand_WithOutput(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	outDir := filepath.Join(t.TempDir(), "docs")
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--output", outDir, bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("doc with output failed: %v", err)
+	}
+
+	expectedFile := filepath.Join(outDir, "test-svc.md")
+	if _, err := os.Stat(expectedFile); err != nil {
+		t.Errorf("expected output file %s to exist: %v", expectedFile, err)
+	}
+}
+
+func TestDocCommand_ServeFlag(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+
+	// Use a pre-cancelled context so the server starts then stops immediately.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--serve", "--port", "0", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+
+	// Execute should return nil (clean shutdown from cancelled context).
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("doc --serve failed: %v", err)
+	}
+}
+
+func TestDocCommand_ServeMutuallyExclusive(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--serve", "--output", "/tmp/out", bundleDir})
+
+	err := root.Execute()
+	if err == nil {
+		t.Error("expected error when --serve and --output are both set")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("expected mutually exclusive error, got: %v", err)
+	}
+}
+
+func TestDocCommand_Error(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "/nonexistent/dir"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Error("expected doc to fail for nonexistent directory")
+	}
+}
+
 func TestValidateCommand_OutputError(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)

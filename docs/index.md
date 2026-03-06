@@ -97,6 +97,7 @@ graph LR
     E --> G[pacto diff]
     E --> H[pacto graph]
     E --> I[pacto generate]
+    E --> J[pacto doc]
 ```
 
 | Command | Purpose |
@@ -109,6 +110,7 @@ graph LR
 | `pacto diff` | Compare two contracts and classify changes |
 | `pacto graph` | Resolve and visualize the dependency graph |
 | `pacto explain` | Human-readable contract summary |
+| `pacto doc` | Generate rich Markdown documentation from a contract |
 | `pacto generate` | Generate deployment artifacts via plugins |
 | `pacto login` | Authenticate with an OCI registry |
 | `pacto version` | Print version information |

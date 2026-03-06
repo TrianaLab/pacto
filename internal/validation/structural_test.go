@@ -7,6 +7,13 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
+func TestSchemaBytes(t *testing.T) {
+	data := SchemaBytes()
+	if len(data) == 0 {
+		t.Fatal("expected non-empty schema bytes")
+	}
+}
+
 func TestCompileSchema_InvalidJSON(t *testing.T) {
 	_, err := compileSchema([]byte("{invalid json!"))
 	if err == nil {

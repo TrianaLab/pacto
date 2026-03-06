@@ -387,6 +387,56 @@ func TestPrintGenerateResult_JSON(t *testing.T) {
 	}
 }
 
+func TestPrintDocResult_Text(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DocResult{
+		Markdown: "# my-svc\n\n| Field | Value |\n",
+	}
+	if err := printDocResult(cmd, result, "text"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "# my-svc") {
+		t.Errorf("expected markdown output, got %q", out)
+	}
+}
+
+func TestPrintDocResult_TextWithPath(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DocResult{
+		Markdown: "# my-svc\n",
+		Path:     "/tmp/docs/my-svc.md",
+	}
+	if err := printDocResult(cmd, result, "text"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "# my-svc") {
+		t.Errorf("expected markdown in output, got %q", out)
+	}
+	if !strings.Contains(out, "Wrote /tmp/docs/my-svc.md") {
+		t.Errorf("expected path notice in output, got %q", out)
+	}
+}
+
+func TestPrintDocResult_JSON(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DocResult{
+		Markdown: "# svc\n",
+		Path:     "/tmp/svc.md",
+	}
+	if err := printDocResult(cmd, result, "json"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"markdown"`) {
+		t.Errorf("expected JSON output with markdown field, got %q", out)
+	}
+	if !strings.Contains(out, `"path"`) {
+		t.Errorf("expected JSON output with path field, got %q", out)
+	}
+}
+
 func TestPrintDiffResult_WriteError(t *testing.T) {
 	cmd := &cobra.Command{Use: "test"}
 	cmd.SetOut(errWriter{})

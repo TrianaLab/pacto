@@ -248,6 +248,46 @@ pacto explain [dir | oci://ref]
 
 ---
 
+## `pacto doc`
+
+Generate rich Markdown documentation from a contract.
+
+```bash
+pacto doc [dir | oci://ref]
+```
+
+**Arguments & flags:**
+
+| Argument/Flag | Required | Description |
+|----------|----------|-------------|
+| `dir` | No | Directory containing `pacto.yaml` or `oci://` reference (default: current directory) |
+| `-o, --output` | No | Output directory for generated Markdown file |
+| `--serve` | No | Start a local HTTP server to view documentation in the browser |
+| `--port` | No | Port for the documentation server (default: `8484`, used with `--serve`) |
+
+`--serve` and `--output` are mutually exclusive.
+
+**Examples:**
+
+```bash
+# Print documentation to stdout
+pacto doc my-service
+
+# Write documentation to a file
+pacto doc my-service -o docs/
+
+# Serve documentation in the browser
+pacto doc my-service --serve
+
+# Serve on a custom port
+pacto doc my-service --serve --port 9090
+
+# Generate from an OCI reference
+pacto doc oci://ghcr.io/acme/my-service-pacto:1.0.0
+```
+
+---
+
 ## `pacto generate`
 
 Generate artifacts from a contract using a plugin.

@@ -30,7 +30,9 @@ graph TD
     APP --> GRAPH[internal/graph<br/>Dependency Resolver]
     APP --> OCI[internal/oci<br/>OCI Adapter]
     APP --> PLUG[internal/plugin<br/>Plugin Runner]
+    APP --> DOC[internal/doc<br/>Doc Generator]
     VAL --> CONTRACT[pkg/contract<br/>Domain Model]
+    DOC --> CONTRACT
     DIFF --> CONTRACT
     GRAPH --> CONTRACT
     OCI --> CONTRACT
@@ -95,6 +97,10 @@ Builds a dependency graph by recursively fetching contracts from OCI registries.
 ### `internal/oci` — OCI adapter
 
 Thin wrapper over `go-containerregistry`. Handles bundle-to-image translation, credential resolution, and error mapping.
+
+### `internal/doc` — Documentation generator
+
+Generates rich Markdown documentation from a contract. Reads OpenAPI specs, event contracts, and JSON Schema configuration to produce a comprehensive service document with architecture diagrams, interface tables, and configuration details. Includes an HTTP server for browser-based viewing.
 
 ### `internal/plugin` — Plugin system
 

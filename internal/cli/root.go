@@ -60,6 +60,7 @@ func NewRootCommand(svc *app.Service, version string) *cobra.Command {
 	root.AddCommand(newPullCommand(svc, v))
 	root.AddCommand(newGraphCommand(svc, v))
 	root.AddCommand(newExplainCommand(svc, v))
+	root.AddCommand(newDocCommand(svc, v))
 	root.AddCommand(newGenerateCommand(svc, v))
 	root.AddCommand(newLoginCommand())
 	root.AddCommand(newVersionCommand(version))

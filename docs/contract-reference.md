@@ -214,9 +214,9 @@ A plain string describing the workload type. Enum: `service`, `job`, `scheduled`
 
 | Value | Description |
 |-------|-------------|
-| `service` | Long-running process |
-| `job` | Runs to completion |
-| `scheduled` | Runs on a schedule |
+| `service` | A long-running process that serves requests continuously |
+| `job` | A one-shot task that runs to completion and then exits |
+| `scheduled` | A task that runs on a recurring schedule (e.g. cron) |
 
 #### `runtime.state`
 
@@ -226,12 +226,42 @@ A plain string describing the workload type. Enum: `service`, `job`, `scheduled`
 | `persistence` | [Persistence](#persistence) | Yes | |
 | `dataCriticality` | string | Yes | `low`, `medium`, `high` |
 
+**State type values:**
+
+| Value | Description |
+|-------|-------------|
+| `stateless` | Does not retain data between requests; any instance can handle any request |
+| `stateful` | Retains data between requests and requires stable storage or affinity |
+| `hybrid` | Handles requests statelessly but keeps selective in-memory or local state that enriches behaviour (e.g. an API with a local cache or in-memory session store) |
+
+**Data criticality values:**
+
+| Value | Description |
+|-------|-------------|
+| `low` | Loss of data has minimal business impact; can be regenerated or is non-essential |
+| `medium` | Loss of data has moderate business impact and may require manual recovery |
+| `high` | Loss of data has severe business impact and must be prevented |
+
 ##### Persistence
 
 | Field | Type | Required | Enum values |
 |-------|------|----------|-------------|
 | `scope` | string | Yes | `local`, `shared` |
 | `durability` | string | Yes | `ephemeral`, `persistent` |
+
+**Scope values:**
+
+| Value | Description |
+|-------|-------------|
+| `local` | Data is confined to a single instance and not shared across replicas |
+| `shared` | Data is shared across all instances via a common store |
+
+**Durability values:**
+
+| Value | Description |
+|-------|-------------|
+| `ephemeral` | Data can be lost on restart without impact; used for caches or reconstructible state |
+| `persistent` | Data must survive restarts and be durably stored |
 
 ##### State invariants
 

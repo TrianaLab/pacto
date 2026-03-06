@@ -12,6 +12,10 @@ import (
 //go:embed schema/pacto-v1.0.schema.json
 var schemaBytes []byte
 
+// SchemaBytes returns the raw embedded JSON Schema bytes.
+// This is used by the doc package to extract field descriptions.
+func SchemaBytes() []byte { return schemaBytes }
+
 var compiledSchema *jsonschema.Schema
 
 func init() {

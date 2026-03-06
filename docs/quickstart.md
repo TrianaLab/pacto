@@ -87,6 +87,9 @@ pacto pull ghcr.io/your-org/my-service-pacto:0.1.0
 
 ```bash
 pacto explain my-service
+
+# Or generate rich Markdown documentation
+pacto doc my-service
 ```
 
 ```
