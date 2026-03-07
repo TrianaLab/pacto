@@ -257,7 +257,7 @@ func writeMermaidDiagram(b *strings.Builder, c *contract.Contract, gr *graph.Res
 	fmt.Fprintln(b, "## Architecture")
 	fmt.Fprintln(b)
 	fmt.Fprintln(b, "```mermaid")
-	fmt.Fprintln(b, "graph LR")
+	fmt.Fprintln(b, "graph TB")
 
 	allContracts := collectAllContracts(c, gr)
 
@@ -278,12 +278,26 @@ func writeMermaidDiagram(b *strings.Builder, c *contract.Contract, gr *graph.Res
 }
 
 func collectAllContracts(c *contract.Contract, gr *graph.Result) []*contract.Contract {
-	all := []*contract.Contract{c}
-	if gr != nil && gr.Root != nil {
-		for _, node := range collectUniqueNodes(gr.Root) {
-			if node.Contract != nil {
-				all = append(all, node.Contract)
+	if gr == nil || gr.Root == nil {
+		return []*contract.Contract{c}
+	}
+	// BFS by depth so Mermaid renders services in natural layers (root → leaves).
+	var all []*contract.Contract
+	seen := map[string]bool{}
+	queue := []*graph.Node{gr.Root}
+	seen[gr.Root.Name] = true
+	for len(queue) > 0 {
+		node := queue[0]
+		queue = queue[1:]
+		if node.Contract != nil {
+			all = append(all, node.Contract)
+		}
+		for _, edge := range node.Dependencies {
+			if edge.Node == nil || edge.Shared || seen[edge.Node.Name] {
+				continue
 			}
+			seen[edge.Node.Name] = true
+			queue = append(queue, edge.Node)
 		}
 	}
 	return all
@@ -364,27 +378,6 @@ func writeServiceSubgraph(b *strings.Builder, c *contract.Contract, hasExternal 
 	}
 }
 
-func collectUniqueNodes(root *graph.Node) []*graph.Node {
-	var nodes []*graph.Node
-	seen := map[string]bool{}
-	walkCollectNodes(root, seen, &nodes)
-	return nodes
-}
-
-func walkCollectNodes(node *graph.Node, seen map[string]bool, nodes *[]*graph.Node) {
-	if node == nil {
-		return
-	}
-	for _, edge := range node.Dependencies {
-		if edge.Node == nil || edge.Shared || seen[edge.Node.Name] {
-			continue
-		}
-		seen[edge.Node.Name] = true
-		*nodes = append(*nodes, edge.Node)
-		walkCollectNodes(edge.Node, seen, nodes)
-	}
-}
-
 func writeMermaidEdges(b *strings.Builder, node *graph.Node) {
 	seen := map[string]bool{}
 	walkMermaidEdges(b, node, seen)
@@ -398,12 +391,14 @@ func walkMermaidEdges(b *strings.Builder, node *graph.Node, seen map[string]bool
 		if edge.Node == nil {
 			continue
 		}
-		key := node.Name + "-->" + edge.Node.Name
+		fromID := sanitizeMermaidID(node.Name)
+		toID := sanitizeMermaidID(edge.Node.Name)
+		key := fromID + "-->" + toID
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		fmt.Fprintf(b, "  %s --> %s\n", node.Name, edge.Node.Name)
+		fmt.Fprintf(b, "  %s --> %s\n", fromID, toID)
 		if !edge.Shared {
 			walkMermaidEdges(b, edge.Node, seen)
 		}

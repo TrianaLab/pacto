@@ -729,7 +729,7 @@ func TestWriteMermaidDiagram_WithGraphResult(t *testing.T) {
 
 	mustContain := []string{
 		"```mermaid",
-		"graph LR",
+		"graph TB",
 		// Root subgraph
 		`subgraph frontend["frontend v1.0.0"]`,
 		`external(["External User"])`,
@@ -835,10 +835,12 @@ func TestWalkMermaidEdges_NilNode(t *testing.T) {
 	}
 }
 
-func TestWalkCollectNodes_NilNode(t *testing.T) {
-	var nodes []*graph.Node
-	walkCollectNodes(nil, map[string]bool{}, &nodes)
-	if len(nodes) != 0 {
-		t.Errorf("expected no nodes for nil input, got %d", len(nodes))
+func TestCollectAllContracts_NilGraph(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+	}
+	all := collectAllContracts(c, nil)
+	if len(all) != 1 || all[0].Service.Name != "svc" {
+		t.Errorf("expected single contract for nil graph, got %d", len(all))
 	}
 }
