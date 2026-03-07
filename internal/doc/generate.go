@@ -327,10 +327,8 @@ func writeServiceSubgraph(b *strings.Builder, c *contract.Contract, hasExternal 
 		stateLabel += fmt.Sprintf(" · %d–%d replicas", c.Scaling.Min, c.Scaling.Max)
 	}
 	fmt.Fprintf(b, "    %s_state[(\"%s\")]\n", svcID, stateLabel)
-	fmt.Fprintln(b, "  end")
-	fmt.Fprintln(b)
 
-	// Interface nodes
+	// Interface nodes inside the subgraph
 	for _, iface := range c.Interfaces {
 		nodeID := svcID + "_iface_" + sanitizeMermaidID(iface.Name)
 		label := iface.Name + "<br/>" + iface.Type
@@ -343,8 +341,16 @@ func writeServiceSubgraph(b *strings.Builder, c *contract.Contract, hasExternal 
 		if iface.Name == c.Runtime.Health.Interface {
 			label += "<br/>♥ health"
 		}
-		fmt.Fprintf(b, "  %s[\"%s\"] --> %s\n", nodeID, label, svcID)
+		fmt.Fprintf(b, "    %s[\"%s\"]\n", nodeID, label)
+	}
+
+	fmt.Fprintln(b, "  end")
+	fmt.Fprintln(b)
+
+	// External user arrows to public interfaces
+	for _, iface := range c.Interfaces {
 		if hasExternal && iface.Visibility == contract.VisibilityPublic {
+			nodeID := svcID + "_iface_" + sanitizeMermaidID(iface.Name)
 			fmt.Fprintf(b, "  external --> %s\n", nodeID)
 		}
 	}
