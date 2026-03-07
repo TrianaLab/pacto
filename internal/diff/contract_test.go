@@ -59,6 +59,70 @@ func TestDiffScaling_MaxChanged(t *testing.T) {
 	}
 }
 
+func TestDiffScaling_ReplicasChanged(t *testing.T) {
+	oldR, newR := 3, 5
+	oldS := &contract.Scaling{Replicas: &oldR, Min: oldR, Max: oldR}
+	newS := &contract.Scaling{Replicas: &newR, Min: newR, Max: newR}
+	changes := diffScaling(oldS, newS)
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(changes))
+	}
+	if changes[0].Path != "scaling.replicas" {
+		t.Errorf("expected path scaling.replicas, got %s", changes[0].Path)
+	}
+}
+
+func TestDiffScaling_ReplicasUnchanged(t *testing.T) {
+	r := 3
+	oldS := &contract.Scaling{Replicas: &r, Min: r, Max: r}
+	newS := &contract.Scaling{Replicas: &r, Min: r, Max: r}
+	changes := diffScaling(oldS, newS)
+	if len(changes) != 0 {
+		t.Errorf("expected 0 changes, got %d", len(changes))
+	}
+}
+
+func TestDiffScaling_ReplicasToRange(t *testing.T) {
+	r := 3
+	oldS := &contract.Scaling{Replicas: &r, Min: r, Max: r}
+	newS := &contract.Scaling{Min: 1, Max: 5}
+	changes := diffScaling(oldS, newS)
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(changes))
+	}
+	if changes[0].Path != "scaling" || changes[0].Type != Modified {
+		t.Errorf("expected scaling Modified, got %s %s", changes[0].Path, changes[0].Type)
+	}
+}
+
+func TestDiffScaling_RangeToReplicas(t *testing.T) {
+	r := 3
+	oldS := &contract.Scaling{Min: 1, Max: 5}
+	newS := &contract.Scaling{Replicas: &r, Min: r, Max: r}
+	changes := diffScaling(oldS, newS)
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(changes))
+	}
+	if changes[0].Path != "scaling" || changes[0].Type != Modified {
+		t.Errorf("expected scaling Modified, got %s %s", changes[0].Path, changes[0].Type)
+	}
+}
+
+func TestDiffScaling_OldNilNewReplicas(t *testing.T) {
+	r := 3
+	newS := &contract.Scaling{Replicas: &r, Min: r, Max: r}
+	changes := diffScaling(nil, newS)
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(changes))
+	}
+	if changes[0].Type != Added {
+		t.Errorf("expected Added, got %s", changes[0].Type)
+	}
+	if changes[0].NewValue != "replicas=3" {
+		t.Errorf("expected 'replicas=3', got %v", changes[0].NewValue)
+	}
+}
+
 func TestDiffContract_OwnerAdded(t *testing.T) {
 	old := minimalContract()
 	old.Service.Owner = ""

@@ -80,6 +80,8 @@ scaling:
   max: 10
 ```
 
+Only `pactoVersion` and `service` are required — everything else is opt-in, so a contract can be as minimal or as detailed as your service needs.
+
 Platforms, CI, and tooling can now reason about the service automatically — no guessing, no wiki diving, no Slack archaeology.
 
 ---

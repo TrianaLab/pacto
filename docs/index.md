@@ -96,7 +96,7 @@ scaling:
   max: 10
 ```
 
-Every question a platform could ask — *What port? Stateful or stateless? What does it depend on? How should it scale?* — is answered in one file, validated by tooling, and versioned in a registry.
+Every question a platform could ask — *What port? Stateful or stateless? What does it depend on? How should it scale?* — is answered in one file, validated by tooling, and versioned in a registry. Only `pactoVersion` and `service` are required; everything else is opt-in, so a contract can be as minimal or as detailed as needed.
 
 ### What it enables
 

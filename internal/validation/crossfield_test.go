@@ -18,14 +18,14 @@ func validContract() *contract.Contract {
 		Interfaces: []contract.Interface{
 			{Name: "api", Type: "http", Port: &port, Visibility: "internal"},
 		},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State: contract.State{
 				Type:            "stateless",
 				Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
 				DataCriticality: "low",
 			},
-			Health: contract.Health{Interface: "api", Path: "/health"},
+			Health: &contract.Health{Interface: "api", Path: "/health"},
 		},
 	}
 }
@@ -278,7 +278,7 @@ func TestValidateHealthInterface_GRPCWithPath(t *testing.T) {
 	c.Interfaces = []contract.Interface{
 		{Name: "grpc", Type: "grpc", Port: &grpcPort, Contract: "service.proto"},
 	}
-	c.Runtime.Health = contract.Health{Interface: "grpc", Path: "/health"}
+	c.Runtime.Health = &contract.Health{Interface: "grpc", Path: "/health"}
 	var result ValidationResult
 	validateHealthInterface(c, &result)
 	if len(result.Warnings) == 0 {
@@ -288,7 +288,7 @@ func TestValidateHealthInterface_GRPCWithPath(t *testing.T) {
 
 func TestValidateHealthInterface_HTTPWithoutPath(t *testing.T) {
 	c := validContract()
-	c.Runtime.Health = contract.Health{Interface: "api", Path: ""}
+	c.Runtime.Health = &contract.Health{Interface: "api", Path: ""}
 	var result ValidationResult
 	validateHealthInterface(c, &result)
 	if result.IsValid() {

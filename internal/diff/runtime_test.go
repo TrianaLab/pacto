@@ -254,3 +254,30 @@ func TestDiffRuntime_HealthInitialDelayChanged(t *testing.T) {
 		t.Error("expected runtime.health.initialDelaySeconds change")
 	}
 }
+
+func TestDiffRuntime_BothNilRuntime(t *testing.T) {
+	old := &contract.Contract{Service: contract.ServiceIdentity{Name: "a", Version: "1.0.0"}}
+	new := &contract.Contract{Service: contract.ServiceIdentity{Name: "a", Version: "1.0.0"}}
+	changes := diffRuntime(old, new)
+	if len(changes) != 0 {
+		t.Errorf("expected 0 changes for nil runtimes, got %d", len(changes))
+	}
+}
+
+func TestDiffRuntime_OldNilRuntime(t *testing.T) {
+	old := &contract.Contract{Service: contract.ServiceIdentity{Name: "a", Version: "1.0.0"}}
+	new := minimalContract()
+	changes := diffRuntime(old, new)
+	if len(changes) == 0 {
+		t.Error("expected changes when runtime added")
+	}
+}
+
+func TestDiffRuntime_NewNilRuntime(t *testing.T) {
+	old := minimalContract()
+	new := &contract.Contract{Service: contract.ServiceIdentity{Name: "a", Version: "1.0.0"}}
+	changes := diffRuntime(old, new)
+	if len(changes) == 0 {
+		t.Error("expected changes when runtime removed")
+	}
+}

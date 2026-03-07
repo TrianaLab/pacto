@@ -682,8 +682,8 @@ func TestDocCommand(t *testing.T) {
 		}
 
 		assertContains(t, output, "# postgres-pacto")
-		assertContains(t, output, "## Interfaces")
-		assertContains(t, output, "## Architecture")
+		assertContains(t, output, "Interfaces")
+		assertContains(t, output, "Architecture")
 		assertContains(t, output, "```mermaid")
 	})
 

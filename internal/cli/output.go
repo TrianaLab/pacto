@@ -107,11 +107,13 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		}
 		_, _ = fmt.Fprintf(w, "Pacto Version: %s\n", result.PactoVersion)
 
-		_, _ = fmt.Fprintf(w, "\nRuntime:\n")
-		_, _ = fmt.Fprintf(w, "  Workload: %s\n", result.Runtime.WorkloadType)
-		_, _ = fmt.Fprintf(w, "  State: %s\n", result.Runtime.StateType)
-		_, _ = fmt.Fprintf(w, "  Persistence: %s/%s\n", result.Runtime.Scope, result.Runtime.Durability)
-		_, _ = fmt.Fprintf(w, "  Data Criticality: %s\n", result.Runtime.DataCriticality)
+		if result.Runtime.WorkloadType != "" {
+			_, _ = fmt.Fprintf(w, "\nRuntime:\n")
+			_, _ = fmt.Fprintf(w, "  Workload: %s\n", result.Runtime.WorkloadType)
+			_, _ = fmt.Fprintf(w, "  State: %s\n", result.Runtime.StateType)
+			_, _ = fmt.Fprintf(w, "  Persistence: %s/%s\n", result.Runtime.Scope, result.Runtime.Durability)
+			_, _ = fmt.Fprintf(w, "  Data Criticality: %s\n", result.Runtime.DataCriticality)
+		}
 
 		if len(result.Interfaces) > 0 {
 			_, _ = fmt.Fprintf(w, "\nInterfaces (%d):\n", len(result.Interfaces))
@@ -140,7 +142,11 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		}
 
 		if result.Scaling != nil {
-			_, _ = fmt.Fprintf(w, "\nScaling: %d-%d\n", result.Scaling.Min, result.Scaling.Max)
+			if result.Scaling.Replicas != nil {
+				_, _ = fmt.Fprintf(w, "\nScaling: %d replicas\n", *result.Scaling.Replicas)
+			} else {
+				_, _ = fmt.Fprintf(w, "\nScaling: %d-%d\n", result.Scaling.Min, result.Scaling.Max)
+			}
 		}
 
 		return nil

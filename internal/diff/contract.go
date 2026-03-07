@@ -53,11 +53,27 @@ func diffScaling(old, new *contract.Scaling) []Change {
 		return nil
 	}
 	if old == nil {
-		changes = append(changes, newChange("scaling", Added, nil, fmt.Sprintf("min=%d max=%d", new.Min, new.Max)))
+		changes = append(changes, newChange("scaling", Added, nil, formatScaling(new)))
 		return changes
 	}
 	if new == nil {
-		changes = append(changes, newChange("scaling", Removed, fmt.Sprintf("min=%d max=%d", old.Min, old.Max), nil))
+		changes = append(changes, newChange("scaling", Removed, formatScaling(old), nil))
+		return changes
+	}
+
+	// Detect mode change (replicas vs min/max range).
+	oldHasReplicas := old.Replicas != nil
+	newHasReplicas := new.Replicas != nil
+
+	if oldHasReplicas != newHasReplicas {
+		changes = append(changes, newChange("scaling", Modified, formatScaling(old), formatScaling(new)))
+		return changes
+	}
+
+	if oldHasReplicas {
+		if *old.Replicas != *new.Replicas {
+			changes = append(changes, newChange("scaling.replicas", Modified, *old.Replicas, *new.Replicas))
+		}
 		return changes
 	}
 
@@ -69,6 +85,13 @@ func diffScaling(old, new *contract.Scaling) []Change {
 	}
 
 	return changes
+}
+
+func formatScaling(s *contract.Scaling) string {
+	if s.Replicas != nil {
+		return fmt.Sprintf("replicas=%d", *s.Replicas)
+	}
+	return fmt.Sprintf("min=%d max=%d", s.Min, s.Max)
 }
 
 func formatImage(img *contract.Image) string {

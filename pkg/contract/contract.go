@@ -7,7 +7,7 @@ type Contract struct {
 	Interfaces    []Interface            `yaml:"interfaces" json:"interfaces"`
 	Configuration *Configuration         `yaml:"configuration,omitempty" json:"configuration,omitempty"`
 	Dependencies  []Dependency           `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
-	Runtime       Runtime                `yaml:"runtime" json:"runtime"`
+	Runtime       *Runtime               `yaml:"runtime,omitempty" json:"runtime,omitempty"`
 	Scaling       *Scaling               `yaml:"scaling,omitempty" json:"scaling,omitempty"`
 	Metadata      map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
@@ -66,7 +66,7 @@ type Runtime struct {
 	Workload  string     `yaml:"workload" json:"workload"`
 	State     State      `yaml:"state" json:"state"`
 	Lifecycle *Lifecycle `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
-	Health    Health     `yaml:"health" json:"health"`
+	Health    *Health    `yaml:"health,omitempty" json:"health,omitempty"`
 }
 
 // WorkloadType constants.
@@ -136,7 +136,9 @@ type Health struct {
 }
 
 // Scaling describes scaling parameters.
+// Either Replicas (exact count) or Min/Max (range) is set.
 type Scaling struct {
-	Min int `yaml:"min" json:"min"`
-	Max int `yaml:"max" json:"max"`
+	Replicas *int `yaml:"replicas,omitempty" json:"replicas,omitempty"`
+	Min      int  `yaml:"min,omitempty" json:"min,omitempty"`
+	Max      int  `yaml:"max,omitempty" json:"max,omitempty"`
 }

@@ -61,7 +61,7 @@ A single contract tells you:
 | `health.interface` + `health.path` | Configure liveness/readiness probes |
 | `lifecycle.upgradeStrategy: ordered` | Use OrderedReady pod management |
 | `lifecycle.gracefulShutdownSeconds` | Set `terminationGracePeriodSeconds` |
-| `scaling.min` / `scaling.max` | Configure HPA bounds |
+| `scaling.replicas` or `scaling.min` / `scaling.max` | Configure fixed replica count or HPA bounds |
 | `dependencies[].ref` | Validate graph, check compatibility |
 
 ---

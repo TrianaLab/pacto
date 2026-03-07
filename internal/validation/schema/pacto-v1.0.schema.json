@@ -3,7 +3,7 @@
   "$id": "https://pacto.trianalab.com/schema/v1.0",
   "title": "Pacto Service Contract v1.0",
   "type": "object",
-  "required": ["pactoVersion", "service", "interfaces", "runtime"],
+  "required": ["pactoVersion", "service"],
   "additionalProperties": false,
 
   "properties": {
@@ -56,7 +56,6 @@
     "interfaces": {
       "type": "array",
       "description": "The network interfaces the service exposes. Each interface declares how external or internal consumers can communicate with the service.",
-      "minItems": 1,
       "items": {
         "type": "object",
         "required": ["name", "type"],
@@ -160,7 +159,7 @@
     "runtime": {
       "type": "object",
       "description": "Describes how the service behaves at runtime: its workload pattern, state management, lifecycle policies, and health checks.",
-      "required": ["workload", "state", "health"],
+      "required": ["workload", "state"],
       "additionalProperties": false,
 
       "properties": {
@@ -302,10 +301,14 @@
 
     "scaling": {
       "type": "object",
-      "description": "Defines the minimum and maximum number of replicas the platform may run for this service.",
-      "required": ["min", "max"],
+      "description": "Defines replica count as either an exact number or a min/max range.",
       "additionalProperties": false,
       "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "An exact, fixed number of replicas. Mutually exclusive with min/max."
+        },
         "min": {
           "type": "integer",
           "minimum": 0,
@@ -316,7 +319,17 @@
           "minimum": 0,
           "description": "The maximum number of replicas the platform is allowed to scale up to."
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": ["replicas"],
+          "not": { "anyOf": [{ "required": ["min"] }, { "required": ["max"] }] }
+        },
+        {
+          "required": ["min", "max"],
+          "not": { "required": ["replicas"] }
+        }
+      ]
     },
 
     "metadata": {

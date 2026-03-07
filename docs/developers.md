@@ -38,9 +38,9 @@ pacto init my-service
 
 This scaffolds a contract with sensible defaults. Edit `pacto.yaml` to match your service.
 
-### 2. Declare your interfaces
+### 2. Declare your interfaces (optional)
 
-List every boundary your service exposes:
+List every boundary your service exposes. Services with no network interfaces (e.g. batch jobs or shared libraries) may omit this section:
 
 ```yaml
 interfaces:
@@ -58,9 +58,9 @@ interfaces:
 
 Include the actual interface files (OpenAPI specs, protobuf definitions, event schemas) in the bundle.
 
-### 3. Define your runtime semantics
+### 3. Define your runtime semantics (optional)
 
-This is where you tell the platform *how* your service behaves:
+This is where you tell the platform *how* your service behaves. Omit the entire `runtime` section for lightweight dependency-only contracts:
 
 ```yaml
 runtime:
@@ -185,6 +185,15 @@ runtime:
 scaling:
   min: 3
   max: 5
+```
+
+### Fixed-replica service
+
+Use `replicas` instead of `min`/`max` when the service should always run an exact number of instances:
+
+```yaml
+scaling:
+  replicas: 1
 ```
 
 ### Scheduled job

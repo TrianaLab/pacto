@@ -244,6 +244,37 @@ func TestExplainCommand_Error(t *testing.T) {
 	}
 }
 
+func TestExplainCommand_ScalingReplicas(t *testing.T) {
+	dir := t.TempDir()
+	bundleDir := filepath.Join(dir, "bundle")
+	if err := os.MkdirAll(bundleDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	yaml := []byte(`pactoVersion: "1.0"
+service:
+  name: test-svc
+  version: "1.0.0"
+scaling:
+  replicas: 3
+`)
+	if err := os.WriteFile(filepath.Join(bundleDir, "pacto.yaml"), yaml, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"explain", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("explain failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "3 replicas") {
+		t.Errorf("expected '3 replicas' in output, got %q", out.String())
+	}
+}
+
 func TestGenerateCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
@@ -409,10 +440,10 @@ func TestValidateCommand_Error(t *testing.T) {
 					PactoVersion: "1.0",
 					Service:      contract.ServiceIdentity{Name: "test-svc", Version: "1.0.0"},
 					Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
-					Runtime: contract.Runtime{
+					Runtime: &contract.Runtime{
 						Workload: "service",
 						State:    contract.State{Type: "stateless", Persistence: contract.Persistence{Scope: "local", Durability: "ephemeral"}, DataCriticality: "low"},
-						Health:   contract.Health{Interface: "api", Path: "/health"},
+						Health:   &contract.Health{Interface: "api", Path: "/health"},
 					},
 				},
 				FS: fstest.MapFS{}, // empty FS, missing pacto.yaml

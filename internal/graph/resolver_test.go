@@ -13,12 +13,12 @@ type mockFetcher struct {
 	contracts map[string]*contract.Contract
 }
 
-func (m *mockFetcher) Fetch(_ context.Context, ref string) (*contract.Contract, error) {
+func (m *mockFetcher) Fetch(_ context.Context, ref string) (*contract.Bundle, error) {
 	c, ok := m.contracts[ref]
 	if !ok {
 		return nil, fmt.Errorf("not found: %s", ref)
 	}
-	return c, nil
+	return &contract.Bundle{Contract: c}, nil
 }
 
 func TestResolve_NoDependencies(t *testing.T) {

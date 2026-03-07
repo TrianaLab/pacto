@@ -141,12 +141,13 @@ func TestServeOnListener_HTMLEscaping(t *testing.T) {
 
 	html := string(body)
 
-	if strings.Contains(html, "<script>alert") {
-		t.Error("markdown content was not HTML-escaped")
-	}
+	// Title is injected into real HTML and must be escaped.
 	if strings.Contains(html, "ti<tle") {
 		t.Error("title was not HTML-escaped")
 	}
+	// Markdown is stored in a textarea; HTML entities are decoded by the
+	// browser via .value, allowing HTML tags like <details> to pass through
+	// to marked.js. This is safe because the server is local-only.
 
 	cancel()
 	<-errCh

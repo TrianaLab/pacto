@@ -42,11 +42,10 @@ func Parse(r io.Reader) (*Contract, error) {
 		}
 	}
 
-	if len(c.Interfaces) == 0 {
-		return nil, &ParseError{
-			Path:    "interfaces",
-			Message: "at least one interface is required",
-		}
+	// Normalize: replicas shorthand sets min = max = replicas.
+	if c.Scaling != nil && c.Scaling.Replicas != nil {
+		c.Scaling.Min = *c.Scaling.Replicas
+		c.Scaling.Max = *c.Scaling.Replicas
 	}
 
 	return &c, nil

@@ -22,7 +22,7 @@ const htmlTemplate = `<!DOCTYPE html>
   </style>
 </head><body>
   <article class="markdown-body" id="content"></article>
-  <script id="md" type="text/markdown">{{MARKDOWN}}</script>
+  <textarea id="md" style="display:none">{{MARKDOWN}}</textarea>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>
   <script type="module">
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
@@ -44,7 +44,7 @@ const htmlTemplate = `<!DOCTYPE html>
     };
     marked.setOptions({ renderer });
     document.getElementById('content').innerHTML =
-      marked.parse(document.getElementById('md').textContent);
+      marked.parse(document.getElementById('md').value);
     await mermaid.run({ nodes: document.querySelectorAll('.mermaid') });
   </script>
 </body></html>`
