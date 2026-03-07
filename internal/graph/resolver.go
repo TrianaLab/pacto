@@ -3,14 +3,16 @@ package graph
 import (
 	"context"
 	"fmt"
+	"io/fs"
 
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
-// ContractFetcher fetches a contract from a remote reference.
-// Satisfied by an adapter over oci.BundleStore in the app layer.
+// ContractFetcher fetches a contract bundle from a dependency reference.
+// The returned bundle includes both the parsed contract and the bundle
+// filesystem, enabling documentation generation with spec files.
 type ContractFetcher interface {
-	Fetch(ctx context.Context, ref string) (*contract.Contract, error)
+	Fetch(ctx context.Context, ref string) (*contract.Bundle, error)
 }
 
 // Node represents a service in the dependency graph.
@@ -21,6 +23,7 @@ type Node struct {
 	Local        bool               `json:"local,omitempty"`
 	Dependencies []Edge             `json:"dependencies,omitempty"`
 	Contract     *contract.Contract `json:"-"`
+	FS           fs.FS              `json:"-"`
 }
 
 // Edge represents a dependency relationship.
@@ -100,23 +103,24 @@ func resolveEdge(ctx context.Context, dep contract.Dependency, fetcher ContractF
 		return edge
 	}
 
-	depContract, err := fetcher.Fetch(ctx, dep.Ref)
+	bundle, err := fetcher.Fetch(ctx, dep.Ref)
 	if err != nil {
 		edge.Error = err.Error()
 		return edge
 	}
 
 	node := &Node{
-		Name:     depContract.Service.Name,
-		Version:  depContract.Service.Version,
+		Name:     bundle.Contract.Service.Name,
+		Version:  bundle.Contract.Service.Version,
 		Ref:      dep.Ref,
 		Local:    local,
-		Contract: depContract,
+		Contract: bundle.Contract,
+		FS:       bundle.FS,
 	}
 	visited[dep.Ref] = node
 
 	childPath := append(append([]string{}, path...), dep.Ref)
-	for _, childDep := range depContract.Dependencies {
+	for _, childDep := range bundle.Contract.Dependencies {
 		childEdge := resolveEdge(ctx, childDep, fetcher, visited, childPath, cycles)
 		node.Dependencies = append(node.Dependencies, childEdge)
 	}

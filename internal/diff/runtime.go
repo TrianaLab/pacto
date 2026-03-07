@@ -7,10 +7,20 @@ import (
 // diffRuntime compares runtime semantics: workload, state, persistence,
 // lifecycle, and health.
 func diffRuntime(old, new *contract.Contract) []Change {
-	var changes []Change
+	if old.Runtime == nil && new.Runtime == nil {
+		return nil
+	}
 
+	var changes []Change
 	oldRT := old.Runtime
 	newRT := new.Runtime
+
+	if oldRT == nil {
+		oldRT = &contract.Runtime{}
+	}
+	if newRT == nil {
+		newRT = &contract.Runtime{}
+	}
 
 	// Workload
 	if oldRT.Workload != newRT.Workload {
@@ -35,17 +45,31 @@ func diffRuntime(old, new *contract.Contract) []Change {
 	changes = append(changes, diffLifecycle(oldRT.Lifecycle, newRT.Lifecycle)...)
 
 	// Health
-	if oldRT.Health.Interface != newRT.Health.Interface {
-		changes = append(changes, newChange("runtime.health.interface", Modified, oldRT.Health.Interface, newRT.Health.Interface))
-	}
-	if oldRT.Health.Path != newRT.Health.Path {
-		changes = append(changes, newChange("runtime.health.path", Modified, oldRT.Health.Path, newRT.Health.Path))
-	}
-	if intPtrChanged(oldRT.Health.InitialDelaySeconds, newRT.Health.InitialDelaySeconds) {
-		changes = append(changes, newChange("runtime.health.initialDelaySeconds", Modified,
-			intPtrVal(oldRT.Health.InitialDelaySeconds), intPtrVal(newRT.Health.InitialDelaySeconds)))
-	}
+	changes = append(changes, diffHealth(oldRT.Health, newRT.Health)...)
 
+	return changes
+}
+
+func diffHealth(old, new *contract.Health) []Change {
+	var changes []Change
+	oldIface, newIface := "", ""
+	oldPath, newPath := "", ""
+	var oldDelay, newDelay *int
+	if old != nil {
+		oldIface, oldPath, oldDelay = old.Interface, old.Path, old.InitialDelaySeconds
+	}
+	if new != nil {
+		newIface, newPath, newDelay = new.Interface, new.Path, new.InitialDelaySeconds
+	}
+	if oldIface != newIface {
+		changes = append(changes, newChange("runtime.health.interface", Modified, oldIface, newIface))
+	}
+	if oldPath != newPath {
+		changes = append(changes, newChange("runtime.health.path", Modified, oldPath, newPath))
+	}
+	if intPtrChanged(oldDelay, newDelay) {
+		changes = append(changes, newChange("runtime.health.initialDelaySeconds", Modified, intPtrVal(oldDelay), intPtrVal(newDelay)))
+	}
 	return changes
 }
 

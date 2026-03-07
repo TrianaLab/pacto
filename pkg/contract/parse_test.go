@@ -238,6 +238,33 @@ interfaces:
 	}
 }
 
+func TestParse_ScalingReplicasNormalized(t *testing.T) {
+	r := strings.NewReader(`
+pactoVersion: "1.0"
+service:
+  name: my-svc
+  version: "1.0.0"
+scaling:
+  replicas: 3
+`)
+	c, err := contract.Parse(r)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Scaling == nil {
+		t.Fatal("expected scaling to be present")
+	}
+	if c.Scaling.Replicas == nil || *c.Scaling.Replicas != 3 {
+		t.Error("expected replicas=3")
+	}
+	if c.Scaling.Min != 3 {
+		t.Errorf("expected min=3 (normalized), got %d", c.Scaling.Min)
+	}
+	if c.Scaling.Max != 3 {
+		t.Errorf("expected max=3 (normalized), got %d", c.Scaling.Max)
+	}
+}
+
 func TestParse_MissingInterfaces(t *testing.T) {
 	r := strings.NewReader(`
 pactoVersion: "1.0"
@@ -252,19 +279,12 @@ runtime:
       scope: local
       durability: ephemeral
     dataCriticality: low
-  health:
-    interface: api
-    path: /health
 `)
-	_, err := contract.Parse(r)
-	if err == nil {
-		t.Fatal("expected error for missing interfaces")
+	c, err := contract.Parse(r)
+	if err != nil {
+		t.Fatalf("interfaces should be optional, got error: %v", err)
 	}
-	pe, ok := err.(*contract.ParseError)
-	if !ok {
-		t.Fatalf("expected ParseError, got %T", err)
-	}
-	if pe.Path != "interfaces" {
-		t.Errorf("expected path interfaces, got %s", pe.Path)
+	if len(c.Interfaces) != 0 {
+		t.Errorf("expected 0 interfaces, got %d", len(c.Interfaces))
 	}
 }

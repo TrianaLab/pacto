@@ -64,15 +64,18 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		Version:      c.Service.Version,
 		Owner:        c.Service.Owner,
 		PactoVersion: c.PactoVersion,
-		Runtime: ExplainRuntime{
+		Scaling:      c.Scaling,
+		Metadata:     c.Metadata,
+	}
+
+	if c.Runtime != nil {
+		result.Runtime = ExplainRuntime{
 			WorkloadType:    c.Runtime.Workload,
 			StateType:       c.Runtime.State.Type,
 			Scope:           c.Runtime.State.Persistence.Scope,
 			Durability:      c.Runtime.State.Persistence.Durability,
 			DataCriticality: c.Runtime.State.DataCriticality,
-		},
-		Scaling:  c.Scaling,
-		Metadata: c.Metadata,
+		}
 	}
 
 	for _, iface := range c.Interfaces {

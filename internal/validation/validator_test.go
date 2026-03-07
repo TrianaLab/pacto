@@ -69,7 +69,7 @@ func TestValidate_ValidStateful(t *testing.T) {
 	}
 }
 
-func TestValidate_InvalidMissingRuntime(t *testing.T) {
+func TestValidate_MissingRuntime(t *testing.T) {
 	data := loadFixture(t, "testdata/invalid_missing_runtime.yaml")
 
 	f, err := os.Open("testdata/invalid_missing_runtime.yaml")
@@ -84,8 +84,8 @@ func TestValidate_InvalidMissingRuntime(t *testing.T) {
 	}
 
 	result := validation.Validate(c, data, nil)
-	if result.IsValid() {
-		t.Error("expected validation to fail for missing runtime fields")
+	if !result.IsValid() {
+		t.Errorf("runtime should be optional, got errors: %v", result.Errors)
 	}
 }
 

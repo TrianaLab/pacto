@@ -36,14 +36,14 @@ func testBundle() *contract.Bundle {
 			PactoVersion: "1.0",
 			Service:      contract.ServiceIdentity{Name: "test-svc", Version: "1.0.0"},
 			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
-			Runtime: contract.Runtime{
+			Runtime: &contract.Runtime{
 				Workload: "service",
 				State: contract.State{
 					Type:            "stateless",
 					Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
 					DataCriticality: "low",
 				},
-				Health: contract.Health{Interface: "api", Path: "/health"},
+				Health: &contract.Health{Interface: "api", Path: "/health"},
 			},
 		},
 		FS: fstest.MapFS{

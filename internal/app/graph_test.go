@@ -66,8 +66,8 @@ func TestDepFetcher_OCISuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if c.Service.Name != "test-svc" {
-		t.Errorf("expected test-svc, got %s", c.Service.Name)
+	if c.Contract.Service.Name != "test-svc" {
+		t.Errorf("expected test-svc, got %s", c.Contract.Service.Name)
 	}
 }
 
@@ -99,8 +99,8 @@ func TestDepFetcher_LocalSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if c.Service.Name != "test-svc" {
-		t.Errorf("expected test-svc, got %s", c.Service.Name)
+	if c.Contract.Service.Name != "test-svc" {
+		t.Errorf("expected test-svc, got %s", c.Contract.Service.Name)
 	}
 }
 
@@ -111,8 +111,8 @@ func TestDepFetcher_LocalAbsPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if c.Service.Name != "test-svc" {
-		t.Errorf("expected test-svc, got %s", c.Service.Name)
+	if c.Contract.Service.Name != "test-svc" {
+		t.Errorf("expected test-svc, got %s", c.Contract.Service.Name)
 	}
 }
 
@@ -123,8 +123,8 @@ func TestDepFetcher_FileScheme(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if c.Service.Name != "test-svc" {
-		t.Errorf("expected test-svc, got %s", c.Service.Name)
+	if c.Contract.Service.Name != "test-svc" {
+		t.Errorf("expected test-svc, got %s", c.Contract.Service.Name)
 	}
 }
 

@@ -138,14 +138,14 @@ func TestDoc_WithConfiguration(t *testing.T) {
 					Configuration: &contract.Configuration{
 						Schema: "configuration/schema.json",
 					},
-					Runtime: contract.Runtime{
+					Runtime: &contract.Runtime{
 						Workload: "service",
 						State: contract.State{
 							Type:            "stateless",
 							Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
 							DataCriticality: "low",
 						},
-						Health: contract.Health{Interface: "api", Path: "/health"},
+						Health: &contract.Health{Interface: "api", Path: "/health"},
 					},
 				},
 				FS: fstest.MapFS{
@@ -165,7 +165,7 @@ func TestDoc_WithConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(result.Markdown, "## Configuration") {
+	if !strings.Contains(result.Markdown, ". Configuration") {
 		t.Error("expected configuration section in markdown")
 	}
 	if !strings.Contains(result.Markdown, "`PORT`") {

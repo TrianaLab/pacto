@@ -6,12 +6,34 @@ import (
 	"io/fs"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/trianalab/pacto/internal/graph"
 	"github.com/trianalab/pacto/internal/validation"
 	"github.com/trianalab/pacto/pkg/contract"
 )
+
+// sectionNumberer tracks hierarchical section numbers (1, 1.1, 1.1.1, etc.).
+type sectionNumberer struct {
+	counters []int
+}
+
+// Next increments the counter at the given depth (1-based) and returns the
+// full section number string. Deeper levels are reset when a shallower level
+// is incremented.
+func (n *sectionNumberer) Next(depth int) string {
+	for len(n.counters) < depth {
+		n.counters = append(n.counters, 0)
+	}
+	n.counters = n.counters[:depth]
+	n.counters[depth-1]++
+	parts := make([]string, depth)
+	for i, v := range n.counters {
+		parts[i] = strconv.Itoa(v)
+	}
+	return strings.Join(parts, ".")
+}
 
 // schemaDescriptions maps "path.enumValue" to its x-enum-descriptions text.
 // Populated at init from the embedded JSON Schema.
@@ -70,14 +92,15 @@ func extractEnumDescriptions(props map[string]interface{}, prefix string, dst ma
 // If gr is non-nil, the Mermaid diagram will show the full transitive dependency graph.
 func Generate(c *contract.Contract, fsys fs.FS, gr *graph.Result) (string, error) {
 	var b strings.Builder
+	num := &sectionNumberer{}
 
 	fmt.Fprintf(&b, "# %s\n\n", c.Service.Name)
 	writeDescription(&b, c)
-	writeTableOfContents(&b, c)
-	writeMermaidDiagram(&b, c, gr)
-	writeInterfaces(&b, c, fsys)
-	writeConfiguration(&b, c, fsys)
-	writeDependencies(&b, c)
+	writeTableOfContents(&b, c, gr)
+	writeMermaidDiagram(&b, c, gr, num)
+	writeInterfaces(&b, c, fsys, num)
+	writeConfiguration(&b, c, fsys, num)
+	writeDependencies(&b, c, gr, num)
 
 	fmt.Fprintln(&b, "---")
 	fmt.Fprintln(&b)
@@ -116,7 +139,13 @@ func writeDescription(b *strings.Builder, c *contract.Contract) {
 }
 
 func buildSummaryParagraph(c *contract.Contract) string {
-	parts := []string{fmt.Sprintf("**%s** `v%s` is a `%s` `%s` workload", c.Service.Name, c.Service.Version, c.Runtime.State.Type, c.Runtime.Workload)}
+	var head string
+	if c.Runtime != nil {
+		head = fmt.Sprintf("**%s** `v%s` is a `%s` `%s` workload", c.Service.Name, c.Service.Version, c.Runtime.State.Type, c.Runtime.Workload)
+	} else {
+		head = fmt.Sprintf("**%s** `v%s`", c.Service.Name, c.Service.Version)
+	}
+	parts := []string{head}
 	if len(c.Interfaces) > 0 {
 		noun := "interface"
 		if len(c.Interfaces) > 1 {
@@ -133,23 +162,39 @@ func buildSummaryParagraph(c *contract.Contract) string {
 	}
 	sentence := strings.Join(parts, " ") + "."
 
-	var details []string
-	if c.Service.Owner != "" {
-		details = append(details, fmt.Sprintf("owned by `%s`", c.Service.Owner))
-	}
-	if c.Service.Image != nil {
-		details = append(details, fmt.Sprintf("packaged as `%s`", c.Service.Image.Ref))
-	}
-	if c.Scaling != nil {
-		details = append(details, fmt.Sprintf("scales from `%d` to `%d` replicas", c.Scaling.Min, c.Scaling.Max))
-	}
-	if len(details) > 0 {
+	if details := buildSummaryDetails(c); len(details) > 0 {
 		sentence += " " + capitalizeFirst(strings.Join(details, ", ")) + "."
 	}
 	return sentence
 }
 
+func buildSummaryDetails(c *contract.Contract) []string {
+	var details []string
+	if c.Service.Owner != "" {
+		details = append(details, fmt.Sprintf("owned by `%s`", c.Service.Owner))
+	}
+	if c.Service.Image != nil {
+		visibility := "public"
+		if c.Service.Image.Private {
+			visibility = "private"
+		}
+		details = append(details, fmt.Sprintf("packaged as `%s` (`%s`)", c.Service.Image.Ref, visibility))
+	}
+	if c.Scaling != nil {
+		if c.Scaling.Replicas != nil {
+			details = append(details, fmt.Sprintf("runs `%d` replicas", *c.Scaling.Replicas))
+		} else {
+			details = append(details, fmt.Sprintf("scales from `%d` to `%d` replicas", c.Scaling.Min, c.Scaling.Max))
+		}
+	}
+	return details
+}
+
 func buildConceptRows(c *contract.Contract) []conceptRow {
+	if c.Runtime == nil {
+		return nil
+	}
+
 	var rows []conceptRow
 
 	// Workload and state type
@@ -194,7 +239,7 @@ func appendPersistenceRows(rows []conceptRow, c *contract.Contract) []conceptRow
 }
 
 func appendLifecycleRows(rows []conceptRow, c *contract.Contract) []conceptRow {
-	if c.Runtime.Lifecycle == nil {
+	if c.Runtime == nil || c.Runtime.Lifecycle == nil {
 		return rows
 	}
 	if c.Runtime.Lifecycle.UpgradeStrategy != "" {
@@ -208,27 +253,61 @@ func appendLifecycleRows(rows []conceptRow, c *contract.Contract) []conceptRow {
 	return rows
 }
 
-func writeTableOfContents(b *strings.Builder, c *contract.Contract) {
+// headingAnchor generates a markdown-compatible anchor from a heading string.
+// It lowercases, replaces spaces with hyphens, and strips colons and dots.
+func headingAnchor(s string) string {
+	a := strings.ToLower(s)
+	a = strings.ReplaceAll(a, " ", "-")
+	a = strings.ReplaceAll(a, ":", "")
+	a = strings.ReplaceAll(a, ".", "")
+	return a
+}
+
+func writeTableOfContents(b *strings.Builder, c *contract.Contract, gr *graph.Result) {
+	num := &sectionNumberer{}
 	fmt.Fprintln(b, "## Table of Contents")
 	fmt.Fprintln(b)
-	fmt.Fprintln(b, "- [Architecture](#architecture)")
+	archSec := num.Next(1)
+	fmt.Fprintf(b, "- [%s. Architecture](#%s)\n", archSec, headingAnchor(archSec+". Architecture"))
 	if len(c.Interfaces) > 0 {
-		fmt.Fprintln(b, "- [Interfaces](#interfaces)")
+		sec := num.Next(1)
+		fmt.Fprintf(b, "- [%s. Interfaces](#%s)\n", sec, headingAnchor(sec+". Interfaces"))
 		for _, iface := range c.Interfaces {
 			heading := interfaceHeading(iface)
-			anchor := strings.ToLower(heading)
-			anchor = strings.ReplaceAll(anchor, " ", "-")
-			anchor = strings.ReplaceAll(anchor, ":", "")
-			fmt.Fprintf(b, "  - [%s](#%s)\n", heading, anchor)
+			isec := num.Next(2)
+			fmt.Fprintf(b, "  - [%s. %s](#%s)\n", isec, heading, headingAnchor(isec+". "+heading))
 		}
 	}
 	if c.Configuration != nil && c.Configuration.Schema != "" {
-		fmt.Fprintln(b, "- [Configuration](#configuration)")
+		sec := num.Next(1)
+		fmt.Fprintf(b, "- [%s. Configuration](#%s)\n", sec, headingAnchor(sec+". Configuration"))
 	}
 	if len(c.Dependencies) > 0 {
-		fmt.Fprintln(b, "- [Dependencies](#dependencies)")
+		sec := num.Next(1)
+		fmt.Fprintf(b, "- [%s. Dependencies](#%s)\n", sec, headingAnchor(sec+". Dependencies"))
+		for _, node := range collectFlatDependencyNodes(gr) {
+			writeDependencyTOCEntry(b, node, num)
+		}
 	}
 	fmt.Fprintln(b)
+}
+
+func writeDependencyTOCEntry(b *strings.Builder, node *graph.Node, num *sectionNumberer) {
+	dc := node.Contract
+	anchor := "dep-" + sanitizeMermaidID(dc.Service.Name)
+	fmt.Fprintf(b, "  - [%s. %s](#%s)\n", num.Next(2), dc.Service.Name, anchor)
+	if dc.Runtime != nil {
+		fmt.Fprintf(b, "    - [%s. Runtime](#%s-runtime)\n", num.Next(3), anchor)
+	}
+	if len(dc.Interfaces) > 0 {
+		fmt.Fprintf(b, "    - [%s. Interfaces](#%s-interfaces)\n", num.Next(3), anchor)
+	}
+	if dc.Configuration != nil && dc.Configuration.Schema != "" {
+		fmt.Fprintf(b, "    - [%s. Configuration](#%s-configuration)\n", num.Next(3), anchor)
+	}
+	if len(dc.Dependencies) > 0 {
+		fmt.Fprintf(b, "    - [%s. Dependencies](#%s-dependencies)\n", num.Next(3), anchor)
+	}
 }
 
 var nonAlphanumeric = regexp.MustCompile(`[^a-zA-Z0-9]`)
@@ -253,9 +332,8 @@ func depName(ref string) string {
 	return name
 }
 
-func writeMermaidDiagram(b *strings.Builder, c *contract.Contract, gr *graph.Result) {
-	fmt.Fprintln(b, "## Architecture")
-	fmt.Fprintln(b)
+func writeMermaidDiagram(b *strings.Builder, c *contract.Contract, gr *graph.Result, num *sectionNumberer) {
+	fmt.Fprintf(b, "## %s. Architecture\n\n", num.Next(1))
 	fmt.Fprintln(b, "```mermaid")
 	fmt.Fprintln(b, "graph TB")
 
@@ -336,40 +414,56 @@ func writeDependencyEdges(b *strings.Builder, c *contract.Contract, gr *graph.Re
 	}
 }
 
-func writeServiceSubgraph(b *strings.Builder, c *contract.Contract, hasExternal bool) {
-	svcID := sanitizeMermaidID(c.Service.Name)
-	svcLabel := fmt.Sprintf("%s v%s", c.Service.Name, c.Service.Version)
-	fmt.Fprintf(b, "  subgraph %s[\"%s\"]\n", svcID, svcLabel)
-	fmt.Fprintln(b, "    direction TB")
-	stateLabel := fmt.Sprintf("%s · %s criticality", c.Runtime.State.Type, c.Runtime.State.DataCriticality)
+func buildStateLabel(c *contract.Contract) string {
+	label := fmt.Sprintf("%s · %s criticality", c.Runtime.State.Type, c.Runtime.State.DataCriticality)
 	if c.Runtime.State.Persistence.Scope != "" {
-		stateLabel += fmt.Sprintf(" · %s %s", c.Runtime.State.Persistence.Scope, c.Runtime.State.Persistence.Durability)
+		label += fmt.Sprintf(" · %s %s", c.Runtime.State.Persistence.Scope, c.Runtime.State.Persistence.Durability)
 	}
 	if c.Scaling != nil {
-		stateLabel += fmt.Sprintf(" · %d–%d replicas", c.Scaling.Min, c.Scaling.Max)
+		if c.Scaling.Replicas != nil {
+			label += fmt.Sprintf(" · %d replicas", *c.Scaling.Replicas)
+		} else {
+			label += fmt.Sprintf(" · %d–%d replicas", c.Scaling.Min, c.Scaling.Max)
+		}
 	}
-	fmt.Fprintf(b, "    %s_state[(\"%s\")]\n", svcID, stateLabel)
+	return label
+}
 
-	// Interface nodes inside the subgraph
+func buildIfaceLabel(iface contract.Interface, c *contract.Contract) string {
+	label := iface.Name + "<br/>" + iface.Type
+	if iface.Port != nil {
+		label += fmt.Sprintf(" :%d", *iface.Port)
+	}
+	if iface.Visibility != "" {
+		label += "<br/>" + iface.Visibility
+	}
+	if c.Runtime != nil && c.Runtime.Health != nil && iface.Name == c.Runtime.Health.Interface {
+		label += "<br/>♥ health"
+	}
+	return label
+}
+
+func writeServiceSubgraph(b *strings.Builder, c *contract.Contract, hasExternal bool) {
+	svcID := sanitizeMermaidID(c.Service.Name)
+	fmt.Fprintf(b, "  subgraph %s[\"%s v%s\"]\n", svcID, c.Service.Name, c.Service.Version)
+	fmt.Fprintln(b, "    direction TB")
+	hasInnerNodes := false
+	if c.Runtime != nil {
+		hasInnerNodes = true
+		fmt.Fprintf(b, "    %s_state[(\"%s\")]\n", svcID, buildStateLabel(c))
+	}
+	if len(c.Interfaces) > 0 {
+		hasInnerNodes = true
+	}
 	for _, iface := range c.Interfaces {
 		nodeID := svcID + "_iface_" + sanitizeMermaidID(iface.Name)
-		label := iface.Name + "<br/>" + iface.Type
-		if iface.Port != nil {
-			label += fmt.Sprintf(" :%d", *iface.Port)
-		}
-		if iface.Visibility != "" {
-			label += "<br/>" + iface.Visibility
-		}
-		if iface.Name == c.Runtime.Health.Interface {
-			label += "<br/>♥ health"
-		}
-		fmt.Fprintf(b, "    %s[\"%s\"]\n", nodeID, label)
+		fmt.Fprintf(b, "    %s[\"%s\"]\n", nodeID, buildIfaceLabel(iface, c))
 	}
-
+	if !hasInnerNodes {
+		fmt.Fprintf(b, "    %s_info[\"%s\"]\n", svcID, c.Service.Name)
+	}
 	fmt.Fprintln(b, "  end")
 	fmt.Fprintln(b)
-
-	// External user arrows to public interfaces
 	for _, iface := range c.Interfaces {
 		if hasExternal && iface.Visibility == contract.VisibilityPublic {
 			nodeID := svcID + "_iface_" + sanitizeMermaidID(iface.Name)
@@ -405,17 +499,10 @@ func walkMermaidEdges(b *strings.Builder, node *graph.Node, seen map[string]bool
 	}
 }
 
-func writeInterfaces(b *strings.Builder, c *contract.Contract, fsys fs.FS) {
-	if len(c.Interfaces) == 0 {
-		return
-	}
-
-	fmt.Fprintln(b, "## Interfaces")
-	fmt.Fprintln(b)
+func writeInterfacesTable(b *strings.Builder, interfaces []contract.Interface) {
 	fmt.Fprintln(b, "| Name | Type | Port | Visibility |")
 	fmt.Fprintln(b, "|------|------|------|------------|")
-
-	for _, iface := range c.Interfaces {
+	for _, iface := range interfaces {
 		port := "\u2014"
 		if iface.Port != nil {
 			port = fmt.Sprintf("`%d`", *iface.Port)
@@ -427,39 +514,25 @@ func writeInterfaces(b *strings.Builder, c *contract.Contract, fsys fs.FS) {
 		fmt.Fprintf(b, "| `%s` | `%s` | %s | %s |\n", iface.Name, iface.Type, port, vis)
 	}
 	fmt.Fprintln(b)
+}
 
-	// Detail subsections for each interface
+func writeInterfaceDetails(b *strings.Builder, c *contract.Contract, fsys fs.FS, level int, num *sectionNumberer) {
+	var health *contract.Health
+	if c.Runtime != nil {
+		health = c.Runtime.Health
+	}
 	for _, iface := range c.Interfaces {
 		if iface.Type == contract.InterfaceTypeHTTP {
-			writeHTTPInterfaceDetail(b, iface, c.Runtime.Health, fsys)
+			writeHTTPInterfaceDetailLevel(b, iface, health, fsys, level, num)
 		} else {
-			writeNonHTTPInterfaceDetail(b, iface, c.Runtime.Health)
+			writeNonHTTPInterfaceDetailLevel(b, iface, health, level, num)
 		}
 	}
 }
 
-func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS) {
-	if c.Configuration == nil || c.Configuration.Schema == "" {
-		return
-	}
-
-	props, err := readSchemaProperties(fsys, c.Configuration.Schema)
-	if err != nil {
-		fmt.Fprintln(b, "## Configuration")
-		fmt.Fprintln(b)
-		fmt.Fprintf(b, "_Could not read configuration schema: %v_\n\n", err)
-		return
-	}
-
-	if len(props) == 0 {
-		return
-	}
-
-	fmt.Fprintln(b, "## Configuration")
-	fmt.Fprintln(b)
+func writeConfigurationTable(b *strings.Builder, props []Property) {
 	fmt.Fprintln(b, "| Property | Type | Description | Default | Required |")
 	fmt.Fprintln(b, "|----------|------|-------------|---------|----------|")
-
 	for _, p := range props {
 		def := "\u2014"
 		if p.Default != "" {
@@ -478,6 +551,36 @@ func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS) {
 	fmt.Fprintln(b)
 }
 
+func writeInterfaces(b *strings.Builder, c *contract.Contract, fsys fs.FS, num *sectionNumberer) {
+	if len(c.Interfaces) == 0 {
+		return
+	}
+
+	fmt.Fprintf(b, "## %s. Interfaces\n\n", num.Next(1))
+	writeInterfacesTable(b, c.Interfaces)
+	writeInterfaceDetails(b, c, fsys, 3, num)
+}
+
+func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, num *sectionNumberer) {
+	if c.Configuration == nil || c.Configuration.Schema == "" {
+		return
+	}
+
+	props, err := readSchemaProperties(fsys, c.Configuration.Schema)
+	if err != nil {
+		fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
+		fmt.Fprintf(b, "_Could not read configuration schema: %v_\n\n", err)
+		return
+	}
+
+	if len(props) == 0 {
+		return
+	}
+
+	fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
+	writeConfigurationTable(b, props)
+}
+
 func interfaceHeading(iface contract.Interface) string {
 	switch iface.Type {
 	case contract.InterfaceTypeHTTP:
@@ -491,8 +594,8 @@ func interfaceHeading(iface contract.Interface) string {
 	}
 }
 
-func healthSuffix(ifaceName string, health contract.Health) string {
-	if health.Interface != ifaceName {
+func healthSuffix(ifaceName string, health *contract.Health) string {
+	if health == nil || health.Interface != ifaceName {
 		return ""
 	}
 	var parts []string
@@ -520,8 +623,8 @@ func writeInterfaceSentence(iface contract.Interface) string {
 	return s
 }
 
-func writeHTTPInterfaceDetail(b *strings.Builder, iface contract.Interface, health contract.Health, fsys fs.FS) {
-	fmt.Fprintf(b, "### %s\n\n", interfaceHeading(iface))
+func writeHTTPInterfaceDetailLevel(b *strings.Builder, iface contract.Interface, health *contract.Health, fsys fs.FS, level int, num *sectionNumberer) {
+	writeHeading(b, level, interfaceHeading(iface), num)
 	fmt.Fprintf(b, "%s.%s\n\n", writeInterfaceSentence(iface), healthSuffix(iface.Name, health))
 
 	if iface.Contract == "" {
@@ -538,8 +641,6 @@ func writeHTTPInterfaceDetail(b *strings.Builder, iface contract.Interface, heal
 		return
 	}
 
-	fmt.Fprintln(b, "#### Endpoints")
-	fmt.Fprintln(b)
 	fmt.Fprintln(b, "| Method | Path | Summary |")
 	fmt.Fprintln(b, "|--------|------|---------|")
 
@@ -553,14 +654,28 @@ func writeHTTPInterfaceDetail(b *strings.Builder, iface contract.Interface, heal
 	fmt.Fprintln(b)
 }
 
-func writeNonHTTPInterfaceDetail(b *strings.Builder, iface contract.Interface, health contract.Health) {
-	fmt.Fprintf(b, "### %s\n\n", interfaceHeading(iface))
+func writeNonHTTPInterfaceDetailLevel(b *strings.Builder, iface contract.Interface, health *contract.Health, level int, num *sectionNumberer) {
+	writeHeading(b, level, interfaceHeading(iface), num)
 
 	desc := writeInterfaceSentence(iface)
 	if iface.Contract != "" {
 		desc += fmt.Sprintf(". Its contract is defined in `%s`", iface.Contract)
 	}
 	fmt.Fprintf(b, "%s.%s\n\n", desc, healthSuffix(iface.Name, health))
+}
+
+// writeHeading writes a heading at the given level. Levels 1-4 use markdown (#),
+// levels 5+ use HTML tags. The numberer depth is hLevel-1 (h2 → depth 1, h3 → depth 2, etc.).
+func writeHeading(b *strings.Builder, hLevel int, text string, num *sectionNumberer) {
+	prefix := ""
+	if num != nil {
+		prefix = num.Next(hLevel-1) + ". "
+	}
+	if hLevel <= 4 {
+		fmt.Fprintf(b, "%s %s%s\n\n", strings.Repeat("#", hLevel), prefix, text)
+	} else {
+		fmt.Fprintf(b, "<h%d>%s%s</h%d>\n\n", hLevel, prefix, text, hLevel)
+	}
 }
 
 func capitalizeFirst(s string) string {
@@ -570,23 +685,100 @@ func capitalizeFirst(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-func writeDependencies(b *strings.Builder, c *contract.Contract) {
+func writeDependencies(b *strings.Builder, c *contract.Contract, gr *graph.Result, num *sectionNumberer) {
 	if len(c.Dependencies) == 0 {
 		return
 	}
 
-	fmt.Fprintln(b, "## Dependencies")
-	fmt.Fprintln(b)
+	fmt.Fprintf(b, "## %s. Dependencies\n\n", num.Next(1))
+	writeDependencyTable(b, c.Dependencies)
+
+	if gr != nil && gr.Root != nil {
+		nodes := collectFlatDependencyNodes(gr)
+		for _, node := range nodes {
+			writeDependencyDetail(b, node, num)
+		}
+	}
+}
+
+// collectFlatDependencyNodes returns all unique resolved dependency nodes
+// in DFS-discovery order, flattened (no nesting).
+func collectFlatDependencyNodes(gr *graph.Result) []*graph.Node {
+	if gr == nil || gr.Root == nil {
+		return nil
+	}
+	var nodes []*graph.Node
+	seen := map[string]bool{}
+	var walk func(edges []graph.Edge)
+	walk = func(edges []graph.Edge) {
+		for _, edge := range edges {
+			if edge.Node == nil || edge.Node.Contract == nil || seen[edge.Node.Name] {
+				continue
+			}
+			seen[edge.Node.Name] = true
+			nodes = append(nodes, edge.Node)
+			walk(edge.Node.Dependencies)
+		}
+	}
+	walk(gr.Root.Dependencies)
+	return nodes
+}
+
+func writeDependencyTable(b *strings.Builder, deps []contract.Dependency) {
 	fmt.Fprintln(b, "| Reference | Compatibility | Required |")
 	fmt.Fprintln(b, "|-----------|---------------|----------|")
-
-	for _, dep := range c.Dependencies {
+	for _, dep := range deps {
 		req := "No"
 		if dep.Required {
 			req = "Yes"
 		}
 		fmt.Fprintf(b, "| `%s` | `%s` | %s |\n", dep.Ref, dep.Compatibility, req)
 	}
+	fmt.Fprintln(b)
+}
+
+func writeDependencyDetail(b *strings.Builder, node *graph.Node, num *sectionNumberer) {
+	dc := node.Contract
+	anchor := "dep-" + sanitizeMermaidID(dc.Service.Name)
+	depSec := num.Next(2)
+	fmt.Fprintf(b, "<details id=\"%s\">\n<summary><h3>%s. %s <code>v%s</code></h3></summary>\n\n", anchor, depSec, dc.Service.Name, dc.Service.Version)
+	fmt.Fprintln(b, buildSummaryParagraph(dc))
+	fmt.Fprintln(b)
+
+	rows := buildConceptRows(dc)
+	if len(rows) > 0 {
+		fmt.Fprintf(b, "<h4 id=\"%s-runtime\">%s. Runtime</h4>\n\n", anchor, num.Next(3))
+		fmt.Fprintln(b, "| Concept | Value | Description |")
+		fmt.Fprintln(b, "|---------|-------|-------------|")
+		for _, row := range rows {
+			fmt.Fprintf(b, "| **%s** | `%s` | %s |\n", row.concept, row.value, row.desc)
+		}
+		fmt.Fprintln(b)
+	}
+
+	if len(dc.Interfaces) > 0 {
+		fmt.Fprintf(b, "<h4 id=\"%s-interfaces\">%s. Interfaces</h4>\n\n", anchor, num.Next(3))
+		writeInterfacesTable(b, dc.Interfaces)
+		writeInterfaceDetails(b, dc, node.FS, 5, num)
+	}
+
+	if dc.Configuration != nil && dc.Configuration.Schema != "" && node.FS != nil {
+		props, err := readSchemaProperties(node.FS, dc.Configuration.Schema)
+		if err != nil {
+			fmt.Fprintf(b, "<h4 id=\"%s-configuration\">%s. Configuration</h4>\n\n", anchor, num.Next(3))
+			fmt.Fprintf(b, "_Could not read configuration schema: %v_\n\n", err)
+		} else if len(props) > 0 {
+			fmt.Fprintf(b, "<h4 id=\"%s-configuration\">%s. Configuration</h4>\n\n", anchor, num.Next(3))
+			writeConfigurationTable(b, props)
+		}
+	}
+
+	if len(dc.Dependencies) > 0 {
+		fmt.Fprintf(b, "<h4 id=\"%s-dependencies\">%s. Dependencies</h4>\n\n", anchor, num.Next(3))
+		writeDependencyTable(b, dc.Dependencies)
+	}
+
+	fmt.Fprintln(b, "</details>")
 	fmt.Fprintln(b)
 }
 

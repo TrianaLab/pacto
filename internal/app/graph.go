@@ -57,7 +57,7 @@ func (s *Service) newDepFetcher(baseRef string) graph.ContractFetcher {
 	return &depFetcher{store: s.BundleStore, baseDir: base}
 }
 
-func (f *depFetcher) Fetch(ctx context.Context, ref string) (*contract.Contract, error) {
+func (f *depFetcher) Fetch(ctx context.Context, ref string) (*contract.Bundle, error) {
 	parsed := graph.ParseDependencyRef(ref)
 	if parsed.IsLocal() {
 		return f.fetchLocal(parsed)
@@ -65,21 +65,13 @@ func (f *depFetcher) Fetch(ctx context.Context, ref string) (*contract.Contract,
 	if f.store == nil {
 		return nil, fmt.Errorf("OCI store not configured (cannot fetch %s)", ref)
 	}
-	bundle, err := f.store.Pull(ctx, parsed.Location)
-	if err != nil {
-		return nil, err
-	}
-	return bundle.Contract, nil
+	return f.store.Pull(ctx, parsed.Location)
 }
 
-func (f *depFetcher) fetchLocal(ref graph.DependencyRef) (*contract.Contract, error) {
+func (f *depFetcher) fetchLocal(ref graph.DependencyRef) (*contract.Bundle, error) {
 	path := ref.Location
 	if !filepath.IsAbs(path) && f.baseDir != "" {
 		path = filepath.Join(f.baseDir, path)
 	}
-	bundle, err := loadLocalBundle(path)
-	if err != nil {
-		return nil, err
-	}
-	return bundle.Contract, nil
+	return loadLocalBundle(path)
 }

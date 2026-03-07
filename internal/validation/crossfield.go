@@ -94,6 +94,9 @@ func validateInterfaceContracts(c *contract.Contract, result *ValidationResult) 
 }
 
 func validateHealthInterface(c *contract.Contract, result *ValidationResult) {
+	if c.Runtime == nil || c.Runtime.Health == nil {
+		return
+	}
 	healthIface := c.Runtime.Health.Interface
 
 	var found *contract.Interface
@@ -240,7 +243,7 @@ func validateScaling(c *contract.Contract, result *ValidationResult) {
 }
 
 func validateJobScaling(c *contract.Contract, result *ValidationResult) {
-	if c.Runtime.Workload == contract.WorkloadTypeJob && c.Scaling != nil {
+	if c.Runtime != nil && c.Runtime.Workload == contract.WorkloadTypeJob && c.Scaling != nil {
 		result.AddError(
 			"scaling",
 			"JOB_SCALING_NOT_ALLOWED",
@@ -250,6 +253,9 @@ func validateJobScaling(c *contract.Contract, result *ValidationResult) {
 }
 
 func validateStatePersistenceInvariants(c *contract.Contract, result *ValidationResult) {
+	if c.Runtime == nil {
+		return
+	}
 	// Invariant: stateless services must use ephemeral durability.
 	if c.Runtime.State.Type == contract.StateStateless &&
 		c.Runtime.State.Persistence.Durability == contract.DurabilityPersistent {

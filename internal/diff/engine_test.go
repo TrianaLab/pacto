@@ -20,14 +20,14 @@ func minimalContract() *contract.Contract {
 			{Name: "api", Type: "http", Port: &port, Visibility: "internal", Contract: "interfaces/openapi.yaml"},
 		},
 		Configuration: &contract.Configuration{Schema: "configuration/schema.json"},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State: contract.State{
 				Type:            "stateless",
 				Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
 				DataCriticality: "low",
 			},
-			Health: contract.Health{Interface: "api", Path: "/health"},
+			Health: &contract.Health{Interface: "api", Path: "/health"},
 		},
 		Scaling: &contract.Scaling{Min: 1, Max: 3},
 	}

@@ -57,7 +57,7 @@ func fullContract() *contract.Contract {
 				Compatibility: "~1.0.0",
 			},
 		},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State: contract.State{
 				Type:            "stateful",
@@ -71,7 +71,7 @@ func fullContract() *contract.Contract {
 				UpgradeStrategy:         "rolling",
 				GracefulShutdownSeconds: intPtr(30),
 			},
-			Health: contract.Health{
+			Health: &contract.Health{
 				Interface:           "rest-api",
 				Path:                "/health",
 				InitialDelaySeconds: intPtr(15),
@@ -146,14 +146,14 @@ func TestGenerate_Full(t *testing.T) {
 		{"upgrade strategy row", "| **Upgrade strategy** | `rolling` |"},
 		{"contract reference link", "[Contract Reference](https://trianalab.github.io/pacto/contract-reference/)"},
 		{"TOC heading", "## Table of Contents"},
-		{"TOC Architecture link", "- [Architecture](#architecture)"},
-		{"TOC Interfaces link", "- [Interfaces](#interfaces)"},
-		{"TOC Configuration link", "- [Configuration](#configuration)"},
-		{"TOC Dependencies link", "- [Dependencies](#dependencies)"},
-		{"TOC HTTP sub-link", "  - [HTTP Interface: rest-api](#http-interface-rest-api)"},
-		{"TOC gRPC sub-link", "  - [gRPC Interface: grpc-api](#grpc-interface-grpc-api)"},
-		{"TOC Event sub-link", "  - [Event Interface: order-events](#event-interface-order-events)"},
-		{"architecture section", "## Architecture"},
+		{"TOC Architecture link", "- [1. Architecture](#1-architecture)"},
+		{"TOC Interfaces link", "- [2. Interfaces](#2-interfaces)"},
+		{"TOC Configuration link", "- [3. Configuration](#3-configuration)"},
+		{"TOC Dependencies link", "- [4. Dependencies](#4-dependencies)"},
+		{"TOC HTTP sub-link", "  - [2.1. HTTP Interface: rest-api](#21-http-interface-rest-api)"},
+		{"TOC gRPC sub-link", "  - [2.2. gRPC Interface: grpc-api](#22-grpc-interface-grpc-api)"},
+		{"TOC Event sub-link", "  - [2.3. Event Interface: order-events](#23-event-interface-order-events)"},
+		{"architecture section", "## 1. Architecture"},
 		{"mermaid block", "```mermaid"},
 		{"subgraph", "subgraph"},
 		{"service name+version in subgraph", "payments-api v2.1.0"},
@@ -171,21 +171,21 @@ func TestGenerate_Full(t *testing.T) {
 		{"auth dep name in mermaid", `"auth-service-pacto"`},
 		{"notification dep name in mermaid", `"notification-service-pacto"`},
 		{"health label in mermaid", "<br/>♥ health"},
-		{"interfaces section", "## Interfaces"},
+		{"interfaces section", "## 2. Interfaces"},
 		{"rest-api in interfaces table", "| `rest-api` | `http` | `8080` | `public` |"},
-		{"configuration section", "## Configuration"},
+		{"configuration section", "## 3. Configuration"},
 		{"PORT property in configuration", "| `PORT` | `integer` | HTTP server port | `8080` | Yes |"},
-		{"HTTP interface subsection", "### HTTP Interface: rest-api"},
-		{"endpoints heading", "#### Endpoints"},
+		{"HTTP interface subsection", "### 2.1. HTTP Interface: rest-api"},
+		{"no separate endpoints heading", "| Method | Path | Summary |"},
 		{"GET /health endpoint", "| `GET` | `/health` | Health check |"},
 		{"POST /payments endpoint", "| `POST` | `/payments` | Create a payment |"},
-		{"gRPC interface subsection", "### gRPC Interface: grpc-api"},
+		{"gRPC interface subsection", "### 2.2. gRPC Interface: grpc-api"},
 		{"gRPC contract reference", "Its contract is defined in `interfaces/service.proto`"},
-		{"Event interface subsection", "### Event Interface: order-events"},
-		{"dependencies section", "## Dependencies"},
+		{"Event interface subsection", "### 2.3. Event Interface: order-events"},
+		{"dependencies section", "## 4. Dependencies"},
 		{"auth dependency", "| `ghcr.io/acme/auth-service-pacto@sha256:abc123` | `^2.0.0` | Yes |"},
 		{"notification dependency", "| `ghcr.io/acme/notification-service-pacto:1.0.0` | `~1.0.0` | No |"},
-		{"image ref in description", "packaged as `ghcr.io/acme/payments-api:2.1.0`"},
+		{"image ref in description", "packaged as `ghcr.io/acme/payments-api:2.1.0` (`private`)"},
 		{"health path in interface", "owns the health path under `/health`"},
 		{"initial delay in interface", "requires an initial delay of `15s`"},
 		{"verbal description rest-api", "The `rest-api` interface is `public` and exposes port `8080`."},
@@ -232,7 +232,7 @@ func TestGenerate_Minimal(t *testing.T) {
 		Interfaces: []contract.Interface{
 			{Name: "api", Type: "http", Port: intPtr(8080)},
 		},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State: contract.State{
 				Type:            "stateless",
@@ -278,8 +278,8 @@ func TestGenerate_Minimal(t *testing.T) {
 		{"no dependency dashed arrows", "-.->|"},
 		{"no scaling replicas", "replicas"},
 		{"no external user", "External User"},
-		{"no Configuration section", "## Configuration"},
-		{"no Dependencies section", "## Dependencies"},
+		{"no Configuration section", ". Configuration"},
+		{"no Dependencies section", ". Dependencies"},
 	}
 
 	for _, tc := range mustNotContain {
@@ -288,6 +288,29 @@ func TestGenerate_Minimal(t *testing.T) {
 				t.Errorf("unexpected %q in output", tc.substr)
 			}
 		})
+	}
+}
+
+func TestGenerate_ScalingReplicas(t *testing.T) {
+	r := 3
+	c := &contract.Contract{
+		PactoVersion: "1.0",
+		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			State:    contract.State{Type: "stateless", DataCriticality: "low", Persistence: contract.Persistence{Scope: "local", Durability: "ephemeral"}},
+		},
+		Scaling: &contract.Scaling{Replicas: &r, Min: r, Max: r},
+	}
+	md, err := Generate(c, fstest.MapFS{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(md, "Runs `3` replicas") {
+		t.Error("expected 'Runs `3` replicas' in output")
+	}
+	if !strings.Contains(md, "3 replicas") {
+		t.Error("expected '3 replicas' in mermaid diagram")
 	}
 }
 
@@ -309,7 +332,7 @@ func TestGenerate_MissingSpecFiles(t *testing.T) {
 		Configuration: &contract.Configuration{
 			Schema: "configuration/schema.json",
 		},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
 		},
@@ -327,11 +350,30 @@ func TestGenerate_MissingSpecFiles(t *testing.T) {
 	}
 }
 
+func TestGenerate_LogicalWrapper(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion: "1.0",
+		Service:      contract.ServiceIdentity{Name: "my-wrapper", Version: "1.0.0"},
+	}
+
+	md, err := Generate(c, fstest.MapFS{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(md, `mywrapper_info["my-wrapper"]`) {
+		t.Error("expected placeholder node with service name in mermaid subgraph")
+	}
+	if !strings.Contains(md, `subgraph mywrapper["my-wrapper v1.0.0"]`) {
+		t.Error("expected subgraph for wrapper service")
+	}
+}
+
 func TestGenerate_NoInterfaces(t *testing.T) {
 	c := &contract.Contract{
 		PactoVersion: "1.0",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
 		},
@@ -342,7 +384,7 @@ func TestGenerate_NoInterfaces(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if strings.Contains(md, "## Interfaces") {
+	if strings.Contains(md, ". Interfaces") {
 		t.Error("should not contain Interfaces section when there are none")
 	}
 }
@@ -354,7 +396,7 @@ func TestGenerate_InterfaceWithoutPort(t *testing.T) {
 		Interfaces: []contract.Interface{
 			{Name: "events", Type: "event", Visibility: "internal"},
 		},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
 		},
@@ -409,7 +451,7 @@ func TestGenerate_LifecycleWithEmptyUpgradeStrategy(t *testing.T) {
 		PactoVersion: "1.0",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
 			Lifecycle: &contract.Lifecycle{
@@ -436,10 +478,10 @@ func TestGenerate_HTTPInterfaceWithoutContract(t *testing.T) {
 		Interfaces: []contract.Interface{
 			{Name: "api", Type: "http", Port: intPtr(8080), Visibility: "public"},
 		},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
-			Health:   contract.Health{Interface: "api"},
+			Health:   &contract.Health{Interface: "api"},
 		},
 	}
 
@@ -449,10 +491,10 @@ func TestGenerate_HTTPInterfaceWithoutContract(t *testing.T) {
 	}
 
 	// Should have the interface heading but no endpoints section
-	if !strings.Contains(md, "### HTTP Interface: api") {
+	if !strings.Contains(md, "### 2.1. HTTP Interface: api") {
 		t.Error("expected HTTP interface subsection")
 	}
-	if strings.Contains(md, "#### Endpoints") {
+	if strings.Contains(md, "Endpoints") {
 		t.Error("should not contain endpoints section when no contract")
 	}
 }
@@ -464,7 +506,7 @@ func TestGenerate_HTTPInterfaceWithEmptySpec(t *testing.T) {
 		Interfaces: []contract.Interface{
 			{Name: "api", Type: "http", Port: intPtr(8080), Contract: "interfaces/openapi.yaml"},
 		},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
 		},
@@ -483,10 +525,10 @@ info:
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(md, "### HTTP Interface: api") {
+	if !strings.Contains(md, "### 2.1. HTTP Interface: api") {
 		t.Error("expected HTTP interface subsection")
 	}
-	if strings.Contains(md, "#### Endpoints") {
+	if strings.Contains(md, "Endpoints") {
 		t.Error("should not contain endpoints section for empty spec")
 	}
 }
@@ -511,7 +553,7 @@ func TestGenerate_ConfigurationSchemaError(t *testing.T) {
 		Configuration: &contract.Configuration{
 			Schema: "configuration/schema.json",
 		},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
 		},
@@ -527,8 +569,8 @@ func TestGenerate_ConfigurationSchemaError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Empty properties should not produce a Configuration section
-	if strings.Contains(md, "## Configuration") {
+	// Empty properties should not produce a Configuration section heading (## N. Configuration)
+	if strings.Contains(md, "## ") && strings.Contains(md, ". Configuration\n\n") {
 		t.Error("should not contain Configuration section when properties are empty")
 	}
 }
@@ -541,7 +583,7 @@ func TestGenerate_ConfigPropertyWithoutDescription(t *testing.T) {
 		Configuration: &contract.Configuration{
 			Schema: "configuration/schema.json",
 		},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
 		},
@@ -561,7 +603,7 @@ func TestGenerate_ConfigPropertyWithoutDescription(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(md, "## Configuration") {
+	if !strings.Contains(md, "Configuration") {
 		t.Error("expected configuration section")
 	}
 	// Property without description should show em-dash
@@ -577,7 +619,7 @@ func TestGenerate_EndpointWithoutSummary(t *testing.T) {
 		Interfaces: []contract.Interface{
 			{Name: "api", Type: "http", Port: intPtr(8080), Contract: "interfaces/openapi.yaml"},
 		},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
 		},
@@ -644,48 +686,81 @@ func TestWriteMermaidDiagram_WithGraphResult(t *testing.T) {
 		Interfaces: []contract.Interface{
 			{Name: "http", Type: "http", Port: intPtr(3000), Visibility: "public"},
 		},
-		Runtime: contract.Runtime{
+		Dependencies: []contract.Dependency{
+			{Ref: "reg/backend:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "reg/keycloak:26.0.0", Required: false, Compatibility: "^26.0.0"},
+		},
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
-			Health:   contract.Health{Interface: "http", Path: "/health"},
+			Health:   &contract.Health{Interface: "http", Path: "/health"},
 		},
 	}
 	backendContract := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "backend", Version: "1.0.0"},
 		Interfaces: []contract.Interface{
-			{Name: "api", Type: "http", Port: intPtr(8080), Visibility: "public"},
+			{Name: "api", Type: "http", Port: intPtr(8080), Visibility: "public", Contract: "interfaces/openapi.yaml"},
 		},
-		Runtime: contract.Runtime{
+		Dependencies: []contract.Dependency{
+			{Ref: "reg/postgres:16.4.0", Required: true, Compatibility: "^16.0.0"},
+		},
+		Configuration: &contract.Configuration{Schema: "configuration/schema.json"},
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
-			Health:   contract.Health{Interface: "api", Path: "/health"},
+			Health:   &contract.Health{Interface: "api", Path: "/health"},
 		},
+	}
+	backendFS := fstest.MapFS{
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte(`
+openapi: "3.0.0"
+paths:
+  /health:
+    get:
+      summary: Health check
+  /api/items:
+    get:
+      summary: List items
+    post:
+      summary: Create item
+`)},
+		"configuration/schema.json": &fstest.MapFile{Data: []byte(`{
+  "type": "object",
+  "properties": {
+    "PORT": { "type": "integer", "description": "HTTP port", "default": 8080 },
+    "DB_URL": { "type": "string", "description": "Database connection string" }
+  },
+  "required": ["DB_URL"]
+}`)},
 	}
 	postgresContract := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "postgres", Version: "16.4.0"},
 		Interfaces: []contract.Interface{
 			{Name: "tcp", Type: "http", Port: intPtr(5432), Visibility: "internal"},
 		},
-		Runtime: contract.Runtime{
+		Configuration: &contract.Configuration{Schema: "configuration/schema.json"},
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State: contract.State{
 				Type:            "stateful",
 				DataCriticality: "high",
 				Persistence:     contract.Persistence{Scope: "local", Durability: "persistent"},
 			},
-			Health: contract.Health{Interface: "tcp", Path: "/health"},
+			Health: &contract.Health{Interface: "tcp", Path: "/health"},
 		},
 		Scaling: &contract.Scaling{Min: 1, Max: 1},
 	}
+	// FS without the schema file — triggers config error path in dependency detail
+	postgresFS := fstest.MapFS{}
 	keycloakContract := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "keycloak", Version: "26.0.0"},
 		Interfaces: []contract.Interface{
 			{Name: "http", Type: "http", Port: intPtr(8080), Visibility: "public"},
 		},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
-			Health:   contract.Health{Interface: "http", Path: "/health"},
+			Health:   &contract.Health{Interface: "http", Path: "/health"},
 		},
 	}
 
@@ -701,8 +776,9 @@ func TestWriteMermaidDiagram_WithGraphResult(t *testing.T) {
 						Name:     "backend",
 						Version:  "1.0.0",
 						Contract: backendContract,
+						FS:       backendFS,
 						Dependencies: []graph.Edge{
-							{Ref: "reg/postgres:16.4.0", Node: &graph.Node{Name: "postgres", Version: "16.4.0", Contract: postgresContract}},
+							{Ref: "reg/postgres:16.4.0", Node: &graph.Node{Name: "postgres", Version: "16.4.0", Contract: postgresContract, FS: postgresFS}},
 							{Ref: "reg/keycloak:26.0.0", Shared: true, Node: &graph.Node{Name: "keycloak", Version: "26.0.0"}},
 						},
 					},
@@ -755,6 +831,44 @@ func TestWriteMermaidDiagram_WithGraphResult(t *testing.T) {
 		"backend --> postgres",
 		"backend --> keycloak",
 		"keycloak --> postgres",
+		// Dependency details (collapsed, flat)
+		`<details id="dep-backend">`,
+		`<summary><h3>3.1. backend <code>v1.0.0</code></h3></summary>`,
+		`<details id="dep-keycloak">`,
+		`<details id="dep-postgres">`,
+		`<summary><h3>3.2. postgres <code>v16.4.0</code></h3></summary>`,
+		`<details id="dep-keycloak">`,
+		`<summary><h3>3.3. keycloak <code>v26.0.0</code></h3></summary>`,
+		"</details>",
+		// Backend's interface table
+		"| `api` | `http` | `8080` |",
+		// Subsection headings with ids
+		`<h4 id="dep-backend-runtime">3.1.1. Runtime</h4>`,
+		`<h4 id="dep-backend-interfaces">3.1.2. Interfaces</h4>`,
+		`<h4 id="dep-backend-configuration">3.1.3. Configuration</h4>`,
+		`<h4 id="dep-backend-dependencies">3.1.4. Dependencies</h4>`,
+		// Interface detail inside dependency uses h5/h6
+		"<h5>3.1.2.1. HTTP Interface: api</h5>",
+		"| `GET` | `/health` | Health check |",
+		"| `GET` | `/api/items` | List items |",
+		"| `POST` | `/api/items` | Create item |",
+		// Configuration inside dependency
+		"| `PORT` | `integer` | HTTP port | `8080` | No |",
+		"| `DB_URL` | `string` | Database connection string |",
+		// TOC dependency sub-items with subsections
+		"  - [3.1. backend](#dep-backend)",
+		"    - [3.1.1. Runtime](#dep-backend-runtime)",
+		"    - [3.1.2. Interfaces](#dep-backend-interfaces)",
+		"    - [3.1.3. Configuration](#dep-backend-configuration)",
+		"    - [3.1.4. Dependencies](#dep-backend-dependencies)",
+		"  - [3.2. postgres](#dep-postgres)",
+		"  - [3.3. keycloak](#dep-keycloak)",
+		// Config error in dependency detail (postgres has FS but missing schema file)
+		"_Could not read configuration schema:",
+		// TOC main section anchors match numbered headings
+		"- [1. Architecture](#1-architecture)",
+		"- [2. Interfaces](#2-interfaces)",
+		"- [3. Dependencies](#3-dependencies)",
 	}
 	for _, s := range mustContain {
 		if !strings.Contains(md, s) {
@@ -768,7 +882,7 @@ func TestWriteMermaidDiagram_DuplicateEdges(t *testing.T) {
 		PactoVersion: "1.0",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
 		},
@@ -802,7 +916,7 @@ func TestWriteMermaidDiagram_NilEdgeNode(t *testing.T) {
 		PactoVersion: "1.0",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
-		Runtime: contract.Runtime{
+		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
 		},
@@ -842,5 +956,30 @@ func TestCollectAllContracts_NilGraph(t *testing.T) {
 	all := collectAllContracts(c, nil)
 	if len(all) != 1 || all[0].Service.Name != "svc" {
 		t.Errorf("expected single contract for nil graph, got %d", len(all))
+	}
+}
+
+func TestGenerate_MinimalContract(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion: "1.0",
+		Service: contract.ServiceIdentity{
+			Name:    "minimal",
+			Version: "0.1.0",
+			Image:   &contract.Image{Ref: "ghcr.io/acme/minimal:0.1.0"},
+		},
+	}
+	fsys := fstest.MapFS{}
+	out, err := Generate(c, fsys, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "**minimal** `v0.1.0`") {
+		t.Error("expected service name in output")
+	}
+	if strings.Contains(out, "workload") {
+		t.Error("should not contain runtime details for minimal contract")
+	}
+	if !strings.Contains(out, "Packaged as `ghcr.io/acme/minimal:0.1.0` (`public`)") {
+		t.Error("expected public image ref in output")
 	}
 }

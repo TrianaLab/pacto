@@ -15,7 +15,7 @@ func ValidateSemantic(c *contract.Contract) ValidationResult {
 }
 
 func validateUpgradeStrategyConsistency(c *contract.Contract, result *ValidationResult) {
-	if c.Runtime.Lifecycle == nil {
+	if c.Runtime == nil || c.Runtime.Lifecycle == nil {
 		return
 	}
 	if c.Runtime.Lifecycle.UpgradeStrategy == contract.UpgradeStrategyOrdered &&
