@@ -82,13 +82,13 @@ flowchart LR
 ### 1. Pull a service contract
 
 ```bash
-pacto pull ghcr.io/acme/payments-api-pacto:2.1.0
+pacto pull oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
 ### 2. Inspect it
 
 ```bash
-pacto explain ghcr.io/acme/payments-api-pacto:2.1.0
+pacto explain oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
 ```
@@ -107,7 +107,7 @@ Interfaces (2):
   - grpc-api (grpc, port 9090, internal)
 
 Dependencies (1):
-  - ghcr.io/acme/auth-pacto@sha256:abc123 (^2.0.0, required)
+  - oci://ghcr.io/acme/auth-pacto@sha256:abc123 (^2.0.0, required)
 
 Scaling: 2-10
 ```
@@ -116,8 +116,8 @@ Scaling: 2-10
 
 ```bash
 pacto diff \
-  ghcr.io/acme/payments-api-pacto:2.0.0 \
-  ghcr.io/acme/payments-api-pacto:2.1.0
+  oci://ghcr.io/acme/payments-api-pacto:2.0.0 \
+  oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
 Use the exit code in CI pipelines — `pacto diff` exits non-zero if breaking changes are detected.
@@ -125,22 +125,20 @@ Use the exit code in CI pipelines — `pacto diff` exits non-zero if breaking ch
 ### 4. Resolve the dependency graph
 
 ```bash
-pacto graph ghcr.io/acme/payments-api-pacto:2.1.0
+pacto graph oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
 ```
 payments-api@2.1.0
-  - auth-service@2.3.0 (ghcr.io/acme/auth-pacto@sha256:abc123)
-    - user-store@1.0.0 (ghcr.io/acme/user-store-pacto:1.0.0)
-
-Cycles (0)
-Conflicts (0)
+├─ auth-service@2.3.0
+│  └─ user-store@1.0.0
+└─ notifications@1.0.0 (shared)
 ```
 
 ### 5. Generate deployment artifacts
 
 ```bash
-pacto generate helm ghcr.io/acme/payments-api-pacto:2.1.0
+pacto generate helm oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
 This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes manifests, or whatever your plugin generates.

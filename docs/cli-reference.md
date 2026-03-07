@@ -128,19 +128,19 @@ pacto push <ref> [-p dir]
 
 | Argument/Flag | Required | Description |
 |----------|----------|-------------|
-| `ref` | Yes | OCI reference (e.g., `ghcr.io/org/name:tag`). If no tag is specified, the contract version is used automatically. |
+| `ref` | Yes | OCI reference (e.g., `oci://ghcr.io/org/name:tag`). If no tag is specified, the contract version is used automatically. |
 | `-p, --path` | No | Path to contract directory (default: current directory) |
 
 **Examples:**
 
 ```bash
 # Push with auto-tag (uses contract version)
-$ pacto push ghcr.io/acme/my-service-pacto -p my-service
+$ pacto push oci://ghcr.io/acme/my-service-pacto -p my-service
 Pushed my-service@1.0.0 -> ghcr.io/acme/my-service-pacto:1.0.0
 Digest: sha256:a1b2c3d4...
 
 # Push with explicit tag
-$ pacto push ghcr.io/acme/my-service-pacto:latest -p my-service
+$ pacto push oci://ghcr.io/acme/my-service-pacto:latest -p my-service
 Pushed my-service@1.0.0 -> ghcr.io/acme/my-service-pacto:latest
 Digest: sha256:a1b2c3d4...
 ```
@@ -165,7 +165,7 @@ pacto pull <ref> [-o output]
 **Example:**
 
 ```bash
-$ pacto pull ghcr.io/acme/my-service-pacto:1.0.0
+$ pacto pull oci://ghcr.io/acme/my-service-pacto:1.0.0
 Pulled my-service@1.0.0 -> my-service/
 ```
 
@@ -196,7 +196,14 @@ Classification: POTENTIAL_BREAKING
 Changes (2):
   [NON_BREAKING] service.version (modified): service.version modified
   [POTENTIAL_BREAKING] scaling.min (modified): scaling.min modified
+
+Dependency graph changes:
+  my-service
+  ├─ cache         1.0.0 → 2.0.0
+  └─ old-dep       -1.0.0
 ```
+
+When dependencies change between the old and new contracts (version upgrades, additions, or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
 
 See [Change Classification]({{ site.baseurl }}{% link contract-reference.md %}#change-classification-rules) for the full rules.
 
@@ -221,12 +228,12 @@ pacto graph [dir | oci://ref]
 ```bash
 $ pacto graph my-service
 my-service@1.0.0
-  - auth-service@2.3.0 (ghcr.io/acme/auth-pacto@sha256:abc)
-    - user-store@1.0.0 (ghcr.io/acme/user-store-pacto:1.0.0)
-
-Cycles (0)
-Conflicts (0)
+├─ auth-service@2.3.0
+│  └─ user-store@1.0.0
+└─ cache@1.0.0 (shared)
 ```
+
+Dependencies resolved from local paths are annotated with `[local]`. Shared dependencies (referenced by multiple parents) are annotated with `(shared)`.
 
 Reports cycles, version conflicts, and unreachable dependencies.
 
@@ -360,7 +367,7 @@ To push container images or packages, your token needs the `write:packages` scop
 gh auth refresh --scopes write:packages
 ```
 
-After this, `pacto push ghcr.io/...` will work without any additional login step.
+After this, `pacto push oci://ghcr.io/...` will work without any additional login step.
 
 If `gh` is not installed or not authenticated, pacto silently falls back to the next credential source in the chain.
 

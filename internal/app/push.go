@@ -41,6 +41,11 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 		return nil, err
 	}
 
+	parsed := graph.ParseDependencyRef(opts.Ref)
+	if !parsed.IsOCI() {
+		return nil, fmt.Errorf("push requires an OCI reference (oci://...): got %q", opts.Ref)
+	}
+
 	path := defaultPath(opts.Path)
 
 	c, _, bundleFS, err := loadAndValidateLocal(path)
@@ -52,7 +57,7 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 		return nil, err
 	}
 
-	ref := opts.Ref
+	ref := parsed.Location
 	if !hasTagOrDigest(ref) {
 		ref = ref + ":" + c.Service.Version
 	}

@@ -75,11 +75,11 @@ configuration:
   schema: configuration/schema.json
 
 dependencies:
-  - ref: ghcr.io/acme/auth-pacto@sha256:abc123def456
+  - ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123def456
     required: true
     compatibility: "^2.0.0"
 
-  - ref: ghcr.io/acme/notifications-pacto:1.0.0
+  - ref: oci://ghcr.io/acme/notifications-pacto:1.0.0
     required: false
     compatibility: "~1.0.0"
 
@@ -188,12 +188,23 @@ Declares dependencies on other services via their Pacto contracts.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `ref` | string | Yes | Non-empty. Valid OCI reference |
+| `ref` | string | Yes | Non-empty. OCI reference (`oci://...`) or local path (`file://...` or bare path) |
 | `required` | boolean | No | Default: `false` |
 | `compatibility` | string | Yes | Non-empty. Valid semver constraint |
 
+#### Dependency reference schemes
+
+| Scheme | Example | Description |
+|--------|---------|-------------|
+| `oci://` | `oci://ghcr.io/acme/auth-pacto:1.0.0` | OCI registry reference (required for `pacto push`) |
+| `file://` | `file://../shared-db` | Local filesystem path |
+| *(bare path)* | `../shared-db` | Local filesystem path (shorthand for `file://`) |
+
+{: .warning }
+Local dependency references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local dependencies — all refs must use `oci://` before publishing.
+
 {: .tip }
-Use digest-pinned references (`@sha256:...`) for production contracts. Tag-based references produce a validation warning.
+Use digest-pinned references (`oci://...@sha256:...`) for production contracts. Tag-based references produce a validation warning.
 
 {: .tip }
 If your service depends on a cloud-managed resource (e.g. GCP Cloud SQL, AWS SNS, Azure Service Bus), you can create a lightweight Pacto contract representing that resource and reference it as a dependency. This makes cloud dependencies explicit and version-tracked alongside your service contracts.
@@ -350,7 +361,7 @@ Validates semantic references and consistency:
 | Health interface is not `event` type | `HEALTH_INTERFACE_INVALID` |
 | `health.path` required for `http` health interface | `HEALTH_PATH_REQUIRED` |
 | Referenced files exist in the bundle | `FILE_NOT_FOUND` |
-| Dependency refs are valid OCI references | `INVALID_OCI_REF` |
+| OCI dependency refs (`oci://`) are valid OCI references | `INVALID_OCI_REF` |
 | Compatibility ranges are valid semver constraints | `INVALID_COMPATIBILITY` |
 | `image.ref` is a valid OCI reference | `INVALID_IMAGE_REF` |
 | `scaling.min` <= `scaling.max` | `SCALING_MIN_EXCEEDS_MAX` |

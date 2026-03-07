@@ -76,7 +76,7 @@ runtime:
     path: /health
 
 dependencies:
-  - ref: ghcr.io/acme/auth-pacto@sha256:abc123
+  - ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123
     required: true
     compatibility: "^2.0.0"
 

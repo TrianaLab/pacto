@@ -55,7 +55,7 @@ runtime:
     path: /health
 
 dependencies:
-  - ref: ghcr.io/acme/auth-pacto@sha256:abc123
+  - ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123
     required: true
     compatibility: "^2.0.0"
 
@@ -99,7 +99,7 @@ pacto validate my-service
 
 # Pack and push
 pacto pack my-service
-pacto push ghcr.io/your-org/my-service-pacto -p my-service
+pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
 ```
 
 ## License

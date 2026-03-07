@@ -15,7 +15,7 @@ func TestPull_Success(t *testing.T) {
 	output := filepath.Join(dir, "pulled")
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
-	result, err := svc.Pull(context.Background(), PullOptions{Ref: "ghcr.io/acme/svc:1.0.0", Output: output})
+	result, err := svc.Pull(context.Background(), PullOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Output: output})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestPull_DefaultOutput(t *testing.T) {
 
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
-	result, err := svc.Pull(context.Background(), PullOptions{Ref: "ghcr.io/acme/svc:1.0.0"})
+	result, err := svc.Pull(context.Background(), PullOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestPull_DefaultOutput(t *testing.T) {
 
 func TestPull_NilStore(t *testing.T) {
 	svc := NewService(nil, nil)
-	_, err := svc.Pull(context.Background(), PullOptions{Ref: "ghcr.io/acme/svc:1.0.0"})
+	_, err := svc.Pull(context.Background(), PullOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0"})
 	if err == nil {
 		t.Error("expected error for nil store")
 	}
@@ -71,9 +71,18 @@ func TestPull_StoreError(t *testing.T) {
 		},
 	}
 	svc := NewService(store, nil)
-	_, err := svc.Pull(context.Background(), PullOptions{Ref: "ghcr.io/acme/svc:1.0.0"})
+	_, err := svc.Pull(context.Background(), PullOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0"})
 	if err == nil {
 		t.Error("expected error from store")
+	}
+}
+
+func TestPull_RejectsLocalRef(t *testing.T) {
+	store := &mockBundleStore{}
+	svc := NewService(store, nil)
+	_, err := svc.Pull(context.Background(), PullOptions{Ref: "../local-path"})
+	if err == nil {
+		t.Error("expected error for local ref")
 	}
 }
 
@@ -87,7 +96,7 @@ func TestPull_ExtractError(t *testing.T) {
 	}
 	svc := NewService(store, nil)
 	_, err := svc.Pull(context.Background(), PullOptions{
-		Ref:    "ghcr.io/acme/svc:1.0.0",
+		Ref:    "oci://ghcr.io/acme/svc:1.0.0",
 		Output: "/dev/null/impossible",
 	})
 	if err == nil {

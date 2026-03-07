@@ -115,7 +115,7 @@ func TestPushCommand_Error(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"push", "ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
+	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
 
 	err := root.Execute()
 	if err == nil {
@@ -128,7 +128,7 @@ func TestPushCommand_Success(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"push", "ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
+	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -147,7 +147,7 @@ func TestPullCommand_Success(t *testing.T) {
 	store := &testutil.MockBundleStore{}
 	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"pull", "ghcr.io/acme/svc:1.0.0", "--output", output})
+	root.SetArgs([]string{"pull", "oci://ghcr.io/acme/svc:1.0.0", "--output", output})
 	var out bytes.Buffer
 	root.SetOut(&out)
 
@@ -163,7 +163,7 @@ func TestPullCommand_Success(t *testing.T) {
 func TestPullCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"pull", "ghcr.io/acme/svc:1.0.0"})
+	root.SetArgs([]string{"pull", "oci://ghcr.io/acme/svc:1.0.0"})
 
 	err := root.Execute()
 	if err == nil {

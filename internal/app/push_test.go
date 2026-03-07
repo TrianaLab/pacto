@@ -15,7 +15,7 @@ func TestPush_Success(t *testing.T) {
 	dir := writeTestBundle(t)
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
-	result, err := svc.Push(context.Background(), PushOptions{Ref: "ghcr.io/acme/svc:1.0.0", Path: dir})
+	result, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestPush_Success(t *testing.T) {
 
 func TestPush_NilStore(t *testing.T) {
 	svc := NewService(nil, nil)
-	_, err := svc.Push(context.Background(), PushOptions{Ref: "ghcr.io/acme/svc:1.0.0", Path: "."})
+	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: "."})
 	if err == nil {
 		t.Error("expected error for nil store")
 	}
@@ -45,7 +45,7 @@ func TestPush_InvalidContract(t *testing.T) {
 	dir := writeInvalidBundle(t)
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
-	_, err := svc.Push(context.Background(), PushOptions{Ref: "ghcr.io/acme/svc:1.0.0", Path: dir})
+	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err == nil {
 		t.Error("expected error for invalid contract")
 	}
@@ -54,7 +54,7 @@ func TestPush_InvalidContract(t *testing.T) {
 func TestPush_FileNotFound(t *testing.T) {
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
-	_, err := svc.Push(context.Background(), PushOptions{Ref: "ghcr.io/acme/svc:1.0.0", Path: "/nonexistent/dir"})
+	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: "/nonexistent/dir"})
 	if err == nil {
 		t.Error("expected error for nonexistent directory")
 	}
@@ -68,7 +68,7 @@ func TestPush_StoreError(t *testing.T) {
 		},
 	}
 	svc := NewService(store, nil)
-	_, err := svc.Push(context.Background(), PushOptions{Ref: "ghcr.io/acme/svc:1.0.0", Path: dir})
+	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err == nil {
 		t.Error("expected error from store")
 	}
@@ -106,7 +106,7 @@ func TestPush_AutoTagFromVersion(t *testing.T) {
 		},
 	}
 	svc := NewService(store, nil)
-	result, err := svc.Push(context.Background(), PushOptions{Ref: "ghcr.io/acme/svc", Path: dir})
+	result, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc", Path: dir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -196,12 +196,21 @@ runtime:
 	}
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
-	_, err := svc.Push(context.Background(), PushOptions{Ref: "ghcr.io/acme/svc:1.0.0", Path: dir})
+	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err == nil {
 		t.Fatal("expected error for local dependency")
 	}
 	if !strings.Contains(err.Error(), "local dependency detected") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestPush_RejectsLocalRef(t *testing.T) {
+	store := &mockBundleStore{}
+	svc := NewService(store, nil)
+	_, err := svc.Push(context.Background(), PushOptions{Ref: "../local-path", Path: "."})
+	if err == nil {
+		t.Error("expected error for local ref")
 	}
 }
 
@@ -215,7 +224,7 @@ func TestPush_ExplicitTagKept(t *testing.T) {
 		},
 	}
 	svc := NewService(store, nil)
-	result, err := svc.Push(context.Background(), PushOptions{Ref: "ghcr.io/acme/svc:custom", Path: dir})
+	result, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:custom", Path: dir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

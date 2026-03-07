@@ -176,7 +176,7 @@ func TestValidateCommand(t *testing.T) {
 
 		// Push a valid contract first
 		postgresPath := writePostgresBundle(t)
-		_, err := runCommand(t, reg, "push", reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
+		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
 		if err != nil {
 			t.Fatalf("push failed: %v", err)
 		}
@@ -253,7 +253,7 @@ func TestPushPullLifecycle(t *testing.T) {
 
 	t.Run("roundtrip push and pull", func(t *testing.T) {
 		postgresPath := writePostgresBundle(t)
-		ref := reg.host + "/postgres-pacto:1.0.0"
+		ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
 
 		// Push
 		pushOutput, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
@@ -290,7 +290,7 @@ func TestPushPullLifecycle(t *testing.T) {
 
 	t.Run("json output", func(t *testing.T) {
 		redisPath := writeRedisV1Bundle(t)
-		ref := reg.host + "/redis-pacto:1.0.0"
+		ref := "oci://" + reg.host + "/redis-pacto:1.0.0"
 
 		pushOutput, err := runCommand(t, reg, "--output-format", "json", "push", ref, "-p", redisPath)
 		if err != nil {
@@ -321,7 +321,7 @@ func TestPushPullLifecycle(t *testing.T) {
 	})
 
 	t.Run("nonexistent ref error", func(t *testing.T) {
-		_, err := runCommand(t, reg, "pull", reg.host+"/nonexistent:latest")
+		_, err := runCommand(t, reg, "pull", "oci://"+reg.host+"/nonexistent:latest")
 		if err == nil {
 			t.Fatal("expected pull to fail for nonexistent reference")
 		}
@@ -333,7 +333,7 @@ func TestPushPullLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		_, err := runCommand(t, reg, "push", reg.host+"/broken:1.0.0", "-p", dir)
+		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/broken:1.0.0", "-p", dir)
 		if err == nil {
 			t.Fatal("expected push to fail for invalid contract")
 		}
@@ -372,11 +372,11 @@ func TestDiffCommand(t *testing.T) {
 		redisV1Path := writeRedisV1Bundle(t)
 		redisV2Path := writeRedisV2Bundle(t)
 
-		_, err := runCommand(t, reg, "push", reg.host+"/redis-pacto:1.0.0", "-p", redisV1Path)
+		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/redis-pacto:1.0.0", "-p", redisV1Path)
 		if err != nil {
 			t.Fatalf("push v1 failed: %v", err)
 		}
-		_, err = runCommand(t, reg, "push", reg.host+"/redis-pacto:2.0.0", "-p", redisV2Path)
+		_, err = runCommand(t, reg, "push", "oci://"+reg.host+"/redis-pacto:2.0.0", "-p", redisV2Path)
 		if err != nil {
 			t.Fatalf("push v2 failed: %v", err)
 		}
@@ -415,15 +415,15 @@ func TestDiffGraphChanges(t *testing.T) {
 	redisV1Path := writeRedisV1Bundle(t)
 	redisV2Path := writeRedisV2Bundle(t)
 
-	_, err := runCommand(t, reg, "push", reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
 	if err != nil {
 		t.Fatalf("push postgres failed: %v", err)
 	}
-	_, err = runCommand(t, reg, "push", reg.host+"/redis-pacto:1.0.0", "-p", redisV1Path)
+	_, err = runCommand(t, reg, "push", "oci://"+reg.host+"/redis-pacto:1.0.0", "-p", redisV1Path)
 	if err != nil {
 		t.Fatalf("push redis v1 failed: %v", err)
 	}
-	_, err = runCommand(t, reg, "push", reg.host+"/redis-pacto:2.0.0", "-p", redisV2Path)
+	_, err = runCommand(t, reg, "push", "oci://"+reg.host+"/redis-pacto:2.0.0", "-p", redisV2Path)
 	if err != nil {
 		t.Fatalf("push redis v2 failed: %v", err)
 	}
@@ -522,11 +522,11 @@ func TestGraphCommand(t *testing.T) {
 		// Push leaf contracts
 		postgresPath := writePostgresBundle(t)
 		redisV1Path := writeRedisV1Bundle(t)
-		_, err := runCommand(t, reg, "push", reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
+		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
 		if err != nil {
 			t.Fatalf("push postgres failed: %v", err)
 		}
-		_, err = runCommand(t, reg, "push", reg.host+"/redis-pacto:1.0.0", "-p", redisV1Path)
+		_, err = runCommand(t, reg, "push", "oci://"+reg.host+"/redis-pacto:1.0.0", "-p", redisV1Path)
 		if err != nil {
 			t.Fatalf("push redis failed: %v", err)
 		}
@@ -565,18 +565,18 @@ func TestGraphCommand(t *testing.T) {
 		// Push all deps first
 		postgresPath := writePostgresBundle(t)
 		redisV1Path := writeRedisV1Bundle(t)
-		_, err := runCommand(t, reg, "push", reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
+		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
 		if err != nil {
 			t.Fatalf("push postgres failed: %v", err)
 		}
-		_, err = runCommand(t, reg, "push", reg.host+"/redis-pacto:1.0.0", "-p", redisV1Path)
+		_, err = runCommand(t, reg, "push", "oci://"+reg.host+"/redis-pacto:1.0.0", "-p", redisV1Path)
 		if err != nil {
 			t.Fatalf("push redis failed: %v", err)
 		}
 
 		// Push my-app
 		myAppPath := writeMyAppV1Bundle(t, reg.host)
-		_, err = runCommand(t, reg, "push", reg.host+"/my-app:1.0.0", "-p", myAppPath)
+		_, err = runCommand(t, reg, "push", "oci://"+reg.host+"/my-app:1.0.0", "-p", myAppPath)
 		if err != nil {
 			t.Fatalf("push my-app failed: %v", err)
 		}
@@ -594,13 +594,13 @@ func TestGraphCommand(t *testing.T) {
 		reg := newTestRegistry(t)
 
 		postgresPath := writePostgresBundle(t)
-		_, err := runCommand(t, reg, "push", reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
+		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
 		if err != nil {
 			t.Fatalf("push failed: %v", err)
 		}
 
 		redisV1Path := writeRedisV1Bundle(t)
-		_, err = runCommand(t, reg, "push", reg.host+"/redis-pacto:1.0.0", "-p", redisV1Path)
+		_, err = runCommand(t, reg, "push", "oci://"+reg.host+"/redis-pacto:1.0.0", "-p", redisV1Path)
 		if err != nil {
 			t.Fatalf("push failed: %v", err)
 		}
@@ -658,7 +658,7 @@ func TestExplainCommand(t *testing.T) {
 		reg := newTestRegistry(t)
 
 		postgresPath := writePostgresBundle(t)
-		_, err := runCommand(t, reg, "push", reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
+		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
 		if err != nil {
 			t.Fatalf("push failed: %v", err)
 		}
@@ -742,7 +742,7 @@ func TestDocCommand(t *testing.T) {
 		reg := newTestRegistry(t)
 
 		postgresPath := writePostgresBundle(t)
-		_, err := runCommand(t, reg, "push", reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
+		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
 		if err != nil {
 			t.Fatalf("push failed: %v", err)
 		}
@@ -831,7 +831,7 @@ func TestGenerateCommand(t *testing.T) {
 		reg := newTestRegistry(t)
 
 		postgresPath := writePostgresBundle(t)
-		_, err := runCommand(t, reg, "push", reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
+		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
 		if err != nil {
 			t.Fatalf("push failed: %v", err)
 		}
@@ -1028,7 +1028,7 @@ func TestFullLifecycle(t *testing.T) {
 	assertContains(t, output, "Packed lifecycle-svc@0.1.0")
 
 	// 4. Push
-	ref := reg.host + "/lifecycle-svc:0.1.0"
+	ref := "oci://" + reg.host + "/lifecycle-svc:0.1.0"
 	output, err = runCommand(t, reg, "push", ref, "-p", svcDir)
 	if err != nil {
 		t.Fatalf("push failed: %v\noutput: %s", err, output)
@@ -1088,15 +1088,15 @@ func TestGraphWithDependencies(t *testing.T) {
 	redisV1Path := writeRedisV1Bundle(t)
 	redisV2Path := writeRedisV2Bundle(t)
 
-	_, err := runCommand(t, reg, "push", reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
 	if err != nil {
 		t.Fatalf("push postgres failed: %v", err)
 	}
-	_, err = runCommand(t, reg, "push", reg.host+"/redis-pacto:1.0.0", "-p", redisV1Path)
+	_, err = runCommand(t, reg, "push", "oci://"+reg.host+"/redis-pacto:1.0.0", "-p", redisV1Path)
 	if err != nil {
 		t.Fatalf("push redis v1 failed: %v", err)
 	}
-	_, err = runCommand(t, reg, "push", reg.host+"/redis-pacto:2.0.0", "-p", redisV2Path)
+	_, err = runCommand(t, reg, "push", "oci://"+reg.host+"/redis-pacto:2.0.0", "-p", redisV2Path)
 	if err != nil {
 		t.Fatalf("push redis v2 failed: %v", err)
 	}
@@ -1136,10 +1136,10 @@ configuration:
   schema: configuration/schema.json
 
 dependencies:
-  - ref: %s/redis-pacto:1.0.0
+  - ref: oci://%s/redis-pacto:1.0.0
     required: true
     compatibility: "^1.0.0"
-  - ref: %s/redis-pacto:2.0.0
+  - ref: oci://%s/redis-pacto:2.0.0
     required: true
     compatibility: "^2.0.0"
 

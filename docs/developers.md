@@ -89,20 +89,32 @@ If your service depends on other Pacto-enabled services:
 
 ```yaml
 dependencies:
-  - ref: ghcr.io/acme/auth-pacto@sha256:abc123
+  - ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123
     required: true
     compatibility: "^2.0.0"
 
-  - ref: ghcr.io/acme/cache-pacto:1.0.0
+  - ref: oci://ghcr.io/acme/cache-pacto:1.0.0
     required: false
     compatibility: "~1.0.0"
 ```
+
+During development, you can reference local contracts using `file://` or bare paths:
+
+```yaml
+dependencies:
+  - ref: file://../shared-db
+    required: true
+    compatibility: "^1.0.0"
+```
+
+{: .warning }
+Local refs are rejected by `pacto push`. Switch all dependencies to `oci://` references before publishing.
 
 If your service depends on a cloud-managed resource (e.g. a database, message queue, or object store), create a minimal Pacto contract representing it and reference it as a dependency. This keeps cloud dependencies explicit and version-tracked:
 
 ```yaml
 dependencies:
-  - ref: ghcr.io/acme/gcp-cloudsql-pacto:1.0.0
+  - ref: oci://ghcr.io/acme/gcp-cloudsql-pacto:1.0.0
     required: true
     compatibility: "^1.0.0"
 ```
@@ -127,7 +139,7 @@ Validation catches errors in three layers:
 
 ```bash
 pacto pack my-service
-pacto push ghcr.io/your-org/my-service-pacto -p my-service
+pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
 ```
 
 ---

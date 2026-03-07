@@ -69,7 +69,7 @@ Packed my-service@0.1.0 -> my-service-0.1.0.tar.gz
 pacto login ghcr.io -u your-username
 
 # Push the bundle (auto-tags with contract version)
-pacto push ghcr.io/your-org/my-service-pacto -p my-service
+pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
 ```
 
 ```
@@ -80,7 +80,7 @@ Digest: sha256:a1b2c3...
 ## 6. Pull from a registry
 
 ```bash
-pacto pull ghcr.io/your-org/my-service-pacto:0.1.0
+pacto pull oci://ghcr.io/your-org/my-service-pacto:0.1.0
 ```
 
 ## 7. Inspect the contract

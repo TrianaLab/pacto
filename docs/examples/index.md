@@ -41,11 +41,11 @@ You can reference these contracts (once published to a registry) as dependencies
 
 ```yaml
 dependencies:
-  - ref: ghcr.io/acme/postgres-pacto@sha256:abc123
+  - ref: oci://ghcr.io/acme/postgres-pacto@sha256:abc123
     required: true
     compatibility: "^16.0.0"
 
-  - ref: ghcr.io/acme/redis-pacto@sha256:def456
+  - ref: oci://ghcr.io/acme/redis-pacto@sha256:def456
     required: false
     compatibility: "^7.0.0"
 ```
