@@ -64,10 +64,10 @@ configuration:
   schema: configuration/schema.json
 
 dependencies:
-  - ref: %s/postgres-pacto:1.0.0
+  - ref: oci://%s/postgres-pacto:1.0.0
     required: true
     compatibility: "^1.0.0"
-  - ref: %s/redis-pacto:1.0.0
+  - ref: oci://%s/redis-pacto:1.0.0
     required: false
     compatibility: "^1.0.0"
 
@@ -252,7 +252,7 @@ configuration:
   schema: configuration/schema.json
 
 dependencies:
-  - ref: %s/redis-pacto:2.0.0
+  - ref: oci://%s/redis-pacto:2.0.0
     required: true
     compatibility: "^2.0.0"
 

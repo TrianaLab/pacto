@@ -66,6 +66,9 @@ func renderChildren(b *strings.Builder, edges []Edge, prefix string) {
 
 		if edge.Node != nil {
 			label := edge.Node.Name + "@" + edge.Node.Version
+			if edge.Node.Local {
+				label += " [local]"
+			}
 			if edge.Shared {
 				fmt.Fprintf(b, "%s%s%s (shared)\n", prefix, connector, label)
 			} else {

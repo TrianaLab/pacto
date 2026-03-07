@@ -49,7 +49,7 @@ func TestResolve_DirectDependenciesNoFetcher(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
-			{Ref: "registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
 	}
 
@@ -60,8 +60,8 @@ func TestResolve_DirectDependenciesNoFetcher(t *testing.T) {
 	}
 
 	edge := result.Root.Dependencies[0]
-	if edge.Ref != "registry.io/svc-b:1.0.0" {
-		t.Errorf("expected ref registry.io/svc-b:1.0.0, got %s", edge.Ref)
+	if edge.Ref != "oci://registry.io/svc-b:1.0.0" {
+		t.Errorf("expected ref oci://registry.io/svc-b:1.0.0, got %s", edge.Ref)
 	}
 	if edge.Node != nil {
 		t.Error("expected nil node when fetcher is nil")
@@ -71,7 +71,7 @@ func TestResolve_DirectDependenciesNoFetcher(t *testing.T) {
 func TestResolve_WithFetcher(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
-			"registry.io/svc-b:1.0.0": {
+			"oci://registry.io/svc-b:1.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
 			},
 		},
@@ -80,7 +80,7 @@ func TestResolve_WithFetcher(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
-			{Ref: "registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
 	}
 
@@ -105,13 +105,13 @@ func TestResolve_WithFetcher(t *testing.T) {
 func TestResolve_TransitiveDependencies(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
-			"registry.io/svc-b:1.0.0": {
+			"oci://registry.io/svc-b:1.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
-					{Ref: "registry.io/svc-c:2.0.0", Required: true, Compatibility: "^2.0.0"},
+					{Ref: "oci://registry.io/svc-c:2.0.0", Required: true, Compatibility: "^2.0.0"},
 				},
 			},
-			"registry.io/svc-c:2.0.0": {
+			"oci://registry.io/svc-c:2.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-c", Version: "2.0.0"},
 			},
 		},
@@ -120,7 +120,7 @@ func TestResolve_TransitiveDependencies(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
-			{Ref: "registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
 	}
 
@@ -147,10 +147,10 @@ func TestResolve_CycleDetection(t *testing.T) {
 	// True cycle: A -> B -> B (self-referencing via same ref string)
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
-			"registry.io/svc-b:1.0.0": {
+			"oci://registry.io/svc-b:1.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
-					{Ref: "registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+					{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 				},
 			},
 		},
@@ -159,7 +159,7 @@ func TestResolve_CycleDetection(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
-			{Ref: "registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
 	}
 
@@ -178,7 +178,7 @@ func TestResolve_FetchError(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
-			{Ref: "registry.io/svc-missing:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-missing:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
 	}
 
@@ -196,22 +196,22 @@ func TestResolve_FetchError(t *testing.T) {
 func TestResolve_VersionConflict(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
-			"registry.io/svc-b:1.0.0": {
+			"oci://registry.io/svc-b:1.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
-					{Ref: "registry.io/svc-c:2.0.0", Required: true, Compatibility: "^2.0.0"},
+					{Ref: "oci://registry.io/svc-c:2.0.0", Required: true, Compatibility: "^2.0.0"},
 				},
 			},
-			"registry.io/svc-b:2.0.0": {
+			"oci://registry.io/svc-b:2.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-b", Version: "2.0.0"},
 				Dependencies: []contract.Dependency{
-					{Ref: "registry.io/svc-c:3.0.0", Required: true, Compatibility: "^3.0.0"},
+					{Ref: "oci://registry.io/svc-c:3.0.0", Required: true, Compatibility: "^3.0.0"},
 				},
 			},
-			"registry.io/svc-c:2.0.0": {
+			"oci://registry.io/svc-c:2.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-c", Version: "2.0.0"},
 			},
-			"registry.io/svc-c:3.0.0": {
+			"oci://registry.io/svc-c:3.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-c", Version: "3.0.0"},
 			},
 		},
@@ -220,8 +220,8 @@ func TestResolve_VersionConflict(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
-			{Ref: "registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
-			{Ref: "registry.io/svc-b:2.0.0", Required: true, Compatibility: "^2.0.0"},
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-b:2.0.0", Required: true, Compatibility: "^2.0.0"},
 		},
 	}
 
@@ -249,10 +249,10 @@ func TestResolve_VersionConflict(t *testing.T) {
 func TestResolve_MultipleDependencies(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
-			"registry.io/svc-b:1.0.0": {
+			"oci://registry.io/svc-b:1.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
 			},
-			"registry.io/svc-c:1.0.0": {
+			"oci://registry.io/svc-c:1.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-c", Version: "1.0.0"},
 			},
 		},
@@ -261,8 +261,8 @@ func TestResolve_MultipleDependencies(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
-			{Ref: "registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
-			{Ref: "registry.io/svc-c:1.0.0", Required: false, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-c:1.0.0", Required: false, Compatibility: "^1.0.0"},
 		},
 	}
 
@@ -296,19 +296,19 @@ func TestResolve_DiamondDependency(t *testing.T) {
 	// D should only be fetched once; second encounter hits visited[dep.Ref] skip
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
-			"registry.io/svc-b:1.0.0": {
+			"oci://registry.io/svc-b:1.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
-					{Ref: "registry.io/svc-d:1.0.0", Required: true, Compatibility: "^1.0.0"},
+					{Ref: "oci://registry.io/svc-d:1.0.0", Required: true, Compatibility: "^1.0.0"},
 				},
 			},
-			"registry.io/svc-c:1.0.0": {
+			"oci://registry.io/svc-c:1.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-c", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
-					{Ref: "registry.io/svc-d:1.0.0", Required: true, Compatibility: "^1.0.0"},
+					{Ref: "oci://registry.io/svc-d:1.0.0", Required: true, Compatibility: "^1.0.0"},
 				},
 			},
-			"registry.io/svc-d:1.0.0": {
+			"oci://registry.io/svc-d:1.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-d", Version: "1.0.0"},
 			},
 		},
@@ -317,8 +317,8 @@ func TestResolve_DiamondDependency(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
-			{Ref: "registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
-			{Ref: "registry.io/svc-c:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-c:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
 	}
 
@@ -361,7 +361,7 @@ func TestResolve_SharedEdgeHasNodeInfo(t *testing.T) {
 	// marked Shared and carry name/version but no children.
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
-			"registry.io/svc-b:1.0.0": {
+			"oci://registry.io/svc-b:1.0.0": {
 				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
 			},
 		},
@@ -370,8 +370,8 @@ func TestResolve_SharedEdgeHasNodeInfo(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
-			{Ref: "registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
-			{Ref: "registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
 	}
 
@@ -401,7 +401,7 @@ func TestDetectConflicts_NilNodeInEdge(t *testing.T) {
 		Name:    "svc-a",
 		Version: "1.0.0",
 		Dependencies: []Edge{
-			{Ref: "registry.io/svc-b:1.0.0", Node: nil}, // nil node (e.g., failed fetch)
+			{Ref: "oci://registry.io/svc-b:1.0.0", Node: nil}, // nil node (e.g., failed fetch)
 		},
 	}
 	conflicts := detectConflicts(root)
@@ -416,11 +416,11 @@ func TestDetectConflicts_NoConflicts(t *testing.T) {
 		Version: "1.0.0",
 		Dependencies: []Edge{
 			{
-				Ref:  "registry.io/svc-b:1.0.0",
+				Ref:  "oci://registry.io/svc-b:1.0.0",
 				Node: &Node{Name: "svc-b", Version: "1.0.0"},
 			},
 			{
-				Ref:  "registry.io/svc-c:1.0.0",
+				Ref:  "oci://registry.io/svc-c:1.0.0",
 				Node: &Node{Name: "svc-c", Version: "1.0.0"},
 			},
 		},
@@ -438,20 +438,20 @@ func TestDetectConflicts_WithConflict(t *testing.T) {
 		Version: "1.0.0",
 		Dependencies: []Edge{
 			{
-				Ref: "registry.io/svc-b:1.0.0",
+				Ref: "oci://registry.io/svc-b:1.0.0",
 				Node: &Node{
 					Name:    "svc-b",
 					Version: "1.0.0",
 					Dependencies: []Edge{
 						{
-							Ref:  "registry.io/svc-c:2.0.0",
+							Ref:  "oci://registry.io/svc-c:2.0.0",
 							Node: &Node{Name: "svc-c", Version: "2.0.0"},
 						},
 					},
 				},
 			},
 			{
-				Ref:  "registry.io/svc-c:3.0.0",
+				Ref:  "oci://registry.io/svc-c:3.0.0",
 				Node: &Node{Name: "svc-c", Version: "3.0.0"},
 			},
 		},
@@ -463,5 +463,95 @@ func TestDetectConflicts_WithConflict(t *testing.T) {
 	}
 	if conflicts[0].Name != "svc-c" {
 		t.Errorf("expected conflict for svc-c, got %s", conflicts[0].Name)
+	}
+}
+
+func TestResolve_LocalDependencyMarkedLocal(t *testing.T) {
+	fetcher := &mockFetcher{
+		contracts: map[string]*contract.Contract{
+			"../dep-svc": {
+				Service: contract.ServiceIdentity{Name: "dep-svc", Version: "1.0.0"},
+			},
+		},
+	}
+
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Ref: "../dep-svc", Required: true, Compatibility: "^1.0.0"},
+		},
+	}
+
+	result := Resolve(context.Background(), c, fetcher)
+
+	edge := result.Root.Dependencies[0]
+	if !edge.Local {
+		t.Error("expected edge to be marked as local")
+	}
+	if edge.Node == nil {
+		t.Fatal("expected resolved node")
+	}
+	if !edge.Node.Local {
+		t.Error("expected node to be marked as local")
+	}
+}
+
+func TestResolve_FileSchemeMarkedLocal(t *testing.T) {
+	fetcher := &mockFetcher{
+		contracts: map[string]*contract.Contract{
+			"file:///abs/path/dep-svc": {
+				Service: contract.ServiceIdentity{Name: "dep-svc", Version: "2.0.0"},
+			},
+		},
+	}
+
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Ref: "file:///abs/path/dep-svc", Required: true, Compatibility: "^2.0.0"},
+		},
+	}
+
+	result := Resolve(context.Background(), c, fetcher)
+
+	edge := result.Root.Dependencies[0]
+	if !edge.Local {
+		t.Error("expected file:// edge to be marked as local")
+	}
+	if edge.Node == nil {
+		t.Fatal("expected resolved node")
+	}
+	if !edge.Node.Local {
+		t.Error("expected file:// node to be marked as local")
+	}
+}
+
+func TestResolve_OCINotMarkedLocal(t *testing.T) {
+	fetcher := &mockFetcher{
+		contracts: map[string]*contract.Contract{
+			"oci://registry.io/svc-b:1.0.0": {
+				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+			},
+		},
+	}
+
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+		},
+	}
+
+	result := Resolve(context.Background(), c, fetcher)
+
+	edge := result.Root.Dependencies[0]
+	if edge.Local {
+		t.Error("expected OCI edge to NOT be marked as local")
+	}
+	if edge.Node == nil {
+		t.Fatal("expected resolved node")
+	}
+	if edge.Node.Local {
+		t.Error("expected OCI node to NOT be marked as local")
 	}
 }

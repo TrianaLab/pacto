@@ -37,13 +37,11 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 
 	result := diff.Compare(oldBundle.Contract, newBundle.Contract, oldBundle.FS, newBundle.FS)
 
-	var fetcher graph.ContractFetcher
-	if s.BundleStore != nil {
-		fetcher = &bundleStoreFetcher{store: s.BundleStore}
-	}
+	oldFetcher := s.newDepFetcher(opts.OldPath)
+	newFetcher := s.newDepFetcher(opts.NewPath)
 
-	oldGraph := graph.Resolve(ctx, oldBundle.Contract, fetcher)
-	newGraph := graph.Resolve(ctx, newBundle.Contract, fetcher)
+	oldGraph := graph.Resolve(ctx, oldBundle.Contract, oldFetcher)
+	newGraph := graph.Resolve(ctx, newBundle.Contract, newFetcher)
 	gd := graph.DiffGraphs(oldGraph, newGraph)
 
 	return &DiffResult{

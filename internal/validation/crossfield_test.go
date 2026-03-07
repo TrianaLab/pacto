@@ -139,10 +139,10 @@ func TestValidateConfigFiles_EmptySchema(t *testing.T) {
 	}
 }
 
-func TestValidateDependencyRefs_InvalidRef(t *testing.T) {
+func TestValidateDependencyRefs_InvalidOCIRef(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "invalid", Compatibility: "^1.0.0"},
+		{Ref: "oci://invalid", Compatibility: "^1.0.0"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -151,10 +151,22 @@ func TestValidateDependencyRefs_InvalidRef(t *testing.T) {
 	}
 }
 
+func TestValidateDependencyRefs_LocalRef(t *testing.T) {
+	c := validContract()
+	c.Dependencies = []contract.Dependency{
+		{Ref: "file://../local-dep", Compatibility: "^1.0.0"},
+	}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if !result.IsValid() {
+		t.Errorf("expected local ref to be valid, got errors: %v", result.Errors)
+	}
+}
+
 func TestValidateDependencyRefs_TagNotDigestWarning(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"},
+		{Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -166,7 +178,7 @@ func TestValidateDependencyRefs_TagNotDigestWarning(t *testing.T) {
 func TestValidateDependencyRefs_EmptyCompatibility(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "ghcr.io/acme/svc@sha256:abc123", Compatibility: ""},
+		{Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: ""},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -178,7 +190,7 @@ func TestValidateDependencyRefs_EmptyCompatibility(t *testing.T) {
 func TestValidateDependencyRefs_InvalidCompatibility(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "ghcr.io/acme/svc@sha256:abc123", Compatibility: "not-a-range"},
+		{Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: "not-a-range"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -190,7 +202,7 @@ func TestValidateDependencyRefs_InvalidCompatibility(t *testing.T) {
 func TestValidateDependencyRefs_Valid(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "ghcr.io/acme/svc@sha256:abc123", Compatibility: "^1.0.0"},
+		{Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: "^1.0.0"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)

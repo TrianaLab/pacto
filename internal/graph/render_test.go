@@ -152,6 +152,26 @@ func TestRenderTree_CyclesAndConflicts(t *testing.T) {
 	}
 }
 
+func TestRenderTree_LocalAnnotation(t *testing.T) {
+	r := &Result{
+		Root: &Node{
+			Name:    "svc-a",
+			Version: "1.0.0",
+			Dependencies: []Edge{
+				{Ref: "../dep-svc", Local: true, Node: &Node{Name: "dep-svc", Version: "2.0.0", Local: true}},
+				{Ref: "oci://reg/remote:1.0.0", Node: &Node{Name: "remote", Version: "1.0.0"}},
+			},
+		},
+	}
+	got := RenderTree(r)
+	if !strings.Contains(got, "dep-svc@2.0.0 [local]") {
+		t.Errorf("expected [local] annotation, got:\n%s", got)
+	}
+	if strings.Contains(got, "remote@1.0.0 [local]") {
+		t.Errorf("remote should NOT have [local], got:\n%s", got)
+	}
+}
+
 func TestShortRef(t *testing.T) {
 	tests := []struct {
 		input string

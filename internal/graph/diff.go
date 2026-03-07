@@ -1,5 +1,7 @@
 package graph
 
+import "sort"
+
 // ChangeType indicates the kind of dependency graph change.
 type ChangeType string
 
@@ -32,140 +34,163 @@ type GraphDiff struct {
 	Changes []GraphChange `json:"changes,omitempty"`
 }
 
-// DiffGraphs compares two resolved dependency graphs and returns
-// a GraphDiff describing added, removed, and version-changed nodes.
-// Either old or new may be nil (representing an empty graph).
+// DiffGraphs compares two resolved dependency graphs by walking the tree
+// structure and detecting added, removed, and version-changed nodes at
+// each level. A node removed as a direct dependency is detected even if
+// it remains transitively reachable through another path.
 func DiffGraphs(old, new *Result) *GraphDiff {
-	oldVersions := flattenVersions(old)
-	newVersions := flattenVersions(new)
-
-	var changes []GraphChange
-	for name, newVer := range newVersions {
-		oldVer, exists := oldVersions[name]
-		if !exists {
-			changes = append(changes, GraphChange{Name: name, ChangeType: AddedNode, NewVersion: newVer})
-		} else if oldVer != newVer {
-			changes = append(changes, GraphChange{Name: name, ChangeType: VersionChanged, OldVersion: oldVer, NewVersion: newVer})
-		}
+	if (old == nil || old.Root == nil) && (new == nil || new.Root == nil) {
+		return &GraphDiff{}
 	}
-	for name, oldVer := range oldVersions {
-		if _, exists := newVersions[name]; !exists {
-			changes = append(changes, GraphChange{Name: name, ChangeType: RemovedNode, OldVersion: oldVer})
-		}
+	if old == nil || old.Root == nil {
+		root := markAll(new.Root, AddedNode, map[string]bool{})
+		changes := collectTreeChanges(root)
+		sortChanges(changes)
+		return &GraphDiff{Root: root, Changes: changes}
+	}
+	if new == nil || new.Root == nil {
+		root := markAll(old.Root, RemovedNode, map[string]bool{})
+		changes := collectTreeChanges(root)
+		sortChanges(changes)
+		return &GraphDiff{Root: root, Changes: changes}
 	}
 
+	root := diffTrees(old.Root, new.Root, map[string]bool{})
+	changes := collectTreeChanges(root)
 	sortChanges(changes)
-
-	// Build diff tree from the new graph structure, annotating changed nodes.
-	changeMap := map[string]*GraphChange{}
-	for i := range changes {
-		changeMap[changes[i].Name] = &changes[i]
-	}
-
-	var root DiffNode
-	if new != nil && new.Root != nil {
-		root = buildDiffTree(new.Root, oldVersions, changeMap, map[string]bool{})
-		// Append removed nodes as children of root (they don't exist in new graph).
-		for i := range changes {
-			if changes[i].ChangeType == RemovedNode {
-				root.Children = append(root.Children, DiffNode{
-					Name:    changes[i].Name,
-					Version: changes[i].OldVersion,
-					Change:  &changes[i],
-				})
-			}
-		}
-	} else if old != nil && old.Root != nil {
-		root = buildRemovedTree(old.Root, changeMap, map[string]bool{})
-	}
-
 	return &GraphDiff{Root: root, Changes: changes}
 }
 
-// flattenVersions collects all unique dependency name→version mappings
-// from the graph (excluding the root).
-func flattenVersions(r *Result) map[string]string {
-	if r == nil || r.Root == nil {
-		return map[string]string{}
+// diffTrees recursively compares two graph nodes and builds a DiffNode tree
+// annotating added, removed, and version-changed children at each level.
+func diffTrees(oldNode, newNode *Node, visited map[string]bool) DiffNode {
+	dn := DiffNode{Name: newNode.Name, Version: newNode.Version}
+
+	oldByName := childMap(oldNode)
+	newByName := childMap(newNode)
+
+	// Children present in new graph.
+	for _, edge := range newNode.Dependencies {
+		if edge.Node == nil {
+			continue
+		}
+		name := edge.Node.Name
+
+		if oldChild, exists := oldByName[name]; exists {
+			child := DiffNode{Name: name, Version: edge.Node.Version}
+			if oldChild.Version != edge.Node.Version {
+				child.Change = &GraphChange{
+					Name:       name,
+					ChangeType: VersionChanged,
+					OldVersion: oldChild.Version,
+					NewVersion: edge.Node.Version,
+				}
+			}
+			if !edge.Shared && !visited[name] {
+				visited[name] = true
+				sub := diffTrees(oldChild, edge.Node, visited)
+				child.Children = sub.Children
+			}
+			dn.Children = append(dn.Children, child)
+		} else {
+			child := DiffNode{
+				Name:    name,
+				Version: edge.Node.Version,
+				Change: &GraphChange{
+					Name:       name,
+					ChangeType: AddedNode,
+					NewVersion: edge.Node.Version,
+				},
+			}
+			dn.Children = append(dn.Children, child)
+		}
 	}
-	versions := map[string]string{}
-	flattenNode(r.Root, versions)
-	return versions
+
+	// Children only in old graph → removed at this level.
+	for _, edge := range oldNode.Dependencies {
+		if edge.Node == nil {
+			continue
+		}
+		if _, exists := newByName[edge.Node.Name]; !exists {
+			child := DiffNode{
+				Name:    edge.Node.Name,
+				Version: edge.Node.Version,
+				Change: &GraphChange{
+					Name:       edge.Node.Name,
+					ChangeType: RemovedNode,
+					OldVersion: edge.Node.Version,
+				},
+			}
+			dn.Children = append(dn.Children, child)
+		}
+	}
+
+	return dn
 }
 
-func flattenNode(node *Node, versions map[string]string) {
+// markAll builds a DiffNode tree marking every dependency as the given
+// change type. Used when one side of the diff is nil.
+func markAll(node *Node, ct ChangeType, visited map[string]bool) DiffNode {
+	dn := DiffNode{Name: node.Name, Version: node.Version}
+	for _, edge := range node.Dependencies {
+		if edge.Node == nil {
+			continue
+		}
+		child := DiffNode{
+			Name:    edge.Node.Name,
+			Version: edge.Node.Version,
+			Change:  &GraphChange{Name: edge.Node.Name, ChangeType: ct},
+		}
+		if ct == AddedNode {
+			child.Change.NewVersion = edge.Node.Version
+		} else {
+			child.Change.OldVersion = edge.Node.Version
+		}
+		if !edge.Shared && !visited[edge.Node.Name] {
+			visited[edge.Node.Name] = true
+			sub := markAll(edge.Node, ct, visited)
+			child.Children = sub.Children
+		}
+		dn.Children = append(dn.Children, child)
+	}
+	return dn
+}
+
+// childMap indexes a node's direct dependency children by name.
+func childMap(node *Node) map[string]*Node {
+	m := map[string]*Node{}
 	if node == nil {
-		return
+		return m
 	}
 	for _, edge := range node.Dependencies {
-		if edge.Node == nil {
-			continue
-		}
-		if _, seen := versions[edge.Node.Name]; seen {
-			continue
-		}
-		versions[edge.Node.Name] = edge.Node.Version
-		if !edge.Shared {
-			flattenNode(edge.Node, versions)
+		if edge.Node != nil {
+			m[edge.Node.Name] = edge.Node
 		}
 	}
+	return m
 }
 
-// buildDiffTree recursively builds a DiffNode tree from the new graph,
-// annotating nodes that have changes.
-func buildDiffTree(node *Node, oldVersions map[string]string, changeMap map[string]*GraphChange, visited map[string]bool) DiffNode {
-	dn := DiffNode{Name: node.Name, Version: node.Version}
-
-	for _, edge := range node.Dependencies {
-		if edge.Node == nil {
-			continue
-		}
-		child := DiffNode{
-			Name:    edge.Node.Name,
-			Version: edge.Node.Version,
-			Change:  changeMap[edge.Node.Name],
-		}
-		if !edge.Shared && !visited[edge.Node.Name] {
-			visited[edge.Node.Name] = true
-			child.Children = buildDiffTree(edge.Node, oldVersions, changeMap, visited).Children
-		}
-		dn.Children = append(dn.Children, child)
-	}
-
-	// Append removed nodes that were direct children in old graph but missing in new.
-	// These are captured in the flat changes list; we add them at this level.
-	return dn
+// collectTreeChanges walks the diff tree and returns unique changes
+// (deduplicated by name, keeping the first occurrence).
+func collectTreeChanges(root DiffNode) []GraphChange {
+	seen := map[string]bool{}
+	var changes []GraphChange
+	collectChangesRec(root, &changes, seen)
+	return changes
 }
 
-// buildRemovedTree builds a diff tree showing all nodes as removed
-// (used when the new graph is nil/empty).
-func buildRemovedTree(node *Node, changeMap map[string]*GraphChange, visited map[string]bool) DiffNode {
-	dn := DiffNode{Name: node.Name, Version: node.Version}
-
-	for _, edge := range node.Dependencies {
-		if edge.Node == nil {
-			continue
-		}
-		child := DiffNode{
-			Name:    edge.Node.Name,
-			Version: edge.Node.Version,
-			Change:  changeMap[edge.Node.Name],
-		}
-		if !edge.Shared && !visited[edge.Node.Name] {
-			visited[edge.Node.Name] = true
-			child.Children = buildRemovedTree(edge.Node, changeMap, visited).Children
-		}
-		dn.Children = append(dn.Children, child)
+func collectChangesRec(node DiffNode, changes *[]GraphChange, seen map[string]bool) {
+	if node.Change != nil && !seen[node.Name] {
+		*changes = append(*changes, *node.Change)
+		seen[node.Name] = true
 	}
-	return dn
+	for _, child := range node.Children {
+		collectChangesRec(child, changes, seen)
+	}
 }
 
 func sortChanges(changes []GraphChange) {
-	for i := 0; i < len(changes); i++ {
-		for j := i + 1; j < len(changes); j++ {
-			if changes[i].Name > changes[j].Name {
-				changes[i], changes[j] = changes[j], changes[i]
-			}
-		}
-	}
+	sort.Slice(changes, func(i, j int) bool {
+		return changes[i].Name < changes[j].Name
+	})
 }

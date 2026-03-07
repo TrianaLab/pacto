@@ -324,15 +324,7 @@ func TestDiffGraphs_ChangesSorted(t *testing.T) {
 	}
 }
 
-func TestFlattenNode_NilNode(t *testing.T) {
-	versions := map[string]string{}
-	flattenNode(nil, versions)
-	if len(versions) != 0 {
-		t.Errorf("expected empty map for nil node, got %v", versions)
-	}
-}
-
-func TestBuildRemovedTree_NilEdgeNode(t *testing.T) {
+func TestMarkAll_NilEdgeNode(t *testing.T) {
 	root := &Node{
 		Name:    "svc",
 		Version: "1.0.0",
@@ -340,17 +332,13 @@ func TestBuildRemovedTree_NilEdgeNode(t *testing.T) {
 			{Ref: "reg/missing:1.0.0", Node: nil, Error: "not found"},
 		},
 	}
-	dn := buildRemovedTree(root, map[string]*GraphChange{}, map[string]bool{})
+	dn := markAll(root, RemovedNode, map[string]bool{})
 	if len(dn.Children) != 0 {
 		t.Errorf("expected 0 children for nil edge node, got %d", len(dn.Children))
 	}
 }
 
-func TestBuildRemovedTree_SharedEdges(t *testing.T) {
-	changeMap := map[string]*GraphChange{
-		"a": {Name: "a", ChangeType: RemovedNode, OldVersion: "1.0.0"},
-		"b": {Name: "b", ChangeType: RemovedNode, OldVersion: "2.0.0"},
-	}
+func TestMarkAll_SharedEdges(t *testing.T) {
 	root := &Node{
 		Name:    "svc",
 		Version: "1.0.0",
@@ -369,7 +357,7 @@ func TestBuildRemovedTree_SharedEdges(t *testing.T) {
 		},
 	}
 
-	dn := buildRemovedTree(root, changeMap, map[string]bool{})
+	dn := markAll(root, RemovedNode, map[string]bool{})
 
 	if len(dn.Children) != 2 {
 		t.Fatalf("expected 2 children, got %d", len(dn.Children))
@@ -381,5 +369,68 @@ func TestBuildRemovedTree_SharedEdges(t *testing.T) {
 	// Second child is shared, no sub-children
 	if len(dn.Children[1].Children) != 0 {
 		t.Errorf("expected 0 sub-children for shared 'b', got %d", len(dn.Children[1].Children))
+	}
+}
+
+func TestDiffGraphs_DirectDepRemovedStillTransitive(t *testing.T) {
+	// frontend depends on backend and keycloak directly.
+	// backend also depends on keycloak transitively.
+	// frontend-new removes the direct keycloak dependency.
+	// keycloak is still reachable via backend, but should show as removed
+	// at the root level.
+	old := &Result{
+		Root: &Node{
+			Name:    "frontend",
+			Version: "1.0.0",
+			Dependencies: []Edge{
+				{
+					Ref: "reg/backend:1.0.0",
+					Node: &Node{
+						Name:    "backend",
+						Version: "1.0.0",
+						Dependencies: []Edge{
+							{Ref: "reg/postgres:16.4.0", Node: &Node{Name: "postgres", Version: "16.4.0"}},
+							{Ref: "reg/keycloak:26.0.0", Node: &Node{Name: "keycloak", Version: "26.0.0"}},
+						},
+					},
+				},
+				{Ref: "reg/keycloak:26.0.0", Shared: true, Node: &Node{Name: "keycloak", Version: "26.0.0"}},
+			},
+		},
+	}
+	new := &Result{
+		Root: &Node{
+			Name:    "frontend",
+			Version: "1.0.0",
+			Dependencies: []Edge{
+				{
+					Ref: "reg/backend:1.0.0",
+					Node: &Node{
+						Name:    "backend",
+						Version: "1.0.0",
+						Dependencies: []Edge{
+							{Ref: "reg/postgres:16.4.0", Node: &Node{Name: "postgres", Version: "16.4.0"}},
+							{Ref: "reg/keycloak:26.0.0", Node: &Node{Name: "keycloak", Version: "26.0.0"}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	d := DiffGraphs(old, new)
+
+	if len(d.Changes) != 1 {
+		t.Fatalf("expected 1 change (keycloak removed as direct dep), got %d: %+v", len(d.Changes), d.Changes)
+	}
+	if d.Changes[0].Name != "keycloak" || d.Changes[0].ChangeType != RemovedNode {
+		t.Errorf("expected keycloak removed, got %+v", d.Changes[0])
+	}
+}
+
+func TestChildMap_NilNode(t *testing.T) {
+	m := childMap(nil)
+	if len(m) != 0 {
+		t.Errorf("expected empty map for nil node, got %v", m)
 	}
 }

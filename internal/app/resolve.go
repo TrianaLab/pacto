@@ -4,16 +4,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/trianalab/pacto/internal/graph"
+	"github.com/trianalab/pacto/internal/validation"
+	"github.com/trianalab/pacto/pkg/contract"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
-
-	"github.com/trianalab/pacto/internal/validation"
-	"github.com/trianalab/pacto/pkg/contract"
 )
-
-const ociPrefix = "oci://"
 
 // DefaultContractPath is the default filename looked up when no path is given.
 const DefaultContractPath = "pacto.yaml"
@@ -73,14 +70,15 @@ func loadLocalBundle(dir string) (*contract.Bundle, error) {
 // from disk and uses the directory as the bundle FS. For OCI references it
 // delegates to the configured BundleStore.
 func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
-	if ociRef, ok := strings.CutPrefix(ref, ociPrefix); ok {
+	parsed := graph.ParseDependencyRef(ref)
+	if parsed.IsOCI() {
 		if err := s.requireBundleStore(); err != nil {
 			return nil, err
 		}
-		return s.BundleStore.Pull(ctx, ociRef)
+		return s.BundleStore.Pull(ctx, parsed.Location)
 	}
 
-	return loadLocalBundle(ref)
+	return loadLocalBundle(parsed.Location)
 }
 
 // loadAndValidateLocal reads a local contract directory, parses pacto.yaml,
@@ -102,7 +100,7 @@ func loadAndValidateLocal(dir string) (*contract.Contract, []byte, fs.FS, error)
 
 // isOCIRef reports whether ref uses the oci:// scheme.
 func isOCIRef(ref string) bool {
-	return strings.HasPrefix(ref, ociPrefix)
+	return graph.ParseDependencyRef(ref).IsOCI()
 }
 
 // extractBundleFS writes all files from a bundle FS to the given directory.

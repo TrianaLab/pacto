@@ -5,6 +5,7 @@ import (
 	"io/fs"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/trianalab/pacto/internal/graph"
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
@@ -174,22 +175,26 @@ func validateConfigFiles(c *contract.Contract, bundleFS fs.FS, result *Validatio
 
 func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {
 	for i, dep := range c.Dependencies {
-		ref, err := contract.ParseOCIReference(dep.Ref)
-		if err != nil {
-			result.AddError(
-				fmt.Sprintf("dependencies[%d].ref", i),
-				"INVALID_OCI_REF",
-				fmt.Sprintf("invalid OCI reference %q: %v", dep.Ref, err),
-			)
-			continue
-		}
+		parsed := graph.ParseDependencyRef(dep.Ref)
 
-		if ref.Digest == "" && ref.Tag != "" {
-			result.AddWarning(
-				fmt.Sprintf("dependencies[%d].ref", i),
-				"TAG_NOT_DIGEST",
-				fmt.Sprintf("dependency %q uses a tag instead of a digest; digest pinning is recommended", dep.Ref),
-			)
+		if parsed.IsOCI() {
+			ref, err := contract.ParseOCIReference(parsed.Location)
+			if err != nil {
+				result.AddError(
+					fmt.Sprintf("dependencies[%d].ref", i),
+					"INVALID_OCI_REF",
+					fmt.Sprintf("invalid OCI reference %q: %v", dep.Ref, err),
+				)
+				continue
+			}
+
+			if ref.Digest == "" && ref.Tag != "" {
+				result.AddWarning(
+					fmt.Sprintf("dependencies[%d].ref", i),
+					"TAG_NOT_DIGEST",
+					fmt.Sprintf("dependency %q uses a tag instead of a digest; digest pinning is recommended", dep.Ref),
+				)
+			}
 		}
 
 		if dep.Compatibility == "" {

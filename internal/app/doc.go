@@ -36,10 +36,7 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 		return nil, err
 	}
 
-	var fetcher graph.ContractFetcher
-	if s.BundleStore != nil {
-		fetcher = &bundleStoreFetcher{store: s.BundleStore}
-	}
+	fetcher := s.newDepFetcher(ref)
 	gr := graph.Resolve(ctx, bundle.Contract, fetcher)
 
 	markdown, err := generateDoc(bundle.Contract, bundle.FS, gr)

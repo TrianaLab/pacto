@@ -39,7 +39,7 @@ configuration:
   schema: configuration/schema.json
 
 # dependencies:
-#   - ref: ghcr.io/my-org/other-service-pacto:1.0.0
+#   - ref: oci://ghcr.io/my-org/other-service-pacto:1.0.0
 #     required: true
 #     compatibility: "^1.0.0"
 
