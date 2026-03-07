@@ -113,6 +113,22 @@ metadata:
 
 ---
 
+## Minimal contract
+
+Only `pactoVersion` and `service` are required. All other sections — `interfaces`, `runtime`, `configuration`, `dependencies`, `scaling`, and `metadata` — are optional:
+
+```yaml
+pactoVersion: "1.0"
+
+service:
+  name: my-library
+  version: 1.0.0
+```
+
+This is useful for lightweight dependency declarations, shared libraries, or contracts where runtime semantics are managed externally.
+
+---
+
 ## Sections
 
 ### `pactoVersion`
@@ -147,7 +163,7 @@ Identifies the service.
 
 ### `interfaces`
 
-Declares the service's communication boundaries. **At least one interface is required.**
+Declares the service's communication boundaries. Optional — a service with no network interfaces (e.g. a batch job) may omit this section entirely.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -213,14 +229,14 @@ If your service depends on a cloud-managed resource (e.g. GCP Cloud SQL, AWS SNS
 
 ### `runtime`
 
-Describes how the service behaves at runtime. This is the most important section for platform engineers.
+Describes how the service behaves at runtime. This is the most important section for platform engineers. Optional — a minimal contract (e.g. a lightweight dependency declaration) may omit it entirely.
 
 | Field | Type | Required |
 |-------|------|----------|
 | `workload` | string | Yes |
 | `state` | [State](#state) | Yes |
 | `lifecycle` | [Lifecycle](#lifecycle) | No |
-| `health` | [Health](#health) | Yes |
+| `health` | [Health](#health) | No |
 
 #### `runtime.workload`
 
@@ -307,12 +323,31 @@ Optional. Describes upgrade and shutdown behavior.
 
 ### `scaling`
 
-Optional. Defines replica bounds.
+Optional. Defines replica count as either an exact number or a min/max range. Uses one of two mutually exclusive forms.
+
+#### Fixed replica count
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `min` | integer | Yes | Minimum: 0 |
-| `max` | integer | Yes | Minimum: 0. Must be >= `min` |
+| `replicas` | integer | Yes | Minimum: 0. Mutually exclusive with `min`/`max` |
+
+```yaml
+scaling:
+  replicas: 3
+```
+
+#### Auto-scaling range
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `min` | integer | Yes | Minimum: 0. Mutually exclusive with `replicas` |
+| `max` | integer | Yes | Minimum: 0. Must be >= `min`. Mutually exclusive with `replicas` |
+
+```yaml
+scaling:
+  min: 2
+  max: 10
+```
 
 {: .warning }
 Scaling must not be applied to `job` workloads.
@@ -437,6 +472,7 @@ Validates cross-concern consistency:
 |-------|--------|----------------|
 | `scaling` | Added | NON_BREAKING |
 | `scaling` | Removed | POTENTIAL_BREAKING |
+| `scaling.replicas` | Modified | POTENTIAL_BREAKING |
 | `scaling.min` | Modified | POTENTIAL_BREAKING |
 | `scaling.max` | Modified | NON_BREAKING |
 

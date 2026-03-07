@@ -142,7 +142,11 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		}
 
 		if result.Scaling != nil {
-			_, _ = fmt.Fprintf(w, "\nScaling: %d-%d\n", result.Scaling.Min, result.Scaling.Max)
+			if result.Scaling.Replicas != nil {
+				_, _ = fmt.Fprintf(w, "\nScaling: %d replicas\n", *result.Scaling.Replicas)
+			} else {
+				_, _ = fmt.Fprintf(w, "\nScaling: %d-%d\n", result.Scaling.Min, result.Scaling.Max)
+			}
 		}
 
 		return nil

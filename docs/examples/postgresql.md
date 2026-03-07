@@ -54,8 +54,7 @@ runtime:
     path: /health
 
 scaling:
-  min: 1
-  max: 1
+  replicas: 1
 
 metadata:
   tier: critical
@@ -68,5 +67,5 @@ metadata:
 - **`state.type: stateful`** with **`durability: persistent`** — PostgreSQL needs persistent storage that survives pod restarts
 - **`dataCriticality: high`** — data loss is unacceptable; the platform should enable backups and strict disruption budgets
 - **`upgradeStrategy: ordered`** — replicas must be updated one at a time (primary before replicas)
-- **`scaling: min 1, max 1`** — single-instance; replication is handled externally
+- **`scaling: replicas 1`** — single-instance; replication is handled externally
 - **`gracefulShutdownSeconds: 60`** — allow time for connections to drain and WAL to flush

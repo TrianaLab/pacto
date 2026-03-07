@@ -54,8 +54,7 @@ runtime:
     path: /health
 
 scaling:
-  min: 1
-  max: 1
+  replicas: 1
 
 metadata:
   tier: high
