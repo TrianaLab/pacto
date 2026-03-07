@@ -259,59 +259,67 @@ func writeMermaidDiagram(b *strings.Builder, c *contract.Contract, gr *graph.Res
 	fmt.Fprintln(b, "```mermaid")
 	fmt.Fprintln(b, "graph LR")
 
-	// Collect all contracts (root + dependencies)
-	allContracts := []*contract.Contract{c}
-	if gr != nil && gr.Root != nil {
-		for _, node := range collectUniqueNodes(gr.Root) {
-			if node.Contract != nil {
-				allContracts = append(allContracts, node.Contract)
-			}
-		}
-	}
+	allContracts := collectAllContracts(c, gr)
 
-	// Render external user node if any service has public interfaces
-	hasPublic := false
-	for _, sc := range allContracts {
-		for _, iface := range sc.Interfaces {
-			if iface.Visibility == contract.VisibilityPublic {
-				hasPublic = true
-				break
-			}
-		}
-		if hasPublic {
-			break
-		}
-	}
+	hasPublic := anyPublicInterface(allContracts)
 	if hasPublic {
 		fmt.Fprintln(b, "  external([\"External User\"])")
 		fmt.Fprintln(b)
 	}
 
-	// Render subgraphs and interface nodes for all services
 	for _, sc := range allContracts {
 		writeServiceSubgraph(b, sc, hasPublic)
 	}
 
-	// Dependency edges — use full transitive graph when available
-	if gr != nil && gr.Root != nil && len(gr.Root.Dependencies) > 0 {
-		fmt.Fprintln(b)
-		writeMermaidEdges(b, gr.Root)
-	} else if len(c.Dependencies) > 0 {
-		fmt.Fprintln(b)
-		svcID := sanitizeMermaidID(c.Service.Name)
-		for _, dep := range c.Dependencies {
-			name := depName(dep.Ref)
-			depID := "dep_" + sanitizeMermaidID(name)
-			if dep.Required {
-				fmt.Fprintf(b, "  %s -->|\"required · %s\"| %s[\"%s\"]\n", svcID, dep.Compatibility, depID, name)
-			} else {
-				fmt.Fprintf(b, "  %s -.->|\"optional · %s\"| %s[\"%s\"]\n", svcID, dep.Compatibility, depID, name)
-			}
-		}
-	}
+	writeDependencyEdges(b, c, gr)
 
 	fmt.Fprintln(b, "```")
 	fmt.Fprintln(b)
+}
+
+func collectAllContracts(c *contract.Contract, gr *graph.Result) []*contract.Contract {
+	all := []*contract.Contract{c}
+	if gr != nil && gr.Root != nil {
+		for _, node := range collectUniqueNodes(gr.Root) {
+			if node.Contract != nil {
+				all = append(all, node.Contract)
+			}
+		}
+	}
+	return all
+}
+
+func anyPublicInterface(contracts []*contract.Contract) bool {
+	for _, sc := range contracts {
+		for _, iface := range sc.Interfaces {
+			if iface.Visibility == contract.VisibilityPublic {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func writeDependencyEdges(b *strings.Builder, c *contract.Contract, gr *graph.Result) {
+	if gr != nil && gr.Root != nil && len(gr.Root.Dependencies) > 0 {
+		fmt.Fprintln(b)
+		writeMermaidEdges(b, gr.Root)
+		return
+	}
+	if len(c.Dependencies) == 0 {
+		return
+	}
+	fmt.Fprintln(b)
+	svcID := sanitizeMermaidID(c.Service.Name)
+	for _, dep := range c.Dependencies {
+		name := depName(dep.Ref)
+		depID := "dep_" + sanitizeMermaidID(name)
+		if dep.Required {
+			fmt.Fprintf(b, "  %s -->|\"required · %s\"| %s[\"%s\"]\n", svcID, dep.Compatibility, depID, name)
+		} else {
+			fmt.Fprintf(b, "  %s -.->|\"optional · %s\"| %s[\"%s\"]\n", svcID, dep.Compatibility, depID, name)
+		}
+	}
 }
 
 func writeServiceSubgraph(b *strings.Builder, c *contract.Contract, hasExternal bool) {
