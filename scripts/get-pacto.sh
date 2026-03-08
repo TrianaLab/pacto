@@ -91,7 +91,7 @@ downloadFile() {
   tmp="$(mktemp -d)"
   target="$tmp/$filename"
   if [ "$HAS_CURL" = "true" ]; then
-    curl -sSL "$url" -o "$target"
+    curl -fsSL "$url" -o "$target"
   else
     wget -qO "$target" "$url"
   fi
