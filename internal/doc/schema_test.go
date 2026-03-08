@@ -224,6 +224,126 @@ func TestReadSchemaProperties_RefDefinition(t *testing.T) {
 	}
 }
 
+func TestReadSchemaProperties_NestedRefProperties(t *testing.T) {
+	schema := `{
+  "$ref": "#/definitions/Config",
+  "definitions": {
+    "Config": {
+      "type": "object",
+      "properties": {
+        "log_level": {
+          "type": "string",
+          "description": "Logging level"
+        },
+        "postgres": {
+          "$ref": "#/definitions/Postgres"
+        }
+      },
+      "required": ["postgres"]
+    },
+    "Postgres": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Database host"
+        },
+        "port": {
+          "type": "integer",
+          "description": "Database port",
+          "default": 5432
+        }
+      },
+      "required": ["host"]
+    }
+  }
+}`
+	fsys := fstest.MapFS{
+		"schema.json": &fstest.MapFile{Data: []byte(schema)},
+	}
+
+	props, err := readSchemaProperties(fsys, "schema.json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(props) != 3 {
+		t.Fatalf("expected 3 properties, got %d", len(props))
+	}
+
+	// Sorted: log_level, postgres.host, postgres.port
+	want := []Property{
+		{Name: "log_level", Type: "string", Description: "Logging level", Required: false},
+		{Name: "postgres.host", Type: "string", Description: "Database host", Required: true},
+		{Name: "postgres.port", Type: "integer", Description: "Database port", Default: "5432", Required: false},
+	}
+	for i, w := range want {
+		if props[i] != w {
+			t.Errorf("property %d: got %+v, want %+v", i, props[i], w)
+		}
+	}
+}
+
+func TestReadSchemaProperties_DeeplyNestedRefProperties(t *testing.T) {
+	schema := `{
+  "type": "object",
+  "properties": {
+    "name": { "type": "string", "description": "Service name" },
+    "database": { "$ref": "#/definitions/Database" }
+  },
+  "required": ["name", "database"],
+  "definitions": {
+    "Database": {
+      "type": "object",
+      "properties": {
+        "primary": { "$ref": "#/definitions/Connection" },
+        "pool_size": { "type": "integer", "default": 10 }
+      },
+      "required": ["primary"]
+    },
+    "Connection": {
+      "type": "object",
+      "properties": {
+        "host": { "type": "string", "description": "Hostname" },
+        "tls": { "$ref": "#/definitions/TLS" }
+      },
+      "required": ["host", "tls"]
+    },
+    "TLS": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "cert_path": { "type": "string" }
+      },
+      "required": ["enabled"]
+    }
+  }
+}`
+	fsys := fstest.MapFS{
+		"schema.json": &fstest.MapFile{Data: []byte(schema)},
+	}
+
+	props, err := readSchemaProperties(fsys, "schema.json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []Property{
+		{Name: "database.pool_size", Type: "integer", Default: "10"},
+		{Name: "database.primary.host", Type: "string", Description: "Hostname", Required: true},
+		{Name: "database.primary.tls.cert_path", Type: "string"},
+		{Name: "database.primary.tls.enabled", Type: "boolean", Default: "true", Required: true},
+		{Name: "name", Type: "string", Description: "Service name", Required: true},
+	}
+	if len(props) != len(want) {
+		t.Fatalf("expected %d properties, got %d: %+v", len(want), len(props), props)
+	}
+	for i, w := range want {
+		if props[i] != w {
+			t.Errorf("property %d: got %+v, want %+v", i, props[i], w)
+		}
+	}
+}
+
 func TestReadSchemaProperties_RefMissingDefinition(t *testing.T) {
 	schema := `{
   "$ref": "#/definitions/Missing",
