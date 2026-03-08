@@ -42,18 +42,21 @@ func readSchemaProperties(fsys fs.FS, path string) ([]Property, error) {
 		return nil, fmt.Errorf("compiling schema %s: %w", path, err)
 	}
 
-	// Follow $ref if the root schema is a reference.
-	resolved := sch
-	for resolved.Ref != nil {
-		resolved = resolved.Ref
-	}
-
-	return extractProperties(resolved), nil
+	return flattenProperties("", resolveRef(sch)), nil
 }
 
-// extractProperties converts a compiled JSON Schema's properties into a sorted
-// slice of Property values.
-func extractProperties(sch *jsonschema.Schema) []Property {
+// resolveRef follows $ref pointers to reach the underlying schema.
+func resolveRef(s *jsonschema.Schema) *jsonschema.Schema {
+	for s.Ref != nil {
+		s = s.Ref
+	}
+	return s
+}
+
+// flattenProperties recursively collects properties from a schema, prefixing
+// nested property names with their parent path using dot notation
+// (e.g. "postgres.host").
+func flattenProperties(prefix string, sch *jsonschema.Schema) []Property {
 	if len(sch.Properties) == 0 {
 		return nil
 	}
@@ -69,11 +72,19 @@ func extractProperties(sch *jsonschema.Schema) []Property {
 	}
 	sort.Strings(names)
 
-	props := make([]Property, 0, len(names))
+	var props []Property
 	for _, name := range names {
-		p := sch.Properties[name]
+		p := resolveRef(sch.Properties[name])
+		fullName := prefix + name
+
+		// If the property is an object with its own properties, recurse.
+		if len(p.Properties) > 0 {
+			props = append(props, flattenProperties(fullName+".", p)...)
+			continue
+		}
+
 		prop := Property{
-			Name:        name,
+			Name:        fullName,
 			Required:    requiredSet[name],
 			Description: p.Description,
 		}
