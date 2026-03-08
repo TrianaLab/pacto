@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io/fs"
 	"sort"
+	"strings"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // Property represents a configuration property extracted from a JSON Schema.
@@ -16,55 +19,72 @@ type Property struct {
 	Required    bool
 }
 
-// readSchemaProperties parses a JSON Schema file and returns its top-level properties.
+// readSchemaProperties compiles a JSON Schema file using the jsonschema library
+// and extracts its top-level properties. All $ref pointers ($ref, $defs,
+// definitions, nested chains, etc.) are resolved automatically by the compiler.
 func readSchemaProperties(fsys fs.FS, path string) ([]Property, error) {
 	data, err := fs.ReadFile(fsys, path)
 	if err != nil {
 		return nil, fmt.Errorf("reading schema %s: %w", path, err)
 	}
 
-	var schema struct {
-		Properties map[string]struct {
-			Type        string `json:"type"`
-			Description string `json:"description"`
-			Default     any    `json:"default"`
-		} `json:"properties"`
-		Required []string `json:"required"`
-	}
-
-	if err := json.Unmarshal(data, &schema); err != nil {
+	var doc any
+	if err := json.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("parsing schema %s: %w", path, err)
 	}
 
-	if len(schema.Properties) == 0 {
-		return nil, nil
+	c := jsonschema.NewCompiler()
+	if err := c.AddResource(path, doc); err != nil {
+		return nil, fmt.Errorf("compiling schema %s: %w", path, err)
+	}
+	sch, err := c.Compile(path)
+	if err != nil {
+		return nil, fmt.Errorf("compiling schema %s: %w", path, err)
 	}
 
-	requiredSet := make(map[string]bool, len(schema.Required))
-	for _, r := range schema.Required {
+	// Follow $ref if the root schema is a reference.
+	resolved := sch
+	for resolved.Ref != nil {
+		resolved = resolved.Ref
+	}
+
+	return extractProperties(resolved), nil
+}
+
+// extractProperties converts a compiled JSON Schema's properties into a sorted
+// slice of Property values.
+func extractProperties(sch *jsonschema.Schema) []Property {
+	if len(sch.Properties) == 0 {
+		return nil
+	}
+
+	requiredSet := make(map[string]bool, len(sch.Required))
+	for _, r := range sch.Required {
 		requiredSet[r] = true
 	}
 
-	names := make([]string, 0, len(schema.Properties))
-	for name := range schema.Properties {
+	names := make([]string, 0, len(sch.Properties))
+	for name := range sch.Properties {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
 	props := make([]Property, 0, len(names))
 	for _, name := range names {
-		p := schema.Properties[name]
+		p := sch.Properties[name]
 		prop := Property{
 			Name:        name,
-			Type:        p.Type,
-			Description: p.Description,
 			Required:    requiredSet[name],
+			Description: p.Description,
+		}
+		if p.Types != nil {
+			prop.Type = strings.Join(p.Types.ToStrings(), ", ")
 		}
 		if p.Default != nil {
-			prop.Default = fmt.Sprintf("%v", p.Default)
+			prop.Default = fmt.Sprintf("%v", *p.Default)
 		}
 		props = append(props, prop)
 	}
 
-	return props, nil
+	return props
 }
