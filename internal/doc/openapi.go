@@ -1,9 +1,11 @@
 package doc
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,16 +29,16 @@ var httpMethodOrder = map[string]int{
 	"trace":   7,
 }
 
-// readOpenAPIEndpoints parses an OpenAPI YAML file and returns its endpoints
-// sorted by path (alphabetically) then by HTTP method order.
+// readOpenAPIEndpoints parses an OpenAPI spec (YAML or JSON) and returns its
+// endpoints sorted by path (alphabetically) then by HTTP method order.
 func readOpenAPIEndpoints(fsys fs.FS, path string) ([]Endpoint, error) {
 	data, err := fs.ReadFile(fsys, path)
 	if err != nil {
 		return nil, fmt.Errorf("reading OpenAPI spec %s: %w", path, err)
 	}
 
-	var spec map[string]any
-	if err := yaml.Unmarshal(data, &spec); err != nil {
+	spec, err := unmarshalSpec(data, path)
+	if err != nil {
 		return nil, fmt.Errorf("parsing OpenAPI spec %s: %w", path, err)
 	}
 
@@ -59,40 +61,50 @@ func readOpenAPIEndpoints(fsys fs.FS, path string) ([]Endpoint, error) {
 
 	var endpoints []Endpoint
 	for _, p := range pathKeys {
-		methods, ok := paths[p].(map[string]any)
-		if !ok {
-			continue
-		}
-
-		// Collect HTTP methods for this path, sorted by standard order.
-		var methodKeys []string
-		for m := range methods {
-			if _, isHTTP := httpMethodOrder[m]; isHTTP {
-				methodKeys = append(methodKeys, m)
-			}
-		}
-		sort.Slice(methodKeys, func(i, j int) bool {
-			return httpMethodOrder[methodKeys[i]] < httpMethodOrder[methodKeys[j]]
-		})
-
-		for _, m := range methodKeys {
-			op, ok := methods[m].(map[string]any)
-			if !ok {
-				continue
-			}
-
-			ep := Endpoint{
-				Method: m,
-				Path:   p,
-			}
-
-			if summary, ok := op["summary"].(string); ok {
-				ep.Summary = summary
-			}
-
-			endpoints = append(endpoints, ep)
-		}
+		endpoints = append(endpoints, extractPathEndpoints(p, paths[p])...)
 	}
 
 	return endpoints, nil
+}
+
+// extractPathEndpoints returns the endpoints for a single OpenAPI path entry,
+// sorted by standard HTTP method order.
+func extractPathEndpoints(path string, raw any) []Endpoint {
+	methods, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	var methodKeys []string
+	for m := range methods {
+		if _, isHTTP := httpMethodOrder[m]; isHTTP {
+			methodKeys = append(methodKeys, m)
+		}
+	}
+	sort.Slice(methodKeys, func(i, j int) bool {
+		return httpMethodOrder[methodKeys[i]] < httpMethodOrder[methodKeys[j]]
+	})
+
+	var endpoints []Endpoint
+	for _, m := range methodKeys {
+		op, ok := methods[m].(map[string]any)
+		if !ok {
+			continue
+		}
+		ep := Endpoint{Method: m, Path: path}
+		if summary, ok := op["summary"].(string); ok {
+			ep.Summary = summary
+		}
+		endpoints = append(endpoints, ep)
+	}
+	return endpoints
+}
+
+// unmarshalSpec parses an OpenAPI spec as JSON (for .json files) or YAML.
+func unmarshalSpec(data []byte, path string) (map[string]any, error) {
+	var spec map[string]any
+	if strings.HasSuffix(path, ".json") {
+		return spec, json.Unmarshal(data, &spec)
+	}
+	return spec, yaml.Unmarshal(data, &spec)
 }

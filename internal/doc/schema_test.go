@@ -126,3 +126,83 @@ func TestReadSchemaProperties_InvalidJSON(t *testing.T) {
 		t.Error("expected error for invalid JSON")
 	}
 }
+
+func TestReadSchemaProperties_RefDefinition(t *testing.T) {
+	schema := `{
+  "$schema": "http://json-schema.org/draft-06/schema#",
+  "$ref": "#/definitions/Config",
+  "definitions": {
+    "Config": {
+      "type": "object",
+      "properties": {
+        "log_level": {
+          "type": "string",
+          "description": "Logging level"
+        },
+        "port": {
+          "type": "integer",
+          "description": "Server port",
+          "default": 8080
+        }
+      },
+      "required": ["port"]
+    }
+  }
+}`
+	fsys := fstest.MapFS{
+		"schema.json": &fstest.MapFile{Data: []byte(schema)},
+	}
+
+	props, err := readSchemaProperties(fsys, "schema.json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(props) != 2 {
+		t.Fatalf("expected 2 properties, got %d", len(props))
+	}
+	// Sorted: log_level, port
+	if props[0].Name != "log_level" {
+		t.Errorf("expected log_level, got %s", props[0].Name)
+	}
+	if props[0].Required {
+		t.Error("log_level should not be required")
+	}
+	if props[1].Name != "port" {
+		t.Errorf("expected port, got %s", props[1].Name)
+	}
+	if !props[1].Required {
+		t.Error("port should be required")
+	}
+	if props[1].Default != "8080" {
+		t.Errorf("expected default 8080, got %s", props[1].Default)
+	}
+}
+
+func TestReadSchemaProperties_RefMissingDefinition(t *testing.T) {
+	schema := `{
+  "$ref": "#/definitions/Missing",
+  "definitions": {}
+}`
+	fsys := fstest.MapFS{
+		"schema.json": &fstest.MapFile{Data: []byte(schema)},
+	}
+
+	_, err := readSchemaProperties(fsys, "schema.json")
+	if err == nil {
+		t.Error("expected error for missing $ref definition")
+	}
+}
+
+func TestReadSchemaProperties_RefNonLocalIgnored(t *testing.T) {
+	schema := `{
+  "$ref": "https://example.com/schema.json"
+}`
+	fsys := fstest.MapFS{
+		"schema.json": &fstest.MapFile{Data: []byte(schema)},
+	}
+
+	_, err := readSchemaProperties(fsys, "schema.json")
+	if err == nil {
+		t.Error("expected error for unresolvable external $ref")
+	}
+}

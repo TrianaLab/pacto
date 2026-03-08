@@ -193,6 +193,50 @@ func TestReadOpenAPIEndpoints_InvalidYAML(t *testing.T) {
 	}
 }
 
+func TestReadOpenAPIEndpoints_JSONFormat(t *testing.T) {
+	spec := `{
+  "openapi": "3.0.0",
+  "paths": {
+    "/health": {
+      "get": { "summary": "Health check" }
+    },
+    "/items": {
+      "get": { "summary": "List items" },
+      "post": { "summary": "Create item" }
+    }
+  }
+}`
+	fsys := fstest.MapFS{
+		"openapi.json": &fstest.MapFile{Data: []byte(spec)},
+	}
+
+	endpoints, err := readOpenAPIEndpoints(fsys, "openapi.json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(endpoints) != 3 {
+		t.Fatalf("expected 3 endpoints, got %d", len(endpoints))
+	}
+	if endpoints[0].Path != "/health" || endpoints[0].Method != "get" {
+		t.Errorf("expected GET /health first, got %s %s", endpoints[0].Method, endpoints[0].Path)
+	}
+	if endpoints[1].Path != "/items" || endpoints[1].Method != "get" {
+		t.Errorf("expected GET /items second, got %s %s", endpoints[1].Method, endpoints[1].Path)
+	}
+}
+
+func TestReadOpenAPIEndpoints_InvalidJSON(t *testing.T) {
+	fsys := fstest.MapFS{
+		"bad.json": &fstest.MapFile{Data: []byte("{invalid json")},
+	}
+
+	_, err := readOpenAPIEndpoints(fsys, "bad.json")
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
 func TestReadOpenAPIEndpoints_MethodOrder(t *testing.T) {
 	spec := `
 openapi: "3.0.0"
