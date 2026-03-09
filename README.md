@@ -7,9 +7,9 @@
 
 # Pacto
 
-**One contract to describe how a service behaves.**
+**A single YAML contract that describes how a cloud-native service behaves — validated, versioned, and distributed as an OCI artifact.**
 
-Pacto (/ˈpak.to/ — from Spanish: *pact*, *agreement*) is an open, OCI-distributed contract standard for cloud-native services. It captures everything a platform needs to know about a service — interfaces, runtime behavior, dependencies, configuration, and scaling — in a single, machine-validated YAML file.
+Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs to know about a service — interfaces, runtime behavior, dependencies, configuration, and scaling — in one file that machines can validate and tooling can consume.
 
 **[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)**
 
@@ -35,7 +35,13 @@ The consequences:
 - **Breaking changes detected too late.** A port change or removed dependency breaks production, not CI.
 - **Documentation drifts from reality.** No one updates six files when one thing changes.
 
-## The Pacto solution
+## Who is this for?
+
+- **Application developers** — Describe your service once. Validation catches misconfigurations before CI. Breaking changes are detected automatically across versions.
+- **Platform engineers** — Consume contracts to generate manifests, enforce policies, and visualize dependency graphs. No more reverse-engineering how to run a service.
+- **DevOps / infrastructure teams** — Distribute contracts through existing OCI registries. Integrate with CI pipelines using standard tooling — no new infrastructure required.
+
+## What Pacto captures
 
 One file. Machine-validated. Versioned and distributed as an OCI artifact.
 
@@ -161,6 +167,16 @@ A bundle is a self-contained directory (or OCI artifact) containing:
 
 ---
 
+## Key capabilities
+
+- **3-layer validation** — structural (YAML schema), cross-field (port references, interface names), and semantic (state vs. persistence consistency)
+- **Dependency graph resolution** — recursively resolve transitive dependencies from OCI registries. Sibling deps are fetched in parallel
+- **Breaking change detection** — `pacto diff` compares two contract versions field-by-field *and* resolves both dependency trees to show the full blast radius
+- **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor). Bundles are cached locally for fast repeated operations
+- **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details from the contract itself
+
+---
+
 ## CLI demo
 
 ```bash
@@ -186,6 +202,11 @@ payments-api@2.1.0
 ├─ auth-service@2.3.0
 │  └─ user-store@1.0.0
 └─ postgres@16.0.0
+
+# Generate documentation with architecture diagrams
+$ pacto doc payments-api --serve
+Serving documentation at http://127.0.0.1:8484
+Press Ctrl+C to stop
 
 # Detect breaking changes — including dependency graph shifts
 $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
@@ -215,6 +236,25 @@ Pacto bundles are distributed as **OCI artifacts** — the same standard behind 
 - **Works with existing registries** — GHCR, ECR, ACR, Docker Hub, Harbor — no new infrastructure
 - **Signable and scannable** — use cosign, Notary, or any OCI-compatible signing tool
 - **Pull from CI, platforms, or scripts** — standard tooling, no proprietary clients
+
+---
+
+## How Pacto compares
+
+Pacto doesn't replace these tools — it fills the gap between them.
+
+| Concern | OpenAPI | Helm | Terraform | Backstage | Pacto |
+|---------|---------|------|-----------|-----------|-------|
+| API contract | ✅ | — | — | — | ✅ |
+| Runtime semantics (state, health, lifecycle) | — | Partial | — | — | ✅ |
+| Typed dependencies with version constraints | — | — | — | — | ✅ |
+| Configuration schema | — | Partial | — | — | ✅ |
+| Breaking change detection | — | — | — | — | ✅ |
+| Dependency graph resolution + diff | — | — | — | — | ✅ |
+| OCI-native distribution | — | ✅ | — | — | ✅ |
+| Machine validation | ✅ | — | ✅ | — | ✅ |
+
+**Why not just OpenAPI + Helm?** OpenAPI describes your API surface. Helm describes how to deploy one particular way. Neither captures runtime behavior (stateful vs. stateless), dependency relationships, configuration schemas, or scaling intent — and there's no way to diff two versions across all of these dimensions. Pacto is the layer that ties them together.
 
 ---
 
