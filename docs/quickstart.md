@@ -23,6 +23,8 @@ Get a valid Pacto contract running in under two minutes.
 go install github.com/trianalab/pacto/cmd/pacto@latest
 ```
 
+See the [installation docs]({{ site.baseurl }}{% link installation.md %}) for more options including building from source.
+
 ## 2. Initialize a new contract
 
 ```bash
