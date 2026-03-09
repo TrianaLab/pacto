@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/trianalab/pacto/pkg/contract"
@@ -20,6 +21,28 @@ func (m *mockFetcher) Fetch(_ context.Context, ref string) (*contract.Bundle, er
 	}
 	return &contract.Bundle{Contract: c}, nil
 }
+
+// blockingFetcher blocks until signaled, then delegates to an inner fetcher.
+type blockingFetcher struct {
+	inner   ContractFetcher
+	mu      sync.Mutex
+	barrier chan struct{}
+	calls   int
+}
+
+func newBlockingFetcher(inner ContractFetcher) *blockingFetcher {
+	return &blockingFetcher{inner: inner, barrier: make(chan struct{})}
+}
+
+func (f *blockingFetcher) Fetch(ctx context.Context, ref string) (*contract.Bundle, error) {
+	f.mu.Lock()
+	f.calls++
+	f.mu.Unlock()
+	<-f.barrier
+	return f.inner.Fetch(ctx, ref)
+}
+
+func (f *blockingFetcher) release() { close(f.barrier) }
 
 func TestResolve_NoDependencies(t *testing.T) {
 	c := &contract.Contract{
@@ -328,37 +351,44 @@ func TestResolve_DiamondDependency(t *testing.T) {
 	if len(result.Root.Dependencies) != 2 {
 		t.Fatalf("expected 2 dependencies, got %d", len(result.Root.Dependencies))
 	}
-	// B should have D resolved
+	// Both B and C should have D as a dependency.
+	// With parallel resolution, either B or C may resolve D first;
+	// the other should see it as shared.
 	bEdge := result.Root.Dependencies[0]
 	if bEdge.Node == nil || len(bEdge.Node.Dependencies) != 1 {
 		t.Fatal("expected B to have 1 dependency (D)")
 	}
-	if bEdge.Node.Dependencies[0].Node == nil {
-		t.Error("expected D to be resolved under B")
-	}
-	// C's reference to D should be marked as shared with a shallow node
 	cEdge := result.Root.Dependencies[1]
 	if cEdge.Node == nil || len(cEdge.Node.Dependencies) != 1 {
 		t.Fatal("expected C to have 1 dependency (D)")
 	}
+	dUnderB := bEdge.Node.Dependencies[0]
 	dUnderC := cEdge.Node.Dependencies[0]
-	if dUnderC.Node == nil {
-		t.Fatal("expected D under C to have a shallow node")
+
+	sharedCount := 0
+	for _, d := range []Edge{dUnderB, dUnderC} {
+		if d.Node == nil {
+			t.Fatal("expected D to have a node")
+		}
+		if d.Node.Name != "svc-d" {
+			t.Errorf("expected svc-d, got %s", d.Node.Name)
+		}
+		if d.Shared {
+			sharedCount++
+			if len(d.Node.Dependencies) != 0 {
+				t.Error("expected shared node to have no dependencies")
+			}
+		}
 	}
-	if dUnderC.Node.Name != "svc-d" {
-		t.Errorf("expected svc-d, got %s", dUnderC.Node.Name)
-	}
-	if !dUnderC.Shared {
-		t.Error("expected D under C to be marked as shared")
-	}
-	if len(dUnderC.Node.Dependencies) != 0 {
-		t.Error("expected shared node to have no dependencies")
+	if sharedCount != 1 {
+		t.Errorf("expected exactly 1 shared D edge, got %d", sharedCount)
 	}
 }
 
 func TestResolve_SharedEdgeHasNodeInfo(t *testing.T) {
-	// When the same ref is encountered twice, the second edge should be
+	// When the same ref is encountered twice, exactly one edge should be
 	// marked Shared and carry name/version but no children.
+	// With parallel resolution, the scheduling order is non-deterministic.
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
@@ -380,19 +410,21 @@ func TestResolve_SharedEdgeHasNodeInfo(t *testing.T) {
 	if len(result.Root.Dependencies) != 2 {
 		t.Fatalf("expected 2 dependencies, got %d", len(result.Root.Dependencies))
 	}
-	first := result.Root.Dependencies[0]
-	if first.Shared {
-		t.Error("first occurrence should not be shared")
+
+	sharedCount := 0
+	for _, edge := range result.Root.Dependencies {
+		if edge.Shared {
+			sharedCount++
+			if edge.Node == nil {
+				t.Fatal("shared edge should have node info")
+			}
+			if edge.Node.Name != "svc-b" {
+				t.Errorf("expected svc-b, got %s", edge.Node.Name)
+			}
+		}
 	}
-	second := result.Root.Dependencies[1]
-	if !second.Shared {
-		t.Error("second occurrence should be shared")
-	}
-	if second.Node == nil {
-		t.Fatal("shared edge should have node info")
-	}
-	if second.Node.Name != "svc-b" {
-		t.Errorf("expected svc-b, got %s", second.Node.Name)
+	if sharedCount != 1 {
+		t.Errorf("expected exactly 1 shared edge, got %d", sharedCount)
 	}
 }
 
@@ -553,5 +585,155 @@ func TestResolve_OCINotMarkedLocal(t *testing.T) {
 	}
 	if edge.Node.Local {
 		t.Error("expected OCI node to NOT be marked as local")
+	}
+}
+
+func TestResolve_PendingDedup(t *testing.T) {
+	// Two sibling deps reference the same ref. A blocking fetcher ensures
+	// both goroutines enter resolveEdge concurrently: one creates the
+	// pending channel and fetches, the other waits on it.
+	inner := &mockFetcher{
+		contracts: map[string]*contract.Contract{
+			"oci://registry.io/svc-b:1.0.0": {
+				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+			},
+		},
+	}
+	bf := newBlockingFetcher(inner)
+
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+		},
+	}
+
+	done := make(chan *Result, 1)
+	go func() {
+		done <- Resolve(context.Background(), c, bf)
+	}()
+
+	// Release the blocking fetcher once at least 1 fetch call has been made.
+	// The second goroutine should be waiting on the pending channel,
+	// not issuing another fetch.
+	for {
+		bf.mu.Lock()
+		n := bf.calls
+		bf.mu.Unlock()
+		if n >= 1 {
+			break
+		}
+	}
+	bf.release()
+
+	result := <-done
+
+	if len(result.Root.Dependencies) != 2 {
+		t.Fatalf("expected 2 deps, got %d", len(result.Root.Dependencies))
+	}
+	sharedCount := 0
+	for _, e := range result.Root.Dependencies {
+		if e.Shared {
+			sharedCount++
+			if e.Node == nil {
+				t.Error("shared edge should have node info")
+			}
+		}
+	}
+	if sharedCount != 1 {
+		t.Errorf("expected exactly 1 shared, got %d", sharedCount)
+	}
+	// Only 1 fetch should have occurred since the second goroutine waited.
+	bf.mu.Lock()
+	fetchCalls := bf.calls
+	bf.mu.Unlock()
+	if fetchCalls != 1 {
+		t.Errorf("expected 1 fetch call, got %d", fetchCalls)
+	}
+}
+
+func TestResolve_PendingFetchError(t *testing.T) {
+	// When two sibling deps reference the same ref and the fetch fails,
+	// the waiting goroutine should get a shared edge with nil node.
+	inner := &mockFetcher{contracts: map[string]*contract.Contract{}}
+	bf := newBlockingFetcher(inner)
+
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Ref: "oci://registry.io/missing:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/missing:1.0.0", Required: true, Compatibility: "^1.0.0"},
+		},
+	}
+
+	done := make(chan *Result, 1)
+	go func() {
+		done <- Resolve(context.Background(), c, bf)
+	}()
+
+	for {
+		bf.mu.Lock()
+		n := bf.calls
+		bf.mu.Unlock()
+		if n >= 1 {
+			break
+		}
+	}
+	bf.release()
+
+	result := <-done
+
+	if len(result.Root.Dependencies) != 2 {
+		t.Fatalf("expected 2 deps, got %d", len(result.Root.Dependencies))
+	}
+	// One edge has the fetch error, the other is shared with nil node.
+	var errCount, sharedNilCount int
+	for _, e := range result.Root.Dependencies {
+		if e.Error != "" && !e.Shared {
+			errCount++
+		}
+		if e.Shared && e.Node == nil {
+			sharedNilCount++
+		}
+	}
+	if errCount != 1 {
+		t.Errorf("expected 1 error edge, got %d", errCount)
+	}
+	if sharedNilCount != 1 {
+		t.Errorf("expected 1 shared edge with nil node, got %d", sharedNilCount)
+	}
+}
+
+func TestResolve_FetchErrorParallel(t *testing.T) {
+	// Fetch error with multiple deps (parallel path) where refs are unique.
+	fetcher := &mockFetcher{
+		contracts: map[string]*contract.Contract{
+			"oci://registry.io/svc-b:1.0.0": {
+				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+			},
+		},
+	}
+
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Ref: "oci://registry.io/missing:1.0.0", Required: true, Compatibility: "^1.0.0"},
+		},
+	}
+
+	result := Resolve(context.Background(), c, fetcher)
+
+	if len(result.Root.Dependencies) != 2 {
+		t.Fatalf("expected 2 deps, got %d", len(result.Root.Dependencies))
+	}
+	bEdge := result.Root.Dependencies[0]
+	if bEdge.Node == nil {
+		t.Error("expected svc-b to be resolved")
+	}
+	missingEdge := result.Root.Dependencies[1]
+	if missingEdge.Error == "" {
+		t.Error("expected error for missing ref")
 	}
 }

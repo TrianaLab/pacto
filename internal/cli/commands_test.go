@@ -647,6 +647,47 @@ func TestDocCommand_Error(t *testing.T) {
 	}
 }
 
+type cacheableStore struct {
+	testutil.MockBundleStore
+	disabled bool
+}
+
+func (s *cacheableStore) DisableCache() { s.disabled = true }
+
+func TestNoCacheFlag(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+
+	store := &cacheableStore{}
+	svc := app.NewService(store, nil)
+
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"validate", "--no-cache", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("validate --no-cache failed: %v", err)
+	}
+	if !store.disabled {
+		t.Error("expected DisableCache to be called")
+	}
+}
+
+func TestNoCacheFlag_NotApplicable(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+
+	// Plain MockBundleStore without DisableCache — should not panic.
+	svc := app.NewService(&testutil.MockBundleStore{}, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"validate", "--no-cache", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("validate --no-cache failed: %v", err)
+	}
+}
+
 func TestValidateCommand_OutputError(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)

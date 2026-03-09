@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"sync"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/trianalab/pacto/pkg/contract"
 )
@@ -44,10 +47,20 @@ type Result struct {
 	Conflicts []Conflict `json:"conflicts,omitempty"`
 }
 
+// resolver holds shared state for a single graph resolution pass.
+type resolver struct {
+	fetcher ContractFetcher
+	mu      sync.Mutex
+	visited map[string]*Node
+	pending map[string]chan struct{}
+	cycles  [][]string
+}
+
 // Resolve builds the dependency graph starting from the given contract.
 // It recursively fetches dependencies via the fetcher, detects cycles
 // and version conflicts. If fetcher is nil, only direct dependencies
-// are shown without resolution.
+// are shown without resolution. Sibling dependencies at each level are
+// fetched concurrently.
 func Resolve(ctx context.Context, c *contract.Contract, fetcher ContractFetcher) *Result {
 	root := &Node{
 		Name:     c.Service.Name,
@@ -55,27 +68,53 @@ func Resolve(ctx context.Context, c *contract.Contract, fetcher ContractFetcher)
 		Contract: c,
 	}
 
-	visited := map[string]*Node{}
-	path := []string{c.Service.Name}
-
-	var cycles [][]string
-
-	for _, dep := range c.Dependencies {
-		edge := resolveEdge(ctx, dep, fetcher, visited, path, &cycles)
-		root.Dependencies = append(root.Dependencies, edge)
+	r := &resolver{
+		fetcher: fetcher,
+		visited: map[string]*Node{},
+		pending: map[string]chan struct{}{},
 	}
+
+	path := []string{c.Service.Name}
+	root.Dependencies = r.resolveChildren(ctx, c.Dependencies, path)
 
 	conflicts := detectConflicts(root)
 
 	return &Result{
 		Root:      root,
-		Cycles:    cycles,
+		Cycles:    r.cycles,
 		Conflicts: conflicts,
 	}
 }
 
+// resolveChildren resolves a slice of dependencies concurrently.
+func (r *resolver) resolveChildren(ctx context.Context, deps []contract.Dependency, path []string) []Edge {
+	if len(deps) == 0 {
+		return nil
+	}
+
+	edges := make([]Edge, len(deps))
+
+	if r.fetcher == nil || len(deps) == 1 {
+		for i, dep := range deps {
+			edges[i] = r.resolveEdge(ctx, dep, path)
+		}
+		return edges
+	}
+
+	g, gctx := errgroup.WithContext(ctx)
+	for i, dep := range deps {
+		g.Go(func() error {
+			edges[i] = r.resolveEdge(gctx, dep, path)
+			return nil
+		})
+	}
+	_ = g.Wait()
+
+	return edges
+}
+
 // resolveEdge resolves a single dependency edge, recursing into its dependencies.
-func resolveEdge(ctx context.Context, dep contract.Dependency, fetcher ContractFetcher, visited map[string]*Node, path []string, cycles *[][]string) Edge {
+func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, path []string) Edge {
 	local := ParseDependencyRef(dep.Ref).IsLocal()
 	edge := Edge{
 		Ref:           dep.Ref,
@@ -84,27 +123,46 @@ func resolveEdge(ctx context.Context, dep contract.Dependency, fetcher ContractF
 		Local:         local,
 	}
 
-	if fetcher == nil {
+	if r.fetcher == nil {
 		return edge
 	}
 
-	// Cycle detection: if this ref is already in the current path, it's a cycle.
+	r.mu.Lock()
 	if inPath(dep.Ref, path) {
 		cyclePath := append(append([]string{}, path...), dep.Ref)
-		*cycles = append(*cycles, cyclePath)
+		r.cycles = append(r.cycles, cyclePath)
+		r.mu.Unlock()
 		edge.Error = fmt.Sprintf("cycle detected: %s", dep.Ref)
 		return edge
 	}
-
-	// If already resolved, return a shared reference (avoid redundant fetches).
-	if prev := visited[dep.Ref]; prev != nil {
+	if prev := r.visited[dep.Ref]; prev != nil {
+		r.mu.Unlock()
 		edge.Shared = true
 		edge.Node = &Node{Name: prev.Name, Version: prev.Version, Ref: prev.Ref, Local: prev.Local}
 		return edge
 	}
+	if ch, ok := r.pending[dep.Ref]; ok {
+		r.mu.Unlock()
+		<-ch
+		r.mu.Lock()
+		prev := r.visited[dep.Ref]
+		r.mu.Unlock()
+		edge.Shared = true
+		if prev != nil {
+			edge.Node = &Node{Name: prev.Name, Version: prev.Version, Ref: prev.Ref, Local: prev.Local}
+		}
+		return edge
+	}
+	ch := make(chan struct{})
+	r.pending[dep.Ref] = ch
+	r.mu.Unlock()
 
-	bundle, err := fetcher.Fetch(ctx, dep.Ref)
+	bundle, err := r.fetcher.Fetch(ctx, dep.Ref)
 	if err != nil {
+		r.mu.Lock()
+		delete(r.pending, dep.Ref)
+		r.mu.Unlock()
+		close(ch)
 		edge.Error = err.Error()
 		return edge
 	}
@@ -117,13 +175,15 @@ func resolveEdge(ctx context.Context, dep contract.Dependency, fetcher ContractF
 		Contract: bundle.Contract,
 		FS:       bundle.FS,
 	}
-	visited[dep.Ref] = node
+
+	r.mu.Lock()
+	r.visited[dep.Ref] = node
+	delete(r.pending, dep.Ref)
+	r.mu.Unlock()
+	close(ch)
 
 	childPath := append(append([]string{}, path...), dep.Ref)
-	for _, childDep := range bundle.Contract.Dependencies {
-		childEdge := resolveEdge(ctx, childDep, fetcher, visited, childPath, cycles)
-		node.Dependencies = append(node.Dependencies, childEdge)
-	}
+	node.Dependencies = r.resolveChildren(ctx, bundle.Contract.Dependencies, childPath)
 
 	edge.Node = node
 	return edge

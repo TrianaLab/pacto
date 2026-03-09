@@ -26,7 +26,7 @@ func run() error {
 		Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
 		Token:    os.Getenv("PACTO_REGISTRY_TOKEN"),
 	})
-	store := oci.NewClient(keychain)
+	store := oci.NewCachedStore(oci.NewClient(keychain))
 
 	svc := app.NewService(store, &plugin.SubprocessRunner{})
 	root := cli.NewRootCommand(svc, version)

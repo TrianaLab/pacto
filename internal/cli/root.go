@@ -29,10 +29,12 @@ func NewRootCommand(svc *app.Service, version string) *cobra.Command {
 	// Persistent flags
 	root.PersistentFlags().String("config", "", "config file path")
 	root.PersistentFlags().String(outputFormatKey, "text", "output format (text, json)")
+	root.PersistentFlags().Bool("no-cache", false, "disable OCI bundle cache")
 
 	// Bind to Viper
 	_ = v.BindPFlag("config", root.PersistentFlags().Lookup("config"))
 	_ = v.BindPFlag(outputFormatKey, root.PersistentFlags().Lookup(outputFormatKey))
+	_ = v.BindPFlag("no-cache", root.PersistentFlags().Lookup("no-cache"))
 
 	// Env prefix
 	v.SetEnvPrefix("PACTO")
@@ -55,6 +57,12 @@ func NewRootCommand(svc *app.Service, version string) *cobra.Command {
 		}
 		// Read config silently — it's optional
 		_ = v.ReadInConfig()
+
+		if v.GetBool("no-cache") {
+			if toggler, ok := svc.BundleStore.(interface{ DisableCache() }); ok {
+				toggler.DisableCache()
+			}
+		}
 
 		// Start async update check
 		if version != "dev" && os.Getenv("PACTO_NO_UPDATE_CHECK") != "1" {
