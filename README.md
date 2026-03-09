@@ -15,6 +15,20 @@ Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs t
 
 ---
 
+## How it works — 30-second overview
+
+```
+1. Developer writes a pacto.yaml alongside their code
+2. pacto validate checks it (structure, cross-references, semantics)
+3. pacto push ships the contract to an OCI registry as a versioned artifact
+4. Platform tooling pulls the contract and uses it to generate manifests,
+   enforce policies, resolve dependency graphs, or detect breaking changes
+```
+
+No runtime agents. No sidecars. No new infrastructure. Pacto is a **build-time and CI-time tool** — it produces a validated, immutable description of your service that platforms and pipelines can consume downstream.
+
+---
+
 ## The problem
 
 Today, a cloud service is described across **six different places** — none of which talk to each other:
@@ -165,6 +179,25 @@ A bundle is a self-contained directory (or OCI artifact) containing:
 - **`interfaces/`** — OpenAPI specs, protobuf definitions, event schemas
 - **`configuration/`** — JSON Schema for environment variables and settings
 
+## Example repository layout
+
+A typical service repository using Pacto looks like this:
+
+```
+payments-api/
+  src/                           ← your application code
+  Dockerfile
+  pacto.yaml                     ← the contract (committed to the repo)
+  interfaces/
+    openapi.yaml                 ← referenced by pacto.yaml
+  configuration/
+    schema.json                  ← JSON Schema for env vars / config
+  .github/workflows/
+    ci.yml                       ← pacto validate + pacto diff + pacto push
+```
+
+The contract lives next to the code it describes. CI validates it on every push and publishes it to an OCI registry on release.
+
 ---
 
 ## Key capabilities
@@ -255,6 +288,26 @@ Pacto doesn't replace these tools — it fills the gap between them.
 | Machine validation | ✅ | — | ✅ | — | ✅ |
 
 **Why not just OpenAPI + Helm?** OpenAPI describes your API surface. Helm describes how to deploy one particular way. Neither captures runtime behavior (stateful vs. stateless), dependency relationships, configuration schemas, or scaling intent — and there's no way to diff two versions across all of these dimensions. Pacto is the layer that ties them together.
+
+## What Pacto is NOT
+
+- **Not a deployment tool.** Pacto doesn't deploy anything. It describes *what* a service is — platforms decide *how* to run it.
+- **Not a service mesh or runtime agent.** There's nothing to install in your cluster. Pacto runs at build time and CI time only.
+- **Not a service catalog.** Pacto produces the structured data that a catalog (Backstage, Port, Cortex) could consume, but it's not a UI or portal.
+- **Not a replacement for OpenAPI or Helm.** It references your OpenAPI specs and complements deployment tools — it doesn't replace them.
+
+---
+
+## Ecosystem vision
+
+Pacto contracts are designed to be consumed by any tool in your stack:
+
+- **CI pipelines** — validate contracts on every PR, diff against the published version to catch breaking changes, push on release
+- **Platform controllers** — pull contracts from the registry to generate Kubernetes manifests, Terraform modules, or Helm values automatically
+- **Service catalogs** — import contract metadata (owner, interfaces, dependencies) into Backstage, Port, or internal dashboards
+- **Policy engines** — enforce organizational rules (e.g., "all public services must have a health check") against the contract before deployment
+
+The contract is the API between developers and the platform. Pacto provides the format, the validation, and the distribution — what you build on top is up to you.
 
 ---
 
