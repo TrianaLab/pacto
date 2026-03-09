@@ -25,6 +25,7 @@ All commands support `--output-format json` for programmatic consumption and `--
 |------|-------------|
 | `--output-format` | Output format: `text` (default) or `json` |
 | `--config` | Path to config file (searches `./pacto.yaml` and `~/.config/pacto/` if not set) |
+| `--no-cache` | Disable OCI bundle caching (bypasses `~/.cache/pacto/oci/`) |
 
 ---
 
@@ -237,6 +238,8 @@ Dependencies resolved from local paths are annotated with `[local]`. Shared depe
 
 Reports cycles, version conflicts, and unreachable dependencies.
 
+Sibling dependencies are resolved in parallel. OCI bundles are cached locally in `~/.cache/pacto/oci/` for faster subsequent operations. Use `--no-cache` to bypass the cache.
+
 ---
 
 ## `pacto explain`
@@ -292,6 +295,8 @@ pacto doc my-service --serve --port 9090
 # Generate from an OCI reference
 pacto doc oci://ghcr.io/acme/my-service-pacto:1.0.0
 ```
+
+Sibling dependencies are resolved in parallel. OCI bundles are cached locally in `~/.cache/pacto/oci/` for faster subsequent operations. Use `--no-cache` to bypass the cache.
 
 ---
 
@@ -440,6 +445,7 @@ pacto version 1.0.0
 
 | Variable | Description |
 |----------|-------------|
+| `PACTO_NO_CACHE` | Set to `1` to disable OCI bundle caching (equivalent to `--no-cache`) |
 | `PACTO_NO_UPDATE_CHECK` | Set to `1` to disable automatic update checks |
 | `PACTO_REGISTRY_USERNAME` | Registry username for authentication |
 | `PACTO_REGISTRY_PASSWORD` | Registry password for authentication |

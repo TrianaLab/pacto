@@ -220,6 +220,7 @@ Platform teams can build custom plugins to generate artifacts specific to their 
 
 - **Automate diff checks.** Run `pacto diff` in CI to catch breaking changes before they reach production.
 - **Build a plugin for your platform.** A Helm plugin, Terraform plugin, or custom manifest generator can consume Pacto contracts deterministically.
-- **Use `pacto graph` to understand impact.** Before upgrading a shared service, check what depends on it.
+- **Use `pacto graph` to understand impact.** Before upgrading a shared service, check what depends on it. Dependencies are resolved in parallel and cached locally for fast repeated lookups.
+- **Disable cache in CI when needed.** Use `--no-cache` or `PACTO_NO_CACHE=1` to ensure fresh OCI pulls in pipelines where the cache might be stale.
 - **Trust the state semantics.** If a contract says `stateless` + `ephemeral`, you can safely use a Deployment with no PVC. The validation engine enforces consistency.
 - **Use the JSON output.** Every command supports `--output-format json` for programmatic consumption.

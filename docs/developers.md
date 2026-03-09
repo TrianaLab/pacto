@@ -244,4 +244,5 @@ Using GitHub Actions? The official [Pacto CLI action]({{ site.baseurl }}{% link 
 - **Keep interface contracts up to date.** OpenAPI specs and protobuf definitions in the bundle should match what your service actually serves.
 - **Use `pacto explain` to review.** It produces a human-readable summary of your contract.
 - **Use `pacto doc` for rich documentation.** It generates Markdown with architecture diagrams, interface tables, and configuration details. Use `--serve` to view it in the browser.
+- **Leverage caching.** OCI bundles are cached locally in `~/.cache/pacto/oci/`, so repeated `graph`, `doc`, and `diff` commands resolve instantly. Use `--no-cache` to force a fresh pull.
 - **Use metadata for organizational context.** Team ownership, on-call channels, and service tiers go in `metadata`.

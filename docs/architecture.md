@@ -92,7 +92,7 @@ Compares two contracts and classifies every change using a deterministic rule ta
 
 ### `internal/graph` — Dependency resolver
 
-Builds a dependency graph by recursively fetching contracts from OCI registries and local paths. Detects cycles and version conflicts. Also provides:
+Builds a dependency graph by recursively fetching contracts from OCI registries and local paths. Sibling dependencies at each level are resolved concurrently. Detects cycles and version conflicts. Also provides:
 
 - `ParseDependencyRef()` — centralized dependency reference parser (`oci://`, `file://`, bare paths)
 - `RenderTree()` / `RenderDiffTree()` — tree-style rendering with `├─`/`└─` connectors
@@ -100,7 +100,7 @@ Builds a dependency graph by recursively fetching contracts from OCI registries 
 
 ### `internal/oci` — OCI adapter
 
-Thin wrapper over `go-containerregistry`. Handles bundle-to-image translation, credential resolution, and error mapping.
+Thin wrapper over `go-containerregistry`. Handles bundle-to-image translation, credential resolution, error mapping, and local disk caching of pulled bundles (`~/.cache/pacto/oci/`).
 
 ### `internal/doc` — Documentation generator
 
