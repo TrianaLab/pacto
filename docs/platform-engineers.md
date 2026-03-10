@@ -193,7 +193,7 @@ steps:
 ```
 
 {: .tip }
-Using GitHub Actions? The official [Pacto CLI action]({{ site.baseurl }}{% link github-actions.md %}) wraps `setup`, `diff`, and `push` into a single reusable action.
+Using GitHub Actions? Check out the official [Pacto CLI action]({{ site.baseurl }}{% link github-actions.md %}).
 
 ---
 
