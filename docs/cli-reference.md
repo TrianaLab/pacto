@@ -27,6 +27,14 @@ All commands support `--output-format json` for programmatic consumption and `--
 | `--config` | Path to config file (searches `./pacto.yaml` and `~/.config/pacto/` if not set) |
 | `--no-cache` | Disable OCI bundle caching (bypasses `~/.cache/pacto/oci/`) |
 
+## OCI version resolution
+
+All commands that accept `oci://` references support automatic version resolution. When a reference omits the tag (e.g. `oci://ghcr.io/acme/svc-pacto` instead of `oci://ghcr.io/acme/svc-pacto:1.0.0`), pacto queries the registry for available tags and selects the **highest semver version**.
+
+For dependency references declared with a `compatibility` constraint, only tags satisfying the constraint are considered. For example, a dependency with `compatibility: "^2.0.0"` and available tags `1.0.0`, `2.0.0`, `2.3.0`, `3.0.0` resolves to `2.3.0`.
+
+Non-semver tags (e.g. `latest`, `main`) are ignored during resolution. Digest-pinned references (`@sha256:...`) and explicitly tagged references are used as-is.
+
 ---
 
 ## `pacto init`
@@ -160,14 +168,19 @@ pacto pull <ref> [-o output]
 
 | Argument/Flag | Required | Description |
 |----------|----------|-------------|
-| `ref` | Yes | OCI reference to pull |
+| `ref` | Yes | OCI reference to pull (tag resolved automatically if omitted) |
 | `-o, --output` | No | Output directory (default: service name) |
 
-**Example:**
+**Examples:**
 
 ```bash
+# Pull a specific version
 $ pacto pull oci://ghcr.io/acme/my-service-pacto:1.0.0
 Pulled my-service@1.0.0 -> my-service/
+
+# Pull the latest available version
+$ pacto pull oci://ghcr.io/acme/my-service-pacto
+Pulled my-service@2.3.0 -> my-service/
 ```
 
 ---

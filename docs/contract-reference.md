@@ -215,8 +215,11 @@ Declares dependencies on other services via their Pacto contracts.
 | Scheme | Example | Description |
 |--------|---------|-------------|
 | `oci://` | `oci://ghcr.io/acme/auth-pacto:1.0.0` | OCI registry reference (required for `pacto push`) |
+| `oci://` (no tag) | `oci://ghcr.io/acme/auth-pacto` | Resolved to the highest semver tag satisfying `compatibility` |
 | `file://` | `file://../shared-db` | Local filesystem path |
 | *(bare path)* | `../shared-db` | Local filesystem path (shorthand for `file://`) |
+
+When an `oci://` reference omits the tag, pacto queries the registry for available tags and selects the highest semver version that satisfies the `compatibility` constraint. For example, with `compatibility: "^2.0.0"` and available tags `1.0.0`, `2.0.0`, `2.3.0`, `3.0.0`, pacto resolves to `2.3.0`.
 
 {: .warning }
 Local dependency references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local dependencies — all refs must use `oci://` before publishing.

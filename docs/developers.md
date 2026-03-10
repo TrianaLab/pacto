@@ -101,6 +101,11 @@ dependencies:
   - ref: oci://ghcr.io/acme/cache-pacto:1.0.0
     required: false
     compatibility: "~1.0.0"
+
+  # Tag omitted — resolves to the highest version matching ^3.0.0
+  - ref: oci://ghcr.io/acme/utils-pacto
+    required: true
+    compatibility: "^3.0.0"
 ```
 
 During development, you can reference local contracts:
