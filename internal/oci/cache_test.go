@@ -17,9 +17,12 @@ import (
 )
 
 type countingStore struct {
-	pullCount atomic.Int32
-	pullErr   error
-	bundle    *contract.Bundle
+	pullCount      atomic.Int32
+	listTagsCount  atomic.Int32
+	pullErr        error
+	listTagsErr    error
+	listTagsResult []string
+	bundle         *contract.Bundle
 }
 
 func (s *countingStore) Push(context.Context, string, *contract.Bundle) (string, error) {
@@ -39,7 +42,11 @@ func (s *countingStore) Pull(_ context.Context, _ string) (*contract.Bundle, err
 }
 
 func (s *countingStore) ListTags(_ context.Context, _ string) ([]string, error) {
-	return nil, nil
+	s.listTagsCount.Add(1)
+	if s.listTagsErr != nil {
+		return nil, s.listTagsErr
+	}
+	return s.listTagsResult, nil
 }
 
 func newCachedStoreWithTempDir(t *testing.T) (*oci.CachedStore, *countingStore) {
@@ -368,6 +375,85 @@ func TestCachedStore_Pull_ReadOnlyCacheDirIgnored(t *testing.T) {
 	}
 	if b.Contract.Service.Name != "test-svc" {
 		t.Errorf("got name %q, want test-svc", b.Contract.Service.Name)
+	}
+}
+
+func TestCachedStore_ListTags_CachesInMemory(t *testing.T) {
+	inner := &countingStore{
+		bundle:         newTestBundle(),
+		listTagsResult: []string{"1.0.0", "1.1.0", "2.0.0"},
+	}
+	store := oci.NewCachedStore(inner)
+	ctx := context.Background()
+	repo := "ghcr.io/test/repo"
+
+	tags1, err := store.ListTags(ctx, repo)
+	if err != nil {
+		t.Fatalf("first ListTags() error: %v", err)
+	}
+	if len(tags1) != 3 {
+		t.Fatalf("expected 3 tags, got %d", len(tags1))
+	}
+
+	tags2, err := store.ListTags(ctx, repo)
+	if err != nil {
+		t.Fatalf("second ListTags() error: %v", err)
+	}
+	if len(tags2) != 3 {
+		t.Fatalf("expected 3 tags, got %d", len(tags2))
+	}
+
+	if inner.listTagsCount.Load() != 1 {
+		t.Errorf("expected 1 inner ListTags call, got %d", inner.listTagsCount.Load())
+	}
+}
+
+func TestCachedStore_ListTags_DifferentReposMissCache(t *testing.T) {
+	inner := &countingStore{
+		bundle:         newTestBundle(),
+		listTagsResult: []string{"1.0.0"},
+	}
+	store := oci.NewCachedStore(inner)
+	ctx := context.Background()
+
+	if _, err := store.ListTags(ctx, "ghcr.io/test/a"); err != nil {
+		t.Fatalf("ListTags(a) error: %v", err)
+	}
+	if _, err := store.ListTags(ctx, "ghcr.io/test/b"); err != nil {
+		t.Fatalf("ListTags(b) error: %v", err)
+	}
+
+	if inner.listTagsCount.Load() != 2 {
+		t.Errorf("expected 2 inner ListTags calls for different repos, got %d", inner.listTagsCount.Load())
+	}
+}
+
+func TestCachedStore_ListTags_ErrorNotCached(t *testing.T) {
+	inner := &countingStore{
+		bundle:      newTestBundle(),
+		listTagsErr: errors.New("registry error"),
+	}
+	store := oci.NewCachedStore(inner)
+	ctx := context.Background()
+	repo := "ghcr.io/test/repo"
+
+	if _, err := store.ListTags(ctx, repo); err == nil {
+		t.Fatal("expected error from ListTags")
+	}
+
+	// Clear error so second call succeeds.
+	inner.listTagsErr = nil
+	inner.listTagsResult = []string{"1.0.0"}
+
+	tags, err := store.ListTags(ctx, repo)
+	if err != nil {
+		t.Fatalf("second ListTags() error: %v", err)
+	}
+	if len(tags) != 1 {
+		t.Errorf("expected 1 tag, got %d", len(tags))
+	}
+	if inner.listTagsCount.Load() != 2 {
+		t.Errorf("expected 2 inner calls (error not cached), got %d", inner.listTagsCount.Load())
 	}
 }
 
