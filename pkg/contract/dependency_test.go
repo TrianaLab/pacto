@@ -49,10 +49,9 @@ func TestParseOCIReference(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:     "no tag or digest",
-			input:    "ghcr.io/acme/service",
-			wantReg:  "ghcr.io",
-			wantRepo: "acme/service",
+			name:    "no tag or digest",
+			input:   "ghcr.io/acme/service",
+			wantErr: true,
 		},
 		{
 			name:    "empty registry",
@@ -103,10 +102,6 @@ func TestOCIReferenceString(t *testing.T) {
 		{
 			ref:  contract.OCIReference{Registry: "ghcr.io", Repository: "acme/svc", Digest: "sha256:abc"},
 			want: "ghcr.io/acme/svc@sha256:abc",
-		},
-		{
-			ref:  contract.OCIReference{Registry: "ghcr.io", Repository: "acme/svc"},
-			want: "ghcr.io/acme/svc",
 		},
 	}
 

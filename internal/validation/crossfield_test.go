@@ -151,30 +151,6 @@ func TestValidateDependencyRefs_InvalidOCIRef(t *testing.T) {
 	}
 }
 
-func TestValidateDependencyRefs_NoTagWithCompatibility(t *testing.T) {
-	c := validContract()
-	c.Dependencies = []contract.Dependency{
-		{Ref: "oci://ghcr.io/acme/svc", Compatibility: "^1.0.0"},
-	}
-	var result ValidationResult
-	validateDependencyRefs(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected tagless ref with compatibility to be valid, got errors: %v", result.Errors)
-	}
-}
-
-func TestValidateDependencyRefs_NoTagNoCompatibility(t *testing.T) {
-	c := validContract()
-	c.Dependencies = []contract.Dependency{
-		{Ref: "oci://ghcr.io/acme/svc", Compatibility: ""},
-	}
-	var result ValidationResult
-	validateDependencyRefs(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for tagless ref without compatibility")
-	}
-}
-
 func TestValidateDependencyRefs_LocalRef(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{

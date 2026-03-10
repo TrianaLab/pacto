@@ -66,5 +66,9 @@ func ParseOCIReference(s string) (OCIReference, error) {
 	if ref.Repository == "" {
 		return OCIReference{}, fmt.Errorf("invalid OCI reference: empty repository")
 	}
+	if ref.Tag == "" && ref.Digest == "" {
+		return OCIReference{}, fmt.Errorf("invalid OCI reference: must specify tag or digest")
+	}
+
 	return ref, nil
 }

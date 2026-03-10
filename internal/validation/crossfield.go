@@ -191,13 +191,7 @@ func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {
 				continue
 			}
 
-			if ref.Tag == "" && ref.Digest == "" && dep.Compatibility == "" {
-				result.AddError(
-					fmt.Sprintf("dependencies[%d].ref", i),
-					"INVALID_OCI_REF",
-					fmt.Sprintf("dependency %q has no tag, digest, or compatibility constraint for version resolution", dep.Ref),
-				)
-			} else if ref.Digest == "" && ref.Tag != "" {
+			if ref.Digest == "" && ref.Tag != "" {
 				result.AddWarning(
 					fmt.Sprintf("dependencies[%d].ref", i),
 					"TAG_NOT_DIGEST",
