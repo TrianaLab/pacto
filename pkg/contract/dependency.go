@@ -27,6 +27,7 @@ func (r OCIReference) String() string {
 // ParseOCIReference parses an OCI reference string into its components.
 // Accepted formats:
 //
+//	registry/repo
 //	registry/repo:tag
 //	registry/repo@sha256:hex
 //	registry/repo:tag@sha256:hex
@@ -66,9 +67,5 @@ func ParseOCIReference(s string) (OCIReference, error) {
 	if ref.Repository == "" {
 		return OCIReference{}, fmt.Errorf("invalid OCI reference: empty repository")
 	}
-	if ref.Tag == "" && ref.Digest == "" {
-		return OCIReference{}, fmt.Errorf("invalid OCI reference: must specify tag or digest")
-	}
-
 	return ref, nil
 }
