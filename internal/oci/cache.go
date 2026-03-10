@@ -6,15 +6,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
-// CachedStore wraps a BundleStore with local disk caching for Pull operations.
-// Bundles are cached by OCI reference under ~/.cache/pacto/oci/.
+// CachedStore wraps a BundleStore with local disk caching for Pull operations
+// and in-memory caching for ListTags. Bundles are cached by OCI reference
+// under ~/.cache/pacto/oci/.
 type CachedStore struct {
 	inner    BundleStore
 	cacheDir string
+
+	tagsMu    sync.Mutex
+	tagsCache map[string][]string
 }
 
 // NewCachedStore creates a BundleStore that caches pulled bundles on disk.
@@ -24,7 +29,7 @@ func NewCachedStore(inner BundleStore) *CachedStore {
 	if err != nil {
 		dir = ""
 	}
-	return &CachedStore{inner: inner, cacheDir: dir}
+	return &CachedStore{inner: inner, cacheDir: dir, tagsCache: map[string][]string{}}
 }
 
 // DisableCache turns off caching so all operations go directly to the registry.
@@ -53,7 +58,23 @@ func (c *CachedStore) Resolve(ctx context.Context, ref string) (string, error) {
 }
 
 func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, error) {
-	return c.inner.ListTags(ctx, repo)
+	c.tagsMu.Lock()
+	if cached, ok := c.tagsCache[repo]; ok {
+		c.tagsMu.Unlock()
+		return cached, nil
+	}
+	c.tagsMu.Unlock()
+
+	tags, err := c.inner.ListTags(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	c.tagsMu.Lock()
+	c.tagsCache[repo] = tags
+	c.tagsMu.Unlock()
+
+	return tags, nil
 }
 
 func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, error) {

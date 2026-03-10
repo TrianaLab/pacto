@@ -219,7 +219,19 @@ Declares dependencies on other services via their Pacto contracts.
 | `file://` | `file://../shared-db` | Local filesystem path |
 | *(bare path)* | `../shared-db` | Local filesystem path (shorthand for `file://`) |
 
-When an `oci://` reference omits the tag, pacto queries the registry for available tags and selects the highest semver version that satisfies the `compatibility` constraint. For example, with `compatibility: "^2.0.0"` and available tags `1.0.0`, `2.0.0`, `2.3.0`, `3.0.0`, pacto resolves to `2.3.0`.
+When an `oci://` reference omits the tag, pacto queries the registry for available tags and selects the highest semver version that satisfies the `compatibility` constraint. For example, with `compatibility: "^2.0.0"` and available tags `1.0.0`, `2.0.0`, `2.3.0`, `3.0.0`, pacto resolves to `2.3.0`. Tag listings are cached in memory for the duration of the command, so multiple dependencies pointing to the same repository only trigger a single registry query.
+
+#### Compatibility constraint examples
+
+Pacto uses [Masterminds/semver](https://github.com/Masterminds/semver#checking-version-constraints) constraint syntax:
+
+| Constraint | Matches | Use case |
+|------------|---------|----------|
+| `^2.0.0` | `>= 2.0.0`, `< 3.0.0` | Accept patches and minors within a major version |
+| `~2.1.0` | `>= 2.1.0`, `< 2.2.0` | Accept only patches within a minor version |
+| `>= 2.0.0` | `2.0.0` and above (including `3.x`, `4.x`, …) | Track the latest version above a floor |
+| `>= 2.0.0, < 4.0.0` | `2.x` and `3.x` only | Constrain to a range of major versions |
+| `*` | Any version | Always resolve to the absolute latest |
 
 {: .warning }
 Local dependency references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local dependencies — all refs must use `oci://` before publishing.
