@@ -62,7 +62,7 @@ func TestGraph_ResolveError(t *testing.T) {
 func TestDepFetcher_OCISuccess(t *testing.T) {
 	store := &mockBundleStore{}
 	f := &depFetcher{store: store, baseDir: ""}
-	c, err := f.Fetch(context.Background(), "oci://ghcr.io/acme/svc:1.0.0")
+	c, err := f.Fetch(context.Background(), contract.Dependency{Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestDepFetcher_OCIError(t *testing.T) {
 		},
 	}
 	f := &depFetcher{store: store, baseDir: ""}
-	_, err := f.Fetch(context.Background(), "oci://ghcr.io/acme/svc:1.0.0")
+	_, err := f.Fetch(context.Background(), contract.Dependency{Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"})
 	if err == nil {
 		t.Error("expected error from store")
 	}
@@ -86,7 +86,7 @@ func TestDepFetcher_OCIError(t *testing.T) {
 
 func TestDepFetcher_OCINilStore(t *testing.T) {
 	f := &depFetcher{store: nil, baseDir: ""}
-	_, err := f.Fetch(context.Background(), "oci://ghcr.io/acme/svc:1.0.0")
+	_, err := f.Fetch(context.Background(), contract.Dependency{Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"})
 	if err == nil {
 		t.Error("expected error for nil store")
 	}
@@ -95,7 +95,7 @@ func TestDepFetcher_OCINilStore(t *testing.T) {
 func TestDepFetcher_LocalSuccess(t *testing.T) {
 	dir := writeTestBundle(t)
 	f := &depFetcher{baseDir: filepath.Dir(dir)}
-	c, err := f.Fetch(context.Background(), filepath.Base(dir))
+	c, err := f.Fetch(context.Background(), contract.Dependency{Ref: filepath.Base(dir), Compatibility: "^1.0.0"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestDepFetcher_LocalSuccess(t *testing.T) {
 func TestDepFetcher_LocalAbsPath(t *testing.T) {
 	dir := writeTestBundle(t)
 	f := &depFetcher{baseDir: ""}
-	c, err := f.Fetch(context.Background(), dir)
+	c, err := f.Fetch(context.Background(), contract.Dependency{Ref: dir, Compatibility: "^1.0.0"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestDepFetcher_LocalAbsPath(t *testing.T) {
 func TestDepFetcher_FileScheme(t *testing.T) {
 	dir := writeTestBundle(t)
 	f := &depFetcher{baseDir: ""}
-	c, err := f.Fetch(context.Background(), "file://"+dir)
+	c, err := f.Fetch(context.Background(), contract.Dependency{Ref: "file://" + dir, Compatibility: "^1.0.0"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -130,9 +130,42 @@ func TestDepFetcher_FileScheme(t *testing.T) {
 
 func TestDepFetcher_LocalError(t *testing.T) {
 	f := &depFetcher{baseDir: "/nonexistent"}
-	_, err := f.Fetch(context.Background(), "missing")
+	_, err := f.Fetch(context.Background(), contract.Dependency{Ref: "missing", Compatibility: "^1.0.0"})
 	if err == nil {
 		t.Error("expected error for nonexistent local path")
+	}
+}
+
+func TestDepFetcher_OCI_NoTag_ResolvesWithCompatibility(t *testing.T) {
+	store := &mockBundleStore{
+		ListTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"1.0.0", "1.5.0", "2.0.0"}, nil
+		},
+	}
+	f := &depFetcher{store: store, baseDir: ""}
+	c, err := f.Fetch(context.Background(), contract.Dependency{
+		Ref: "oci://ghcr.io/acme/svc", Compatibility: "^1.0.0",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Contract.Service.Name != "test-svc" {
+		t.Errorf("expected test-svc, got %s", c.Contract.Service.Name)
+	}
+}
+
+func TestDepFetcher_OCI_NoTag_ListTagsError(t *testing.T) {
+	store := &mockBundleStore{
+		ListTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return nil, fmt.Errorf("list failed")
+		},
+	}
+	f := &depFetcher{store: store, baseDir: ""}
+	_, err := f.Fetch(context.Background(), contract.Dependency{
+		Ref: "oci://ghcr.io/acme/svc", Compatibility: "^1.0.0",
+	})
+	if err == nil {
+		t.Error("expected error when ListTags fails")
 	}
 }
 

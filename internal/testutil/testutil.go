@@ -16,9 +16,10 @@ import (
 
 // MockBundleStore implements oci.BundleStore for testing.
 type MockBundleStore struct {
-	PushFn    func(ctx context.Context, ref string, bundle *contract.Bundle) (string, error)
-	PullFn    func(ctx context.Context, ref string) (*contract.Bundle, error)
-	ResolveFn func(ctx context.Context, ref string) (string, error)
+	PushFn     func(ctx context.Context, ref string, bundle *contract.Bundle) (string, error)
+	PullFn     func(ctx context.Context, ref string) (*contract.Bundle, error)
+	ResolveFn  func(ctx context.Context, ref string) (string, error)
+	ListTagsFn func(ctx context.Context, repo string) ([]string, error)
 }
 
 func (m *MockBundleStore) Push(ctx context.Context, ref string, bundle *contract.Bundle) (string, error) {
@@ -40,6 +41,13 @@ func (m *MockBundleStore) Resolve(ctx context.Context, ref string) (string, erro
 		return m.ResolveFn(ctx, ref)
 	}
 	return "sha256:abc123", nil
+}
+
+func (m *MockBundleStore) ListTags(ctx context.Context, repo string) ([]string, error) {
+	if m.ListTagsFn != nil {
+		return m.ListTagsFn(ctx, repo)
+	}
+	return []string{"1.0.0"}, nil
 }
 
 // MockPluginRunner implements app.PluginRunner for testing.
@@ -132,6 +140,9 @@ func ErrBundleStore(msg string) *MockBundleStore {
 		},
 		ResolveFn: func(_ context.Context, _ string) (string, error) {
 			return "", fmt.Errorf("%s", msg)
+		},
+		ListTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return nil, fmt.Errorf("%s", msg)
 		},
 	}
 }

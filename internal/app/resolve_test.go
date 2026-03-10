@@ -129,6 +129,31 @@ func TestResolveBundle_OCI_Success(t *testing.T) {
 	}
 }
 
+func TestResolveBundle_OCI_NoTag_ResolvesLatest(t *testing.T) {
+	store := &mockBundleStore{
+		ListTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"1.0.0", "2.0.0", "3.0.0"}, nil
+		},
+	}
+	svc := NewService(store, nil)
+	bundle, err := svc.resolveBundle(context.Background(), "oci://ghcr.io/acme/svc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bundle.Contract.Service.Name != "test-svc" {
+		t.Errorf("expected test-svc, got %s", bundle.Contract.Service.Name)
+	}
+}
+
+func TestResolveBundle_OCI_NoTag_ListTagsError(t *testing.T) {
+	store := errBundleStore("list failed")
+	svc := NewService(store, nil)
+	_, err := svc.resolveBundle(context.Background(), "oci://ghcr.io/acme/svc")
+	if err == nil {
+		t.Error("expected error when ListTags fails")
+	}
+}
+
 func TestResolveBundle_OCI_NilStore(t *testing.T) {
 	svc := NewService(nil, nil)
 	_, err := svc.resolveBundle(context.Background(), "oci://ghcr.io/acme/svc:1.0.0")

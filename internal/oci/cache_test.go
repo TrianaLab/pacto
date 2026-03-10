@@ -38,6 +38,10 @@ func (s *countingStore) Pull(_ context.Context, _ string) (*contract.Bundle, err
 	return s.bundle, nil
 }
 
+func (s *countingStore) ListTags(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+
 func newCachedStoreWithTempDir(t *testing.T) (*oci.CachedStore, *countingStore) {
 	t.Helper()
 	cacheDir := t.TempDir()

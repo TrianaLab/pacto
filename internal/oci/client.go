@@ -16,6 +16,7 @@ type BundleStore interface {
 	Push(ctx context.Context, ref string, bundle *contract.Bundle) (string, error)
 	Pull(ctx context.Context, ref string) (*contract.Bundle, error)
 	Resolve(ctx context.Context, ref string) (string, error)
+	ListTags(ctx context.Context, repo string) ([]string, error)
 }
 
 // ClientOption configures the OCI Client.
@@ -120,4 +121,19 @@ func (c *Client) Resolve(ctx context.Context, ref string) (string, error) {
 	}
 
 	return desc.Digest.String(), nil
+}
+
+// ListTags returns all tags available for the given repository.
+func (c *Client) ListTags(ctx context.Context, repo string) ([]string, error) {
+	r, err := name.NewRepository(repo, c.nameOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("invalid repository %q: %w", repo, err)
+	}
+
+	tags, err := remote.List(r, c.remoteOptions(ctx)...)
+	if err != nil {
+		return nil, wrapRemoteError(repo, err)
+	}
+
+	return tags, nil
 }

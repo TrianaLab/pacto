@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/trianalab/pacto/internal/graph"
+	"github.com/trianalab/pacto/internal/oci"
 )
 
 // PullOptions holds options for the pull command.
@@ -32,7 +33,12 @@ func (s *Service) Pull(ctx context.Context, opts PullOptions) (*PullResult, erro
 		return nil, fmt.Errorf("pull requires an OCI reference (oci://...): got %q", opts.Ref)
 	}
 
-	bundle, err := s.BundleStore.Pull(ctx, parsed.Location)
+	location, err := oci.ResolveRef(ctx, s.BundleStore, parsed.Location, "")
+	if err != nil {
+		return nil, err
+	}
+
+	bundle, err := s.BundleStore.Pull(ctx, location)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +53,7 @@ func (s *Service) Pull(ctx context.Context, opts PullOptions) (*PullResult, erro
 	}
 
 	return &PullResult{
-		Ref:     parsed.Location,
+		Ref:     location,
 		Output:  output,
 		Name:    bundle.Contract.Service.Name,
 		Version: bundle.Contract.Service.Version,

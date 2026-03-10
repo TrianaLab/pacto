@@ -52,6 +52,10 @@ func (c *CachedStore) Resolve(ctx context.Context, ref string) (string, error) {
 	return c.inner.Resolve(ctx, ref)
 }
 
+func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, error) {
+	return c.inner.ListTags(ctx, repo)
+}
+
 func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, error) {
 	if c.cacheDir != "" {
 		cachePath := c.cachePath(ref)

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/trianalab/pacto/internal/graph"
+	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
@@ -35,6 +36,7 @@ func (s *Service) Graph(ctx context.Context, opts GraphOptions) (*GraphResult, e
 // Defined here to avoid importing internal/oci from internal/graph.
 type BundlePuller interface {
 	Pull(ctx context.Context, ref string) (*contract.Bundle, error)
+	ListTags(ctx context.Context, repo string) ([]string, error)
 }
 
 // depFetcher resolves dependency contracts from both OCI and local sources.
@@ -57,15 +59,19 @@ func (s *Service) newDepFetcher(baseRef string) graph.ContractFetcher {
 	return &depFetcher{store: s.BundleStore, baseDir: base}
 }
 
-func (f *depFetcher) Fetch(ctx context.Context, ref string) (*contract.Bundle, error) {
-	parsed := graph.ParseDependencyRef(ref)
+func (f *depFetcher) Fetch(ctx context.Context, dep contract.Dependency) (*contract.Bundle, error) {
+	parsed := graph.ParseDependencyRef(dep.Ref)
 	if parsed.IsLocal() {
 		return f.fetchLocal(parsed)
 	}
 	if f.store == nil {
-		return nil, fmt.Errorf("OCI store not configured (cannot fetch %s)", ref)
+		return nil, fmt.Errorf("OCI store not configured (cannot fetch %s)", dep.Ref)
 	}
-	return f.store.Pull(ctx, parsed.Location)
+	location, err := oci.ResolveRef(ctx, f.store, parsed.Location, dep.Compatibility)
+	if err != nil {
+		return nil, err
+	}
+	return f.store.Pull(ctx, location)
 }
 
 func (f *depFetcher) fetchLocal(ref graph.DependencyRef) (*contract.Bundle, error) {

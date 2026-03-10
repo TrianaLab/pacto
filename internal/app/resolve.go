@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/trianalab/pacto/internal/graph"
-	"github.com/trianalab/pacto/internal/validation"
-	"github.com/trianalab/pacto/pkg/contract"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/trianalab/pacto/internal/graph"
+	"github.com/trianalab/pacto/internal/oci"
+	"github.com/trianalab/pacto/internal/validation"
+	"github.com/trianalab/pacto/pkg/contract"
 )
 
 // DefaultContractPath is the default filename looked up when no path is given.
@@ -75,7 +77,11 @@ func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bund
 		if err := s.requireBundleStore(); err != nil {
 			return nil, err
 		}
-		return s.BundleStore.Pull(ctx, parsed.Location)
+		location, err := oci.ResolveRef(ctx, s.BundleStore, parsed.Location, "")
+		if err != nil {
+			return nil, err
+		}
+		return s.BundleStore.Pull(ctx, location)
 	}
 
 	return loadLocalBundle(parsed.Location)

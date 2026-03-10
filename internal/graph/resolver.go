@@ -11,11 +11,11 @@ import (
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
-// ContractFetcher fetches a contract bundle from a dependency reference.
-// The returned bundle includes both the parsed contract and the bundle
-// filesystem, enabling documentation generation with spec files.
+// ContractFetcher fetches a contract bundle for a dependency.
+// The full Dependency is passed so implementations can use fields like
+// Compatibility for version resolution.
 type ContractFetcher interface {
-	Fetch(ctx context.Context, ref string) (*contract.Bundle, error)
+	Fetch(ctx context.Context, dep contract.Dependency) (*contract.Bundle, error)
 }
 
 // Node represents a service in the dependency graph.
@@ -157,7 +157,7 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, pat
 	r.pending[dep.Ref] = ch
 	r.mu.Unlock()
 
-	bundle, err := r.fetcher.Fetch(ctx, dep.Ref)
+	bundle, err := r.fetcher.Fetch(ctx, dep)
 	if err != nil {
 		r.mu.Lock()
 		delete(r.pending, dep.Ref)

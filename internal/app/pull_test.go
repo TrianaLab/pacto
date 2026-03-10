@@ -86,6 +86,37 @@ func TestPull_RejectsLocalRef(t *testing.T) {
 	}
 }
 
+func TestPull_NoTag_ResolvesLatest(t *testing.T) {
+	dir := t.TempDir()
+	output := filepath.Join(dir, "pulled")
+	store := &mockBundleStore{
+		ListTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"1.0.0", "2.0.0"}, nil
+		},
+	}
+	svc := NewService(store, nil)
+	result, err := svc.Pull(context.Background(), PullOptions{Ref: "oci://ghcr.io/acme/svc", Output: output})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Ref != "ghcr.io/acme/svc:2.0.0" {
+		t.Errorf("expected resolved ref ghcr.io/acme/svc:2.0.0, got %s", result.Ref)
+	}
+}
+
+func TestPull_NoTag_ListTagsError(t *testing.T) {
+	store := &mockBundleStore{
+		ListTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return nil, fmt.Errorf("list failed")
+		},
+	}
+	svc := NewService(store, nil)
+	_, err := svc.Pull(context.Background(), PullOptions{Ref: "oci://ghcr.io/acme/svc"})
+	if err == nil {
+		t.Error("expected error when ListTags fails")
+	}
+}
+
 func TestPull_ExtractError(t *testing.T) {
 	store := &mockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
