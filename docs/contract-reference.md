@@ -7,7 +7,7 @@ nav_order: 4
 # Contract Reference (v1.0)
 {: .no_toc }
 
-A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface. This page covers every section, field, validation rule, and change classification rule.
+A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface — interfaces, dependencies, runtime behavior, configuration, and scaling. This page covers every section, field, validation rule, and change classification rule.
 
 ---
 
@@ -36,7 +36,9 @@ A Pacto bundle is a self-contained directory (or OCI artifact) with the followin
     └── schema.json
 ```
 
-All files referenced by `pacto.yaml` must exist within the bundle.
+All files referenced by `pacto.yaml` must exist within the bundle. Validation enforces this.
+
+When you run `pacto push`, the bundle is packaged as an OCI artifact — versioned, content-addressed, and distributable through any OCI registry. This is how contracts travel between teams, services, and environments.
 
 ---
 
@@ -163,7 +165,7 @@ Identifies the service.
 
 ### `interfaces`
 
-Declares the service's communication boundaries. Optional — a service with no network interfaces (e.g. a batch job) may omit this section entirely.
+Declares the service's communication boundaries. Optional — a service with no network interfaces (e.g. a batch job or shared library) may omit this section entirely.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -223,13 +225,13 @@ Local dependency references (`file://` and bare paths) are only allowed during d
 Use digest-pinned references (`oci://...@sha256:...`) for production contracts. Tag-based references produce a validation warning.
 
 {: .tip }
-If your service depends on a cloud-managed resource (e.g. GCP Cloud SQL, AWS SNS, Azure Service Bus), you can create a lightweight Pacto contract representing that resource and reference it as a dependency. This makes cloud dependencies explicit and version-tracked alongside your service contracts.
+If your service depends on a cloud-managed resource (e.g. GCP Cloud SQL, AWS SNS, Azure Service Bus), create a lightweight Pacto contract representing that resource and reference it as a dependency. This makes cloud dependencies explicit and version-tracked alongside your service contracts.
 
 ---
 
 ### `runtime`
 
-Describes how the service behaves at runtime. This is the most important section for platform engineers. Optional — a minimal contract (e.g. a lightweight dependency declaration) may omit it entirely.
+Describes how the service behaves at runtime. This section is what lets platforms make informed deployment decisions without guessing. Optional — a minimal contract (e.g. a lightweight dependency declaration) may omit it entirely.
 
 | Field | Type | Required |
 |-------|------|----------|
@@ -250,27 +252,43 @@ A plain string describing the workload type. Enum: `service`, `job`, `scheduled`
 
 #### `runtime.state`
 
+This is one of Pacto's most distinctive features. Instead of platforms guessing whether a service needs persistent storage, stable network identity, or special upgrade procedures, the contract declares it explicitly.
+
 | Field | Type | Required | Enum values |
 |-------|------|----------|-------------|
 | `type` | string | Yes | `stateless`, `stateful`, `hybrid` |
 | `persistence` | [Persistence](#persistence) | Yes | |
 | `dataCriticality` | string | Yes | `low`, `medium`, `high` |
 
-**State type values:**
+**State types:**
 
-| Value | Description |
-|-------|-------------|
-| `stateless` | Does not retain data between requests; any instance can handle any request |
-| `stateful` | Retains data between requests and requires stable storage or affinity |
-| `hybrid` | Handles requests statelessly but keeps selective in-memory or local state that enriches behaviour (e.g. an API with a local cache or in-memory session store) |
+| Value | What it means | Example services |
+|-------|---------------|------------------|
+| `stateless` | No data retained between requests. Any instance can handle any request. Instances are interchangeable. | REST APIs, reverse proxies, API gateways |
+| `stateful` | Retains data between requests. Requires stable storage or instance affinity. | Databases, message brokers, distributed caches |
+| `hybrid` | Handles requests statelessly but keeps selective in-memory or local state that enriches behavior. Loss of that state degrades but doesn't break the service. | APIs with local caches, services with in-memory session stores |
 
-**Data criticality values:**
+**How platforms interpret state:**
 
-| Value | Description |
-|-------|-------------|
-| `low` | Loss of data has minimal business impact; can be regenerated or is non-essential |
-| `medium` | Loss of data has moderate business impact and may require manual recovery |
-| `high` | Loss of data has severe business impact and must be prevented |
+The combination of `state.type`, `persistence.scope`, and `persistence.durability` tells a platform exactly what infrastructure a service needs:
+
+| State | Persistence | Platform reasoning |
+|-------|-------------|--------------------|
+| `stateless` + `local/ephemeral` | No persistent storage needed. Horizontally scalable. Use a Deployment with HPA. |
+| `stateful` + `local/persistent` | Needs stable identity and local durable storage. Use a StatefulSet with PVCs. |
+| `stateful` + `shared/persistent` | Needs durable storage shared across instances. Provision network-attached or shared storage. |
+| `hybrid` + `local/ephemeral` | Tolerates instance loss. Can use a Deployment, but consider warm-up time if caches are large. |
+| `hybrid` + `local/persistent` | Wants persistent local state but survives without it. StatefulSet with PVC, but can fall back to emptyDir if needed. |
+
+These aren't Kubernetes prescriptions — they're platform-agnostic signals. Whether you deploy to Kubernetes, Nomad, ECS, or a custom platform, the reasoning is the same.
+
+**Data criticality:**
+
+| Value | What it means |
+|-------|---------------|
+| `low` | Loss of data has minimal impact. Can be regenerated or is non-essential. |
+| `medium` | Loss has moderate impact. May require manual recovery. |
+| `high` | Loss has severe business impact. Must be prevented. Implies backups, replication, stricter disruption budgets. |
 
 ##### Persistence
 
@@ -279,19 +297,10 @@ A plain string describing the workload type. Enum: `service`, `job`, `scheduled`
 | `scope` | string | Yes | `local`, `shared` |
 | `durability` | string | Yes | `ephemeral`, `persistent` |
 
-**Scope values:**
-
-| Value | Description |
-|-------|-------------|
-| `local` | Data is confined to a single instance and not shared across replicas |
-| `shared` | Data is shared across all instances via a common store |
-
-**Durability values:**
-
-| Value | Description |
-|-------|-------------|
-| `ephemeral` | Data can be lost on restart without impact; used for caches or reconstructible state |
-| `persistent` | Data must survive restarts and be durably stored |
+- **`local`** — data is confined to a single instance. Not shared across replicas.
+- **`shared`** — data is shared across all instances via a common store.
+- **`ephemeral`** — data can be lost on restart without impact. Caches, temp files, reconstructible state.
+- **`persistent`** — data must survive restarts. Requires durable storage.
 
 ##### State invariants
 
@@ -300,7 +309,7 @@ A plain string describing the workload type. Enum: `service`, `job`, `scheduled`
 | `type: stateless` | `durability` must be `ephemeral` |
 | `durability: persistent` | `type` must be `stateful` or `hybrid` |
 
-These invariants are enforced by both the JSON Schema and cross-field validation.
+These invariants are enforced by both the JSON Schema and cross-field validation. A stateless service with persistent storage is a contradiction — validation catches it.
 
 #### `runtime.lifecycle`
 
@@ -415,7 +424,13 @@ Validates cross-concern consistency:
 
 ## Change classification rules
 
-`pacto diff` classifies every detected change using a deterministic rule table.
+`pacto diff` classifies every detected change using a deterministic rule table. This is what powers breaking change detection in CI pipelines.
+
+Each change is classified as:
+
+- **`BREAKING`** — a change that will break consumers or platforms relying on the previous contract
+- **`POTENTIAL_BREAKING`** — a change that *may* break consumers depending on how they use the field
+- **`NON_BREAKING`** — a safe change that doesn't affect compatibility
 
 ### Service identity
 

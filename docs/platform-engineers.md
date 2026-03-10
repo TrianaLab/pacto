@@ -7,7 +7,9 @@ nav_order: 6
 # Pacto for Platform Engineers
 {: .no_toc }
 
-As a platform engineer (DevOps, SRE, infrastructure), Pacto gives you a machine-readable, validated contract for every service. You can use it to generate deployment manifests, enforce policies, build dependency graphs, and detect breaking changes — all deterministically.
+You manage the infrastructure that runs services. Pacto gives you a machine-readable, validated contract for every service — so you can stop guessing and start automating.
+
+Instead of reverse-engineering how to run a service from Helm charts, READMEs, and Slack threads, you pull a contract from an OCI registry and get everything you need: workload type, state model, interfaces, health checks, dependencies, configuration schema, and scaling intent.
 
 ---
 
@@ -19,50 +21,25 @@ As a platform engineer (DevOps, SRE, infrastructure), Pacto gives you a machine-
 
 ---
 
-## What you get from a Pacto contract
+## What a contract tells you
 
-```mermaid
-flowchart TD
-    C[pacto.yaml] --> W[Workload Type]
-    C --> S[State Model]
-    C --> I[Interfaces & Ports]
-    C --> D[Dependencies]
-    C --> H[Health Checks]
-    C --> SC[Scaling Bounds]
-    C --> L[Lifecycle Strategy]
-    C --> CF[Configuration Schema]
-
-    W --> P[Platform Decisions]
-    S --> P
-    I --> P
-    D --> P
-    H --> P
-    SC --> P
-    L --> P
-    CF --> P
-
-    P --> K[Kubernetes Manifests]
-    P --> N[Network Policies]
-    P --> M[Monitoring Config]
-    P --> V[Volume Claims]
-```
-
-A single contract tells you:
+Every question you'd normally have to ask the dev team — or discover in production — is answered in the contract:
 
 | Contract Field | Platform Decision |
 |---|---|
-| `workload.type: service` | Deploy as Deployment/StatefulSet |
-| `workload.type: job` | Deploy as Job/CronJob |
-| `state.type: stateful` | Use StatefulSet, attach PVCs |
-| `state.persistence.durability: persistent` | Provision persistent volumes |
-| `state.dataCriticality: high` | Enable backups, stricter PDB |
+| `workload: service` | Deploy as a long-running process (Deployment/StatefulSet) |
+| `workload: job` | Deploy as a one-shot task (Job/CronJob) |
+| `state.type: stateful` | Needs stable identity and storage (StatefulSet + PVC) |
+| `state.type: stateless` | Horizontally scalable, no persistent storage needed |
+| `state.persistence.durability: persistent` | Provision durable storage |
+| `state.dataCriticality: high` | Enable backups, stricter disruption budgets |
 | `interfaces[].port` | Configure Service, Ingress |
-| `interfaces[].visibility: public` | Create external Ingress |
+| `interfaces[].visibility: public` | Create external Ingress or load balancer |
 | `health.interface` + `health.path` | Configure liveness/readiness probes |
-| `lifecycle.upgradeStrategy: ordered` | Use OrderedReady pod management |
-| `lifecycle.gracefulShutdownSeconds` | Set `terminationGracePeriodSeconds` |
-| `scaling.replicas` or `scaling.min` / `scaling.max` | Configure fixed replica count or HPA bounds |
-| `dependencies[].ref` | Validate graph, check compatibility |
+| `lifecycle.upgradeStrategy: ordered` | Use ordered pod management |
+| `lifecycle.gracefulShutdownSeconds` | Set termination grace period |
+| `scaling.min` / `scaling.max` | Configure auto-scaling bounds |
+| `dependencies[].ref` | Validate dependency graph, check compatibility |
 
 ---
 
@@ -88,10 +65,7 @@ pacto pull oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ### 2. Inspect it
 
 ```bash
-pacto explain oci://ghcr.io/acme/payments-api-pacto:2.1.0
-```
-
-```
+$ pacto explain oci://ghcr.io/acme/payments-api-pacto:2.1.0
 Service: payments-api@2.1.0
 Owner: team/payments
 Pacto Version: 1.0
@@ -120,20 +94,19 @@ pacto diff \
   oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
-Use the exit code in CI pipelines — `pacto diff` exits non-zero if breaking changes are detected.
+`pacto diff` exits non-zero if breaking changes are detected. Use the exit code in CI to gate deployments.
 
 ### 4. Resolve the dependency graph
 
 ```bash
-pacto graph oci://ghcr.io/acme/payments-api-pacto:2.1.0
-```
-
-```
+$ pacto graph oci://ghcr.io/acme/payments-api-pacto:2.1.0
 payments-api@2.1.0
 ├─ auth-service@2.3.0
 │  └─ user-store@1.0.0
 └─ notifications@1.0.0 (shared)
 ```
+
+Dependencies are resolved recursively from OCI registries. Sibling deps are fetched in parallel. Results are cached locally for fast repeated lookups.
 
 ### 5. Generate deployment artifacts
 
@@ -141,33 +114,36 @@ payments-api@2.1.0
 pacto generate helm oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
-This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes manifests, or whatever your plugin generates.
+This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes manifests, or whatever your plugin generates. See the [Plugin Development]({{ site.baseurl }}{% link plugins.md %}) guide.
 
 ---
 
 ## Mapping contracts to infrastructure
 
-### Workload type mapping
+### Workload type
 
-| `workload.type` | Kubernetes Resource | Notes |
+| `workload` | Kubernetes resource | Notes |
 |---|---|---|
 | `service` | Deployment or StatefulSet | Based on `state.type` |
 | `job` | Job | No scaling, runs to completion |
 | `scheduled` | CronJob | Schedule defined externally |
 
-### State model mapping
+### State model
 
-| `state.type` | `persistence.durability` | Infrastructure |
+The state model tells you exactly what storage and scheduling strategy a service needs:
+
+| `state.type` | `persistence` | Infrastructure |
 |---|---|---|
-| `stateless` | `ephemeral` | Deployment, no PVC |
-| `stateful` | `persistent` | StatefulSet + PVC |
-| `stateful` | `ephemeral` | StatefulSet, emptyDir |
-| `hybrid` | `persistent` | StatefulSet + PVC |
-| `hybrid` | `ephemeral` | Deployment, emptyDir |
+| `stateless` | `local/ephemeral` | Deployment, no PVC, free to scale horizontally |
+| `stateful` | `local/persistent` | StatefulSet + PVC, stable identity per replica |
+| `stateful` | `local/ephemeral` | StatefulSet with emptyDir (stable identity, no durable storage) |
+| `stateful` | `shared/persistent` | Network-attached or shared storage |
+| `hybrid` | `local/persistent` | StatefulSet + PVC, tolerates cold starts |
+| `hybrid` | `local/ephemeral` | Deployment with emptyDir, warm caches improve performance |
 
-### Upgrade strategy mapping
+### Upgrade strategy
 
-| `upgradeStrategy` | Kubernetes Strategy |
+| `upgradeStrategy` | Kubernetes strategy |
 |---|---|
 | `rolling` | `RollingUpdate` |
 | `recreate` | `Recreate` |
@@ -175,25 +151,36 @@ This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes m
 
 ---
 
-## Policy enforcement
+## Breaking change detection
 
-Pacto contracts enable programmatic policy enforcement:
+`pacto diff` doesn't just compare fields — it resolves both dependency trees and shows the full blast radius.
 
 ```bash
-# Block services without health checks
-pacto validate service
+$ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
+             oci://ghcr.io/acme/payments-api-pacto:2.0.0
+Classification: BREAKING
+Changes (4):
+  [BREAKING] runtime.state.type (modified): runtime.state.type modified
+  [BREAKING] runtime.state.persistence.durability (modified): ...
+  [BREAKING] interfaces (removed): interfaces removed
+  [BREAKING] dependencies (removed): dependencies removed
 
-# Block breaking changes in CI
-pacto diff old-version new-version
-
-# Verify dependency graph has no cycles
-pacto graph service
+Dependency graph changes:
+payments-api
+├─ auth-service  1.5.0 → 2.3.0
+└─ postgres      -16.0.0
 ```
 
-### Example CI gate
+Every change is classified as `NON_BREAKING`, `POTENTIAL_BREAKING`, or `BREAKING`. See the [Change Classification Rules]({{ site.baseurl }}{% link contract-reference.md %}#change-classification-rules) for the full table.
+
+---
+
+## CI integration
+
+Use Pacto in CI pipelines to catch problems before deployment:
 
 ```yaml
-# In your CI pipeline
+# Example CI pipeline
 steps:
   - name: Validate contract
     run: pacto validate .
@@ -201,7 +188,7 @@ steps:
   - name: Check for breaking changes
     run: pacto diff oci://ghcr.io/acme/my-service-pacto:latest .
 
-  - name: Verify dependencies
+  - name: Verify dependency graph
     run: pacto graph .
 ```
 
@@ -210,17 +197,11 @@ Using GitHub Actions? The official [Pacto CLI action]({{ site.baseurl }}{% link 
 
 ---
 
-## Building plugins
-
-Platform teams can build custom plugins to generate artifacts specific to their infrastructure. See the [Plugin Development]({{ site.baseurl }}{% link plugins.md %}) guide.
-
----
-
 ## Tips
 
 - **Automate diff checks.** Run `pacto diff` in CI to catch breaking changes before they reach production.
 - **Build a plugin for your platform.** A Helm plugin, Terraform plugin, or custom manifest generator can consume Pacto contracts deterministically.
-- **Use `pacto graph` to understand impact.** Before upgrading a shared service, check what depends on it. Dependencies are resolved in parallel and cached locally for fast repeated lookups.
-- **Disable cache in CI when needed.** Use `--no-cache` or `PACTO_NO_CACHE=1` to ensure fresh OCI pulls in pipelines where the cache might be stale.
+- **Use `pacto graph` to understand impact.** Before upgrading a shared service, check what depends on it.
+- **Disable cache in CI.** Use `--no-cache` or `PACTO_NO_CACHE=1` to ensure fresh OCI pulls in pipelines where the cache might be stale.
 - **Trust the state semantics.** If a contract says `stateless` + `ephemeral`, you can safely use a Deployment with no PVC. The validation engine enforces consistency.
-- **Use the JSON output.** Every command supports `--output-format json` for programmatic consumption.
+- **Use JSON output.** Every command supports `--output-format json` for programmatic consumption.

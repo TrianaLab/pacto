@@ -7,7 +7,9 @@ nav_order: 9
 # Plugin Development
 {: .no_toc }
 
-Pacto uses an out-of-process plugin architecture for artifact generation. Plugins are standalone executables that receive a contract via JSON on stdin and write generated file descriptions to stdout.
+Pacto uses an out-of-process plugin architecture for artifact generation. A plugin is a standalone executable that receives a contract via JSON on stdin and writes generated file descriptions to stdout.
+
+This means you can turn a Pacto contract into anything — Helm charts, Terraform modules, Kubernetes manifests, monitoring configs — using any language you want.
 
 ---
 
@@ -17,7 +19,14 @@ Pacto uses an out-of-process plugin architecture for artifact generation. Plugin
 {:toc}
 </details>
 
-This design is:
+---
+
+## Why plugins?
+
+Pacto describes *what* a service is. Plugins decide *how* to deploy it. The contract is the input; deployment artifacts are the output. This separation keeps Pacto platform-agnostic while letting each team generate exactly the artifacts their infrastructure needs.
+
+The plugin design is:
+
 - **Language-agnostic** — write plugins in Go, Python, Rust, Bash, or anything
 - **Version-independent** — plugins don't link against Pacto libraries
 - **Sandboxed** — plugins receive a read-only view of the contract
@@ -97,6 +106,8 @@ Pacto writes a JSON object to the plugin's stdin:
 | `bundleDir` | string | Absolute path to the bundle directory (read-only) |
 | `outputDir` | string | Absolute path where output files should go |
 | `options` | object | User-provided key-value options (from CLI flags) |
+
+The contract object contains everything from `pacto.yaml` — runtime semantics, interfaces, dependencies, scaling. Your plugin can use any combination of these fields to generate artifacts.
 
 ### Response (stdout)
 
@@ -315,4 +326,4 @@ if __name__ == "__main__":
 - **Use stderr for errors.** Anything on stderr is shown to the user on failure.
 - **Exit non-zero on failure.** Pacto checks the exit code.
 - **Be deterministic.** Given the same input, produce the same output.
-- **Handle missing optional fields.** Not all contracts have `configuration`, `dependencies`, `scaling`, etc.
+- **Handle missing optional fields.** Not all contracts have `runtime`, `configuration`, `dependencies`, `scaling`, etc.

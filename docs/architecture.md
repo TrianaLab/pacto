@@ -92,7 +92,7 @@ Compares two contracts and classifies every change using a deterministic rule ta
 
 ### `internal/graph` — Dependency resolver
 
-Builds a dependency graph by recursively fetching contracts from OCI registries and local paths. Sibling dependencies at each level are resolved concurrently. Detects cycles and version conflicts. Also provides:
+Builds a dependency graph by recursively fetching contracts from OCI registries and local paths. Sibling dependencies at each level are resolved concurrently. Detects cycles and version conflicts.
 
 - `ParseDependencyRef()` — centralized dependency reference parser (`oci://`, `file://`, bare paths)
 - `RenderTree()` / `RenderDiffTree()` — tree-style rendering with `├─`/`└─` connectors
@@ -102,13 +102,15 @@ Builds a dependency graph by recursively fetching contracts from OCI registries 
 
 Thin wrapper over `go-containerregistry`. Handles bundle-to-image translation, credential resolution, error mapping, and local disk caching of pulled bundles (`~/.cache/pacto/oci/`).
 
+Pacto distributes contracts as OCI artifacts — the same standard behind container images. This means contracts work with any OCI-compliant registry (GHCR, ECR, ACR, Docker Hub, Harbor) without new infrastructure. Every pushed contract is content-addressed with a digest, making it immutable and verifiable.
+
 ### `internal/doc` — Documentation generator
 
 Generates rich Markdown documentation from a contract. Reads OpenAPI specs, event contracts, and JSON Schema configuration to produce a comprehensive service document with architecture diagrams, interface tables, and configuration details. Includes an HTTP server for browser-based viewing.
 
 ### `internal/plugin` — Plugin system
 
-Out-of-process plugin execution via JSON stdin/stdout. Discovers plugin binaries and manages the communication protocol.
+Out-of-process plugin execution via JSON stdin/stdout. Discovers plugin binaries and manages the communication protocol. See the [Plugin Development]({{ site.baseurl }}{% link plugins.md %}) guide.
 
 ---
 
