@@ -11,12 +11,16 @@ import (
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
-// CachedStore wraps a BundleStore with local disk caching for Pull operations
-// and in-memory caching for ListTags. Bundles are cached by OCI reference
-// under ~/.cache/pacto/oci/.
+// CachedStore wraps a BundleStore with in-memory and disk caching. Pulled
+// bundles are kept in memory (fastest) and persisted to disk under
+// ~/.cache/pacto/oci/ so they survive across process invocations. ListTags
+// results are cached in memory for the lifetime of the process.
 type CachedStore struct {
 	inner    BundleStore
 	cacheDir string
+
+	pullMu    sync.Mutex
+	pullCache map[string]*contract.Bundle
 
 	tagsMu    sync.Mutex
 	tagsCache map[string][]string
@@ -29,12 +33,20 @@ func NewCachedStore(inner BundleStore) *CachedStore {
 	if err != nil {
 		dir = ""
 	}
-	return &CachedStore{inner: inner, cacheDir: dir, tagsCache: map[string][]string{}}
+	return &CachedStore{
+		inner:     inner,
+		cacheDir:  dir,
+		pullCache: map[string]*contract.Bundle{},
+		tagsCache: map[string][]string{},
+	}
 }
 
 // DisableCache turns off caching so all operations go directly to the registry.
 func (c *CachedStore) DisableCache() {
 	c.cacheDir = ""
+	c.pullMu.Lock()
+	c.pullCache = map[string]*contract.Bundle{}
+	c.pullMu.Unlock()
 }
 
 func pactoCacheDir() (string, error) {
@@ -78,23 +90,41 @@ func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, erro
 }
 
 func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, error) {
+	// 1. In-memory cache (fastest).
+	c.pullMu.Lock()
+	if b, ok := c.pullCache[ref]; ok {
+		c.pullMu.Unlock()
+		return b, nil
+	}
+	c.pullMu.Unlock()
+
+	// 2. Disk cache.
 	if c.cacheDir != "" {
 		cachePath := c.cachePath(ref)
 		if bundle, err := c.loadFromCache(cachePath); err == nil {
+			c.storePull(ref, bundle)
 			return bundle, nil
 		}
 	}
 
+	// 3. Registry (slowest).
 	bundle, err := c.inner.Pull(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 
+	c.storePull(ref, bundle)
 	if c.cacheDir != "" {
 		_ = c.saveToCache(c.cachePath(ref), bundle)
 	}
 
 	return bundle, nil
+}
+
+func (c *CachedStore) storePull(ref string, bundle *contract.Bundle) {
+	c.pullMu.Lock()
+	c.pullCache[ref] = bundle
+	c.pullMu.Unlock()
 }
 
 func (c *CachedStore) cachePath(ref string) string {

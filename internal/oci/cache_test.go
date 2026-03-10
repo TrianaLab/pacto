@@ -86,6 +86,65 @@ func TestCachedStore_Pull_CachesOnDisk(t *testing.T) {
 	}
 }
 
+func TestCachedStore_Pull_InMemoryCacheServesRepeatedCalls(t *testing.T) {
+	store, inner := newCachedStoreWithTempDir(t)
+	ctx := context.Background()
+	ref := "ghcr.io/test/repo:1.0.0"
+
+	// First pull: hits inner.
+	if _, err := store.Pull(ctx, ref); err != nil {
+		t.Fatalf("Pull() error: %v", err)
+	}
+
+	// Second and third: served from in-memory cache (no inner, no disk I/O).
+	for i := range 2 {
+		b, err := store.Pull(ctx, ref)
+		if err != nil {
+			t.Fatalf("Pull() #%d error: %v", i+2, err)
+		}
+		if b.Contract.Service.Name != "test-svc" {
+			t.Errorf("Pull() #%d: got name %q, want test-svc", i+2, b.Contract.Service.Name)
+		}
+	}
+
+	if inner.pullCount.Load() != 1 {
+		t.Errorf("expected 1 inner pull (in-memory cache), got %d", inner.pullCount.Load())
+	}
+}
+
+func TestCachedStore_Pull_DiskCacheServesNewInstance(t *testing.T) {
+	cacheDir := t.TempDir()
+	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
+	t.Cleanup(func() { oci.SetUserHomeDirFn(old) })
+
+	ref := "ghcr.io/test/repo:1.0.0"
+	ctx := context.Background()
+
+	// First store: populate disk cache.
+	inner1 := &countingStore{bundle: newTestBundle()}
+	store1 := oci.NewCachedStore(inner1)
+	if _, err := store1.Pull(ctx, ref); err != nil {
+		t.Fatalf("store1 Pull() error: %v", err)
+	}
+	if inner1.pullCount.Load() != 1 {
+		t.Fatalf("expected 1 inner pull on store1, got %d", inner1.pullCount.Load())
+	}
+
+	// Second store (simulates new process): fresh in-memory cache, same disk.
+	inner2 := &countingStore{bundle: newTestBundle()}
+	store2 := oci.NewCachedStore(inner2)
+	b, err := store2.Pull(ctx, ref)
+	if err != nil {
+		t.Fatalf("store2 Pull() error: %v", err)
+	}
+	if b.Contract.Service.Name != "test-svc" {
+		t.Errorf("got name %q, want test-svc", b.Contract.Service.Name)
+	}
+	if inner2.pullCount.Load() != 0 {
+		t.Errorf("expected 0 inner pulls on store2 (disk hit), got %d", inner2.pullCount.Load())
+	}
+}
+
 func TestCachedStore_Pull_DifferentRefsMissCache(t *testing.T) {
 	store, inner := newCachedStoreWithTempDir(t)
 	ctx := context.Background()
@@ -116,33 +175,39 @@ func TestCachedStore_Pull_InnerError(t *testing.T) {
 }
 
 func TestCachedStore_Pull_CorruptGzipFallsBack(t *testing.T) {
-	store, inner := newCachedStoreWithTempDir(t)
-	ctx := context.Background()
-	ref := "ghcr.io/test/corrupt:1.0.0"
+	cacheDir := t.TempDir()
+	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
+	t.Cleanup(func() { oci.SetUserHomeDirFn(old) })
 
-	// Populate cache first.
-	if _, err := store.Pull(ctx, ref); err != nil {
+	ref := "ghcr.io/test/corrupt:1.0.0"
+	ctx := context.Background()
+
+	// Store 1: populate disk cache.
+	inner1 := &countingStore{bundle: newTestBundle()}
+	store1 := oci.NewCachedStore(inner1)
+	if _, err := store1.Pull(ctx, ref); err != nil {
 		t.Fatalf("initial Pull() error: %v", err)
 	}
 
 	// Corrupt the cached file with invalid gzip data.
-	home, _ := oci.ExportedUserHomeDirFn()()
-	cachePath := filepath.Join(home, ".cache", "pacto", "oci",
+	cachePath := filepath.Join(cacheDir, ".cache", "pacto", "oci",
 		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
 	if err := os.WriteFile(cachePath, []byte("not gzip"), 0644); err != nil {
 		t.Fatalf("failed to corrupt cache: %v", err)
 	}
 
-	// Should fall back to inner Pull.
-	b, err := store.Pull(ctx, ref)
+	// Store 2 (fresh in-memory cache): should fall back to inner Pull.
+	inner2 := &countingStore{bundle: newTestBundle()}
+	store2 := oci.NewCachedStore(inner2)
+	b, err := store2.Pull(ctx, ref)
 	if err != nil {
 		t.Fatalf("Pull() after corrupt cache error: %v", err)
 	}
 	if b.Contract.Service.Name != "test-svc" {
 		t.Errorf("got name %q, want test-svc", b.Contract.Service.Name)
 	}
-	if inner.pullCount.Load() != 2 {
-		t.Errorf("expected 2 inner pulls, got %d", inner.pullCount.Load())
+	if inner2.pullCount.Load() != 1 {
+		t.Errorf("expected 1 inner pull on store2, got %d", inner2.pullCount.Load())
 	}
 }
 
@@ -232,28 +297,33 @@ func TestCachedStore_DisabledWhenHomeDirFails(t *testing.T) {
 	if _, err := store.Pull(ctx, "ghcr.io/test/repo:1.0.0"); err != nil {
 		t.Fatalf("Pull() error: %v", err)
 	}
+	// Second pull should hit in-memory cache even without disk caching.
 	if _, err := store.Pull(ctx, "ghcr.io/test/repo:1.0.0"); err != nil {
 		t.Fatalf("Pull() error: %v", err)
 	}
-	if inner.pullCount.Load() != 2 {
-		t.Errorf("expected 2 inner pulls with disabled cache, got %d", inner.pullCount.Load())
+	if inner.pullCount.Load() != 1 {
+		t.Errorf("expected 1 inner pull (in-memory cache), got %d", inner.pullCount.Load())
 	}
 }
 
 func TestCachedStore_Pull_CorruptTarFallsBack(t *testing.T) {
-	store, inner := newCachedStoreWithTempDir(t)
-	ctx := context.Background()
-	ref := "ghcr.io/test/badtar:1.0.0"
+	cacheDir := t.TempDir()
+	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
+	t.Cleanup(func() { oci.SetUserHomeDirFn(old) })
 
-	if _, err := store.Pull(ctx, ref); err != nil {
+	ref := "ghcr.io/test/badtar:1.0.0"
+	ctx := context.Background()
+
+	// Store 1: populate disk cache.
+	inner1 := &countingStore{bundle: newTestBundle()}
+	store1 := oci.NewCachedStore(inner1)
+	if _, err := store1.Pull(ctx, ref); err != nil {
 		t.Fatalf("initial Pull() error: %v", err)
 	}
 
 	// Overwrite with valid gzip but invalid tar content.
-	home, _ := oci.ExportedUserHomeDirFn()()
-	cachePath := filepath.Join(home, ".cache", "pacto", "oci",
+	cachePath := filepath.Join(cacheDir, ".cache", "pacto", "oci",
 		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
-
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	_, _ = gw.Write([]byte("not a tar"))
@@ -262,32 +332,39 @@ func TestCachedStore_Pull_CorruptTarFallsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b, err := store.Pull(ctx, ref)
+	// Store 2 (fresh in-memory cache): should fall back to inner Pull.
+	inner2 := &countingStore{bundle: newTestBundle()}
+	store2 := oci.NewCachedStore(inner2)
+	b, err := store2.Pull(ctx, ref)
 	if err != nil {
 		t.Fatalf("Pull() after corrupt tar error: %v", err)
 	}
 	if b.Contract.Service.Name != "test-svc" {
 		t.Errorf("got name %q, want test-svc", b.Contract.Service.Name)
 	}
-	if inner.pullCount.Load() != 2 {
-		t.Errorf("expected 2 inner pulls, got %d", inner.pullCount.Load())
+	if inner2.pullCount.Load() != 1 {
+		t.Errorf("expected 1 inner pull on store2, got %d", inner2.pullCount.Load())
 	}
 }
 
 func TestCachedStore_Pull_MissingPactoYamlFallsBack(t *testing.T) {
-	store, inner := newCachedStoreWithTempDir(t)
-	ctx := context.Background()
-	ref := "ghcr.io/test/nopacto:1.0.0"
+	cacheDir := t.TempDir()
+	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
+	t.Cleanup(func() { oci.SetUserHomeDirFn(old) })
 
-	if _, err := store.Pull(ctx, ref); err != nil {
+	ref := "ghcr.io/test/nopacto:1.0.0"
+	ctx := context.Background()
+
+	// Store 1: populate disk cache.
+	inner1 := &countingStore{bundle: newTestBundle()}
+	store1 := oci.NewCachedStore(inner1)
+	if _, err := store1.Pull(ctx, ref); err != nil {
 		t.Fatalf("initial Pull() error: %v", err)
 	}
 
 	// Overwrite cache with valid gzip+tar but no pacto.yaml.
-	home, _ := oci.ExportedUserHomeDirFn()()
-	cachePath := filepath.Join(home, ".cache", "pacto", "oci",
+	cachePath := filepath.Join(cacheDir, ".cache", "pacto", "oci",
 		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
-
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
@@ -300,32 +377,39 @@ func TestCachedStore_Pull_MissingPactoYamlFallsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b, err := store.Pull(ctx, ref)
+	// Store 2 (fresh in-memory cache): should fall back to inner Pull.
+	inner2 := &countingStore{bundle: newTestBundle()}
+	store2 := oci.NewCachedStore(inner2)
+	b, err := store2.Pull(ctx, ref)
 	if err != nil {
 		t.Fatalf("Pull() after missing pacto.yaml error: %v", err)
 	}
 	if b.Contract.Service.Name != "test-svc" {
 		t.Errorf("got name %q, want test-svc", b.Contract.Service.Name)
 	}
-	if inner.pullCount.Load() != 2 {
-		t.Errorf("expected 2 inner pulls, got %d", inner.pullCount.Load())
+	if inner2.pullCount.Load() != 1 {
+		t.Errorf("expected 1 inner pull on store2, got %d", inner2.pullCount.Load())
 	}
 }
 
 func TestCachedStore_Pull_InvalidPactoYamlFallsBack(t *testing.T) {
-	store, inner := newCachedStoreWithTempDir(t)
-	ctx := context.Background()
-	ref := "ghcr.io/test/badyaml:1.0.0"
+	cacheDir := t.TempDir()
+	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
+	t.Cleanup(func() { oci.SetUserHomeDirFn(old) })
 
-	if _, err := store.Pull(ctx, ref); err != nil {
+	ref := "ghcr.io/test/badyaml:1.0.0"
+	ctx := context.Background()
+
+	// Store 1: populate disk cache.
+	inner1 := &countingStore{bundle: newTestBundle()}
+	store1 := oci.NewCachedStore(inner1)
+	if _, err := store1.Pull(ctx, ref); err != nil {
 		t.Fatalf("initial Pull() error: %v", err)
 	}
 
 	// Overwrite with valid gzip+tar containing invalid pacto.yaml.
-	home, _ := oci.ExportedUserHomeDirFn()()
-	cachePath := filepath.Join(home, ".cache", "pacto", "oci",
+	cachePath := filepath.Join(cacheDir, ".cache", "pacto", "oci",
 		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
-
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
@@ -338,15 +422,18 @@ func TestCachedStore_Pull_InvalidPactoYamlFallsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b, err := store.Pull(ctx, ref)
+	// Store 2 (fresh in-memory cache): should fall back to inner Pull.
+	inner2 := &countingStore{bundle: newTestBundle()}
+	store2 := oci.NewCachedStore(inner2)
+	b, err := store2.Pull(ctx, ref)
 	if err != nil {
 		t.Fatalf("Pull() after invalid yaml error: %v", err)
 	}
 	if b.Contract.Service.Name != "test-svc" {
 		t.Errorf("got name %q, want test-svc", b.Contract.Service.Name)
 	}
-	if inner.pullCount.Load() != 2 {
-		t.Errorf("expected 2 inner pulls, got %d", inner.pullCount.Load())
+	if inner2.pullCount.Load() != 1 {
+		t.Errorf("expected 1 inner pull on store2, got %d", inner2.pullCount.Load())
 	}
 }
 
