@@ -9,7 +9,7 @@
 
 **Pacto is to service operations what OpenAPI is to HTTP APIs.**
 
-A single YAML contract that describes how a cloud-native service behaves — validated, versioned, and distributed as an OCI artifact.
+A single YAML contract that describes how a cloud-native service behaves — validated, versioned, and distributed as an OCI artifact. It gives platforms, CI pipelines, and AI agents a shared operational model of a service.
 
 Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs to know about a service — interfaces, runtime behavior, dependencies, configuration, and scaling — in one file that machines can validate and tooling can consume.
 
@@ -28,6 +28,19 @@ Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs t
 ```
 
 No runtime agents. No sidecars. No new infrastructure. Pacto is a **build-time and CI-time tool** — it produces a validated, immutable description of your service that platforms and pipelines can consume downstream.
+
+---
+
+## AI-native contracts
+
+Pacto contracts are machine-readable by design — which makes them a natural fit for AI assistants. Running `pacto mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io) server that lets tools like **Claude**, **Cursor**, and **GitHub Copilot** interact with your contracts directly:
+
+```bash
+pacto mcp                    # stdio (Claude Code, Cursor)
+pacto mcp -t http --port 9090   # HTTP (remote or web-based tools)
+```
+
+Through MCP, an AI assistant can validate contracts, inspect dependency graphs, generate new contracts from a description, and explain breaking changes — all without leaving your editor. See the [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) guide for setup instructions.
 
 ---
 
@@ -245,7 +258,7 @@ Pacto is the layer between your code and your platform. OpenAPI describes the AP
 - **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor). Bundles are cached locally for fast repeated operations
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts (Helm charts, Terraform modules, K8s manifests) from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details from the contract itself
-- **AI tool integration** — `pacto mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io) server, letting AI assistants (Claude, Cursor, Copilot) validate, inspect, and generate contracts through standardized tool calls
+- **AI assistant integration** — `pacto mcp` exposes all contract operations as [MCP](https://modelcontextprotocol.io) tools, so AI assistants (Claude, Cursor, Copilot) can validate, inspect, generate, and diff contracts in your editor
 
 ---
 
@@ -351,6 +364,7 @@ Pacto contracts are designed to be consumed by any tool in your stack:
 - **Platform controllers** — pull contracts from the registry to generate Kubernetes manifests, Terraform modules, or Helm values automatically
 - **Service catalogs** — import contract metadata (owner, interfaces, dependencies) into Backstage, Port, or internal dashboards
 - **Policy engines** — enforce organizational rules (e.g., "all public services must have a health check") against the contract before deployment
+- **AI assistants** — validate, inspect, and generate contracts via MCP directly from your editor or chat interface
 
 The contract is the API between developers and the platform. Pacto provides the format, the validation, and the distribution — what you build on top is up to you.
 
@@ -397,7 +411,7 @@ Full documentation at **[trianalab.github.io/pacto](https://trianalab.github.io/
 | [For Developers](https://trianalab.github.io/pacto/developers) | Write and maintain contracts alongside your code |
 | [For Platform Engineers](https://trianalab.github.io/pacto/platform-engineers) | Consume contracts for deployment, policies, and graphs |
 | [CLI Reference](https://trianalab.github.io/pacto/cli-reference) | All commands, flags, and output formats |
-| [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) | Connect AI tools (Claude, Cursor) to Pacto via MCP |
+| [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) | Connect AI tools (Claude, Cursor, Copilot) to Pacto via MCP |
 | [Plugin Development](https://trianalab.github.io/pacto/plugins) | Build plugins to generate artifacts from contracts |
 | [Examples](https://trianalab.github.io/pacto/examples) | PostgreSQL, Redis, RabbitMQ, NGINX, Cron Worker |
 | [Architecture](https://trianalab.github.io/pacto/architecture) | Internal design for contributors |
