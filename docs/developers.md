@@ -298,11 +298,39 @@ This is particularly useful when writing a new contract from scratch — describ
 
 ---
 
+## Including documentation
+
+You can include an optional `docs/` directory in your bundle to ship human-readable documentation alongside the contract:
+
+```
+my-service/
+  pacto.yaml
+  interfaces/
+    openapi.yaml
+  docs/
+    README.md
+    architecture.md
+    runbook.md
+    integration.md
+```
+
+Documentation travels with the contract as part of the OCI artifact, so it is versioned and distributed alongside the contract it describes. It has no effect on validation, diffing, or compatibility checks — changes to `docs/` never produce diff entries or affect classification.
+
+Good candidates for `docs/`:
+
+- **Service overview** — what the service does and its purpose
+- **Architecture notes** — internal design and data flow
+- **Operational runbooks** — incident response and scaling procedures
+- **Integration guides** — how consumers should interact with the service
+
+---
+
 ## Tips
 
 - **Version your contract alongside your code.** The `pacto.yaml` lives in your repository.
 - **Pin dependency digests in production.** Tags are mutable; digests are not.
 - **Keep interface contracts up to date.** OpenAPI specs and protobuf definitions in the bundle should match what your service actually serves.
+- **Include documentation in the bundle.** Add a `docs/` directory with runbooks, architecture notes, and integration guides. It ships with the contract but doesn't affect diffing or validation.
 - **Use `pacto explain` to review.** It produces a human-readable summary of your contract.
 - **Use `pacto doc` for rich documentation.** It generates Markdown with architecture diagrams and interface tables. Use `--serve` to view it in the browser.
 - **Leverage caching.** OCI bundles are cached locally in `~/.cache/pacto/oci/` and tag listings are cached in memory per command, so repeated `graph`, `doc`, and `diff` commands resolve instantly. Use `--no-cache` to force a fresh pull.

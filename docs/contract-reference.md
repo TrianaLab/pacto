@@ -32,13 +32,36 @@ A Pacto bundle is a self-contained directory (or OCI artifact) with the followin
 │   ├── openapi.yaml
 │   ├── service.proto
 │   └── events.yaml
-└── configuration/
-    └── schema.json
+├── configuration/
+│   └── schema.json
+└── docs/                    ← optional
+    ├── README.md
+    ├── architecture.md
+    ├── runbook.md
+    └── integration.md
 ```
 
 All files referenced by `pacto.yaml` must exist within the bundle. Validation enforces this.
 
 When you run `pacto push`, the bundle is packaged as an OCI artifact — versioned, content-addressed, and distributable through any OCI registry. This is how contracts travel between teams, services, and environments.
+
+### `docs/` — Optional documentation
+
+The `docs/` directory is an optional convention for including human-readable documentation alongside the contract. Its contents are treated as **informational metadata** — they travel with the contract but have no effect on contract semantics, validation, or diff classification.
+
+**Key properties:**
+
+- **Optional.** Bundles without `docs/` are fully valid. No existing workflow breaks.
+- **No contract semantics.** Documentation is not part of the contract. It does not influence validation, diffing, or compatibility checks.
+- **Self-contained.** Documentation lives inside the OCI artifact, so it is versioned, distributed, and cached alongside the contract it describes.
+- **Format-flexible.** Markdown is the natural default, but there are no restrictions on file formats inside `docs/`.
+
+**What documentation could include:**
+
+- Service overview — what the service does, its purpose within the platform
+- Architecture notes — internal design, data flow, key dependencies
+- Operational runbooks — incident response, scaling procedures, known failure modes
+- Integration guides — how consumers should interact with the service's interfaces
 
 ---
 
