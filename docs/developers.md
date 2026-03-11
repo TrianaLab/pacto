@@ -262,6 +262,42 @@ Using GitHub Actions? Check out the official [Pacto CLI action]({{ site.baseurl 
 
 ---
 
+## AI-assisted workflow
+
+If you use an AI assistant that supports [MCP](https://modelcontextprotocol.io) (Claude Code, Cursor, GitHub Copilot), you can connect it to Pacto so it can validate, inspect, and generate contracts on your behalf.
+
+### Setup
+
+Add Pacto as an MCP server in your project. For Claude Code, create `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "pacto": {
+      "command": "pacto",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+For other tools, see the full [MCP Integration]({{ site.baseurl }}{% link mcp-integration.md %}) guide.
+
+### What you can do
+
+Once connected, the AI assistant can use Pacto tools directly in your conversation:
+
+- **Validate** — *"Validate my contract in ./my-service"* — catches structural, cross-field, and semantic errors without leaving your editor
+- **Inspect** — *"Show me the full contract for oci://ghcr.io/acme/auth-pacto:2.0.0"* — explore contracts from your registry
+- **Explain** — *"Explain what this service does"* — get a human-readable summary of interfaces, dependencies, and runtime behavior
+- **Generate** — *"Generate a contract for a stateless Go HTTP API called user-service"* — scaffold new contracts from a description
+- **Dependencies** — *"What does my service depend on?"* — resolve and explore the dependency graph
+- **Documentation** — *"Generate docs for this contract"* — produce Markdown documentation without running CLI commands
+
+This is particularly useful when writing a new contract from scratch — describe your service to the assistant and let it generate the initial `pacto.yaml`, then iterate with validation feedback in the same conversation.
+
+---
+
 ## Tips
 
 - **Version your contract alongside your code.** The `pacto.yaml` lives in your repository.
@@ -272,4 +308,3 @@ Using GitHub Actions? Check out the official [Pacto CLI action]({{ site.baseurl 
 - **Leverage caching.** OCI bundles are cached locally in `~/.cache/pacto/oci/` and tag listings are cached in memory per command, so repeated `graph`, `doc`, and `diff` commands resolve instantly. Use `--no-cache` to force a fresh pull.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
 - **Use metadata for organizational context.** Team ownership, on-call channels, and service tiers go in `metadata`.
-- **Use `pacto mcp` for AI-assisted workflows.** Start an MCP server so AI tools (Claude, Cursor, Copilot) can validate, inspect, and generate contracts through standardized tool calls. See [`pacto mcp`]({{ site.baseurl }}{% link cli-reference.md %}#pacto-mcp) in the CLI Reference.

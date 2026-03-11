@@ -22,39 +22,14 @@ Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.
 ## How it works
 
 ```mermaid
-flowchart TD
-    subgraph Assistants ["AI Assistants"]
-        direction LR
-        Claude["Claude Code\nClaude Desktop"]
-        Cursor["Cursor"]
-        Copilot["GitHub Copilot"]
-    end
-
-    Assistants -->|"MCP tool calls\n(stdio or HTTP)"| Server
-
-    subgraph Server ["pacto mcp server"]
-        direction LR
-        validate["pacto_validate"]
-        inspect["pacto_inspect"]
-        explain["pacto_explain"]
-        generate["pacto_generate_contract"]
-        deps["pacto_resolve_dependencies"]
-        more["pacto_list_interfaces\npacto_generate_docs\npacto_suggest_dependencies"]
-    end
-
-    Server -->|"read contracts"| Sources
-
-    subgraph Sources ["Contract Sources"]
-        direction LR
-        local["Local directories\n./my-service/pacto.yaml"]
-        oci["OCI registries\noci://ghcr.io/acme/svc:1.0"]
-    end
-
-    Sources -->|"structured results"| Server
-    Server -->|"JSON responses"| Assistants
+flowchart LR
+    AI["AI Assistant<br/>(Claude, Cursor, Copilot)"] -->|"MCP tool calls"| MCP["pacto mcp<br/>stdio or HTTP"]
+    MCP -->|"validate, inspect,<br/>explain, generate, ..."| Sources["Local dirs<br/>OCI registries"]
+    Sources -->|"structured results"| MCP
+    MCP -->|"JSON responses"| AI
 ```
 
-The AI assistant sends tool calls through the MCP protocol (over stdio or HTTP). Pacto executes the requested operation against local contract directories or OCI registries and returns structured results. The assistant never needs direct file access — it works entirely through the MCP tool interface.
+An AI assistant sends MCP tool calls to the `pacto mcp` server. Pacto executes the operation against local contract directories or OCI registries and returns structured JSON results. The assistant works entirely through the tool interface — no direct file access needed.
 
 ---
 
