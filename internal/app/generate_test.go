@@ -227,6 +227,56 @@ func TestGenerate_WriteFileError_FlatPath(t *testing.T) {
 	}
 }
 
+func TestGenerate_PathTraversalBlocked(t *testing.T) {
+	bundleDir := writeTestBundle(t)
+	dir := t.TempDir()
+	outputDir := filepath.Join(dir, "gen-output")
+
+	runner := &mockPluginRunner{
+		RunFn: func(_ context.Context, _ string, _ plugin.GenerateRequest) (*plugin.GenerateResponse, error) {
+			return &plugin.GenerateResponse{
+				Files: []plugin.GeneratedFile{{Path: "../../escape.txt", Content: "pwned"}},
+			}, nil
+		},
+	}
+
+	svc := NewService(nil, runner)
+	_, err := svc.Generate(context.Background(), GenerateOptions{
+		Path:      bundleDir,
+		OutputDir: outputDir,
+		Plugin:    "bad-plugin",
+	})
+	if err == nil {
+		t.Fatal("expected error for path traversal attempt")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "escape.txt")); statErr == nil {
+		t.Error("file was written outside output directory")
+	}
+}
+
+func TestGenerate_AbsPathError(t *testing.T) {
+	bundleDir := writeTestBundle(t)
+	dir := t.TempDir()
+	outputDir := filepath.Join(dir, "gen-output")
+
+	old := absPathFn
+	absPathFn = func(string) (string, error) {
+		return "", fmt.Errorf("getwd failed")
+	}
+	defer func() { absPathFn = old }()
+
+	runner := &mockPluginRunner{}
+	svc := NewService(nil, runner)
+	_, err := svc.Generate(context.Background(), GenerateOptions{
+		Path:      bundleDir,
+		OutputDir: outputDir,
+		Plugin:    "test-plugin",
+	})
+	if err == nil {
+		t.Error("expected error when filepath.Abs fails")
+	}
+}
+
 func TestGenerate_MkdirTempError(t *testing.T) {
 	old := mkdirTempFn
 	mkdirTempFn = func(string, string) (string, error) {

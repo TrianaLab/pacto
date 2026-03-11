@@ -79,17 +79,13 @@ func diffLifecycle(old, new *contract.Lifecycle) []Change {
 	if old == nil && new == nil {
 		return nil
 	}
+
+	// Normalise nil to empty so every field is compared uniformly.
 	if old == nil {
-		if new.UpgradeStrategy != "" {
-			changes = append(changes, newChange("runtime.lifecycle.upgradeStrategy", Added, nil, new.UpgradeStrategy))
-		}
-		return changes
+		old = &contract.Lifecycle{}
 	}
 	if new == nil {
-		if old.UpgradeStrategy != "" {
-			changes = append(changes, newChange("runtime.lifecycle.upgradeStrategy", Removed, old.UpgradeStrategy, nil))
-		}
-		return changes
+		new = &contract.Lifecycle{}
 	}
 
 	if old.UpgradeStrategy != new.UpgradeStrategy {
@@ -102,7 +98,13 @@ func diffLifecycle(old, new *contract.Lifecycle) []Change {
 		changes = append(changes, newChange("runtime.lifecycle.upgradeStrategy", ct, old.UpgradeStrategy, new.UpgradeStrategy))
 	}
 	if intPtrChanged(old.GracefulShutdownSeconds, new.GracefulShutdownSeconds) {
-		changes = append(changes, newChange("runtime.lifecycle.gracefulShutdownSeconds", Modified,
+		ct := Modified
+		if old.GracefulShutdownSeconds == nil {
+			ct = Added
+		} else if new.GracefulShutdownSeconds == nil {
+			ct = Removed
+		}
+		changes = append(changes, newChange("runtime.lifecycle.gracefulShutdownSeconds", ct,
 			intPtrVal(old.GracefulShutdownSeconds), intPtrVal(new.GracefulShutdownSeconds)))
 	}
 

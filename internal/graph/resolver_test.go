@@ -697,21 +697,12 @@ func TestResolve_PendingFetchError(t *testing.T) {
 	if len(result.Root.Dependencies) != 2 {
 		t.Fatalf("expected 2 deps, got %d", len(result.Root.Dependencies))
 	}
-	// With concurrent resolution of the same failing ref, either:
-	// - One goroutine fetches and fails, the other sees it as shared with nil node
-	// - Both goroutines independently fail (scheduler may not interleave as expected)
-	// Both outcomes are valid; we verify all edges surface an error or shared-nil.
-	var errCount, sharedNilCount int
-	for _, e := range result.Root.Dependencies {
-		if e.Error != "" {
-			errCount++
+	// With concurrent resolution of the same failing ref, every edge must
+	// carry an error — including the one that waited on the pending channel.
+	for i, e := range result.Root.Dependencies {
+		if e.Error == "" {
+			t.Errorf("edge %d: expected error, got empty string (shared=%v)", i, e.Shared)
 		}
-		if e.Shared && e.Node == nil {
-			sharedNilCount++
-		}
-	}
-	if errCount+sharedNilCount != 2 {
-		t.Errorf("expected 2 error or shared-nil edges, got err=%d shared-nil=%d", errCount, sharedNilCount)
 	}
 }
 
@@ -757,22 +748,46 @@ func TestResolve_PendingFetchError_Deterministic(t *testing.T) {
 		t.Fatal("expected B and C to be resolved")
 	}
 
-	// Both B and C have 1 dep on "missing". At least one should have an error.
+	// Both B and C have 1 dep on "missing". All edges must carry an error,
+	// including the one that waited on the pending channel.
 	allMissingEdges := append(bNode.Dependencies, cNode.Dependencies...)
-	var errEdges, sharedEdges int
-	for _, e := range allMissingEdges {
-		if e.Error != "" {
-			errEdges++
-		}
-		if e.Shared {
-			sharedEdges++
+	for i, e := range allMissingEdges {
+		if e.Error == "" {
+			t.Errorf("edge %d for missing dep: expected error, got empty string (shared=%v)", i, e.Shared)
 		}
 	}
-	if errEdges == 0 {
-		t.Error("expected at least 1 error edge for missing dep")
+}
+
+func TestResolveEdge_PendingWaitGetsError(t *testing.T) {
+	// Directly exercise the pending-wait error path by pre-populating
+	// the resolver with a closed pending channel and a stored error.
+	// A single call to resolveEdge sees the pending entry, receives
+	// from the already-closed channel, finds nil in visited, and
+	// reads the error from the errors map.
+	r := &resolver{
+		fetcher: &mockFetcher{},
+		visited: map[string]*Node{},
+		errors:  map[string]string{},
+		pending: map[string]chan struct{}{},
 	}
-	if errEdges+sharedEdges != 2 {
-		t.Errorf("expected 2 total edges for missing dep, got err=%d shared=%d", errEdges, sharedEdges)
+
+	ref := "oci://registry.io/fail:1.0.0"
+	ch := make(chan struct{})
+	close(ch) // pre-close so <-ch returns immediately
+	r.pending[ref] = ch
+	r.errors[ref] = "upstream failure"
+
+	dep := contract.Dependency{Ref: ref, Required: true, Compatibility: "^1.0.0"}
+	edge := r.resolveEdge(context.Background(), dep, []string{"root"})
+
+	if !edge.Shared {
+		t.Error("expected edge to be marked as shared")
+	}
+	if edge.Node != nil {
+		t.Error("expected nil node for failed fetch")
+	}
+	if edge.Error != "upstream failure" {
+		t.Errorf("expected error 'upstream failure', got %q", edge.Error)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/trianalab/pacto/internal/plugin"
 )
@@ -77,8 +78,15 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 		return nil, err
 	}
 
+	absOutput, err := absPathFn(outputDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve output directory: %w", err)
+	}
 	for _, f := range resp.Files {
-		outPath := filepath.Join(outputDir, f.Path)
+		outPath := filepath.Join(absOutput, f.Path)
+		if rel, relErr := filepath.Rel(absOutput, outPath); relErr != nil || strings.HasPrefix(rel, "..") {
+			return nil, fmt.Errorf("plugin file path %q escapes output directory", f.Path)
+		}
 		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory for %s: %w", f.Path, err)
 		}

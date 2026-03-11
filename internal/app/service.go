@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/trianalab/pacto/internal/oci"
 )
@@ -12,6 +13,7 @@ import (
 var (
 	writeFileFn = os.WriteFile
 	mkdirTempFn = os.MkdirTemp
+	absPathFn   = filepath.Abs
 )
 
 // Service is the application service container. It holds injected dependencies

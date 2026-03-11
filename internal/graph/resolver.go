@@ -53,6 +53,7 @@ type resolver struct {
 	fetcher ContractFetcher
 	mu      sync.Mutex
 	visited map[string]*Node
+	errors  map[string]string
 	pending map[string]chan struct{}
 	cycles  [][]string
 }
@@ -73,6 +74,7 @@ func Resolve(ctx context.Context, c *contract.Contract, fetcher ContractFetcher)
 	r := &resolver{
 		fetcher: fetcher,
 		visited: map[string]*Node{},
+		errors:  map[string]string{},
 		pending: map[string]chan struct{}{},
 	}
 
@@ -149,10 +151,13 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, pat
 		<-ch
 		r.mu.Lock()
 		prev := r.visited[dep.Ref]
+		prevErr := r.errors[dep.Ref]
 		r.mu.Unlock()
 		edge.Shared = true
 		if prev != nil {
 			edge.Node = &Node{Name: prev.Name, Version: prev.Version, Ref: prev.Ref, Local: prev.Local}
+		} else if prevErr != "" {
+			edge.Error = prevErr
 		}
 		return edge
 	}
@@ -165,6 +170,7 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, pat
 	if err != nil {
 		slog.Debug("dependency fetch failed", "ref", dep.Ref, "error", err)
 		r.mu.Lock()
+		r.errors[dep.Ref] = err.Error()
 		delete(r.pending, dep.Ref)
 		r.mu.Unlock()
 		close(ch)

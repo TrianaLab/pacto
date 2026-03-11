@@ -32,6 +32,36 @@ func TestDiffLifecycle_OldNil_EmptyStrategy(t *testing.T) {
 	}
 }
 
+func TestDiffLifecycle_OldNil_GracefulShutdownAdded(t *testing.T) {
+	v := 30
+	newLC := &contract.Lifecycle{GracefulShutdownSeconds: &v}
+	changes := diffLifecycle(nil, newLC)
+	found := false
+	for _, c := range changes {
+		if c.Path == "runtime.lifecycle.gracefulShutdownSeconds" && c.Type == Added {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected gracefulShutdownSeconds Added change when lifecycle is added")
+	}
+}
+
+func TestDiffLifecycle_NewNil_GracefulShutdownRemoved(t *testing.T) {
+	v := 30
+	oldLC := &contract.Lifecycle{GracefulShutdownSeconds: &v}
+	changes := diffLifecycle(oldLC, nil)
+	found := false
+	for _, c := range changes {
+		if c.Path == "runtime.lifecycle.gracefulShutdownSeconds" && c.Type == Removed {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected gracefulShutdownSeconds Removed change when lifecycle is removed")
+	}
+}
+
 func TestDiffLifecycle_NewNil(t *testing.T) {
 	oldLC := &contract.Lifecycle{UpgradeStrategy: "rolling"}
 	changes := diffLifecycle(oldLC, nil)

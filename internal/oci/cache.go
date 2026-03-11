@@ -134,7 +134,12 @@ func (c *CachedStore) storePull(ref string, bundle *contract.Bundle) {
 
 func (c *CachedStore) cachePath(ref string) string {
 	safe := strings.ReplaceAll(ref, ":", "/")
-	return filepath.Join(c.cacheDir, safe, "bundle.tar.gz")
+	joined := filepath.Join(c.cacheDir, safe, "bundle.tar.gz")
+	// Ensure the resolved path stays inside the cache directory.
+	if rel, err := filepath.Rel(c.cacheDir, joined); err != nil || strings.HasPrefix(rel, "..") {
+		return filepath.Join(c.cacheDir, "_invalid", "bundle.tar.gz")
+	}
+	return joined
 }
 
 func (c *CachedStore) loadFromCache(path string) (*contract.Bundle, error) {
