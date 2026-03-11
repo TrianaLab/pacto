@@ -1,9 +1,11 @@
 package validation_test
 
 import (
+	"io/fs"
 	"os"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/trianalab/pacto/internal/validation"
 	"github.com/trianalab/pacto/pkg/contract"
@@ -399,6 +401,81 @@ runtime:
 		t.Error("expected CONTRACT_REQUIRED or SCHEMA_VIOLATION error for event interface without contract")
 		for _, e := range result.Errors {
 			t.Logf("  got: [%s] %s: %s", e.Code, e.Path, e.Message)
+		}
+	}
+}
+
+func TestValidate_BundleWithDocs(t *testing.T) {
+	// A bundle containing an optional docs/ directory must validate successfully.
+	// The docs/ directory is informational metadata with no contract semantics.
+	data, c := parseString(t, `
+pactoVersion: "1.0"
+service:
+  name: my-service
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`)
+	// Provide a bundle FS that includes docs/ with various documentation files.
+	bundleFS := fstest.MapFS{
+		"pacto.yaml":           &fstest.MapFile{Data: data},
+		"docs":                 &fstest.MapFile{Mode: fs.ModeDir | 0755},
+		"docs/README.md":       &fstest.MapFile{Data: []byte("# Service Overview")},
+		"docs/architecture.md": &fstest.MapFile{Data: []byte("# Architecture Notes")},
+		"docs/runbook.md":      &fstest.MapFile{Data: []byte("# Operational Runbook")},
+		"docs/integration.md":  &fstest.MapFile{Data: []byte("# Integration Guide")},
+	}
+	result := validation.Validate(c, data, bundleFS)
+	if !result.IsValid() {
+		for _, e := range result.Errors {
+			t.Errorf("unexpected error: [%s] %s: %s", e.Code, e.Path, e.Message)
+		}
+	}
+}
+
+func TestValidate_BundleWithoutDocs(t *testing.T) {
+	// A bundle without docs/ must remain valid — docs/ is strictly optional.
+	data, c := parseString(t, `
+pactoVersion: "1.0"
+service:
+  name: my-service
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`)
+	bundleFS := fstest.MapFS{
+		"pacto.yaml": &fstest.MapFile{Data: data},
+	}
+	result := validation.Validate(c, data, bundleFS)
+	if !result.IsValid() {
+		for _, e := range result.Errors {
+			t.Errorf("unexpected error: [%s] %s: %s", e.Code, e.Path, e.Message)
 		}
 	}
 }
