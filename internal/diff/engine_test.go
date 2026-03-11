@@ -275,6 +275,134 @@ func TestCompare_OverallClassification_MaxSeverity(t *testing.T) {
 	}
 }
 
+func TestCompare_DocsDirectoryChangesIgnored(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+
+	// Old bundle has docs/ with some content, new bundle has different docs/ content.
+	// The diff engine should produce zero changes because docs/ is not part of the
+	// contract schema — only explicitly referenced files (OpenAPI specs, JSON Schemas)
+	// are compared.
+	oldFS := fstest.MapFS{
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
+info:
+  title: test
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      summary: Health
+`)},
+		"docs":                 &fstest.MapFile{Mode: 0755 | 0040000},
+		"docs/README.md":       &fstest.MapFile{Data: []byte("# Old README")},
+		"docs/architecture.md": &fstest.MapFile{Data: []byte("# Old Architecture")},
+	}
+	newFS := fstest.MapFS{
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
+info:
+  title: test
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      summary: Health
+`)},
+		"docs":            &fstest.MapFile{Mode: 0755 | 0040000},
+		"docs/README.md":  &fstest.MapFile{Data: []byte("# New README — completely rewritten")},
+		"docs/runbook.md": &fstest.MapFile{Data: []byte("# Runbook — brand new file")},
+	}
+
+	result := Compare(old, new, oldFS, newFS)
+
+	if result.Classification != NonBreaking {
+		t.Errorf("expected NON_BREAKING, got %s", result.Classification)
+	}
+	if len(result.Changes) != 0 {
+		t.Errorf("expected 0 changes when only docs/ differs, got %d: %v", len(result.Changes), result.Changes)
+	}
+}
+
+func TestCompare_DocsAddedToNewBundle(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+
+	// Old bundle has no docs/, new bundle adds docs/. No changes expected.
+	oldFS := fstest.MapFS{
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
+info:
+  title: test
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      summary: Health
+`)},
+	}
+	newFS := fstest.MapFS{
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
+info:
+  title: test
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      summary: Health
+`)},
+		"docs":            &fstest.MapFile{Mode: 0755 | 0040000},
+		"docs/README.md":  &fstest.MapFile{Data: []byte("# Service Docs")},
+		"docs/runbook.md": &fstest.MapFile{Data: []byte("# Runbook")},
+	}
+
+	result := Compare(old, new, oldFS, newFS)
+
+	if result.Classification != NonBreaking {
+		t.Errorf("expected NON_BREAKING, got %s", result.Classification)
+	}
+	if len(result.Changes) != 0 {
+		t.Errorf("expected 0 changes when docs/ is added, got %d: %v", len(result.Changes), result.Changes)
+	}
+}
+
+func TestCompare_DocsRemovedFromBundle(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+
+	// Old bundle has docs/, new bundle removes it. No changes expected.
+	oldFS := fstest.MapFS{
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
+info:
+  title: test
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      summary: Health
+`)},
+		"docs":           &fstest.MapFile{Mode: 0755 | 0040000},
+		"docs/README.md": &fstest.MapFile{Data: []byte("# Service Docs")},
+	}
+	newFS := fstest.MapFS{
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
+info:
+  title: test
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      summary: Health
+`)},
+	}
+
+	result := Compare(old, new, oldFS, newFS)
+
+	if result.Classification != NonBreaking {
+		t.Errorf("expected NON_BREAKING, got %s", result.Classification)
+	}
+	if len(result.Changes) != 0 {
+		t.Errorf("expected 0 changes when docs/ is removed, got %d: %v", len(result.Changes), result.Changes)
+	}
+}
+
 // assertHasChange checks that a change with the given path, type, and classification exists.
 func assertHasChange(t *testing.T, result *Result, path string, ct ChangeType, cls Classification) {
 	t.Helper()

@@ -233,7 +233,7 @@ Dependency graph changes:
   └─ old-dep       -1.0.0
 ```
 
-The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level. See [Change Classification]({{ site.baseurl }}{% link contract-reference.md %}#change-classification-rules) for the full rules.
+The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level. The optional `docs/` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.
 
 When dependencies change between the old and new contracts (version upgrades, additions, or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
 

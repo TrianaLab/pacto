@@ -158,6 +158,8 @@ my-service/
     openapi.yaml
   configuration/
     schema.json
+  docs/                   ← optional documentation
+    README.md
 ```
 
 ```bash
@@ -181,6 +183,7 @@ graph TD
         YAML --> Dependencies["Dependencies<br/>oci://auth:2.0.0<br/>oci://db:1.0.0"]
         YAML --> Runtime["Runtime<br/>state, health, lifecycle, scaling"]
         YAML --> Config["Configuration<br/>JSON Schema"]
+        Docs["docs/<br/>README · runbooks · guides"]
     end
 
     IF["interfaces/<br/>openapi.yaml · service.proto"]
@@ -196,6 +199,7 @@ A bundle is a self-contained directory (or OCI artifact) containing:
 - **`pacto.yaml`** — the contract: interfaces, dependencies, runtime semantics, scaling
 - **`interfaces/`** — OpenAPI specs, protobuf definitions, event schemas
 - **`configuration/`** — JSON Schema for environment variables and settings
+- **`docs/`** *(optional)* — service documentation (README, runbooks, architecture notes, integration guides). Travels with the contract but has no effect on validation, diffing, or compatibility classification
 
 ## Example repository layout
 
@@ -208,6 +212,9 @@ payments-api/
     openapi.yaml                 ← referenced by pacto.yaml
   configuration/
     schema.json                  ← JSON Schema for env vars / config
+  docs/                          ← optional service documentation
+    README.md
+    runbook.md
   .github/workflows/
     ci.yml                       ← pacto validate + pacto diff + pacto push
 ```

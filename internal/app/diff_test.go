@@ -400,6 +400,98 @@ func TestLocalOverrideFetcher_LocalDep(t *testing.T) {
 	}
 }
 
+func TestDiff_DocsDirectoryIgnored(t *testing.T) {
+	// Create two bundles with identical contracts but different docs/ content.
+	// The diff must produce zero changes — docs/ is informational metadata.
+	oldDir := writeTestBundle(t)
+	newDir := writeTestBundle(t)
+
+	// Add docs/ to old bundle.
+	oldDocsDir := filepath.Join(oldDir, "docs")
+	if err := os.MkdirAll(oldDocsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldDocsDir, "README.md"), []byte("# Old Docs"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add different docs/ to new bundle.
+	newDocsDir := filepath.Join(newDir, "docs")
+	if err := os.MkdirAll(newDocsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newDocsDir, "README.md"), []byte("# Completely Rewritten Docs"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newDocsDir, "runbook.md"), []byte("# New Runbook"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(nil, nil)
+	result, err := svc.Diff(context.Background(), DiffOptions{OldPath: oldDir, NewPath: newDir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Classification != "NON_BREAKING" {
+		t.Errorf("expected NON_BREAKING when only docs/ differs, got %s", result.Classification)
+	}
+	if len(result.Changes) != 0 {
+		t.Errorf("expected 0 changes when only docs/ differs, got %d: %v", len(result.Changes), result.Changes)
+	}
+}
+
+func TestDiff_DocsAddedToNewBundle(t *testing.T) {
+	// Old bundle has no docs/, new bundle adds docs/. No changes expected.
+	oldDir := writeTestBundle(t)
+	newDir := writeTestBundle(t)
+
+	newDocsDir := filepath.Join(newDir, "docs")
+	if err := os.MkdirAll(newDocsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newDocsDir, "README.md"), []byte("# Service Docs"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(nil, nil)
+	result, err := svc.Diff(context.Background(), DiffOptions{OldPath: oldDir, NewPath: newDir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Classification != "NON_BREAKING" {
+		t.Errorf("expected NON_BREAKING when docs/ is added, got %s", result.Classification)
+	}
+	if len(result.Changes) != 0 {
+		t.Errorf("expected 0 changes when docs/ is added, got %d", len(result.Changes))
+	}
+}
+
+func TestDiff_DocsRemovedFromBundle(t *testing.T) {
+	// Old bundle has docs/, new bundle removes it. No changes expected.
+	oldDir := writeTestBundle(t)
+	newDir := writeTestBundle(t)
+
+	oldDocsDir := filepath.Join(oldDir, "docs")
+	if err := os.MkdirAll(oldDocsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldDocsDir, "README.md"), []byte("# Docs"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(nil, nil)
+	result, err := svc.Diff(context.Background(), DiffOptions{OldPath: oldDir, NewPath: newDir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Classification != "NON_BREAKING" {
+		t.Errorf("expected NON_BREAKING when docs/ is removed, got %s", result.Classification)
+	}
+	if len(result.Changes) != 0 {
+		t.Errorf("expected 0 changes when docs/ is removed, got %d", len(result.Changes))
+	}
+}
+
 func TestCollectNodes_NilRoot(t *testing.T) {
 	nodes := collectNodes(nil)
 	if len(nodes) != 0 {

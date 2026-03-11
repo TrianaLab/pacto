@@ -1057,6 +1057,100 @@ func TestWriteBundleTarGz_GzipCloseError(t *testing.T) {
 	}
 }
 
+func TestImageToBundle_DocsPreserved(t *testing.T) {
+	b := testBundle()
+	// Add docs/ directory with multiple files to the bundle FS.
+	b.FS = fstest.MapFS{
+		"pacto.yaml":           b.FS.(fstest.MapFS)["pacto.yaml"],
+		"docs":                 &fstest.MapFile{Mode: fs.ModeDir | 0755},
+		"docs/README.md":       &fstest.MapFile{Data: []byte("# Service Documentation")},
+		"docs/runbook.md":      &fstest.MapFile{Data: []byte("# Operational Runbook")},
+		"docs/architecture.md": &fstest.MapFile{Data: []byte("# Architecture Notes")},
+	}
+
+	img, err := bundleToImage(b)
+	if err != nil {
+		t.Fatalf("bundleToImage() error: %v", err)
+	}
+
+	img = materializeImage(t, img)
+
+	got, err := imageToBundle(img)
+	if err != nil {
+		t.Fatalf("imageToBundle() error: %v", err)
+	}
+
+	// Verify contract is intact.
+	if got.Contract.Service.Name != "test-svc" {
+		t.Errorf("Service.Name = %q, want %q", got.Contract.Service.Name, "test-svc")
+	}
+
+	// Verify docs/ files survived the round-trip.
+	docsFiles := map[string]string{
+		"docs/README.md":       "# Service Documentation",
+		"docs/runbook.md":      "# Operational Runbook",
+		"docs/architecture.md": "# Architecture Notes",
+	}
+	for path, wantContent := range docsFiles {
+		f, err := got.FS.Open(path)
+		if err != nil {
+			t.Errorf("Open(%s) error: %v — docs file not preserved in OCI round-trip", path, err)
+			continue
+		}
+		data, err := io.ReadAll(f)
+		_ = f.Close()
+		if err != nil {
+			t.Errorf("ReadAll(%s) error: %v", path, err)
+			continue
+		}
+		if string(data) != wantContent {
+			t.Errorf("%s content = %q, want %q", path, string(data), wantContent)
+		}
+	}
+}
+
+func TestBundleToTarGz_DocsPreserved(t *testing.T) {
+	fsys := fstest.MapFS{
+		"pacto.yaml":      &fstest.MapFile{Data: []byte("pactoVersion: '1.0'")},
+		"docs":            &fstest.MapFile{Mode: fs.ModeDir | 0755},
+		"docs/README.md":  &fstest.MapFile{Data: []byte("# Docs")},
+		"docs/runbook.md": &fstest.MapFile{Data: []byte("# Runbook")},
+	}
+
+	data, err := BundleToTarGz(fsys)
+	if err != nil {
+		t.Fatalf("BundleToTarGz() error: %v", err)
+	}
+
+	gr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("gzip.NewReader() error: %v", err)
+	}
+	defer func() { _ = gr.Close() }()
+
+	extracted, err := extractTar(gr)
+	if err != nil {
+		t.Fatalf("extractTar() error: %v", err)
+	}
+
+	for _, path := range []string{"docs/README.md", "docs/runbook.md"} {
+		f, err := extracted.Open(path)
+		if err != nil {
+			t.Errorf("Open(%s) error: %v — docs file not preserved in tar.gz round-trip", path, err)
+			continue
+		}
+		content, err := io.ReadAll(f)
+		_ = f.Close()
+		if err != nil {
+			t.Errorf("ReadAll(%s) error: %v", path, err)
+			continue
+		}
+		if len(content) == 0 {
+			t.Errorf("%s should not be empty", path)
+		}
+	}
+}
+
 func TestBundleToImage_MutateConfigError(t *testing.T) {
 	old := mutateConfigFn
 	mutateConfigFn = func(img v1.Image, cfg v1.Config) (v1.Image, error) {
