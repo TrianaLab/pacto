@@ -13,6 +13,7 @@ import (
 
 	"github.com/trianalab/pacto/internal/app"
 	"github.com/trianalab/pacto/internal/cli"
+	"github.com/trianalab/pacto/internal/testutil"
 	"github.com/trianalab/pacto/internal/update"
 )
 
@@ -382,5 +383,39 @@ func TestUpdateNotification_SuppressedJSON(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "A new version of pacto is available") {
 		t.Errorf("notification should be suppressed for JSON format, got: %s", out.String())
+	}
+}
+
+func TestVerboseFlag(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"--verbose", "validate", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("validate --verbose failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "is valid") {
+		t.Errorf("expected validation output, got %q", out.String())
+	}
+}
+
+func TestVerboseFlag_ShortForm(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"-v", "validate", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("validate -v failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "is valid") {
+		t.Errorf("expected validation output, got %q", out.String())
 	}
 }

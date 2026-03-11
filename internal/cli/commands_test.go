@@ -12,6 +12,7 @@ import (
 
 	"github.com/trianalab/pacto/internal/app"
 	"github.com/trianalab/pacto/internal/cli"
+	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/internal/plugin"
 	"github.com/trianalab/pacto/internal/testutil"
 	"github.com/trianalab/pacto/pkg/contract"
@@ -106,8 +107,13 @@ func TestDiffCommand_Error(t *testing.T) {
 	}
 }
 
+func notFoundResolveFn(_ context.Context, ref string) (string, error) {
+	return "", &oci.ArtifactNotFoundError{Ref: ref}
+}
+
 func TestPushCommand_Error(t *testing.T) {
 	store := &testutil.MockBundleStore{
+		ResolveFn: notFoundResolveFn,
 		PushFn: func(_ context.Context, _ string, _ *contract.Bundle) (string, error) {
 			return "", fmt.Errorf("push failed")
 		},
@@ -124,7 +130,7 @@ func TestPushCommand_Error(t *testing.T) {
 }
 
 func TestPushCommand_Success(t *testing.T) {
-	store := &testutil.MockBundleStore{}
+	store := &testutil.MockBundleStore{ResolveFn: notFoundResolveFn}
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, "test")
@@ -134,6 +140,54 @@ func TestPushCommand_Success(t *testing.T) {
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("push failed: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Pushed test-svc@1.0.0") {
+		t.Errorf("expected push output, got %q", out.String())
+	}
+}
+
+func TestPushCommand_AlreadyExists(t *testing.T) {
+	store := &testutil.MockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) {
+			return "sha256:existing", nil
+		},
+	}
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(store, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("expected no error (warning only), got: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Warning:") {
+		t.Errorf("expected warning in output, got %q", out.String())
+	}
+	if !strings.Contains(out.String(), "already exists") {
+		t.Errorf("expected 'already exists' in output, got %q", out.String())
+	}
+}
+
+func TestPushCommand_AlreadyExistsWithForce(t *testing.T) {
+	store := &testutil.MockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) {
+			return "sha256:existing", nil
+		},
+	}
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(store, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir, "--force"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("push --force failed: %v", err)
 	}
 
 	if !strings.Contains(out.String(), "Pushed test-svc@1.0.0") {

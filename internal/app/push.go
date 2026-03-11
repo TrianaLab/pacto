@@ -2,12 +2,19 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/trianalab/pacto/internal/graph"
+	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/contract"
 )
+
+// ErrArtifactAlreadyExists is returned when a push is attempted for a
+// reference that already exists in the registry and --force was not specified.
+var ErrArtifactAlreadyExists = errors.New("artifact already exists")
 
 // hasTagOrDigest reports whether an OCI reference includes a tag or digest.
 func hasTagOrDigest(ref string) bool {
@@ -23,8 +30,9 @@ func hasTagOrDigest(ref string) bool {
 
 // PushOptions holds options for the push command.
 type PushOptions struct {
-	Ref  string
-	Path string
+	Ref   string
+	Path  string
+	Force bool
 }
 
 // PushResult holds the result of the push command.
@@ -62,8 +70,21 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 		ref = ref + ":" + c.Service.Version
 	}
 
+	if !opts.Force {
+		if _, err := s.BundleStore.Resolve(ctx, ref); err == nil {
+			slog.Debug("artifact already exists, skipping push", "ref", ref)
+			return nil, fmt.Errorf("%w: %s (use --force to overwrite)", ErrArtifactAlreadyExists, ref)
+		} else if !isNotFound(err) {
+			return nil, err
+		}
+		slog.Debug("artifact not found, proceeding with push", "ref", ref)
+	} else {
+		slog.Debug("force flag set, skipping existence check", "ref", ref)
+	}
+
 	bundle := &contract.Bundle{Contract: c, FS: bundleFS}
 
+	slog.Debug("pushing artifact", "ref", ref)
 	digest, err := s.BundleStore.Push(ctx, ref, bundle)
 	if err != nil {
 		return nil, err
@@ -75,6 +96,12 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 		Name:    c.Service.Name,
 		Version: c.Service.Version,
 	}, nil
+}
+
+// isNotFound reports whether err indicates the artifact was not found.
+func isNotFound(err error) bool {
+	var notFound *oci.ArtifactNotFoundError
+	return errors.As(err, &notFound)
 }
 
 // rejectLocalDeps returns an error if any dependency uses a local reference.

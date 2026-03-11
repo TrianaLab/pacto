@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/internal/app"
+	"github.com/trianalab/pacto/internal/logger"
 	"github.com/trianalab/pacto/internal/update"
 )
 
@@ -30,11 +31,13 @@ func NewRootCommand(svc *app.Service, version string) *cobra.Command {
 	root.PersistentFlags().String("config", "", "config file path")
 	root.PersistentFlags().String(outputFormatKey, "text", "output format (text, json)")
 	root.PersistentFlags().Bool("no-cache", false, "disable OCI bundle cache")
+	root.PersistentFlags().BoolP("verbose", "v", false, "enable verbose output")
 
 	// Bind to Viper
 	_ = v.BindPFlag("config", root.PersistentFlags().Lookup("config"))
 	_ = v.BindPFlag(outputFormatKey, root.PersistentFlags().Lookup(outputFormatKey))
 	_ = v.BindPFlag("no-cache", root.PersistentFlags().Lookup("no-cache"))
+	_ = v.BindPFlag("verbose", root.PersistentFlags().Lookup("verbose"))
 
 	// Env prefix
 	v.SetEnvPrefix("PACTO")
@@ -46,6 +49,8 @@ func NewRootCommand(svc *app.Service, version string) *cobra.Command {
 
 	// Config file search + async update check
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		logger.Setup(cmd.OutOrStderr(), v.GetBool("verbose"))
+
 		cfgFile := v.GetString("config")
 		if cfgFile != "" {
 			v.SetConfigFile(cfgFile)

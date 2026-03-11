@@ -2,18 +2,24 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
 func TestPush_Success(t *testing.T) {
 	dir := writeTestBundle(t)
-	store := &mockBundleStore{}
+	store := &mockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) {
+			return "", &oci.ArtifactNotFoundError{Ref: "ghcr.io/acme/svc:1.0.0"}
+		},
+	}
 	svc := NewService(store, nil)
 	result, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
 	if err != nil {
@@ -63,6 +69,9 @@ func TestPush_FileNotFound(t *testing.T) {
 func TestPush_StoreError(t *testing.T) {
 	dir := writeTestBundle(t)
 	store := &mockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) {
+			return "", &oci.ArtifactNotFoundError{Ref: "ghcr.io/acme/svc:1.0.0"}
+		},
 		PushFn: func(_ context.Context, _ string, _ *contract.Bundle) (string, error) {
 			return "", fmt.Errorf("push failed")
 		},
@@ -100,6 +109,9 @@ func TestPush_AutoTagFromVersion(t *testing.T) {
 	dir := writeTestBundle(t)
 	var pushedRef string
 	store := &mockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) {
+			return "", &oci.ArtifactNotFoundError{Ref: "ghcr.io/acme/svc:1.0.0"}
+		},
 		PushFn: func(_ context.Context, ref string, _ *contract.Bundle) (string, error) {
 			pushedRef = ref
 			return "sha256:abc123", nil
@@ -218,6 +230,9 @@ func TestPush_ExplicitTagKept(t *testing.T) {
 	dir := writeTestBundle(t)
 	var pushedRef string
 	store := &mockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) {
+			return "", &oci.ArtifactNotFoundError{Ref: "ghcr.io/acme/svc:custom"}
+		},
 		PushFn: func(_ context.Context, ref string, _ *contract.Bundle) (string, error) {
 			pushedRef = ref
 			return "sha256:abc123", nil
@@ -233,5 +248,79 @@ func TestPush_ExplicitTagKept(t *testing.T) {
 	}
 	if pushedRef != "ghcr.io/acme/svc:custom" {
 		t.Errorf("expected store to receive ref ghcr.io/acme/svc:custom, got %s", pushedRef)
+	}
+}
+
+func TestPush_AlreadyExists(t *testing.T) {
+	dir := writeTestBundle(t)
+	store := &mockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) {
+			return "sha256:existingdigest", nil
+		},
+	}
+	svc := NewService(store, nil)
+	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
+	if err == nil {
+		t.Fatal("expected error when artifact already exists")
+	}
+	if !errors.Is(err, ErrArtifactAlreadyExists) {
+		t.Errorf("expected ErrArtifactAlreadyExists, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "use --force") {
+		t.Errorf("expected hint about --force, got: %v", err)
+	}
+}
+
+func TestPush_AlreadyExistsWithForce(t *testing.T) {
+	dir := writeTestBundle(t)
+	store := &mockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) {
+			return "sha256:existingdigest", nil
+		},
+	}
+	svc := NewService(store, nil)
+	result, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir, Force: true})
+	if err != nil {
+		t.Fatalf("unexpected error with --force: %v", err)
+	}
+	if result.Ref != "ghcr.io/acme/svc:1.0.0" {
+		t.Errorf("expected Ref=ghcr.io/acme/svc:1.0.0, got %s", result.Ref)
+	}
+}
+
+func TestPush_ResolveNonNotFoundError(t *testing.T) {
+	dir := writeTestBundle(t)
+	store := &mockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) {
+			return "", &oci.AuthenticationError{Ref: "ghcr.io/acme/svc:1.0.0", Err: fmt.Errorf("401")}
+		},
+	}
+	svc := NewService(store, nil)
+	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
+	if err == nil {
+		t.Fatal("expected error for authentication failure")
+	}
+	if errors.Is(err, ErrArtifactAlreadyExists) {
+		t.Error("should not be ErrArtifactAlreadyExists for auth errors")
+	}
+}
+
+func TestIsNotFound(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"not found error", &oci.ArtifactNotFoundError{Ref: "foo"}, true},
+		{"wrapped not found", fmt.Errorf("wrap: %w", &oci.ArtifactNotFoundError{Ref: "foo"}), true},
+		{"auth error", &oci.AuthenticationError{Ref: "foo"}, false},
+		{"generic error", fmt.Errorf("something"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isNotFound(tt.err); got != tt.want {
+				t.Errorf("isNotFound() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
