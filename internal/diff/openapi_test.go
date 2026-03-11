@@ -692,3 +692,256 @@ paths:
 		t.Errorf("expected 0 changes for identical request bodies, got %d: %v", len(changes), changes)
 	}
 }
+
+func TestDiffOpenAPI_ParameterAdded(t *testing.T) {
+	oldFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      summary: List users
+      responses:
+        "200":
+          description: OK
+`)
+	newFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      summary: List users
+      parameters:
+        - name: filter
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+`)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
+	found := false
+	for _, c := range changes {
+		if c.Path == "openapi.paths[/users].methods[GET].parameters[filter:query]" && c.Type == Added {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected parameter added, got %v", changes)
+	}
+}
+
+func TestDiffOpenAPI_ParameterRemoved(t *testing.T) {
+	oldFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      summary: List users
+      parameters:
+        - name: filter
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+`)
+	newFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      summary: List users
+      responses:
+        "200":
+          description: OK
+`)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
+	found := false
+	for _, c := range changes {
+		if c.Path == "openapi.paths[/users].methods[GET].parameters[filter:query]" && c.Type == Removed && c.Classification == Breaking {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected parameter removed as BREAKING, got %v", changes)
+	}
+}
+
+func TestDiffOpenAPI_ParameterModified(t *testing.T) {
+	oldFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      summary: List users
+      parameters:
+        - name: filter
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+`)
+	newFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      summary: List users
+      parameters:
+        - name: filter
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+`)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
+	found := false
+	for _, c := range changes {
+		if c.Path == "openapi.paths[/users].methods[GET].parameters[filter:query]" && c.Type == Modified {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected parameter modified, got %v", changes)
+	}
+}
+
+func TestDiffOpenAPI_ParameterIdentical(t *testing.T) {
+	spec := `openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      summary: List users
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+`
+	oldFS := makeOpenAPIFS(spec)
+	newFS := makeOpenAPIFS(spec)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
+	if len(changes) != 0 {
+		t.Errorf("expected 0 changes for identical parameters, got %d: %v", len(changes), changes)
+	}
+}
+
+func TestDiffOpenAPI_MultipleParameters(t *testing.T) {
+	oldFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users/{id}:
+    get:
+      summary: Get user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: fields
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+`)
+	newFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users/{id}:
+    get:
+      summary: Get user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: expand
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: OK
+`)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
+
+	expectations := map[string]ChangeType{
+		"openapi.paths[/users/{id}].methods[GET].parameters[fields:query]": Removed,
+		"openapi.paths[/users/{id}].methods[GET].parameters[expand:query]": Added,
+	}
+	for path, ct := range expectations {
+		found := false
+		for _, c := range changes {
+			if c.Path == path && c.Type == ct {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected change {path=%s, type=%s} not found in %v", path, ct, changes)
+		}
+	}
+}
+
+func TestDiffParameters_BothNil(t *testing.T) {
+	changes := diffParameters("/test", "GET", nil, nil)
+	if len(changes) != 0 {
+		t.Errorf("expected 0 changes for nil parameters, got %d", len(changes))
+	}
+}
+
+func TestIndexParams_SkipsInvalidEntries(t *testing.T) {
+	params := []any{
+		"not a map",
+		map[string]any{},
+	}
+	result := indexParams(params)
+	if len(result) != 0 {
+		t.Errorf("expected 0 indexed params, got %d", len(result))
+	}
+}
+
+func TestToSlice(t *testing.T) {
+	tests := []struct {
+		name  string
+		input any
+		isNil bool
+	}{
+		{"nil input", nil, true},
+		{"valid slice", []any{"a", "b"}, false},
+		{"non-slice", "hello", true},
+		{"int value", 42, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := toSlice(tt.input)
+			if tt.isNil && result != nil {
+				t.Errorf("expected nil, got %v", result)
+			}
+			if !tt.isNil && result == nil {
+				t.Error("expected non-nil result")
+			}
+		})
+	}
+}
+
+func TestParamKey(t *testing.T) {
+	p := map[string]any{"name": "id", "in": "path"}
+	if got := paramKey(p); got != "id:path" {
+		t.Errorf("expected 'id:path', got %q", got)
+	}
+}
+
+func TestParamLabel(t *testing.T) {
+	p := map[string]any{"name": "filter", "in": "query"}
+	if got := paramLabel(p); got != "query param 'filter'" {
+		t.Errorf("expected \"query param 'filter'\", got %q", got)
+	}
+}

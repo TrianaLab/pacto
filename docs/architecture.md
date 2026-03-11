@@ -94,7 +94,7 @@ Compares two contracts and classifies every change using a deterministic rule ta
 - `runtime.go` — workload, state, lifecycle, health
 - `interfaces.go` — interface additions/removals/changes
 - `dependency.go` — dependency list changes
-- `openapi.go` — OpenAPI path-level diff
+- `openapi.go` — deep OpenAPI diff (paths, methods, parameters, request bodies, responses)
 - `schema.go` — JSON Schema property-level diff
 
 ### `internal/graph` — Dependency resolver

@@ -78,6 +78,11 @@ var rules = map[classificationKey]Classification{
 	{"openapi.methods", Added}:   NonBreaking,
 	{"openapi.methods", Removed}: Breaking,
 
+	// OpenAPI parameters
+	{"openapi.parameters", Added}:    PotentialBreaking,
+	{"openapi.parameters", Removed}:  Breaking,
+	{"openapi.parameters", Modified}: PotentialBreaking,
+
 	// OpenAPI request body
 	{"openapi.request-body", Added}:    PotentialBreaking,
 	{"openapi.request-body", Removed}:  PotentialBreaking,

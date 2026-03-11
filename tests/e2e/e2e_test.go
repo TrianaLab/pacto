@@ -463,6 +463,17 @@ func TestDiffOpenAPIDeep(t *testing.T) {
 		assertContains(t, output, "responses[404]")
 	})
 
+	t.Run("parameter removed detected", func(t *testing.T) {
+		v1Path := writeOpenAPIDiffBundleV1(t)
+		v2Path := writeOpenAPIDiffBundleV2(t)
+
+		output, _ := runCommand(t, nil, "diff", v1Path, v2Path)
+
+		// sort query param was removed, filter was added
+		assertContains(t, output, "parameters[sort:query]")
+		assertContains(t, output, "parameters[filter:query]")
+	})
+
 	t.Run("path added detected", func(t *testing.T) {
 		v1Path := writeOpenAPIDiffBundleV1(t)
 		v2Path := writeOpenAPIDiffBundleV2(t)
@@ -489,9 +500,10 @@ func TestDiffOpenAPIDeep(t *testing.T) {
 			t.Fatal("expected non-empty changes array")
 		}
 
-		// Verify we have method-level and response-level changes in JSON
+		// Verify we have method-level, response-level, and parameter-level changes in JSON
 		hasMethodChange := false
 		hasResponseChange := false
+		hasParameterChange := false
 		for _, c := range changes {
 			change, ok := c.(map[string]interface{})
 			if !ok {
@@ -504,12 +516,18 @@ func TestDiffOpenAPIDeep(t *testing.T) {
 			if strings.Contains(path, "responses[") {
 				hasResponseChange = true
 			}
+			if strings.Contains(path, "parameters[") {
+				hasParameterChange = true
+			}
 		}
 		if !hasMethodChange {
 			t.Error("expected method-level changes in JSON output")
 		}
 		if !hasResponseChange {
 			t.Error("expected response-level changes in JSON output")
+		}
+		if !hasParameterChange {
+			t.Error("expected parameter-level changes in JSON output")
 		}
 	})
 }

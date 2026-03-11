@@ -38,6 +38,11 @@ paths:
   /users:
     get:
       summary: List users
+      parameters:
+        - name: sort
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: OK
@@ -71,6 +76,11 @@ paths:
   /users:
     get:
       summary: List users
+      parameters:
+        - name: filter
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: OK

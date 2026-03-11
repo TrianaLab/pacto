@@ -515,12 +515,57 @@ Each change is classified as:
 | `dependencies.compatibility` | Modified | POTENTIAL_BREAKING |
 | `dependencies.required` | Modified | POTENTIAL_BREAKING |
 
-### OpenAPI paths
+### OpenAPI
+
+`pacto diff` performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level.
+
+#### Paths
 
 | Field | Change | Classification |
 |-------|--------|----------------|
 | `openapi.paths` | Added | NON_BREAKING |
 | `openapi.paths` | Removed | **BREAKING** |
+
+#### Methods
+
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `openapi.methods` | Added | NON_BREAKING |
+| `openapi.methods` | Removed | **BREAKING** |
+
+#### Parameters
+
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `openapi.parameters` | Added | POTENTIAL_BREAKING |
+| `openapi.parameters` | Removed | **BREAKING** |
+| `openapi.parameters` | Modified | POTENTIAL_BREAKING |
+
+Parameters are identified by `name` + `in` (location: query, path, header, cookie). A parameter renamed or moved to a different location is treated as a removal + addition.
+
+#### Request body
+
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `openapi.request-body` | Added | POTENTIAL_BREAKING |
+| `openapi.request-body` | Removed | POTENTIAL_BREAKING |
+| `openapi.request-body` | Modified | POTENTIAL_BREAKING |
+
+#### Responses
+
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `openapi.responses` | Added | NON_BREAKING |
+| `openapi.responses` | Removed | **BREAKING** |
+| `openapi.responses` | Modified | POTENTIAL_BREAKING |
+
+Change paths use a hierarchical format that pinpoints the exact location, for example:
+
+```
+openapi.paths[/users].methods[GET].parameters[filter:query]
+openapi.paths[/users].methods[POST].request-body
+openapi.paths[/users].methods[GET].responses[200]
+```
 
 ### JSON Schema properties
 
