@@ -206,3 +206,4 @@ Using GitHub Actions? Check out the official [Pacto CLI action]({{ site.baseurl 
 - **Trust the state semantics.** If a contract says `stateless` + `ephemeral`, you can safely use a Deployment with no PVC. The validation engine enforces consistency.
 - **Use JSON output.** Every command supports `--output-format json` for programmatic consumption.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
+- **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface]({{ site.baseurl }}{% link mcp-integration.md %}) — useful for ad-hoc inspection, dependency analysis, and contract generation.

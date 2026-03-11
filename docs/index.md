@@ -28,7 +28,13 @@ nav_order: 1
 
 Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs to know about a service — interfaces, runtime behavior, dependencies, configuration, and scaling — in one YAML file that machines can validate and tooling can consume.
 
-No runtime agents. No sidecars. No new infrastructure. Pacto is a **build-time and CI-time tool** — it produces a validated, immutable description of your service that platforms and pipelines can consume downstream.
+No runtime agents. No sidecars. No new infrastructure. Pacto is a **build-time and CI-time tool** — it produces a validated, immutable description of your service that platforms, pipelines, and AI agents can consume downstream.
+
+---
+
+## AI-native contracts
+
+Pacto contracts are machine-readable by design. Beyond platforms and CI pipelines, they can be consumed directly by AI assistants through the [Model Context Protocol](https://modelcontextprotocol.io). Running `pacto mcp` starts an MCP server that exposes contract-aware tools — allowing assistants like Claude, Cursor, and GitHub Copilot to validate contracts, inspect dependency graphs, generate new contracts, and explain breaking changes. See the [MCP Integration]({{ site.baseurl }}{% link mcp-integration.md %}) guide.
 
 ---
 
@@ -177,6 +183,7 @@ All files referenced by `pacto.yaml` must exist within the bundle. Validation en
 - **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor); bundles are cached locally for fast repeated operations
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
+- **AI assistant integration** — `pacto mcp` exposes all contract operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and GitHub Copilot
 
 ---
 
@@ -235,4 +242,4 @@ Consume contracts to generate deployment manifests, enforce policies, detect bre
 - **Not a replacement for Helm or Terraform** — it complements them as input
 - **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
 
-Pacto is a **contract standard**. It tells platforms what a service *is* so they can decide how to run it.
+Pacto is a **contract standard**. It tells platforms, pipelines, and AI agents what a service *is* so they can decide how to work with it.

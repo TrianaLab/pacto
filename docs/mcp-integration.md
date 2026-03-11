@@ -19,6 +19,14 @@ Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.
 
 ---
 
+## Why MCP?
+
+[MCP](https://modelcontextprotocol.io) (Model Context Protocol) is an open standard that lets AI tools call external functions through structured tool calls — similar to how a browser calls an API, but designed for LLMs. Instead of pasting CLI output into a chat window, the assistant calls `pacto_validate` or `pacto_resolve_dependencies` directly and gets structured JSON back.
+
+This matters because Pacto contracts are already machine-readable. MCP turns that into a two-way interaction: the assistant doesn't just *read* contracts — it can validate them, generate new ones, resolve dependencies, and explain changes, all within a single conversation.
+
+---
+
 ## How it works
 
 ```mermaid
@@ -102,13 +110,24 @@ The config file is located at `~/Library/Application Support/Claude/claude_deskt
 
 ### Example prompts
 
-Once connected, you can ask Claude things like:
+Once connected, you can interact with contracts conversationally:
 
-- *"Validate the contract in ./my-service"*
-- *"Explain what this contract does: oci://ghcr.io/acme/payments-pacto:1.0.0"*
-- *"Generate a contract for a stateless Go HTTP API called user-service"*
-- *"What are the dependencies of oci://ghcr.io/acme/api-gateway-pacto:2.0.0?"*
-- *"List the interfaces exposed by ./my-service"*
+```
+You:    Validate the contract in ./payments-api
+Claude: ✓ payments-api is valid. No errors or warnings.
+
+You:    Generate a pacto.yaml for a stateless Go HTTP API called user-service
+Claude: Here's a contract for user-service: [generates complete pacto.yaml]
+
+You:    Explain the breaking changes between payments-api:1.0.0 and 2.0.0
+Claude: The state model changed from stateless to stateful, and the
+        metrics interface was removed. Both are classified as BREAKING.
+
+You:    What does oci://ghcr.io/acme/api-gateway-pacto:2.0.0 depend on?
+Claude: api-gateway depends on auth-service@2.3.0 (required) and
+        cache@1.0.0 (optional). auth-service transitively depends
+        on user-store@1.0.0.
+```
 
 ---
 

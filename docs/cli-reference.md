@@ -458,7 +458,7 @@ Notifications are suppressed when:
 
 ## `pacto mcp`
 
-Start an MCP (Model Context Protocol) server. This allows AI tools such as Claude, Cursor, and Copilot to interact with Pacto contracts through standardized tool calls.
+Start a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that exposes Pacto contract operations as structured tools. AI assistants (Claude, Cursor, GitHub Copilot) connect to this server and can then validate contracts, resolve dependency graphs, run diff analysis, and generate contract scaffolding — all through standardized tool calls.
 
 ```bash
 pacto mcp [-t transport] [--port port]
@@ -475,14 +475,16 @@ The server exposes the following tools:
 
 | Tool | Description |
 |------|-------------|
-| `pacto_validate` | Validate a contract file |
-| `pacto_inspect` | Return structured contract representation |
-| `pacto_resolve_dependencies` | Resolve the dependency graph |
+| `pacto_validate` | Validate a contract and return errors/warnings |
+| `pacto_inspect` | Return the full structured contract representation |
+| `pacto_resolve_dependencies` | Resolve the dependency graph, detecting cycles and conflicts |
 | `pacto_list_interfaces` | List interfaces exposed by a service |
-| `pacto_generate_docs` | Generate Markdown documentation |
-| `pacto_explain` | Human-readable contract explanation |
-| `pacto_generate_contract` | Generate a new contract from structured inputs |
-| `pacto_suggest_dependencies` | Suggest likely dependencies |
+| `pacto_generate_docs` | Generate Markdown documentation from a contract |
+| `pacto_explain` | Return a human-readable summary of a contract |
+| `pacto_generate_contract` | Generate a new contract YAML from structured inputs |
+| `pacto_suggest_dependencies` | Suggest likely dependencies based on service characteristics |
+
+All tools accept both local directory paths and `oci://` references.
 
 **Examples:**
 
