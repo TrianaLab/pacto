@@ -248,36 +248,50 @@ func buildContractYAML(input generateInput) string {
 		fmt.Fprintf(&b, "\nmetadata:\n  language: %s\n", input.Language)
 	}
 
-	if input.ExposesHTTP || input.ExposesGRPC {
-		fmt.Fprintln(&b, "\ninterfaces:")
-		if input.ExposesHTTP {
-			fmt.Fprintln(&b, "  - name: http-api")
-			fmt.Fprintln(&b, "    type: http")
-			fmt.Fprintln(&b, "    port: 8080")
-			fmt.Fprintln(&b, "    visibility: public")
-		}
-		if input.ExposesGRPC {
-			fmt.Fprintln(&b, "  - name: grpc-api")
-			fmt.Fprintln(&b, "    type: grpc")
-			fmt.Fprintln(&b, "    port: 9090")
-			fmt.Fprintln(&b, "    visibility: internal")
-		}
-	}
+	writeInterfaces(&b, input)
+	writeDependencies(&b, input)
+	writeRuntime(&b, input)
 
-	if input.NeedsDB || input.NeedsCache {
-		fmt.Fprintln(&b, "\ndependencies:")
-		if input.NeedsDB {
-			fmt.Fprintln(&b, "  - ref: postgres")
-			fmt.Fprintln(&b, "    required: true")
-			fmt.Fprintln(&b, "    compatibility: \"^1.0.0\"")
-		}
-		if input.NeedsCache {
-			fmt.Fprintln(&b, "  - ref: redis")
-			fmt.Fprintln(&b, "    required: false")
-			fmt.Fprintln(&b, "    compatibility: \"^1.0.0\"")
-		}
-	}
+	return b.String()
+}
 
+func writeInterfaces(b *strings.Builder, input generateInput) {
+	if !input.ExposesHTTP && !input.ExposesGRPC {
+		return
+	}
+	fmt.Fprintln(b, "\ninterfaces:")
+	if input.ExposesHTTP {
+		fmt.Fprintln(b, "  - name: http-api")
+		fmt.Fprintln(b, "    type: http")
+		fmt.Fprintln(b, "    port: 8080")
+		fmt.Fprintln(b, "    visibility: public")
+	}
+	if input.ExposesGRPC {
+		fmt.Fprintln(b, "  - name: grpc-api")
+		fmt.Fprintln(b, "    type: grpc")
+		fmt.Fprintln(b, "    port: 9090")
+		fmt.Fprintln(b, "    visibility: internal")
+	}
+}
+
+func writeDependencies(b *strings.Builder, input generateInput) {
+	if !input.NeedsDB && !input.NeedsCache {
+		return
+	}
+	fmt.Fprintln(b, "\ndependencies:")
+	if input.NeedsDB {
+		fmt.Fprintln(b, "  - ref: postgres")
+		fmt.Fprintln(b, "    required: true")
+		fmt.Fprintln(b, "    compatibility: \"^1.0.0\"")
+	}
+	if input.NeedsCache {
+		fmt.Fprintln(b, "  - ref: redis")
+		fmt.Fprintln(b, "    required: false")
+		fmt.Fprintln(b, "    compatibility: \"^1.0.0\"")
+	}
+}
+
+func writeRuntime(b *strings.Builder, input generateInput) {
 	stateType := "stateless"
 	scope := "local"
 	durability := "ephemeral"
@@ -289,22 +303,20 @@ func buildContractYAML(input generateInput) string {
 		dataCrit = "medium"
 	}
 
-	fmt.Fprintln(&b, "\nruntime:")
-	fmt.Fprintln(&b, "  workload: service")
-	fmt.Fprintln(&b, "  state:")
-	fmt.Fprintf(&b, "    type: %s\n", stateType)
-	fmt.Fprintln(&b, "    persistence:")
-	fmt.Fprintf(&b, "      scope: %s\n", scope)
-	fmt.Fprintf(&b, "      durability: %s\n", durability)
-	fmt.Fprintf(&b, "    dataCriticality: %s\n", dataCrit)
+	fmt.Fprintln(b, "\nruntime:")
+	fmt.Fprintln(b, "  workload: service")
+	fmt.Fprintln(b, "  state:")
+	fmt.Fprintf(b, "    type: %s\n", stateType)
+	fmt.Fprintln(b, "    persistence:")
+	fmt.Fprintf(b, "      scope: %s\n", scope)
+	fmt.Fprintf(b, "      durability: %s\n", durability)
+	fmt.Fprintf(b, "    dataCriticality: %s\n", dataCrit)
 
 	if input.ExposesHTTP {
-		fmt.Fprintln(&b, "  health:")
-		fmt.Fprintln(&b, "    interface: http-api")
-		fmt.Fprintln(&b, "    path: /health")
+		fmt.Fprintln(b, "  health:")
+		fmt.Fprintln(b, "    interface: http-api")
+		fmt.Fprintln(b, "    path: /health")
 	}
-
-	return b.String()
 }
 
 // --- pacto_suggest_dependencies ---
@@ -349,30 +361,37 @@ func suggestDependencies(r *app.ExplainResult) []string {
 		}
 	}
 
-	for _, iface := range r.Interfaces {
+	suggestFromInterfaces(r.Interfaces, add)
+	suggestFromRuntime(r.Runtime, add)
+
+	return suggestions
+}
+
+func suggestFromInterfaces(ifaces []app.ExplainInterface, add func(string)) {
+	for _, iface := range ifaces {
 		if iface.Type == contract.InterfaceTypeHTTP && iface.Visibility == contract.VisibilityPublic {
 			add("api-gateway")
 		}
 	}
+}
 
-	if r.Runtime.StateType == "stateful" {
-		if r.Runtime.Durability == "persistent" {
+func suggestFromRuntime(rt app.ExplainRuntime, add func(string)) {
+	if rt.StateType == "stateful" {
+		if rt.Durability == "persistent" {
 			add("postgres")
 		}
-		if r.Runtime.Scope == "shared" {
+		if rt.Scope == "shared" {
 			add("redis")
 		}
 	}
 
-	if r.Runtime.StateType == "stateless" {
+	if rt.StateType == "stateless" {
 		add("redis")
 	}
 
-	if r.Runtime.WorkloadType == "service" {
+	if rt.WorkloadType == "service" {
 		add("prometheus")
 	}
-
-	return suggestions
 }
 
 // --- schema helpers ---

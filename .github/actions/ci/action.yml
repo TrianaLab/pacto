@@ -21,6 +21,20 @@ runs:
       run: go mod download
       shell: bash
 
+    - name: Check formatting
+      run: test -z "$(gofmt -l .)"
+      shell: bash
+
+    - name: Run go vet
+      run: go vet ./...
+      shell: bash
+
+    - name: Check cyclomatic complexity
+      run: |
+        go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+        gocyclo -over 15 $(find . -name '*.go' ! -name '*_test.go' ! -path './vendor/*')
+      shell: bash
+
     - name: Run linter
       uses: golangci/golangci-lint-action@v9.2.0
 

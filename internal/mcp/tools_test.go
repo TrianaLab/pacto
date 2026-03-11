@@ -29,7 +29,7 @@ func callTool(t *testing.T, svc *app.Service, toolName string, args map[string]a
 	if err != nil {
 		t.Fatalf("client connect: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	result, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      toolName,
