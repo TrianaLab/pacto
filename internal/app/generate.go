@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -40,11 +41,13 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 
 	ref := defaultPath(opts.Path)
 
+	slog.Debug("resolving contract for generation", "ref", ref, "plugin", opts.Plugin)
 	bundle, err := s.resolveBundle(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 
+	slog.Debug("preparing bundle directory")
 	bundleDir, cleanup, err := prepareBundleDir(ref, bundle.FS)
 	if err != nil {
 		return nil, err
@@ -62,6 +65,7 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 		return nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
+	slog.Debug("invoking plugin", "plugin", opts.Plugin, "bundleDir", bundleDir, "outputDir", outputDir)
 	resp, err := s.PluginRunner.Run(ctx, opts.Plugin, plugin.GenerateRequest{
 		ProtocolVersion: plugin.ProtocolVersion,
 		Contract:        bundle.Contract,
@@ -83,6 +87,7 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 		}
 	}
 
+	slog.Debug("plugin execution complete", "plugin", opts.Plugin, "files", len(resp.Files))
 	return &GenerateResult{
 		Plugin:     opts.Plugin,
 		OutputDir:  outputDir,

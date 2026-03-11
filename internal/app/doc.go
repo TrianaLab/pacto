@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -31,14 +32,17 @@ type DocResult struct {
 func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) {
 	ref := defaultPath(opts.Path)
 
+	slog.Debug("resolving contract for doc generation", "ref", ref)
 	bundle, err := s.resolveBundle(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 
+	slog.Debug("resolving dependency graph for documentation", "name", bundle.Contract.Service.Name)
 	fetcher := s.newDepFetcher(ref)
 	gr := graph.Resolve(ctx, bundle.Contract, fetcher)
 
+	slog.Debug("generating markdown documentation")
 	markdown, err := generateDoc(bundle.Contract, bundle.FS, gr)
 	if err != nil {
 		return nil, fmt.Errorf("generating documentation: %w", err)
@@ -50,6 +54,7 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 	}
 
 	if opts.OutputDir != "" {
+		slog.Debug("writing documentation to disk", "dir", opts.OutputDir)
 		filename := bundle.Contract.Service.Name + ".md"
 		outPath := filepath.Join(opts.OutputDir, filename)
 

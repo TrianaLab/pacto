@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -98,6 +99,7 @@ func (s *Service) Init(_ context.Context, opts InitOptions) (*InitResult, error)
 	if name == "" {
 		return nil, fmt.Errorf("service name is required")
 	}
+	slog.Debug("initializing new pacto project", "name", name)
 
 	dir := name
 

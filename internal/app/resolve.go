@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -74,6 +75,7 @@ func loadLocalBundle(dir string) (*contract.Bundle, error) {
 func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
 	parsed := graph.ParseDependencyRef(ref)
 	if parsed.IsOCI() {
+		slog.Debug("resolving OCI bundle", "ref", parsed.Location)
 		if err := s.requireBundleStore(); err != nil {
 			return nil, err
 		}
@@ -84,6 +86,7 @@ func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bund
 		return s.BundleStore.Pull(ctx, location)
 	}
 
+	slog.Debug("loading local bundle", "path", parsed.Location)
 	return loadLocalBundle(parsed.Location)
 }
 
@@ -91,6 +94,7 @@ func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bund
 // validates it, and returns the parsed contract and bundle FS. This is the
 // shared helper for pack and push commands that must validate before proceeding.
 func loadAndValidateLocal(dir string) (*contract.Contract, []byte, fs.FS, error) {
+	slog.Debug("loading and validating local bundle", "dir", dir)
 	bundle, err := loadLocalBundle(dir)
 	if err != nil {
 		return nil, nil, nil, err
@@ -98,9 +102,11 @@ func loadAndValidateLocal(dir string) (*contract.Contract, []byte, fs.FS, error)
 
 	result := validation.Validate(bundle.Contract, bundle.RawYAML, bundle.FS)
 	if !result.IsValid() {
+		slog.Debug("local validation failed", "errors", len(result.Errors))
 		return nil, nil, nil, fmt.Errorf("contract validation failed with %d error(s)", len(result.Errors))
 	}
 
+	slog.Debug("local validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
 	return bundle.Contract, bundle.RawYAML, bundle.FS, nil
 }
 

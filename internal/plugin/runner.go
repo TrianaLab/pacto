@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,16 +25,19 @@ type SubprocessRunner struct{}
 // Run finds the plugin binary, spawns it, writes the request JSON to stdin,
 // and reads the response JSON from stdout.
 func (r *SubprocessRunner) Run(ctx context.Context, name string, req GenerateRequest) (*GenerateResponse, error) {
+	slog.Debug("discovering plugin binary", "plugin", name)
 	binary, err := findPlugin(name)
 	if err != nil {
 		return nil, err
 	}
+	slog.Debug("plugin binary found", "plugin", name, "path", binary)
 
 	input, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal plugin input: %w", err)
 	}
 
+	slog.Debug("executing plugin", "plugin", name)
 	cmd := exec.CommandContext(ctx, binary)
 	cmd.Stdin = bytes.NewReader(input)
 

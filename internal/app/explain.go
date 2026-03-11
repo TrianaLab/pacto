@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/trianalab/pacto/pkg/contract"
 )
@@ -52,10 +53,12 @@ type ExplainDependency struct {
 func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainResult, error) {
 	ref := defaultPath(opts.Path)
 
+	slog.Debug("resolving contract for explain", "ref", ref)
 	bundle, err := s.resolveBundle(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
+	slog.Debug("explaining contract", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
 
 	c := bundle.Contract
 

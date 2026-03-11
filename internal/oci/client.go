@@ -3,6 +3,7 @@ package oci
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -71,11 +72,13 @@ func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) 
 		return "", fmt.Errorf("invalid reference %q: %w", ref, err)
 	}
 
+	slog.Debug("building OCI image from bundle", "ref", ref)
 	img, err := buildImageFn(bundle)
 	if err != nil {
 		return "", fmt.Errorf("failed to build OCI image: %w", err)
 	}
 
+	slog.Debug("writing image to registry", "ref", ref)
 	if err := remote.Write(r, img, c.remoteOptions(ctx)...); err != nil {
 		return "", wrapRemoteError(ref, err)
 	}
@@ -85,6 +88,7 @@ func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) 
 		return "", fmt.Errorf("failed to compute digest: %w", err)
 	}
 
+	slog.Debug("image pushed successfully", "ref", ref, "digest", digest.String())
 	return digest.String(), nil
 }
 
@@ -95,11 +99,13 @@ func (c *Client) Pull(ctx context.Context, ref string) (*contract.Bundle, error)
 		return nil, fmt.Errorf("invalid reference %q: %w", ref, err)
 	}
 
+	slog.Debug("fetching image from registry", "ref", ref)
 	img, err := remote.Image(r, c.remoteOptions(ctx)...)
 	if err != nil {
 		return nil, wrapRemoteError(ref, err)
 	}
 
+	slog.Debug("extracting bundle from image", "ref", ref)
 	bundle, err := imageToBundle(img)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract bundle: %w", err)
@@ -115,11 +121,13 @@ func (c *Client) Resolve(ctx context.Context, ref string) (string, error) {
 		return "", fmt.Errorf("invalid reference %q: %w", ref, err)
 	}
 
+	slog.Debug("resolving digest", "ref", ref)
 	desc, err := remote.Head(r, c.remoteOptions(ctx)...)
 	if err != nil {
 		return "", wrapRemoteError(ref, err)
 	}
 
+	slog.Debug("resolved digest", "ref", ref, "digest", desc.Digest.String())
 	return desc.Digest.String(), nil
 }
 
@@ -130,10 +138,12 @@ func (c *Client) ListTags(ctx context.Context, repo string) ([]string, error) {
 		return nil, fmt.Errorf("invalid repository %q: %w", repo, err)
 	}
 
+	slog.Debug("listing tags", "repo", repo)
 	tags, err := remote.List(r, c.remoteOptions(ctx)...)
 	if err != nil {
 		return nil, wrapRemoteError(repo, err)
 	}
 
+	slog.Debug("tags listed", "repo", repo, "count", len(tags))
 	return tags, nil
 }

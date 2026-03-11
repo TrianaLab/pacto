@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/trianalab/pacto/internal/oci"
 )
@@ -24,11 +25,13 @@ type PackResult struct {
 func (s *Service) Pack(_ context.Context, opts PackOptions) (*PackResult, error) {
 	path := defaultPath(opts.Path)
 
+	slog.Debug("loading and validating local contract", "path", path)
 	c, _, bundleFS, err := loadAndValidateLocal(path)
 	if err != nil {
 		return nil, err
 	}
 
+	slog.Debug("creating tar.gz archive", "name", c.Service.Name, "version", c.Service.Version)
 	data, err := oci.BundleToTarGz(bundleFS)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create archive: %w", err)
@@ -39,6 +42,7 @@ func (s *Service) Pack(_ context.Context, opts PackOptions) (*PackResult, error)
 		output = fmt.Sprintf("%s-%s.tar.gz", c.Service.Name, c.Service.Version)
 	}
 
+	slog.Debug("writing archive", "output", output)
 	if err := writeFileFn(output, data, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write %s: %w", output, err)
 	}

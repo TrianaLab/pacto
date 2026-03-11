@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 
 	"github.com/trianalab/pacto/internal/graph"
@@ -22,13 +23,16 @@ type GraphResult = graph.Result
 func (s *Service) Graph(ctx context.Context, opts GraphOptions) (*GraphResult, error) {
 	ref := defaultPath(opts.Path)
 
+	slog.Debug("resolving contract for graph", "ref", ref)
 	bundle, err := s.resolveBundle(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 
+	slog.Debug("resolving dependency graph", "name", bundle.Contract.Service.Name)
 	fetcher := s.newDepFetcher(ref)
 	result := graph.Resolve(ctx, bundle.Contract, fetcher)
+	slog.Debug("graph resolution complete", "dependencies", len(result.Root.Dependencies), "cycles", len(result.Cycles), "conflicts", len(result.Conflicts))
 	return result, nil
 }
 
@@ -62,11 +66,13 @@ func (s *Service) newDepFetcher(baseRef string) graph.ContractFetcher {
 func (f *depFetcher) Fetch(ctx context.Context, dep contract.Dependency) (*contract.Bundle, error) {
 	parsed := graph.ParseDependencyRef(dep.Ref)
 	if parsed.IsLocal() {
+		slog.Debug("fetching local dependency", "ref", dep.Ref)
 		return f.fetchLocal(parsed)
 	}
 	if f.store == nil {
 		return nil, fmt.Errorf("OCI store not configured (cannot fetch %s)", dep.Ref)
 	}
+	slog.Debug("fetching OCI dependency", "ref", dep.Ref, "compatibility", dep.Compatibility)
 	location, err := oci.ResolveRef(ctx, f.store, parsed.Location, dep.Compatibility)
 	if err != nil {
 		return nil, err

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"io/fs"
+	"log/slog"
 
 	"github.com/trianalab/pacto/internal/validation"
 	"github.com/trianalab/pacto/pkg/contract"
@@ -25,6 +26,7 @@ type ValidateResult struct {
 func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*ValidateResult, error) {
 	ref := defaultPath(opts.Path)
 
+	slog.Debug("resolving contract for validation", "ref", ref)
 	bundle, err := s.resolveBundle(ctx, ref)
 	if err != nil {
 		return &ValidateResult{
@@ -48,7 +50,9 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		}
 	}
 
+	slog.Debug("running validation", "ref", ref)
 	result := validation.Validate(bundle.Contract, rawYAML, bundle.FS)
+	slog.Debug("validation complete", "valid", result.IsValid(), "errors", len(result.Errors), "warnings", len(result.Warnings))
 
 	return &ValidateResult{
 		Path:     ref,

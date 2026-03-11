@@ -3,6 +3,7 @@ package oci
 import (
 	"compress/gzip"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,6 +74,7 @@ func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, erro
 	c.tagsMu.Lock()
 	if cached, ok := c.tagsCache[repo]; ok {
 		c.tagsMu.Unlock()
+		slog.Debug("tags cache hit", "repo", repo)
 		return cached, nil
 	}
 	c.tagsMu.Unlock()
@@ -94,6 +96,7 @@ func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, e
 	c.pullMu.Lock()
 	if b, ok := c.pullCache[ref]; ok {
 		c.pullMu.Unlock()
+		slog.Debug("cache hit (memory)", "ref", ref)
 		return b, nil
 	}
 	c.pullMu.Unlock()
@@ -102,12 +105,14 @@ func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, e
 	if c.cacheDir != "" {
 		cachePath := c.cachePath(ref)
 		if bundle, err := c.loadFromCache(cachePath); err == nil {
+			slog.Debug("cache hit (disk)", "ref", ref)
 			c.storePull(ref, bundle)
 			return bundle, nil
 		}
 	}
 
 	// 3. Registry (slowest).
+	slog.Debug("cache miss, pulling from registry", "ref", ref)
 	bundle, err := c.inner.Pull(ctx, ref)
 	if err != nil {
 		return nil, err

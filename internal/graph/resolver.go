@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -62,6 +63,7 @@ type resolver struct {
 // are shown without resolution. Sibling dependencies at each level are
 // fetched concurrently.
 func Resolve(ctx context.Context, c *contract.Contract, fetcher ContractFetcher) *Result {
+	slog.Debug("starting graph resolution", "root", c.Service.Name, "version", c.Service.Version, "dependencies", len(c.Dependencies))
 	root := &Node{
 		Name:     c.Service.Name,
 		Version:  c.Service.Version,
@@ -78,6 +80,7 @@ func Resolve(ctx context.Context, c *contract.Contract, fetcher ContractFetcher)
 	root.Dependencies = r.resolveChildren(ctx, c.Dependencies, path)
 
 	conflicts := detectConflicts(root)
+	slog.Debug("graph resolution complete", "root", c.Service.Name, "cycles", len(r.cycles), "conflicts", len(conflicts))
 
 	return &Result{
 		Root:      root,
@@ -157,8 +160,10 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, pat
 	r.pending[dep.Ref] = ch
 	r.mu.Unlock()
 
+	slog.Debug("fetching dependency", "ref", dep.Ref)
 	bundle, err := r.fetcher.Fetch(ctx, dep)
 	if err != nil {
+		slog.Debug("dependency fetch failed", "ref", dep.Ref, "error", err)
 		r.mu.Lock()
 		delete(r.pending, dep.Ref)
 		r.mu.Unlock()
