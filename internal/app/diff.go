@@ -4,9 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/trianalab/pacto/internal/diff"
 	"github.com/trianalab/pacto/internal/graph"
+	"github.com/trianalab/pacto/pkg/contract"
 )
 
 // DiffOptions holds options for the diff command.
@@ -51,7 +55,7 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 
 	slog.Debug("resolving dependency graphs for diff")
 	oldFetcher := s.newDepFetcher(opts.OldPath)
-	newFetcher := s.newDepFetcher(opts.NewPath)
+	newFetcher := s.newDiffFetcher(opts.NewPath)
 
 	oldGraph := graph.Resolve(ctx, oldBundle.Contract, oldFetcher)
 	newGraph := graph.Resolve(ctx, newBundle.Contract, newFetcher)
@@ -95,6 +99,58 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 		DependencyDiffs: depDiffs,
 		GraphDiff:       gd,
 	}, nil
+}
+
+// newDiffFetcher creates a ContractFetcher for the diff command. When the ref
+// is a local path, it wraps the normal fetcher to prefer local sibling
+// directories over OCI resolution. This ensures that locally modified
+// dependencies are used instead of their published OCI versions.
+func (s *Service) newDiffFetcher(ref string) graph.ContractFetcher {
+	inner := s.newDepFetcher(ref)
+	if isOCIRef(ref) {
+		return inner
+	}
+	abs, err := filepath.Abs(ref)
+	if err != nil {
+		return inner
+	}
+	return &localOverrideFetcher{
+		inner:     inner,
+		parentDir: filepath.Dir(abs),
+	}
+}
+
+// localOverrideFetcher wraps a ContractFetcher and resolves OCI dependencies
+// from local sibling directories when they exist. For example, if the root
+// contract is at /repo/pactos/em-runtime and a dependency references
+// oci://registry/em-runtime-governance, it checks for
+// /repo/pactos/em-runtime-governance/pacto.yaml before pulling from OCI.
+type localOverrideFetcher struct {
+	inner     graph.ContractFetcher
+	parentDir string
+}
+
+func (f *localOverrideFetcher) Fetch(ctx context.Context, dep contract.Dependency) (*contract.Bundle, error) {
+	parsed := graph.ParseDependencyRef(dep.Ref)
+	if parsed.IsOCI() {
+		name := ociRefName(parsed.Location)
+		localPath := filepath.Join(f.parentDir, name)
+		bundle, err := loadLocalBundle(localPath)
+		if err == nil {
+			slog.Debug("using local override for dependency", "ref", dep.Ref, "path", localPath)
+			return bundle, nil
+		}
+	}
+	return f.inner.Fetch(ctx, dep)
+}
+
+// ociRefName extracts the last path segment from an OCI location,
+// stripping any tag. e.g. "ghcr.io/org/pactos/my-svc:1.0.0" → "my-svc".
+func ociRefName(location string) string {
+	if idx := strings.LastIndex(location, ":"); idx > strings.LastIndex(location, "/") {
+		location = location[:idx]
+	}
+	return path.Base(location)
 }
 
 // collectNodes walks the dependency graph and returns all nodes indexed by name.

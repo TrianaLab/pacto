@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/trianalab/pacto/internal/graph"
+	"github.com/trianalab/pacto/pkg/contract"
 )
 
 func TestDiff_LocalFiles(t *testing.T) {
@@ -211,6 +212,118 @@ service:
 		if dd.Name == "child-svc" {
 			t.Error("did not expect child-svc in dependency diffs when it only exists in new")
 		}
+	}
+}
+
+func TestOciRefName(t *testing.T) {
+	tests := []struct {
+		input, want string
+	}{
+		{"ghcr.io/org/pactos/my-svc:1.0.0", "my-svc"},
+		{"ghcr.io/org/pactos/my-svc", "my-svc"},
+		{"registry.io/svc", "svc"},
+	}
+	for _, tt := range tests {
+		if got := ociRefName(tt.input); got != tt.want {
+			t.Errorf("ociRefName(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestDiff_LocalOverrideForOCIDeps(t *testing.T) {
+	// Parent with OCI dep, but a local sibling with same name exists.
+	// The local override fetcher should use the sibling.
+	dir := t.TempDir()
+
+	parentDir := filepath.Join(dir, "parent-svc")
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parentDir, "pacto.yaml"), []byte(`pactoVersion: "1.0"
+service:
+  name: parent-svc
+  version: "1.0.0"
+dependencies:
+  - ref: oci://ghcr.io/acme/child-svc:1.0.0
+    required: true
+    compatibility: "^1.0.0"
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Sibling "child-svc" with a different version than the mock store returns.
+	childDir := filepath.Join(dir, "child-svc")
+	if err := os.MkdirAll(childDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(childDir, "pacto.yaml"), []byte(`pactoVersion: "1.0"
+service:
+  name: child-svc
+  version: "2.0.0"
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := &mockBundleStore{}
+	svc := NewService(store, nil)
+	result, err := svc.Diff(context.Background(), DiffOptions{
+		OldPath: "oci://ghcr.io/acme/parent-svc:1.0.0",
+		NewPath: parentDir,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Classification == "" {
+		t.Error("expected non-empty classification")
+	}
+}
+
+func TestNewDiffFetcher_OCIRef(t *testing.T) {
+	store := &mockBundleStore{}
+	svc := NewService(store, nil)
+	fetcher := svc.newDiffFetcher("oci://ghcr.io/acme/svc:1.0.0")
+	if _, ok := fetcher.(*localOverrideFetcher); ok {
+		t.Error("expected regular fetcher for OCI ref, got localOverrideFetcher")
+	}
+}
+
+func TestNewDiffFetcher_LocalRef(t *testing.T) {
+	svc := NewService(nil, nil)
+	fetcher := svc.newDiffFetcher(t.TempDir())
+	if _, ok := fetcher.(*localOverrideFetcher); !ok {
+		t.Error("expected localOverrideFetcher for local ref")
+	}
+}
+
+func TestLocalOverrideFetcher_FallbackToInner(t *testing.T) {
+	store := &mockBundleStore{}
+	svc := NewService(store, nil)
+	inner := svc.newDepFetcher("oci://ghcr.io/acme/svc:1.0.0")
+	f := &localOverrideFetcher{inner: inner, parentDir: t.TempDir()}
+	dep := contract.Dependency{Ref: "oci://ghcr.io/acme/child-svc:1.0.0", Compatibility: "^1.0.0"}
+	bundle, err := f.Fetch(context.Background(), dep)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bundle.Contract.Service.Name != "test-svc" {
+		t.Errorf("expected fallback to inner fetcher (test-svc), got %q", bundle.Contract.Service.Name)
+	}
+}
+
+func TestLocalOverrideFetcher_LocalDep(t *testing.T) {
+	// When dep ref is local (not OCI), should delegate to inner without override.
+	bundleDir := writeTestBundle(t)
+	parentDir := filepath.Dir(bundleDir)
+	svc := NewService(nil, nil)
+	inner := svc.newDepFetcher(parentDir)
+	f := &localOverrideFetcher{inner: inner, parentDir: parentDir}
+	dep := contract.Dependency{Ref: filepath.Base(bundleDir), Compatibility: "^1.0.0"}
+	bundle, err := f.Fetch(context.Background(), dep)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bundle.Contract.Service.Name != "test-svc" {
+		t.Errorf("expected test-svc, got %q", bundle.Contract.Service.Name)
 	}
 }
 
