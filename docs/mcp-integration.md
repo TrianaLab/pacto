@@ -22,41 +22,39 @@ Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.
 ## How it works
 
 ```mermaid
-flowchart LR
-    subgraph AI["AI Assistant"]
-        LLM["LLM<br/>(Claude, GPT, etc.)"]
+flowchart TD
+    subgraph Assistants ["AI Assistants"]
+        direction LR
+        Claude["Claude Code\nClaude Desktop"]
+        Cursor["Cursor"]
+        Copilot["GitHub Copilot"]
     end
 
-    subgraph MCP["MCP Protocol"]
-        direction TB
-        STDIO["stdio transport"]
-        HTTP["HTTP transport"]
+    Assistants -->|"MCP tool calls\n(stdio or HTTP)"| Server
+
+    subgraph Server ["pacto mcp server"]
+        direction LR
+        validate["pacto_validate"]
+        inspect["pacto_inspect"]
+        explain["pacto_explain"]
+        generate["pacto_generate_contract"]
+        deps["pacto_resolve_dependencies"]
+        more["pacto_list_interfaces\npacto_generate_docs\npacto_suggest_dependencies"]
     end
 
-    subgraph Pacto["pacto mcp"]
-        direction TB
-        T1["pacto_validate"]
-        T2["pacto_inspect"]
-        T3["pacto_explain"]
-        T4["pacto_generate_contract"]
-        T5["pacto_resolve_dependencies"]
-        T6["..."]
+    Server -->|"read contracts"| Sources
+
+    subgraph Sources ["Contract Sources"]
+        direction LR
+        local["Local directories\n./my-service/pacto.yaml"]
+        oci["OCI registries\noci://ghcr.io/acme/svc:1.0"]
     end
 
-    subgraph Sources["Contract Sources"]
-        LOCAL["Local directories"]
-        OCI["OCI registries"]
-    end
-
-    LLM -- "tool calls" --> MCP
-    MCP -- "JSON-RPC" --> Pacto
-    Pacto --> Sources
-    Sources -- "results" --> Pacto
-    Pacto -- "JSON-RPC" --> MCP
-    MCP -- "tool results" --> LLM
+    Sources -->|"structured results"| Server
+    Server -->|"JSON responses"| Assistants
 ```
 
-The AI assistant sends tool calls through the MCP protocol. Pacto executes the requested operation against local contract directories or OCI registries and returns structured results. The assistant never needs direct file access — it works entirely through the MCP tool interface.
+The AI assistant sends tool calls through the MCP protocol (over stdio or HTTP). Pacto executes the requested operation against local contract directories or OCI registries and returns structured results. The assistant never needs direct file access — it works entirely through the MCP tool interface.
 
 ---
 
@@ -153,6 +151,45 @@ Add Pacto as an MCP server in your Cursor settings (`.cursor/mcp.json`):
   }
 }
 ```
+
+---
+
+## GitHub Copilot
+
+### VS Code
+
+Add Pacto as an MCP server in your VS Code settings (`.vscode/settings.json`):
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "pacto": {
+        "command": "pacto",
+        "args": ["mcp"]
+      }
+    }
+  }
+}
+```
+
+Alternatively, create a `.vscode/mcp.json` file in your project root:
+
+```json
+{
+  "servers": {
+    "pacto": {
+      "command": "pacto",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Once configured, Copilot Chat in agent mode can use Pacto tools. Try asking: *"@workspace validate the contract in ./my-service"*.
+
+{: .note }
+MCP support in GitHub Copilot requires VS Code 1.99+ and the GitHub Copilot Chat extension.
 
 ---
 
