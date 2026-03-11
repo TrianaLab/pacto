@@ -152,6 +152,65 @@ func TestPrintDiffResult_NoChanges(t *testing.T) {
 	}
 }
 
+func TestPrintDiffResult_WithDependencyDiffs(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{
+		OldPath:        "a.yaml",
+		NewPath:        "b.yaml",
+		Classification: "BREAKING",
+		DependencyDiffs: []app.DependencyDiff{
+			{
+				Name:           "my-dep",
+				Classification: "BREAKING",
+				Changes: []diff.Change{
+					{Path: "openapi.paths[/users]", Type: diff.Removed, Classification: diff.Breaking, Reason: "API path /users removed"},
+				},
+			},
+		},
+	}
+	if err := printDiffResult(cmd, result, "text"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Dependency my-dep [BREAKING] (1):") {
+		t.Errorf("expected dependency diff header, got %q", out)
+	}
+	if !strings.Contains(out, "openapi.paths[/users]") {
+		t.Errorf("expected change path in output, got %q", out)
+	}
+	if strings.Contains(out, "No changes detected") {
+		t.Errorf("should not show 'No changes detected' when dependency diffs exist, got %q", out)
+	}
+}
+
+func TestPrintDiffResult_OnlyDependencyDiffs(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{
+		OldPath:        "a.yaml",
+		NewPath:        "b.yaml",
+		Classification: "NON_BREAKING",
+		DependencyDiffs: []app.DependencyDiff{
+			{
+				Name:           "governance",
+				Classification: "NON_BREAKING",
+				Changes: []diff.Change{
+					{Path: "service.version", Type: diff.Modified, Classification: diff.NonBreaking, Reason: "version changed"},
+				},
+			},
+		},
+	}
+	if err := printDiffResult(cmd, result, "text"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "No changes detected") {
+		t.Errorf("should not show 'No changes detected' when dependency diffs exist, got %q", out)
+	}
+	if !strings.Contains(out, "Dependency governance") {
+		t.Errorf("expected dependency diff section, got %q", out)
+	}
+}
+
 func TestPrintDiffResult_WithChanges(t *testing.T) {
 	cmd, buf := testCmd()
 	result := &app.DiffResult{

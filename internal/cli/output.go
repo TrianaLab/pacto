@@ -72,19 +72,29 @@ func printPullResult(cmd *cobra.Command, result *app.PullResult, format string) 
 
 func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Classification: %s\n", result.Classification)
-		if len(result.Changes) == 0 {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No changes detected.")
+		w := cmd.OutOrStdout()
+		_, _ = fmt.Fprintf(w, "Classification: %s\n", result.Classification)
+		if len(result.Changes) == 0 && len(result.DependencyDiffs) == 0 {
+			_, _ = fmt.Fprintln(w, "No changes detected.")
 		} else {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Changes (%d):\n", len(result.Changes))
-			for _, c := range result.Changes {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %s (%s): %s\n",
-					c.Classification, c.Path, c.Type, c.Reason)
+			if len(result.Changes) > 0 {
+				_, _ = fmt.Fprintf(w, "Changes (%d):\n", len(result.Changes))
+				for _, c := range result.Changes {
+					_, _ = fmt.Fprintf(w, "  [%s] %s (%s): %s\n",
+						c.Classification, c.Path, c.Type, c.Reason)
+				}
+			}
+			for _, dd := range result.DependencyDiffs {
+				_, _ = fmt.Fprintf(w, "\nDependency %s [%s] (%d):\n", dd.Name, dd.Classification, len(dd.Changes))
+				for _, c := range dd.Changes {
+					_, _ = fmt.Fprintf(w, "  [%s] %s (%s): %s\n",
+						c.Classification, c.Path, c.Type, c.Reason)
+				}
 			}
 		}
 
 		if rendered := graph.RenderDiffTree(result.GraphDiff); rendered != "" {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nDependency graph changes:\n%s", rendered)
+			_, _ = fmt.Fprintf(w, "\nDependency graph changes:\n%s", rendered)
 		}
 
 		return nil
