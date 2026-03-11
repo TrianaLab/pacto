@@ -9,15 +9,17 @@
 
 **Pacto is to service operations what OpenAPI is to HTTP APIs.**
 
-A single YAML contract that describes how a cloud-native service behaves — validated, versioned, and distributed as an OCI artifact. It gives platforms, CI pipelines, and AI agents a shared operational model of a service.
+Pacto (/ˈpak.to/ — Spanish for *pact*) is a YAML contract that describes the operational behavior of a cloud-native service — its interfaces, runtime semantics, dependencies, configuration, and scaling intent. Contracts are validated through three layers (structural, cross-field, semantic), versioned, and distributed as OCI artifacts through the registries you already run.
 
-Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs to know about a service — interfaces, runtime behavior, dependencies, configuration, and scaling — in one file that machines can validate and tooling can consume.
+Where OpenAPI describes the API and Helm describes the deployment, Pacto describes the service itself. Platforms, CI pipelines, and AI agents consume the same contract to generate manifests, enforce policies, resolve dependency graphs, and detect breaking changes — without reverse-engineering how a service works.
+
+No runtime agents. No sidecars. No new infrastructure. Pacto runs at build time and CI time only.
 
 **[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)**
 
 ---
 
-## How it works — 30-second overview
+## How it works
 
 ```
 1. Developer writes a pacto.yaml alongside their code
@@ -26,21 +28,6 @@ Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs t
 4. Platform tooling pulls the contract and uses it to generate manifests,
    enforce policies, resolve dependency graphs, or detect breaking changes
 ```
-
-No runtime agents. No sidecars. No new infrastructure. Pacto is a **build-time and CI-time tool** — it produces a validated, immutable description of your service that platforms and pipelines can consume downstream.
-
----
-
-## AI-native contracts
-
-Pacto contracts are machine-readable by design — which makes them a natural fit for AI assistants. Running `pacto mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io) server that lets tools like **Claude**, **Cursor**, and **GitHub Copilot** interact with your contracts directly:
-
-```bash
-pacto mcp                    # stdio (Claude Code, Cursor)
-pacto mcp -t http --port 9090   # HTTP (remote or web-based tools)
-```
-
-Through MCP, an AI assistant can validate contracts, inspect dependency graphs, generate new contracts from a description, and explain breaking changes — all without leaving your editor. See the [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) guide for setup instructions.
 
 ---
 
@@ -82,6 +69,7 @@ pacto push oci://ghcr.io/acme/svc-pacto       # push to any OCI registry (skips 
 pacto push oci://ghcr.io/acme/svc-pacto -f    # force overwrite existing artifact
 pacto diff oci://registry/svc:1.0 svc:2.0     # detect breaking changes
 pacto graph .                                  # resolve dependency tree
+pacto mcp                                     # start MCP server for AI assistants
 pacto validate . -v                            # any command with verbose logging
 ```
 
@@ -133,8 +121,6 @@ scaling:
 ```
 
 Only `pactoVersion` and `service` are required — everything else is opt-in, so a contract can be as minimal or as detailed as your service needs.
-
-Platforms, CI, and tooling can now reason about the service automatically — no guessing, no wiki diving, no Slack archaeology.
 
 ---
 
@@ -213,8 +199,6 @@ A bundle is a self-contained directory (or OCI artifact) containing:
 
 ## Example repository layout
 
-A typical service repository using Pacto looks like this:
-
 ```
 payments-api/
   src/                           ← your application code
@@ -240,25 +224,36 @@ A Helm chart tells Kubernetes how many replicas to run and what image to pull. A
 
 This distinction matters because:
 
-- **Runtime state semantics** — the contract declares whether a service is stateless, stateful, or hybrid, and what that means for persistence and data criticality. Platforms use this to choose the right infrastructure (Deployment vs. StatefulSet, ephemeral vs. persistent storage) without guessing.
-- **Typed dependency relationships** — dependencies are declared with version constraints and resolved from OCI registries. `pacto graph` shows the full tree; `pacto diff` shows what shifted between versions.
-- **Configuration schema** — environment variables and settings are defined with JSON Schema, so platforms can validate config before deployment instead of discovering missing keys at runtime.
-- **Scaling intent** — the contract declares whether scaling is fixed (`replicas: 3`) or elastic (`min: 2, max: 10`), giving platforms the information they need to configure autoscaling correctly.
-- **Machine-validated contracts** — every contract is validated through three layers (structural, cross-field, semantic) before it can be pushed. Invalid contracts never reach the registry.
-
-Pacto is the layer between your code and your platform. OpenAPI describes the API. Helm describes the deployment. Pacto describes the service.
+- **Runtime state semantics** — the contract declares whether a service is stateless, stateful, or hybrid, and what that means for persistence and data criticality. Platforms use this to choose the right infrastructure without guessing.
+- **Typed dependencies** — dependencies are declared with version constraints and resolved from OCI registries. `pacto graph` shows the full tree; `pacto diff` shows what shifted between versions.
+- **Configuration schema** — environment variables and settings are defined with JSON Schema, so platforms can validate config before deployment.
+- **Scaling intent** — the contract declares whether scaling is fixed or elastic, giving platforms the information they need to configure autoscaling correctly.
+- **Machine-validated contracts** — every contract passes three validation layers before it can be pushed. Invalid contracts never reach the registry.
 
 ---
 
 ## Key capabilities
 
-- **3-layer validation** — structural (YAML schema), cross-field (port references, interface names), and semantic (state vs. persistence consistency)
-- **Dependency graph resolution** — recursively resolve transitive dependencies from OCI registries. Sibling deps are fetched in parallel
-- **Breaking change detection** — `pacto diff` compares two contract versions field-by-field *and* resolves both dependency trees to show the full blast radius
-- **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor). Bundles are cached locally for fast repeated operations
-- **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts (Helm charts, Terraform modules, K8s manifests) from a contract
-- **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details from the contract itself
-- **AI assistant integration** — `pacto mcp` exposes all contract operations as [MCP](https://modelcontextprotocol.io) tools, so AI assistants (Claude, Cursor, Copilot) can validate, inspect, generate, and diff contracts in your editor
+- **3-layer validation** — structural (YAML schema), cross-field (port references, interface names), semantic (state vs. persistence consistency)
+- **Dependency graph resolution** — recursively resolve transitive dependencies from OCI registries, with parallel sibling fetching
+- **Breaking change detection** — `pacto diff` compares two contracts field-by-field *and* resolves both dependency trees to show the full blast radius
+- **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor), with local caching
+- **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
+- **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
+- **AI assistant integration** — `pacto mcp` exposes all operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and Copilot
+
+---
+
+## AI-native contracts
+
+Pacto contracts are machine-readable by design — which makes them a natural fit for AI assistants. Running `pacto mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io) server that lets tools like **Claude**, **Cursor**, and **GitHub Copilot** interact with your contracts directly:
+
+```bash
+pacto mcp                       # stdio (Claude Code, Cursor)
+pacto mcp -t http --port 9090   # HTTP (remote or web-based tools)
+```
+
+Through MCP, an AI assistant can validate contracts, inspect dependency graphs, generate new contracts from a description, and explain breaking changes — all without leaving your editor. See the [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) guide for setup instructions.
 
 ---
 
@@ -313,8 +308,6 @@ payments-api
 └─ postgres      -16.0.0
 ```
 
-`pacto diff` doesn't just compare fields — it resolves both dependency trees and shows exactly what shifted: version upgrades, added services, and removed dependencies. One command, full blast-radius visibility.
-
 ---
 
 ## Why OCI?
@@ -345,7 +338,7 @@ Pacto doesn't replace these tools — it fills the gap between them.
 | OCI-native distribution | — | ✅ | — | — | ✅ |
 | Machine validation | ✅ | — | ✅ | — | ✅ |
 
-**Why not just OpenAPI + Helm?** OpenAPI describes your API surface. Helm describes how to deploy one particular way. Neither captures runtime behavior (stateful vs. stateless), dependency relationships, configuration schemas, or scaling intent — and there's no way to diff two versions across all of these dimensions. Pacto is the layer that ties them together.
+**Why not just OpenAPI + Helm?** OpenAPI describes your API surface. Helm describes how to deploy one particular way. Neither captures runtime behavior, dependency relationships, configuration schemas, or scaling intent — and there's no way to diff two versions across all of these dimensions. Pacto is the layer that ties them together.
 
 ## What Pacto is NOT
 
@@ -356,23 +349,13 @@ Pacto doesn't replace these tools — it fills the gap between them.
 
 ---
 
-## Ecosystem vision
-
-Pacto contracts are designed to be consumed by any tool in your stack:
-
-- **CI pipelines** — validate contracts on every PR, diff against the published version to catch breaking changes, push on release
-- **Platform controllers** — pull contracts from the registry to generate Kubernetes manifests, Terraform modules, or Helm values automatically
-- **Service catalogs** — import contract metadata (owner, interfaces, dependencies) into Backstage, Port, or internal dashboards
-- **Policy engines** — enforce organizational rules (e.g., "all public services must have a health check") against the contract before deployment
-- **AI assistants** — validate, inspect, and generate contracts via MCP directly from your editor or chat interface
-
-The contract is the API between developers and the platform. Pacto provides the format, the validation, and the distribution — what you build on top is up to you.
-
----
-
 ## Vision
 
 Pacto aims to become the standard operational contract format for cloud-native services — a shared language between developers, platforms, CI pipelines, and automation systems.
+
+Contracts are designed to be consumed by any tool in your stack: CI pipelines that validate on every PR and catch breaking changes, platform controllers that generate Kubernetes manifests or Terraform modules, service catalogs that import contract metadata, policy engines that enforce organizational rules, and AI assistants that validate, inspect, and generate contracts via MCP.
+
+The contract is the API between developers and the platform. Pacto provides the format, the validation, and the distribution — what you build on top is up to you.
 
 One file per service. Machine-validated. Version-tracked. Platform-agnostic.
 
