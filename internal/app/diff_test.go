@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/internal/graph"
@@ -231,15 +232,13 @@ func TestOciRefName(t *testing.T) {
 }
 
 func TestDiff_LocalOverrideForOCIDeps(t *testing.T) {
-	// Parent with OCI dep, but a local sibling with same name exists.
-	// The local override fetcher should use the sibling.
-	dir := t.TempDir()
+	// Regression test: when the NEW side is local and has OCI deps, the diff
+	// must resolve those deps from local siblings (not the registry). Without
+	// the local override, both sides resolve to the same published artifact
+	// and no dependency diff appears — the exact bug that went undetected.
 
-	parentDir := filepath.Join(dir, "parent-svc")
-	if err := os.MkdirAll(parentDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(parentDir, "pacto.yaml"), []byte(`pactoVersion: "1.0"
+	dir := t.TempDir()
+	parentYAML := []byte(`pactoVersion: "1.0"
 service:
   name: parent-svc
   version: "1.0.0"
@@ -247,11 +246,20 @@ dependencies:
   - ref: oci://ghcr.io/acme/child-svc:1.0.0
     required: true
     compatibility: "^1.0.0"
-`), 0644); err != nil {
+`)
+
+	// OLD parent (OCI) — resolved from mock store, which also returns the
+	// mock child bundle (child-svc v1.0.0, port 8080).
+	// NEW parent (local) — identical contract, but sibling child-svc/ has
+	// a different version (2.0.0) that should be picked up via local override.
+	parentDir := filepath.Join(dir, "parent-svc")
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parentDir, "pacto.yaml"), parentYAML, 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Sibling "child-svc" with a different version than the mock store returns.
 	childDir := filepath.Join(dir, "child-svc")
 	if err := os.MkdirAll(childDir, 0755); err != nil {
 		t.Fatal(err)
@@ -260,11 +268,62 @@ dependencies:
 service:
   name: child-svc
   version: "2.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	store := &mockBundleStore{}
+	// Mock store returns a parent-svc bundle with the same OCI dep, and a
+	// child-svc bundle at v1.0.0 (the "published" version).
+	childPort := 8080
+	store := &mockBundleStore{
+		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+			if strings.Contains(ref, "child-svc") {
+				return &contract.Bundle{
+					Contract: &contract.Contract{
+						PactoVersion: "1.0",
+						Service:      contract.ServiceIdentity{Name: "child-svc", Version: "1.0.0"},
+						Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &childPort}},
+						Runtime: &contract.Runtime{
+							Workload: "service",
+							State: contract.State{
+								Type:            "stateless",
+								Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
+								DataCriticality: "low",
+							},
+							Health: &contract.Health{Interface: "api", Path: "/health"},
+						},
+					},
+					RawYAML: []byte(""),
+				}, nil
+			}
+			// parent-svc from OCI
+			return &contract.Bundle{
+				Contract: &contract.Contract{
+					PactoVersion: "1.0",
+					Service:      contract.ServiceIdentity{Name: "parent-svc", Version: "1.0.0"},
+					Dependencies: []contract.Dependency{
+						{Ref: "oci://ghcr.io/acme/child-svc:1.0.0", Required: true, Compatibility: "^1.0.0"},
+					},
+				},
+				RawYAML: parentYAML,
+			}, nil
+		},
+	}
 	svc := NewService(store, nil)
 	result, err := svc.Diff(context.Background(), DiffOptions{
 		OldPath: "oci://ghcr.io/acme/parent-svc:1.0.0",
@@ -273,8 +332,22 @@ service:
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Classification == "" {
-		t.Error("expected non-empty classification")
+	// The key assertion: local override should cause child-svc to differ
+	// (v1.0.0 from OCI vs v2.0.0 from local sibling).
+	if len(result.DependencyDiffs) == 0 {
+		t.Fatal("expected dependency diffs for child-svc (local override should differ from OCI)")
+	}
+	found := false
+	for _, dd := range result.DependencyDiffs {
+		if dd.Name == "child-svc" {
+			found = true
+			if dd.Classification == "" {
+				t.Error("expected non-empty classification on child-svc diff")
+			}
+		}
+	}
+	if !found {
+		t.Error("expected child-svc in dependency diffs")
 	}
 }
 

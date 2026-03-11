@@ -107,16 +107,13 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 // dependencies are used instead of their published OCI versions.
 func (s *Service) newDiffFetcher(ref string) graph.ContractFetcher {
 	inner := s.newDepFetcher(ref)
-	if isOCIRef(ref) {
-		return inner
-	}
-	abs, err := filepath.Abs(ref)
-	if err != nil {
+	df := inner.(*depFetcher)
+	if df.baseDir == "" {
 		return inner
 	}
 	return &localOverrideFetcher{
 		inner:     inner,
-		parentDir: filepath.Dir(abs),
+		parentDir: filepath.Dir(df.baseDir),
 	}
 }
 
