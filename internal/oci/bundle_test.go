@@ -1061,10 +1061,10 @@ func TestImageToBundle_DocsPreserved(t *testing.T) {
 	b := testBundle()
 	// Add docs/ directory with multiple files to the bundle FS.
 	b.FS = fstest.MapFS{
-		"pacto.yaml": b.FS.(fstest.MapFS)["pacto.yaml"],
-		"docs":              &fstest.MapFile{Mode: fs.ModeDir | 0755},
-		"docs/README.md":    &fstest.MapFile{Data: []byte("# Service Documentation")},
-		"docs/runbook.md":   &fstest.MapFile{Data: []byte("# Operational Runbook")},
+		"pacto.yaml":           b.FS.(fstest.MapFS)["pacto.yaml"],
+		"docs":                 &fstest.MapFile{Mode: fs.ModeDir | 0755},
+		"docs/README.md":       &fstest.MapFile{Data: []byte("# Service Documentation")},
+		"docs/runbook.md":      &fstest.MapFile{Data: []byte("# Operational Runbook")},
 		"docs/architecture.md": &fstest.MapFile{Data: []byte("# Architecture Notes")},
 	}
 
@@ -1111,10 +1111,10 @@ func TestImageToBundle_DocsPreserved(t *testing.T) {
 
 func TestBundleToTarGz_DocsPreserved(t *testing.T) {
 	fsys := fstest.MapFS{
-		"pacto.yaml":       &fstest.MapFile{Data: []byte("pactoVersion: '1.0'")},
-		"docs":             &fstest.MapFile{Mode: fs.ModeDir | 0755},
-		"docs/README.md":   &fstest.MapFile{Data: []byte("# Docs")},
-		"docs/runbook.md":  &fstest.MapFile{Data: []byte("# Runbook")},
+		"pacto.yaml":      &fstest.MapFile{Data: []byte("pactoVersion: '1.0'")},
+		"docs":            &fstest.MapFile{Mode: fs.ModeDir | 0755},
+		"docs/README.md":  &fstest.MapFile{Data: []byte("# Docs")},
+		"docs/runbook.md": &fstest.MapFile{Data: []byte("# Runbook")},
 	}
 
 	data, err := BundleToTarGz(fsys)

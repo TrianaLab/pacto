@@ -293,8 +293,8 @@ paths:
     get:
       summary: Health
 `)},
-		"docs":                &fstest.MapFile{Mode: 0755 | 0040000},
-		"docs/README.md":     &fstest.MapFile{Data: []byte("# Old README")},
+		"docs":                 &fstest.MapFile{Mode: 0755 | 0040000},
+		"docs/README.md":       &fstest.MapFile{Data: []byte("# Old README")},
 		"docs/architecture.md": &fstest.MapFile{Data: []byte("# Old Architecture")},
 	}
 	newFS := fstest.MapFS{
@@ -307,9 +307,9 @@ paths:
     get:
       summary: Health
 `)},
-		"docs":                &fstest.MapFile{Mode: 0755 | 0040000},
-		"docs/README.md":     &fstest.MapFile{Data: []byte("# New README — completely rewritten")},
-		"docs/runbook.md":    &fstest.MapFile{Data: []byte("# Runbook — brand new file")},
+		"docs":            &fstest.MapFile{Mode: 0755 | 0040000},
+		"docs/README.md":  &fstest.MapFile{Data: []byte("# New README — completely rewritten")},
+		"docs/runbook.md": &fstest.MapFile{Data: []byte("# Runbook — brand new file")},
 	}
 
 	result := Compare(old, new, oldFS, newFS)
@@ -378,8 +378,8 @@ paths:
     get:
       summary: Health
 `)},
-		"docs":            &fstest.MapFile{Mode: 0755 | 0040000},
-		"docs/README.md":  &fstest.MapFile{Data: []byte("# Service Docs")},
+		"docs":           &fstest.MapFile{Mode: 0755 | 0040000},
+		"docs/README.md": &fstest.MapFile{Data: []byte("# Service Docs")},
 	}
 	newFS := fstest.MapFS{
 		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
