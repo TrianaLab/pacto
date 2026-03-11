@@ -650,10 +650,10 @@ paths:
 	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
 
 	expectations := map[string]ChangeType{
-		"openapi.paths[/orders]":                                    Added,
-		"openapi.paths[/users].methods[DELETE]":                     Removed,
-		"openapi.paths[/users].methods[POST]":                       Added,
-		"openapi.paths[/users].methods[GET].responses[500]":         Added,
+		"openapi.paths[/orders]":                            Added,
+		"openapi.paths[/users].methods[DELETE]":             Removed,
+		"openapi.paths[/users].methods[POST]":               Added,
+		"openapi.paths[/users].methods[GET].responses[500]": Added,
 	}
 
 	for path, ct := range expectations {
