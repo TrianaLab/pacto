@@ -397,6 +397,7 @@ Full documentation at **[trianalab.github.io/pacto](https://trianalab.github.io/
 | [For Developers](https://trianalab.github.io/pacto/developers) | Write and maintain contracts alongside your code |
 | [For Platform Engineers](https://trianalab.github.io/pacto/platform-engineers) | Consume contracts for deployment, policies, and graphs |
 | [CLI Reference](https://trianalab.github.io/pacto/cli-reference) | All commands, flags, and output formats |
+| [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) | Connect AI tools (Claude, Cursor) to Pacto via MCP |
 | [Plugin Development](https://trianalab.github.io/pacto/plugins) | Build plugins to generate artifacts from contracts |
 | [Examples](https://trianalab.github.io/pacto/examples) | PostgreSQL, Redis, RabbitMQ, NGINX, Cron Worker |
 | [Architecture](https://trianalab.github.io/pacto/architecture) | Internal design for contributors |
