@@ -272,3 +272,4 @@ Using GitHub Actions? Check out the official [Pacto CLI action]({{ site.baseurl 
 - **Leverage caching.** OCI bundles are cached locally in `~/.cache/pacto/oci/` and tag listings are cached in memory per command, so repeated `graph`, `doc`, and `diff` commands resolve instantly. Use `--no-cache` to force a fresh pull.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
 - **Use metadata for organizational context.** Team ownership, on-call channels, and service tiers go in `metadata`.
+- **Use `pacto mcp` for AI-assisted workflows.** Start an MCP server so AI tools (Claude, Cursor, Copilot) can validate, inspect, and generate contracts through standardized tool calls. See [`pacto mcp`]({{ site.baseurl }}{% link cli-reference.md %}#pacto-mcp) in the CLI Reference.

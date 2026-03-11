@@ -25,6 +25,8 @@ Pacto follows a clean, layered architecture with strict dependency direction. Th
 graph TD
     MAIN[cmd/pacto/main.go<br/>Composition Root] --> CLI[internal/cli<br/>Cobra Commands]
     CLI --> LOG[internal/logger<br/>Logger Setup]
+    CLI --> MCP[internal/mcp<br/>MCP Server]
+    MCP --> APP
     CLI --> APP[internal/app<br/>Application Services]
     APP --> VAL[internal/validation<br/>Three-Layer Validator]
     APP --> DIFF[internal/diff<br/>Change Classifier]
@@ -112,6 +114,10 @@ Pacto distributes contracts as OCI artifacts — the same standard behind contai
 ### `internal/doc` — Documentation generator
 
 Generates rich Markdown documentation from a contract. Reads OpenAPI specs, event contracts, and JSON Schema configuration to produce a comprehensive service document with architecture diagrams, interface tables, and configuration details. Includes an HTTP server for browser-based viewing.
+
+### `internal/mcp` — MCP server
+
+Thin adapter layer that exposes Pacto operations as [Model Context Protocol](https://modelcontextprotocol.io) tools. Each MCP tool handler delegates to an `internal/app` service method — no business logic lives here. The server communicates over stdio and is started via `pacto mcp`. Used by AI tools such as Claude, Cursor, and Copilot.
 
 ### `internal/plugin` — Plugin system
 

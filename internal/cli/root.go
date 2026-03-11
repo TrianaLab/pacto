@@ -107,6 +107,7 @@ func NewRootCommand(svc *app.Service, version string) *cobra.Command {
 	root.AddCommand(newLoginCommand())
 	root.AddCommand(newVersionCommand(version))
 	root.AddCommand(newUpdateCommand(version))
+	root.AddCommand(newMCPCommand(svc, version))
 
 	return root
 }

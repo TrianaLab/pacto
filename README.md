@@ -245,6 +245,7 @@ Pacto is the layer between your code and your platform. OpenAPI describes the AP
 - **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor). Bundles are cached locally for fast repeated operations
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts (Helm charts, Terraform modules, K8s manifests) from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details from the contract itself
+- **AI tool integration** — `pacto mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io) server, letting AI assistants (Claude, Cursor, Copilot) validate, inspect, and generate contracts through standardized tool calls
 
 ---
 

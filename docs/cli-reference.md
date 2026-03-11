@@ -456,6 +456,42 @@ Notifications are suppressed when:
 
 ---
 
+## `pacto mcp`
+
+Start an MCP (Model Context Protocol) server over stdio. This allows AI tools such as Claude, Cursor, and Copilot to interact with Pacto contracts through standardized tool calls.
+
+```bash
+pacto mcp
+```
+
+The server communicates over stdin/stdout using the MCP protocol and exposes the following tools:
+
+| Tool | Description |
+|------|-------------|
+| `pacto_validate` | Validate a contract file |
+| `pacto_inspect` | Return structured contract representation |
+| `pacto_resolve_dependencies` | Resolve the dependency graph |
+| `pacto_list_interfaces` | List interfaces exposed by a service |
+| `pacto_generate_docs` | Generate Markdown documentation |
+| `pacto_explain` | Human-readable contract explanation |
+| `pacto_generate_contract` | Generate a new contract from structured inputs |
+| `pacto_suggest_dependencies` | Suggest likely dependencies |
+
+**Integration example (Claude Code `claude_desktop_config.json`):**
+
+```json
+{
+  "mcpServers": {
+    "pacto": {
+      "command": "pacto",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+---
+
 ## `pacto version`
 
 Print version information.
