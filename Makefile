@@ -5,7 +5,7 @@ ifeq ($(GOBIN),)
 GOBIN := $(shell go env GOPATH)/bin
 endif
 
-.PHONY: build test e2e coverage lint clean docs
+.PHONY: build test e2e coverage lint clean docs ci
 
 build:
 	rm -f "$(GOBIN)/pacto"
@@ -30,6 +30,25 @@ BUNDLE := $(shell command -v /opt/homebrew/opt/ruby@3.3/bin/bundle 2>/dev/null |
 
 docs:
 	cd docs && $(BUNDLE) install && $(BUNDLE) exec jekyll serve --livereload
+
+ci: ci-fmt ci-vet ci-cyclo ci-lint test e2e
+
+ci-fmt:
+	@echo "==> Checking formatting..."
+	@test -z "$$(gofmt -l .)" || (echo "gofmt found unformatted files:" && gofmt -l . && exit 1)
+
+ci-vet:
+	@echo "==> Running go vet..."
+	go vet ./...
+
+ci-cyclo:
+	@echo "==> Checking cyclomatic complexity..."
+	go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+	gocyclo -over 15 $$(find . -name '*.go' ! -name '*_test.go' ! -path './vendor/*')
+
+ci-lint:
+	@echo "==> Running linter..."
+	golangci-lint run
 
 clean:
 	rm -f "$(GOBIN)/pacto" coverage.out coverage.html
