@@ -292,7 +292,7 @@ $ pacto doc payments-api --serve
 Serving documentation at http://127.0.0.1:8484
 Press Ctrl+C to stop
 
-# Detect breaking changes — including dependency graph shifts
+# Detect breaking changes — deep OpenAPI diff, dependency graph shifts
 $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
              oci://ghcr.io/acme/payments-api-pacto:2.0.0
 Classification: BREAKING

@@ -219,16 +219,21 @@ pacto diff <old> <new>
 
 ```bash
 $ pacto diff oci://ghcr.io/acme/svc-pacto:1.0.0 my-service
-Classification: POTENTIAL_BREAKING
-Changes (2):
-  [NON_BREAKING] service.version (modified): service.version modified
-  [POTENTIAL_BREAKING] scaling.min (modified): scaling.min modified
+Classification: BREAKING
+Changes (5):
+  [BREAKING] openapi.paths[/users].methods[DELETE] (removed): DELETE /users method removed
+  [POTENTIAL_BREAKING] openapi.paths[/users].methods[GET].responses[200] (modified): GET /users response 200 modified
+  [POTENTIAL_BREAKING] openapi.paths[/users].methods[GET].parameters[filter:query] (added): GET /users query param 'filter' added
+  [NON_BREAKING] openapi.paths[/users].methods[POST] (added): POST /users method added
+  [NON_BREAKING] openapi.paths[/orders] (added): API path /orders added
 
 Dependency graph changes:
   my-service
   ├─ cache         1.0.0 → 2.0.0
   └─ old-dep       -1.0.0
 ```
+
+The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level. See [Change Classification]({{ site.baseurl }}{% link contract-reference.md %}#change-classification-rules) for the full rules.
 
 When dependencies change between the old and new contracts (version upgrades, additions, or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
 

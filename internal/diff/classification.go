@@ -74,6 +74,25 @@ var rules = map[classificationKey]Classification{
 	{"openapi.paths", Added}:   NonBreaking,
 	{"openapi.paths", Removed}: Breaking,
 
+	// OpenAPI methods
+	{"openapi.methods", Added}:   NonBreaking,
+	{"openapi.methods", Removed}: Breaking,
+
+	// OpenAPI parameters
+	{"openapi.parameters", Added}:    PotentialBreaking,
+	{"openapi.parameters", Removed}:  Breaking,
+	{"openapi.parameters", Modified}: PotentialBreaking,
+
+	// OpenAPI request body
+	{"openapi.request-body", Added}:    PotentialBreaking,
+	{"openapi.request-body", Removed}:  PotentialBreaking,
+	{"openapi.request-body", Modified}: PotentialBreaking,
+
+	// OpenAPI responses
+	{"openapi.responses", Added}:    NonBreaking,
+	{"openapi.responses", Removed}:  Breaking,
+	{"openapi.responses", Modified}: PotentialBreaking,
+
 	// JSON Schema properties
 	{"schema.properties", Added}:   NonBreaking,
 	{"schema.properties", Removed}: Breaking,

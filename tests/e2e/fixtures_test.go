@@ -24,6 +24,100 @@ paths:
           description: OK
 `
 
+const openapiWithMethodsV1 = `openapi: "3.0.0"
+info:
+  title: user-api
+  version: "1.0.0"
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+  /users:
+    get:
+      summary: List users
+      parameters:
+        - name: sort
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+    delete:
+      summary: Delete all users
+      responses:
+        "204":
+          description: Deleted
+`
+
+const openapiWithMethodsV2 = `openapi: "3.0.0"
+info:
+  title: user-api
+  version: "2.0.0"
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+  /users:
+    get:
+      summary: List users
+      parameters:
+        - name: filter
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    email:
+                      type: string
+        "404":
+          description: Not Found
+    post:
+      summary: Create user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        "201":
+          description: Created
+  /orders:
+    get:
+      summary: List orders
+      responses:
+        "200":
+          description: OK
+`
+
 const protoTemplate = `syntax = "proto3";
 package %s;
 
@@ -357,5 +451,46 @@ func writeRedisV2Bundle(t *testing.T) string {
 	dir := filepath.Join(t.TempDir(), "redis-pacto-v2")
 	return writeBundleDir(t, dir, redisContractV2, map[string]string{
 		"cache.proto": fmt.Sprintf(protoTemplate, "redis", "Redis"),
+	})
+}
+
+const openapiDiffContract = `pactoVersion: "1.0"
+service:
+  name: user-api
+  version: "%s"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: interfaces/openapi.yaml
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+
+// writeOpenAPIDiffBundleV1 creates a bundle with the v1 OpenAPI spec.
+func writeOpenAPIDiffBundleV1(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "user-api-v1")
+	return writeBundleDir(t, dir, fmt.Sprintf(openapiDiffContract, "1.0.0"), map[string]string{
+		"openapi.yaml": openapiWithMethodsV1,
+	})
+}
+
+// writeOpenAPIDiffBundleV2 creates a bundle with the v2 OpenAPI spec.
+func writeOpenAPIDiffBundleV2(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "user-api-v2")
+	return writeBundleDir(t, dir, fmt.Sprintf(openapiDiffContract, "2.0.0"), map[string]string{
+		"openapi.yaml": openapiWithMethodsV2,
 	})
 }

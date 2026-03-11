@@ -153,7 +153,7 @@ The state model tells you exactly what storage and scheduling strategy a service
 
 ## Breaking change detection
 
-`pacto diff` doesn't just compare fields — it resolves both dependency trees and shows the full blast radius.
+`pacto diff` doesn't just compare contract fields — it performs deep OpenAPI diffing (paths, methods, parameters, request bodies, responses) and resolves both dependency trees to show the full blast radius.
 
 ```bash
 $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \

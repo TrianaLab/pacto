@@ -407,6 +407,131 @@ func TestDiffCommand(t *testing.T) {
 	})
 }
 
+func TestDiffOpenAPIDeep(t *testing.T) {
+	t.Run("identical OpenAPI specs", func(t *testing.T) {
+		v1Path := writeOpenAPIDiffBundleV1(t)
+
+		output, err := runCommand(t, nil, "diff", v1Path, v1Path)
+		if err != nil {
+			t.Fatalf("diff failed: %v\noutput: %s", err, output)
+		}
+
+		assertContains(t, output, "No changes detected")
+	})
+
+	t.Run("method removed is breaking", func(t *testing.T) {
+		v1Path := writeOpenAPIDiffBundleV1(t)
+		v2Path := writeOpenAPIDiffBundleV2(t)
+
+		output, _ := runCommand(t, nil, "diff", v1Path, v2Path)
+
+		// DELETE /users was removed in v2
+		assertContains(t, output, "methods[DELETE]")
+		assertContains(t, output, "removed")
+		assertContains(t, output, "BREAKING")
+	})
+
+	t.Run("method added is non-breaking", func(t *testing.T) {
+		v1Path := writeOpenAPIDiffBundleV1(t)
+		v2Path := writeOpenAPIDiffBundleV2(t)
+
+		output, _ := runCommand(t, nil, "diff", v1Path, v2Path)
+
+		// POST /users was added in v2
+		assertContains(t, output, "methods[POST]")
+		assertContains(t, output, "added")
+	})
+
+	t.Run("response modified detected", func(t *testing.T) {
+		v1Path := writeOpenAPIDiffBundleV1(t)
+		v2Path := writeOpenAPIDiffBundleV2(t)
+
+		output, _ := runCommand(t, nil, "diff", v1Path, v2Path)
+
+		// GET /users response 200 schema changed (added email field)
+		assertContains(t, output, "responses[200]")
+		assertContains(t, output, "modified")
+	})
+
+	t.Run("response added detected", func(t *testing.T) {
+		v1Path := writeOpenAPIDiffBundleV1(t)
+		v2Path := writeOpenAPIDiffBundleV2(t)
+
+		output, _ := runCommand(t, nil, "diff", v1Path, v2Path)
+
+		// GET /users response 404 was added in v2
+		assertContains(t, output, "responses[404]")
+	})
+
+	t.Run("parameter removed detected", func(t *testing.T) {
+		v1Path := writeOpenAPIDiffBundleV1(t)
+		v2Path := writeOpenAPIDiffBundleV2(t)
+
+		output, _ := runCommand(t, nil, "diff", v1Path, v2Path)
+
+		// sort query param was removed, filter was added
+		assertContains(t, output, "parameters[sort:query]")
+		assertContains(t, output, "parameters[filter:query]")
+	})
+
+	t.Run("path added detected", func(t *testing.T) {
+		v1Path := writeOpenAPIDiffBundleV1(t)
+		v2Path := writeOpenAPIDiffBundleV2(t)
+
+		output, _ := runCommand(t, nil, "diff", v1Path, v2Path)
+
+		// /orders was added in v2
+		assertContains(t, output, "openapi.paths[/orders]")
+	})
+
+	t.Run("json output shows deep changes", func(t *testing.T) {
+		v1Path := writeOpenAPIDiffBundleV1(t)
+		v2Path := writeOpenAPIDiffBundleV2(t)
+
+		output, _ := runCommand(t, nil, "--output-format", "json", "diff", v1Path, v2Path)
+
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(output), &result); err != nil {
+			t.Fatalf("expected valid JSON output, got: %s", output)
+		}
+
+		changes, ok := result["changes"].([]interface{})
+		if !ok || len(changes) == 0 {
+			t.Fatal("expected non-empty changes array")
+		}
+
+		// Verify we have method-level, response-level, and parameter-level changes in JSON
+		hasMethodChange := false
+		hasResponseChange := false
+		hasParameterChange := false
+		for _, c := range changes {
+			change, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			path, _ := change["path"].(string)
+			if strings.Contains(path, "methods[") {
+				hasMethodChange = true
+			}
+			if strings.Contains(path, "responses[") {
+				hasResponseChange = true
+			}
+			if strings.Contains(path, "parameters[") {
+				hasParameterChange = true
+			}
+		}
+		if !hasMethodChange {
+			t.Error("expected method-level changes in JSON output")
+		}
+		if !hasResponseChange {
+			t.Error("expected response-level changes in JSON output")
+		}
+		if !hasParameterChange {
+			t.Error("expected parameter-level changes in JSON output")
+		}
+	})
+}
+
 func TestDiffGraphChanges(t *testing.T) {
 	reg := newTestRegistry(t)
 
