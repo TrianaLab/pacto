@@ -7,7 +7,7 @@ nav_order: 7
 # CLI Reference
 {: .no_toc }
 
-All commands support `--output-format json` for programmatic consumption and `--help` for detailed usage.
+All commands support `--output-format json` for programmatic consumption, `-v` / `--verbose` for debug-level logging, and `--help` for detailed usage.
 
 ---
 
@@ -24,6 +24,7 @@ All commands support `--output-format json` for programmatic consumption and `--
 | Flag | Description |
 |------|-------------|
 | `--output-format` | Output format: `text` (default) or `json` |
+| `-v, --verbose` | Enable verbose output (debug-level logging to stderr) |
 | `--config` | Path to config file (searches `./pacto.yaml` and `~/.config/pacto/` if not set) |
 | `--no-cache` | Disable OCI bundle caching (bypasses `~/.cache/pacto/oci/`) |
 
@@ -130,7 +131,7 @@ The contract is validated before packing. If validation fails, no archive is cre
 Push a validated contract bundle to an OCI registry.
 
 ```bash
-pacto push <ref> [-p dir]
+pacto push <ref> [-p dir] [-f]
 ```
 
 **Arguments & flags:**
@@ -139,6 +140,9 @@ pacto push <ref> [-p dir]
 |----------|----------|-------------|
 | `ref` | Yes | OCI reference (e.g., `oci://ghcr.io/org/name:tag`). If no tag is specified, the contract version is used automatically. |
 | `-p, --path` | No | Path to contract directory (default: current directory) |
+| `-f, --force` | No | Overwrite existing artifact in registry |
+
+If the artifact already exists in the registry, `pacto push` prints a warning and exits successfully without pushing. Use `--force` to overwrite.
 
 **Examples:**
 
@@ -152,6 +156,15 @@ Digest: sha256:a1b2c3d4...
 $ pacto push oci://ghcr.io/acme/my-service-pacto:latest -p my-service
 Pushed my-service@1.0.0 -> ghcr.io/acme/my-service-pacto:latest
 Digest: sha256:a1b2c3d4...
+
+# Attempting to push an already-published version
+$ pacto push oci://ghcr.io/acme/my-service-pacto -p my-service
+Warning: artifact already exists: ghcr.io/acme/my-service-pacto:1.0.0 (use --force to overwrite)
+
+# Force overwrite an existing artifact
+$ pacto push oci://ghcr.io/acme/my-service-pacto -p my-service --force
+Pushed my-service@1.0.0 -> ghcr.io/acme/my-service-pacto:1.0.0
+Digest: sha256:e5f6g7h8...
 ```
 
 ---

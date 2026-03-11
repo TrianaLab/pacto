@@ -24,6 +24,7 @@ Pacto follows a clean, layered architecture with strict dependency direction. Th
 ```mermaid
 graph TD
     MAIN[cmd/pacto/main.go<br/>Composition Root] --> CLI[internal/cli<br/>Cobra Commands]
+    CLI --> LOG[internal/logger<br/>Logger Setup]
     CLI --> APP[internal/app<br/>Application Services]
     APP --> VAL[internal/validation<br/>Three-Layer Validator]
     APP --> DIFF[internal/diff<br/>Change Classifier]
@@ -62,6 +63,10 @@ Each CLI command maps to exactly one service method. This layer orchestrates dom
 - `Init()`, `Validate()`, `Pack()`, `Push()`, `Pull()`
 - `Diff()`, `Graph()`, `Explain()`, `Generate()`, `Doc()`
 - Shared helpers: `resolveBundle()`, `loadAndValidateLocal()`
+
+### `internal/logger` — Logger setup
+
+Configures Go's standard `log/slog` default logger based on the `--verbose` flag. When verbose mode is enabled, debug-level messages are emitted to stderr; otherwise only warnings and above are shown. Called once during CLI initialization via `PersistentPreRunE` — all packages use `slog.Debug()` directly with no wrappers.
 
 ### `internal/cli` — CLI layer
 
@@ -118,7 +123,7 @@ Out-of-process plugin execution via JSON stdin/stdout. Discovers plugin binaries
 
 1. **Pure core** — `pkg/contract` has zero I/O and zero framework dependencies
 2. **Strict layering** — CLI → App → Engines → Domain
-3. **No global state** — all instances created in the composition root (`main.go`)
+3. **No global state** — all instances created in the composition root (`main.go`); the only global is `slog.SetDefault()` configured once at startup
 4. **Interface-based** — engines depend on interfaces, not concrete implementations
 5. **Out-of-process plugins** — language-agnostic, version-independent
 6. **Embedded schemas** — JSON Schema compiled into the binary

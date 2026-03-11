@@ -205,3 +205,4 @@ Using GitHub Actions? Check out the official [Pacto CLI action]({{ site.baseurl 
 - **Disable cache in CI.** Use `--no-cache` or `PACTO_NO_CACHE=1` to ensure fresh OCI pulls in pipelines where the cache might be stale.
 - **Trust the state semantics.** If a contract says `stateless` + `ephemeral`, you can safely use a Deployment with no PVC. The validation engine enforces consistency.
 - **Use JSON output.** Every command supports `--output-format json` for programmatic consumption.
+- **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.

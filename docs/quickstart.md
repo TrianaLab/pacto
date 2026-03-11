@@ -80,6 +80,7 @@ Packed my-service@1.0.0 -> my-service-1.0.0.tar.gz
 $ pacto login ghcr.io -u your-username
 
 # Push to any OCI registry (auto-tags with the contract version)
+# Skips if the artifact already exists; use --force to overwrite
 $ pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
 Pushed my-service@1.0.0 -> ghcr.io/your-org/my-service-pacto:1.0.0
 Digest: sha256:a1b2c3...

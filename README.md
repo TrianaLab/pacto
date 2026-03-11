@@ -65,9 +65,11 @@ The result:
 
 ```bash
 pacto validate .                              # 3-layer contract validation
-pacto push oci://ghcr.io/acme/svc-pacto       # push to any OCI registry
+pacto push oci://ghcr.io/acme/svc-pacto       # push to any OCI registry (skips if exists)
+pacto push oci://ghcr.io/acme/svc-pacto -f    # force overwrite existing artifact
 pacto diff oci://registry/svc:1.0 svc:2.0     # detect breaking changes
 pacto graph .                                  # resolve dependency tree
+pacto validate . -v                            # any command with verbose logging
 ```
 
 ---
@@ -260,10 +262,14 @@ Created payments-api/
 $ pacto validate payments-api
 payments-api is valid
 
-# Push to any OCI registry
+# Push to any OCI registry (skips if the artifact already exists)
 $ pacto push oci://ghcr.io/acme/payments-api-pacto -p payments-api
 Pushed payments-api@1.0.0 -> ghcr.io/acme/payments-api-pacto:1.0.0
 Digest: sha256:a1b2c3d4...
+
+# Re-push fails gracefully; use --force to overwrite
+$ pacto push oci://ghcr.io/acme/payments-api-pacto -p payments-api
+Warning: artifact already exists: ghcr.io/acme/payments-api-pacto:1.0.0 (use --force to overwrite)
 
 # Visualize the dependency tree
 $ pacto graph payments-api
