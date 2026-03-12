@@ -82,27 +82,31 @@ func printPullResult(cmd *cobra.Command, result *app.PullResult, format string) 
 func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
+		rendered := graph.RenderDiffTree(result.GraphDiff)
+
 		_, _ = fmt.Fprintf(w, "Classification: %s\n", result.Classification)
-		if len(result.Changes) == 0 && len(result.DependencyDiffs) == 0 {
+
+		if len(result.Changes) == 0 && len(result.DependencyDiffs) == 0 && rendered == "" {
 			_, _ = fmt.Fprintln(w, "No changes detected.")
-		} else {
-			if len(result.Changes) > 0 {
-				_, _ = fmt.Fprintf(w, "Changes (%d):\n", len(result.Changes))
-				for _, c := range result.Changes {
-					_, _ = fmt.Fprintf(w, "  [%s] %s (%s): %s%s\n",
-						c.Classification, c.Path, c.Type, c.Reason, formatChangeValues(c))
-				}
+			return nil
+		}
+
+		if len(result.Changes) > 0 {
+			_, _ = fmt.Fprintf(w, "Changes (%d):\n", len(result.Changes))
+			for _, c := range result.Changes {
+				_, _ = fmt.Fprintf(w, "  [%s] %s (%s): %s%s\n",
+					c.Classification, c.Path, c.Type, c.Reason, formatChangeValues(c))
 			}
-			for _, dd := range result.DependencyDiffs {
-				_, _ = fmt.Fprintf(w, "\nDependency %s [%s] (%d):\n", dd.Name, dd.Classification, len(dd.Changes))
-				for _, c := range dd.Changes {
-					_, _ = fmt.Fprintf(w, "  [%s] %s (%s): %s%s\n",
-						c.Classification, c.Path, c.Type, c.Reason, formatChangeValues(c))
-				}
+		}
+		for _, dd := range result.DependencyDiffs {
+			_, _ = fmt.Fprintf(w, "\nDependency %s [%s] (%d):\n", dd.Name, dd.Classification, len(dd.Changes))
+			for _, c := range dd.Changes {
+				_, _ = fmt.Fprintf(w, "  [%s] %s (%s): %s%s\n",
+					c.Classification, c.Path, c.Type, c.Reason, formatChangeValues(c))
 			}
 		}
 
-		if rendered := graph.RenderDiffTree(result.GraphDiff); rendered != "" {
+		if rendered != "" {
 			_, _ = fmt.Fprintf(w, "\nDependency graph changes:\n%s", rendered)
 		}
 
@@ -236,7 +240,7 @@ func printDiffMarkdownTable(w io.Writer, changes []diff.Change) {
 	_, _ = fmt.Fprintln(w)
 }
 
-func formatMDValue(v interface{}) string {
+func formatMDValue(v any) string {
 	if v == nil {
 		return ""
 	}

@@ -268,6 +268,9 @@ func TestPrintDiffResult_WithGraphDiff(t *testing.T) {
 	if !strings.Contains(out, "+7.2.0") {
 		t.Errorf("expected +7.2.0 in graph diff, got %q", out)
 	}
+	if strings.Contains(out, "No changes detected") {
+		t.Errorf("should not show 'No changes detected' when graph has changes, got %q", out)
+	}
 }
 
 func TestPrintDiffResult_NoGraphDiffChanges(t *testing.T) {
