@@ -55,7 +55,13 @@ func DiffGraphs(old, new *Result) *GraphDiff {
 		return &GraphDiff{Root: root, Changes: changes}
 	}
 
-	root := diffTrees(old.Root, new.Root, map[string]bool{})
+	// Build a full-node index for the old graph so that diffTrees can
+	// look up the fully-resolved version of shared (shallow) nodes.
+	// Without this, non-deterministic concurrent resolution order causes
+	// phantom added/removed changes when a node is shared in the old
+	// graph but fully resolved in the new graph at the same tree position.
+	oldFull := fullNodeIndex(old.Root)
+	root := diffTrees(old.Root, new.Root, oldFull, map[string]bool{})
 	changes := collectTreeChanges(root)
 	sortChanges(changes)
 	return &GraphDiff{Root: root, Changes: changes}
@@ -63,7 +69,9 @@ func DiffGraphs(old, new *Result) *GraphDiff {
 
 // diffTrees recursively compares two graph nodes and builds a DiffNode tree
 // annotating added, removed, and version-changed children at each level.
-func diffTrees(oldNode, newNode *Node, visited map[string]bool) DiffNode {
+// oldFull maps node names to their fully-resolved versions from the old
+// graph, used to replace shared (shallow) copies before recursion.
+func diffTrees(oldNode, newNode *Node, oldFull map[string]*Node, visited map[string]bool) DiffNode {
 	dn := DiffNode{Name: newNode.Name, Version: newNode.Version}
 
 	oldByName := childMap(oldNode)
@@ -88,7 +96,13 @@ func diffTrees(oldNode, newNode *Node, visited map[string]bool) DiffNode {
 			}
 			if !edge.Shared && !visited[name] {
 				visited[name] = true
-				sub := diffTrees(oldChild, edge.Node, visited)
+				// Use the fully-resolved old node for recursion.
+				// Shared (shallow) copies lack Dependencies, which
+				// would cause phantom added/removed changes.
+				if full, ok := oldFull[name]; ok {
+					oldChild = full
+				}
+				sub := diffTrees(oldChild, edge.Node, oldFull, visited)
 				child.Children = sub.Children
 			}
 			dn.Children = append(dn.Children, child)
@@ -154,6 +168,29 @@ func markAll(node *Node, ct ChangeType, visited map[string]bool) DiffNode {
 		dn.Children = append(dn.Children, child)
 	}
 	return dn
+}
+
+// fullNodeIndex collects all fully-resolved nodes from a dependency
+// graph, indexed by name. When a node appears both as a fully-resolved
+// edge and as a shared (shallow) edge, the full version is kept.
+func fullNodeIndex(root *Node) map[string]*Node {
+	idx := map[string]*Node{}
+	fullNodeIndexRec(root, idx)
+	return idx
+}
+
+func fullNodeIndexRec(node *Node, idx map[string]*Node) {
+	if node == nil {
+		return
+	}
+	prev, seen := idx[node.Name]
+	if seen && len(prev.Dependencies) > 0 {
+		return
+	}
+	idx[node.Name] = node
+	for _, edge := range node.Dependencies {
+		fullNodeIndexRec(edge.Node, idx)
+	}
 }
 
 // childMap indexes a node's direct dependency children by name.

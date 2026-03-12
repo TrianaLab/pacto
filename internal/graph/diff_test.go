@@ -434,3 +434,108 @@ func TestChildMap_NilNode(t *testing.T) {
 		t.Errorf("expected empty map for nil node, got %v", m)
 	}
 }
+
+// TestDiffGraphs_SharedOldNodeNoPhantomChanges reproduces a bug where
+// non-deterministic concurrent resolution causes phantom dependency
+// additions. When the old graph resolves a node (e.g. keycloak) fully
+// under one parent but as shared (shallow, no Dependencies) under
+// another, and the new graph resolves it fully under the second parent,
+// diffTrees would recurse into the shallow old copy and see all its
+// children as "added" because childMap returns empty for shallow nodes.
+func TestDiffGraphs_SharedOldNodeNoPhantomChanges(t *testing.T) {
+	// Old graph: keycloak fully resolved under svc-a, shared (shallow)
+	// under svc-b. This simulates svc-a winning the concurrent fetch.
+	old := &Result{
+		Root: &Node{
+			Name:    "runtime",
+			Version: "1.0.0",
+			Dependencies: []Edge{
+				{
+					Ref: "reg/svc-a:1.0.0",
+					Node: &Node{
+						Name:    "svc-a",
+						Version: "1.0.0",
+						Dependencies: []Edge{
+							{
+								Ref: "reg/keycloak:26.0.0",
+								Node: &Node{
+									Name:    "keycloak",
+									Version: "26.0.0",
+									Dependencies: []Edge{
+										{Ref: "reg/postgres:17.0.0", Node: &Node{Name: "postgres", Version: "17.0.0"}},
+									},
+								},
+							},
+							{Ref: "reg/postgres:17.0.0", Shared: true, Node: &Node{Name: "postgres", Version: "17.0.0"}},
+						},
+					},
+				},
+				{
+					Ref: "reg/svc-b:1.0.0",
+					Node: &Node{
+						Name:    "svc-b",
+						Version: "1.0.0",
+						Dependencies: []Edge{
+							// Shared: keycloak was already resolved under svc-a.
+							// Shallow copy — no Dependencies.
+							{Ref: "reg/keycloak:26.0.0", Shared: true, Node: &Node{Name: "keycloak", Version: "26.0.0"}},
+							{Ref: "reg/postgres:17.0.0", Shared: true, Node: &Node{Name: "postgres", Version: "17.0.0"}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// New graph: keycloak fully resolved under svc-b (different
+	// goroutine won), shared under svc-a. Identical dependency
+	// structure — only the resolution order differs.
+	new := &Result{
+		Root: &Node{
+			Name:    "runtime",
+			Version: "1.0.0",
+			Dependencies: []Edge{
+				{
+					Ref: "reg/svc-a:1.0.0",
+					Node: &Node{
+						Name:    "svc-a",
+						Version: "1.0.0",
+						Dependencies: []Edge{
+							// Shared: keycloak resolved under svc-b this time.
+							{Ref: "reg/keycloak:26.0.0", Shared: true, Node: &Node{Name: "keycloak", Version: "26.0.0"}},
+							{Ref: "reg/postgres:17.0.0", Shared: true, Node: &Node{Name: "postgres", Version: "17.0.0"}},
+						},
+					},
+				},
+				{
+					Ref: "reg/svc-b:1.0.0",
+					Node: &Node{
+						Name:    "svc-b",
+						Version: "1.0.0",
+						Dependencies: []Edge{
+							{
+								Ref: "reg/keycloak:26.0.0",
+								Node: &Node{
+									Name:    "keycloak",
+									Version: "26.0.0",
+									Dependencies: []Edge{
+										{Ref: "reg/postgres:17.0.0", Node: &Node{Name: "postgres", Version: "17.0.0"}},
+									},
+								},
+							},
+							{Ref: "reg/postgres:17.0.0", Shared: true, Node: &Node{Name: "postgres", Version: "17.0.0"}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	d := DiffGraphs(old, new)
+
+	if len(d.Changes) != 0 {
+		t.Errorf("expected no changes (identical graphs with different resolution order), got %d: %+v",
+			len(d.Changes), d.Changes)
+		t.Logf("rendered diff tree:\n%s", RenderDiffTree(d))
+	}
+}
