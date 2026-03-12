@@ -14,7 +14,12 @@ import (
 func NewServer(svc *app.Service, version string) *mcpsdk.Server {
 	server := mcpsdk.NewServer(
 		&mcpsdk.Implementation{Name: "pacto", Version: version},
-		nil,
+		&mcpsdk.ServerOptions{
+			Instructions: "Pacto is an operational contract format for cloud-native services. " +
+				"Before creating or editing pacto.yaml files, call the pacto_schema tool to get " +
+				"the JSON Schema and documentation link. This ensures you use the correct syntax " +
+				"and avoid validation errors.",
+		},
 	)
 
 	registerTools(server, svc)
@@ -31,6 +36,7 @@ func registerTools(server *mcpsdk.Server, svc *app.Service) {
 	server.AddTool(explainTool(), explainHandler(svc))
 	server.AddTool(generateContractTool(), generateContractHandler())
 	server.AddTool(suggestDependenciesTool(), suggestDependenciesHandler(svc))
+	server.AddTool(schemaTool(), schemaHandler())
 }
 
 // jsonResult marshals v to JSON and returns it as a CallToolResult with text content.

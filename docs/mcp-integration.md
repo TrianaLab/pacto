@@ -53,6 +53,7 @@ An AI assistant sends MCP tool calls to the `pacto mcp` server. Pacto executes t
 | `pacto_explain` | Return a human-readable summary of a contract |
 | `pacto_generate_contract` | Generate a new contract YAML from structured inputs |
 | `pacto_suggest_dependencies` | Suggest likely dependencies based on service characteristics |
+| `pacto_schema` | Return the Pacto format explanation and full JSON Schema (call first before writing contracts) |
 
 All tools accept both local directory paths and `oci://` references.
 

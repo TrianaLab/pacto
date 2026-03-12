@@ -7,6 +7,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/trianalab/pacto/internal/app"
+	"github.com/trianalab/pacto/internal/validation"
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
@@ -391,6 +392,38 @@ func suggestFromRuntime(rt app.ExplainRuntime, add func(string)) {
 
 	if rt.WorkloadType == "service" {
 		add("prometheus")
+	}
+}
+
+// --- pacto_schema ---
+
+func schemaTool() *mcpsdk.Tool {
+	return &mcpsdk.Tool{
+		Name: "pacto_schema",
+		Description: "Returns the Pacto contract JSON Schema and links to the full documentation. " +
+			"Call this tool FIRST before creating or editing pacto.yaml files to understand the format and avoid syntax errors.",
+		InputSchema: inputSchema(map[string]property{}, nil),
+	}
+}
+
+const docsURL = "https://trianalab.github.io/pacto"
+
+type schemaResult struct {
+	Description string `json:"description"`
+	Docs        string `json:"docs"`
+	JSONSchema  string `json:"jsonSchema"`
+}
+
+func schemaHandler() mcpsdk.ToolHandler {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+		result := schemaResult{
+			Description: "Pacto is an operational contract format for cloud-native services. " +
+				"A pacto.yaml file describes the service itself — interfaces, dependencies, runtime semantics, " +
+				"configuration, and scaling. Refer to the documentation link for the full specification.",
+			Docs:       docsURL,
+			JSONSchema: string(validation.SchemaBytes()),
+		}
+		return jsonResult(result)
 	}
 }
 

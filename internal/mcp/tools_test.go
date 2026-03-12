@@ -231,6 +231,31 @@ func TestSuggestDependenciesTool(t *testing.T) {
 	}
 }
 
+func TestSchemaTool(t *testing.T) {
+	svc := app.NewService(nil, nil)
+
+	result := callTool(t, svc, "pacto_schema", map[string]any{})
+	if result.IsError {
+		t.Fatal("expected no error from pacto_schema")
+	}
+
+	text := resultText(t, result)
+
+	var parsed schemaResult
+	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+		t.Fatalf("expected valid JSON: %v", err)
+	}
+	if !strings.Contains(parsed.Description, "operational contract format") {
+		t.Errorf("expected description to mention Pacto, got: %s", parsed.Description)
+	}
+	if parsed.Docs == "" {
+		t.Error("expected non-empty docs URL")
+	}
+	if !strings.Contains(parsed.JSONSchema, `"pactoVersion"`) {
+		t.Errorf("expected pactoVersion in JSON schema, got: %.100s...", parsed.JSONSchema)
+	}
+}
+
 func TestBuildExplainSummary(t *testing.T) {
 	port := 8080
 	r := &app.ExplainResult{
@@ -463,6 +488,7 @@ func TestToolDefinitions(t *testing.T) {
 		{"pacto_explain", explainTool},
 		{"pacto_generate_contract", generateContractTool},
 		{"pacto_suggest_dependencies", suggestDependenciesTool},
+		{"pacto_schema", schemaTool},
 	}
 
 	for _, tt := range tools {
