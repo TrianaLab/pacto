@@ -160,10 +160,10 @@ $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
              oci://ghcr.io/acme/payments-api-pacto:2.0.0
 Classification: BREAKING
 Changes (4):
-  [BREAKING] runtime.state.type (modified): runtime.state.type modified
-  [BREAKING] runtime.state.persistence.durability (modified): ...
-  [BREAKING] interfaces (removed): interfaces removed
-  [BREAKING] dependencies (removed): dependencies removed
+  [BREAKING] runtime.state.type (modified): runtime.state.type modified [stateless -> stateful]
+  [BREAKING] runtime.state.persistence.durability (modified): ... [ephemeral -> persistent]
+  [BREAKING] interfaces (removed): interfaces removed [- metrics]
+  [BREAKING] dependencies (removed): dependencies removed [- redis]
 
 Dependency graph changes:
 payments-api
@@ -188,6 +188,11 @@ steps:
   - name: Check for breaking changes
     run: pacto diff oci://ghcr.io/acme/my-service-pacto:latest .
 
+  - name: Post diff as PR comment (markdown)
+    run: |
+      DIFF=$(pacto diff --output-format markdown oci://ghcr.io/acme/my-service-pacto:latest . 2>&1 || true)
+      gh pr comment --body "$DIFF"
+
   - name: Verify dependency graph
     run: pacto graph .
 ```
@@ -205,5 +210,6 @@ Using GitHub Actions? Check out the official [Pacto CLI action]({{ site.baseurl 
 - **Disable cache in CI.** Use `--no-cache` or `PACTO_NO_CACHE=1` to ensure fresh OCI pulls in pipelines where the cache might be stale.
 - **Trust the state semantics.** If a contract says `stateless` + `ephemeral`, you can safely use a Deployment with no PVC. The validation engine enforces consistency.
 - **Use JSON output.** Every command supports `--output-format json` for programmatic consumption.
+- **Use markdown output for PR comments.** `pacto diff --output-format markdown` renders changes as tables with old/new values — pipe it into `gh pr comment` for rich CI feedback.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
 - **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface]({{ site.baseurl }}{% link mcp-integration.md %}) — useful for ad-hoc inspection, dependency analysis, and contract generation.

@@ -221,16 +221,33 @@ pacto diff <old> <new>
 $ pacto diff oci://ghcr.io/acme/svc-pacto:1.0.0 my-service
 Classification: BREAKING
 Changes (5):
-  [BREAKING] openapi.paths[/users].methods[DELETE] (removed): DELETE /users method removed
-  [POTENTIAL_BREAKING] openapi.paths[/users].methods[GET].responses[200] (modified): GET /users response 200 modified
-  [POTENTIAL_BREAKING] openapi.paths[/users].methods[GET].parameters[filter:query] (added): GET /users query param 'filter' added
-  [NON_BREAKING] openapi.paths[/users].methods[POST] (added): POST /users method added
-  [NON_BREAKING] openapi.paths[/orders] (added): API path /orders added
+  [BREAKING] openapi.paths[/users].methods[DELETE] (removed): DELETE /users method removed [- DELETE /users]
+  [POTENTIAL_BREAKING] openapi.paths[/users].methods[GET].responses[200] (modified): GET /users response 200 modified [GET /users 200 -> GET /users 200]
+  [POTENTIAL_BREAKING] openapi.paths[/users].methods[GET].parameters[filter:query] (added): GET /users query param 'filter' added [+ GET /users filter:query]
+  [NON_BREAKING] openapi.paths[/users].methods[POST] (added): POST /users method added [+ POST /users]
+  [NON_BREAKING] openapi.paths[/orders] (added): API path /orders added [+ /orders]
 
 Dependency graph changes:
   my-service
   ├─ cache         1.0.0 → 2.0.0
   └─ old-dep       -1.0.0
+```
+
+**Markdown output** (`--output-format markdown`) renders the same information as tables, suitable for CI comments and PR summaries:
+
+```bash
+$ pacto diff --output-format markdown oci://ghcr.io/acme/svc-pacto:1.0.0 my-service
+## Contract Diff
+
+**Classification:** `BREAKING`
+
+### Changes (5)
+
+| Classification | Path | Type | Reason | Old | New |
+|---|---|---|---|---|---|
+| BREAKING | `openapi.paths[/users].methods[DELETE]` | removed | ... | `DELETE /users` | |
+| NON_BREAKING | `openapi.paths[/orders]` | added | ... | | `/orders` |
+...
 ```
 
 The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level. The optional `docs/` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.

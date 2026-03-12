@@ -251,8 +251,8 @@ Before releasing a new version, diff against the previous one:
 $ pacto diff oci://ghcr.io/acme/my-service-pacto:1.0.0 my-service
 Classification: BREAKING
 Changes (2):
-  [BREAKING] interfaces (removed): metrics
-  [NON_BREAKING] service.version (modified): service.version modified
+  [BREAKING] interfaces (removed): metrics [- metrics]
+  [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 1.1.0]
 ```
 
 Integrate `pacto diff` into your CI pipeline to block merges that introduce breaking changes.

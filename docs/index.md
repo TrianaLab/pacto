@@ -196,10 +196,10 @@ $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
              oci://ghcr.io/acme/payments-api-pacto:2.0.0
 Classification: BREAKING
 Changes (4):
-  [BREAKING] runtime.state.type (modified): runtime.state.type modified
-  [BREAKING] runtime.state.persistence.durability (modified): runtime.state.persistence.durability modified
-  [BREAKING] interfaces (removed): interfaces removed
-  [BREAKING] dependencies (removed): dependencies removed
+  [BREAKING] runtime.state.type (modified): runtime.state.type modified [stateless -> stateful]
+  [BREAKING] runtime.state.persistence.durability (modified): ... [ephemeral -> persistent]
+  [BREAKING] interfaces (removed): interfaces removed [- metrics]
+  [BREAKING] dependencies (removed): dependencies removed [- redis]
 
 Dependency graph changes:
 payments-api
