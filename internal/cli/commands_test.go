@@ -95,6 +95,24 @@ func TestDiffCommand(t *testing.T) {
 	}
 }
 
+func TestDiffCommand_Markdown(t *testing.T) {
+	dir1 := testutil.WriteTestBundle(t)
+	dir2 := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"diff", "--output-format", "markdown", dir1, dir2})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("diff markdown failed: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "## Contract Diff") {
+		t.Errorf("expected markdown heading in output, got %q", out.String())
+	}
+}
+
 func TestDiffCommand_Error(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)

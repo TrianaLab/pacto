@@ -550,6 +550,143 @@ func TestPrintDocResult_JSON(t *testing.T) {
 	}
 }
 
+func TestPrintDiffResult_Markdown_NoChanges(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{OldPath: "a.yaml", NewPath: "b.yaml", Classification: "NON_BREAKING"}
+	if err := printDiffResult(cmd, result, "markdown"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "## Contract Diff") {
+		t.Errorf("expected markdown heading, got %q", out)
+	}
+	if !strings.Contains(out, "`NON_BREAKING`") {
+		t.Errorf("expected classification in backticks, got %q", out)
+	}
+	if !strings.Contains(out, "No changes detected") {
+		t.Errorf("expected 'No changes detected', got %q", out)
+	}
+}
+
+func TestPrintDiffResult_Markdown_WithChanges(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{
+		OldPath:        "a.yaml",
+		NewPath:        "b.yaml",
+		Classification: "BREAKING",
+		Changes: []diff.Change{
+			{Path: "service.name", Type: diff.Modified, Classification: diff.Breaking, Reason: "name changed"},
+		},
+	}
+	if err := printDiffResult(cmd, result, "markdown"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "### Changes (1)") {
+		t.Errorf("expected changes heading, got %q", out)
+	}
+	if !strings.Contains(out, "| Classification | Path | Type | Reason |") {
+		t.Errorf("expected table header, got %q", out)
+	}
+	if !strings.Contains(out, "`service.name`") {
+		t.Errorf("expected path in backticks, got %q", out)
+	}
+}
+
+func TestPrintDiffResult_Markdown_WithDependencyDiffs(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{
+		OldPath:        "a.yaml",
+		NewPath:        "b.yaml",
+		Classification: "BREAKING",
+		DependencyDiffs: []app.DependencyDiff{
+			{
+				Name:           "my-dep",
+				Classification: "BREAKING",
+				Changes: []diff.Change{
+					{Path: "openapi.paths[/users]", Type: diff.Removed, Classification: diff.Breaking, Reason: "API path /users removed"},
+				},
+			},
+		},
+	}
+	if err := printDiffResult(cmd, result, "markdown"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "### Dependency: my-dep (`BREAKING`)") {
+		t.Errorf("expected dependency heading, got %q", out)
+	}
+	if !strings.Contains(out, "`openapi.paths[/users]`") {
+		t.Errorf("expected change path in backticks, got %q", out)
+	}
+}
+
+func TestPrintDiffResult_Markdown_WithGraphDiff(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{
+		OldPath:        "a.yaml",
+		NewPath:        "b.yaml",
+		Classification: "NON_BREAKING",
+		GraphDiff: &graph.GraphDiff{
+			Root: graph.DiffNode{
+				Name: "svc",
+				Children: []graph.DiffNode{
+					{
+						Name:    "redis",
+						Version: "7.2.0",
+						Change:  &graph.GraphChange{Name: "redis", ChangeType: graph.AddedNode, NewVersion: "7.2.0"},
+					},
+				},
+			},
+			Changes: []graph.GraphChange{
+				{Name: "redis", ChangeType: graph.AddedNode, NewVersion: "7.2.0"},
+			},
+		},
+	}
+	if err := printDiffResult(cmd, result, "markdown"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "### Dependency Graph Changes") {
+		t.Errorf("expected graph diff heading, got %q", out)
+	}
+	if !strings.Contains(out, "```") {
+		t.Errorf("expected code block, got %q", out)
+	}
+	if !strings.Contains(out, "redis") {
+		t.Errorf("expected redis in output, got %q", out)
+	}
+}
+
+func TestPrintDiffResult_Markdown_NoGraphDiffChanges(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{
+		OldPath:        "a.yaml",
+		NewPath:        "b.yaml",
+		Classification: "NON_BREAKING",
+		GraphDiff:      &graph.GraphDiff{Root: graph.DiffNode{Name: "svc"}},
+	}
+	if err := printDiffResult(cmd, result, "markdown"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "### Dependency Graph Changes") {
+		t.Errorf("did not expect graph diff heading when no changes, got %q", out)
+	}
+}
+
+func TestFormatResult_MarkdownFallbackToText(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.InitResult{Dir: "my-svc", Path: "my-svc/pacto.yaml"}
+	if err := printInitResult(cmd, result, "markdown"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Created my-svc/") {
+		t.Errorf("expected text fallback for markdown, got %q", out)
+	}
+}
+
 func TestPrintDiffResult_WriteError(t *testing.T) {
 	cmd := &cobra.Command{Use: "test"}
 	cmd.SetOut(errWriter{})

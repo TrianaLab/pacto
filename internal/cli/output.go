@@ -9,13 +9,20 @@ import (
 	"github.com/trianalab/pacto/internal/graph"
 )
 
-// formatResult dispatches between JSON and text output. If format is "json",
-// it encodes result as indented JSON. Otherwise it calls the textFn formatter.
-func formatResult(cmd *cobra.Command, format string, result any, textFn func() error) error {
-	if format == "json" {
+// formatResult dispatches between JSON, markdown and text output.
+// When markdownFn is nil and format is "markdown", it falls back to textFn.
+func formatResult(cmd *cobra.Command, format string, result any, textFn func() error, markdownFn ...func() error) error {
+	switch format {
+	case "json":
 		return printJSON(cmd, result)
+	case "markdown":
+		if len(markdownFn) > 0 && markdownFn[0] != nil {
+			return markdownFn[0]()
+		}
+		return textFn()
+	default:
+		return textFn()
 	}
-	return textFn()
 }
 
 func printInitResult(cmd *cobra.Command, result *app.InitResult, format string) error {
@@ -98,7 +105,50 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 		}
 
 		return nil
+	}, func() error {
+		return printDiffMarkdown(cmd, result)
 	})
+}
+
+func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
+	w := cmd.OutOrStdout()
+	_, _ = fmt.Fprintf(w, "## Contract Diff\n\n**Classification:** `%s`\n\n", result.Classification)
+
+	hasChanges := len(result.Changes) > 0 || len(result.DependencyDiffs) > 0
+	rendered := graph.RenderDiffTree(result.GraphDiff)
+
+	if !hasChanges && rendered == "" {
+		_, _ = fmt.Fprintln(w, "No changes detected.")
+		return nil
+	}
+
+	if len(result.Changes) > 0 {
+		_, _ = fmt.Fprintf(w, "### Changes (%d)\n\n", len(result.Changes))
+		_, _ = fmt.Fprintln(w, "| Classification | Path | Type | Reason |")
+		_, _ = fmt.Fprintln(w, "|---|---|---|---|")
+		for _, c := range result.Changes {
+			_, _ = fmt.Fprintf(w, "| %s | `%s` | %s | %s |\n",
+				c.Classification, c.Path, c.Type, c.Reason)
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+
+	for _, dd := range result.DependencyDiffs {
+		_, _ = fmt.Fprintf(w, "### Dependency: %s (`%s`)\n\n", dd.Name, dd.Classification)
+		_, _ = fmt.Fprintln(w, "| Classification | Path | Type | Reason |")
+		_, _ = fmt.Fprintln(w, "|---|---|---|---|")
+		for _, c := range dd.Changes {
+			_, _ = fmt.Fprintf(w, "| %s | `%s` | %s | %s |\n",
+				c.Classification, c.Path, c.Type, c.Reason)
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+
+	if rendered != "" {
+		_, _ = fmt.Fprintf(w, "### Dependency Graph Changes\n\n```\n%s```\n", rendered)
+	}
+
+	return nil
 }
 
 func printGraphResult(cmd *cobra.Command, result *app.GraphResult, format string) error {

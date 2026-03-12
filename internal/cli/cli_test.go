@@ -386,6 +386,39 @@ func TestUpdateNotification_SuppressedJSON(t *testing.T) {
 	}
 }
 
+func TestUpdateNotification_SuppressedMarkdown(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	t.Setenv("PACTO_NO_UPDATE_CHECK", "")
+	cacheDir := filepath.Join(tmpDir, "pacto")
+	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	cacheEntry := struct {
+		CheckedAt     time.Time `json:"checked_at"`
+		LatestVersion string    `json:"latest_version"`
+	}{CheckedAt: time.Now(), LatestVersion: "v99.0.0"}
+	data, _ := json.Marshal(cacheEntry)
+	if err := os.WriteFile(filepath.Join(cacheDir, "update-check.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "v0.0.1")
+	root.SetArgs([]string{"version", "--output-format", "markdown"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("version failed: %v", err)
+	}
+	if strings.Contains(out.String(), "A new version of pacto is available") {
+		t.Errorf("notification should be suppressed for markdown format, got: %s", out.String())
+	}
+}
+
 func TestVerboseFlag(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)

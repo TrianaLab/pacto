@@ -29,7 +29,7 @@ func NewRootCommand(svc *app.Service, version string) *cobra.Command {
 
 	// Persistent flags
 	root.PersistentFlags().String("config", "", "config file path")
-	root.PersistentFlags().String(outputFormatKey, "text", "output format (text, json)")
+	root.PersistentFlags().String(outputFormatKey, "text", "output format (text, json, markdown)")
 	root.PersistentFlags().Bool("no-cache", false, "disable OCI bundle cache")
 	root.PersistentFlags().BoolP("verbose", "v", false, "enable verbose output")
 
@@ -84,7 +84,7 @@ func NewRootCommand(svc *app.Service, version string) *cobra.Command {
 		// Wait briefly for async check to complete (cache reads are near-instant)
 		select {
 		case result := <-updateResultCh:
-			if result != nil && cmd.Name() != "update" && v.GetString(outputFormatKey) != "json" {
+			if result != nil && cmd.Name() != "update" && v.GetString(outputFormatKey) == "text" {
 				_, _ = fmt.Fprintf(cmd.OutOrStderr(), "\nA new version of pacto is available: %s -> %s\nRun 'pacto update' to update.\n", result.CurrentVersion, result.LatestVersion)
 			}
 		case <-time.After(200 * time.Millisecond):

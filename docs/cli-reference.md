@@ -7,7 +7,7 @@ nav_order: 7
 # CLI Reference
 {: .no_toc }
 
-All commands support `--output-format json` for programmatic consumption, `-v` / `--verbose` for debug-level logging, and `--help` for detailed usage.
+All commands support `--output-format json` for programmatic consumption, `--output-format markdown` for rich markdown output (e.g. CI comments), `-v` / `--verbose` for debug-level logging, and `--help` for detailed usage.
 
 ---
 
@@ -23,7 +23,7 @@ All commands support `--output-format json` for programmatic consumption, `-v` /
 
 | Flag | Description |
 |------|-------------|
-| `--output-format` | Output format: `text` (default) or `json` |
+| `--output-format` | Output format: `text` (default), `json`, or `markdown` |
 | `-v, --verbose` | Enable verbose output (debug-level logging to stderr) |
 | `--config` | Path to config file (searches `./pacto.yaml` and `~/.config/pacto/` if not set) |
 | `--no-cache` | Disable OCI bundle caching (bypasses `~/.cache/pacto/oci/`) |
