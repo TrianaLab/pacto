@@ -34,6 +34,7 @@ graph TD
     APP --> OCI[internal/oci<br/>OCI Adapter]
     APP --> PLUG[internal/plugin<br/>Plugin Runner]
     APP --> DOC[internal/doc<br/>Doc Generator]
+    DIFF --> SBOM[internal/sbom<br/>SBOM Parser & Differ]
     VAL --> CONTRACT[pkg/contract<br/>Domain Model]
     DOC --> CONTRACT
     DIFF --> CONTRACT
@@ -96,6 +97,16 @@ Compares two contracts and classifies every change using a deterministic rule ta
 - `dependency.go` — dependency list changes
 - `openapi.go` — deep OpenAPI diff (paths, methods, parameters, request bodies, responses)
 - `schema.go` — JSON Schema property-level diff
+
+### `internal/sbom` — SBOM parser and differ
+
+Parses SPDX 2.3 and CycloneDX 1.5 SBOM files from the bundle's `sbom/` directory and normalizes them into a unified package model. Provides a diff engine that compares two SBOM documents and reports package-level changes (added, removed, version/license modified).
+
+- `ParseFromFS()` — scans `sbom/` for recognized extensions, auto-detects format
+- `HasSBOM()` — checks whether a bundle contains recognized SBOM files
+- `Diff()` — compares two SBOM documents and returns changes
+
+The diff engine (`internal/diff`) calls into this package when both bundles contain SBOMs. Results are reported separately from contract changes and don't affect classification.
 
 ### `internal/graph` — Dependency resolver
 

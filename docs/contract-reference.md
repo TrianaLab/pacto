@@ -34,11 +34,13 @@ A Pacto bundle is a self-contained directory (or OCI artifact) with the followin
 │   └── events.yaml
 ├── configuration/
 │   └── schema.json
-└── docs/                    ← optional
-    ├── README.md
-    ├── architecture.md
-    ├── runbook.md
-    └── integration.md
+├── docs/                    ← optional
+│   ├── README.md
+│   ├── architecture.md
+│   ├── runbook.md
+│   └── integration.md
+└── sbom/                    ← optional
+    └── sbom.spdx.json
 ```
 
 All files referenced by `pacto.yaml` must exist within the bundle. Validation enforces this.
@@ -62,6 +64,36 @@ The `docs/` directory is an optional convention for including human-readable doc
 - Architecture notes — internal design, data flow, key dependencies
 - Operational runbooks — incident response, scaling procedures, known failure modes
 - Integration guides — how consumers should interact with the service's interfaces
+
+### `sbom/` — Optional Software Bill of Materials
+
+The `sbom/` directory is an optional convention for including a Software Bill of Materials alongside the contract. Like `docs/`, its contents are treated as **informational metadata** — they travel with the contract but have no effect on contract semantics or validation.
+
+Unlike `docs/`, SBOM files **are included in diff output**. When both the old and new bundles contain an SBOM, `pacto diff` reports package-level changes (added, removed, version or license modified). These changes are informational only — they never affect the overall diff classification.
+
+**Supported formats:**
+
+| Format | File extension | Spec version |
+|--------|---------------|--------------|
+| [SPDX](https://spdx.dev/) | `.spdx.json` | 2.3 |
+| [CycloneDX](https://cyclonedx.org/) | `.cdx.json` | 1.5 |
+
+Pacto auto-detects the format by file extension. Place one or more SBOM files directly in the `sbom/` directory (subdirectories are not scanned).
+
+**Key properties:**
+
+- **Optional.** Bundles without `sbom/` are fully valid.
+- **Convention-based.** No contract-level field references the SBOM — Pacto discovers it automatically, just like `docs/`.
+- **Informational diffing.** `pacto diff` reports SBOM package changes but they don't affect breaking/non-breaking classification.
+- **Self-contained.** The SBOM lives inside the OCI artifact, versioned and distributed alongside the contract.
+
+**Generating an SBOM:**
+
+Use any standard SBOM generator. Recommended tools:
+
+- [Syft](https://github.com/anchore/syft) — `syft . -o spdx-json=sbom/sbom.spdx.json`
+- [Trivy](https://github.com/aquasecurity/trivy) — `trivy fs . --format spdx-json -o sbom/sbom.spdx.json`
+- [cdxgen](https://github.com/CycloneDX/cdxgen) — `cdxgen -o sbom/bom.cdx.json`
 
 ---
 
@@ -596,5 +628,16 @@ openapi.paths[/users].methods[GET].responses[200]
 |-------|--------|----------------|
 | `schema.properties` | Added | NON_BREAKING |
 | `schema.properties` | Removed | **BREAKING** |
+
+### SBOM
+
+SBOM changes are reported separately from contract changes. They are **informational only** and never affect the overall diff classification.
+
+| Change | Description |
+|--------|-------------|
+| Package added | A new package appears in the SBOM |
+| Package removed | A package no longer appears in the SBOM |
+| Package version modified | A package's version changed |
+| Package license modified | A package's license changed |
 
 Unknown changes default to **POTENTIAL_BREAKING**.

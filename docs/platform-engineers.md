@@ -40,6 +40,7 @@ Every question you'd normally have to ask the dev team — or discover in produc
 | `lifecycle.gracefulShutdownSeconds` | Set termination grace period |
 | `scaling.min` / `scaling.max` | Configure auto-scaling bounds |
 | `dependencies[].ref` | Validate dependency graph, check compatibility |
+| `sbom/` *(optional)* | Audit third-party packages, track license compliance |
 
 ---
 
@@ -173,6 +174,8 @@ payments-api
 
 Every change is classified as `NON_BREAKING`, `POTENTIAL_BREAKING`, or `BREAKING`. See the [Change Classification Rules]({{ site.baseurl }}{% link contract-reference.md %}#change-classification-rules) for the full table.
 
+When both bundles include an `sbom/` directory, `pacto diff` also reports SBOM package-level changes (added, removed, version or license modified). These are informational and don't affect the classification or exit code.
+
 ---
 
 ## CI integration
@@ -212,4 +215,5 @@ Using GitHub Actions? Check out the official [Pacto CLI action]({{ site.baseurl 
 - **Use JSON output.** Every command supports `--output-format json` for programmatic consumption.
 - **Use markdown output for PR comments.** `pacto diff --output-format markdown` renders changes as tables with old/new values — pipe it into `gh pr comment` for rich CI feedback.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
+- **Check SBOM changes.** When bundles include SBOMs, `pacto diff` reports package-level changes — useful for tracking dependency drift, license compliance, and supply chain audits across contract versions.
 - **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface]({{ site.baseurl }}{% link mcp-integration.md %}) — useful for ad-hoc inspection, dependency analysis, and contract generation.

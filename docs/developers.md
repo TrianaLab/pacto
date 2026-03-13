@@ -325,12 +325,44 @@ Good candidates for `docs/`:
 
 ---
 
+## Including an SBOM
+
+You can include an optional `sbom/` directory in your bundle to ship a Software Bill of Materials alongside the contract:
+
+```
+my-service/
+  pacto.yaml
+  interfaces/
+    openapi.yaml
+  sbom/
+    sbom.spdx.json
+```
+
+Pacto supports [SPDX 2.3](https://spdx.dev/) (`.spdx.json`) and [CycloneDX 1.5](https://cyclonedx.org/) (`.cdx.json`) formats. The recommended tool for generating SBOMs is [Syft](https://github.com/anchore/syft):
+
+```bash
+# Generate an SPDX SBOM
+syft . -o spdx-json=sbom/sbom.spdx.json
+
+# Or generate a CycloneDX SBOM
+syft . -o cyclonedx-json=sbom/bom.cdx.json
+```
+
+Other supported generators include [Trivy](https://github.com/aquasecurity/trivy) and [cdxgen](https://github.com/CycloneDX/cdxgen).
+
+The SBOM travels with the contract as part of the OCI artifact. When both the old and new versions of a contract include an SBOM, `pacto diff` reports package-level changes (added, removed, version or license modified). These changes are informational — they never affect the overall breaking/non-breaking classification.
+
+No contract-level field references the SBOM. Pacto discovers it automatically by scanning the `sbom/` directory for recognized file extensions — the same convention-based approach used for `docs/`.
+
+---
+
 ## Tips
 
 - **Version your contract alongside your code.** The `pacto.yaml` lives in your repository.
 - **Pin dependency digests in production.** Tags are mutable; digests are not.
 - **Keep interface contracts up to date.** OpenAPI specs and protobuf definitions in the bundle should match what your service actually serves.
 - **Include documentation in the bundle.** Add a `docs/` directory with runbooks, architecture notes, and integration guides. It ships with the contract but doesn't affect diffing or validation.
+- **Include an SBOM.** Add an SBOM to `sbom/` using Syft, Trivy, or cdxgen. `pacto diff` will report package-level changes between versions.
 - **Use `pacto explain` to review.** It produces a human-readable summary of your contract.
 - **Use `pacto doc` for rich documentation.** It generates Markdown with architecture diagrams and interface tables. Use `--serve` to view it in the browser.
 - **Leverage caching.** OCI bundles are cached locally in `~/.cache/pacto/oci/` and tag listings are cached in memory per command, so repeated `graph`, `doc`, and `diff` commands resolve instantly. Use `--no-cache` to force a fresh pull.
