@@ -507,6 +507,7 @@ The server exposes the following tools:
 | `pacto_explain` | Return a human-readable summary of a contract |
 | `pacto_generate_contract` | Generate a new contract YAML from structured inputs |
 | `pacto_suggest_dependencies` | Suggest likely dependencies based on service characteristics |
+| `pacto_schema` | Return the Pacto JSON Schema and documentation link |
 
 All tools accept both local directory paths and `oci://` references.
 

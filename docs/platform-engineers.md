@@ -27,19 +27,21 @@ Every question you'd normally have to ask the dev team — or discover in produc
 
 | Contract Field | Platform Decision |
 |---|---|
-| `workload: service` | Deploy as a long-running process (Deployment/StatefulSet) |
-| `workload: job` | Deploy as a one-shot task (Job/CronJob) |
-| `state.type: stateful` | Needs stable identity and storage (StatefulSet + PVC) |
-| `state.type: stateless` | Horizontally scalable, no persistent storage needed |
-| `state.persistence.durability: persistent` | Provision durable storage |
-| `state.dataCriticality: high` | Enable backups, stricter disruption budgets |
+| `runtime.workload: service` | Deploy as a long-running process (Deployment/StatefulSet) |
+| `runtime.workload: job` | Deploy as a one-shot task (Job/CronJob) |
+| `runtime.state.type: stateful` | Needs stable identity and storage (StatefulSet + PVC) |
+| `runtime.state.type: stateless` | Horizontally scalable, no persistent storage needed |
+| `runtime.state.persistence.durability: persistent` | Provision durable storage |
+| `runtime.state.dataCriticality: high` | Enable backups, stricter disruption budgets |
 | `interfaces[].port` | Configure Service, Ingress |
 | `interfaces[].visibility: public` | Create external Ingress or load balancer |
-| `health.interface` + `health.path` | Configure liveness/readiness probes |
-| `lifecycle.upgradeStrategy: ordered` | Use ordered pod management |
-| `lifecycle.gracefulShutdownSeconds` | Set termination grace period |
+| `runtime.health.interface` + `runtime.health.path` | Configure liveness/readiness probes |
+| `runtime.lifecycle.upgradeStrategy: ordered` | Use ordered pod management |
+| `runtime.lifecycle.gracefulShutdownSeconds` | Set termination grace period |
 | `scaling.min` / `scaling.max` | Configure auto-scaling bounds |
+| `configuration.schema` | Validate required configuration, generate config templates |
 | `dependencies[].ref` | Validate dependency graph, check compatibility |
+| `docs/` *(optional)* | Access service documentation, runbooks, integration guides |
 | `sbom/` *(optional)* | Audit third-party packages, track license compliance |
 
 ---
@@ -123,9 +125,9 @@ This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes m
 
 ### Workload type
 
-| `workload` | Kubernetes resource | Notes |
+| `runtime.workload` | Kubernetes resource | Notes |
 |---|---|---|
-| `service` | Deployment or StatefulSet | Based on `state.type` |
+| `service` | Deployment or StatefulSet | Based on `runtime.state.type` |
 | `job` | Job | No scaling, runs to completion |
 | `scheduled` | CronJob | Schedule defined externally |
 
@@ -133,7 +135,7 @@ This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes m
 
 The state model tells you exactly what storage and scheduling strategy a service needs:
 
-| `state.type` | `persistence` | Infrastructure |
+| `runtime.state.type` | `runtime.state.persistence` | Infrastructure |
 |---|---|---|
 | `stateless` | `local/ephemeral` | Deployment, no PVC, free to scale horizontally |
 | `stateful` | `local/persistent` | StatefulSet + PVC, stable identity per replica |
@@ -144,7 +146,7 @@ The state model tells you exactly what storage and scheduling strategy a service
 
 ### Upgrade strategy
 
-| `upgradeStrategy` | Kubernetes strategy |
+| `runtime.lifecycle.upgradeStrategy` | Kubernetes strategy |
 |---|---|
 | `rolling` | `RollingUpdate` |
 | `recreate` | `Recreate` |

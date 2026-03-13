@@ -470,13 +470,17 @@ Validates semantic references and consistency:
 | `service.version` is valid semver | `INVALID_SEMVER` |
 | Interface names are unique | `DUPLICATE_INTERFACE_NAME` |
 | `http`/`grpc` interfaces have `port` | `PORT_REQUIRED` |
+| `event` interfaces with `port` set | `PORT_IGNORED` (warning) |
 | `grpc`/`event` interfaces have `contract` | `CONTRACT_REQUIRED` |
 | `health.interface` matches a declared interface | `HEALTH_INTERFACE_NOT_FOUND` |
 | Health interface is not `event` type | `HEALTH_INTERFACE_INVALID` |
 | `health.path` required for `http` health interface | `HEALTH_PATH_REQUIRED` |
+| `health.path` on `grpc` health interface is ignored | `HEALTH_PATH_IGNORED` (warning) |
 | Referenced files exist in the bundle | `FILE_NOT_FOUND` |
 | OCI dependency refs (`oci://`) are valid OCI references | `INVALID_OCI_REF` |
 | Compatibility ranges are valid semver constraints | `INVALID_COMPATIBILITY` |
+| Compatibility range is empty | `EMPTY_COMPATIBILITY` |
+| OCI dependency uses tag instead of digest | `TAG_NOT_DIGEST` (warning) |
 | `image.ref` is a valid OCI reference | `INVALID_IMAGE_REF` |
 | `scaling.min` <= `scaling.max` | `SCALING_MIN_EXCEEDS_MAX` |
 | Job workloads cannot have scaling | `JOB_SCALING_NOT_ALLOWED` |
@@ -486,9 +490,9 @@ Validates semantic references and consistency:
 
 Validates cross-concern consistency:
 
-| Rule | Type |
-|---|---|
-| `ordered` upgrade strategy with `stateless` state | Warning |
+| Rule | Code | Type |
+|---|---|---|
+| `ordered` upgrade strategy with `stateless` state | `UPGRADE_STRATEGY_STATE_MISMATCH` | Warning |
 
 ---
 
