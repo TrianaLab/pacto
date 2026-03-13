@@ -23,7 +23,7 @@ type Package struct {
 
 // Document represents a parsed SBOM document, independent of format.
 type Document struct {
-	Format   string    `json:"format"`   // "spdx" or "cyclonedx"
+	Format   string    `json:"format"` // "spdx" or "cyclonedx"
 	Packages []Package `json:"packages"`
 }
 
