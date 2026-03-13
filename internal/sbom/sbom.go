@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"path/filepath"
+	"path"
 	"strings"
 )
 
@@ -45,13 +45,13 @@ func ParseFromFS(fsys fs.FS) (*Document, error) {
 			continue
 		}
 		name := entry.Name()
-		path := filepath.Join(DefaultDir, name)
+		filePath := path.Join(DefaultDir, name)
 
 		if strings.HasSuffix(name, ".spdx.json") {
-			return parseSPDX(fsys, path)
+			return parseSPDX(fsys, filePath)
 		}
 		if strings.HasSuffix(name, ".cdx.json") {
-			return parseCycloneDX(fsys, path)
+			return parseCycloneDX(fsys, filePath)
 		}
 	}
 

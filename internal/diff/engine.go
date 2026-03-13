@@ -91,13 +91,7 @@ func diffFileSet(oldPath, newPath string, oldFS, newFS fs.FS, reader fileSetRead
 	oldSet, oldErr := reader(oldFS, oldPath)
 	newSet, newErr := reader(newFS, newPath)
 
-	if oldErr != nil && newErr != nil {
-		return nil
-	}
-	if oldErr != nil {
-		return nil
-	}
-	if newErr != nil {
+	if oldErr != nil || newErr != nil {
 		return nil
 	}
 
