@@ -5,6 +5,7 @@ package testutil
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,6 +76,7 @@ interfaces:
   - name: api
     type: http
     port: 8080
+    contract: openapi.yaml
 runtime:
   workload: service
   state:
@@ -89,14 +91,32 @@ runtime:
 `)
 }
 
+// TestOpenAPI returns a minimal OpenAPI spec for testing.
+func TestOpenAPI() []byte {
+	return []byte(`openapi: "3.0.0"
+info:
+  title: Test API
+  version: "1.0.0"
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+`)
+}
+
 // TestBundle returns a valid in-memory Bundle for testing.
+// The bundle includes pacto.yaml plus additional files (openapi.yaml,
+// docs/) to verify that the full directory tree survives round-trips.
 func TestBundle() *contract.Bundle {
 	port := 8080
 	return &contract.Bundle{
 		Contract: &contract.Contract{
 			PactoVersion: "1.0",
 			Service:      contract.ServiceIdentity{Name: "test-svc", Version: "1.0.0"},
-			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
+			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port, Contract: "openapi.yaml"}},
 			Runtime: &contract.Runtime{
 				Workload: "service",
 				State: contract.State{
@@ -107,24 +127,37 @@ func TestBundle() *contract.Bundle {
 				Health: &contract.Health{Interface: "api", Path: "/health"},
 			},
 		},
+		RawYAML: ValidPactoYAML(),
 		FS: fstest.MapFS{
-			"pacto.yaml": &fstest.MapFile{Data: ValidPactoYAML()},
+			"pacto.yaml":      &fstest.MapFile{Data: ValidPactoYAML()},
+			"openapi.yaml":    &fstest.MapFile{Data: TestOpenAPI()},
+			"docs":            &fstest.MapFile{Mode: fs.ModeDir | 0755},
+			"docs/README.md":  &fstest.MapFile{Data: []byte("# Test Service\n")},
+			"docs/runbook.md": &fstest.MapFile{Data: []byte("# Runbook\n")},
 		},
 	}
 }
 
 // WriteTestBundle creates a valid bundle directory structure in a temp dir
-// and returns the bundle directory path.
+// and returns the bundle directory path. The directory includes pacto.yaml
+// plus additional files to verify full directory tree handling.
 func WriteTestBundle(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	bundleDir := filepath.Join(dir, "bundle")
-	if err := os.MkdirAll(bundleDir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(bundleDir, "docs"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	pactoPath := filepath.Join(bundleDir, "pacto.yaml")
-	if err := os.WriteFile(pactoPath, ValidPactoYAML(), 0644); err != nil {
-		t.Fatal(err)
+	files := map[string][]byte{
+		"pacto.yaml":      ValidPactoYAML(),
+		"openapi.yaml":    TestOpenAPI(),
+		"docs/README.md":  []byte("# Test Service\n"),
+		"docs/runbook.md": []byte("# Runbook\n"),
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(bundleDir, name), data, 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return bundleDir
 }

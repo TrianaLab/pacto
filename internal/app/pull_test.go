@@ -31,9 +31,18 @@ func TestPull_Success(t *testing.T) {
 	if result.Version != "1.0.0" {
 		t.Errorf("expected Version=1.0.0, got %s", result.Version)
 	}
-	// Verify extracted file
-	if _, err := os.Stat(filepath.Join(output, "pacto.yaml")); err != nil {
-		t.Fatalf("expected pacto.yaml in output: %v", err)
+	// Verify ALL bundle files are extracted, not just pacto.yaml.
+	wantFiles := []string{
+		"pacto.yaml",
+		"openapi.yaml",
+		"docs/README.md",
+		"docs/runbook.md",
+	}
+	for _, f := range wantFiles {
+		p := filepath.Join(output, f)
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("expected %s in output: %v", f, err)
+		}
 	}
 }
 

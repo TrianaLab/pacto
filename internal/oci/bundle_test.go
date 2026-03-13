@@ -31,23 +31,7 @@ func (tarErrWriter) Write([]byte) (int, error) { return 0, fmt.Errorf("write err
 
 func testBundle() *contract.Bundle {
 	port := 8080
-	return &contract.Bundle{
-		Contract: &contract.Contract{
-			PactoVersion: "1.0",
-			Service:      contract.ServiceIdentity{Name: "test-svc", Version: "1.0.0"},
-			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
-			Runtime: &contract.Runtime{
-				Workload: "service",
-				State: contract.State{
-					Type:            "stateless",
-					Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-					DataCriticality: "low",
-				},
-				Health: &contract.Health{Interface: "api", Path: "/health"},
-			},
-		},
-		FS: fstest.MapFS{
-			"pacto.yaml": &fstest.MapFile{Data: []byte(`pactoVersion: "1.0"
+	pactoYAML := []byte(`pactoVersion: "1.0"
 service:
   name: test-svc
   version: "1.0.0"
@@ -55,6 +39,7 @@ interfaces:
   - name: api
     type: http
     port: 8080
+    contract: openapi.yaml
 runtime:
   workload: service
   state:
@@ -66,7 +51,29 @@ runtime:
   health:
     interface: api
     path: /health
-`)},
+`)
+	return &contract.Bundle{
+		Contract: &contract.Contract{
+			PactoVersion: "1.0",
+			Service:      contract.ServiceIdentity{Name: "test-svc", Version: "1.0.0"},
+			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port, Contract: "openapi.yaml"}},
+			Runtime: &contract.Runtime{
+				Workload: "service",
+				State: contract.State{
+					Type:            "stateless",
+					Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
+					DataCriticality: "low",
+				},
+				Health: &contract.Health{Interface: "api", Path: "/health"},
+			},
+		},
+		RawYAML: pactoYAML,
+		FS: fstest.MapFS{
+			"pacto.yaml":      &fstest.MapFile{Data: pactoYAML},
+			"openapi.yaml":    &fstest.MapFile{Data: []byte("openapi: '3.0.0'\ninfo:\n  title: Test\n  version: '1.0.0'\npaths: {}\n")},
+			"docs":            &fstest.MapFile{Mode: fs.ModeDir | 0755},
+			"docs/README.md":  &fstest.MapFile{Data: []byte("# Test Service\n")},
+			"docs/runbook.md": &fstest.MapFile{Data: []byte("# Runbook\n")},
 		},
 	}
 }

@@ -74,6 +74,7 @@ func TestValidate_OCIRef_MissingPactoYAML(t *testing.T) {
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
 			b := testBundle()
 			b.FS = fstest.MapFS{} // empty FS, no pacto.yaml
+			b.RawYAML = nil
 			return b, nil
 		},
 	}

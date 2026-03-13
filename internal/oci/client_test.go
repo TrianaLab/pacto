@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -35,23 +36,7 @@ func newTestClient(t *testing.T) (*oci.Client, string) {
 
 func newTestBundle() *contract.Bundle {
 	port := 8080
-	return &contract.Bundle{
-		Contract: &contract.Contract{
-			PactoVersion: "1.0",
-			Service:      contract.ServiceIdentity{Name: "test-svc", Version: "1.0.0"},
-			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
-			Runtime: &contract.Runtime{
-				Workload: "service",
-				State: contract.State{
-					Type:            "stateless",
-					Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-					DataCriticality: "low",
-				},
-				Health: &contract.Health{Interface: "api", Path: "/health"},
-			},
-		},
-		FS: fstest.MapFS{
-			"pacto.yaml": &fstest.MapFile{Data: []byte(`pactoVersion: "1.0"
+	pactoYAML := []byte(`pactoVersion: "1.0"
 service:
   name: test-svc
   version: "1.0.0"
@@ -59,6 +44,7 @@ interfaces:
   - name: api
     type: http
     port: 8080
+    contract: openapi.yaml
 runtime:
   workload: service
   state:
@@ -70,7 +56,29 @@ runtime:
   health:
     interface: api
     path: /health
-`)},
+`)
+	return &contract.Bundle{
+		Contract: &contract.Contract{
+			PactoVersion: "1.0",
+			Service:      contract.ServiceIdentity{Name: "test-svc", Version: "1.0.0"},
+			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port, Contract: "openapi.yaml"}},
+			Runtime: &contract.Runtime{
+				Workload: "service",
+				State: contract.State{
+					Type:            "stateless",
+					Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
+					DataCriticality: "low",
+				},
+				Health: &contract.Health{Interface: "api", Path: "/health"},
+			},
+		},
+		RawYAML: pactoYAML,
+		FS: fstest.MapFS{
+			"pacto.yaml":      &fstest.MapFile{Data: pactoYAML},
+			"openapi.yaml":    &fstest.MapFile{Data: []byte("openapi: '3.0.0'\ninfo:\n  title: Test\n  version: '1.0.0'\npaths: {}\n")},
+			"docs":            &fstest.MapFile{Mode: fs.ModeDir | 0755},
+			"docs/README.md":  &fstest.MapFile{Data: []byte("# Test Service\n")},
+			"docs/runbook.md": &fstest.MapFile{Data: []byte("# Runbook\n")},
 		},
 	}
 }
@@ -106,6 +114,31 @@ func TestClient_PushPull_Roundtrip(t *testing.T) {
 	}
 	if len(got.Contract.Interfaces) != len(b.Contract.Interfaces) {
 		t.Errorf("len(Interfaces) = %d, want %d", len(got.Contract.Interfaces), len(b.Contract.Interfaces))
+	}
+
+	// Verify RawYAML is populated after pull.
+	if got.RawYAML == nil {
+		t.Fatal("expected RawYAML to be populated after pull")
+	}
+	if !bytes.Contains(got.RawYAML, []byte("test-svc")) {
+		t.Errorf("RawYAML should contain service name, got %q", string(got.RawYAML))
+	}
+
+	// Verify all bundle files survive the round-trip.
+	wantFiles := map[string]string{
+		"openapi.yaml":    "openapi:",
+		"docs/README.md":  "# Test Service",
+		"docs/runbook.md": "# Runbook",
+	}
+	for path, wantSubstr := range wantFiles {
+		data, err := fs.ReadFile(got.FS, path)
+		if err != nil {
+			t.Errorf("ReadFile(%s) error: %v — file not preserved in OCI round-trip", path, err)
+			continue
+		}
+		if !strings.Contains(string(data), wantSubstr) {
+			t.Errorf("%s content = %q, want it to contain %q", path, string(data), wantSubstr)
+		}
 	}
 }
 

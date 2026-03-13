@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -569,5 +570,55 @@ func TestCachedStore_XDGCacheHome(t *testing.T) {
 	}
 	if inner.pullCount.Load() != 1 {
 		t.Errorf("expected 1 inner pull with XDG cache, got %d", inner.pullCount.Load())
+	}
+}
+
+func TestCachedStore_Pull_AllFilesSurviveDiskCache(t *testing.T) {
+	cacheDir := t.TempDir()
+	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
+	t.Cleanup(func() { oci.SetUserHomeDirFn(old) })
+
+	ref := "ghcr.io/test/multifile:1.0.0"
+	ctx := context.Background()
+
+	// Store 1: populate disk cache with multi-file bundle.
+	inner1 := &countingStore{bundle: newTestBundle()}
+	store1 := oci.NewCachedStore(inner1)
+	if _, err := store1.Pull(ctx, ref); err != nil {
+		t.Fatalf("store1 Pull() error: %v", err)
+	}
+
+	// Store 2 (simulates new process): fresh in-memory cache, reads from disk.
+	inner2 := &countingStore{bundle: newTestBundle()}
+	store2 := oci.NewCachedStore(inner2)
+	b, err := store2.Pull(ctx, ref)
+	if err != nil {
+		t.Fatalf("store2 Pull() error: %v", err)
+	}
+	if inner2.pullCount.Load() != 0 {
+		t.Errorf("expected 0 inner pulls on store2 (disk hit), got %d", inner2.pullCount.Load())
+	}
+
+	// Verify RawYAML is populated from cache.
+	if b.RawYAML == nil {
+		t.Fatal("expected RawYAML to be populated from disk cache")
+	}
+
+	// Verify ALL files survived the disk cache round-trip.
+	wantFiles := map[string]string{
+		"pacto.yaml":      "test-svc",
+		"openapi.yaml":    "openapi:",
+		"docs/README.md":  "# Test Service",
+		"docs/runbook.md": "# Runbook",
+	}
+	for path, wantSubstr := range wantFiles {
+		data, err := fs.ReadFile(b.FS, path)
+		if err != nil {
+			t.Errorf("ReadFile(%s) error: %v — file not preserved in disk cache", path, err)
+			continue
+		}
+		if !strings.Contains(string(data), wantSubstr) {
+			t.Errorf("%s content = %q, want it to contain %q", path, string(data), wantSubstr)
+		}
 	}
 }
