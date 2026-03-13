@@ -477,6 +477,114 @@ runtime:
     path: /health
 `
 
+const sbomSPDXV1 = `{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "sbom-svc",
+  "documentNamespace": "https://example.com/sbom-v1",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-lib-a",
+      "name": "lib-a",
+      "versionInfo": "1.0.0",
+      "supplier": "Organization: Acme Inc.",
+      "downloadLocation": "https://example.com/lib-a",
+      "licenseConcluded": "MIT"
+    },
+    {
+      "SPDXID": "SPDXRef-lib-b",
+      "name": "lib-b",
+      "versionInfo": "2.0.0",
+      "supplier": "Organization: Acme Inc.",
+      "downloadLocation": "https://example.com/lib-b",
+      "licenseConcluded": "Apache-2.0"
+    }
+  ]
+}`
+
+const sbomSPDXV2 = `{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "sbom-svc",
+  "documentNamespace": "https://example.com/sbom-v2",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-lib-a",
+      "name": "lib-a",
+      "versionInfo": "2.0.0",
+      "supplier": "Organization: Acme Inc.",
+      "downloadLocation": "https://example.com/lib-a",
+      "licenseConcluded": "MIT"
+    },
+    {
+      "SPDXID": "SPDXRef-lib-c",
+      "name": "lib-c",
+      "versionInfo": "1.0.0",
+      "supplier": "Organization: New Corp.",
+      "downloadLocation": "https://example.com/lib-c",
+      "licenseConcluded": "BSD-3-Clause"
+    }
+  ]
+}`
+
+const sbomCDXV1 = `{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "components": [
+    {
+      "type": "library",
+      "name": "lib-x",
+      "version": "1.0.0",
+      "supplier": {"name": "Vendor A"},
+      "licenses": [{"license": {"id": "MIT"}}]
+    }
+  ]
+}`
+
+const sbomServiceContract = `pactoVersion: "1.0"
+service:
+  name: sbom-svc
+  version: "%s"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: interfaces/openapi.yaml
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+
+// writeBundleWithSBOM creates a bundle directory with an SBOM file.
+func writeBundleWithSBOM(t *testing.T, version, sbomFileName, sbomContent string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "sbom-svc-"+version)
+	bundlePath := writeBundleDir(t, dir, fmt.Sprintf(sbomServiceContract, version), map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "sbom-svc", version),
+	})
+
+	sbomDir := filepath.Join(bundlePath, "sbom")
+	if err := os.MkdirAll(sbomDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sbomDir, sbomFileName), []byte(sbomContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return bundlePath
+}
+
 // writeOpenAPIDiffBundleV1 creates a bundle with the v1 OpenAPI spec.
 func writeOpenAPIDiffBundleV1(t *testing.T) string {
 	t.Helper()

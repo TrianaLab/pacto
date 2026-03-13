@@ -791,6 +791,45 @@ func TestResolveEdge_PendingWaitGetsError(t *testing.T) {
 	}
 }
 
+func TestResolveEdge_PendingWaitGetsSuccess(t *testing.T) {
+	// Directly exercise the pending-wait success path by pre-populating
+	// the resolver with a closed pending channel and a visited node.
+	// A single call to resolveEdge sees the pending entry, receives
+	// from the already-closed channel, finds the node in visited, and
+	// returns a shared edge with node info.
+	r := &resolver{
+		fetcher: &mockFetcher{},
+		visited: map[string]*Node{
+			"oci://registry.io/svc-b:1.0.0": {
+				Name: "svc-b", Version: "1.0.0", Ref: "oci://registry.io/svc-b:1.0.0",
+			},
+		},
+		errors:  map[string]string{},
+		pending: map[string]chan struct{}{},
+	}
+
+	ref := "oci://registry.io/svc-b:1.0.0"
+	ch := make(chan struct{})
+	close(ch) // pre-close so <-ch returns immediately
+	r.pending[ref] = ch
+
+	dep := contract.Dependency{Ref: ref, Required: true, Compatibility: "^1.0.0"}
+	edge := r.resolveEdge(context.Background(), dep, []string{"root"})
+
+	if !edge.Shared {
+		t.Error("expected edge to be marked as shared")
+	}
+	if edge.Node == nil {
+		t.Fatal("expected non-nil node for successful pending wait")
+	}
+	if edge.Node.Name != "svc-b" {
+		t.Errorf("expected node name 'svc-b', got %q", edge.Node.Name)
+	}
+	if edge.Error != "" {
+		t.Errorf("expected no error, got %q", edge.Error)
+	}
+}
+
 func TestResolve_FetchErrorParallel(t *testing.T) {
 	// Fetch error with multiple deps (parallel path) where refs are unique.
 	fetcher := &mockFetcher{

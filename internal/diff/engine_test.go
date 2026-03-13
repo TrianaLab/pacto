@@ -403,6 +403,140 @@ paths:
 	}
 }
 
+func TestCompare_SBOMDiff_BothPresent(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+
+	oldFS := fstest.MapFS{
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(`{
+			"spdxVersion": "SPDX-2.3",
+			"packages": [{"name": "lib-a", "versionInfo": "1.0.0"}]
+		}`)},
+	}
+	newFS := fstest.MapFS{
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(`{
+			"spdxVersion": "SPDX-2.3",
+			"packages": [{"name": "lib-a", "versionInfo": "2.0.0"}]
+		}`)},
+	}
+
+	result := Compare(old, new, oldFS, newFS)
+	if result.SBOMDiff == nil {
+		t.Fatal("expected SBOMDiff to be non-nil")
+	}
+	if len(result.SBOMDiff.Changes) != 1 {
+		t.Fatalf("expected 1 SBOM change, got %d", len(result.SBOMDiff.Changes))
+	}
+	// SBOM changes should not affect classification
+	if result.Classification != NonBreaking {
+		t.Errorf("expected NON_BREAKING (SBOM changes are informational), got %s", result.Classification)
+	}
+}
+
+func TestCompare_SBOMDiff_NeitherPresent(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+	result := Compare(old, new, nil, nil)
+	if result.SBOMDiff != nil {
+		t.Error("expected nil SBOMDiff when no SBOMs present")
+	}
+}
+
+func TestCompare_SBOMDiff_IdenticalSBOMs(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+
+	sbomData := []byte(`{"spdxVersion":"SPDX-2.3","packages":[{"name":"lib-a","versionInfo":"1.0.0"}]}`)
+	fs := fstest.MapFS{
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: sbomData},
+	}
+
+	result := Compare(old, new, fs, fs)
+	if result.SBOMDiff != nil {
+		t.Error("expected nil SBOMDiff when SBOMs are identical")
+	}
+}
+
+func TestCompare_SBOMDiff_OnlyOldHasSBOM(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+
+	oldFS := fstest.MapFS{
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(`{
+			"spdxVersion": "SPDX-2.3",
+			"packages": [{"name": "lib-a", "versionInfo": "1.0.0"}]
+		}`)},
+	}
+
+	result := Compare(old, new, oldFS, nil)
+	if result.SBOMDiff == nil {
+		t.Fatal("expected SBOMDiff when old has SBOM and new doesn't")
+	}
+	if len(result.SBOMDiff.Changes) != 1 {
+		t.Errorf("expected 1 change (package removed), got %d", len(result.SBOMDiff.Changes))
+	}
+}
+
+func TestCompare_SBOMDiff_OnlyNewHasSBOM(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+
+	newFS := fstest.MapFS{
+		"sbom/sbom.cdx.json": &fstest.MapFile{Data: []byte(`{
+			"bomFormat": "CycloneDX",
+			"components": [{"name": "lib-a", "version": "1.0.0"}]
+		}`)},
+	}
+
+	result := Compare(old, new, nil, newFS)
+	if result.SBOMDiff == nil {
+		t.Fatal("expected SBOMDiff when new has SBOM and old doesn't")
+	}
+	if len(result.SBOMDiff.Changes) != 1 {
+		t.Errorf("expected 1 change (package added), got %d", len(result.SBOMDiff.Changes))
+	}
+}
+
+func TestCompare_SBOMDiff_InvalidOldSBOM(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+
+	oldFS := fstest.MapFS{
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(`{invalid json}`)},
+	}
+	newFS := fstest.MapFS{
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(`{
+			"spdxVersion": "SPDX-2.3",
+			"packages": [{"name": "lib-a", "versionInfo": "1.0.0"}]
+		}`)},
+	}
+
+	result := Compare(old, new, oldFS, newFS)
+	if result.SBOMDiff != nil {
+		t.Error("expected nil SBOMDiff when old SBOM is invalid")
+	}
+}
+
+func TestCompare_SBOMDiff_InvalidNewSBOM(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+
+	oldFS := fstest.MapFS{
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(`{
+			"spdxVersion": "SPDX-2.3",
+			"packages": [{"name": "lib-a", "versionInfo": "1.0.0"}]
+		}`)},
+	}
+	newFS := fstest.MapFS{
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(`not valid json`)},
+	}
+
+	result := Compare(old, new, oldFS, newFS)
+	if result.SBOMDiff != nil {
+		t.Error("expected nil SBOMDiff when new SBOM is invalid")
+	}
+}
+
 // assertHasChange checks that a change with the given path, type, and classification exists.
 func assertHasChange(t *testing.T, result *Result, path string, ct ChangeType, cls Classification) {
 	t.Helper()

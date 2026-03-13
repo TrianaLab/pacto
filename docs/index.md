@@ -155,6 +155,8 @@ graph TD
         YAML --> Dependencies["Dependencies<br/>oci://auth:2.0.0<br/>oci://db:1.0.0"]
         YAML --> Runtime["Runtime<br/>state, health, lifecycle, scaling"]
         YAML --> Config["Configuration<br/>JSON Schema"]
+        Docs["docs/<br/>README · runbooks · guides"]
+        SBOM["sbom/<br/>SPDX · CycloneDX"]
     end
 
     IF["interfaces/<br/>openapi.yaml · service.proto"]
@@ -170,6 +172,8 @@ A bundle is a self-contained directory (or OCI artifact) containing:
 - **`pacto.yaml`** — the contract: interfaces, dependencies, runtime semantics, scaling
 - **`interfaces/`** — OpenAPI specs, protobuf definitions, event schemas
 - **`configuration/`** — JSON Schema for environment variables and settings
+- **`docs/`** *(optional)* — service documentation (README, runbooks, architecture notes)
+- **`sbom/`** *(optional)* — Software Bill of Materials in [SPDX](https://spdx.dev/) or [CycloneDX](https://cyclonedx.org/) format. `pacto diff` reports package-level changes when present
 
 All files referenced by `pacto.yaml` must exist within the bundle. Validation enforces this.
 
@@ -183,6 +187,7 @@ All files referenced by `pacto.yaml` must exist within the bundle. Validation en
 - **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor); bundles are cached locally for fast repeated operations
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
+- **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
 - **AI assistant integration** — `pacto mcp` exposes all contract operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and GitHub Copilot
 
 ---

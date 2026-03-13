@@ -252,6 +252,8 @@ $ pacto diff --output-format markdown oci://ghcr.io/acme/svc-pacto:1.0.0 my-serv
 
 The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level. The optional `docs/` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.
 
+When both bundles include an `sbom/` directory with recognized SBOM files (`.spdx.json` or `.cdx.json`), `pacto diff` reports package-level changes — added, removed, or modified packages (version and license). SBOM changes are informational and do not affect the overall classification or exit code.
+
 When dependencies change between the old and new contracts (version upgrades, additions, or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
 
 See [Change Classification]({{ site.baseurl }}{% link contract-reference.md %}#change-classification-rules) for the full rules.

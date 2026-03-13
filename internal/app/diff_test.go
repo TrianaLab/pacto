@@ -492,6 +492,59 @@ func TestDiff_DocsRemovedFromBundle(t *testing.T) {
 	}
 }
 
+func TestDiff_SBOMChangesIncluded(t *testing.T) {
+	oldDir := writeTestBundle(t)
+	newDir := writeTestBundle(t)
+
+	// Add SBOM to both bundles with different packages
+	oldSBOMDir := filepath.Join(oldDir, "sbom")
+	newSBOMDir := filepath.Join(newDir, "sbom")
+	if err := os.MkdirAll(oldSBOMDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(newSBOMDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldSBOMDir, "sbom.spdx.json"), []byte(`{
+		"spdxVersion": "SPDX-2.3",
+		"packages": [{"name": "lib-a", "versionInfo": "1.0.0"}]
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newSBOMDir, "sbom.spdx.json"), []byte(`{
+		"spdxVersion": "SPDX-2.3",
+		"packages": [{"name": "lib-a", "versionInfo": "2.0.0"}]
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(nil, nil)
+	result, err := svc.Diff(context.Background(), DiffOptions{OldPath: oldDir, NewPath: newDir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.SBOMDiff == nil {
+		t.Fatal("expected SBOMDiff to be populated")
+	}
+	if len(result.SBOMDiff.Changes) != 1 {
+		t.Errorf("expected 1 SBOM change, got %d", len(result.SBOMDiff.Changes))
+	}
+}
+
+func TestDiff_NoSBOMsNoSBOMDiff(t *testing.T) {
+	oldDir := writeTestBundle(t)
+	newDir := writeTestBundle(t)
+
+	svc := NewService(nil, nil)
+	result, err := svc.Diff(context.Background(), DiffOptions{OldPath: oldDir, NewPath: newDir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.SBOMDiff != nil {
+		t.Error("expected nil SBOMDiff when no SBOMs present")
+	}
+}
+
 func TestCollectNodes_NilRoot(t *testing.T) {
 	nodes := collectNodes(nil)
 	if len(nodes) != 0 {
