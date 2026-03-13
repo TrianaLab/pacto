@@ -497,6 +497,46 @@ func TestCompare_SBOMDiff_OnlyNewHasSBOM(t *testing.T) {
 	}
 }
 
+func TestCompare_SBOMDiff_InvalidOldSBOM(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+
+	oldFS := fstest.MapFS{
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(`{invalid json}`)},
+	}
+	newFS := fstest.MapFS{
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(`{
+			"spdxVersion": "SPDX-2.3",
+			"packages": [{"name": "lib-a", "versionInfo": "1.0.0"}]
+		}`)},
+	}
+
+	result := Compare(old, new, oldFS, newFS)
+	if result.SBOMDiff != nil {
+		t.Error("expected nil SBOMDiff when old SBOM is invalid")
+	}
+}
+
+func TestCompare_SBOMDiff_InvalidNewSBOM(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+
+	oldFS := fstest.MapFS{
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(`{
+			"spdxVersion": "SPDX-2.3",
+			"packages": [{"name": "lib-a", "versionInfo": "1.0.0"}]
+		}`)},
+	}
+	newFS := fstest.MapFS{
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(`not valid json`)},
+	}
+
+	result := Compare(old, new, oldFS, newFS)
+	if result.SBOMDiff != nil {
+		t.Error("expected nil SBOMDiff when new SBOM is invalid")
+	}
+}
+
 // assertHasChange checks that a change with the given path, type, and classification exists.
 func assertHasChange(t *testing.T, result *Result, path string, ct ChangeType, cls Classification) {
 	t.Helper()
