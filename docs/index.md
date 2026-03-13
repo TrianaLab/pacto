@@ -8,7 +8,7 @@ nav_order: 1
 {: .no_toc }
 
 **A single YAML contract that describes how a cloud-native service behaves — validated, versioned, and distributed as an OCI artifact.**
-{: .fs-6 .fw-300 }
+{: .fs-5 .fw-300 }
 
 [Get Started]({{ site.baseurl }}{% link quickstart.md %}){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [Specification]({{ site.baseurl }}{% link contract-reference.md %}){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
