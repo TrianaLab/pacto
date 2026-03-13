@@ -9,6 +9,7 @@ import (
 	"github.com/trianalab/pacto/internal/app"
 	"github.com/trianalab/pacto/internal/diff"
 	"github.com/trianalab/pacto/internal/graph"
+	"github.com/trianalab/pacto/internal/sbom"
 )
 
 // formatResult dispatches between JSON, markdown and text output.
@@ -83,10 +84,11 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
 		rendered := graph.RenderDiffTree(result.GraphDiff)
+		hasSBOM := result.SBOMDiff != nil && len(result.SBOMDiff.Changes) > 0
 
 		_, _ = fmt.Fprintf(w, "Classification: %s\n", result.Classification)
 
-		if len(result.Changes) == 0 && len(result.DependencyDiffs) == 0 && rendered == "" {
+		if len(result.Changes) == 0 && len(result.DependencyDiffs) == 0 && rendered == "" && !hasSBOM {
 			_, _ = fmt.Fprintln(w, "No changes detected.")
 			return nil
 		}
@@ -110,6 +112,10 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 			_, _ = fmt.Fprintf(w, "\nDependency graph changes:\n%s", rendered)
 		}
 
+		if hasSBOM {
+			printSBOMDiff(w, result.SBOMDiff)
+		}
+
 		return nil
 	}, func() error {
 		return printDiffMarkdown(cmd, result)
@@ -122,8 +128,9 @@ func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
 
 	hasChanges := len(result.Changes) > 0 || len(result.DependencyDiffs) > 0
 	rendered := graph.RenderDiffTree(result.GraphDiff)
+	hasSBOM := result.SBOMDiff != nil && len(result.SBOMDiff.Changes) > 0
 
-	if !hasChanges && rendered == "" {
+	if !hasChanges && rendered == "" && !hasSBOM {
 		_, _ = fmt.Fprintln(w, "No changes detected.")
 		return nil
 	}
@@ -140,6 +147,18 @@ func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
 
 	if rendered != "" {
 		_, _ = fmt.Fprintf(w, "### Dependency Graph Changes\n\n```\n%s```\n", rendered)
+	}
+
+	if hasSBOM {
+		_, _ = fmt.Fprintf(w, "### SBOM Changes\n\n")
+		_, _ = fmt.Fprintln(w, "| Package | Type | Field | Old | New |")
+		_, _ = fmt.Fprintln(w, "|---|---|---|---|---|")
+		for _, c := range result.SBOMDiff.Changes {
+			_, _ = fmt.Fprintf(w, "| `%s` | %s | %s | %s | %s |\n",
+				c.Package, c.Type, c.Field,
+				formatMDValue(nonEmpty(c.OldValue)), formatMDValue(nonEmpty(c.NewValue)))
+		}
+		_, _ = fmt.Fprintln(w)
 	}
 
 	return nil
@@ -229,6 +248,20 @@ func printDocResult(cmd *cobra.Command, result *app.DocResult, format string) er
 	})
 }
 
+func printSBOMDiff(w io.Writer, result *sbom.Result) {
+	_, _ = fmt.Fprintf(w, "\nSBOM changes (%d):\n", len(result.Changes))
+	for _, c := range result.Changes {
+		switch c.Type {
+		case sbom.PackageAdded:
+			_, _ = fmt.Fprintf(w, "  + %s@%s\n", c.Package, c.NewValue)
+		case sbom.PackageRemoved:
+			_, _ = fmt.Fprintf(w, "  - %s@%s\n", c.Package, c.OldValue)
+		case sbom.PackageModified:
+			_, _ = fmt.Fprintf(w, "  ~ %s %s: %s -> %s\n", c.Package, c.Field, c.OldValue, c.NewValue)
+		}
+	}
+}
+
 func printDiffMarkdownTable(w io.Writer, changes []diff.Change) {
 	_, _ = fmt.Fprintln(w, "| Classification | Path | Type | Reason | Old | New |")
 	_, _ = fmt.Fprintln(w, "|---|---|---|---|---|---|")
@@ -263,6 +296,13 @@ func formatChangeValues(c diff.Change) string {
 		}
 	}
 	return ""
+}
+
+func nonEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func printJSON(cmd *cobra.Command, v any) error {

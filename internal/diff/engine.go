@@ -3,7 +3,9 @@ package diff
 import (
 	"encoding/json"
 	"io/fs"
+	"log/slog"
 
+	"github.com/trianalab/pacto/internal/sbom"
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
@@ -73,6 +75,7 @@ type Change struct {
 type Result struct {
 	Classification Classification `json:"classification"`
 	Changes        []Change       `json:"changes"`
+	SBOMDiff       *sbom.Result   `json:"sbomDiff,omitempty"`
 }
 
 // fileSetReader reads a file from an FS and returns a set of string keys.
@@ -123,5 +126,27 @@ func Compare(old, new *contract.Contract, oldFS, newFS fs.FS) *Result {
 	return &Result{
 		Classification: overall,
 		Changes:        changes,
+		SBOMDiff:       diffSBOM(oldFS, newFS),
 	}
+}
+
+// diffSBOM compares SBOM documents from both bundle filesystems.
+// SBOM changes are informational and do not affect the classification.
+func diffSBOM(oldFS, newFS fs.FS) *sbom.Result {
+	oldDoc, err := sbom.ParseFromFS(oldFS)
+	if err != nil {
+		slog.Debug("failed to parse old SBOM", "error", err)
+		return nil
+	}
+	newDoc, err := sbom.ParseFromFS(newFS)
+	if err != nil {
+		slog.Debug("failed to parse new SBOM", "error", err)
+		return nil
+	}
+
+	result := sbom.Diff(oldDoc, newDoc)
+	if result != nil && len(result.Changes) == 0 {
+		return nil
+	}
+	return result
 }

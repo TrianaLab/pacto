@@ -1205,6 +1205,119 @@ func TestFullLifecycle(t *testing.T) {
 	assertContains(t, output, "Generated 2 file(s)")
 }
 
+func TestSBOMDiff(t *testing.T) {
+	t.Run("diff detects SBOM package changes", func(t *testing.T) {
+		v1Path := writeBundleWithSBOM(t, "1.0.0", "sbom.spdx.json", sbomSPDXV1)
+		v2Path := writeBundleWithSBOM(t, "2.0.0", "sbom.spdx.json", sbomSPDXV2)
+
+		output, _ := runCommand(t, nil, "diff", v1Path, v2Path)
+
+		assertContains(t, output, "SBOM changes")
+		// lib-a version modified (1.0.0 -> 2.0.0)
+		assertContains(t, output, "lib-a")
+		// lib-b removed
+		assertContains(t, output, "lib-b")
+		// lib-c added
+		assertContains(t, output, "lib-c")
+	})
+
+	t.Run("diff with no SBOMs shows no SBOM section", func(t *testing.T) {
+		postgresPath := writePostgresBundle(t)
+		output, err := runCommand(t, nil, "diff", postgresPath, postgresPath)
+		if err != nil {
+			t.Fatalf("diff failed: %v\noutput: %s", err, output)
+		}
+		assertNotContains(t, output, "SBOM changes")
+	})
+
+	t.Run("diff with identical SBOMs shows no SBOM section", func(t *testing.T) {
+		v1a := writeBundleWithSBOM(t, "1.0.0", "sbom.spdx.json", sbomSPDXV1)
+		v1b := writeBundleWithSBOM(t, "1.0.0", "sbom.spdx.json", sbomSPDXV1)
+
+		output, err := runCommand(t, nil, "diff", v1a, v1b)
+		if err != nil {
+			t.Fatalf("diff failed: %v\noutput: %s", err, output)
+		}
+		assertNotContains(t, output, "SBOM changes")
+	})
+
+	t.Run("json output includes sbomDiff", func(t *testing.T) {
+		v1Path := writeBundleWithSBOM(t, "1.0.0", "sbom.spdx.json", sbomSPDXV1)
+		v2Path := writeBundleWithSBOM(t, "2.0.0", "sbom.spdx.json", sbomSPDXV2)
+
+		output, _ := runCommand(t, nil, "--output-format", "json", "diff", v1Path, v2Path)
+
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(output), &result); err != nil {
+			t.Fatalf("expected valid JSON output, got: %s", output)
+		}
+		sbomDiff, ok := result["sbomDiff"].(map[string]interface{})
+		if !ok {
+			t.Fatal("expected sbomDiff object in JSON output")
+		}
+		changes, ok := sbomDiff["changes"].([]interface{})
+		if !ok || len(changes) == 0 {
+			t.Error("expected non-empty SBOM changes array")
+		}
+	})
+
+	t.Run("markdown output includes SBOM section", func(t *testing.T) {
+		v1Path := writeBundleWithSBOM(t, "1.0.0", "sbom.spdx.json", sbomSPDXV1)
+		v2Path := writeBundleWithSBOM(t, "2.0.0", "sbom.spdx.json", sbomSPDXV2)
+
+		output, _ := runCommand(t, nil, "--output-format", "markdown", "diff", v1Path, v2Path)
+
+		assertContains(t, output, "### SBOM Changes")
+		assertContains(t, output, "| Package | Type |")
+	})
+
+	t.Run("CycloneDX format support", func(t *testing.T) {
+		v1Path := writeBundleWithSBOM(t, "1.0.0", "bom.cdx.json", sbomCDXV1)
+		v2Path := writeBundleWithSBOM(t, "2.0.0", "sbom.spdx.json", sbomSPDXV1)
+
+		output, _ := runCommand(t, nil, "diff", v1Path, v2Path)
+
+		// Cross-format diff: CDX v1 has lib-x, SPDX v2 has lib-a + lib-b
+		assertContains(t, output, "SBOM changes")
+		assertContains(t, output, "lib-x")
+	})
+
+	t.Run("one bundle with SBOM one without", func(t *testing.T) {
+		withSBOM := writeBundleWithSBOM(t, "1.0.0", "sbom.spdx.json", sbomSPDXV1)
+		withoutSBOM := writePostgresBundle(t)
+
+		output, _ := runCommand(t, nil, "diff", withSBOM, withoutSBOM)
+
+		assertContains(t, output, "SBOM changes")
+		assertContains(t, output, "lib-a")
+		assertContains(t, output, "lib-b")
+	})
+
+	t.Run("pack and pull roundtrip preserves SBOM", func(t *testing.T) {
+		reg := newTestRegistry(t)
+		bundlePath := writeBundleWithSBOM(t, "1.0.0", "sbom.spdx.json", sbomSPDXV1)
+
+		ref := "oci://" + reg.host + "/sbom-svc:1.0.0"
+		_, err := runCommand(t, reg, "push", ref, "-p", bundlePath)
+		if err != nil {
+			t.Fatalf("push failed: %v", err)
+		}
+
+		pullDir := t.TempDir()
+		_, err = runCommand(t, reg, "pull", ref, "-o", filepath.Join(pullDir, "pulled"))
+		if err != nil {
+			t.Fatalf("pull failed: %v", err)
+		}
+
+		// Diff original vs pulled — no SBOM changes expected
+		output, err := runCommand(t, nil, "diff", bundlePath, filepath.Join(pullDir, "pulled"))
+		if err != nil {
+			t.Fatalf("diff failed: %v\noutput: %s", err, output)
+		}
+		assertNotContains(t, output, "SBOM changes")
+	})
+}
+
 func TestGraphWithDependencies(t *testing.T) {
 	reg := newTestRegistry(t)
 

@@ -10,6 +10,7 @@ import (
 	"github.com/trianalab/pacto/internal/app"
 	"github.com/trianalab/pacto/internal/diff"
 	"github.com/trianalab/pacto/internal/graph"
+	"github.com/trianalab/pacto/internal/sbom"
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
@@ -834,5 +835,116 @@ func TestPrintValidateResult_WriteError(t *testing.T) {
 	err := printValidateResult(cmd, result, "json")
 	if err == nil {
 		t.Error("expected error when output writer fails")
+	}
+}
+
+func TestPrintDiffResult_WithSBOMChanges(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{
+		OldPath:        "a.yaml",
+		NewPath:        "b.yaml",
+		Classification: "NON_BREAKING",
+		SBOMDiff: &sbom.Result{
+			OldFormat: "spdx",
+			NewFormat: "spdx",
+			Changes: []sbom.Change{
+				{Package: "lib-a", Type: sbom.PackageAdded, Field: "package", NewValue: "1.0.0"},
+				{Package: "lib-b", Type: sbom.PackageRemoved, Field: "package", OldValue: "2.0.0"},
+				{Package: "lib-c", Type: sbom.PackageModified, Field: "version", OldValue: "1.0.0", NewValue: "2.0.0"},
+			},
+		},
+	}
+	if err := printDiffResult(cmd, result, "text"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "SBOM changes (3):") {
+		t.Errorf("expected SBOM changes header, got %q", out)
+	}
+	if !strings.Contains(out, "+ lib-a@1.0.0") {
+		t.Errorf("expected added package, got %q", out)
+	}
+	if !strings.Contains(out, "- lib-b@2.0.0") {
+		t.Errorf("expected removed package, got %q", out)
+	}
+	if !strings.Contains(out, "~ lib-c version: 1.0.0 -> 2.0.0") {
+		t.Errorf("expected modified package, got %q", out)
+	}
+	if strings.Contains(out, "No changes detected") {
+		t.Errorf("should not show 'No changes detected' when SBOM has changes")
+	}
+}
+
+func TestPrintDiffResult_SBOMNoChanges(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{
+		OldPath:        "a.yaml",
+		NewPath:        "b.yaml",
+		Classification: "NON_BREAKING",
+	}
+	if err := printDiffResult(cmd, result, "text"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "SBOM changes") {
+		t.Errorf("did not expect SBOM section when no SBOM diff, got %q", out)
+	}
+}
+
+func TestPrintDiffResult_Markdown_WithSBOMChanges(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{
+		OldPath:        "a.yaml",
+		NewPath:        "b.yaml",
+		Classification: "NON_BREAKING",
+		SBOMDiff: &sbom.Result{
+			OldFormat: "spdx",
+			NewFormat: "spdx",
+			Changes: []sbom.Change{
+				{Package: "lib-a", Type: sbom.PackageAdded, Field: "package", NewValue: "1.0.0"},
+				{Package: "lib-b", Type: sbom.PackageModified, Field: "license", OldValue: "MIT", NewValue: "Apache-2.0"},
+			},
+		},
+	}
+	if err := printDiffResult(cmd, result, "markdown"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "### SBOM Changes") {
+		t.Errorf("expected SBOM heading in markdown, got %q", out)
+	}
+	if !strings.Contains(out, "`lib-a`") {
+		t.Errorf("expected package name in markdown table, got %q", out)
+	}
+	if !strings.Contains(out, "| Package | Type | Field | Old | New |") {
+		t.Errorf("expected table header, got %q", out)
+	}
+	if strings.Contains(out, "No changes detected") {
+		t.Errorf("should not show 'No changes detected' when SBOM has changes")
+	}
+}
+
+func TestPrintDiffResult_Markdown_NoSBOMChanges(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{
+		OldPath:        "a.yaml",
+		NewPath:        "b.yaml",
+		Classification: "NON_BREAKING",
+	}
+	if err := printDiffResult(cmd, result, "markdown"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "### SBOM Changes") {
+		t.Errorf("did not expect SBOM heading when no SBOM diff, got %q", out)
+	}
+}
+
+func TestNonEmpty(t *testing.T) {
+	if got := nonEmpty(""); got != nil {
+		t.Errorf("expected nil for empty string, got %v", got)
+	}
+	if got := nonEmpty("hello"); got != "hello" {
+		t.Errorf("expected 'hello', got %v", got)
 	}
 }

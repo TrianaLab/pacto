@@ -10,6 +10,7 @@ import (
 
 	"github.com/trianalab/pacto/internal/diff"
 	"github.com/trianalab/pacto/internal/graph"
+	"github.com/trianalab/pacto/internal/sbom"
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
@@ -34,6 +35,7 @@ type DiffResult struct {
 	Changes         []diff.Change    `json:"changes"`
 	DependencyDiffs []DependencyDiff `json:"dependencyDiffs,omitempty"`
 	GraphDiff       *graph.GraphDiff `json:"graphDiff,omitempty"`
+	SBOMDiff        *sbom.Result     `json:"sbomDiff,omitempty"`
 }
 
 // Diff compares two contracts and produces a classified change set.
@@ -98,6 +100,7 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 		Changes:         result.Changes,
 		DependencyDiffs: depDiffs,
 		GraphDiff:       gd,
+		SBOMDiff:        result.SBOMDiff,
 	}, nil
 }
 

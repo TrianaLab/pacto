@@ -160,6 +160,8 @@ my-service/
     schema.json
   docs/                   ← optional documentation
     README.md
+  sbom/                   ← optional SBOM
+    sbom.spdx.json
 ```
 
 ```bash
@@ -184,6 +186,7 @@ graph TD
         YAML --> Runtime["Runtime<br/>state, health, lifecycle, scaling"]
         YAML --> Config["Configuration<br/>JSON Schema"]
         Docs["docs/<br/>README · runbooks · guides"]
+        SBOM["sbom/<br/>SPDX · CycloneDX"]
     end
 
     IF["interfaces/<br/>openapi.yaml · service.proto"]
@@ -200,6 +203,7 @@ A bundle is a self-contained directory (or OCI artifact) containing:
 - **`interfaces/`** — OpenAPI specs, protobuf definitions, event schemas
 - **`configuration/`** — JSON Schema for environment variables and settings
 - **`docs/`** *(optional)* — service documentation (README, runbooks, architecture notes, integration guides). Travels with the contract but has no effect on validation, diffing, or compatibility classification
+- **`sbom/`** *(optional)* — Software Bill of Materials in SPDX 2.3 (`.spdx.json`) or CycloneDX 1.5 (`.cdx.json`) format. When present, `pacto diff` reports package-level changes (added, removed, version/license modified). Generate with tools like [Syft](https://github.com/anchore/syft), [Trivy](https://github.com/aquasecurity/trivy), or [cdxgen](https://github.com/CycloneDX/cdxgen)
 
 ## Example repository layout
 
@@ -215,6 +219,8 @@ payments-api/
   docs/                          ← optional service documentation
     README.md
     runbook.md
+  sbom/                          ← optional SBOM (SPDX or CycloneDX)
+    sbom.spdx.json
   .github/workflows/
     ci.yml                       ← pacto validate + pacto diff + pacto push
 ```
@@ -247,6 +253,7 @@ This distinction matters because:
 - **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor), with local caching
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
+- **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
 - **AI assistant integration** — `pacto mcp` exposes all operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and Copilot
 
 ---
