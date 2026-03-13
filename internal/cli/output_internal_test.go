@@ -838,6 +838,77 @@ func TestPrintValidateResult_WriteError(t *testing.T) {
 	}
 }
 
+func TestPrintDiffResult_DependencySBOMOnly(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{
+		OldPath:        "a.yaml",
+		NewPath:        "b.yaml",
+		Classification: "NON_BREAKING",
+		DependencyDiffs: []app.DependencyDiff{
+			{
+				Name:           "child-svc",
+				Classification: "NON_BREAKING",
+				SBOMDiff: &sbom.Result{
+					NewFormat: "spdx",
+					Changes: []sbom.Change{
+						{Package: "lib-x", Type: sbom.PackageAdded, Field: "package", NewValue: "1.0.0"},
+					},
+				},
+			},
+		},
+	}
+	if err := printDiffResult(cmd, result, "text"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "No changes detected") {
+		t.Errorf("should not show 'No changes detected' when dep has SBOM changes, got %q", out)
+	}
+	if !strings.Contains(out, "SBOM changes (1):") {
+		t.Errorf("expected SBOM changes section for dependency, got %q", out)
+	}
+	if !strings.Contains(out, "+ lib-x@1.0.0") {
+		t.Errorf("expected added package in dep SBOM, got %q", out)
+	}
+}
+
+func TestPrintDiffResult_Markdown_DependencySBOMOnly(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.DiffResult{
+		OldPath:        "a.yaml",
+		NewPath:        "b.yaml",
+		Classification: "NON_BREAKING",
+		DependencyDiffs: []app.DependencyDiff{
+			{
+				Name:           "child-svc",
+				Classification: "NON_BREAKING",
+				SBOMDiff: &sbom.Result{
+					NewFormat: "spdx",
+					Changes: []sbom.Change{
+						{Package: "lib-x", Type: sbom.PackageAdded, Field: "package", NewValue: "1.0.0"},
+					},
+				},
+			},
+		},
+	}
+	if err := printDiffResult(cmd, result, "markdown"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "No changes detected") {
+		t.Errorf("should not show 'No changes detected' when dep has SBOM changes, got %q", out)
+	}
+	if !strings.Contains(out, "### Dependency: child-svc") {
+		t.Errorf("expected dependency heading, got %q", out)
+	}
+	if !strings.Contains(out, "#### SBOM Changes: child-svc") {
+		t.Errorf("expected SBOM changes sub-heading, got %q", out)
+	}
+	if !strings.Contains(out, "`lib-x`") {
+		t.Errorf("expected package name in table, got %q", out)
+	}
+}
+
 func TestPrintDiffResult_WithSBOMChanges(t *testing.T) {
 	cmd, buf := testCmd()
 	result := &app.DiffResult{

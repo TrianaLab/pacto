@@ -545,6 +545,44 @@ func TestDiff_NoSBOMsNoSBOMDiff(t *testing.T) {
 	}
 }
 
+func TestDiff_DependencySBOMChanges(t *testing.T) {
+	// When a dependency has SBOM changes but no contract changes,
+	// the SBOM diff should still be included in the result.
+	oldDir := writeBundleWithDep(t, "1.0.0", "1.0.0")
+	newDir := writeBundleWithDep(t, "1.0.0", "1.0.0")
+
+	// Add SBOM only to the NEW child (simulates adding SBOM for the first time).
+	newChildSBOMDir := filepath.Join(newDir, "child", "sbom")
+	if err := os.MkdirAll(newChildSBOMDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(newChildSBOMDir, "child.spdx.json"), []byte(`{
+		"spdxVersion": "SPDX-2.3",
+		"packages": [{"name": "lib-x", "versionInfo": "1.0.0"}]
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(nil, nil)
+	result, err := svc.Diff(context.Background(), DiffOptions{OldPath: oldDir, NewPath: newDir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.DependencyDiffs) == 0 {
+		t.Fatal("expected dependency diffs when child has SBOM changes")
+	}
+	dd := result.DependencyDiffs[0]
+	if dd.Name != "child-svc" {
+		t.Errorf("expected dep name 'child-svc', got %q", dd.Name)
+	}
+	if dd.SBOMDiff == nil {
+		t.Fatal("expected SBOMDiff on dependency diff")
+	}
+	if len(dd.SBOMDiff.Changes) != 1 {
+		t.Errorf("expected 1 SBOM change on dependency, got %d", len(dd.SBOMDiff.Changes))
+	}
+}
+
 func TestCollectNodes_NilRoot(t *testing.T) {
 	nodes := collectNodes(nil)
 	if len(nodes) != 0 {

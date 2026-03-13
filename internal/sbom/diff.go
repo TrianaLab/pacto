@@ -95,6 +95,15 @@ func Diff(old, new *Document) *Result {
 				NewValue: newPkg.License,
 			})
 		}
+		if oldPkg.Supplier != newPkg.Supplier {
+			result.Changes = append(result.Changes, Change{
+				Package:  name,
+				Type:     PackageModified,
+				Field:    "supplier",
+				OldValue: oldPkg.Supplier,
+				NewValue: newPkg.Supplier,
+			})
+		}
 	}
 
 	for name, newPkg := range newByName {

@@ -85,10 +85,11 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 		w := cmd.OutOrStdout()
 		rendered := graph.RenderDiffTree(result.GraphDiff)
 		hasSBOM := result.SBOMDiff != nil && len(result.SBOMDiff.Changes) > 0
+		hasDepSBOM := hasAnyDepSBOM(result.DependencyDiffs)
 
 		_, _ = fmt.Fprintf(w, "Classification: %s\n", result.Classification)
 
-		if len(result.Changes) == 0 && len(result.DependencyDiffs) == 0 && rendered == "" && !hasSBOM {
+		if len(result.Changes) == 0 && len(result.DependencyDiffs) == 0 && rendered == "" && !hasSBOM && !hasDepSBOM {
 			_, _ = fmt.Fprintln(w, "No changes detected.")
 			return nil
 		}
@@ -105,6 +106,9 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 			for _, c := range dd.Changes {
 				_, _ = fmt.Fprintf(w, "  [%s] %s (%s): %s%s\n",
 					c.Classification, c.Path, c.Type, c.Reason, formatChangeValues(c))
+			}
+			if dd.SBOMDiff != nil && len(dd.SBOMDiff.Changes) > 0 {
+				printSBOMDiff(w, dd.SBOMDiff)
 			}
 		}
 
@@ -129,8 +133,9 @@ func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
 	hasChanges := len(result.Changes) > 0 || len(result.DependencyDiffs) > 0
 	rendered := graph.RenderDiffTree(result.GraphDiff)
 	hasSBOM := result.SBOMDiff != nil && len(result.SBOMDiff.Changes) > 0
+	hasDepSBOM := hasAnyDepSBOM(result.DependencyDiffs)
 
-	if !hasChanges && rendered == "" && !hasSBOM {
+	if !hasChanges && rendered == "" && !hasSBOM && !hasDepSBOM {
 		_, _ = fmt.Fprintln(w, "No changes detected.")
 		return nil
 	}
@@ -142,7 +147,12 @@ func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
 
 	for _, dd := range result.DependencyDiffs {
 		_, _ = fmt.Fprintf(w, "### Dependency: %s (`%s`)\n\n", dd.Name, dd.Classification)
-		printDiffMarkdownTable(w, dd.Changes)
+		if len(dd.Changes) > 0 {
+			printDiffMarkdownTable(w, dd.Changes)
+		}
+		if dd.SBOMDiff != nil && len(dd.SBOMDiff.Changes) > 0 {
+			printSBOMMarkdownTable(w, dd.Name, dd.SBOMDiff)
+		}
 	}
 
 	if rendered != "" {
@@ -303,6 +313,27 @@ func nonEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+func hasAnyDepSBOM(deps []app.DependencyDiff) bool {
+	for _, dd := range deps {
+		if dd.SBOMDiff != nil && len(dd.SBOMDiff.Changes) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func printSBOMMarkdownTable(w io.Writer, name string, result *sbom.Result) {
+	_, _ = fmt.Fprintf(w, "#### SBOM Changes: %s\n\n", name)
+	_, _ = fmt.Fprintln(w, "| Package | Type | Field | Old | New |")
+	_, _ = fmt.Fprintln(w, "|---|---|---|---|---|")
+	for _, c := range result.Changes {
+		_, _ = fmt.Fprintf(w, "| `%s` | %s | %s | %s | %s |\n",
+			c.Package, c.Type, c.Field,
+			formatMDValue(nonEmpty(c.OldValue)), formatMDValue(nonEmpty(c.NewValue)))
+	}
+	_, _ = fmt.Fprintln(w)
 }
 
 func printJSON(cmd *cobra.Command, v any) error {

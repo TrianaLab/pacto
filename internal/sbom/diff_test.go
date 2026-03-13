@@ -168,6 +168,29 @@ func TestDiff_LicenseModified(t *testing.T) {
 	}
 }
 
+func TestDiff_SupplierModified(t *testing.T) {
+	old := &Document{Format: "spdx", Packages: []Package{
+		{Name: "lib-a", Version: "1.0.0", Supplier: "Acme Inc."},
+	}}
+	new := &Document{Format: "spdx", Packages: []Package{
+		{Name: "lib-a", Version: "1.0.0", Supplier: "New Corp."},
+	}}
+
+	result := Diff(old, new)
+	found := false
+	for _, c := range result.Changes {
+		if c.Package == "lib-a" && c.Type == PackageModified && c.Field == "supplier" {
+			found = true
+			if c.OldValue != "Acme Inc." || c.NewValue != "New Corp." {
+				t.Errorf("expected Acme Inc.->New Corp., got %s->%s", c.OldValue, c.NewValue)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected lib-a supplier modified change")
+	}
+}
+
 func TestDiff_MultipleChanges(t *testing.T) {
 	old := &Document{Format: "spdx", Packages: []Package{
 		{Name: "lib-a", Version: "1.0.0", License: "MIT"},

@@ -25,6 +25,7 @@ type DependencyDiff struct {
 	Name           string        `json:"name"`
 	Classification string        `json:"classification"`
 	Changes        []diff.Change `json:"changes"`
+	SBOMDiff       *sbom.Result  `json:"sbomDiff,omitempty"`
 }
 
 // DiffResult holds the result of the diff command.
@@ -78,7 +79,8 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 			continue
 		}
 		depResult := diff.Compare(oldNode.Contract, newNode.Contract, oldNode.FS, newNode.FS)
-		if len(depResult.Changes) == 0 {
+		hasSBOMChanges := depResult.SBOMDiff != nil && len(depResult.SBOMDiff.Changes) > 0
+		if len(depResult.Changes) == 0 && !hasSBOMChanges {
 			continue
 		}
 		if depResult.Classification > overall {
@@ -88,6 +90,7 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 			Name:           name,
 			Classification: depResult.Classification.String(),
 			Changes:        depResult.Changes,
+			SBOMDiff:       depResult.SBOMDiff,
 		})
 	}
 

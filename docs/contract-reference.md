@@ -643,5 +643,6 @@ SBOM changes are reported separately from contract changes. They are **informati
 | Package removed | A package no longer appears in the SBOM |
 | Package version modified | A package's version changed |
 | Package license modified | A package's license changed |
+| Package supplier modified | A package's supplier changed |
 
 Unknown changes default to **POTENTIAL_BREAKING**.
