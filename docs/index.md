@@ -12,7 +12,8 @@ nav_order: 1
 
 [Get Started]({{ site.baseurl }}{% link quickstart.md %}){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [Specification]({{ site.baseurl }}{% link contract-reference.md %}){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[Examples]({{ site.baseurl }}{% link examples/index.md %}){: .btn .fs-5 .mb-4 .mb-md-0 }
+[Examples]({{ site.baseurl }}{% link examples/index.md %}){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[Demo](https://github.com/TrianaLab/pacto-demo){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
 

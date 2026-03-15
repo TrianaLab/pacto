@@ -15,7 +15,7 @@ Where OpenAPI describes the API and Helm describes the deployment, Pacto describ
 
 No runtime agents. No sidecars. No new infrastructure. Pacto runs at build time and CI time only.
 
-**[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)**
+**[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)** · **[Demo](https://github.com/TrianaLab/pacto-demo)**
 
 ---
 
@@ -411,6 +411,7 @@ Full documentation at **[trianalab.github.io/pacto](https://trianalab.github.io/
 | [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) | Connect AI tools (Claude, Cursor, Copilot) to Pacto via MCP |
 | [Plugin Development](https://trianalab.github.io/pacto/plugins) | Build plugins to generate artifacts from contracts |
 | [Examples](https://trianalab.github.io/pacto/examples) | PostgreSQL, Redis, RabbitMQ, NGINX, Cron Worker |
+| [Demo](https://github.com/TrianaLab/pacto-demo) | Complete working demo repository |
 | [Architecture](https://trianalab.github.io/pacto/architecture) | Internal design for contributors |
 
 ---

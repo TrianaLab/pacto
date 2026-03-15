@@ -10,6 +10,8 @@ has_children: true
 
 This section provides ready-to-use Pacto contracts for common infrastructure services. Use these as references when writing your own contracts or as dependencies in your service contracts.
 
+For a complete working demo repository, see [pacto-demo](https://github.com/TrianaLab/pacto-demo).
+
 ---
 
 <details open markdown="block">
