@@ -8,10 +8,11 @@ import (
 
 func newPackCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "pack [dir]",
-		Short: "Create a bundle archive from a contract",
-		Long:  "Validates the contract in the given directory and creates a tar.gz archive of the bundle, ready for distribution.",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "pack [dir]",
+		Short:   "Create a bundle archive from a contract",
+		Long:    "Validates the contract in the given directory and creates a tar.gz archive of the bundle, ready for distribution.",
+		Example: "  pacto pack my-service",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := ""
 			if len(args) > 0 {

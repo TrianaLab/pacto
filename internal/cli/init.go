@@ -8,10 +8,11 @@ import (
 
 func newInitCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "init <name>",
-		Short: "Scaffold a new pacto project",
-		Long:  "Creates a new directory with pacto.yaml and the bundle directory structure (interfaces/, configuration/).",
-		Args:  cobra.ExactArgs(1),
+		Use:     "init <name>",
+		Short:   "Scaffold a new pacto project",
+		Long:    "Creates a new directory with pacto.yaml and the bundle directory structure (interfaces/, configuration/).",
+		Example: "  pacto init my-service",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 

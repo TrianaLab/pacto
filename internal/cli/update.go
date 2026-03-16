@@ -12,7 +12,12 @@ func newUpdateCommand(version string) *cobra.Command {
 		Use:   "update [version]",
 		Short: "Update pacto to a newer version",
 		Long:  "Downloads and installs the specified version of pacto. If no version is given, updates to the latest release.",
-		Args:  cobra.MaximumNArgs(1),
+		Example: `  # Update to the latest release
+  pacto update
+
+  # Update to a specific version
+  pacto update v1.1.0`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if version == "dev" {
 				return fmt.Errorf("cannot update a dev build; install a release build from https://github.com/TrianaLab/pacto/releases")

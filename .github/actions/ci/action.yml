@@ -38,6 +38,12 @@ runs:
     - name: Run linter
       uses: golangci/golangci-lint-action@v9.2.0
 
+    - name: Check CLI docs are up to date
+      run: |
+        go run ./cmd/gendocs/
+        git diff --exit-code docs/cli-reference.md
+      shell: bash
+
     - name: Run unit tests
       run: go test ./...
       shell: bash

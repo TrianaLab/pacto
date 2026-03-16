@@ -14,7 +14,15 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "push <ref>",
 		Short: "Push a contract bundle to an OCI registry",
 		Long:  "Validates the contract, builds an OCI image, and pushes it to the specified registry reference.",
-		Args:  cobra.ExactArgs(1),
+		Example: `  # Push with auto-tag (uses contract version)
+  pacto push oci://ghcr.io/acme/my-service-pacto -p my-service
+
+  # Push with explicit tag
+  pacto push oci://ghcr.io/acme/my-service-pacto:latest -p my-service
+
+  # Force overwrite an existing artifact
+  pacto push oci://ghcr.io/acme/my-service-pacto -p my-service --force`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := args[0]
 			path, _ := cmd.Flags().GetString("path")

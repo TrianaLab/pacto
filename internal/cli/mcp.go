@@ -18,7 +18,15 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 		Use:   "mcp",
 		Short: "Start an MCP server",
 		Long:  "Starts a Model Context Protocol (MCP) server exposing Pacto tools for AI agents. Supports stdio (default) and HTTP transports.",
-		Args:  cobra.NoArgs,
+		Example: `  # Start MCP server over stdio (default)
+  pacto mcp
+
+  # Start MCP server over HTTP
+  pacto mcp -t http
+
+  # Start MCP server on a custom port
+  pacto mcp -t http --port 9090`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			transport, _ := cmd.Flags().GetString("transport")
 			port, _ := cmd.Flags().GetInt("port")

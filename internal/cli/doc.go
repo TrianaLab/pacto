@@ -16,7 +16,18 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "doc [dir | oci://ref]",
 		Short: "Generate Markdown documentation from a contract",
 		Long:  "Reads a pacto.yaml in the given directory (or oci:// reference) and generates structured Markdown documentation.",
-		Args:  cobra.MaximumNArgs(1),
+		Example: `  # Print documentation to stdout
+  pacto doc my-service
+
+  # Write documentation to a file
+  pacto doc my-service -o docs/
+
+  # Serve documentation in the browser
+  pacto doc my-service --serve
+
+  # Serve on a custom port
+  pacto doc my-service --serve --port 9090`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var path string
 			if len(args) > 0 {

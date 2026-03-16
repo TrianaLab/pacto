@@ -5,7 +5,7 @@ ifeq ($(GOBIN),)
 GOBIN := $(shell go env GOPATH)/bin
 endif
 
-.PHONY: build test e2e coverage lint clean docs ci
+.PHONY: build test e2e coverage lint clean docs gen-cli-docs ci
 
 build:
 	rm -f "$(GOBIN)/pacto"
@@ -18,13 +18,16 @@ e2e:
 	go test -tags e2e ./tests/e2e/ -v -count=1 -timeout 120s
 
 coverage:
-	go test $(shell go list ./... | grep -v /tests/ | grep -v /testutil) -coverprofile=coverage.out
+	go test $(shell go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs) -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 	@go tool cover -func=coverage.out | tail -1
 
 lint:
 	gofmt -s -l $(shell find . -name '*.go' -not -path './plugins/*')
 	go vet ./...
+
+gen-cli-docs:
+	go run ./cmd/gendocs/
 
 BUNDLE := $(shell command -v /opt/homebrew/opt/ruby@3.3/bin/bundle 2>/dev/null || command -v /opt/homebrew/opt/ruby/bin/bundle 2>/dev/null || command -v bundle 2>/dev/null)
 

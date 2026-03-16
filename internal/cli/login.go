@@ -20,10 +20,11 @@ var (
 
 func newLoginCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "login <registry>",
-		Short: "Log in to an OCI registry",
-		Long:  "Stores credentials for an OCI registry in ~/.config/pacto/config.json.",
-		Args:  cobra.ExactArgs(1),
+		Use:     "login <registry>",
+		Short:   "Log in to an OCI registry",
+		Long:    "Stores credentials for an OCI registry in ~/.config/pacto/config.json.",
+		Example: "  pacto login ghcr.io -u my-username",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			registry := args[0]
 			username, _ := cmd.Flags().GetString("username")

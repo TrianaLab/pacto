@@ -11,7 +11,12 @@ func newPullCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "pull <ref>",
 		Short: "Pull a contract bundle from an OCI registry",
 		Long:  "Pulls a contract bundle from the specified OCI reference and extracts it to a local directory.",
-		Args:  cobra.ExactArgs(1),
+		Example: `  # Pull a specific version
+  pacto pull oci://ghcr.io/acme/my-service-pacto:1.0.0
+
+  # Pull the latest available version
+  pacto pull oci://ghcr.io/acme/my-service-pacto`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := args[0]
 			output, _ := cmd.Flags().GetString("output")

@@ -13,7 +13,18 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "validate [dir | oci://ref]",
 		Short: "Validate a pacto contract",
 		Long:  "Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, checking structural, cross-field, and semantic rules.",
-		Args:  cobra.MaximumNArgs(1),
+		Example: `  # Validate a local contract
+  pacto validate my-service
+
+  # Validate from current directory
+  pacto validate
+
+  # Validate from an OCI registry
+  pacto validate oci://ghcr.io/acme/my-service-pacto:1.0.0
+
+  # JSON output
+  pacto validate --output-format json my-service`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := ""
 			if len(args) > 0 {

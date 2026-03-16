@@ -13,7 +13,12 @@ func newDiffCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "diff <old> <new>",
 		Short: "Compare two contracts and classify changes",
 		Long:  "Compares two contracts (local paths or oci:// references) and produces a classified change set (BREAKING, POTENTIAL_BREAKING, NON_BREAKING).",
-		Args:  cobra.ExactArgs(2),
+		Example: `  # Compare a remote contract with a local one
+  pacto diff oci://ghcr.io/acme/svc-pacto:1.0.0 my-service
+
+  # Markdown output for CI comments
+  pacto diff --output-format markdown oci://ghcr.io/acme/svc-pacto:1.0.0 my-service`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := svc.Diff(cmd.Context(), app.DiffOptions{
 				OldPath: args[0],
