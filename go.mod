@@ -5,7 +5,7 @@ go 1.25.7
 require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/google/go-containerregistry v0.21.2
-	github.com/modelcontextprotocol/go-sdk v1.4.0
+	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
@@ -30,7 +30,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
-	github.com/segmentio/encoding v0.5.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
