@@ -142,6 +142,10 @@ paths:
 	if !strings.Contains(html, "/spec/api") {
 		t.Error("expected spec URL in HTML")
 	}
+	// No proxy attr when target is not set.
+	if strings.Contains(html, "proxy") {
+		t.Error("expected no proxy attribute without target")
+	}
 
 	// Test the spec endpoint.
 	resp2, err := http.Get(fmt.Sprintf("http://%s/spec/api", addr))
@@ -411,7 +415,6 @@ paths: {}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Use target with a base path to verify it is preserved.
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- ServeSwaggerOnListener(ctx, SwaggerOptions{
@@ -424,7 +427,7 @@ paths: {}
 
 	time.Sleep(50 * time.Millisecond)
 
-	// The spec should have servers pointing to /proxy/ (local).
+	// The spec should have servers pointing to the real target URL.
 	resp, err := http.Get(fmt.Sprintf("http://%s/spec/api", addr))
 	if err != nil {
 		t.Fatalf("GET /spec/api failed: %v", err)
@@ -443,18 +446,30 @@ paths: {}
 
 	servers := spec["servers"].([]any)
 	server := servers[0].(map[string]any)
-	if server["url"] != "/proxy/" {
-		t.Errorf("expected servers to point to /proxy/, got %q", server["url"])
+	if got := server["url"].(string); !strings.Contains(got, "/api") {
+		t.Errorf("expected servers to contain target URL with /api, got %q", got)
 	}
 	if strings.Contains(string(body), "production.example.com") {
 		t.Error("expected production URL to be replaced")
 	}
 
-	// Requests to /proxy/ should be forwarded to the upstream with
-	// the target's base path (/api) prepended.
-	resp2, err := http.Get(fmt.Sprintf("http://%s/proxy/governance/status?foo=bar", addr))
+	// The HTML should include data-proxy-url.
+	pageResp, err := http.Get(fmt.Sprintf("http://%s/", addr))
 	if err != nil {
-		t.Fatalf("GET /proxy/ failed: %v", err)
+		t.Fatalf("GET / failed: %v", err)
+	}
+	defer func() { _ = pageResp.Body.Close() }()
+	pageBody, _ := io.ReadAll(pageResp.Body)
+	if !strings.Contains(string(pageBody), `data-proxy-url="/proxy"`) {
+		t.Error("expected data-proxy-url attribute in HTML")
+	}
+
+	// Requests via /proxy?scalar_url=... should be forwarded to the upstream.
+	targetURL := upstream.URL + "/api/governance/status?foo=bar"
+	proxyURL := fmt.Sprintf("http://%s/proxy?scalar_url=%s", addr, targetURL)
+	resp2, err := http.Get(proxyURL)
+	if err != nil {
+		t.Fatalf("GET /proxy failed: %v", err)
 	}
 	defer func() { _ = resp2.Body.Close() }()
 
@@ -471,7 +486,7 @@ paths: {}
 	}
 	bodyStr := string(proxyBody)
 	if !strings.Contains(bodyStr, "path=/api/governance/status") {
-		t.Errorf("expected target base path + request path, got %q", bodyStr)
+		t.Errorf("expected target path preserved, got %q", bodyStr)
 	}
 	if !strings.Contains(bodyStr, "query=foo=bar") {
 		t.Errorf("expected proxied query, got %q", bodyStr)
@@ -481,27 +496,39 @@ paths: {}
 	<-errCh
 }
 
+func TestProxyHandler_MissingScalarURL(t *testing.T) {
+	handler := newProxyHandler("http://example.com")
+	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestProxyHandler_ForbiddenTarget(t *testing.T) {
+	handler := newProxyHandler("http://allowed.example.com")
+	req := httptest.NewRequest(http.MethodGet, "/proxy?scalar_url=http://evil.example.com/path", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rr.Code)
+	}
+}
+
 func TestProxyHandler_UpstreamUnreachable(t *testing.T) {
-	handler := newProxyHandler("http://127.0.0.1:1", "/proxy/")
-	req := httptest.NewRequest(http.MethodGet, "/proxy/test", nil)
+	handler := newProxyHandler("http://127.0.0.1:1")
+	req := httptest.NewRequest(http.MethodGet, "/proxy?scalar_url=http://127.0.0.1:1/test", nil)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadGateway {
 		t.Errorf("expected 502, got %d", rr.Code)
-	}
-}
-
-func TestProxyHandler_InvalidTargetURL(t *testing.T) {
-	handler := newProxyHandler("://invalid", "/proxy/")
-	req := httptest.NewRequest(http.MethodGet, "/proxy/test", nil)
-	rr := httptest.NewRecorder()
-
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d", rr.Code)
 	}
 }
 
@@ -583,6 +610,67 @@ func TestOverrideServers(t *testing.T) {
 	if servers[0].(map[string]any)["url"] != "http://localhost:8080" {
 		t.Errorf("expected overridden URL, got %v", servers[0])
 	}
+}
+
+func TestServeSwaggerOnListener_MultiSpecWithTarget(t *testing.T) {
+	fsys := fstest.MapFS{
+		"api.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
+info:
+  title: API
+  version: "1.0.0"
+paths: {}
+`)},
+		"admin.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
+info:
+  title: Admin API
+  version: "1.0.0"
+paths: {}
+`)},
+	}
+	specs := []SwaggerSpec{
+		{InterfaceName: "api", SpecPath: "api.yaml"},
+		{InterfaceName: "admin", SpecPath: "admin.yaml"},
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ServeSwaggerOnListener(ctx, SwaggerOptions{
+			Specs:  specs,
+			FS:     fsys,
+			Title:  "multi-target",
+			Target: "http://localhost:3000",
+		}, ln)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	resp, err := http.Get(fmt.Sprintf("http://%s/", addr))
+	if err != nil {
+		t.Fatalf("GET / failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	if !strings.Contains(html, `el.dataset.proxyUrl = '/proxy'`) {
+		t.Error("expected proxyUrl script line in multi-spec page with target")
+	}
+	if !strings.Contains(html, "multi-target") {
+		t.Error("expected title in multi-spec page")
+	}
+
+	cancel()
+	<-errCh
 }
 
 func TestOverrideServers_InvalidJSON(t *testing.T) {
