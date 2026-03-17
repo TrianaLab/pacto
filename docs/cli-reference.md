@@ -101,6 +101,12 @@ pacto doc [dir | oci://ref] [flags]
 
   # Serve on a custom port
   pacto doc my-service --serve --port 9090
+
+  # Launch an interactive API explorer (Swagger/Scalar UI)
+  pacto doc my-service --swagger
+
+  # Point try-it-out requests to a running backend
+  pacto doc my-service --swagger --target http://localhost:3000
 ```
 
 **Flags:**
@@ -108,8 +114,10 @@ pacto doc [dir | oci://ref] [flags]
 ```
   -h, --help            help for doc
   -o, --output string   output directory for generated Markdown file
-      --port int        port for the documentation server (used with --serve) (default 8484)
+      --port int        port for the documentation server (used with --serve or --swagger) (default 8484)
       --serve           start a local HTTP server to view documentation in the browser
+      --swagger         start a local API explorer with interactive Swagger UI
+      --target string   target server URL for try-it-out requests (used with --swagger)
 ```
 
 `--serve` and `--output` are mutually exclusive.

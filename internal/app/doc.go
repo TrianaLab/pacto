@@ -9,6 +9,7 @@ import (
 
 	"github.com/trianalab/pacto/internal/doc"
 	"github.com/trianalab/pacto/internal/graph"
+	"github.com/trianalab/pacto/pkg/contract"
 )
 
 // generateDoc is the function used to generate documentation. It is a variable
@@ -26,6 +27,10 @@ type DocResult struct {
 	ServiceName string `json:"serviceName"`
 	Markdown    string `json:"markdown"`
 	Path        string `json:"path,omitempty"`
+
+	// Bundle contains the contract and filesystem needed for features like
+	// the interactive API explorer (--swagger). These are not serialised.
+	Bundle *contract.Bundle `json:"-"`
 }
 
 // Doc generates Markdown documentation from a contract.
@@ -51,6 +56,7 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 	result := &DocResult{
 		ServiceName: bundle.Contract.Service.Name,
 		Markdown:    markdown,
+		Bundle:      bundle,
 	}
 
 	if opts.OutputDir != "" {

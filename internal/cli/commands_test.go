@@ -708,6 +708,89 @@ func TestDocCommand_ServeMutuallyExclusive(t *testing.T) {
 	}
 }
 
+func TestDocCommand_SwaggerFlag(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--swagger", "--port", "0", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("doc --swagger failed: %v", err)
+	}
+}
+
+func TestDocCommand_SwaggerServeMutuallyExclusive(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--swagger", "--serve", bundleDir})
+
+	err := root.Execute()
+	if err == nil {
+		t.Error("expected error when --swagger and --serve are both set")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("expected mutually exclusive error, got: %v", err)
+	}
+}
+
+func TestDocCommand_SwaggerOutputMutuallyExclusive(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--swagger", "--output", "/tmp/out", bundleDir})
+
+	err := root.Execute()
+	if err == nil {
+		t.Error("expected error when --swagger and --output are both set")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("expected mutually exclusive error, got: %v", err)
+	}
+}
+
+func TestDocCommand_SwaggerNoSpecs(t *testing.T) {
+	// Create a bundle with no HTTP interfaces (only gRPC).
+	store := &testutil.MockBundleStore{
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			return &contract.Bundle{
+				Contract: &contract.Contract{
+					PactoVersion: "1.0",
+					Service:      contract.ServiceIdentity{Name: "grpc-svc", Version: "1.0.0"},
+					Interfaces:   []contract.Interface{{Name: "api", Type: "grpc", Contract: "service.proto"}},
+					Runtime: &contract.Runtime{
+						Workload: "service",
+						State: contract.State{
+							Type:            "stateless",
+							Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
+							DataCriticality: "low",
+						},
+					},
+				},
+				FS: fstest.MapFS{},
+			}, nil
+		},
+	}
+	svc := app.NewService(store, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--swagger", "oci://ghcr.io/acme/svc:1.0.0"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Error("expected error when no HTTP interfaces found")
+	}
+	if !strings.Contains(err.Error(), "no HTTP interfaces") {
+		t.Errorf("expected 'no HTTP interfaces' error, got: %v", err)
+	}
+}
+
 func TestDocCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
