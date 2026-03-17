@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/trianalab/pacto/pkg/contract"
@@ -60,8 +62,18 @@ func ServeSwagger(ctx context.Context, opts SwaggerOptions) error {
 func ServeSwaggerOnListener(ctx context.Context, opts SwaggerOptions, ln net.Listener) error {
 	mux := http.NewServeMux()
 
+	// When a target is set, register a local reverse proxy and point the
+	// spec's servers to it. This keeps all traffic same-origin so the
+	// browser never hits CORS restrictions on the upstream.
+	specTarget := opts.Target
+	if opts.Target != "" {
+		proxyPath := "/proxy/"
+		mux.HandleFunc(proxyPath, newProxyHandler(opts.Target, proxyPath))
+		specTarget = proxyPath
+	}
+
 	for _, s := range opts.Specs {
-		registerSpecHandler(mux, s, opts.FS, opts.Target)
+		registerSpecHandler(mux, s, opts.FS, specTarget)
 	}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -120,15 +132,77 @@ func registerSpecHandler(mux *http.ServeMux, s SwaggerSpec, fsys fs.FS, target s
 
 // overrideServers replaces the "servers" array in an OpenAPI JSON spec
 // with a single entry pointing to the given URL.
-func overrideServers(specJSON []byte, target string) ([]byte, error) {
+func overrideServers(specJSON []byte, serverURL string) ([]byte, error) {
 	var spec map[string]any
 	if err := json.Unmarshal(specJSON, &spec); err != nil {
 		return nil, err
 	}
 	spec["servers"] = []map[string]any{
-		{"url": target, "description": "Target server"},
+		{"url": serverURL, "description": "Target server"},
 	}
 	return json.Marshal(spec)
+}
+
+// newProxyHandler returns an HTTP handler that forwards requests to the
+// target URL. This avoids CORS issues by keeping all traffic same-origin.
+// The proxyPrefix is stripped from the request path before forwarding.
+func newProxyHandler(target, proxyPrefix string) http.HandlerFunc {
+	targetURL, err := url.Parse(target)
+	if err != nil {
+		return func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "invalid target URL", http.StatusInternalServerError)
+		}
+	}
+
+	basePath := strings.TrimSuffix(targetURL.Path, "/")
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		upstream := *targetURL
+		suffix := strings.TrimPrefix(r.URL.Path, strings.TrimSuffix(proxyPrefix, "/"))
+		upstream.Path = basePath + suffix
+		upstream.RawQuery = r.URL.RawQuery
+
+		// Method and URL are always valid here — they come from an
+		// already-parsed incoming HTTP request.
+		proxyReq, _ := http.NewRequestWithContext(r.Context(), r.Method, upstream.String(), r.Body)
+
+		copyHeaders(proxyReq.Header, r.Header)
+		proxyReq.Header.Set("Host", targetURL.Host)
+
+		resp, err := http.DefaultClient.Do(proxyReq)
+		if err != nil {
+			http.Error(w, "upstream unreachable", http.StatusBadGateway)
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		copyHeaders(w.Header(), resp.Header)
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}
+}
+
+// hopByHop lists headers that must not be forwarded by proxies.
+var hopByHop = map[string]bool{
+	"Connection":          true,
+	"Keep-Alive":          true,
+	"Proxy-Authenticate":  true,
+	"Proxy-Authorization": true,
+	"Te":                  true,
+	"Trailers":            true,
+	"Transfer-Encoding":   true,
+	"Upgrade":             true,
+}
+
+func copyHeaders(dst, src http.Header) {
+	for k, vv := range src {
+		if hopByHop[k] {
+			continue
+		}
+		for _, v := range vv {
+			dst.Add(k, v)
+		}
+	}
 }
 
 // ensureJSON returns JSON bytes. If the input is a YAML file (by extension)

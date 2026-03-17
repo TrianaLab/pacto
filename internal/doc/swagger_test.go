@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -380,7 +381,7 @@ func TestServeSwaggerOnListener_InvalidSpec(t *testing.T) {
 	<-errCh
 }
 
-func TestServeSwaggerOnListener_TargetOverride(t *testing.T) {
+func TestServeSwaggerOnListener_TargetProxy(t *testing.T) {
 	fsys := fstest.MapFS{
 		"openapi.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
 info:
@@ -393,6 +394,14 @@ paths: {}
 	}
 	specs := []SwaggerSpec{{InterfaceName: "api", SpecPath: "openapi.yaml"}}
 
+	// Start a fake upstream that the proxy will forward to.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Custom", "upstream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "path=%s query=%s method=%s", r.URL.Path, r.URL.RawQuery, r.Method)
+	}))
+	defer upstream.Close()
+
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -402,27 +411,25 @@ paths: {}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Use target with a base path to verify it is preserved.
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- ServeSwaggerOnListener(ctx, SwaggerOptions{
 			Specs:  specs,
 			FS:     fsys,
 			Title:  "test",
-			Target: "http://localhost:3000",
+			Target: upstream.URL + "/api",
 		}, ln)
 	}()
 
 	time.Sleep(50 * time.Millisecond)
 
+	// The spec should have servers pointing to /proxy/ (local).
 	resp, err := http.Get(fmt.Sprintf("http://%s/spec/api", addr))
 	if err != nil {
 		t.Fatalf("GET /spec/api failed: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected 200, got %d", resp.StatusCode)
-	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -431,24 +438,91 @@ paths: {}
 
 	var spec map[string]any
 	if err := json.Unmarshal(body, &spec); err != nil {
-		t.Fatalf("invalid JSON response: %v", err)
+		t.Fatalf("invalid JSON: %v", err)
 	}
 
-	servers, ok := spec["servers"].([]any)
-	if !ok || len(servers) != 1 {
-		t.Fatalf("expected 1 server entry, got %v", spec["servers"])
-	}
+	servers := spec["servers"].([]any)
 	server := servers[0].(map[string]any)
-	if server["url"] != "http://localhost:3000" {
-		t.Errorf("expected target URL override, got %q", server["url"])
+	if server["url"] != "/proxy/" {
+		t.Errorf("expected servers to point to /proxy/, got %q", server["url"])
 	}
-	// Original production URL should be gone.
 	if strings.Contains(string(body), "production.example.com") {
 		t.Error("expected production URL to be replaced")
 	}
 
+	// Requests to /proxy/ should be forwarded to the upstream with
+	// the target's base path (/api) prepended.
+	resp2, err := http.Get(fmt.Sprintf("http://%s/proxy/governance/status?foo=bar", addr))
+	if err != nil {
+		t.Fatalf("GET /proxy/ failed: %v", err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 from proxy, got %d", resp2.StatusCode)
+	}
+	if resp2.Header.Get("X-Custom") != "upstream" {
+		t.Error("expected upstream response header to be proxied back")
+	}
+
+	proxyBody, err := io.ReadAll(resp2.Body)
+	if err != nil {
+		t.Fatalf("read proxy body: %v", err)
+	}
+	bodyStr := string(proxyBody)
+	if !strings.Contains(bodyStr, "path=/api/governance/status") {
+		t.Errorf("expected target base path + request path, got %q", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "query=foo=bar") {
+		t.Errorf("expected proxied query, got %q", bodyStr)
+	}
+
 	cancel()
 	<-errCh
+}
+
+func TestProxyHandler_UpstreamUnreachable(t *testing.T) {
+	handler := newProxyHandler("http://127.0.0.1:1", "/proxy/")
+	req := httptest.NewRequest(http.MethodGet, "/proxy/test", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", rr.Code)
+	}
+}
+
+func TestProxyHandler_InvalidTargetURL(t *testing.T) {
+	handler := newProxyHandler("://invalid", "/proxy/")
+	req := httptest.NewRequest(http.MethodGet, "/proxy/test", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rr.Code)
+	}
+}
+
+func TestCopyHeaders(t *testing.T) {
+	src := http.Header{}
+	src.Set("Content-Type", "application/json")
+	src.Set("X-Custom", "value")
+	src.Set("Connection", "keep-alive") // hop-by-hop, should be skipped
+
+	dst := http.Header{}
+	copyHeaders(dst, src)
+
+	if dst.Get("Content-Type") != "application/json" {
+		t.Error("expected Content-Type to be copied")
+	}
+	if dst.Get("X-Custom") != "value" {
+		t.Error("expected X-Custom to be copied")
+	}
+	if dst.Get("Connection") != "" {
+		t.Error("expected Connection header to be skipped")
+	}
 }
 
 func TestEnsureJSON_ValidJSON(t *testing.T) {
