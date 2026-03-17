@@ -43,6 +43,106 @@ func TestCollectSwaggerSpecs_Empty(t *testing.T) {
 	}
 }
 
+func TestFilterSpecs(t *testing.T) {
+	specs := []SwaggerSpec{
+		{InterfaceName: "api", SpecPath: "api.yaml"},
+		{InterfaceName: "admin", SpecPath: "admin.yaml"},
+	}
+
+	filtered := FilterSpecs(specs, "admin")
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 spec, got %d", len(filtered))
+	}
+	if filtered[0].InterfaceName != "admin" {
+		t.Errorf("expected 'admin', got %q", filtered[0].InterfaceName)
+	}
+}
+
+func TestFilterSpecs_NotFound(t *testing.T) {
+	specs := []SwaggerSpec{
+		{InterfaceName: "api", SpecPath: "api.yaml"},
+	}
+	if filtered := FilterSpecs(specs, "missing"); filtered != nil {
+		t.Errorf("expected nil for missing interface, got %v", filtered)
+	}
+}
+
+func TestFilterSpecs_Empty(t *testing.T) {
+	if filtered := FilterSpecs(nil, "api"); filtered != nil {
+		t.Errorf("expected nil for empty specs, got %v", filtered)
+	}
+}
+
+func TestTargetFor(t *testing.T) {
+	opts := SwaggerOptions{
+		Target:  "http://global:3000",
+		Targets: map[string]string{"admin": "http://admin:4000"},
+	}
+
+	if got := opts.targetFor("admin"); got != "http://admin:4000" {
+		t.Errorf("expected per-interface target, got %q", got)
+	}
+	if got := opts.targetFor("api"); got != "http://global:3000" {
+		t.Errorf("expected global target fallback, got %q", got)
+	}
+}
+
+func TestTargetFor_NoTargets(t *testing.T) {
+	opts := SwaggerOptions{Target: "http://global:3000"}
+	if got := opts.targetFor("api"); got != "http://global:3000" {
+		t.Errorf("expected global target, got %q", got)
+	}
+}
+
+func TestTargetFor_NoGlobal(t *testing.T) {
+	opts := SwaggerOptions{Targets: map[string]string{"admin": "http://admin:4000"}}
+	if got := opts.targetFor("api"); got != "" {
+		t.Errorf("expected empty for unmatched interface, got %q", got)
+	}
+}
+
+func TestAllowedTargets(t *testing.T) {
+	opts := SwaggerOptions{
+		Target:  "http://global:3000",
+		Targets: map[string]string{"admin": "http://admin:4000"},
+	}
+	targets := allowedTargets(opts)
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 targets, got %d", len(targets))
+	}
+}
+
+func TestAllowedTargets_Deduplicate(t *testing.T) {
+	opts := SwaggerOptions{
+		Target:  "http://same:3000",
+		Targets: map[string]string{"admin": "http://same:3000"},
+	}
+	targets := allowedTargets(opts)
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 deduplicated target, got %d", len(targets))
+	}
+}
+
+func TestAllowedTargets_Empty(t *testing.T) {
+	targets := allowedTargets(SwaggerOptions{})
+	if len(targets) != 0 {
+		t.Errorf("expected 0 targets, got %d", len(targets))
+	}
+}
+
+func TestAllowedTargets_OnlyPerInterface(t *testing.T) {
+	opts := SwaggerOptions{
+		Targets: map[string]string{"admin": "http://admin:4000"},
+	}
+	targets := allowedTargets(opts)
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(targets))
+	}
+	if targets[0] != "http://admin:4000" {
+		t.Errorf("expected admin target, got %q", targets[0])
+	}
+}
+
 func TestServeSwagger(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -496,8 +596,132 @@ paths: {}
 	<-errCh
 }
 
+func TestServeSwaggerOnListener_PerInterfaceTargets(t *testing.T) {
+	fsys := fstest.MapFS{
+		"api.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
+info:
+  title: API
+  version: "1.0.0"
+paths: {}
+`)},
+		"admin.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
+info:
+  title: Admin API
+  version: "1.0.0"
+paths: {}
+`)},
+	}
+	specs := []SwaggerSpec{
+		{InterfaceName: "api", SpecPath: "api.yaml"},
+		{InterfaceName: "admin", SpecPath: "admin.yaml"},
+	}
+
+	upstream1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, "upstream1")
+	}))
+	defer upstream1.Close()
+
+	upstream2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, "upstream2")
+	}))
+	defer upstream2.Close()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ServeSwaggerOnListener(ctx, SwaggerOptions{
+			Specs: specs,
+			FS:    fsys,
+			Title: "multi-target",
+			Targets: map[string]string{
+				"api":   upstream1.URL,
+				"admin": upstream2.URL,
+			},
+		}, ln)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify api spec has upstream1's URL in servers.
+	resp, err := http.Get(fmt.Sprintf("http://%s/spec/api", addr))
+	if err != nil {
+		t.Fatalf("GET /spec/api failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	var specJSON map[string]any
+	if err := json.Unmarshal(body, &specJSON); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	servers := specJSON["servers"].([]any)
+	if got := servers[0].(map[string]any)["url"].(string); got != upstream1.URL {
+		t.Errorf("expected api spec server to be upstream1, got %q", got)
+	}
+
+	// Verify admin spec has upstream2's URL in servers.
+	resp2, err := http.Get(fmt.Sprintf("http://%s/spec/admin", addr))
+	if err != nil {
+		t.Fatalf("GET /spec/admin failed: %v", err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+	body2, _ := io.ReadAll(resp2.Body)
+	var adminJSON map[string]any
+	if err := json.Unmarshal(body2, &adminJSON); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	adminServers := adminJSON["servers"].([]any)
+	if got := adminServers[0].(map[string]any)["url"].(string); got != upstream2.URL {
+		t.Errorf("expected admin spec server to be upstream2, got %q", got)
+	}
+
+	// Proxy should allow both upstreams.
+	proxyURL1 := fmt.Sprintf("http://%s/proxy?scalar_url=%s/test", addr, upstream1.URL)
+	pr1, err := http.Get(proxyURL1)
+	if err != nil {
+		t.Fatalf("proxy to upstream1 failed: %v", err)
+	}
+	defer func() { _ = pr1.Body.Close() }()
+	if pr1.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 from proxy to upstream1, got %d", pr1.StatusCode)
+	}
+
+	proxyURL2 := fmt.Sprintf("http://%s/proxy?scalar_url=%s/test", addr, upstream2.URL)
+	pr2, err := http.Get(proxyURL2)
+	if err != nil {
+		t.Fatalf("proxy to upstream2 failed: %v", err)
+	}
+	defer func() { _ = pr2.Body.Close() }()
+	if pr2.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 from proxy to upstream2, got %d", pr2.StatusCode)
+	}
+
+	// Page should have proxy attribute.
+	pageResp, err := http.Get(fmt.Sprintf("http://%s/", addr))
+	if err != nil {
+		t.Fatalf("GET / failed: %v", err)
+	}
+	defer func() { _ = pageResp.Body.Close() }()
+	pageBody, _ := io.ReadAll(pageResp.Body)
+	if !strings.Contains(string(pageBody), "proxyUrl") {
+		t.Error("expected proxy attribute in multi-spec page with targets")
+	}
+
+	cancel()
+	<-errCh
+}
+
 func TestProxyHandler_MissingScalarURL(t *testing.T) {
-	handler := newProxyHandler("http://example.com")
+	handler := newProxyHandler([]string{"http://example.com"})
 	req := httptest.NewRequest(http.MethodGet, "/proxy", nil)
 	rr := httptest.NewRecorder()
 
@@ -509,7 +733,7 @@ func TestProxyHandler_MissingScalarURL(t *testing.T) {
 }
 
 func TestProxyHandler_ForbiddenTarget(t *testing.T) {
-	handler := newProxyHandler("http://allowed.example.com")
+	handler := newProxyHandler([]string{"http://allowed.example.com"})
 	req := httptest.NewRequest(http.MethodGet, "/proxy?scalar_url=http://evil.example.com/path", nil)
 	rr := httptest.NewRecorder()
 
@@ -521,7 +745,7 @@ func TestProxyHandler_ForbiddenTarget(t *testing.T) {
 }
 
 func TestProxyHandler_UpstreamUnreachable(t *testing.T) {
-	handler := newProxyHandler("http://127.0.0.1:1")
+	handler := newProxyHandler([]string{"http://127.0.0.1:1"})
 	req := httptest.NewRequest(http.MethodGet, "/proxy?scalar_url=http://127.0.0.1:1/test", nil)
 	rr := httptest.NewRecorder()
 
@@ -529,6 +753,35 @@ func TestProxyHandler_UpstreamUnreachable(t *testing.T) {
 
 	if rr.Code != http.StatusBadGateway {
 		t.Errorf("expected 502, got %d", rr.Code)
+	}
+}
+
+func TestProxyHandler_MultipleAllowedTargets(t *testing.T) {
+	handler := newProxyHandler([]string{"http://a.example.com", "http://b.example.com"})
+
+	// First allowed target.
+	req1 := httptest.NewRequest(http.MethodGet, "/proxy?scalar_url=http://a.example.com/path", nil)
+	rr1 := httptest.NewRecorder()
+	handler.ServeHTTP(rr1, req1)
+	// Will be 502 (unreachable) not 403 (forbidden) — proving it's allowed.
+	if rr1.Code == http.StatusForbidden {
+		t.Error("expected target a to be allowed")
+	}
+
+	// Second allowed target.
+	req2 := httptest.NewRequest(http.MethodGet, "/proxy?scalar_url=http://b.example.com/path", nil)
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	if rr2.Code == http.StatusForbidden {
+		t.Error("expected target b to be allowed")
+	}
+
+	// Disallowed target.
+	req3 := httptest.NewRequest(http.MethodGet, "/proxy?scalar_url=http://c.example.com/path", nil)
+	rr3 := httptest.NewRecorder()
+	handler.ServeHTTP(rr3, req3)
+	if rr3.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for disallowed target, got %d", rr3.Code)
 	}
 }
 

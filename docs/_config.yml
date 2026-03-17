@@ -11,9 +11,6 @@ logo: "/assets/images/logo.png"
 
 permalink: pretty
 
-aux_links:
-  GitHub: https://github.com/TrianaLab/pacto
-
 nav_external_links:
   - title: GitHub
     url: https://github.com/TrianaLab/pacto

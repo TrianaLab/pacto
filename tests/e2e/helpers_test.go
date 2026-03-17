@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -74,6 +75,31 @@ func runCommandWithVersion(t *testing.T, reg *testRegistry, version string, args
 	root.SetArgs(args)
 
 	err := root.Execute()
+	return out.String(), err
+}
+
+// runCommandWithCancelledCtx executes a pacto CLI command with a pre-cancelled
+// context, useful for testing commands that start servers (--serve, --ui).
+func runCommandWithCancelledCtx(t *testing.T, reg *testRegistry, args ...string) (string, error) {
+	t.Helper()
+
+	var store oci.BundleStore
+	if reg != nil {
+		store = reg.client
+	}
+
+	svc := app.NewService(store, &plugin.SubprocessRunner{})
+	root := cli.NewRootCommand(svc, "test-e2e")
+
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(args)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := root.ExecuteContext(ctx)
 	return out.String(), err
 }
 

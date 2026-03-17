@@ -585,6 +585,118 @@ func writeBundleWithSBOM(t *testing.T, version, sbomFileName, sbomContent string
 	return bundlePath
 }
 
+const twoInterfaceContract = `pactoVersion: "1.0"
+service:
+  name: two-iface-svc
+  version: "1.0.0"
+interfaces:
+  - name: public-api
+    type: http
+    port: 8080
+    visibility: public
+    contract: interfaces/public.yaml
+  - name: admin-api
+    type: http
+    port: 9090
+    visibility: internal
+    contract: interfaces/admin.yaml
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: public-api
+    path: /health
+`
+
+const publicOpenAPI = `openapi: "3.0.0"
+info:
+  title: Public API
+  version: "1.0.0"
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+  /products:
+    get:
+      summary: List products
+      responses:
+        "200":
+          description: Product list
+`
+
+const adminOpenAPI = `openapi: "3.0.0"
+info:
+  title: Admin API
+  version: "1.0.0"
+paths:
+  /admin/users:
+    get:
+      summary: List all users (admin)
+      responses:
+        "200":
+          description: User list
+  /admin/config:
+    put:
+      summary: Update configuration
+      responses:
+        "200":
+          description: Updated
+`
+
+const zeroInterfaceContract = `pactoVersion: "1.0"
+service:
+  name: zero-iface-svc
+  version: "1.0.0"
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+`
+
+// writeTwoInterfaceBundle creates a bundle with two HTTP/OpenAPI interfaces.
+func writeTwoInterfaceBundle(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "two-iface-svc")
+	if err := os.MkdirAll(filepath.Join(dir, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(twoInterfaceContract), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "interfaces", "public.yaml"), []byte(publicOpenAPI), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "interfaces", "admin.yaml"), []byte(adminOpenAPI), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// writeZeroInterfaceBundle creates a bundle with no interfaces.
+func writeZeroInterfaceBundle(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "zero-iface-svc")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(zeroInterfaceContract), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 // writeOpenAPIDiffBundleV1 creates a bundle with the v1 OpenAPI spec.
 func writeOpenAPIDiffBundleV1(t *testing.T) string {
 	t.Helper()

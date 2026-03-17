@@ -35,13 +35,52 @@ func CollectSwaggerSpecs(interfaces []contract.Interface) []SwaggerSpec {
 	return specs
 }
 
+// FilterSpecs returns only the spec matching the given interface name.
+// It returns nil if no match is found.
+func FilterSpecs(specs []SwaggerSpec, name string) []SwaggerSpec {
+	for _, s := range specs {
+		if s.InterfaceName == name {
+			return []SwaggerSpec{s}
+		}
+	}
+	return nil
+}
+
 // SwaggerOptions configures the interactive API explorer server.
 type SwaggerOptions struct {
-	Specs  []SwaggerSpec
-	FS     fs.FS
-	Title  string
-	Port   int
-	Target string // if set, overrides the servers array and proxies requests
+	Specs   []SwaggerSpec
+	FS      fs.FS
+	Title   string
+	Port    int
+	Target  string            // global target; applies to all interfaces
+	Targets map[string]string // per-interface targets; overrides Target
+}
+
+// targetFor returns the target URL for a specific interface.
+// Per-interface targets take precedence over the global target.
+func (o SwaggerOptions) targetFor(name string) string {
+	if t, ok := o.Targets[name]; ok {
+		return t
+	}
+	return o.Target
+}
+
+// allowedTargets returns all unique target URLs from both global and
+// per-interface targets, used for proxy validation.
+func allowedTargets(opts SwaggerOptions) []string {
+	seen := make(map[string]bool)
+	var targets []string
+	if opts.Target != "" {
+		seen[opts.Target] = true
+		targets = append(targets, opts.Target)
+	}
+	for _, t := range opts.Targets {
+		if !seen[t] {
+			seen[t] = true
+			targets = append(targets, t)
+		}
+	}
+	return targets
 }
 
 // ServeSwagger starts a local HTTP server that renders an interactive API
@@ -61,21 +100,24 @@ func ServeSwagger(ctx context.Context, opts SwaggerOptions) error {
 func ServeSwaggerOnListener(ctx context.Context, opts SwaggerOptions, ln net.Listener) error {
 	mux := http.NewServeMux()
 
-	if opts.Target != "" {
-		mux.HandleFunc("/proxy", newProxyHandler(opts.Target))
+	targets := allowedTargets(opts)
+	if len(targets) > 0 {
+		mux.HandleFunc("/proxy", newProxyHandler(targets))
 	}
 
 	for _, s := range opts.Specs {
-		registerSpecHandler(mux, s, opts.FS, opts.Target)
+		target := opts.targetFor(s.InterfaceName)
+		registerSpecHandler(mux, s, opts.FS, target)
 	}
 
+	hasProxy := len(targets) > 0
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = fmt.Fprint(w, buildSwaggerPage(opts.Specs, opts.Title, opts.Target != ""))
+		_, _ = fmt.Fprint(w, buildSwaggerPage(opts.Specs, opts.Title, hasProxy))
 	})
 
 	srv := &http.Server{Handler: mux}
@@ -141,7 +183,10 @@ func overrideServers(specJSON []byte, serverURL string) ([]byte, error) {
 // target. Scalar sends requests to the proxy with the full upstream URL
 // in the scalar_url query parameter. This avoids CORS by keeping browser
 // traffic same-origin while showing the real URL in the UI.
-func newProxyHandler(target string) http.HandlerFunc {
+//
+// The allowed slice lists URL prefixes that the proxy is permitted to
+// forward to, preventing open-proxy abuse.
+func newProxyHandler(allowed []string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		targetURL := r.URL.Query().Get("scalar_url")
 		if targetURL == "" {
@@ -149,8 +194,14 @@ func newProxyHandler(target string) http.HandlerFunc {
 			return
 		}
 
-		// Only allow proxying to the configured target origin.
-		if !strings.HasPrefix(targetURL, target) {
+		ok := false
+		for _, t := range allowed {
+			if strings.HasPrefix(targetURL, t) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
 			http.Error(w, "target not allowed", http.StatusForbidden)
 			return
 		}

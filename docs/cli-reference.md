@@ -103,24 +103,35 @@ pacto doc [dir | oci://ref] [flags]
   pacto doc my-service --serve --port 9090
 
   # Launch an interactive API explorer (Swagger/Scalar UI)
-  pacto doc my-service --swagger
+  pacto doc my-service --ui swagger
+
+  # Select a specific interface
+  pacto doc my-service --ui swagger --interface public-api
 
   # Point try-it-out requests to a running backend
-  pacto doc my-service --swagger --target http://localhost:3000
+  pacto doc my-service --ui swagger --target http://localhost:3000
+
+  # Per-interface target mapping
+  pacto doc my-service --ui swagger --target public-api=http://localhost:3000 --target admin-api=http://localhost:3001
 ```
 
 **Flags:**
 
 ```
-  -h, --help            help for doc
-  -o, --output string   output directory for generated Markdown file
-      --port int        port for the documentation server (used with --serve or --swagger) (default 8484)
-      --serve           start a local HTTP server to view documentation in the browser
-      --swagger         start a local API explorer with interactive Swagger UI
-      --target string   target server URL for try-it-out requests (used with --swagger)
+  -h, --help                 help for doc
+      --interface string     interface name to display (used with --ui)
+  -o, --output string        output directory for generated Markdown file
+      --port int             port for the documentation server (used with --serve or --ui) (default 8484)
+      --serve                start a local HTTP server to view documentation in the browser
+      --target stringArray   target server URL for try-it-out requests; supports interface=url mapping (used with --ui)
+      --ui string            UI type for interactive API explorer (e.g. swagger)
 ```
 
-`--serve` and `--output` are mutually exclusive.
+`--serve`, `--ui`, and `--output` are mutually exclusive.
+
+Use `--interface` to select a specific OpenAPI interface when multiple are present. Without it, an index page is shown.
+
+The `--target` flag supports per-interface mapping: `--target api=http://localhost:3000 --target admin=http://localhost:4000`.
 
 Sibling dependencies are resolved in parallel. OCI bundles are cached locally in `~/.cache/pacto/oci/` for faster subsequent operations. Use `--no-cache` to bypass the cache.
 

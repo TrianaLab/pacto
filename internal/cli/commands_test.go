@@ -708,7 +708,7 @@ func TestDocCommand_ServeMutuallyExclusive(t *testing.T) {
 	}
 }
 
-func TestDocCommand_SwaggerFlag(t *testing.T) {
+func TestDocCommand_UISwaggerFlag(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 
@@ -716,47 +716,95 @@ func TestDocCommand_SwaggerFlag(t *testing.T) {
 	cancel()
 
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"doc", "--swagger", "--port", "0", bundleDir})
+	root.SetArgs([]string{"doc", "--ui", "swagger", "--port", "0", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&out)
 
 	if err := root.ExecuteContext(ctx); err != nil {
-		t.Fatalf("doc --swagger failed: %v", err)
+		t.Fatalf("doc --ui swagger failed: %v", err)
 	}
 }
 
-func TestDocCommand_SwaggerServeMutuallyExclusive(t *testing.T) {
+func TestDocCommand_UIWithInterface(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--ui", "swagger", "--interface", "api", "--port", "0", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("doc --ui swagger --interface api failed: %v", err)
+	}
+}
+
+func TestDocCommand_UIWithUnknownInterface(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"doc", "--swagger", "--serve", bundleDir})
+	root.SetArgs([]string{"doc", "--ui", "swagger", "--interface", "nonexistent", bundleDir})
 
 	err := root.Execute()
 	if err == nil {
-		t.Error("expected error when --swagger and --serve are both set")
+		t.Error("expected error for unknown interface")
+	}
+	if !strings.Contains(err.Error(), "not found among OpenAPI interfaces") {
+		t.Errorf("expected 'not found' error, got: %v", err)
+	}
+}
+
+func TestDocCommand_InterfaceWithoutUI(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--interface", "api", bundleDir})
+
+	err := root.Execute()
+	if err == nil {
+		t.Error("expected error when --interface used without --ui")
+	}
+	if !strings.Contains(err.Error(), "--interface requires --ui") {
+		t.Errorf("expected '--interface requires --ui' error, got: %v", err)
+	}
+}
+
+func TestDocCommand_UIServeMutuallyExclusive(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--ui", "swagger", "--serve", bundleDir})
+
+	err := root.Execute()
+	if err == nil {
+		t.Error("expected error when --ui and --serve are both set")
 	}
 	if !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Errorf("expected mutually exclusive error, got: %v", err)
 	}
 }
 
-func TestDocCommand_SwaggerOutputMutuallyExclusive(t *testing.T) {
+func TestDocCommand_UIOutputMutuallyExclusive(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"doc", "--swagger", "--output", "/tmp/out", bundleDir})
+	root.SetArgs([]string{"doc", "--ui", "swagger", "--output", "/tmp/out", bundleDir})
 
 	err := root.Execute()
 	if err == nil {
-		t.Error("expected error when --swagger and --output are both set")
+		t.Error("expected error when --ui and --output are both set")
 	}
 	if !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Errorf("expected mutually exclusive error, got: %v", err)
 	}
 }
 
-func TestDocCommand_SwaggerNoSpecs(t *testing.T) {
+func TestDocCommand_UINoSpecs(t *testing.T) {
 	// Create a bundle with no HTTP interfaces (only gRPC).
 	store := &testutil.MockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
@@ -780,7 +828,7 @@ func TestDocCommand_SwaggerNoSpecs(t *testing.T) {
 	}
 	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, "test")
-	root.SetArgs([]string{"doc", "--swagger", "oci://ghcr.io/acme/svc:1.0.0"})
+	root.SetArgs([]string{"doc", "--ui", "swagger", "oci://ghcr.io/acme/svc:1.0.0"})
 
 	err := root.Execute()
 	if err == nil {
@@ -788,6 +836,42 @@ func TestDocCommand_SwaggerNoSpecs(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no HTTP interfaces") {
 		t.Errorf("expected 'no HTTP interfaces' error, got: %v", err)
+	}
+}
+
+func TestDocCommand_UIWithTarget(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--ui", "swagger", "--target", "http://localhost:3000", "--port", "0", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("doc --ui swagger --target failed: %v", err)
+	}
+}
+
+func TestDocCommand_UIWithPerInterfaceTarget(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	root := cli.NewRootCommand(svc, "test")
+	root.SetArgs([]string{"doc", "--ui", "swagger", "--target", "api=http://localhost:3000", "--port", "0", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("doc --ui swagger --target api=url failed: %v", err)
 	}
 }
 
