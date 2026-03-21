@@ -943,8 +943,14 @@ func TestValidateCommand_OutputError(t *testing.T) {
 func TestValidateCommand_DefaultPath(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	orig, _ := os.Getwd()
-	os.Chdir(bundleDir)
-	defer os.Chdir(orig)
+	if err := os.Chdir(bundleDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Fatal(err)
+		}
+	}()
 
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
