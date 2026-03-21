@@ -31,11 +31,12 @@ jobs:
         with:
           target: ci-test
       - name: Upload results to Codecov
+        if: github.event_name == 'push'
         uses: codecov/codecov-action@v5.5.2
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.out
-          fail_ci_if_error: ${{ github.event_name == 'push' }}
+          fail_ci_if_error: true
 
   e2e:
     runs-on: ubuntu-latest
