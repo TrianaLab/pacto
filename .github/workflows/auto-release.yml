@@ -13,6 +13,9 @@ jobs:
   release:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      skip: ${{ steps.bump.outputs.type == 'skip' }}
     steps:
       - name: Determine version bump
         id: bump
@@ -78,3 +81,62 @@ jobs:
             --title "${{ steps.version.outputs.tag }}" \
             --generate-notes \
             --target main
+
+  build:
+    needs: release
+    if: needs.release.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-go@v6.3.0
+        with:
+          go-version: '1.25'
+
+      - name: Build binary
+        run: |
+          mkdir -p dist
+          tag="${{ needs.release.outputs.tag }}"
+          commit="${{ github.sha }}"
+          date="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          output=pacto_${{ matrix.goos }}_${{ matrix.goarch }}
+          if [ "${{ matrix.goos }}" = "windows" ]; then output=$output.exe; fi
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -ldflags "-s -w -X main.version=$tag -X main.gitCommit=$commit -X main.buildDate=$date" \
+            -o dist/$output ./cmd/pacto
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pacto_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/
+
+  publish:
+    needs: [release, build]
+    if: needs.release.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2.5.0
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
