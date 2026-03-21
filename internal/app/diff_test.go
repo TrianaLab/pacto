@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/internal/graph"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/graph"
 )
 
 func TestDiff_LocalFiles(t *testing.T) {

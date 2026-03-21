@@ -9,11 +9,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/internal/graph"
 	"github.com/trianalab/pacto/internal/oci"
-	"github.com/trianalab/pacto/internal/override"
-	"github.com/trianalab/pacto/internal/validation"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/graph"
+	"github.com/trianalab/pacto/pkg/override"
+	"github.com/trianalab/pacto/pkg/validation"
 )
 
 // DefaultContractPath is the default filename looked up when no path is given.

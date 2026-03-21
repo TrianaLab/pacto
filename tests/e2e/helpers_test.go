@@ -20,7 +20,7 @@ import (
 	"github.com/trianalab/pacto/internal/app"
 	"github.com/trianalab/pacto/internal/cli"
 	"github.com/trianalab/pacto/internal/oci"
-	"github.com/trianalab/pacto/internal/plugin"
+	"github.com/trianalab/pacto/pkg/plugin"
 )
 
 // chdirMu serialises tests that need to change the working directory so they

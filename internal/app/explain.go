@@ -4,8 +4,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/trianalab/pacto/internal/override"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/override"
 )
 
 // ExplainOptions holds options for the explain command.

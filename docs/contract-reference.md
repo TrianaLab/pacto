@@ -17,7 +17,7 @@ A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operat
 {:toc}
 </details>
 
-The canonical JSON Schema is available at [`schema/pacto-v1.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/internal/validation/schema/pacto-v1.0.schema.json).
+The canonical JSON Schema is available at [`schema/pacto-v1.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.0.schema.json).
 
 ---
 

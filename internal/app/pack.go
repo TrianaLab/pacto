@@ -6,7 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/trianalab/pacto/internal/oci"
-	"github.com/trianalab/pacto/internal/override"
+	"github.com/trianalab/pacto/pkg/override"
 )
 
 // PackOptions holds options for the pack command.

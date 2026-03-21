@@ -2,7 +2,7 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/internal/override"
+	"github.com/trianalab/pacto/pkg/override"
 )
 
 // addOverrideFlags registers --values/-f and --set flags on the given command.

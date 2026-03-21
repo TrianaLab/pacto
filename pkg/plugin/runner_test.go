@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -134,6 +135,25 @@ func TestFindPlugin_NotFound(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	_, err := findPlugin("nonexistent")
+	if err == nil {
+		t.Fatal("expected an error when plugin is not found")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+func TestFindPlugin_HomeDirError(t *testing.T) {
+	t.Setenv("PATH", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	orig := userHomeDirFn
+	userHomeDirFn = func() (string, error) {
+		return "", fmt.Errorf("no home dir")
+	}
+	defer func() { userHomeDirFn = orig }()
+
+	_, err := findPlugin("test")
 	if err == nil {
 		t.Fatal("expected an error when plugin is not found")
 	}

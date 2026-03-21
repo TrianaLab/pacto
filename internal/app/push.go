@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/trianalab/pacto/internal/graph"
 	"github.com/trianalab/pacto/internal/oci"
-	"github.com/trianalab/pacto/internal/override"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/graph"
+	"github.com/trianalab/pacto/pkg/override"
 )
 
 // ErrArtifactAlreadyExists is returned when a push is attempted for a

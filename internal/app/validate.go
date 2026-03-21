@@ -6,9 +6,9 @@ import (
 	"io/fs"
 	"log/slog"
 
-	"github.com/trianalab/pacto/internal/override"
-	"github.com/trianalab/pacto/internal/validation"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/override"
+	"github.com/trianalab/pacto/pkg/validation"
 )
 
 // ValidateOptions holds options for the validate command.

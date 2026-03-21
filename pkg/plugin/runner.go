@@ -10,8 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/trianalab/pacto/internal/oci"
 )
 
 // Runner executes a plugin by name with the given request.
@@ -68,7 +66,7 @@ func findPlugin(name string) (string, error) {
 		return path, nil
 	}
 
-	if configDir, err := oci.PactoConfigDir(); err == nil {
+	if configDir, err := pactoConfigDir(); err == nil {
 		pluginPath := filepath.Join(configDir, "plugins", binaryName)
 		if info, err := os.Stat(pluginPath); err == nil && !info.IsDir() {
 			return pluginPath, nil
@@ -76,4 +74,20 @@ func findPlugin(name string) (string, error) {
 	}
 
 	return "", fmt.Errorf("plugin %q not found (looked for %s in $PATH and ~/.config/pacto/plugins/)", name, binaryName)
+}
+
+// userHomeDirFn is a function variable for testing.
+var userHomeDirFn = os.UserHomeDir
+
+// pactoConfigDir returns the pacto configuration directory path.
+func pactoConfigDir() (string, error) {
+	configDir := os.Getenv("XDG_CONFIG_HOME")
+	if configDir == "" {
+		home, err := userHomeDirFn()
+		if err != nil {
+			return "", err
+		}
+		configDir = filepath.Join(home, ".config")
+	}
+	return filepath.Join(configDir, "pacto"), nil
 }

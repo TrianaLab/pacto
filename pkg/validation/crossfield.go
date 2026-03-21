@@ -7,8 +7,8 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/santhosh-tekuri/jsonschema/v6"
-	"github.com/trianalab/pacto/internal/graph"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/graph"
 )
 
 // ValidateCrossField performs Layer 2 validation: cross-field consistency,
