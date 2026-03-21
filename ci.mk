@@ -38,5 +38,5 @@ ci-lint:
 
 ci-docs:
 	@echo "==> Checking CLI docs are up to date..."
-	@go run ./cmd/gendocs/
+	@$(MAKE) gen-cli-docs
 	@git diff --exit-code docs/cli-reference.md || (echo "CLI docs are out of date. Run 'make gen-cli-docs' and commit." && exit 1)
