@@ -54,6 +54,7 @@ func mcpResultText(t *testing.T, result *mcpsdk.CallToolResult) string {
 }
 
 func TestMCPValidate(t *testing.T) {
+	t.Parallel()
 	postgresPath := writePostgresBundle(t)
 	svc := app.NewService(nil, nil)
 
@@ -63,6 +64,7 @@ func TestMCPValidate(t *testing.T) {
 }
 
 func TestMCPInspect(t *testing.T) {
+	t.Parallel()
 	postgresPath := writePostgresBundle(t)
 	svc := app.NewService(nil, nil)
 
@@ -73,6 +75,7 @@ func TestMCPInspect(t *testing.T) {
 }
 
 func TestMCPResolveDependencies(t *testing.T) {
+	t.Parallel()
 	postgresPath := writePostgresBundle(t)
 	svc := app.NewService(nil, nil)
 
@@ -82,6 +85,7 @@ func TestMCPResolveDependencies(t *testing.T) {
 }
 
 func TestMCPListInterfaces(t *testing.T) {
+	t.Parallel()
 	postgresPath := writePostgresBundle(t)
 	svc := app.NewService(nil, nil)
 
@@ -106,6 +110,7 @@ func TestMCPListInterfaces(t *testing.T) {
 }
 
 func TestMCPGenerateDocs(t *testing.T) {
+	t.Parallel()
 	postgresPath := writePostgresBundle(t)
 	svc := app.NewService(nil, nil)
 
@@ -116,6 +121,7 @@ func TestMCPGenerateDocs(t *testing.T) {
 }
 
 func TestMCPExplain(t *testing.T) {
+	t.Parallel()
 	postgresPath := writePostgresBundle(t)
 	svc := app.NewService(nil, nil)
 
@@ -136,6 +142,7 @@ func TestMCPExplain(t *testing.T) {
 }
 
 func TestMCPGenerateContract(t *testing.T) {
+	t.Parallel()
 	svc := app.NewService(nil, nil)
 
 	result := mcpCallTool(t, svc, "pacto_generate_contract", map[string]any{
@@ -152,6 +159,7 @@ func TestMCPGenerateContract(t *testing.T) {
 }
 
 func TestMCPGenerateContractMissingName(t *testing.T) {
+	t.Parallel()
 	svc := app.NewService(nil, nil)
 	result := mcpCallTool(t, svc, "pacto_generate_contract", map[string]any{})
 	if !result.IsError {
@@ -160,6 +168,7 @@ func TestMCPGenerateContractMissingName(t *testing.T) {
 }
 
 func TestMCPSuggestDependencies(t *testing.T) {
+	t.Parallel()
 	postgresPath := writePostgresBundle(t)
 	svc := app.NewService(nil, nil)
 
@@ -178,6 +187,7 @@ func TestMCPSuggestDependencies(t *testing.T) {
 }
 
 func TestMCPWithOCIReferences(t *testing.T) {
+	t.Parallel()
 	reg := newTestRegistry(t)
 
 	postgresPath := writePostgresBundle(t)
@@ -190,18 +200,21 @@ func TestMCPWithOCIReferences(t *testing.T) {
 	ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
 
 	t.Run("validate OCI", func(t *testing.T) {
+		t.Parallel()
 		result := mcpCallTool(t, svc, "pacto_validate", map[string]any{"path": ref})
 		text := mcpResultText(t, result)
 		assertContains(t, text, `"Valid": true`)
 	})
 
 	t.Run("inspect OCI", func(t *testing.T) {
+		t.Parallel()
 		result := mcpCallTool(t, svc, "pacto_inspect", map[string]any{"ref": ref})
 		text := mcpResultText(t, result)
 		assertContains(t, text, "postgres-pacto")
 	})
 
 	t.Run("explain OCI", func(t *testing.T) {
+		t.Parallel()
 		result := mcpCallTool(t, svc, "pacto_explain", map[string]any{"ref": ref})
 		text := mcpResultText(t, result)
 		assertContains(t, text, "postgres-pacto")
@@ -209,6 +222,7 @@ func TestMCPWithOCIReferences(t *testing.T) {
 }
 
 func TestMCPCommandHelp(t *testing.T) {
+	t.Parallel()
 	output, err := runCommand(t, nil, "mcp", "--help")
 	if err != nil {
 		t.Fatalf("mcp --help failed: %v\noutput: %s", err, output)
@@ -219,6 +233,7 @@ func TestMCPCommandHelp(t *testing.T) {
 }
 
 func TestMCPCommandExtraArgs(t *testing.T) {
+	t.Parallel()
 	_, err := runCommand(t, nil, "mcp", "extra-arg")
 	if err == nil {
 		t.Error("expected error for extra args")

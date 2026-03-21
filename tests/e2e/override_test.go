@@ -74,7 +74,10 @@ func writeValuesFile(t *testing.T, dir, name, content string) string {
 }
 
 func TestOverrideValidate(t *testing.T) {
+	t.Parallel()
+
 	t.Run("set overrides service version", func(t *testing.T) {
+		t.Parallel()
 		bundlePath := writeOverrideBundle(t)
 
 		output, err := runCommand(t, nil, "validate", bundlePath, "--set", "service.version=2.0.0")
@@ -85,6 +88,7 @@ func TestOverrideValidate(t *testing.T) {
 	})
 
 	t.Run("set invalid semver version fails", func(t *testing.T) {
+		t.Parallel()
 		bundlePath := writeOverrideBundle(t)
 
 		output, err := runCommand(t, nil, "validate", bundlePath, "--set", "service.version=not-semver")
@@ -95,6 +99,7 @@ func TestOverrideValidate(t *testing.T) {
 	})
 
 	t.Run("values file overrides contract", func(t *testing.T) {
+		t.Parallel()
 		bundlePath := writeOverrideBundle(t)
 
 		valuesFile := writeValuesFile(t, t.TempDir(), "values.yaml", `service:
@@ -109,6 +114,7 @@ func TestOverrideValidate(t *testing.T) {
 	})
 
 	t.Run("set takes precedence over values file", func(t *testing.T) {
+		t.Parallel()
 		bundlePath := writeOverrideBundle(t)
 
 		// Values file sets a valid version, --set overrides with invalid version.
@@ -124,6 +130,7 @@ func TestOverrideValidate(t *testing.T) {
 	})
 
 	t.Run("last values file wins", func(t *testing.T) {
+		t.Parallel()
 		bundlePath := writeOverrideBundle(t)
 		tmpDir := t.TempDir()
 
@@ -144,6 +151,7 @@ func TestOverrideValidate(t *testing.T) {
 	})
 
 	t.Run("values file then set then values file precedence", func(t *testing.T) {
+		t.Parallel()
 		bundlePath := writeOverrideBundle(t)
 		tmpDir := t.TempDir()
 
@@ -162,7 +170,10 @@ func TestOverrideValidate(t *testing.T) {
 }
 
 func TestOverrideConfigValues(t *testing.T) {
+	t.Parallel()
+
 	t.Run("valid config values via set", func(t *testing.T) {
+		t.Parallel()
 		bundlePath := writeOverrideBundle(t)
 
 		output, err := runCommand(t, nil, "validate", bundlePath,
@@ -177,6 +188,7 @@ func TestOverrideConfigValues(t *testing.T) {
 	})
 
 	t.Run("wrong type config value fails", func(t *testing.T) {
+		t.Parallel()
 		bundlePath := writeOverrideBundle(t)
 
 		// DB_PORT expects integer, "not-a-number" is a string.
@@ -190,6 +202,7 @@ func TestOverrideConfigValues(t *testing.T) {
 	})
 
 	t.Run("undefined config property fails", func(t *testing.T) {
+		t.Parallel()
 		bundlePath := writeOverrideBundle(t)
 
 		// UNKNOWN_KEY is not in the schema (additionalProperties: false).
@@ -203,6 +216,7 @@ func TestOverrideConfigValues(t *testing.T) {
 	})
 
 	t.Run("config values via values file", func(t *testing.T) {
+		t.Parallel()
 		bundlePath := writeOverrideBundle(t)
 
 		valuesFile := writeValuesFile(t, t.TempDir(), "config-values.yaml", `configuration:
@@ -219,6 +233,7 @@ func TestOverrideConfigValues(t *testing.T) {
 	})
 
 	t.Run("set overrides config values from file", func(t *testing.T) {
+		t.Parallel()
 		bundlePath := writeOverrideBundle(t)
 
 		// Values file sets a valid DB_PORT. --set overrides it with a string (wrong type).
@@ -239,6 +254,8 @@ func TestOverrideConfigValues(t *testing.T) {
 }
 
 func TestOverrideDiff(t *testing.T) {
+	t.Parallel()
+
 	t.Run("new-set changes version for diff", func(t *testing.T) {
 		bundlePath := writeOverrideBundle(t)
 
@@ -313,6 +330,8 @@ func TestOverrideDiff(t *testing.T) {
 }
 
 func TestOverrideExplain(t *testing.T) {
+	t.Parallel()
+
 	t.Run("set overrides reflected in explain", func(t *testing.T) {
 		bundlePath := writeOverrideBundle(t)
 

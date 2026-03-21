@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -21,6 +22,30 @@ import (
 	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/internal/plugin"
 )
+
+// chdirMu serialises tests that need to change the working directory so they
+// are safe to run alongside t.Parallel() subtests.
+var chdirMu sync.Mutex
+
+// inDir changes the working directory to dir for the duration of the current
+// test/subtest. It acquires chdirMu so that parallel tests never race on CWD.
+func inDir(t *testing.T, dir string) {
+	t.Helper()
+	chdirMu.Lock()
+	orig, err := os.Getwd()
+	if err != nil {
+		chdirMu.Unlock()
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		chdirMu.Unlock()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		os.Chdir(orig)
+		chdirMu.Unlock()
+	})
+}
 
 // testRegistry wraps an ephemeral OCI registry for testing.
 type testRegistry struct {
