@@ -411,8 +411,8 @@ func compileConfigSchema(data []byte) (*jsonschema.Schema, error) {
 	if err := json.Unmarshal(data, &schemaDoc); err != nil {
 		return nil, fmt.Errorf("failed to parse: %v", err)
 	}
-	compiler.AddResource("config-schema.json", schemaDoc) //nolint:errcheck // AddResource does not fail for valid JSON
-	return compiler.Compile("config-schema.json")
+	compiler.AddResource("mem:///config-schema.json", schemaDoc) //nolint:errcheck // AddResource does not fail for valid JSON
+	return compiler.Compile("mem:///config-schema.json")
 }
 
 func validateStatePersistenceInvariants(c *contract.Contract, result *ValidationResult) {
