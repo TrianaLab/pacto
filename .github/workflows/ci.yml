@@ -11,25 +11,43 @@ permissions:
   contents: read
 
 jobs:
-  ci:
+  static:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v6.0.2
-
       - uses: ./.github/actions/ci
+        with:
+          target: ci-static
+          golangci-lint: 'true'
+
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: ./.github/actions/ci
+        with:
+          target: ci-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: ./.github/actions/ci
+        with:
+          target: e2e
 
   coverage:
-    needs: ci
+    needs: unit-test
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v6.0.2
-
       - uses: actions/download-artifact@v4
         with:
           name: coverage
-
       - name: Upload results to Codecov
         uses: codecov/codecov-action@v5.5.2
         with:

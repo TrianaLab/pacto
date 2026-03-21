@@ -9,7 +9,7 @@ endif
 GOBIN := $(GOPATH)/bin
 endif
 
-.PHONY: build test e2e coverage lint clean docs gen-cli-docs ci ci-test
+.PHONY: build test e2e coverage lint clean docs gen-cli-docs ci ci-test ci-static
 
 build:
 	rm -f "$(GOBIN)/pacto"
@@ -19,7 +19,7 @@ test:
 	go test ./... -v
 
 e2e:
-	go test -tags e2e ./tests/e2e/ -v -count=1 -timeout 120s
+	go test -tags e2e ./tests/e2e/ -v -count=1 -parallel 16 -timeout 120s
 
 coverage:
 	go test $(shell go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs) -coverprofile=coverage.out
@@ -38,7 +38,9 @@ BUNDLE := $(shell command -v /opt/homebrew/opt/ruby@3.3/bin/bundle 2>/dev/null |
 docs:
 	cd docs && $(BUNDLE) install && $(BUNDLE) exec jekyll serve --livereload
 
-ci: ci-fmt ci-vet ci-cyclo ci-lint ci-test e2e
+ci: ci-static ci-test e2e
+
+ci-static: ci-fmt ci-vet ci-cyclo ci-lint ci-docs
 
 ci-test:
 	@echo "==> Running unit tests with coverage..."
@@ -67,6 +69,11 @@ ci-cyclo:
 ci-lint:
 	@echo "==> Running linter..."
 	golangci-lint run
+
+ci-docs:
+	@echo "==> Checking CLI docs are up to date..."
+	@go run ./cmd/gendocs/
+	@git diff --exit-code docs/cli-reference.md || (echo "CLI docs are out of date. Run 'make gen-cli-docs' and commit." && exit 1)
 
 clean:
 	rm -f "$(GOBIN)/pacto" coverage.out coverage.html

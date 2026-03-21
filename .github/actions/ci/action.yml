@@ -1,5 +1,14 @@
 name: CI
-description: Shared CI steps — setup Go, lint, unit tests, e2e tests
+description: Shared CI step — setup Go and run a make target
+
+inputs:
+  target:
+    description: Make target to run
+    required: true
+  golangci-lint:
+    description: Install golangci-lint (needed for ci-static)
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -21,47 +30,12 @@ runs:
       run: go mod download
       shell: bash
 
-    - name: Check formatting
-      run: test -z "$(gofmt -l .)"
-      shell: bash
-
-    - name: Run go vet
-      run: go vet ./...
-      shell: bash
-
-    - name: Check cyclomatic complexity
-      run: |
-        go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
-        gocyclo -over 15 $(find . -name '*.go' ! -name '*_test.go' ! -path './vendor/*')
-      shell: bash
-
-    - name: Run linter
+    - name: Install golangci-lint
+      if: inputs.golangci-lint == 'true'
       uses: golangci/golangci-lint-action@v9.2.0
-
-    - name: Check CLI docs are up to date
-      run: |
-        go run ./cmd/gendocs/
-        git diff --exit-code docs/cli-reference.md
-      shell: bash
-
-    - name: Run unit tests with 100% coverage enforcement
-      run: |
-        go test $(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs) -coverprofile=coverage.out
-        total=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $NF}')
-        if [ "$total" != "100.0%" ]; then
-          echo "FAIL: total coverage is $total, expected 100.0%"
-          go tool cover -func=coverage.out | grep -v '100.0%'
-          exit 1
-        fi
-        echo "total coverage: 100.0%"
-      shell: bash
-
-    - name: Upload coverage artifact
-      uses: actions/upload-artifact@v4
       with:
-        name: coverage
-        path: coverage.out
+        install-only: true
 
-    - name: Run e2e tests
-      run: go test -tags e2e ./tests/e2e/ -count=1 -timeout 120s
+    - name: Run make ${{ inputs.target }}
+      run: make ${{ inputs.target }}
       shell: bash
