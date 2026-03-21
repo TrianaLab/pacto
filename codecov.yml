@@ -8,3 +8,15 @@ coverage:
       default:
         target: 100%
         threshold: 0%
+
+ignore:
+  - "tests/**"
+  - "cmd/gendocs/**"
+  - "internal/testutil/**"
+
+# Go coverage emits "0 0" for empty select/case branches (no executable
+# statements). go tool cover treats these as 100% but Codecov misreads
+# them as uncovered. This flag fixes the discrepancy.
+parsers:
+  go:
+    partials_as_hits: true
