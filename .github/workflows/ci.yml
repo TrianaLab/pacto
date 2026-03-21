@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
   schedule:
     - cron: '0 0 * * *'
 
@@ -32,7 +35,7 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.out
-          fail_ci_if_error: true
+          fail_ci_if_error: ${{ github.event_name == 'push' }}
 
   e2e:
     runs-on: ubuntu-latest
