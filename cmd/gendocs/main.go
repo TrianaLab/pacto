@@ -158,7 +158,7 @@ func main() {
 	keychain := oci.NewKeychain(oci.CredentialOptions{})
 	store := oci.NewCachedStore(oci.NewClient(keychain))
 	svc := app.NewService(store, &plugin.SubprocessRunner{})
-	root := cli.NewRootCommand(svc, "dev")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "dev"})
 
 	root.DisableAutoGenTag = true
 	for _, cmd := range root.Commands() {

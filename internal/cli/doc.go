@@ -42,10 +42,7 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
   pacto doc my-service --ui swagger --target public-api=http://localhost:3000 --target admin-api=http://localhost:3001`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var path string
-			if len(args) > 0 {
-				path = args[0]
-			}
+			path := optionalArg(args)
 
 			output, _ := cmd.Flags().GetString("output")
 			serve, _ := cmd.Flags().GetBool("serve")
@@ -96,7 +93,9 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 }
 
 func serveUI(cmd *cobra.Command, result *app.DocResult, ui, iface string, port int, targets []string) error {
-	_ = ui // reserved for future UI types (e.g. redoc)
+	if ui != "swagger" {
+		return fmt.Errorf("unsupported UI type %q: only \"swagger\" is supported", ui)
+	}
 
 	specs := doc.CollectSwaggerSpecs(result.Bundle.Contract.Interfaces)
 	if len(specs) == 0 {

@@ -50,9 +50,7 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().StringP("path", "p", "", "path to contract directory (default: current directory)")
 	cmd.Flags().BoolP("force", "f", false, "overwrite existing artifact in registry")
 
-	// Cannot use -f shorthand for --values since -f is already used for --force.
-	cmd.Flags().StringArray("values", nil, "values file to merge into the contract (can be repeated; last wins)")
-	cmd.Flags().StringArray("set", nil, "set a contract value (e.g. --set service.version=2.0.0)")
+	addOverrideFlagsNoShorthand(cmd)
 
 	return cmd
 }

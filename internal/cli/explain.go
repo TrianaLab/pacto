@@ -14,10 +14,7 @@ func newExplainCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Example: "  pacto explain my-service",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var path string
-			if len(args) > 0 {
-				path = args[0]
-			}
+			path := optionalArg(args)
 
 			result, err := svc.Explain(cmd.Context(), app.ExplainOptions{
 				Path:      path,

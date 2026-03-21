@@ -28,7 +28,7 @@ func TestPackCommand(t *testing.T) {
 
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"pack", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -52,7 +52,7 @@ func TestPackCommand_JSON(t *testing.T) {
 
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"pack", "--output-format", "json", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -68,7 +68,7 @@ func TestPackCommand_JSON(t *testing.T) {
 
 func TestPackCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"pack", "/nonexistent/dir"})
 
 	err := root.Execute()
@@ -81,7 +81,7 @@ func TestDiffCommand(t *testing.T) {
 	dir1 := testutil.WriteTestBundle(t)
 	dir2 := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"diff", dir1, dir2})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -99,7 +99,7 @@ func TestDiffCommand_Markdown(t *testing.T) {
 	dir1 := testutil.WriteTestBundle(t)
 	dir2 := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"diff", "--output-format", "markdown", dir1, dir2})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -116,7 +116,7 @@ func TestDiffCommand_Markdown(t *testing.T) {
 func TestDiffCommand_Error(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"diff", "/nonexistent/dir", dir})
 
 	err := root.Execute()
@@ -138,7 +138,7 @@ func TestPushCommand_Error(t *testing.T) {
 	}
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
 
 	err := root.Execute()
@@ -151,7 +151,7 @@ func TestPushCommand_Success(t *testing.T) {
 	store := &testutil.MockBundleStore{ResolveFn: notFoundResolveFn}
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -173,7 +173,7 @@ func TestPushCommand_AlreadyExists(t *testing.T) {
 	}
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -199,7 +199,7 @@ func TestPushCommand_AlreadyExistsWithForce(t *testing.T) {
 	}
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(store, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir, "--force"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -218,7 +218,7 @@ func TestPullCommand_Success(t *testing.T) {
 	output := filepath.Join(dir, "pulled")
 	store := &testutil.MockBundleStore{}
 	svc := app.NewService(store, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"pull", "oci://ghcr.io/acme/svc:1.0.0", "--output", output})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -234,7 +234,7 @@ func TestPullCommand_Success(t *testing.T) {
 
 func TestPullCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"pull", "oci://ghcr.io/acme/svc:1.0.0"})
 
 	err := root.Execute()
@@ -246,7 +246,7 @@ func TestPullCommand_Error(t *testing.T) {
 func TestGraphCommand(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"graph", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -262,7 +262,7 @@ func TestGraphCommand(t *testing.T) {
 
 func TestGraphCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"graph", "/nonexistent/dir"})
 
 	err := root.Execute()
@@ -274,7 +274,7 @@ func TestGraphCommand_Error(t *testing.T) {
 func TestExplainCommand(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"explain", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -291,7 +291,7 @@ func TestExplainCommand(t *testing.T) {
 func TestExplainCommand_JSON(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"explain", "--output-format", "json", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -307,7 +307,7 @@ func TestExplainCommand_JSON(t *testing.T) {
 
 func TestExplainCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"explain", "/nonexistent/dir"})
 
 	err := root.Execute()
@@ -334,7 +334,7 @@ scaling:
 	}
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"explain", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -349,7 +349,7 @@ scaling:
 
 func TestGenerateCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"generate", "test-plugin", "/nonexistent/dir"})
 
 	err := root.Execute()
@@ -370,7 +370,7 @@ func TestGenerateCommand_Success(t *testing.T) {
 	outputDir := filepath.Join(dir, "gen-out")
 	runner := &testutil.MockPluginRunner{}
 	svc := app.NewService(nil, runner)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"generate", "test-plugin", bundleDir, "--output", outputDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -406,7 +406,7 @@ func TestGenerateCommand_WithOptions(t *testing.T) {
 		},
 	}
 	svc := app.NewService(nil, runner)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"generate", "test-plugin", bundleDir, "--output", outputDir, "--option", "file=config.yaml", "--option", "format=json"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -425,7 +425,7 @@ func TestGenerateCommand_WithOptions(t *testing.T) {
 
 func TestLoginCommand_MissingUsername(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"login", "ghcr.io"})
 
 	err := root.Execute()
@@ -440,7 +440,7 @@ func TestLoginCommand_WithPassword(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"login", "ghcr.io", "--username", "user", "--password", "pass"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -463,7 +463,7 @@ func TestInitCommand_JSON(t *testing.T) {
 	defer func() { _ = os.Chdir(orig) }()
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"init", "--output-format", "json", "json-svc"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -491,7 +491,7 @@ func TestDiffCommand_Breaking(t *testing.T) {
 	}
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"diff", dir1, dir2})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -524,7 +524,7 @@ func TestValidateCommand_Error(t *testing.T) {
 		},
 	}
 	svc := app.NewService(store, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"validate", "oci://ghcr.io/acme/svc:1.0.0"})
 
 	err := root.Execute()
@@ -561,7 +561,7 @@ runtime:
 	}
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"validate", dir})
 
 	err := root.Execute()
@@ -581,7 +581,7 @@ func TestLoginCommand_WriteConfigError(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(dir, 0755) })
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"login", "ghcr.io", "--username", "user", "--password", "pass"})
 
 	err := root.Execute()
@@ -592,7 +592,7 @@ func TestLoginCommand_WriteConfigError(t *testing.T) {
 
 func TestRootCommand_CustomConfig(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"--config", "/nonexistent/config.yaml", "version"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -610,7 +610,7 @@ func TestDiffCommand_OutputError(t *testing.T) {
 	dir1 := testutil.WriteTestBundle(t)
 	dir2 := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"diff", "--output-format", "json", dir1, dir2})
 	root.SetOut(cliErrWriter{})
 
@@ -623,7 +623,7 @@ func TestDiffCommand_OutputError(t *testing.T) {
 func TestDocCommand(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -640,7 +640,7 @@ func TestDocCommand(t *testing.T) {
 func TestDocCommand_JSON(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--output-format", "json", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -658,7 +658,7 @@ func TestDocCommand_WithOutput(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	outDir := filepath.Join(t.TempDir(), "docs")
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--output", outDir, bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -681,7 +681,7 @@ func TestDocCommand_ServeFlag(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--serve", "--port", "0", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -696,7 +696,7 @@ func TestDocCommand_ServeFlag(t *testing.T) {
 func TestDocCommand_ServeMutuallyExclusive(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--serve", "--output", "/tmp/out", bundleDir})
 
 	err := root.Execute()
@@ -715,7 +715,7 @@ func TestDocCommand_UISwaggerFlag(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--ui", "swagger", "--port", "0", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -733,7 +733,7 @@ func TestDocCommand_UIWithInterface(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--ui", "swagger", "--interface", "api", "--port", "0", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -747,7 +747,7 @@ func TestDocCommand_UIWithInterface(t *testing.T) {
 func TestDocCommand_UIWithUnknownInterface(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--ui", "swagger", "--interface", "nonexistent", bundleDir})
 
 	err := root.Execute()
@@ -762,7 +762,7 @@ func TestDocCommand_UIWithUnknownInterface(t *testing.T) {
 func TestDocCommand_InterfaceWithoutUI(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--interface", "api", bundleDir})
 
 	err := root.Execute()
@@ -777,7 +777,7 @@ func TestDocCommand_InterfaceWithoutUI(t *testing.T) {
 func TestDocCommand_UIServeMutuallyExclusive(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--ui", "swagger", "--serve", bundleDir})
 
 	err := root.Execute()
@@ -792,7 +792,7 @@ func TestDocCommand_UIServeMutuallyExclusive(t *testing.T) {
 func TestDocCommand_UIOutputMutuallyExclusive(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--ui", "swagger", "--output", "/tmp/out", bundleDir})
 
 	err := root.Execute()
@@ -827,7 +827,7 @@ func TestDocCommand_UINoSpecs(t *testing.T) {
 		},
 	}
 	svc := app.NewService(store, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--ui", "swagger", "oci://ghcr.io/acme/svc:1.0.0"})
 
 	err := root.Execute()
@@ -846,7 +846,7 @@ func TestDocCommand_UIWithTarget(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--ui", "swagger", "--target", "http://localhost:3000", "--port", "0", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -864,7 +864,7 @@ func TestDocCommand_UIWithPerInterfaceTarget(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--ui", "swagger", "--target", "api=http://localhost:3000", "--port", "0", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -877,7 +877,7 @@ func TestDocCommand_UIWithPerInterfaceTarget(t *testing.T) {
 
 func TestDocCommand_Error(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "/nonexistent/dir"})
 
 	err := root.Execute()
@@ -899,7 +899,7 @@ func TestNoCacheFlag(t *testing.T) {
 	store := &cacheableStore{}
 	svc := app.NewService(store, nil)
 
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"validate", "--no-cache", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -917,7 +917,7 @@ func TestNoCacheFlag_NotApplicable(t *testing.T) {
 
 	// Plain MockBundleStore without DisableCache — should not panic.
 	svc := app.NewService(&testutil.MockBundleStore{}, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"validate", "--no-cache", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -930,7 +930,7 @@ func TestNoCacheFlag_NotApplicable(t *testing.T) {
 func TestValidateCommand_OutputError(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"validate", "--output-format", "json", bundleDir})
 	root.SetOut(cliErrWriter{})
 

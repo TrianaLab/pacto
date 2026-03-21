@@ -26,10 +26,7 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
   pacto validate --output-format json my-service`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := ""
-			if len(args) > 0 {
-				path = args[0]
-			}
+			path := optionalArg(args)
 
 			result, err := svc.Validate(cmd.Context(), app.ValidateOptions{
 				Path:      path,

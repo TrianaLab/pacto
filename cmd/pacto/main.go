@@ -10,8 +10,12 @@ import (
 	"github.com/trianalab/pacto/pkg/plugin"
 )
 
-// version is set at build time via ldflags.
-var version = "dev"
+// Build-time variables set via ldflags.
+var (
+	version   = "dev"
+	gitCommit = "unknown"
+	buildDate = "unknown"
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -29,7 +33,11 @@ func run() error {
 	store := oci.NewCachedStore(oci.NewClient(keychain))
 
 	svc := app.NewService(store, &plugin.SubprocessRunner{})
-	root := cli.NewRootCommand(svc, version)
+	root := cli.NewRootCommand(svc, cli.VersionInfo{
+		Version:   version,
+		GitCommit: gitCommit,
+		BuildDate: buildDate,
+	})
 
 	return root.Execute()
 }

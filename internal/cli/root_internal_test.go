@@ -18,7 +18,7 @@ func TestNewRootCommand_PanicRecovery(t *testing.T) {
 	t.Setenv("PACTO_NO_UPDATE_CHECK", "")
 
 	svc := app.NewService(nil, nil)
-	root := NewRootCommand(svc, "v1.0.0")
+	root := NewRootCommand(svc, VersionInfo{Version: "v1.0.0"})
 	root.SetArgs([]string{"version"})
 	var out bytes.Buffer
 	root.SetOut(&out)

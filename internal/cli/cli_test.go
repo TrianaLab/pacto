@@ -30,7 +30,7 @@ func TestInitCreatesProjectStructure(t *testing.T) {
 	}()
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"init", "test-svc"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -74,7 +74,7 @@ func TestInitThenValidateSucceeds(t *testing.T) {
 
 	svc := app.NewService(nil, nil)
 
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"init", "test-svc"})
 	var initOut bytes.Buffer
 	root.SetOut(&initOut)
@@ -82,7 +82,7 @@ func TestInitThenValidateSucceeds(t *testing.T) {
 		t.Fatalf("init failed: %v", err)
 	}
 
-	root2 := cli.NewRootCommand(svc, "test")
+	root2 := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	svcDir := filepath.Join(dir, "test-svc")
 	root2.SetArgs([]string{"validate", svcDir})
 	var validateOut bytes.Buffer
@@ -125,7 +125,7 @@ runtime:
 	}
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"validate", dir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -143,7 +143,7 @@ runtime:
 
 func TestVersionCommand(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "1.2.3")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "1.2.3"})
 	root.SetArgs([]string{"version"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -171,13 +171,13 @@ func TestValidateJSONOutput(t *testing.T) {
 
 	svc := app.NewService(nil, nil)
 
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"init", "json-test"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("init failed: %v", err)
 	}
 
-	root2 := cli.NewRootCommand(svc, "test")
+	root2 := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	svcDir := filepath.Join(dir, "json-test")
 	root2.SetArgs([]string{"validate", "--output-format", "json", svcDir})
 	var out bytes.Buffer
@@ -209,7 +209,7 @@ func TestInitFailsIfDirectoryExists(t *testing.T) {
 	}
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"init", "existing-svc"})
 
 	err := root.Execute()
@@ -220,7 +220,7 @@ func TestInitFailsIfDirectoryExists(t *testing.T) {
 
 func TestInitRequiresName(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"init"})
 
 	err := root.Execute()
@@ -231,7 +231,7 @@ func TestInitRequiresName(t *testing.T) {
 
 func TestUpdateCommand_DevBuild(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "dev")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "dev"})
 	root.SetArgs([]string{"update"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -277,7 +277,7 @@ func TestUpdateCommand_Success(t *testing.T) {
 	defer cleanup()
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "v0.0.1")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "v0.0.1"})
 	root.SetArgs([]string{"update", "v2.0.0"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -327,7 +327,7 @@ func TestUpdateCommand_WithPlugins(t *testing.T) {
 	defer cleanup()
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "v0.0.1")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "v0.0.1"})
 	root.SetArgs([]string{"update", "v2.0.0"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -380,7 +380,7 @@ func TestUpdateCommand_PluginFailureIsWarning(t *testing.T) {
 	defer cleanup()
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "v0.0.1")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "v0.0.1"})
 	root.SetArgs([]string{"update", "v2.0.0"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -412,7 +412,7 @@ func TestUpdateCommand_Error(t *testing.T) {
 	defer cleanup()
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "v0.0.1")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "v0.0.1"})
 	root.SetArgs([]string{"update", "v99.99.99"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -443,7 +443,7 @@ func TestUpdateNotification(t *testing.T) {
 	}
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "v0.0.1")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "v0.0.1"})
 	root.SetArgs([]string{"version"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -476,7 +476,7 @@ func TestUpdateNotification_SuppressedJSON(t *testing.T) {
 	}
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "v0.0.1")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "v0.0.1"})
 	root.SetArgs([]string{"version", "--output-format", "json"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -509,7 +509,7 @@ func TestUpdateNotification_SuppressedMarkdown(t *testing.T) {
 	}
 
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "v0.0.1")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "v0.0.1"})
 	root.SetArgs([]string{"version", "--output-format", "markdown"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -526,7 +526,7 @@ func TestUpdateNotification_SuppressedMarkdown(t *testing.T) {
 func TestVerboseFlag(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"--verbose", "validate", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -543,7 +543,7 @@ func TestVerboseFlag(t *testing.T) {
 func TestVerboseFlag_ShortForm(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
-	root := cli.NewRootCommand(svc, "test")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"-v", "validate", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)

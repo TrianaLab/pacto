@@ -74,7 +74,7 @@ func serveHTTP(ctx context.Context, server *mcpsdk.Server, listener net.Listener
 
 	select {
 	case <-ctx.Done():
-		return srv.Close()
+		return srv.Shutdown(context.Background())
 	case err := <-errCh:
 		return err
 	}

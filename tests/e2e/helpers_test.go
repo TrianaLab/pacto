@@ -92,7 +92,7 @@ func runCommandWithVersion(t *testing.T, reg *testRegistry, version string, args
 	}
 
 	svc := app.NewService(store, &plugin.SubprocessRunner{})
-	root := cli.NewRootCommand(svc, version)
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: version})
 
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -114,7 +114,7 @@ func runCommandWithCancelledCtx(t *testing.T, reg *testRegistry, args ...string)
 	}
 
 	svc := app.NewService(store, &plugin.SubprocessRunner{})
-	root := cli.NewRootCommand(svc, "test-e2e")
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test-e2e"})
 
 	var out bytes.Buffer
 	root.SetOut(&out)

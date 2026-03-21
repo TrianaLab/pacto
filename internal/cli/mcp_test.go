@@ -16,7 +16,7 @@ import (
 
 func TestMCPCommand_Help(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := NewRootCommand(svc, "test")
+	root := NewRootCommand(svc, VersionInfo{Version: "test"})
 	root.SetArgs([]string{"mcp", "--help"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -36,7 +36,7 @@ func TestMCPCommand_Help(t *testing.T) {
 
 func TestMCPCommand_Registered(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := NewRootCommand(svc, "test")
+	root := NewRootCommand(svc, VersionInfo{Version: "test"})
 
 	found := false
 	for _, cmd := range root.Commands() {
@@ -52,7 +52,7 @@ func TestMCPCommand_Registered(t *testing.T) {
 
 func TestMCPCommand_NoArgs(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := NewRootCommand(svc, "test")
+	root := NewRootCommand(svc, VersionInfo{Version: "test"})
 	root.SetArgs([]string{"mcp", "extra-arg"})
 
 	err := root.Execute()
@@ -63,7 +63,7 @@ func TestMCPCommand_NoArgs(t *testing.T) {
 
 func TestMCPCommand_Flags(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := NewRootCommand(svc, "test")
+	root := NewRootCommand(svc, VersionInfo{Version: "test"})
 
 	for _, cmd := range root.Commands() {
 		if cmd.Name() == "mcp" {
@@ -93,7 +93,7 @@ func TestMCPCommand_Flags(t *testing.T) {
 
 func TestMCPCommand_RunE_HTTP(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	root := NewRootCommand(svc, "test")
+	root := NewRootCommand(svc, VersionInfo{Version: "test"})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	root.SetArgs([]string{"mcp", "-t", "http", "--port", "0"})

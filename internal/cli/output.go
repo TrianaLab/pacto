@@ -14,13 +14,13 @@ import (
 
 // formatResult dispatches between JSON, markdown and text output.
 // When markdownFn is nil and format is "markdown", it falls back to textFn.
-func formatResult(cmd *cobra.Command, format string, result any, textFn func() error, markdownFn ...func() error) error {
+func formatResult(cmd *cobra.Command, format string, result any, textFn, markdownFn func() error) error {
 	switch format {
 	case "json":
 		return printJSON(cmd, result)
 	case "markdown":
-		if len(markdownFn) > 0 && markdownFn[0] != nil {
-			return markdownFn[0]()
+		if markdownFn != nil {
+			return markdownFn()
 		}
 		return textFn()
 	default:
@@ -35,7 +35,7 @@ func printInitResult(cmd *cobra.Command, result *app.InitResult, format string) 
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s/interfaces/\n", result.Dir)
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s/configuration/\n", result.Dir)
 		return nil
-	})
+	}, nil)
 }
 
 func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format string) error {
@@ -55,14 +55,14 @@ func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format 
 		}
 
 		return nil
-	})
+	}, nil)
 }
 
 func printPackResult(cmd *cobra.Command, result *app.PackResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Packed %s@%s -> %s\n", result.Name, result.Version, result.Output)
 		return nil
-	})
+	}, nil)
 }
 
 func printPushResult(cmd *cobra.Command, result *app.PushResult, format string) error {
@@ -70,14 +70,14 @@ func printPushResult(cmd *cobra.Command, result *app.PushResult, format string) 
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Pushed %s@%s -> %s\n", result.Name, result.Version, result.Ref)
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Digest: %s\n", result.Digest)
 		return nil
-	})
+	}, nil)
 }
 
 func printPullResult(cmd *cobra.Command, result *app.PullResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Pulled %s@%s -> %s/\n", result.Name, result.Version, result.Output)
 		return nil
-	})
+	}, nil)
 }
 
 func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) error {
@@ -178,7 +178,7 @@ func printGraphResult(cmd *cobra.Command, result *app.GraphResult, format string
 	return formatResult(cmd, format, result, func() error {
 		_, _ = fmt.Fprint(cmd.OutOrStdout(), graph.RenderTree(result))
 		return nil
-	})
+	}, nil)
 }
 
 func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format string) error {
@@ -233,7 +233,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		}
 
 		return nil
-	})
+	}, nil)
 }
 
 func printGenerateResult(cmd *cobra.Command, result *app.GenerateResult, format string) error {
@@ -245,7 +245,7 @@ func printGenerateResult(cmd *cobra.Command, result *app.GenerateResult, format 
 			_, _ = fmt.Fprintf(w, "Message: %s\n", result.Message)
 		}
 		return nil
-	})
+	}, nil)
 }
 
 func printDocResult(cmd *cobra.Command, result *app.DocResult, format string) error {
@@ -255,7 +255,7 @@ func printDocResult(cmd *cobra.Command, result *app.DocResult, format string) er
 			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Wrote %s\n", result.Path)
 		}
 		return nil
-	})
+	}, nil)
 }
 
 func printSBOMDiff(w io.Writer, result *sbom.Result) {

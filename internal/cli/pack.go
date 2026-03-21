@@ -14,10 +14,7 @@ func newPackCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Example: "  pacto pack my-service",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := ""
-			if len(args) > 0 {
-				path = args[0]
-			}
+			path := optionalArg(args)
 
 			output, _ := cmd.Flags().GetString("output")
 

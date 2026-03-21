@@ -13,266 +13,283 @@ import (
 func TestPushCommand(t *testing.T) {
 	t.Parallel()
 
-	t.Run("pushes and reports digest", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		postgresPath := writePostgresBundle(t)
-		ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
+	t.Run("pushes and reports digest", testPushReportsDigest)
+	t.Run("json output", testPushJSON)
+	t.Run("markdown output", testPushMarkdown)
+	t.Run("force overwrites existing", testPushForce)
+	t.Run("rejects invalid contract", testPushRejectsInvalid)
+	t.Run("with values override", testPushWithOverride)
+	t.Run("verbose flag", testPushVerbose)
+	t.Run("help flag", testPushHelp)
+}
 
-		output, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
-		if err != nil {
-			t.Fatalf("push failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "Pushed postgres-pacto@1.0.0")
-		assertContains(t, output, "Digest: sha256:")
-	})
+func testPushReportsDigest(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	postgresPath := writePostgresBundle(t)
+	ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
 
-	t.Run("json output", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		redisPath := writeRedisV1Bundle(t)
-		ref := "oci://" + reg.host + "/redis-pacto:1.0.0"
+	output, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
+	if err != nil {
+		t.Fatalf("push failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "Pushed postgres-pacto@1.0.0")
+	assertContains(t, output, "Digest: sha256:")
+}
 
-		output, err := runCommand(t, reg, "--output-format", "json", "push", ref, "-p", redisPath)
-		if err != nil {
-			t.Fatalf("push json failed: %v\noutput: %s", err, output)
-		}
+func testPushJSON(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	redisPath := writeRedisV1Bundle(t)
+	ref := "oci://" + reg.host + "/redis-pacto:1.0.0"
 
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(output), &result); err != nil {
-			t.Fatalf("expected valid JSON output, got: %s", output)
-		}
-		if result["Name"] != "redis-pacto" {
-			t.Errorf("expected Name=redis-pacto, got %v", result["Name"])
-		}
-	})
+	output, err := runCommand(t, reg, "--output-format", "json", "push", ref, "-p", redisPath)
+	if err != nil {
+		t.Fatalf("push json failed: %v\noutput: %s", err, output)
+	}
 
-	t.Run("markdown output", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		postgresPath := writePostgresBundle(t)
-		ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("expected valid JSON output, got: %s", output)
+	}
+	if result["Name"] != "redis-pacto" {
+		t.Errorf("expected Name=redis-pacto, got %v", result["Name"])
+	}
+}
 
-		output, err := runCommand(t, reg, "--output-format", "markdown", "push", ref, "-p", postgresPath)
-		if err != nil {
-			t.Fatalf("push markdown failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "postgres-pacto")
-	})
+func testPushMarkdown(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	postgresPath := writePostgresBundle(t)
+	ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
 
-	t.Run("force overwrites existing", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		postgresPath := writePostgresBundle(t)
-		ref := "oci://" + reg.host + "/force-test:1.0.0"
+	output, err := runCommand(t, reg, "--output-format", "markdown", "push", ref, "-p", postgresPath)
+	if err != nil {
+		t.Fatalf("push markdown failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "postgres-pacto")
+}
 
-		// First push
-		_, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
-		if err != nil {
-			t.Fatalf("first push failed: %v", err)
-		}
+func testPushForce(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	postgresPath := writePostgresBundle(t)
+	ref := "oci://" + reg.host + "/force-test:1.0.0"
 
-		// Second push with --force
-		output, err := runCommand(t, reg, "push", ref, "-p", postgresPath, "--force")
-		if err != nil {
-			t.Fatalf("force push failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "Pushed")
-	})
+	// First push
+	_, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
+	if err != nil {
+		t.Fatalf("first push failed: %v", err)
+	}
 
-	t.Run("rejects invalid contract", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(brokenContract), 0644); err != nil {
-			t.Fatal(err)
-		}
+	// Second push with --force
+	output, err := runCommand(t, reg, "push", ref, "-p", postgresPath, "--force")
+	if err != nil {
+		t.Fatalf("force push failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "Pushed")
+}
 
-		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/broken:1.0.0", "-p", dir)
-		if err == nil {
-			t.Fatal("expected push to fail for invalid contract")
-		}
-	})
+func testPushRejectsInvalid(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(brokenContract), 0644); err != nil {
+		t.Fatal(err)
+	}
 
-	t.Run("with values override", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		postgresPath := writePostgresBundle(t)
-		ref := "oci://" + reg.host + "/vals-test:2.0.0"
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/broken:1.0.0", "-p", dir)
+	if err == nil {
+		t.Fatal("expected push to fail for invalid contract")
+	}
+}
 
-		output, err := runCommand(t, reg, "push", ref, "-p", postgresPath, "--set", "service.version=2.0.0")
-		if err != nil {
-			t.Fatalf("push --set failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "2.0.0")
-	})
+func testPushWithOverride(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	postgresPath := writePostgresBundle(t)
+	ref := "oci://" + reg.host + "/vals-test:2.0.0"
 
-	t.Run("verbose flag", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		postgresPath := writePostgresBundle(t)
-		ref := "oci://" + reg.host + "/verbose-test:1.0.0"
+	output, err := runCommand(t, reg, "push", ref, "-p", postgresPath, "--set", "service.version=2.0.0")
+	if err != nil {
+		t.Fatalf("push --set failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "2.0.0")
+}
 
-		_, err := runCommand(t, reg, "--verbose", "push", ref, "-p", postgresPath)
-		if err != nil {
-			t.Fatalf("push --verbose failed: %v", err)
-		}
-	})
+func testPushVerbose(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	postgresPath := writePostgresBundle(t)
+	ref := "oci://" + reg.host + "/verbose-test:1.0.0"
 
-	t.Run("help flag", func(t *testing.T) {
-		t.Parallel()
-		output, err := runCommand(t, nil, "push", "--help")
-		if err != nil {
-			t.Fatalf("push --help failed: %v", err)
-		}
-		assertContains(t, output, "push")
-		assertContains(t, output, "Usage")
-	})
+	_, err := runCommand(t, reg, "--verbose", "push", ref, "-p", postgresPath)
+	if err != nil {
+		t.Fatalf("push --verbose failed: %v", err)
+	}
+}
+
+func testPushHelp(t *testing.T) {
+	t.Parallel()
+	output, err := runCommand(t, nil, "push", "--help")
+	if err != nil {
+		t.Fatalf("push --help failed: %v", err)
+	}
+	assertContains(t, output, "push")
+	assertContains(t, output, "Usage")
 }
 
 func TestPullCommand(t *testing.T) {
 	t.Parallel()
 
-	t.Run("pulls to specified output", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		postgresPath := writePostgresBundle(t)
-		ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
+	t.Run("pulls to specified output", testPullToOutput)
+	t.Run("default output directory", testPullDefaultDir)
+	t.Run("json output", testPullJSON)
+	t.Run("markdown output", testPullMarkdown)
+	t.Run("nonexistent ref error", testPullNonexistent)
+	t.Run("no-cache flag", testPullNoCache)
+	t.Run("help flag", testPullHelp)
+}
 
-		_, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
-		if err != nil {
-			t.Fatalf("push failed: %v", err)
-		}
+func testPullToOutput(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	postgresPath := writePostgresBundle(t)
+	ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
 
-		pullDir := t.TempDir()
-		output, err := runCommand(t, reg, "pull", ref, "-o", filepath.Join(pullDir, "pulled"))
-		if err != nil {
-			t.Fatalf("pull failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "Pulled postgres-pacto@1.0.0")
+	_, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
+	if err != nil {
+		t.Fatalf("push failed: %v", err)
+	}
 
-		pulledPacto := filepath.Join(pullDir, "pulled", "pacto.yaml")
-		if _, err := os.Stat(pulledPacto); err != nil {
-			t.Fatalf("expected pacto.yaml in pulled dir: %v", err)
-		}
+	pullDir := t.TempDir()
+	output, err := runCommand(t, reg, "pull", ref, "-o", filepath.Join(pullDir, "pulled"))
+	if err != nil {
+		t.Fatalf("pull failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "Pulled postgres-pacto@1.0.0")
 
-		data, err := os.ReadFile(pulledPacto)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(data), "postgres-pacto") {
-			t.Error("pulled contract doesn't contain expected service name")
-		}
-	})
+	pulledPacto := filepath.Join(pullDir, "pulled", "pacto.yaml")
+	if _, err := os.Stat(pulledPacto); err != nil {
+		t.Fatalf("expected pacto.yaml in pulled dir: %v", err)
+	}
 
-	t.Run("default output directory", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		postgresPath := writePostgresBundle(t)
-		ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
+	data, err := os.ReadFile(pulledPacto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "postgres-pacto") {
+		t.Error("pulled contract doesn't contain expected service name")
+	}
+}
 
-		_, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
-		if err != nil {
-			t.Fatalf("push failed: %v", err)
-		}
+func testPullDefaultDir(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	postgresPath := writePostgresBundle(t)
+	ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
 
-		dir := t.TempDir()
-		inDir(t, dir)
+	_, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
+	if err != nil {
+		t.Fatalf("push failed: %v", err)
+	}
 
-		output, err := runCommand(t, reg, "pull", ref)
-		if err != nil {
-			t.Fatalf("pull default dir failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "Pulled postgres-pacto@1.0.0")
+	dir := t.TempDir()
+	inDir(t, dir)
 
-		// Default output should use service name
-		if _, err := os.Stat(filepath.Join(dir, "postgres-pacto", "pacto.yaml")); err != nil {
-			t.Fatalf("expected pacto.yaml in default output dir: %v", err)
-		}
-	})
+	output, err := runCommand(t, reg, "pull", ref)
+	if err != nil {
+		t.Fatalf("pull default dir failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "Pulled postgres-pacto@1.0.0")
 
-	t.Run("json output", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		redisPath := writeRedisV1Bundle(t)
-		ref := "oci://" + reg.host + "/redis-pacto:1.0.0"
+	// Default output should use service name
+	if _, err := os.Stat(filepath.Join(dir, "postgres-pacto", "pacto.yaml")); err != nil {
+		t.Fatalf("expected pacto.yaml in default output dir: %v", err)
+	}
+}
 
-		_, err := runCommand(t, reg, "push", ref, "-p", redisPath)
-		if err != nil {
-			t.Fatalf("push failed: %v", err)
-		}
+func testPullJSON(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	redisPath := writeRedisV1Bundle(t)
+	ref := "oci://" + reg.host + "/redis-pacto:1.0.0"
 
-		pullDir := t.TempDir()
-		output, err := runCommand(t, reg, "--output-format", "json", "pull", ref, "-o", filepath.Join(pullDir, "pulled"))
-		if err != nil {
-			t.Fatalf("pull json failed: %v\noutput: %s", err, output)
-		}
+	_, err := runCommand(t, reg, "push", ref, "-p", redisPath)
+	if err != nil {
+		t.Fatalf("push failed: %v", err)
+	}
 
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(output), &result); err != nil {
-			t.Fatalf("expected valid JSON output, got: %s", output)
-		}
-		if result["Name"] != "redis-pacto" {
-			t.Errorf("expected Name=redis-pacto, got %v", result["Name"])
-		}
-	})
+	pullDir := t.TempDir()
+	output, err := runCommand(t, reg, "--output-format", "json", "pull", ref, "-o", filepath.Join(pullDir, "pulled"))
+	if err != nil {
+		t.Fatalf("pull json failed: %v\noutput: %s", err, output)
+	}
 
-	t.Run("markdown output", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		postgresPath := writePostgresBundle(t)
-		ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("expected valid JSON output, got: %s", output)
+	}
+	if result["Name"] != "redis-pacto" {
+		t.Errorf("expected Name=redis-pacto, got %v", result["Name"])
+	}
+}
 
-		_, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
-		if err != nil {
-			t.Fatalf("push failed: %v", err)
-		}
+func testPullMarkdown(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	postgresPath := writePostgresBundle(t)
+	ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
 
-		pullDir := t.TempDir()
-		output, err := runCommand(t, reg, "--output-format", "markdown", "pull", ref, "-o", filepath.Join(pullDir, "pulled"))
-		if err != nil {
-			t.Fatalf("pull markdown failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "postgres-pacto")
-	})
+	_, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
+	if err != nil {
+		t.Fatalf("push failed: %v", err)
+	}
 
-	t.Run("nonexistent ref error", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		_, err := runCommand(t, reg, "pull", "oci://"+reg.host+"/nonexistent:latest")
-		if err == nil {
-			t.Fatal("expected pull to fail for nonexistent reference")
-		}
-	})
+	pullDir := t.TempDir()
+	output, err := runCommand(t, reg, "--output-format", "markdown", "pull", ref, "-o", filepath.Join(pullDir, "pulled"))
+	if err != nil {
+		t.Fatalf("pull markdown failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "postgres-pacto")
+}
 
-	t.Run("no-cache flag", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		postgresPath := writePostgresBundle(t)
-		ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
+func testPullNonexistent(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	_, err := runCommand(t, reg, "pull", "oci://"+reg.host+"/nonexistent:latest")
+	if err == nil {
+		t.Fatal("expected pull to fail for nonexistent reference")
+	}
+}
 
-		_, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
-		if err != nil {
-			t.Fatalf("push failed: %v", err)
-		}
+func testPullNoCache(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	postgresPath := writePostgresBundle(t)
+	ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
 
-		pullDir := t.TempDir()
-		output, err := runCommand(t, reg, "--no-cache", "pull", ref, "-o", filepath.Join(pullDir, "pulled"))
-		if err != nil {
-			t.Fatalf("pull --no-cache failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "Pulled")
-	})
+	_, err := runCommand(t, reg, "push", ref, "-p", postgresPath)
+	if err != nil {
+		t.Fatalf("push failed: %v", err)
+	}
 
-	t.Run("help flag", func(t *testing.T) {
-		t.Parallel()
-		output, err := runCommand(t, nil, "pull", "--help")
-		if err != nil {
-			t.Fatalf("pull --help failed: %v", err)
-		}
-		assertContains(t, output, "pull")
-		assertContains(t, output, "Usage")
-	})
+	pullDir := t.TempDir()
+	output, err := runCommand(t, reg, "--no-cache", "pull", ref, "-o", filepath.Join(pullDir, "pulled"))
+	if err != nil {
+		t.Fatalf("pull --no-cache failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "Pulled")
+}
+
+func testPullHelp(t *testing.T) {
+	t.Parallel()
+	output, err := runCommand(t, nil, "pull", "--help")
+	if err != nil {
+		t.Fatalf("pull --help failed: %v", err)
+	}
+	assertContains(t, output, "pull")
+	assertContains(t, output, "Usage")
 }
 
 func TestPushPullRoundtrip(t *testing.T) {

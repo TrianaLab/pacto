@@ -13,132 +13,142 @@ import (
 func TestDocCommand(t *testing.T) {
 	t.Parallel()
 
-	t.Run("text output", func(t *testing.T) {
-		t.Parallel()
-		postgresPath := writePostgresBundle(t)
+	t.Run("text output", testDocText)
+	t.Run("json output", testDocJSON)
+	t.Run("markdown output", testDocMarkdown)
+	t.Run("with output dir", testDocOutputDir)
+	t.Run("serve and output mutually exclusive", testDocServeOutputExclusive)
+	t.Run("OCI reference", testDocOCI)
+	t.Run("verbose flag", testDocVerbose)
+	t.Run("with set override", testDocSetOverride)
+	t.Run("help flag", testDocHelp)
+}
 
-		output, err := runCommand(t, nil, "doc", postgresPath)
-		if err != nil {
-			t.Fatalf("doc failed: %v\noutput: %s", err, output)
-		}
+func testDocText(t *testing.T) {
+	t.Parallel()
+	postgresPath := writePostgresBundle(t)
 
-		assertContains(t, output, "# postgres-pacto")
-		assertContains(t, output, "Interfaces")
-		assertContains(t, output, "Architecture")
-		assertContains(t, output, "```mermaid")
-	})
+	output, err := runCommand(t, nil, "doc", postgresPath)
+	if err != nil {
+		t.Fatalf("doc failed: %v\noutput: %s", err, output)
+	}
 
-	t.Run("json output", func(t *testing.T) {
-		t.Parallel()
-		postgresPath := writePostgresBundle(t)
+	assertContains(t, output, "# postgres-pacto")
+	assertContains(t, output, "Interfaces")
+	assertContains(t, output, "Architecture")
+	assertContains(t, output, "```mermaid")
+}
 
-		output, err := runCommand(t, nil, "--output-format", "json", "doc", postgresPath)
-		if err != nil {
-			t.Fatalf("doc json failed: %v\noutput: %s", err, output)
-		}
+func testDocJSON(t *testing.T) {
+	t.Parallel()
+	postgresPath := writePostgresBundle(t)
 
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(output), &result); err != nil {
-			t.Fatalf("expected valid JSON output, got: %s", output)
-		}
-		if result["serviceName"] != "postgres-pacto" {
-			t.Errorf("expected serviceName=postgres-pacto, got %v", result["serviceName"])
-		}
-		if result["markdown"] == nil {
-			t.Error("expected markdown field in JSON output")
-		}
-	})
+	output, err := runCommand(t, nil, "--output-format", "json", "doc", postgresPath)
+	if err != nil {
+		t.Fatalf("doc json failed: %v\noutput: %s", err, output)
+	}
 
-	t.Run("markdown output", func(t *testing.T) {
-		t.Parallel()
-		postgresPath := writePostgresBundle(t)
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("expected valid JSON output, got: %s", output)
+	}
+	if result["serviceName"] != "postgres-pacto" {
+		t.Errorf("expected serviceName=postgres-pacto, got %v", result["serviceName"])
+	}
+	if result["markdown"] == nil {
+		t.Error("expected markdown field in JSON output")
+	}
+}
 
-		output, err := runCommand(t, nil, "--output-format", "markdown", "doc", postgresPath)
-		if err != nil {
-			t.Fatalf("doc markdown failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "postgres-pacto")
-	})
+func testDocMarkdown(t *testing.T) {
+	t.Parallel()
+	postgresPath := writePostgresBundle(t)
 
-	t.Run("with output dir", func(t *testing.T) {
-		t.Parallel()
-		postgresPath := writePostgresBundle(t)
-		outDir := filepath.Join(t.TempDir(), "doc-output")
+	output, err := runCommand(t, nil, "--output-format", "markdown", "doc", postgresPath)
+	if err != nil {
+		t.Fatalf("doc markdown failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "postgres-pacto")
+}
 
-		output, err := runCommand(t, nil, "doc", postgresPath, "-o", outDir)
-		if err != nil {
-			t.Fatalf("doc with output failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "Wrote")
+func testDocOutputDir(t *testing.T) {
+	t.Parallel()
+	postgresPath := writePostgresBundle(t)
+	outDir := filepath.Join(t.TempDir(), "doc-output")
 
-		docPath := filepath.Join(outDir, "postgres-pacto.md")
-		data, err := os.ReadFile(docPath)
-		if err != nil {
-			t.Fatalf("expected doc file at %s: %v", docPath, err)
-		}
-		if !strings.Contains(string(data), "# postgres-pacto") {
-			t.Error("expected service heading in written file")
-		}
-	})
+	output, err := runCommand(t, nil, "doc", postgresPath, "-o", outDir)
+	if err != nil {
+		t.Fatalf("doc with output failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "Wrote")
 
-	t.Run("serve and output mutually exclusive", func(t *testing.T) {
-		t.Parallel()
-		postgresPath := writePostgresBundle(t)
-		outDir := t.TempDir()
+	docPath := filepath.Join(outDir, "postgres-pacto.md")
+	data, err := os.ReadFile(docPath)
+	if err != nil {
+		t.Fatalf("expected doc file at %s: %v", docPath, err)
+	}
+	if !strings.Contains(string(data), "# postgres-pacto") {
+		t.Error("expected service heading in written file")
+	}
+}
 
-		_, err := runCommand(t, nil, "doc", postgresPath, "--serve", "-o", outDir)
-		if err == nil {
-			t.Fatal("expected error for --serve with --output")
-		}
-	})
+func testDocServeOutputExclusive(t *testing.T) {
+	t.Parallel()
+	postgresPath := writePostgresBundle(t)
+	outDir := t.TempDir()
 
-	t.Run("OCI reference", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
+	_, err := runCommand(t, nil, "doc", postgresPath, "--serve", "-o", outDir)
+	if err == nil {
+		t.Fatal("expected error for --serve with --output")
+	}
+}
 
-		postgresPath := writePostgresBundle(t)
-		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
-		if err != nil {
-			t.Fatalf("push failed: %v", err)
-		}
+func testDocOCI(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
 
-		output, err := runCommand(t, reg, "doc", "oci://"+reg.host+"/postgres-pacto:1.0.0")
-		if err != nil {
-			t.Fatalf("doc via OCI failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "# postgres-pacto")
-	})
+	postgresPath := writePostgresBundle(t)
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
+	if err != nil {
+		t.Fatalf("push failed: %v", err)
+	}
 
-	t.Run("verbose flag", func(t *testing.T) {
-		t.Parallel()
-		postgresPath := writePostgresBundle(t)
+	output, err := runCommand(t, reg, "doc", "oci://"+reg.host+"/postgres-pacto:1.0.0")
+	if err != nil {
+		t.Fatalf("doc via OCI failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "# postgres-pacto")
+}
 
-		_, err := runCommand(t, nil, "--verbose", "doc", postgresPath)
-		if err != nil {
-			t.Fatalf("doc --verbose failed: %v", err)
-		}
-	})
+func testDocVerbose(t *testing.T) {
+	t.Parallel()
+	postgresPath := writePostgresBundle(t)
 
-	t.Run("with set override", func(t *testing.T) {
-		t.Parallel()
-		postgresPath := writePostgresBundle(t)
+	_, err := runCommand(t, nil, "--verbose", "doc", postgresPath)
+	if err != nil {
+		t.Fatalf("doc --verbose failed: %v", err)
+	}
+}
 
-		output, err := runCommand(t, nil, "doc", postgresPath, "--set", "service.version=9.0.0")
-		if err != nil {
-			t.Fatalf("doc --set failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "9.0.0")
-	})
+func testDocSetOverride(t *testing.T) {
+	t.Parallel()
+	postgresPath := writePostgresBundle(t)
 
-	t.Run("help flag", func(t *testing.T) {
-		t.Parallel()
-		output, err := runCommand(t, nil, "doc", "--help")
-		if err != nil {
-			t.Fatalf("doc --help failed: %v", err)
-		}
-		assertContains(t, output, "doc")
-		assertContains(t, output, "Usage")
-	})
+	output, err := runCommand(t, nil, "doc", postgresPath, "--set", "service.version=9.0.0")
+	if err != nil {
+		t.Fatalf("doc --set failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "9.0.0")
+}
+
+func testDocHelp(t *testing.T) {
+	t.Parallel()
+	output, err := runCommand(t, nil, "doc", "--help")
+	if err != nil {
+		t.Fatalf("doc --help failed: %v", err)
+	}
+	assertContains(t, output, "doc")
+	assertContains(t, output, "Usage")
 }
 
 func TestDocCommandUI(t *testing.T) {

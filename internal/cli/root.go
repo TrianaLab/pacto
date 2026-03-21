@@ -19,7 +19,7 @@ const outputFormatKey = "output-format"
 var checkForUpdateFn = update.CheckForUpdate
 
 // NewRootCommand constructs the Cobra command tree with the given app service.
-func NewRootCommand(svc *app.Service, version string) *cobra.Command {
+func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 	v := viper.New()
 
 	root := &cobra.Command{
@@ -73,15 +73,17 @@ func NewRootCommand(svc *app.Service, version string) *cobra.Command {
 		}
 
 		// Start async update check
-		if version != "dev" && os.Getenv("PACTO_NO_UPDATE_CHECK") != "1" {
+		if info.Version != "dev" && os.Getenv("PACTO_NO_UPDATE_CHECK") != "1" {
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
 						updateResultCh <- nil
 					}
 				}()
-				updateResultCh <- checkForUpdateFn(version)
+				updateResultCh <- checkForUpdateFn(info.Version)
 			}()
+		} else {
+			updateResultCh <- nil
 		}
 
 		return nil
@@ -113,9 +115,9 @@ func NewRootCommand(svc *app.Service, version string) *cobra.Command {
 	root.AddCommand(newDocCommand(svc, v))
 	root.AddCommand(newGenerateCommand(svc, v))
 	root.AddCommand(newLoginCommand())
-	root.AddCommand(newVersionCommand(version))
-	root.AddCommand(newUpdateCommand(version))
-	root.AddCommand(newMCPCommand(svc, version))
+	root.AddCommand(newVersionCommand(info))
+	root.AddCommand(newUpdateCommand(info.Version))
+	root.AddCommand(newMCPCommand(svc, info.Version))
 
 	return root
 }

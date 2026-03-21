@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -26,11 +27,16 @@ func newGenerateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 
 			outputDir, _ := cmd.Flags().GetString("output")
 
+			opts, err := parseOptions(options)
+			if err != nil {
+				return err
+			}
+
 			result, err := svc.Generate(cmd.Context(), app.GenerateOptions{
 				Path:      path,
 				OutputDir: outputDir,
 				Plugin:    pluginName,
-				Options:   parseOptions(options),
+				Options:   opts,
 				Overrides: getOverrides(cmd),
 			})
 			if err != nil {
@@ -51,15 +57,17 @@ func newGenerateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 }
 
 // parseOptions converts a slice of "key=value" strings into a map.
-func parseOptions(options []string) map[string]any {
+func parseOptions(options []string) (map[string]any, error) {
 	if len(options) == 0 {
-		return nil
+		return nil, nil
 	}
 	m := make(map[string]any, len(options))
 	for _, opt := range options {
-		if k, v, ok := strings.Cut(opt, "="); ok {
-			m[k] = v
+		k, v, ok := strings.Cut(opt, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid option %q: expected key=value format", opt)
 		}
+		m[k] = v
 	}
-	return m
+	return m, nil
 }

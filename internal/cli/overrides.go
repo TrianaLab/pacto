@@ -5,9 +5,24 @@ import (
 	"github.com/trianalab/pacto/pkg/override"
 )
 
+// optionalArg returns args[0] if present, otherwise "".
+func optionalArg(args []string) string {
+	if len(args) > 0 {
+		return args[0]
+	}
+	return ""
+}
+
 // addOverrideFlags registers --values/-f and --set flags on the given command.
 func addOverrideFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArrayP("values", "f", nil, "values file to merge into the contract (can be repeated; last wins)")
+	cmd.Flags().StringArray("set", nil, "set a contract value (e.g. --set service.version=2.0.0)")
+}
+
+// addOverrideFlagsNoShorthand registers --values and --set without the -f shorthand.
+// Use this when -f is reserved for another flag (e.g. --force).
+func addOverrideFlagsNoShorthand(cmd *cobra.Command) {
+	cmd.Flags().StringArray("values", nil, "values file to merge into the contract (can be repeated; last wins)")
 	cmd.Flags().StringArray("set", nil, "set a contract value (e.g. --set service.version=2.0.0)")
 }
 

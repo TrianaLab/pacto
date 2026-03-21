@@ -12,141 +12,149 @@ import (
 func TestPackCommand(t *testing.T) {
 	t.Parallel()
 
-	t.Run("archive creation", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		inDir(t, dir)
+	t.Run("archive creation", testPackArchive)
+	t.Run("custom output path", testPackCustomOutput)
+	t.Run("json output", testPackJSON)
+	t.Run("markdown output", testPackMarkdown)
+	t.Run("with set override", testPackSetOverride)
+	t.Run("with values file", testPackValuesFile)
+	t.Run("help flag", testPackHelp)
+}
 
-		_, err := runCommand(t, nil, "init", "pack-svc")
-		if err != nil {
-			t.Fatalf("init failed: %v", err)
-		}
+func testPackArchive(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	inDir(t, dir)
 
-		svcDir := filepath.Join(dir, "pack-svc")
-		output, err := runCommand(t, nil, "pack", svcDir)
-		if err != nil {
-			t.Fatalf("pack failed: %v\noutput: %s", err, output)
-		}
+	_, err := runCommand(t, nil, "init", "pack-svc")
+	if err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
 
-		assertContains(t, output, "Packed pack-svc@0.1.0")
+	svcDir := filepath.Join(dir, "pack-svc")
+	output, err := runCommand(t, nil, "pack", svcDir)
+	if err != nil {
+		t.Fatalf("pack failed: %v\noutput: %s", err, output)
+	}
 
-		archivePath := filepath.Join(dir, "pack-svc-0.1.0.tar.gz")
-		if _, err := os.Stat(archivePath); err != nil {
-			t.Fatalf("expected archive at %s: %v", archivePath, err)
-		}
-		verifyArchiveContains(t, archivePath, "pacto.yaml")
-	})
+	assertContains(t, output, "Packed pack-svc@0.1.0")
 
-	t.Run("custom output path", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		inDir(t, dir)
+	archivePath := filepath.Join(dir, "pack-svc-0.1.0.tar.gz")
+	if _, err := os.Stat(archivePath); err != nil {
+		t.Fatalf("expected archive at %s: %v", archivePath, err)
+	}
+	verifyArchiveContains(t, archivePath, "pacto.yaml")
+}
 
-		_, err := runCommand(t, nil, "init", "pack-out")
-		if err != nil {
-			t.Fatalf("init failed: %v", err)
-		}
+func testPackCustomOutput(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	inDir(t, dir)
 
-		svcDir := filepath.Join(dir, "pack-out")
-		outPath := filepath.Join(dir, "custom-output.tar.gz")
-		output, err := runCommand(t, nil, "pack", svcDir, "-o", outPath)
-		if err != nil {
-			t.Fatalf("pack -o failed: %v\noutput: %s", err, output)
-		}
+	_, err := runCommand(t, nil, "init", "pack-out")
+	if err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
 
-		if _, err := os.Stat(outPath); err != nil {
-			t.Fatalf("expected archive at %s: %v", outPath, err)
-		}
-		verifyArchiveContains(t, outPath, "pacto.yaml")
-	})
+	svcDir := filepath.Join(dir, "pack-out")
+	outPath := filepath.Join(dir, "custom-output.tar.gz")
+	output, err := runCommand(t, nil, "pack", svcDir, "-o", outPath)
+	if err != nil {
+		t.Fatalf("pack -o failed: %v\noutput: %s", err, output)
+	}
 
-	t.Run("json output", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		inDir(t, dir)
+	if _, err := os.Stat(outPath); err != nil {
+		t.Fatalf("expected archive at %s: %v", outPath, err)
+	}
+	verifyArchiveContains(t, outPath, "pacto.yaml")
+}
 
-		_, err := runCommand(t, nil, "init", "pack-json")
-		if err != nil {
-			t.Fatalf("init failed: %v", err)
-		}
+func testPackJSON(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	inDir(t, dir)
 
-		svcDir := filepath.Join(dir, "pack-json")
-		output, err := runCommand(t, nil, "--output-format", "json", "pack", svcDir)
-		if err != nil {
-			t.Fatalf("pack json failed: %v\noutput: %s", err, output)
-		}
+	_, err := runCommand(t, nil, "init", "pack-json")
+	if err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
 
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(output), &result); err != nil {
-			t.Fatalf("expected valid JSON output, got: %s", output)
-		}
-		if result["Name"] != "pack-json" {
-			t.Errorf("expected Name=pack-json, got %v", result["Name"])
-		}
-	})
+	svcDir := filepath.Join(dir, "pack-json")
+	output, err := runCommand(t, nil, "--output-format", "json", "pack", svcDir)
+	if err != nil {
+		t.Fatalf("pack json failed: %v\noutput: %s", err, output)
+	}
 
-	t.Run("markdown output", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		inDir(t, dir)
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("expected valid JSON output, got: %s", output)
+	}
+	if result["Name"] != "pack-json" {
+		t.Errorf("expected Name=pack-json, got %v", result["Name"])
+	}
+}
 
-		_, err := runCommand(t, nil, "init", "pack-md")
-		if err != nil {
-			t.Fatalf("init failed: %v", err)
-		}
+func testPackMarkdown(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	inDir(t, dir)
 
-		svcDir := filepath.Join(dir, "pack-md")
-		output, err := runCommand(t, nil, "--output-format", "markdown", "pack", svcDir)
-		if err != nil {
-			t.Fatalf("pack markdown failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "pack-md")
-	})
+	_, err := runCommand(t, nil, "init", "pack-md")
+	if err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
 
-	t.Run("with set override", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		inDir(t, dir)
+	svcDir := filepath.Join(dir, "pack-md")
+	output, err := runCommand(t, nil, "--output-format", "markdown", "pack", svcDir)
+	if err != nil {
+		t.Fatalf("pack markdown failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "pack-md")
+}
 
-		_, err := runCommand(t, nil, "init", "pack-set")
-		if err != nil {
-			t.Fatalf("init failed: %v", err)
-		}
+func testPackSetOverride(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	inDir(t, dir)
 
-		svcDir := filepath.Join(dir, "pack-set")
-		output, err := runCommand(t, nil, "pack", svcDir, "--set", "service.version=2.0.0")
-		if err != nil {
-			t.Fatalf("pack --set failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "2.0.0")
-	})
+	_, err := runCommand(t, nil, "init", "pack-set")
+	if err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
 
-	t.Run("with values file", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		inDir(t, dir)
+	svcDir := filepath.Join(dir, "pack-set")
+	output, err := runCommand(t, nil, "pack", svcDir, "--set", "service.version=2.0.0")
+	if err != nil {
+		t.Fatalf("pack --set failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "2.0.0")
+}
 
-		_, err := runCommand(t, nil, "init", "pack-vals")
-		if err != nil {
-			t.Fatalf("init failed: %v", err)
-		}
+func testPackValuesFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	inDir(t, dir)
 
-		svcDir := filepath.Join(dir, "pack-vals")
-		valuesFile := writeValuesFile(t, t.TempDir(), "vals.yaml", "service:\n  version: \"3.0.0\"\n")
-		output, err := runCommand(t, nil, "pack", svcDir, "-f", valuesFile)
-		if err != nil {
-			t.Fatalf("pack -f failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "3.0.0")
-	})
+	_, err := runCommand(t, nil, "init", "pack-vals")
+	if err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
 
-	t.Run("help flag", func(t *testing.T) {
-		t.Parallel()
-		output, err := runCommand(t, nil, "pack", "--help")
-		if err != nil {
-			t.Fatalf("pack --help failed: %v", err)
-		}
-		assertContains(t, output, "pack")
-		assertContains(t, output, "Usage")
-	})
+	svcDir := filepath.Join(dir, "pack-vals")
+	valuesFile := writeValuesFile(t, t.TempDir(), "vals.yaml", "service:\n  version: \"3.0.0\"\n")
+	output, err := runCommand(t, nil, "pack", svcDir, "-f", valuesFile)
+	if err != nil {
+		t.Fatalf("pack -f failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "3.0.0")
+}
+
+func testPackHelp(t *testing.T) {
+	t.Parallel()
+	output, err := runCommand(t, nil, "pack", "--help")
+	if err != nil {
+		t.Fatalf("pack --help failed: %v", err)
+	}
+	assertContains(t, output, "pack")
+	assertContains(t, output, "Usage")
 }

@@ -14,10 +14,7 @@ func newGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Example: "  pacto graph my-service",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var path string
-			if len(args) > 0 {
-				path = args[0]
-			}
+			path := optionalArg(args)
 
 			result, err := svc.Graph(cmd.Context(), app.GraphOptions{
 				Path:      path,

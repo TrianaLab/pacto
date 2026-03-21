@@ -1,5 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS := -ldflags "-X main.version=$(VERSION)"
+GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.gitCommit=$(GIT_COMMIT) -X main.buildDate=$(BUILD_DATE)"
 GOBIN := $(shell go env GOBIN 2>/dev/null)
 ifeq ($(GOBIN),)
 GOPATH := $(shell go env GOPATH 2>/dev/null)
