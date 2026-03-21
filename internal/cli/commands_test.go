@@ -939,3 +939,53 @@ func TestValidateCommand_OutputError(t *testing.T) {
 		t.Error("expected error when output writer fails")
 	}
 }
+
+func TestValidateCommand_DefaultPath(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	orig, _ := os.Getwd()
+	os.Chdir(bundleDir)
+	defer os.Chdir(orig)
+
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
+	root.SetArgs([]string{"validate"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("validate with default path failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "is valid") {
+		t.Errorf("expected valid output, got: %s", out.String())
+	}
+}
+
+func TestDocCommand_UnsupportedUIType(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
+	root.SetArgs([]string{"doc", "--ui", "redoc", bundleDir})
+
+	err := root.Execute()
+	if err == nil {
+		t.Error("expected error for unsupported UI type")
+	}
+	if !strings.Contains(err.Error(), "unsupported UI type") {
+		t.Errorf("expected 'unsupported UI type' error, got: %v", err)
+	}
+}
+
+func TestGenerateCommand_MalformedOption(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
+	root.SetArgs([]string{"generate", "test-plugin", bundleDir, "--option", "no-equals-sign"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Error("expected error for malformed option")
+	}
+	if !strings.Contains(err.Error(), "expected key=value") {
+		t.Errorf("expected key=value error, got: %v", err)
+	}
+}
