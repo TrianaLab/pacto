@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/override"
 )
 
 func TestPush_Success(t *testing.T) {
@@ -320,6 +322,48 @@ func TestPush_ExplicitTagKept(t *testing.T) {
 	}
 	if pushedRef != "ghcr.io/acme/svc:custom" {
 		t.Errorf("expected store to receive ref ghcr.io/acme/svc:custom, got %s", pushedRef)
+	}
+}
+
+func TestPush_OverridesPersistInBundle(t *testing.T) {
+	dir := writeTestBundle(t)
+	var pushedBundle *contract.Bundle
+	store := &mockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) {
+			return "", &oci.ArtifactNotFoundError{Ref: "ghcr.io/acme/svc:2.0.0"}
+		},
+		PushFn: func(_ context.Context, _ string, b *contract.Bundle) (string, error) {
+			pushedBundle = b
+			return "sha256:abc123", nil
+		},
+	}
+	svc := NewService(store, nil)
+	result, err := svc.Push(context.Background(), PushOptions{
+		Ref:  "oci://ghcr.io/acme/svc",
+		Path: dir,
+		Overrides: override.Overrides{
+			SetValues: []string{"service.version=2.0.0"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Version != "2.0.0" {
+		t.Errorf("expected Version=2.0.0, got %s", result.Version)
+	}
+
+	// Verify the bundle FS contains the overridden pacto.yaml
+	data, err := fs.ReadFile(pushedBundle.FS, "pacto.yaml")
+	if err != nil {
+		t.Fatalf("failed to read pacto.yaml from pushed bundle: %v", err)
+	}
+	if !strings.Contains(string(data), "version: 2.0.0") && !strings.Contains(string(data), `version: "2.0.0"`) {
+		t.Errorf("pushed bundle pacto.yaml should contain overridden version, got:\n%s", string(data))
+	}
+
+	// Verify non-overridden files are still accessible
+	if _, err := fs.ReadFile(pushedBundle.FS, "openapi.yaml"); err != nil {
+		t.Errorf("non-overridden file should still be accessible: %v", err)
 	}
 }
 

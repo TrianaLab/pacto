@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"testing/fstest"
 
 	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/contract"
@@ -135,11 +136,45 @@ func applyOverrides(bundle *contract.Bundle, overrides override.Overrides) (*con
 		return nil, fmt.Errorf("overrides produce an invalid contract: %s", result.Errors[0].Message)
 	}
 
+	mergedFS, err := copyFSWithReplace(bundle.FS, DefaultContractPath, merged)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build overridden bundle FS: %w", err)
+	}
+
 	return &contract.Bundle{
 		Contract: c,
 		RawYAML:  merged,
-		FS:       bundle.FS,
+		FS:       mergedFS,
 	}, nil
+}
+
+// copyFSWithReplace copies all files from src into a fstest.MapFS, replacing
+// the file at replaceName with replaceData.
+func copyFSWithReplace(src fs.FS, replaceName string, replaceData []byte) (fstest.MapFS, error) {
+	m := fstest.MapFS{}
+	err := fs.WalkDir(src, ".", func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == "." {
+			return nil
+		}
+		if d.IsDir() {
+			m[path] = &fstest.MapFile{Mode: fs.ModeDir | 0755}
+			return nil
+		}
+		if path == replaceName {
+			m[path] = &fstest.MapFile{Data: replaceData, Mode: 0644}
+			return nil
+		}
+		data, err := fs.ReadFile(src, path)
+		if err != nil {
+			return err
+		}
+		m[path] = &fstest.MapFile{Data: data, Mode: 0644}
+		return nil
+	})
+	return m, err
 }
 
 // loadAndValidateLocal reads a local contract directory, parses pacto.yaml,

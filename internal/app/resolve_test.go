@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -450,5 +451,69 @@ func TestLoadAndValidateLocal_ValidationFails(t *testing.T) {
 	_, _, _, err := loadAndValidateLocal(dir, override.Overrides{})
 	if err == nil {
 		t.Error("expected error for invalid bundle")
+	}
+}
+
+func TestCopyFSWithReplace_ErrorFS(t *testing.T) {
+	_, err := copyFSWithReplace(errFS{}, "pacto.yaml", []byte("data"))
+	if err == nil {
+		t.Error("expected error for errFS")
+	}
+}
+
+func TestCopyFSWithReplace_ReadFileError(t *testing.T) {
+	base := readFailFS{fstest.MapFS{
+		"other.yaml": &fstest.MapFile{Data: []byte("data")},
+	}}
+	_, err := copyFSWithReplace(base, "pacto.yaml", []byte("data"))
+	if err == nil {
+		t.Error("expected error when ReadFile fails")
+	}
+}
+
+func TestApplyOverrides_CopyFSError(t *testing.T) {
+	b := testBundle()
+	b.FS = errFS{}
+	_, err := applyOverrides(b, override.Overrides{SetValues: []string{"service.version=9.9.9"}})
+	if err == nil {
+		t.Error("expected error when FS walk fails")
+	}
+}
+
+func TestCopyFSWithReplace(t *testing.T) {
+	base := fstest.MapFS{
+		"pacto.yaml":   &fstest.MapFile{Data: []byte("original")},
+		"openapi.yaml": &fstest.MapFile{Data: []byte("openapi content")},
+		"docs":         &fstest.MapFile{Mode: fs.ModeDir | 0755},
+		"docs/README":  &fstest.MapFile{Data: []byte("readme")},
+	}
+	replaced := []byte("overridden content")
+	result, err := copyFSWithReplace(base, "pacto.yaml", replaced)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := fs.ReadFile(result, "pacto.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "overridden content" {
+		t.Errorf("expected replaced content, got %q", string(data))
+	}
+
+	data, err = fs.ReadFile(result, "openapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "openapi content" {
+		t.Errorf("expected original content, got %q", string(data))
+	}
+
+	data, err = fs.ReadFile(result, "docs/README")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "readme" {
+		t.Errorf("expected readme, got %q", string(data))
 	}
 }
