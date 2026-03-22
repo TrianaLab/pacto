@@ -591,9 +591,11 @@ func TestValidateConfigValues_InvalidSchemaJSON(t *testing.T) {
 		"bad-schema.json": &fstest.MapFile{Data: []byte("not valid json")},
 	}
 	var result ValidationResult
+	// Invalid schema JSON is now caught by validateConfigSchemaContent;
+	// validateConfigValues silently skips when compilation fails.
 	validateConfigValues(c, bundleFS, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid schema JSON")
+	if !result.IsValid() {
+		t.Error("expected no error from validateConfigValues (caught by validateConfigSchemaContent)")
 	}
 }
 
@@ -613,9 +615,11 @@ func TestValidateConfigValues_InvalidSchemaCompile(t *testing.T) {
 		}`)},
 	}
 	var result ValidationResult
+	// Schema compilation errors are now caught by validateConfigSchemaContent;
+	// validateConfigValues silently skips when compilation fails.
 	validateConfigValues(c, bundleFS, &result)
-	if result.IsValid() {
-		t.Error("expected error for schema that fails compilation")
+	if !result.IsValid() {
+		t.Error("expected no error from validateConfigValues (caught by validateConfigSchemaContent)")
 	}
 }
 
@@ -800,5 +804,269 @@ func TestValidatePolicyFields_BothSchemaAndRef(t *testing.T) {
 	validatePolicyFields(c, bundleFS, &result)
 	if !result.IsValid() {
 		t.Errorf("expected no error for policy with both schema and ref, got %v", result.Errors)
+	}
+}
+
+// --- Interface file content validation ---
+
+func TestValidateInterfaceFileContent_ValidYAML(t *testing.T) {
+	c := validContract()
+	c.Interfaces[0].Contract = "interfaces/openapi.yaml"
+	bundleFS := fstest.MapFS{
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte("openapi: '3.0.0'\ninfo:\n  title: test\n  version: '1.0'\n")},
+	}
+	var result ValidationResult
+	validateInterfaceFileContent(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for valid YAML, got %v", result.Errors)
+	}
+}
+
+func TestValidateInterfaceFileContent_InvalidYAML(t *testing.T) {
+	c := validContract()
+	c.Interfaces[0].Contract = "interfaces/openapi.yaml"
+	bundleFS := fstest.MapFS{
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte(":\ninvalid:\n  - [yaml\n")},
+	}
+	var result ValidationResult
+	validateInterfaceFileContent(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected INVALID_CONTRACT_FILE error for invalid YAML")
+	}
+	if result.Errors[0].Code != "INVALID_CONTRACT_FILE" {
+		t.Errorf("expected code INVALID_CONTRACT_FILE, got %s", result.Errors[0].Code)
+	}
+}
+
+func TestValidateInterfaceFileContent_NonYAMLSkipped(t *testing.T) {
+	c := validContract()
+	c.Interfaces[0].Contract = "interfaces/service.proto"
+	bundleFS := fstest.MapFS{
+		"interfaces/service.proto": &fstest.MapFile{Data: []byte("not yaml content")},
+	}
+	var result ValidationResult
+	validateInterfaceFileContent(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Error("expected no error for non-YAML file")
+	}
+}
+
+func TestValidateInterfaceFileContent_NilBundleFS(t *testing.T) {
+	c := validContract()
+	c.Interfaces[0].Contract = "interfaces/openapi.yaml"
+	var result ValidationResult
+	validateInterfaceFileContent(c, nil, &result)
+	if !result.IsValid() {
+		t.Error("expected no error when bundleFS is nil")
+	}
+}
+
+func TestValidateInterfaceFileContent_EmptyContract(t *testing.T) {
+	c := validContract()
+	c.Interfaces[0].Contract = ""
+	var result ValidationResult
+	validateInterfaceFileContent(c, fstest.MapFS{}, &result)
+	if !result.IsValid() {
+		t.Error("expected no error for empty contract path")
+	}
+}
+
+func TestValidateInterfaceFileContent_MissingFileSkipped(t *testing.T) {
+	c := validContract()
+	c.Interfaces[0].Contract = "interfaces/openapi.yaml"
+	bundleFS := fstest.MapFS{}
+	var result ValidationResult
+	validateInterfaceFileContent(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Error("expected no error for missing file (handled by validateInterfaceFiles)")
+	}
+}
+
+// --- Config schema content validation ---
+
+func TestValidateConfigSchemaContent_ValidJSON(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{Schema: "config/schema.json"}
+	bundleFS := fstest.MapFS{
+		"config/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+	}
+	var result ValidationResult
+	validateConfigSchemaContent(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for valid JSON Schema, got %v", result.Errors)
+	}
+}
+
+func TestValidateConfigSchemaContent_InvalidJSON(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{Schema: "config/schema.json"}
+	bundleFS := fstest.MapFS{
+		"config/schema.json": &fstest.MapFile{Data: []byte("not json")},
+	}
+	var result ValidationResult
+	validateConfigSchemaContent(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected INVALID_CONFIG_JSON error")
+	}
+	if result.Errors[0].Code != "INVALID_CONFIG_JSON" {
+		t.Errorf("expected code INVALID_CONFIG_JSON, got %s", result.Errors[0].Code)
+	}
+}
+
+func TestValidateConfigSchemaContent_InvalidSchema(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{Schema: "config/schema.json"}
+	bundleFS := fstest.MapFS{
+		"config/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"k":{"$ref":"nonexistent://bad"}}}`)},
+	}
+	var result ValidationResult
+	validateConfigSchemaContent(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected INVALID_CONFIG_SCHEMA error")
+	}
+	if result.Errors[0].Code != "INVALID_CONFIG_SCHEMA" {
+		t.Errorf("expected code INVALID_CONFIG_SCHEMA, got %s", result.Errors[0].Code)
+	}
+}
+
+func TestValidateConfigSchemaContent_NilConfig(t *testing.T) {
+	c := validContract()
+	c.Configuration = nil
+	var result ValidationResult
+	validateConfigSchemaContent(c, nil, &result)
+	if !result.IsValid() {
+		t.Error("expected no error for nil config")
+	}
+}
+
+func TestValidateConfigSchemaContent_EmptySchema(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{Schema: ""}
+	var result ValidationResult
+	validateConfigSchemaContent(c, nil, &result)
+	if !result.IsValid() {
+		t.Error("expected no error for empty schema")
+	}
+}
+
+func TestValidateConfigSchemaContent_MissingFileSkipped(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{Schema: "missing.json"}
+	bundleFS := fstest.MapFS{}
+	var result ValidationResult
+	validateConfigSchemaContent(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Error("expected no error for missing file (handled by validateConfigFiles)")
+	}
+}
+
+func TestValidateConfigSchemaContent_WithoutValues(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{Schema: "config/schema.json"}
+	bundleFS := fstest.MapFS{
+		"config/schema.json": &fstest.MapFile{Data: []byte("not json")},
+	}
+	var result ValidationResult
+	validateConfigSchemaContent(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error even without values — schema must always be valid")
+	}
+}
+
+// --- Policy schema content validation ---
+
+func TestValidatePolicySchemaContent_ValidJSON(t *testing.T) {
+	c := validContract()
+	c.Policy = &contract.Policy{Schema: "policy/schema.json"}
+	bundleFS := fstest.MapFS{
+		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+	}
+	var result ValidationResult
+	validatePolicySchemaContent(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for valid policy JSON Schema, got %v", result.Errors)
+	}
+}
+
+func TestValidatePolicySchemaContent_InvalidJSON(t *testing.T) {
+	c := validContract()
+	c.Policy = &contract.Policy{Schema: "policy/schema.json"}
+	bundleFS := fstest.MapFS{
+		"policy/schema.json": &fstest.MapFile{Data: []byte("not json")},
+	}
+	var result ValidationResult
+	validatePolicySchemaContent(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected INVALID_POLICY_JSON error")
+	}
+	if result.Errors[0].Code != "INVALID_POLICY_JSON" {
+		t.Errorf("expected code INVALID_POLICY_JSON, got %s", result.Errors[0].Code)
+	}
+}
+
+func TestValidatePolicySchemaContent_InvalidSchema(t *testing.T) {
+	c := validContract()
+	c.Policy = &contract.Policy{Schema: "policy/schema.json"}
+	bundleFS := fstest.MapFS{
+		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"k":{"$ref":"nonexistent://bad"}}}`)},
+	}
+	var result ValidationResult
+	validatePolicySchemaContent(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected INVALID_POLICY_SCHEMA error")
+	}
+	if result.Errors[0].Code != "INVALID_POLICY_SCHEMA" {
+		t.Errorf("expected code INVALID_POLICY_SCHEMA, got %s", result.Errors[0].Code)
+	}
+}
+
+func TestValidatePolicySchemaContent_NilPolicy(t *testing.T) {
+	c := validContract()
+	c.Policy = nil
+	var result ValidationResult
+	validatePolicySchemaContent(c, nil, &result)
+	if !result.IsValid() {
+		t.Error("expected no error for nil policy")
+	}
+}
+
+func TestValidatePolicySchemaContent_EmptySchema(t *testing.T) {
+	c := validContract()
+	c.Policy = &contract.Policy{Ref: "oci://ghcr.io/acme/policy:1.0.0"}
+	var result ValidationResult
+	validatePolicySchemaContent(c, nil, &result)
+	if !result.IsValid() {
+		t.Error("expected no error for policy with ref only")
+	}
+}
+
+// --- validateJSONSchemaFile guard ---
+
+func TestValidateJSONSchemaFile_NilBundleFS(t *testing.T) {
+	var result ValidationResult
+	validateJSONSchemaFile(nil, "schema.json", "field", "CODE1", "CODE2", &result)
+	if !result.IsValid() {
+		t.Error("expected no error when bundleFS is nil")
+	}
+}
+
+// --- isYAMLFile helper ---
+
+func TestIsYAMLFile(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"openapi.yaml", true},
+		{"openapi.yml", true},
+		{"openapi.YAML", true},
+		{"schema.json", false},
+		{"service.proto", false},
+		{"noext", false},
+	}
+	for _, tt := range tests {
+		if got := isYAMLFile(tt.path); got != tt.want {
+			t.Errorf("isYAMLFile(%q) = %v, want %v", tt.path, got, tt.want)
+		}
 	}
 }

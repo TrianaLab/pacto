@@ -125,4 +125,162 @@ func TestValidateCommand(t *testing.T) {
 		assertContains(t, output, "validate")
 		assertContains(t, output, "Usage")
 	})
+
+}
+
+func TestValidateFileContent(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects invalid YAML in interface contract", func(t *testing.T) {
+		t.Parallel()
+		dir := filepath.Join(t.TempDir(), "bad-yaml-svc")
+		contractYAML := `pactoVersion: "1.0"
+service:
+  name: bad-yaml-svc
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: interfaces/openapi.yaml
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+		bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
+			"openapi.yaml": ":\n  invalid:\n  - [yaml\n",
+		})
+
+		output, err := runCommand(t, nil, "validate", bundlePath)
+		if err == nil {
+			t.Fatalf("expected validation to fail for invalid YAML interface contract, output: %s", output)
+		}
+		assertContains(t, output, "INVALID_CONTRACT_FILE")
+	})
+
+	t.Run("rejects invalid JSON in config schema", func(t *testing.T) {
+		t.Parallel()
+		dir := filepath.Join(t.TempDir(), "bad-config-svc")
+		contractYAML := `pactoVersion: "1.0"
+service:
+  name: bad-config-svc
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+configuration:
+  schema: configuration/schema.json
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+		bundlePath := writeBundleDirRaw(t, dir, contractYAML, nil, "not valid json")
+
+		output, err := runCommand(t, nil, "validate", bundlePath)
+		if err == nil {
+			t.Fatalf("expected validation to fail for invalid JSON config schema, output: %s", output)
+		}
+		assertContains(t, output, "INVALID_CONFIG_JSON")
+	})
+
+	t.Run("rejects invalid JSON in policy schema", func(t *testing.T) {
+		t.Parallel()
+		dir := filepath.Join(t.TempDir(), "bad-policy-svc")
+		contractYAML := `pactoVersion: "1.0"
+service:
+  name: bad-policy-svc
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+policy:
+  schema: policy/schema.json
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+		bundlePath := writeBundleDirWithPolicy(t, dir, contractYAML, "not valid json")
+
+		output, err := runCommand(t, nil, "validate", bundlePath)
+		if err == nil {
+			t.Fatalf("expected validation to fail for invalid JSON policy schema, output: %s", output)
+		}
+		assertContains(t, output, "INVALID_POLICY_JSON")
+	})
+
+	t.Run("rejects uncompilable config schema", func(t *testing.T) {
+		t.Parallel()
+		dir := filepath.Join(t.TempDir(), "bad-schema-compile-svc")
+		contractYAML := `pactoVersion: "1.0"
+service:
+  name: bad-schema-compile-svc
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+configuration:
+  schema: configuration/schema.json
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+		bundlePath := writeBundleDirRaw(t, dir, contractYAML, nil,
+			`{"type":"object","properties":{"k":{"$ref":"nonexistent://bad"}}}`)
+
+		output, err := runCommand(t, nil, "validate", bundlePath)
+		if err == nil {
+			t.Fatalf("expected validation to fail for uncompilable config schema, output: %s", output)
+		}
+		assertContains(t, output, "INVALID_CONFIG_SCHEMA")
+	})
+
+	t.Run("accepts valid bundle with all referenced files", func(t *testing.T) {
+		t.Parallel()
+		postgresPath := writePostgresBundle(t)
+
+		output, err := runCommand(t, nil, "validate", postgresPath)
+		if err != nil {
+			t.Fatalf("validate failed for valid bundle: %v\noutput: %s", err, output)
+		}
+		assertContains(t, output, "is valid")
+	})
 }

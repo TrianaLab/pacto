@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"path/filepath"
+	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/graph"
+	"gopkg.in/yaml.v3"
 )
 
 // ValidateCrossField performs Layer 2 validation: cross-field consistency,
@@ -24,9 +27,12 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateHealthInterface(c, &result)
 	validateMetricsInterface(c, &result)
 	validateInterfaceFiles(c, bundleFS, &result)
+	validateInterfaceFileContent(c, bundleFS, &result)
 	validateConfigFiles(c, bundleFS, &result)
+	validateConfigSchemaContent(c, bundleFS, &result)
 	validateConfigRef(c, &result)
 	validatePolicyFields(c, bundleFS, &result)
+	validatePolicySchemaContent(c, bundleFS, &result)
 	validateDependencyRefs(c, &result)
 	validateImageRef(c, &result)
 	validateChartRef(c, &result)
@@ -382,11 +388,7 @@ func validateConfigValues(c *contract.Contract, bundleFS fs.FS, result *Validati
 
 	schema, err := compileConfigSchema(schemaData)
 	if err != nil {
-		result.AddError(
-			"configuration.schema",
-			"INVALID_CONFIG_SCHEMA",
-			fmt.Sprintf("invalid configuration schema: %v", err),
-		)
+		// Schema compilation errors are already caught by validateConfigSchemaContent.
 		return
 	}
 
@@ -413,6 +415,78 @@ func compileConfigSchema(data []byte) (*jsonschema.Schema, error) {
 	}
 	compiler.AddResource("mem:///config-schema.json", schemaDoc) //nolint:errcheck // AddResource does not fail for valid JSON
 	return compiler.Compile("mem:///config-schema.json")
+}
+
+// isYAMLFile reports whether the file path has a YAML extension.
+func isYAMLFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".yaml" || ext == ".yml"
+}
+
+func validateInterfaceFileContent(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
+	if bundleFS == nil {
+		return
+	}
+	for i, iface := range c.Interfaces {
+		if iface.Contract == "" {
+			continue
+		}
+		data, err := fs.ReadFile(bundleFS, iface.Contract)
+		if err != nil {
+			// File-not-found is already caught by validateInterfaceFiles.
+			continue
+		}
+		if !isYAMLFile(iface.Contract) {
+			continue
+		}
+		var parsed interface{}
+		if err := yaml.Unmarshal(data, &parsed); err != nil {
+			result.AddError(
+				fmt.Sprintf("interfaces[%d].contract", i),
+				"INVALID_CONTRACT_FILE",
+				fmt.Sprintf("interface contract file %q is not valid YAML: %v", iface.Contract, err),
+			)
+		}
+	}
+}
+
+// validateJSONSchemaFile reads a JSON file from the bundle, validates it is
+// valid JSON, and compiles it as a JSON Schema. It reports errors at the given
+// field path using the given error codes.
+func validateJSONSchemaFile(bundleFS fs.FS, path, field, invalidJSONCode, invalidSchemaCode string, result *ValidationResult) {
+	if bundleFS == nil || path == "" {
+		return
+	}
+	data, err := fs.ReadFile(bundleFS, path)
+	if err != nil {
+		// File-not-found is already caught by other validators.
+		return
+	}
+	if !json.Valid(data) {
+		result.AddError(field, invalidJSONCode,
+			fmt.Sprintf("file %q is not valid JSON", path))
+		return
+	}
+	if _, err := compileConfigSchema(data); err != nil {
+		result.AddError(field, invalidSchemaCode,
+			fmt.Sprintf("file %q is not a valid JSON Schema: %v", path, err))
+	}
+}
+
+func validateConfigSchemaContent(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
+	if c.Configuration == nil || c.Configuration.Schema == "" {
+		return
+	}
+	validateJSONSchemaFile(bundleFS, c.Configuration.Schema,
+		"configuration.schema", "INVALID_CONFIG_JSON", "INVALID_CONFIG_SCHEMA", result)
+}
+
+func validatePolicySchemaContent(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
+	if c.Policy == nil || c.Policy.Schema == "" {
+		return
+	}
+	validateJSONSchemaFile(bundleFS, c.Policy.Schema,
+		"policy.schema", "INVALID_POLICY_JSON", "INVALID_POLICY_SCHEMA", result)
 }
 
 func validateStatePersistenceInvariants(c *contract.Contract, result *ValidationResult) {

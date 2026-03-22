@@ -697,6 +697,55 @@ func writeZeroInterfaceBundle(t *testing.T) string {
 	return dir
 }
 
+// writeBundleDirRaw writes a contract YAML, optional interface files, and a
+// custom configuration schema string. It allows testing with invalid schema content.
+func writeBundleDirRaw(t *testing.T, dir, contractYAML string, ifaceFiles map[string]string, configSchema string) string {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Join(dir, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "configuration"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, content := range ifaceFiles {
+		p := filepath.Join(dir, "interfaces", name)
+		if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "configuration", "schema.json"), []byte(configSchema), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	return dir
+}
+
+// writeBundleDirWithPolicy writes a contract YAML and a custom policy schema.
+func writeBundleDirWithPolicy(t *testing.T, dir, contractYAML string, policySchema string) string {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Join(dir, "policy"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "policy", "schema.json"), []byte(policySchema), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	return dir
+}
+
 // writeOpenAPIDiffBundleV1 creates a bundle with the v1 OpenAPI spec.
 func writeOpenAPIDiffBundleV1(t *testing.T) string {
 	t.Helper()
