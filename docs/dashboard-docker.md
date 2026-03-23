@@ -1,10 +1,19 @@
 ---
 layout: default
 title: Dashboard Container
-nav_order: 8
+nav_order: 7.5
 ---
 
 # Dashboard Container
+{: .no_toc }
+
+---
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+- TOC
+{:toc}
+</details>
 
 The Pacto dashboard is published as a container image for production and Kubernetes deployments.
 
