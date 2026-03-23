@@ -271,16 +271,18 @@ func (s *K8sSource) listPactos(ctx context.Context) ([]pactoResource, error) {
 
 	out, err := s.client.ListJSON(ctx, s.resourceName, s.namespace)
 	if err != nil {
-		s.setListCache(nil, fmt.Errorf("listing %s: %w", s.resourceName, err))
-		return nil, s.listErr
+		listErr := fmt.Errorf("listing %s: %w", s.resourceName, err)
+		s.setListCache(nil, listErr)
+		return nil, listErr
 	}
 
 	var list struct {
 		Items []pactoResource `json:"items"`
 	}
 	if err := json.Unmarshal(out, &list); err != nil {
-		s.setListCache(nil, fmt.Errorf("parsing API response: %w", err))
-		return nil, s.listErr
+		parseErr := fmt.Errorf("parsing API response: %w", err)
+		s.setListCache(nil, parseErr)
+		return nil, parseErr
 	}
 	s.setListCache(list.Items, nil)
 	return list.Items, nil

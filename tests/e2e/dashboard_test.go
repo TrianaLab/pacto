@@ -24,7 +24,7 @@ func TestDashboardCommand(t *testing.T) {
 	})
 
 	t.Run("no sources detected", func(t *testing.T) {
-		t.Parallel()
+		// Not parallel: modifies process-wide KUBECONFIG environment variable.
 
 		// Use --no-cache to prevent the disk cache source from being detected
 		// on machines that have a populated ~/.cache/pacto/oci/ directory.
