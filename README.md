@@ -13,7 +13,7 @@ Pacto (/ˈpak.to/ — Spanish for *pact*) is a YAML contract that describes the 
 
 Where OpenAPI describes the API and Helm describes the deployment, Pacto describes the service itself. Platforms, CI pipelines, and AI agents consume the same contract to generate manifests, enforce policies, resolve dependency graphs, and detect breaking changes — without reverse-engineering how a service works.
 
-No runtime agents. No sidecars. No new infrastructure. Pacto runs at build time and CI time only.
+No sidecars. No new infrastructure. The core CLI runs at build time and CI time. The optional [Kubernetes Operator](https://github.com/TrianaLab/pacto-operator) extends compliance to runtime.
 
 **[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)** · **[Demo](https://github.com/TrianaLab/pacto-demo)**
 
@@ -283,6 +283,7 @@ This distinction matters because:
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
 - **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
+- **Dashboard** — `pacto dashboard` launches a local web UI that auto-detects contracts from Kubernetes, OCI registries, and local directories, with compliance status, dependency graphs, and diff viewer
 - **AI assistant integration** — `pacto mcp` exposes all operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and Copilot
 
 Interested in contributing? See the [Architecture](https://trianalab.github.io/pacto/architecture/) guide for the internal design.
@@ -388,7 +389,7 @@ Pacto doesn't replace these tools — it fills the gap between them.
 ## What Pacto is NOT
 
 - **Not a deployment tool.** Pacto doesn't deploy anything. It describes *what* a service is — platforms decide *how* to run it.
-- **Not a service mesh or runtime agent.** There's nothing to install in your cluster. Pacto runs at build time and CI time only.
+- **Not a service mesh or runtime agent.** The core CLI runs at build time and CI time. The optional [Kubernetes Operator](https://github.com/TrianaLab/pacto-operator) adds runtime compliance without sidecars.
 - **Not a service catalog.** Pacto produces the structured data that a catalog (Backstage, Port, Cortex) could consume, but it's not a UI or portal.
 - **Not a replacement for OpenAPI or Helm.** It references your OpenAPI specs and complements deployment tools — it doesn't replace them.
 

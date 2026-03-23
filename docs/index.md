@@ -253,9 +253,8 @@ Consume contracts to generate deployment manifests, enforce policies, detect bre
 
 - **Not a deployment tool** — it describes *what* to deploy, not *how*
 - **Not a registry** — it uses existing OCI registries (GHCR, ECR, ACR, Docker Hub)
-- **Not a service mesh or runtime agent** — there's nothing to install in your cluster; Pacto runs at build time and CI time only
+- **Not a service mesh or runtime agent** — the core CLI runs at build time and CI time; the optional [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}) adds runtime compliance without sidecars
 - **Not a replacement for Helm or Terraform** — it complements them as input
 - **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
-- **Not just a build-time tool** — the [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}) extends Pacto to runtime, continuously reconciling contracts against live cluster state
 
 Pacto is a **contract standard**. It tells platforms, pipelines, and AI agents what a service *is* so they can decide how to work with it.

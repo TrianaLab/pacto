@@ -148,11 +148,13 @@ Provides a web-based dashboard for visualizing and exploring service contracts. 
 - Multi-source architecture: `DataSource` interface implemented by `K8sSource`, `CacheSource`, `LocalSource`, `OCISource`
 - `AggregatedSource` merges sources with priority: Kubernetes (runtime) > local (contract) > OCI/cache (baseline)
 - `CachedDataSource` wraps any source with in-memory TTL caching (source-type-prefixed keys to prevent cross-source collision)
-- Phase normalization: `NormalizePhase()` maps non-standard operator phases (e.g. `Reference`, `Progressing`) to the four canonical dashboard phases (`Healthy`, `Degraded`, `Invalid`, `Unknown`)
+- Phase normalization: `NormalizePhase()` maps non-standard operator phases (e.g. `Progressing`) to the five canonical dashboard phases (`Healthy`, `Degraded`, `Invalid`, `Unknown`, `Reference`)
 - Graph building: `buildGlobalGraph()` constructs a flat D3-ready graph from the service index; `buildGraph()` builds a per-service dependency tree. Ref-alias mapping resolves OCI repo names (e.g. `my-service-pacto`) to contract service names (e.g. `my-service`)
 - Cross-references: config/policy OCI refs are surfaced as reference edges (dashed lines) distinct from dependency edges (solid lines)
-- Embedded SPA with D3.js force-directed graph, source/status/search filtering, service detail pages with tabs (Interfaces, Config, Policy), and diff view
-- REST API: `/api/services`, `/api/services/{name}`, `/api/services/{name}/versions`, `/api/services/{name}/sources`, `/api/services/{name}/dependents`, `/api/services/{name}/graph`, `/api/graph`, `/api/diff`, `/api/sources`
+- Compliance engine: `ComputeCompliance()` derives OK/WARNING/ERROR/REFERENCE status and percentage score from phase and conditions; `ComputeRuntimeDiff()` builds semantic contract-vs-runtime comparison rows; `LookupValidation()` enriches condition types with category, label, and default severity from a 12-entry catalog
+- REST API built on [Huma v2](https://huma.rocks/) with typed I/O structs, OpenAPI 3.1 spec generation, and `/docs` endpoint; static files and CORS remain on the raw mux
+- Embedded SPA with D3.js force-directed graph, source/status/search filtering, service detail pages with tabs (Interfaces, Config, Policy, Validations, Contract vs Runtime, Observed Runtime), compliance badges/scores, and diff view
+- REST API: `/api/services`, `/api/services/{name}`, `/api/services/{name}/versions`, `/api/services/{name}/sources`, `/api/services/{name}/dependents`, `/api/services/{name}/graph`, `/api/graph`, `/api/diff`, `/api/sources`, `/health`, `/metrics`
 
 ### `internal/app` -- Application services
 

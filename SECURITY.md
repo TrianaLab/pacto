@@ -29,7 +29,7 @@ If you discover a security vulnerability in Pacto, please report it responsibly.
 
 ## Security Practices
 
-- Pacto runs at **build time and CI time only** — it has no runtime agents, sidecars, or persistent infrastructure.
+- The core CLI runs at **build time and CI time** — it has no runtime agents, sidecars, or persistent infrastructure. The optional [Kubernetes Operator](https://github.com/TrianaLab/pacto-operator) adds runtime compliance.
 - Contracts are distributed as **OCI artifacts** through standard container registries.
 - All dependencies are kept up to date and monitored for known vulnerabilities.
 
