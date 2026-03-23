@@ -25,6 +25,7 @@ type Server struct {
 	ui          fs.FS
 	sourceInfo  []SourceInfo
 	diagnostics *SourceDiagnostics
+	listenAddr  string // optional: server URL for OpenAPI spec
 
 	// Cached service index for scan-heavy endpoints (dependents, cross-refs, graph).
 	indexMu    sync.Mutex
@@ -104,6 +105,14 @@ func (s *Server) Serve(ctx context.Context, port int, host ...string) error {
 	return s.ServeOnListener(ctx, ln)
 }
 
+// SetListenAddr sets the server URL exposed in the OpenAPI spec.
+func (s *Server) SetListenAddr(host string, port int) {
+	if host == "" || host == "0.0.0.0" {
+		host = "localhost"
+	}
+	s.listenAddr = fmt.Sprintf("http://%s:%d", host, port)
+}
+
 // ServeOnListener starts the HTTP server on an existing listener.
 func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	mux := http.NewServeMux()
@@ -130,7 +139,11 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 
 // registerAPI registers all Huma operations on the given mux.
 func (s *Server) registerAPI(mux *http.ServeMux) {
-	api := humago.New(mux, APIConfig())
+	cfg := APIConfig()
+	if s.listenAddr != "" {
+		cfg.Servers = []*huma.Server{{URL: s.listenAddr}}
+	}
+	api := humago.New(mux, cfg)
 	s.RegisterOperations(api)
 }
 

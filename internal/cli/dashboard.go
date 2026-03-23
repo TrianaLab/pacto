@@ -99,6 +99,7 @@ Services are grouped by name across sources and merged using priority rules:
 				diag = detectResult.Diagnostics
 			}
 			server := dashboard.NewAggregatedServer(aggregated, uiFS, detectResult.Sources, diag)
+			server.SetListenAddr(host, port)
 
 			// Enable lazy resolution of remote OCI dependencies when a BundleStore is available.
 			if svc.BundleStore != nil {

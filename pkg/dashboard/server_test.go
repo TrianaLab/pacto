@@ -729,6 +729,65 @@ func TestServe_CancelledContext(t *testing.T) {
 	_ = err
 }
 
+func TestSetListenAddr(t *testing.T) {
+	srv := &Server{}
+
+	srv.SetListenAddr("192.168.1.1", 8080)
+	if srv.listenAddr != "http://192.168.1.1:8080" {
+		t.Errorf("expected http://192.168.1.1:8080, got %s", srv.listenAddr)
+	}
+
+	srv.SetListenAddr("0.0.0.0", 3000)
+	if srv.listenAddr != "http://localhost:3000" {
+		t.Errorf("expected http://localhost:3000 for 0.0.0.0, got %s", srv.listenAddr)
+	}
+
+	srv.SetListenAddr("", 3000)
+	if srv.listenAddr != "http://localhost:3000" {
+		t.Errorf("expected http://localhost:3000 for empty host, got %s", srv.listenAddr)
+	}
+}
+
+func TestSetListenAddr_OpenAPIServer(t *testing.T) {
+	source := &mockSource{services: []Service{}}
+	ui := fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<html></html>")},
+	}
+	srv := NewServer(source, ui)
+	srv.SetListenAddr("10.0.0.1", 9090)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		_ = srv.ServeOnListener(ctx, ln)
+	}()
+	defer cancel()
+
+	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s/openapi.json", ln.Addr()), nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	var spec map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&spec); err != nil {
+		t.Fatal(err)
+	}
+	servers, ok := spec["servers"].([]any)
+	if !ok || len(servers) == 0 {
+		t.Fatal("expected servers in OpenAPI spec")
+	}
+	serverObj := servers[0].(map[string]any)
+	if serverObj["url"] != "http://10.0.0.1:9090" {
+		t.Errorf("expected server URL http://10.0.0.1:9090, got %v", serverObj["url"])
+	}
+}
+
 func TestServe_CustomHost(t *testing.T) {
 	source := &mockSource{services: []Service{}}
 	ui := fstest.MapFS{
