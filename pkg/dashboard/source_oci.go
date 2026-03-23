@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -30,9 +31,11 @@ func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 	for _, repo := range s.repos {
 		tags, err := s.store.ListTags(ctx, repo)
 		if err != nil {
-			continue // skip unreachable repos
+			slog.Warn("OCI ListTags failed", "repo", repo, "error", err)
+			continue
 		}
 		if len(tags) == 0 {
+			slog.Warn("OCI repo has no tags", "repo", repo)
 			continue
 		}
 
@@ -42,6 +45,7 @@ func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 
 		bundle, err := s.store.Pull(ctx, ref)
 		if err != nil {
+			slog.Warn("OCI Pull failed", "ref", ref, "error", err)
 			continue
 		}
 
