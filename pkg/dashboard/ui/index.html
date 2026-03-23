@@ -723,7 +723,7 @@ function renderOverviewPage() {
   var monitored = healthy + degraded + invalid;
 
   var o = '<h1 class="page-title">Overview</h1>';
-  o += '<p class="page-subtitle">' + total + ' contract' + (total !== 1 ? 's' : '') + ' \u2014 ' + monitored + ' active' + (unknown > 0 ? ', ' + unknown + ' definitions' : '') + '</p>';
+  o += '<p class="page-subtitle">' + total + ' contract' + (total !== 1 ? 's' : '') + ' \u2014 ' + monitored + ' active' + (unknown > 0 ? ', ' + unknown + ' unmonitored' : '') + '</p>';
 
   // Status bar
   if (monitored > 0 || unknown > 0) {
@@ -741,7 +741,7 @@ function renderOverviewPage() {
   o += statCard('Healthy', healthy, 'Healthy', 'stat-ok', 'All validation checks pass \u2014 contract, service, workload, and ports match');
   o += statCard('Degraded', degraded, 'Degraded', 'stat-warning', 'Some checks fail (e.g. port mismatch) but service and workload exist');
   o += statCard('Invalid', invalid, 'Invalid', 'stat-critical', 'Critical failures \u2014 contract invalid, service missing, or workload not found');
-  if (unknown > 0) o += statCard('Unknown', unknown, 'Definitions', 'stat-neutral', 'Contracts without a target workload \u2014 used as shared definitions or dependency references');
+  if (unknown > 0) o += statCard('Unknown', unknown, 'Unmonitored', 'stat-neutral', 'Contracts without a target workload \u2014 published as shared definitions or dependency references');
   o += '</div>';
 
   // View tabs: Table | Graph
@@ -1123,7 +1123,7 @@ function applyFilter() {
 
   // Update subtitle
   var subtitle = document.querySelector('.page-subtitle');
-  if (subtitle) subtitle.textContent = total + ' contract' + (total !== 1 ? 's' : '') + ' \u2014 ' + monitored + ' active' + (unknown > 0 ? ', ' + unknown + ' definitions' : '');
+  if (subtitle) subtitle.textContent = total + ' contract' + (total !== 1 ? 's' : '') + ' \u2014 ' + monitored + ' active' + (unknown > 0 ? ', ' + unknown + ' unmonitored' : '');
 
   // Filter "Needs Attention" cards using full filter pipeline
   var atRisk = document.getElementById('at-risk-section');
@@ -1268,7 +1268,7 @@ function initGraph() {
   rawNodes.forEach(function(rn) {
     var status = rn.status || 'Unknown';
     if (status === 'external') status = 'External';
-    else if (status === 'Unknown') status = 'Definition';
+    else if (status === 'Unknown') status = 'Unmonitored';
     var d = depths[rn.id] || 0;
     var col = byDepth[d] || [rn.id];
     var row = col.indexOf(rn.id);
@@ -1344,11 +1344,11 @@ function initGraph() {
 
   // Status colors — v8 uses bg-surface fill for all nodes, stroke color differentiates
   function statusColor(status) {
-    return { Healthy: 'var(--ok)', Degraded: 'var(--warning)', Invalid: 'var(--critical)', Definition: 'var(--neutral)', External: 'var(--neutral)' }[status] || 'var(--neutral)';
+    return { Healthy: 'var(--ok)', Degraded: 'var(--warning)', Invalid: 'var(--critical)', Unmonitored: 'var(--neutral)', External: 'var(--neutral)' }[status] || 'var(--neutral)';
   }
 
   function displayStatus(status) {
-    return status === 'Definition' ? 'Definition' : status === 'External' ? 'External' : status;
+    return status === 'Unmonitored' ? 'Unmonitored' : status === 'External' ? 'External' : status;
   }
 
   // Draw nodes — v8: top-left origin, left-aligned text, bg-surface fill
@@ -1524,8 +1524,8 @@ function graphResetView() {
 function renderGraphLegend(nodes) {
   var el = document.getElementById('graph-legend');
   if (!el) return;
-  var statuses = ['Healthy', 'Degraded', 'Invalid', 'Definition', 'External'];
-  var colors = { Healthy: 'var(--ok)', Degraded: 'var(--warning)', Invalid: 'var(--critical)', Definition: 'var(--neutral)', External: 'var(--neutral)' };
+  var statuses = ['Healthy', 'Degraded', 'Invalid', 'Unmonitored', 'External'];
+  var colors = { Healthy: 'var(--ok)', Degraded: 'var(--warning)', Invalid: 'var(--critical)', Unmonitored: 'var(--neutral)', External: 'var(--neutral)' };
   var counts = {};
   for (var i = 0; i < nodes.length; i++) {
     if (isNodeFiltered(nodes[i])) continue;
@@ -1551,7 +1551,7 @@ function renderGraphLegend(nodes) {
 
 function isNodeFiltered(d) {
   if (state.filter !== 'all') {
-    var phase = (d.status === 'Definition' || d.status === 'External') ? 'Unknown' : d.status;
+    var phase = (d.status === 'Unmonitored' || d.status === 'External') ? 'Unknown' : d.status;
     if (phase !== state.filter) return true;
   }
   if (d.source && !isSourceEnabled(d.source)) return true;

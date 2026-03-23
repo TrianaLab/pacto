@@ -621,3 +621,24 @@ func TestBuildGlobalGraph_WithOCIRefAliases(t *testing.T) {
 		t.Error("expected edge to be resolved via alias")
 	}
 }
+
+func TestNormalizePhase(t *testing.T) {
+	cases := []struct {
+		in   Phase
+		want Phase
+	}{
+		{PhaseHealthy, PhaseHealthy},
+		{PhaseDegraded, PhaseDegraded},
+		{PhaseInvalid, PhaseInvalid},
+		{PhaseUnknown, PhaseUnknown},
+		{"Reference", PhaseUnknown},
+		{"Progressing", PhaseUnknown},
+		{"", PhaseUnknown},
+	}
+	for _, c := range cases {
+		got := NormalizePhase(c.in)
+		if got != c.want {
+			t.Errorf("NormalizePhase(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

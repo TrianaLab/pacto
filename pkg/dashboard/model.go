@@ -12,6 +12,17 @@ const (
 	PhaseUnknown  Phase = "Unknown"
 )
 
+// NormalizePhase maps any non-standard phase (e.g. "Reference" from the K8s
+// operator) to one of the four canonical dashboard phases.
+func NormalizePhase(p Phase) Phase {
+	switch p {
+	case PhaseHealthy, PhaseDegraded, PhaseInvalid, PhaseUnknown:
+		return p
+	default:
+		return PhaseUnknown
+	}
+}
+
 // Service is a summary entry for the service list view.
 type Service struct {
 	Name    string   `json:"name"`

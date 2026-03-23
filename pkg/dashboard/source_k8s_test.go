@@ -650,8 +650,8 @@ func TestK8s_ListServices(t *testing.T) {
 	if services[1].Version != "1.0.0" {
 		t.Errorf("expected version '1.0.0', got %q", services[1].Version)
 	}
-	if services[0].Phase != Phase("Progressing") {
-		t.Errorf("expected phase Progressing, got %q", services[0].Phase)
+	if services[0].Phase != PhaseUnknown {
+		t.Errorf("expected phase Unknown (normalized from Progressing), got %q", services[0].Phase)
 	}
 	if services[1].Phase != PhaseHealthy {
 		t.Errorf("expected phase Healthy, got %q", services[1].Phase)

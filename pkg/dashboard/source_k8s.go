@@ -340,7 +340,7 @@ func (s *K8sSource) getPacto(ctx context.Context, name string) (*pactoResource, 
 func serviceFromK8sStatus(r pactoResource) Service {
 	svc := Service{
 		Name:   r.Metadata.Name,
-		Phase:  Phase(r.Status.Phase),
+		Phase:  NormalizePhase(Phase(r.Status.Phase)),
 		Source: "k8s",
 	}
 	if r.Status.Contract != nil {
