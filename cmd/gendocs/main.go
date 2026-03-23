@@ -133,6 +133,23 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"- Using `--output-format json`\n" +
 		"- The `PACTO_NO_UPDATE_CHECK=1` environment variable is set",
 
+	"dashboard": "Sources are auto-detected at startup and combined using an aggregation layer with priority-based merging. " +
+		"Services are grouped by contract name across all sources.\n\n" +
+		"### Dependency resolution\n\n" +
+		"When OCI repository names differ from contract service names (e.g., repo `my-service-pacto` but contract has `service.name: my-service`), " +
+		"the dashboard automatically builds a ref-alias map from `imageRef` and `chartRef` fields so that dependency links, graph edges, " +
+		"and cross-references resolve correctly.\n\n" +
+		"### Graph visualization\n\n" +
+		"The built-in D3 force-directed graph supports:\n" +
+		"- Drag to reposition nodes (double-click to unpin)\n" +
+		"- Zoom and pan\n" +
+		"- Impact chain highlighting on hover (broken nodes highlight dependents)\n" +
+		"- Dynamic arrow positioning (arrows connect to the closest box edge)\n" +
+		"- Source and status filtering via the legend\n\n" +
+		"### Diagnostics mode\n\n" +
+		"Pass `--diagnostics` to enable debug endpoints (`/api/debug/sources` and `/api/debug/services`) " +
+		"that expose raw per-source data for troubleshooting.",
+
 	"mcp": "The server exposes the following tools:\n\n" +
 		"| Tool | Description |\n" +
 		"|------|-------------|\n" +

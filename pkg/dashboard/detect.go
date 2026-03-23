@@ -1,0 +1,360 @@
+package dashboard
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/trianalab/pacto/internal/oci"
+)
+
+// DetectOptions configures source auto-detection.
+type DetectOptions struct {
+	Dir       string          // working directory for local detection
+	Namespace string          // k8s namespace (empty = all namespaces)
+	Repos     []string        // OCI repositories to scan
+	Store     oci.BundleStore // OCI client (may be nil)
+	CacheDir  string          // OCI cache directory (defaults to ~/.cache/pacto/oci)
+	NoCache   bool            // disable the cache-based OCI source entirely
+}
+
+// DetectResult holds the outcome of source detection.
+type DetectResult struct {
+	Sources []SourceInfo
+	Local   *LocalSource
+	OCI     *OCISource
+	K8s     *K8sSource
+	Cache   *CacheSource
+
+	// Diagnostics collected during detection.
+	Diagnostics *SourceDiagnostics
+}
+
+// SourceDiagnostics provides detailed diagnostic information about source detection.
+type SourceDiagnostics struct {
+	K8s   K8sDiagnostics   `json:"k8s"`
+	OCI   OCIDiagnostics   `json:"oci"`
+	Cache CacheDiagnostics `json:"cache"`
+	Local LocalDiagnostics `json:"local"`
+}
+
+// K8sDiagnostics contains K8s source detection details.
+type K8sDiagnostics struct {
+	KubectlFound     bool     `json:"kubectlFound"`
+	KubeconfigPath   string   `json:"kubeconfigPath,omitempty"`
+	ClusterReachable bool     `json:"clusterReachable"`
+	CRDExists        bool     `json:"crdExists"`
+	Namespace        string   `json:"namespace"`
+	AllNamespaces    bool     `json:"allNamespaces"`
+	ResourceCount    int      `json:"resourceCount"`
+	DetectedGroup    string   `json:"detectedGroup,omitempty"`
+	DetectedVersions []string `json:"detectedVersions,omitempty"`
+	ChosenVersion    string   `json:"chosenVersion,omitempty"`
+	ResourceName     string   `json:"resourceName,omitempty"`
+	Error            string   `json:"error,omitempty"`
+}
+
+// OCIDiagnostics contains OCI registry source detection details.
+type OCIDiagnostics struct {
+	StoreConfigured bool     `json:"storeConfigured"`
+	Repos           []string `json:"repos,omitempty"`
+	Error           string   `json:"error,omitempty"`
+}
+
+// CacheDiagnostics contains OCI disk cache detection details.
+type CacheDiagnostics struct {
+	CacheDir     string `json:"cacheDir"`
+	Exists       bool   `json:"exists"`
+	OCIDirExists bool   `json:"ociDirExists"`
+	ServiceCount int    `json:"serviceCount"`
+	VersionCount int    `json:"versionCount"`
+	Error        string `json:"error,omitempty"`
+}
+
+// LocalDiagnostics contains local source detection details.
+type LocalDiagnostics struct {
+	Dir            string `json:"dir"`
+	PactoYamlFound bool   `json:"pactoYamlFound"`
+	FoundIn        string `json:"foundIn,omitempty"`
+	Error          string `json:"error,omitempty"`
+}
+
+// DetectSources probes for available data sources and returns all that are reachable.
+func DetectSources(ctx context.Context, opts DetectOptions) *DetectResult {
+	result := &DetectResult{
+		Diagnostics: &SourceDiagnostics{},
+	}
+
+	// Local: check if dir contains pacto.yaml (root or subdirectories).
+	result.detectLocal(opts.Dir)
+
+	// K8s: check if kubectl is available and cluster is reachable.
+	result.detectK8s(ctx, opts.Namespace)
+
+	// OCI registry: check if store is configured and repos are provided.
+	result.detectOCI(opts.Store, opts.Repos)
+
+	// OCI disk cache: scan for pre-existing cached bundles.
+	if opts.NoCache {
+		result.Sources = append(result.Sources, SourceInfo{
+			Type:   "cache",
+			Reason: "disabled by --no-cache flag",
+		})
+	} else {
+		result.detectCache(opts.CacheDir)
+	}
+
+	return result
+}
+
+// ActiveSources returns the DataSource instances that were successfully detected.
+func (r *DetectResult) ActiveSources() map[string]DataSource {
+	sources := make(map[string]DataSource)
+	if r.Local != nil {
+		sources["local"] = r.Local
+	}
+	if r.K8s != nil {
+		sources["k8s"] = r.K8s
+	}
+	if r.OCI != nil {
+		sources["oci"] = r.OCI
+	}
+	if r.Cache != nil {
+		sources["cache"] = r.Cache
+	}
+	return sources
+}
+
+func (r *DetectResult) detectLocal(dir string) {
+	if dir == "" {
+		dir = "."
+	}
+
+	diag := &r.Diagnostics.Local
+	diag.Dir = dir
+	info := SourceInfo{Type: "local"}
+
+	// Check root for pacto.yaml.
+	if _, err := os.Stat(filepath.Join(dir, contractFile)); err == nil {
+		info.Enabled = true
+		info.Reason = "pacto.yaml found in " + dir
+		diag.PactoYamlFound = true
+		diag.FoundIn = dir
+		r.Local = NewLocalSource(dir)
+		r.Sources = append(r.Sources, info)
+		return
+	}
+
+	// Check subdirectories.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		info.Reason = "cannot read directory: " + err.Error()
+		diag.Error = err.Error()
+		r.Sources = append(r.Sources, info)
+		return
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, entry.Name(), contractFile)); err == nil {
+			info.Enabled = true
+			info.Reason = "pacto.yaml found in subdirectory " + entry.Name()
+			diag.PactoYamlFound = true
+			diag.FoundIn = filepath.Join(dir, entry.Name())
+			r.Local = NewLocalSource(dir)
+			r.Sources = append(r.Sources, info)
+			return
+		}
+	}
+
+	info.Reason = "no pacto.yaml found in " + dir
+	r.Sources = append(r.Sources, info)
+}
+
+func (r *DetectResult) detectK8s(ctx context.Context, namespace string) {
+	info := SourceInfo{Type: "k8s"}
+	diag := &r.Diagnostics.K8s
+	diag.Namespace = namespace
+	diag.AllNamespaces = namespace == ""
+
+	// Report kubeconfig path.
+	if kc := os.Getenv("KUBECONFIG"); kc != "" {
+		diag.KubeconfigPath = kc
+	} else if home, err := userHomeDir(); err == nil {
+		defaultPath := filepath.Join(home, ".kube", "config")
+		if _, err := os.Stat(defaultPath); err == nil {
+			diag.KubeconfigPath = defaultPath
+		}
+	}
+
+	// Check if kubectl exists.
+	if _, err := exec.LookPath("kubectl"); err != nil {
+		info.Reason = "kubectl not found in PATH"
+		r.Sources = append(r.Sources, info)
+		return
+	}
+	diag.KubectlFound = true
+
+	// Check if cluster is reachable with a short timeout.
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(probeCtx, "kubectl", "cluster-info")
+	if err := cmd.Run(); err != nil {
+		info.Reason = "cluster not reachable"
+		diag.Error = err.Error()
+		r.Sources = append(r.Sources, info)
+		return
+	}
+	diag.ClusterReachable = true
+
+	// Dynamically discover the Pacto CRD resource.
+	// Uses api-resources to find the resource name/version for group pacto.trianalab.io
+	// rather than hardcoding a specific apiVersion.
+	crdCtx, crdCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer crdCancel()
+	crdCmd := exec.CommandContext(crdCtx, "kubectl", "api-resources",
+		"--api-group=pacto.trianalab.io",
+		"--no-headers",
+		"-o", "wide")
+	crdOut, err := crdCmd.Output()
+
+	resourceName := "pactos" // fallback
+	if err == nil && len(crdOut) > 0 {
+		diag.CRDExists = true
+		diag.DetectedGroup = "pacto.trianalab.io"
+		// Parse api-resources output to find the resource name and API version.
+		// Output format: NAME SHORTNAMES APIVERSION NAMESPACED KIND
+		for _, line := range splitNonEmpty(string(crdOut)) {
+			fields := strings.Fields(line)
+			if len(fields) >= 5 && strings.EqualFold(fields[len(fields)-1], "Pacto") {
+				resourceName = fields[0]
+				apiVersion := fields[2] // e.g. "pacto.trianalab.io/v1alpha1"
+				if parts := strings.SplitN(apiVersion, "/", 2); len(parts) == 2 {
+					diag.DetectedVersions = append(diag.DetectedVersions, parts[1])
+					diag.ChosenVersion = parts[1]
+				}
+				break
+			}
+		}
+		diag.ResourceName = resourceName
+	}
+
+	// Probe resource count using the discovered resource name.
+	countCtx, countCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer countCancel()
+	var countArgs []string
+	if namespace != "" {
+		countArgs = []string{"get", resourceName, "-n", namespace, "-o", "name", "--no-headers"}
+	} else {
+		countArgs = []string{"get", resourceName, "--all-namespaces", "-o", "name", "--no-headers"}
+	}
+	countOut, err := exec.CommandContext(countCtx, "kubectl", countArgs...).Output()
+	if err == nil {
+		lines := splitNonEmpty(string(countOut))
+		diag.ResourceCount = len(lines)
+	}
+
+	info.Enabled = true
+	if diag.CRDExists {
+		info.Reason = fmt.Sprintf("cluster reachable, CRD found (%s), %d resources", resourceName, diag.ResourceCount)
+	} else {
+		info.Reason = "cluster reachable (CRD not detected, may still work)"
+	}
+
+	r.K8s = NewK8sSource(namespace, resourceName)
+	r.Sources = append(r.Sources, info)
+}
+
+func (r *DetectResult) detectOCI(store oci.BundleStore, repos []string) {
+	info := SourceInfo{Type: "oci"}
+	diag := &r.Diagnostics.OCI
+
+	if store == nil {
+		info.Reason = "OCI registry client not configured"
+		r.Sources = append(r.Sources, info)
+		return
+	}
+	diag.StoreConfigured = true
+
+	if len(repos) == 0 {
+		info.Reason = "no OCI repositories specified (use --repo)"
+		r.Sources = append(r.Sources, info)
+		return
+	}
+
+	diag.Repos = repos
+	info.Enabled = true
+	info.Reason = fmt.Sprintf("OCI client configured with %d repositories", len(repos))
+	r.OCI = NewOCISource(store, repos)
+	r.Sources = append(r.Sources, info)
+}
+
+func (r *DetectResult) detectCache(cacheDir string) {
+	diag := &r.Diagnostics.Cache
+	info := SourceInfo{Type: "cache"}
+
+	if cacheDir == "" {
+		// Determine default OCI cache directory.
+		home, err := userHomeDir()
+		if err != nil {
+			info.Reason = "cannot determine home directory"
+			diag.Error = err.Error()
+			r.Sources = append(r.Sources, info)
+			return
+		}
+		xdg := os.Getenv("XDG_CACHE_HOME")
+		if xdg != "" {
+			cacheDir = filepath.Join(xdg, "pacto", "oci")
+		} else {
+			cacheDir = filepath.Join(home, ".cache", "pacto", "oci")
+		}
+	}
+	diag.CacheDir = cacheDir
+
+	// Check if cache directory exists.
+	if fi, err := os.Stat(cacheDir); err != nil || !fi.IsDir() {
+		info.Reason = "OCI cache directory not found: " + cacheDir
+		r.Sources = append(r.Sources, info)
+		return
+	}
+	diag.Exists = true
+
+	// Check OCI subdirectory (the cache root IS the oci dir).
+	diag.OCIDirExists = true
+
+	// Scan for cached bundles.
+	src, _ := NewCacheSource(cacheDir)
+
+	diag.ServiceCount = src.ServiceCount()
+	diag.VersionCount = src.VersionCount()
+
+	if src.ServiceCount() == 0 {
+		info.Reason = "OCI cache exists but contains no bundles"
+		r.Sources = append(r.Sources, info)
+		return
+	}
+
+	info.Enabled = true
+	info.Reason = fmt.Sprintf("%d services, %d versions from disk cache", src.ServiceCount(), src.VersionCount())
+	r.Cache = src
+	r.Sources = append(r.Sources, info)
+}
+
+// splitNonEmpty splits a string by newlines and returns non-empty trimmed lines.
+func splitNonEmpty(s string) []string {
+	var result []string
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}

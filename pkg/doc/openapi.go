@@ -29,15 +29,15 @@ var httpMethodOrder = map[string]int{
 	"trace":   7,
 }
 
-// readOpenAPIEndpoints parses an OpenAPI spec (YAML or JSON) and returns its
+// ReadOpenAPIEndpoints parses an OpenAPI spec (YAML or JSON) and returns its
 // endpoints sorted by path (alphabetically) then by HTTP method order.
-func readOpenAPIEndpoints(fsys fs.FS, path string) ([]Endpoint, error) {
+func ReadOpenAPIEndpoints(fsys fs.FS, path string) ([]Endpoint, error) {
 	data, err := fs.ReadFile(fsys, path)
 	if err != nil {
 		return nil, fmt.Errorf("reading OpenAPI spec %s: %w", path, err)
 	}
 
-	spec, err := unmarshalSpec(data, path)
+	spec, err := UnmarshalSpec(data, path)
 	if err != nil {
 		return nil, fmt.Errorf("parsing OpenAPI spec %s: %w", path, err)
 	}
@@ -100,8 +100,8 @@ func extractPathEndpoints(path string, raw any) []Endpoint {
 	return endpoints
 }
 
-// unmarshalSpec parses an OpenAPI spec as JSON (for .json files) or YAML.
-func unmarshalSpec(data []byte, path string) (map[string]any, error) {
+// UnmarshalSpec parses an OpenAPI spec as JSON (for .json files) or YAML.
+func UnmarshalSpec(data []byte, path string) (map[string]any, error) {
 	var spec map[string]any
 	if strings.HasSuffix(path, ".json") {
 		return spec, json.Unmarshal(data, &spec)

@@ -43,6 +43,76 @@ Non-semver tags (e.g. `latest`, `main`) are ignored during resolution. Digest-pi
 
 ---
 
+## `pacto dashboard`
+
+Launches a read-only web dashboard on localhost that aggregates data from
+all available sources (local filesystem, Kubernetes, OCI registries, disk cache).
+
+Sources are auto-detected at startup:
+  - local: enabled if pacto.yaml is found in the working directory
+  - k8s:   enabled if kubectl is available and the cluster is reachable
+  - oci:   enabled if --repo is specified and the OCI client is configured
+  - cache: enabled if ~/.cache/pacto/oci contains cached bundles
+
+Services are grouped by name across sources and merged using priority rules:
+  - Kubernetes for runtime state (phase, resources, ports)
+  - OCI/cache for version history
+  - Local for in-progress contract changes
+
+```
+pacto dashboard [dir] [flags]
+```
+
+**Examples:**
+
+```
+  # Start dashboard with auto-detected sources
+  pacto dashboard
+
+  # Start from a specific directory
+  pacto dashboard ./services
+
+  # Include OCI repositories
+  pacto dashboard --repo ghcr.io/org/order-service --repo ghcr.io/org/payment-service
+
+  # Custom port
+  pacto dashboard --port 9090
+
+  # Specify Kubernetes namespace (default: all namespaces)
+  pacto dashboard --namespace production
+```
+
+**Flags:**
+
+```
+      --diagnostics        enable source diagnostics panel in the dashboard UI
+  -h, --help               help for dashboard
+      --namespace string   Kubernetes namespace (empty = all namespaces)
+      --port int           port for the dashboard server (default 3000)
+      --repo stringArray   OCI repository to scan (can be repeated)
+```
+
+Sources are auto-detected at startup and combined using an aggregation layer with priority-based merging. Services are grouped by contract name across all sources.
+
+### Dependency resolution
+
+When OCI repository names differ from contract service names (e.g., repo `my-service-pacto` but contract has `service.name: my-service`), the dashboard automatically builds a ref-alias map from `imageRef` and `chartRef` fields so that dependency links, graph edges, and cross-references resolve correctly.
+
+### Graph visualization
+
+The built-in D3 force-directed graph supports:
+- Drag to reposition nodes (double-click to unpin)
+- Zoom and pan
+- Impact chain highlighting on hover (broken nodes highlight dependents)
+- Dynamic arrow positioning (arrows connect to the closest box edge)
+- Source and status filtering via the legend
+
+### Diagnostics mode
+
+Pass `--diagnostics` to enable debug endpoints (`/api/debug/sources` and `/api/debug/services`) that expose raw per-source data for troubleshooting.
+
+---
+
 ## `pacto diff`
 
 Compares two contracts (local paths or oci:// references) and produces a classified change set (BREAKING, POTENTIAL_BREAKING, NON_BREAKING).
@@ -205,14 +275,18 @@ pacto graph [dir | oci://ref] [flags]
 
 ```
   pacto graph my-service
+  pacto graph --with-references
+  pacto graph --only-references
 ```
 
 **Flags:**
 
 ```
   -h, --help                 help for graph
+      --only-references      Show only config/policy reference edges (no dependencies)
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
+      --with-references      Include config/policy reference edges alongside dependencies
 ```
 
 Dependencies resolved from local paths are annotated with `[local]`. Shared dependencies (referenced by multiple parents) are annotated with `(shared)`.

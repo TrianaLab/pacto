@@ -920,6 +920,100 @@ func TestResolve_NilContractInBundle(t *testing.T) {
 	}
 }
 
+func TestExtractReferenceEdges_NoConfigNoPolicy(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+	}
+	edges := ExtractReferenceEdges(c)
+	if len(edges) != 0 {
+		t.Errorf("expected 0 edges, got %d", len(edges))
+	}
+}
+
+func TestExtractReferenceEdges_ConfigOnly(t *testing.T) {
+	c := &contract.Contract{
+		Service:       contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Configuration: &contract.Configuration{Ref: "oci://registry.io/config:1.0.0"},
+	}
+	edges := ExtractReferenceEdges(c)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].Ref != "oci://registry.io/config:1.0.0" {
+		t.Errorf("expected ref oci://registry.io/config:1.0.0, got %s", edges[0].Ref)
+	}
+	if edges[0].Type != EdgeReference {
+		t.Errorf("expected type %s, got %s", EdgeReference, edges[0].Type)
+	}
+}
+
+func TestExtractReferenceEdges_PolicyOnly(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Policy:  &contract.Policy{Ref: "oci://registry.io/policy:2.0.0"},
+	}
+	edges := ExtractReferenceEdges(c)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].Ref != "oci://registry.io/policy:2.0.0" {
+		t.Errorf("expected ref oci://registry.io/policy:2.0.0, got %s", edges[0].Ref)
+	}
+	if edges[0].Type != EdgeReference {
+		t.Errorf("expected type %s, got %s", EdgeReference, edges[0].Type)
+	}
+}
+
+func TestExtractReferenceEdges_ConfigAndPolicy(t *testing.T) {
+	c := &contract.Contract{
+		Service:       contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Configuration: &contract.Configuration{Ref: "oci://registry.io/config:1.0.0"},
+		Policy:        &contract.Policy{Ref: "oci://registry.io/policy:2.0.0"},
+	}
+	edges := ExtractReferenceEdges(c)
+	if len(edges) != 2 {
+		t.Fatalf("expected 2 edges, got %d", len(edges))
+	}
+	if edges[0].Ref != "oci://registry.io/config:1.0.0" {
+		t.Errorf("expected first ref oci://registry.io/config:1.0.0, got %s", edges[0].Ref)
+	}
+	if edges[1].Ref != "oci://registry.io/policy:2.0.0" {
+		t.Errorf("expected second ref oci://registry.io/policy:2.0.0, got %s", edges[1].Ref)
+	}
+	for i, e := range edges {
+		if e.Type != EdgeReference {
+			t.Errorf("edge %d: expected type %s, got %s", i, EdgeReference, e.Type)
+		}
+	}
+}
+
+func TestExtractReferenceEdges_DuplicateRefs(t *testing.T) {
+	c := &contract.Contract{
+		Service:       contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Configuration: &contract.Configuration{Ref: "oci://registry.io/shared:1.0.0"},
+		Policy:        &contract.Policy{Ref: "oci://registry.io/shared:1.0.0"},
+	}
+	edges := ExtractReferenceEdges(c)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge after dedup, got %d", len(edges))
+	}
+	if edges[0].Ref != "oci://registry.io/shared:1.0.0" {
+		t.Errorf("expected ref oci://registry.io/shared:1.0.0, got %s", edges[0].Ref)
+	}
+}
+
+func TestExtractReferenceEdges_EmptyRefs(t *testing.T) {
+	c := &contract.Contract{
+		Service:       contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Configuration: &contract.Configuration{Ref: ""},
+		Policy:        &contract.Policy{Ref: ""},
+	}
+	edges := ExtractReferenceEdges(c)
+	if len(edges) != 0 {
+		t.Errorf("expected 0 edges for empty refs, got %d", len(edges))
+	}
+}
+
 func TestResolve_FetchErrorParallel(t *testing.T) {
 	// Fetch error with multiple deps (parallel path) where refs are unique.
 	fetcher := &mockFetcher{
@@ -950,5 +1044,28 @@ func TestResolve_FetchErrorParallel(t *testing.T) {
 	missingEdge := result.Root.Dependencies[1]
 	if missingEdge.Error == "" {
 		t.Error("expected error for missing ref")
+	}
+}
+
+func TestResolveWithOptions_OnlyReferences(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Ref: "oci://dep-a", Required: true},
+		},
+		Configuration: &contract.Configuration{Ref: "oci://config-svc"},
+		Policy:        &contract.Policy{Ref: "oci://policy-svc"},
+	}
+
+	result := ResolveWithOptions(context.Background(), c, nil, ResolveOptions{OnlyReferences: true})
+
+	// OnlyReferences should skip dependencies and include only reference edges.
+	if len(result.Root.Dependencies) != 2 {
+		t.Fatalf("expected 2 reference edges, got %d", len(result.Root.Dependencies))
+	}
+	for _, edge := range result.Root.Dependencies {
+		if edge.Type != EdgeReference {
+			t.Errorf("expected reference edge, got type %q for ref %q", edge.Type, edge.Ref)
+		}
 	}
 }

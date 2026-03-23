@@ -172,6 +172,36 @@ func TestRenderTree_LocalAnnotation(t *testing.T) {
 	}
 }
 
+func TestRenderTree_ReferenceEdge(t *testing.T) {
+	r := &Result{
+		Root: &Node{
+			Name:    "svc-a",
+			Version: "1.0.0",
+			Dependencies: []Edge{
+				{Ref: "reg/svc-b:1.0.0", Node: &Node{Name: "svc-b", Version: "1.0.0"}},
+				{Ref: "oci://registry.io/config:2.0.0", Type: EdgeReference},
+				{Ref: "oci://registry.io/policy:3.0.0", Type: EdgeReference},
+			},
+		},
+	}
+	got := RenderTree(r)
+	mustContain := []string{
+		"svc-a@1.0.0",
+		"├─ svc-b@1.0.0",
+		"├─ config:2.0.0 [ref]",
+		"└─ policy:3.0.0 [ref]",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(got, s) {
+			t.Errorf("expected %q in output:\n%s", s, got)
+		}
+	}
+	// Reference edges should not render children or other annotations
+	if strings.Contains(got, "(shared)") {
+		t.Errorf("reference edges should not show (shared):\n%s", got)
+	}
+}
+
 func TestShortRef(t *testing.T) {
 	tests := []struct {
 		input string

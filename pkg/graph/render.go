@@ -61,6 +61,12 @@ func renderChildren(b *strings.Builder, edges []Edge, prefix string) {
 	for i, edge := range edges {
 		connector, childPrefix := treeConnectors(i == len(edges)-1)
 
+		// Reference edges use a distinct notation
+		if edge.Type == EdgeReference {
+			fmt.Fprintf(b, "%s%s%s [ref]\n", prefix, connector, ShortRef(edge.Ref))
+			continue
+		}
+
 		if edge.Error != "" {
 			fmt.Fprintf(b, "%s%s%s (error: %s)\n", prefix, connector, ShortRef(edge.Ref), edge.Error)
 			continue

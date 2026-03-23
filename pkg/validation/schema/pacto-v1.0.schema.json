@@ -154,9 +154,9 @@
           "description": "Configuration values to be validated against the configuration schema."
         }
       },
-      "anyOf": [
-        { "required": ["schema"] },
-        { "required": ["ref"] }
+      "oneOf": [
+        { "required": ["schema"], "not": { "required": ["ref"] } },
+        { "required": ["ref"], "not": { "anyOf": [{ "required": ["schema"] }, { "required": ["values"] }] } }
       ]
     },
 
@@ -176,9 +176,9 @@
           "description": "OCI or local reference to another Pacto contract whose bundle contains the policy schema at the fixed path policy/schema.json."
         }
       },
-      "anyOf": [
-        { "required": ["schema"] },
-        { "required": ["ref"] }
+      "oneOf": [
+        { "required": ["schema"], "not": { "required": ["ref"] } },
+        { "required": ["ref"], "not": { "required": ["schema"] } }
       ]
     },
 

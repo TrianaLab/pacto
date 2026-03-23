@@ -30,11 +30,18 @@ type Node struct {
 	FS           fs.FS              `json:"-"`
 }
 
-// Edge represents a dependency relationship.
+// EdgeType distinguishes dependency vs reference relationships.
+const (
+	EdgeDependency = "dependency"
+	EdgeReference  = "reference"
+)
+
+// Edge represents a dependency or reference relationship.
 type Edge struct {
 	Ref           string `json:"ref"`
 	Required      bool   `json:"required"`
 	Compatibility string `json:"compatibility"`
+	Type          string `json:"type"` // EdgeDependency or EdgeReference
 	Node          *Node  `json:"node,omitempty"`
 	Error         string `json:"error,omitempty"`
 	Shared        bool   `json:"shared,omitempty"`
@@ -48,9 +55,16 @@ type Result struct {
 	Conflicts []Conflict `json:"conflicts,omitempty"`
 }
 
+// ResolveOptions controls what edges are included in the graph.
+type ResolveOptions struct {
+	IncludeReferences bool // include config/policy reference edges
+	OnlyReferences    bool // show only reference edges (no dependencies)
+}
+
 // resolver holds shared state for a single graph resolution pass.
 type resolver struct {
 	fetcher ContractFetcher
+	opts    ResolveOptions
 	mu      sync.Mutex
 	visited map[string]*Node
 	errors  map[string]string
@@ -64,6 +78,11 @@ type resolver struct {
 // are shown without resolution. Sibling dependencies at each level are
 // fetched concurrently.
 func Resolve(ctx context.Context, c *contract.Contract, fetcher ContractFetcher) *Result {
+	return ResolveWithOptions(ctx, c, fetcher, ResolveOptions{})
+}
+
+// ResolveWithOptions builds the dependency graph with the given options.
+func ResolveWithOptions(ctx context.Context, c *contract.Contract, fetcher ContractFetcher, opts ResolveOptions) *Result {
 	slog.Debug("starting graph resolution", "root", c.Service.Name, "version", c.Service.Version, "dependencies", len(c.Dependencies))
 	root := &Node{
 		Name:     c.Service.Name,
@@ -73,13 +92,23 @@ func Resolve(ctx context.Context, c *contract.Contract, fetcher ContractFetcher)
 
 	r := &resolver{
 		fetcher: fetcher,
+		opts:    opts,
 		visited: map[string]*Node{},
 		errors:  map[string]string{},
 		pending: map[string]chan struct{}{},
 	}
 
 	path := []string{c.Service.Name}
-	root.Dependencies = r.resolveChildren(ctx, c.Dependencies, path)
+
+	// Build dependency edges (unless only-references mode)
+	if !opts.OnlyReferences {
+		root.Dependencies = r.resolveChildren(ctx, c.Dependencies, path)
+	}
+
+	// Add reference edges from config/policy refs
+	if opts.IncludeReferences || opts.OnlyReferences {
+		root.Dependencies = append(root.Dependencies, ExtractReferenceEdges(c)...)
+	}
 
 	conflicts := detectConflicts(root)
 	slog.Debug("graph resolution complete", "root", c.Service.Name, "cycles", len(r.cycles), "conflicts", len(conflicts))
@@ -89,6 +118,31 @@ func Resolve(ctx context.Context, c *contract.Contract, fetcher ContractFetcher)
 		Cycles:    r.cycles,
 		Conflicts: conflicts,
 	}
+}
+
+// ExtractReferenceEdges creates Edge entries for config/policy references in a contract.
+func ExtractReferenceEdges(c *contract.Contract) []Edge {
+	var edges []Edge
+	seen := map[string]bool{}
+
+	addRef := func(ref string) {
+		if ref == "" || seen[ref] {
+			return
+		}
+		seen[ref] = true
+		edges = append(edges, Edge{
+			Ref:  ref,
+			Type: EdgeReference,
+		})
+	}
+
+	if c.Configuration != nil {
+		addRef(c.Configuration.Ref)
+	}
+	if c.Policy != nil {
+		addRef(c.Policy.Ref)
+	}
+	return edges
 }
 
 // resolveChildren resolves a slice of dependencies concurrently.
@@ -125,6 +179,7 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, pat
 		Ref:           dep.Ref,
 		Required:      dep.Required,
 		Compatibility: dep.Compatibility,
+		Type:          EdgeDependency,
 		Local:         local,
 	}
 

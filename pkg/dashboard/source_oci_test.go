@@ -1,0 +1,442 @@
+package dashboard
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	"github.com/trianalab/pacto/pkg/contract"
+)
+
+// mockBundleStore implements oci.BundleStore for testing.
+type mockBundleStore struct {
+	bundles map[string]*contract.Bundle // keyed by ref (repo:tag)
+	tags    map[string][]string         // keyed by repo
+}
+
+func newMockBundleStore() *mockBundleStore {
+	return &mockBundleStore{
+		bundles: make(map[string]*contract.Bundle),
+		tags:    make(map[string][]string),
+	}
+}
+
+func (m *mockBundleStore) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
+	b, ok := m.bundles[ref]
+	if !ok {
+		return nil, fmt.Errorf("bundle not found: %s", ref)
+	}
+	return b, nil
+}
+
+func (m *mockBundleStore) Push(_ context.Context, _ string, _ *contract.Bundle) (string, error) {
+	return "sha256:mock", nil
+}
+
+func (m *mockBundleStore) ListTags(_ context.Context, repo string) ([]string, error) {
+	tags, ok := m.tags[repo]
+	if !ok {
+		return nil, fmt.Errorf("repo not found: %s", repo)
+	}
+	return tags, nil
+}
+
+func (m *mockBundleStore) Resolve(_ context.Context, ref string) (string, error) {
+	return "sha256:mock-" + ref, nil
+}
+
+func (m *mockBundleStore) addBundle(repo, tag, name, version string) {
+	ref := repo + ":" + tag
+	m.bundles[ref] = &contract.Bundle{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{
+				Name:    name,
+				Version: version,
+			},
+		},
+		RawYAML: []byte(fmt.Sprintf("pactoVersion: \"1.0\"\nservice:\n  name: %s\n  version: %s\n", name, version)),
+	}
+	m.tags[repo] = append(m.tags[repo], tag)
+}
+
+func TestOCISource_ListServices(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+	store.addBundle("ghcr.io/org/api", "2.0.0", "api", "2.0.0")
+	store.addBundle("ghcr.io/org/worker", "1.0.0", "worker", "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api", "ghcr.io/org/worker"})
+	ctx := context.Background()
+
+	services, err := src.ListServices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services) != 2 {
+		t.Fatalf("expected 2 services, got %d", len(services))
+	}
+	if services[0].Name != "api" {
+		t.Errorf("expected first service 'api', got %q", services[0].Name)
+	}
+	if services[1].Name != "worker" {
+		t.Errorf("expected second service 'worker', got %q", services[1].Name)
+	}
+	if services[0].Source != "oci" {
+		t.Errorf("expected source 'oci', got %q", services[0].Source)
+	}
+}
+
+func TestOCISource_ListServices_SkipsUnreachableRepos(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+	// "ghcr.io/org/unreachable" has no tags registered, so ListTags will fail
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api", "ghcr.io/org/unreachable"})
+	ctx := context.Background()
+
+	services, err := src.ListServices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services) != 1 {
+		t.Fatalf("expected 1 service (skipping unreachable), got %d", len(services))
+	}
+}
+
+func TestOCISource_ListServices_SkipsEmptyTagRepos(t *testing.T) {
+	store := newMockBundleStore()
+	store.tags["ghcr.io/org/empty"] = []string{} // repo exists but has no tags
+
+	src := NewOCISource(store, []string{"ghcr.io/org/empty"})
+	ctx := context.Background()
+
+	services, err := src.ListServices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services) != 0 {
+		t.Fatalf("expected 0 services, got %d", len(services))
+	}
+}
+
+func TestOCISource_ListServices_SkipsPullErrors(t *testing.T) {
+	store := newMockBundleStore()
+	// Repo has tags but bundle pull fails
+	store.tags["ghcr.io/org/bad"] = []string{"1.0.0"}
+	// No bundle registered for the ref, so Pull will fail
+
+	src := NewOCISource(store, []string{"ghcr.io/org/bad"})
+	ctx := context.Background()
+
+	services, err := src.ListServices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services) != 0 {
+		t.Fatalf("expected 0 services (pull failed), got %d", len(services))
+	}
+}
+
+func TestOCISource_GetService(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+	store.addBundle("ghcr.io/org/api", "2.0.0", "api", "2.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	details, err := src.GetService(ctx, "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Name != "api" {
+		t.Errorf("expected name 'api', got %q", details.Name)
+	}
+	// Latest tag should be 2.0.0
+	if details.Version != "2.0.0" {
+		t.Errorf("expected version '2.0.0', got %q", details.Version)
+	}
+}
+
+func TestOCISource_GetService_NotFound(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	_, err := src.GetService(ctx, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent service")
+	}
+}
+
+func TestOCISource_GetVersions(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+	store.addBundle("ghcr.io/org/api", "2.0.0", "api", "2.0.0")
+	store.addBundle("ghcr.io/org/api", "3.0.0", "api", "3.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	versions, err := src.GetVersions(ctx, "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 3 {
+		t.Fatalf("expected 3 versions, got %d", len(versions))
+	}
+	// Should be sorted descending
+	if versions[0].Version != "3.0.0" {
+		t.Errorf("expected first version '3.0.0', got %q", versions[0].Version)
+	}
+	if versions[2].Version != "1.0.0" {
+		t.Errorf("expected last version '1.0.0', got %q", versions[2].Version)
+	}
+	// Ref should include repo
+	if versions[0].Ref != "ghcr.io/org/api:3.0.0" {
+		t.Errorf("expected ref with repo, got %q", versions[0].Ref)
+	}
+}
+
+func TestOCISource_GetVersions_NotFound(t *testing.T) {
+	store := newMockBundleStore()
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	_, err := src.GetVersions(ctx, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent service")
+	}
+}
+
+func TestOCISource_GetDiff(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+	store.addBundle("ghcr.io/org/api", "2.0.0", "api", "2.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	a := Ref{Name: "api", Version: "1.0.0"}
+	b := Ref{Name: "api", Version: "2.0.0"}
+
+	result, err := src.GetDiff(ctx, a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil diff result")
+	}
+	if result.From.Version != "1.0.0" {
+		t.Errorf("expected from version '1.0.0', got %q", result.From.Version)
+	}
+	if result.To.Version != "2.0.0" {
+		t.Errorf("expected to version '2.0.0', got %q", result.To.Version)
+	}
+}
+
+func TestOCISource_GetDiff_PullError(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+	// Version 2.0.0 exists as tag but bundle is not registered
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	a := Ref{Name: "api", Version: "1.0.0"}
+	b := Ref{Name: "api", Version: "9.9.9"}
+
+	_, err := src.GetDiff(ctx, a, b)
+	if err == nil {
+		t.Fatal("expected error when pulling nonexistent version")
+	}
+}
+
+func TestOCISource_GetDiff_FromPullError(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "2.0.0", "api", "2.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	a := Ref{Name: "api", Version: "9.9.9"}
+	b := Ref{Name: "api", Version: "2.0.0"}
+
+	_, err := src.GetDiff(ctx, a, b)
+	if err == nil {
+		t.Fatal("expected error when pulling nonexistent from version")
+	}
+}
+
+func TestOCISource_FindRepo_ByPathComponent(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	repo, err := src.findRepo(ctx, "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo != "ghcr.io/org/api" {
+		t.Errorf("expected 'ghcr.io/org/api', got %q", repo)
+	}
+}
+
+func TestOCISource_FindRepo_ByContractName(t *testing.T) {
+	store := newMockBundleStore()
+	// Repo name doesn't match service name, but contract does
+	store.addBundle("ghcr.io/org/my-repo", "1.0.0", "my-service", "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/my-repo"})
+	ctx := context.Background()
+
+	repo, err := src.findRepo(ctx, "my-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo != "ghcr.io/org/my-repo" {
+		t.Errorf("expected 'ghcr.io/org/my-repo', got %q", repo)
+	}
+}
+
+func TestOCISource_FindRepo_NotFound(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	_, err := src.findRepo(ctx, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for not found service")
+	}
+}
+
+func TestOCISource_FindRepo_ListTagsError(t *testing.T) {
+	store := newMockBundleStore()
+	// Repo "other" not registered; ListTags returns error; no path match either
+	src := NewOCISource(store, []string{"ghcr.io/org/other"})
+	ctx := context.Background()
+
+	_, err := src.findRepo(ctx, "my-service")
+	if err == nil {
+		t.Fatal("expected error when no repo matches")
+	}
+}
+
+func TestOCISource_FindRepo_PullErrorDuringLookup(t *testing.T) {
+	store := newMockBundleStore()
+	// Repo has tags but pull fails (bundle not registered)
+	store.tags["ghcr.io/org/broken"] = []string{"1.0.0"}
+
+	src := NewOCISource(store, []string{"ghcr.io/org/broken"})
+	ctx := context.Background()
+
+	_, err := src.findRepo(ctx, "my-service")
+	if err == nil {
+		t.Fatal("expected error when pull fails during lookup")
+	}
+}
+
+func TestOCISource_FindLatestBundle(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+	store.addBundle("ghcr.io/org/api", "2.0.0", "api", "2.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	bundle, err := src.findLatestBundle(ctx, "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.Contract.Service.Version != "2.0.0" {
+		t.Errorf("expected version '2.0.0', got %q", bundle.Contract.Service.Version)
+	}
+}
+
+func TestOCISource_FindLatestBundle_NoTags(t *testing.T) {
+	store := newMockBundleStore()
+	store.tags["ghcr.io/org/api"] = []string{} // repo exists but empty
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	_, err := src.findLatestBundle(ctx, "api")
+	if err == nil {
+		t.Fatal("expected error when no tags found")
+	}
+}
+
+func TestOCISource_GetVersions_ListTagsError(t *testing.T) {
+	store := newMockBundleStore()
+	// Repo matches by name but then ListTags fails for the version listing
+	// because we need findRepo to succeed but the subsequent ListTags to fail.
+	// Actually findRepo succeeds for path match, but then GetVersions calls ListTags again.
+	// Let's simulate by having findRepo succeed by name but no tags in store.
+	// findRepo matches "api" by last path component, so it returns the repo.
+	// Then GetVersions calls ListTags on that repo.
+	// If tags are not registered, it fails.
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	// findRepo will succeed because last path component is "api"
+	// but ListTags will fail because store has no tags for this repo
+	_, err := src.GetVersions(ctx, "api")
+	if err == nil {
+		t.Fatal("expected error when ListTags fails")
+	}
+}
+
+func TestOCISource_ImplementsDataSource(t *testing.T) {
+	store := newMockBundleStore()
+	src := NewOCISource(store, nil)
+	var _ DataSource = src
+}
+
+func TestOCISource_PullRef_FindRepoError(t *testing.T) {
+	store := newMockBundleStore()
+	// No repos configured — findRepo will fail.
+	src := NewOCISource(store, []string{})
+	ctx := context.Background()
+
+	_, err := src.pullRef(ctx, Ref{Name: "nonexistent", Version: "1.0.0"})
+	if err == nil {
+		t.Fatal("expected error when no repo matches")
+	}
+}
+
+func TestOCISource_FindLatestBundle_PullError(t *testing.T) {
+	store := newMockBundleStore()
+	// Repo matches by name, has tags, but pull fails.
+	store.tags["ghcr.io/org/api"] = []string{"1.0.0"}
+	// No bundle registered, so Pull will fail.
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	_, err := src.findLatestBundle(ctx, "api")
+	if err == nil {
+		t.Fatal("expected error when pull fails after getting tags")
+	}
+}
+
+func TestOCISource_FindLatestBundle_ListTagsError(t *testing.T) {
+	store := newMockBundleStore()
+	// Repo matches by path component but ListTags will fail (no tags registered).
+	// findRepo returns "ghcr.io/org/api" because last path component matches.
+	// Then findLatestBundle calls ListTags, which errors because repo is not in store.tags.
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	_, err := src.findLatestBundle(ctx, "api")
+	if err == nil {
+		t.Fatal("expected error when ListTags fails")
+	}
+}

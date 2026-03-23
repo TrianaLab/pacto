@@ -14,8 +14,10 @@ import (
 
 // GraphOptions holds options for the graph command.
 type GraphOptions struct {
-	Path      string
-	Overrides override.Overrides
+	Path              string
+	Overrides         override.Overrides
+	IncludeReferences bool
+	OnlyReferences    bool
 }
 
 // GraphResult is the result of the graph command.
@@ -33,7 +35,10 @@ func (s *Service) Graph(ctx context.Context, opts GraphOptions) (*GraphResult, e
 
 	slog.Debug("resolving dependency graph", "name", bundle.Contract.Service.Name)
 	fetcher := s.newDepFetcher(ref)
-	result := graph.Resolve(ctx, bundle.Contract, fetcher)
+	result := graph.ResolveWithOptions(ctx, bundle.Contract, fetcher, graph.ResolveOptions{
+		IncludeReferences: opts.IncludeReferences,
+		OnlyReferences:    opts.OnlyReferences,
+	})
 	slog.Debug("graph resolution complete", "dependencies", len(result.Root.Dependencies), "cycles", len(result.Cycles), "conflicts", len(result.Conflicts))
 	return result, nil
 }

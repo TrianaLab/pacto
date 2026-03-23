@@ -649,7 +649,7 @@ func writeHTTPInterfaceDetailLevel(b *strings.Builder, iface contract.Interface,
 		return
 	}
 
-	endpoints, err := readOpenAPIEndpoints(fsys, iface.Contract)
+	endpoints, err := ReadOpenAPIEndpoints(fsys, iface.Contract)
 	if err != nil {
 		fmt.Fprintf(b, "_Could not read OpenAPI spec: %v_\n\n", err)
 		return

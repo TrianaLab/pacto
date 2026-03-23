@@ -22,7 +22,7 @@ paths:
 		"openapi.yaml": &fstest.MapFile{Data: []byte(spec)},
 	}
 
-	endpoints, err := readOpenAPIEndpoints(fsys, "openapi.yaml")
+	endpoints, err := ReadOpenAPIEndpoints(fsys, "openapi.yaml")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -64,7 +64,7 @@ paths:
 		"openapi.yaml": &fstest.MapFile{Data: []byte(spec)},
 	}
 
-	endpoints, err := readOpenAPIEndpoints(fsys, "openapi.yaml")
+	endpoints, err := ReadOpenAPIEndpoints(fsys, "openapi.yaml")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -91,7 +91,7 @@ paths:
 		"openapi.yaml": &fstest.MapFile{Data: []byte(spec)},
 	}
 
-	endpoints, err := readOpenAPIEndpoints(fsys, "openapi.yaml")
+	endpoints, err := ReadOpenAPIEndpoints(fsys, "openapi.yaml")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,7 +121,7 @@ paths:
 		"openapi.yaml": &fstest.MapFile{Data: []byte(spec)},
 	}
 
-	endpoints, err := readOpenAPIEndpoints(fsys, "openapi.yaml")
+	endpoints, err := ReadOpenAPIEndpoints(fsys, "openapi.yaml")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -143,7 +143,7 @@ paths: "not a map"
 		"openapi.yaml": &fstest.MapFile{Data: []byte(spec)},
 	}
 
-	endpoints, err := readOpenAPIEndpoints(fsys, "openapi.yaml")
+	endpoints, err := ReadOpenAPIEndpoints(fsys, "openapi.yaml")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -163,7 +163,7 @@ info:
 		"openapi.yaml": &fstest.MapFile{Data: []byte(spec)},
 	}
 
-	endpoints, err := readOpenAPIEndpoints(fsys, "openapi.yaml")
+	endpoints, err := ReadOpenAPIEndpoints(fsys, "openapi.yaml")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -176,7 +176,7 @@ info:
 func TestReadOpenAPIEndpoints_MissingFile(t *testing.T) {
 	fsys := fstest.MapFS{}
 
-	_, err := readOpenAPIEndpoints(fsys, "nonexistent.yaml")
+	_, err := ReadOpenAPIEndpoints(fsys, "nonexistent.yaml")
 	if err == nil {
 		t.Error("expected error for missing file")
 	}
@@ -187,7 +187,7 @@ func TestReadOpenAPIEndpoints_InvalidYAML(t *testing.T) {
 		"bad.yaml": &fstest.MapFile{Data: []byte(":::invalid")},
 	}
 
-	_, err := readOpenAPIEndpoints(fsys, "bad.yaml")
+	_, err := ReadOpenAPIEndpoints(fsys, "bad.yaml")
 	if err == nil {
 		t.Error("expected error for invalid YAML")
 	}
@@ -210,7 +210,7 @@ func TestReadOpenAPIEndpoints_JSONFormat(t *testing.T) {
 		"openapi.json": &fstest.MapFile{Data: []byte(spec)},
 	}
 
-	endpoints, err := readOpenAPIEndpoints(fsys, "openapi.json")
+	endpoints, err := ReadOpenAPIEndpoints(fsys, "openapi.json")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestReadOpenAPIEndpoints_InvalidJSON(t *testing.T) {
 		"bad.json": &fstest.MapFile{Data: []byte("{invalid json")},
 	}
 
-	_, err := readOpenAPIEndpoints(fsys, "bad.json")
+	_, err := ReadOpenAPIEndpoints(fsys, "bad.json")
 	if err == nil {
 		t.Error("expected error for invalid JSON")
 	}
@@ -257,7 +257,7 @@ paths:
 		"openapi.yaml": &fstest.MapFile{Data: []byte(spec)},
 	}
 
-	endpoints, err := readOpenAPIEndpoints(fsys, "openapi.yaml")
+	endpoints, err := ReadOpenAPIEndpoints(fsys, "openapi.yaml")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
