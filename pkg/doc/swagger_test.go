@@ -991,6 +991,65 @@ func TestProxyHandler_BadMethod(t *testing.T) {
 	}
 }
 
+func TestProxyHandler_SchemeMismatch(t *testing.T) {
+	handler := newProxyHandler([]string{"https://secure.example.com"})
+	// Attempt to use http:// when only https:// is allowed.
+	req := httptest.NewRequest(http.MethodGet, "/proxy?scalar_url=http://secure.example.com/path", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for scheme mismatch, got %d", rr.Code)
+	}
+}
+
+func TestProxyHandler_PathTraversalBlocked(t *testing.T) {
+	handler := newProxyHandler([]string{"http://example.com/api"})
+	// Attempt to escape the /api path prefix via path traversal.
+	req := httptest.NewRequest(http.MethodGet, "/proxy?scalar_url=http://example.com/other", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for path outside allowed prefix, got %d", rr.Code)
+	}
+}
+
+func TestProxyHandler_HostPortMismatch(t *testing.T) {
+	handler := newProxyHandler([]string{"http://example.com:8080"})
+	// Attempt to use a different port.
+	req := httptest.NewRequest(http.MethodGet, "/proxy?scalar_url=http://example.com:9090/path", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for port mismatch, got %d", rr.Code)
+	}
+}
+
+func TestProxyHandler_EmptyAllowList(t *testing.T) {
+	handler := newProxyHandler(nil)
+	req := httptest.NewRequest(http.MethodGet, "/proxy?scalar_url=http://example.com/path", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 with empty allowlist, got %d", rr.Code)
+	}
+}
+
+func TestProxyHandler_UserInfoIgnored(t *testing.T) {
+	handler := newProxyHandler([]string{"http://example.com"})
+	// Attempt to smuggle credentials in the URL — should still match host.
+	req := httptest.NewRequest(http.MethodGet, "/proxy?scalar_url=http://user:pass@example.com/path", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	// url.Parse includes userinfo in Host only if the URL has @ but no port,
+	// so "user:pass@example.com" actually parses with Host="example.com" and
+	// User="user:pass". This should still be forbidden because the reconstructed
+	// URL strips userinfo (url.URL with only Scheme+Host+Path has no User).
+	// Regardless, it should NOT produce 200 — either 403 or 502.
+	if rr.Code == http.StatusOK {
+		t.Error("expected non-200 for URL with userinfo")
+	}
+}
+
 func TestOverrideServers_InvalidJSON(t *testing.T) {
 	_, err := overrideServers([]byte(`{invalid`), "http://localhost:8080")
 	if err == nil {

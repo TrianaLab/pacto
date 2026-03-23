@@ -194,43 +194,66 @@ func overrideServers(specJSON []byte, serverURL string) ([]byte, error) {
 	return json.Marshal(spec)
 }
 
+// parsedAllowedTarget is a pre-parsed entry from the proxy allowlist.
+type parsedAllowedTarget struct {
+	scheme string
+	host   string
+	path   string
+}
+
 // newProxyHandler returns an HTTP handler that forwards requests to the
 // target. Scalar sends requests to the proxy with the full upstream URL
 // in the scalar_url query parameter. This avoids CORS by keeping browser
 // traffic same-origin while showing the real URL in the UI.
 //
 // The allowed slice lists URL prefixes that the proxy is permitted to
-// forward to, preventing open-proxy abuse.
+// forward to, preventing open-proxy abuse. Targets are pre-parsed at
+// handler creation time and the outbound URL is reconstructed from
+// trusted allowlist components (scheme + host) rather than raw user input.
 func newProxyHandler(allowed []string) http.HandlerFunc {
+	// Pre-parse allowed targets once at creation time.
+	var targets []parsedAllowedTarget
+	for _, t := range allowed {
+		u, err := url.Parse(t)
+		if err != nil || u.Host == "" {
+			continue
+		}
+		targets = append(targets, parsedAllowedTarget{scheme: u.Scheme, host: u.Host, path: u.Path})
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
-		targetURL := r.URL.Query().Get("scalar_url")
-		if targetURL == "" {
+		rawURL := r.URL.Query().Get("scalar_url")
+		if rawURL == "" {
 			http.Error(w, "missing scalar_url parameter", http.StatusBadRequest)
 			return
 		}
 
-		parsed, parseErr := url.Parse(targetURL)
-		if parseErr != nil || parsed.Host == "" {
+		reqURL, parseErr := url.Parse(rawURL)
+		if parseErr != nil || reqURL.Host == "" {
 			http.Error(w, "invalid target URL", http.StatusBadRequest)
 			return
 		}
-		ok := false
-		for _, t := range allowed {
-			allowedParsed, err := url.Parse(t)
-			if err != nil {
-				continue
-			}
-			if parsed.Scheme == allowedParsed.Scheme && parsed.Host == allowedParsed.Host && strings.HasPrefix(parsed.Path, allowedParsed.Path) {
-				ok = true
+
+		// Match against allowlist and reconstruct URL from trusted components.
+		// Scheme and host come from the server-controlled allowlist, not user input.
+		var safeTarget *url.URL
+		for _, t := range targets {
+			if reqURL.Scheme == t.scheme && reqURL.Host == t.host && strings.HasPrefix(reqURL.Path, t.path) {
+				safeTarget = &url.URL{
+					Scheme:   t.scheme,
+					Host:     t.host,
+					Path:     reqURL.Path,
+					RawQuery: reqURL.RawQuery,
+				}
 				break
 			}
 		}
-		if !ok {
+		if safeTarget == nil {
 			http.Error(w, "target not allowed", http.StatusForbidden)
 			return
 		}
 
-		proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
+		proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, safeTarget.String(), r.Body)
 		if err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
