@@ -289,10 +289,17 @@ func (r *DetectResult) detectOCI(store oci.BundleStore, repos []string) {
 		return
 	}
 
-	diag.Repos = repos
+	// Strip oci:// prefix from repos — other commands handle this via
+	// graph.ParseDependencyRef, but the dashboard receives raw --repo values.
+	cleaned := make([]string, len(repos))
+	for i, repo := range repos {
+		cleaned[i] = strings.TrimPrefix(repo, "oci://")
+	}
+
+	diag.Repos = cleaned
 	info.Enabled = true
-	info.Reason = fmt.Sprintf("OCI client configured with %d repositories", len(repos))
-	r.OCI = NewOCISource(store, repos)
+	info.Reason = fmt.Sprintf("OCI client configured with %d repositories", len(cleaned))
+	r.OCI = NewOCISource(store, cleaned)
 	r.Sources = append(r.Sources, info)
 }
 

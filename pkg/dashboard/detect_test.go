@@ -213,6 +213,23 @@ func TestDetectOCI_StoreWithRepos(t *testing.T) {
 	}
 }
 
+func TestDetectOCI_StripsOCIPrefix(t *testing.T) {
+	result := &DetectResult{Diagnostics: &SourceDiagnostics{}}
+	result.detectOCI(newMockBundleStore(), []string{"oci://ghcr.io/org/svc", "ghcr.io/org/other"})
+
+	if result.OCI == nil {
+		t.Fatal("expected OCI source to be detected")
+	}
+	// Verify the oci:// prefix was stripped.
+	if result.Diagnostics.OCI.Repos[0] != "ghcr.io/org/svc" {
+		t.Errorf("expected stripped repo, got %q", result.Diagnostics.OCI.Repos[0])
+	}
+	// Verify repos without prefix are unchanged.
+	if result.Diagnostics.OCI.Repos[1] != "ghcr.io/org/other" {
+		t.Errorf("expected unchanged repo, got %q", result.Diagnostics.OCI.Repos[1])
+	}
+}
+
 func TestDetectCache_EmptyCacheDir(t *testing.T) {
 	root := t.TempDir()
 
