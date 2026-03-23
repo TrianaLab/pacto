@@ -52,13 +52,7 @@ Services are grouped by name across sources and merged using priority rules:
 			host := v.GetString("dashboard.host")
 			port := v.GetInt("dashboard.port")
 			namespace := v.GetString("dashboard.namespace")
-			repos, _ := cmd.Flags().GetStringArray("repo")
-			// Support PACTO_DASHBOARD_REPO env var (comma-separated) as fallback.
-			if len(repos) == 0 {
-				if envRepos := os.Getenv("PACTO_DASHBOARD_REPO"); envRepos != "" {
-					repos = strings.Split(envRepos, ",")
-				}
-			}
+			repos := dashboardRepos(cmd)
 			noCache := v.GetBool("no-cache")
 			diagnostics := v.GetBool("dashboard.diagnostics")
 			dir := optionalArg(args)
@@ -78,22 +72,11 @@ Services are grouped by name across sources and merged using priority rules:
 
 			activeSources := detectResult.ActiveSources()
 			if len(activeSources) == 0 {
-				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "No data sources detected:")
-				for _, s := range detectResult.Sources {
-					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %s: %s\n", s.Type, s.Reason)
-				}
+				printSourceErrors(cmd, detectResult.Sources)
 				return fmt.Errorf("at least one data source must be available")
 			}
 
-			// Print detected sources.
-			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Detected sources:")
-			for _, s := range detectResult.Sources {
-				status := "disabled"
-				if s.Enabled {
-					status = "enabled"
-				}
-				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %s: %s (%s)\n", s.Type, status, s.Reason)
-			}
+			printDetectedSources(cmd, detectResult.Sources)
 
 			// Wrap each source with cache (different TTLs per source type).
 			cachedSources := make(map[string]dashboard.DataSource, len(activeSources))
@@ -135,11 +118,7 @@ Services are grouped by name across sources and merged using priority rules:
 			for st := range activeSources {
 				sourceNames = append(sourceNames, st)
 			}
-			displayHost := host
-			if displayHost == "" || displayHost == "0.0.0.0" {
-				displayHost = "127.0.0.1"
-			}
-			addr := fmt.Sprintf("http://%s:%d", displayHost, port)
+			addr := fmt.Sprintf("http://%s:%d", displayHost(host), port)
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\nPress Ctrl+C to stop\n", addr, strings.Join(sourceNames, ", "))
 
 			return server.Serve(ctx, port, host)
@@ -159,6 +138,43 @@ Services are grouped by name across sources and merged using priority rules:
 	_ = v.BindPFlag("dashboard.diagnostics", cmd.Flags().Lookup("diagnostics"))
 
 	return cmd
+}
+
+// dashboardRepos returns OCI repos from --repo flags, falling back to PACTO_DASHBOARD_REPO env var.
+func dashboardRepos(cmd *cobra.Command) []string {
+	repos, _ := cmd.Flags().GetStringArray("repo")
+	if len(repos) == 0 {
+		if envRepos := os.Getenv("PACTO_DASHBOARD_REPO"); envRepos != "" {
+			return strings.Split(envRepos, ",")
+		}
+	}
+	return repos
+}
+
+// displayHost returns a user-friendly address for display (maps 0.0.0.0 to 127.0.0.1).
+func displayHost(host string) string {
+	if host == "" || host == "0.0.0.0" {
+		return "127.0.0.1"
+	}
+	return host
+}
+
+func printSourceErrors(cmd *cobra.Command, sources []dashboard.SourceInfo) {
+	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "No data sources detected:")
+	for _, s := range sources {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %s: %s\n", s.Type, s.Reason)
+	}
+}
+
+func printDetectedSources(cmd *cobra.Command, sources []dashboard.SourceInfo) {
+	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Detected sources:")
+	for _, s := range sources {
+		status := "disabled"
+		if s.Enabled {
+			status = "enabled"
+		}
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %s: %s (%s)\n", s.Type, status, s.Reason)
+	}
 }
 
 // cacheTTL returns the cache TTL for each source type.
