@@ -11,7 +11,9 @@ endif
 GOBIN := $(GOPATH)/bin
 endif
 
-.PHONY: build test e2e coverage lint clean docs gen-cli-docs
+IMAGE := ghcr.io/trianalab/pacto-dashboard
+
+.PHONY: build test e2e coverage lint clean docs gen-cli-docs docker-build docker-run
 
 build:
 	rm -f "$(GOBIN)/pacto"
@@ -39,6 +41,12 @@ BUNDLE := $(shell command -v /opt/homebrew/opt/ruby@3.3/bin/bundle 2>/dev/null |
 
 docs:
 	cd docs && $(BUNDLE) install && $(BUNDLE) exec jekyll serve --livereload
+
+docker-build:
+	docker build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) --build-arg BUILD_DATE=$(BUILD_DATE) -t $(IMAGE):$(VERSION) .
+
+docker-run:
+	docker run --rm -p 3000:3000 $(IMAGE):$(VERSION)
 
 clean:
 	rm -f "$(GOBIN)/pacto" coverage.out coverage.html
