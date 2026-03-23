@@ -35,11 +35,11 @@ var api = {
       return r.json();
     });
   },
-  listRemoteVersions: function(ref) {
+  listRemoteVersions: function(ref, fetchAll) {
     return fetch('/api/versions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ref: ref })
+      body: JSON.stringify({ ref: ref, fetch: !!fetchAll })
     }).then(function(r) {
       if (!r.ok) return r.json().then(function(body) {
         var msg = (body && body.detail) || (body && body.title) || ('API ' + r.status);
@@ -2173,7 +2173,7 @@ async function fetchAllVersions(ociRepo) {
   var btn = document.getElementById('fetch-versions-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Fetching\u2026'; }
   try {
-    var result = await api.listRemoteVersions(ociRepo);
+    var result = await api.listRemoteVersions(ociRepo, true);
     var remote = (result && result.versions) || [];
     var existing = state.versions[state.service] || [];
     var known = {};

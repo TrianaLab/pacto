@@ -114,6 +114,12 @@ Services are grouped by name across sources and merged using priority rules:
 				server.SetResolver(oci.NewResolver(svc.BundleStore))
 			}
 
+			// Register the cache source and memory cache for runtime refresh
+			// after resolve or fetch-all-versions operations.
+			if detectResult.Cache != nil {
+				server.SetCacheSource(detectResult.Cache, memCache)
+			}
+
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 

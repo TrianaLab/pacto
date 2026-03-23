@@ -85,18 +85,16 @@ func (s *OCISource) GetVersions(ctx context.Context, name string) ([]Version, er
 		return nil, fmt.Errorf("listing tags for %s: %w", repo, err)
 	}
 
+	// Filter to valid semver tags only, sorted descending (latest first).
+	semverTags := filterValidSemver(tags)
+
 	var versions []Version
-	for _, tag := range tags {
+	for _, tag := range semverTags {
 		versions = append(versions, Version{
 			Version: tag,
 			Ref:     repo + ":" + tag,
 		})
 	}
-
-	// Sort by semver descending (latest first)
-	sort.Slice(versions, func(i, j int) bool {
-		return semverDescending(versions[i].Version, versions[j].Version)
-	})
 
 	return versions, nil
 }

@@ -10,6 +10,7 @@ import (
 type Cache interface {
 	Get(key string) (any, bool)
 	Set(key string, value any, ttl time.Duration)
+	InvalidateAll()
 }
 
 // memoryCache is a simple in-memory cache with TTL-based expiration.
@@ -51,6 +52,12 @@ func (c *memoryCache) Set(key string, value any, ttl time.Duration) {
 		value:     value,
 		expiresAt: time.Now().Add(ttl),
 	}
+	c.mu.Unlock()
+}
+
+func (c *memoryCache) InvalidateAll() {
+	c.mu.Lock()
+	c.entries = make(map[string]cacheEntry)
 	c.mu.Unlock()
 }
 

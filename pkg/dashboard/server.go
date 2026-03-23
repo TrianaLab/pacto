@@ -20,6 +20,8 @@ type Server struct {
 	source      DataSource
 	aggregated  *AggregatedSource // may be nil for non-aggregated usage
 	resolver    *oci.Resolver     // optional: enables lazy resolution of remote OCI dependencies
+	cacheSource *CacheSource      // optional: for rescanning after cache writes
+	memCache    Cache             // optional: for invalidating after cache writes
 	ui          fs.FS
 	sourceInfo  []SourceInfo
 	diagnostics *SourceDiagnostics
@@ -79,6 +81,13 @@ func NewAggregatedServer(agg *AggregatedSource, ui fs.FS, sourceInfo []SourceInf
 // SetResolver enables lazy on-demand resolution of remote OCI dependencies.
 func (s *Server) SetResolver(r *oci.Resolver) {
 	s.resolver = r
+}
+
+// SetCacheSource registers the CacheSource so the server can trigger a rescan
+// after new bundles are cached (via resolve or fetch-all-versions).
+func (s *Server) SetCacheSource(cs *CacheSource, memCache Cache) {
+	s.cacheSource = cs
+	s.memCache = memCache
 }
 
 // Serve starts the HTTP server on the given port and blocks until ctx is cancelled.
@@ -378,7 +387,8 @@ type resolveRefOutput struct {
 
 type listRemoteVersionsInput struct {
 	Body struct {
-		Ref string `json:"ref" required:"true" example:"ghcr.io/org/service-pacto" doc:"OCI repository reference (without tag)"`
+		Ref   string `json:"ref" required:"true" example:"ghcr.io/org/service-pacto" doc:"OCI repository reference (without tag)"`
+		Fetch bool   `json:"fetch,omitempty" doc:"When true, pull and cache all discovered versions"`
 	}
 }
 
@@ -672,16 +682,27 @@ func (s *Server) resolveRef(ctx context.Context, input *resolveRefInput) (*resol
 	}
 
 	details := ServiceDetailsFromBundle(bundle, "oci")
-	// Invalidate the cached service index so the resolved service appears.
-	s.indexMu.Lock()
-	s.indexCache = nil
-	s.indexMu.Unlock()
+	// Rescan disk cache and invalidate in-memory caches so the resolved
+	// service becomes a first-class cached artifact visible everywhere.
+	s.refreshCacheSources()
 
 	return &resolveRefOutput{Body: details}, nil
 }
 
 func (s *Server) listRemoteVersions(ctx context.Context, input *listRemoteVersionsInput) (*listRemoteVersionsOutput, error) {
-	versions, err := s.resolver.ListVersions(ctx, input.Body.Ref)
+	var versions []string
+	var err error
+
+	if input.Body.Fetch {
+		// Fetch mode: pull every version so they persist in cache.
+		versions, err = s.resolver.FetchAllVersions(ctx, input.Body.Ref)
+		if err == nil {
+			s.refreshCacheSources()
+		}
+	} else {
+		versions, err = s.resolver.ListVersions(ctx, input.Body.Ref)
+	}
+
 	if err != nil {
 		var authErr *oci.AuthenticationError
 		if errors.As(err, &authErr) {
@@ -786,6 +807,20 @@ func appendIncomingRef(refs []CrossReference, d *ServiceDetails, targetName, ref
 		refs = append(refs, CrossReference{Name: d.Name, RefType: refType, Ref: ref, Phase: string(d.Phase)})
 	}
 	return refs
+}
+
+// refreshCacheSources rescans the disk cache and invalidates the in-memory
+// data source cache so newly cached bundles become visible immediately.
+func (s *Server) refreshCacheSources() {
+	if s.cacheSource != nil {
+		s.cacheSource.Rescan()
+	}
+	if s.memCache != nil {
+		s.memCache.InvalidateAll()
+	}
+	s.indexMu.Lock()
+	s.indexCache = nil
+	s.indexMu.Unlock()
 }
 
 func corsMiddleware(next http.Handler) http.Handler {

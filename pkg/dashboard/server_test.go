@@ -1550,6 +1550,69 @@ func TestServerResolveRef_NoResolver(t *testing.T) {
 	}
 }
 
+func TestServerRefreshCacheSources(t *testing.T) {
+	// Verify that refreshCacheSources invalidates memory cache and index cache.
+	source := &mockSource{
+		services: []Service{{Name: "svc", Version: "1.0.0"}},
+		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Version: "1.0.0"}}},
+	}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
+
+	memCache := NewMemoryCache()
+	memCache.Set("test-key", "test-value", time.Hour)
+
+	root := t.TempDir()
+	cacheSource := NewCacheSource(root)
+	srv.SetCacheSource(cacheSource, memCache)
+
+	// Build initial index cache.
+	_ = srv.getCachedIndex(context.Background())
+	if srv.indexCache == nil {
+		t.Fatal("expected index cache to be built")
+	}
+
+	// Verify memory cache has the entry.
+	if _, ok := memCache.Get("test-key"); !ok {
+		t.Fatal("expected test-key in memory cache")
+	}
+
+	// Call refreshCacheSources.
+	srv.refreshCacheSources()
+
+	// Index cache should be nil.
+	srv.indexMu.Lock()
+	indexNil := srv.indexCache == nil
+	srv.indexMu.Unlock()
+	if !indexNil {
+		t.Error("expected index cache to be nil after refresh")
+	}
+
+	// Memory cache should be invalidated.
+	if _, ok := memCache.Get("test-key"); ok {
+		t.Error("expected test-key to be invalidated from memory cache")
+	}
+}
+
+func TestMemoryCache_InvalidateAll(t *testing.T) {
+	cache := NewMemoryCache()
+	cache.Set("a", 1, time.Hour)
+	cache.Set("b", 2, time.Hour)
+
+	if _, ok := cache.Get("a"); !ok {
+		t.Fatal("expected 'a' to exist")
+	}
+
+	cache.InvalidateAll()
+
+	if _, ok := cache.Get("a"); ok {
+		t.Error("expected 'a' to be gone after InvalidateAll")
+	}
+	if _, ok := cache.Get("b"); ok {
+		t.Error("expected 'b' to be gone after InvalidateAll")
+	}
+}
+
 func findEntry(t *testing.T, entries []ServiceListEntry, name string) *ServiceListEntry {
 	t.Helper()
 	for i := range entries {

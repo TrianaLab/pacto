@@ -110,6 +110,14 @@ func (s *CacheSource) scan() {
 	})
 }
 
+// Rescan re-walks the cache directory and updates the in-memory index.
+// This must be called after new bundles are cached (e.g. after resolve or
+// fetch-all-versions) so they become visible as first-class cached artifacts.
+func (s *CacheSource) Rescan() {
+	s.services = make(map[string]*cachedService)
+	s.scan()
+}
+
 // ServiceCount returns the number of discovered services.
 func (s *CacheSource) ServiceCount() int {
 	return len(s.services)
@@ -235,18 +243,31 @@ func semverDescending(a, b string) bool {
 	return ea == nil // valid semver sorts before non-semver
 }
 
-// latestTag returns the latest tag from a list using semver-aware sorting.
-// Returns empty string if tags is empty.
+// latestTag returns the highest valid semver tag from a list.
+// Non-semver tags are ignored. Returns empty string if no valid semver tags exist.
 func latestTag(tags []string) string {
-	if len(tags) == 0 {
+	filtered := filterValidSemver(tags)
+	if len(filtered) == 0 {
 		return ""
 	}
-	sorted := make([]string, len(tags))
-	copy(sorted, tags)
-	sort.Slice(sorted, func(i, j int) bool {
-		return semverDescending(sorted[i], sorted[j])
-	})
-	return sorted[0]
+	return filtered[0]
+}
+
+// filterValidSemver returns only valid semver tags, sorted descending (latest first).
+func filterValidSemver(tags []string) []string {
+	var versions []*semver.Version
+	for _, t := range tags {
+		v, err := semver.NewVersion(t)
+		if err == nil {
+			versions = append(versions, v)
+		}
+	}
+	sort.Sort(sort.Reverse(semver.Collection(versions)))
+	var out []string
+	for _, v := range versions {
+		out = append(out, v.Original())
+	}
+	return out
 }
 
 func (svc *cachedService) findVersion(tag string) *cachedVersion {

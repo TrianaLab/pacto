@@ -503,6 +503,190 @@ service:
 	}
 }
 
+func TestCacheSource_Rescan_PicksUpNewBundles(t *testing.T) {
+	root := t.TempDir()
+
+	// Start with one bundle.
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 1.0.0
+`)
+
+	src := NewCacheSource(root)
+	if src.ServiceCount() != 1 {
+		t.Fatalf("expected 1 service, got %d", src.ServiceCount())
+	}
+	if src.VersionCount() != 1 {
+		t.Fatalf("expected 1 version, got %d", src.VersionCount())
+	}
+
+	// Add a new version on disk (simulating a CachedStore write).
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 2.0.0
+`)
+	// Also add a new service.
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/worker/1.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: worker
+  version: 1.0.0
+`)
+
+	// Before rescan, counts are stale.
+	if src.ServiceCount() != 1 {
+		t.Fatalf("before rescan: expected 1 service, got %d", src.ServiceCount())
+	}
+
+	// Rescan picks up new bundles.
+	src.Rescan()
+	if src.ServiceCount() != 2 {
+		t.Fatalf("after rescan: expected 2 services, got %d", src.ServiceCount())
+	}
+	if src.VersionCount() != 3 {
+		t.Fatalf("after rescan: expected 3 versions, got %d", src.VersionCount())
+	}
+
+	// The new version should be visible.
+	details, err := src.GetService(context.Background(), "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Version != "2.0.0" {
+		t.Errorf("expected latest version '2.0.0' after rescan, got %q", details.Version)
+	}
+}
+
+func TestCacheSource_Rescan_EmptyAfterClear(t *testing.T) {
+	root := t.TempDir()
+
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 1.0.0
+`)
+
+	src := NewCacheSource(root)
+	if src.ServiceCount() != 1 {
+		t.Fatalf("expected 1 service, got %d", src.ServiceCount())
+	}
+
+	// Remove all bundles and rescan.
+	if err := os.RemoveAll(filepath.Join(root, "ghcr.io")); err != nil {
+		t.Fatal(err)
+	}
+
+	src.Rescan()
+	if src.ServiceCount() != 0 {
+		t.Fatalf("expected 0 services after clearing, got %d", src.ServiceCount())
+	}
+}
+
+func TestFilterValidSemver(t *testing.T) {
+	tests := []struct {
+		name     string
+		tags     []string
+		expected []string
+	}{
+		{
+			name:     "mixed valid and invalid",
+			tags:     []string{"v1.0.0", "latest", "2.0.0", "abc", "1.5.0"},
+			expected: []string{"2.0.0", "1.5.0", "v1.0.0"},
+		},
+		{
+			name:     "all invalid",
+			tags:     []string{"latest", "main", "abc"},
+			expected: nil,
+		},
+		{
+			name:     "all valid sorted descending",
+			tags:     []string{"3.0.0", "1.0.0", "2.0.0"},
+			expected: []string{"3.0.0", "2.0.0", "1.0.0"},
+		},
+		{
+			name:     "empty",
+			tags:     nil,
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterValidSemver(tt.tags)
+			if len(result) != len(tt.expected) {
+				t.Fatalf("expected %d tags, got %d: %v", len(tt.expected), len(result), result)
+			}
+			for i, v := range result {
+				if v != tt.expected[i] {
+					t.Errorf("index %d: expected %q, got %q", i, tt.expected[i], v)
+				}
+			}
+		})
+	}
+}
+
+func TestLatestTag_IgnoresNonSemver(t *testing.T) {
+	// When ALL tags are non-semver, latestTag returns empty string.
+	result := latestTag([]string{"latest", "main", "abc"})
+	if result != "" {
+		t.Errorf("expected empty string for all-non-semver tags, got %q", result)
+	}
+
+	// When mixed, returns highest semver.
+	result = latestTag([]string{"latest", "1.0.0", "2.0.0", "main"})
+	if result != "2.0.0" {
+		t.Errorf("expected '2.0.0', got %q", result)
+	}
+}
+
+func TestCacheSource_CurrentVersionIsHighestSemver(t *testing.T) {
+	root := t.TempDir()
+
+	// Write versions in non-sorted order, including a non-semver tag.
+	for _, v := range []struct {
+		tag, version string
+	}{
+		{"1.0.0", "1.0.0"},
+		{"3.0.0", "3.0.0"},
+		{"2.0.0", "2.0.0"},
+	} {
+		writeBundleTarGzFile(t,
+			filepath.Join(root, "ghcr.io/org/svc", v.tag, "bundle.tar.gz"),
+			fmt.Sprintf(`pactoVersion: "1.0"
+service:
+  name: my-svc
+  version: %s
+`, v.version))
+	}
+
+	src := NewCacheSource(root)
+	details, err := src.GetService(context.Background(), "my-svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Version != "3.0.0" {
+		t.Errorf("expected current version '3.0.0' (highest semver), got %q", details.Version)
+	}
+
+	// Versions should be sorted descending.
+	versions, err := src.GetVersions(context.Background(), "my-svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versions[0].Version != "3.0.0" {
+		t.Errorf("expected first version '3.0.0', got %q", versions[0].Version)
+	}
+}
+
 func TestCacheSource_LatestVersion_EmptyVersions(t *testing.T) {
 	svc := &cachedService{name: "empty", versions: nil}
 	latest := svc.latestVersion()

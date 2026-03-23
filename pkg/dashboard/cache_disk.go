@@ -85,6 +85,12 @@ func (c *DiskCache) Set(key string, value any, ttl time.Duration) {
 	_ = os.WriteFile(path, entryData, 0o644)
 }
 
+func (c *DiskCache) InvalidateAll() {
+	indexDir := filepath.Join(c.root, "index")
+	_ = os.RemoveAll(indexDir)
+	_ = os.MkdirAll(indexDir, 0o755)
+}
+
 // setImmutable stores a value with no expiration (for OCI bundles keyed by digest).
 func (c *DiskCache) setImmutable(key string, value any) {
 	c.Set(key, value, 0)

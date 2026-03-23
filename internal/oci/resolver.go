@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -126,7 +127,27 @@ func (r *Resolver) ListVersions(ctx context.Context, ref string) ([]string, erro
 	if err != nil {
 		return nil, err
 	}
-	return filterSemverTags(tags), nil
+	return FilterSemverTags(tags), nil
+}
+
+// FetchAllVersions lists all semver tags for the given OCI repo reference and
+// pulls each one, ensuring they are cached by the underlying BundleStore.
+// Returns the version list sorted descending (latest first).
+func (r *Resolver) FetchAllVersions(ctx context.Context, ref string) ([]string, error) {
+	ref = strings.TrimPrefix(ref, "oci://")
+	tags, err := r.store.ListTags(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	versions := FilterSemverTags(tags)
+	for _, v := range versions {
+		// Pull triggers caching in CachedStore. Errors are non-fatal —
+		// we still return versions that were successfully listed.
+		if _, pullErr := r.store.Pull(ctx, ref+":"+v); pullErr != nil {
+			slog.Warn("failed to cache version", "ref", ref+":"+v, "error", pullErr)
+		}
+	}
+	return versions, nil
 }
 
 func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bundle, error) {
@@ -172,8 +193,8 @@ func (r *Resolver) resolveWithFetch(ctx context.Context, ref string) (*contract.
 	return bundle, nil
 }
 
-// filterSemverTags returns only valid semver tags, sorted descending (latest first).
-func filterSemverTags(tags []string) []string {
+// FilterSemverTags returns only valid semver tags, sorted descending (latest first).
+func FilterSemverTags(tags []string) []string {
 	var versions []*semver.Version
 	for _, t := range tags {
 		v, err := semver.NewVersion(t)

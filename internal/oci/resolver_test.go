@@ -456,6 +456,155 @@ func TestResolver_ResolveLocal_NilContract(t *testing.T) {
 	}
 }
 
+// pullTrackingStore tracks which refs were pulled.
+type pullTrackingStore struct {
+	bundle    *contract.Bundle
+	tags      []string
+	pulledRefs []string
+}
+
+func (s *pullTrackingStore) Push(context.Context, string, *contract.Bundle) (string, error) {
+	return "", nil
+}
+func (s *pullTrackingStore) Resolve(context.Context, string) (string, error) { return "", nil }
+func (s *pullTrackingStore) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
+	s.pulledRefs = append(s.pulledRefs, ref)
+	return s.bundle, nil
+}
+func (s *pullTrackingStore) ListTags(_ context.Context, _ string) ([]string, error) {
+	return s.tags, nil
+}
+
+func TestResolver_FetchAllVersions_PullsAllSemverTags(t *testing.T) {
+	bundle := newTestBundle()
+	store := &pullTrackingStore{
+		bundle: bundle,
+		tags:   []string{"v1.0.0", "latest", "2.0.0", "abc", "1.5.0"},
+	}
+	resolver := oci.NewResolver(store)
+
+	versions, err := resolver.FetchAllVersions(context.Background(), "ghcr.io/org/svc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should return only semver tags, sorted descending.
+	if len(versions) != 3 {
+		t.Fatalf("expected 3 versions, got %d: %v", len(versions), versions)
+	}
+	if versions[0] != "2.0.0" {
+		t.Errorf("expected first version 2.0.0, got %q", versions[0])
+	}
+
+	// Should have pulled all 3 semver versions.
+	if len(store.pulledRefs) != 3 {
+		t.Fatalf("expected 3 pulls, got %d: %v", len(store.pulledRefs), store.pulledRefs)
+	}
+	// Verify each pull ref includes the tag.
+	for _, ref := range store.pulledRefs {
+		if !strings.Contains(ref, ":") {
+			t.Errorf("expected ref with tag, got %q", ref)
+		}
+	}
+}
+
+func TestResolver_FetchAllVersions_StripsOCIPrefix(t *testing.T) {
+	bundle := newTestBundle()
+	store := &pullTrackingStore{
+		bundle: bundle,
+		tags:   []string{"1.0.0"},
+	}
+	resolver := oci.NewResolver(store)
+
+	versions, err := resolver.FetchAllVersions(context.Background(), "oci://ghcr.io/org/svc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("expected 1 version, got %d", len(versions))
+	}
+	if store.pulledRefs[0] != "ghcr.io/org/svc:1.0.0" {
+		t.Errorf("expected ref without oci:// prefix, got %q", store.pulledRefs[0])
+	}
+}
+
+func TestResolver_FetchAllVersions_ContinuesOnPullError(t *testing.T) {
+	// Pull always fails, but FetchAllVersions should still return the version list.
+	store := &tagMockStore{
+		tags:    []string{"1.0.0", "2.0.0"},
+		pullErr: fmt.Errorf("pull failed"),
+	}
+	resolver := oci.NewResolver(store)
+
+	versions, err := resolver.FetchAllVersions(context.Background(), "ghcr.io/org/svc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("expected 2 versions, got %d", len(versions))
+	}
+}
+
+func TestResolver_FetchAllVersions_ListTagsError(t *testing.T) {
+	store := &tagMockStore{
+		tagsErr: fmt.Errorf("auth error"),
+	}
+	resolver := oci.NewResolver(store)
+
+	_, err := resolver.FetchAllVersions(context.Background(), "ghcr.io/org/svc")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestFilterSemverTags(t *testing.T) {
+	tests := []struct {
+		name     string
+		tags     []string
+		expected []string
+	}{
+		{
+			name:     "mixed valid and invalid",
+			tags:     []string{"v1.0.0", "latest", "2.0.0", "abc", "1.5.0"},
+			expected: []string{"2.0.0", "1.5.0", "v1.0.0"},
+		},
+		{
+			name:     "all invalid",
+			tags:     []string{"latest", "main", "abc"},
+			expected: nil,
+		},
+		{
+			name:     "all valid",
+			tags:     []string{"3.0.0", "1.0.0", "2.0.0"},
+			expected: []string{"3.0.0", "2.0.0", "1.0.0"},
+		},
+		{
+			name:     "empty",
+			tags:     nil,
+			expected: nil,
+		},
+		{
+			name:     "prerelease",
+			tags:     []string{"1.0.0-alpha", "1.0.0", "1.0.0-beta"},
+			expected: []string{"1.0.0", "1.0.0-beta", "1.0.0-alpha"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := oci.FilterSemverTags(tt.tags)
+			if len(result) != len(tt.expected) {
+				t.Fatalf("expected %d tags, got %d: %v", len(tt.expected), len(result), result)
+			}
+			for i, v := range result {
+				if v != tt.expected[i] {
+					t.Errorf("index %d: expected %q, got %q", i, tt.expected[i], v)
+				}
+			}
+		})
+	}
+}
+
 func TestResolver_UnexpectedError(t *testing.T) {
 	store := &mockStore{
 		pullErr: fmt.Errorf("something unexpected"),

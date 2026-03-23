@@ -259,6 +259,30 @@ func TestDiskCache_ImplementsCacheInterface(t *testing.T) {
 	var _ Cache = c
 }
 
+func TestDiskCache_InvalidateAll(t *testing.T) {
+	root := t.TempDir()
+	c, err := NewDiskCache(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c.Set("key1", "value1", time.Hour)
+	c.Set("key2", "value2", time.Hour)
+
+	if _, ok := c.Get("key1"); !ok {
+		t.Fatal("expected key1 to exist before invalidation")
+	}
+
+	c.InvalidateAll()
+
+	if _, ok := c.Get("key1"); ok {
+		t.Error("expected key1 to be gone after InvalidateAll")
+	}
+	if _, ok := c.Get("key2"); ok {
+		t.Error("expected key2 to be gone after InvalidateAll")
+	}
+}
+
 func TestDefaultCacheDir(t *testing.T) {
 	dir, err := DefaultCacheDir()
 	if err != nil {
