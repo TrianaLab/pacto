@@ -146,6 +146,14 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"- Impact chain highlighting on hover (broken nodes highlight dependents)\n" +
 		"- Dynamic arrow positioning (arrows connect to the closest box edge)\n" +
 		"- Source and status filtering via the legend\n\n" +
+		"### Version selection\n\n" +
+		"The dashboard selects the **current version** of each OCI-backed service as the highest valid semver tag. " +
+		"Non-semver tags (e.g. `latest`, `main`) are excluded from version lists and never selected as the current version.\n\n" +
+		"When you use \"Fetch all versions\" in the version history tab, all available versions are pulled from the OCI registry " +
+		"and persisted to the local disk cache (`~/.cache/pacto/oci/`). These cached versions survive dashboard restarts " +
+		"and are treated as first-class cached artifacts.\n\n" +
+		"When a remote dependency is lazily resolved (via navigation to an unresolved dependency), the resolved bundle is also " +
+		"cached on disk and promoted to a normal cached external artifact. Its version history can be browsed and other versions can be loaded.\n\n" +
 		"### Diagnostics mode\n\n" +
 		"Pass `--diagnostics` to enable debug endpoints (`/api/debug/sources` and `/api/debug/services`) " +
 		"that expose raw per-source data for troubleshooting.",
