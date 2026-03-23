@@ -35,6 +35,10 @@ graph TD
     APP --> PLUG[pkg/plugin<br/>Plugin Runner]
     APP --> DOC[pkg/doc<br/>Doc Generator]
     APP --> OVER[pkg/override<br/>YAML Overrides]
+    CLI --> DASH[pkg/dashboard<br/>Dashboard Server]
+    DASH --> CONTRACT
+    DASH --> DOC
+    DASH --> DIFF
     DIFF --> SBOM[pkg/sbom<br/>SBOM Parser & Differ]
     VAL --> GRAPH
     DOC --> GRAPH
@@ -48,7 +52,7 @@ graph TD
 
     classDef pkg fill:#e0f0ff,stroke:#4a90d9
     classDef internal fill:#fff3e0,stroke:#e6a23c
-    class CONTRACT,VAL,DIFF,GRAPH,PLUG,DOC,SBOM,OVER pkg
+    class CONTRACT,VAL,DIFF,GRAPH,PLUG,DOC,SBOM,OVER,DASH pkg
     class APP,CLI,LOG,MCP,OCI,MAIN internal
 ```
 
@@ -136,6 +140,16 @@ Generates rich Markdown documentation from a contract. Reads OpenAPI specs, even
 ### `pkg/plugin` -- Plugin system
 
 Out-of-process plugin execution via JSON stdin/stdout. Discovers plugin binaries and manages the communication protocol. See the [Plugin Development]({{ site.baseurl }}{% link plugins.md %}) guide.
+
+### `pkg/dashboard` -- Dashboard server
+
+Provides a web-based dashboard for visualizing and exploring service contracts. Auto-detects available data sources (Kubernetes, OCI cache, local filesystem) and aggregates them into a unified view.
+
+- Multi-source architecture: `DataSource` interface implemented by `K8sSource`, `CacheSource`, `LocalSource`, `OCISource`
+- `AggregatedSource` merges sources with priority: Kubernetes (runtime) > local (contract) > OCI/cache (baseline)
+- `CachedDataSource` wraps any source with in-memory TTL caching
+- Embedded SPA with D3.js force-directed dependency graph, service detail pages, and diff view
+- REST API: `/api/services`, `/api/services/{name}`, `/api/graph`, `/api/diff`, `/api/sources`
 
 ### `internal/app` -- Application services
 
