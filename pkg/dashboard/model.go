@@ -1,6 +1,11 @@
 package dashboard
 
-import "time"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
 
 // Phase represents the overall health status of a service.
 type Phase string
@@ -350,6 +355,75 @@ type ChecksSummary struct {
 	Total  int `json:"total"`
 	Passed int `json:"passed"`
 	Failed int `json:"failed"`
+}
+
+// GenerateInsights derives diagnostic insights from the service details
+// when no operator-provided insights exist. This is the single source of
+// truth for insight generation — the UI consumes these directly.
+func (d *ServiceDetails) GenerateInsights() {
+	if len(d.Insights) > 0 {
+		return
+	}
+	var ins []Insight
+
+	switch d.Phase {
+	case PhaseInvalid:
+		ins = append(ins, Insight{Severity: "critical", Title: "Contract is invalid", Description: "One or more critical validation checks have failed."})
+	case PhaseDegraded:
+		ins = append(ins, Insight{Severity: "warning", Title: "Contract is degraded", Description: "Some validation checks are failing but service is operational."})
+	}
+
+	if d.Validation != nil {
+		if n := len(d.Validation.Errors); n > 0 {
+			desc := ""
+			if d.Validation.Errors[0].Message != "" {
+				desc = d.Validation.Errors[0].Message
+			}
+			ins = append(ins, Insight{Severity: "critical", Title: strconv.Itoa(n) + " validation error" + plural(n), Description: desc})
+		}
+		if n := len(d.Validation.Warnings); n > 0 {
+			desc := ""
+			if d.Validation.Warnings[0].Message != "" {
+				desc = d.Validation.Warnings[0].Message
+			}
+			ins = append(ins, Insight{Severity: "warning", Title: strconv.Itoa(n) + " validation warning" + plural(n), Description: desc})
+		}
+	}
+
+	if d.Resources != nil {
+		if d.Resources.ServiceExists != nil && !*d.Resources.ServiceExists {
+			ins = append(ins, Insight{Severity: "critical", Title: "Service resource not found", Description: "The Kubernetes Service resource does not exist."})
+		}
+		if d.Resources.WorkloadExists != nil && !*d.Resources.WorkloadExists {
+			ins = append(ins, Insight{Severity: "critical", Title: "Workload not found", Description: "The target workload does not exist."})
+		}
+	}
+
+	if d.Ports != nil {
+		if len(d.Ports.Missing) > 0 {
+			ins = append(ins, Insight{Severity: "warning", Title: "Missing ports: " + joinInts(d.Ports.Missing), Description: "Ports declared in contract but not found on the service."})
+		}
+		if len(d.Ports.Unexpected) > 0 {
+			ins = append(ins, Insight{Severity: "info", Title: "Unexpected ports: " + joinInts(d.Ports.Unexpected), Description: "Ports found on the service but not declared in contract."})
+		}
+	}
+
+	d.Insights = ins
+}
+
+func plural(n int) string {
+	if n != 1 {
+		return "s"
+	}
+	return ""
+}
+
+func joinInts(vals []int) string {
+	s := make([]string, len(vals))
+	for i, v := range vals {
+		s[i] = fmt.Sprintf("%d", v)
+	}
+	return strings.Join(s, ", ")
 }
 
 // ServiceListEntry is an enriched Service for the list view, including

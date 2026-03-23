@@ -195,6 +195,11 @@ function stopAutoReload() { if (autoReloadTimer) { clearInterval(autoReloadTimer
 function doRefresh() {
   var btn = document.getElementById('reload-btn');
   if (btn) { btn.classList.add('spinning'); setTimeout(function() { btn.classList.remove('spinning'); }, 600); }
+  // Clear cached state so all sources are re-fetched from the server.
+  overviewLoaded = false;
+  state.details = {};
+  state.versions = {};
+  state.aggregated = {};
   render();
 }
 updateAutoReloadUI();
@@ -1351,7 +1356,7 @@ function renderDetailPage() {
 
   // Contract info line
   o += '<div class="contract-info-line">';
-  if (d.version) o += '<span class="pill pill-dim">v' + h(d.version) + '</span>';
+  if (d.version) o += '<span class="pill pill-dim">' + h(d.version) + '</span>';
   o += sources.map(sourcePill).join(' ');
   if (d.imageRef) o += '<code class="contract-ref-code">' + h(d.imageRef) + '</code>';
   o += '</div>';
@@ -1435,7 +1440,6 @@ function renderTabOverview(d) {
 
   // 1. INSIGHTS (critical, warning, info)
   var insights = d.insights || [];
-  if (!insights.length) insights = generateInsights(d);
   if (insights.length) {
     o += '<div style="margin-bottom:24px"><div class="section-heading">Issues</div>';
     for (var i = 0; i < insights.length; i++) {
@@ -1758,31 +1762,6 @@ function renderTabObservedRuntime(d) {
   if (obs.healthProbeInitialDelaySeconds != null) o += '<tr><td class="text-dim">Health Probe Initial Delay</td><td><code>' + obs.healthProbeInitialDelaySeconds + 's</code></td></tr>';
   o += '</table></div>';
   return o;
-}
-
-function generateInsights(d) {
-  var ins = [];
-  if (d.phase === 'Invalid') ins.push({ severity: 'critical', title: 'Contract is invalid', description: 'One or more critical validation checks have failed.' });
-  else if (d.phase === 'Degraded') ins.push({ severity: 'warning', title: 'Contract is degraded', description: 'Some validation checks are failing but service is operational.' });
-
-  if (d.validation) {
-    var errs = (d.validation.errors || []).length;
-    var warns = (d.validation.warnings || []).length;
-    if (errs > 0) ins.push({ severity: 'critical', title: errs + ' validation error' + (errs > 1 ? 's' : ''), description: (d.validation.errors || [])[0] ? d.validation.errors[0].message : '' });
-    if (warns > 0) ins.push({ severity: 'warning', title: warns + ' validation warning' + (warns > 1 ? 's' : ''), description: (d.validation.warnings || [])[0] ? d.validation.warnings[0].message : '' });
-  }
-
-  if (d.resources) {
-    if (d.resources.serviceExists === false) ins.push({ severity: 'critical', title: 'Service resource not found', description: 'The Kubernetes Service resource does not exist.' });
-    if (d.resources.workloadExists === false) ins.push({ severity: 'critical', title: 'Workload not found', description: 'The target workload does not exist.' });
-  }
-
-  if (d.ports) {
-    if (d.ports.missing && d.ports.missing.length) ins.push({ severity: 'warning', title: 'Missing ports: ' + d.ports.missing.join(', '), description: 'Ports declared in contract but not found on the service.' });
-    if (d.ports.unexpected && d.ports.unexpected.length) ins.push({ severity: 'info', title: 'Unexpected ports: ' + d.ports.unexpected.join(', '), description: 'Ports found on the service but not declared in contract.' });
-  }
-
-  return ins;
 }
 
 /* ─── Tab: Dependencies (matches operator partial-tab-dependencies.html) ─── */
@@ -2134,7 +2113,7 @@ function renderTabHistory(versions) {
     o += '<td><span class="text-dim">' + h(v.ref || '\u2014') + '</span></td>';
     o += '<td><code>' + h(v.contractHash ? v.contractHash.substring(0, 12) : '\u2014') + '</code></td>';
     o += '<td><span class="text-dim">' + (v.createdAt ? new Date(v.createdAt).toLocaleDateString() : '\u2014') + '</span></td>';
-    o += '<td>' + (isCurrent ? '<span class="badge badge-ok">current</span>' : '<span class="badge badge-neutral">v' + h(v.version) + '</span>') + '</td>';
+    o += '<td>' + (isCurrent ? '<span class="badge badge-ok">current</span>' : '<span class="badge badge-neutral">' + h(v.version) + '</span>') + '</td>';
     o += '<td>';
     if (canDiff && !isCurrent) {
       o += '<button class="filter-clear" style="font-size:11px" onclick="compareVersion(\'' + ha(v.version) + '\')">Compare with current</button>';
@@ -2255,7 +2234,7 @@ function renderTabSources(agg) {
     o += '<div class="source-panel' + (src.sourceType !== first ? ' hidden' : '') + '" id="source-panel-' + h(src.sourceType) + '" style="border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);padding:20px;background:var(--bg-surface)">';
 
     o += '<div style="margin-bottom:16px;display:flex;align-items:center;gap:12px">' + sourcePill(src.sourceType);
-    if (sd.version) o += '<span class="pill pill-dim">v' + h(sd.version) + '</span>';
+    if (sd.version) o += '<span class="pill pill-dim">' + h(sd.version) + '</span>';
     if (sd.phase) o += phaseBadge(sd.phase);
     o += '</div>';
 

@@ -489,6 +489,7 @@ func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getS
 	if err != nil {
 		return nil, huma.Error404NotFound(err.Error())
 	}
+	details.GenerateInsights()
 	return &getServiceOutput{Body: details}, nil
 }
 
@@ -741,6 +742,7 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 	for _, svc := range services {
 		d, err := s.source.GetService(ctx, svc.Name)
 		if err == nil && d != nil {
+			d.GenerateInsights()
 			index[d.Name] = d
 		}
 	}
