@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.25.7-alpine3.21 AS build
+FROM golang:1.25.7-alpine3.22 AS build
 
 WORKDIR /src
 
@@ -17,7 +17,7 @@ RUN CGO_ENABLED=0 go build \
     -o /pacto ./cmd/pacto
 
 # Runtime stage
-FROM alpine:3.21
+FROM alpine:3.22
 
 RUN apk add --no-cache ca-certificates tzdata \
     && adduser -D -u 65532 -h /home/pacto pacto
