@@ -49,6 +49,7 @@ Services are grouped by name across sources and merged using priority rules:
   pacto dashboard --namespace production`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			host := v.GetString("dashboard.host")
 			port := v.GetInt("dashboard.port")
 			namespace := v.GetString("dashboard.namespace")
 			repos, _ := cmd.Flags().GetStringArray("repo")
@@ -134,19 +135,25 @@ Services are grouped by name across sources and merged using priority rules:
 			for st := range activeSources {
 				sourceNames = append(sourceNames, st)
 			}
-			addr := fmt.Sprintf("http://127.0.0.1:%d", port)
+			displayHost := host
+			if displayHost == "" || displayHost == "0.0.0.0" {
+				displayHost = "127.0.0.1"
+			}
+			addr := fmt.Sprintf("http://%s:%d", displayHost, port)
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\nPress Ctrl+C to stop\n", addr, strings.Join(sourceNames, ", "))
 
-			return server.Serve(ctx, port)
+			return server.Serve(ctx, port, host)
 		},
 	}
 
+	cmd.Flags().String("host", "127.0.0.1", "bind address for the dashboard server")
 	cmd.Flags().Int("port", 3000, "port for the dashboard server")
 	cmd.Flags().String("namespace", "", "Kubernetes namespace (empty = all namespaces)")
 	cmd.Flags().StringArray("repo", nil, "OCI repository to scan (can be repeated)")
 	cmd.Flags().Bool("diagnostics", false, "enable source diagnostics panel in the dashboard UI")
 
 	// Bind to viper so flags can be overridden via PACTO_DASHBOARD_* env vars.
+	_ = v.BindPFlag("dashboard.host", cmd.Flags().Lookup("host"))
 	_ = v.BindPFlag("dashboard.port", cmd.Flags().Lookup("port"))
 	_ = v.BindPFlag("dashboard.namespace", cmd.Flags().Lookup("namespace"))
 	_ = v.BindPFlag("dashboard.diagnostics", cmd.Flags().Lookup("diagnostics"))

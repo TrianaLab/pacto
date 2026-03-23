@@ -35,6 +35,7 @@ docker run -p 3000:3000 \
 
 | Variable | Description | Default |
 |---|---|---|
+| `PACTO_DASHBOARD_HOST` | Bind address for the server | `0.0.0.0` (in image) |
 | `PACTO_DASHBOARD_PORT` | HTTP server port | `3000` |
 | `PACTO_DASHBOARD_NAMESPACE` | Kubernetes namespace filter (empty = all) | `""` |
 | `PACTO_DASHBOARD_REPO` | Comma-separated OCI repositories to scan | `""` |

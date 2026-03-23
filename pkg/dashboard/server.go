@@ -90,9 +90,14 @@ func (s *Server) SetCacheSource(cs *CacheSource, memCache Cache) {
 	s.memCache = memCache
 }
 
-// Serve starts the HTTP server on the given port and blocks until ctx is cancelled.
-func (s *Server) Serve(ctx context.Context, port int) error {
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+// Serve starts the HTTP server on the given host and port and blocks until ctx is cancelled.
+// An empty host defaults to 127.0.0.1.
+func (s *Server) Serve(ctx context.Context, port int, host ...string) error {
+	h := "127.0.0.1"
+	if len(host) > 0 && host[0] != "" {
+		h = host[0]
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", h, port))
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}

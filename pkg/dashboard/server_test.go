@@ -729,6 +729,32 @@ func TestServe_CancelledContext(t *testing.T) {
 	_ = err
 }
 
+func TestServe_CustomHost(t *testing.T) {
+	source := &mockSource{services: []Service{}}
+	ui := fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<html></html>")},
+	}
+	srv := NewServer(source, ui)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_ = srv.Serve(ctx, 0, "0.0.0.0")
+}
+
+func TestServe_EmptyHost(t *testing.T) {
+	source := &mockSource{services: []Service{}}
+	ui := fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<html></html>")},
+	}
+	srv := NewServer(source, ui)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_ = srv.Serve(ctx, 0, "")
+}
+
 func TestServe_ListenError(t *testing.T) {
 	source := &mockSource{services: []Service{}}
 	ui := fstest.MapFS{

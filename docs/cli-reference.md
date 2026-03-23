@@ -87,6 +87,7 @@ pacto dashboard [dir] [flags]
 ```
       --diagnostics        enable source diagnostics panel in the dashboard UI
   -h, --help               help for dashboard
+      --host string        bind address for the dashboard server (default "127.0.0.1")
       --namespace string   Kubernetes namespace (empty = all namespaces)
       --port int           port for the dashboard server (default 3000)
       --repo stringArray   OCI repository to scan (can be repeated)
