@@ -112,6 +112,20 @@ payments-api@2.1.0
 
 Dependencies are resolved recursively from OCI registries. Sibling deps are fetched in parallel. Results are cached locally for fast repeated lookups.
 
+#### Including config/policy references
+
+By default, `pacto graph` shows only declared `dependencies`. To also visualize **config/policy references** — OCI refs in the `configuration.ref` and `policy.ref` fields — use the reference flags:
+
+```bash
+# Show dependencies AND config/policy references
+pacto graph --with-references oci://ghcr.io/acme/payments-api-pacto:2.1.0
+
+# Show ONLY config/policy references (no dependencies)
+pacto graph --only-references oci://ghcr.io/acme/payments-api-pacto:2.1.0
+```
+
+References differ from dependencies: a **dependency** declares a runtime relationship between services (`dependencies[].ref`), while a **reference** points to a shared configuration or policy contract (`configuration.ref` or `policy.ref`). Both produce graph edges, but references are rendered with dashed lines in the dashboard graph.
+
 ### 5. Generate deployment artifacts
 
 ```bash
@@ -336,6 +350,61 @@ steps:
 ```
 
 See [pacto-actions](https://github.com/trianalab/pacto-actions) for full documentation including multi-service workflows, doc generation, and authentication options.
+
+---
+
+## Dashboard
+
+`pacto dashboard` launches a local web UI that aggregates contracts from all available data sources into a single view.
+
+### Sources and auto-detection
+
+Sources are auto-detected at startup:
+
+| Source | Detected when | Provides |
+|--------|--------------|----------|
+| **local** | `pacto.yaml` found in the working directory | In-progress contract changes |
+| **k8s** | `kubectl` available and cluster reachable | Runtime state: phase, conditions, endpoints, resources |
+| **oci** | `--repo` flags provided | Registry versions and contracts |
+| **cache** | `~/.cache/pacto/oci` contains cached bundles | Offline baseline from previously pulled contracts |
+
+Pass `--no-cache` to disable the cache source entirely (useful when cached data is stale).
+
+### Merge priority
+
+When a service appears in multiple sources, fields are merged using priority rules:
+
+1. **Kubernetes** — runtime state (phase, resources, ports, conditions, endpoints)
+2. **Local** — in-progress contract edits
+3. **OCI** — published contract baseline
+4. **Cache** — offline fallback from previously pulled bundles
+
+The merged view is used for the service list and detail pages. Per-source data is available via the `/api/services/{name}/sources` endpoint.
+
+### Status and source filtering
+
+The dashboard provides a layered filter pipeline:
+
+1. **Source filter** — click source pills in the header to show/hide services from specific sources
+2. **Status filter** — click KPI cards (Healthy, Degraded, Invalid, Unmonitored) to filter by phase
+3. **Search** — type in the search bar to filter by name, owner, version, or source
+
+All three filters compose: a service must pass all active filters to appear in both the table and graph views.
+
+### Graph visualization
+
+The built-in D3 force-directed graph shows:
+
+- **Dependency edges** (solid lines) — declared `dependencies[].ref` relationships
+- **Reference edges** (dashed lines) — `configuration.ref` and `policy.ref` cross-references
+- **External nodes** — dependencies that don't resolve to any known service
+- **Unmonitored nodes** — contracts without a runtime target (e.g. shared definitions)
+
+Hover over a node to highlight its impact chain. Click a node to navigate to its detail page.
+
+### Diagnostics
+
+Pass `--diagnostics` to enable debug endpoints (`/api/debug/sources`, `/api/debug/services`) that expose raw per-source detection details and service data for troubleshooting.
 
 ---
 

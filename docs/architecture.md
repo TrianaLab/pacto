@@ -56,7 +56,7 @@ graph TD
     class APP,CLI,LOG,MCP,OCI,MAIN internal
 ```
 
-Dependencies flow **downward only**. No package imports a package above it. All core domain logic lives in `pkg/` and is reusable outside the CLI — for example, by a future Kubernetes operator.
+Dependencies flow **downward only**. No package imports a package above it. All core domain logic lives in `pkg/` and is reusable outside the CLI — for example, by the [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}).
 
 ---
 
@@ -98,7 +98,7 @@ flowchart LR
 
 Each layer short-circuits -- if it produces errors, subsequent layers are skipped.
 
-Also includes **runtime validation** (`ValidateRuntime`) -- a foundational abstraction for comparing a contract's declared state against observed runtime conditions. This is designed to be consumed by future integrations (e.g. a Kubernetes operator) without introducing platform-specific dependencies.
+Also includes **runtime validation** (`ValidateRuntime`) -- a foundational abstraction for comparing a contract's declared state against observed runtime conditions. This is consumed by the [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}) without introducing platform-specific dependencies into the core library.
 
 ### `pkg/diff` -- Change classifier
 
@@ -147,9 +147,12 @@ Provides a web-based dashboard for visualizing and exploring service contracts. 
 
 - Multi-source architecture: `DataSource` interface implemented by `K8sSource`, `CacheSource`, `LocalSource`, `OCISource`
 - `AggregatedSource` merges sources with priority: Kubernetes (runtime) > local (contract) > OCI/cache (baseline)
-- `CachedDataSource` wraps any source with in-memory TTL caching
-- Embedded SPA with D3.js force-directed dependency graph, service detail pages, and diff view
-- REST API: `/api/services`, `/api/services/{name}`, `/api/graph`, `/api/diff`, `/api/sources`
+- `CachedDataSource` wraps any source with in-memory TTL caching (source-type-prefixed keys to prevent cross-source collision)
+- Phase normalization: `NormalizePhase()` maps non-standard operator phases (e.g. `Reference`, `Progressing`) to the four canonical dashboard phases (`Healthy`, `Degraded`, `Invalid`, `Unknown`)
+- Graph building: `buildGlobalGraph()` constructs a flat D3-ready graph from the service index; `buildGraph()` builds a per-service dependency tree. Ref-alias mapping resolves OCI repo names (e.g. `my-service-pacto`) to contract service names (e.g. `my-service`)
+- Cross-references: config/policy OCI refs are surfaced as reference edges (dashed lines) distinct from dependency edges (solid lines)
+- Embedded SPA with D3.js force-directed graph, source/status/search filtering, service detail pages with tabs (Interfaces, Config, Policy), and diff view
+- REST API: `/api/services`, `/api/services/{name}`, `/api/services/{name}/versions`, `/api/services/{name}/sources`, `/api/services/{name}/dependents`, `/api/services/{name}/graph`, `/api/graph`, `/api/diff`, `/api/sources`
 
 ### `internal/app` -- Application services
 

@@ -173,7 +173,7 @@ Local refs are rejected by `pacto push`. Switch all dependencies to `oci://` ref
 
 If your service depends on a cloud-managed resource (e.g. a database or message queue), create a minimal Pacto contract representing it and reference it as a dependency. This keeps cloud dependencies explicit and version-tracked.
 
-Use `pacto graph` to visualize your dependency tree.
+Use `pacto graph` to visualize your dependency tree. Pass `--with-references` to also see config/policy reference edges alongside dependencies, or `--only-references` to show only reference edges.
 
 ### 6. Adopt a policy (optional)
 
@@ -479,3 +479,4 @@ No contract-level field references the SBOM. Pacto discovers it automatically by
 - **Leverage caching.** OCI bundles are cached locally in `~/.cache/pacto/oci/` and tag listings are cached in memory per command, so repeated `graph`, `doc`, and `diff` commands resolve instantly. Use `--no-cache` to force a fresh pull.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
 - **Use metadata for organizational context.** Team ownership, on-call channels, and service tiers go in `metadata`.
+- **Explore contracts visually.** Run `pacto dashboard` to launch a local web UI that auto-detects contracts from Kubernetes, OCI cache, and local directories, with an interactive dependency graph, status filtering, and diff viewer.

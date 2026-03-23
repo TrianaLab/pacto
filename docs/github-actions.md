@@ -63,7 +63,7 @@ Compare the PR contract against the published version to block breaking changes:
 ```yaml
       - name: Check for breaking changes
         run: |
-          pacto diff oci://ghcr.io/acme/my-service-pacto . --output json > diff.json
+          pacto diff oci://ghcr.io/acme/my-service-pacto . --output-format json > diff.json
           if jq -e '.classification == "BREAKING"' diff.json > /dev/null 2>&1; then
             echo "::error::Breaking contract change detected"
             exit 1

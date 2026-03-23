@@ -298,6 +298,9 @@ configuration:
 
 This enables centralized configuration management — a platform team publishes a single configuration contract, and all services reference it. The reference supports recursive resolution: if the referenced contract itself has a `configuration.ref`, Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
 
+{: .tip }
+Configuration references create **reference edges** in the dependency graph, distinct from `dependencies[].ref` edges. Use `pacto graph --with-references` to visualize them, or `pacto graph --only-references` to show only reference edges. In the dashboard graph, reference edges appear as dashed lines.
+
 {: .warning }
 Local configuration references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local `configuration.ref` — all refs must use `oci://` before publishing.
 
@@ -452,6 +455,9 @@ policy:
 ```
 
 The referenced contract's bundle must have the policy schema at the fixed path `policy/schema.json`. The reference supports recursive resolution: if the referenced contract itself has a `policy.ref`, Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
+
+{: .tip }
+Like `configuration.ref`, policy references create **reference edges** in the dependency graph. Use `pacto graph --with-references` to see them alongside dependencies.
 
 {: .warning }
 Local policy references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local `policy.ref` — all refs must use `oci://` before publishing.
