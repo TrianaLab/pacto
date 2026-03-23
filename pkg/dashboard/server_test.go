@@ -1474,7 +1474,7 @@ func TestExportConfigSchema(t *testing.T) {
 		t.Errorf("title = %v", schema["title"])
 	}
 	props, _ := schema["properties"].(map[string]any)
-	for _, key := range []string{"PACTO_DASHBOARD_PORT", "PACTO_DASHBOARD_NAMESPACE", "PACTO_DASHBOARD_DIAGNOSTICS", "PACTO_NO_CACHE", "PACTO_VERBOSE"} {
+	for _, key := range []string{"PACTO_DASHBOARD_HOST", "PACTO_DASHBOARD_PORT", "PACTO_DASHBOARD_NAMESPACE", "PACTO_DASHBOARD_REPO", "PACTO_DASHBOARD_DIAGNOSTICS", "PACTO_NO_CACHE", "PACTO_VERBOSE"} {
 		if props[key] == nil {
 			t.Errorf("missing property %s", key)
 		}

@@ -11,8 +11,10 @@ import (
 // the dashboard server. Huma's schema registry generates a JSON Schema from
 // this struct, including defaults and descriptions via struct tags.
 type DashboardConfig struct {
+	Host        string `json:"PACTO_DASHBOARD_HOST" default:"127.0.0.1" doc:"Bind address for the dashboard server"`
 	Port        int    `json:"PACTO_DASHBOARD_PORT" default:"3000" doc:"HTTP port for the dashboard server"`
 	Namespace   string `json:"PACTO_DASHBOARD_NAMESPACE" default:"" doc:"Kubernetes namespace filter (empty = all)"`
+	Repo        string `json:"PACTO_DASHBOARD_REPO" default:"" doc:"Comma-separated OCI repositories to scan"`
 	Diagnostics bool   `json:"PACTO_DASHBOARD_DIAGNOSTICS" default:"false" doc:"Enable diagnostics debug endpoints"`
 	NoCache     bool   `json:"PACTO_NO_CACHE" default:"false" doc:"Disable OCI bundle cache"`
 	Verbose     bool   `json:"PACTO_VERBOSE" default:"false" doc:"Enable verbose logging"`
