@@ -434,6 +434,9 @@ tr[data-click]{cursor:pointer;}
 /* ── State ─── */
 var state = { view: 'list', service: null, tab: 'overview', services: [], details: {}, versions: {}, aggregated: {}, sourcesInfo: [], filter: 'all', graphData: null, overviewView: 'table' };
 
+// getSources extracts the sources array from a service entry.
+function getSources(svc) { return (svc.sources || [svc.source]).filter(Boolean); }
+
 /* ── API ─── */
 var api = {
   get: function(p) { return fetch('/api' + p).then(function(r) { if (!r.ok) throw new Error('API ' + r.status); return r.json(); }); },
@@ -535,9 +538,17 @@ function serviceExists(name) {
 }
 
 /* ── Navigation ─── */
+function resolveServiceName(name) {
+  if (!name) return name;
+  if (serviceExists(name)) return name;
+  // Convention: OCI repos use a -pacto suffix that the contract service.name omits.
+  var stripped = name.replace(/-pacto$/, '');
+  if (stripped !== name && serviceExists(stripped)) return stripped;
+  return name;
+}
 function navigateTo(view, svc) {
   state.view = view;
-  state.service = svc || null;
+  state.service = resolveServiceName(svc) || null;
   if (view === 'list') { state.tab = 'overview'; state.filter = 'all'; }
   else { state.tab = 'overview'; }
   // Clear search when navigating to detail
@@ -772,7 +783,7 @@ function renderOverviewPage() {
     for (var i = 0; i < atRisk.length; i++) {
       var s = atRisk[i];
       var cls = s.phase === 'Invalid' ? 'alert-card-critical' : 'alert-card-warning';
-      var sources = (s.sources || [s.source]).filter(Boolean);
+      var sources = getSources(s);
       o += '<div class="alert-card ' + cls + '" data-sources="' + ha(sources.join(',')) + '" onclick="navigateTo(\'detail\',\'' + ha(s.name) + '\')">';
       o += '<div class="alert-card-body"><div class="alert-card-title">' + h(s.name) + '</div>';
       o += '<div class="alert-card-desc">' + h(s.topInsight || s.phase) + '</div></div>';
@@ -787,7 +798,7 @@ function renderOverviewPage() {
   // Source filter bar
   var activeSrcTypes = {};
   for (var si = 0; si < svcs.length; si++) {
-    var srcs = (svcs[si].sources || [svcs[si].source]).filter(Boolean);
+    var srcs = getSources(svcs[si]);
     for (var sj = 0; sj < srcs.length; sj++) activeSrcTypes[srcs[sj]] = true;
   }
   var srcTypeList = Object.keys(activeSrcTypes).sort();
@@ -816,7 +827,7 @@ function renderOverviewPage() {
   o += '</tr></thead><tbody>';
   for (var i = 0; i < svcs.length; i++) {
     var s = svcs[i];
-    var sources = (s.sources || [s.source]).filter(Boolean);
+    var sources = getSources(s);
     var searchText = [s.name, s.owner || '', s.version || '', sources.join(' ')].join(' ').toLowerCase();
     o += '<tr data-click data-phase="' + ha(s.phase) + '" data-sources="' + ha(sources.join(',')) + '" data-search="' + ha(searchText) + '" onclick="navigateTo(\'detail\',\'' + ha(s.name) + '\')">';
     o += '<td><a>' + h(s.name) + '</a></td>';
@@ -973,13 +984,7 @@ function toggleSourceFilter(src) {
   applyFilter();
   syncGraphFilters();
 }
-
-function toggleSourceFilterGlobal(src) {
-  toggleSourceClick(src);
-  syncSourceUI();
-  applyFilter();
-  syncGraphFilters();
-}
+var toggleSourceFilterGlobal = toggleSourceFilter;
 
 function syncSourceUI() {
   renderSourcePills();
@@ -1021,7 +1026,7 @@ function updateSearchDropdown() {
   searchDropdownIndex = -1;
   if (!term) { dd.classList.remove('open'); dd.innerHTML = ''; return; }
   var matches = (state.services || []).filter(function(s) {
-    var sources = (s.sources || [s.source]).filter(Boolean);
+    var sources = getSources(s);
     var text = [s.name, s.owner || '', s.version || '', sources.join(' ')].join(' ').toLowerCase();
     return text.indexOf(term) !== -1;
   }).slice(0, 8);
@@ -1029,7 +1034,7 @@ function updateSearchDropdown() {
     dd.innerHTML = '<div class="search-dropdown-empty">No services match \u201c' + h(term) + '\u201d</div>';
   } else {
     dd.innerHTML = matches.map(function(s) {
-      var sources = (s.sources || [s.source]).filter(Boolean);
+      var sources = getSources(s);
       return '<div class="search-dropdown-item" data-name="' + ha(s.name) + '" onclick="navigateTo(\'detail\',\'' + ha(s.name) + '\');closeSearchDropdown()" onmouseenter="searchDropdownIndex=-1;highlightDropdownItem([])">' +
         '<span class="sdi-name">' + h(s.name) + '</span>' +
         '<span class="sdi-meta">' + h(s.version || '') + '</span>' +
@@ -1055,7 +1060,7 @@ document.addEventListener('click', function(e) {
 
 function isServiceVisible(svc) {
   var phase = svc.phase;
-  var sources = (svc.sources || [svc.source]).filter(Boolean);
+  var sources = getSources(svc);
   var phaseMatch = (state.filter === 'all' || state.filter === phase);
   var sourceMatch = sources.some(function(s) { return isSourceEnabled(s); });
   var searchTerm = getSearchTerm();
@@ -1554,7 +1559,12 @@ function isNodeFiltered(d) {
     var phase = (d.status === 'Unmonitored' || d.status === 'External') ? 'Unknown' : d.status;
     if (phase !== state.filter) return true;
   }
-  if (d.source && !isSourceEnabled(d.source)) return true;
+  if (Object.keys(enabledSources).length > 0) {
+    // Match the table filter: check all sources the service belongs to.
+    var svc = state.services.find(function(s) { return s.name === d.serviceName; });
+    var nodeSources = svc ? getSources(svc) : (d.source ? [d.source] : []);
+    if (!nodeSources.some(function(s) { return enabledSources[s]; })) return true;
+  }
   return false;
 }
 
@@ -1635,7 +1645,7 @@ function renderDetailPage() {
   var d = state.details[state.service];
   var versions = state.versions[state.service] || [];
   var agg = state.aggregated[state.service];
-  var sources = (d.sources || [d.source]).filter(Boolean);
+  var sources = getSources(d);
 
   var o = '';
 

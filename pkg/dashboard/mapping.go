@@ -24,6 +24,19 @@ func ServiceFromContract(c *contract.Contract, source string) Service {
 	}
 }
 
+// phaseFromBundle computes the Phase from a bundle without building full details.
+// Used by ListServices to avoid expensive validation/parsing just for the list view.
+func phaseFromBundle(bundle *contract.Bundle) Phase {
+	if bundle.RawYAML == nil {
+		return PhaseUnknown
+	}
+	result := validation.Validate(bundle.Contract, bundle.RawYAML, bundle.FS)
+	if result.IsValid() {
+		return PhaseHealthy
+	}
+	return PhaseInvalid
+}
+
 // ServiceDetailsFromBundle builds full ServiceDetails from a contract bundle.
 func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDetails {
 	c := bundle.Contract
@@ -251,8 +264,8 @@ func DiffResultFromEngine(from, to Ref, r *diff.Result) *DiffResult {
 	return dr
 }
 
-// GraphFromResult maps the graph resolver's Result to the dashboard DependencyGraph.
-func GraphFromResult(r *graph.Result) *DependencyGraph {
+// graphFromResult maps the graph resolver's Result to the dashboard DependencyGraph.
+func graphFromResult(r *graph.Result) *DependencyGraph {
 	if r == nil || r.Root == nil {
 		return nil
 	}
@@ -289,8 +302,8 @@ func mapGraphNode(n *graph.Node) *GraphNode {
 	return gn
 }
 
-// ValidateBundle runs full validation on a bundle and returns dashboard-model results.
-func ValidateBundle(bundle *contract.Bundle) *ValidationInfo {
+// validateBundle runs full validation on a bundle and returns dashboard-model results.
+func validateBundle(bundle *contract.Bundle) *ValidationInfo {
 	if bundle.RawYAML == nil {
 		return nil
 	}

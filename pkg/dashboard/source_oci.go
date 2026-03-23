@@ -12,8 +12,9 @@ import (
 
 // OCISource implements DataSource by pulling bundles from an OCI registry.
 type OCISource struct {
-	store oci.BundleStore
-	repos []string // OCI repository references to scan
+	store   oci.BundleStore
+	repos   []string          // OCI repository references to scan
+	repoMap map[string]string // service name -> repo (populated on first ListServices)
 }
 
 // NewOCISource creates a data source backed by OCI registries.
@@ -24,6 +25,7 @@ func NewOCISource(store oci.BundleStore, repos []string) *OCISource {
 
 func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 	var services []Service
+	repoMap := make(map[string]string)
 
 	for _, repo := range s.repos {
 		tags, err := s.store.ListTags(ctx, repo)
@@ -43,11 +45,15 @@ func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 			continue
 		}
 
+		name := bundle.Contract.Service.Name
+		repoMap[name] = repo
+
 		svc := ServiceFromContract(bundle.Contract, "oci")
-		details := ServiceDetailsFromBundle(bundle, "oci")
-		svc.Phase = details.Phase
+		svc.Phase = phaseFromBundle(bundle)
 		services = append(services, svc)
 	}
+
+	s.repoMap = repoMap
 
 	sort.Slice(services, func(i, j int) bool {
 		return services[i].Name < services[j].Name
@@ -131,6 +137,11 @@ func (s *OCISource) findLatestBundle(ctx context.Context, name string) (*contrac
 }
 
 func (s *OCISource) findRepo(ctx context.Context, name string) (string, error) {
+	// Check cached mapping first (populated by ListServices).
+	if repo, ok := s.repoMap[name]; ok {
+		return repo, nil
+	}
+
 	for _, repo := range s.repos {
 		// Check if repo name ends with the service name.
 		parts := strings.Split(repo, "/")

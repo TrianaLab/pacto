@@ -183,7 +183,39 @@ func (r *DetectResult) detectK8s(ctx context.Context, namespace string) {
 	diag.Namespace = namespace
 	diag.AllNamespaces = namespace == ""
 
-	// Report kubeconfig path.
+	detectKubeconfig(diag)
+
+	if _, err := exec.LookPath("kubectl"); err != nil {
+		info.Reason = "kubectl not found in PATH"
+		r.Sources = append(r.Sources, info)
+		return
+	}
+	diag.KubectlFound = true
+
+	if err := probeCluster(ctx); err != nil {
+		info.Reason = "cluster not reachable"
+		diag.Error = err.Error()
+		r.Sources = append(r.Sources, info)
+		return
+	}
+	diag.ClusterReachable = true
+
+	resourceName := discoverCRD(ctx, diag)
+	countResources(ctx, diag, resourceName, namespace)
+
+	info.Enabled = true
+	if diag.CRDExists {
+		info.Reason = fmt.Sprintf("cluster reachable, CRD found (%s), %d resources", resourceName, diag.ResourceCount)
+	} else {
+		info.Reason = "cluster reachable (CRD not detected, may still work)"
+	}
+
+	r.K8s = NewK8sSource(namespace, resourceName)
+	r.Sources = append(r.Sources, info)
+}
+
+// detectKubeconfig populates the kubeconfig path in diagnostics.
+func detectKubeconfig(diag *K8sDiagnostics) {
 	if kc := os.Getenv("KUBECONFIG"); kc != "" {
 		diag.KubeconfigPath = kc
 	} else if home, err := userHomeDir(); err == nil {
@@ -192,31 +224,17 @@ func (r *DetectResult) detectK8s(ctx context.Context, namespace string) {
 			diag.KubeconfigPath = defaultPath
 		}
 	}
+}
 
-	// Check if kubectl exists.
-	if _, err := exec.LookPath("kubectl"); err != nil {
-		info.Reason = "kubectl not found in PATH"
-		r.Sources = append(r.Sources, info)
-		return
-	}
-	diag.KubectlFound = true
-
-	// Check if cluster is reachable with a short timeout.
+// probeCluster checks if the Kubernetes cluster is reachable.
+func probeCluster(ctx context.Context) error {
 	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
+	return exec.CommandContext(probeCtx, "kubectl", "cluster-info").Run()
+}
 
-	cmd := exec.CommandContext(probeCtx, "kubectl", "cluster-info")
-	if err := cmd.Run(); err != nil {
-		info.Reason = "cluster not reachable"
-		diag.Error = err.Error()
-		r.Sources = append(r.Sources, info)
-		return
-	}
-	diag.ClusterReachable = true
-
-	// Dynamically discover the Pacto CRD resource.
-	// Uses api-resources to find the resource name/version for group pacto.trianalab.io
-	// rather than hardcoding a specific apiVersion.
+// discoverCRD dynamically discovers the Pacto CRD resource name and version.
+func discoverCRD(ctx context.Context, diag *K8sDiagnostics) string {
 	crdCtx, crdCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer crdCancel()
 	crdCmd := exec.CommandContext(crdCtx, "kubectl", "api-resources",
@@ -229,13 +247,11 @@ func (r *DetectResult) detectK8s(ctx context.Context, namespace string) {
 	if err == nil && len(crdOut) > 0 {
 		diag.CRDExists = true
 		diag.DetectedGroup = "pacto.trianalab.io"
-		// Parse api-resources output to find the resource name and API version.
-		// Output format: NAME SHORTNAMES APIVERSION NAMESPACED KIND
 		for _, line := range splitNonEmpty(string(crdOut)) {
 			fields := strings.Fields(line)
 			if len(fields) >= 5 && strings.EqualFold(fields[len(fields)-1], "Pacto") {
 				resourceName = fields[0]
-				apiVersion := fields[2] // e.g. "pacto.trianalab.io/v1alpha1"
+				apiVersion := fields[2]
 				if parts := strings.SplitN(apiVersion, "/", 2); len(parts) == 2 {
 					diag.DetectedVersions = append(diag.DetectedVersions, parts[1])
 					diag.ChosenVersion = parts[1]
@@ -245,8 +261,11 @@ func (r *DetectResult) detectK8s(ctx context.Context, namespace string) {
 		}
 		diag.ResourceName = resourceName
 	}
+	return resourceName
+}
 
-	// Probe resource count using the discovered resource name.
+// countResources counts how many Pacto resources exist in the cluster.
+func countResources(ctx context.Context, diag *K8sDiagnostics, resourceName, namespace string) {
 	countCtx, countCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer countCancel()
 	var countArgs []string
@@ -257,19 +276,8 @@ func (r *DetectResult) detectK8s(ctx context.Context, namespace string) {
 	}
 	countOut, err := exec.CommandContext(countCtx, "kubectl", countArgs...).Output()
 	if err == nil {
-		lines := splitNonEmpty(string(countOut))
-		diag.ResourceCount = len(lines)
+		diag.ResourceCount = len(splitNonEmpty(string(countOut)))
 	}
-
-	info.Enabled = true
-	if diag.CRDExists {
-		info.Reason = fmt.Sprintf("cluster reachable, CRD found (%s), %d resources", resourceName, diag.ResourceCount)
-	} else {
-		info.Reason = "cluster reachable (CRD not detected, may still work)"
-	}
-
-	r.K8s = NewK8sSource(namespace, resourceName)
-	r.Sources = append(r.Sources, info)
 }
 
 func (r *DetectResult) detectOCI(store oci.BundleStore, repos []string) {
@@ -337,7 +345,7 @@ func (r *DetectResult) detectCache(cacheDir string) {
 	diag.OCIDirExists = true
 
 	// Scan for cached bundles.
-	src, _ := NewCacheSource(cacheDir)
+	src := NewCacheSource(cacheDir)
 
 	diag.ServiceCount = src.ServiceCount()
 	diag.VersionCount = src.VersionCount()

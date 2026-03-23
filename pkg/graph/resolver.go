@@ -226,21 +226,13 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, pat
 	bundle, err := r.fetcher.Fetch(ctx, dep)
 	if err != nil {
 		slog.Debug("dependency fetch failed", "ref", dep.Ref, "error", err)
-		r.mu.Lock()
-		r.errors[dep.Ref] = err.Error()
-		delete(r.pending, dep.Ref)
-		r.mu.Unlock()
-		close(ch)
+		r.failEdge(dep.Ref, ch, err.Error())
 		edge.Error = err.Error()
 		return edge
 	}
 	if bundle == nil || bundle.Contract == nil {
 		errMsg := fmt.Sprintf("fetcher returned nil bundle for %s", dep.Ref)
-		r.mu.Lock()
-		r.errors[dep.Ref] = errMsg
-		delete(r.pending, dep.Ref)
-		r.mu.Unlock()
-		close(ch)
+		r.failEdge(dep.Ref, ch, errMsg)
 		edge.Error = errMsg
 		return edge
 	}
@@ -265,6 +257,15 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, pat
 
 	edge.Node = node
 	return edge
+}
+
+// failEdge records an error for a dependency and signals waiting goroutines.
+func (r *resolver) failEdge(ref string, ch chan struct{}, errMsg string) {
+	r.mu.Lock()
+	r.errors[ref] = errMsg
+	delete(r.pending, ref)
+	r.mu.Unlock()
+	close(ch)
 }
 
 func inPath(ref string, path []string) bool {

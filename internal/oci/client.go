@@ -64,12 +64,21 @@ func (c *Client) remoteOptions(ctx context.Context) []remote.Option {
 	return append([]remote.Option{remote.WithAuthFromKeychain(c.keychain), remote.WithContext(ctx)}, c.remoteOpts...)
 }
 
+// parseRef parses an OCI reference string with the client's name options.
+func (c *Client) parseRef(ref string) (name.Reference, error) {
+	r, err := name.ParseReference(ref, c.nameOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("invalid reference %q: %w", ref, err)
+	}
+	return r, nil
+}
+
 // Push converts a Bundle to an OCI image and pushes it to the given reference.
 // Returns the digest of the pushed image.
 func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) (string, error) {
-	r, err := name.ParseReference(ref, c.nameOpts...)
+	r, err := c.parseRef(ref)
 	if err != nil {
-		return "", fmt.Errorf("invalid reference %q: %w", ref, err)
+		return "", err
 	}
 
 	slog.Debug("building OCI image from bundle", "ref", ref)
@@ -94,9 +103,9 @@ func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) 
 
 // Pull fetches an OCI image from the given reference and converts it to a Bundle.
 func (c *Client) Pull(ctx context.Context, ref string) (*contract.Bundle, error) {
-	r, err := name.ParseReference(ref, c.nameOpts...)
+	r, err := c.parseRef(ref)
 	if err != nil {
-		return nil, fmt.Errorf("invalid reference %q: %w", ref, err)
+		return nil, err
 	}
 
 	slog.Debug("fetching image from registry", "ref", ref)
@@ -116,9 +125,9 @@ func (c *Client) Pull(ctx context.Context, ref string) (*contract.Bundle, error)
 
 // Resolve resolves a reference to its digest.
 func (c *Client) Resolve(ctx context.Context, ref string) (string, error) {
-	r, err := name.ParseReference(ref, c.nameOpts...)
+	r, err := c.parseRef(ref)
 	if err != nil {
-		return "", fmt.Errorf("invalid reference %q: %w", ref, err)
+		return "", err
 	}
 
 	slog.Debug("resolving digest", "ref", ref)

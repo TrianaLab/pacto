@@ -49,13 +49,13 @@ type cachedVersion struct {
 // NewCacheSource scans the OCI cache directory for existing bundles.
 // If the directory doesn't exist or contains no bundles, it returns a source
 // that reports zero services.
-func NewCacheSource(cacheDir string) (*CacheSource, error) {
+func NewCacheSource(cacheDir string) *CacheSource {
 	s := &CacheSource{
 		cacheDir: cacheDir,
 		services: make(map[string]*cachedService),
 	}
 	s.scan()
-	return s, nil
+	return s
 }
 
 // scan walks the cache directory and indexes all discovered bundles.
@@ -132,8 +132,7 @@ func (s *CacheSource) ListServices(_ context.Context) ([]Service, error) {
 			continue
 		}
 		service := ServiceFromContract(latest.bundle.Contract, "cache")
-		details := ServiceDetailsFromBundle(latest.bundle, "cache")
-		service.Phase = details.Phase
+		service.Phase = phaseFromBundle(latest.bundle)
 		services = append(services, service)
 	}
 

@@ -79,6 +79,12 @@ func buildRefAliases(index map[string]*ServiceDetails) map[string]string {
 	return aliases
 }
 
+// stripPactoSuffix removes the conventional "-pacto" suffix from OCI repo names.
+func stripPactoSuffix(name string) (string, bool) {
+	stripped := strings.TrimSuffix(name, "-pacto")
+	return stripped, stripped != name
+}
+
 // resolveServiceName resolves a ref-extracted name to an actual service name
 // using the index and alias map. As a fallback, strips the common "-pacto"
 // suffix from OCI repo names (e.g. "payment-gateway-pacto" → "payment-gateway").
@@ -89,9 +95,8 @@ func resolveServiceName(name string, index map[string]*ServiceDetails, aliases m
 	if resolved, ok := aliases[name]; ok {
 		return resolved
 	}
-	// Convention: OCI repos often use a -pacto suffix that the contract service.name omits.
-	if stripped := strings.TrimSuffix(name, "-pacto"); stripped != name {
-		if _, ok := index[stripped]; ok {
+	if stripped, ok := stripPactoSuffix(name); ok {
+		if _, exists := index[stripped]; exists {
 			return stripped
 		}
 	}
@@ -182,11 +187,8 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails) *Glo
 }
 
 // buildGraph constructs a DependencyGraph rooted at the given service.
-func buildGraph(root *ServiceDetails, index map[string]*ServiceDetails, visited map[string]bool) *DependencyGraph {
-	if visited == nil {
-		visited = make(map[string]bool)
-	}
-
+func buildGraph(root *ServiceDetails, index map[string]*ServiceDetails) *DependencyGraph {
+	visited := make(map[string]bool)
 	aliases := buildRefAliases(index)
 	node := buildGraphNode(root, index, aliases, visited)
 
@@ -255,8 +257,7 @@ func depRefMatchesName(ref, name string, aliases map[string]string) bool {
 	if resolved, ok := aliases[extracted]; ok && resolved == name {
 		return true
 	}
-	// Convention: strip -pacto suffix from OCI repo names.
-	if stripped := strings.TrimSuffix(extracted, "-pacto"); stripped != extracted && stripped == name {
+	if stripped, ok := stripPactoSuffix(extracted); ok && stripped == name {
 		return true
 	}
 	return false

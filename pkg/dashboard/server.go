@@ -28,6 +28,7 @@ type Server struct {
 type serviceIndexCache struct {
 	services []Service
 	index    map[string]*ServiceDetails
+	aliases  map[string]string // OCI repo name -> contract name
 	builtAt  time.Time
 }
 
@@ -101,7 +102,7 @@ func (s *Server) handleListServices(w http.ResponseWriter, r *http.Request) {
 	cached := s.getCachedIndex(r.Context())
 	services := cached.services
 	index := cached.index
-	aliases := buildRefAliases(index)
+	aliases := cached.aliases
 	enriched := make([]ServiceListEntry, len(services))
 	for i, svc := range services {
 		entry := ServiceListEntry{Service: svc}
@@ -202,7 +203,7 @@ func (s *Server) handleGetGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	graph := buildGraph(root, depIndex, nil)
+	graph := buildGraph(root, depIndex)
 	writeJSON(w, graph)
 }
 
@@ -242,6 +243,7 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 	s.indexCache = &serviceIndexCache{
 		services: services,
 		index:    index,
+		aliases:  aliases,
 		builtAt:  time.Now(),
 	}
 	return s.indexCache
@@ -250,7 +252,7 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 func (s *Server) handleGetDependents(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	cached := s.getCachedIndex(r.Context())
-	aliases := buildRefAliases(cached.index)
+	aliases := cached.aliases
 
 	var dependents []DependentInfo
 	for _, d := range cached.index {
@@ -274,7 +276,7 @@ func (s *Server) handleGetDependents(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetCrossRefs(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	cached := s.getCachedIndex(r.Context())
-	aliases := buildRefAliases(cached.index)
+	aliases := cached.aliases
 
 	target := cached.index[name]
 	if target == nil {

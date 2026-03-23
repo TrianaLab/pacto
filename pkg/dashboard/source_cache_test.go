@@ -59,10 +59,7 @@ service:
   version: 1.0.0
 `)
 
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 
 	if src.ServiceCount() != 2 {
 		t.Fatalf("expected 2 services, got %d", src.ServiceCount())
@@ -109,10 +106,7 @@ service:
 func TestCacheSource_EmptyDirectory(t *testing.T) {
 	root := t.TempDir()
 
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 	if src.ServiceCount() != 0 {
 		t.Fatalf("expected 0 services, got %d", src.ServiceCount())
 	}
@@ -128,10 +122,7 @@ func TestCacheSource_EmptyDirectory(t *testing.T) {
 }
 
 func TestCacheSource_NonExistentDirectory(t *testing.T) {
-	src, err := NewCacheSource("/nonexistent/path")
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource("/nonexistent/path")
 	if src.ServiceCount() != 0 {
 		t.Fatalf("expected 0 services, got %d", src.ServiceCount())
 	}
@@ -139,10 +130,7 @@ func TestCacheSource_NonExistentDirectory(t *testing.T) {
 
 func TestCacheSource_ImplementsDataSource(t *testing.T) {
 	root := t.TempDir()
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 	var _ DataSource = src
 }
 
@@ -235,10 +223,7 @@ service:
   version: 2.0.0
 `)
 
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 
 	ctx := context.Background()
 	a := Ref{Name: "api", Version: "1.0.0"}
@@ -261,13 +246,10 @@ service:
 
 func TestCacheSource_GetDiff_ServiceNotFound(t *testing.T) {
 	root := t.TempDir()
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 
 	ctx := context.Background()
-	_, err = src.GetDiff(ctx, Ref{Name: "missing", Version: "1.0.0"}, Ref{Name: "missing", Version: "2.0.0"})
+	_, err := src.GetDiff(ctx, Ref{Name: "missing", Version: "1.0.0"}, Ref{Name: "missing", Version: "2.0.0"})
 	if err == nil {
 		t.Fatal("expected error for missing service")
 	}
@@ -283,13 +265,10 @@ service:
   version: 1.0.0
 `)
 
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 
 	ctx := context.Background()
-	_, err = src.GetDiff(ctx, Ref{Name: "api", Version: "1.0.0"}, Ref{Name: "api", Version: "9.9.9"})
+	_, err := src.GetDiff(ctx, Ref{Name: "api", Version: "1.0.0"}, Ref{Name: "api", Version: "9.9.9"})
 	if err == nil {
 		t.Fatal("expected error for missing version")
 	}
@@ -297,12 +276,9 @@ service:
 
 func TestCacheSource_GetService_NotFound(t *testing.T) {
 	root := t.TempDir()
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 
-	_, err = src.GetService(context.Background(), "nonexistent")
+	_, err := src.GetService(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent service")
 	}
@@ -310,12 +286,9 @@ func TestCacheSource_GetService_NotFound(t *testing.T) {
 
 func TestCacheSource_GetVersions_NotFound(t *testing.T) {
 	root := t.TempDir()
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 
-	_, err = src.GetVersions(context.Background(), "nonexistent")
+	_, err := src.GetVersions(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent service")
 	}
@@ -346,10 +319,7 @@ service:
   version: 2.0.0
 `)
 
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 
 	versions, err := src.GetVersions(context.Background(), "api")
 	if err != nil {
@@ -390,10 +360,7 @@ service:
 		t.Fatal(err)
 	}
 
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 	if src.ServiceCount() != 1 {
 		t.Fatalf("expected 1 service, got %d", src.ServiceCount())
 	}
@@ -412,10 +379,7 @@ service:
   version: 1.0.0
 `)
 
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 	if src.ServiceCount() != 0 {
 		t.Fatalf("expected 0 services (shallow path skipped), got %d", src.ServiceCount())
 	}
@@ -433,10 +397,7 @@ func TestCacheSource_ScanSkipsCorruptBundles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 	if src.ServiceCount() != 0 {
 		t.Fatalf("expected 0 services (corrupt bundle skipped), got %d", src.ServiceCount())
 	}
@@ -485,14 +446,11 @@ service:
   version: 1.0.0
 `)
 
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 
 	ctx := context.Background()
 	// "from" version doesn't exist.
-	_, err = src.GetDiff(ctx, Ref{Name: "api", Version: "9.9.9"}, Ref{Name: "api", Version: "1.0.0"})
+	_, err := src.GetDiff(ctx, Ref{Name: "api", Version: "9.9.9"}, Ref{Name: "api", Version: "1.0.0"})
 	if err == nil {
 		t.Fatal("expected error for missing 'from' version")
 	}
@@ -508,14 +466,11 @@ service:
   version: 1.0.0
 `)
 
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 
 	ctx := context.Background()
 	// "to" service doesn't exist.
-	_, err = src.GetDiff(ctx, Ref{Name: "api", Version: "1.0.0"}, Ref{Name: "missing", Version: "1.0.0"})
+	_, err := src.GetDiff(ctx, Ref{Name: "api", Version: "1.0.0"}, Ref{Name: "missing", Version: "1.0.0"})
 	if err == nil {
 		t.Fatal("expected error for missing 'to' service")
 	}
@@ -538,14 +493,11 @@ service:
   version: 1.0.0
 `)
 
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 
 	ctx := context.Background()
 	// "to" version doesn't exist.
-	_, err = src.GetDiff(ctx, Ref{Name: "api", Version: "1.0.0"}, Ref{Name: "worker", Version: "9.9.9"})
+	_, err := src.GetDiff(ctx, Ref{Name: "api", Version: "1.0.0"}, Ref{Name: "worker", Version: "9.9.9"})
 	if err == nil {
 		t.Fatal("expected error for missing 'to' version")
 	}

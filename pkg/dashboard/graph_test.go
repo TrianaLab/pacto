@@ -371,7 +371,7 @@ func TestBuildGraph_BasicTree(t *testing.T) {
 		},
 	}
 
-	graph := buildGraph(index["root"], index, nil)
+	graph := buildGraph(index["root"], index)
 	if graph == nil {
 		t.Fatal("expected non-nil graph")
 	}
@@ -401,7 +401,7 @@ func TestBuildGraph_UnresolvedDep(t *testing.T) {
 		},
 	}
 
-	graph := buildGraph(index["root"], index, nil)
+	graph := buildGraph(index["root"], index)
 	if len(graph.Root.Dependencies) != 1 {
 		t.Fatalf("expected 1 dependency, got %d", len(graph.Root.Dependencies))
 	}
@@ -427,7 +427,7 @@ func TestBuildGraph_CyclePrevention(t *testing.T) {
 		},
 	}
 
-	graph := buildGraph(index["a"], index, nil)
+	graph := buildGraph(index["a"], index)
 	if graph.Root == nil {
 		t.Fatal("expected non-nil root")
 	}
@@ -454,7 +454,7 @@ func TestBuildGraph_CyclePrevention(t *testing.T) {
 }
 
 func TestBuildGraph_NilRoot(t *testing.T) {
-	graph := buildGraph(nil, nil, nil)
+	graph := buildGraph(nil, nil)
 	if graph.Root != nil {
 		t.Error("expected nil root for nil service")
 	}

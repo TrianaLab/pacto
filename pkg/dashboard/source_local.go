@@ -41,17 +41,14 @@ func (s *LocalSource) ListServices(_ context.Context) ([]Service, error) {
 			continue // skip directories without valid contracts
 		}
 		svc := ServiceFromContract(bundle.Contract, "local")
-		// Determine phase from validation
-		details := ServiceDetailsFromBundle(bundle, "local")
-		svc.Phase = details.Phase
+		svc.Phase = phaseFromBundle(bundle)
 		services = append(services, svc)
 	}
 
 	// Also check root itself for a pacto.yaml
 	if bundle, err := loadLocalBundle(s.root); err == nil {
 		svc := ServiceFromContract(bundle.Contract, "local")
-		details := ServiceDetailsFromBundle(bundle, "local")
-		svc.Phase = details.Phase
+		svc.Phase = phaseFromBundle(bundle)
 		services = append(services, svc)
 	}
 

@@ -62,10 +62,7 @@ service:
 	}
 	t.Cleanup(func() { _ = os.Chmod(badDir, 0o755) })
 
-	src, err := NewCacheSource(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := NewCacheSource(root)
 	// Should still find the valid bundle despite the walk error.
 	if src.ServiceCount() != 1 {
 		t.Fatalf("expected 1 service (skipping walk error), got %d", src.ServiceCount())

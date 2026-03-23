@@ -51,19 +51,27 @@ func NewAggregatedSource(sources map[string]DataSource) *AggregatedSource {
 	return &AggregatedSource{sources: sources}
 }
 
+// sourceListResult holds the result of a ListServices call from a single source.
+type sourceListResult struct {
+	sourceType string
+	services   []Service
+	err        error
+}
+
+// sourceDetailResult holds the result of a GetService call from a single source.
+type sourceDetailResult struct {
+	sourceType string
+	details    *ServiceDetails
+	err        error
+}
+
 func (a *AggregatedSource) ListServices(ctx context.Context) ([]Service, error) {
 	// Collect services from all sources concurrently.
-	type sourceResult struct {
-		sourceType string
-		services   []Service
-		err        error
-	}
-
-	results := make(chan sourceResult, len(a.sources))
+	results := make(chan sourceListResult, len(a.sources))
 	for st, ds := range a.sources {
 		go func() {
 			svcs, err := ds.ListServices(ctx)
-			results <- sourceResult{sourceType: st, services: svcs, err: err}
+			results <- sourceListResult{sourceType: st, services: svcs, err: err}
 		}()
 	}
 
@@ -158,17 +166,11 @@ func (a *AggregatedSource) SourceTypes() []string {
 }
 
 func (a *AggregatedSource) aggregate(ctx context.Context, name string) (*AggregatedService, error) {
-	type sourceResult struct {
-		sourceType string
-		details    *ServiceDetails
-		err        error
-	}
-
-	results := make(chan sourceResult, len(a.sources))
+	results := make(chan sourceDetailResult, len(a.sources))
 	for st, ds := range a.sources {
 		go func() {
 			d, err := ds.GetService(ctx, name)
-			results <- sourceResult{sourceType: st, details: d, err: err}
+			results <- sourceDetailResult{sourceType: st, details: d, err: err}
 		}()
 	}
 

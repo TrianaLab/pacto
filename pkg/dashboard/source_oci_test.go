@@ -440,3 +440,18 @@ func TestOCISource_FindLatestBundle_ListTagsError(t *testing.T) {
 		t.Fatal("expected error when ListTags fails")
 	}
 }
+
+func TestOCISource_FindRepo_CachedRepoMap(t *testing.T) {
+	store := newMockBundleStore()
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	// Pre-populate repoMap as ListServices would.
+	src.repoMap = map[string]string{"my-svc": "ghcr.io/org/api"}
+
+	repo, err := src.findRepo(context.Background(), "my-svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo != "ghcr.io/org/api" {
+		t.Errorf("expected cached repo, got %q", repo)
+	}
+}

@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"testing"
 	"testing/fstest"
 
@@ -395,14 +396,14 @@ func TestServiceDetailsFromBundle_ImageAndChart(t *testing.T) {
 }
 
 func TestGraphFromResult_Nil(t *testing.T) {
-	result := GraphFromResult(nil)
+	result := graphFromResult(nil)
 	if result != nil {
 		t.Error("expected nil for nil input")
 	}
 }
 
 func TestGraphFromResult_NilRoot(t *testing.T) {
-	result := GraphFromResult(&graph.Result{Root: nil})
+	result := graphFromResult(&graph.Result{Root: nil})
 	if result != nil {
 		t.Error("expected nil for nil root")
 	}
@@ -427,7 +428,7 @@ func TestGraphFromResult_Basic(t *testing.T) {
 		},
 	}
 
-	g := GraphFromResult(r)
+	g := graphFromResult(r)
 	if g == nil {
 		t.Fatal("expected non-nil graph")
 	}
@@ -469,7 +470,7 @@ func TestValidateBundle_NilRawYAML(t *testing.T) {
 			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		},
 	}
-	result := ValidateBundle(b)
+	result := validateBundle(b)
 	if result != nil {
 		t.Error("expected nil for bundle with no RawYAML")
 	}
@@ -704,7 +705,7 @@ service:
 		},
 		RawYAML: []byte(yamlContent),
 	}
-	result := ValidateBundle(b)
+	result := validateBundle(b)
 	if result == nil {
 		t.Fatal("expected non-nil validation result")
 	}
@@ -1001,4 +1002,46 @@ paths:
 	if len(details.Interfaces[0].Endpoints) == 0 {
 		t.Error("expected endpoints parsed from OpenAPI spec")
 	}
+}
+
+func TestPhaseFromBundle(t *testing.T) {
+	t.Run("nil RawYAML returns unknown", func(t *testing.T) {
+		b := &contract.Bundle{
+			Contract: &contract.Contract{
+				Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+			},
+		}
+		if got := phaseFromBundle(b); got != PhaseUnknown {
+			t.Errorf("expected PhaseUnknown, got %v", got)
+		}
+	})
+
+	t.Run("valid contract returns healthy", func(t *testing.T) {
+		raw := []byte(`pactoVersion: "1.0"
+service:
+  name: svc
+  version: 1.0.0
+`)
+		c, _ := contract.Parse(bytes.NewReader(raw))
+		b := &contract.Bundle{Contract: c, RawYAML: raw}
+		if got := phaseFromBundle(b); got != PhaseHealthy {
+			t.Errorf("expected PhaseHealthy, got %v", got)
+		}
+	})
+
+	t.Run("invalid contract returns invalid", func(t *testing.T) {
+		// Missing required service.version field triggers validation error.
+		raw := []byte(`pactoVersion: "1.0"
+service:
+  name: svc
+`)
+		c := &contract.Contract{
+			PactoVersion: "1.0",
+			Service:      contract.ServiceIdentity{Name: "svc"},
+		}
+		b := &contract.Bundle{Contract: c, RawYAML: raw}
+		if got := phaseFromBundle(b); got != PhaseInvalid {
+			t.Errorf("expected PhaseInvalid, got %v", got)
+		}
+	})
 }

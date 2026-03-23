@@ -73,7 +73,7 @@ func TestDetectResult_ActiveSources_LocalOnly(t *testing.T) {
 
 func TestDetectResult_ActiveSources_Multiple(t *testing.T) {
 	root := t.TempDir()
-	cache, _ := NewCacheSource(root)
+	cache := NewCacheSource(root)
 	r := &DetectResult{
 		Local: NewLocalSource("."),
 		Cache: cache,
@@ -92,7 +92,7 @@ func TestDetectResult_ActiveSources_Multiple(t *testing.T) {
 
 func TestDetectResult_ActiveSources_AllTypes(t *testing.T) {
 	root := t.TempDir()
-	cache, _ := NewCacheSource(root)
+	cache := NewCacheSource(root)
 	r := &DetectResult{
 		Local: NewLocalSource("."),
 		Cache: cache,

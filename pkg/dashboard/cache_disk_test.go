@@ -84,14 +84,14 @@ func TestDiskCache_Expiry(t *testing.T) {
 	}
 }
 
-func TestDiskCache_SetImmutableNoExpiry(t *testing.T) {
+func TestDiskCache_setImmutableNoExpiry(t *testing.T) {
 	root := t.TempDir()
 	c, err := NewDiskCache(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	c.SetImmutable("permanent", "data")
+	c.setImmutable("permanent", "data")
 
 	v, ok := c.Get("permanent")
 	if !ok {
@@ -122,9 +122,9 @@ func TestDiskCache_OCIBundle(t *testing.T) {
 	digest := "sha256_abc123def456"
 	payload := []byte(`{"name":"order-service","version":"1.0.0"}`)
 
-	c.SetOCIBundle(digest, payload)
+	c.setOCIBundle(digest, payload)
 
-	got, ok := c.GetOCIBundle(digest)
+	got, ok := c.getOCIBundle(digest)
 	if !ok {
 		t.Fatal("expected OCI bundle cache hit")
 	}
@@ -140,7 +140,7 @@ func TestDiskCache_OCIBundleMiss(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, ok := c.GetOCIBundle("sha256_nonexistent")
+	_, ok := c.getOCIBundle("sha256_nonexistent")
 	if ok {
 		t.Fatal("expected OCI bundle cache miss")
 	}
@@ -158,10 +158,10 @@ func TestDiskCache_Metadata(t *testing.T) {
 		Digest string `json:"digest"`
 	}
 
-	c.SetMetadata("order-service-tags", tagMapping{Tag: "v1.0.0", Digest: "sha256:abc"})
+	c.setMetadata("order-service-tags", tagMapping{Tag: "v1.0.0", Digest: "sha256:abc"})
 
 	var got tagMapping
-	if !c.GetMetadata("order-service-tags", &got) {
+	if !c.getMetadata("order-service-tags", &got) {
 		t.Fatal("expected metadata hit")
 	}
 	if got.Tag != "v1.0.0" || got.Digest != "sha256:abc" {
@@ -177,7 +177,7 @@ func TestDiskCache_MetadataMiss(t *testing.T) {
 	}
 
 	var dest map[string]string
-	if c.GetMetadata("nonexistent", &dest) {
+	if c.getMetadata("nonexistent", &dest) {
 		t.Fatal("expected metadata miss")
 	}
 }
@@ -218,18 +218,18 @@ func TestDiskCache_SetUnmarshalableValue(t *testing.T) {
 	}
 }
 
-func TestDiskCache_SetMetadata_UnmarshalableValue(t *testing.T) {
+func TestDiskCache_setMetadata_UnmarshalableValue(t *testing.T) {
 	root := t.TempDir()
 	c, err := NewDiskCache(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// func values cannot be marshaled to JSON -- SetMetadata should silently fail.
-	c.SetMetadata("bad", func() {})
+	// func values cannot be marshaled to JSON -- setMetadata should silently fail.
+	c.setMetadata("bad", func() {})
 
 	var dest any
-	if c.GetMetadata("bad", &dest) {
+	if c.getMetadata("bad", &dest) {
 		t.Fatal("expected metadata miss for unmarshalable value")
 	}
 }
