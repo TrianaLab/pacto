@@ -141,4 +141,5 @@ Exit code is non-zero when breaking changes are detected — use this in CI to g
 | See contracts for real services | [Examples]({{ site.baseurl }}{% link examples/index.md %}) (PostgreSQL, Redis, RabbitMQ, NGINX, Cron Worker) |
 | Integrate with CI/CD | [GitHub Actions]({{ site.baseurl }}{% link github-actions.md %}) |
 | Explore contracts visually | Run `pacto dashboard` to launch the web UI with dependency graph |
+| Runtime compliance in Kubernetes | [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}) |
 | Build a generation plugin | [Plugin Development]({{ site.baseurl }}{% link plugins.md %}) |
