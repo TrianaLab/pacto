@@ -458,8 +458,8 @@ func TestResolver_ResolveLocal_NilContract(t *testing.T) {
 
 // pullTrackingStore tracks which refs were pulled.
 type pullTrackingStore struct {
-	bundle    *contract.Bundle
-	tags      []string
+	bundle     *contract.Bundle
+	tags       []string
 	pulledRefs []string
 }
 

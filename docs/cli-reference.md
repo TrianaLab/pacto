@@ -107,14 +107,6 @@ The built-in D3 force-directed graph supports:
 - Dynamic arrow positioning (arrows connect to the closest box edge)
 - Source and status filtering via the legend
 
-### Version selection
-
-The dashboard selects the **current version** of each OCI-backed service as the highest valid semver tag. Non-semver tags (e.g. `latest`, `main`) are excluded from version lists and never selected as the current version.
-
-When you use "Fetch all versions" in the version history tab, all available versions are pulled from the OCI registry and persisted to the local disk cache (`~/.cache/pacto/oci/`). These cached versions survive dashboard restarts and are treated as first-class cached artifacts.
-
-When a remote dependency is lazily resolved (via navigation to an unresolved dependency), the resolved bundle is also cached on disk and promoted to a normal cached external artifact. Its version history can be browsed and other versions can be loaded.
-
 ### Diagnostics mode
 
 Pass `--diagnostics` to enable debug endpoints (`/api/debug/sources` and `/api/debug/services`) that expose raw per-source data for troubleshooting.
