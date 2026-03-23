@@ -1125,27 +1125,21 @@ function applyFilter() {
   var subtitle = document.querySelector('.page-subtitle');
   if (subtitle) subtitle.textContent = total + ' contract' + (total !== 1 ? 's' : '') + ' \u2014 ' + monitored + ' active' + (unknown > 0 ? ', ' + unknown + ' definitions' : '');
 
-  // Filter "Needs Attention" cards by source too
+  // Filter "Needs Attention" cards using full filter pipeline
   var atRisk = document.getElementById('at-risk-section');
   if (atRisk) {
-    var show = state.filter === 'all';
-    if (show) {
-      // Also check if source filter hides all at-risk items
-      var atRiskCards = atRisk.querySelectorAll('.alert-card');
-      var anyVisible = false;
-      atRiskCards.forEach(function(card) {
-        var cardName = (card.getAttribute('onclick') || '').match(/navigateTo\('detail','(.+?)'\)/);
-        if (cardName) {
-          var svc = svcs.find(function(s) { return s.name === cardName[1]; });
-          var vis = svc ? isServiceVisible(svc) : true;
-          card.style.display = vis ? '' : 'none';
-          if (vis) anyVisible = true;
-        }
-      });
-      atRisk.style.display = anyVisible ? '' : 'none';
-    } else {
-      atRisk.style.display = 'none';
-    }
+    var atRiskCards = atRisk.querySelectorAll('.alert-card');
+    var anyVisible = false;
+    atRiskCards.forEach(function(card) {
+      var cardName = (card.getAttribute('onclick') || '').match(/navigateTo\('detail','(.+?)'\)/);
+      if (cardName) {
+        var svc = svcs.find(function(s) { return s.name === cardName[1]; });
+        var vis = svc ? isServiceVisible(svc) : false;
+        card.style.display = vis ? '' : 'none';
+        if (vis) anyVisible = true;
+      }
+    });
+    atRisk.style.display = anyVisible ? '' : 'none';
   }
 
   var indicator = document.getElementById('filter-indicator');

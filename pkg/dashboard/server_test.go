@@ -397,6 +397,10 @@ func TestServerGetCrossRefs(t *testing.T) {
 	if len(refs.ReferencedBy) != 1 {
 		t.Errorf("expected 1 incoming reference, got %d", len(refs.ReferencedBy))
 	}
+	// Incoming reference must include the Ref field.
+	if len(refs.ReferencedBy) == 1 && refs.ReferencedBy[0].Ref != "svc-a" {
+		t.Errorf("expected incoming ref 'svc-a', got %q", refs.ReferencedBy[0].Ref)
+	}
 }
 
 func TestServerGetCrossRefs_NotInIndex(t *testing.T) {
@@ -1122,6 +1126,9 @@ func TestServerGetCrossRefs_PolicyReferencedBy(t *testing.T) {
 	}
 	if refs.ReferencedBy[0].Name != "other" {
 		t.Errorf("expected name 'other', got %q", refs.ReferencedBy[0].Name)
+	}
+	if refs.ReferencedBy[0].Ref != "svc-a" {
+		t.Errorf("expected ref 'svc-a', got %q", refs.ReferencedBy[0].Ref)
 	}
 }
 

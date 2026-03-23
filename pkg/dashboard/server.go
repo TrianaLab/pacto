@@ -332,7 +332,7 @@ func appendIncomingRef(refs []CrossReference, d *ServiceDetails, targetName, ref
 	}
 	resolved := resolveServiceName(extractServiceNameFromRef(ref), index, aliases)
 	if resolved == targetName {
-		refs = append(refs, CrossReference{Name: d.Name, RefType: refType, Phase: string(d.Phase)})
+		refs = append(refs, CrossReference{Name: d.Name, RefType: refType, Ref: ref, Phase: string(d.Phase)})
 	}
 	return refs
 }

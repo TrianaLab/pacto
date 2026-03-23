@@ -80,13 +80,20 @@ func buildRefAliases(index map[string]*ServiceDetails) map[string]string {
 }
 
 // resolveServiceName resolves a ref-extracted name to an actual service name
-// using the index and alias map.
+// using the index and alias map. As a fallback, strips the common "-pacto"
+// suffix from OCI repo names (e.g. "payment-gateway-pacto" → "payment-gateway").
 func resolveServiceName(name string, index map[string]*ServiceDetails, aliases map[string]string) string {
 	if _, ok := index[name]; ok {
 		return name
 	}
 	if resolved, ok := aliases[name]; ok {
 		return resolved
+	}
+	// Convention: OCI repos often use a -pacto suffix that the contract service.name omits.
+	if stripped := strings.TrimSuffix(name, "-pacto"); stripped != name {
+		if _, ok := index[stripped]; ok {
+			return stripped
+		}
 	}
 	return name
 }
@@ -228,6 +235,10 @@ func extractServiceNameFromRef(ref string) string {
 	ref = strings.TrimPrefix(ref, "oci://")
 	parts := strings.Split(ref, "/")
 	name := parts[len(parts)-1]
+	// Strip digest (@sha256:...) before tag (:version).
+	if idx := strings.Index(name, "@"); idx > 0 {
+		name = name[:idx]
+	}
 	if idx := strings.Index(name, ":"); idx > 0 {
 		name = name[:idx]
 	}
@@ -241,8 +252,12 @@ func depRefMatchesName(ref, name string, aliases map[string]string) bool {
 	if extracted == name {
 		return true
 	}
-	if resolved, ok := aliases[extracted]; ok {
-		return resolved == name
+	if resolved, ok := aliases[extracted]; ok && resolved == name {
+		return true
+	}
+	// Convention: strip -pacto suffix from OCI repo names.
+	if stripped := strings.TrimSuffix(extracted, "-pacto"); stripped != extracted && stripped == name {
+		return true
 	}
 	return false
 }

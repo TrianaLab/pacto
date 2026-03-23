@@ -39,6 +39,20 @@ func TestExtractServiceNameFromRef_RegistryPath(t *testing.T) {
 	}
 }
 
+func TestExtractServiceNameFromRef_Digest(t *testing.T) {
+	got := extractServiceNameFromRef("oci://ghcr.io/org/my-service@sha256:abc123def456")
+	if got != "my-service" {
+		t.Errorf("expected 'my-service', got %q", got)
+	}
+}
+
+func TestExtractServiceNameFromRef_DigestNoScheme(t *testing.T) {
+	got := extractServiceNameFromRef("ghcr.io/org/svc@sha256:deadbeef")
+	if got != "svc" {
+		t.Errorf("expected 'svc', got %q", got)
+	}
+}
+
 func TestDepRefMatchesName_Match(t *testing.T) {
 	if !depRefMatchesName("oci://ghcr.io/org/my-service:1.0.0", "my-service", nil) {
 		t.Error("expected match for OCI ref")
@@ -514,10 +528,34 @@ func TestResolveServiceName_NoMatch(t *testing.T) {
 	}
 }
 
+func TestResolveServiceName_PactoSuffix(t *testing.T) {
+	index := map[string]*ServiceDetails{
+		"payment-gateway": {Service: Service{Name: "payment-gateway"}},
+	}
+	got := resolveServiceName("payment-gateway-pacto", index, nil)
+	if got != "payment-gateway" {
+		t.Errorf("expected 'payment-gateway' via -pacto suffix strip, got %q", got)
+	}
+}
+
+func TestResolveServiceName_PactoSuffix_NoMatch(t *testing.T) {
+	index := map[string]*ServiceDetails{}
+	got := resolveServiceName("unknown-pacto", index, nil)
+	if got != "unknown-pacto" {
+		t.Errorf("expected 'unknown-pacto' (passthrough), got %q", got)
+	}
+}
+
 func TestDepRefMatchesName_WithAlias(t *testing.T) {
 	aliases := map[string]string{"my-svc-image": "my-svc"}
 	if !depRefMatchesName("ghcr.io/org/my-svc-image:1.0.0", "my-svc", aliases) {
 		t.Error("expected match via alias")
+	}
+}
+
+func TestDepRefMatchesName_PactoSuffix(t *testing.T) {
+	if !depRefMatchesName("oci://ghcr.io/acme/payment-gateway-pacto:1.0.0", "payment-gateway", nil) {
+		t.Error("expected match via -pacto suffix stripping")
 	}
 }
 
