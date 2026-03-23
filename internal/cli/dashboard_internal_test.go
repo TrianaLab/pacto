@@ -11,7 +11,19 @@ import (
 
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/internal/app"
+	"github.com/trianalab/pacto/internal/oci"
+	"github.com/trianalab/pacto/pkg/contract"
 )
+
+// dummyStore satisfies oci.BundleStore for CLI tests.
+type dummyStore struct{}
+
+func (dummyStore) Push(context.Context, string, *contract.Bundle) (string, error) { return "", nil }
+func (dummyStore) Pull(context.Context, string) (*contract.Bundle, error)         { return nil, nil }
+func (dummyStore) Resolve(context.Context, string) (string, error)                { return "", nil }
+func (dummyStore) ListTags(context.Context, string) ([]string, error)             { return nil, nil }
+
+var _ oci.BundleStore = dummyStore{}
 
 func TestCacheTTL(t *testing.T) {
 	tests := []struct {
@@ -35,7 +47,7 @@ func TestCacheTTL(t *testing.T) {
 }
 
 func TestNewDashboardCommand_NoSources(t *testing.T) {
-	// Isolate from host kubectl / cache so no real sources are found.
+	// Isolate from host kubeconfig / cache so no real sources are found.
 	emptyDir := t.TempDir()
 	t.Setenv("PATH", emptyDir)
 	t.Setenv("HOME", emptyDir)
@@ -70,7 +82,10 @@ service:
 		t.Fatal(err)
 	}
 
-	svc := app.NewService(nil, nil)
+	// Prevent real K8s client creation.
+	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
+
+	svc := app.NewService(dummyStore{}, nil)
 	v := viper.New()
 	cmd := newDashboardCommand(svc, v)
 	cmd.SetArgs([]string{dir, "--port", "0", "--diagnostics"})
@@ -108,6 +123,9 @@ service:
 		t.Fatal(err)
 	}
 
+	// Prevent real K8s client creation.
+	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
+
 	orig, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
@@ -136,7 +154,7 @@ service:
 }
 
 func TestNewDashboardCommand_NoSourcesDetails(t *testing.T) {
-	// Use an empty temp dir with no pacto.yaml, no kubectl, no OCI, no cache.
+	// Use an empty temp dir with no pacto.yaml, no kubeconfig, no OCI, no cache.
 	emptyDir := t.TempDir()
 
 	svc := app.NewService(nil, nil)
@@ -144,14 +162,20 @@ func TestNewDashboardCommand_NoSourcesDetails(t *testing.T) {
 	cmd := newDashboardCommand(svc, v)
 	cmd.SetArgs([]string{emptyDir})
 
-	// Override PATH to ensure kubectl is not found.
+	// Ensure no K8s client can be created.
 	t.Setenv("PATH", emptyDir)
 	t.Setenv("HOME", emptyDir)
 	t.Setenv("XDG_CACHE_HOME", emptyDir)
+	t.Setenv("KUBECONFIG", filepath.Join(emptyDir, "nonexistent"))
 
 	var errBuf bytes.Buffer
 	cmd.SetErr(&errBuf)
 	cmd.SetOut(&bytes.Buffer{})
+
+	// Use a cancelled context as safety net to prevent server from blocking.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cmd.SetContext(ctx)
 
 	err := cmd.Execute()
 	if err == nil {

@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/trianalab/pacto/internal/oci"
+	"github.com/trianalab/pacto/pkg/contract"
 )
 
 type mockSource struct {
@@ -479,7 +483,7 @@ func TestServerGetSources(t *testing.T) {
 	srv := NewServer(source, ui)
 	srv.sourceInfo = []SourceInfo{
 		{Type: "local", Enabled: true, Reason: "found"},
-		{Type: "k8s", Enabled: false, Reason: "no kubectl"},
+		{Type: "k8s", Enabled: false, Reason: "no kubeconfig"},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -526,8 +530,8 @@ func TestCORSMiddleware_Options(t *testing.T) {
 	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
 		t.Errorf("expected CORS origin '*', got %q", got)
 	}
-	if got := resp.Header.Get("Access-Control-Allow-Methods"); got != "GET, OPTIONS" {
-		t.Errorf("expected CORS methods 'GET, OPTIONS', got %q", got)
+	if got := resp.Header.Get("Access-Control-Allow-Methods"); got != "GET, POST, OPTIONS" {
+		t.Errorf("expected CORS methods 'GET, POST, OPTIONS', got %q", got)
 	}
 }
 
@@ -1396,6 +1400,153 @@ func TestExportConfigSchema(t *testing.T) {
 	}
 	if port["description"] != "HTTP port for the dashboard server" {
 		t.Errorf("port description = %v", port["description"])
+	}
+}
+
+// ── Resolve endpoint tests ──────────────────────────────────────────
+
+func startTestServerWithResolver(t *testing.T, source DataSource, store oci.BundleStore) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<html></html>")},
+	}
+	srv := NewServer(source, ui)
+	if store != nil {
+		srv.SetResolver(oci.NewResolver(store))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = srv.ServeOnListener(ctx, ln) }()
+	time.Sleep(50 * time.Millisecond)
+	return "http://" + ln.Addr().String()
+}
+
+// resolveStore implements oci.BundleStore for resolve endpoint tests.
+type resolveStore struct {
+	bundle  *contract.Bundle
+	pullErr error
+}
+
+func (s *resolveStore) Push(context.Context, string, *contract.Bundle) (string, error) {
+	return "", nil
+}
+func (s *resolveStore) Resolve(context.Context, string) (string, error) { return "", nil }
+func (s *resolveStore) Pull(_ context.Context, _ string) (*contract.Bundle, error) {
+	if s.pullErr != nil {
+		return nil, s.pullErr
+	}
+	return s.bundle, nil
+}
+func (s *resolveStore) ListTags(context.Context, string) ([]string, error) { return nil, nil }
+
+func newResolveTestBundle() *contract.Bundle {
+	port := 8080
+	return &contract.Bundle{
+		Contract: &contract.Contract{
+			PactoVersion: "1.0",
+			Service:      contract.ServiceIdentity{Name: "remote-svc", Version: "1.0.0"},
+			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
+			Runtime: &contract.Runtime{
+				Workload: "service",
+				State:    contract.State{Type: "stateless", Persistence: contract.Persistence{Scope: "local", Durability: "ephemeral"}, DataCriticality: "low"},
+			},
+		},
+		RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: remote-svc\n  version: \"1.0.0\"\ninterfaces:\n  - name: api\n    type: http\n    port: 8080\nruntime:\n  workload: service\n  state:\n    type: stateless\n    persistence:\n      scope: local\n      durability: ephemeral\n    dataCriticality: low\n"),
+	}
+}
+
+func TestServerResolveRef_Success(t *testing.T) {
+	source := &mockSource{services: []Service{}, details: map[string]*ServiceDetails{}}
+	store := &resolveStore{bundle: newResolveTestBundle()}
+	base := startTestServerWithResolver(t, source, store)
+
+	resp, err := http.Post(base+"/api/resolve", "application/json", strings.NewReader(`{"ref":"ghcr.io/org/remote-svc-pacto:1.0.0"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var details ServiceDetails
+	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
+		t.Fatal(err)
+	}
+	if details.Name != "remote-svc" {
+		t.Errorf("expected name 'remote-svc', got %q", details.Name)
+	}
+	if details.Source != "oci" {
+		t.Errorf("expected source 'oci', got %q", details.Source)
+	}
+}
+
+func TestServerResolveRef_AuthFailure(t *testing.T) {
+	source := &mockSource{services: []Service{}, details: map[string]*ServiceDetails{}}
+	store := &resolveStore{pullErr: &oci.AuthenticationError{Ref: "ghcr.io/org/svc:1.0.0", Err: fmt.Errorf("401")}}
+	base := startTestServerWithResolver(t, source, store)
+
+	resp, err := http.Post(base+"/api/resolve", "application/json", strings.NewReader(`{"ref":"ghcr.io/org/svc:1.0.0"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestServerResolveRef_NotFound(t *testing.T) {
+	source := &mockSource{services: []Service{}, details: map[string]*ServiceDetails{}}
+	store := &resolveStore{pullErr: &oci.ArtifactNotFoundError{Ref: "ghcr.io/org/svc:1.0.0", Err: fmt.Errorf("404")}}
+	base := startTestServerWithResolver(t, source, store)
+
+	resp, err := http.Post(base+"/api/resolve", "application/json", strings.NewReader(`{"ref":"ghcr.io/org/svc:1.0.0"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestServerResolveRef_RegistryUnreachable(t *testing.T) {
+	source := &mockSource{services: []Service{}, details: map[string]*ServiceDetails{}}
+	store := &resolveStore{pullErr: &oci.RegistryUnreachableError{Ref: "ghcr.io/org/svc:1.0.0", Err: fmt.Errorf("dns error")}}
+	base := startTestServerWithResolver(t, source, store)
+
+	resp, err := http.Post(base+"/api/resolve", "application/json", strings.NewReader(`{"ref":"ghcr.io/org/svc:1.0.0"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", resp.StatusCode)
+	}
+}
+
+func TestServerResolveRef_NoResolver(t *testing.T) {
+	source := &mockSource{services: []Service{}, details: map[string]*ServiceDetails{}}
+	base := startTestServerWithResolver(t, source, nil)
+
+	resp, err := http.Post(base+"/api/resolve", "application/json", strings.NewReader(`{"ref":"ghcr.io/org/svc:1.0.0"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	// Without a resolver, the endpoint is not registered.
+	if resp.StatusCode == http.StatusOK {
+		t.Fatal("expected endpoint to not be registered without resolver")
 	}
 }
 

@@ -364,7 +364,7 @@ Sources are auto-detected at startup:
 | Source | Detected when | Provides |
 |--------|--------------|----------|
 | **local** | `pacto.yaml` found in the working directory | In-progress contract changes |
-| **k8s** | `kubectl` available and cluster reachable | Runtime state: phase, conditions, endpoints, resources |
+| **k8s** | Valid kubeconfig found and cluster reachable | Runtime state: phase, conditions, endpoints, resources |
 | **oci** | `--repo` flags provided | Registry versions and contracts |
 | **cache** | `~/.cache/pacto/oci` contains cached bundles | Offline baseline from previously pulled contracts |
 

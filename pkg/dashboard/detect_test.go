@@ -93,10 +93,11 @@ func TestDetectResult_ActiveSources_Multiple(t *testing.T) {
 func TestDetectResult_ActiveSources_AllTypes(t *testing.T) {
 	root := t.TempDir()
 	cache := NewCacheSource(root)
+	client := &mockK8sClient{}
 	r := &DetectResult{
 		Local: NewLocalSource("."),
 		Cache: cache,
-		K8s:   NewK8sSource("default", "pactos"),
+		K8s:   NewK8sSource(client, "default", "pactos"),
 		// OCI is nil — would need real store
 	}
 	sources := r.ActiveSources()
@@ -285,6 +286,13 @@ func TestDetectSources_WithLocalAndNoCache(t *testing.T) {
 	root := t.TempDir()
 	writeLocalPactoYAML(t, root, "svc", "1.0.0")
 
+	// Override newK8sClientFunc to prevent real cluster access.
+	origClient := newK8sClientFunc
+	newK8sClientFunc = func() (K8sClient, error) {
+		return nil, fmt.Errorf("no kubeconfig")
+	}
+	t.Cleanup(func() { newK8sClientFunc = origClient })
+
 	result := DetectSources(context.Background(), DetectOptions{
 		Dir:     root,
 		Store:   nil,
@@ -322,6 +330,13 @@ func TestDetectSources_WithLocalAndNoCache(t *testing.T) {
 
 func TestDetectSources_WithCacheEnabled(t *testing.T) {
 	root := t.TempDir()
+
+	// Override newK8sClientFunc to prevent real cluster access.
+	origClient := newK8sClientFunc
+	newK8sClientFunc = func() (K8sClient, error) {
+		return nil, fmt.Errorf("no kubeconfig")
+	}
+	t.Cleanup(func() { newK8sClientFunc = origClient })
 
 	result := DetectSources(context.Background(), DetectOptions{
 		Dir:      root,
@@ -401,15 +416,34 @@ service:
 	}
 }
 
-func TestDetectK8s_KubectlNotFound(t *testing.T) {
-	// Remove kubectl from PATH entirely.
-	t.Setenv("PATH", t.TempDir())
+// ---------------------------------------------------------------------------
+// K8s detection tests using mock K8sClient
+// ---------------------------------------------------------------------------
+
+// setupMockK8sClient overrides the newK8sClientFunc for the duration of the test.
+func setupMockK8sClient(t *testing.T, client K8sClient) {
+	t.Helper()
+	orig := newK8sClientFunc
+	newK8sClientFunc = func() (K8sClient, error) { return client, nil }
+	t.Cleanup(func() { newK8sClientFunc = orig })
+}
+
+// setupMockK8sClientError makes client creation fail.
+func setupMockK8sClientError(t *testing.T, err error) {
+	t.Helper()
+	orig := newK8sClientFunc
+	newK8sClientFunc = func() (K8sClient, error) { return nil, err }
+	t.Cleanup(func() { newK8sClientFunc = orig })
+}
+
+func TestDetectK8s_ClientNotAvailable(t *testing.T) {
+	setupMockK8sClientError(t, fmt.Errorf("no kubeconfig found"))
 
 	result := &DetectResult{Diagnostics: &SourceDiagnostics{}}
 	result.detectK8s(context.Background(), "")
 
 	if result.K8s != nil {
-		t.Error("expected nil K8s source when kubectl not found")
+		t.Error("expected nil K8s source when client not available")
 	}
 	if len(result.Sources) != 1 {
 		t.Fatalf("expected 1 source info, got %d", len(result.Sources))
@@ -417,16 +451,14 @@ func TestDetectK8s_KubectlNotFound(t *testing.T) {
 	if result.Sources[0].Enabled {
 		t.Error("expected source to be disabled")
 	}
-	if !strings.Contains(result.Sources[0].Reason, "kubectl not found") {
-		t.Errorf("expected reason about kubectl not found, got %q", result.Sources[0].Reason)
+	if !strings.Contains(result.Sources[0].Reason, "Kubernetes client not available") {
+		t.Errorf("expected reason about client not available, got %q", result.Sources[0].Reason)
 	}
 }
 
 func TestDetectK8s_ClusterNotReachable(t *testing.T) {
-	// Fake kubectl that succeeds for LookPath but fails for cluster-info.
-	setupFakeKubectlForDetect(t, map[string]fakeKubectlResponse{
-		"cluster-info": {exitCode: 1},
-	})
+	client := &mockK8sClient{probeErr: fmt.Errorf("connection refused")}
+	setupMockK8sClient(t, client)
 
 	result := &DetectResult{Diagnostics: &SourceDiagnostics{}}
 	result.detectK8s(context.Background(), "")
@@ -434,8 +466,8 @@ func TestDetectK8s_ClusterNotReachable(t *testing.T) {
 	if result.K8s != nil {
 		t.Error("expected nil K8s source when cluster unreachable")
 	}
-	if !result.Diagnostics.K8s.KubectlFound {
-		t.Error("expected KubectlFound=true")
+	if !result.Diagnostics.K8s.ClientConfigured {
+		t.Error("expected ClientConfigured=true")
 	}
 	if result.Diagnostics.K8s.ClusterReachable {
 		t.Error("expected ClusterReachable=false")
@@ -446,14 +478,17 @@ func TestDetectK8s_ClusterNotReachable(t *testing.T) {
 }
 
 func TestDetectK8s_FullSuccess(t *testing.T) {
-	apiResourcesOutput := "pactos   pc   pacto.trianalab.io/v1alpha1   true   Pacto"
-	countOutput := "pacto.trianalab.io/v1alpha1/svc-a\npacto.trianalab.io/v1alpha1/svc-b"
-
-	setupFakeKubectlForDetect(t, map[string]fakeKubectlResponse{
-		"cluster-info":  {output: "Kubernetes control plane is running"},
-		"api-resources": {output: apiResourcesOutput},
-		"get":           {output: countOutput},
-	})
+	client := &mockK8sClient{
+		crdDiscovery: &CRDDiscovery{
+			Found:        true,
+			Group:        "pacto.trianalab.io",
+			Versions:     []string{"v1alpha1"},
+			Version:      "v1alpha1",
+			ResourceName: "pactos",
+		},
+		countResult: 2,
+	}
+	setupMockK8sClient(t, client)
 
 	result := &DetectResult{Diagnostics: &SourceDiagnostics{}}
 	result.detectK8s(context.Background(), "default")
@@ -461,8 +496,8 @@ func TestDetectK8s_FullSuccess(t *testing.T) {
 	if result.K8s == nil {
 		t.Fatal("expected K8s source to be detected")
 	}
-	if !result.Diagnostics.K8s.KubectlFound {
-		t.Error("expected KubectlFound=true")
+	if !result.Diagnostics.K8s.ClientConfigured {
+		t.Error("expected ClientConfigured=true")
 	}
 	if !result.Diagnostics.K8s.ClusterReachable {
 		t.Error("expected ClusterReachable=true")
@@ -482,12 +517,10 @@ func TestDetectK8s_FullSuccess(t *testing.T) {
 }
 
 func TestDetectK8s_NoCRD(t *testing.T) {
-	// cluster-info succeeds, api-resources returns nothing, get still works
-	setupFakeKubectlForDetect(t, map[string]fakeKubectlResponse{
-		"cluster-info":  {output: "OK"},
-		"api-resources": {output: ""},
-		"get":           {output: ""},
-	})
+	client := &mockK8sClient{
+		crdDiscovery: &CRDDiscovery{Found: false, Group: "pacto.trianalab.io"},
+	}
+	setupMockK8sClient(t, client)
 
 	result := &DetectResult{Diagnostics: &SourceDiagnostics{}}
 	result.detectK8s(context.Background(), "")
@@ -504,11 +537,10 @@ func TestDetectK8s_NoCRD(t *testing.T) {
 }
 
 func TestDetectK8s_AllNamespaces(t *testing.T) {
-	setupFakeKubectlForDetect(t, map[string]fakeKubectlResponse{
-		"cluster-info":  {output: "OK"},
-		"api-resources": {output: ""},
-		"get":           {output: ""},
-	})
+	client := &mockK8sClient{
+		crdDiscovery: &CRDDiscovery{Found: false, Group: "pacto.trianalab.io"},
+	}
+	setupMockK8sClient(t, client)
 
 	result := &DetectResult{Diagnostics: &SourceDiagnostics{}}
 	result.detectK8s(context.Background(), "") // empty namespace = all namespaces
@@ -520,8 +552,8 @@ func TestDetectK8s_AllNamespaces(t *testing.T) {
 
 func TestDetectK8s_KubeconfigEnv(t *testing.T) {
 	t.Setenv("KUBECONFIG", "/custom/kubeconfig")
-	// No kubectl in PATH
-	t.Setenv("PATH", t.TempDir())
+	// Make client creation fail so we just test kubeconfig detection.
+	setupMockK8sClientError(t, fmt.Errorf("invalid kubeconfig"))
 
 	result := &DetectResult{Diagnostics: &SourceDiagnostics{}}
 	result.detectK8s(context.Background(), "")
@@ -543,8 +575,8 @@ func TestDetectK8s_DefaultKubeconfig(t *testing.T) {
 	_ = os.MkdirAll(kubeDir, 0o755)
 	_ = os.WriteFile(filepath.Join(kubeDir, "config"), []byte("test"), 0o644)
 
-	// No kubectl in PATH
-	t.Setenv("PATH", t.TempDir())
+	// Make client creation fail so we just test kubeconfig detection.
+	setupMockK8sClientError(t, fmt.Errorf("invalid kubeconfig"))
 
 	result := &DetectResult{Diagnostics: &SourceDiagnostics{}}
 	result.detectK8s(context.Background(), "")
@@ -579,38 +611,22 @@ func TestDetectCache_HomeDirError(t *testing.T) {
 	}
 }
 
-// fakeKubectlResponse defines the output and exit code for a kubectl subcommand.
-type fakeKubectlResponse struct {
-	output   string
-	exitCode int
-}
-
-// setupFakeKubectlForDetect creates a kubectl script that dispatches based on the
-// first argument (e.g., "cluster-info", "api-resources", "get").
-func setupFakeKubectlForDetect(t *testing.T, responses map[string]fakeKubectlResponse) {
-	t.Helper()
-	dir := t.TempDir()
-
-	var cases strings.Builder
-	for cmd, resp := range responses {
-		if resp.exitCode != 0 {
-			fmt.Fprintf(&cases, "  %s) exit %d ;;\n", cmd, resp.exitCode)
-		} else if resp.output == "" {
-			fmt.Fprintf(&cases, "  %s) exit 0 ;;\n", cmd)
-		} else {
-			fmt.Fprintf(&cases, "  %s) cat <<'ENDOFOUTPUT'\n%s\nENDOFOUTPUT\n;;\n", cmd, resp.output)
-		}
+func TestDetectK8s_DiscoverCRDError(t *testing.T) {
+	client := &mockK8sClient{
+		crdErr: fmt.Errorf("discovery failed"),
 	}
+	setupMockK8sClient(t, client)
 
-	script := fmt.Sprintf(`#!/bin/sh
-case "$1" in
-%s  *) exit 0 ;;
-esac
-`, cases.String())
+	result := &DetectResult{Diagnostics: &SourceDiagnostics{}}
+	result.detectK8s(context.Background(), "")
 
-	scriptPath := filepath.Join(dir, "kubectl")
-	_ = os.WriteFile(scriptPath, []byte(script), 0o755)
-	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	// Even with CRD discovery error, K8s source should be created (cluster is reachable).
+	if result.K8s == nil {
+		t.Fatal("expected K8s source even with CRD discovery error")
+	}
+	if result.Diagnostics.K8s.Error == "" {
+		t.Error("expected error in diagnostics from CRD discovery failure")
+	}
 }
 
 func TestDetectCache_DefaultDirNoXDG(t *testing.T) {

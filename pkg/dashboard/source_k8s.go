@@ -4,20 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"sort"
 	"sync"
 	"time"
 )
 
 // K8sSource implements DataSource by reading Pacto CRD status from a Kubernetes cluster.
-// It uses kubectl to avoid introducing a direct dependency on k8s.io/client-go.
+// It uses k8s.io/client-go to communicate with the Kubernetes API server.
 type K8sSource struct {
+	client       K8sClient
 	namespace    string
-	resourceName string // kubectl resource name, e.g. "pactos" (discovered dynamically)
+	resourceName string // CRD resource name, e.g. "pactos" (discovered dynamically)
 
 	// listCache caches the result of listPactos for a short window to avoid
-	// repeated kubectl calls when buildServiceIndex calls GetService N times.
+	// repeated API calls when buildServiceIndex calls GetService N times.
 	listMu    sync.Mutex
 	listCache []pactoResource
 	listErr   error
@@ -25,16 +25,16 @@ type K8sSource struct {
 }
 
 // NewK8sSource creates a data source backed by Kubernetes CRDs.
-// namespace may be empty to use the default namespace.
-// resourceName is the kubectl resource name (e.g. "pactos"), discovered dynamically.
-func NewK8sSource(namespace, resourceName string) *K8sSource {
+// namespace may be empty to use all namespaces.
+// resourceName is the CRD resource name (e.g. "pactos"), discovered dynamically.
+func NewK8sSource(client K8sClient, namespace, resourceName string) *K8sSource {
 	if resourceName == "" {
 		resourceName = "pactos"
 	}
-	return &K8sSource{namespace: namespace, resourceName: resourceName}
+	return &K8sSource{client: client, namespace: namespace, resourceName: resourceName}
 }
 
-// pactoResource represents the minimal structure of a Pacto CRD as returned by kubectl.
+// pactoResource represents the minimal structure of a Pacto CRD.
 type pactoResource struct {
 	Metadata struct {
 		Name      string `json:"name"`
@@ -255,29 +255,8 @@ func (s *K8sSource) GetDiff(_ context.Context, _, _ Ref) (*DiffResult, error) {
 	return nil, fmt.Errorf("diff not yet supported for k8s source; use OCI or local source")
 }
 
-// kubectl helpers
-
-func (s *K8sSource) listKubectlArgs(args ...string) []string {
-	if s.namespace != "" {
-		args = append(args, "-n", s.namespace)
-	} else {
-		args = append(args, "--all-namespaces")
-	}
-	return args
-}
-
-func (s *K8sSource) getKubectlArgs(args ...string) []string {
-	if s.namespace != "" {
-		args = append(args, "-n", s.namespace)
-	}
-	// For get-by-name, we don't use --all-namespaces because kubectl
-	// requires a namespace to get a specific resource. We fall back to
-	// listing and filtering.
-	return args
-}
-
 // listCacheTTL controls how long a listPactos result is reused.
-// This prevents the N×kubectl explosion when buildServiceIndex calls
+// This prevents the N×API-call explosion when buildServiceIndex calls
 // GetService for every service in rapid succession.
 const listCacheTTL = 3 * time.Second
 
@@ -290,10 +269,9 @@ func (s *K8sSource) listPactos(ctx context.Context) ([]pactoResource, error) {
 	}
 	s.listMu.Unlock()
 
-	args := s.listKubectlArgs("get", s.resourceName, "-o", "json")
-	out, err := exec.CommandContext(ctx, "kubectl", args...).Output()
+	out, err := s.client.ListJSON(ctx, s.resourceName, s.namespace)
 	if err != nil {
-		s.setListCache(nil, fmt.Errorf("kubectl get %s: %w", s.resourceName, err))
+		s.setListCache(nil, fmt.Errorf("listing %s: %w", s.resourceName, err))
 		return nil, s.listErr
 	}
 
@@ -301,7 +279,7 @@ func (s *K8sSource) listPactos(ctx context.Context) ([]pactoResource, error) {
 		Items []pactoResource `json:"items"`
 	}
 	if err := json.Unmarshal(out, &list); err != nil {
-		s.setListCache(nil, fmt.Errorf("parsing kubectl output: %w", err))
+		s.setListCache(nil, fmt.Errorf("parsing API response: %w", err))
 		return nil, s.listErr
 	}
 	s.setListCache(list.Items, nil)
@@ -319,14 +297,13 @@ func (s *K8sSource) setListCache(items []pactoResource, err error) {
 func (s *K8sSource) getPacto(ctx context.Context, name string) (*pactoResource, error) {
 	if s.namespace != "" {
 		// Direct get with known namespace.
-		args := s.getKubectlArgs("get", s.resourceName, name, "-o", "json")
-		out, err := exec.CommandContext(ctx, "kubectl", args...).Output()
+		out, err := s.client.GetJSON(ctx, s.resourceName, s.namespace, name)
 		if err != nil {
-			return nil, fmt.Errorf("kubectl get %s %s: %w", s.resourceName, name, err)
+			return nil, fmt.Errorf("getting %s %s: %w", s.resourceName, name, err)
 		}
 		var r pactoResource
 		if err := json.Unmarshal(out, &r); err != nil {
-			return nil, fmt.Errorf("parsing kubectl output: %w", err)
+			return nil, fmt.Errorf("parsing API response: %w", err)
 		}
 		return &r, nil
 	}

@@ -50,7 +50,7 @@ all available sources (local filesystem, Kubernetes, OCI registries, disk cache)
 
 Sources are auto-detected at startup:
   - local: enabled if pacto.yaml is found in the working directory
-  - k8s:   enabled if kubectl is available and the cluster is reachable
+  - k8s:   enabled if a valid kubeconfig is found and the cluster is reachable
   - oci:   enabled if --repo is specified and the OCI client is configured
   - cache: enabled if ~/.cache/pacto/oci contains cached bundles
 

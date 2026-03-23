@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"os"
 	"testing"
 )
 
@@ -27,6 +28,16 @@ func TestDashboardCommand(t *testing.T) {
 
 		// Use --no-cache to prevent the disk cache source from being detected
 		// on machines that have a populated ~/.cache/pacto/oci/ directory.
+		// Prevent K8s client creation via an invalid kubeconfig.
+		origKC := os.Getenv("KUBECONFIG")
+		os.Setenv("KUBECONFIG", "/nonexistent/kubeconfig")
+		defer func() {
+			if origKC == "" {
+				os.Unsetenv("KUBECONFIG")
+			} else {
+				os.Setenv("KUBECONFIG", origKC)
+			}
+		}()
 		_, err := runCommandWithCancelledCtx(t, nil, "dashboard", "--no-cache", "/nonexistent/empty/dir/xyz")
 		if err == nil {
 			t.Fatal("expected error when no sources are detected")

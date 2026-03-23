@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -438,11 +436,42 @@ func TestK8s_flexSlice_InvalidJSON_ViaStatus(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Mock K8sClient for source tests
+// ---------------------------------------------------------------------------
+
+type mockK8sClient struct {
+	probeErr     error
+	crdDiscovery *CRDDiscovery
+	crdErr       error
+	listJSON     []byte
+	listErr      error
+	getJSON      []byte
+	getErr       error
+	countResult  int
+	countErr     error
+}
+
+func (m *mockK8sClient) Probe(context.Context) error { return m.probeErr }
+func (m *mockK8sClient) DiscoverCRD(context.Context) (*CRDDiscovery, error) {
+	return m.crdDiscovery, m.crdErr
+}
+func (m *mockK8sClient) ListJSON(context.Context, string, string) ([]byte, error) {
+	return m.listJSON, m.listErr
+}
+func (m *mockK8sClient) GetJSON(context.Context, string, string, string) ([]byte, error) {
+	return m.getJSON, m.getErr
+}
+func (m *mockK8sClient) CountResources(context.Context, string, string) (int, error) {
+	return m.countResult, m.countErr
+}
+
+// ---------------------------------------------------------------------------
 // NewK8sSource
 // ---------------------------------------------------------------------------
 
 func TestK8s_NewK8sSource_DefaultResourceName(t *testing.T) {
-	src := NewK8sSource("default", "")
+	client := &mockK8sClient{}
+	src := NewK8sSource(client, "default", "")
 	if src.resourceName != "pactos" {
 		t.Errorf("expected default resource name 'pactos', got %q", src.resourceName)
 	}
@@ -452,7 +481,8 @@ func TestK8s_NewK8sSource_DefaultResourceName(t *testing.T) {
 }
 
 func TestK8s_NewK8sSource_CustomResourceName(t *testing.T) {
-	src := NewK8sSource("prod", "pactocontracts")
+	client := &mockK8sClient{}
+	src := NewK8sSource(client, "prod", "pactocontracts")
 	if src.resourceName != "pactocontracts" {
 		t.Errorf("expected resource name 'pactocontracts', got %q", src.resourceName)
 	}
@@ -462,76 +492,12 @@ func TestK8s_NewK8sSource_CustomResourceName(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// listKubectlArgs / getKubectlArgs
-// ---------------------------------------------------------------------------
-
-func TestK8s_listKubectlArgs_WithNamespace(t *testing.T) {
-	src := NewK8sSource("prod", "pactos")
-	args := src.listKubectlArgs("get", "pactos", "-o", "json")
-
-	expected := []string{"get", "pactos", "-o", "json", "-n", "prod"}
-	if len(args) != len(expected) {
-		t.Fatalf("expected %d args, got %d: %v", len(expected), len(args), args)
-	}
-	for i, v := range expected {
-		if args[i] != v {
-			t.Errorf("arg[%d]: expected %q, got %q", i, v, args[i])
-		}
-	}
-}
-
-func TestK8s_listKubectlArgs_WithoutNamespace(t *testing.T) {
-	src := NewK8sSource("", "pactos")
-	args := src.listKubectlArgs("get", "pactos", "-o", "json")
-
-	expected := []string{"get", "pactos", "-o", "json", "--all-namespaces"}
-	if len(args) != len(expected) {
-		t.Fatalf("expected %d args, got %d: %v", len(expected), len(args), args)
-	}
-	for i, v := range expected {
-		if args[i] != v {
-			t.Errorf("arg[%d]: expected %q, got %q", i, v, args[i])
-		}
-	}
-}
-
-func TestK8s_getKubectlArgs_WithNamespace(t *testing.T) {
-	src := NewK8sSource("staging", "pactos")
-	args := src.getKubectlArgs("get", "pactos", "my-svc", "-o", "json")
-
-	expected := []string{"get", "pactos", "my-svc", "-o", "json", "-n", "staging"}
-	if len(args) != len(expected) {
-		t.Fatalf("expected %d args, got %d: %v", len(expected), len(args), args)
-	}
-	for i, v := range expected {
-		if args[i] != v {
-			t.Errorf("arg[%d]: expected %q, got %q", i, v, args[i])
-		}
-	}
-}
-
-func TestK8s_getKubectlArgs_WithoutNamespace(t *testing.T) {
-	src := NewK8sSource("", "pactos")
-	args := src.getKubectlArgs("get", "pactos", "my-svc", "-o", "json")
-
-	// No namespace flag appended.
-	expected := []string{"get", "pactos", "my-svc", "-o", "json"}
-	if len(args) != len(expected) {
-		t.Fatalf("expected %d args, got %d: %v", len(expected), len(args), args)
-	}
-	for i, v := range expected {
-		if args[i] != v {
-			t.Errorf("arg[%d]: expected %q, got %q", i, v, args[i])
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
 // setListCache
 // ---------------------------------------------------------------------------
 
 func TestK8s_setListCache(t *testing.T) {
-	src := NewK8sSource("default", "pactos")
+	client := &mockK8sClient{}
+	src := NewK8sSource(client, "default", "pactos")
 
 	items := []pactoResource{
 		{Status: pactoStatus{Phase: "Healthy"}},
@@ -558,7 +524,8 @@ func TestK8s_setListCache(t *testing.T) {
 }
 
 func TestK8s_setListCache_WithError(t *testing.T) {
-	src := NewK8sSource("default", "pactos")
+	client := &mockK8sClient{}
+	src := NewK8sSource(client, "default", "pactos")
 
 	testErr := fmt.Errorf("connection refused")
 	src.setListCache(nil, testErr)
@@ -579,7 +546,8 @@ func TestK8s_setListCache_WithError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestK8s_GetVersions_ReturnsError(t *testing.T) {
-	src := NewK8sSource("default", "pactos")
+	client := &mockK8sClient{}
+	src := NewK8sSource(client, "default", "pactos")
 	_, err := src.GetVersions(context.Background(), "any")
 	if err == nil {
 		t.Fatal("expected error from GetVersions")
@@ -594,7 +562,8 @@ func TestK8s_GetVersions_ReturnsError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestK8s_GetDiff_ReturnsError(t *testing.T) {
-	src := NewK8sSource("default", "pactos")
+	client := &mockK8sClient{}
+	src := NewK8sSource(client, "default", "pactos")
 	_, err := src.GetDiff(context.Background(), Ref{Name: "a", Version: "1"}, Ref{Name: "a", Version: "2"})
 	if err == nil {
 		t.Fatal("expected error from GetDiff")
@@ -605,34 +574,14 @@ func TestK8s_GetDiff_ReturnsError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Fake kubectl helper
-// ---------------------------------------------------------------------------
-
-func setupFakeKubectl(t *testing.T, output string) {
-	t.Helper()
-	dir := t.TempDir()
-	script := filepath.Join(dir, "kubectl")
-	_ = os.WriteFile(script, []byte("#!/bin/sh\ncat <<'ENDOFOUTPUT'\n"+output+"\nENDOFOUTPUT\n"), 0755)
-	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
-}
-
-func setupFakeKubectlError(t *testing.T) {
-	t.Helper()
-	dir := t.TempDir()
-	script := filepath.Join(dir, "kubectl")
-	_ = os.WriteFile(script, []byte("#!/bin/sh\nexit 1\n"), 0755)
-	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
-}
-
-// ---------------------------------------------------------------------------
 // ListServices
 // ---------------------------------------------------------------------------
 
 func TestK8s_ListServices(t *testing.T) {
 	listJSON := `{"items": [{"metadata": {"name": "svc-b", "namespace": "default"}, "status": {"phase": "Healthy", "contract": {"serviceName": "svc-b", "version": "1.0.0"}}}, {"metadata": {"name": "svc-a"}, "status": {"phase": "Progressing"}}]}`
-	setupFakeKubectl(t, listJSON)
+	client := &mockK8sClient{listJSON: []byte(listJSON)}
 
-	src := NewK8sSource("default", "pactos")
+	src := NewK8sSource(client, "default", "pactos")
 	services, err := src.ListServices(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -659,14 +608,14 @@ func TestK8s_ListServices(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// GetService with namespace (direct kubectl get)
+// GetService with namespace (direct API get)
 // ---------------------------------------------------------------------------
 
 func TestK8s_GetService_WithNamespace(t *testing.T) {
 	singleJSON := `{"metadata": {"name": "my-svc", "namespace": "default"}, "status": {"phase": "Healthy", "contract": {"serviceName": "my-svc", "version": "2.0.0"}}}`
-	setupFakeKubectl(t, singleJSON)
+	client := &mockK8sClient{getJSON: []byte(singleJSON)}
 
-	src := NewK8sSource("default", "pactos")
+	src := NewK8sSource(client, "default", "pactos")
 	details, err := src.GetService(context.Background(), "my-svc")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -688,9 +637,9 @@ func TestK8s_GetService_WithNamespace(t *testing.T) {
 
 func TestK8s_GetService_WithoutNamespace(t *testing.T) {
 	listJSON := `{"items": [{"metadata": {"name": "svc-a"}, "status": {"phase": "Healthy"}}, {"metadata": {"name": "target-svc"}, "status": {"phase": "Degraded", "contract": {"serviceName": "target-svc", "version": "3.0.0"}}}]}`
-	setupFakeKubectl(t, listJSON)
+	client := &mockK8sClient{listJSON: []byte(listJSON)}
 
-	src := NewK8sSource("", "pactos")
+	src := NewK8sSource(client, "", "pactos")
 	details, err := src.GetService(context.Background(), "target-svc")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -707,19 +656,19 @@ func TestK8s_GetService_WithoutNamespace(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// listPactos error (kubectl exits with error)
+// listPactos error (API call fails)
 // ---------------------------------------------------------------------------
 
 func TestK8s_listPactos_Error(t *testing.T) {
-	setupFakeKubectlError(t)
+	client := &mockK8sClient{listErr: fmt.Errorf("connection refused")}
 
-	src := NewK8sSource("default", "pactos")
+	src := NewK8sSource(client, "default", "pactos")
 	_, err := src.ListServices(context.Background())
 	if err == nil {
-		t.Fatal("expected error from ListServices when kubectl fails")
+		t.Fatal("expected error from ListServices when API call fails")
 	}
-	if !strings.Contains(err.Error(), "kubectl get") {
-		t.Errorf("expected error to mention 'kubectl get', got: %v", err)
+	if !strings.Contains(err.Error(), "listing") {
+		t.Errorf("expected error to mention 'listing', got: %v", err)
 	}
 }
 
@@ -728,15 +677,15 @@ func TestK8s_listPactos_Error(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestK8s_listPactos_BadJSON(t *testing.T) {
-	setupFakeKubectl(t, "this is not valid json")
+	client := &mockK8sClient{listJSON: []byte("this is not valid json")}
 
-	src := NewK8sSource("default", "pactos")
+	src := NewK8sSource(client, "default", "pactos")
 	_, err := src.ListServices(context.Background())
 	if err == nil {
-		t.Fatal("expected error from ListServices when kubectl returns bad JSON")
+		t.Fatal("expected error from ListServices when API returns bad JSON")
 	}
-	if !strings.Contains(err.Error(), "parsing kubectl output") {
-		t.Errorf("expected error to mention 'parsing kubectl output', got: %v", err)
+	if !strings.Contains(err.Error(), "parsing API response") {
+		t.Errorf("expected error to mention 'parsing API response', got: %v", err)
 	}
 }
 
@@ -746,9 +695,9 @@ func TestK8s_listPactos_BadJSON(t *testing.T) {
 
 func TestK8s_getPacto_NotFound(t *testing.T) {
 	listJSON := `{"items": [{"metadata": {"name": "svc-a"}, "status": {"phase": "Healthy"}}, {"metadata": {"name": "svc-b"}, "status": {"phase": "Healthy"}}]}`
-	setupFakeKubectl(t, listJSON)
+	client := &mockK8sClient{listJSON: []byte(listJSON)}
 
-	src := NewK8sSource("", "pactos")
+	src := NewK8sSource(client, "", "pactos")
 	_, err := src.GetService(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error when service is not found")
@@ -764,9 +713,9 @@ func TestK8s_getPacto_NotFound(t *testing.T) {
 
 func TestK8s_listPactos_CacheHit(t *testing.T) {
 	listJSON := `{"items": [{"metadata": {"name": "svc-a"}, "status": {"phase": "Healthy"}}]}`
-	setupFakeKubectl(t, listJSON)
+	client := &mockK8sClient{listJSON: []byte(listJSON)}
 
-	src := NewK8sSource("default", "pactos")
+	src := NewK8sSource(client, "default", "pactos")
 
 	// First call populates cache.
 	items1, err := src.listPactos(context.Background())
@@ -777,8 +726,8 @@ func TestK8s_listPactos_CacheHit(t *testing.T) {
 		t.Fatalf("expected 1 item, got %d", len(items1))
 	}
 
-	// Replace kubectl with one that returns different data to prove cache is used.
-	setupFakeKubectl(t, `{"items": []}`)
+	// Replace client response with different data to prove cache is used.
+	client.listJSON = []byte(`{"items": []}`)
 
 	// Second call should return cached data (within TTL).
 	items2, err := src.listPactos(context.Background())
@@ -798,9 +747,9 @@ func TestK8s_getPacto_MatchByServiceName(t *testing.T) {
 	listJSON := `{"items": [
 		{"metadata": {"name": "k8s-resource-name"}, "status": {"phase": "Healthy", "contract": {"serviceName": "my-service", "version": "1.0.0"}}}
 	]}`
-	setupFakeKubectl(t, listJSON)
+	client := &mockK8sClient{listJSON: []byte(listJSON)}
 
-	src := NewK8sSource("", "pactos") // all-namespaces mode
+	src := NewK8sSource(client, "", "pactos") // all-namespaces mode
 	details, err := src.GetService(context.Background(), "my-service")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -811,19 +760,19 @@ func TestK8s_getPacto_MatchByServiceName(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getPacto kubectl error (with namespace, kubectl exits with error)
+// getPacto API error (with namespace, API call fails)
 // ---------------------------------------------------------------------------
 
-func TestK8s_getPacto_KubectlError_WithNamespace(t *testing.T) {
-	setupFakeKubectlError(t)
+func TestK8s_getPacto_APIError_WithNamespace(t *testing.T) {
+	client := &mockK8sClient{getErr: fmt.Errorf("connection refused")}
 
-	src := NewK8sSource("default", "pactos")
+	src := NewK8sSource(client, "default", "pactos")
 	_, err := src.GetService(context.Background(), "my-svc")
 	if err == nil {
-		t.Fatal("expected error when kubectl fails for direct get")
+		t.Fatal("expected error when API call fails for direct get")
 	}
-	if !strings.Contains(err.Error(), "kubectl get") {
-		t.Errorf("expected error to mention 'kubectl get', got: %v", err)
+	if !strings.Contains(err.Error(), "getting") {
+		t.Errorf("expected error to mention 'getting', got: %v", err)
 	}
 }
 
@@ -832,15 +781,15 @@ func TestK8s_getPacto_KubectlError_WithNamespace(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestK8s_getPacto_BadJSON_WithNamespace(t *testing.T) {
-	setupFakeKubectl(t, "not valid json at all")
+	client := &mockK8sClient{getJSON: []byte("not valid json at all")}
 
-	src := NewK8sSource("default", "pactos")
+	src := NewK8sSource(client, "default", "pactos")
 	_, err := src.GetService(context.Background(), "my-svc")
 	if err == nil {
-		t.Fatal("expected error when kubectl returns bad JSON for direct get")
+		t.Fatal("expected error when API returns bad JSON for direct get")
 	}
-	if !strings.Contains(err.Error(), "parsing kubectl output") {
-		t.Errorf("expected error to mention 'parsing kubectl output', got: %v", err)
+	if !strings.Contains(err.Error(), "parsing API response") {
+		t.Errorf("expected error to mention 'parsing API response', got: %v", err)
 	}
 }
 
@@ -849,15 +798,15 @@ func TestK8s_getPacto_BadJSON_WithNamespace(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestK8s_getPacto_ListError_AllNamespaces(t *testing.T) {
-	setupFakeKubectlError(t)
+	client := &mockK8sClient{listErr: fmt.Errorf("connection refused")}
 
-	src := NewK8sSource("", "pactos") // all-namespaces mode
+	src := NewK8sSource(client, "", "pactos") // all-namespaces mode
 	_, err := src.GetService(context.Background(), "my-svc")
 	if err == nil {
 		t.Fatal("expected error when listPactos fails in all-namespaces mode")
 	}
-	if !strings.Contains(err.Error(), "kubectl get") {
-		t.Errorf("expected error to mention 'kubectl get', got: %v", err)
+	if !strings.Contains(err.Error(), "listing") {
+		t.Errorf("expected error to mention 'listing', got: %v", err)
 	}
 }
 

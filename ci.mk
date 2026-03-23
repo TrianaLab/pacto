@@ -7,7 +7,7 @@ BUNDLE_DIR := pactos/pacto-dashboard
 .PHONY: ci ci-static ci-test ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
-ci: ci-static ci-test e2e
+ci: ci-static ci-test e2e gen-bundle
 
 ci-static: ci-fmt ci-vet ci-cyclo ci-lint ci-docs
 

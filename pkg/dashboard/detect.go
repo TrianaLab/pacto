@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/trianalab/pacto/internal/oci"
 )
@@ -44,7 +42,7 @@ type SourceDiagnostics struct {
 
 // K8sDiagnostics contains K8s source detection details.
 type K8sDiagnostics struct {
-	KubectlFound     bool     `json:"kubectlFound"`
+	ClientConfigured bool     `json:"clientConfigured"`
 	KubeconfigPath   string   `json:"kubeconfigPath,omitempty"`
 	ClusterReachable bool     `json:"clusterReachable"`
 	CRDExists        bool     `json:"crdExists"`
@@ -92,7 +90,7 @@ func DetectSources(ctx context.Context, opts DetectOptions) *DetectResult {
 	// Local: check if dir contains pacto.yaml (root or subdirectories).
 	result.detectLocal(opts.Dir)
 
-	// K8s: check if kubectl is available and cluster is reachable.
+	// K8s: check if cluster is reachable using Go client.
 	result.detectK8s(ctx, opts.Namespace)
 
 	// OCI registry: check if store is configured and repos are provided.
@@ -185,14 +183,16 @@ func (r *DetectResult) detectK8s(ctx context.Context, namespace string) {
 
 	detectKubeconfig(diag)
 
-	if _, err := exec.LookPath("kubectl"); err != nil {
-		info.Reason = "kubectl not found in PATH"
+	client, err := newK8sClientFunc()
+	if err != nil {
+		info.Reason = "Kubernetes client not available: " + err.Error()
+		diag.Error = err.Error()
 		r.Sources = append(r.Sources, info)
 		return
 	}
-	diag.KubectlFound = true
+	diag.ClientConfigured = true
 
-	if err := probeCluster(ctx); err != nil {
+	if err := client.Probe(ctx); err != nil {
 		info.Reason = "cluster not reachable"
 		diag.Error = err.Error()
 		r.Sources = append(r.Sources, info)
@@ -200,8 +200,8 @@ func (r *DetectResult) detectK8s(ctx context.Context, namespace string) {
 	}
 	diag.ClusterReachable = true
 
-	resourceName := discoverCRD(ctx, diag)
-	countResources(ctx, diag, resourceName, namespace)
+	resourceName := discoverCRD(ctx, client, diag)
+	countResources(ctx, client, diag, resourceName, namespace)
 
 	info.Enabled = true
 	if diag.CRDExists {
@@ -210,7 +210,7 @@ func (r *DetectResult) detectK8s(ctx context.Context, namespace string) {
 		info.Reason = "cluster reachable (CRD not detected, may still work)"
 	}
 
-	r.K8s = NewK8sSource(namespace, resourceName)
+	r.K8s = NewK8sSource(client, namespace, resourceName)
 	r.Sources = append(r.Sources, info)
 }
 
@@ -226,57 +226,34 @@ func detectKubeconfig(diag *K8sDiagnostics) {
 	}
 }
 
-// probeCluster checks if the Kubernetes cluster is reachable.
-func probeCluster(ctx context.Context) error {
-	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	return exec.CommandContext(probeCtx, "kubectl", "cluster-info").Run()
-}
-
 // discoverCRD dynamically discovers the Pacto CRD resource name and version.
-func discoverCRD(ctx context.Context, diag *K8sDiagnostics) string {
-	crdCtx, crdCancel := context.WithTimeout(ctx, 3*time.Second)
-	defer crdCancel()
-	crdCmd := exec.CommandContext(crdCtx, "kubectl", "api-resources",
-		"--api-group=pacto.trianalab.io",
-		"--no-headers",
-		"-o", "wide")
-	crdOut, err := crdCmd.Output()
-
+func discoverCRD(ctx context.Context, client K8sClient, diag *K8sDiagnostics) string {
+	discovery, err := client.DiscoverCRD(ctx)
 	resourceName := "pactos" // fallback
-	if err == nil && len(crdOut) > 0 {
+	if err != nil {
+		diag.Error = err.Error()
+		return resourceName
+	}
+
+	if discovery.Found {
 		diag.CRDExists = true
-		diag.DetectedGroup = "pacto.trianalab.io"
-		for _, line := range splitNonEmpty(string(crdOut)) {
-			fields := strings.Fields(line)
-			if len(fields) >= 5 && strings.EqualFold(fields[len(fields)-1], "Pacto") {
-				resourceName = fields[0]
-				apiVersion := fields[2]
-				if parts := strings.SplitN(apiVersion, "/", 2); len(parts) == 2 {
-					diag.DetectedVersions = append(diag.DetectedVersions, parts[1])
-					diag.ChosenVersion = parts[1]
-				}
-				break
-			}
+		diag.DetectedGroup = discovery.Group
+		diag.DetectedVersions = discovery.Versions
+		diag.ChosenVersion = discovery.Version
+		if discovery.ResourceName != "" {
+			resourceName = discovery.ResourceName
 		}
 		diag.ResourceName = resourceName
 	}
+
 	return resourceName
 }
 
 // countResources counts how many Pacto resources exist in the cluster.
-func countResources(ctx context.Context, diag *K8sDiagnostics, resourceName, namespace string) {
-	countCtx, countCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer countCancel()
-	var countArgs []string
-	if namespace != "" {
-		countArgs = []string{"get", resourceName, "-n", namespace, "-o", "name", "--no-headers"}
-	} else {
-		countArgs = []string{"get", resourceName, "--all-namespaces", "-o", "name", "--no-headers"}
-	}
-	countOut, err := exec.CommandContext(countCtx, "kubectl", countArgs...).Output()
+func countResources(ctx context.Context, client K8sClient, diag *K8sDiagnostics, resourceName, namespace string) {
+	count, err := client.CountResources(ctx, resourceName, namespace)
 	if err == nil {
-		diag.ResourceCount = len(splitNonEmpty(string(countOut)))
+		diag.ResourceCount = count
 	}
 }
 

@@ -1,12 +1,12 @@
 /* ── State ─── */
-var state = { view: 'list', service: null, tab: 'overview', services: [], details: {}, versions: {}, aggregated: {}, sourcesInfo: [], filter: 'all', graphData: null, overviewView: 'table' };
+var state = { view: 'list', service: null, tab: 'overview', services: [], details: {}, versions: {}, aggregated: {}, sourcesInfo: [], filter: 'all', graphData: null, overviewView: 'table', pendingRef: null, pendingCompat: null };
 
 // getSources extracts the sources array from a service entry.
 function getSources(svc) { return (svc.sources || [svc.source]).filter(Boolean); }
 
 /* ── API ─── */
 var api = {
-  get: function(p) { return fetch('/api' + p).then(function(r) { if (!r.ok) throw new Error('API ' + r.status); return r.json(); }); },
+  get: function(p) { return fetch('/api' + p).then(function(r) { if (!r.ok) { var err = new Error('API ' + r.status); err.status = r.status; throw err; } return r.json(); }); },
   listServices: function() { return this.get('/services'); },
   getService: function(n) { return this.get('/services/' + encodeURIComponent(n)); },
   getVersions: function(n) { return this.get('/services/' + encodeURIComponent(n) + '/versions'); },
@@ -17,7 +17,39 @@ var api = {
   getSources: function() { return this.get('/sources'); },
   getCrossRefs: function(n) { return this.get('/services/' + encodeURIComponent(n) + '/refs'); },
   getDiff: function(a, b) { return this.get('/diff?from_name=' + encodeURIComponent(a.name) + '&from_version=' + encodeURIComponent(a.version) + '&to_name=' + encodeURIComponent(b.name) + '&to_version=' + encodeURIComponent(b.version)); },
-  getDebugSources: function() { return this.get('/debug/sources'); }
+  getDebugSources: function() { return this.get('/debug/sources'); },
+  resolveRef: function(ref, compatibility) {
+    var payload = { ref: ref };
+    if (compatibility) payload.compatibility = compatibility;
+    return fetch('/api/resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function(r) {
+      if (!r.ok) return r.json().then(function(body) {
+        var msg = (body && body.detail) || (body && body.title) || ('API ' + r.status);
+        var err = new Error(msg);
+        err.status = r.status;
+        throw err;
+      });
+      return r.json();
+    });
+  },
+  listRemoteVersions: function(ref) {
+    return fetch('/api/versions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ref: ref })
+    }).then(function(r) {
+      if (!r.ok) return r.json().then(function(body) {
+        var msg = (body && body.detail) || (body && body.title) || ('API ' + r.status);
+        var err = new Error(msg);
+        err.status = r.status;
+        throw err;
+      });
+      return r.json();
+    });
+  }
 };
 
 /* ── Helpers ─── */
@@ -128,9 +160,11 @@ function resolveServiceName(name) {
   if (stripped !== name && serviceExists(stripped)) return stripped;
   return name;
 }
-function navigateTo(view, svc) {
+function navigateTo(view, svc, ref, compat) {
   state.view = view;
   state.service = resolveServiceName(svc) || null;
+  state.pendingRef = ref || null;
+  state.pendingCompat = compat || null;
   if (view === 'list') { state.tab = 'overview'; state.filter = 'all'; }
   else { state.tab = 'overview'; }
   // Clear search when navigating to detail
@@ -242,7 +276,7 @@ function renderDebugPanel(debug) {
   if (debug.diagnostics) {
     var d = debug.diagnostics;
     o += '<div class="debug-section"><h4>Kubernetes</h4><table class="debug-table">';
-    o += '<tr><td>kubectl found</td><td>' + (d.k8s && d.k8s.kubectlFound ? 'Yes' : 'No') + '</td></tr>';
+    o += '<tr><td>Client configured</td><td>' + (d.k8s && d.k8s.clientConfigured ? 'Yes' : 'No') + '</td></tr>';
     if (d.k8s && d.k8s.kubeconfigPath) o += '<tr><td>kubeconfig</td><td>' + h(d.k8s.kubeconfigPath) + '</td></tr>';
     o += '<tr><td>Cluster reachable</td><td>' + (d.k8s && d.k8s.clusterReachable ? 'Yes' : 'No') + '</td></tr>';
     o += '<tr><td>CRD exists</td><td>' + (d.k8s && d.k8s.crdExists ? 'Yes' : 'No') + '</td></tr>';
@@ -1226,7 +1260,64 @@ async function renderDetail() {
       renderDetailPage();
     }).catch(function() {});
   } catch (e) {
-    app.innerHTML = '<div class="empty-state"><div class="empty-state-title">Service not found</div><p>' + h(e.message) + '</p></div>';
+    // If 404 and we have an OCI ref, try lazy resolution
+    var depInfo = state.pendingRef ? { ref: state.pendingRef, compatibility: state.pendingCompat || '' } : findDepInfo(svcName);
+    if (e.status === 404 && depInfo) {
+      await resolveRemoteDep(svcName, depInfo.ref, depInfo.compatibility);
+    } else {
+      app.innerHTML = '<div class="empty-state"><div class="empty-state-title">Service not found</div><p>' + h(e.message) + '</p></div>';
+    }
+  }
+}
+
+/* Find a dependency ref and compatibility for a service name from any loaded service's deps */
+function findDepInfo(name) {
+  for (var key in state.details) {
+    var d = state.details[key];
+    if (!d || !d.dependencies) continue;
+    for (var i = 0; i < d.dependencies.length; i++) {
+      var dep = d.dependencies[i];
+      var depName = dep.name || extractServiceName(dep.ref);
+      if (depName === name && dep.ref && dep.ref !== name) return { ref: dep.ref, compatibility: dep.compatibility || '' };
+    }
+  }
+  return null;
+}
+
+/* Attempt to lazily resolve a remote OCI dependency */
+async function resolveRemoteDep(svcName, ref, compatibility) {
+  var app = document.getElementById('app');
+  app.innerHTML = '<div class="loading"><div class="spinner"></div>Resolving remote dependency&hellip;<br><code class="text-dim" style="font-size:var(--text-xs);margin-top:8px;display:inline-block">' + h(ref) + (compatibility ? ' (' + h(compatibility) + ')' : '') + '</code></div>';
+  try {
+    var details = await api.resolveRef(ref, compatibility);
+    if (state.service !== svcName) return;
+    // The resolved service might have a different name than what we navigated to
+    var resolvedName = details.name || svcName;
+    state.details[resolvedName] = details;
+    if (resolvedName !== svcName) {
+      state.service = resolvedName;
+      history.replaceState(null, '', '#service/' + encodeURIComponent(resolvedName));
+    }
+    // Add to known services list so serviceExists() works
+    if (!state.services.some(function(s) { return s.name === resolvedName; })) {
+      state.services.push({ name: resolvedName, version: details.version, owner: details.owner, phase: details.phase, source: 'oci', sources: ['oci'] });
+    }
+    state.dependents = [];
+    state.crossRefs = { references: [], referencedBy: [] };
+    state.pendingRef = null;
+    state.pendingCompat = null;
+    renderDetailPage();
+  } catch (re) {
+    var errorTitle = 'Failed to resolve dependency';
+    var errorMsg = re.message || 'Unknown error';
+    if (re.status === 403) errorTitle = 'Authentication failed';
+    else if (re.status === 404) errorTitle = 'Artifact not found in registry';
+    else if (re.status === 422) errorTitle = 'Invalid reference or bundle';
+    else if (re.status === 502) errorTitle = 'Registry unreachable';
+    app.innerHTML = '<div class="empty-state"><div class="empty-state-title">' + h(errorTitle) + '</div>' +
+      '<p>' + h(errorMsg) + '</p>' +
+      '<code class="text-dim" style="font-size:var(--text-xs);display:block;margin-top:8px">' + h(ref) + '</code>' +
+      '<div style="margin-top:16px"><a class="dep-link" onclick="navigateTo(\'list\')">Back to overview</a></div></div>';
   }
 }
 
@@ -1713,9 +1804,13 @@ function renderTabDependencies(d) {
       var depName = dep.name || extractServiceName(dep.ref);
       var exists = serviceExists(depName);
       o += '<tr>';
-      // Always clickable — navigates to detail (shows "not found" if external)
-      o += '<td><a class="dep-link" onclick="navigateTo(\'detail\',\'' + ha(depName) + '\')">' + h(depName) + '</a>';
-      if (!exists) o += ' <span class="badge badge-neutral">external</span>';
+      // Always clickable — navigates to detail; passes OCI ref for lazy resolution of external deps
+      if (exists) {
+        o += '<td><a class="dep-link" onclick="navigateTo(\'detail\',\'' + ha(depName) + '\')">' + h(depName) + '</a>';
+      } else {
+        o += '<td><a class="dep-link" onclick="navigateTo(\'detail\',\'' + ha(depName) + '\',\'' + ha(dep.ref) + '\',\'' + ha(dep.compatibility || '') + '\')">' + h(depName) + '</a>';
+        o += ' <span class="badge badge-neutral">external</span>';
+      }
       if (dep.ref !== depName) o += '<br><code class="text-dim" style="font-size:var(--text-xs)">' + h(dep.ref) + '</code>';
       o += '</td>';
       o += '<td>' + (dep.required ? '<span class="badge badge-info">required</span>' : '<span class="badge badge-neutral">optional</span>') + '</td>';
@@ -2022,7 +2117,14 @@ function renderTabHistory(versions) {
   if (!versions.length) return '<div class="card"><div style="color:var(--text-dim);font-size:var(--text-sm);text-align:center;padding:24px">No revision history available</div></div>';
 
   var canDiff = versions.length > 1;
-  var o = '<div class="card"><div class="card-header"><div class="section-label">Version History</div><span class="text-dim">' + versions.length + ' revision' + (versions.length !== 1 ? 's' : '') + '</span></div>';
+  // Detect OCI repo from version refs for "Fetch all versions" button
+  var ociRepo = '';
+  for (var vi = 0; vi < versions.length; vi++) {
+    if (versions[vi].ref) { var idx = versions[vi].ref.lastIndexOf(':'); if (idx > 0) ociRepo = versions[vi].ref.substring(0, idx); break; }
+  }
+  var o = '<div class="card"><div class="card-header"><div class="section-label">Version History</div><span class="text-dim">' + versions.length + ' revision' + (versions.length !== 1 ? 's' : '') + '</span>';
+  if (ociRepo) o += ' <button class="filter-clear" style="font-size:11px;margin-left:8px" id="fetch-versions-btn" onclick="fetchAllVersions(\'' + ha(ociRepo) + '\')">Fetch all versions</button>';
+  o += '</div>';
   o += '<div class="table-wrapper"><table><thead><tr><th>Version</th><th>Source</th><th>Hash</th><th>Created</th><th>Status</th><th></th></tr></thead><tbody>';
   for (var i = 0; i < versions.length; i++) {
     var v = versions[i];
@@ -2065,6 +2167,26 @@ function compareVersion(version) {
       runDiff(state.service);
     }
   }, 50);
+}
+
+async function fetchAllVersions(ociRepo) {
+  var btn = document.getElementById('fetch-versions-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Fetching\u2026'; }
+  try {
+    var result = await api.listRemoteVersions(ociRepo);
+    var remote = (result && result.versions) || [];
+    var existing = state.versions[state.service] || [];
+    var known = {};
+    for (var i = 0; i < existing.length; i++) known[existing[i].version] = true;
+    for (var j = 0; j < remote.length; j++) {
+      if (!known[remote[j]]) existing.push({ version: remote[j], ref: ociRepo + ':' + remote[j] });
+    }
+    existing.sort(function(a, b) { return b.version.localeCompare(a.version, undefined, { numeric: true }); });
+    state.versions[state.service] = existing;
+    document.getElementById('tab-content').innerHTML = renderTabHistory(existing);
+  } catch (e) {
+    if (btn) { btn.textContent = 'Error: ' + (e.message || 'failed'); btn.style.color = 'var(--danger)'; }
+  }
 }
 
 /* ─── Tab: Diff (matches operator partial-tab-diff.html) ─── */
