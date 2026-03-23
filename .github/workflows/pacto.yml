@@ -12,6 +12,10 @@ on:
       - 'pkg/dashboard/**'
   release:
     types: [published]
+  workflow_run:
+    workflows: ['Auto release']
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
@@ -28,8 +32,28 @@ jobs:
         with:
           go-version: '1.25'
 
-      # Setup Pacto CLI and plugins
+      # On push-to-main, build pacto from source to avoid a race condition
+      # with the auto-release workflow that creates the release concurrently.
+      # On PRs and releases, download the latest published release instead.
+      - name: Build pacto from source
+        if: github.event_name == 'push'
+        run: go install ./cmd/pacto
+
+      - name: Install official plugins
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=$(gh release view --repo TrianaLab/pacto-plugins --json tagName -q .tagName)
+          GOBIN=$(go env GOPATH)/bin
+          for plugin in pacto-plugin-schema-infer pacto-plugin-openapi-infer; do
+            gh release download "$TAG" --repo TrianaLab/pacto-plugins \
+              --pattern "${plugin}_linux_amd64" --output "${GOBIN}/${plugin}"
+            chmod +x "${GOBIN}/${plugin}"
+          done
+
       - uses: trianalab/pacto-actions@v1
+        if: github.event_name != 'push'
         with:
           command: setup
 
@@ -79,7 +103,9 @@ jobs:
           comment-on-pr: 'true'
 
   publish:
-    if: github.event_name == 'release'
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     needs: bundle
     runs-on: ubuntu-latest
     steps:
@@ -88,6 +114,20 @@ jobs:
       - uses: trianalab/pacto-actions@v1
         with:
           command: setup
+
+      # Resolve the release tag: use the release event tag if available,
+      # otherwise fetch the latest release tag (workflow_run trigger).
+      - name: Resolve release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            TAG=$(gh release view --json tagName -q .tagName)
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Download bundle artifact
         uses: actions/download-artifact@v4.3.0
@@ -98,7 +138,7 @@ jobs:
       - uses: trianalab/pacto-actions@v1
         with:
           command: push
-          ref: oci://ghcr.io/trianalab/pactos/pacto-dashboard:${{ github.event.release.tag_name }}
+          ref: oci://ghcr.io/trianalab/pactos/pacto-dashboard:${{ steps.tag.outputs.tag }}
           path: ./pactos/pacto-dashboard
           set: |
-            service.version=${{ github.event.release.tag_name }}
+            service.version=${{ steps.tag.outputs.tag }}
