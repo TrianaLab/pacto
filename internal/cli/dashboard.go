@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io/fs"
+	"os"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -51,6 +52,12 @@ Services are grouped by name across sources and merged using priority rules:
 			port := v.GetInt("dashboard.port")
 			namespace := v.GetString("dashboard.namespace")
 			repos, _ := cmd.Flags().GetStringArray("repo")
+			// Support PACTO_DASHBOARD_REPO env var (comma-separated) as fallback.
+			if len(repos) == 0 {
+				if envRepos := os.Getenv("PACTO_DASHBOARD_REPO"); envRepos != "" {
+					repos = strings.Split(envRepos, ",")
+				}
+			}
 			noCache := v.GetBool("no-cache")
 			diagnostics := v.GetBool("dashboard.diagnostics")
 			dir := optionalArg(args)

@@ -187,6 +187,63 @@ func TestNewDashboardCommand_NoSourcesDetails(t *testing.T) {
 	}
 }
 
+func TestNewDashboardCommand_RepoEnvVar(t *testing.T) {
+	emptyDir := t.TempDir()
+	t.Setenv("PACTO_DASHBOARD_REPO", "ghcr.io/org/svc-a,ghcr.io/org/svc-b")
+	t.Setenv("HOME", emptyDir)
+	t.Setenv("XDG_CACHE_HOME", emptyDir)
+	t.Setenv("KUBECONFIG", filepath.Join(emptyDir, "nonexistent"))
+
+	svc := app.NewService(dummyStore{}, nil)
+	v := viper.New()
+	cmd := newDashboardCommand(svc, v)
+	cmd.SetArgs([]string{emptyDir, "--port", "0"})
+
+	var errBuf bytes.Buffer
+	cmd.SetErr(&errBuf)
+	cmd.SetOut(&bytes.Buffer{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cmd.SetContext(ctx)
+
+	_ = cmd.Execute()
+
+	stderr := errBuf.String()
+	if !strings.Contains(stderr, "oci") {
+		t.Errorf("expected stderr to mention 'oci' source when PACTO_DASHBOARD_REPO is set, got:\n%s", stderr)
+	}
+}
+
+func TestNewDashboardCommand_RepoFlagOverridesEnv(t *testing.T) {
+	emptyDir := t.TempDir()
+	t.Setenv("PACTO_DASHBOARD_REPO", "ghcr.io/org/from-env")
+	t.Setenv("HOME", emptyDir)
+	t.Setenv("XDG_CACHE_HOME", emptyDir)
+	t.Setenv("KUBECONFIG", filepath.Join(emptyDir, "nonexistent"))
+
+	svc := app.NewService(dummyStore{}, nil)
+	v := viper.New()
+	cmd := newDashboardCommand(svc, v)
+	cmd.SetArgs([]string{emptyDir, "--port", "0", "--repo", "ghcr.io/org/from-flag"})
+
+	var errBuf bytes.Buffer
+	cmd.SetErr(&errBuf)
+	cmd.SetOut(&bytes.Buffer{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cmd.SetContext(ctx)
+
+	_ = cmd.Execute()
+
+	stderr := errBuf.String()
+	// The flag value should be used, not the env var — both enable OCI.
+	if !strings.Contains(stderr, "oci") {
+		t.Errorf("expected stderr to mention 'oci' source, got:\n%s", stderr)
+	}
+}
+
 func TestNewDashboardCommand_DefaultFlags(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	v := viper.New()
