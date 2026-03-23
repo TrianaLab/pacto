@@ -25,7 +25,9 @@ func TestDashboardCommand(t *testing.T) {
 	t.Run("no sources detected", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := runCommandWithCancelledCtx(t, nil, "dashboard", "/nonexistent/empty/dir/xyz")
+		// Use --no-cache to prevent the disk cache source from being detected
+		// on machines that have a populated ~/.cache/pacto/oci/ directory.
+		_, err := runCommandWithCancelledCtx(t, nil, "dashboard", "--no-cache", "/nonexistent/empty/dir/xyz")
 		if err == nil {
 			t.Fatal("expected error when no sources are detected")
 		}

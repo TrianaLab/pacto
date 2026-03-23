@@ -351,9 +351,6 @@ func serviceFromK8sStatus(r pactoResource) Service {
 	if r.Status.ContractVersion != "" {
 		svc.Version = r.Status.ContractVersion
 	}
-	if svc.Phase == "" {
-		svc.Phase = PhaseUnknown
-	}
 	return svc
 }
 

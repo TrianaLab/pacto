@@ -7,13 +7,33 @@ import (
 	"sort"
 )
 
-// sourcePriority defines the merge priority for overlapping data.
-// Lower number = higher priority for that domain.
-var sourcePriority = map[string]int{
-	"k8s":   0, // highest for runtime state
-	"local": 1, // highest for in-progress work
-	"oci":   2, // highest for version history
-	"cache": 3, // offline cache, same role as oci but lower priority
+// Source priority by data category.
+// Lower index = higher priority. Each category has its own order
+// because different data types have different authoritative sources.
+
+// runtimePriority governs phase, conditions, endpoints, resources, ports, scaling.
+var runtimePriority = []string{"k8s", "local", "cache", "oci"}
+
+// contentPriority governs interfaces, configuration, policy, dependencies, metadata.
+var contentPriority = []string{"local", "k8s", "cache", "oci"}
+
+// versionPriority governs version history (GetVersions).
+// k8s is first because PactoRevision resources are the most authoritative
+// when the operator is installed. Falls back to cache/oci for offline data.
+var versionPriority = []string{"k8s", "cache", "oci", "local"}
+
+// identityPriority governs version/owner/imageRef/chartRef on the summary.
+// Local edits take precedence, then k8s (live), then registry baseline.
+var identityPriority = []string{"local", "k8s", "oci", "cache"}
+
+// sourcePriorityIndex returns 0 for highest priority, len for unknown.
+func sourcePriorityIndex(order []string, sourceType string) int {
+	for i, s := range order {
+		if s == sourceType {
+			return i
+		}
+	}
+	return len(order)
 }
 
 // AggregatedSource implements DataSource by combining multiple sources.
@@ -89,8 +109,7 @@ func (a *AggregatedSource) GetService(ctx context.Context, name string) (*Servic
 }
 
 func (a *AggregatedSource) GetVersions(ctx context.Context, name string) ([]Version, error) {
-	// Prefer OCI for version history, then cache, then fall back to other sources.
-	for _, sourceType := range []string{"oci", "cache", "local", "k8s"} {
+	for _, sourceType := range versionPriority {
 		ds, ok := a.sources[sourceType]
 		if !ok {
 			continue
@@ -172,9 +191,11 @@ func (a *AggregatedSource) aggregate(ctx context.Context, name string) (*Aggrega
 		return nil, fmt.Errorf("service %q not found in any source", name)
 	}
 
-	// Sort sources by priority for deterministic merge.
+	// Sort sources by runtime priority for deterministic merge.
+	// The first source becomes the base; per-type merge functions then apply overrides.
 	sort.Slice(agg.Sources, func(i, j int) bool {
-		return sourcePriority[agg.Sources[i].SourceType] < sourcePriority[agg.Sources[j].SourceType]
+		return sourcePriorityIndex(runtimePriority, agg.Sources[i].SourceType) <
+			sourcePriorityIndex(runtimePriority, agg.Sources[j].SourceType)
 	})
 
 	agg.Merged = mergeServiceDetails(agg.Sources)
@@ -195,7 +216,6 @@ func (e *aggregatedEntry) add(sourceType string, svc *Service) {
 }
 
 func (e *aggregatedEntry) mergedSummary(name string) Service {
-
 	merged := Service{Name: name, Phase: PhaseUnknown}
 
 	var sourceTypes []string
@@ -205,29 +225,50 @@ func (e *aggregatedEntry) mergedSummary(name string) Service {
 	sort.Strings(sourceTypes)
 	merged.Sources = sourceTypes
 
-	// Apply priority: k8s > local > oci > cache for phase/version/owner.
-	for _, st := range []string{"cache", "oci", "local", "k8s"} {
-		svc, ok := e.sources[st]
-		if !ok {
-			continue
-		}
-		if svc.Version != "" {
-			merged.Version = svc.Version
-		}
-		if svc.Owner != "" {
-			merged.Owner = svc.Owner
-		}
-		if svc.Phase != PhaseUnknown && svc.Phase != "" {
+	// Phase uses runtime priority: k8s > local > cache > oci
+	for _, st := range runtimePriority {
+		if svc, ok := e.sources[st]; ok && svc.Phase != PhaseUnknown && svc.Phase != "" {
 			merged.Phase = svc.Phase
+			merged.Source = st
+			break
 		}
-		merged.Source = st // last applied = highest priority
+	}
+
+	// Version/Owner use identity priority: local > k8s > oci > cache
+	for _, st := range identityPriority {
+		if svc, ok := e.sources[st]; ok && svc.Version != "" {
+			merged.Version = svc.Version
+			break
+		}
+	}
+	for _, st := range identityPriority {
+		if svc, ok := e.sources[st]; ok && svc.Owner != "" {
+			merged.Owner = svc.Owner
+			break
+		}
+	}
+
+	// If Source wasn't set by phase (all unknown), use the highest-priority present source.
+	if merged.Source == "" {
+		for _, st := range runtimePriority {
+			if _, ok := e.sources[st]; ok {
+				merged.Source = st
+				break
+			}
+		}
 	}
 
 	return merged
 }
 
-// mergeServiceDetails merges per-source details using priority rules.
+// mergeServiceDetails merges per-source details using per-category priority.
 // Sources must be sorted by priority (lowest index = highest priority).
+//
+// Priority by category:
+//   - Runtime (phase, conditions, endpoints, resources, ports): k8s > local > cache > oci
+//   - Contract content (interfaces, configuration, policy): local > k8s > cache > oci
+//   - Graph relationships (dependencies): union across all sources
+//   - Identity (version, owner, imageRef, chartRef): local > k8s > oci > cache
 func mergeServiceDetails(sources []ServiceSourceData) *ServiceDetails {
 	if len(sources) == 0 {
 		return nil
@@ -244,7 +285,7 @@ func mergeServiceDetails(sources []ServiceSourceData) *ServiceDetails {
 	}
 	merged.Sources = sourceTypes
 
-	// Apply priority overrides.
+	// Apply per-type overrides by category.
 	for _, s := range sources {
 		switch s.SourceType {
 		case "k8s":
@@ -255,6 +296,9 @@ func mergeServiceDetails(sources []ServiceSourceData) *ServiceDetails {
 			mergeFromBaseline(merged, s.Service)
 		}
 	}
+
+	// Union graph relationships across all sources (dependencies, cross-references).
+	merged.Dependencies = unionDependencies(sources)
 
 	return merged
 }
@@ -293,7 +337,8 @@ func mergeFromK8s(merged *ServiceDetails, d *ServiceDetails) {
 	}
 }
 
-// mergeFromLocal applies local contract overrides.
+// mergeFromLocal applies local contract content overrides.
+// Dependencies are handled separately by unionDependencies.
 func mergeFromLocal(merged *ServiceDetails, d *ServiceDetails) {
 	if d.Version != "" {
 		merged.Version = d.Version
@@ -306,9 +351,6 @@ func mergeFromLocal(merged *ServiceDetails, d *ServiceDetails) {
 	}
 	if d.Policy != nil {
 		merged.Policy = d.Policy
-	}
-	if len(d.Dependencies) > 0 {
-		merged.Dependencies = d.Dependencies
 	}
 }
 
@@ -333,15 +375,38 @@ func mergeBaselineIdentity(merged *ServiceDetails, d *ServiceDetails) {
 	}
 }
 
+// unionDependencies merges dependencies from all sources, deduplicating by ref.
+// When the same ref appears in multiple sources, the first occurrence (by content
+// priority: local > k8s > oci > cache) wins.
+func unionDependencies(sources []ServiceSourceData) []DependencyInfo {
+	seen := make(map[string]bool)
+	var result []DependencyInfo
+
+	// Iterate in content priority order.
+	for _, st := range contentPriority {
+		for _, s := range sources {
+			if s.SourceType != st {
+				continue
+			}
+			for _, dep := range s.Service.Dependencies {
+				if !seen[dep.Ref] {
+					seen[dep.Ref] = true
+					result = append(result, dep)
+				}
+			}
+		}
+	}
+	return result
+}
+
+// mergeBaselineContract fills in contract content from OCI/cache if not already set.
+// Dependencies are handled separately by unionDependencies.
 func mergeBaselineContract(merged *ServiceDetails, d *ServiceDetails) {
 	if merged.Interfaces == nil && len(d.Interfaces) > 0 {
 		merged.Interfaces = d.Interfaces
 	}
 	if merged.Configuration == nil && d.Configuration != nil {
 		merged.Configuration = d.Configuration
-	}
-	if merged.Dependencies == nil && len(d.Dependencies) > 0 {
-		merged.Dependencies = d.Dependencies
 	}
 	if merged.Policy == nil && d.Policy != nil {
 		merged.Policy = d.Policy

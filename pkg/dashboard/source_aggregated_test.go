@@ -676,13 +676,58 @@ func TestAggregatedSource_GetVersions_AllSourcesFail(t *testing.T) {
 	}
 }
 
+func TestSourcePriorityIndex_UnknownSource(t *testing.T) {
+	idx := sourcePriorityIndex(runtimePriority, "unknown-source")
+	if idx != len(runtimePriority) {
+		t.Errorf("expected %d for unknown source, got %d", len(runtimePriority), idx)
+	}
+}
+
+func TestUnionDependencies(t *testing.T) {
+	sources := []ServiceSourceData{
+		{
+			SourceType: "local",
+			Service: &ServiceDetails{
+				Dependencies: []DependencyInfo{
+					{Ref: "oci://ghcr.io/acme/auth:1.0.0", Required: true},
+					{Ref: "oci://ghcr.io/acme/common:1.0.0", Required: false},
+				},
+			},
+		},
+		{
+			SourceType: "k8s",
+			Service: &ServiceDetails{
+				Dependencies: []DependencyInfo{
+					{Ref: "oci://ghcr.io/acme/auth:1.0.0", Required: true},  // duplicate
+					{Ref: "oci://ghcr.io/acme/cache:2.0.0", Required: true}, // unique to k8s
+				},
+			},
+		},
+	}
+
+	result := unionDependencies(sources)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 unique deps, got %d: %v", len(result), result)
+	}
+	// local has higher content priority, so auth should come from local first.
+	refs := make(map[string]bool)
+	for _, d := range result {
+		refs[d.Ref] = true
+	}
+	for _, expected := range []string{"oci://ghcr.io/acme/auth:1.0.0", "oci://ghcr.io/acme/common:1.0.0", "oci://ghcr.io/acme/cache:2.0.0"} {
+		if !refs[expected] {
+			t.Errorf("missing expected dep %q", expected)
+		}
+	}
+}
+
 func TestMergedSummary_OwnerOverride(t *testing.T) {
 	entry := &aggregatedEntry{}
 	entry.add("oci", &Service{Name: "svc", Version: "1.0.0", Owner: "oci-team"})
 	entry.add("k8s", &Service{Name: "svc", Version: "1.0.0", Owner: "k8s-team"})
 
 	merged := entry.mergedSummary("svc")
-	// k8s is applied last, so its owner should win.
+	// k8s has higher identity priority than oci, so its owner should win.
 	if merged.Owner != "k8s-team" {
 		t.Errorf("expected owner 'k8s-team', got %q", merged.Owner)
 	}
