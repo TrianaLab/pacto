@@ -15,7 +15,6 @@ on:
   workflow_run:
     workflows: ['Auto release']
     types: [completed]
-    branches: [main]
 
 permissions:
   contents: read
