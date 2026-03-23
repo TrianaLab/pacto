@@ -1212,6 +1212,248 @@ function syncGraphFilters() {
   if (graphNodes) renderGraphLegend(graphNodes);
 }
 
+/* ── Service-scoped dependency graph for detail page ── */
+function extractSubgraph(graphData, focusId) {
+  if (!graphData || !graphData.nodes) return null;
+  var nodeMap = {};
+  graphData.nodes.forEach(function(n) { nodeMap[n.id] = n; });
+
+  // Build forward and reverse adjacency
+  var forward = {};  // id -> [targetId, ...]
+  var reverse = {};  // id -> [sourceId, ...]
+  graphData.nodes.forEach(function(n) {
+    forward[n.id] = [];
+    if (!reverse[n.id]) reverse[n.id] = [];
+    (n.edges || []).forEach(function(e) {
+      forward[n.id].push(e.targetId);
+      if (!reverse[e.targetId]) reverse[e.targetId] = [];
+      reverse[e.targetId].push(n.id);
+    });
+  });
+
+  // BFS in both directions to collect the connected subgraph
+  var visited = {};
+  var queue = [focusId];
+  visited[focusId] = true;
+  while (queue.length) {
+    var cur = queue.shift();
+    (forward[cur] || []).forEach(function(id) { if (!visited[id]) { visited[id] = true; queue.push(id); } });
+    (reverse[cur] || []).forEach(function(id) { if (!visited[id]) { visited[id] = true; queue.push(id); } });
+  }
+
+  var subNodes = graphData.nodes.filter(function(n) { return visited[n.id]; });
+  if (subNodes.length <= 1) return null;
+  return { nodes: subNodes };
+}
+
+function initServiceGraph(containerId, graphData, focusId) {
+  var container = document.getElementById(containerId);
+  if (!container || !graphData || !graphData.nodes || graphData.nodes.length < 2) {
+    if (container) container.innerHTML = '<div style="color:var(--text-dim);font-size:var(--text-sm);text-align:center;padding:40px">No dependency relationships to display</div>';
+    return;
+  }
+
+  var rawNodes = graphData.nodes;
+  var rect = container.getBoundingClientRect();
+  var width = rect.width || 700;
+  var height = rect.height || 400;
+
+  var nodeMap = {};
+  var nodes = [];
+  var links = [];
+
+  // BFS depth computation
+  var adjList = {};
+  var incoming = {};
+  rawNodes.forEach(function(rn) { incoming[rn.id] = 0; adjList[rn.id] = []; });
+  rawNodes.forEach(function(rn) {
+    (rn.edges || []).forEach(function(e) {
+      if (incoming[e.targetId] !== undefined) {
+        adjList[rn.id].push(e.targetId);
+        incoming[e.targetId]++;
+      }
+    });
+  });
+
+  var depths = {};
+  var queue = [];
+  rawNodes.forEach(function(n) { if (incoming[n.id] === 0) { queue.push(n.id); depths[n.id] = 0; } });
+  while (queue.length) {
+    var cur = queue.shift();
+    (adjList[cur] || []).forEach(function(tid) {
+      if (depths[tid] === undefined || depths[tid] < depths[cur] + 1) {
+        depths[tid] = depths[cur] + 1;
+        queue.push(tid);
+      }
+    });
+  }
+
+  var byDepth = {};
+  var maxDepth = 0;
+  rawNodes.forEach(function(n) {
+    var d = depths[n.id] || 0;
+    if (!byDepth[d]) byDepth[d] = [];
+    byDepth[d].push(n.id);
+    if (d > maxDepth) maxDepth = d;
+  });
+
+  var nodeW = 160, nodeH = 44;
+  var colSpacing = nodeW + 60;
+  var rowSpacing = nodeH + 30;
+
+  rawNodes.forEach(function(rn) {
+    var status = rn.status || 'Unknown';
+    if (status === 'external') status = 'External';
+    else if (status === 'Unknown') status = 'Unmonitored';
+    var d = depths[rn.id] || 0;
+    var col = byDepth[d] || [rn.id];
+    var row = col.indexOf(rn.id);
+    var totalH = col.length * rowSpacing;
+    var node = {
+      id: rn.id, serviceName: rn.serviceName, status: status, source: rn.source || '',
+      edges: rn.edges || [], depth: d, isFocus: rn.id === focusId,
+      x: width / 2 - (maxDepth * colSpacing) / 2 + d * colSpacing,
+      y: height / 2 - totalH / 2 + row * rowSpacing
+    };
+    nodes.push(node);
+    nodeMap[node.id] = node;
+  });
+
+  nodes.forEach(function(n) {
+    n.edges.forEach(function(e) {
+      if (nodeMap[e.targetId]) {
+        links.push({ source: n.id, target: e.targetId, required: e.required, type: e.type || 'dependency' });
+      }
+    });
+  });
+
+  var svg = d3.select(container).append('svg')
+    .attr('width', '100%')
+    .attr('height', '100%')
+    .style('display', 'block');
+
+  var zoom = d3.zoom()
+    .scaleExtent([0.2, 4])
+    .on('zoom', function(event) { g.attr('transform', event.transform); });
+  svg.call(zoom);
+  var g = svg.append('g');
+
+  var defs = svg.append('defs');
+  ['required', 'optional', 'reference'].forEach(function(type) {
+    defs.append('marker')
+      .attr('id', 'svc-arrow-' + type)
+      .attr('viewBox', '0 0 10 6')
+      .attr('refX', 10).attr('refY', 3)
+      .attr('markerWidth', 5).attr('markerHeight', 4)
+      .attr('orient', 'auto')
+      .append('path')
+      .attr('d', 'M0,0 L10,3 L0,6 Z')
+      .attr('fill', type === 'reference' ? 'var(--accent)' : type === 'required' ? 'var(--text-secondary)' : 'var(--text-dim)');
+  });
+
+  var sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(function(d) { return d.id; }).distance(180).strength(0.7))
+    .force('charge', d3.forceManyBody().strength(-500))
+    .force('x', d3.forceX(function(d) { return width / 2 - (maxDepth * colSpacing) / 2 + d.depth * colSpacing; }).strength(0.3))
+    .force('y', d3.forceY(height / 2).strength(0.05))
+    .force('collision', d3.forceCollide().radius(80))
+    .alphaDecay(0.06)
+    .velocityDecay(0.5);
+
+  var link = g.selectAll('.edge-line')
+    .data(links)
+    .join('line')
+    .attr('class', function(d) { return 'edge-line' + (d.type === 'reference' ? ' edge-reference' : ''); })
+    .attr('stroke', function(d) { return d.type === 'reference' ? 'var(--accent)' : d.required ? 'var(--text-secondary)' : 'var(--text-dim)'; })
+    .attr('stroke-width', function(d) { return d.type === 'reference' ? 1.5 : d.required ? 2 : 1; })
+    .attr('stroke-dasharray', function(d) { return d.type === 'reference' ? '6,4' : d.required ? null : '4,3'; })
+    .attr('marker-end', function(d) { return 'url(#svc-arrow-' + (d.type === 'reference' ? 'reference' : d.required ? 'required' : 'optional') + ')'; })
+    .attr('opacity', 0.7);
+
+  function statusColor(status) {
+    return { Healthy: 'var(--ok)', Degraded: 'var(--warning)', Invalid: 'var(--critical)', Unmonitored: 'var(--neutral)', External: 'var(--neutral)' }[status] || 'var(--neutral)';
+  }
+  function displayStatus(status) {
+    return status === 'Unmonitored' ? 'Unmonitored' : status === 'External' ? 'External' : status;
+  }
+
+  var nodeGroup = g.selectAll('.node-group')
+    .data(nodes)
+    .join('g')
+    .attr('class', function(d) { return 'node-group' + (d.status === 'External' ? ' node-external' : ''); })
+    .attr('transform', function(d) { return 'translate(' + d.x + ',' + d.y + ')'; })
+    .on('click', function(event, d) {
+      if (event.defaultPrevented) return;
+      if (d.status === 'External') return;
+      navigateTo('detail', d.serviceName);
+    })
+    .call(d3.drag()
+      .on('start', function(event, d) { if (!event.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag', function(event, d) { d.fx = event.x; d.fy = event.y; })
+      .on('end', function(event, d) { if (!event.active) sim.alphaTarget(0); })
+    );
+
+  nodeGroup.append('rect')
+    .attr('width', nodeW).attr('height', nodeH)
+    .attr('rx', 6)
+    .attr('fill', 'var(--bg-surface)')
+    .attr('stroke', function(d) { return d.isFocus ? 'var(--accent)' : statusColor(d.status); })
+    .attr('stroke-width', function(d) { return d.isFocus ? 2.5 : 1.5; });
+
+  nodeGroup.append('text')
+    .attr('class', 'node-label')
+    .attr('x', 10).attr('y', 18)
+    .attr('font-weight', function(d) { return d.isFocus ? '700' : null; })
+    .text(function(d) { var n = d.serviceName; return n.length > 20 ? n.substring(0, 18) + '...' : n; });
+
+  nodeGroup.append('text')
+    .attr('class', 'node-status')
+    .attr('x', 10).attr('y', 34)
+    .attr('fill', function(d) { return statusColor(d.status); })
+    .text(function(d) { return displayStatus(d.status); });
+
+  function closestBoxPoint(x, y, w, hh, px, py) {
+    var cx = x + w / 2, cy = y + hh / 2;
+    var dx = px - cx, dy = py - cy;
+    if (dx === 0 && dy === 0) return [cx, y];
+    var scaleX = (w / 2) / (Math.abs(dx) || 1);
+    var scaleY = (hh / 2) / (Math.abs(dy) || 1);
+    var scale = Math.min(scaleX, scaleY);
+    return [cx + dx * scale, cy + dy * scale];
+  }
+
+  function updatePositions() {
+    link.each(function(d) {
+      var s = d.source, t = d.target;
+      var sp = closestBoxPoint(s.x, s.y, nodeW, nodeH, t.x + nodeW / 2, t.y + nodeH / 2);
+      var tp = closestBoxPoint(t.x, t.y, nodeW, nodeH, s.x + nodeW / 2, s.y + nodeH / 2);
+      d3.select(this).attr('x1', sp[0]).attr('y1', sp[1]).attr('x2', tp[0]).attr('y2', tp[1]);
+    });
+    nodeGroup.attr('transform', function(d) { return 'translate(' + d.x + ',' + d.y + ')'; });
+  }
+
+  sim.on('tick', updatePositions);
+  sim.stop();
+  for (var i = 0; i < 150; i++) sim.tick();
+  updatePositions();
+
+  setTimeout(function() {
+    var bounds = g.node().getBBox();
+    if (bounds.width === 0 || bounds.height === 0) return;
+    var pad = 40;
+    var scale = Math.min(width / (bounds.width + pad * 2), height / (bounds.height + pad * 2), 1.5);
+    var tx = (width - bounds.width * scale) / 2 - bounds.x * scale;
+    var ty = (height - bounds.height * scale) / 2 - bounds.y * scale;
+    svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+  }, 50);
+}
+
+function maybeInitServiceGraph() {
+  if (state.tab !== 'dependencies' || !state.service) return;
+  var subgraph = extractSubgraph(state.graphData, state.service);
+  initServiceGraph('service-graph-container', subgraph, state.service);
+}
+
 /* ════════════════════════════════════════════════════════════════
    DETAIL PAGE — matches operator detail.html + all tab partials
    ════════════════════════════════════════════════════════════════ */
@@ -1219,6 +1461,13 @@ async function renderDetail() {
   var app = document.getElementById('app');
   var svcName = state.service;
   var hasExisting = state.details[svcName] != null;
+
+  // Fetch global graph lazily for the dependency graph visualization
+  if (!state.graphData) {
+    api.getGraph().catch(function() { return null; }).then(function(g) {
+      if (g) { state.graphData = g; maybeInitServiceGraph(); }
+    });
+  }
 
   // If we have cached data, render immediately, then refresh in background
   if (hasExisting) {
@@ -1397,6 +1646,7 @@ function renderDetailPage() {
   o += '</div>';
 
   document.getElementById('app').innerHTML = o;
+  maybeInitServiceGraph();
 }
 
 function tabBtn(id, label, count) {
@@ -1415,6 +1665,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach(function(btn) {
     btn.classList.toggle('tab-active', btn.getAttribute('data-tab') === tab);
   });
+  maybeInitServiceGraph();
 }
 
 function renderCurrentTab(d, versions, agg) {
@@ -1770,6 +2021,11 @@ function renderTabDependencies(d) {
   var dependents = state.dependents || [];
 
   var o = '';
+
+  // Service dependency graph — shows full chain of deps + dependents
+  o += '<div class="card" style="padding:0;overflow:hidden"><div class="card-header"><div class="section-label">Dependency Graph</div></div>';
+  o += '<div id="service-graph-container" style="width:100%;height:400px;position:relative"></div></div>';
+
 
   // Depends On section — with clickable refs
   o += '<div class="card"><div class="card-header"><div class="section-label">Depends On</div>';
