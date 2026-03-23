@@ -386,10 +386,10 @@ func validationInsights(v *ValidationInfo) []Insight {
 	}
 	var ins []Insight
 	if n := len(v.Errors); n > 0 {
-		ins = append(ins, Insight{Severity: "critical", Title: strconv.Itoa(n) + " validation error" + plural(n), Description: firstMessage(v.Errors)})
+		ins = append(ins, Insight{Severity: "critical", Title: strconv.Itoa(n) + " validation error" + plural(n), Description: v.Errors[0].Message})
 	}
 	if n := len(v.Warnings); n > 0 {
-		ins = append(ins, Insight{Severity: "warning", Title: strconv.Itoa(n) + " validation warning" + plural(n), Description: firstMessage(v.Warnings)})
+		ins = append(ins, Insight{Severity: "warning", Title: strconv.Itoa(n) + " validation warning" + plural(n), Description: v.Warnings[0].Message})
 	}
 	return ins
 }
@@ -420,13 +420,6 @@ func portInsights(p *PortsInfo) []Insight {
 		ins = append(ins, Insight{Severity: "info", Title: "Unexpected ports: " + joinInts(p.Unexpected), Description: "Ports found on the service but not declared in contract."})
 	}
 	return ins
-}
-
-func firstMessage(issues []ValidationIssue) string {
-	if len(issues) > 0 {
-		return issues[0].Message
-	}
-	return ""
 }
 
 func plural(n int) string {
