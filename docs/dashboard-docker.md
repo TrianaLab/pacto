@@ -31,11 +31,23 @@ docker run -p 3000:3000 \
   ghcr.io/trianalab/pacto-dashboard:1.2.3
 ```
 
+## Local Development
+
+Build and run the dashboard container locally using Make:
+
+```bash
+# Build the image (tagged with current git version)
+make docker-build
+
+# Build and run (mounts ~/.kube/config and ~/.cache/pacto automatically)
+make docker-run
+```
+
 ## Environment Variables
 
 | Variable | Description | Default |
 |---|---|---|
-| `PACTO_DASHBOARD_HOST` | Bind address for the server | `0.0.0.0` (in image) |
+| `PACTO_DASHBOARD_HOST` | Bind address for the server | `0.0.0.0` (in image), `127.0.0.1` (CLI) |
 | `PACTO_DASHBOARD_PORT` | HTTP server port | `3000` |
 | `PACTO_DASHBOARD_NAMESPACE` | Kubernetes namespace filter (empty = all) | `""` |
 | `PACTO_DASHBOARD_REPO` | Comma-separated OCI repositories to scan | `""` |
@@ -46,13 +58,15 @@ docker run -p 3000:3000 \
 | `PACTO_REGISTRY_PASSWORD` | Registry authentication password | `""` |
 | `PACTO_REGISTRY_TOKEN` | Registry authentication token | `""` |
 
+All `PACTO_DASHBOARD_*` variables map to the corresponding `--host`, `--port`, `--namespace`, and `--diagnostics` CLI flags. The `--repo` flag can be repeated on the CLI; in the container, use the comma-separated `PACTO_DASHBOARD_REPO` env var instead.
+
 ## Data Sources
 
 The dashboard auto-detects available data sources at startup:
 
 - **oci**: Enabled when `PACTO_DASHBOARD_REPO` is set. Scans OCI registries for published contracts.
-- **cache**: Enabled when `~/.cache/pacto/oci/` contains cached bundles. The cache directory is writable inside the container.
-- **k8s**: Enabled when a valid kubeconfig is mounted (see below).
+- **cache**: Enabled when `~/.cache/pacto/oci/` contains cached bundles. The cache directory is writable inside the container at `/home/pacto/.cache/pacto/oci/`.
+- **k8s**: Enabled when a valid kubeconfig is mounted or when running inside a Kubernetes cluster (in-cluster config).
 - **local**: Enabled when a `pacto.yaml` is found in the working directory (mount via volume).
 
 ### Kubernetes Source
@@ -85,8 +99,10 @@ docker run -p 3000:3000 \
 |---|---|
 | `GET /health` | Returns `{"status": "ok"}`. Use for liveness and readiness probes. |
 | `GET /metrics` | Returns `{"serviceCount": N, "sourceCount": N}`. |
-| `GET /openapi` | OpenAPI 3.1 specification. |
+| `GET /openapi` | OpenAPI 3.1 specification (includes server URL matching the bind address). |
 | `GET /docs` | Interactive API documentation. |
+
+The image includes a Docker `HEALTHCHECK` that polls `/health` every 10 seconds.
 
 ## Kubernetes Deployment
 

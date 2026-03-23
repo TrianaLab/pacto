@@ -32,10 +32,11 @@ WORKDIR /home/pacto
 
 # Dashboard defaults
 ENV PACTO_NO_UPDATE_CHECK=1
+ENV PACTO_DASHBOARD_HOST=0.0.0.0
 EXPOSE 3000
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
     CMD wget -q --spider http://localhost:3000/health || exit 1
 
 ENTRYPOINT ["pacto"]
-CMD ["dashboard", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["dashboard"]
