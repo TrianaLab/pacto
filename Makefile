@@ -46,7 +46,10 @@ docker-build:
 	docker build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) --build-arg BUILD_DATE=$(BUILD_DATE) -t $(IMAGE):$(VERSION) .
 
 docker-run: docker-build
-	docker run --rm -p 3000:3000 $(IMAGE):$(VERSION)
+	docker run --rm -p 3000:3000 \
+		-v "$(HOME)/.kube/config:/home/pacto/.kube/config:ro" \
+		-v "$(HOME)/.cache/pacto:/home/pacto/.cache/pacto" \
+		$(IMAGE):$(VERSION)
 
 clean:
 	rm -f "$(GOBIN)/pacto" coverage.out coverage.html
