@@ -225,8 +225,9 @@ func TestServerGetDiff_MissingParams(t *testing.T) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	// Huma returns 422 (Unprocessable Entity) for missing required query params.
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", resp.StatusCode)
 	}
 }
 
@@ -530,16 +531,27 @@ func TestCORSMiddleware_Options(t *testing.T) {
 	}
 }
 
-func TestServerListServices_Enriched(t *testing.T) {
+func fetchEnrichedEntries(t *testing.T) []ServiceListEntry {
+	t.Helper()
+	score80 := 80
 	source := newMockWithDetails(map[string]*ServiceDetails{
 		"svc-a": {
 			Service:       Service{Name: "svc-a", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
 			Dependencies:  []DependencyInfo{{Ref: "svc-b", Required: true}},
 			ChecksSummary: &ChecksSummary{Total: 5, Passed: 3, Failed: 2},
 			Insights:      []Insight{{Severity: "warning", Title: "something wrong"}},
+			Compliance: &ComplianceInfo{
+				Status:  ComplianceWarning,
+				Score:   &score80,
+				Summary: &ComplianceCounts{Total: 5, Passed: 4, Failed: 1, Errors: 0, Warnings: 1},
+			},
 		},
 		"svc-b": {
 			Service: Service{Name: "svc-b", Version: "2.0.0", Phase: PhaseHealthy, Source: "local"},
+			Conditions: []Condition{
+				{Type: "ContractValid", Status: "True"},
+				{Type: "ServiceExists", Status: "False"},
+			},
 		},
 	})
 	base := startTestServer(t, source)
@@ -558,6 +570,11 @@ func TestServerListServices_Enriched(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
 		t.Fatal(err)
 	}
+	return entries
+}
+
+func TestServerListServices_Enriched(t *testing.T) {
+	entries := fetchEnrichedEntries(t)
 
 	svcA := findEntry(t, entries, "svc-a")
 	if svcA.DependencyCount != 1 {
@@ -579,6 +596,34 @@ func TestServerListServices_Enriched(t *testing.T) {
 	svcB := findEntry(t, entries, "svc-b")
 	if svcB.BlastRadius != 1 {
 		t.Errorf("expected blastRadius=1 for svc-b, got %d", svcB.BlastRadius)
+	}
+}
+
+func TestServerListServices_Compliance(t *testing.T) {
+	entries := fetchEnrichedEntries(t)
+
+	// svc-a has pre-computed compliance
+	svcA := findEntry(t, entries, "svc-a")
+	if svcA.ComplianceStatus != ComplianceWarning {
+		t.Errorf("expected compliance WARNING, got %q", svcA.ComplianceStatus)
+	}
+	if svcA.ComplianceScore == nil || *svcA.ComplianceScore != 80 {
+		t.Errorf("expected compliance score 80, got %v", svcA.ComplianceScore)
+	}
+	if svcA.ComplianceWarns != 1 {
+		t.Errorf("expected 1 compliance warning, got %d", svcA.ComplianceWarns)
+	}
+
+	// svc-b has no pre-computed compliance, computed from conditions
+	svcB := findEntry(t, entries, "svc-b")
+	if svcB.ComplianceStatus != ComplianceError {
+		t.Errorf("expected compliance ERROR for svc-b, got %q", svcB.ComplianceStatus)
+	}
+	if svcB.ComplianceScore == nil || *svcB.ComplianceScore != 50 {
+		t.Errorf("expected compliance score 50 for svc-b, got %v", svcB.ComplianceScore)
+	}
+	if svcB.ComplianceErrors != 1 {
+		t.Errorf("expected 1 compliance error for svc-b, got %d", svcB.ComplianceErrors)
 	}
 }
 
@@ -1201,6 +1246,156 @@ func TestServerDebugServices_PerSourceError(t *testing.T) {
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestServerHealth(t *testing.T) {
+	source := &mockSource{services: []Service{}}
+	base := startTestServer(t, source)
+
+	resp, err := http.Get(base + "/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["status"] != "ok" {
+		t.Errorf("expected status 'ok', got %v", body["status"])
+	}
+}
+
+func TestServerMetrics(t *testing.T) {
+	source := &mockSource{
+		services: []Service{{Name: "svc", Version: "1.0.0"}},
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
+	srv.sourceInfo = []SourceInfo{{Type: "local", Enabled: true}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.ServeOnListener(ctx, ln) }()
+	time.Sleep(50 * time.Millisecond)
+
+	resp, err := http.Get("http://" + ln.Addr().String() + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["sourceCount"] != float64(1) {
+		t.Errorf("expected sourceCount=1, got %v", body["sourceCount"])
+	}
+	if body["serviceCount"] != float64(1) {
+		t.Errorf("expected serviceCount=1, got %v", body["serviceCount"])
+	}
+}
+
+func TestServerMetrics_NilSource(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := &Server{
+		source:      nil,
+		ui:          ui,
+		diagnostics: &SourceDiagnostics{},
+		sourceInfo:  []SourceInfo{},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.ServeOnListener(ctx, ln) }()
+	time.Sleep(50 * time.Millisecond)
+
+	resp, err := http.Get("http://" + ln.Addr().String() + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestExportOpenAPI(t *testing.T) {
+	data, err := ExportOpenAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) == 0 {
+		t.Fatal("expected non-empty OpenAPI spec")
+	}
+	if !json.Valid(data) {
+		t.Fatal("expected valid JSON")
+	}
+	var spec map[string]any
+	if err := json.Unmarshal(data, &spec); err != nil {
+		t.Fatal(err)
+	}
+	if spec["openapi"] != "3.1.0" {
+		t.Errorf("expected OpenAPI 3.1.0, got %v", spec["openapi"])
+	}
+	info, _ := spec["info"].(map[string]any)
+	if info["title"] != "Pacto Dashboard API" {
+		t.Errorf("expected title 'Pacto Dashboard API', got %v", info["title"])
+	}
+	paths, _ := spec["paths"].(map[string]any)
+	if paths["/api/services"] == nil {
+		t.Error("expected /api/services path in spec")
+	}
+}
+
+func TestExportConfigSchema(t *testing.T) {
+	data, err := ExportConfigSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(data) {
+		t.Fatal("expected valid JSON")
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema["title"] != "Pacto Dashboard Configuration" {
+		t.Errorf("title = %v", schema["title"])
+	}
+	props, _ := schema["properties"].(map[string]any)
+	for _, key := range []string{"PACTO_DASHBOARD_PORT", "PACTO_DASHBOARD_NAMESPACE", "PACTO_DASHBOARD_DIAGNOSTICS", "PACTO_NO_CACHE", "PACTO_VERBOSE"} {
+		if props[key] == nil {
+			t.Errorf("missing property %s", key)
+		}
+	}
+	port, _ := props["PACTO_DASHBOARD_PORT"].(map[string]any)
+	if port["default"] != float64(3000) {
+		t.Errorf("port default = %v", port["default"])
+	}
+	if port["description"] != "HTTP port for the dashboard server" {
+		t.Errorf("port description = %v", port["description"])
 	}
 }
 

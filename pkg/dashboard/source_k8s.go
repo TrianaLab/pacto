@@ -65,6 +65,7 @@ type pactoStatus struct {
 	Conditions         flexSlice[k8sCondition]  `json:"conditions,omitempty"`
 	Endpoints          flexSlice[k8sEndpoint]   `json:"endpoints,omitempty"`
 	Insights           flexSlice[k8sInsight]    `json:"insights,omitempty"`
+	ObservedRuntime    *k8sObservedRuntime      `json:"observedRuntime,omitempty"`
 	LastReconciledAt   string                   `json:"lastReconciledAt,omitempty"`
 	ObservedGeneration int64                    `json:"observedGeneration,omitempty"`
 }
@@ -91,11 +92,12 @@ func (f *flexSlice[T]) UnmarshalJSON(data []byte) error {
 }
 
 type k8sContractInfo struct {
-	ServiceName string `json:"serviceName"`
-	Version     string `json:"version"`
-	Owner       string `json:"owner"`
-	ImageRef    string `json:"imageRef"`
-	ResolvedRef string `json:"resolvedRef"`
+	ServiceName     string `json:"serviceName"`
+	Version         string `json:"version"`
+	Owner           string `json:"owner"`
+	ImageRef        string `json:"imageRef"`
+	ResolvedRef     string `json:"resolvedRef"`
+	CurrentRevision string `json:"currentRevision,omitempty"`
 }
 
 type k8sValidation struct {
@@ -184,7 +186,19 @@ type k8sCondition struct {
 	Status             string `json:"status"`
 	Reason             string `json:"reason,omitempty"`
 	Message            string `json:"message,omitempty"`
+	Severity           string `json:"severity,omitempty"`
 	LastTransitionTime string `json:"lastTransitionTime,omitempty"`
+}
+
+type k8sObservedRuntime struct {
+	WorkloadKind                   string   `json:"workloadKind,omitempty"`
+	DeploymentStrategy             string   `json:"deploymentStrategy,omitempty"`
+	PodManagementPolicy            string   `json:"podManagementPolicy,omitempty"`
+	TerminationGracePeriodSeconds  *int     `json:"terminationGracePeriodSeconds,omitempty"`
+	ContainerImages                []string `json:"containerImages,omitempty"`
+	HasPVC                         *bool    `json:"hasPVC,omitempty"`
+	HasEmptyDir                    *bool    `json:"hasEmptyDir,omitempty"`
+	HealthProbeInitialDelaySeconds *int     `json:"healthProbeInitialDelaySeconds,omitempty"`
 }
 
 type k8sEndpoint struct {
@@ -359,8 +373,12 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 		Service: serviceFromK8sStatus(*r),
 	}
 
+	svc.Namespace = r.Metadata.Namespace
+
 	if r.Status.Contract != nil {
 		svc.ImageRef = r.Status.Contract.ImageRef
+		svc.ResolvedRef = r.Status.Contract.ResolvedRef
+		svc.CurrentRevision = r.Status.Contract.CurrentRevision
 	}
 
 	svc.Metadata = r.Status.Metadata
@@ -441,6 +459,7 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 	svc.Conditions = conditionsFromK8s(r.Status.Conditions)
 	svc.Endpoints = endpointsFromK8s(r.Status.Endpoints)
 	svc.Insights = insightsFromK8s(r.Status.Insights)
+	svc.ObservedRuntime = observedRuntimeFromK8s(r.Status.ObservedRuntime)
 	if r.Status.Summary != nil {
 		svc.ChecksSummary = &ChecksSummary{
 			Total:  r.Status.Summary.Total,
@@ -448,6 +467,12 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 			Failed: r.Status.Summary.Failed,
 		}
 	}
+
+	// Compute compliance from phase and conditions.
+	svc.Compliance = ComputeCompliance(svc.Phase, svc.Conditions)
+
+	// Compute runtime diff if both contract runtime and observed runtime are available.
+	svc.RuntimeDiff = ComputeRuntimeDiff(svc.Runtime, svc.ObservedRuntime)
 
 	return svc
 }
@@ -492,13 +517,29 @@ func portsFromK8s(p *k8sPorts) *PortsInfo {
 func conditionsFromK8s(conditions flexSlice[k8sCondition]) []Condition {
 	var out []Condition
 	for _, c := range conditions {
-		cond := Condition{Type: c.Type, Status: c.Status, Reason: c.Reason, Message: c.Message}
+		cond := Condition{Type: c.Type, Status: c.Status, Reason: c.Reason, Message: c.Message, Severity: c.Severity}
 		if c.LastTransitionTime != "" {
 			cond.LastTransitionAgo = timeAgoFromRFC3339(c.LastTransitionTime)
 		}
 		out = append(out, cond)
 	}
 	return out
+}
+
+func observedRuntimeFromK8s(obs *k8sObservedRuntime) *ObservedRuntime {
+	if obs == nil {
+		return nil
+	}
+	return &ObservedRuntime{
+		WorkloadKind:                  obs.WorkloadKind,
+		DeploymentStrategy:            obs.DeploymentStrategy,
+		PodManagementPolicy:           obs.PodManagementPolicy,
+		TerminationGracePeriodSeconds: obs.TerminationGracePeriodSeconds,
+		ContainerImages:               obs.ContainerImages,
+		HasPVC:                        obs.HasPVC,
+		HasEmptyDir:                   obs.HasEmptyDir,
+		HealthProbeInitialDelay:       obs.HealthProbeInitialDelaySeconds,
+	}
 }
 
 func endpointsFromK8s(endpoints flexSlice[k8sEndpoint]) []EndpointStatus {

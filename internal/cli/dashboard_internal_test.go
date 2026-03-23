@@ -35,12 +35,24 @@ func TestCacheTTL(t *testing.T) {
 }
 
 func TestNewDashboardCommand_NoSources(t *testing.T) {
+	// Isolate from host kubectl / cache so no real sources are found.
+	emptyDir := t.TempDir()
+	t.Setenv("PATH", emptyDir)
+	t.Setenv("HOME", emptyDir)
+	t.Setenv("XDG_CACHE_HOME", emptyDir)
+	t.Setenv("KUBECONFIG", filepath.Join(emptyDir, "nonexistent"))
+
 	svc := app.NewService(nil, nil)
 	v := viper.New()
 	cmd := newDashboardCommand(svc, v)
 	cmd.SetArgs([]string{"/nonexistent/empty/dir"})
 	var errBuf bytes.Buffer
 	cmd.SetErr(&errBuf)
+
+	// Use a cancelled context as safety net to prevent server from blocking.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cmd.SetContext(ctx)
 
 	err := cmd.Execute()
 	if err == nil {

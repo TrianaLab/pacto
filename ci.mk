@@ -2,7 +2,10 @@
 # This file is the single source of truth for all CI quality gates.
 # Do not edit without verifying that the GitHub Actions pipelines still match.
 
-.PHONY: ci ci-static ci-test ci-fmt ci-vet ci-cyclo ci-lint ci-docs
+BUNDLE_DIR := pactos/pacto-dashboard
+
+.PHONY: ci ci-static ci-test ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
+       gen-openapi gen-config-schema gen-sbom gen-bundle
 
 ci: ci-static ci-test e2e
 
@@ -10,7 +13,7 @@ ci-static: ci-fmt ci-vet ci-cyclo ci-lint ci-docs
 
 ci-test:
 	@echo "==> Running unit tests with coverage..."
-	@go test $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs) -coverprofile=coverage.out
+	@go test $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle) -coverprofile=coverage.out
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
 	if [ "$$total" != "100.0%" ]; then \
 		echo "FAIL: total coverage is $$total, expected 100.0%"; \
@@ -40,3 +43,24 @@ ci-docs:
 	@echo "==> Checking CLI docs are up to date..."
 	@$(MAKE) gen-cli-docs
 	@git diff --exit-code docs/cli-reference.md || (echo "CLI docs are out of date. Run 'make gen-cli-docs' and commit." && exit 1)
+
+# ── Bundle generation targets ────────────────────────────────────────
+# The OpenAPI spec is generated via the pacto-plugin-openapi-infer plugin
+# using --option source=../.. to point at the repo root (where go.mod lives).
+
+gen-openapi:
+	@echo "==> Generating OpenAPI spec..."
+	pacto generate openapi-infer $(BUNDLE_DIR) --option source=../.. --option output=interfaces/openapi.json -o $(BUNDLE_DIR)
+
+gen-config-schema:
+	@echo "==> Generating configuration JSON schema..."
+	@mkdir -p $(BUNDLE_DIR)/configuration
+	go run ./cmd/genbundle config-schema > $(BUNDLE_DIR)/configuration/schema.json
+
+gen-sbom:
+	@echo "==> Generating SBOM with syft..."
+	@mkdir -p $(BUNDLE_DIR)/sbom
+	syft dir:. -o spdx-json > $(BUNDLE_DIR)/sbom/sbom.spdx.json
+
+gen-bundle: gen-openapi gen-config-schema gen-sbom
+	@echo "==> Bundle artifacts generated in $(BUNDLE_DIR)/"

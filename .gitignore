@@ -24,5 +24,7 @@ TODO.md
 # Config
 config.yaml
 
-# Pactos
-pactos/
+# Generated bundle artifacts (created by make targets / pacto generate)
+pactos/*/interfaces/openapi.json
+pactos/*/configuration/schema.json
+pactos/*/sbom/

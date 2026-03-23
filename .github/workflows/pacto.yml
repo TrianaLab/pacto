@@ -1,0 +1,104 @@
+name: Pacto Contract CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pactos/**'
+      - 'pkg/dashboard/**'
+  pull_request:
+    paths:
+      - 'pactos/**'
+      - 'pkg/dashboard/**'
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-go@v6.3.0
+        with:
+          go-version: '1.25'
+
+      # Setup Pacto CLI and plugins
+      - uses: trianalab/pacto-actions@v1.7.0
+        with:
+          command: setup
+
+      # Install syft and generate SBOM
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0.20.0
+
+      - name: Generate bundle
+        run: make gen-bundle
+
+      # Validate the generated contract
+      - uses: trianalab/pacto-actions@v1.7.0
+        with:
+          command: validate
+          path: ./pactos/pacto-dashboard
+          set: |
+            service.version=0.1.0
+
+      # Upload bundle as artifact for later use
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: pacto-dashboard-bundle
+          path: pactos/pacto-dashboard/
+
+      # On PRs: diff against the published contract
+      - uses: trianalab/pacto-actions@v1.7.0
+        if: github.event_name == 'pull_request'
+        with:
+          command: diff
+          old: oci://ghcr.io/trianalab/pactos/pacto-dashboard
+          new: ./pactos/pacto-dashboard
+          new-set: |
+            service.version=0.0.0-pr.${{ github.event.pull_request.number }}
+          fail-on-breaking: 'false'
+          comment-on-pr: 'true'
+          output-format: markdown
+
+      # On PRs: generate docs as PR comment
+      - uses: trianalab/pacto-actions@v1.7.0
+        if: github.event_name == 'pull_request'
+        with:
+          command: doc
+          path: ./pactos/pacto-dashboard
+          set: |
+            service.version=0.0.0-pr.${{ github.event.pull_request.number }}
+          comment-on-pr: 'true'
+
+  publish:
+    if: github.event_name == 'release'
+    needs: bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: trianalab/pacto-actions@v1.7.0
+        with:
+          command: setup
+
+      - name: Download bundle artifact
+        uses: actions/download-artifact@v4.3.0
+        with:
+          name: pacto-dashboard-bundle
+          path: pactos/pacto-dashboard/
+
+      - uses: trianalab/pacto-actions@v1.7.0
+        with:
+          command: push
+          ref: oci://ghcr.io/trianalab/pactos/pacto-dashboard:${{ github.event.release.tag_name }}
+          path: ./pactos/pacto-dashboard
+          set: |
+            service.version=${{ github.event.release.tag_name }}

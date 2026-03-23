@@ -2,13 +2,15 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humago"
 )
 
 // Server serves the dashboard web UI and REST API.
@@ -33,6 +35,26 @@ type serviceIndexCache struct {
 }
 
 const indexCacheTTL = 3 * time.Second
+
+// APIConfig returns the Huma configuration for the dashboard API.
+func APIConfig() huma.Config {
+	return huma.Config{
+		OpenAPI: &huma.OpenAPI{
+			OpenAPI: "3.1.0",
+			Info: &huma.Info{
+				Title:   "Pacto Dashboard API",
+				Version: "1.0.0",
+				Description: "REST API for the Pacto service contract dashboard. " +
+					"Aggregates data from local filesystem, Kubernetes, OCI registries, and disk cache.",
+			},
+		},
+		OpenAPIPath:   "/openapi",
+		DocsPath:      "/docs",
+		SchemasPath:   "/schemas",
+		Formats:       huma.DefaultFormats,
+		DefaultFormat: "application/json",
+	}
+}
 
 // NewServer creates a dashboard server backed by the given data source.
 // ui is the embedded filesystem containing the web UI assets.
@@ -64,23 +86,9 @@ func (s *Server) Serve(ctx context.Context, port int) error {
 func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	mux := http.NewServeMux()
 
-	// REST API
-	mux.HandleFunc("GET /api/services", s.handleListServices)
-	mux.HandleFunc("GET /api/services/{name}", s.handleGetService)
-	mux.HandleFunc("GET /api/services/{name}/versions", s.handleGetVersions)
-	mux.HandleFunc("GET /api/services/{name}/sources", s.handleGetServiceSources)
-	mux.HandleFunc("GET /api/graph", s.handleGetGlobalGraph)
-	mux.HandleFunc("GET /api/services/{name}/graph", s.handleGetGraph)
-	mux.HandleFunc("GET /api/services/{name}/dependents", s.handleGetDependents)
-	mux.HandleFunc("GET /api/services/{name}/refs", s.handleGetCrossRefs)
-	mux.HandleFunc("GET /api/diff", s.handleGetDiff)
-	mux.HandleFunc("GET /api/sources", s.handleGetSources)
-	if s.diagnostics != nil {
-		mux.HandleFunc("GET /api/debug/sources", s.handleDebugSources)
-		mux.HandleFunc("GET /api/debug/services", s.handleDebugServices)
-	}
+	s.registerAPI(mux)
 
-	// Static UI
+	// Static UI — served on the raw mux, not through Huma.
 	mux.Handle("/", http.FileServer(http.FS(s.ui)))
 
 	srv := &http.Server{Handler: corsMiddleware(mux)}
@@ -98,8 +106,279 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	}
 }
 
-func (s *Server) handleListServices(w http.ResponseWriter, r *http.Request) {
-	cached := s.getCachedIndex(r.Context())
+// registerAPI registers all Huma operations on the given mux.
+func (s *Server) registerAPI(mux *http.ServeMux) {
+	api := humago.New(mux, APIConfig())
+	s.RegisterOperations(api)
+}
+
+// RegisterOperations registers all dashboard API operations on the given Huma API.
+// Exported so that OpenAPI specs can be generated without starting a server.
+func (s *Server) RegisterOperations(api huma.API) {
+	huma.Register(api, huma.Operation{
+		OperationID: "health",
+		Method:      http.MethodGet,
+		Path:        "/health",
+		Summary:     "Health check",
+		Description: "Returns service health status.",
+		Tags:        []string{"Health"},
+	}, s.health)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "metrics",
+		Method:      http.MethodGet,
+		Path:        "/metrics",
+		Summary:     "Basic metrics",
+		Description: "Returns basic service metrics.",
+		Tags:        []string{"Health"},
+	}, s.metrics)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "list-services",
+		Method:      http.MethodGet,
+		Path:        "/api/services",
+		Summary:     "List services",
+		Description: "Returns an enriched list of all services across all sources.",
+		Tags:        []string{"Services"},
+	}, s.listServices)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-service",
+		Method:      http.MethodGet,
+		Path:        "/api/services/{name}",
+		Summary:     "Get service details",
+		Description: "Returns full details for a single service by name.",
+		Tags:        []string{"Services"},
+	}, s.getService)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-service-versions",
+		Method:      http.MethodGet,
+		Path:        "/api/services/{name}/versions",
+		Summary:     "Get service versions",
+		Description: "Returns the version history for a service.",
+		Tags:        []string{"Services"},
+	}, s.getVersions)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-service-sources",
+		Method:      http.MethodGet,
+		Path:        "/api/services/{name}/sources",
+		Summary:     "Get service sources",
+		Description: "Returns per-source breakdown and merged view for a service.",
+		Tags:        []string{"Services"},
+	}, s.getServiceSources)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-global-graph",
+		Method:      http.MethodGet,
+		Path:        "/api/graph",
+		Summary:     "Get global dependency graph",
+		Description: "Returns the full dependency graph across all services.",
+		Tags:        []string{"Graph"},
+	}, s.getGlobalGraph)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-service-graph",
+		Method:      http.MethodGet,
+		Path:        "/api/services/{name}/graph",
+		Summary:     "Get service dependency graph",
+		Description: "Returns the dependency graph centered on a specific service.",
+		Tags:        []string{"Graph"},
+	}, s.getServiceGraph)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-service-dependents",
+		Method:      http.MethodGet,
+		Path:        "/api/services/{name}/dependents",
+		Summary:     "Get service dependents",
+		Description: "Returns services that depend on the given service.",
+		Tags:        []string{"Services"},
+	}, s.getDependents)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-service-refs",
+		Method:      http.MethodGet,
+		Path:        "/api/services/{name}/refs",
+		Summary:     "Get service cross-references",
+		Description: "Returns config/policy cross-references for a service.",
+		Tags:        []string{"Services"},
+	}, s.getCrossRefs)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-diff",
+		Method:      http.MethodGet,
+		Path:        "/api/diff",
+		Summary:     "Diff two service versions",
+		Description: "Compares two service versions and returns classified changes.",
+		Tags:        []string{"Diff"},
+	}, s.getDiff)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-sources",
+		Method:      http.MethodGet,
+		Path:        "/api/sources",
+		Summary:     "Get detected sources",
+		Description: "Returns the list of detected data sources and their status.",
+		Tags:        []string{"Sources"},
+	}, s.getSources)
+
+	if s.diagnostics != nil {
+		huma.Register(api, huma.Operation{
+			OperationID: "debug-sources",
+			Method:      http.MethodGet,
+			Path:        "/api/debug/sources",
+			Summary:     "Debug source diagnostics",
+			Description: "Returns detailed diagnostic information about source detection.",
+			Tags:        []string{"Debug"},
+		}, s.debugSources)
+
+		huma.Register(api, huma.Operation{
+			OperationID: "debug-services",
+			Method:      http.MethodGet,
+			Path:        "/api/debug/services",
+			Summary:     "Debug per-source services",
+			Description: "Returns per-source service breakdown for debugging.",
+			Tags:        []string{"Debug"},
+		}, s.debugServices)
+	}
+}
+
+// ExportOpenAPI builds the Huma API with all operations registered and returns the
+// serialized OpenAPI 3.1 specification. This can be called without starting a server.
+func ExportOpenAPI() ([]byte, error) {
+	mux := http.NewServeMux()
+	api := humago.New(mux, APIConfig())
+
+	// Register with a nil-source server — we only need the schema, not runtime behavior.
+	s := &Server{}
+	s.RegisterOperations(api)
+
+	return api.OpenAPI().MarshalJSON()
+}
+
+// ── Health / Metrics types ───────────────────────────────────────────
+
+type healthOutput struct {
+	Body struct {
+		Status string `json:"status" example:"ok" doc:"Health status"`
+	}
+}
+
+type metricsOutput struct {
+	Body struct {
+		ServiceCount int `json:"serviceCount" doc:"Number of known services"`
+		SourceCount  int `json:"sourceCount" doc:"Number of active data sources"`
+	}
+}
+
+// ── Huma operation input/output types ────────────────────────────────
+
+// ServiceNameInput is the path parameter for service-scoped endpoints.
+type ServiceNameInput struct {
+	Name string `path:"name" maxLength:"255" example:"order-service" doc:"Service name"`
+}
+
+type listServicesOutput struct {
+	Body []ServiceListEntry `json:"body" doc:"List of enriched services"`
+}
+
+type getServiceOutput struct {
+	Body *ServiceDetails `json:"body" doc:"Service details"`
+}
+
+type getVersionsOutput struct {
+	Body []Version `json:"body" doc:"Version history"`
+}
+
+type getServiceSourcesOutput struct {
+	Body *AggregatedService `json:"body" doc:"Per-source breakdown and merged view"`
+}
+
+type getGlobalGraphOutput struct {
+	Body *GlobalGraph `json:"body" doc:"Global dependency graph"`
+}
+
+type getServiceGraphOutput struct {
+	Body *DependencyGraph `json:"body" doc:"Service dependency graph"`
+}
+
+type getDependentsOutput struct {
+	Body []DependentInfo `json:"body" doc:"Services that depend on this service"`
+}
+
+type getCrossRefsOutput struct {
+	Body *CrossReferences `json:"body" doc:"Config/policy cross-references"`
+}
+
+type diffInput struct {
+	FromName    string `query:"from_name" required:"true" example:"order-service" doc:"Source service name"`
+	FromVersion string `query:"from_version" example:"1.0.0" doc:"Source version"`
+	ToName      string `query:"to_name" required:"true" example:"order-service" doc:"Target service name"`
+	ToVersion   string `query:"to_version" example:"2.0.0" doc:"Target version"`
+}
+
+type getDiffOutput struct {
+	Body *DiffResult `json:"body" doc:"Classified diff between two versions"`
+}
+
+type getSourcesOutput struct {
+	Body []SourceInfo `json:"body" doc:"Detected data sources"`
+}
+
+type debugSourcesOutput struct {
+	Body struct {
+		Sources     []SourceInfo       `json:"sources"`
+		Diagnostics *SourceDiagnostics `json:"diagnostics,omitempty"`
+		Live        *liveDebugInfo     `json:"live,omitempty"`
+	}
+}
+
+type debugServicesOutput struct {
+	Body struct {
+		PerSource      []perSourceResult   `json:"perSource"`
+		AggregatedList []debugServiceEntry `json:"aggregatedList"`
+	}
+}
+
+type perSourceResult struct {
+	SourceType string    `json:"sourceType"`
+	Count      int       `json:"count"`
+	Services   []Service `json:"services,omitempty"`
+	Error      string    `json:"error,omitempty"`
+}
+
+type debugServiceEntry struct {
+	Name             string   `json:"name"`
+	MergedSource     string   `json:"mergedSource"`
+	MergedSources    []string `json:"mergedSources"`
+	MergedPhase      Phase    `json:"mergedPhase"`
+	MergedVersion    string   `json:"mergedVersion"`
+	PresentInSources []string `json:"presentInSources"`
+}
+
+// ── Huma operation handlers ─────────────────────────────────────────
+
+func (s *Server) health(_ context.Context, _ *struct{}) (*healthOutput, error) {
+	out := &healthOutput{}
+	out.Body.Status = "ok"
+	return out, nil
+}
+
+func (s *Server) metrics(ctx context.Context, _ *struct{}) (*metricsOutput, error) {
+	out := &metricsOutput{}
+	out.Body.SourceCount = len(s.sourceInfo)
+	if s.source != nil {
+		services, err := s.source.ListServices(ctx)
+		if err == nil {
+			out.Body.ServiceCount = len(services)
+		}
+	}
+	return out, nil
+}
+
+func (s *Server) listServices(ctx context.Context, _ *struct{}) (*listServicesOutput, error) {
+	cached := s.getCachedIndex(ctx)
 	services := cached.services
 	index := cached.index
 	aliases := cached.aliases
@@ -107,6 +386,7 @@ func (s *Server) handleListServices(w http.ResponseWriter, r *http.Request) {
 	for i, svc := range services {
 		entry := ServiceListEntry{Service: svc}
 		if d, ok := index[svc.Name]; ok {
+			entry.Namespace = d.Namespace
 			entry.BlastRadius = computeBlastRadius(svc.Name, index, aliases)
 			entry.DependencyCount = len(d.Dependencies)
 			if d.ChecksSummary != nil {
@@ -117,95 +397,202 @@ func (s *Server) handleListServices(w http.ResponseWriter, r *http.Request) {
 			if len(d.Insights) > 0 {
 				entry.TopInsight = d.Insights[0].Title
 			}
+			// Compliance from pre-computed details or computed here.
+			if d.Compliance != nil {
+				entry.ComplianceStatus = d.Compliance.Status
+				entry.ComplianceScore = d.Compliance.Score
+				if d.Compliance.Summary != nil {
+					entry.ComplianceErrors = d.Compliance.Summary.Errors
+					entry.ComplianceWarns = d.Compliance.Summary.Warnings
+				}
+			} else {
+				c := ComputeCompliance(svc.Phase, d.Conditions)
+				entry.ComplianceStatus = c.Status
+				entry.ComplianceScore = c.Score
+				if c.Summary != nil {
+					entry.ComplianceErrors = c.Summary.Errors
+					entry.ComplianceWarns = c.Summary.Warnings
+				}
+			}
 		}
 		enriched[i] = entry
 	}
-	writeJSON(w, enriched)
+	return &listServicesOutput{Body: enriched}, nil
 }
 
-func (s *Server) handleGetService(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	details, err := s.source.GetService(r.Context(), name)
+func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getServiceOutput, error) {
+	details, err := s.source.GetService(ctx, input.Name)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
-		return
+		return nil, huma.Error404NotFound(err.Error())
 	}
-	writeJSON(w, details)
+	return &getServiceOutput{Body: details}, nil
 }
 
-func (s *Server) handleGetVersions(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	versions, err := s.source.GetVersions(r.Context(), name)
+func (s *Server) getVersions(ctx context.Context, input *ServiceNameInput) (*getVersionsOutput, error) {
+	versions, err := s.source.GetVersions(ctx, input.Name)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return nil, huma.Error500InternalServerError(err.Error())
 	}
-	writeJSON(w, versions)
+	return &getVersionsOutput{Body: versions}, nil
 }
 
-func (s *Server) handleGetDiff(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	a := Ref{Name: q.Get("from_name"), Version: q.Get("from_version")}
-	b := Ref{Name: q.Get("to_name"), Version: q.Get("to_version")}
-
-	if a.Name == "" || b.Name == "" {
-		writeError(w, http.StatusBadRequest, "from_name, from_version, to_name, and to_version are required")
-		return
-	}
-
-	result, err := s.source.GetDiff(r.Context(), a, b)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, result)
-}
-
-func (s *Server) handleGetServiceSources(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+func (s *Server) getServiceSources(ctx context.Context, input *ServiceNameInput) (*getServiceSourcesOutput, error) {
 	if s.aggregated == nil {
-		// Non-aggregated: return single-source view.
-		details, err := s.source.GetService(r.Context(), name)
+		details, err := s.source.GetService(ctx, input.Name)
 		if err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
+			return nil, huma.Error404NotFound(err.Error())
 		}
-		writeJSON(w, AggregatedService{
-			Name:    name,
+		return &getServiceSourcesOutput{Body: &AggregatedService{
+			Name:    input.Name,
 			Sources: []ServiceSourceData{{SourceType: details.Source, Service: details}},
 			Merged:  details,
-		})
-		return
+		}}, nil
 	}
 
-	agg, err := s.aggregated.GetAggregated(r.Context(), name)
+	agg, err := s.aggregated.GetAggregated(ctx, input.Name)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
-		return
+		return nil, huma.Error404NotFound(err.Error())
 	}
-	writeJSON(w, agg)
+	return &getServiceSourcesOutput{Body: agg}, nil
 }
 
-func (s *Server) handleGetGlobalGraph(w http.ResponseWriter, r *http.Request) {
-	cached := s.getCachedIndex(r.Context())
+func (s *Server) getGlobalGraph(ctx context.Context, _ *struct{}) (*getGlobalGraphOutput, error) {
+	cached := s.getCachedIndex(ctx)
 	graph := buildGlobalGraph(cached.services, cached.index)
-	writeJSON(w, graph)
+	return &getGlobalGraphOutput{Body: graph}, nil
 }
 
-func (s *Server) handleGetGraph(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	cached := s.getCachedIndex(r.Context())
-	depIndex := cached.index
-
-	root, ok := depIndex[name]
+func (s *Server) getServiceGraph(ctx context.Context, input *ServiceNameInput) (*getServiceGraphOutput, error) {
+	cached := s.getCachedIndex(ctx)
+	root, ok := cached.index[input.Name]
 	if !ok {
-		writeError(w, http.StatusNotFound, "service not found: "+name)
-		return
+		return nil, huma.Error404NotFound("service not found: " + input.Name)
+	}
+	graph := buildGraph(root, cached.index)
+	return &getServiceGraphOutput{Body: graph}, nil
+}
+
+func (s *Server) getDependents(ctx context.Context, input *ServiceNameInput) (*getDependentsOutput, error) {
+	cached := s.getCachedIndex(ctx)
+	aliases := cached.aliases
+
+	var dependents []DependentInfo
+	for _, d := range cached.index {
+		for _, dep := range d.Dependencies {
+			if depRefMatchesName(dep.Ref, input.Name, aliases) {
+				dependents = append(dependents, DependentInfo{
+					Name:          d.Name,
+					Version:       d.Version,
+					Phase:         string(d.Phase),
+					Required:      dep.Required,
+					Compatibility: dep.Compatibility,
+				})
+				break
+			}
+		}
 	}
 
-	graph := buildGraph(root, depIndex)
-	writeJSON(w, graph)
+	return &getDependentsOutput{Body: dependents}, nil
 }
+
+func (s *Server) getCrossRefs(ctx context.Context, input *ServiceNameInput) (*getCrossRefsOutput, error) {
+	cached := s.getCachedIndex(ctx)
+	aliases := cached.aliases
+
+	target := cached.index[input.Name]
+	if target == nil {
+		return &getCrossRefsOutput{Body: &CrossReferences{}}, nil
+	}
+
+	result := CrossReferences{}
+	result.References = appendOutgoingRef(result.References, configRef(target), "config", cached.index, aliases)
+	result.References = appendOutgoingRef(result.References, policyRef(target), "policy", cached.index, aliases)
+
+	for svcName, d := range cached.index {
+		if svcName == input.Name {
+			continue
+		}
+		result.ReferencedBy = appendIncomingRef(result.ReferencedBy, d, input.Name, "config", configRef(d), cached.index, aliases)
+		result.ReferencedBy = appendIncomingRef(result.ReferencedBy, d, input.Name, "policy", policyRef(d), cached.index, aliases)
+	}
+
+	return &getCrossRefsOutput{Body: &result}, nil
+}
+
+func (s *Server) getDiff(ctx context.Context, input *diffInput) (*getDiffOutput, error) {
+	a := Ref{Name: input.FromName, Version: input.FromVersion}
+	b := Ref{Name: input.ToName, Version: input.ToVersion}
+
+	result, err := s.source.GetDiff(ctx, a, b)
+	if err != nil {
+		return nil, huma.Error500InternalServerError(err.Error())
+	}
+	return &getDiffOutput{Body: result}, nil
+}
+
+func (s *Server) getSources(_ context.Context, _ *struct{}) (*getSourcesOutput, error) {
+	return &getSourcesOutput{Body: s.sourceInfo}, nil
+}
+
+func (s *Server) debugSources(ctx context.Context, _ *struct{}) (*debugSourcesOutput, error) {
+	out := &debugSourcesOutput{}
+	out.Body.Sources = s.sourceInfo
+	out.Body.Diagnostics = s.diagnostics
+
+	if s.source != nil {
+		live := &liveDebugInfo{}
+		services, err := s.source.ListServices(ctx)
+		if err != nil {
+			live.Error = err.Error()
+		} else {
+			live.ServiceCount = len(services)
+			for _, svc := range services {
+				live.ServiceNames = append(live.ServiceNames, svc.Name)
+			}
+		}
+		out.Body.Live = live
+	}
+
+	return out, nil
+}
+
+func (s *Server) debugServices(ctx context.Context, _ *struct{}) (*debugServicesOutput, error) {
+	out := &debugServicesOutput{}
+
+	if s.aggregated != nil {
+		for _, st := range s.aggregated.SourceTypes() {
+			ds := s.aggregated.sources[st]
+			result := perSourceResult{SourceType: st}
+			svcs, err := ds.ListServices(ctx)
+			if err != nil {
+				result.Error = err.Error()
+			} else {
+				result.Count = len(svcs)
+				result.Services = svcs
+			}
+			out.Body.PerSource = append(out.Body.PerSource, result)
+		}
+	}
+
+	services, err := s.source.ListServices(ctx)
+	if err != nil {
+		return nil, huma.Error500InternalServerError(err.Error())
+	}
+	for _, svc := range services {
+		out.Body.AggregatedList = append(out.Body.AggregatedList, debugServiceEntry{
+			Name:             svc.Name,
+			MergedSource:     svc.Source,
+			MergedSources:    svc.Sources,
+			MergedPhase:      svc.Phase,
+			MergedVersion:    svc.Version,
+			PresentInSources: svc.Sources,
+		})
+	}
+
+	return out, nil
+}
+
+// ── Shared helpers ──────────────────────────────────────────────────
 
 // getCachedIndex returns the cached service index, rebuilding it if stale.
 func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
@@ -235,7 +622,6 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 		}
 	}
 
-	// Resolve dependency names using ref aliases (e.g., "my-svc-pacto" -> "my-svc").
 	aliases := buildRefAliases(index)
 	for _, d := range index {
 		for i, dep := range d.Dependencies {
@@ -257,57 +643,10 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 	return rebuilt
 }
 
-func (s *Server) handleGetDependents(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	cached := s.getCachedIndex(r.Context())
-	aliases := cached.aliases
-
-	var dependents []DependentInfo
-	for _, d := range cached.index {
-		for _, dep := range d.Dependencies {
-			if depRefMatchesName(dep.Ref, name, aliases) {
-				dependents = append(dependents, DependentInfo{
-					Name:          d.Name,
-					Version:       d.Version,
-					Phase:         string(d.Phase),
-					Required:      dep.Required,
-					Compatibility: dep.Compatibility,
-				})
-				break
-			}
-		}
-	}
-
-	writeJSON(w, dependents)
-}
-
-func (s *Server) handleGetCrossRefs(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	cached := s.getCachedIndex(r.Context())
-	aliases := cached.aliases
-
-	target := cached.index[name]
-	if target == nil {
-		writeJSON(w, CrossReferences{})
-		return
-	}
-
-	result := CrossReferences{}
-
-	// Outgoing: config/policy refs from this service.
-	result.References = appendOutgoingRef(result.References, configRef(target), "config", cached.index, aliases)
-	result.References = appendOutgoingRef(result.References, policyRef(target), "policy", cached.index, aliases)
-
-	// Incoming: scan all services in cached index.
-	for svcName, d := range cached.index {
-		if svcName == name {
-			continue
-		}
-		result.ReferencedBy = appendIncomingRef(result.ReferencedBy, d, name, "config", configRef(d), cached.index, aliases)
-		result.ReferencedBy = appendIncomingRef(result.ReferencedBy, d, name, "policy", policyRef(d), cached.index, aliases)
-	}
-
-	writeJSON(w, result)
+type liveDebugInfo struct {
+	ServiceCount int      `json:"serviceCount"`
+	ServiceNames []string `json:"serviceNames,omitempty"`
+	Error        string   `json:"error,omitempty"`
 }
 
 func configRef(d *ServiceDetails) string {
@@ -345,117 +684,6 @@ func appendIncomingRef(refs []CrossReference, d *ServiceDetails, targetName, ref
 		refs = append(refs, CrossReference{Name: d.Name, RefType: refType, Ref: ref, Phase: string(d.Phase)})
 	}
 	return refs
-}
-
-func (s *Server) handleGetSources(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, s.sourceInfo)
-}
-
-func (s *Server) handleDebugSources(w http.ResponseWriter, r *http.Request) {
-	debug := struct {
-		Sources     []SourceInfo       `json:"sources"`
-		Diagnostics *SourceDiagnostics `json:"diagnostics,omitempty"`
-		Live        *liveDebugInfo     `json:"live,omitempty"`
-	}{
-		Sources:     s.sourceInfo,
-		Diagnostics: s.diagnostics,
-	}
-
-	// Add live service counts.
-	if s.source != nil {
-		live := &liveDebugInfo{}
-		services, err := s.source.ListServices(r.Context())
-		if err != nil {
-			live.Error = err.Error()
-		} else {
-			live.ServiceCount = len(services)
-			for _, svc := range services {
-				live.ServiceNames = append(live.ServiceNames, svc.Name)
-			}
-		}
-		debug.Live = live
-	}
-
-	writeJSON(w, debug)
-}
-
-func (s *Server) handleDebugServices(w http.ResponseWriter, r *http.Request) {
-	type perSourceResult struct {
-		SourceType string    `json:"sourceType"`
-		Count      int       `json:"count"`
-		Services   []Service `json:"services,omitempty"`
-		Error      string    `json:"error,omitempty"`
-	}
-
-	type debugServiceEntry struct {
-		Name             string   `json:"name"`
-		MergedSource     string   `json:"mergedSource"`
-		MergedSources    []string `json:"mergedSources"`
-		MergedPhase      Phase    `json:"mergedPhase"`
-		MergedVersion    string   `json:"mergedVersion"`
-		PresentInSources []string `json:"presentInSources"`
-	}
-
-	type debugServicesOutput struct {
-		PerSource      []perSourceResult   `json:"perSource"`
-		AggregatedList []debugServiceEntry `json:"aggregatedList"`
-	}
-
-	out := debugServicesOutput{}
-
-	// Query each source independently.
-	if s.aggregated != nil {
-		for _, st := range s.aggregated.SourceTypes() {
-			ds := s.aggregated.sources[st]
-			result := perSourceResult{SourceType: st}
-			svcs, err := ds.ListServices(r.Context())
-			if err != nil {
-				result.Error = err.Error()
-			} else {
-				result.Count = len(svcs)
-				result.Services = svcs
-			}
-			out.PerSource = append(out.PerSource, result)
-		}
-	}
-
-	// Query the aggregated list.
-	services, err := s.source.ListServices(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	for _, svc := range services {
-		out.AggregatedList = append(out.AggregatedList, debugServiceEntry{
-			Name:             svc.Name,
-			MergedSource:     svc.Source,
-			MergedSources:    svc.Sources,
-			MergedPhase:      svc.Phase,
-			MergedVersion:    svc.Version,
-			PresentInSources: svc.Sources,
-		})
-	}
-
-	writeJSON(w, out)
-}
-
-type liveDebugInfo struct {
-	ServiceCount int      `json:"serviceCount"`
-	ServiceNames []string `json:"serviceNames,omitempty"`
-	Error        string   `json:"error,omitempty"`
-}
-
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(v)
-}
-
-func writeError(w http.ResponseWriter, code int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
 func corsMiddleware(next http.Handler) http.Handler {

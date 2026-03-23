@@ -631,7 +631,7 @@ func TestNormalizePhase(t *testing.T) {
 		{PhaseDegraded, PhaseDegraded},
 		{PhaseInvalid, PhaseInvalid},
 		{PhaseUnknown, PhaseUnknown},
-		{"Reference", PhaseUnknown},
+		{PhaseReference, PhaseReference},
 		{"Progressing", PhaseUnknown},
 		{"", PhaseUnknown},
 	}

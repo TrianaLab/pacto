@@ -1,0 +1,43 @@
+pactoVersion: "1.0"
+
+service:
+  name: pacto-dashboard
+  version: 0.0.0 # overridden at CI time via --set service.version=$TAG
+  owner: trianalab/pacto
+
+interfaces:
+  - name: http-api
+    type: http
+    port: 3000
+    visibility: public
+    contract: interfaces/openapi.json
+
+configuration:
+  schema: configuration/schema.json
+
+dependencies: []
+
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  lifecycle:
+    upgradeStrategy: rolling
+    gracefulShutdownSeconds: 10
+  health:
+    interface: http-api
+    path: /health
+  metrics:
+    interface: http-api
+    path: /metrics
+
+scaling:
+  replicas: 1
+
+metadata:
+  description: "Read-only web dashboard for exploring Pacto service contracts"
+  repository: "https://github.com/trianalab/pacto"

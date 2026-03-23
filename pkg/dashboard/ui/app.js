@@ -59,8 +59,23 @@ function hasValidationPath(d, prefix) {
 
 function phaseBadge(phase) {
   var p = phase || 'Unknown';
-  var cls = { Healthy: 'badge-ok', Degraded: 'badge-warning', Invalid: 'badge-critical', Unknown: 'badge-neutral' }[p] || 'badge-neutral';
+  var cls = { Healthy: 'badge-ok', Degraded: 'badge-warning', Invalid: 'badge-critical', Unknown: 'badge-neutral', Reference: 'badge-neutral' }[p] || 'badge-neutral';
   return '<span class="badge ' + cls + '"><span class="badge-dot"></span>' + h(p) + '</span>';
+}
+
+function complianceBadge(status) {
+  if (!status) return '';
+  var cls = { OK: 'badge-ok', WARNING: 'badge-warning', ERROR: 'badge-critical', REFERENCE: 'badge-neutral' }[status] || 'badge-neutral';
+  return '<span class="badge ' + cls + '">' + h(status) + '</span>';
+}
+
+function complianceScoreBadge(score, status) {
+  if (score == null) return '';
+  var cls = 'compliance-score';
+  if (status === 'ERROR' || score < 50) cls += ' compliance-score-error';
+  else if (status === 'WARNING' || score < 80) cls += ' compliance-score-warning';
+  else cls += ' compliance-score-ok';
+  return '<span class="' + cls + '">' + score + '%</span>';
 }
 
 function sourcePill(type) {
@@ -385,7 +400,7 @@ function renderOverviewPage() {
   o += '<div class="section-heading">All Contracts</div>';
   o += '<div class="table-wrapper"><table><thead><tr>';
   o += '<th>Service</th>';
-  o += '<th>Status' + colHelp('Operator-reported phase: Healthy, Degraded, Invalid, or Unknown') + '</th>';
+  o += '<th>Compliance' + colHelp('Contract compliance: OK, WARNING, ERROR, or REFERENCE') + '</th>';
   o += '<th>Checks' + colHelp('Passed / total reconciliation checks from the operator') + '</th>';
   o += '<th>Impact' + colHelp('Blast radius: how many services are affected if this one breaks') + '</th>';
   o += '<th class="hide-narrow">Version</th>';
@@ -398,7 +413,14 @@ function renderOverviewPage() {
     var searchText = [s.name, s.owner || '', s.version || '', sources.join(' ')].join(' ').toLowerCase();
     o += '<tr data-click data-phase="' + ha(s.phase) + '" data-sources="' + ha(sources.join(',')) + '" data-search="' + ha(searchText) + '" onclick="navigateTo(\'detail\',\'' + ha(s.name) + '\')">';
     o += '<td><a>' + h(s.name) + '</a></td>';
-    o += '<td>' + phaseBadge(s.phase) + '</td>';
+    // Compliance column — shows compliance badge + score + error/warning counts
+    o += '<td>';
+    o += complianceBadge(s.complianceStatus || (s.phase === 'Reference' ? 'REFERENCE' : ''));
+    if (s.complianceScore != null) o += ' ' + complianceScoreBadge(s.complianceScore, s.complianceStatus);
+    if (s.complianceErrors > 0) o += ' <span class="pill pill-critical" style="font-size:10px">' + s.complianceErrors + 'E</span>';
+    if (s.complianceWarnings > 0) o += ' <span class="pill pill-warning" style="font-size:10px">' + s.complianceWarnings + 'W</span>';
+    if (!s.complianceStatus && s.phase !== 'Reference') o += phaseBadge(s.phase);
+    o += '</td>';
     // Checks column — use checksTotal explicitly; 0 is valid, undefined/null means no data
     var cTotal = s.checksTotal != null ? s.checksTotal : -1;
     var cPassed = s.checksPassed != null ? s.checksPassed : 0;
@@ -1223,6 +1245,15 @@ function renderDetailPage() {
   o += '<div class="service-header"><div style="display:flex;align-items:center;gap:8px;flex:1">';
   o += '<h1 class="service-title">' + h(d.name) + '</h1>';
   o += phaseBadge(d.phase);
+  if (d.compliance) {
+    o += complianceBadge(d.compliance.status);
+    if (d.compliance.score != null) o += ' ' + complianceScoreBadge(d.compliance.score, d.compliance.status);
+    if (d.compliance.summary) {
+      var cs = d.compliance.summary;
+      if (cs.errors > 0) o += ' <span class="pill pill-critical">' + cs.errors + ' error' + (cs.errors > 1 ? 's' : '') + '</span>';
+      if (cs.warnings > 0) o += ' <span class="pill pill-warning">' + cs.warnings + ' warning' + (cs.warnings > 1 ? 's' : '') + '</span>';
+    }
+  }
   if (d.checksSummary) o += '<span class="text-dim" style="margin-left:4px">' + d.checksSummary.passed + '/' + d.checksSummary.total + ' checks</span>';
   if (d.owner) o += '<span class="text-dim" style="margin-left:4px">owner: ' + h(d.owner) + '</span>';
   o += '</div></div>';
@@ -1235,7 +1266,7 @@ function renderDetailPage() {
   o += '</div>';
 
   // Reference-only banner (v8 parity)
-  if (d.phase === 'Unknown') {
+  if (d.phase === 'Unknown' || d.phase === 'Reference') {
     o += '<div style="display:flex;align-items:center;gap:10px;padding:12px 16px;margin-bottom:16px;border-radius:var(--radius-sm);background:var(--neutral-bg);border:1px solid var(--border);color:var(--text-secondary);font-size:var(--text-sm)">';
     o += '<span style="font-size:18px">\uD83D\uDCC4</span>';
     o += '<span><strong>Reference-only contract</strong> \u2014 no runtime target. Used as a shared definition or dependency reference.</span>';
@@ -1250,6 +1281,13 @@ function renderDetailPage() {
   o += tabBtn('history', 'History', versions.length || null);
   if (versions.length > 1) o += tabBtn('diff', 'Diff');
   if (d.interfaces && d.interfaces.length) o += tabBtn('interfaces', 'Interfaces', d.interfaces.length);
+  // Validations tab: show if conditions exist or validation issues exist
+  var hasValidations = (d.conditions && d.conditions.length) || (d.validation && ((d.validation.errors || []).length || (d.validation.warnings || []).length));
+  if (hasValidations) o += tabBtn('validations', 'Validations');
+  // Contract vs Runtime tab: show if runtimeDiff exists
+  if (d.runtimeDiff && d.runtimeDiff.length) o += tabBtn('runtime-diff', 'Contract vs Runtime');
+  // Observed Runtime tab: show if observedRuntime exists
+  if (d.observedRuntime) o += tabBtn('observed', 'Observed Runtime');
   var hasConfigIssues = hasValidationPath(d, 'configuration');
   var hasPolicyIssues = hasValidationPath(d, 'policy');
   if (d.configuration || hasConfigIssues) o += tabBtn('config', 'Config');
@@ -1290,6 +1328,9 @@ function renderCurrentTab(d, versions, agg) {
     case 'history': return renderTabHistory(versions);
     case 'diff': return renderTabDiff(versions);
     case 'interfaces': return renderTabInterfaces(d);
+    case 'validations': return renderTabValidations(d);
+    case 'runtime-diff': return renderTabRuntimeDiff(d);
+    case 'observed': return renderTabObservedRuntime(d);
     case 'config': return renderTabConfig(d);
     case 'policy': return renderTabPolicy(d);
     case 'sources': return renderTabSources(agg);
@@ -1456,6 +1497,175 @@ function renderTabOverview(d) {
     }
   }
 
+  return o;
+}
+
+/* ─── Tab: Validations (conditions grouped by category + validation issues) ─── */
+var validationCatalog = {
+  ContractValid:        { category: 'contract', label: 'Contract Structure', severity: 'error' },
+  ServiceExists:        { category: 'infrastructure', label: 'Service Exists', severity: 'error' },
+  WorkloadExists:       { category: 'infrastructure', label: 'Workload Exists', severity: 'error' },
+  PortsValid:           { category: 'networking', label: 'Port Alignment', severity: 'error' },
+  HealthEndpointValid:  { category: 'networking', label: 'Health Endpoint', severity: 'error' },
+  MetricsEndpointValid: { category: 'networking', label: 'Metrics Endpoint', severity: 'error' },
+  WorkloadTypeMatch:    { category: 'workload', label: 'Workload Type', severity: 'error' },
+  StateModelMatch:      { category: 'state', label: 'State Model', severity: 'error' },
+  UpgradeStrategyMatch: { category: 'lifecycle', label: 'Upgrade Strategy', severity: 'warning' },
+  GracefulShutdownMatch:{ category: 'lifecycle', label: 'Graceful Shutdown', severity: 'warning' },
+  ImageMatch:           { category: 'image', label: 'Container Image', severity: 'error' },
+  HealthTimingMatch:    { category: 'health', label: 'Health Probe Timing', severity: 'warning' }
+};
+
+function lookupValidation(type) {
+  return validationCatalog[type] || { category: 'other', label: type, severity: 'error' };
+}
+
+function renderTabValidations(d) {
+  var conditions = d.conditions || [];
+  var validation = d.validation;
+  var o = '';
+
+  // Compliance summary at top
+  if (d.compliance) {
+    o += '<div class="compliance-summary-card">';
+    o += '<div class="compliance-summary-header">';
+    o += '<span class="compliance-summary-status">' + complianceBadge(d.compliance.status) + '</span>';
+    if (d.compliance.score != null) o += complianceScoreBadge(d.compliance.score, d.compliance.status);
+    o += '</div>';
+    if (d.compliance.summary) {
+      var s = d.compliance.summary;
+      o += '<div class="compliance-summary-counts">';
+      o += '<span>' + s.total + ' checks</span>';
+      o += '<span class="text-dim">\u2022</span>';
+      o += '<span style="color:var(--ok)">' + s.passed + ' passed</span>';
+      if (s.errors > 0) o += '<span style="color:var(--critical)">' + s.errors + ' errors</span>';
+      if (s.warnings > 0) o += '<span style="color:var(--warning)">' + s.warnings + ' warnings</span>';
+      o += '</div>';
+    }
+    o += '</div>';
+  }
+
+  // Group conditions by category
+  if (conditions.length) {
+    var groups = {};
+    for (var i = 0; i < conditions.length; i++) {
+      var c = conditions[i];
+      var entry = lookupValidation(c.type);
+      var cat = entry.category;
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push({ condition: c, entry: entry });
+    }
+    var catOrder = ['contract', 'infrastructure', 'networking', 'workload', 'state', 'lifecycle', 'image', 'health', 'other'];
+    for (var ci = 0; ci < catOrder.length; ci++) {
+      var cat = catOrder[ci];
+      var items = groups[cat];
+      if (!items) continue;
+      o += '<div class="card"><div class="section-label" style="text-transform:capitalize">' + h(cat) + '</div>';
+      o += '<div class="conditions-grid">';
+      for (var j = 0; j < items.length; j++) {
+        var item = items[j];
+        var c = item.condition;
+        var sev = c.severity || item.entry.severity;
+        o += '<div class="condition-card">';
+        o += '<div class="condition-type">' + condBadge(c.status) + ' ' + h(item.entry.label);
+        if (sev === 'warning') o += ' <span class="pill pill-warning" style="font-size:9px;padding:1px 5px">warn</span>';
+        o += '</div>';
+        if (c.reason || c.lastTransitionAgo) {
+          o += '<div class="condition-message" style="font-weight:500">';
+          if (c.reason) o += h(c.reason);
+          if (c.lastTransitionAgo) o += (c.reason ? ' \u00B7 ' : '') + h(c.lastTransitionAgo);
+          o += '</div>';
+        }
+        if (c.message) o += '<div class="condition-message">' + h(c.message) + '</div>';
+        o += '</div>';
+      }
+      o += '</div></div>';
+    }
+  }
+
+  // Validation issues (from contract validation, not k8s conditions)
+  if (validation) {
+    var errs = validation.errors || [];
+    var warns = validation.warnings || [];
+    if (errs.length || warns.length) {
+      o += '<div class="card"><div class="section-label">Contract Validation Issues</div>';
+      o += '<div class="table-wrapper"><table><thead><tr><th>Severity</th><th>Code</th><th>Path</th><th>Message</th></tr></thead><tbody>';
+      for (var i = 0; i < errs.length; i++) {
+        var e = errs[i];
+        o += '<tr><td><span class="badge badge-critical">error</span></td><td><code>' + h(e.code) + '</code></td><td><code>' + h(e.path) + '</code></td><td>' + h(e.message) + '</td></tr>';
+      }
+      for (var i = 0; i < warns.length; i++) {
+        var w = warns[i];
+        o += '<tr><td><span class="badge badge-warning">warning</span></td><td><code>' + h(w.code) + '</code></td><td><code>' + h(w.path) + '</code></td><td>' + h(w.message) + '</td></tr>';
+      }
+      o += '</tbody></table></div></div>';
+    }
+  }
+
+  if (!o) o = '<div class="card"><div style="color:var(--text-dim);font-size:var(--text-sm);text-align:center;padding:24px">No validation data available</div></div>';
+  return o;
+}
+
+/* ─── Tab: Contract vs Runtime ─── */
+function renderTabRuntimeDiff(d) {
+  var rows = d.runtimeDiff || [];
+  if (!rows.length) return '<div class="card"><div style="color:var(--text-dim);font-size:var(--text-sm);text-align:center;padding:24px">No contract vs runtime comparison available</div></div>';
+
+  var o = '<div class="card"><div class="card-header"><div class="section-label">Contract vs Runtime</div>';
+  var matches = 0, mismatches = 0, skipped = 0;
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].status === 'match') matches++;
+    else if (rows[i].status === 'mismatch') mismatches++;
+    else skipped++;
+  }
+  o += '<div>';
+  if (matches) o += '<span class="pill pill-ok">' + matches + ' match</span> ';
+  if (mismatches) o += '<span class="pill pill-critical">' + mismatches + ' mismatch</span> ';
+  if (skipped) o += '<span class="pill pill-dim">' + skipped + ' skipped</span>';
+  o += '</div></div>';
+
+  o += '<div class="table-wrapper"><table><thead><tr>';
+  o += '<th>Field</th><th>Contract Path</th><th>Declared</th><th>Observed</th><th>Status</th>';
+  o += '</tr></thead><tbody>';
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var statusBadge = r.status === 'match' ? '<span class="badge badge-ok">match</span>'
+      : r.status === 'mismatch' ? '<span class="badge badge-critical">mismatch</span>'
+      : '<span class="badge badge-neutral">' + h(r.status) + '</span>';
+    o += '<tr>';
+    o += '<td><strong>' + h(r.field) + '</strong></td>';
+    o += '<td><code class="text-dim">' + h(r.contractPath || '') + '</code></td>';
+    o += '<td>' + (r.declaredValue ? '<code>' + h(r.declaredValue) + '</code>' : '<span class="text-dim">\u2014</span>') + '</td>';
+    o += '<td>' + (r.observedValue ? '<code>' + h(r.observedValue) + '</code>' : '<span class="text-dim">\u2014</span>') + '</td>';
+    o += '<td>' + statusBadge + '</td>';
+    o += '</tr>';
+  }
+  o += '</tbody></table></div></div>';
+  return o;
+}
+
+/* ─── Tab: Observed Runtime ─── */
+function renderTabObservedRuntime(d) {
+  var obs = d.observedRuntime;
+  if (!obs) return '<div class="card"><div style="color:var(--text-dim);font-size:var(--text-sm);text-align:center;padding:24px">No observed runtime data available. This data is populated by the Kubernetes operator.</div></div>';
+
+  var o = '<div class="card"><div class="section-label">Observed Runtime State</div>';
+  o += '<table>';
+  if (obs.workloadKind) o += '<tr><td class="text-dim" style="width:200px">Workload Kind</td><td><span class="badge badge-info">' + h(obs.workloadKind) + '</span></td></tr>';
+  if (obs.deploymentStrategy) o += '<tr><td class="text-dim">Deployment Strategy</td><td>' + h(obs.deploymentStrategy) + '</td></tr>';
+  if (obs.podManagementPolicy) o += '<tr><td class="text-dim">Pod Management Policy</td><td>' + h(obs.podManagementPolicy) + '</td></tr>';
+  if (obs.terminationGracePeriodSeconds != null) o += '<tr><td class="text-dim">Termination Grace Period</td><td><code>' + obs.terminationGracePeriodSeconds + 's</code></td></tr>';
+  if (obs.containerImages && obs.containerImages.length) {
+    o += '<tr><td class="text-dim">Container Images</td><td>';
+    for (var i = 0; i < obs.containerImages.length; i++) {
+      o += '<code style="display:block;margin-bottom:2px">' + h(obs.containerImages[i]) + '</code>';
+    }
+    o += '</td></tr>';
+  }
+  if (obs.hasPVC != null) o += '<tr><td class="text-dim">Has PVC</td><td>' + (obs.hasPVC ? '<span class="badge badge-info">yes</span>' : '<span class="badge badge-neutral">no</span>') + '</td></tr>';
+  if (obs.hasEmptyDir != null) o += '<tr><td class="text-dim">Has EmptyDir</td><td>' + (obs.hasEmptyDir ? '<span class="badge badge-info">yes</span>' : '<span class="badge badge-neutral">no</span>') + '</td></tr>';
+  if (obs.healthProbeInitialDelaySeconds != null) o += '<tr><td class="text-dim">Health Probe Initial Delay</td><td><code>' + obs.healthProbeInitialDelaySeconds + 's</code></td></tr>';
+  o += '</table></div>';
   return o;
 }
 

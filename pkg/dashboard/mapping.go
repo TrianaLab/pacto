@@ -71,6 +71,9 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 		}
 	}
 
+	// Compute compliance for non-k8s sources (no conditions available).
+	svc.Compliance = ComputeCompliance(svc.Phase, svc.Conditions)
+
 	return svc
 }
 

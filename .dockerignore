@@ -1,8 +1,0 @@
-.git
-.github
-docs
-dist
-coverage.out
-coverage.html
-*.md
-!go.md

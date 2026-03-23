@@ -860,3 +860,45 @@ func TestK8s_getPacto_ListError_AllNamespaces(t *testing.T) {
 		t.Errorf("expected error to mention 'kubectl get', got: %v", err)
 	}
 }
+
+func TestObservedRuntimeFromK8s(t *testing.T) {
+	// nil input
+	if got := observedRuntimeFromK8s(nil); got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+
+	// non-nil input
+	grace := 30
+	hasPVC := true
+	hasEmpty := false
+	delay := 5
+	obs := &k8sObservedRuntime{
+		WorkloadKind:                   "Deployment",
+		DeploymentStrategy:             "RollingUpdate",
+		PodManagementPolicy:            "OrderedReady",
+		TerminationGracePeriodSeconds:  &grace,
+		ContainerImages:                []string{"img:v1"},
+		HasPVC:                         &hasPVC,
+		HasEmptyDir:                    &hasEmpty,
+		HealthProbeInitialDelaySeconds: &delay,
+	}
+	got := observedRuntimeFromK8s(obs)
+	if got == nil {
+		t.Fatal("expected non-nil")
+	}
+	if got.WorkloadKind != "Deployment" {
+		t.Errorf("expected Deployment, got %q", got.WorkloadKind)
+	}
+	if got.DeploymentStrategy != "RollingUpdate" {
+		t.Errorf("expected RollingUpdate, got %q", got.DeploymentStrategy)
+	}
+	if got.TerminationGracePeriodSeconds == nil || *got.TerminationGracePeriodSeconds != 30 {
+		t.Errorf("expected 30, got %v", got.TerminationGracePeriodSeconds)
+	}
+	if got.HasPVC == nil || !*got.HasPVC {
+		t.Error("expected HasPVC=true")
+	}
+	if got.HealthProbeInitialDelay == nil || *got.HealthProbeInitialDelay != 5 {
+		t.Errorf("expected 5, got %v", got.HealthProbeInitialDelay)
+	}
+}

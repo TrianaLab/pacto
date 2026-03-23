@@ -24,7 +24,7 @@ e2e:
 	go test -tags e2e ./tests/e2e/ -v -count=1 -parallel 16 -timeout 120s
 
 coverage:
-	go test $(shell go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs) -coverprofile=coverage.out
+	go test $(shell go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle) -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 	@go tool cover -func=coverage.out | tail -1
 

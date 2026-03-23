@@ -361,6 +361,15 @@ tr[data-click]{cursor:pointer;}
 .filter-clear{background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:var(--text-xs);font-family:var(--font-sans);text-decoration:underline;}
 .filter-clear:hover{color:var(--text);}
 
+/* ─── Compliance ─── */
+.compliance-score{display:inline-flex;align-items:center;font-size:var(--text-xs);font-weight:700;font-variant-numeric:tabular-nums;font-family:var(--font-mono);padding:2px 6px;border-radius:var(--radius-xs);}
+.compliance-score-ok{color:var(--ok);background:var(--ok-bg);}
+.compliance-score-warning{color:var(--warning);background:var(--warning-bg);}
+.compliance-score-error{color:var(--critical);background:var(--critical-bg);}
+.compliance-summary-card{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+.compliance-summary-header{display:flex;align-items:center;gap:8px;}
+.compliance-summary-counts{display:flex;align-items:center;gap:8px;font-size:var(--text-sm);font-weight:500;}
+
 /* ─── Utility ─── */
 .text-dim{font-size:var(--text-xs);color:var(--text-dim);}
 .hidden{display:none!important;}
