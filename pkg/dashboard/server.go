@@ -210,16 +210,19 @@ func (s *Server) handleGetGraph(w http.ResponseWriter, r *http.Request) {
 // getCachedIndex returns the cached service index, rebuilding it if stale.
 func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 	s.indexMu.Lock()
-	defer s.indexMu.Unlock()
-
 	if s.indexCache != nil && time.Since(s.indexCache.builtAt) < indexCacheTTL {
-		return s.indexCache
+		cached := s.indexCache
+		s.indexMu.Unlock()
+		return cached
 	}
+	stale := s.indexCache
+	s.indexMu.Unlock()
 
+	// Rebuild outside the lock to avoid blocking concurrent requests.
 	services, err := s.source.ListServices(ctx)
 	if err != nil {
-		if s.indexCache != nil {
-			return s.indexCache // return stale on error
+		if stale != nil {
+			return stale // return stale on error
 		}
 		return &serviceIndexCache{index: map[string]*ServiceDetails{}}
 	}
@@ -240,13 +243,18 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 		}
 	}
 
-	s.indexCache = &serviceIndexCache{
+	rebuilt := &serviceIndexCache{
 		services: services,
 		index:    index,
 		aliases:  aliases,
 		builtAt:  time.Now(),
 	}
-	return s.indexCache
+
+	s.indexMu.Lock()
+	s.indexCache = rebuilt
+	s.indexMu.Unlock()
+
+	return rebuilt
 }
 
 func (s *Server) handleGetDependents(w http.ResponseWriter, r *http.Request) {

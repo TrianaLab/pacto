@@ -47,11 +47,11 @@ Services are grouped by name across sources and merged using priority rules:
   pacto dashboard --namespace production`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			port, _ := cmd.Flags().GetInt("port")
-			namespace, _ := cmd.Flags().GetString("namespace")
+			port := v.GetInt("dashboard.port")
+			namespace := v.GetString("dashboard.namespace")
 			repos, _ := cmd.Flags().GetStringArray("repo")
 			noCache := v.GetBool("no-cache")
-			diagnostics, _ := cmd.Flags().GetBool("diagnostics")
+			diagnostics := v.GetBool("dashboard.diagnostics")
 			dir := optionalArg(args)
 
 			if dir == "" {
@@ -126,6 +126,11 @@ Services are grouped by name across sources and merged using priority rules:
 	cmd.Flags().String("namespace", "", "Kubernetes namespace (empty = all namespaces)")
 	cmd.Flags().StringArray("repo", nil, "OCI repository to scan (can be repeated)")
 	cmd.Flags().Bool("diagnostics", false, "enable source diagnostics panel in the dashboard UI")
+
+	// Bind to viper so flags can be overridden via PACTO_DASHBOARD_* env vars.
+	_ = v.BindPFlag("dashboard.port", cmd.Flags().Lookup("port"))
+	_ = v.BindPFlag("dashboard.namespace", cmd.Flags().Lookup("namespace"))
+	_ = v.BindPFlag("dashboard.diagnostics", cmd.Flags().Lookup("diagnostics"))
 
 	return cmd
 }

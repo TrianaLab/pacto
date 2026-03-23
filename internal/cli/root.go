@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -44,7 +45,7 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 
 	// Env prefix
 	v.SetEnvPrefix("PACTO")
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	v.AutomaticEnv()
 
 	// Channel for async update check result
@@ -77,6 +78,7 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
+						slog.Debug("update check panicked", "panic", r)
 						updateResultCh <- nil
 					}
 				}()

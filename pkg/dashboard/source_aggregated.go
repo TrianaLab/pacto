@@ -3,7 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sort"
 )
 
@@ -81,7 +81,7 @@ func (a *AggregatedSource) ListServices(ctx context.Context) ([]Service, error) 
 	for range a.sources {
 		r := <-results
 		if r.err != nil {
-			log.Printf("[dashboard] source %q ListServices failed: %v", r.sourceType, r.err)
+			slog.Warn("source ListServices failed", "source", r.sourceType, "error", r.err)
 			continue
 		}
 		for _, svc := range r.services {

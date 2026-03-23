@@ -74,7 +74,9 @@ func NewCachedDataSource(source DataSource, cache Cache, ttl time.Duration, pref
 func (c *CachedDataSource) ListServices(ctx context.Context) ([]Service, error) {
 	key := c.prefix + "services:list"
 	if v, ok := c.cache.Get(key); ok {
-		return v.([]Service), nil
+		if sv, ok := v.([]Service); ok {
+			return sv, nil
+		}
 	}
 	result, err := c.source.ListServices(ctx)
 	if err != nil {
@@ -87,7 +89,9 @@ func (c *CachedDataSource) ListServices(ctx context.Context) ([]Service, error) 
 func (c *CachedDataSource) GetService(ctx context.Context, name string) (*ServiceDetails, error) {
 	key := c.prefix + "service:" + name
 	if v, ok := c.cache.Get(key); ok {
-		return v.(*ServiceDetails), nil
+		if sv, ok := v.(*ServiceDetails); ok {
+			return sv, nil
+		}
 	}
 	result, err := c.source.GetService(ctx, name)
 	if err != nil {
@@ -100,7 +104,9 @@ func (c *CachedDataSource) GetService(ctx context.Context, name string) (*Servic
 func (c *CachedDataSource) GetVersions(ctx context.Context, name string) ([]Version, error) {
 	key := c.prefix + "versions:" + name
 	if v, ok := c.cache.Get(key); ok {
-		return v.([]Version), nil
+		if sv, ok := v.([]Version); ok {
+			return sv, nil
+		}
 	}
 	result, err := c.source.GetVersions(ctx, name)
 	if err != nil {
@@ -113,7 +119,9 @@ func (c *CachedDataSource) GetVersions(ctx context.Context, name string) ([]Vers
 func (c *CachedDataSource) GetDiff(ctx context.Context, a, b Ref) (*DiffResult, error) {
 	key := c.prefix + "diff:" + a.Name + "@" + a.Version + ".." + b.Name + "@" + b.Version
 	if v, ok := c.cache.Get(key); ok {
-		return v.(*DiffResult), nil
+		if sv, ok := v.(*DiffResult); ok {
+			return sv, nil
+		}
 	}
 	result, err := c.source.GetDiff(ctx, a, b)
 	if err != nil {

@@ -411,7 +411,7 @@ func compileConfigSchema(data []byte) (*jsonschema.Schema, error) {
 	compiler := jsonschema.NewCompiler()
 	var schemaDoc interface{}
 	if err := json.Unmarshal(data, &schemaDoc); err != nil {
-		return nil, fmt.Errorf("failed to parse: %v", err)
+		return nil, fmt.Errorf("failed to parse: %w", err)
 	}
 	compiler.AddResource("mem:///config-schema.json", schemaDoc) //nolint:errcheck // AddResource does not fail for valid JSON
 	return compiler.Compile("mem:///config-schema.json")
