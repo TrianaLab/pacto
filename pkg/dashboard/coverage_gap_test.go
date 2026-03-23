@@ -171,6 +171,116 @@ func TestExtractTar_DotDotInMiddle(t *testing.T) {
 	}
 }
 
+func TestGenerateInsights_NoopWhenPresent(t *testing.T) {
+	d := &ServiceDetails{Insights: []Insight{{Severity: "info", Title: "existing"}}}
+	d.GenerateInsights()
+	if len(d.Insights) != 1 || d.Insights[0].Title != "existing" {
+		t.Errorf("expected existing insight preserved, got %v", d.Insights)
+	}
+}
+
+func TestGenerateInsights_Phase(t *testing.T) {
+	for _, tc := range []struct {
+		phase    Phase
+		severity string
+	}{
+		{PhaseInvalid, "critical"},
+		{PhaseDegraded, "warning"},
+	} {
+		d := &ServiceDetails{}
+		d.Phase = tc.phase
+		d.GenerateInsights()
+		if len(d.Insights) == 0 || d.Insights[0].Severity != tc.severity {
+			t.Errorf("phase %s: expected %s insight, got %v", tc.phase, tc.severity, d.Insights)
+		}
+	}
+}
+
+func TestGenerateInsights_Healthy(t *testing.T) {
+	d := &ServiceDetails{}
+	d.Phase = PhaseHealthy
+	d.GenerateInsights()
+	if len(d.Insights) != 0 {
+		t.Errorf("expected no insights for healthy, got %v", d.Insights)
+	}
+}
+
+func TestGenerateInsights_Validation(t *testing.T) {
+	d := &ServiceDetails{
+		Validation: &ValidationInfo{
+			Errors:   []ValidationIssue{{Message: "bad field"}, {Message: "another"}},
+			Warnings: []ValidationIssue{{Message: "check this"}},
+		},
+	}
+	d.GenerateInsights()
+	if len(d.Insights) != 2 {
+		t.Fatalf("expected 2 insights, got %d: %v", len(d.Insights), d.Insights)
+	}
+	if d.Insights[0].Title != "2 validation errors" || d.Insights[0].Description != "bad field" {
+		t.Errorf("unexpected error insight: %+v", d.Insights[0])
+	}
+	if d.Insights[1].Title != "1 validation warning" || d.Insights[1].Description != "check this" {
+		t.Errorf("unexpected warning insight: %+v", d.Insights[1])
+	}
+}
+
+func TestGenerateInsights_ValidationEmptyMessage(t *testing.T) {
+	d := &ServiceDetails{Validation: &ValidationInfo{Errors: []ValidationIssue{{Code: "E001"}}}}
+	d.GenerateInsights()
+	if len(d.Insights) != 1 || d.Insights[0].Description != "" {
+		t.Errorf("expected empty description, got %+v", d.Insights)
+	}
+}
+
+func TestGenerateInsights_Resources(t *testing.T) {
+	d := &ServiceDetails{Resources: &ResourcesInfo{ServiceExists: boolPtr(false), WorkloadExists: boolPtr(false)}}
+	d.GenerateInsights()
+	if len(d.Insights) != 2 {
+		t.Fatalf("expected 2 resource insights, got %d", len(d.Insights))
+	}
+
+	d2 := &ServiceDetails{Resources: &ResourcesInfo{ServiceExists: boolPtr(true), WorkloadExists: boolPtr(true)}}
+	d2.GenerateInsights()
+	if len(d2.Insights) != 0 {
+		t.Errorf("expected no insights for existing resources, got %v", d2.Insights)
+	}
+}
+
+func TestGenerateInsights_Ports(t *testing.T) {
+	d := &ServiceDetails{Ports: &PortsInfo{Missing: []int{8080, 9090}, Unexpected: []int{3000}}}
+	d.GenerateInsights()
+	if len(d.Insights) != 2 {
+		t.Fatalf("expected 2 port insights, got %d", len(d.Insights))
+	}
+	if d.Insights[0].Title != "Missing ports: 8080, 9090" {
+		t.Errorf("unexpected missing ports title: %s", d.Insights[0].Title)
+	}
+	if d.Insights[1].Title != "Unexpected ports: 3000" {
+		t.Errorf("unexpected ports title: %s", d.Insights[1].Title)
+	}
+}
+
+func TestPlural(t *testing.T) {
+	if plural(1) != "" {
+		t.Error("expected empty for 1")
+	}
+	if plural(2) != "s" {
+		t.Error("expected 's' for 2")
+	}
+	if plural(0) != "s" {
+		t.Error("expected 's' for 0")
+	}
+}
+
+func TestJoinInts(t *testing.T) {
+	if got := joinInts([]int{1, 2, 3}); got != "1, 2, 3" {
+		t.Errorf("expected '1, 2, 3', got %q", got)
+	}
+	if got := joinInts([]int{42}); got != "42" {
+		t.Errorf("expected '42', got %q", got)
+	}
+}
+
 func TestLocalSource_FindBundle_SubdirInvalidYAMLThenValid(t *testing.T) {
 	// This tests the `continue` path in findBundle when loadLocalBundle fails
 	// for a subdirectory (line 115-116 in source_local.go).

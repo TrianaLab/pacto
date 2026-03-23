@@ -373,42 +373,60 @@ func (d *ServiceDetails) GenerateInsights() {
 		ins = append(ins, Insight{Severity: "warning", Title: "Contract is degraded", Description: "Some validation checks are failing but service is operational."})
 	}
 
-	if d.Validation != nil {
-		if n := len(d.Validation.Errors); n > 0 {
-			desc := ""
-			if d.Validation.Errors[0].Message != "" {
-				desc = d.Validation.Errors[0].Message
-			}
-			ins = append(ins, Insight{Severity: "critical", Title: strconv.Itoa(n) + " validation error" + plural(n), Description: desc})
-		}
-		if n := len(d.Validation.Warnings); n > 0 {
-			desc := ""
-			if d.Validation.Warnings[0].Message != "" {
-				desc = d.Validation.Warnings[0].Message
-			}
-			ins = append(ins, Insight{Severity: "warning", Title: strconv.Itoa(n) + " validation warning" + plural(n), Description: desc})
-		}
-	}
-
-	if d.Resources != nil {
-		if d.Resources.ServiceExists != nil && !*d.Resources.ServiceExists {
-			ins = append(ins, Insight{Severity: "critical", Title: "Service resource not found", Description: "The Kubernetes Service resource does not exist."})
-		}
-		if d.Resources.WorkloadExists != nil && !*d.Resources.WorkloadExists {
-			ins = append(ins, Insight{Severity: "critical", Title: "Workload not found", Description: "The target workload does not exist."})
-		}
-	}
-
-	if d.Ports != nil {
-		if len(d.Ports.Missing) > 0 {
-			ins = append(ins, Insight{Severity: "warning", Title: "Missing ports: " + joinInts(d.Ports.Missing), Description: "Ports declared in contract but not found on the service."})
-		}
-		if len(d.Ports.Unexpected) > 0 {
-			ins = append(ins, Insight{Severity: "info", Title: "Unexpected ports: " + joinInts(d.Ports.Unexpected), Description: "Ports found on the service but not declared in contract."})
-		}
-	}
+	ins = append(ins, validationInsights(d.Validation)...)
+	ins = append(ins, resourceInsights(d.Resources)...)
+	ins = append(ins, portInsights(d.Ports)...)
 
 	d.Insights = ins
+}
+
+func validationInsights(v *ValidationInfo) []Insight {
+	if v == nil {
+		return nil
+	}
+	var ins []Insight
+	if n := len(v.Errors); n > 0 {
+		ins = append(ins, Insight{Severity: "critical", Title: strconv.Itoa(n) + " validation error" + plural(n), Description: firstMessage(v.Errors)})
+	}
+	if n := len(v.Warnings); n > 0 {
+		ins = append(ins, Insight{Severity: "warning", Title: strconv.Itoa(n) + " validation warning" + plural(n), Description: firstMessage(v.Warnings)})
+	}
+	return ins
+}
+
+func resourceInsights(r *ResourcesInfo) []Insight {
+	if r == nil {
+		return nil
+	}
+	var ins []Insight
+	if r.ServiceExists != nil && !*r.ServiceExists {
+		ins = append(ins, Insight{Severity: "critical", Title: "Service resource not found", Description: "The Kubernetes Service resource does not exist."})
+	}
+	if r.WorkloadExists != nil && !*r.WorkloadExists {
+		ins = append(ins, Insight{Severity: "critical", Title: "Workload not found", Description: "The target workload does not exist."})
+	}
+	return ins
+}
+
+func portInsights(p *PortsInfo) []Insight {
+	if p == nil {
+		return nil
+	}
+	var ins []Insight
+	if len(p.Missing) > 0 {
+		ins = append(ins, Insight{Severity: "warning", Title: "Missing ports: " + joinInts(p.Missing), Description: "Ports declared in contract but not found on the service."})
+	}
+	if len(p.Unexpected) > 0 {
+		ins = append(ins, Insight{Severity: "info", Title: "Unexpected ports: " + joinInts(p.Unexpected), Description: "Ports found on the service but not declared in contract."})
+	}
+	return ins
+}
+
+func firstMessage(issues []ValidationIssue) string {
+	if len(issues) > 0 {
+		return issues[0].Message
+	}
+	return ""
 }
 
 func plural(n int) string {

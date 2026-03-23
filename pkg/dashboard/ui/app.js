@@ -1412,6 +1412,60 @@ function initServiceGraph(containerId, graphData, focusId) {
     .attr('fill', function(d) { return statusColor(d.status); })
     .text(function(d) { return displayStatus(d.status); });
 
+  // Impact chain: build reverse required dependency map
+  function isBroken(status) { return status === 'Invalid' || status === 'Degraded'; }
+
+  var reverseDeps = {};
+  links.forEach(function(l) {
+    if (l.required) {
+      var tid = typeof l.target === 'object' ? l.target.id : l.target;
+      var sid = typeof l.source === 'object' ? l.source.id : l.source;
+      if (!reverseDeps[tid]) reverseDeps[tid] = [];
+      reverseDeps[tid].push(sid);
+    }
+  });
+
+  function getImpactChain(nodeId) {
+    var chain = new Set();
+    var q = [nodeId];
+    while (q.length) {
+      var cur = q.shift();
+      (reverseDeps[cur] || []).forEach(function(dep) {
+        if (!chain.has(dep)) { chain.add(dep); q.push(dep); }
+      });
+    }
+    return chain;
+  }
+
+  // Add warning icon to impacted (non-broken) nodes
+  var allImpacted = new Set();
+  nodes.filter(function(n) { return isBroken(n.status); }).forEach(function(bn) {
+    getImpactChain(bn.id).forEach(function(id) { allImpacted.add(id); });
+  });
+
+  nodeGroup.filter(function(d) { return allImpacted.has(d.id) && !isBroken(d.status); })
+    .append('text')
+    .attr('class', 'node-impact-icon')
+    .attr('x', nodeW - 20).attr('y', 16)
+    .attr('fill', 'var(--warning)')
+    .text('\u26A0');
+
+  // Hover impact chain — highlights chain + dims others
+  nodeGroup.on('mouseenter', function(event, d) {
+    if (!isBroken(d.status)) return;
+    var chain = getImpactChain(d.id);
+    chain.add(d.id);
+    nodeGroup.classed('graph-highlight', function(n) { return chain.has(n.id); });
+    link.classed('graph-impact', function(l) {
+      var sid = typeof l.source === 'object' ? l.source.id : l.source;
+      var tid = typeof l.target === 'object' ? l.target.id : l.target;
+      return chain.has(sid) && chain.has(tid);
+    });
+  }).on('mouseleave', function() {
+    nodeGroup.classed('graph-highlight', false);
+    link.classed('graph-impact', false);
+  });
+
   function closestBoxPoint(x, y, w, hh, px, py) {
     var cx = x + w / 2, cy = y + hh / 2;
     var dx = px - cx, dy = py - cy;
