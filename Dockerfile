@@ -1,5 +1,7 @@
-# Build stage
-FROM golang:1.25.7-alpine3.22 AS build
+# Build stage — uses Go's native cross-compilation (no QEMU needed)
+FROM --platform=$BUILDPLATFORM golang:1.25.7-alpine3.22 AS build
+
+ARG TARGETARCH
 
 WORKDIR /src
 
@@ -12,7 +14,7 @@ ARG VERSION=dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
 COPY . .
-RUN CGO_ENABLED=0 go build \
+RUN CGO_ENABLED=0 GOARCH=${TARGETARCH} go build \
     -ldflags "-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE}" \
     -o /pacto ./cmd/pacto
 

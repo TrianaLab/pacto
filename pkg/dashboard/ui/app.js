@@ -220,6 +220,14 @@ function render() {
    OVERVIEW PAGE — matches operator overview.html with D3 graph
    ════════════════════════════════════════════════════════════════ */
 var graphInitialized = false;
+var graphDataFingerprint = null;
+
+function graphFingerprint(data) {
+  if (!data || !data.nodes) return '';
+  return data.nodes.map(function(n) {
+    return n.id + ':' + (n.status || '') + ':' + (n.edges || []).map(function(e) { return e.targetId; }).join(',');
+  }).join('|');
+}
 
 var overviewLoaded = false;
 async function renderOverview() {
@@ -235,8 +243,12 @@ async function renderOverview() {
     ]).then(function(r) {
       state.services = r[0] || [];
       state.sourcesInfo = r[1] || [];
-      state.graphData = r[2];
-      graphInitialized = false;
+      var newFp = graphFingerprint(r[2]);
+      if (newFp !== graphDataFingerprint) {
+        state.graphData = r[2];
+        graphDataFingerprint = newFp;
+        graphInitialized = false;
+      }
       renderSourcePills();
       renderOverviewPage();
     }).catch(function() { /* keep stale data */ });
@@ -253,6 +265,7 @@ async function renderOverview() {
     state.services = r[0] || [];
     state.sourcesInfo = r[1] || [];
     state.graphData = r[2];
+    graphDataFingerprint = graphFingerprint(r[2]);
     graphInitialized = false;
     overviewLoaded = true;
     renderSourcePills();
@@ -510,13 +523,35 @@ function renderOverviewPage() {
 
   o += '<div id="debug-panel-slot"></div>';
 
+  // Preserve the graph SVG DOM if already initialized to avoid losing zoom/drag state
+  var savedGraphSvg = null;
+  var savedLegend = null;
+  if (graphInitialized) {
+    var gc = document.getElementById('graph-container');
+    if (gc) {
+      savedGraphSvg = gc.querySelector('svg');
+      var leg = document.getElementById('graph-legend');
+      if (leg) savedLegend = leg.innerHTML;
+    }
+  }
+
   document.getElementById('app').innerHTML = o;
+
+  // Restore preserved graph SVG
+  if (savedGraphSvg && graphInitialized) {
+    var gc = document.getElementById('graph-container');
+    if (gc) {
+      gc.appendChild(savedGraphSvg);
+      var leg = document.getElementById('graph-legend');
+      if (leg && savedLegend) leg.innerHTML = savedLegend;
+    }
+  }
 
   // Apply current filter
   applyFilter();
 
-  // Initialize graph if graph view is active
-  if (state.overviewView === 'graph') initGraph();
+  // Initialize graph if graph view is active and not already done
+  if (state.overviewView === 'graph' && !graphInitialized) initGraph();
 
   // Render connections table
   renderConnectionsTable();
@@ -1247,13 +1282,13 @@ function extractSubgraph(graphData, focusId) {
   }
 
   var subNodes = graphData.nodes.filter(function(n) { return visited[n.id]; });
-  if (subNodes.length <= 1) return null;
+  if (subNodes.length === 0) return null;
   return { nodes: subNodes };
 }
 
 function initServiceGraph(containerId, graphData, focusId) {
   var container = document.getElementById(containerId);
-  if (!container || !graphData || !graphData.nodes || graphData.nodes.length < 2) {
+  if (!container || !graphData || !graphData.nodes || graphData.nodes.length === 0) {
     if (container) container.innerHTML = '<div style="color:var(--text-dim);font-size:var(--text-sm);text-align:center;padding:40px">No dependency relationships to display</div>';
     return;
   }

@@ -173,6 +173,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ghcr.io/trianalab/pacto-dashboard:${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             VERSION=${{ needs.release.outputs.tag }}
             GIT_COMMIT=${{ github.sha }}
