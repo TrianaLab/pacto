@@ -234,7 +234,8 @@ async function renderOverview() {
   var app = document.getElementById('app');
   // If we already have data, render immediately from cache, then refresh in background
   if (overviewLoaded && state.services.length) {
-    renderOverviewPage();
+    // Skip re-render on graph view to preserve zoom/drag state
+    if (state.overviewView !== 'graph' || !graphInitialized) renderOverviewPage();
     // Background refresh
     Promise.all([
       api.listServices(),
@@ -1547,7 +1548,8 @@ async function renderDetail() {
 
   // If we have cached data, render immediately, then refresh in background
   if (hasExisting) {
-    renderDetailPage();
+    // Skip re-render on dependencies tab to preserve graph zoom/drag state
+    if (state.tab !== 'dependencies') renderDetailPage();
     Promise.all([
       api.getService(svcName),
       api.getVersions(svcName).catch(function() { return []; }),
@@ -2100,7 +2102,7 @@ function renderTabDependencies(d) {
   var o = '';
 
   // Service dependency graph — shows full chain of deps + dependents
-  o += '<div class="card" style="padding:0;overflow:hidden"><div class="card-header"><div class="section-label">Dependency Graph</div></div>';
+  o += '<div class="card" style="padding:0;overflow:hidden"><div class="card-header" style="padding:20px 20px 0"><div class="section-label">Dependency Graph</div></div>';
   o += '<div id="service-graph-container" style="width:100%;height:400px;position:relative"></div></div>';
 
 
