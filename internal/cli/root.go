@@ -120,7 +120,7 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 	root.AddCommand(newVersionCommand(info))
 	root.AddCommand(newUpdateCommand(info.Version))
 	root.AddCommand(newMCPCommand(svc, info.Version))
-	root.AddCommand(newDashboardCommand(svc, v))
+	root.AddCommand(newDashboardCommand(svc, v, info.Version))
 
 	return root
 }

@@ -26,6 +26,7 @@ type Server struct {
 	sourceInfo  []SourceInfo
 	diagnostics *SourceDiagnostics
 	listenAddr  string // optional: server URL for OpenAPI spec
+	version     string // optional: Pacto version to expose via /health
 
 	// Cached service index for scan-heavy endpoints (dependents, cross-refs, graph).
 	indexMu    sync.Mutex
@@ -319,7 +320,8 @@ func ExportOpenAPI() ([]byte, error) {
 
 type healthOutput struct {
 	Body struct {
-		Status string `json:"status" example:"ok" doc:"Health status"`
+		Status  string `json:"status" example:"ok" doc:"Health status"`
+		Version string `json:"version,omitempty" example:"1.2.3" doc:"Pacto version"`
 	}
 }
 
@@ -441,9 +443,15 @@ type debugServiceEntry struct {
 
 // ── Huma operation handlers ─────────────────────────────────────────
 
+// SetVersion sets the Pacto version exposed by the health endpoint.
+func (s *Server) SetVersion(v string) {
+	s.version = v
+}
+
 func (s *Server) health(_ context.Context, _ *struct{}) (*healthOutput, error) {
 	out := &healthOutput{}
 	out.Body.Status = "ok"
+	out.Body.Version = s.version
 	return out, nil
 }
 

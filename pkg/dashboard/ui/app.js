@@ -4,6 +4,14 @@ var state = { view: 'list', service: null, tab: 'overview', services: [], detail
 // getSources extracts the sources array from a service entry.
 function getSources(svc) { return (svc.sources || [svc.source]).filter(Boolean); }
 
+/* ── Version badge ─── */
+fetch('/health').then(function(r) { return r.json(); }).then(function(d) {
+  if (d.version) {
+    var el = document.querySelector('.topbar-logo');
+    if (el) { var badge = document.createElement('span'); badge.className = 'version-badge'; badge.textContent = d.version; el.appendChild(badge); }
+  }
+}).catch(function() {});
+
 /* ── API ─── */
 var api = {
   get: function(p) { return fetch('/api' + p).then(function(r) { if (!r.ok) { var err = new Error('API ' + r.status); err.status = r.status; throw err; } return r.json(); }); },
@@ -195,11 +203,8 @@ function stopAutoReload() { if (autoReloadTimer) { clearInterval(autoReloadTimer
 function doRefresh() {
   var btn = document.getElementById('reload-btn');
   if (btn) { btn.classList.add('spinning'); setTimeout(function() { btn.classList.remove('spinning'); }, 600); }
-  // Clear cached state so all sources are re-fetched from the server.
-  overviewLoaded = false;
-  state.details = {};
-  state.versions = {};
-  state.aggregated = {};
+  // Re-render without clearing cached state — the render functions
+  // detect existing data and refresh in the background seamlessly.
   render();
 }
 updateAutoReloadUI();

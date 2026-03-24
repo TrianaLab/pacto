@@ -11,13 +11,16 @@ import (
 // the dashboard server. Huma's schema registry generates a JSON Schema from
 // this struct, including defaults and descriptions via struct tags.
 type DashboardConfig struct {
-	Host        string `json:"PACTO_DASHBOARD_HOST" default:"127.0.0.1" doc:"Bind address for the dashboard server"`
-	Port        int    `json:"PACTO_DASHBOARD_PORT" default:"3000" doc:"HTTP port for the dashboard server"`
-	Namespace   string `json:"PACTO_DASHBOARD_NAMESPACE" default:"" doc:"Kubernetes namespace filter (empty = all)"`
-	Repo        string `json:"PACTO_DASHBOARD_REPO" default:"" doc:"Comma-separated OCI repositories to scan"`
-	Diagnostics bool   `json:"PACTO_DASHBOARD_DIAGNOSTICS" default:"false" doc:"Enable diagnostics debug endpoints"`
-	NoCache     bool   `json:"PACTO_NO_CACHE" default:"false" doc:"Disable OCI bundle cache"`
-	Verbose     bool   `json:"PACTO_VERBOSE" default:"false" doc:"Enable verbose logging"`
+	Host             string `json:"PACTO_DASHBOARD_HOST" default:"127.0.0.1" doc:"Bind address for the server"`
+	Port             int    `json:"PACTO_DASHBOARD_PORT" default:"3000" doc:"HTTP server port"`
+	Namespace        string `json:"PACTO_DASHBOARD_NAMESPACE,omitempty" doc:"Kubernetes namespace filter (empty = all)"`
+	Repo             string `json:"PACTO_DASHBOARD_REPO,omitempty" doc:"Comma-separated OCI repositories to scan"`
+	Diagnostics      bool   `json:"PACTO_DASHBOARD_DIAGNOSTICS" default:"false" doc:"Enable source diagnostics panel"`
+	NoCache          bool   `json:"PACTO_NO_CACHE" default:"false" doc:"Disable OCI bundle caching"`
+	NoUpdateCheck    bool   `json:"PACTO_NO_UPDATE_CHECK" default:"false" doc:"Disable update checks"`
+	RegistryUsername string `json:"PACTO_REGISTRY_USERNAME,omitempty" doc:"Registry authentication username"`
+	RegistryPassword string `json:"PACTO_REGISTRY_PASSWORD,omitempty" doc:"Registry authentication password"`
+	RegistryToken    string `json:"PACTO_REGISTRY_TOKEN,omitempty" doc:"Registry authentication token"`
 }
 
 // ExportConfigSchema generates a JSON Schema for DashboardConfig using Huma's

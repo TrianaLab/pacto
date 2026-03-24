@@ -191,6 +191,6 @@ spec:
 
 ## Build and Release
 
-The dashboard image is built and published automatically when a new Pacto version is released. The dedicated pipeline (`.github/workflows/dashboard-image.yml`) builds multi-architecture images (`linux/amd64`, `linux/arm64`) and pushes to `ghcr.io/trianalab/pacto-dashboard` with the matching version tag.
+The dashboard image is built and published automatically when a new Pacto version is released. The `docker` job in the auto-release pipeline (`.github/workflows/auto-release.yml`) builds multi-architecture images (`linux/amd64`, `linux/arm64`) and pushes to `ghcr.io/trianalab/pacto-dashboard` with the matching version tag (without `v` prefix).
 
 The image version always matches the Pacto CLI version. There is no separate versioning scheme for the dashboard container.

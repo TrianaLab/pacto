@@ -16,7 +16,7 @@ import (
 	"github.com/trianalab/pacto/pkg/dashboard"
 )
 
-func newDashboardCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
+func newDashboardCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "dashboard [dir]",
 		Short: "Start a local web dashboard for exploring service contracts",
@@ -99,6 +99,7 @@ Services are grouped by name across sources and merged using priority rules:
 				diag = detectResult.Diagnostics
 			}
 			server := dashboard.NewAggregatedServer(aggregated, uiFS, detectResult.Sources, diag)
+			server.SetVersion(version)
 			server.SetListenAddr(host, port)
 
 			// Enable lazy resolution of remote OCI dependencies when a BundleStore is available.

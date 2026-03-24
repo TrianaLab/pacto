@@ -1340,7 +1340,18 @@ func TestServerDebugServices_PerSourceError(t *testing.T) {
 
 func TestServerHealth(t *testing.T) {
 	source := &mockSource{services: []Service{}}
-	base := startTestServer(t, source)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
+	srv.SetVersion("1.2.3")
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = srv.ServeOnListener(ctx, ln) }()
+	time.Sleep(50 * time.Millisecond)
+	base := "http://" + ln.Addr().String()
 
 	resp, err := http.Get(base + "/health")
 	if err != nil {
@@ -1358,6 +1369,9 @@ func TestServerHealth(t *testing.T) {
 	}
 	if body["status"] != "ok" {
 		t.Errorf("expected status 'ok', got %v", body["status"])
+	}
+	if body["version"] != "1.2.3" {
+		t.Errorf("expected version '1.2.3', got %v", body["version"])
 	}
 }
 
@@ -1474,7 +1488,7 @@ func TestExportConfigSchema(t *testing.T) {
 		t.Errorf("title = %v", schema["title"])
 	}
 	props, _ := schema["properties"].(map[string]any)
-	for _, key := range []string{"PACTO_DASHBOARD_HOST", "PACTO_DASHBOARD_PORT", "PACTO_DASHBOARD_NAMESPACE", "PACTO_DASHBOARD_REPO", "PACTO_DASHBOARD_DIAGNOSTICS", "PACTO_NO_CACHE", "PACTO_VERBOSE"} {
+	for _, key := range []string{"PACTO_DASHBOARD_HOST", "PACTO_DASHBOARD_PORT", "PACTO_DASHBOARD_NAMESPACE", "PACTO_DASHBOARD_REPO", "PACTO_DASHBOARD_DIAGNOSTICS", "PACTO_NO_CACHE", "PACTO_NO_UPDATE_CHECK", "PACTO_REGISTRY_USERNAME", "PACTO_REGISTRY_PASSWORD", "PACTO_REGISTRY_TOKEN"} {
 		if props[key] == nil {
 			t.Errorf("missing property %s", key)
 		}
@@ -1483,7 +1497,7 @@ func TestExportConfigSchema(t *testing.T) {
 	if port["default"] != float64(3000) {
 		t.Errorf("port default = %v", port["default"])
 	}
-	if port["description"] != "HTTP port for the dashboard server" {
+	if port["description"] != "HTTP server port" {
 		t.Errorf("port description = %v", port["description"])
 	}
 }

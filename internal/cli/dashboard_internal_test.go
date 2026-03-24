@@ -56,7 +56,7 @@ func TestNewDashboardCommand_NoSources(t *testing.T) {
 
 	svc := app.NewService(nil, nil)
 	v := viper.New()
-	cmd := newDashboardCommand(svc, v)
+	cmd := newDashboardCommand(svc, v, "test")
 	cmd.SetArgs([]string{"/nonexistent/empty/dir"})
 	var errBuf bytes.Buffer
 	cmd.SetErr(&errBuf)
@@ -87,7 +87,7 @@ service:
 
 	svc := app.NewService(dummyStore{}, nil)
 	v := viper.New()
-	cmd := newDashboardCommand(svc, v)
+	cmd := newDashboardCommand(svc, v, "test")
 	cmd.SetArgs([]string{dir, "--port", "0", "--diagnostics"})
 
 	var outBuf, errBuf bytes.Buffer
@@ -134,7 +134,7 @@ service:
 
 	svc := app.NewService(nil, nil)
 	v := viper.New()
-	cmd := newDashboardCommand(svc, v)
+	cmd := newDashboardCommand(svc, v, "test")
 	cmd.SetArgs([]string{"--port", "0"}) // no dir arg
 
 	var errBuf bytes.Buffer
@@ -159,7 +159,7 @@ func TestNewDashboardCommand_NoSourcesDetails(t *testing.T) {
 
 	svc := app.NewService(nil, nil)
 	v := viper.New()
-	cmd := newDashboardCommand(svc, v)
+	cmd := newDashboardCommand(svc, v, "test")
 	cmd.SetArgs([]string{emptyDir})
 
 	// Ensure no K8s client can be created.
@@ -196,7 +196,7 @@ func TestNewDashboardCommand_RepoEnvVar(t *testing.T) {
 
 	svc := app.NewService(dummyStore{}, nil)
 	v := viper.New()
-	cmd := newDashboardCommand(svc, v)
+	cmd := newDashboardCommand(svc, v, "test")
 	cmd.SetArgs([]string{emptyDir, "--port", "0"})
 
 	var errBuf bytes.Buffer
@@ -224,7 +224,7 @@ func TestNewDashboardCommand_RepoFlagOverridesEnv(t *testing.T) {
 
 	svc := app.NewService(dummyStore{}, nil)
 	v := viper.New()
-	cmd := newDashboardCommand(svc, v)
+	cmd := newDashboardCommand(svc, v, "test")
 	cmd.SetArgs([]string{emptyDir, "--port", "0", "--repo", "ghcr.io/org/from-flag"})
 
 	var errBuf bytes.Buffer
@@ -257,7 +257,7 @@ service:
 
 	svc := app.NewService(dummyStore{}, nil)
 	v := viper.New()
-	cmd := newDashboardCommand(svc, v)
+	cmd := newDashboardCommand(svc, v, "test")
 	cmd.SetArgs([]string{dir, "--port", "0", "--host", "0.0.0.0"})
 
 	var errBuf bytes.Buffer
@@ -280,7 +280,7 @@ service:
 func TestNewDashboardCommand_DefaultFlags(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	v := viper.New()
-	cmd := newDashboardCommand(svc, v)
+	cmd := newDashboardCommand(svc, v, "test")
 
 	// Verify default flag values
 	host, _ := cmd.Flags().GetString("host")
