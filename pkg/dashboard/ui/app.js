@@ -250,7 +250,11 @@ async function renderOverview() {
         graphInitialized = false;
       }
       renderSourcePills();
-      renderOverviewPage();
+      // Only do a full re-render if we're NOT on the graph view,
+      // to avoid destroying user's zoom/drag state.
+      if (state.overviewView !== 'graph' || !graphInitialized) {
+        renderOverviewPage();
+      }
     }).catch(function() { /* keep stale data */ });
     return;
   }
@@ -523,35 +527,13 @@ function renderOverviewPage() {
 
   o += '<div id="debug-panel-slot"></div>';
 
-  // Preserve the graph SVG DOM if already initialized to avoid losing zoom/drag state
-  var savedGraphSvg = null;
-  var savedLegend = null;
-  if (graphInitialized) {
-    var gc = document.getElementById('graph-container');
-    if (gc) {
-      savedGraphSvg = gc.querySelector('svg');
-      var leg = document.getElementById('graph-legend');
-      if (leg) savedLegend = leg.innerHTML;
-    }
-  }
-
   document.getElementById('app').innerHTML = o;
-
-  // Restore preserved graph SVG
-  if (savedGraphSvg && graphInitialized) {
-    var gc = document.getElementById('graph-container');
-    if (gc) {
-      gc.appendChild(savedGraphSvg);
-      var leg = document.getElementById('graph-legend');
-      if (leg && savedLegend) leg.innerHTML = savedLegend;
-    }
-  }
 
   // Apply current filter
   applyFilter();
 
-  // Initialize graph if graph view is active and not already done
-  if (state.overviewView === 'graph' && !graphInitialized) initGraph();
+  // Initialize graph if graph view is active
+  if (state.overviewView === 'graph') initGraph();
 
   // Render connections table
   renderConnectionsTable();
@@ -1579,7 +1561,8 @@ async function renderDetail() {
       if (r[2]) state.aggregated[svcName] = r[2];
       state.dependents = r[3] || [];
       state.crossRefs = r[4] || { references: [], referencedBy: [] };
-      renderDetailPage();
+      // Skip full re-render on dependencies tab to preserve graph state
+      if (state.tab !== 'dependencies') renderDetailPage();
     }).catch(function() { /* keep stale data */ });
     return;
   }
