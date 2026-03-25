@@ -111,6 +111,47 @@ service:
 	}
 }
 
+func TestNewDashboardCommand_WithOCISource(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "1.0"
+service:
+  name: oci-wiring-svc
+  version: 1.0.0
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
+	t.Setenv("PACTO_DASHBOARD_REPO", "ghcr.io/org/svc-a")
+
+	// Create a cache dir with a dummy bundle to exercise SetCacheSource.
+	cacheDir := filepath.Join(dir, ".cache", "pacto", "oci", "ghcr.io", "org", "cached", "1.0.0")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(dir, ".cache"))
+
+	svc := app.NewService(dummyStore{}, nil)
+	v := viper.New()
+	cmd := newDashboardCommand(svc, v, "test")
+	cmd.SetArgs([]string{dir, "--port", "0"})
+
+	var errBuf bytes.Buffer
+	cmd.SetErr(&errBuf)
+	cmd.SetOut(&bytes.Buffer{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cmd.SetContext(ctx)
+
+	_ = cmd.Execute()
+
+	stderr := errBuf.String()
+	if !strings.Contains(stderr, "oci: enabled") {
+		t.Errorf("expected stderr to mention 'oci: enabled', got:\n%s", stderr)
+	}
+}
+
 func TestNewDashboardCommand_DefaultDir(t *testing.T) {
 	// When no dir arg is provided, it defaults to ".".
 	// Create a temp dir with pacto.yaml and chdir into it.

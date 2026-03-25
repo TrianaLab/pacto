@@ -887,8 +887,8 @@ func TestEmbeddedUI(t *testing.T) {
 	if fsys == nil {
 		t.Fatal("expected non-nil embedded FS")
 	}
-	// The embedded ui directory should contain at least index.html.
-	f, err := fsys.Open("ui/index.html")
+	// EmbeddedUI returns the ui/ subdir, so index.html is at root.
+	f, err := fsys.Open("index.html")
 	if err != nil {
 		t.Fatalf("expected ui/index.html to exist: %v", err)
 	}

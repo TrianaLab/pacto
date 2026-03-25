@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"os/signal"
 	"strings"
@@ -89,19 +88,14 @@ Services are grouped by name across sources and merged using priority rules:
 			// Wire OCI background discovery to invalidate caches when
 			// new services are discovered, so they surface immediately.
 			if detectResult.OCI != nil {
-				detectResult.OCI.SetOnDiscover(func() {
-					memCache.InvalidateAll()
-				})
+				detectResult.OCI.SetOnDiscover(memCache.InvalidateAll)
 			}
 
 			// Build aggregated source.
 			aggregated := dashboard.NewAggregatedSource(cachedSources)
 
 			// Build server with embedded UI.
-			uiFS, err := fs.Sub(dashboard.EmbeddedUI(), "ui")
-			if err != nil {
-				return fmt.Errorf("failed to load dashboard UI: %w", err)
-			}
+			uiFS := dashboard.EmbeddedUI()
 			var diag *dashboard.SourceDiagnostics
 			if diagnostics {
 				diag = detectResult.Diagnostics
