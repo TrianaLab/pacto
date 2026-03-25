@@ -1781,6 +1781,7 @@ async function resolveRemoteDep(svcName, ref, compatibility) {
 
 function renderDetailPage() {
   var d = state.details[state.service];
+  if (!d) return; // guard: details not loaded yet
   var versions = state.versions[state.service] || [];
   var agg = state.aggregated[state.service];
   var sources = getSources(d);
@@ -1863,6 +1864,7 @@ function tabBtn(id, label, count) {
 function switchTab(tab) {
   state.tab = tab;
   var d = state.details[state.service];
+  if (!d) return; // guard: details not loaded yet
   var versions = state.versions[state.service] || [];
   var agg = state.aggregated[state.service];
   document.getElementById('tab-content').innerHTML = renderCurrentTab(d, versions, agg);
