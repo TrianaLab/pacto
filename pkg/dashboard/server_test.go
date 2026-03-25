@@ -516,6 +516,47 @@ func TestServerGetSources(t *testing.T) {
 	}
 }
 
+func TestServerGetSources_WithOCIDiscovering(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<html></html>")},
+	}
+	source := &mockSource{}
+	srv := NewServer(source, ui)
+	srv.sourceInfo = []SourceInfo{
+		{Type: "oci", Enabled: true, Reason: "configured"},
+	}
+	// Create an OCISource that is "discovering" (started but not done).
+	ociSrc := NewOCISource(nil, nil)
+	ociSrc.started = true // simulate started state
+	srv.SetOCISource(ociSrc)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.ServeOnListener(ctx, ln) }()
+	time.Sleep(50 * time.Millisecond)
+
+	resp, err := http.Get("http://" + ln.Addr().String() + "/api/sources")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	var body struct {
+		Sources     []SourceInfo `json:"sources"`
+		Discovering bool         `json:"discovering"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Discovering {
+		t.Fatal("expected discovering=true when OCI source is actively discovering")
+	}
+}
+
 func TestCORSMiddleware_Options(t *testing.T) {
 	source := &mockSource{}
 	base := startTestServer(t, source)

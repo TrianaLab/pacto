@@ -667,3 +667,135 @@ func TestStripTag(t *testing.T) {
 		}
 	}
 }
+
+func TestOCISource_SetOnDiscover(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/svc", "1.0.0", "svc", "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/svc"})
+
+	var called int
+	src.SetOnDiscover(func() { called++ })
+
+	services := waitForDiscovery(t, src)
+	if len(services) != 1 {
+		t.Fatalf("expected 1 service, got %d", len(services))
+	}
+	if called == 0 {
+		t.Error("expected onDiscover callback to be called")
+	}
+}
+
+func TestOCISource_Discovering(t *testing.T) {
+	store := newMockBundleStore()
+	src := NewOCISource(store, nil)
+
+	// Before ListServices, Discovering is false (not started).
+	if src.Discovering() {
+		t.Error("expected Discovering()=false before start")
+	}
+
+	// After discovery completes, Discovering is false.
+	store.addBundle("ghcr.io/org/svc", "1.0.0", "svc", "1.0.0")
+	src2 := NewOCISource(store, []string{"ghcr.io/org/svc"})
+	waitForDiscovery(t, src2)
+	if src2.Discovering() {
+		t.Error("expected Discovering()=false after completion")
+	}
+}
+
+func TestOCISource_DiscoverRepo_DuplicateServiceName(t *testing.T) {
+	store := newMockBundleStore()
+	// Two different repos produce bundles with the same service name.
+	store.addBundle("ghcr.io/org/svc-v1", "1.0.0", "svc", "1.0.0")
+	store.addBundle("ghcr.io/org/svc-v2", "2.0.0", "svc", "2.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/svc-v1", "ghcr.io/org/svc-v2"})
+	services := waitForDiscovery(t, src)
+
+	// Only one should be registered (first wins).
+	if len(services) != 1 {
+		t.Fatalf("expected 1 service (duplicate name skipped), got %d", len(services))
+	}
+}
+
+func TestOCISource_BackgroundDiscover_PrefetchErrors(t *testing.T) {
+	store := newMockBundleStore()
+	// Root with a dep. Dep has valid latest + an older tag that fails to pull.
+	store.addBundleWithDeps("ghcr.io/org/root", "1.0.0", "root", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/dep"},
+	})
+	// Register dep with version 2.0.0 as latest (will be discovered via this).
+	store.addBundle("ghcr.io/org/dep", "2.0.0", "dep", "2.0.0")
+	// Add an older tag with no bundle — simulates a pull error during prefetch.
+	store.tags["ghcr.io/org/dep"] = append(store.tags["ghcr.io/org/dep"], "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/root"})
+	services := waitForDiscovery(t, src)
+
+	// Both services should be discovered despite pull error on 1.0.0.
+	if len(services) != 2 {
+		t.Fatalf("expected 2 services, got %d", len(services))
+	}
+}
+
+// countingStore wraps mockBundleStore and makes ListTags fail for a repo
+// after it has been called a given number of times for that repo.
+type countingStore struct {
+	*mockBundleStore
+	listTagsCalls map[string]int
+	failAfter     int // fail ListTags after this many calls per repo
+}
+
+func (c *countingStore) ListTags(ctx context.Context, repo string) ([]string, error) {
+	c.listTagsCalls[repo]++
+	if c.listTagsCalls[repo] > c.failAfter {
+		return nil, fmt.Errorf("simulated ListTags failure for %s", repo)
+	}
+	return c.mockBundleStore.ListTags(ctx, repo)
+}
+
+func TestOCISource_BackgroundDiscover_ListTagsErrorDuringPrefetch(t *testing.T) {
+	base := newMockBundleStore()
+	base.addBundle("ghcr.io/org/root", "1.0.0", "root", "1.0.0")
+
+	// ListTags is called during: shallowScan(1), discoverRepo+BFS(0 for root, no deps),
+	// and prefetch(1). Allow first call (discovery), fail second (prefetch).
+	store := &countingStore{mockBundleStore: base, listTagsCalls: make(map[string]int), failAfter: 1}
+
+	src := NewOCISource(store, []string{"ghcr.io/org/root"})
+	services := waitForDiscovery(t, src)
+	if len(services) != 1 {
+		t.Fatalf("expected 1 service, got %d", len(services))
+	}
+}
+
+func TestOCISource_DepReposForService_FindBundleError(t *testing.T) {
+	store := newMockBundleStore()
+	src := NewOCISource(store, nil)
+	// depReposForService for a nonexistent service returns nil.
+	repos := src.depReposForService(context.Background(), "nonexistent")
+	if repos != nil {
+		t.Errorf("expected nil repos for nonexistent service, got %v", repos)
+	}
+}
+
+func TestOCISource_DepReposForService_WithExplicitTag(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundleWithDeps("ghcr.io/org/root", "1.0.0", "root", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/dep:2.0.0", Required: true},
+	})
+	store.addBundle("ghcr.io/org/dep", "2.0.0", "dep", "2.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/root"})
+	services := waitForDiscovery(t, src)
+
+	// Should discover both root and dep (tag stripped from ref).
+	names := make(map[string]bool)
+	for _, svc := range services {
+		names[svc.Name] = true
+	}
+	if !names["root"] || !names["dep"] {
+		t.Errorf("expected root and dep, got %v", names)
+	}
+}

@@ -23,7 +23,7 @@ type OCISource struct {
 	repoMap  map[string]string // service name -> repo
 	services []Service         // discovered so far
 	started  bool              // background discovery launched
-	done     chan struct{}      // closed when background discovery completes
+	done     chan struct{}     // closed when background discovery completes
 
 	onDiscover func() // called when a new service is discovered (cache invalidation)
 }
