@@ -138,6 +138,11 @@ func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 	}
 
 	for _, r := range resources.APIResources {
+		// Skip subresources (e.g. "pactos/status") — they share the
+		// same Kind but are not the top-level resource we need.
+		if strings.Contains(r.Name, "/") {
+			continue
+		}
 		if strings.EqualFold(r.Kind, "Pacto") {
 			result.ResourceName = r.Name
 		}

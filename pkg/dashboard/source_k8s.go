@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/trianalab/pacto/internal/oci"
 )
 
 // K8sSource implements DataSource by reading Pacto CRD status from a Kubernetes cluster.
@@ -14,8 +17,9 @@ import (
 type K8sSource struct {
 	client               K8sClient
 	namespace            string
-	resourceName         string // CRD resource name, e.g. "pactos" (discovered dynamically)
-	revisionResourceName string // e.g. "pactorevisions" (empty = revisions not available)
+	resourceName         string          // CRD resource name, e.g. "pactos" (discovered dynamically)
+	revisionResourceName string          // e.g. "pactorevisions" (empty = revisions not available)
+	store                oci.BundleStore // optional: enables diff and interface enrichment via OCI
 
 	// listCache caches the result of listPactos for a short window to avoid
 	// repeated API calls when buildServiceIndex calls GetService N times.
@@ -23,6 +27,13 @@ type K8sSource struct {
 	listCache []pactoResource
 	listErr   error
 	listAt    time.Time
+}
+
+// SetStore enables OCI-backed diff and interface enrichment.
+// When set, GetDiff can pull bundles by OCI ref, and service details
+// are enriched with OpenAPI endpoint data from the contract bundle.
+func (s *K8sSource) SetStore(store oci.BundleStore) {
+	s.store = store
 }
 
 // NewK8sSource creates a data source backed by Kubernetes CRDs.
@@ -352,8 +363,91 @@ func findPactoByName(resources []pactoResource, name string) *pactoResource {
 	return nil
 }
 
-func (s *K8sSource) GetDiff(_ context.Context, _, _ Ref) (*DiffResult, error) {
-	return nil, fmt.Errorf("diff not yet supported for k8s source; use OCI or local source")
+func (s *K8sSource) GetDiff(ctx context.Context, a, b Ref) (*DiffResult, error) {
+	if s.store == nil {
+		return nil, fmt.Errorf("diff requires OCI store; configure --repo or bundle store")
+	}
+
+	refA, err := s.ociRefForVersion(ctx, a.Name, a.Version)
+	if err != nil {
+		return nil, fmt.Errorf("resolving ref for %s@%s: %w", a.Name, a.Version, err)
+	}
+	refB, err := s.ociRefForVersion(ctx, b.Name, b.Version)
+	if err != nil {
+		return nil, fmt.Errorf("resolving ref for %s@%s: %w", b.Name, b.Version, err)
+	}
+
+	bundleA, err := s.store.Pull(ctx, refA)
+	if err != nil {
+		return nil, fmt.Errorf("pulling %s: %w", refA, err)
+	}
+	bundleB, err := s.store.Pull(ctx, refB)
+	if err != nil {
+		return nil, fmt.Errorf("pulling %s: %w", refB, err)
+	}
+
+	return ComputeDiff(a, b, bundleA, bundleB), nil
+}
+
+// ociRefForVersion returns the OCI reference for a specific version of a service.
+// It looks up the PactoRevision CRD for the version, or falls back to constructing
+// a ref from the Pacto CRD's imageRef.
+func (s *K8sSource) ociRefForVersion(ctx context.Context, name, version string) (string, error) {
+	// Try revisions first (most precise).
+	if s.revisionResourceName != "" {
+		versions, err := s.GetVersions(ctx, name)
+		if err == nil {
+			for _, v := range versions {
+				if v.Version == version && v.Ref != "" {
+					return v.Ref, nil
+				}
+			}
+		}
+	}
+
+	// Fall back to the Pacto CRD's imageRef + version tag.
+	r, err := s.getPacto(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	if r.Status.Contract != nil && r.Status.Contract.ImageRef != "" {
+		repo := stripTag(r.Status.Contract.ImageRef)
+		return repo + ":" + version, nil
+	}
+
+	return "", fmt.Errorf("no OCI reference found for %s@%s", name, version)
+}
+
+// OCIRepos returns unique OCI repository bases extracted from K8s CRD data
+// (imageRef fields and PactoRevision source refs). These can be used to
+// auto-seed the OCI source for dependency discovery.
+func (s *K8sSource) OCIRepos(ctx context.Context) []string {
+	seen := make(map[string]bool)
+	resources, err := s.listPactos(ctx)
+	if err != nil {
+		return nil
+	}
+
+	for _, r := range resources {
+		if r.Status.Contract != nil && r.Status.Contract.ImageRef != "" {
+			repo := stripTag(r.Status.Contract.ImageRef)
+			seen[repo] = true
+		}
+		for _, dep := range r.Status.Dependencies {
+			ref := strings.TrimPrefix(dep.Ref, "oci://")
+			if strings.Contains(ref, "/") {
+				repo := stripTag(ref)
+				seen[repo] = true
+			}
+		}
+	}
+
+	repos := make([]string, 0, len(seen))
+	for repo := range seen {
+		repos = append(repos, repo)
+	}
+	sort.Strings(repos)
+	return repos
 }
 
 // listCacheTTL controls how long a listPactos result is reused.

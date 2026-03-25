@@ -137,7 +137,7 @@ func (a *AggregatedSource) GetDiff(ctx context.Context, from, to Ref) (*DiffResu
 			return ds.GetDiff(ctx, from, to)
 		}
 	}
-	for _, sourceType := range []string{"oci", "cache", "local"} {
+	for _, sourceType := range []string{"oci", "cache", "k8s", "local"} {
 		ds, ok := a.sources[sourceType]
 		if !ok {
 			continue

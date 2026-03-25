@@ -625,7 +625,7 @@ func (s *Server) getDiff(ctx context.Context, input *diffInput) (*getDiffOutput,
 
 	result, err := s.source.GetDiff(ctx, a, b)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		return nil, huma.Error422UnprocessableEntity(err.Error())
 	}
 	return &getDiffOutput{Body: result}, nil
 }

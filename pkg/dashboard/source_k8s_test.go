@@ -633,6 +633,29 @@ func TestK8s_GetVersions_ServiceNameMapping(t *testing.T) {
 	}
 }
 
+func TestK8s_GetVersions_NameFallback(t *testing.T) {
+	// When the service name doesn't match any contract.serviceName,
+	// resolvePactoName falls back to using the name directly.
+	revisionsJSON := `{"items": [
+		{"metadata": {"name": "unknown-1-0-0"}, "spec": {"version": "1.0.0"}, "status": {"resolved": true}}
+	]}`
+	pactosJSON := `{"items": [{"metadata": {"name": "other"}, "status": {"phase": "Healthy", "contract": {"serviceName": "other"}}}]}`
+	client := &mockK8sClient{
+		listJSON: []byte(pactosJSON),
+		selectorJSON: map[string][]byte{
+			"pacto.trianalab.io/pacto=unknown": []byte(revisionsJSON),
+		},
+	}
+	src := NewK8sSource(client, "default", "pactos", "pactorevisions")
+	versions, err := src.GetVersions(context.Background(), "unknown")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("expected 1 version, got %d", len(versions))
+	}
+}
+
 func TestK8s_GetVersions_ListError(t *testing.T) {
 	pactosJSON := `{"items": [{"metadata": {"name": "svc"}, "status": {"phase": "Healthy"}}]}`
 	client := &mockK8sClient{
@@ -728,18 +751,275 @@ func TestK8s_GetVersions_NoCreatedAt(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// GetDiff — not supported
+// GetDiff
 // ---------------------------------------------------------------------------
 
-func TestK8s_GetDiff_ReturnsError(t *testing.T) {
+func TestK8s_GetDiff_NoStore(t *testing.T) {
 	client := &mockK8sClient{}
 	src := NewK8sSource(client, "default", "pactos", "")
 	_, err := src.GetDiff(context.Background(), Ref{Name: "a", Version: "1"}, Ref{Name: "a", Version: "2"})
 	if err == nil {
-		t.Fatal("expected error from GetDiff")
+		t.Fatal("expected error from GetDiff without store")
 	}
-	if !strings.Contains(err.Error(), "not yet supported") {
+	if !strings.Contains(err.Error(), "diff requires OCI store") {
 		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestK8s_GetDiff_Success(t *testing.T) {
+	revisionsJSON := `{"items": [
+		{"metadata": {"name": "svc-1-0-0"}, "spec": {"version": "1.0.0", "source": {"oci": "ghcr.io/org/svc:1.0.0"}}, "status": {"resolved": true}},
+		{"metadata": {"name": "svc-2-0-0"}, "spec": {"version": "2.0.0", "source": {"oci": "ghcr.io/org/svc:2.0.0"}}, "status": {"resolved": true}}
+	]}`
+	pactosJSON := `{"items": [{"metadata": {"name": "svc"}, "status": {"phase": "Healthy", "contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:2.0.0"}}}]}`
+	client := &mockK8sClient{
+		listJSON: []byte(pactosJSON),
+		selectorJSON: map[string][]byte{
+			"pacto.trianalab.io/pacto=svc": []byte(revisionsJSON),
+		},
+	}
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/svc", "1.0.0", "svc", "1.0.0")
+	store.addBundle("ghcr.io/org/svc", "2.0.0", "svc", "2.0.0")
+
+	src := NewK8sSource(client, "", "pactos", "pactorevisions")
+	src.SetStore(store)
+
+	result, err := src.GetDiff(context.Background(),
+		Ref{Name: "svc", Version: "1.0.0"},
+		Ref{Name: "svc", Version: "2.0.0"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil diff result")
+	}
+}
+
+func TestK8s_GetDiff_RefAError(t *testing.T) {
+	client := &mockK8sClient{
+		listErr: fmt.Errorf("connection refused"),
+	}
+	store := newMockBundleStore()
+	src := NewK8sSource(client, "", "pactos", "pactorevisions")
+	src.SetStore(store)
+
+	_, err := src.GetDiff(context.Background(),
+		Ref{Name: "svc", Version: "1.0.0"},
+		Ref{Name: "svc", Version: "2.0.0"},
+	)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "resolving ref for svc@1.0.0") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestK8s_GetDiff_RefBError(t *testing.T) {
+	// First ref resolves, second fails.
+	pactosJSON := `{"items": [
+		{"metadata": {"name": "svc-a"}, "status": {"phase": "Healthy", "contract": {"serviceName": "svc-a", "imageRef": "ghcr.io/org/svc-a:1.0.0"}}},
+		{"metadata": {"name": "svc-b"}, "status": {"phase": "Healthy"}}
+	]}`
+	client := &mockK8sClient{listJSON: []byte(pactosJSON)}
+	store := newMockBundleStore()
+	src := NewK8sSource(client, "", "pactos", "")
+	src.SetStore(store)
+
+	_, err := src.GetDiff(context.Background(),
+		Ref{Name: "svc-a", Version: "1.0.0"},
+		Ref{Name: "svc-b", Version: "2.0.0"},
+	)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "resolving ref for svc-b@2.0.0") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestK8s_GetDiff_PullAError(t *testing.T) {
+	pactosJSON := `{"items": [{"metadata": {"name": "svc"}, "status": {"phase": "Healthy", "contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:1.0.0"}}}]}`
+	client := &mockK8sClient{listJSON: []byte(pactosJSON)}
+	store := newMockBundleStore() // no bundles added, Pull will fail
+	src := NewK8sSource(client, "", "pactos", "")
+	src.SetStore(store)
+
+	_, err := src.GetDiff(context.Background(),
+		Ref{Name: "svc", Version: "1.0.0"},
+		Ref{Name: "svc", Version: "2.0.0"},
+	)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "pulling") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestK8s_GetDiff_PullBError(t *testing.T) {
+	pactosJSON := `{"items": [{"metadata": {"name": "svc"}, "status": {"phase": "Healthy", "contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:1.0.0"}}}]}`
+	client := &mockK8sClient{listJSON: []byte(pactosJSON)}
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/svc", "1.0.0", "svc", "1.0.0") // Only A exists
+	src := NewK8sSource(client, "", "pactos", "")
+	src.SetStore(store)
+
+	_, err := src.GetDiff(context.Background(),
+		Ref{Name: "svc", Version: "1.0.0"},
+		Ref{Name: "svc", Version: "2.0.0"},
+	)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "pulling ghcr.io/org/svc:2.0.0") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestK8s_SetStore(t *testing.T) {
+	client := &mockK8sClient{}
+	src := NewK8sSource(client, "default", "pactos", "")
+	if src.store != nil {
+		t.Fatal("expected nil store initially")
+	}
+	src.SetStore(&mockBundleStore{})
+	if src.store == nil {
+		t.Fatal("expected store to be set")
+	}
+}
+
+func TestK8s_ociRefForVersion_FromRevision(t *testing.T) {
+	revisionsJSON := `{"items": [
+		{"metadata": {"name": "svc-1-0-0"}, "spec": {"version": "1.0.0", "source": {"oci": "ghcr.io/org/svc:1.0.0"}}, "status": {"resolved": true}}
+	]}`
+	pactosJSON := `{"items": [{"metadata": {"name": "svc"}, "status": {"phase": "Healthy", "contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:latest"}}}]}`
+	client := &mockK8sClient{
+		listJSON: []byte(pactosJSON),
+		selectorJSON: map[string][]byte{
+			"pacto.trianalab.io/pacto=svc": []byte(revisionsJSON),
+		},
+	}
+	src := NewK8sSource(client, "default", "pactos", "pactorevisions")
+
+	ref, err := src.ociRefForVersion(context.Background(), "svc", "1.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ref != "ghcr.io/org/svc:1.0.0" {
+		t.Errorf("expected 'ghcr.io/org/svc:1.0.0', got %q", ref)
+	}
+}
+
+func TestK8s_ociRefForVersion_FallbackToImageRef(t *testing.T) {
+	pactosJSON := `{"items": [{"metadata": {"name": "svc"}, "status": {"phase": "Healthy", "contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:latest"}}}]}`
+	client := &mockK8sClient{
+		listJSON: []byte(pactosJSON),
+		selectorJSON: map[string][]byte{
+			"pacto.trianalab.io/pacto=svc": []byte(`{"items": []}`),
+		},
+	}
+	// Use all-namespaces mode so getPacto falls back to listPactos.
+	src := NewK8sSource(client, "", "pactos", "pactorevisions")
+
+	ref, err := src.ociRefForVersion(context.Background(), "svc", "2.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ref != "ghcr.io/org/svc:2.0.0" {
+		t.Errorf("expected 'ghcr.io/org/svc:2.0.0', got %q", ref)
+	}
+}
+
+func TestK8s_ociRefForVersion_NoRef(t *testing.T) {
+	pactosJSON := `{"items": [{"metadata": {"name": "svc"}, "status": {"phase": "Healthy"}}]}`
+	client := &mockK8sClient{
+		listJSON: []byte(pactosJSON),
+		selectorJSON: map[string][]byte{
+			"pacto.trianalab.io/pacto=svc": []byte(`{"items": []}`),
+		},
+	}
+	// Use all-namespaces mode so getPacto falls back to listPactos.
+	src := NewK8sSource(client, "", "pactos", "pactorevisions")
+
+	_, err := src.ociRefForVersion(context.Background(), "svc", "1.0.0")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "no OCI reference found") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestK8s_ociRefForVersion_NoRevisionCRD(t *testing.T) {
+	// When revisionResourceName is empty, falls back to imageRef directly.
+	singleJSON := `{"metadata": {"name": "svc", "namespace": "default"}, "status": {"phase": "Healthy", "contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:1.0.0"}}}`
+	client := &mockK8sClient{
+		getJSON: []byte(singleJSON),
+	}
+	src := NewK8sSource(client, "default", "pactos", "")
+
+	ref, err := src.ociRefForVersion(context.Background(), "svc", "3.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ref != "ghcr.io/org/svc:3.0.0" {
+		t.Errorf("expected 'ghcr.io/org/svc:3.0.0', got %q", ref)
+	}
+}
+
+func TestK8s_ociRefForVersion_GetPactoError(t *testing.T) {
+	client := &mockK8sClient{
+		getErr: fmt.Errorf("not found"),
+	}
+	src := NewK8sSource(client, "default", "pactos", "")
+
+	_, err := src.ociRefForVersion(context.Background(), "svc", "1.0.0")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestK8s_OCIRepos(t *testing.T) {
+	pactosJSON := `{"items": [
+		{"metadata": {"name": "billing"}, "status": {"phase": "Healthy", "contract": {"serviceName": "billing", "imageRef": "ghcr.io/org/billing:1.0.0"}, "dependencies": [{"ref": "oci://ghcr.io/org/auth@^1.0.0", "required": true}]}},
+		{"metadata": {"name": "auth"}, "status": {"phase": "Healthy", "contract": {"serviceName": "auth", "imageRef": "ghcr.io/org/auth:2.0.0"}}}
+	]}`
+	client := &mockK8sClient{listJSON: []byte(pactosJSON)}
+	src := NewK8sSource(client, "", "pactos", "")
+
+	repos := src.OCIRepos(context.Background())
+	if len(repos) != 2 {
+		t.Fatalf("expected 2 repos, got %d: %v", len(repos), repos)
+	}
+	// Should be sorted.
+	if repos[0] != "ghcr.io/org/auth" {
+		t.Errorf("expected first repo 'ghcr.io/org/auth', got %q", repos[0])
+	}
+	if repos[1] != "ghcr.io/org/billing" {
+		t.Errorf("expected second repo 'ghcr.io/org/billing', got %q", repos[1])
+	}
+}
+
+func TestK8s_OCIRepos_Empty(t *testing.T) {
+	client := &mockK8sClient{listJSON: []byte(`{"items": []}`)}
+	src := NewK8sSource(client, "", "pactos", "")
+
+	repos := src.OCIRepos(context.Background())
+	if len(repos) != 0 {
+		t.Errorf("expected 0 repos, got %d", len(repos))
+	}
+}
+
+func TestK8s_OCIRepos_ListError(t *testing.T) {
+	client := &mockK8sClient{listErr: fmt.Errorf("error")}
+	src := NewK8sSource(client, "", "pactos", "")
+
+	repos := src.OCIRepos(context.Background())
+	if repos != nil {
+		t.Errorf("expected nil repos on error, got %v", repos)
 	}
 }
 

@@ -984,8 +984,8 @@ func TestServerGetDiff_Error(t *testing.T) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", resp.StatusCode)
 	}
 }
 

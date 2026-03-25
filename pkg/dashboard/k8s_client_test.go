@@ -274,6 +274,7 @@ func TestK8sGoClient_DiscoverCRD_Found(t *testing.T) {
 			GroupVersion: "pacto.trianalab.io/v1alpha1",
 			APIResources: []metav1.APIResource{
 				{Name: "pactos", Kind: "Pacto"},
+				{Name: "pactos/status", Kind: "Pacto"}, // subresource — must be skipped
 			},
 		},
 	}

@@ -74,6 +74,23 @@ func (m *mockBundleStore) addBundleWithDeps(repo, tag, name, version string, dep
 	m.tags[repo] = append(m.tags[repo], tag)
 }
 
+func TestOCISource_AddRepos(t *testing.T) {
+	store := newMockBundleStore()
+	src := NewOCISource(store, []string{"ghcr.io/org/a"})
+
+	src.AddRepos([]string{"ghcr.io/org/b", "ghcr.io/org/a", "ghcr.io/org/c"})
+
+	if len(src.repos) != 3 {
+		t.Fatalf("expected 3 repos, got %d: %v", len(src.repos), src.repos)
+	}
+	expected := []string{"ghcr.io/org/a", "ghcr.io/org/b", "ghcr.io/org/c"}
+	for i, want := range expected {
+		if src.repos[i] != want {
+			t.Errorf("repos[%d]: expected %q, got %q", i, want, src.repos[i])
+		}
+	}
+}
+
 func TestOCISource_ListServices(t *testing.T) {
 	store := newMockBundleStore()
 	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")

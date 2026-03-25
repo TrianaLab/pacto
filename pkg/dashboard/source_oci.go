@@ -34,6 +34,21 @@ func NewOCISource(store oci.BundleStore, repos []string) *OCISource {
 	return &OCISource{store: store, repos: repos, repoMap: make(map[string]string), done: make(chan struct{})}
 }
 
+// AddRepos appends additional OCI repositories to scan. Duplicates are ignored.
+// This must be called before background discovery starts.
+func (s *OCISource) AddRepos(repos []string) {
+	existing := make(map[string]bool, len(s.repos))
+	for _, r := range s.repos {
+		existing[r] = true
+	}
+	for _, r := range repos {
+		if !existing[r] {
+			s.repos = append(s.repos, r)
+			existing[r] = true
+		}
+	}
+}
+
 // SetOnDiscover sets a callback invoked each time a new service is discovered
 // in the background. Typically used to invalidate caches so the new data
 // surfaces immediately on the next API call.
