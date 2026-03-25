@@ -118,8 +118,13 @@ function complianceScoreBadge(score, status) {
   return '<span class="' + cls + '">' + score + '%</span>';
 }
 
+function sourceLabel(type) {
+  return type.toUpperCase();
+}
+
 function sourcePill(type) {
-  return '<span class="source-pill source-pill-' + h(type) + '"><span class="pill-dot"></span>' + h(type) + '</span>';
+  var tip = sourceTooltips[type] || type;
+  return '<span class="source-pill source-pill-' + h(type) + '" title="' + ha(tip) + '"><span class="pill-dot"></span>' + sourceLabel(type) + '</span>';
 }
 
 function insightClass(severity) {
@@ -292,7 +297,7 @@ function renderSourcePills() {
     var active = isSourceEnabled(s.type);
     var tip = sourceTooltips[s.type] || s.type;
     return '<span class="source-pill source-pill-' + h(s.type) + '" style="cursor:pointer;opacity:' + (active ? '1' : '0.35') + '" title="' + ha(tip) + '" onclick="toggleSourceFilterGlobal(\'' + ha(s.type) + '\')">' +
-      '<span class="pill-dot"></span>' + h(s.type) + '</span>';
+      '<span class="pill-dot"></span>' + sourceLabel(s.type) + '</span>';
   }).join('');
 }
 
@@ -453,7 +458,7 @@ function renderOverviewPage() {
       var st = srcTypeList[si];
       var stTip = sourceTooltips[st] || st;
       o += '<button class="source-filter-btn active" data-source-filter="' + ha(st) + '" title="' + ha(stTip) + '" onclick="toggleSourceFilter(\'' + ha(st) + '\')">';
-      o += '<span class="pill-dot" style="background:' + (srcColors[st] || 'var(--neutral)') + '"></span>' + h(st) + '</button>';
+      o += '<span class="pill-dot" style="background:' + (srcColors[st] || 'var(--neutral)') + '"></span>' + sourceLabel(st) + '</button>';
     }
     o += '</div>';
   }

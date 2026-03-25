@@ -59,6 +59,21 @@ func (m *mockBundleStore) addBundle(repo, tag, name, version string) {
 	m.tags[repo] = append(m.tags[repo], tag)
 }
 
+func (m *mockBundleStore) addBundleWithDeps(repo, tag, name, version string, deps []contract.Dependency) {
+	ref := repo + ":" + tag
+	m.bundles[ref] = &contract.Bundle{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{
+				Name:    name,
+				Version: version,
+			},
+			Dependencies: deps,
+		},
+		RawYAML: []byte(fmt.Sprintf("pactoVersion: \"1.0\"\nservice:\n  name: %s\n  version: %s\n", name, version)),
+	}
+	m.tags[repo] = append(m.tags[repo], tag)
+}
+
 func TestOCISource_ListServices(t *testing.T) {
 	store := newMockBundleStore()
 	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
@@ -453,5 +468,177 @@ func TestOCISource_FindRepo_CachedRepoMap(t *testing.T) {
 	}
 	if repo != "ghcr.io/org/api" {
 		t.Errorf("expected cached repo, got %q", repo)
+	}
+}
+
+func TestOCISource_ListServices_RecursiveDependencies(t *testing.T) {
+	store := newMockBundleStore()
+
+	// Root service depends on two OCI services.
+	store.addBundleWithDeps("ghcr.io/org/root", "1.0.0", "root", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/svc-a", Required: true, Compatibility: "^1.0.0"},
+		{Ref: "oci://ghcr.io/org/svc-b:1.0.0", Required: true},
+	})
+	// svc-a depends on svc-c.
+	store.addBundleWithDeps("ghcr.io/org/svc-a", "1.0.0", "svc-a", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/svc-c", Required: true},
+	})
+	store.addBundle("ghcr.io/org/svc-b", "1.0.0", "svc-b", "1.0.0")
+	store.addBundle("ghcr.io/org/svc-c", "1.0.0", "svc-c", "1.0.0")
+
+	// Only the root repo is configured.
+	src := NewOCISource(store, []string{"ghcr.io/org/root"})
+	ctx := context.Background()
+
+	services, err := src.ListServices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	names := make(map[string]bool)
+	for _, svc := range services {
+		names[svc.Name] = true
+	}
+
+	for _, expected := range []string{"root", "svc-a", "svc-b", "svc-c"} {
+		if !names[expected] {
+			t.Errorf("expected service %q to be discovered, got services: %v", expected, names)
+		}
+	}
+	if len(services) != 4 {
+		t.Errorf("expected 4 services, got %d", len(services))
+	}
+}
+
+func TestOCISource_ListServices_RecursiveHandlesCycles(t *testing.T) {
+	store := newMockBundleStore()
+
+	// a -> b -> a (cycle)
+	store.addBundleWithDeps("ghcr.io/org/a", "1.0.0", "a", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/b"},
+	})
+	store.addBundleWithDeps("ghcr.io/org/b", "1.0.0", "b", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/a"},
+	})
+
+	src := NewOCISource(store, []string{"ghcr.io/org/a"})
+	ctx := context.Background()
+
+	services, err := src.ListServices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services) != 2 {
+		t.Fatalf("expected 2 services, got %d", len(services))
+	}
+}
+
+func TestOCISource_ListServices_SkipsLocalDeps(t *testing.T) {
+	store := newMockBundleStore()
+
+	// Root has both OCI and local dependencies.
+	store.addBundleWithDeps("ghcr.io/org/root", "1.0.0", "root", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/remote", Required: true},
+		{Ref: "./local-dep"},
+		{Ref: "file://./another-local"},
+	})
+	store.addBundle("ghcr.io/org/remote", "1.0.0", "remote", "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/root"})
+	ctx := context.Background()
+
+	services, err := src.ListServices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services) != 2 {
+		t.Fatalf("expected 2 services (root + remote), got %d", len(services))
+	}
+}
+
+func TestOCISource_ListServices_RecursiveSkipsUnreachableDeps(t *testing.T) {
+	store := newMockBundleStore()
+
+	// Root depends on a reachable and an unreachable dep.
+	store.addBundleWithDeps("ghcr.io/org/root", "1.0.0", "root", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/reachable"},
+		{Ref: "oci://ghcr.io/org/unreachable"},
+	})
+	store.addBundle("ghcr.io/org/reachable", "1.0.0", "reachable", "1.0.0")
+	// "unreachable" is not registered — ListTags will fail.
+
+	src := NewOCISource(store, []string{"ghcr.io/org/root"})
+	ctx := context.Background()
+
+	services, err := src.ListServices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services) != 2 {
+		t.Fatalf("expected 2 services (root + reachable), got %d", len(services))
+	}
+}
+
+func TestOCISource_ListServices_SharedDependency(t *testing.T) {
+	store := newMockBundleStore()
+
+	// Both a and b depend on shared.
+	store.addBundleWithDeps("ghcr.io/org/root", "1.0.0", "root", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/a"},
+		{Ref: "oci://ghcr.io/org/b"},
+	})
+	store.addBundleWithDeps("ghcr.io/org/a", "1.0.0", "a", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/shared"},
+	})
+	store.addBundleWithDeps("ghcr.io/org/b", "1.0.0", "b", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/shared"},
+	})
+	store.addBundle("ghcr.io/org/shared", "1.0.0", "shared", "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/root"})
+	ctx := context.Background()
+
+	services, err := src.ListServices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services) != 4 {
+		t.Fatalf("expected 4 services (root, a, b, shared), got %d", len(services))
+	}
+}
+
+func TestExtractOCIRepo(t *testing.T) {
+	tests := []struct {
+		ref  string
+		want string
+	}{
+		{"oci://ghcr.io/org/svc", "ghcr.io/org/svc"},
+		{"oci://ghcr.io/org/svc:1.0.0", "ghcr.io/org/svc:1.0.0"},
+		{"./local", ""},
+		{"file://./local", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := extractOCIRepo(tt.ref)
+		if got != tt.want {
+			t.Errorf("extractOCIRepo(%q) = %q, want %q", tt.ref, got, tt.want)
+		}
+	}
+}
+
+func TestStripTag(t *testing.T) {
+	tests := []struct {
+		ref  string
+		want string
+	}{
+		{"ghcr.io/org/svc:1.0.0", "ghcr.io/org/svc"},
+		{"ghcr.io/org/svc", "ghcr.io/org/svc"},
+		{"ghcr.io/org/svc@sha256:abc", "ghcr.io/org/svc"},
+	}
+	for _, tt := range tests {
+		got := stripTag(tt.ref)
+		if got != tt.want {
+			t.Errorf("stripTag(%q) = %q, want %q", tt.ref, got, tt.want)
+		}
 	}
 }

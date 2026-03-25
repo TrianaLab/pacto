@@ -27,34 +27,10 @@ func NewOCISource(store oci.BundleStore, repos []string) *OCISource {
 func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 	var services []Service
 	repoMap := make(map[string]string)
+	visited := make(map[string]bool) // track visited repos to avoid cycles
 
 	for _, repo := range s.repos {
-		tags, err := s.store.ListTags(ctx, repo)
-		if err != nil {
-			slog.Warn("OCI ListTags failed", "repo", repo, "error", err)
-			continue
-		}
-		if len(tags) == 0 {
-			slog.Warn("OCI repo has no tags", "repo", repo)
-			continue
-		}
-
-		// Pull the latest tag to get service metadata.
-		latest := latestTag(tags)
-		ref := repo + ":" + latest
-
-		bundle, err := s.store.Pull(ctx, ref)
-		if err != nil {
-			slog.Warn("OCI Pull failed", "ref", ref, "error", err)
-			continue
-		}
-
-		name := bundle.Contract.Service.Name
-		repoMap[name] = repo
-
-		svc := ServiceFromContract(bundle.Contract, "oci")
-		svc.Phase = phaseFromBundle(bundle)
-		services = append(services, svc)
+		s.discoverServices(ctx, repo, &services, repoMap, visited)
 	}
 
 	s.repoMap = repoMap
@@ -64,6 +40,97 @@ func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 	})
 
 	return services, nil
+}
+
+// discoverServices pulls the latest bundle from a repo and recursively
+// discovers OCI dependencies, adding each as a service.
+func (s *OCISource) discoverServices(ctx context.Context, repo string, services *[]Service, repoMap map[string]string, visited map[string]bool) {
+	if visited[repo] {
+		return
+	}
+	visited[repo] = true
+
+	tags, err := s.store.ListTags(ctx, repo)
+	if err != nil {
+		slog.Warn("OCI ListTags failed", "repo", repo, "error", err)
+		return
+	}
+	if len(tags) == 0 {
+		slog.Warn("OCI repo has no tags", "repo", repo)
+		return
+	}
+
+	latest := latestTag(tags)
+	ref := repo + ":" + latest
+
+	bundle, err := s.store.Pull(ctx, ref)
+	if err != nil {
+		slog.Warn("OCI Pull failed", "ref", ref, "error", err)
+		return
+	}
+
+	name := bundle.Contract.Service.Name
+	if _, exists := repoMap[name]; exists {
+		return // already discovered via another path
+	}
+	repoMap[name] = repo
+
+	svc := ServiceFromContract(bundle.Contract, "oci")
+	svc.Phase = phaseFromBundle(bundle)
+	*services = append(*services, svc)
+
+	// Pre-fetch all semver versions so they are cached for version history.
+	s.prefetchVersions(ctx, repo, tags)
+
+	// Recursively discover OCI dependencies.
+	for _, dep := range bundle.Contract.Dependencies {
+		depRepo := extractOCIRepo(dep.Ref)
+		if depRepo == "" {
+			continue
+		}
+		// Resolve untagged refs to find the repo base.
+		if !oci.HasExplicitTag(depRepo) {
+			s.discoverServices(ctx, depRepo, services, repoMap, visited)
+		} else {
+			// Strip tag to get the base repo for discovery.
+			base := stripTag(depRepo)
+			s.discoverServices(ctx, base, services, repoMap, visited)
+		}
+	}
+}
+
+// prefetchVersions pulls all semver-tagged versions for a repo so they
+// are cached by the underlying BundleStore for version history.
+func (s *OCISource) prefetchVersions(ctx context.Context, repo string, tags []string) {
+	semverTags := filterValidSemver(tags)
+	for _, tag := range semverTags {
+		ref := repo + ":" + tag
+		if _, err := s.store.Pull(ctx, ref); err != nil {
+			slog.Debug("OCI prefetch version failed", "ref", ref, "error", err)
+		}
+	}
+}
+
+// extractOCIRepo extracts the OCI repository from a dependency ref.
+// Returns empty string if the ref is not an OCI reference.
+func extractOCIRepo(ref string) string {
+	if !strings.HasPrefix(ref, "oci://") {
+		return ""
+	}
+	return strings.TrimPrefix(ref, "oci://")
+}
+
+// stripTag removes the tag portion from an OCI ref (e.g. "repo:tag" -> "repo").
+func stripTag(ref string) string {
+	if idx := strings.LastIndex(ref, "@"); idx > 0 {
+		return ref[:idx]
+	}
+	lastSlash := strings.LastIndex(ref, "/")
+	lastColon := strings.LastIndex(ref, ":")
+	if lastColon > lastSlash {
+		return ref[:lastColon]
+	}
+	return ref
 }
 
 func (s *OCISource) GetService(ctx context.Context, name string) (*ServiceDetails, error) {
