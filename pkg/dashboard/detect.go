@@ -42,18 +42,19 @@ type SourceDiagnostics struct {
 
 // K8sDiagnostics contains K8s source detection details.
 type K8sDiagnostics struct {
-	ClientConfigured bool     `json:"clientConfigured"`
-	KubeconfigPath   string   `json:"kubeconfigPath,omitempty"`
-	ClusterReachable bool     `json:"clusterReachable"`
-	CRDExists        bool     `json:"crdExists"`
-	Namespace        string   `json:"namespace"`
-	AllNamespaces    bool     `json:"allNamespaces"`
-	ResourceCount    int      `json:"resourceCount"`
-	DetectedGroup    string   `json:"detectedGroup,omitempty"`
-	DetectedVersions []string `json:"detectedVersions,omitempty"`
-	ChosenVersion    string   `json:"chosenVersion,omitempty"`
-	ResourceName     string   `json:"resourceName,omitempty"`
-	Error            string   `json:"error,omitempty"`
+	ClientConfigured     bool     `json:"clientConfigured"`
+	KubeconfigPath       string   `json:"kubeconfigPath,omitempty"`
+	ClusterReachable     bool     `json:"clusterReachable"`
+	CRDExists            bool     `json:"crdExists"`
+	Namespace            string   `json:"namespace"`
+	AllNamespaces        bool     `json:"allNamespaces"`
+	ResourceCount        int      `json:"resourceCount"`
+	DetectedGroup        string   `json:"detectedGroup,omitempty"`
+	DetectedVersions     []string `json:"detectedVersions,omitempty"`
+	ChosenVersion        string   `json:"chosenVersion,omitempty"`
+	ResourceName         string   `json:"resourceName,omitempty"`
+	RevisionResourceName string   `json:"revisionResourceName,omitempty"`
+	Error                string   `json:"error,omitempty"`
 }
 
 // OCIDiagnostics contains OCI registry source detection details.
@@ -210,7 +211,7 @@ func (r *DetectResult) detectK8s(ctx context.Context, namespace string) {
 		info.Reason = "cluster reachable (CRD not detected, may still work)"
 	}
 
-	r.K8s = NewK8sSource(client, namespace, resourceName)
+	r.K8s = NewK8sSource(client, namespace, resourceName, diag.RevisionResourceName)
 	r.Sources = append(r.Sources, info)
 }
 
@@ -244,6 +245,7 @@ func discoverCRD(ctx context.Context, client K8sClient, diag *K8sDiagnostics) st
 			resourceName = discovery.ResourceName
 		}
 		diag.ResourceName = resourceName
+		diag.RevisionResourceName = discovery.RevisionResourceName
 	}
 
 	return resourceName

@@ -12,9 +12,10 @@ import (
 // K8sSource implements DataSource by reading Pacto CRD status from a Kubernetes cluster.
 // It uses k8s.io/client-go to communicate with the Kubernetes API server.
 type K8sSource struct {
-	client       K8sClient
-	namespace    string
-	resourceName string // CRD resource name, e.g. "pactos" (discovered dynamically)
+	client               K8sClient
+	namespace            string
+	resourceName         string // CRD resource name, e.g. "pactos" (discovered dynamically)
+	revisionResourceName string // e.g. "pactorevisions" (empty = revisions not available)
 
 	// listCache caches the result of listPactos for a short window to avoid
 	// repeated API calls when buildServiceIndex calls GetService N times.
@@ -27,11 +28,17 @@ type K8sSource struct {
 // NewK8sSource creates a data source backed by Kubernetes CRDs.
 // namespace may be empty to use all namespaces.
 // resourceName is the CRD resource name (e.g. "pactos"), discovered dynamically.
-func NewK8sSource(client K8sClient, namespace, resourceName string) *K8sSource {
+// revisionResourceName is the PactoRevision CRD resource name (empty if not available).
+func NewK8sSource(client K8sClient, namespace, resourceName, revisionResourceName string) *K8sSource {
 	if resourceName == "" {
 		resourceName = "pactos"
 	}
-	return &K8sSource{client: client, namespace: namespace, resourceName: resourceName}
+	return &K8sSource{
+		client:               client,
+		namespace:            namespace,
+		resourceName:         resourceName,
+		revisionResourceName: revisionResourceName,
+	}
 }
 
 // pactoResource represents the minimal structure of a Pacto CRD.
@@ -89,6 +96,27 @@ func (f *flexSlice[T]) UnmarshalJSON(data []byte) error {
 	}
 	*f = []T{single}
 	return nil
+}
+
+// pactoRevisionResource represents the minimal structure of a PactoRevision CRD.
+type pactoRevisionResource struct {
+	Metadata struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+	} `json:"metadata"`
+	Spec struct {
+		Version     string `json:"version"`
+		ServiceName string `json:"serviceName"`
+		Source      struct {
+			OCI string `json:"oci"`
+		} `json:"source"`
+		PactoRef string `json:"pactoRef"`
+	} `json:"spec"`
+	Status struct {
+		Resolved     bool   `json:"resolved"`
+		ContractHash string `json:"contractHash"`
+		CreatedAt    string `json:"createdAt"`
+	} `json:"status"`
 }
 
 type k8sContractInfo struct {
@@ -245,10 +273,83 @@ func (s *K8sSource) GetService(ctx context.Context, name string) (*ServiceDetail
 	return serviceDetailsFromK8sStatus(r), nil
 }
 
-func (s *K8sSource) GetVersions(_ context.Context, _ string) ([]Version, error) {
-	// K8s source only knows the current deployed version.
-	// Version history would require PactoRevision listing, which is a future enhancement.
-	return nil, fmt.Errorf("version history not yet supported for k8s source")
+func (s *K8sSource) GetVersions(ctx context.Context, name string) ([]Version, error) {
+	if s.revisionResourceName == "" {
+		return nil, fmt.Errorf("PactoRevision CRD not available on this cluster")
+	}
+
+	// Find the Pacto resource to get the K8s name for label selection.
+	pactoName, err := s.resolvePactoName(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	selector := "pacto.trianalab.io/pacto=" + pactoName
+	out, err := s.client.ListJSONWithSelector(ctx, s.revisionResourceName, s.namespace, selector)
+	if err != nil {
+		return nil, fmt.Errorf("listing revisions for %q: %w", name, err)
+	}
+
+	var list struct {
+		Items []pactoRevisionResource `json:"items"`
+	}
+	if err := json.Unmarshal(out, &list); err != nil {
+		return nil, fmt.Errorf("parsing revision response: %w", err)
+	}
+
+	versions := make([]Version, 0, len(list.Items))
+	for _, rev := range list.Items {
+		v := Version{
+			Version:      rev.Spec.Version,
+			ContractHash: rev.Status.ContractHash,
+		}
+		if rev.Spec.Source.OCI != "" {
+			v.Ref = rev.Spec.Source.OCI
+		}
+		if rev.Status.CreatedAt != "" {
+			if t, err := time.Parse(time.RFC3339, rev.Status.CreatedAt); err == nil {
+				v.CreatedAt = &t
+			}
+		}
+		versions = append(versions, v)
+	}
+
+	// Sort by version descending (newest first).
+	sort.Slice(versions, func(i, j int) bool {
+		return versions[i].Version > versions[j].Version
+	})
+
+	return versions, nil
+}
+
+// resolvePactoName maps a service name to the K8s resource name for label selection.
+// If the service name matches a contract.serviceName, the K8s metadata.name is returned.
+func (s *K8sSource) resolvePactoName(ctx context.Context, name string) (string, error) {
+	resources, err := s.listPactos(ctx)
+	if err != nil {
+		return "", err
+	}
+	if r := findPactoByName(resources, name); r != nil {
+		return r.Metadata.Name, nil
+	}
+	// Fall back to using the service name directly as the K8s name.
+	return name, nil
+}
+
+// findPactoByName searches a slice of pactoResources for one matching the given
+// service name (by contract.serviceName or metadata.name).
+func findPactoByName(resources []pactoResource, name string) *pactoResource {
+	for i := range resources {
+		r := &resources[i]
+		svcName := r.Metadata.Name
+		if r.Status.Contract != nil && r.Status.Contract.ServiceName != "" {
+			svcName = r.Status.Contract.ServiceName
+		}
+		if svcName == name || r.Metadata.Name == name {
+			return r
+		}
+	}
+	return nil
 }
 
 func (s *K8sSource) GetDiff(_ context.Context, _, _ Ref) (*DiffResult, error) {
@@ -315,15 +416,8 @@ func (s *K8sSource) getPacto(ctx context.Context, name string) (*pactoResource, 
 	if err != nil {
 		return nil, err
 	}
-	for i := range resources {
-		r := &resources[i]
-		svcName := r.Metadata.Name
-		if r.Status.Contract != nil && r.Status.Contract.ServiceName != "" {
-			svcName = r.Status.Contract.ServiceName
-		}
-		if svcName == name || r.Metadata.Name == name {
-			return r, nil
-		}
+	if r := findPactoByName(resources, name); r != nil {
+		return r, nil
 	}
 	return nil, fmt.Errorf("pacto resource %q not found", name)
 }

@@ -97,7 +97,7 @@ func TestDetectResult_ActiveSources_AllTypes(t *testing.T) {
 	r := &DetectResult{
 		Local: NewLocalSource("."),
 		Cache: cache,
-		K8s:   NewK8sSource(client, "default", "pactos"),
+		K8s:   NewK8sSource(client, "default", "pactos", ""),
 		// OCI is nil — would need real store
 	}
 	sources := r.ActiveSources()
