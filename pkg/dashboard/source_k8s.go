@@ -434,11 +434,11 @@ func (s *K8sSource) OCIRepos(ctx context.Context) []string {
 			seen[repo] = true
 		}
 		for _, dep := range r.Status.Dependencies {
-			ref := strings.TrimPrefix(dep.Ref, "oci://")
-			if strings.Contains(ref, "/") {
-				repo := stripTag(ref)
-				seen[repo] = true
+			if !strings.HasPrefix(dep.Ref, "oci://") {
+				continue
 			}
+			repo := stripTag(strings.TrimPrefix(dep.Ref, "oci://"))
+			seen[repo] = true
 		}
 	}
 

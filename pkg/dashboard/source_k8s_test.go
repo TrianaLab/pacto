@@ -1003,6 +1003,29 @@ func TestK8s_OCIRepos(t *testing.T) {
 	}
 }
 
+func TestK8s_OCIRepos_SkipsNonOCIDeps(t *testing.T) {
+	pactosJSON := `{"items": [
+		{"metadata": {"name": "app"}, "status": {"phase": "Healthy", "contract": {"serviceName": "app", "imageRef": "ghcr.io/org/app:1.0.0"}, "dependencies": [
+			{"ref": "oci://ghcr.io/org/auth@^1.0.0", "required": true},
+			{"ref": "docker.io/library/postgres", "required": true},
+			{"ref": "docker.io/library/redis", "required": true}
+		]}}
+	]}`
+	client := &mockK8sClient{listJSON: []byte(pactosJSON)}
+	src := NewK8sSource(client, "", "pactos", "")
+
+	repos := src.OCIRepos(context.Background())
+	// Should only contain the imageRef repo and the oci:// dep, not postgres/redis.
+	if len(repos) != 2 {
+		t.Fatalf("expected 2 repos, got %d: %v", len(repos), repos)
+	}
+	for _, r := range repos {
+		if strings.Contains(r, "postgres") || strings.Contains(r, "redis") {
+			t.Errorf("non-OCI dep should be filtered: %q", r)
+		}
+	}
+}
+
 func TestK8s_OCIRepos_Empty(t *testing.T) {
 	client := &mockK8sClient{listJSON: []byte(`{"items": []}`)}
 	src := NewK8sSource(client, "", "pactos", "")
