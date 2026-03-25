@@ -16,8 +16,9 @@ import (
 // It discovers the full dependency tree progressively in the background,
 // returning whatever has been discovered so far on each ListServices call.
 type OCISource struct {
-	store oci.BundleStore
-	repos []string // OCI repository references to scan
+	store        oci.BundleStore
+	repos        []string // OCI repository references to scan
+	shallowCount int      // number of repos to scan synchronously (the rest go to background)
 
 	mu       sync.RWMutex
 	repoMap  map[string]string // service name -> repo
@@ -31,7 +32,7 @@ type OCISource struct {
 // NewOCISource creates a data source backed by OCI registries.
 // repos is a list of OCI repository references (e.g., "ghcr.io/org/service").
 func NewOCISource(store oci.BundleStore, repos []string) *OCISource {
-	return &OCISource{store: store, repos: repos, repoMap: make(map[string]string), done: make(chan struct{})}
+	return &OCISource{store: store, repos: repos, shallowCount: len(repos), repoMap: make(map[string]string), done: make(chan struct{})}
 }
 
 // AddRepos appends additional OCI repositories to scan. Duplicates are ignored.
@@ -96,10 +97,10 @@ func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 	return out, nil
 }
 
-// shallowScan pulls only the configured repos (no recursion, no version prefetch).
-// This is fast — one ListTags + one Pull per repo.
+// shallowScan pulls only the originally configured repos (no recursion, no version prefetch).
+// Auto-seeded repos (added via AddRepos) are deferred to backgroundDiscover.
 func (s *OCISource) shallowScan(ctx context.Context) {
-	for _, repo := range s.repos {
+	for _, repo := range s.repos[:s.shallowCount] {
 		s.discoverRepo(ctx, repo)
 	}
 }
@@ -119,8 +120,10 @@ func (s *OCISource) backgroundDiscover(ctx context.Context) {
 	copy(services, s.services)
 	s.mu.RUnlock()
 
+	// Start with auto-seeded repos (added via AddRepos, skipped by shallowScan).
+	queue := append([]string{}, s.repos[s.shallowCount:]...)
+
 	// Collect dependency repos from initial shallow scan.
-	var queue []string
 	for _, svc := range services {
 		queue = append(queue, s.depReposForService(ctx, svc.Name)...)
 	}
