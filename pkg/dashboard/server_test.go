@@ -501,12 +501,18 @@ func TestServerGetSources(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	var sources []SourceInfo
-	if err := json.NewDecoder(resp.Body).Decode(&sources); err != nil {
+	var body struct {
+		Sources     []SourceInfo `json:"sources"`
+		Discovering bool         `json:"discovering"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if len(sources) != 2 {
-		t.Fatalf("expected 2 sources, got %d", len(sources))
+	if len(body.Sources) != 2 {
+		t.Fatalf("expected 2 sources, got %d", len(body.Sources))
+	}
+	if body.Discovering {
+		t.Fatal("expected discovering=false when no OCI source is set")
 	}
 }
 

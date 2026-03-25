@@ -1,5 +1,5 @@
 /* ── State ─── */
-var state = { view: 'list', service: null, tab: 'overview', services: [], details: {}, versions: {}, aggregated: {}, sourcesInfo: [], filter: 'all', graphData: null, overviewView: 'table', pendingRef: null, pendingCompat: null };
+var state = { view: 'list', service: null, tab: 'overview', services: [], details: {}, versions: {}, aggregated: {}, sourcesInfo: [], discovering: false, filter: 'all', graphData: null, overviewView: 'table', pendingRef: null, pendingCompat: null };
 
 // getSources extracts the sources array from a service entry.
 function getSources(svc) { return (svc.sources || [svc.source]).filter(Boolean); }
@@ -59,6 +59,86 @@ var api = {
     });
   }
 };
+
+/* ── DOM Morph ─── */
+// Lightweight DOM patching: updates target to match newHTML without destroying
+// scroll position, focus, input values, or other interactive state.
+// Skips D3-managed containers (graph-container) and preserves form elements.
+var MORPH_SKIP_IDS = { 'graph-container': true, 'graph-connections': true, 'diff-result': true, 'debug-panel-slot': true };
+
+function patchDOM(target, newHTML) {
+  var tmp = document.createElement(target.tagName || 'div');
+  tmp.innerHTML = newHTML;
+  morphChildren(target, tmp);
+}
+
+function morphChildren(live, next) {
+  var lc = Array.from(live.childNodes);
+  var nc = Array.from(next.childNodes);
+
+  // Patch shared indices
+  var min = Math.min(lc.length, nc.length);
+  for (var i = 0; i < min; i++) {
+    morphNode(live, lc[i], nc[i]);
+  }
+  // Remove extra live nodes (iterate backwards to keep indices stable)
+  for (var i = lc.length - 1; i >= min; i--) {
+    live.removeChild(lc[i]);
+  }
+  // Append new nodes
+  for (var i = min; i < nc.length; i++) {
+    live.appendChild(nc[i].cloneNode(true));
+  }
+}
+
+function morphNode(parent, ln, nn) {
+  // Different node types or tag names — replace wholesale
+  if (ln.nodeType !== nn.nodeType || ln.nodeName !== nn.nodeName) {
+    parent.replaceChild(nn.cloneNode(true), ln);
+    return;
+  }
+  // Text / comment nodes
+  if (ln.nodeType === 3 || ln.nodeType === 8) {
+    if (ln.textContent !== nn.textContent) ln.textContent = nn.textContent;
+    return;
+  }
+  if (ln.nodeType !== 1) return;
+
+  // Skip D3-managed or other interactive containers
+  var id = ln.id;
+  if (id && MORPH_SKIP_IDS[id]) {
+    morphAttrs(ln, nn);
+    return;
+  }
+
+  // SVG — replace if different (SVG DOM is complex)
+  if (ln.namespaceURI === 'http://www.w3.org/2000/svg') {
+    if (ln.outerHTML !== nn.outerHTML) parent.replaceChild(nn.cloneNode(true), ln);
+    return;
+  }
+
+  // Preserve form element values
+  var tag = ln.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+    morphAttrs(ln, nn);
+    return;
+  }
+
+  morphAttrs(ln, nn);
+  morphChildren(ln, nn);
+}
+
+function morphAttrs(live, next) {
+  var la = live.attributes, na = next.attributes;
+  // Remove attrs not in next
+  for (var i = la.length - 1; i >= 0; i--) {
+    if (!next.hasAttribute(la[i].name)) live.removeAttribute(la[i].name);
+  }
+  // Set/update attrs from next
+  for (var i = 0; i < na.length; i++) {
+    if (live.getAttribute(na[i].name) !== na[i].value) live.setAttribute(na[i].name, na[i].value);
+  }
+}
 
 /* ── Helpers ─── */
 function h(s) { if (s == null) return ''; var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
@@ -239,16 +319,15 @@ async function renderOverview() {
   var app = document.getElementById('app');
   // If we already have data, render immediately from cache, then refresh in background
   if (overviewLoaded && state.services.length) {
-    // Skip re-render on graph view to preserve zoom/drag state
+    // Render from cache immediately (full replace if page type changed, e.g. detail→overview)
     if (state.overviewView !== 'graph' || !graphInitialized) renderOverviewPage();
-    // Background refresh
     Promise.all([
       api.listServices(),
-      api.getSources().catch(function() { return []; }),
+      api.getSources().catch(function() { return { sources: [], discovering: false }; }),
       api.getGraph().catch(function() { return null; })
     ]).then(function(r) {
       state.services = r[0] || [];
-      state.sourcesInfo = r[1] || [];
+      applySourcesResponse(r[1]);
       var newFp = graphFingerprint(r[2]);
       if (newFp !== graphDataFingerprint) {
         state.graphData = r[2];
@@ -256,32 +335,60 @@ async function renderOverview() {
         graphInitialized = false;
       }
       renderSourcePills();
-      // Only do a full re-render if we're NOT on the graph view,
-      // to avoid destroying user's zoom/drag state.
       if (state.overviewView !== 'graph' || !graphInitialized) {
         renderOverviewPage();
       }
+      scheduleDiscoveryRefresh();
     }).catch(function() { /* keep stale data */ });
     return;
   }
   // First load — show spinner
+  _currentPage = null;
   app.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
   try {
     var r = await Promise.all([
       api.listServices(),
-      api.getSources().catch(function() { return []; }),
+      api.getSources().catch(function() { return { sources: [], discovering: false }; }),
       api.getGraph().catch(function() { return null; })
     ]);
     state.services = r[0] || [];
-    state.sourcesInfo = r[1] || [];
+    applySourcesResponse(r[1]);
     state.graphData = r[2];
     graphDataFingerprint = graphFingerprint(r[2]);
     graphInitialized = false;
     overviewLoaded = true;
     renderSourcePills();
     renderOverviewPage();
+    scheduleDiscoveryRefresh();
   } catch (e) {
     app.innerHTML = '<div class="empty-state"><div class="empty-state-title">Failed to load</div><p>' + h(e.message) + '</p></div>';
+  }
+}
+
+// Parse the /api/sources response into state.
+function applySourcesResponse(r) {
+  if (Array.isArray(r)) {
+    // Legacy format (plain array) — shouldn't happen but safe fallback.
+    state.sourcesInfo = r;
+    state.discovering = false;
+  } else if (r && r.sources) {
+    state.sourcesInfo = r.sources;
+    state.discovering = !!r.discovering;
+  } else {
+    state.sourcesInfo = [];
+    state.discovering = false;
+  }
+}
+
+// During OCI discovery, schedule frequent auto-refreshes (every 2s) so new
+// services appear in real time. Stops once discovery completes.
+var discoveryTimer = null;
+function scheduleDiscoveryRefresh() {
+  if (state.discovering && !discoveryTimer) {
+    discoveryTimer = setInterval(doRefresh, 2000);
+  } else if (!state.discovering && discoveryTimer) {
+    clearInterval(discoveryTimer);
+    discoveryTimer = null;
   }
 }
 
@@ -357,6 +464,18 @@ function renderDebugPanel(debug) {
 
   o += '</div></details>';
   return o;
+}
+
+var _currentPage = null; // tracks which page type is currently rendered
+
+function updateApp(html, page) {
+  var app = document.getElementById('app');
+  if (_currentPage === page && app.children.length > 0) {
+    patchDOM(app, html);
+  } else {
+    app.innerHTML = html;
+  }
+  _currentPage = page;
 }
 
 function renderOverviewPage() {
@@ -535,13 +654,13 @@ function renderOverviewPage() {
 
   o += '<div id="debug-panel-slot"></div>';
 
-  document.getElementById('app').innerHTML = o;
+  updateApp(o, 'overview');
 
   // Apply current filter
   applyFilter();
 
-  // Initialize graph if graph view is active
-  if (state.overviewView === 'graph') initGraph();
+  // Initialize graph if graph view is active (only on first render or view switch)
+  if (state.overviewView === 'graph' && !graphInitialized) initGraph();
 
   // Render connections table
   renderConnectionsTable();
@@ -1553,10 +1672,9 @@ async function renderDetail() {
     });
   }
 
-  // If we have cached data, render immediately, then refresh in background
+  // If we have cached data, render immediately with morphing, then refresh in background
   if (hasExisting) {
-    // Skip re-render on dependencies tab to preserve graph zoom/drag state
-    if (state.tab !== 'dependencies') renderDetailPage();
+    renderDetailPage();
     Promise.all([
       api.getService(svcName),
       api.getVersions(svcName).catch(function() { return []; }),
@@ -1570,12 +1688,12 @@ async function renderDetail() {
       if (r[2]) state.aggregated[svcName] = r[2];
       state.dependents = r[3] || [];
       state.crossRefs = r[4] || { references: [], referencedBy: [] };
-      // Skip full re-render on dependencies tab to preserve graph state
-      if (state.tab !== 'dependencies') renderDetailPage();
+      renderDetailPage();
     }).catch(function() { /* keep stale data */ });
     return;
   }
 
+  _currentPage = null;
   app.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
   try {
     // Fetch service details first for fast render
@@ -1731,7 +1849,7 @@ function renderDetailPage() {
   o += renderCurrentTab(d, versions, agg);
   o += '</div>';
 
-  document.getElementById('app').innerHTML = o;
+  updateApp(o, 'detail:' + state.service);
   maybeInitServiceGraph();
 }
 
@@ -2539,7 +2657,7 @@ async function runDiff(name) {
       o += '<div class="classification-banner classification-' + h(r.classification) + '">' + h(r.classification.replace(/_/g, ' ')) + '</div>';
     }
     if (r.changes && r.changes.length) {
-      o += '<div class="card"><div class="table-wrapper"><table><thead><tr><th>Path</th><th>Type</th><th>Old</th><th>New</th><th class="hide-narrow">Reason</th></tr></thead><tbody>';
+      o += '<div class="card"><div class="table-wrapper"><table class="diff-table"><colgroup><col style="width:25%"><col style="width:12%"><col style="width:20%"><col style="width:20%"><col style="width:23%"></colgroup><thead><tr><th>Path</th><th>Type</th><th>Old</th><th>New</th><th class="hide-narrow">Reason</th></tr></thead><tbody>';
       for (var i = 0; i < r.changes.length; i++) {
         var c = r.changes[i];
         o += '<tr><td><code>' + h(c.path) + '</code></td>';

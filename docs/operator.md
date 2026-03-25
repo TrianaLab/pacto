@@ -42,8 +42,18 @@ When `pacto dashboard` detects a Kubernetes cluster with the Pacto CRD installed
 
 ---
 
+## Installation
+
+The operator is distributed as a Helm chart:
+
+- **Helm chart (GitHub):** [pacto-operator/charts/pacto-operator](https://github.com/TrianaLab/pacto-operator/tree/main/charts/pacto-operator)
+- **Artifact Hub:** [pacto-operator on Artifact Hub](https://artifacthub.io/packages/helm/pacto-operator/pacto-operator)
+
+---
+
 ## Learn more
 
-For CRD definitions, installation, configuration, and development instructions, see the [pacto-operator repository](https://github.com/trianalab/pacto-operator).
+- **CRD API reference:** [api-reference.md](https://github.com/TrianaLab/pacto-operator/blob/main/docs/api-reference.md)
+- **Repository:** [pacto-operator on GitHub](https://github.com/trianalab/pacto-operator)
 
 See [For Platform Engineers]({{ site.baseurl }}{% link platform-engineers.md %}) for the full platform workflow.

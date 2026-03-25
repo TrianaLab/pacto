@@ -86,6 +86,14 @@ Services are grouped by name across sources and merged using priority rules:
 				cachedSources[st] = dashboard.NewCachedDataSource(ds, memCache, ttl, st+":")
 			}
 
+			// Wire OCI background discovery to invalidate caches when
+			// new services are discovered, so they surface immediately.
+			if detectResult.OCI != nil {
+				detectResult.OCI.SetOnDiscover(func() {
+					memCache.InvalidateAll()
+				})
+			}
+
 			// Build aggregated source.
 			aggregated := dashboard.NewAggregatedSource(cachedSources)
 
@@ -105,6 +113,11 @@ Services are grouped by name across sources and merged using priority rules:
 			// Enable lazy resolution of remote OCI dependencies when a BundleStore is available.
 			if svc.BundleStore != nil {
 				server.SetResolver(oci.NewResolver(svc.BundleStore))
+			}
+
+			// Track OCI discovery state for progressive loading in the UI.
+			if detectResult.OCI != nil {
+				server.SetOCISource(detectResult.OCI)
 			}
 
 			// Register the cache source and memory cache for runtime refresh

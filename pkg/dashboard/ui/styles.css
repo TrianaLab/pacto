@@ -216,7 +216,8 @@ td{padding:10px 12px;border-bottom:1px solid var(--border-subtle);vertical-align
 tr{transition:background var(--transition);}
 tr:hover td{background:var(--bg-hover);}
 tr:last-child td{border-bottom:none;}
-.table-wrapper{border-radius:var(--radius-sm);border:1px solid var(--border);overflow:visible;}
+.table-wrapper{border-radius:var(--radius-sm);border:1px solid var(--border);overflow-x:auto;}
+.diff-table{table-layout:fixed;}
 tr[data-click]{cursor:pointer;}
 
 /* ─── Badges ─── */
@@ -307,7 +308,9 @@ tr[data-click]{cursor:pointer;}
 /* ─── Diff ─── */
 .diff-old{color:var(--critical);font-family:var(--font-mono);font-size:var(--text-xs);}
 .diff-new{color:var(--ok);font-family:var(--font-mono);font-size:var(--text-xs);}
-.diff-reason{font-size:var(--text-xs);color:var(--text-dim);margin-top:2px;}
+.diff-table td{word-break:break-word;overflow-wrap:break-word;}
+.diff-table code{word-break:break-all;}
+.diff-reason{font-size:var(--text-xs);color:var(--text-dim);margin-top:2px;word-break:break-word;overflow-wrap:break-word;}
 .classification-banner{padding:12px 16px;border-radius:var(--radius-sm);font-weight:600;font-size:var(--text-sm);margin-bottom:16px;border:1px solid;}
 .classification-BREAKING{background:var(--critical-bg);color:var(--critical);border-color:var(--critical-border);}
 .classification-POTENTIAL_BREAKING{background:var(--warning-bg);color:var(--warning);border-color:var(--warning-border);}

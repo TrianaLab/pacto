@@ -24,12 +24,34 @@ type OCISource struct {
 	services []Service         // discovered so far
 	started  bool              // background discovery launched
 	done     chan struct{}      // closed when background discovery completes
+
+	onDiscover func() // called when a new service is discovered (cache invalidation)
 }
 
 // NewOCISource creates a data source backed by OCI registries.
 // repos is a list of OCI repository references (e.g., "ghcr.io/org/service").
 func NewOCISource(store oci.BundleStore, repos []string) *OCISource {
 	return &OCISource{store: store, repos: repos, repoMap: make(map[string]string), done: make(chan struct{})}
+}
+
+// SetOnDiscover sets a callback invoked each time a new service is discovered
+// in the background. Typically used to invalidate caches so the new data
+// surfaces immediately on the next API call.
+func (s *OCISource) SetOnDiscover(fn func()) {
+	s.onDiscover = fn
+}
+
+// Discovering reports whether background dependency discovery is still running.
+func (s *OCISource) Discovering() bool {
+	select {
+	case <-s.done:
+		return false
+	default:
+		s.mu.RLock()
+		started := s.started
+		s.mu.RUnlock()
+		return started
+	}
 }
 
 func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
@@ -155,9 +177,8 @@ func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 	name := bundle.Contract.Service.Name
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if _, exists := s.repoMap[name]; exists {
+		s.mu.Unlock()
 		return "" // already discovered via another path
 	}
 	s.repoMap[name] = repo
@@ -165,6 +186,13 @@ func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 	svc := ServiceFromContract(bundle.Contract, "oci")
 	svc.Phase = phaseFromBundle(bundle)
 	s.services = append(s.services, svc)
+	cb := s.onDiscover
+	s.mu.Unlock()
+
+	if cb != nil {
+		cb()
+	}
+	slog.Info("OCI service discovered", "name", name, "repo", repo)
 
 	return name
 }

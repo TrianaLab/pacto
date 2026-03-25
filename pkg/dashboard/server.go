@@ -22,6 +22,7 @@ type Server struct {
 	resolver    *oci.Resolver     // optional: enables lazy resolution of remote OCI dependencies
 	cacheSource *CacheSource      // optional: for rescanning after cache writes
 	memCache    Cache             // optional: for invalidating after cache writes
+	ociSource   *OCISource        // optional: for tracking discovery state
 	ui          fs.FS
 	sourceInfo  []SourceInfo
 	diagnostics *SourceDiagnostics
@@ -90,6 +91,11 @@ func (s *Server) SetResolver(r *oci.Resolver) {
 func (s *Server) SetCacheSource(cs *CacheSource, memCache Cache) {
 	s.cacheSource = cs
 	s.memCache = memCache
+}
+
+// SetOCISource registers the OCISource so the server can report discovery state.
+func (s *Server) SetOCISource(src *OCISource) {
+	s.ociSource = src
 }
 
 // Serve starts the HTTP server on the given host and port and blocks until ctx is cancelled.
@@ -383,7 +389,10 @@ type getDiffOutput struct {
 }
 
 type getSourcesOutput struct {
-	Body []SourceInfo `json:"body" doc:"Detected data sources"`
+	Body struct {
+		Sources     []SourceInfo `json:"sources" doc:"Detected data sources"`
+		Discovering bool         `json:"discovering" doc:"True while OCI dependency discovery is still running"`
+	}
 }
 
 type debugSourcesOutput struct {
@@ -622,7 +631,12 @@ func (s *Server) getDiff(ctx context.Context, input *diffInput) (*getDiffOutput,
 }
 
 func (s *Server) getSources(_ context.Context, _ *struct{}) (*getSourcesOutput, error) {
-	return &getSourcesOutput{Body: s.sourceInfo}, nil
+	out := &getSourcesOutput{}
+	out.Body.Sources = s.sourceInfo
+	if s.ociSource != nil {
+		out.Body.Discovering = s.ociSource.Discovering()
+	}
+	return out, nil
 }
 
 func (s *Server) debugSources(ctx context.Context, _ *struct{}) (*debugSourcesOutput, error) {
