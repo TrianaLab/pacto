@@ -296,8 +296,10 @@ function renderSourcePills() {
   document.getElementById('source-pills').innerHTML = state.sourcesInfo.filter(function(s) { return s.enabled; }).map(function(s) {
     var active = isSourceEnabled(s.type);
     var tip = sourceTooltips[s.type] || s.type;
-    return '<span class="source-pill source-pill-' + h(s.type) + '" style="cursor:pointer;opacity:' + (active ? '1' : '0.35') + '" title="' + ha(tip) + '" onclick="toggleSourceFilterGlobal(\'' + ha(s.type) + '\')">' +
-      '<span class="pill-dot"></span>' + sourceLabel(s.type) + '</span>';
+    return '<span class="topbar-btn-wrap">' +
+      '<span class="source-pill source-pill-' + h(s.type) + '" style="cursor:pointer;opacity:' + (active ? '1' : '0.35') + '" onclick="toggleSourceFilterGlobal(\'' + ha(s.type) + '\')">' +
+      '<span class="pill-dot"></span>' + sourceLabel(s.type) + '</span>' +
+      '<span class="topbar-tooltip">' + h(tip) + '</span></span>';
   }).join('');
 }
 

@@ -6,58 +6,141 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
 // OCISource implements DataSource by pulling bundles from an OCI registry.
+// It discovers the full dependency tree progressively in the background,
+// returning whatever has been discovered so far on each ListServices call.
 type OCISource struct {
-	store   oci.BundleStore
-	repos   []string          // OCI repository references to scan
-	repoMap map[string]string // service name -> repo (populated on first ListServices)
+	store oci.BundleStore
+	repos []string // OCI repository references to scan
+
+	mu       sync.RWMutex
+	repoMap  map[string]string // service name -> repo
+	services []Service         // discovered so far
+	started  bool              // background discovery launched
+	done     chan struct{}      // closed when background discovery completes
 }
 
 // NewOCISource creates a data source backed by OCI registries.
 // repos is a list of OCI repository references (e.g., "ghcr.io/org/service").
 func NewOCISource(store oci.BundleStore, repos []string) *OCISource {
-	return &OCISource{store: store, repos: repos}
+	return &OCISource{store: store, repos: repos, repoMap: make(map[string]string), done: make(chan struct{})}
 }
 
 func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
-	var services []Service
-	repoMap := make(map[string]string)
-	visited := make(map[string]bool) // track visited repos to avoid cycles
-
-	for _, repo := range s.repos {
-		s.discoverServices(ctx, repo, &services, repoMap, visited)
+	s.mu.Lock()
+	if !s.started {
+		s.started = true
+		s.mu.Unlock()
+		// Run synchronous shallow scan of configured repos (fast: 1 pull per repo).
+		s.shallowScan(ctx)
+		// Kick off background deep discovery of dependencies + version prefetch.
+		go func() {
+			s.backgroundDiscover(context.WithoutCancel(ctx))
+			close(s.done)
+		}()
+	} else {
+		s.mu.Unlock()
 	}
 
-	s.repoMap = repoMap
+	s.mu.RLock()
+	out := make([]Service, len(s.services))
+	copy(out, s.services)
+	s.mu.RUnlock()
 
-	sort.Slice(services, func(i, j int) bool {
-		return services[i].Name < services[j].Name
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
 	})
-
-	return services, nil
+	return out, nil
 }
 
-// discoverServices pulls the latest bundle from a repo and recursively
-// discovers OCI dependencies, adding each as a service.
-func (s *OCISource) discoverServices(ctx context.Context, repo string, services *[]Service, repoMap map[string]string, visited map[string]bool) {
-	if visited[repo] {
-		return
+// shallowScan pulls only the configured repos (no recursion, no version prefetch).
+// This is fast — one ListTags + one Pull per repo.
+func (s *OCISource) shallowScan(ctx context.Context) {
+	for _, repo := range s.repos {
+		s.discoverRepo(ctx, repo)
 	}
-	visited[repo] = true
+}
 
+// backgroundDiscover recursively discovers OCI dependencies from all known
+// services and prefetches their version history. Runs in a background goroutine.
+func (s *OCISource) backgroundDiscover(ctx context.Context) {
+	visited := make(map[string]bool)
+
+	// Mark already-discovered repos as visited.
+	s.mu.RLock()
+	for _, repo := range s.repoMap {
+		visited[repo] = true
+	}
+	// Snapshot current services to iterate their deps.
+	services := make([]Service, len(s.services))
+	copy(services, s.services)
+	s.mu.RUnlock()
+
+	// Collect dependency repos from initial shallow scan.
+	var queue []string
+	for _, svc := range services {
+		queue = append(queue, s.depReposForService(ctx, svc.Name)...)
+	}
+
+	// BFS: discover dependency repos, collecting new deps as we go.
+	for len(queue) > 0 {
+		repo := queue[0]
+		queue = queue[1:]
+
+		if visited[repo] {
+			continue
+		}
+		visited[repo] = true
+
+		name := s.discoverRepo(ctx, repo)
+		if name == "" {
+			continue
+		}
+		// Collect deps from the newly discovered service.
+		queue = append(queue, s.depReposForService(ctx, name)...)
+	}
+
+	// Prefetch all versions for every discovered service (populates cache).
+	s.mu.RLock()
+	repos := make(map[string]string, len(s.repoMap))
+	for name, repo := range s.repoMap {
+		repos[name] = repo
+	}
+	s.mu.RUnlock()
+
+	for _, repo := range repos {
+		tags, err := s.store.ListTags(ctx, repo)
+		if err != nil {
+			continue
+		}
+		for _, tag := range filterValidSemver(tags) {
+			ref := repo + ":" + tag
+			if _, err := s.store.Pull(ctx, ref); err != nil {
+				slog.Debug("OCI prefetch version failed", "ref", ref, "error", err)
+			}
+		}
+	}
+
+	slog.Debug("OCI background discovery complete", "services", len(repos))
+}
+
+// discoverRepo pulls the latest bundle from a repo and registers it.
+// Returns the service name if successful, empty string otherwise.
+func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 	tags, err := s.store.ListTags(ctx, repo)
 	if err != nil {
 		slog.Warn("OCI ListTags failed", "repo", repo, "error", err)
-		return
+		return ""
 	}
 	if len(tags) == 0 {
 		slog.Warn("OCI repo has no tags", "repo", repo)
-		return
+		return ""
 	}
 
 	latest := latestTag(tags)
@@ -66,71 +149,44 @@ func (s *OCISource) discoverServices(ctx context.Context, repo string, services 
 	bundle, err := s.store.Pull(ctx, ref)
 	if err != nil {
 		slog.Warn("OCI Pull failed", "ref", ref, "error", err)
-		return
+		return ""
 	}
 
 	name := bundle.Contract.Service.Name
-	if _, exists := repoMap[name]; exists {
-		return // already discovered via another path
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.repoMap[name]; exists {
+		return "" // already discovered via another path
 	}
-	repoMap[name] = repo
+	s.repoMap[name] = repo
 
 	svc := ServiceFromContract(bundle.Contract, "oci")
 	svc.Phase = phaseFromBundle(bundle)
-	*services = append(*services, svc)
+	s.services = append(s.services, svc)
 
-	// Pre-fetch all semver versions so they are cached for version history.
-	s.prefetchVersions(ctx, repo, tags)
+	return name
+}
 
-	// Recursively discover OCI dependencies.
+// depReposForService returns the OCI repo bases for a service's dependencies.
+func (s *OCISource) depReposForService(ctx context.Context, name string) []string {
+	bundle, err := s.findLatestBundle(ctx, name)
+	if err != nil {
+		return nil
+	}
+	var repos []string
 	for _, dep := range bundle.Contract.Dependencies {
 		depRepo := extractOCIRepo(dep.Ref)
 		if depRepo == "" {
 			continue
 		}
-		// Resolve untagged refs to find the repo base.
-		if !oci.HasExplicitTag(depRepo) {
-			s.discoverServices(ctx, depRepo, services, repoMap, visited)
-		} else {
-			// Strip tag to get the base repo for discovery.
-			base := stripTag(depRepo)
-			s.discoverServices(ctx, base, services, repoMap, visited)
+		if oci.HasExplicitTag(depRepo) {
+			depRepo = stripTag(depRepo)
 		}
+		repos = append(repos, depRepo)
 	}
-}
-
-// prefetchVersions pulls all semver-tagged versions for a repo so they
-// are cached by the underlying BundleStore for version history.
-func (s *OCISource) prefetchVersions(ctx context.Context, repo string, tags []string) {
-	semverTags := filterValidSemver(tags)
-	for _, tag := range semverTags {
-		ref := repo + ":" + tag
-		if _, err := s.store.Pull(ctx, ref); err != nil {
-			slog.Debug("OCI prefetch version failed", "ref", ref, "error", err)
-		}
-	}
-}
-
-// extractOCIRepo extracts the OCI repository from a dependency ref.
-// Returns empty string if the ref is not an OCI reference.
-func extractOCIRepo(ref string) string {
-	if !strings.HasPrefix(ref, "oci://") {
-		return ""
-	}
-	return strings.TrimPrefix(ref, "oci://")
-}
-
-// stripTag removes the tag portion from an OCI ref (e.g. "repo:tag" -> "repo").
-func stripTag(ref string) string {
-	if idx := strings.LastIndex(ref, "@"); idx > 0 {
-		return ref[:idx]
-	}
-	lastSlash := strings.LastIndex(ref, "/")
-	lastColon := strings.LastIndex(ref, ":")
-	if lastColon > lastSlash {
-		return ref[:lastColon]
-	}
-	return ref
+	return repos
 }
 
 func (s *OCISource) GetService(ctx context.Context, name string) (*ServiceDetails, error) {
@@ -206,8 +262,11 @@ func (s *OCISource) findLatestBundle(ctx context.Context, name string) (*contrac
 }
 
 func (s *OCISource) findRepo(ctx context.Context, name string) (string, error) {
-	// Check cached mapping first (populated by ListServices).
-	if repo, ok := s.repoMap[name]; ok {
+	// Check cached mapping first (populated by discovery).
+	s.mu.RLock()
+	repo, ok := s.repoMap[name]
+	s.mu.RUnlock()
+	if ok {
 		return repo, nil
 	}
 
@@ -232,4 +291,26 @@ func (s *OCISource) findRepo(ctx context.Context, name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("service %q not found in configured OCI repositories", name)
+}
+
+// extractOCIRepo extracts the OCI repository from a dependency ref.
+// Returns empty string if the ref is not an OCI reference.
+func extractOCIRepo(ref string) string {
+	if !strings.HasPrefix(ref, "oci://") {
+		return ""
+	}
+	return strings.TrimPrefix(ref, "oci://")
+}
+
+// stripTag removes the tag portion from an OCI ref (e.g. "repo:tag" -> "repo").
+func stripTag(ref string) string {
+	if idx := strings.LastIndex(ref, "@"); idx > 0 {
+		return ref[:idx]
+	}
+	lastSlash := strings.LastIndex(ref, "/")
+	lastColon := strings.LastIndex(ref, ":")
+	if lastColon > lastSlash {
+		return ref[:lastColon]
+	}
+	return ref
 }

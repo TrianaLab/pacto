@@ -471,6 +471,25 @@ func TestOCISource_FindRepo_CachedRepoMap(t *testing.T) {
 	}
 }
 
+// waitForDiscovery triggers ListServices and waits for background discovery to finish.
+func waitForDiscovery(t *testing.T, src *OCISource) []Service {
+	t.Helper()
+	ctx := context.Background()
+	// First call triggers shallow scan + background discovery.
+	_, err := src.ListServices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Wait for background discovery to complete.
+	<-src.done
+	// Second call returns the full discovered set.
+	services, err := src.ListServices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return services
+}
+
 func TestOCISource_ListServices_RecursiveDependencies(t *testing.T) {
 	store := newMockBundleStore()
 
@@ -488,12 +507,7 @@ func TestOCISource_ListServices_RecursiveDependencies(t *testing.T) {
 
 	// Only the root repo is configured.
 	src := NewOCISource(store, []string{"ghcr.io/org/root"})
-	ctx := context.Background()
-
-	services, err := src.ListServices(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	services := waitForDiscovery(t, src)
 
 	names := make(map[string]bool)
 	for _, svc := range services {
@@ -522,12 +536,7 @@ func TestOCISource_ListServices_RecursiveHandlesCycles(t *testing.T) {
 	})
 
 	src := NewOCISource(store, []string{"ghcr.io/org/a"})
-	ctx := context.Background()
-
-	services, err := src.ListServices(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	services := waitForDiscovery(t, src)
 	if len(services) != 2 {
 		t.Fatalf("expected 2 services, got %d", len(services))
 	}
@@ -545,12 +554,7 @@ func TestOCISource_ListServices_SkipsLocalDeps(t *testing.T) {
 	store.addBundle("ghcr.io/org/remote", "1.0.0", "remote", "1.0.0")
 
 	src := NewOCISource(store, []string{"ghcr.io/org/root"})
-	ctx := context.Background()
-
-	services, err := src.ListServices(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	services := waitForDiscovery(t, src)
 	if len(services) != 2 {
 		t.Fatalf("expected 2 services (root + remote), got %d", len(services))
 	}
@@ -568,12 +572,7 @@ func TestOCISource_ListServices_RecursiveSkipsUnreachableDeps(t *testing.T) {
 	// "unreachable" is not registered — ListTags will fail.
 
 	src := NewOCISource(store, []string{"ghcr.io/org/root"})
-	ctx := context.Background()
-
-	services, err := src.ListServices(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	services := waitForDiscovery(t, src)
 	if len(services) != 2 {
 		t.Fatalf("expected 2 services (root + reachable), got %d", len(services))
 	}
@@ -596,14 +595,40 @@ func TestOCISource_ListServices_SharedDependency(t *testing.T) {
 	store.addBundle("ghcr.io/org/shared", "1.0.0", "shared", "1.0.0")
 
 	src := NewOCISource(store, []string{"ghcr.io/org/root"})
+	services := waitForDiscovery(t, src)
+	if len(services) != 4 {
+		t.Fatalf("expected 4 services (root, a, b, shared), got %d", len(services))
+	}
+}
+
+func TestOCISource_ListServices_ShallowScanImmediate(t *testing.T) {
+	store := newMockBundleStore()
+
+	// Root has deps but the first call should return immediately with just root.
+	store.addBundleWithDeps("ghcr.io/org/root", "1.0.0", "root", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/dep"},
+	})
+	store.addBundle("ghcr.io/org/dep", "1.0.0", "dep", "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/root"})
 	ctx := context.Background()
 
+	// First call should return at least the root (shallow scan).
 	services, err := src.ListServices(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(services) != 4 {
-		t.Fatalf("expected 4 services (root, a, b, shared), got %d", len(services))
+	if len(services) < 1 {
+		t.Fatalf("expected at least 1 service from shallow scan, got %d", len(services))
+	}
+	found := false
+	for _, svc := range services {
+		if svc.Name == "root" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected root service in shallow scan results")
 	}
 }
 
