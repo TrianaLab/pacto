@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -32,6 +33,12 @@ type Server struct {
 	// Cached service index for scan-heavy endpoints (dependents, cross-refs, graph).
 	indexMu    sync.Mutex
 	indexCache *serviceIndexCache
+
+	// Lazy OCI enrichment: retries discovery when OCI was not available at startup.
+	lazyEnrich    func(ctx context.Context) bool
+	enrichMu      sync.Mutex
+	enrichDone    bool
+	enrichLastTry time.Time
 }
 
 // serviceIndexCache holds a pre-built index of all service details with a short TTL.
@@ -97,6 +104,56 @@ func (s *Server) SetCacheSource(cs *CacheSource, memCache Cache) {
 // SetOCISource registers the OCISource so the server can report discovery state.
 func (s *Server) SetOCISource(src *OCISource) {
 	s.ociSource = src
+}
+
+// SetLazyEnrich registers a callback that attempts OCI enrichment from K8s.
+// The callback is invoked on-demand (from API handlers) if OCI was not
+// available at startup. It returns true if enrichment succeeded.
+func (s *Server) SetLazyEnrich(fn func(ctx context.Context) bool) {
+	s.lazyEnrich = fn
+}
+
+// UpdateSourceInfo replaces the source metadata shown by /api/sources.
+// Deduplicates by type (keeps last occurrence).
+func (s *Server) UpdateSourceInfo(info []SourceInfo) {
+	seen := make(map[string]int)
+	var deduped []SourceInfo
+	for _, si := range info {
+		if idx, ok := seen[si.Type]; ok {
+			deduped[idx] = si
+		} else {
+			seen[si.Type] = len(deduped)
+			deduped = append(deduped, si)
+		}
+	}
+	s.sourceInfo = deduped
+}
+
+// enrichCooldown is the minimum interval between lazy enrichment attempts.
+const enrichCooldown = 10 * time.Second
+
+// ensureOCIEnriched attempts lazy OCI enrichment if it was not available at startup.
+// Safe for concurrent calls: guarded by enrichMu with a cooldown between attempts.
+func (s *Server) ensureOCIEnriched(ctx context.Context) {
+	if s.lazyEnrich == nil || s.enrichDone {
+		return
+	}
+	s.enrichMu.Lock()
+	defer s.enrichMu.Unlock()
+	if s.enrichDone {
+		return
+	}
+	if time.Since(s.enrichLastTry) < enrichCooldown {
+		return
+	}
+	s.enrichLastTry = time.Now()
+	slog.Info("lazy OCI enrichment: attempting discovery from K8s")
+	if s.lazyEnrich(ctx) {
+		s.enrichDone = true
+		slog.Info("lazy OCI enrichment: succeeded, OCI source now active")
+	} else {
+		slog.Debug("lazy OCI enrichment: not yet available, will retry on next request")
+	}
 }
 
 // Serve starts the HTTP server on the given host and port and blocks until ctx is cancelled.
@@ -521,6 +578,7 @@ func (s *Server) listServices(ctx context.Context, _ *struct{}) (*listServicesOu
 }
 
 func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getServiceOutput, error) {
+	s.ensureOCIEnriched(ctx)
 	details, err := s.source.GetService(ctx, input.Name)
 	if err != nil {
 		return nil, huma.Error404NotFound(err.Error())
@@ -530,6 +588,7 @@ func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getS
 }
 
 func (s *Server) getVersions(ctx context.Context, input *ServiceNameInput) (*getVersionsOutput, error) {
+	s.ensureOCIEnriched(ctx)
 	versions, err := s.source.GetVersions(ctx, input.Name)
 	if err != nil {
 		// No version history is a valid state (e.g. k8s-only service without
@@ -540,6 +599,7 @@ func (s *Server) getVersions(ctx context.Context, input *ServiceNameInput) (*get
 }
 
 func (s *Server) getServiceSources(ctx context.Context, input *ServiceNameInput) (*getServiceSourcesOutput, error) {
+	s.ensureOCIEnriched(ctx)
 	if s.resolved == nil {
 		details, err := s.source.GetService(ctx, input.Name)
 		if err != nil {
@@ -623,6 +683,7 @@ func (s *Server) getCrossRefs(ctx context.Context, input *ServiceNameInput) (*ge
 }
 
 func (s *Server) getDiff(ctx context.Context, input *diffInput) (*getDiffOutput, error) {
+	s.ensureOCIEnriched(ctx)
 	a := Ref{Name: input.FromName, Version: input.FromVersion}
 	b := Ref{Name: input.ToName, Version: input.ToVersion}
 
@@ -669,7 +730,7 @@ func (s *Server) debugServices(ctx context.Context, _ *struct{}) (*debugServices
 
 	if s.resolved != nil {
 		for _, st := range s.resolved.SourceTypes() {
-			ds := s.resolved.all[st]
+			ds := s.resolved.GetSource(st)
 			result := perSourceResult{SourceType: st}
 			svcs, err := ds.ListServices(ctx)
 			if err != nil {
@@ -763,6 +824,7 @@ func (s *Server) listRemoteVersions(ctx context.Context, input *listRemoteVersio
 
 // getCachedIndex returns the cached service index, rebuilding it if stale.
 func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
+	s.ensureOCIEnriched(ctx)
 	s.indexMu.Lock()
 	if s.indexCache != nil && time.Since(s.indexCache.builtAt) < indexCacheTTL {
 		cached := s.indexCache

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"sync"
 )
 
 // ResolvedSource implements DataSource by combining a contract source
@@ -19,6 +20,7 @@ import (
 //   - Diff: only works with real contract bundles (local or OCI/cache).
 //   - Graph: built from the authoritative contract snapshot only.
 type ResolvedSource struct {
+	mu       sync.RWMutex
 	contract []namedContractSource // ordered: local first, then oci
 	runtime  *runtimeSourceEntry   // optional k8s
 	all      map[string]DataSource // all sources for version/diff lookups
@@ -46,6 +48,64 @@ func NewResolvedSource(contractSources []namedContractSource, runtimeSource Data
 		rs.runtime = &runtimeSourceEntry{source: runtimeSource}
 	}
 	return rs
+}
+
+// sources returns a consistent snapshot of the current source configuration.
+// Safe for concurrent use: AddContractSource uses copy-on-write, so the
+// returned slices/map remain valid even if a new source is added concurrently.
+func (r *ResolvedSource) sources() ([]namedContractSource, *runtimeSourceEntry, map[string]DataSource) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.contract, r.runtime, r.all
+}
+
+// HasSource reports whether a source with the given name is registered.
+func (r *ResolvedSource) HasSource(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.all[name]
+	return ok
+}
+
+// GetSource returns the DataSource registered under the given name, or nil.
+func (r *ResolvedSource) GetSource(name string) DataSource {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.all[name]
+}
+
+// AddContractSource registers a new contract data source that participates in
+// service detail resolution and version/diff lookups. Thread-safe via
+// copy-on-write: concurrent readers see a consistent snapshot.
+func (r *ResolvedSource) AddContractSource(name string, ds DataSource) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	newAll := make(map[string]DataSource, len(r.all)+1)
+	for k, v := range r.all {
+		newAll[k] = v
+	}
+	newAll[name] = ds
+	r.all = newAll
+
+	newContract := make([]namedContractSource, len(r.contract)+1)
+	copy(newContract, r.contract)
+	newContract[len(r.contract)] = namedContractSource{name: name, source: ds}
+	r.contract = newContract
+}
+
+// AddSource registers a data source for version/diff lookups only
+// (not contract resolution). Thread-safe via copy-on-write.
+func (r *ResolvedSource) AddSource(name string, ds DataSource) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	newAll := make(map[string]DataSource, len(r.all)+1)
+	for k, v := range r.all {
+		newAll[k] = v
+	}
+	newAll[name] = ds
+	r.all = newAll
 }
 
 // sourceListResult holds the result of a ListServices call from a single source.
@@ -89,9 +149,11 @@ func mergeServiceEntry(name string, entry *serviceEntry) Service {
 }
 
 func (r *ResolvedSource) ListServices(ctx context.Context) ([]Service, error) {
+	_, _, all := r.sources()
+
 	// Collect services from all sources concurrently.
-	results := make(chan sourceListResult, len(r.all))
-	for st, ds := range r.all {
+	results := make(chan sourceListResult, len(all))
+	for st, ds := range all {
 		go func() {
 			svcs, err := ds.ListServices(ctx)
 			results <- sourceListResult{sourceType: st, services: svcs, err: err}
@@ -100,7 +162,7 @@ func (r *ResolvedSource) ListServices(ctx context.Context) ([]Service, error) {
 
 	byName := make(map[string]*serviceEntry)
 
-	for range r.all {
+	for range all {
 		res := <-results
 		if res.err != nil {
 			slog.Warn("source ListServices failed", "source", res.sourceType, "error", res.err)
@@ -136,10 +198,12 @@ func (r *ResolvedSource) ListServices(ctx context.Context) ([]Service, error) {
 }
 
 func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceDetails, error) {
+	contract, runtime, _ := r.sources()
+
 	// Step 1: Resolve contract snapshot — exactly one winner.
 	var contractDetails *ServiceDetails
 	var contractSource string
-	for _, cs := range r.contract {
+	for _, cs := range contract {
 		d, err := cs.source.GetService(ctx, name)
 		if err == nil && d != nil {
 			contractDetails = d
@@ -150,8 +214,8 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 
 	// Step 2: Get runtime data from k8s.
 	var runtimeDetails *ServiceDetails
-	if r.runtime != nil {
-		d, err := r.runtime.source.GetService(ctx, name)
+	if runtime != nil {
+		d, err := runtime.source.GetService(ctx, name)
 		if err == nil && d != nil {
 			runtimeDetails = d
 		}
@@ -180,7 +244,7 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 
 	// Collect source list.
 	var sources []string
-	for _, cs := range r.contract {
+	for _, cs := range contract {
 		if _, err := cs.source.GetService(ctx, name); err == nil {
 			sources = append(sources, cs.name)
 		}
@@ -273,12 +337,14 @@ func enrichRuntimeMetadata(contract *ServiceDetails, runtime *ServiceDetails) {
 var resolverVersionSources = []string{"k8s", "oci", "local"}
 
 func (r *ResolvedSource) GetVersions(ctx context.Context, name string) ([]Version, error) {
+	_, _, all := r.sources()
+
 	// Merge versions from all sources, labeled by origin, deduplicated.
 	seen := make(map[string]bool)
 	var merged []Version
 
 	for _, sourceType := range resolverVersionSources {
-		ds, ok := r.all[sourceType]
+		ds, ok := all[sourceType]
 		if !ok {
 			continue
 		}
@@ -309,17 +375,19 @@ func (r *ResolvedSource) GetVersions(ctx context.Context, name string) ([]Versio
 }
 
 func (r *ResolvedSource) GetDiff(ctx context.Context, from, to Ref) (*DiffResult, error) {
+	_, _, all := r.sources()
+
 	// Diff only works with contract bundle sources (not k8s).
 	// Route to explicit source if specified.
 	if from.Source != "" {
-		if ds, ok := r.all[from.Source]; ok {
+		if ds, ok := all[from.Source]; ok {
 			return ds.GetDiff(ctx, from, to)
 		}
 	}
 
 	// Try contract sources in order: oci first (has versioned bundles), then local.
 	for _, sourceType := range []string{"oci", "local"} {
-		ds, ok := r.all[sourceType]
+		ds, ok := all[sourceType]
 		if !ok {
 			continue
 		}
@@ -334,6 +402,8 @@ func (r *ResolvedSource) GetDiff(ctx context.Context, from, to Ref) (*DiffResult
 
 // GetAggregated returns the per-source breakdown for the debug/sources endpoint.
 func (r *ResolvedSource) GetAggregated(ctx context.Context, name string) (*AggregatedService, error) {
+	contract, runtime, _ := r.sources()
+
 	merged, err := r.GetService(ctx, name)
 	if err != nil {
 		return nil, err
@@ -341,14 +411,14 @@ func (r *ResolvedSource) GetAggregated(ctx context.Context, name string) (*Aggre
 
 	agg := &AggregatedService{Name: name, Merged: merged}
 
-	for _, cs := range r.contract {
+	for _, cs := range contract {
 		d, err := cs.source.GetService(ctx, name)
 		if err == nil && d != nil {
 			agg.Sources = append(agg.Sources, ServiceSourceData{SourceType: cs.name, Service: d})
 		}
 	}
-	if r.runtime != nil {
-		d, err := r.runtime.source.GetService(ctx, name)
+	if runtime != nil {
+		d, err := runtime.source.GetService(ctx, name)
 		if err == nil && d != nil {
 			agg.Sources = append(agg.Sources, ServiceSourceData{SourceType: "k8s", Service: d})
 		}
@@ -359,8 +429,9 @@ func (r *ResolvedSource) GetAggregated(ctx context.Context, name string) (*Aggre
 
 // SourceTypes returns the list of active source types.
 func (r *ResolvedSource) SourceTypes() []string {
-	types := make([]string, 0, len(r.all))
-	for st := range r.all {
+	_, _, all := r.sources()
+	types := make([]string, 0, len(all))
+	for st := range all {
 		types = append(types, st)
 	}
 	sort.Strings(types)

@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -350,17 +351,21 @@ func (r *DetectResult) EnrichFromK8s(ctx context.Context, store oci.BundleStore,
 		return
 	}
 
+	slog.Info("OCI enrichment: discovering repos from K8s imageRefs")
 	repos := r.discoverOCIReposFromK8s(ctx)
 	if len(repos) == 0 {
+		slog.Info("OCI enrichment: no repos found (K8s resources may not be ready yet)")
 		return
 	}
 
+	slog.Info("OCI enrichment: discovered repos from K8s", "count", len(repos), "repos", repos)
 	r.detectOCI(store, repos)
 
 	// Ensure a CacheSource exists for post-resolve rescan, even if the cache
 	// directory was empty at detection time.
 	if r.OCI != nil && r.Cache == nil {
 		r.ensureCacheSource(cacheDir)
+		slog.Info("OCI enrichment: initialized cache source", "cacheDir", cacheDir)
 	}
 }
 
@@ -369,8 +374,10 @@ func (r *DetectResult) EnrichFromK8s(ctx context.Context, store oci.BundleStore,
 func (r *DetectResult) discoverOCIReposFromK8s(ctx context.Context) []string {
 	services, err := r.K8s.ListServices(ctx)
 	if err != nil {
+		slog.Warn("OCI enrichment: failed to list K8s services", "error", err)
 		return nil
 	}
+	slog.Debug("OCI enrichment: found K8s services", "count", len(services))
 
 	seen := make(map[string]bool)
 	var repos []string
