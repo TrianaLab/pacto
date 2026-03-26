@@ -253,8 +253,11 @@ function resolveServiceName(name) {
   if (stripped !== name && serviceExists(stripped)) return stripped;
   return name;
 }
-var _navInProgress = false;
-function navigateTo(view, svc, ref, compat) {
+// Render generation: incremented on every navigation. Async callbacks compare
+// their captured generation against the current one to detect stale renders.
+var _renderGen = 0;
+
+function navigateTo(view, svc, ref, compat, _fromPopState) {
   state.view = view;
   state.service = resolveServiceName(svc) || null;
   state.pendingRef = ref || null;
@@ -265,14 +268,18 @@ function navigateTo(view, svc, ref, compat) {
   var si = document.getElementById('search-input');
   if (si && view !== 'list') si.value = '';
   closeSearchDropdown();
-  // Update hash for bookmarkability and browser history
+  // Update URL for bookmarkability and browser history.
   var wantHash = view === 'list' ? '#' : '#service/' + encodeURIComponent(svc);
-  if (location.hash !== wantHash) {
-    _navInProgress = true;
-    location.hash = wantHash;
-    // Reset flag asynchronously after the hashchange event has fired
-    setTimeout(function() { _navInProgress = false; }, 0);
+  var currentHash = location.hash || '#';
+  if (currentHash !== wantHash) {
+    if (_fromPopState) {
+      // popstate already changed the URL; don't push a new entry
+      history.replaceState(null, '', wantHash);
+    } else {
+      history.pushState(null, '', wantHash);
+    }
   }
+  _renderGen++;
   render();
 }
 
@@ -298,6 +305,8 @@ function doRefresh() {
   if (btn) { btn.classList.add('spinning'); setTimeout(function() { btn.classList.remove('spinning'); }, 600); }
   // Re-render without clearing cached state — the render functions
   // detect existing data and refresh in the background seamlessly.
+  // Increment generation so any in-flight stale renders are cancelled.
+  _renderGen++;
   render();
 }
 updateAutoReloadUI();
@@ -324,6 +333,7 @@ function graphFingerprint(data) {
 
 var overviewLoaded = false;
 async function renderOverview() {
+  var gen = _renderGen;
   var app = document.getElementById('app');
   // If we already have data, render immediately from cache, then refresh in background
   if (overviewLoaded && state.services.length) {
@@ -334,6 +344,7 @@ async function renderOverview() {
       api.getSources().catch(function() { return { sources: [], discovering: false }; }),
       api.getGraph().catch(function() { return null; })
     ]).then(function(r) {
+      if (_renderGen !== gen) return; // stale render
       state.services = r[0] || [];
       applySourcesResponse(r[1]);
       var newFp = graphFingerprint(r[2]);
@@ -359,6 +370,7 @@ async function renderOverview() {
       api.getSources().catch(function() { return { sources: [], discovering: false }; }),
       api.getGraph().catch(function() { return null; })
     ]);
+    if (_renderGen !== gen) return; // stale render
     state.services = r[0] || [];
     applySourcesResponse(r[1]);
     state.graphData = r[2];
@@ -369,6 +381,7 @@ async function renderOverview() {
     renderOverviewPage();
     scheduleDiscoveryRefresh();
   } catch (e) {
+    if (_renderGen !== gen) return;
     app.innerHTML = '<div class="empty-state"><div class="empty-state-title">Failed to load</div><p>' + h(e.message) + '</p></div>';
   }
 }
@@ -1668,6 +1681,7 @@ function maybeInitServiceGraph() {
    DETAIL PAGE — matches operator detail.html + all tab partials
    ════════════════════════════════════════════════════════════════ */
 async function renderDetail() {
+  var gen = _renderGen;
   var app = document.getElementById('app');
   var svcName = state.service;
   var hasExisting = state.details[svcName] != null;
@@ -1675,7 +1689,7 @@ async function renderDetail() {
   // Fetch global graph lazily for the dependency graph visualization
   if (!state.graphData) {
     api.getGraph().catch(function() { return null; }).then(function(g) {
-      if (g) { state.graphData = g; maybeInitServiceGraph(); }
+      if (g) { state.graphData = g; if (_renderGen === gen) maybeInitServiceGraph(); }
     });
   }
 
@@ -1689,7 +1703,7 @@ async function renderDetail() {
       api.getDependents(svcName).catch(function() { return []; }),
       api.getCrossRefs(svcName).catch(function() { return { references: [], referencedBy: [] }; })
     ]).then(function(r) {
-      if (state.service !== svcName) return; // user navigated away
+      if (_renderGen !== gen) return; // stale render
       state.details[svcName] = r[0];
       state.versions[svcName] = r[1] || [];
       if (r[2]) state.aggregated[svcName] = r[2];
@@ -1705,7 +1719,7 @@ async function renderDetail() {
   try {
     // Fetch service details first for fast render
     var details = await api.getService(svcName);
-    if (state.service !== svcName) return;
+    if (_renderGen !== gen) return; // stale render
     state.details[svcName] = details;
     state.dependents = [];
     state.crossRefs = { references: [], referencedBy: [] };
@@ -1717,7 +1731,7 @@ async function renderDetail() {
       api.getDependents(svcName).catch(function() { return []; }),
       api.getCrossRefs(svcName).catch(function() { return { references: [], referencedBy: [] }; })
     ]).then(function(r) {
-      if (state.service !== svcName) return;
+      if (_renderGen !== gen) return; // stale render
       state.versions[svcName] = r[0] || [];
       if (r[1]) state.aggregated[svcName] = r[1];
       state.dependents = r[2] || [];
@@ -1725,10 +1739,11 @@ async function renderDetail() {
       renderDetailPage();
     }).catch(function() {});
   } catch (e) {
+    if (_renderGen !== gen) return; // stale render
     // If 404 and we have an OCI ref, try lazy resolution
     var depInfo = state.pendingRef ? { ref: state.pendingRef, compatibility: state.pendingCompat || '' } : findDepInfo(svcName);
     if (e.status === 404 && depInfo) {
-      await resolveRemoteDep(svcName, depInfo.ref, depInfo.compatibility);
+      await resolveRemoteDep(svcName, gen, depInfo.ref, depInfo.compatibility);
     } else {
       app.innerHTML = '<div class="empty-state"><div class="empty-state-title">Service not found</div><p>' + h(e.message) + '</p>' +
         '<div style="margin-top:16px"><a class="dep-link" onclick="navigateTo(\'list\')">Back to overview</a></div></div>';
@@ -1751,12 +1766,12 @@ function findDepInfo(name) {
 }
 
 /* Attempt to lazily resolve a remote OCI dependency */
-async function resolveRemoteDep(svcName, ref, compatibility) {
+async function resolveRemoteDep(svcName, gen, ref, compatibility) {
   var app = document.getElementById('app');
   app.innerHTML = '<div class="loading"><div class="spinner"></div>Resolving remote dependency&hellip;<br><code class="text-dim" style="font-size:var(--text-xs);margin-top:8px;display:inline-block">' + h(ref) + (compatibility ? ' (' + h(compatibility) + ')' : '') + '</code></div>';
   try {
     var details = await api.resolveRef(ref, compatibility);
-    if (state.service !== svcName) return;
+    if (_renderGen !== gen) return; // stale render
     // The resolved service might have a different name than what we navigated to
     var resolvedName = details.name || svcName;
     state.details[resolvedName] = details;
@@ -1774,6 +1789,7 @@ async function resolveRemoteDep(svcName, ref, compatibility) {
     state.pendingCompat = null;
     renderDetailPage();
   } catch (re) {
+    if (_renderGen !== gen) return; // stale render
     var errorTitle = 'Failed to resolve dependency';
     var errorMsg = re.message || 'Unknown error';
     if (re.status === 403) errorTitle = 'Authentication failed';
@@ -2857,14 +2873,13 @@ function handleHash() {
   }
 }
 handleHash();
-window.addEventListener('hashchange', function() {
-  if (_navInProgress) return;
+window.addEventListener('popstate', function() {
   var hash = location.hash;
   if (hash.startsWith('#service/')) {
     var svc = decodeURIComponent(hash.substring(9));
-    if (state.view !== 'detail' || state.service !== svc) navigateTo('detail', svc);
+    if (state.view !== 'detail' || state.service !== svc) navigateTo('detail', svc, null, null, true);
   } else {
-    if (state.view !== 'list') navigateTo('list');
+    if (state.view !== 'list') navigateTo('list', null, null, null, true);
   }
 });
 
