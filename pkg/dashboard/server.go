@@ -18,7 +18,7 @@ import (
 // Server serves the dashboard web UI and REST API.
 type Server struct {
 	source      DataSource
-	aggregated  *AggregatedSource // may be nil for non-aggregated usage
+	resolved    *ResolvedSource   // may be nil for non-resolved usage
 	resolver    *oci.Resolver     // optional: enables lazy resolution of remote OCI dependencies
 	cacheSource *CacheSource      // optional: for rescanning after cache writes
 	memCache    Cache             // optional: for invalidating after cache writes
@@ -53,7 +53,8 @@ func APIConfig() huma.Config {
 				Title:   "Pacto Dashboard API",
 				Version: "1.0.0",
 				Description: "REST API for the Pacto service contract dashboard. " +
-					"Aggregates data from local filesystem, Kubernetes, OCI registries, and disk cache.",
+					"Resolves contract data from local filesystem or OCI registries, " +
+					"enriched with runtime state from Kubernetes.",
 			},
 		},
 		OpenAPIPath:   "/openapi",
@@ -70,11 +71,11 @@ func NewServer(source DataSource, ui fs.FS) *Server {
 	return &Server{source: source, ui: ui}
 }
 
-// NewAggregatedServer creates a dashboard server with multi-source aggregation.
-func NewAggregatedServer(agg *AggregatedSource, ui fs.FS, sourceInfo []SourceInfo, diagnostics *SourceDiagnostics) *Server {
+// NewResolvedServer creates a dashboard server with the contract+runtime resolution model.
+func NewResolvedServer(resolved *ResolvedSource, ui fs.FS, sourceInfo []SourceInfo, diagnostics *SourceDiagnostics) *Server {
 	return &Server{
-		source:      agg,
-		aggregated:  agg,
+		source:      resolved,
+		resolved:    resolved,
 		ui:          ui,
 		sourceInfo:  sourceInfo,
 		diagnostics: diagnostics,
@@ -531,13 +532,15 @@ func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getS
 func (s *Server) getVersions(ctx context.Context, input *ServiceNameInput) (*getVersionsOutput, error) {
 	versions, err := s.source.GetVersions(ctx, input.Name)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		// No version history is a valid state (e.g. k8s-only service without
+		// OCI cache). Return an empty list instead of 500.
+		return &getVersionsOutput{Body: []Version{}}, nil
 	}
 	return &getVersionsOutput{Body: versions}, nil
 }
 
 func (s *Server) getServiceSources(ctx context.Context, input *ServiceNameInput) (*getServiceSourcesOutput, error) {
-	if s.aggregated == nil {
+	if s.resolved == nil {
 		details, err := s.source.GetService(ctx, input.Name)
 		if err != nil {
 			return nil, huma.Error404NotFound(err.Error())
@@ -549,7 +552,7 @@ func (s *Server) getServiceSources(ctx context.Context, input *ServiceNameInput)
 		}}, nil
 	}
 
-	agg, err := s.aggregated.GetAggregated(ctx, input.Name)
+	agg, err := s.resolved.GetAggregated(ctx, input.Name)
 	if err != nil {
 		return nil, huma.Error404NotFound(err.Error())
 	}
@@ -664,9 +667,9 @@ func (s *Server) debugSources(ctx context.Context, _ *struct{}) (*debugSourcesOu
 func (s *Server) debugServices(ctx context.Context, _ *struct{}) (*debugServicesOutput, error) {
 	out := &debugServicesOutput{}
 
-	if s.aggregated != nil {
-		for _, st := range s.aggregated.SourceTypes() {
-			ds := s.aggregated.sources[st]
+	if s.resolved != nil {
+		for _, st := range s.resolved.SourceTypes() {
+			ds := s.resolved.all[st]
 			result := perSourceResult{SourceType: st}
 			svcs, err := ds.ListServices(ctx)
 			if err != nil {

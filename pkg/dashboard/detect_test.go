@@ -71,7 +71,7 @@ func TestDetectResult_ActiveSources_LocalOnly(t *testing.T) {
 	}
 }
 
-func TestDetectResult_ActiveSources_Multiple(t *testing.T) {
+func TestDetectResult_ActiveSources_LocalAndCache(t *testing.T) {
 	root := t.TempDir()
 	cache := NewCacheSource(root)
 	r := &DetectResult{
@@ -79,14 +79,15 @@ func TestDetectResult_ActiveSources_Multiple(t *testing.T) {
 		Cache: cache,
 	}
 	sources := r.ActiveSources()
+	// Cache without OCI is exposed as "oci" (offline access to previously pulled bundles).
 	if len(sources) != 2 {
 		t.Fatalf("expected 2 active sources, got %d", len(sources))
 	}
 	if _, ok := sources["local"]; !ok {
 		t.Error("expected 'local' in active sources")
 	}
-	if _, ok := sources["cache"]; !ok {
-		t.Error("expected 'cache' in active sources")
+	if _, ok := sources["oci"]; !ok {
+		t.Error("expected 'oci' in active sources (cache exposed as oci)")
 	}
 }
 
@@ -98,11 +99,15 @@ func TestDetectResult_ActiveSources_AllTypes(t *testing.T) {
 		Local: NewLocalSource("."),
 		Cache: cache,
 		K8s:   NewK8sSource(client, "default", "pactos"),
-		// OCI is nil — would need real store
+		// OCI is nil — cache is exposed as "oci"
 	}
 	sources := r.ActiveSources()
+	// local + k8s + oci (from cache)
 	if len(sources) != 3 {
 		t.Fatalf("expected 3 active sources, got %d", len(sources))
+	}
+	if _, ok := sources["oci"]; !ok {
+		t.Error("expected 'oci' in active sources (cache exposed as oci)")
 	}
 }
 
@@ -241,8 +246,9 @@ func TestDetectCache_EmptyCacheDir(t *testing.T) {
 	if result.Cache != nil {
 		t.Error("expected nil cache source for empty dir")
 	}
-	if len(result.Sources) != 1 {
-		t.Fatalf("expected 1 source info, got %d", len(result.Sources))
+	// Cache no longer adds to Sources (internal implementation detail).
+	if len(result.Sources) != 0 {
+		t.Fatalf("expected 0 source info, got %d", len(result.Sources))
 	}
 }
 
@@ -270,12 +276,6 @@ service:
 
 	if result.Cache == nil {
 		t.Fatal("expected cache source to be detected")
-	}
-	if len(result.Sources) != 1 {
-		t.Fatalf("expected 1 source info, got %d", len(result.Sources))
-	}
-	if !result.Sources[0].Enabled {
-		t.Error("expected cache source to be enabled")
 	}
 	if result.Diagnostics.Cache.ServiceCount != 1 {
 		t.Errorf("expected 1 service, got %d", result.Diagnostics.Cache.ServiceCount)
@@ -309,22 +309,11 @@ func TestDetectSources_WithLocalAndNoCache(t *testing.T) {
 		t.Error("expected nil cache source with NoCache=true")
 	}
 
-	// Check that NoCache branch produces a source info with the right reason.
-	var cacheInfo *SourceInfo
+	// Cache is internal — no SourceInfo entry when disabled.
 	for i := range result.Sources {
 		if result.Sources[i].Type == "cache" {
-			cacheInfo = &result.Sources[i]
-			break
+			t.Error("cache should not appear in Sources list")
 		}
-	}
-	if cacheInfo == nil {
-		t.Fatal("expected cache source info even when disabled")
-	}
-	if cacheInfo.Enabled {
-		t.Error("expected cache to be disabled")
-	}
-	if cacheInfo.Reason != "disabled by --no-cache flag" {
-		t.Errorf("expected 'disabled by --no-cache flag', got %q", cacheInfo.Reason)
 	}
 }
 
@@ -348,6 +337,49 @@ func TestDetectSources_WithCacheEnabled(t *testing.T) {
 	// Cache should not be detected (nonexistent dir).
 	if result.Cache != nil {
 		t.Error("expected nil cache source for nonexistent dir")
+	}
+}
+
+func TestDetectResult_AllSources_IncludesCacheWithOCI(t *testing.T) {
+	cacheDir := t.TempDir()
+	writeBundleTarGzFile(t,
+		filepath.Join(cacheDir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: svc
+  version: 1.0.0
+`)
+	r := &DetectResult{
+		OCI:   NewOCISource(newMockBundleStore(), []string{"ghcr.io/org/svc"}),
+		Cache: NewCacheSource(cacheDir),
+	}
+	all := r.AllSources()
+	if _, ok := all["oci"]; !ok {
+		t.Error("expected 'oci' in AllSources")
+	}
+	if _, ok := all["cache"]; !ok {
+		t.Error("expected 'cache' in AllSources when both OCI and cache exist")
+	}
+}
+
+func TestDetectResult_AllSources_CacheOnlyExposedAsOCI(t *testing.T) {
+	cacheDir := t.TempDir()
+	writeBundleTarGzFile(t,
+		filepath.Join(cacheDir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: svc
+  version: 1.0.0
+`)
+	r := &DetectResult{
+		Cache: NewCacheSource(cacheDir),
+	}
+	all := r.AllSources()
+	if _, ok := all["oci"]; !ok {
+		t.Error("expected cache exposed as 'oci' when no live OCI")
+	}
+	if _, ok := all["cache"]; ok {
+		t.Error("cache should not appear separately when no live OCI")
 	}
 }
 
@@ -599,12 +631,6 @@ func TestDetectCache_HomeDirError(t *testing.T) {
 
 	if result.Cache != nil {
 		t.Error("expected nil cache when home dir fails")
-	}
-	if len(result.Sources) != 1 {
-		t.Fatalf("expected 1 source info, got %d", len(result.Sources))
-	}
-	if result.Sources[0].Enabled {
-		t.Error("expected source to be disabled")
 	}
 	if result.Diagnostics.Cache.Error == "" {
 		t.Error("expected error in diagnostics")

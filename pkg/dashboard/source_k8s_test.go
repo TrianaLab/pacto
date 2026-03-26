@@ -445,6 +445,8 @@ type mockK8sClient struct {
 	crdErr       error
 	listJSON     []byte
 	listErr      error
+	listByRes    map[string][]byte // resource-specific overrides for ListJSON
+	listByResErr map[string]error
 	getJSON      []byte
 	getErr       error
 	countResult  int
@@ -455,7 +457,15 @@ func (m *mockK8sClient) Probe(context.Context) error { return m.probeErr }
 func (m *mockK8sClient) DiscoverCRD(context.Context) (*CRDDiscovery, error) {
 	return m.crdDiscovery, m.crdErr
 }
-func (m *mockK8sClient) ListJSON(context.Context, string, string) ([]byte, error) {
+func (m *mockK8sClient) ListJSON(_ context.Context, resource, _ string) ([]byte, error) {
+	if m.listByRes != nil {
+		if err, hasErr := m.listByResErr[resource]; hasErr && err != nil {
+			return nil, err
+		}
+		if data, ok := m.listByRes[resource]; ok {
+			return data, nil
+		}
+	}
 	return m.listJSON, m.listErr
 }
 func (m *mockK8sClient) GetJSON(context.Context, string, string, string) ([]byte, error) {
@@ -545,15 +555,20 @@ func TestK8s_setListCache_WithError(t *testing.T) {
 // GetVersions — not supported
 // ---------------------------------------------------------------------------
 
-func TestK8s_GetVersions_ReturnsError(t *testing.T) {
-	client := &mockK8sClient{}
-	src := NewK8sSource(client, "default", "pactos")
-	_, err := src.GetVersions(context.Background(), "any")
-	if err == nil {
-		t.Fatal("expected error from GetVersions")
+func TestK8s_GetVersions_ReturnsEmptyForUnknownService(t *testing.T) {
+	client := &mockK8sClient{
+		listByRes: map[string][]byte{
+			"pactorevisions": []byte(`{"items":[]}`),
+		},
+		listByResErr: map[string]error{},
 	}
-	if !strings.Contains(err.Error(), "not yet supported") {
-		t.Errorf("unexpected error message: %v", err)
+	src := NewK8sSource(client, "default", "pactos")
+	versions, err := src.GetVersions(context.Background(), "unknown")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(versions) != 0 {
+		t.Errorf("expected empty versions, got %d", len(versions))
 	}
 }
 
@@ -850,4 +865,172 @@ func TestObservedRuntimeFromK8s(t *testing.T) {
 	if got.HealthProbeInitialDelay == nil || *got.HealthProbeInitialDelay != 5 {
 		t.Errorf("expected 5, got %v", got.HealthProbeInitialDelay)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// GetVersions (from PactoRevision CRDs)
+// ---------------------------------------------------------------------------
+
+func TestK8s_GetVersions(t *testing.T) {
+	revisionsJSON := mustJSON(t, map[string]any{
+		"items": []map[string]any{
+			{
+				"metadata": map[string]any{"name": "payments-service-1-0-0", "namespace": "default"},
+				"spec": map[string]any{
+					"serviceName": "payments-service",
+					"version":     "1.0.0",
+					"source":      map[string]any{"oci": "ghcr.io/org/payments-service:1.0.0"},
+				},
+				"status": map[string]any{
+					"contractHash": "abc123",
+					"createdAt":    "2026-01-01T00:00:00Z",
+					"resolved":     true,
+				},
+			},
+			{
+				"metadata": map[string]any{"name": "payments-service-2-0-0", "namespace": "default"},
+				"spec": map[string]any{
+					"serviceName": "payments-service",
+					"version":     "2.0.0",
+					"source":      map[string]any{"oci": "ghcr.io/org/payments-service:2.0.0"},
+				},
+				"status": map[string]any{
+					"contractHash": "def456",
+					"createdAt":    "2026-02-01T00:00:00Z",
+					"resolved":     true,
+				},
+			},
+			{
+				"metadata": map[string]any{"name": "other-service-1-0-0", "namespace": "default"},
+				"spec": map[string]any{
+					"serviceName": "other-service",
+					"version":     "1.0.0",
+					"source":      map[string]any{"oci": "ghcr.io/org/other-service:1.0.0"},
+				},
+				"status": map[string]any{"contractHash": "xyz"},
+			},
+		},
+	})
+
+	client := &mockK8sClient{
+		listByRes: map[string][]byte{
+			"pactorevisions": revisionsJSON,
+		},
+		listByResErr: map[string]error{},
+	}
+	src := NewK8sSource(client, "default", "pactos")
+
+	versions, err := src.GetVersions(context.Background(), "payments-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(versions) != 2 {
+		t.Fatalf("expected 2 versions, got %d", len(versions))
+	}
+
+	// Should be sorted descending (latest first).
+	if versions[0].Version != "2.0.0" {
+		t.Errorf("expected first version 2.0.0, got %q", versions[0].Version)
+	}
+	if versions[1].Version != "1.0.0" {
+		t.Errorf("expected second version 1.0.0, got %q", versions[1].Version)
+	}
+
+	// Check fields are populated.
+	if versions[0].Ref != "ghcr.io/org/payments-service:2.0.0" {
+		t.Errorf("expected OCI ref, got %q", versions[0].Ref)
+	}
+	if versions[0].ContractHash != "def456" {
+		t.Errorf("expected contract hash, got %q", versions[0].ContractHash)
+	}
+	if versions[0].CreatedAt == nil {
+		t.Error("expected createdAt to be set")
+	}
+}
+
+func TestK8s_GetVersions_NoRevisions(t *testing.T) {
+	client := &mockK8sClient{
+		listByRes: map[string][]byte{
+			"pactorevisions": []byte(`{"items":[]}`),
+		},
+		listByResErr: map[string]error{},
+	}
+	src := NewK8sSource(client, "", "pactos")
+
+	versions, err := src.GetVersions(context.Background(), "nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 0 {
+		t.Errorf("expected 0 versions, got %d", len(versions))
+	}
+}
+
+func TestK8s_GetVersions_ListError(t *testing.T) {
+	client := &mockK8sClient{
+		listByRes:    map[string][]byte{},
+		listByResErr: map[string]error{"pactorevisions": fmt.Errorf("forbidden")},
+	}
+	src := NewK8sSource(client, "", "pactos")
+
+	_, err := src.GetVersions(context.Background(), "svc")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestCompareSemverDesc(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want bool
+	}{
+		{"2.0.0", "1.0.0", true},
+		{"1.0.0", "2.0.0", false},
+		{"1.1.0", "1.0.0", true},
+		{"1.0.1", "1.0.0", true},
+		{"1.0.0", "1.0.0", false},
+		{"v2.0.0", "v1.0.0", true},
+		{"abc", "xyz", false},  // non-semver: lexicographic
+		{"xyz", "abc", true},   // non-semver: lexicographic
+		{"1.0.0-rc1", "1.0.0-rc2", false}, // pre-release stripped from patch
+	}
+	for _, tt := range tests {
+		got := compareSemverDesc(tt.a, tt.b)
+		if got != tt.want {
+			t.Errorf("compareSemverDesc(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
+func TestParseSemverParts_NonNumericPatch(t *testing.T) {
+	// "1.0.abc" has a non-numeric patch — should return nil.
+	if parts := parseSemverParts("1.0.abc"); parts != nil {
+		t.Errorf("expected nil for non-numeric patch, got %v", parts)
+	}
+}
+
+func TestListRevisions_InvalidJSON(t *testing.T) {
+	client := &mockK8sClient{
+		crdDiscovery: &CRDDiscovery{Found: true, ResourceName: revisionResourceName},
+		listByRes: map[string][]byte{
+			revisionResourceName: []byte(`not valid json`),
+		},
+	}
+	setupMockK8sClient(t, client)
+
+	src := NewK8sSource(client, "default", "")
+	_, err := src.GetVersions(context.Background(), "any-service")
+	if err == nil {
+		t.Fatal("expected error for invalid JSON response")
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }

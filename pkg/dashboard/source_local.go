@@ -3,6 +3,8 @@ package dashboard
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,9 +75,12 @@ func (s *LocalSource) GetVersions(_ context.Context, name string) ([]Version, er
 		return nil, err
 	}
 	// Local source only knows about the current version on disk.
-	return []Version{
-		{Version: bundle.Contract.Service.Version},
-	}, nil
+	v := Version{Version: bundle.Contract.Service.Version}
+	if len(bundle.RawYAML) > 0 {
+		h := sha256.Sum256(bundle.RawYAML)
+		v.ContractHash = hex.EncodeToString(h[:])
+	}
+	return []Version{v}, nil
 }
 
 func (s *LocalSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) {

@@ -26,7 +26,7 @@ type DetectResult struct {
 	Local   *LocalSource
 	OCI     *OCISource
 	K8s     *K8sSource
-	Cache   *CacheSource
+	Cache   *CacheSource // internal: used by OCI for offline access, not a public source
 
 	// Diagnostics collected during detection.
 	Diagnostics *SourceDiagnostics
@@ -96,13 +96,9 @@ func DetectSources(ctx context.Context, opts DetectOptions) *DetectResult {
 	// OCI registry: check if store is configured and repos are provided.
 	result.detectOCI(opts.Store, opts.Repos)
 
-	// OCI disk cache: scan for pre-existing cached bundles.
-	if opts.NoCache {
-		result.Sources = append(result.Sources, SourceInfo{
-			Type:   "cache",
-			Reason: "disabled by --no-cache flag",
-		})
-	} else {
+	// OCI disk cache: internal backing store for offline access.
+	// Not exposed as a public source in the UI.
+	if !opts.NoCache {
 		result.detectCache(opts.CacheDir)
 	}
 
@@ -110,6 +106,8 @@ func DetectSources(ctx context.Context, opts DetectOptions) *DetectResult {
 }
 
 // ActiveSources returns the DataSource instances that were successfully detected.
+// Cache is NOT included as a separate source — it is an internal implementation
+// detail of OCI used for offline access and version history.
 func (r *DetectResult) ActiveSources() map[string]DataSource {
 	sources := make(map[string]DataSource)
 	if r.Local != nil {
@@ -118,10 +116,24 @@ func (r *DetectResult) ActiveSources() map[string]DataSource {
 	if r.K8s != nil {
 		sources["k8s"] = r.K8s
 	}
+	// OCI gets the live registry source; cache provides offline backing
+	// but is not exposed as a separate public source.
 	if r.OCI != nil {
 		sources["oci"] = r.OCI
+	} else if r.Cache != nil {
+		// No live OCI configured, but cache has data — expose cache as "oci"
+		// since it provides the same contract data from previously pulled bundles.
+		sources["oci"] = r.Cache
 	}
-	if r.Cache != nil {
+	return sources
+}
+
+// AllSources returns all DataSource instances including cache (for version
+// history lookups where cache may have richer metadata than live OCI).
+func (r *DetectResult) AllSources() map[string]DataSource {
+	sources := r.ActiveSources()
+	// If cache exists and OCI also exists, add cache separately for version lookups.
+	if r.Cache != nil && r.OCI != nil {
 		sources["cache"] = r.Cache
 	}
 	return sources
@@ -290,15 +302,12 @@ func (r *DetectResult) detectOCI(store oci.BundleStore, repos []string) {
 
 func (r *DetectResult) detectCache(cacheDir string) {
 	diag := &r.Diagnostics.Cache
-	info := SourceInfo{Type: "cache"}
 
 	if cacheDir == "" {
 		// Determine default OCI cache directory.
 		home, err := userHomeDir()
 		if err != nil {
-			info.Reason = "cannot determine home directory"
 			diag.Error = err.Error()
-			r.Sources = append(r.Sources, info)
 			return
 		}
 		xdg := os.Getenv("XDG_CACHE_HOME")
@@ -312,31 +321,21 @@ func (r *DetectResult) detectCache(cacheDir string) {
 
 	// Check if cache directory exists.
 	if fi, err := os.Stat(cacheDir); err != nil || !fi.IsDir() {
-		info.Reason = "OCI cache directory not found: " + cacheDir
-		r.Sources = append(r.Sources, info)
 		return
 	}
 	diag.Exists = true
-
-	// Check OCI subdirectory (the cache root IS the oci dir).
 	diag.OCIDirExists = true
 
 	// Scan for cached bundles.
 	src := NewCacheSource(cacheDir)
-
 	diag.ServiceCount = src.ServiceCount()
 	diag.VersionCount = src.VersionCount()
 
 	if src.ServiceCount() == 0 {
-		info.Reason = "OCI cache exists but contains no bundles"
-		r.Sources = append(r.Sources, info)
 		return
 	}
 
-	info.Enabled = true
-	info.Reason = fmt.Sprintf("%d services, %d versions from disk cache", src.ServiceCount(), src.VersionCount())
 	r.Cache = src
-	r.Sources = append(r.Sources, info)
 }
 
 // splitNonEmpty splits a string by newlines and returns non-empty trimmed lines.

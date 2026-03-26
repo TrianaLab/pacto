@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -245,14 +247,120 @@ func (s *K8sSource) GetService(ctx context.Context, name string) (*ServiceDetail
 	return serviceDetailsFromK8sStatus(r), nil
 }
 
-func (s *K8sSource) GetVersions(_ context.Context, _ string) ([]Version, error) {
-	// K8s source only knows the current deployed version.
-	// Version history would require PactoRevision listing, which is a future enhancement.
-	return nil, fmt.Errorf("version history not yet supported for k8s source")
+func (s *K8sSource) GetVersions(ctx context.Context, name string) ([]Version, error) {
+	revisions, err := s.listRevisions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing pactorevisions: %w", err)
+	}
+
+	var versions []Version
+	for _, rev := range revisions {
+		if rev.Spec.ServiceName != name {
+			continue
+		}
+		v := Version{
+			Version:      rev.Spec.Version,
+			ContractHash: rev.Status.ContractHash,
+		}
+		if ociRef := rev.Spec.Source.OCI; ociRef != "" {
+			v.Ref = ociRef
+		}
+		if rev.Status.CreatedAt != "" {
+			if t, err := time.Parse(time.RFC3339, rev.Status.CreatedAt); err == nil {
+				v.CreatedAt = &t
+			}
+		}
+		versions = append(versions, v)
+	}
+
+	// Sort by version descending (latest first) using semver when possible.
+	sort.Slice(versions, func(i, j int) bool {
+		return compareSemverDesc(versions[i].Version, versions[j].Version)
+	})
+
+	return versions, nil
 }
 
 func (s *K8sSource) GetDiff(_ context.Context, _, _ Ref) (*DiffResult, error) {
 	return nil, fmt.Errorf("diff not yet supported for k8s source; use OCI or local source")
+}
+
+// pactoRevisionResource represents the minimal structure of a PactoRevision CRD.
+type pactoRevisionResource struct {
+	Metadata struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+	} `json:"metadata"`
+	Spec struct {
+		ServiceName string `json:"serviceName"`
+		Version     string `json:"version"`
+		Source      struct {
+			OCI string `json:"oci,omitempty"`
+		} `json:"source"`
+	} `json:"spec"`
+	Status struct {
+		ContractHash string `json:"contractHash,omitempty"`
+		CreatedAt    string `json:"createdAt,omitempty"`
+		Resolved     bool   `json:"resolved,omitempty"`
+	} `json:"status"`
+}
+
+const revisionResourceName = "pactorevisions"
+
+func (s *K8sSource) listRevisions(ctx context.Context) ([]pactoRevisionResource, error) {
+	out, err := s.client.ListJSON(ctx, revisionResourceName, s.namespace)
+	if err != nil {
+		return nil, fmt.Errorf("listing %s: %w", revisionResourceName, err)
+	}
+
+	var list struct {
+		Items []pactoRevisionResource `json:"items"`
+	}
+	if err := json.Unmarshal(out, &list); err != nil {
+		return nil, fmt.Errorf("parsing pactorevisions response: %w", err)
+	}
+	return list.Items, nil
+}
+
+// compareSemverDesc returns true if a should sort before b in descending order.
+// Falls back to lexicographic comparison for non-semver strings.
+func compareSemverDesc(a, b string) bool {
+	aParts := parseSemverParts(a)
+	bParts := parseSemverParts(b)
+	if aParts != nil && bParts != nil {
+		for i := 0; i < 3; i++ {
+			if aParts[i] != bParts[i] {
+				return aParts[i] > bParts[i]
+			}
+		}
+		return false
+	}
+	return a > b
+}
+
+// parseSemverParts extracts [major, minor, patch] from a semver string.
+// Returns nil if the string is not valid semver.
+func parseSemverParts(s string) []int {
+	s = strings.TrimPrefix(s, "v")
+	parts := strings.SplitN(s, ".", 3)
+	if len(parts) != 3 {
+		return nil
+	}
+	var nums [3]int
+	for i, p := range parts {
+		// Strip pre-release suffix from patch.
+		if i == 2 {
+			if idx := strings.IndexAny(p, "-+"); idx >= 0 {
+				p = p[:idx]
+			}
+		}
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil
+		}
+		nums[i] = n
+	}
+	return nums[:]
 }
 
 // listCacheTTL controls how long a listPactos result is reused.

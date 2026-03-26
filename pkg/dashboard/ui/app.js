@@ -253,6 +253,7 @@ function resolveServiceName(name) {
   if (stripped !== name && serviceExists(stripped)) return stripped;
   return name;
 }
+var _skipHashChange = false;
 function navigateTo(view, svc, ref, compat) {
   state.view = view;
   state.service = resolveServiceName(svc) || null;
@@ -264,7 +265,12 @@ function navigateTo(view, svc, ref, compat) {
   var si = document.getElementById('search-input');
   if (si && view !== 'list') si.value = '';
   closeSearchDropdown();
-  history.replaceState(null, '', view === 'list' ? '#' : '#service/' + encodeURIComponent(svc));
+  // Update hash for bookmarkability and browser history
+  var wantHash = view === 'list' ? '#' : '#service/' + encodeURIComponent(svc);
+  if (location.hash !== wantHash) {
+    _skipHashChange = true;
+    location.hash = wantHash;
+  }
   render();
 }
 
@@ -395,7 +401,6 @@ function scheduleDiscoveryRefresh() {
 var sourceTooltips = {
   k8s: 'Kubernetes: live CRD status from the cluster operator',
   oci: 'OCI Registry: contract versions pushed to container registries',
-  cache: 'OCI Cache: locally cached bundles from ~/.cache/pacto/oci',
   local: 'Local: contract from the working directory (pacto.yaml)'
 };
 
@@ -574,7 +579,7 @@ function renderOverviewPage() {
   var srcTypeList = Object.keys(activeSrcTypes).sort();
   if (srcTypeList.length > 1) {
     o += '<div class="source-filter-bar"><span class="source-filter-label">Source</span>';
-    var srcColors = { k8s: 'var(--info)', oci: 'var(--accent)', cache: 'var(--ok)', local: 'var(--neutral)' };
+    var srcColors = { k8s: 'var(--info)', oci: 'var(--accent)', local: 'var(--neutral)' };
     for (var si = 0; si < srcTypeList.length; si++) {
       var st = srcTypeList[si];
       var stTip = sourceTooltips[st] || st;
@@ -1781,6 +1786,7 @@ async function resolveRemoteDep(svcName, ref, compatibility) {
 
 function renderDetailPage() {
   var d = state.details[state.service];
+  if (!d) return;
   var versions = state.versions[state.service] || [];
   var agg = state.aggregated[state.service];
   var sources = getSources(d);
@@ -1863,6 +1869,7 @@ function tabBtn(id, label, count) {
 function switchTab(tab) {
   state.tab = tab;
   var d = state.details[state.service];
+  if (!d) return;
   var versions = state.versions[state.service] || [];
   var agg = state.aggregated[state.service];
   document.getElementById('tab-content').innerHTML = renderCurrentTab(d, versions, agg);
@@ -2847,6 +2854,16 @@ function handleHash() {
   }
 }
 handleHash();
+window.addEventListener('hashchange', function() {
+  if (_skipHashChange) { _skipHashChange = false; return; }
+  var hash = location.hash;
+  if (hash.startsWith('#service/')) {
+    var svc = decodeURIComponent(hash.substring(9));
+    if (state.view !== 'detail' || state.service !== svc) navigateTo('detail', svc);
+  } else {
+    if (state.view !== 'list') navigateTo('list');
+  }
+});
 
 /* ── Init ─── */
 navigateTo(state.view === 'detail' ? 'detail' : 'list', state.service);

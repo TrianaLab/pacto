@@ -100,9 +100,6 @@ service:
 	if result.Diagnostics.Cache.VersionCount != 2 {
 		t.Errorf("expected 2 versions, got %d", result.Diagnostics.Cache.VersionCount)
 	}
-	if !result.Sources[0].Enabled {
-		t.Error("expected source to be enabled")
-	}
 }
 
 func TestDetectCache_HomeError(t *testing.T) {
@@ -115,12 +112,10 @@ func TestDetectCache_HomeError(t *testing.T) {
 
 	// On macOS, UserHomeDir may still succeed via /etc/passwd.
 	// If it fails, we expect the error path.
+	// Cache is internal — no SourceInfo entry, just diagnostics.
 	if result.Diagnostics.Cache.Error != "" {
-		if len(result.Sources) != 1 {
-			t.Fatalf("expected 1 source info, got %d", len(result.Sources))
-		}
-		if result.Sources[0].Enabled {
-			t.Error("expected source to be disabled on home dir error")
+		if result.Cache != nil {
+			t.Error("expected nil cache when home dir fails")
 		}
 	}
 }

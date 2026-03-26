@@ -93,7 +93,7 @@ pacto dashboard [dir] [flags]
       --repo stringArray   OCI repository to scan (can be repeated)
 ```
 
-Sources are auto-detected at startup and combined using an aggregation layer with priority-based merging. Services are grouped by contract name across all sources.
+Sources are auto-detected at startup and resolved using a contract-first model. Contract sources (`local`, `oci`) provide the authoritative service definition — exactly one contract snapshot wins per service, with `local` taking priority over `oci`. The runtime source (`k8s`) enriches the contract with live cluster state (phase, conditions, endpoints) but never overrides contract content.
 
 ### Dependency resolution
 
@@ -112,9 +112,9 @@ The built-in D3 force-directed graph supports:
 
 The dashboard selects the **current version** of each OCI-backed service as the highest valid semver tag. Non-semver tags (e.g. `latest`, `main`) are excluded from version lists and never selected as the current version.
 
-When you use "Fetch all versions" in the version history tab, all available versions are pulled from the OCI registry and persisted to the local disk cache (`~/.cache/pacto/oci/`). These cached versions survive dashboard restarts and are treated as first-class cached artifacts.
+When you use "Fetch all versions" in the version history tab, all available versions are pulled from the OCI registry and cached locally (`~/.cache/pacto/oci/`). These cached versions survive dashboard restarts.
 
-When a remote dependency is lazily resolved (via navigation to an unresolved dependency), the resolved bundle is also cached on disk and promoted to a normal cached external artifact. Its version history can be browsed and other versions can be loaded.
+When a remote dependency is lazily resolved (via navigation to an unresolved dependency), the resolved bundle is also cached on disk. Its version history can be browsed and other versions can be loaded.
 
 ### Diagnostics mode
 

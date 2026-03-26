@@ -709,12 +709,12 @@ func TestServerDebugEndpoints(t *testing.T) {
 	}
 
 	// Create server with diagnostics enabled
-	agg := NewAggregatedSource(map[string]DataSource{"local": source})
+	agg := BuildResolvedSource(map[string]DataSource{"local": source})
 	sourceInfo := []SourceInfo{{Type: "local", Enabled: true, Reason: "found"}}
 	diag := &SourceDiagnostics{
 		Local: LocalDiagnostics{Dir: ".", PactoYamlFound: true},
 	}
-	srv := NewAggregatedServer(agg, ui, sourceInfo, diag)
+	srv := NewResolvedServer(agg, ui, sourceInfo, diag)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -965,8 +965,16 @@ func TestServerGetVersions_Error(t *testing.T) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", resp.StatusCode)
+	// No version history is a valid state; server returns 200 with empty list.
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var versions []Version
+	if err := json.NewDecoder(resp.Body).Decode(&versions); err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 0 {
+		t.Fatalf("expected empty versions, got %d", len(versions))
 	}
 }
 
@@ -997,7 +1005,7 @@ func TestServerGetServiceSources_Aggregated(t *testing.T) {
 			"svc-a": {Service: Service{Name: "svc-a", Version: "1.0.0", Source: "local"}},
 		},
 	}
-	agg := NewAggregatedSource(map[string]DataSource{"local": localSource})
+	agg := BuildResolvedSource(map[string]DataSource{"local": localSource})
 	sourceInfo := []SourceInfo{{Type: "local", Enabled: true}}
 	diag := &SourceDiagnostics{}
 
@@ -1006,7 +1014,7 @@ func TestServerGetServiceSources_Aggregated(t *testing.T) {
 		t.Fatal(err)
 	}
 	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
-	srv := NewAggregatedServer(agg, ui, sourceInfo, diag)
+	srv := NewResolvedServer(agg, ui, sourceInfo, diag)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1040,7 +1048,7 @@ func TestServerGetServiceSources_AggregatedNotFound(t *testing.T) {
 		services: []Service{},
 		details:  map[string]*ServiceDetails{},
 	}
-	agg := NewAggregatedSource(map[string]DataSource{"local": localSource})
+	agg := BuildResolvedSource(map[string]DataSource{"local": localSource})
 	sourceInfo := []SourceInfo{{Type: "local", Enabled: true}}
 	diag := &SourceDiagnostics{}
 
@@ -1049,7 +1057,7 @@ func TestServerGetServiceSources_AggregatedNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
-	srv := NewAggregatedServer(agg, ui, sourceInfo, diag)
+	srv := NewResolvedServer(agg, ui, sourceInfo, diag)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1354,7 +1362,7 @@ func TestServerDebugServices_PerSourceError(t *testing.T) {
 		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Version: "1.0.0", Source: "local"}}},
 	}
 
-	agg := NewAggregatedSource(map[string]DataSource{
+	agg := BuildResolvedSource(map[string]DataSource{
 		"k8s":   errSrc,
 		"local": workingSrc,
 	})
@@ -1366,7 +1374,7 @@ func TestServerDebugServices_PerSourceError(t *testing.T) {
 		t.Fatal(err)
 	}
 	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
-	srv := NewAggregatedServer(agg, ui, sourceInfo, diag)
+	srv := NewResolvedServer(agg, ui, sourceInfo, diag)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

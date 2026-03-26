@@ -40,13 +40,13 @@ func (s *pullCountingStore) ListTags(context.Context, string) ([]string, error) 
 // The caller must cancel the returned cancel func to stop the server.
 func startResolveTestServer(t *testing.T, source DataSource, store oci.BundleStore, sourceInfo []SourceInfo) (string, context.CancelFunc) {
 	t.Helper()
-	agg := NewAggregatedSource(map[string]DataSource{"local": source})
+	resolved := BuildResolvedSource(map[string]DataSource{"local": source})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
-	srv := NewAggregatedServer(agg, ui, sourceInfo, nil)
+	srv := NewResolvedServer(resolved, ui, sourceInfo, nil)
 	srv.SetResolver(oci.NewResolver(store))
 
 	ctx, cancel := context.WithCancel(context.Background())

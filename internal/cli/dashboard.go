@@ -78,9 +78,10 @@ Services are grouped by name across sources and merged using priority rules:
 			printDetectedSources(cmd, detectResult.Sources)
 
 			// Wrap each source with cache (different TTLs per source type).
-			cachedSources := make(map[string]dashboard.DataSource, len(activeSources))
 			memCache := dashboard.NewMemoryCache()
-			for st, ds := range activeSources {
+			allSources := detectResult.AllSources()
+			cachedSources := make(map[string]dashboard.DataSource, len(allSources))
+			for st, ds := range allSources {
 				ttl := cacheTTL(st)
 				cachedSources[st] = dashboard.NewCachedDataSource(ds, memCache, ttl, st+":")
 			}
@@ -91,8 +92,8 @@ Services are grouped by name across sources and merged using priority rules:
 				detectResult.OCI.SetOnDiscover(memCache.InvalidateAll)
 			}
 
-			// Build aggregated source.
-			aggregated := dashboard.NewAggregatedSource(cachedSources)
+			// Build resolved source with contract + runtime separation.
+			resolved := dashboard.BuildResolvedSource(cachedSources)
 
 			// Build server with embedded UI.
 			uiFS := dashboard.EmbeddedUI()
@@ -100,7 +101,7 @@ Services are grouped by name across sources and merged using priority rules:
 			if diagnostics {
 				diag = detectResult.Diagnostics
 			}
-			server := dashboard.NewAggregatedServer(aggregated, uiFS, detectResult.Sources, diag)
+			server := dashboard.NewResolvedServer(resolved, uiFS, detectResult.Sources, diag)
 			server.SetVersion(version)
 			server.SetListenAddr(host, port)
 

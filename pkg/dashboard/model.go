@@ -246,6 +246,7 @@ type Version struct {
 	Ref          string     `json:"ref,omitempty"`
 	ContractHash string     `json:"contractHash,omitempty"`
 	CreatedAt    *time.Time `json:"createdAt,omitempty"`
+	Source       string     `json:"source,omitempty"` // origin: "k8s", "oci", "local"
 }
 
 // Ref identifies a specific version of a service for diffing.
