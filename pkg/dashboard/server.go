@@ -18,11 +18,11 @@ import (
 // Server serves the dashboard web UI and REST API.
 type Server struct {
 	source      DataSource
-	resolved    *ResolvedSource   // may be nil for non-resolved usage
-	resolver    *oci.Resolver     // optional: enables lazy resolution of remote OCI dependencies
-	cacheSource *CacheSource      // optional: for rescanning after cache writes
-	memCache    Cache             // optional: for invalidating after cache writes
-	ociSource   *OCISource        // optional: for tracking discovery state
+	resolved    *ResolvedSource // may be nil for non-resolved usage
+	resolver    *oci.Resolver   // optional: enables lazy resolution of remote OCI dependencies
+	cacheSource *CacheSource    // optional: for rescanning after cache writes
+	memCache    Cache           // optional: for invalidating after cache writes
+	ociSource   *OCISource      // optional: for tracking discovery state
 	ui          fs.FS
 	sourceInfo  []SourceInfo
 	diagnostics *SourceDiagnostics

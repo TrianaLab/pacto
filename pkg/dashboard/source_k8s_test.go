@@ -991,8 +991,8 @@ func TestCompareSemverDesc(t *testing.T) {
 		{"1.0.1", "1.0.0", true},
 		{"1.0.0", "1.0.0", false},
 		{"v2.0.0", "v1.0.0", true},
-		{"abc", "xyz", false},  // non-semver: lexicographic
-		{"xyz", "abc", true},   // non-semver: lexicographic
+		{"abc", "xyz", false},             // non-semver: lexicographic
+		{"xyz", "abc", true},              // non-semver: lexicographic
 		{"1.0.0-rc1", "1.0.0-rc2", false}, // pre-release stripped from patch
 	}
 	for _, tt := range tests {
