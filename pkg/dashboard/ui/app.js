@@ -324,11 +324,28 @@ function render() {
 var graphInitialized = false;
 var graphDataFingerprint = null;
 
-function graphFingerprint(data) {
+// Structural fingerprint: only node IDs and edges — determines if graph needs full re-init.
+function graphStructureFingerprint(data) {
   if (!data || !data.nodes) return '';
   return data.nodes.map(function(n) {
-    return n.id + ':' + (n.status || '') + ':' + (n.edges || []).map(function(e) { return e.targetId; }).join(',');
+    return n.id + ':' + (n.edges || []).map(function(e) { return e.targetId; }).join(',');
   }).join('|');
+}
+
+// Update node visual styles (status color, text) in-place without re-initializing the graph.
+function updateGraphNodeStyles(data) {
+  if (!graphSvg || !data || !data.nodes) return;
+  var statusMap = {};
+  data.nodes.forEach(function(n) { statusMap[n.id] = n.status || 'Unknown'; });
+  graphSvg.selectAll('.node-group').each(function(d) {
+    var newStatus = statusMap[d.id];
+    if (!newStatus || newStatus === d.status) return;
+    d.status = newStatus;
+    d3.select(this).select('rect').attr('stroke', statusColor(newStatus));
+    d3.select(this).select('.node-status')
+      .attr('fill', statusColor(newStatus))
+      .text(newStatus === 'Unmonitored' ? 'Unmonitored' : newStatus === 'External' ? 'External' : newStatus);
+  });
 }
 
 var overviewLoaded = false;
@@ -347,11 +364,16 @@ async function renderOverview() {
       if (_renderGen !== gen) return; // stale render
       state.services = r[0] || [];
       applySourcesResponse(r[1]);
-      var newFp = graphFingerprint(r[2]);
+      var newFp = graphStructureFingerprint(r[2]);
       if (newFp !== graphDataFingerprint) {
+        // Structure changed (nodes added/removed, edges changed) — full re-init needed
         state.graphData = r[2];
         graphDataFingerprint = newFp;
         graphInitialized = false;
+      } else if (r[2]) {
+        // Structure unchanged but status may have changed — update in-place
+        state.graphData = r[2];
+        updateGraphNodeStyles(r[2]);
       }
       renderSourcePills();
       if (state.overviewView !== 'graph' || !graphInitialized) {
@@ -374,7 +396,7 @@ async function renderOverview() {
     state.services = r[0] || [];
     applySourcesResponse(r[1]);
     state.graphData = r[2];
-    graphDataFingerprint = graphFingerprint(r[2]);
+    graphDataFingerprint = graphStructureFingerprint(r[2]);
     graphInitialized = false;
     overviewLoaded = true;
     renderSourcePills();
@@ -1760,15 +1782,34 @@ async function renderDetail() {
   }
 }
 
-/* Find a dependency ref and compatibility for a service name from any loaded service's deps */
+/* Find a dependency ref and compatibility for a service name from any loaded service's deps or cross-refs */
 function findDepInfo(name) {
   for (var key in state.details) {
     var d = state.details[key];
-    if (!d || !d.dependencies) continue;
-    for (var i = 0; i < d.dependencies.length; i++) {
-      var dep = d.dependencies[i];
-      var depName = dep.name || extractServiceName(dep.ref);
-      if (depName === name && dep.ref && dep.ref !== name) return { ref: dep.ref, compatibility: dep.compatibility || '' };
+    if (!d) continue;
+    // Check regular dependencies
+    if (d.dependencies) {
+      for (var i = 0; i < d.dependencies.length; i++) {
+        var dep = d.dependencies[i];
+        var depName = dep.name || extractServiceName(dep.ref);
+        if (depName === name && dep.ref && dep.ref !== name) return { ref: dep.ref, compatibility: dep.compatibility || '' };
+      }
+    }
+    // Check configuration/policy refs (from contract fields)
+    if (d.configuration && d.configuration.ref) {
+      var cfgName = extractServiceName(d.configuration.ref);
+      if (cfgName === name) return { ref: d.configuration.ref, compatibility: '' };
+    }
+    if (d.policy && d.policy.ref) {
+      var polName = extractServiceName(d.policy.ref);
+      if (polName === name) return { ref: d.policy.ref, compatibility: '' };
+    }
+  }
+  // Also check cross-refs from the current service view
+  if (state.crossRefs && state.crossRefs.references) {
+    for (var i = 0; i < state.crossRefs.references.length; i++) {
+      var cr = state.crossRefs.references[i];
+      if (cr.name === name && cr.ref) return { ref: cr.ref, compatibility: '' };
     }
   }
   return null;
