@@ -301,6 +301,9 @@ function toggleAutoReload() {
 function startAutoReload() { stopAutoReload(); autoReloadTimer = setInterval(doRefresh, 10000); }
 function stopAutoReload() { if (autoReloadTimer) { clearInterval(autoReloadTimer); autoReloadTimer = null; } }
 function doRefresh() {
+  // Skip refresh when tab is hidden — prevents stale renders competing
+  // with navigation when the user switches back to the tab.
+  if (document.hidden) return;
   var btn = document.getElementById('reload-btn');
   if (btn) { btn.classList.add('spinning'); setTimeout(function() { btn.classList.remove('spinning'); }, 600); }
   // Re-render without clearing cached state — the render functions
@@ -877,10 +880,15 @@ document.addEventListener('click', function(e) {
   if (!e.target.closest('.topbar-search')) closeSearchDropdown();
 });
 
+function isMonitoredPhase(phase) {
+  return phase === 'Healthy' || phase === 'Degraded' || phase === 'Invalid';
+}
+
 function isServiceVisible(svc) {
   var phase = svc.phase;
   var sources = getSources(svc);
-  var phaseMatch = (state.filter === 'all' || state.filter === phase);
+  // "Unknown" filter matches any non-monitored phase (Unknown, Reference, empty, etc.)
+  var phaseMatch = (state.filter === 'all' || (state.filter === 'Unknown' ? !isMonitoredPhase(phase) : state.filter === phase));
   var sourceMatch = sources.some(function(s) { return isSourceEnabled(s); });
   var searchTerm = getSearchTerm();
   var searchMatch = true;
@@ -898,7 +906,7 @@ function applyFilter() {
     var row = rows[i];
     var phase = row.dataset.phase;
     var rowSources = (row.dataset.sources || '').split(',');
-    var phaseMatch = (state.filter === 'all' || state.filter === phase);
+    var phaseMatch = (state.filter === 'all' || (state.filter === 'Unknown' ? !isMonitoredPhase(phase) : state.filter === phase));
     var sourceMatch = rowSources.some(function(s) { return isSourceEnabled(s); });
     var searchMatch = true;
     if (searchTerm) {
@@ -2928,6 +2936,15 @@ window.addEventListener('popstate', function() {
   if (hash.startsWith('#service/')) {
     var svc = decodeURIComponent(hash.substring(9));
     if (state.view !== 'detail' || state.service !== svc) navigateTo('detail', svc, null, null, true);
+  } else if (hash === '#graph') {
+    state.overviewView = 'graph';
+    if (state.view !== 'list') {
+      navigateTo('list', null, null, null, true);
+      // navigateTo sets wantHash to '#' but we want '#graph' — restore it.
+      history.replaceState(null, '', '#graph');
+    } else if (!graphInitialized) {
+      initGraph();
+    }
   } else {
     if (state.view !== 'list') navigateTo('list', null, null, null, true);
   }
