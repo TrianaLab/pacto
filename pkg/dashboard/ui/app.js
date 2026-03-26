@@ -1093,8 +1093,12 @@ function initGraph() {
     });
   });
 
-  // Clear previous SVG
+  // Save current zoom transform before re-creating SVG
+  var savedTransform = null;
   var existing = container.querySelector('svg');
+  if (existing && graphSvg) {
+    try { savedTransform = d3.zoomTransform(graphSvg.node()); } catch (_e) {}
+  }
   if (existing) existing.remove();
 
   graphSvg = d3.select(container).append('svg')
@@ -1298,7 +1302,12 @@ function initGraph() {
     var ty = (height - bounds.height * scale) / 2 - bounds.y * scale;
     graphSvg.transition().duration(400).call(graphZoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
   }
-  setTimeout(fitToView, 50);
+  // Restore previous zoom/pan if re-initializing; otherwise fit to view
+  if (savedTransform) {
+    graphSvg.call(graphZoom.transform, savedTransform);
+  } else {
+    setTimeout(fitToView, 50);
+  }
 
   // Store references for zoom controls and filtering
   graphNodes = nodes; graphLinks = link; graphNodeGroup = nodeGroup; graphUpdatePositions = updatePositions; graphFitToView = fitToView;
