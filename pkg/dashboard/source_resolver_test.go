@@ -661,11 +661,8 @@ func TestResolvedSource_GetAggregated_NotFound(t *testing.T) {
 	}
 }
 
-func TestEnrichWithRuntime_AllFields(t *testing.T) {
-	contract := &ServiceDetails{
-		Service: Service{Name: "svc", Version: "1.0.0", Owner: "team-a"},
-	}
-	runtime := &ServiceDetails{
+func newFullRuntime() *ServiceDetails {
+	return &ServiceDetails{
 		Service:          Service{Name: "svc", Phase: PhaseHealthy},
 		Runtime:          &RuntimeInfo{Workload: "service"},
 		Resources:        &ResourcesInfo{ServiceExists: boolPtr(true)},
@@ -684,8 +681,13 @@ func TestEnrichWithRuntime_AllFields(t *testing.T) {
 		LastReconciledAt: "2025-01-01T00:00:00Z",
 		Compliance:       &ComplianceInfo{Status: "compliant"},
 	}
+}
 
-	enrichWithRuntime(contract, runtime)
+func TestEnrichWithRuntime_StructFields(t *testing.T) {
+	contract := &ServiceDetails{
+		Service: Service{Name: "svc", Version: "1.0.0", Owner: "team-a"},
+	}
+	enrichWithRuntime(contract, newFullRuntime())
 
 	if contract.Phase != PhaseHealthy {
 		t.Error("expected phase from runtime")
@@ -702,23 +704,41 @@ func TestEnrichWithRuntime_AllFields(t *testing.T) {
 	if contract.Validation == nil {
 		t.Error("expected validation")
 	}
-	if len(contract.Endpoints) != 1 {
-		t.Error("expected endpoints")
-	}
 	if contract.Scaling == nil {
 		t.Error("expected scaling")
-	}
-	if len(contract.Conditions) != 1 {
-		t.Error("expected conditions")
-	}
-	if len(contract.Insights) != 1 {
-		t.Error("expected insights")
 	}
 	if contract.ChecksSummary == nil {
 		t.Error("expected checks summary")
 	}
 	if contract.ObservedRuntime == nil {
 		t.Error("expected observed runtime")
+	}
+	if contract.Compliance == nil {
+		t.Error("expected compliance")
+	}
+	// Contract fields must NOT be overridden.
+	if contract.Version != "1.0.0" {
+		t.Errorf("contract version overridden: %q", contract.Version)
+	}
+	if contract.Owner != "team-a" {
+		t.Errorf("contract owner overridden: %q", contract.Owner)
+	}
+}
+
+func TestEnrichWithRuntime_SlicesAndMetadata(t *testing.T) {
+	contract := &ServiceDetails{
+		Service: Service{Name: "svc", Version: "1.0.0"},
+	}
+	enrichWithRuntime(contract, newFullRuntime())
+
+	if len(contract.Endpoints) != 1 {
+		t.Error("expected endpoints")
+	}
+	if len(contract.Conditions) != 1 {
+		t.Error("expected conditions")
+	}
+	if len(contract.Insights) != 1 {
+		t.Error("expected insights")
 	}
 	if len(contract.RuntimeDiff) != 1 {
 		t.Error("expected runtime diff")
@@ -734,15 +754,5 @@ func TestEnrichWithRuntime_AllFields(t *testing.T) {
 	}
 	if contract.LastReconciledAt != "2025-01-01T00:00:00Z" {
 		t.Error("expected last reconciled at")
-	}
-	if contract.Compliance == nil {
-		t.Error("expected compliance")
-	}
-	// Contract fields must NOT be overridden.
-	if contract.Version != "1.0.0" {
-		t.Errorf("contract version overridden: %q", contract.Version)
-	}
-	if contract.Owner != "team-a" {
-		t.Errorf("contract owner overridden: %q", contract.Owner)
 	}
 }

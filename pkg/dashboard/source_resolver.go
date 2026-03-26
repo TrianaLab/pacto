@@ -62,6 +62,39 @@ type sourceDetailResult struct {
 	err        error
 }
 
+// serviceEntry groups data from multiple sources for a single service during ListServices.
+type serviceEntry struct {
+	contract *Service // from highest-priority contract source
+	runtime  *Service // from k8s
+	sources  []string
+}
+
+// mergeServiceEntry builds a merged Service from grouped source data.
+func mergeServiceEntry(name string, entry *serviceEntry) Service {
+	merged := Service{Name: name, Phase: PhaseUnknown}
+	sort.Strings(entry.sources)
+	merged.Sources = entry.sources
+
+	if entry.contract != nil {
+		merged.Version = entry.contract.Version
+		merged.Owner = entry.contract.Owner
+		merged.Source = entry.contract.Source
+	}
+
+	if entry.runtime != nil {
+		if entry.runtime.Phase != PhaseUnknown && entry.runtime.Phase != "" {
+			merged.Phase = entry.runtime.Phase
+		}
+		if merged.Source == "" {
+			merged.Source = "k8s"
+		}
+	} else if entry.contract != nil {
+		merged.Phase = entry.contract.Phase
+	}
+
+	return merged
+}
+
 func (r *ResolvedSource) ListServices(ctx context.Context) ([]Service, error) {
 	// Collect services from all sources concurrently.
 	results := make(chan sourceListResult, len(r.all))
@@ -72,12 +105,6 @@ func (r *ResolvedSource) ListServices(ctx context.Context) ([]Service, error) {
 		}()
 	}
 
-	// Group by service name, tracking which sources each service appears in.
-	type serviceEntry struct {
-		contract *Service // from highest-priority contract source
-		runtime  *Service // from k8s
-		sources  []string
-	}
 	byName := make(map[string]*serviceEntry)
 
 	for range r.all {
@@ -106,30 +133,7 @@ func (r *ResolvedSource) ListServices(ctx context.Context) ([]Service, error) {
 	// Build merged service list.
 	var services []Service
 	for name, entry := range byName {
-		merged := Service{Name: name, Phase: PhaseUnknown}
-		sort.Strings(entry.sources)
-		merged.Sources = entry.sources
-
-		// Contract identity (version, owner) from contract source.
-		if entry.contract != nil {
-			merged.Version = entry.contract.Version
-			merged.Owner = entry.contract.Owner
-			merged.Source = entry.contract.Source
-		}
-
-		// Runtime phase from k8s if available.
-		if entry.runtime != nil {
-			if entry.runtime.Phase != PhaseUnknown && entry.runtime.Phase != "" {
-				merged.Phase = entry.runtime.Phase
-			}
-			if merged.Source == "" {
-				merged.Source = "k8s"
-			}
-		} else if entry.contract != nil {
-			merged.Phase = entry.contract.Phase
-		}
-
-		services = append(services, merged)
+		services = append(services, mergeServiceEntry(name, entry))
 	}
 
 	sort.Slice(services, func(i, j int) bool {
@@ -206,7 +210,20 @@ func enrichWithRuntime(contract *ServiceDetails, runtime *ServiceDetails) {
 		contract.Phase = runtime.Phase
 	}
 
-	// Runtime-only fields: always set from k8s.
+	// Runtime-only struct fields: always set from k8s when present.
+	enrichRuntimeFields(contract, runtime)
+
+	// k8s-specific metadata that doesn't exist in contract.
+	enrichRuntimeMetadata(contract, runtime)
+
+	// Compliance: prefer k8s computed compliance (has conditions).
+	if runtime.Compliance != nil {
+		contract.Compliance = runtime.Compliance
+	}
+}
+
+// enrichRuntimeFields copies runtime-only struct/slice fields from k8s.
+func enrichRuntimeFields(contract *ServiceDetails, runtime *ServiceDetails) {
 	if runtime.Runtime != nil {
 		contract.Runtime = runtime.Runtime
 	}
@@ -219,17 +236,8 @@ func enrichWithRuntime(contract *ServiceDetails, runtime *ServiceDetails) {
 	if runtime.Validation != nil {
 		contract.Validation = runtime.Validation
 	}
-	if len(runtime.Endpoints) > 0 {
-		contract.Endpoints = runtime.Endpoints
-	}
 	if runtime.Scaling != nil {
 		contract.Scaling = runtime.Scaling
-	}
-	if len(runtime.Conditions) > 0 {
-		contract.Conditions = runtime.Conditions
-	}
-	if len(runtime.Insights) > 0 {
-		contract.Insights = runtime.Insights
 	}
 	if runtime.ChecksSummary != nil {
 		contract.ChecksSummary = runtime.ChecksSummary
@@ -237,11 +245,22 @@ func enrichWithRuntime(contract *ServiceDetails, runtime *ServiceDetails) {
 	if runtime.ObservedRuntime != nil {
 		contract.ObservedRuntime = runtime.ObservedRuntime
 	}
+	if len(runtime.Endpoints) > 0 {
+		contract.Endpoints = runtime.Endpoints
+	}
+	if len(runtime.Conditions) > 0 {
+		contract.Conditions = runtime.Conditions
+	}
+	if len(runtime.Insights) > 0 {
+		contract.Insights = runtime.Insights
+	}
 	if len(runtime.RuntimeDiff) > 0 {
 		contract.RuntimeDiff = runtime.RuntimeDiff
 	}
+}
 
-	// k8s-specific metadata that doesn't exist in contract.
+// enrichRuntimeMetadata copies k8s-specific string metadata fields.
+func enrichRuntimeMetadata(contract *ServiceDetails, runtime *ServiceDetails) {
 	if runtime.Namespace != "" {
 		contract.Namespace = runtime.Namespace
 	}
@@ -253,11 +272,6 @@ func enrichWithRuntime(contract *ServiceDetails, runtime *ServiceDetails) {
 	}
 	if runtime.LastReconciledAt != "" {
 		contract.LastReconciledAt = runtime.LastReconciledAt
-	}
-
-	// Compliance: prefer k8s computed compliance (has conditions).
-	if runtime.Compliance != nil {
-		contract.Compliance = runtime.Compliance
 	}
 }
 
