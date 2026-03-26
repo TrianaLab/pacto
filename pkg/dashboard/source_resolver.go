@@ -55,13 +55,6 @@ type sourceListResult struct {
 	err        error
 }
 
-// sourceDetailResult holds the result of a GetService call from a single source.
-type sourceDetailResult struct {
-	sourceType string
-	details    *ServiceDetails
-	err        error
-}
-
 // serviceEntry groups data from multiple sources for a single service during ListServices.
 type serviceEntry struct {
 	contract *Service // from highest-priority contract source
