@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -88,31 +89,10 @@ Services are grouped by name across sources and merged using priority rules:
 			// Auto-discover OCI repos from K8s services when no explicit
 			// repos are specified. This enriches the K8s-only dashboard
 			// with full contract bundles, version history, and diffs.
-			//
-			// Retry with backoff: K8s CRDs may not exist immediately at
-			// startup (race with operator reconciliation).
-			needsLazyEnrich := false
-			if len(repos) == 0 && svc.BundleStore != nil {
-				const maxRetries = 6
-				for i := range maxRetries {
-					detectResult.EnrichFromK8s(cmd.Context(), svc.BundleStore, cacheDir)
-					if detectResult.OCI != nil {
-						break
-					}
-					if i < maxRetries-1 {
-						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  waiting for K8s resources to discover OCI repos (%d/%d)...\n", i+1, maxRetries)
-						select {
-						case <-cmd.Context().Done():
-							break
-						case <-time.After(5 * time.Second):
-						}
-					}
-				}
-				if detectResult.OCI == nil {
-					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "  OCI repos not found at startup; will retry lazily on first request")
-					needsLazyEnrich = true
-				}
-			}
+			needsLazyEnrich := retryOCIEnrichment(
+				cmd.Context(), cmd.ErrOrStderr(),
+				detectResult, svc.BundleStore, cacheDir, repos,
+			)
 
 			activeSources := detectResult.ActiveSources()
 			if len(activeSources) == 0 {
@@ -256,6 +236,42 @@ func cacheTTL(sourceType string) time.Duration {
 	default:
 		return 30 * time.Second
 	}
+}
+
+// enrichRetryInterval is the delay between OCI enrichment retries. Tests may
+// override this to avoid 5-second waits.
+var enrichRetryInterval = 5 * time.Second
+
+// retryOCIEnrichment attempts to discover OCI repos from K8s with retries.
+// Returns true if lazy enrichment is needed (all retries exhausted without finding OCI).
+func retryOCIEnrichment(
+	ctx context.Context,
+	w io.Writer,
+	detectResult *dashboard.DetectResult,
+	store oci.BundleStore,
+	cacheDir string,
+	repos []string,
+) bool {
+	if len(repos) != 0 || store == nil {
+		return false
+	}
+	const maxRetries = 6
+	for i := range maxRetries {
+		detectResult.EnrichFromK8s(ctx, store, cacheDir)
+		if detectResult.OCI != nil {
+			return false
+		}
+		if i < maxRetries-1 {
+			_, _ = fmt.Fprintf(w, "  waiting for K8s resources to discover OCI repos (%d/%d)...\n", i+1, maxRetries)
+			select {
+			case <-ctx.Done():
+				return true
+			case <-time.After(enrichRetryInterval):
+			}
+		}
+	}
+	_, _ = fmt.Fprintln(w, "  OCI repos not found at startup; will retry lazily on first request")
+	return true
 }
 
 // deduplicateSourceInfo keeps only the last occurrence of each source type.

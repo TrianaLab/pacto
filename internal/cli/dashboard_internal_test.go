@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/internal/app"
 	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/dashboard"
 )
 
 // dummyStore satisfies oci.BundleStore for CLI tests.
@@ -339,5 +340,228 @@ func TestNewDashboardCommand_DefaultFlags(t *testing.T) {
 	diag, _ := cmd.Flags().GetBool("diagnostics")
 	if diag {
 		t.Error("expected diagnostics default false")
+	}
+}
+
+func TestDeduplicateSourceInfo(t *testing.T) {
+	info := []dashboard.SourceInfo{
+		{Type: "oci", Enabled: false, Reason: "no repos"},
+		{Type: "local", Enabled: true, Reason: "found"},
+		{Type: "oci", Enabled: true, Reason: "discovered"},
+	}
+	result := deduplicateSourceInfo(info)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 deduplicated entries, got %d", len(result))
+	}
+	// OCI should have the last (updated) entry.
+	for _, si := range result {
+		if si.Type == "oci" && !si.Enabled {
+			t.Error("expected oci to be enabled (last wins)")
+		}
+	}
+}
+
+func TestDeduplicateSourceInfo_NoDuplicates(t *testing.T) {
+	info := []dashboard.SourceInfo{
+		{Type: "local", Enabled: true, Reason: "found"},
+		{Type: "k8s", Enabled: true, Reason: "cluster reachable"},
+	}
+	result := deduplicateSourceInfo(info)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result))
+	}
+}
+
+func TestRetryOCIEnrichment_WithExplicitRepos(t *testing.T) {
+	var buf bytes.Buffer
+	result := retryOCIEnrichment(
+		context.Background(), &buf,
+		&dashboard.DetectResult{Diagnostics: &dashboard.SourceDiagnostics{}},
+		dummyStore{}, "", []string{"ghcr.io/org/svc"},
+	)
+	if result {
+		t.Error("expected false when explicit repos are provided")
+	}
+}
+
+func TestRetryOCIEnrichment_NilStore(t *testing.T) {
+	var buf bytes.Buffer
+	result := retryOCIEnrichment(
+		context.Background(), &buf,
+		&dashboard.DetectResult{Diagnostics: &dashboard.SourceDiagnostics{}},
+		nil, "", nil,
+	)
+	if result {
+		t.Error("expected false when store is nil")
+	}
+}
+
+func TestRetryOCIEnrichment_CancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	var buf bytes.Buffer
+	result := retryOCIEnrichment(
+		ctx, &buf,
+		&dashboard.DetectResult{
+			Diagnostics: &dashboard.SourceDiagnostics{},
+		},
+		dummyStore{}, t.TempDir(), nil,
+	)
+	// With cancelled context and no K8s source, enrichment won't find OCI.
+	// Should return true (needs lazy enrichment).
+	if !result {
+		t.Error("expected true (needs lazy enrichment) with cancelled context")
+	}
+}
+
+func TestRetryOCIEnrichment_ExhaustsRetries(t *testing.T) {
+	// Override retry interval to avoid 5s waits.
+	old := enrichRetryInterval
+	enrichRetryInterval = time.Millisecond
+	t.Cleanup(func() { enrichRetryInterval = old })
+
+	var buf bytes.Buffer
+	result := retryOCIEnrichment(
+		context.Background(), &buf,
+		&dashboard.DetectResult{
+			Diagnostics: &dashboard.SourceDiagnostics{},
+		},
+		dummyStore{}, t.TempDir(), nil,
+	)
+	if !result {
+		t.Error("expected true (needs lazy enrichment) after exhausting retries")
+	}
+	output := buf.String()
+	if !strings.Contains(output, "waiting for K8s") {
+		t.Errorf("expected retry progress messages, got:\n%s", output)
+	}
+	if !strings.Contains(output, "will retry lazily") {
+		t.Errorf("expected lazy retry message, got:\n%s", output)
+	}
+}
+
+func TestWireOCIEnrichment_NoK8s(t *testing.T) {
+	detectResult := &dashboard.DetectResult{
+		Diagnostics: &dashboard.SourceDiagnostics{},
+	}
+	resolved := dashboard.BuildResolvedSource(map[string]dashboard.DataSource{})
+	srv := dashboard.NewServer(nil, nil)
+	memCache := dashboard.NewMemoryCache()
+
+	fn := wireOCIEnrichment(detectResult, resolved, srv, memCache, dummyStore{}, t.TempDir())
+
+	// Without K8s source, enrichment should fail.
+	if fn(context.Background()) {
+		t.Error("expected false when no K8s source is available")
+	}
+}
+
+// cliMockK8sClient implements dashboard.K8sClient for CLI tests.
+type cliMockK8sClient struct {
+	listJSON []byte
+}
+
+func (m *cliMockK8sClient) Probe(context.Context) error { return nil }
+func (m *cliMockK8sClient) DiscoverCRD(context.Context) (*dashboard.CRDDiscovery, error) {
+	return &dashboard.CRDDiscovery{Found: false}, nil
+}
+func (m *cliMockK8sClient) ListJSON(_ context.Context, _, _ string) ([]byte, error) {
+	return m.listJSON, nil
+}
+func (m *cliMockK8sClient) GetJSON(_ context.Context, _, _, name string) ([]byte, error) {
+	return nil, nil
+}
+func (m *cliMockK8sClient) CountResources(context.Context, string, string) (int, error) {
+	return 0, nil
+}
+
+// enrichStore implements oci.BundleStore returning predefined bundles.
+type enrichStore struct {
+	tags   []string
+	bundle *contract.Bundle
+}
+
+func (s *enrichStore) Push(context.Context, string, *contract.Bundle) (string, error) { return "", nil }
+func (s *enrichStore) Resolve(context.Context, string) (string, error)                { return "", nil }
+func (s *enrichStore) Pull(_ context.Context, _ string) (*contract.Bundle, error) {
+	if s.bundle != nil {
+		return s.bundle, nil
+	}
+	return nil, nil
+}
+func (s *enrichStore) ListTags(_ context.Context, _ string) ([]string, error) {
+	return s.tags, nil
+}
+
+func TestRetryOCIEnrichment_SucceedsOnFirstTry(t *testing.T) {
+	old := enrichRetryInterval
+	enrichRetryInterval = time.Millisecond
+	t.Cleanup(func() { enrichRetryInterval = old })
+
+	k8sData := `{"items": [
+		{"metadata": {"name": "svc", "namespace": "default"},
+		 "status": {"contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:1.0.0"}}}
+	]}`
+	k8sClient := &cliMockK8sClient{listJSON: []byte(k8sData)}
+	store := &enrichStore{
+		tags: []string{"1.0.0"},
+		bundle: &contract.Bundle{
+			Contract: &contract.Contract{
+				PactoVersion: "1.0",
+				Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+			},
+		},
+	}
+
+	detectResult := &dashboard.DetectResult{
+		Diagnostics: &dashboard.SourceDiagnostics{},
+		K8s:         dashboard.NewK8sSource(k8sClient, "", "pactos"),
+	}
+
+	var buf bytes.Buffer
+	result := retryOCIEnrichment(
+		context.Background(), &buf,
+		detectResult, store, t.TempDir(), nil,
+	)
+	if result {
+		t.Error("expected false (OCI found on first try)")
+	}
+	if detectResult.OCI == nil {
+		t.Error("expected OCI source to be created")
+	}
+}
+
+func TestWireOCIEnrichment_Success(t *testing.T) {
+	k8sData := `{"items": [
+		{"metadata": {"name": "svc", "namespace": "default"},
+		 "status": {"contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:1.0.0"}}}
+	]}`
+	k8sClient := &cliMockK8sClient{listJSON: []byte(k8sData)}
+	store := &enrichStore{
+		tags: []string{"1.0.0"},
+		bundle: &contract.Bundle{
+			Contract: &contract.Contract{
+				PactoVersion: "1.0",
+				Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+			},
+		},
+	}
+
+	detectResult := &dashboard.DetectResult{
+		Diagnostics: &dashboard.SourceDiagnostics{},
+		K8s:         dashboard.NewK8sSource(k8sClient, "", "pactos"),
+	}
+	resolved := dashboard.BuildResolvedSource(map[string]dashboard.DataSource{})
+	srv := dashboard.NewServer(nil, nil)
+	memCache := dashboard.NewMemoryCache()
+
+	fn := wireOCIEnrichment(detectResult, resolved, srv, memCache, store, t.TempDir())
+
+	if !fn(context.Background()) {
+		t.Error("expected true when OCI enrichment succeeds")
+	}
+	if !resolved.HasSource("oci") {
+		t.Error("expected oci source to be added to resolved")
 	}
 }

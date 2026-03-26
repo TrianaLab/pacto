@@ -725,6 +725,92 @@ func TestEnrichWithRuntime_StructFields(t *testing.T) {
 	}
 }
 
+func TestResolvedSource_HasSource(t *testing.T) {
+	resolved := BuildResolvedSource(map[string]DataSource{
+		"local": &stubSource{},
+		"k8s":   &stubSource{},
+	})
+
+	if !resolved.HasSource("local") {
+		t.Error("expected HasSource('local') = true")
+	}
+	if !resolved.HasSource("k8s") {
+		t.Error("expected HasSource('k8s') = true")
+	}
+	if resolved.HasSource("oci") {
+		t.Error("expected HasSource('oci') = false")
+	}
+}
+
+func TestResolvedSource_AddContractSource(t *testing.T) {
+	local := &stubSource{
+		services: []Service{{Name: "svc", Version: "1.0.0", Source: "local"}},
+		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Version: "1.0.0", Source: "local"}}},
+	}
+	resolved := BuildResolvedSource(map[string]DataSource{"local": local})
+
+	// Initially no OCI source.
+	if resolved.HasSource("oci") {
+		t.Fatal("expected no oci source initially")
+	}
+
+	// Add OCI as a contract source.
+	oci := &stubSource{
+		services: []Service{{Name: "remote-svc", Version: "2.0.0", Source: "oci"}},
+		details:  map[string]*ServiceDetails{"remote-svc": {Service: Service{Name: "remote-svc", Version: "2.0.0", Source: "oci"}}},
+	}
+	resolved.AddContractSource("oci", oci)
+
+	if !resolved.HasSource("oci") {
+		t.Error("expected HasSource('oci') = true after AddContractSource")
+	}
+
+	// New source should participate in ListServices.
+	services, err := resolved.ListServices(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services) != 2 {
+		t.Fatalf("expected 2 services after adding OCI source, got %d", len(services))
+	}
+
+	// New source should participate in GetService.
+	details, err := resolved.GetService(context.Background(), "remote-svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Name != "remote-svc" {
+		t.Errorf("expected name 'remote-svc', got %q", details.Name)
+	}
+}
+
+func TestResolvedSource_AddSource(t *testing.T) {
+	local := &stubSource{
+		services: []Service{{Name: "svc", Version: "1.0.0", Source: "local"}},
+		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Version: "1.0.0", Source: "local"}}},
+		versions: map[string][]Version{"svc": {{Version: "1.0.0"}}},
+	}
+	resolved := BuildResolvedSource(map[string]DataSource{"local": local})
+
+	// Add cache source (non-contract, for version/diff lookups only).
+	cache := &stubSource{
+		versions: map[string][]Version{"svc": {{Version: "0.9.0"}, {Version: "1.0.0"}}},
+	}
+	resolved.AddSource("cache", cache)
+
+	if !resolved.HasSource("cache") {
+		t.Error("expected HasSource('cache') = true after AddSource")
+	}
+
+	// GetSource should return the cache source.
+	if resolved.GetSource("cache") == nil {
+		t.Error("expected GetSource('cache') to return non-nil")
+	}
+	if resolved.GetSource("nonexistent") != nil {
+		t.Error("expected GetSource('nonexistent') to return nil")
+	}
+}
+
 func TestEnrichWithRuntime_SlicesAndMetadata(t *testing.T) {
 	contract := &ServiceDetails{
 		Service: Service{Name: "svc", Version: "1.0.0"},

@@ -1767,6 +1767,137 @@ func TestMemoryCache_InvalidateAll(t *testing.T) {
 	}
 }
 
+func TestServerSetLazyEnrich(t *testing.T) {
+	source := &mockSource{
+		services: []Service{{Name: "svc", Version: "1.0.0"}},
+		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Version: "1.0.0"}}},
+	}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
+
+	called := false
+	srv.SetLazyEnrich(func(_ context.Context) bool {
+		called = true
+		return true
+	})
+
+	// ensureOCIEnriched should invoke the callback.
+	srv.ensureOCIEnriched(context.Background())
+	if !called {
+		t.Error("expected lazy enrich callback to be called")
+	}
+	if !srv.enrichDone {
+		t.Error("expected enrichDone=true after successful enrichment")
+	}
+
+	// Second call should not invoke callback again (enrichDone=true).
+	called = false
+	srv.ensureOCIEnriched(context.Background())
+	if called {
+		t.Error("expected callback NOT called after enrichDone")
+	}
+}
+
+func TestServerSetLazyEnrich_Failure(t *testing.T) {
+	source := &mockSource{services: []Service{}}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
+
+	callCount := 0
+	srv.SetLazyEnrich(func(_ context.Context) bool {
+		callCount++
+		return false // enrichment fails
+	})
+
+	srv.ensureOCIEnriched(context.Background())
+	if callCount != 1 {
+		t.Errorf("expected 1 call, got %d", callCount)
+	}
+	if srv.enrichDone {
+		t.Error("expected enrichDone=false after failed enrichment")
+	}
+
+	// Second call within cooldown should NOT invoke callback.
+	srv.ensureOCIEnriched(context.Background())
+	if callCount != 1 {
+		t.Errorf("expected still 1 call (cooldown), got %d", callCount)
+	}
+}
+
+func TestServerSetLazyEnrich_NilCallback(t *testing.T) {
+	source := &mockSource{services: []Service{}}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
+
+	// Should not panic when lazyEnrich is nil.
+	srv.ensureOCIEnriched(context.Background())
+}
+
+func TestServerEnsureOCIEnriched_ConcurrentDoubleCheck(t *testing.T) {
+	source := &mockSource{services: []Service{}}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
+
+	// Set up a callback that won't be called.
+	srv.SetLazyEnrich(func(_ context.Context) bool { return true })
+
+	// Directly set enrichDone=true to simulate a concurrent goroutine
+	// completing enrichment between the fast-path check (line 138) and
+	// the mutex-guarded check (line 143).
+	srv.enrichDone = true
+
+	// Now reset the fast-path visible enrichDone to false so we enter the
+	// mutex path, but once inside, enrichDone is true.
+	// We can't truly simulate the race without goroutines, but we can
+	// test the code path by calling ensureOCIEnriched when enrichDone
+	// is already true (fast-path exits).
+
+	// Instead, verify the cooldown path works correctly.
+	srv.enrichDone = false
+	srv.enrichLastTry = time.Now() // just tried
+
+	called := false
+	srv.lazyEnrich = func(_ context.Context) bool {
+		called = true
+		return false
+	}
+
+	// Should not call callback due to cooldown.
+	srv.ensureOCIEnriched(context.Background())
+	if called {
+		t.Error("expected callback NOT called during cooldown")
+	}
+}
+
+func TestServerUpdateSourceInfo(t *testing.T) {
+	source := &mockSource{services: []Service{}}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
+
+	// Provide duplicated source info (e.g., OCI detected twice).
+	srv.UpdateSourceInfo([]SourceInfo{
+		{Type: "oci", Enabled: false, Reason: "no repos"},
+		{Type: "local", Enabled: true, Reason: "found"},
+		{Type: "oci", Enabled: true, Reason: "discovered from K8s"},
+	})
+
+	if len(srv.sourceInfo) != 2 {
+		t.Fatalf("expected 2 deduplicated sources, got %d", len(srv.sourceInfo))
+	}
+
+	// OCI should have the last (updated) entry.
+	for _, si := range srv.sourceInfo {
+		if si.Type == "oci" {
+			if !si.Enabled {
+				t.Error("expected oci to be enabled (last occurrence wins)")
+			}
+			if si.Reason != "discovered from K8s" {
+				t.Errorf("expected reason 'discovered from K8s', got %q", si.Reason)
+			}
+		}
+	}
+}
+
 func findEntry(t *testing.T, entries []ServiceListEntry, name string) *ServiceListEntry {
 	t.Helper()
 	for i := range entries {
