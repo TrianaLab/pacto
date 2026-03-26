@@ -9,13 +9,57 @@
 
 **Pacto is to service operations what OpenAPI is to HTTP APIs.**
 
-Pacto (/ˈpak.to/ — Spanish for *pact*) is a YAML contract that describes the operational behavior of a cloud-native service — its interfaces, runtime semantics, dependencies, configuration, and scaling intent. Contracts are validated through three layers (structural, cross-field, semantic), versioned, and distributed as OCI artifacts through the registries you already run.
+Pacto (/ˈpak.to/ — Spanish for *pact*) is a contract system for cloud-native services. You describe a service's operational behavior once — interfaces, dependencies, runtime semantics, configuration, scaling — and Pacto validates it, distributes it, verifies it at runtime, and lets humans explore it.
 
-Where OpenAPI describes the API and Helm describes the deployment, Pacto describes the service itself. Platforms, CI pipelines, and AI agents consume the same contract to generate manifests, enforce policies, resolve dependency graphs, and detect breaking changes — without reverse-engineering how a service works.
+The system has three pieces that work together:
 
-No sidecars. No new infrastructure. The core CLI runs at build time and CI time. The optional [Kubernetes Operator](https://github.com/TrianaLab/pacto-operator) extends compliance to runtime.
+| Component | Role | When it runs |
+|-----------|------|--------------|
+| **CLI** | Author, validate, diff, publish contracts | Design-time and CI |
+| **Dashboard** | Explore services, dependency graphs, versions, diffs, insights | Anytime — local or deployed |
+| **[Operator](https://github.com/TrianaLab/pacto-operator)** | Track contracts in-cluster, link to workloads, verify runtime consistency | Continuously in Kubernetes |
+
+No sidecars. No new infrastructure. The CLI uses your existing OCI registry. The operator watches CRDs. The dashboard reads from all sources.
 
 **[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)** · **[Demo](https://github.com/TrianaLab/pacto-demo)**
+
+---
+
+## The system
+
+Pacto connects design-time authoring to runtime verification to human exploration:
+
+```
+CLI                        Operator                   Dashboard
+ │                          │                          │
+ ├─ define contracts        ├─ watch Pacto CRs         ├─ auto-detect sources
+ ├─ validate (3 layers)     ├─ resolve OCI refs         │  (K8s, OCI, local, cache)
+ ├─ diff versions           ├─ track versions           ├─ dependency graph
+ ├─ publish to OCI          │  (PactoRevision per ver)  ├─ version history + diffs
+ └─ resolve dep graphs      ├─ link to workloads        ├─ service details
+                            └─ check runtime alignment  │  (interfaces, config, docs)
+                               (ports, replicas, health)├─ runtime status
+                                                        └─ compliance insights
+```
+
+The lifecycle:
+
+```
+1. Developer defines a pacto.yaml alongside their code
+2. CLI validates and publishes it to an OCI registry
+3. Operator discovers the contract in-cluster, tracks every version, checks runtime alignment
+4. Dashboard merges all sources and lets humans explore the full contract graph
+```
+
+---
+
+## What you get
+
+- **One contract per service** — a single `pacto.yaml` replaces scattered docs, wiki pages, and tribal knowledge
+- **Versioned OCI artifacts** — contracts are pushed to the same registries you already use for container images
+- **Runtime state in Kubernetes** — the operator tracks every contract version and checks alignment against running workloads
+- **Dependency graph + version history** — the dashboard visualizes relationships, diffs, and compliance across all services
+- **Diffable operational changes** — breaking changes are classified and caught in CI before they reach production
 
 ---
 
@@ -34,23 +78,46 @@ This output is generated automatically by `pacto diff` (with `--output-format ma
 
 ---
 
-## How it works
+## Quick preview
 
+```bash
+# CLI
+pacto validate .                              # 3-layer contract validation
+pacto push oci://ghcr.io/acme/svc-pacto       # push to any OCI registry (skips if exists)
+pacto diff oci://registry/svc:1.0 svc:2.0     # detect breaking changes
+pacto graph .                                  # resolve dependency tree
+pacto doc . --serve                            # generate and serve documentation
+pacto mcp                                     # start MCP server for AI assistants
+
+# Dashboard
+pacto dashboard                                # auto-detects local contracts
+pacto dashboard --namespace production         # auto-detects from K8s + OCI
+pacto dashboard --repo oci://ghcr.io/acme/payments  # explicit OCI repos
 ```
-1. Developer writes a pacto.yaml alongside their code
-2. pacto validate checks it (structure, cross-references, semantics)
-3. pacto push ships the contract to an OCI registry as a versioned artifact
-4. Platform tooling pulls the contract and uses it to generate manifests,
-   enforce policies, resolve dependency graphs, or detect breaking changes
-```
+
+---
+
+## Dashboard
+
+The dashboard is the entry point for humans. It auto-detects available sources — Kubernetes (via the operator), OCI registries, local directories, and disk cache — and merges them into a single view.
+
+What it shows:
+
+- **Dependency graph** — interactive visualization of service relationships, with recursive resolution
+- **Version history** — all published versions from OCI, with the ability to fetch and cache every version
+- **Diffs between versions** — classified changes (breaking, non-breaking) between any two versions
+- **Service details** — interfaces, configuration schemas, policy references, documentation
+- **Runtime status** — when paired with the operator, shows whether deployed services align with their contracts
+
+Run it locally with `pacto dashboard`, or deploy the [container image](https://trianalab.github.io/pacto/dashboard-docker) alongside the operator for a combined view: runtime state from Kubernetes + contract data from OCI.
 
 ---
 
 ## Who is this for?
 
 - **Application developers** — Describe your service once. Validation catches misconfigurations before CI. Breaking changes are detected automatically across versions.
-- **Platform engineers** — Consume contracts to generate manifests, enforce policies, and visualize dependency graphs. No more reverse-engineering how to run a service.
-- **DevOps / infrastructure teams** — Distribute contracts through existing OCI registries. Integrate with CI pipelines using standard tooling — no new infrastructure required.
+- **Platform engineers** — Consume contracts to generate manifests, enforce policies, and visualize dependency graphs. The dashboard gives you a live view of every service and its relationships.
+- **DevOps / infrastructure teams** — Distribute contracts through existing OCI registries. The operator tracks what's deployed and whether it matches its contract.
 
 ---
 
@@ -73,20 +140,6 @@ The result:
 - Developers ship code; platform engineers reverse-engineer how to run it
 - Breaking changes are detected in production, not CI
 - No one knows what depends on what until something breaks
-
----
-
-## Quick preview
-
-```bash
-pacto validate .                              # 3-layer contract validation
-pacto push oci://ghcr.io/acme/svc-pacto       # push to any OCI registry (skips if exists)
-pacto push oci://ghcr.io/acme/svc-pacto -f    # force overwrite existing artifact
-pacto diff oci://registry/svc:1.0 svc:2.0     # detect breaking changes
-pacto graph .                                  # resolve dependency tree
-pacto mcp                                     # start MCP server for AI assistants
-pacto validate . -v                            # any command with verbose logging
-```
 
 ---
 
@@ -184,7 +237,7 @@ my-service/
 ```bash
 pacto validate .          # validates everything
 pacto diff old new        # detects breaking changes
-pacto graph .             # shows dependency tree
+pacto dashboard           # explore in the browser
 ```
 
 </td></tr>
@@ -276,15 +329,31 @@ This distinction matters because:
 
 ## Key capabilities
 
+### CLI (design-time + CI)
+
 - **3-layer validation** — structural (YAML schema), cross-field (port references, interface names), semantic (state vs. persistence consistency)
-- **Dependency graph resolution** — recursively resolve transitive dependencies from OCI registries, with parallel sibling fetching
 - **Breaking change detection** — `pacto diff` compares two contracts field-by-field *and* resolves both dependency trees to show the full blast radius
+- **Dependency graph resolution** — recursively resolve transitive dependencies from OCI registries, with parallel sibling fetching
 - **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor), with local caching
-- **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
+- **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
 - **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
-- **Dashboard** — `pacto dashboard` launches a local web UI that auto-detects contracts from Kubernetes, OCI registries, and local directories, with compliance status, dependency graphs, and diff viewer
 - **AI assistant integration** — `pacto mcp` exposes all operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and Copilot
+
+### Dashboard (exploration + observability)
+
+- **Multi-source auto-detection** — Kubernetes, OCI registries, local directories, and disk cache merged into one view
+- **Interactive dependency graph** — D3 visualization of service relationships with recursive resolution
+- **Version history and diffs** — browse all published versions, compare any two with classified change detection
+- **Service detail pages** — interfaces, configuration schemas, policy references, documentation, and contract-vs-runtime comparison
+- **Runtime alignment status** — derived compliance status based on how closely a deployed service matches its contract
+
+### Kubernetes Operator (runtime)
+
+- **Contract tracking** — watches Pacto CRs, resolves OCI references, creates a PactoRevision per version for fast in-cluster querying
+- **Workload linking** — matches contracts to running Deployments, StatefulSets, DaemonSets, and Jobs
+- **Runtime alignment** — checks replica counts, port mappings, health endpoints, container image references, and resource requests against the contract. Does not perform deep API conformance testing or full live configuration validation
+- **Dashboard integration** — the dashboard auto-discovers OCI repos from the operator's CRD `imageRef` fields, enabling full contract bundles, version history, and diffs without explicit `--repo` flags
 
 Interested in contributing? See the [Architecture](https://trianalab.github.io/pacto/architecture/) guide for the internal design.
 
@@ -380,7 +449,8 @@ Pacto doesn't replace these tools — it fills the gap between them.
 | Typed dependencies with version constraints | — | — | — | — | ✅ |
 | Configuration schema | — | Partial | — | — | ✅ |
 | Breaking change detection | — | — | — | — | ✅ |
-| Dependency graph resolution + diff | — | — | — | — | ✅ |
+| Dependency graph visualization | — | — | — | — | ✅ |
+| Runtime consistency verification | — | — | — | — | ✅ |
 | OCI-native distribution | — | ✅ | — | — | ✅ |
 | Machine validation | ✅ | — | ✅ | — | ✅ |
 
@@ -389,21 +459,20 @@ Pacto doesn't replace these tools — it fills the gap between them.
 ## What Pacto is NOT
 
 - **Not a deployment tool.** Pacto doesn't deploy anything. It describes *what* a service is — platforms decide *how* to run it.
-- **Not a service mesh or runtime agent.** The core CLI runs at build time and CI time. The optional [Kubernetes Operator](https://github.com/TrianaLab/pacto-operator) adds runtime compliance without sidecars.
-- **Not a service catalog.** Pacto produces the structured data that a catalog (Backstage, Port, Cortex) could consume, but it's not a UI or portal.
+- **Not a runtime behavior validator.** The operator checks runtime alignment against the contract (ports, replicas, health endpoints). It does not perform deep API conformance testing or full live configuration validation.
+- **Not a service mesh or runtime agent.** No sidecars. The operator watches CRs and compares them to workloads — it doesn't intercept traffic.
+- **Not a service catalog.** The dashboard visualizes contracts and runtime state, but it's not a portal like Backstage. It can feed data into one.
 - **Not a replacement for OpenAPI or Helm.** It references your OpenAPI specs and complements deployment tools — it doesn't replace them.
 
 ---
 
 ## Vision
 
-Pacto aims to become the standard operational contract format for cloud-native services — a shared language between developers, platforms, CI pipelines, and automation systems.
+Pacto aims to become the standard operational contract for cloud-native services — a shared language between developers, platforms, and automation.
 
-Contracts are designed to be consumed by any tool in your stack: CI pipelines that validate on every PR and catch breaking changes, platform controllers that generate Kubernetes manifests or Terraform modules, service catalogs that import contract metadata, policy engines that enforce organizational rules, and AI assistants that validate, inspect, and generate contracts via MCP.
+Describe once. Validate early. Observe at runtime. Explore via dashboard.
 
-The contract is the API between developers and the platform. Pacto provides the format, the validation, and the distribution — what you build on top is up to you.
-
-One file per service. Machine-validated. Version-tracked. Platform-agnostic.
+The contract is the API between developers and the platform. Pacto provides the format, the validation, the distribution, the runtime verification, and the visualization — what you build on top is up to you.
 
 ---
 
@@ -440,6 +509,8 @@ Full documentation at **[trianalab.github.io/pacto](https://trianalab.github.io/
 | [For Developers](https://trianalab.github.io/pacto/developers) | Write and maintain contracts alongside your code |
 | [For Platform Engineers](https://trianalab.github.io/pacto/platform-engineers) | Consume contracts for deployment, policies, and graphs |
 | [CLI Reference](https://trianalab.github.io/pacto/cli-reference) | All commands, flags, and output formats |
+| [Dashboard](https://trianalab.github.io/pacto/dashboard-docker) | Deploy the dashboard container alongside the operator |
+| [Kubernetes Operator](https://trianalab.github.io/pacto/operator) | Runtime contract tracking and consistency verification |
 | [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) | Connect AI tools (Claude, Cursor, Copilot) to Pacto via MCP |
 | [Plugin Development](https://trianalab.github.io/pacto/plugins) | Build plugins to generate artifacts from contracts |
 | [Examples](https://trianalab.github.io/pacto/examples) | PostgreSQL, Redis, RabbitMQ, NGINX, Cron Worker |
