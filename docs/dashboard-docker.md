@@ -15,7 +15,7 @@ nav_order: 7.5
 {:toc}
 </details>
 
-The Pacto dashboard is published as a container image for production and Kubernetes deployments.
+The Pacto dashboard is published as a container image for production and Kubernetes deployments. It provides the same contract exploration experience as the CLI's `pacto dashboard` command — dependency graphs, version history, interfaces, configuration schemas, and diffs — in a deployable container.
 
 ## Image
 
@@ -61,6 +61,7 @@ make docker-run
 | `PACTO_DASHBOARD_NAMESPACE` | Kubernetes namespace filter (empty = all) | `""` |
 | `PACTO_DASHBOARD_REPO` | Comma-separated OCI repositories to scan | `""` |
 | `PACTO_DASHBOARD_DIAGNOSTICS` | Enable source diagnostics panel (`true`) | `false` |
+| `PACTO_CACHE_DIR` | OCI bundle cache directory | `/home/pacto/.cache/pacto/oci` |
 | `PACTO_NO_CACHE` | Disable OCI bundle caching (`1`) | `0` |
 | `PACTO_NO_UPDATE_CHECK` | Disable update checks (`1`) | `1` (set in image) |
 | `PACTO_REGISTRY_USERNAME` | Registry authentication username | `""` |
@@ -73,10 +74,14 @@ All `PACTO_DASHBOARD_*` variables map to the corresponding `--host`, `--port`, `
 
 The dashboard auto-detects available data sources at startup:
 
-- **oci**: Enabled when `PACTO_DASHBOARD_REPO` is set. Scans OCI registries for published contracts.
-- **cache**: Enabled when `~/.cache/pacto/oci/` contains cached bundles. The cache directory is writable inside the container at `/home/pacto/.cache/pacto/oci/`.
-- **k8s**: Enabled when a valid kubeconfig is mounted or when running inside a Kubernetes cluster (in-cluster config).
+- **oci**: Enabled when `PACTO_DASHBOARD_REPO` is set, or **automatically discovered from K8s `imageRef` fields** when the Kubernetes source is active. Scans OCI registries for published contracts — providing full contract bundles, version history, interfaces, and diffs.
+- **cache**: Enabled when the cache directory contains previously pulled bundles. The cache directory is writable inside the container at `/home/pacto/.cache/pacto/oci/` (configurable via `PACTO_CACHE_DIR`).
+- **k8s**: Enabled when a valid kubeconfig is mounted or when running inside a Kubernetes cluster (in-cluster config). Provides runtime state from the [Pacto operator]({{ site.baseurl }}{% link operator.md %}).
 - **local**: Enabled when a `pacto.yaml` is found in the working directory (mount via volume).
+
+### Kubernetes + OCI hybrid mode
+
+When deployed alongside the Pacto operator in Kubernetes, the dashboard automatically discovers OCI repositories from the `imageRef` fields in Pacto CRD statuses — no `PACTO_DASHBOARD_REPO` needed. This creates a hybrid view: **runtime truth from the operator + contract truth from OCI**, giving you version history, interface details, configuration schemas, and diffs for every service the operator manages.
 
 ### Kubernetes Source
 

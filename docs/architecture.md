@@ -143,18 +143,19 @@ Out-of-process plugin execution via JSON stdin/stdout. Discovers plugin binaries
 
 ### `pkg/dashboard` -- Dashboard server
 
-Provides a web-based dashboard for visualizing and exploring service contracts. Auto-detects available data sources (Kubernetes, OCI cache, local filesystem) and aggregates them into a unified view.
+The exploration and observability layer of the Pacto system. Provides a web-based dashboard for navigating contracts, dependency graphs, version history, interface details, configuration schemas, and diffs. Auto-detects available data sources and merges them into a unified view.
 
 - Multi-source architecture: `DataSource` interface implemented by `K8sSource`, `CacheSource`, `LocalSource`, `OCISource`
-- `AggregatedSource` merges sources with priority: Kubernetes (runtime) > local (contract) > OCI/cache (baseline)
+- Contract-first resolution: `ResolvedSource` separates contract sources (local, OCI) from runtime sources (k8s). Contract sources provide the authoritative service definition; runtime sources enrich with live cluster state but never override contract content
+- K8s-driven OCI discovery: when running alongside the Kubernetes operator, `EnrichFromK8s()` automatically discovers OCI repositories from CRD `imageRef` fields — enabling full contract bundles, version history, and diffs without explicit `--repo` flags
 - `CachedDataSource` wraps any source with in-memory TTL caching (source-type-prefixed keys to prevent cross-source collision)
 - Phase normalization: `NormalizePhase()` maps non-standard operator phases (e.g. `Progressing`) to the five canonical dashboard phases (`Healthy`, `Degraded`, `Invalid`, `Unknown`, `Reference`)
 - Graph building: `buildGlobalGraph()` constructs a flat D3-ready graph from the service index; `buildGraph()` builds a per-service dependency tree. Ref-alias mapping resolves OCI repo names (e.g. `my-service-pacto`) to contract service names (e.g. `my-service`)
 - Cross-references: config/policy OCI refs are surfaced as reference edges (dashed lines) distinct from dependency edges (solid lines)
-- Compliance engine: `ComputeCompliance()` derives OK/WARNING/ERROR/REFERENCE status and percentage score from phase and conditions; `ComputeRuntimeDiff()` builds semantic contract-vs-runtime comparison rows; `LookupValidation()` enriches condition types with category, label, and default severity from a 12-entry catalog
+- Compliance engine: `ComputeCompliance()` derives OK/WARNING/ERROR/REFERENCE status and percentage score from phase and conditions; `ComputeRuntimeDiff()` builds semantic contract-vs-runtime comparison rows
 - REST API built on [Huma v2](https://huma.rocks/) with typed I/O structs, OpenAPI 3.1 spec generation, and `/docs` endpoint; static files and CORS remain on the raw mux
 - Embedded SPA with D3.js force-directed graph, source/status/search filtering, service detail pages with tabs (Interfaces, Config, Policy, Validations, Contract vs Runtime, Observed Runtime), compliance badges/scores, and diff view
-- REST API: `/api/services`, `/api/services/{name}`, `/api/services/{name}/versions`, `/api/services/{name}/sources`, `/api/services/{name}/dependents`, `/api/services/{name}/graph`, `/api/graph`, `/api/diff`, `/api/sources`, `/health`, `/metrics`
+- REST API: `/api/services`, `/api/services/{name}`, `/api/services/{name}/versions`, `/api/services/{name}/sources`, `/api/services/{name}/dependents`, `/api/services/{name}/graph`, `/api/graph`, `/api/diff`, `/api/sources`, `/api/resolve`, `/api/versions`, `/health`, `/metrics`
 
 ### `internal/app` -- Application services
 

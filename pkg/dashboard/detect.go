@@ -338,6 +338,83 @@ func (r *DetectResult) detectCache(cacheDir string) {
 	r.Cache = src
 }
 
+// EnrichFromK8s discovers OCI repository references from K8s service statuses
+// and creates an OCI source when no explicit OCI repos were configured.
+// This enables the dashboard to load full contract bundles from OCI even when
+// started in K8s-only mode (e.g. operator-served dashboard).
+//
+// It also ensures a CacheSource exists so that OCI-pulled bundles can be
+// rescanned at runtime (post-resolve, post-fetch-all).
+func (r *DetectResult) EnrichFromK8s(ctx context.Context, store oci.BundleStore, cacheDir string) {
+	if r.K8s == nil || r.OCI != nil || store == nil {
+		return
+	}
+
+	repos := r.discoverOCIReposFromK8s(ctx)
+	if len(repos) == 0 {
+		return
+	}
+
+	r.detectOCI(store, repos)
+
+	// Ensure a CacheSource exists for post-resolve rescan, even if the cache
+	// directory was empty at detection time.
+	if r.OCI != nil && r.Cache == nil {
+		r.ensureCacheSource(cacheDir)
+	}
+}
+
+// discoverOCIReposFromK8s queries K8s services and extracts unique OCI
+// repository references from their imageRef fields.
+func (r *DetectResult) discoverOCIReposFromK8s(ctx context.Context) []string {
+	services, err := r.K8s.ListServices(ctx)
+	if err != nil {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	var repos []string
+
+	for _, svc := range services {
+		d, err := r.K8s.GetService(ctx, svc.Name)
+		if err != nil || d == nil || d.ImageRef == "" {
+			continue
+		}
+		repo := stripTag(d.ImageRef)
+		if repo != "" && !seen[repo] {
+			seen[repo] = true
+			repos = append(repos, repo)
+		}
+	}
+	return repos
+}
+
+// ensureCacheSource creates a CacheSource if one doesn't exist, creating the
+// cache directory if needed. This is required so that bundles pulled by the
+// OCI source can be rescanned at runtime.
+func (r *DetectResult) ensureCacheSource(cacheDir string) {
+	if cacheDir == "" {
+		home, err := userHomeDir()
+		if err != nil {
+			return
+		}
+		xdg := os.Getenv("XDG_CACHE_HOME")
+		if xdg != "" {
+			cacheDir = filepath.Join(xdg, "pacto", "oci")
+		} else {
+			cacheDir = filepath.Join(home, ".cache", "pacto", "oci")
+		}
+	}
+	_ = os.MkdirAll(cacheDir, 0o755)
+	r.Cache = NewCacheSource(cacheDir)
+
+	if r.Diagnostics != nil {
+		r.Diagnostics.Cache.CacheDir = cacheDir
+		r.Diagnostics.Cache.Exists = true
+		r.Diagnostics.Cache.OCIDirExists = true
+	}
+}
+
 // splitNonEmpty splits a string by newlines and returns non-empty trimmed lines.
 func splitNonEmpty(s string) []string {
 	var result []string

@@ -355,7 +355,15 @@ See [pacto-actions](https://github.com/trianalab/pacto-actions) for full documen
 
 ## Dashboard
 
-`pacto dashboard` launches a local web UI that aggregates contracts from all available data sources into a single view.
+`pacto dashboard` launches the contract exploration dashboard — the same contracts the CLI manages and the operator verifies, visualized as dependency graphs, version history, interface details, configuration schemas, and diffs.
+
+The dashboard is not a separate product with a different model. It is a visualization layer over the same Pacto contracts, designed for:
+
+- Navigating service dependency chains and understanding blast radius
+- Inspecting interfaces (OpenAPI endpoints, gRPC definitions, event schemas)
+- Comparing versions and reviewing classified changes (breaking / non-breaking)
+- Exploring configuration schemas and policy references
+- Monitoring runtime compliance alongside contract content
 
 ### Sources and auto-detection
 
@@ -365,8 +373,10 @@ Sources are auto-detected at startup:
 |--------|--------------|----------|
 | **local** | `pacto.yaml` found in the working directory | In-progress contract changes |
 | **k8s** | Valid kubeconfig found and cluster reachable | Runtime state: phase, conditions, endpoints, resources |
-| **oci** | `--repo` flags provided | Registry versions and contracts |
+| **oci** | `--repo` flags provided, or auto-discovered from K8s `imageRef` fields | Full contract bundles, registry versions, and diffs |
 | **cache** | `~/.cache/pacto/oci` contains cached bundles | Offline baseline from previously pulled contracts |
+
+When running alongside the Kubernetes operator, the dashboard automatically discovers OCI repositories from the `imageRef` fields in Pacto CRD statuses. This means a K8s deployment of the dashboard provides the full contract experience — version history, interface details, configuration schemas, and diffs — without explicit `--repo` flags.
 
 Pass `--no-cache` to disable the cache source entirely (useful when cached data is stale).
 
@@ -421,4 +431,5 @@ Pass `--diagnostics` to enable debug endpoints (`/api/debug/sources`, `/api/debu
 - **Enforce policies.** Publish a policy contract with a JSON Schema that validates contracts against your organizational standards. Services reference it via `policy.ref` — see [policy]({{ site.baseurl }}{% link contract-reference.md %}#policy) in the Contract Reference.
 - **Centralize configuration schemas.** Publish a configuration contract and have services reference it via `configuration.ref` instead of vendoring schemas. See [Configuration Schema Ownership Models]({{ site.baseurl }}{% link contract-reference.md %}#configuration-schema-ownership-models).
 - **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface]({{ site.baseurl }}{% link mcp-integration.md %}) — useful for ad-hoc inspection, dependency analysis, and contract generation.
-- **Deploy the operator for runtime compliance.** The [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}) continuously reconciles contracts against live cluster state — port mismatches, missing workloads, and endpoint failures are detected automatically and surfaced via structured CRD status fields.
+- **Close the loop with the operator.** The [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}) continuously verifies that deployed services match their contracts — port alignment, workload existence, health endpoint reachability, and more. Combined with the dashboard, you get a complete view: contract truth from OCI + runtime truth from the operator.
+- **Use the dashboard for contract observability.** Run `pacto dashboard` to explore contracts, dependency graphs, version history, interface details, and diffs. Deploy the [Dashboard Container]({{ site.baseurl }}{% link dashboard-docker.md %}) alongside the operator for a production-ready contract exploration UI.

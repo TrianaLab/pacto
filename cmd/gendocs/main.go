@@ -57,6 +57,7 @@ const footer = `---
 
 | Variable | Description |
 |----------|-------------|
+| ` + "`PACTO_CACHE_DIR`" + ` | Override the OCI bundle cache directory (default: ` + "`~/.cache/pacto/oci`" + `) |
 | ` + "`PACTO_NO_CACHE`" + ` | Set to ` + "`1`" + ` to disable OCI bundle caching (equivalent to ` + "`--no-cache`" + `) |
 | ` + "`PACTO_NO_UPDATE_CHECK`" + ` | Set to ` + "`1`" + ` to disable automatic update checks |
 | ` + "`PACTO_REGISTRY_USERNAME`" + ` | Registry username for authentication |
@@ -133,9 +134,25 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"- Using `--output-format json`\n" +
 		"- The `PACTO_NO_UPDATE_CHECK=1` environment variable is set",
 
-	"dashboard": "Sources are auto-detected at startup and resolved using a contract-first model. " +
+	"dashboard": "The dashboard is the exploration and observability layer of the Pacto system. " +
+		"It visualizes the same contracts the CLI manages and the operator verifies — " +
+		"making dependency graphs, version history, interfaces, configuration schemas, and diffs accessible in one place.\n\n" +
+		"### What the dashboard shows\n\n" +
+		"- **Dependency graphs** — interactive D3 visualization of service relationships, with impact chain highlighting\n" +
+		"- **Version history** — all available versions from OCI, with the ability to fetch and cache every version\n" +
+		"- **Interface details** — OpenAPI endpoints, gRPC definitions, event schemas extracted from contract bundles\n" +
+		"- **Configuration schemas** — JSON Schema properties for environment variables and settings\n" +
+		"- **Policy references** — organizational standards enforcement via referenced policy contracts\n" +
+		"- **Diffs between versions** — classified changes (breaking, non-breaking, potential) between any two versions\n" +
+		"- **Runtime compliance** — when Kubernetes is available, live phase, conditions, endpoint health, and contract-vs-runtime comparison\n\n" +
+		"### Contract-first resolution\n\n" +
+		"Sources are resolved using a contract-first model. " +
 		"Contract sources (`local`, `oci`) provide the authoritative service definition — exactly one contract snapshot wins per service, with `local` taking priority over `oci`. " +
 		"The runtime source (`k8s`) enriches the contract with live cluster state (phase, conditions, endpoints) but never overrides contract content.\n\n" +
+		"### Kubernetes + OCI hybrid view\n\n" +
+		"When running alongside the Kubernetes operator (no `--repo` flags needed), the dashboard automatically discovers OCI repositories from the `imageRef` fields in Pacto CRD statuses. " +
+		"This means a K8s-only dashboard deployment gets the full contract experience: version history, interface details, configuration schemas, and diffs — " +
+		"all loaded from OCI and merged with runtime state from the operator.\n\n" +
 		"### Dependency resolution\n\n" +
 		"When OCI repository names differ from contract service names (e.g., repo `my-service-pacto` but contract has `service.name: my-service`), " +
 		"the dashboard automatically builds a ref-alias map from `imageRef` and `chartRef` fields so that dependency links, graph edges, " +

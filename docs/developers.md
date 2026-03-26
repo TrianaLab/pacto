@@ -479,4 +479,4 @@ No contract-level field references the SBOM. Pacto discovers it automatically by
 - **Leverage caching.** OCI bundles are cached locally in `~/.cache/pacto/oci/` and tag listings are cached in memory per command, so repeated `graph`, `doc`, and `diff` commands resolve instantly. Use `--no-cache` to force a fresh pull.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
 - **Use metadata for organizational context.** Team ownership, on-call channels, and service tiers go in `metadata`.
-- **Explore contracts visually.** Run `pacto dashboard` to launch a local web UI that auto-detects contracts from Kubernetes, OCI cache, and local directories, with an interactive dependency graph, status filtering, and diff viewer.
+- **Explore contracts visually.** Run `pacto dashboard` to launch the contract exploration dashboard — navigate dependency graphs, inspect interfaces, browse version history, compare diffs, and review configuration schemas. It auto-detects contracts from local directories, OCI registries, and Kubernetes.

@@ -45,18 +45,29 @@ Non-semver tags (e.g. `latest`, `main`) are ignored during resolution. Digest-pi
 
 ## `pacto dashboard`
 
-Launches a read-only web dashboard on localhost that aggregates data from
-all available sources (local filesystem, Kubernetes, OCI registries, disk cache).
+Launches a contract exploration dashboard that aggregates data from all
+available sources (local filesystem, Kubernetes, OCI registries, disk cache).
+
+The dashboard is the exploration and observability layer of the Pacto system.
+It visualizes the same contracts the CLI manages and the operator verifies —
+dependency graphs, version history, interfaces, configuration schemas, diffs,
+and runtime compliance — in a single unified view.
 
 Sources are auto-detected at startup:
   - local: enabled if pacto.yaml is found in the working directory
   - k8s:   enabled if a valid kubeconfig is found and the cluster is reachable
-  - oci:   enabled if --repo is specified and the OCI client is configured
+  - oci:   enabled if --repo is specified, or auto-discovered from K8s imageRefs
   - cache: enabled if ~/.cache/pacto/oci contains cached bundles
 
+When running alongside the Kubernetes operator, OCI repositories are automatically
+discovered from the imageRef fields of Pacto CRD resources. This provides full
+contract bundles, version history, interfaces, and diffs — without needing
+explicit --repo flags. The result is a hybrid view: runtime truth from the
+operator combined with contract truth from OCI.
+
 Services are grouped by name across sources and merged using priority rules:
-  - Kubernetes for runtime state (phase, resources, ports)
-  - OCI/cache for version history
+  - Kubernetes for runtime state (phase, checks, endpoints)
+  - OCI/cache for contract content and version history
   - Local for in-progress contract changes
 
 ```
@@ -93,7 +104,25 @@ pacto dashboard [dir] [flags]
       --repo stringArray   OCI repository to scan (can be repeated)
 ```
 
-Sources are auto-detected at startup and resolved using a contract-first model. Contract sources (`local`, `oci`) provide the authoritative service definition — exactly one contract snapshot wins per service, with `local` taking priority over `oci`. The runtime source (`k8s`) enriches the contract with live cluster state (phase, conditions, endpoints) but never overrides contract content.
+The dashboard is the exploration and observability layer of the Pacto system. It visualizes the same contracts the CLI manages and the operator verifies — making dependency graphs, version history, interfaces, configuration schemas, and diffs accessible in one place.
+
+### What the dashboard shows
+
+- **Dependency graphs** — interactive D3 visualization of service relationships, with impact chain highlighting
+- **Version history** — all available versions from OCI, with the ability to fetch and cache every version
+- **Interface details** — OpenAPI endpoints, gRPC definitions, event schemas extracted from contract bundles
+- **Configuration schemas** — JSON Schema properties for environment variables and settings
+- **Policy references** — organizational standards enforcement via referenced policy contracts
+- **Diffs between versions** — classified changes (breaking, non-breaking, potential) between any two versions
+- **Runtime compliance** — when Kubernetes is available, live phase, conditions, endpoint health, and contract-vs-runtime comparison
+
+### Contract-first resolution
+
+Sources are resolved using a contract-first model. Contract sources (`local`, `oci`) provide the authoritative service definition — exactly one contract snapshot wins per service, with `local` taking priority over `oci`. The runtime source (`k8s`) enriches the contract with live cluster state (phase, conditions, endpoints) but never overrides contract content.
+
+### Kubernetes + OCI hybrid view
+
+When running alongside the Kubernetes operator (no `--repo` flags needed), the dashboard automatically discovers OCI repositories from the `imageRef` fields in Pacto CRD statuses. This means a K8s-only dashboard deployment gets the full contract experience: version history, interface details, configuration schemas, and diffs — all loaded from OCI and merged with runtime state from the operator.
 
 ### Dependency resolution
 
@@ -625,6 +654,7 @@ pacto version [flags]
 
 | Variable | Description |
 |----------|-------------|
+| `PACTO_CACHE_DIR` | Override the OCI bundle cache directory (default: `~/.cache/pacto/oci`) |
 | `PACTO_NO_CACHE` | Set to `1` to disable OCI bundle caching (equivalent to `--no-cache`) |
 | `PACTO_NO_UPDATE_CHECK` | Set to `1` to disable automatic update checks |
 | `PACTO_REGISTRY_USERNAME` | Registry username for authentication |

@@ -29,7 +29,13 @@ nav_order: 1
 
 Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs to know about a service — interfaces, runtime behavior, dependencies, configuration, and scaling — in one YAML file that machines can validate and tooling can consume.
 
-No runtime agents. No sidecars. No new infrastructure. Pacto is a **build-time and CI-time tool** — it produces a validated, immutable description of your service that platforms, pipelines, and AI agents can consume downstream.
+Pacto is a **runtime contract system** made of three complementary pieces:
+
+- **CLI** — author, validate, diff, explain, and publish contracts
+- **Dashboard** — explore contracts, dependency graphs, versions, and diffs visually
+- **Kubernetes Operator** — verify that live runtime remains faithful to the contract
+
+No runtime agents. No sidecars. No new infrastructure. The CLI runs at build time and CI time. The dashboard and operator extend the same contracts into exploration and runtime verification — without duplicating logic or adding moving parts.
 
 ---
 
@@ -140,9 +146,11 @@ Instead of filing tickets, attending meetings, and writing wiki pages, a develop
 1. Developer writes a pacto.yaml alongside their code
 2. pacto validate checks it (structure, cross-references, semantics)
 3. pacto push ships the contract to an OCI registry as a versioned artifact
-4. Platform tooling pulls the contract and uses it to generate manifests,
-   enforce policies, resolve dependency graphs, or detect breaking changes
+4. pacto dashboard explores contracts, graphs, versions, and diffs visually
+5. The Kubernetes operator verifies runtime stays faithful to the contract
 ```
+
+The real value of Pacto appears across the full loop: **author → validate → publish → explore → verify at runtime**. Each piece has a clear responsibility — the CLI manages the contract lifecycle, the dashboard makes contracts observable, and the operator closes the gap between declaration and reality.
 
 ---
 
@@ -197,7 +205,8 @@ Only `pacto.yaml` is required. All other directories are optional — include th
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
 - **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
-- **Web dashboard** — `pacto dashboard` launches a local web UI that auto-detects contracts from Kubernetes, OCI cache, and local directories, with an interactive D3.js dependency graph and diff viewer
+- **Contract exploration dashboard** — `pacto dashboard` launches a web UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, and diffs across local, OCI, and Kubernetes sources
+- **Runtime fidelity verification** — the optional [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}) continuously checks that deployed services match their contracts — port alignment, workload existence, health endpoint reachability, and more
 - **AI assistant integration** — `pacto mcp` exposes all contract operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and GitHub Copilot
 
 ---
@@ -252,9 +261,11 @@ Consume contracts to generate deployment manifests, enforce policies, detect bre
 ## What Pacto is not
 
 - **Not a deployment tool** — it describes *what* to deploy, not *how*
+- **Not a generic policy engine** — policies validate contract structure, not arbitrary infrastructure rules
+- **Not just a Kubernetes linter** — the operator is one part of the system, not the whole product
 - **Not a registry** — it uses existing OCI registries (GHCR, ECR, ACR, Docker Hub)
-- **Not a service mesh or runtime agent** — the core CLI runs at build time and CI time; the optional [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}) adds runtime compliance without sidecars
+- **Not a service mesh or runtime agent** — no sidecars, no proxies; the operator watches CRDs, not traffic
 - **Not a replacement for Helm or Terraform** — it complements them as input
 - **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
 
-Pacto is a **contract standard**. It tells platforms, pipelines, and AI agents what a service *is* so they can decide how to work with it.
+Pacto is a **runtime contract system**. The CLI manages contracts. The dashboard makes them explorable. The operator verifies them at runtime. Together, they tell platforms, pipelines, and AI agents what a service *is* — and whether it still matches what was declared.

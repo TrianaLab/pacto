@@ -16,6 +16,7 @@ type DashboardConfig struct {
 	Namespace        string `json:"PACTO_DASHBOARD_NAMESPACE,omitempty" doc:"Kubernetes namespace filter (empty = all)"`
 	Repo             string `json:"PACTO_DASHBOARD_REPO,omitempty" doc:"Comma-separated OCI repositories to scan"`
 	Diagnostics      bool   `json:"PACTO_DASHBOARD_DIAGNOSTICS" default:"false" doc:"Enable source diagnostics panel"`
+	CacheDir         string `json:"PACTO_CACHE_DIR,omitempty" doc:"OCI bundle cache directory (default: ~/.cache/pacto/oci)"`
 	NoCache          bool   `json:"PACTO_NO_CACHE" default:"false" doc:"Disable OCI bundle caching"`
 	NoUpdateCheck    bool   `json:"PACTO_NO_UPDATE_CHECK" default:"false" doc:"Disable update checks"`
 	RegistryUsername string `json:"PACTO_REGISTRY_USERNAME,omitempty" doc:"Registry authentication username"`

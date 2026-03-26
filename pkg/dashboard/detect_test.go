@@ -669,3 +669,209 @@ func TestDetectCache_DefaultDirNoXDG(t *testing.T) {
 		t.Errorf("expected cache dir %q, got %q", expected, result.Diagnostics.Cache.CacheDir)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// EnrichFromK8s tests
+// ---------------------------------------------------------------------------
+
+func TestEnrichFromK8s_NoK8sSource(t *testing.T) {
+	r := &DetectResult{Diagnostics: &SourceDiagnostics{}}
+	r.EnrichFromK8s(context.Background(), newMockBundleStore(), "")
+	if r.OCI != nil {
+		t.Error("expected nil OCI without K8s source")
+	}
+}
+
+func TestEnrichFromK8s_AlreadyHasOCI(t *testing.T) {
+	r := &DetectResult{
+		Diagnostics: &SourceDiagnostics{},
+		K8s:         NewK8sSource(&mockK8sClient{}, "default", "pactos"),
+		OCI:         NewOCISource(newMockBundleStore(), []string{"ghcr.io/org/svc"}),
+	}
+	r.EnrichFromK8s(context.Background(), newMockBundleStore(), "")
+	// OCI should still be the original one, not overwritten.
+	if len(r.OCI.repos) != 1 || r.OCI.repos[0] != "ghcr.io/org/svc" {
+		t.Error("OCI repos should not change when OCI source already exists")
+	}
+}
+
+func TestEnrichFromK8s_NilStore(t *testing.T) {
+	r := &DetectResult{
+		Diagnostics: &SourceDiagnostics{},
+		K8s:         NewK8sSource(&mockK8sClient{}, "default", "pactos"),
+	}
+	r.EnrichFromK8s(context.Background(), nil, "")
+	if r.OCI != nil {
+		t.Error("expected nil OCI without store")
+	}
+}
+
+func TestEnrichFromK8s_DiscoverRepos(t *testing.T) {
+	// K8s source with services that have imageRefs.
+	k8sData := `{"items": [
+		{"metadata": {"name": "order-svc", "namespace": "default"},
+		 "status": {"phase": "Healthy", "contract": {"serviceName": "order-service", "version": "1.0.0", "imageRef": "ghcr.io/org/order-pacto:1.0.0"}}},
+		{"metadata": {"name": "pay-svc", "namespace": "default"},
+		 "status": {"phase": "Healthy", "contract": {"serviceName": "payment-service", "version": "2.0.0", "imageRef": "ghcr.io/org/payment-pacto:2.0.0"}}},
+		{"metadata": {"name": "no-image", "namespace": "default"},
+		 "status": {"phase": "Healthy", "contract": {"serviceName": "no-image-svc", "version": "1.0.0"}}}
+	]}`
+
+	client := &mockK8sClient{listJSON: []byte(k8sData)}
+	r := &DetectResult{
+		Diagnostics: &SourceDiagnostics{},
+		K8s:         NewK8sSource(client, "", "pactos"),
+	}
+
+	store := newMockBundleStore()
+	cacheDir := t.TempDir()
+	r.EnrichFromK8s(context.Background(), store, cacheDir)
+
+	if r.OCI == nil {
+		t.Fatal("expected OCI source to be created from K8s imageRefs")
+	}
+	// Should have discovered 2 repos (the service without imageRef is skipped).
+	if len(r.OCI.repos) != 2 {
+		t.Errorf("expected 2 repos, got %d: %v", len(r.OCI.repos), r.OCI.repos)
+	}
+	// Cache source should have been created.
+	if r.Cache == nil {
+		t.Error("expected CacheSource to be created")
+	}
+}
+
+func TestEnrichFromK8s_DeduplicatesRepos(t *testing.T) {
+	k8sData := `{"items": [
+		{"metadata": {"name": "svc-a", "namespace": "default"},
+		 "status": {"contract": {"serviceName": "svc-a", "imageRef": "ghcr.io/org/svc-pacto:1.0.0"}}},
+		{"metadata": {"name": "svc-b", "namespace": "default"},
+		 "status": {"contract": {"serviceName": "svc-b", "imageRef": "ghcr.io/org/svc-pacto:2.0.0"}}}
+	]}`
+
+	client := &mockK8sClient{listJSON: []byte(k8sData)}
+	r := &DetectResult{
+		Diagnostics: &SourceDiagnostics{},
+		K8s:         NewK8sSource(client, "", "pactos"),
+	}
+
+	r.EnrichFromK8s(context.Background(), newMockBundleStore(), t.TempDir())
+
+	if r.OCI == nil {
+		t.Fatal("expected OCI source")
+	}
+	// Same repo, different tags — should be deduplicated.
+	if len(r.OCI.repos) != 1 {
+		t.Errorf("expected 1 deduplicated repo, got %d: %v", len(r.OCI.repos), r.OCI.repos)
+	}
+}
+
+func TestEnrichFromK8s_K8sListError(t *testing.T) {
+	client := &mockK8sClient{listErr: fmt.Errorf("k8s unavailable")}
+	r := &DetectResult{
+		Diagnostics: &SourceDiagnostics{},
+		K8s:         NewK8sSource(client, "", "pactos"),
+	}
+
+	r.EnrichFromK8s(context.Background(), newMockBundleStore(), "")
+	if r.OCI != nil {
+		t.Error("expected nil OCI when K8s list fails")
+	}
+}
+
+func TestEnrichFromK8s_NoImageRefs(t *testing.T) {
+	k8sData := `{"items": [
+		{"metadata": {"name": "svc", "namespace": "default"},
+		 "status": {"phase": "Healthy", "contract": {"serviceName": "svc", "version": "1.0.0"}}}
+	]}`
+
+	client := &mockK8sClient{listJSON: []byte(k8sData)}
+	r := &DetectResult{
+		Diagnostics: &SourceDiagnostics{},
+		K8s:         NewK8sSource(client, "", "pactos"),
+	}
+
+	r.EnrichFromK8s(context.Background(), newMockBundleStore(), "")
+	if r.OCI != nil {
+		t.Error("expected nil OCI when no services have imageRefs")
+	}
+}
+
+func TestEnrichFromK8s_CacheSourceAlreadyExists(t *testing.T) {
+	k8sData := `{"items": [
+		{"metadata": {"name": "svc", "namespace": "default"},
+		 "status": {"contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:1.0.0"}}}
+	]}`
+
+	client := &mockK8sClient{listJSON: []byte(k8sData)}
+	existingCache := NewCacheSource(t.TempDir())
+	r := &DetectResult{
+		Diagnostics: &SourceDiagnostics{},
+		K8s:         NewK8sSource(client, "", "pactos"),
+		Cache:       existingCache,
+	}
+
+	r.EnrichFromK8s(context.Background(), newMockBundleStore(), "")
+	// Cache source should remain the existing one, not overwritten.
+	if r.Cache != existingCache {
+		t.Error("expected existing CacheSource to be preserved")
+	}
+}
+
+func TestEnsureCacheSource_DefaultDir(t *testing.T) {
+	home := t.TempDir()
+	orig := userHomeDir
+	userHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { userHomeDir = orig })
+	t.Setenv("XDG_CACHE_HOME", "")
+
+	r := &DetectResult{Diagnostics: &SourceDiagnostics{}}
+	r.ensureCacheSource("")
+
+	if r.Cache == nil {
+		t.Fatal("expected CacheSource to be created")
+	}
+	expected := filepath.Join(home, ".cache", "pacto", "oci")
+	if r.Diagnostics.Cache.CacheDir != expected {
+		t.Errorf("expected cache dir %q, got %q", expected, r.Diagnostics.Cache.CacheDir)
+	}
+}
+
+func TestEnsureCacheSource_XDGDir(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", xdg)
+
+	r := &DetectResult{Diagnostics: &SourceDiagnostics{}}
+	r.ensureCacheSource("")
+
+	expected := filepath.Join(xdg, "pacto", "oci")
+	if r.Diagnostics.Cache.CacheDir != expected {
+		t.Errorf("expected cache dir %q, got %q", expected, r.Diagnostics.Cache.CacheDir)
+	}
+}
+
+func TestEnsureCacheSource_ExplicitDir(t *testing.T) {
+	dir := t.TempDir()
+	r := &DetectResult{Diagnostics: &SourceDiagnostics{}}
+	r.ensureCacheSource(dir)
+
+	if r.Cache == nil {
+		t.Fatal("expected CacheSource to be created")
+	}
+	if r.Diagnostics.Cache.CacheDir != dir {
+		t.Errorf("expected cache dir %q, got %q", dir, r.Diagnostics.Cache.CacheDir)
+	}
+}
+
+func TestEnsureCacheSource_HomeDirError(t *testing.T) {
+	orig := userHomeDir
+	userHomeDir = func() (string, error) { return "", fmt.Errorf("no home") }
+	t.Cleanup(func() { userHomeDir = orig })
+	t.Setenv("XDG_CACHE_HOME", "")
+
+	r := &DetectResult{Diagnostics: &SourceDiagnostics{}}
+	r.ensureCacheSource("")
+
+	if r.Cache != nil {
+		t.Error("expected nil CacheSource when home dir fails")
+	}
+}

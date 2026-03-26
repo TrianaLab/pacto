@@ -19,18 +19,29 @@ func newDashboardCommand(svc *app.Service, v *viper.Viper, version string) *cobr
 	cmd := &cobra.Command{
 		Use:   "dashboard [dir]",
 		Short: "Start a local web dashboard for exploring service contracts",
-		Long: `Launches a read-only web dashboard on localhost that aggregates data from
-all available sources (local filesystem, Kubernetes, OCI registries, disk cache).
+		Long: `Launches a contract exploration dashboard that aggregates data from all
+available sources (local filesystem, Kubernetes, OCI registries, disk cache).
+
+The dashboard is the exploration and observability layer of the Pacto system.
+It visualizes the same contracts the CLI manages and the operator verifies —
+dependency graphs, version history, interfaces, configuration schemas, diffs,
+and runtime compliance — in a single unified view.
 
 Sources are auto-detected at startup:
   - local: enabled if pacto.yaml is found in the working directory
   - k8s:   enabled if a valid kubeconfig is found and the cluster is reachable
-  - oci:   enabled if --repo is specified and the OCI client is configured
+  - oci:   enabled if --repo is specified, or auto-discovered from K8s imageRefs
   - cache: enabled if ~/.cache/pacto/oci contains cached bundles
 
+When running alongside the Kubernetes operator, OCI repositories are automatically
+discovered from the imageRef fields of Pacto CRD resources. This provides full
+contract bundles, version history, interfaces, and diffs — without needing
+explicit --repo flags. The result is a hybrid view: runtime truth from the
+operator combined with contract truth from OCI.
+
 Services are grouped by name across sources and merged using priority rules:
-  - Kubernetes for runtime state (phase, resources, ports)
-  - OCI/cache for version history
+  - Kubernetes for runtime state (phase, checks, endpoints)
+  - OCI/cache for contract content and version history
   - Local for in-progress contract changes`,
 		Example: `  # Start dashboard with auto-detected sources
   pacto dashboard
@@ -60,14 +71,24 @@ Services are grouped by name across sources and merged using priority rules:
 				dir = "."
 			}
 
+			cacheDir := v.GetString("cache-dir")
+
 			// Auto-detect available sources.
 			detectResult := dashboard.DetectSources(cmd.Context(), dashboard.DetectOptions{
 				Dir:       dir,
 				Namespace: namespace,
 				Repos:     repos,
 				Store:     svc.BundleStore,
+				CacheDir:  cacheDir,
 				NoCache:   noCache,
 			})
+
+			// Auto-discover OCI repos from K8s services when no explicit
+			// repos are specified. This enriches the K8s-only dashboard
+			// with full contract bundles, version history, and diffs.
+			if len(repos) == 0 && svc.BundleStore != nil {
+				detectResult.EnrichFromK8s(cmd.Context(), svc.BundleStore, cacheDir)
+			}
 
 			activeSources := detectResult.ActiveSources()
 			if len(activeSources) == 0 {
