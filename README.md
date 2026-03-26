@@ -30,16 +30,16 @@ No sidecars. No new infrastructure. The CLI uses your existing OCI registry. The
 Pacto connects design-time authoring to runtime verification to human exploration:
 
 ```
-CLI                        Operator                   Dashboard
- │                          │                          │
- ├─ define contracts        ├─ watch Pacto CRs         ├─ auto-detect sources
- ├─ validate (3 layers)     ├─ resolve OCI refs         │  (K8s, OCI, local, cache)
- ├─ diff versions           ├─ track versions           ├─ dependency graph
- ├─ publish to OCI          │  (PactoRevision per ver)  ├─ version history + diffs
- └─ resolve dep graphs      ├─ link to workloads        ├─ service details
-                            └─ check runtime alignment  │  (interfaces, config, docs)
-                               (ports, replicas, health)├─ runtime status
-                                                        └─ compliance insights
+CLI                        Operator                      Dashboard
+ │                          │                             │
+ ├─ define contracts        ├─ watch Pacto CRs            ├─ auto-detect sources
+ ├─ validate (3 layers)     ├─ resolve OCI refs           │  (K8s, OCI, local, cache)
+ ├─ diff versions           ├─ track versions             ├─ dependency graph
+ ├─ publish to OCI          │  (PactoRevision per ver)    ├─ version history + diffs
+ └─ resolve dep graphs      ├─ link to workloads          ├─ service details
+                            └─ check runtime alignment    │  (interfaces, config, docs)
+                               (ports, replicas, health)  ├─ runtime status
+                                                          └─ compliance insights
 ```
 
 The lifecycle:
