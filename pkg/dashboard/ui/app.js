@@ -253,7 +253,7 @@ function resolveServiceName(name) {
   if (stripped !== name && serviceExists(stripped)) return stripped;
   return name;
 }
-var _skipHashChange = false;
+var _navInProgress = false;
 function navigateTo(view, svc, ref, compat) {
   state.view = view;
   state.service = resolveServiceName(svc) || null;
@@ -268,8 +268,10 @@ function navigateTo(view, svc, ref, compat) {
   // Update hash for bookmarkability and browser history
   var wantHash = view === 'list' ? '#' : '#service/' + encodeURIComponent(svc);
   if (location.hash !== wantHash) {
-    _skipHashChange = true;
+    _navInProgress = true;
     location.hash = wantHash;
+    // Reset flag asynchronously after the hashchange event has fired
+    setTimeout(function() { _navInProgress = false; }, 0);
   }
   render();
 }
@@ -1728,7 +1730,8 @@ async function renderDetail() {
     if (e.status === 404 && depInfo) {
       await resolveRemoteDep(svcName, depInfo.ref, depInfo.compatibility);
     } else {
-      app.innerHTML = '<div class="empty-state"><div class="empty-state-title">Service not found</div><p>' + h(e.message) + '</p></div>';
+      app.innerHTML = '<div class="empty-state"><div class="empty-state-title">Service not found</div><p>' + h(e.message) + '</p>' +
+        '<div style="margin-top:16px"><a class="dep-link" onclick="navigateTo(\'list\')">Back to overview</a></div></div>';
     }
   }
 }
@@ -2855,7 +2858,7 @@ function handleHash() {
 }
 handleHash();
 window.addEventListener('hashchange', function() {
-  if (_skipHashChange) { _skipHashChange = false; return; }
+  if (_navInProgress) return;
   var hash = location.hash;
   if (hash.startsWith('#service/')) {
     var svc = decodeURIComponent(hash.substring(9));
