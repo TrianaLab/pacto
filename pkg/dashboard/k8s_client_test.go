@@ -274,7 +274,6 @@ func TestK8sGoClient_DiscoverCRD_Found(t *testing.T) {
 			GroupVersion: "pacto.trianalab.io/v1alpha1",
 			APIResources: []metav1.APIResource{
 				{Name: "pactos", Kind: "Pacto"},
-				{Name: "pactos/status", Kind: "Pacto"}, // subresource — must be skipped
 			},
 		},
 	}
@@ -292,34 +291,6 @@ func TestK8sGoClient_DiscoverCRD_Found(t *testing.T) {
 	}
 	if result.Version != "v1alpha1" {
 		t.Errorf("expected version 'v1alpha1', got %q", result.Version)
-	}
-}
-
-func TestK8sGoClient_DiscoverCRD_FoundWithRevisions(t *testing.T) {
-	disc := newFakeDiscovery()
-	disc.Resources = []*metav1.APIResourceList{
-		{
-			GroupVersion: "pacto.trianalab.io/v1alpha1",
-			APIResources: []metav1.APIResource{
-				{Name: "pactos", Kind: "Pacto"},
-				{Name: "pactorevisions", Kind: "PactoRevision"},
-			},
-		},
-	}
-
-	client := &k8sGoClient{discovery: disc, group: "pacto.trianalab.io"}
-	result, err := client.DiscoverCRD(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Found {
-		t.Error("expected Found=true")
-	}
-	if result.ResourceName != "pactos" {
-		t.Errorf("expected resource name 'pactos', got %q", result.ResourceName)
-	}
-	if result.RevisionResourceName != "pactorevisions" {
-		t.Errorf("expected revision resource name 'pactorevisions', got %q", result.RevisionResourceName)
 	}
 }
 

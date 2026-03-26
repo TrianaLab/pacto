@@ -744,7 +744,7 @@ func TestServerDebugEndpoints(t *testing.T) {
 	}
 }
 
-func TestServerDebugEndpoints_AvailableWithoutDiagnostics(t *testing.T) {
+func TestServerDebugEndpoints_NotRegisteredWithoutDiagnostics(t *testing.T) {
 	source := &mockSource{services: []Service{}}
 	base := startTestServer(t, source)
 
@@ -753,9 +753,9 @@ func TestServerDebugEndpoints_AvailableWithoutDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
-	// Debug endpoints are always registered (diagnostics field will be null).
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected 200, got %d", resp.StatusCode)
+	// Should return 404 since diagnostics is nil
+	if resp.StatusCode == http.StatusOK {
+		t.Error("expected debug endpoints to not be registered without diagnostics")
 	}
 }
 
@@ -984,8 +984,8 @@ func TestServerGetDiff_Error(t *testing.T) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	if resp.StatusCode != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.StatusCode)
 	}
 }
 

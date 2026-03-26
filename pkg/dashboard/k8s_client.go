@@ -23,8 +23,6 @@ type K8sClient interface {
 	DiscoverCRD(ctx context.Context) (*CRDDiscovery, error)
 	// ListJSON returns the raw JSON of all Pacto CRD resources.
 	ListJSON(ctx context.Context, resource, namespace string) ([]byte, error)
-	// ListJSONWithSelector returns the raw JSON of CRD resources matching a label selector.
-	ListJSONWithSelector(ctx context.Context, resource, namespace, labelSelector string) ([]byte, error)
 	// GetJSON returns the raw JSON of a single Pacto CRD resource by name.
 	GetJSON(ctx context.Context, resource, namespace, name string) ([]byte, error)
 	// CountResources returns the number of Pacto CRD resources.
@@ -33,12 +31,11 @@ type K8sClient interface {
 
 // CRDDiscovery holds the result of discovering the Pacto CRD on the cluster.
 type CRDDiscovery struct {
-	Found                bool
-	Group                string
-	Versions             []string
-	Version              string // preferred or first version
-	ResourceName         string
-	RevisionResourceName string // e.g. "pactorevisions" (empty if not found)
+	Found        bool
+	Group        string
+	Versions     []string
+	Version      string // preferred or first version
+	ResourceName string
 }
 
 // Package-level function variables for testing.
@@ -138,16 +135,9 @@ func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 	}
 
 	for _, r := range resources.APIResources {
-		// Skip subresources (e.g. "pactos/status") — they share the
-		// same Kind but are not the top-level resource we need.
-		if strings.Contains(r.Name, "/") {
-			continue
-		}
 		if strings.EqualFold(r.Kind, "Pacto") {
 			result.ResourceName = r.Name
-		}
-		if strings.EqualFold(r.Kind, "PactoRevision") {
-			result.RevisionResourceName = r.Name
+			break
 		}
 	}
 	if result.ResourceName == "" {
@@ -171,18 +161,13 @@ func (c *k8sGoClient) gvr(resource string) schema.GroupVersionResource {
 }
 
 func (c *k8sGoClient) ListJSON(ctx context.Context, resource, namespace string) ([]byte, error) {
-	return c.ListJSONWithSelector(ctx, resource, namespace, "")
-}
-
-func (c *k8sGoClient) ListJSONWithSelector(ctx context.Context, resource, namespace, labelSelector string) ([]byte, error) {
 	gvr := c.gvr(resource)
-	opts := metav1.ListOptions{LabelSelector: labelSelector}
 	var list any
 	var err error
 	if namespace != "" {
-		list, err = c.dynamic.Resource(gvr).Namespace(namespace).List(ctx, opts)
+		list, err = c.dynamic.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
 	} else {
-		list, err = c.dynamic.Resource(gvr).List(ctx, opts)
+		list, err = c.dynamic.Resource(gvr).List(ctx, metav1.ListOptions{})
 	}
 	if err != nil {
 		return nil, err

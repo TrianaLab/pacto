@@ -42,19 +42,18 @@ type SourceDiagnostics struct {
 
 // K8sDiagnostics contains K8s source detection details.
 type K8sDiagnostics struct {
-	ClientConfigured     bool     `json:"clientConfigured"`
-	KubeconfigPath       string   `json:"kubeconfigPath,omitempty"`
-	ClusterReachable     bool     `json:"clusterReachable"`
-	CRDExists            bool     `json:"crdExists"`
-	Namespace            string   `json:"namespace"`
-	AllNamespaces        bool     `json:"allNamespaces"`
-	ResourceCount        int      `json:"resourceCount"`
-	DetectedGroup        string   `json:"detectedGroup,omitempty"`
-	DetectedVersions     []string `json:"detectedVersions,omitempty"`
-	ChosenVersion        string   `json:"chosenVersion,omitempty"`
-	ResourceName         string   `json:"resourceName,omitempty"`
-	RevisionResourceName string   `json:"revisionResourceName,omitempty"`
-	Error                string   `json:"error,omitempty"`
+	ClientConfigured bool     `json:"clientConfigured"`
+	KubeconfigPath   string   `json:"kubeconfigPath,omitempty"`
+	ClusterReachable bool     `json:"clusterReachable"`
+	CRDExists        bool     `json:"crdExists"`
+	Namespace        string   `json:"namespace"`
+	AllNamespaces    bool     `json:"allNamespaces"`
+	ResourceCount    int      `json:"resourceCount"`
+	DetectedGroup    string   `json:"detectedGroup,omitempty"`
+	DetectedVersions []string `json:"detectedVersions,omitempty"`
+	ChosenVersion    string   `json:"chosenVersion,omitempty"`
+	ResourceName     string   `json:"resourceName,omitempty"`
+	Error            string   `json:"error,omitempty"`
 }
 
 // OCIDiagnostics contains OCI registry source detection details.
@@ -96,25 +95,6 @@ func DetectSources(ctx context.Context, opts DetectOptions) *DetectResult {
 
 	// OCI registry: check if store is configured and repos are provided.
 	result.detectOCI(opts.Store, opts.Repos)
-
-	// Wire K8s source with BundleStore for diff/interface enrichment,
-	// and auto-seed OCI repos discovered from K8s CRD data.
-	if result.K8s != nil && opts.Store != nil {
-		result.K8s.SetStore(opts.Store)
-
-		if k8sRepos := result.K8s.OCIRepos(ctx); len(k8sRepos) > 0 {
-			if result.OCI != nil {
-				result.OCI.AddRepos(k8sRepos)
-			} else {
-				result.OCI = NewOCISource(opts.Store, k8sRepos)
-				result.Sources = append(result.Sources, SourceInfo{
-					Type:    "oci",
-					Enabled: true,
-					Reason:  fmt.Sprintf("auto-seeded %d repos from K8s CRD data", len(k8sRepos)),
-				})
-			}
-		}
-	}
 
 	// OCI disk cache: scan for pre-existing cached bundles.
 	if opts.NoCache {
@@ -230,7 +210,7 @@ func (r *DetectResult) detectK8s(ctx context.Context, namespace string) {
 		info.Reason = "cluster reachable (CRD not detected, may still work)"
 	}
 
-	r.K8s = NewK8sSource(client, namespace, resourceName, diag.RevisionResourceName)
+	r.K8s = NewK8sSource(client, namespace, resourceName)
 	r.Sources = append(r.Sources, info)
 }
 
@@ -264,7 +244,6 @@ func discoverCRD(ctx context.Context, client K8sClient, diag *K8sDiagnostics) st
 			resourceName = discovery.ResourceName
 		}
 		diag.ResourceName = resourceName
-		diag.RevisionResourceName = discovery.RevisionResourceName
 	}
 
 	return resourceName

@@ -97,7 +97,7 @@ func TestDetectResult_ActiveSources_AllTypes(t *testing.T) {
 	r := &DetectResult{
 		Local: NewLocalSource("."),
 		Cache: cache,
-		K8s:   NewK8sSource(client, "default", "pactos", ""),
+		K8s:   NewK8sSource(client, "default", "pactos"),
 		// OCI is nil — would need real store
 	}
 	sources := r.ActiveSources()
@@ -626,123 +626,6 @@ func TestDetectK8s_DiscoverCRDError(t *testing.T) {
 	}
 	if result.Diagnostics.K8s.Error == "" {
 		t.Error("expected error in diagnostics from CRD discovery failure")
-	}
-}
-
-func TestDetectSources_K8sWiresStoreAndAutoSeedsOCI(t *testing.T) {
-	// When K8s is detected and has CRD data with OCI refs, DetectSources
-	// should wire the BundleStore and auto-seed OCI repos.
-	pactosJSON := `{"items": [
-		{"metadata": {"name": "billing"}, "status": {"phase": "Healthy", "contract": {"serviceName": "billing", "imageRef": "ghcr.io/org/billing:1.0.0"}}}
-	]}`
-	client := &mockK8sClient{
-		crdDiscovery: &CRDDiscovery{
-			Found:        true,
-			Group:        "pacto.trianalab.io",
-			Versions:     []string{"v1alpha1"},
-			Version:      "v1alpha1",
-			ResourceName: "pactos",
-		},
-		listJSON:    []byte(pactosJSON),
-		countResult: 1,
-	}
-	setupMockK8sClient(t, client)
-
-	dir := t.TempDir()
-	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
-	t.Setenv("XDG_CACHE_HOME", dir)
-
-	store := newMockBundleStore()
-	result := DetectSources(context.Background(), DetectOptions{
-		Dir:     dir,
-		Store:   store,
-		NoCache: true,
-	})
-
-	if result.K8s == nil {
-		t.Fatal("expected K8s source to be detected")
-	}
-	if result.K8s.store == nil {
-		t.Error("expected K8s source to have BundleStore wired")
-	}
-	if result.OCI == nil {
-		t.Fatal("expected OCI source to be auto-seeded from K8s CRD data")
-	}
-	// Should have auto-seeded the billing repo.
-	found := false
-	for _, r := range result.OCI.repos {
-		if r == "ghcr.io/org/billing" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected auto-seeded repo 'ghcr.io/org/billing', got %v", result.OCI.repos)
-	}
-}
-
-func TestDetectSources_K8sAutoSeedAddsToExistingOCI(t *testing.T) {
-	// When both K8s and OCI are detected, K8s repos are added to existing OCI source.
-	pactosJSON := `{"items": [
-		{"metadata": {"name": "billing"}, "status": {"phase": "Healthy", "contract": {"serviceName": "billing", "imageRef": "ghcr.io/org/billing:1.0.0"}}}
-	]}`
-	client := &mockK8sClient{
-		crdDiscovery: &CRDDiscovery{
-			Found:        true,
-			Group:        "pacto.trianalab.io",
-			Versions:     []string{"v1alpha1"},
-			Version:      "v1alpha1",
-			ResourceName: "pactos",
-		},
-		listJSON:    []byte(pactosJSON),
-		countResult: 1,
-	}
-	setupMockK8sClient(t, client)
-
-	dir := t.TempDir()
-	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
-	t.Setenv("XDG_CACHE_HOME", dir)
-
-	store := newMockBundleStore()
-	result := DetectSources(context.Background(), DetectOptions{
-		Dir:     dir,
-		Repos:   []string{"ghcr.io/org/existing"},
-		Store:   store,
-		NoCache: true,
-	})
-
-	if result.OCI == nil {
-		t.Fatal("expected OCI source")
-	}
-	if len(result.OCI.repos) != 2 {
-		t.Fatalf("expected 2 repos (existing + auto-seeded), got %d: %v", len(result.OCI.repos), result.OCI.repos)
-	}
-}
-
-func TestDetectSources_K8sNoStoreSkipsWiring(t *testing.T) {
-	// When K8s is detected but no BundleStore is provided, no wiring happens.
-	client := &mockK8sClient{
-		crdDiscovery: &CRDDiscovery{Found: false, Group: "pacto.trianalab.io"},
-	}
-	setupMockK8sClient(t, client)
-
-	dir := t.TempDir()
-	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
-	t.Setenv("XDG_CACHE_HOME", dir)
-
-	result := DetectSources(context.Background(), DetectOptions{
-		Dir:     dir,
-		Store:   nil, // no store
-		NoCache: true,
-	})
-
-	if result.K8s == nil {
-		t.Fatal("expected K8s source")
-	}
-	if result.K8s.store != nil {
-		t.Error("expected no store on K8s source when Store is nil")
-	}
-	if result.OCI != nil {
-		t.Error("expected no OCI source when no store")
 	}
 }
 

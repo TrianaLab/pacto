@@ -1775,13 +1775,12 @@ async function resolveRemoteDep(svcName, ref, compatibility) {
     app.innerHTML = '<div class="empty-state"><div class="empty-state-title">' + h(errorTitle) + '</div>' +
       '<p>' + h(errorMsg) + '</p>' +
       '<code class="text-dim" style="font-size:var(--text-xs);display:block;margin-top:8px">' + h(ref) + '</code>' +
-      '<div style="margin-top:16px"><a class="dep-link" href="#" onclick="navigateTo(\'list\');return false">Back to overview</a></div></div>';
+      '<div style="margin-top:16px"><a class="dep-link" onclick="navigateTo(\'list\')">Back to overview</a></div></div>';
   }
 }
 
 function renderDetailPage() {
   var d = state.details[state.service];
-  if (!d) return; // guard: details not loaded yet
   var versions = state.versions[state.service] || [];
   var agg = state.aggregated[state.service];
   var sources = getSources(d);
@@ -1789,7 +1788,7 @@ function renderDetailPage() {
   var o = '';
 
   // Breadcrumb
-  o += '<div class="breadcrumb"><a href="#" onclick="navigateTo(\'list\');return false">Overview</a><span class="separator">/</span><span>' + h(d.name) + '</span></div>';
+  o += '<div class="breadcrumb"><a onclick="navigateTo(\'list\')">Overview</a><span class="separator">/</span><span>' + h(d.name) + '</span></div>';
 
   // Service header
   o += '<div class="service-header"><div style="display:flex;align-items:center;gap:8px;flex:1">';
@@ -1864,7 +1863,6 @@ function tabBtn(id, label, count) {
 function switchTab(tab) {
   state.tab = tab;
   var d = state.details[state.service];
-  if (!d) return; // guard: details not loaded yet
   var versions = state.versions[state.service] || [];
   var agg = state.aggregated[state.service];
   document.getElementById('tab-content').innerHTML = renderCurrentTab(d, versions, agg);
