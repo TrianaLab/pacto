@@ -1838,29 +1838,58 @@ func TestServerEnsureOCIEnriched_ConcurrentDoubleCheck(t *testing.T) {
 	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
 	srv := NewServer(source, ui)
 
-	// Set up a callback that won't be called.
-	srv.SetLazyEnrich(func(_ context.Context) bool { return true })
+	// Goroutine A holds the lock inside the callback while B waits at the lock.
+	// When A finishes (enrichDone=true) and releases, B enters the lock and
+	// hits the inner enrichDone check (line 143), returning without calling
+	// the callback again.
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	callCount := 0
+	srv.SetLazyEnrich(func(_ context.Context) bool {
+		callCount++
+		close(entered) // signal that A is inside the callback (holding lock)
+		<-gate         // block until released
+		return true
+	})
 
-	// Directly set enrichDone=true to simulate a concurrent goroutine
-	// completing enrichment between the fast-path check (line 138) and
-	// the mutex-guarded check (line 143).
-	srv.enrichDone = true
+	// Goroutine A: acquires lock, enters callback, blocks.
+	go srv.ensureOCIEnriched(context.Background())
 
-	// Now reset the fast-path visible enrichDone to false so we enter the
-	// mutex path, but once inside, enrichDone is true.
-	// We can't truly simulate the race without goroutines, but we can
-	// test the code path by calling ensureOCIEnriched when enrichDone
-	// is already true (fast-path exits).
+	// Wait for A to be inside the callback (holding the lock).
+	<-entered
 
-	// Instead, verify the cooldown path works correctly.
-	srv.enrichDone = false
-	srv.enrichLastTry = time.Now() // just tried
+	// Goroutine B: passes fast-path (enrichDone is still false), blocks at lock.
+	done := make(chan struct{})
+	go func() {
+		srv.ensureOCIEnriched(context.Background())
+		close(done)
+	}()
+
+	// Give B time to reach the lock.
+	time.Sleep(50 * time.Millisecond)
+
+	// Release A — sets enrichDone=true, releases lock. B then acquires lock
+	// and sees enrichDone=true in the inner check.
+	close(gate)
+	<-done
+
+	if callCount != 1 {
+		t.Errorf("expected callback called exactly once, got %d", callCount)
+	}
+}
+
+func TestServerEnsureOCIEnriched_Cooldown(t *testing.T) {
+	source := &mockSource{services: []Service{}}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
 
 	called := false
-	srv.lazyEnrich = func(_ context.Context) bool {
+	srv.SetLazyEnrich(func(_ context.Context) bool {
 		called = true
 		return false
-	}
+	})
+
+	srv.enrichLastTry = time.Now() // just tried
 
 	// Should not call callback due to cooldown.
 	srv.ensureOCIEnriched(context.Background())

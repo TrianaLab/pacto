@@ -812,6 +812,29 @@ func TestOCISource_DepReposForService_FindBundleError(t *testing.T) {
 	}
 }
 
+func TestOCISource_DepReposForService_EmptyConfigRef(t *testing.T) {
+	store := newMockBundleStore()
+	// Create a bundle whose Configuration ref is NOT an oci:// ref,
+	// so extractOCIRepo returns "" and the ref is skipped.
+	ref := "ghcr.io/org/svc:1.0.0"
+	store.bundles[ref] = &contract.Bundle{
+		Contract: &contract.Contract{
+			Service:       contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+			Configuration: &contract.Configuration{Ref: "file://local/schema.json"},
+		},
+		RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: svc\n  version: 1.0.0\n"),
+	}
+	store.tags["ghcr.io/org/svc"] = []string{"1.0.0"}
+
+	src := NewOCISource(store, []string{"ghcr.io/org/svc"})
+	_ = waitForDiscovery(t, src)
+
+	repos := src.depReposForService(context.Background(), "svc")
+	if len(repos) != 0 {
+		t.Errorf("expected no repos for non-OCI config ref, got %v", repos)
+	}
+}
+
 func TestOCISource_DepReposForService_WithExplicitTag(t *testing.T) {
 	store := newMockBundleStore()
 	store.addBundleWithDeps("ghcr.io/org/root", "1.0.0", "root", "1.0.0", []contract.Dependency{
