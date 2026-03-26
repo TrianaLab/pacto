@@ -542,6 +542,38 @@ func TestOCISource_ListServices_RecursiveHandlesCycles(t *testing.T) {
 	}
 }
 
+func TestOCISource_ListServices_RecursiveReferences(t *testing.T) {
+	store := newMockBundleStore()
+
+	// Root service has a configuration ref and a policy ref pointing to OCI bundles.
+	ref := "ghcr.io/org/root:1.0.0"
+	store.bundles[ref] = &contract.Bundle{
+		Contract: &contract.Contract{
+			Service:       contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+			Configuration: &contract.Configuration{Ref: "oci://ghcr.io/org/shared-config"},
+			Policy:        &contract.Policy{Ref: "oci://ghcr.io/org/shared-policy:1.0.0"},
+		},
+		RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: root\n  version: 1.0.0\n"),
+	}
+	store.tags["ghcr.io/org/root"] = []string{"1.0.0"}
+	store.addBundle("ghcr.io/org/shared-config", "1.0.0", "shared-config", "1.0.0")
+	store.addBundle("ghcr.io/org/shared-policy", "1.0.0", "shared-policy", "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/root"})
+	services := waitForDiscovery(t, src)
+
+	names := make(map[string]bool)
+	for _, svc := range services {
+		names[svc.Name] = true
+	}
+
+	for _, expected := range []string{"root", "shared-config", "shared-policy"} {
+		if !names[expected] {
+			t.Errorf("expected referenced service %q to be discovered, got services: %v", expected, names)
+		}
+	}
+}
+
 func TestOCISource_ListServices_SkipsLocalDeps(t *testing.T) {
 	store := newMockBundleStore()
 

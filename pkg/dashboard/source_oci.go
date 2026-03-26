@@ -197,7 +197,8 @@ func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 	return name
 }
 
-// depReposForService returns the OCI repo bases for a service's dependencies.
+// depReposForService returns the OCI repo bases for a service's dependencies
+// and referenced contracts (configuration, policy).
 func (s *OCISource) depReposForService(ctx context.Context, name string) []string {
 	bundle, err := s.findLatestBundle(ctx, name)
 	if err != nil {
@@ -213,6 +214,25 @@ func (s *OCISource) depReposForService(ctx context.Context, name string) []strin
 			depRepo = stripTag(depRepo)
 		}
 		repos = append(repos, depRepo)
+	}
+	// Also follow configuration and policy references so they are
+	// pulled recursively alongside regular dependencies.
+	var refs []string
+	if bundle.Contract.Configuration != nil {
+		refs = append(refs, bundle.Contract.Configuration.Ref)
+	}
+	if bundle.Contract.Policy != nil {
+		refs = append(refs, bundle.Contract.Policy.Ref)
+	}
+	for _, ref := range refs {
+		refRepo := extractOCIRepo(ref)
+		if refRepo == "" {
+			continue
+		}
+		if oci.HasExplicitTag(refRepo) {
+			refRepo = stripTag(refRepo)
+		}
+		repos = append(repos, refRepo)
 	}
 	return repos
 }
