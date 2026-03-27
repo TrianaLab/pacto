@@ -1733,7 +1733,7 @@ func TestServerRefreshCacheSources(t *testing.T) {
 	}
 
 	// Call refreshCacheSources.
-	srv.refreshCacheSources()
+	srv.RefreshCacheSources()
 
 	// Index cache should be nil.
 	srv.indexMu.Lock()
@@ -1785,7 +1785,7 @@ service:
 	srv.memCache = memCache
 
 	// No cacheSource yet — refreshCacheSources should create one on-the-fly.
-	srv.refreshCacheSources()
+	srv.RefreshCacheSources()
 
 	if srv.cacheSource == nil {
 		t.Error("expected cacheSource to be created on-the-fly")
@@ -1981,6 +1981,68 @@ func TestServerUpdateSourceInfo(t *testing.T) {
 				t.Errorf("expected reason 'discovered from K8s', got %q", si.Reason)
 			}
 		}
+	}
+}
+
+func TestNoCache_AllowsSameSessionEnrichment(t *testing.T) {
+	// Simulate --no-cache flow: no CacheSource at startup, but after
+	// same-session materialization (e.g. fetch-all-versions writes a bundle
+	// to disk), RefreshCacheSources creates one on-the-fly, wires it into
+	// OCI for enrichment, and invalidates the memory cache.
+
+	cacheDir := t.TempDir()
+
+	// Start with NO CacheSource (--no-cache mode).
+	source := &mockSource{
+		services: []Service{{Name: "svc", Version: "1.0.0"}},
+		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Version: "1.0.0"}}},
+	}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
+
+	// Wire memCache (always passed regardless of --no-cache).
+	memCache := NewMemoryCache()
+	memCache.Set("stale-key", "stale-value", time.Hour)
+	srv.SetCacheSource(nil, memCache) // nil CacheSource, non-nil memCache
+	srv.SetCacheDir(cacheDir)
+
+	// Wire OCI source.
+	ociSource := NewOCISource(newMockBundleStore(), []string{"ghcr.io/org/svc"})
+	srv.SetOCISource(ociSource)
+
+	// Verify: cache not public in ActiveSources.
+	if srv.cacheSource != nil {
+		t.Fatal("expected no CacheSource at startup with --no-cache")
+	}
+
+	// Simulate same-session materialization: write a bundle to cache dir.
+	writeBundleTarGzFile(t,
+		filepath.Join(cacheDir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: svc
+  version: 1.0.0
+`)
+
+	// Call RefreshCacheSources (as onDiscover or post-resolve would).
+	srv.RefreshCacheSources()
+
+	// CacheSource should have been created on-the-fly.
+	if srv.cacheSource == nil {
+		t.Fatal("expected CacheSource to be created on-the-fly after materialization")
+	}
+
+	// OCI source should have internal cache wired.
+	ociSource.mu.RLock()
+	hasCache := ociSource.cache != nil
+	ociSource.mu.RUnlock()
+	if !hasCache {
+		t.Error("expected OCI source to have internal cache wired for enrichment")
+	}
+
+	// Memory cache should be invalidated.
+	if _, ok := memCache.Get("stale-key"); ok {
+		t.Error("expected stale memory cache entry to be invalidated")
 	}
 }
 

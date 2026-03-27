@@ -797,7 +797,7 @@ func (s *Server) resolveRef(ctx context.Context, input *resolveRefInput) (*resol
 	details := ServiceDetailsFromBundle(bundle, "oci")
 	// Rescan disk cache and invalidate in-memory caches so the resolved
 	// service becomes a first-class cached artifact visible everywhere.
-	s.refreshCacheSources()
+	s.RefreshCacheSources()
 
 	return &resolveRefOutput{Body: details}, nil
 }
@@ -810,7 +810,7 @@ func (s *Server) listRemoteVersions(ctx context.Context, input *listRemoteVersio
 		// Fetch mode: pull every version so they persist in cache.
 		versions, err = s.resolver.FetchAllVersions(ctx, input.Body.Ref)
 		if err == nil {
-			s.refreshCacheSources()
+			s.RefreshCacheSources()
 		}
 	} else {
 		versions, err = s.resolver.ListVersions(ctx, input.Body.Ref)
@@ -924,12 +924,12 @@ func appendIncomingRef(refs []CrossReference, d *ServiceDetails, targetName, ref
 	return refs
 }
 
-// refreshCacheSources rescans the disk cache and invalidates the in-memory
+// RefreshCacheSources rescans the disk cache and invalidates the in-memory
 // data source cache so newly cached bundles become visible immediately.
 // If no CacheSource exists yet (e.g. --no-cache was used) but a cacheDir is
 // known, it creates one on-the-fly and wires it into the OCI source's
 // internal cache (never as a separate public source).
-func (s *Server) refreshCacheSources() {
+func (s *Server) RefreshCacheSources() {
 	if s.cacheSource == nil && s.cacheDir != "" {
 		cs := NewCacheSource(s.cacheDir)
 		if cs.ServiceCount() > 0 {

@@ -286,7 +286,9 @@ The `--no-cache` flag is a **cold-start mode**, not a fully stateless mode:
 
 - At startup, `DetectSources()` skips `detectCache()` entirely -- no pre-existing cached bundles are scanned or indexed
 - OCI pulls during the session still write bundles to disk (via `CachedStore`)
-- If the user triggers "Fetch all versions" or lazy dependency resolution, `refreshCacheSources()` creates a `CacheSource` on the fly and wires it into the OCI source for enrichment
+- If the user triggers "Fetch all versions" or lazy dependency resolution, `RefreshCacheSources()` creates a `CacheSource` on the fly and wires it into the OCI source for enrichment
+- The `memCache` is always wired at startup (even with `--no-cache`) via `SetCacheSource(nil, memCache)`, ensuring `RefreshCacheSources()` can invalidate stale entries after on-the-fly creation
+- The `onDiscover` callback is wired to `server.RefreshCacheSources` (not just `memCache.InvalidateAll`), so continuous background discovery also triggers on-the-fly `CacheSource` creation
 - This means `--no-cache` ensures a clean start but allows same-session materialization to enrich the current view
 
 ### Graph model

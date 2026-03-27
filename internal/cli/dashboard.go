@@ -115,10 +115,11 @@ Services are grouped by name across sources and merged using priority rules:
 				cachedSources[st] = dashboard.NewCachedDataSource(ds, memCache, ttl, st+":")
 			}
 
-			// Wire OCI background discovery to invalidate caches when
-			// new services are discovered, so they surface immediately.
+			// Wire OCI background discovery to refresh cache sources when
+			// new services are discovered. refreshCacheSources handles
+			// on-the-fly CacheSource creation (critical for --no-cache),
+			// cache rescan, OCI wiring, and memory cache invalidation.
 			if detectResult.OCI != nil {
-				detectResult.OCI.SetOnDiscover(memCache.InvalidateAll)
 				// Wire internal cache into OCI for version enrichment
 				// (hash, createdAt, classification) without exposing cache
 				// as a separate public source.
@@ -151,14 +152,22 @@ Services are grouped by name across sources and merged using priority rules:
 				server.SetOCISource(detectResult.OCI)
 			}
 
-			// Register the cache source and memory cache for runtime refresh
-			// after resolve or fetch-all-versions operations.
-			if detectResult.Cache != nil {
-				server.SetCacheSource(detectResult.Cache, memCache)
-			}
+			// Register cache source (if available) and memory cache for runtime
+			// refresh after resolve or fetch-all-versions operations.
+			// Always pass memCache so refreshCacheSources can invalidate stale
+			// data even when CacheSource is created on-the-fly (--no-cache).
+			server.SetCacheSource(detectResult.Cache, memCache)
 			// Always store the cache directory so fetch-all-versions can
 			// create a CacheSource on-the-fly (even with --no-cache).
 			server.SetCacheDir(cacheDir)
+
+			// Wire OCI background discovery to refreshCacheSources. This
+			// handles on-the-fly CacheSource creation (critical for --no-cache),
+			// cache rescan, OCI wiring, and memory cache invalidation — all
+			// in one callback that fires after each discovery cycle.
+			if detectResult.OCI != nil {
+				detectResult.OCI.SetOnDiscover(server.RefreshCacheSources)
+			}
 
 			// Lazy OCI enrichment: if startup retries didn't find OCI repos,
 			// register a callback so the server can retry on first API request.
@@ -325,15 +334,18 @@ func wireOCIEnrichment(
 		)
 		resolved.AddContractSource("oci", ociCached)
 
-		// Wire OCI discovery callbacks.
-		detectResult.OCI.SetOnDiscover(memCache.InvalidateAll)
+		// Wire OCI discovery callbacks to RefreshCacheSources so that
+		// on-the-fly CacheSource creation works (critical for --no-cache).
+		detectResult.OCI.SetOnDiscover(server.RefreshCacheSources)
 		server.SetOCISource(detectResult.OCI)
 
 		// Wire cache internally into OCI source for enrichment.
 		if detectResult.Cache != nil {
 			detectResult.OCI.SetCache(detectResult.Cache)
-			server.SetCacheSource(detectResult.Cache, memCache)
 		}
+		// Always pass memCache so RefreshCacheSources can invalidate stale
+		// data even when CacheSource is created on-the-fly (--no-cache).
+		server.SetCacheSource(detectResult.Cache, memCache)
 
 		// Update source metadata for /api/sources.
 		server.UpdateSourceInfo(detectResult.Sources)
