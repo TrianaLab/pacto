@@ -20,10 +20,11 @@ import (
 //   - Diff: only works with real contract bundles (local or OCI/cache).
 //   - Graph: built from the authoritative contract snapshot only.
 type ResolvedSource struct {
-	mu       sync.RWMutex
-	contract []namedContractSource // ordered: local first, then oci
-	runtime  *runtimeSourceEntry   // optional k8s
-	all      map[string]DataSource // all sources for version/diff lookups
+	mu            sync.RWMutex
+	contract      []namedContractSource // ordered: local first, then oci
+	runtime       *runtimeSourceEntry   // optional k8s
+	all           map[string]DataSource // all sources for version/diff lookups
+	lastSourceErr map[string]string     // dedup: last error message per source type
 }
 
 type namedContractSource struct {
@@ -57,6 +58,22 @@ func (r *ResolvedSource) sources() ([]namedContractSource, *runtimeSourceEntry, 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.contract, r.runtime, r.all
+}
+
+// logSourceError logs a source error only when the message changes,
+// preventing repeated identical warnings from flooding the terminal.
+func (r *ResolvedSource) logSourceError(sourceType string, err error) {
+	msg := err.Error()
+	r.mu.Lock()
+	if r.lastSourceErr == nil {
+		r.lastSourceErr = make(map[string]string)
+	}
+	prev := r.lastSourceErr[sourceType]
+	r.lastSourceErr[sourceType] = msg
+	r.mu.Unlock()
+	if msg != prev {
+		slog.Warn("source ListServices failed", "source", sourceType, "error", err)
+	}
 }
 
 // HasSource reports whether a source with the given name is registered.
@@ -165,7 +182,7 @@ func (r *ResolvedSource) ListServices(ctx context.Context) ([]Service, error) {
 	for range all {
 		res := <-results
 		if res.err != nil {
-			slog.Warn("source ListServices failed", "source", res.sourceType, "error", res.err)
+			r.logSourceError(res.sourceType, res.err)
 			continue
 		}
 		for _, svc := range res.services {
@@ -332,15 +349,17 @@ func enrichRuntimeMetadata(contract *ServiceDetails, runtime *ServiceDetails) {
 	}
 }
 
-// versionPriority governs the order in which sources are tried for GetVersions.
-// k8s (PactoRevision CRDs) is most authoritative, then OCI/cache, then local.
+// resolverVersionSources governs the order in which sources are tried for GetVersions.
+// k8s (PactoRevision CRDs) is most authoritative, then OCI, then local.
+// Cache enrichment (hash, classification) is internal to OCISource.
 var resolverVersionSources = []string{"k8s", "oci", "local"}
 
 func (r *ResolvedSource) GetVersions(ctx context.Context, name string) ([]Version, error) {
 	_, _, all := r.sources()
 
-	// Merge versions from all sources, labeled by origin, deduplicated.
-	seen := make(map[string]bool)
+	// Merge versions from all sources, labeled by origin.
+	// Later sources enrich earlier entries with missing fields.
+	seen := make(map[string]int) // version string → index in merged
 	var merged []Version
 
 	for _, sourceType := range resolverVersionSources {
@@ -353,10 +372,11 @@ func (r *ResolvedSource) GetVersions(ctx context.Context, name string) ([]Versio
 			continue
 		}
 		for _, v := range versions {
-			if seen[v.Version] {
+			if idx, exists := seen[v.Version]; exists {
+				enrichVersion(&merged[idx], &v)
 				continue
 			}
-			seen[v.Version] = true
+			seen[v.Version] = len(merged)
 			v.Source = sourceType
 			merged = append(merged, v)
 		}
@@ -372,6 +392,22 @@ func (r *ResolvedSource) GetVersions(ctx context.Context, name string) ([]Versio
 	})
 
 	return merged, nil
+}
+
+// enrichVersion fills empty fields in dst with non-empty values from src.
+func enrichVersion(dst, src *Version) {
+	if dst.ContractHash == "" && src.ContractHash != "" {
+		dst.ContractHash = src.ContractHash
+	}
+	if dst.CreatedAt == nil && src.CreatedAt != nil {
+		dst.CreatedAt = src.CreatedAt
+	}
+	if dst.Classification == "" && src.Classification != "" {
+		dst.Classification = src.Classification
+	}
+	if dst.Ref == "" && src.Ref != "" {
+		dst.Ref = src.Ref
+	}
 }
 
 func (r *ResolvedSource) GetDiff(ctx context.Context, from, to Ref) (*DiffResult, error) {

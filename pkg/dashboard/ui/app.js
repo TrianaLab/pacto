@@ -144,6 +144,13 @@ function morphAttrs(live, next) {
 function h(s) { if (s == null) return ''; var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
 function ha(s) { return h(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;'); }
 function pct(n, t) { return t > 0 ? Math.round(n / t * 100) : 0; }
+function classificationBadge(c) {
+  if (!c) return '<span class="text-dim">\u2014</span>';
+  if (c === 'NON_BREAKING') return '<span class="badge badge-ok">non-breaking</span>';
+  if (c === 'POTENTIAL_BREAKING') return '<span class="badge badge-warning">potential breaking</span>';
+  if (c === 'BREAKING') return '<span class="badge badge-critical">breaking</span>';
+  return '<span class="badge badge-neutral">' + h(c) + '</span>';
+}
 
 function probeInlineBadge(endpoints, probeType, iface) {
   if (!endpoints || !endpoints.length) return '';
@@ -1036,6 +1043,7 @@ function renderConnectionsTable() {
    D3 FORCE-DIRECTED GRAPH — adapted from operator v8 overview.html
    ════════════════════════════════════════════════════════════════ */
 var graphSim = null, graphZoom = null, graphSvg = null, graphG = null;
+var graphNodePositions = {}; // cached {id: {x, y}} across re-inits
 
 function initGraph() {
   var container = document.getElementById('graph-container');
@@ -1105,11 +1113,12 @@ function initGraph() {
     var col = byDepth[d] || [rn.id];
     var row = col.indexOf(rn.id);
     var totalH = col.length * rowSpacing;
+    var cached = graphNodePositions[rn.id];
     var node = {
       id: rn.id, serviceName: rn.serviceName, status: status, source: rn.source || '',
       edges: rn.edges || [], depth: d,
-      x: width / 2 - (maxDepth * colSpacing) / 2 + d * colSpacing,
-      y: height / 2 - totalH / 2 + row * rowSpacing
+      x: cached ? cached.x : width / 2 - (maxDepth * colSpacing) / 2 + d * colSpacing,
+      y: cached ? cached.y : height / 2 - totalH / 2 + row * rowSpacing
     };
     nodes.push(node);
     nodeMap[node.id] = node;
@@ -1212,6 +1221,7 @@ function initGraph() {
       .on('drag', function(event, d) { d.fx = event.x; d.fy = event.y; })
       .on('end', function(event, d) {
         if (!event.active) graphSim.alphaTarget(0);
+        graphNodePositions[d.id] = { x: d.x, y: d.y };
       })
     );
 
@@ -1321,6 +1331,8 @@ function initGraph() {
   graphSim.stop();
   for (var i = 0; i < 150; i++) graphSim.tick();
   updatePositions();
+  // Cache final positions so re-inits don't cause nodes to jump
+  nodes.forEach(function(n) { graphNodePositions[n.id] = { x: n.x, y: n.y }; });
 
   // v8: fitToView using getBBox with 400ms transition after 50ms delay
   function fitToView() {
@@ -1355,9 +1367,11 @@ function graphResetView() {
   if (!graphSim || !graphNodes) return;
   // v8: unpin all nodes, re-run simulation, refit
   graphNodes.forEach(function(n) { n.fx = null; n.fy = null; });
+  graphNodePositions = {};
   graphSim.stop();
   graphSim.alpha(1);
   for (var i = 0; i < 150; i++) graphSim.tick();
+  graphNodes.forEach(function(n) { graphNodePositions[n.id] = { x: n.x, y: n.y }; });
   if (graphUpdatePositions) graphUpdatePositions();
   if (graphFitToView) graphFitToView();
 }
@@ -2648,7 +2662,7 @@ function renderTabHistory(versions) {
   var o = '<div class="card"><div class="card-header"><div class="section-label">Version History</div><span class="text-dim">' + versions.length + ' revision' + (versions.length !== 1 ? 's' : '') + '</span>';
   if (ociRepo) o += ' <button class="filter-clear" style="font-size:11px;margin-left:8px" id="fetch-versions-btn" onclick="fetchAllVersions(\'' + ha(ociRepo) + '\')">Fetch all versions</button>';
   o += '</div>';
-  o += '<div class="table-wrapper"><table><thead><tr><th>Version</th><th>Source</th><th>Hash</th><th>Created</th><th>Status</th><th></th></tr></thead><tbody>';
+  o += '<div class="table-wrapper"><table><thead><tr><th>Version</th><th>Source</th><th>Hash</th><th>Created</th><th>Changes</th><th>Status</th><th></th></tr></thead><tbody>';
   for (var i = 0; i < versions.length; i++) {
     var v = versions[i];
     var isCurrent = v.version === (state.details[state.service] || {}).version;
@@ -2657,6 +2671,7 @@ function renderTabHistory(versions) {
     o += '<td><span class="text-dim">' + h(v.ref || '\u2014') + '</span></td>';
     o += '<td><code>' + h(v.contractHash ? v.contractHash.substring(0, 12) : '\u2014') + '</code></td>';
     o += '<td><span class="text-dim">' + (v.createdAt ? new Date(v.createdAt).toLocaleDateString() : '\u2014') + '</span></td>';
+    o += '<td>' + classificationBadge(v.classification) + '</td>';
     o += '<td>' + (isCurrent ? '<span class="badge badge-ok">current</span>' : '<span class="badge badge-neutral">' + h(v.version) + '</span>') + '</td>';
     o += '<td>';
     if (canDiff && !isCurrent) {
@@ -2696,17 +2711,12 @@ async function fetchAllVersions(ociRepo) {
   var btn = document.getElementById('fetch-versions-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Fetching\u2026'; }
   try {
-    var result = await api.listRemoteVersions(ociRepo, true);
-    var remote = (result && result.versions) || [];
-    var existing = state.versions[state.service] || [];
-    var known = {};
-    for (var i = 0; i < existing.length; i++) known[existing[i].version] = true;
-    for (var j = 0; j < remote.length; j++) {
-      if (!known[remote[j]]) existing.push({ version: remote[j], ref: ociRepo + ':' + remote[j] });
-    }
-    existing.sort(function(a, b) { return b.version.localeCompare(a.version, undefined, { numeric: true }); });
-    state.versions[state.service] = existing;
-    document.getElementById('tab-content').innerHTML = renderTabHistory(existing);
+    await api.listRemoteVersions(ociRepo, true);
+    // Re-fetch versions from the API so enriched data (hash, classification)
+    // from the now-populated cache source flows through.
+    var versions = await api.getVersions(state.service);
+    state.versions[state.service] = versions;
+    document.getElementById('tab-content').innerHTML = renderTabHistory(versions);
   } catch (e) {
     if (btn) { btn.textContent = 'Error: ' + (e.message || 'failed'); btn.style.color = 'var(--danger)'; }
   }

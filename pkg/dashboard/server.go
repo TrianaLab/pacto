@@ -22,6 +22,7 @@ type Server struct {
 	resolved    *ResolvedSource // may be nil for non-resolved usage
 	resolver    *oci.Resolver   // optional: enables lazy resolution of remote OCI dependencies
 	cacheSource *CacheSource    // optional: for rescanning after cache writes
+	cacheDir    string          // optional: OCI cache dir for on-demand CacheSource creation
 	memCache    Cache           // optional: for invalidating after cache writes
 	ociSource   *OCISource      // optional: for tracking discovery state
 	ui          fs.FS
@@ -99,6 +100,13 @@ func (s *Server) SetResolver(r *oci.Resolver) {
 func (s *Server) SetCacheSource(cs *CacheSource, memCache Cache) {
 	s.cacheSource = cs
 	s.memCache = memCache
+}
+
+// SetCacheDir stores the OCI cache directory path so the server can create
+// a CacheSource on-the-fly after fetch-all-versions, even when --no-cache
+// was used and no CacheSource existed at startup.
+func (s *Server) SetCacheDir(dir string) {
+	s.cacheDir = dir
 }
 
 // SetOCISource registers the OCISource so the server can report discovery state.
@@ -918,9 +926,26 @@ func appendIncomingRef(refs []CrossReference, d *ServiceDetails, targetName, ref
 
 // refreshCacheSources rescans the disk cache and invalidates the in-memory
 // data source cache so newly cached bundles become visible immediately.
+// If no CacheSource exists yet (e.g. --no-cache was used) but a cacheDir is
+// known, it creates one on-the-fly and wires it into the OCI source's
+// internal cache (never as a separate public source).
 func (s *Server) refreshCacheSources() {
+	if s.cacheSource == nil && s.cacheDir != "" {
+		cs := NewCacheSource(s.cacheDir)
+		if cs.ServiceCount() > 0 {
+			s.cacheSource = cs
+			// Wire into OCI's internal cache for enrichment, not as a public source.
+			if s.ociSource != nil {
+				s.ociSource.SetCache(cs)
+			}
+		}
+	}
 	if s.cacheSource != nil {
 		s.cacheSource.Rescan()
+	}
+	// Also tell the OCI source to rescan its internal cache view.
+	if s.ociSource != nil {
+		s.ociSource.RescanCache()
 	}
 	if s.memCache != nil {
 		s.memCache.InvalidateAll()

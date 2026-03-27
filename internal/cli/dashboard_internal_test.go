@@ -33,7 +33,6 @@ func TestCacheTTL(t *testing.T) {
 	}{
 		{"k8s", 10 * time.Second},
 		{"oci", 5 * time.Minute},
-		{"cache", 10 * time.Minute},
 		{"local", 2 * time.Second},
 		{"unknown", 30 * time.Second},
 	}

@@ -242,11 +242,12 @@ type PortsInfo struct {
 
 // Version represents a historical version of a service.
 type Version struct {
-	Version      string     `json:"version"`
-	Ref          string     `json:"ref,omitempty"`
-	ContractHash string     `json:"contractHash,omitempty"`
-	CreatedAt    *time.Time `json:"createdAt,omitempty"`
-	Source       string     `json:"source,omitempty"` // origin: "k8s", "oci", "local"
+	Version        string     `json:"version"`
+	Ref            string     `json:"ref,omitempty"`
+	ContractHash   string     `json:"contractHash,omitempty"`
+	CreatedAt      *time.Time `json:"createdAt,omitempty"`
+	Source         string     `json:"source,omitempty"`         // origin: "k8s", "oci", "local"
+	Classification string     `json:"classification,omitempty"` // diff vs previous: "NON_BREAKING", "POTENTIAL_BREAKING", "BREAKING"
 }
 
 // Ref identifies a specific version of a service for diffing.

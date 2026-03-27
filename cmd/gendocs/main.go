@@ -139,16 +139,32 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"making dependency graphs, version history, interfaces, configuration schemas, and diffs accessible in one place.\n\n" +
 		"### What the dashboard shows\n\n" +
 		"- **Dependency graphs** — interactive D3 visualization of service relationships, with impact chain highlighting\n" +
-		"- **Version history** — all available versions from OCI, with the ability to fetch and cache every version\n" +
+		"- **Version history** — all available versions from OCI, with hash, classification, and timestamps\n" +
 		"- **Interface details** — OpenAPI endpoints, gRPC definitions, event schemas extracted from contract bundles\n" +
 		"- **Configuration schemas** — JSON Schema properties for environment variables and settings\n" +
 		"- **Policy references** — organizational standards enforcement via referenced policy contracts\n" +
 		"- **Diffs between versions** — classified changes (breaking, non-breaking, potential) between any two versions\n" +
 		"- **Runtime compliance** — when Kubernetes is available, live phase, conditions, endpoint health, and contract-vs-runtime comparison\n\n" +
+		"### Public source model\n\n" +
+		"The dashboard exposes three public source types: `local`, `k8s`, and `oci`. " +
+		"There is no separate \"cache\" source visible to the user or API.\n\n" +
 		"### Contract-first resolution\n\n" +
 		"Sources are resolved using a contract-first model. " +
 		"Contract sources (`local`, `oci`) provide the authoritative service definition — exactly one contract snapshot wins per service, with `local` taking priority over `oci`. " +
 		"The runtime source (`k8s`) enriches the contract with live cluster state (phase, conditions, endpoints) but never overrides contract content.\n\n" +
+		"### Internal cache / materialization\n\n" +
+		"Materialized bundles on disk (`~/.cache/pacto/oci/`) are used internally by the OCI source to enrich version data " +
+		"(contract hash, classification, timestamps) without appearing as a separate source in the UI or API. " +
+		"When bundles are fetched (via \"Fetch all versions\" or lazy dependency resolution), they are cached on disk " +
+		"and the OCI source's internal view is rescanned so the enriched data surfaces immediately.\n\n" +
+		"### `--no-cache` semantics\n\n" +
+		"The `--no-cache` flag prevents the dashboard from scanning pre-existing cached bundles at startup (cold-start mode). " +
+		"However, bundles materialized during the current session (via fetch-all-versions, dependency resolution, or OCI pulls) " +
+		"are still cached to disk and reused for enrichment within the same session.\n\n" +
+		"### Version classification\n\n" +
+		"Each version (except the oldest) receives a classification — `NON_BREAKING`, `POTENTIAL_BREAKING`, or `BREAKING` — " +
+		"computed by diffing consecutive bundles. Classification requires materialized bundles: if a version has not been fetched " +
+		"yet, it will have no classification until its bundle is pulled (e.g. via \"Fetch all versions\").\n\n" +
 		"### Kubernetes + OCI hybrid view\n\n" +
 		"When running alongside the Kubernetes operator (no `--repo` flags needed), the dashboard automatically discovers OCI repositories from the `imageRef` fields in Pacto CRD statuses. " +
 		"This means a K8s-only dashboard deployment gets the full contract experience: version history, interface details, configuration schemas, and diffs — " +

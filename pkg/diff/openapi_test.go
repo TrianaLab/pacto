@@ -384,6 +384,9 @@ paths:
 	for _, c := range changes {
 		if c.Path == "openapi.paths[/users].methods[POST].request-body" && c.Type == Modified {
 			found = true
+			if c.NewValue == "" {
+				t.Errorf("expected non-empty NewValue showing body diff, got old=%q new=%q", c.OldValue, c.NewValue)
+			}
 		}
 	}
 	if !found {
@@ -501,6 +504,9 @@ paths:
 	for _, c := range changes {
 		if c.Path == "openapi.paths[/users].methods[GET].responses[200]" && c.Type == Modified && c.Classification == PotentialBreaking {
 			found = true
+			if c.NewValue == "" {
+				t.Errorf("expected non-empty NewValue showing schema diff, got old=%q new=%q", c.OldValue, c.NewValue)
+			}
 		}
 	}
 	if !found {
@@ -801,6 +807,12 @@ paths:
 	for _, c := range changes {
 		if c.Path == "openapi.paths[/users].methods[GET].parameters[filter:query]" && c.Type == Modified {
 			found = true
+			if c.OldValue != "required=false" {
+				t.Errorf("expected OldValue 'required=false', got %q", c.OldValue)
+			}
+			if c.NewValue != "required=true" {
+				t.Errorf("expected NewValue 'required=true', got %q", c.NewValue)
+			}
 		}
 	}
 	if !found {
@@ -929,6 +941,109 @@ func TestToSlice(t *testing.T) {
 				t.Error("expected non-nil result")
 			}
 		})
+	}
+}
+
+func TestFlattenMap(t *testing.T) {
+	m := map[string]any{
+		"required": true,
+		"schema":   map[string]any{"type": "string", "title": "Filter"},
+	}
+	flat := flattenMap(m, "")
+	if flat["required"] != "true" {
+		t.Errorf("expected required=true, got %q", flat["required"])
+	}
+	if flat["schema.type"] != "string" {
+		t.Errorf("expected schema.type=string, got %q", flat["schema.type"])
+	}
+	if flat["schema.title"] != "Filter" {
+		t.Errorf("expected schema.title=Filter, got %q", flat["schema.title"])
+	}
+}
+
+func TestFlattenMap_WithPrefix(t *testing.T) {
+	m := map[string]any{"type": "string"}
+	flat := flattenMap(m, "schema")
+	if flat["schema.type"] != "string" {
+		t.Errorf("expected schema.type=string, got %q", flat["schema.type"])
+	}
+}
+
+func TestFlattenMap_Empty(t *testing.T) {
+	flat := flattenMap(map[string]any{}, "")
+	if len(flat) != 0 {
+		t.Errorf("expected empty map, got %v", flat)
+	}
+}
+
+func TestFlattenMap_Nil(t *testing.T) {
+	flat := flattenMap(nil, "")
+	if len(flat) != 0 {
+		t.Errorf("expected empty map, got %v", flat)
+	}
+}
+
+func TestMapDelta_PropertyChanged(t *testing.T) {
+	old := map[string]any{"required": false, "schema": map[string]any{"type": "string"}}
+	new := map[string]any{"required": true, "schema": map[string]any{"type": "string"}}
+	oldS, newS := mapDelta(old, new, nil)
+	if oldS != "required=false" {
+		t.Errorf("expected old 'required=false', got %q", oldS)
+	}
+	if newS != "required=true" {
+		t.Errorf("expected new 'required=true', got %q", newS)
+	}
+}
+
+func TestMapDelta_PropertyAdded(t *testing.T) {
+	old := map[string]any{"schema": map[string]any{"type": "string"}}
+	new := map[string]any{"required": true, "schema": map[string]any{"type": "string"}}
+	oldS, newS := mapDelta(old, new, nil)
+	if oldS != "" {
+		t.Errorf("expected empty old, got %q", oldS)
+	}
+	if newS != "required=true" {
+		t.Errorf("expected new 'required=true', got %q", newS)
+	}
+}
+
+func TestMapDelta_PropertyRemoved(t *testing.T) {
+	old := map[string]any{"required": true, "description": "A filter", "schema": map[string]any{"type": "string"}}
+	new := map[string]any{"required": true, "schema": map[string]any{"type": "string"}}
+	oldS, newS := mapDelta(old, new, nil)
+	if oldS != "description=A filter" {
+		t.Errorf("expected old 'description=A filter', got %q", oldS)
+	}
+	if newS != "" {
+		t.Errorf("expected empty new, got %q", newS)
+	}
+}
+
+func TestMapDelta_WithSkipKeys(t *testing.T) {
+	old := map[string]any{"name": "filter", "in": "query", "required": false}
+	new := map[string]any{"name": "filter", "in": "query", "required": true}
+	skip := map[string]bool{"name": true, "in": true}
+	oldS, newS := mapDelta(old, new, skip)
+	if oldS != "required=false" {
+		t.Errorf("expected old 'required=false', got %q", oldS)
+	}
+	if newS != "required=true" {
+		t.Errorf("expected new 'required=true', got %q", newS)
+	}
+}
+
+func TestMapDelta_Identical(t *testing.T) {
+	m := map[string]any{"required": true, "schema": map[string]any{"type": "string"}}
+	oldS, newS := mapDelta(m, m, nil)
+	if oldS != "" || newS != "" {
+		t.Errorf("expected empty for identical maps, got old=%q new=%q", oldS, newS)
+	}
+}
+
+func TestMapDelta_NilMaps(t *testing.T) {
+	oldS, newS := mapDelta(nil, nil, nil)
+	if oldS != "" || newS != "" {
+		t.Errorf("expected empty for nil maps, got old=%q new=%q", oldS, newS)
 	}
 }
 

@@ -344,6 +344,37 @@ func TestResolvedSource_GetVersions_FallsBackToLocal(t *testing.T) {
 	}
 }
 
+func TestResolvedSource_GetVersions_NoCacheAsPublicSource(t *testing.T) {
+	// Verify that cache is NOT a public source in the resolution pipeline.
+	// OCI enrichment from cache happens internally inside OCISource, not
+	// via the resolver merging a separate "cache" source.
+	resolved := BuildResolvedSource(map[string]DataSource{
+		"oci": &stubSource{
+			versions: map[string][]Version{
+				"svc": {
+					{Version: "2.0.0", Ref: "ghcr.io/org/svc:2.0.0"},
+					{Version: "1.0.0", Ref: "ghcr.io/org/svc:1.0.0"},
+				},
+			},
+		},
+	})
+
+	versions, err := resolved.GetVersions(context.Background(), "svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("expected 2 versions, got %d", len(versions))
+	}
+
+	// Source label should always be "oci" — cache is internal to OCI.
+	for _, v := range versions {
+		if v.Source != "oci" {
+			t.Errorf("expected source 'oci', got %q for version %s", v.Source, v.Version)
+		}
+	}
+}
+
 func TestResolvedSource_GetVersions_AllSourcesFail(t *testing.T) {
 	resolved := BuildResolvedSource(map[string]DataSource{
 		"oci":   &failingSource{err: fmt.Errorf("oci fail")},
@@ -792,19 +823,19 @@ func TestResolvedSource_AddSource(t *testing.T) {
 	}
 	resolved := BuildResolvedSource(map[string]DataSource{"local": local})
 
-	// Add cache source (non-contract, for version/diff lookups only).
-	cache := &stubSource{
+	// Add an auxiliary source (non-contract, for version/diff lookups only).
+	aux := &stubSource{
 		versions: map[string][]Version{"svc": {{Version: "0.9.0"}, {Version: "1.0.0"}}},
 	}
-	resolved.AddSource("cache", cache)
+	resolved.AddSource("aux", aux)
 
-	if !resolved.HasSource("cache") {
-		t.Error("expected HasSource('cache') = true after AddSource")
+	if !resolved.HasSource("aux") {
+		t.Error("expected HasSource('aux') = true after AddSource")
 	}
 
-	// GetSource should return the cache source.
-	if resolved.GetSource("cache") == nil {
-		t.Error("expected GetSource('cache') to return non-nil")
+	// GetSource should return the aux source.
+	if resolved.GetSource("aux") == nil {
+		t.Error("expected GetSource('aux') to return non-nil")
 	}
 	if resolved.GetSource("nonexistent") != nil {
 		t.Error("expected GetSource('nonexistent') to return nil")

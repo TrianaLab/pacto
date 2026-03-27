@@ -892,6 +892,99 @@ func TestExtractTar_TotalSizeExceeded(t *testing.T) {
 	}
 }
 
+func TestCacheSource_GetVersions_Classification(t *testing.T) {
+	root := t.TempDir()
+
+	// v1 and v2 are identical contracts (only version differs) → NON_BREAKING
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 1.0.0
+`)
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 2.0.0
+`)
+	// v3 removes an interface → BREAKING
+	writeBundleTarGzWithFiles(t,
+		filepath.Join(root, "ghcr.io/org/api/2.5.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 2.5.0
+interfaces:
+  - name: http
+    type: rest
+    port: 8080
+`, nil)
+	writeBundleTarGzWithFiles(t,
+		filepath.Join(root, "ghcr.io/org/api/3.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 3.0.0
+`, nil)
+
+	src := NewCacheSource(root)
+	versions, err := src.GetVersions(context.Background(), "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 4 {
+		t.Fatalf("expected 4 versions, got %d", len(versions))
+	}
+
+	// Sorted descending: 3.0.0, 2.5.0, 2.0.0, 1.0.0
+	// 3.0.0 vs 2.5.0: interface removed → BREAKING
+	if versions[0].Classification != "BREAKING" {
+		t.Errorf("expected v3.0.0 classification 'BREAKING', got %q", versions[0].Classification)
+	}
+	// 2.5.0 vs 2.0.0: interface added → NON_BREAKING
+	if versions[1].Classification != "NON_BREAKING" {
+		t.Errorf("expected v2.5.0 classification 'NON_BREAKING', got %q", versions[1].Classification)
+	}
+	// 2.0.0 vs 1.0.0: only version changed → NON_BREAKING
+	if versions[2].Classification != "NON_BREAKING" {
+		t.Errorf("expected v2.0.0 classification 'NON_BREAKING', got %q", versions[2].Classification)
+	}
+	// 1.0.0 is the oldest → no classification
+	if versions[3].Classification != "" {
+		t.Errorf("expected v1.0.0 classification empty (oldest), got %q", versions[3].Classification)
+	}
+}
+
+func writeBundleTarGzWithFiles(t *testing.T, path string, pactoYAML string, extraFiles map[string][]byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	gw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gw)
+
+	data := []byte(pactoYAML)
+	_ = tw.WriteHeader(&tar.Header{Name: "pacto.yaml", Size: int64(len(data)), Mode: 0644})
+	_, _ = tw.Write(data)
+
+	for name, content := range extraFiles {
+		_ = tw.WriteHeader(&tar.Header{Name: name, Size: int64(len(content)), Mode: 0644})
+		_, _ = tw.Write(content)
+	}
+
+	_ = tw.Close()
+	_ = gw.Close()
+}
+
 func TestExtractTar_SkipsDotEntry(t *testing.T) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)

@@ -3,6 +3,7 @@ package diff
 import (
 	"fmt"
 	"io/fs"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -164,11 +165,12 @@ func diffOperation(path, method string, oldOp, newOp any) []Change {
 			Reason:         fmt.Sprintf("%s %s request body added", method, path),
 		})
 	} else if oldHas && newHas && !yamlEqual(oldBody, newBody) {
+		oldSummary, newSummary := mapDelta(toStringMap(oldBody), toStringMap(newBody), nil)
 		changes = append(changes, Change{
 			Path:           bodyPath,
 			Type:           Modified,
-			OldValue:       fmt.Sprintf("%s %s", method, path),
-			NewValue:       fmt.Sprintf("%s %s", method, path),
+			OldValue:       oldSummary,
+			NewValue:       newSummary,
 			Classification: classify("openapi.request-body", Modified),
 			Reason:         fmt.Sprintf("%s %s request body modified", method, path),
 		})
@@ -181,6 +183,9 @@ func diffOperation(path, method string, oldOp, newOp any) []Change {
 
 	return changes
 }
+
+// paramIdentityKeys are parameter fields already encoded in the diff path.
+var paramIdentityKeys = map[string]bool{"name": true, "in": true}
 
 // paramKey returns a unique key for an OpenAPI parameter: "name:in".
 func paramKey(param map[string]any) string {
@@ -216,11 +221,12 @@ func diffParameters(path, method string, oldParams, newParams []any) []Change {
 			continue
 		}
 		if !yamlEqual(oldParam, newParam) {
+			oldSummary, newSummary := mapDelta(oldParam, newParam, paramIdentityKeys)
 			changes = append(changes, Change{
 				Path:           fmt.Sprintf("openapi.paths[%s].methods[%s].parameters[%s]", path, method, key),
 				Type:           Modified,
-				OldValue:       fmt.Sprintf("%s %s %s", method, path, paramLabel(oldParam)),
-				NewValue:       fmt.Sprintf("%s %s %s", method, path, paramLabel(newParam)),
+				OldValue:       oldSummary,
+				NewValue:       newSummary,
 				Classification: classify("openapi.parameters", Modified),
 				Reason:         fmt.Sprintf("%s %s %s modified", method, path, paramLabel(oldParam)),
 			})
@@ -277,11 +283,12 @@ func diffResponses(path, method string, oldResp, newResp map[string]any) []Chang
 			continue
 		}
 		if !yamlEqual(oldVal, newVal) {
+			oldSummary, newSummary := mapDelta(toStringMap(oldVal), toStringMap(newVal), nil)
 			changes = append(changes, Change{
 				Path:           respPath,
 				Type:           Modified,
-				OldValue:       fmt.Sprintf("%s %s %s", method, path, code),
-				NewValue:       fmt.Sprintf("%s %s %s", method, path, code),
+				OldValue:       oldSummary,
+				NewValue:       newSummary,
 				Classification: classify("openapi.responses", Modified),
 				Reason:         fmt.Sprintf("%s %s response %s modified", method, path, code),
 			})
@@ -326,4 +333,64 @@ func yamlEqual(a, b any) bool {
 	aBytes, _ := yaml.Marshal(a)
 	bBytes, _ := yaml.Marshal(b)
 	return string(aBytes) == string(bBytes)
+}
+
+// flattenMap recursively flattens a map into dot-separated key paths.
+// e.g. {"schema": {"type": "string"}} → {"schema.type": "string"}.
+func flattenMap(m map[string]any, prefix string) map[string]string {
+	out := make(map[string]string)
+	for k, v := range m {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		if sub, ok := v.(map[string]any); ok {
+			for sk, sv := range flattenMap(sub, key) {
+				out[sk] = sv
+			}
+		} else {
+			out[key] = fmt.Sprintf("%v", v)
+		}
+	}
+	return out
+}
+
+// mapDelta compares two maps and returns compact summaries showing only the
+// properties that differ. Keys in skip are excluded from the output.
+func mapDelta(old, new map[string]any, skip map[string]bool) (string, string) {
+	oldFlat := flattenMap(old, "")
+	newFlat := flattenMap(new, "")
+
+	var oldParts, newParts []string
+
+	// Collect all keys in sorted order for deterministic output.
+	var keys []string
+	for k := range oldFlat {
+		keys = append(keys, k)
+	}
+	for k := range newFlat {
+		if _, ok := oldFlat[k]; !ok {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		if skip[k] {
+			continue
+		}
+		ov, inOld := oldFlat[k]
+		nv, inNew := newFlat[k]
+		if inOld && inNew && ov == nv {
+			continue
+		}
+		if inOld {
+			oldParts = append(oldParts, k+"="+ov)
+		}
+		if inNew {
+			newParts = append(newParts, k+"="+nv)
+		}
+	}
+
+	return strings.Join(oldParts, ", "), strings.Join(newParts, ", ")
 }

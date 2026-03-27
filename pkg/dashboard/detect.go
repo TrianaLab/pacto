@@ -129,15 +129,10 @@ func (r *DetectResult) ActiveSources() map[string]DataSource {
 	return sources
 }
 
-// AllSources returns all DataSource instances including cache (for version
-// history lookups where cache may have richer metadata than live OCI).
+// AllSources returns all public DataSource instances. Cache is internal to OCI
+// and never exposed as a separate named source.
 func (r *DetectResult) AllSources() map[string]DataSource {
-	sources := r.ActiveSources()
-	// If cache exists and OCI also exists, add cache separately for version lookups.
-	if r.Cache != nil && r.OCI != nil {
-		sources["cache"] = r.Cache
-	}
-	return sources
+	return r.ActiveSources()
 }
 
 func (r *DetectResult) detectLocal(dir string) {

@@ -26,6 +26,12 @@ type OCISource struct {
 	done     chan struct{}     // closed when background discovery completes
 
 	onDiscover func() // called when a new service is discovered (cache invalidation)
+
+	// cache is an optional internal CacheSource used to enrich version data
+	// (hash, createdAt, classification) from materialized bundles on disk.
+	// This is an internal implementation detail — cache is never exposed as
+	// a separate public source.
+	cache *CacheSource
 }
 
 // NewOCISource creates a data source backed by OCI registries.
@@ -39,6 +45,26 @@ func NewOCISource(store oci.BundleStore, repos []string) *OCISource {
 // surfaces immediately on the next API call.
 func (s *OCISource) SetOnDiscover(fn func()) {
 	s.onDiscover = fn
+}
+
+// SetCache wires an internal CacheSource so that GetVersions can enrich
+// bare tag listings with hash, createdAt, and classification data from
+// materialized bundles on disk. The cache is never exposed as a public source.
+func (s *OCISource) SetCache(cs *CacheSource) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cache = cs
+}
+
+// RescanCache triggers a rescan of the internal CacheSource, picking up
+// any newly materialized bundles on disk.
+func (s *OCISource) RescanCache() {
+	s.mu.RLock()
+	cs := s.cache
+	s.mu.RUnlock()
+	if cs != nil {
+		cs.Rescan()
+	}
 }
 
 // Discovering reports whether background dependency discovery is still running.
@@ -265,6 +291,27 @@ func (s *OCISource) GetVersions(ctx context.Context, name string) ([]Version, er
 			Version: tag,
 			Ref:     repo + ":" + tag,
 		})
+	}
+
+	// Internally enrich from materialized bundles (cache) when available.
+	// This fills in hash, createdAt, and classification without exposing
+	// cache as a separate public source.
+	s.mu.RLock()
+	cs := s.cache
+	s.mu.RUnlock()
+	if cs != nil {
+		cacheVersions, err := cs.GetVersions(ctx, name)
+		if err == nil {
+			cacheByTag := make(map[string]*Version, len(cacheVersions))
+			for i := range cacheVersions {
+				cacheByTag[cacheVersions[i].Version] = &cacheVersions[i]
+			}
+			for i := range versions {
+				if cv, ok := cacheByTag[versions[i].Version]; ok {
+					enrichVersion(&versions[i], cv)
+				}
+			}
+		}
 	}
 
 	return versions, nil

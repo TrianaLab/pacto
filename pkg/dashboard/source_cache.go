@@ -21,9 +21,14 @@ import (
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
-// CacheSource implements DataSource by reading bundles from the on-disk OCI
-// cache at ~/.cache/pacto/oci/. It discovers pre-existing cached bundles
-// without requiring network access or explicit --repo flags.
+// CacheSource implements DataSource by reading materialized OCI bundles from
+// the on-disk cache at ~/.cache/pacto/oci/. It is NOT a public data source —
+// it exists solely as an internal backing store for OCISource, providing
+// contract hash, classification, and createdAt enrichment from previously
+// pulled bundles. It must never appear as a named source in the API or UI.
+//
+// When no live OCI registry is configured, ActiveSources() maps CacheSource
+// under the "oci" key so previously cached data is still available.
 //
 // The cache layout is: <cacheDir>/<repo>/<tag>/bundle.tar.gz
 // e.g. ~/.cache/pacto/oci/ghcr.io/org/service/1.0.0/bundle.tar.gz
@@ -139,7 +144,7 @@ func (s *CacheSource) ListServices(_ context.Context) ([]Service, error) {
 		if latest == nil {
 			continue
 		}
-		service := ServiceFromContract(latest.bundle.Contract, "cache")
+		service := ServiceFromContract(latest.bundle.Contract, "oci")
 		service.Phase = phaseFromBundle(latest.bundle)
 		services = append(services, service)
 	}
@@ -159,7 +164,7 @@ func (s *CacheSource) GetService(_ context.Context, name string) (*ServiceDetail
 	if latest == nil {
 		return nil, fmt.Errorf("no versions found for %q in OCI cache", name)
 	}
-	return ServiceDetailsFromBundle(latest.bundle, "cache"), nil
+	return ServiceDetailsFromBundle(latest.bundle, "oci"), nil
 }
 
 func (s *CacheSource) GetVersions(_ context.Context, name string) ([]Version, error) {
@@ -168,8 +173,15 @@ func (s *CacheSource) GetVersions(_ context.Context, name string) ([]Version, er
 		return nil, fmt.Errorf("service %q not found in OCI cache", name)
 	}
 
+	sorted := svc.sortedVersions() // descending: latest first
+	// Build bundle pairs for classification.
+	pairs := make([]BundlePair, len(sorted))
+	for i, v := range sorted {
+		pairs[i] = BundlePair{Tag: v.tag, Bundle: v.bundle}
+	}
+	classifications := ClassifyVersions(pairs)
 	var versions []Version
-	for _, v := range svc.sortedVersions() {
+	for _, v := range sorted {
 		ver := Version{
 			Version: v.tag,
 			Ref:     v.repo + ":" + v.tag,
@@ -179,11 +191,14 @@ func (s *CacheSource) GetVersions(_ context.Context, name string) ([]Version, er
 			h := sha256.Sum256(v.bundle.RawYAML)
 			ver.ContractHash = hex.EncodeToString(h[:])
 		}
-		// Use bundle.tar.gz file modification time as created date
+		// Use bundle.tar.gz file modification time as createdAt.
+		// Note: this is the local materialization time (when the bundle was
+		// pulled/cached to disk), not the registry push time.
 		if info, err := os.Stat(v.path); err == nil {
 			t := info.ModTime()
 			ver.CreatedAt = &t
 		}
+		ver.Classification = classifications[v.tag]
 		versions = append(versions, ver)
 	}
 	return versions, nil

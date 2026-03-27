@@ -23,18 +23,22 @@ func newDashboardCommand(svc *app.Service, v *viper.Viper, version string) *cobr
 		Use:   "dashboard [dir]",
 		Short: "Start a local web dashboard for exploring service contracts",
 		Long: `Launches a contract exploration dashboard that aggregates data from all
-available sources (local filesystem, Kubernetes, OCI registries, disk cache).
+available sources (local filesystem, Kubernetes, OCI registries).
 
 The dashboard is the exploration and observability layer of the Pacto system.
 It visualizes the same contracts the CLI manages and the operator verifies —
 dependency graphs, version history, interfaces, configuration schemas, diffs,
 and runtime compliance — in a single unified view.
 
-Sources are auto-detected at startup:
+Public sources are auto-detected at startup:
   - local: enabled if pacto.yaml is found in the working directory
   - k8s:   enabled if a valid kubeconfig is found and the cluster is reachable
   - oci:   enabled if --repo is specified, or auto-discovered from K8s imageRefs
-  - cache: enabled if ~/.cache/pacto/oci contains cached bundles
+
+Materialized bundles on disk (~/.cache/pacto/oci) are used internally by the
+OCI source to enrich version data (hash, classification, timestamps) without
+appearing as a separate source. The --no-cache flag skips pre-existing cache
+at startup but still allows same-session materialization (e.g. fetch-all-versions).
 
 When running alongside the Kubernetes operator, OCI repositories are automatically
 discovered from the imageRef fields of Pacto CRD resources. This provides full
@@ -44,7 +48,7 @@ operator combined with contract truth from OCI.
 
 Services are grouped by name across sources and merged using priority rules:
   - Kubernetes for runtime state (phase, checks, endpoints)
-  - OCI/cache for contract content and version history
+  - OCI for contract content and version history
   - Local for in-progress contract changes`,
 		Example: `  # Start dashboard with auto-detected sources
   pacto dashboard
@@ -115,6 +119,12 @@ Services are grouped by name across sources and merged using priority rules:
 			// new services are discovered, so they surface immediately.
 			if detectResult.OCI != nil {
 				detectResult.OCI.SetOnDiscover(memCache.InvalidateAll)
+				// Wire internal cache into OCI for version enrichment
+				// (hash, createdAt, classification) without exposing cache
+				// as a separate public source.
+				if detectResult.Cache != nil {
+					detectResult.OCI.SetCache(detectResult.Cache)
+				}
 			}
 
 			// Build resolved source with contract + runtime separation.
@@ -146,6 +156,9 @@ Services are grouped by name across sources and merged using priority rules:
 			if detectResult.Cache != nil {
 				server.SetCacheSource(detectResult.Cache, memCache)
 			}
+			// Always store the cache directory so fetch-all-versions can
+			// create a CacheSource on-the-fly (even with --no-cache).
+			server.SetCacheDir(cacheDir)
 
 			// Lazy OCI enrichment: if startup retries didn't find OCI repos,
 			// register a callback so the server can retry on first API request.
@@ -229,8 +242,6 @@ func cacheTTL(sourceType string) time.Duration {
 		return 10 * time.Second // short TTL for runtime data
 	case "oci":
 		return 5 * time.Minute // longer TTL for registry data
-	case "cache":
-		return 10 * time.Minute // disk cache is static, long TTL
 	case "local":
 		return 2 * time.Second // very short for local files
 	default:
@@ -318,12 +329,9 @@ func wireOCIEnrichment(
 		detectResult.OCI.SetOnDiscover(memCache.InvalidateAll)
 		server.SetOCISource(detectResult.OCI)
 
-		// Wire cache source if it was created during enrichment.
+		// Wire cache internally into OCI source for enrichment.
 		if detectResult.Cache != nil {
-			cacheCached := dashboard.NewCachedDataSource(
-				detectResult.Cache, memCache, cacheTTL("cache"), "cache:",
-			)
-			resolved.AddSource("cache", cacheCached)
+			detectResult.OCI.SetCache(detectResult.Cache)
 			server.SetCacheSource(detectResult.Cache, memCache)
 		}
 

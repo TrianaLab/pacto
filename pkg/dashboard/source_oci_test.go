@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/trianalab/pacto/pkg/contract"
@@ -853,4 +854,75 @@ func TestOCISource_DepReposForService_WithExplicitTag(t *testing.T) {
 	if !names["root"] || !names["dep"] {
 		t.Errorf("expected root and dep, got %v", names)
 	}
+}
+
+func TestOCISource_GetVersions_InternalCacheEnrichment(t *testing.T) {
+	// Create a disk cache with materialized bundles that have hash + classification.
+	root := t.TempDir()
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 1.0.0
+`)
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 2.0.0
+`)
+
+	cacheSource := NewCacheSource(root)
+
+	// Create an OCI source with the same repo/tags.
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+	store.addBundle("ghcr.io/org/api", "2.0.0", "api", "2.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	src.SetCache(cacheSource)
+
+	// Force discovery so findRepo works.
+	_, _ = src.ListServices(context.Background())
+	waitForDiscoveryDone(t, src)
+
+	versions, err := src.GetVersions(context.Background(), "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("expected 2 versions, got %d", len(versions))
+	}
+
+	// Versions should be enriched with hash from materialized bundles.
+	if versions[0].ContractHash == "" {
+		t.Error("expected contractHash from internal cache enrichment, got empty")
+	}
+	if versions[1].ContractHash == "" {
+		t.Error("expected contractHash from internal cache enrichment, got empty")
+	}
+	// Classification: 2.0.0 vs 1.0.0 should be NON_BREAKING (only version changed).
+	if versions[0].Classification != "NON_BREAKING" {
+		t.Errorf("expected classification 'NON_BREAKING', got %q", versions[0].Classification)
+	}
+}
+
+func TestOCISource_RescanCache(t *testing.T) {
+	root := t.TempDir()
+
+	// Start with no cache.
+	src := NewOCISource(newMockBundleStore(), nil)
+	src.RescanCache() // should not panic with nil cache
+
+	// Set cache and verify rescan works.
+	cacheSource := NewCacheSource(root)
+	src.SetCache(cacheSource)
+	src.RescanCache() // should not panic
+}
+
+func waitForDiscoveryDone(t *testing.T, src *OCISource) {
+	t.Helper()
+	<-src.done
 }

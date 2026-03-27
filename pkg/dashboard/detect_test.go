@@ -340,7 +340,7 @@ func TestDetectSources_WithCacheEnabled(t *testing.T) {
 	}
 }
 
-func TestDetectResult_AllSources_IncludesCacheWithOCI(t *testing.T) {
+func TestDetectResult_AllSources_CacheNeverExposedWithOCI(t *testing.T) {
 	cacheDir := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz"),
@@ -357,8 +357,8 @@ service:
 	if _, ok := all["oci"]; !ok {
 		t.Error("expected 'oci' in AllSources")
 	}
-	if _, ok := all["cache"]; !ok {
-		t.Error("expected 'cache' in AllSources when both OCI and cache exist")
+	if _, ok := all["cache"]; ok {
+		t.Error("cache must NOT appear as a separate public source — it is internal to OCI")
 	}
 }
 
