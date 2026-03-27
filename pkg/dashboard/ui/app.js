@@ -64,7 +64,7 @@ var api = {
 // Lightweight DOM patching: updates target to match newHTML without destroying
 // scroll position, focus, input values, or other interactive state.
 // Skips D3-managed containers (graph-container) and preserves form elements.
-var MORPH_SKIP_IDS = { 'graph-container': true, 'graph-connections': true, 'diff-result': true, 'debug-panel-slot': true };
+var MORPH_SKIP_IDS = { 'graph-container': true, 'graph-connections': true, 'service-graph-container': true, 'diff-result': true, 'debug-panel-slot': true };
 
 function patchDOM(target, newHTML) {
   var tmp = document.createElement(target.tagName || 'div');
