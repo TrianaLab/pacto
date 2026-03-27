@@ -295,6 +295,9 @@ function navigateTo(view, svc, ref, compat, _fromPopState) {
       history.pushState(null, '', wantHash);
     }
   }
+  // Force clean render on navigation so patchDOM is never used across
+  // incompatible page structures (e.g. detail→overview).
+  _currentPage = null;
   _renderGen++;
   render();
 }
@@ -1819,6 +1822,7 @@ async function renderDetail() {
     if (e.status === 404 && depInfo) {
       await resolveRemoteDep(svcName, gen, depInfo.ref, depInfo.compatibility);
     } else {
+      _currentPage = null;
       app.innerHTML = '<div class="empty-state"><div class="empty-state-title">Service not found</div><p>' + h(e.message) + '</p>' +
         '<div style="margin-top:16px"><a class="dep-link" onclick="navigateTo(\'list\')">Back to overview</a></div></div>';
     }
@@ -1861,6 +1865,7 @@ function findDepInfo(name) {
 /* Attempt to lazily resolve a remote OCI dependency */
 async function resolveRemoteDep(svcName, gen, ref, compatibility) {
   var app = document.getElementById('app');
+  _currentPage = null;
   app.innerHTML = '<div class="loading"><div class="spinner"></div>Resolving remote dependency&hellip;<br><code class="text-dim" style="font-size:var(--text-xs);margin-top:8px;display:inline-block">' + h(ref) + (compatibility ? ' (' + h(compatibility) + ')' : '') + '</code></div>';
   try {
     var details = await api.resolveRef(ref, compatibility);
@@ -1889,6 +1894,7 @@ async function resolveRemoteDep(svcName, gen, ref, compatibility) {
     else if (re.status === 404) errorTitle = 'Artifact not found in registry';
     else if (re.status === 422) errorTitle = 'Invalid reference or bundle';
     else if (re.status === 502) errorTitle = 'Registry unreachable';
+    _currentPage = null;
     app.innerHTML = '<div class="empty-state"><div class="empty-state-title">' + h(errorTitle) + '</div>' +
       '<p>' + h(errorMsg) + '</p>' +
       '<code class="text-dim" style="font-size:var(--text-xs);display:block;margin-top:8px">' + h(ref) + '</code>' +
