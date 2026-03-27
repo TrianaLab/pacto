@@ -412,7 +412,7 @@
   .breadcrumb a:hover { color: var(--c-text); }
   .sep { color: var(--c-text-3); }
 
-  .detail-header { margin-bottom: var(--sp-5); }
+  .detail-header { margin-bottom: var(--sp-5); position: relative; z-index: 60; }
   .detail-title-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .detail-meta {
     display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2);
