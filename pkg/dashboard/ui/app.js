@@ -1200,7 +1200,7 @@ function initGraph() {
     .alphaDecay(0.06)
     .velocityDecay(0.5);
 
-  // Draw links — v8: edges go from right edge of source to left edge of target
+  // Draw links — edges go from right edge of source to left edge of target
   var link = graphG.selectAll('.edge-line')
     .data(links)
     .join('line')
@@ -1220,7 +1220,7 @@ function initGraph() {
     return status === 'Unmonitored' ? 'Unmonitored' : status === 'External' ? 'External' : status;
   }
 
-  // Draw nodes — v8: top-left origin, left-aligned text, bg-surface fill
+  // Draw nodes — top-left origin, left-aligned text, bg-surface fill
   var nodeGroup = graphG.selectAll('.node-group')
     .data(nodes)
     .join('g')
@@ -1256,13 +1256,13 @@ function initGraph() {
     .attr('stroke', function(d) { return statusColor(d.status); })
     .attr('stroke-width', 1.5);
 
-  // v8: left-aligned labels at x=10, y=18
+  // left-aligned labels at x=10, y=18
   nodeGroup.append('text')
     .attr('class', 'node-label')
     .attr('x', 10).attr('y', 18)
     .text(function(d) { var n = d.serviceName; return n.length > 20 ? n.substring(0, 18) + '...' : n; });
 
-  // v8: left-aligned status at x=10, y=34
+  // left-aligned status at x=10, y=34
   nodeGroup.append('text')
     .attr('class', 'node-status')
     .attr('x', 10).attr('y', 34)
@@ -1294,7 +1294,7 @@ function initGraph() {
     return chain;
   }
 
-  // Add warning icon to impacted (non-broken) nodes — v8: x=nodeW-20, y=16
+  // Add warning icon to impacted (non-broken) nodes — x=nodeW-20, y=16
   var allImpacted = new Set();
   nodes.filter(function(n) { return isBroken(n.status); }).forEach(function(bn) {
     getImpactChain(bn.id).forEach(function(id) { allImpacted.add(id); });
@@ -1307,7 +1307,7 @@ function initGraph() {
     .attr('fill', 'var(--warning)')
     .text('\u26A0');
 
-  // Hover impact chain — v8: highlights chain, dims nothing except via CSS
+  // Hover impact chain — highlights chain, dims nothing except via CSS
   nodeGroup.on('mouseenter', function(event, d) {
     if (!isBroken(d.status)) return;
     var chain = getImpactChain(d.id);
@@ -1351,14 +1351,14 @@ function initGraph() {
   // Register tick handler for drag interactions
   graphSim.on('tick', updatePositions);
 
-  // Run simulation synchronously for initial layout, then stop — v8: 150 ticks
+  // Run simulation synchronously for initial layout, then stop — 150 ticks
   graphSim.stop();
   for (var i = 0; i < 150; i++) graphSim.tick();
   updatePositions();
   // Cache final positions so re-inits don't cause nodes to jump
   nodes.forEach(function(n) { graphNodePositions[n.id] = { x: n.x, y: n.y }; });
 
-  // v8: fitToView using getBBox with 400ms transition after 50ms delay
+  // fitToView using getBBox with 400ms transition after 50ms delay
   function fitToView() {
     var bounds = graphG.node().getBBox();
     if (bounds.width === 0 || bounds.height === 0) return;
@@ -1389,7 +1389,7 @@ function graphZoomIn() { if (graphSvg) graphSvg.transition().duration(300).call(
 function graphZoomOut() { if (graphSvg) graphSvg.transition().duration(300).call(graphZoom.scaleBy, 0.7); }
 function graphResetView() {
   if (!graphSim || !graphNodes) return;
-  // v8: unpin all nodes, re-run simulation, refit
+  // unpin all nodes, re-run simulation, refit
   graphNodes.forEach(function(n) { n.fx = null; n.fy = null; });
   graphNodePositions = {};
   graphSim.stop();
@@ -1444,7 +1444,7 @@ function isNodeFiltered(d) {
 
 function syncGraphFilters() {
   if (!graphSvg) return;
-  // v8: dim both nodes AND edges when filtered
+  // dim both nodes AND edges when filtered
   graphSvg.selectAll('.node-group')
     .classed('graph-dimmed', function(d) { return isNodeFiltered(d); });
   graphSvg.selectAll('.edge-line')
@@ -2487,7 +2487,7 @@ function renderTabInterfaces(d) {
   var ifaces = d.interfaces || [];
   if (!ifaces.length) return '<div class="card"><div style="color:var(--text-dim);font-size:var(--text-sm);text-align:center;padding:24px">No interfaces declared in contract</div></div>';
 
-  // Declared Interfaces summary table (v8: top-level table)
+  // Declared Interfaces summary table (top-level table)
   var o = '<div class="card"><div class="section-label">Declared Interfaces</div>';
   o += '<div class="table-wrapper"><table><thead><tr>';
   o += '<th>Name</th><th>Type</th><th>Port</th><th>Visibility</th><th class="hide-narrow">Contract File</th>';
@@ -2513,7 +2513,7 @@ function renderTabInterfaces(d) {
   }
   o += '</tbody></table></div></div>';
 
-  // Per-interface detail cards (v8: one card per interface)
+  // Per-interface detail cards (one card per interface)
   for (var i = 0; i < ifaces.length; i++) {
     var f = ifaces[i];
     o += '<div class="card">';
@@ -2528,7 +2528,7 @@ function renderTabInterfaces(d) {
     }
     o += '</table>';
 
-    // v8: Endpoints table (Method / Path / Summary) from parsed OpenAPI
+    // Endpoints table (Method / Path / Summary) from parsed OpenAPI
     if (f.endpoints && f.endpoints.length) {
       o += '<div style="margin-top:8px;border-top:1px solid var(--border);padding:8px 0 0">';
       o += '<div class="text-dim" style="font-size:var(--text-xs);padding:0 12px 4px">' + h(f.contractFile || '') + ' \u2014 ' + f.endpoints.length + ' endpoint' + (f.endpoints.length !== 1 ? 's' : '') + '</div>';
@@ -2551,7 +2551,7 @@ function renderTabInterfaces(d) {
       }
       o += '</tbody></table></div></div>';
     } else if (f.contractContent) {
-      // v8: raw contract content fallback
+      // raw contract content fallback
       o += '<div style="margin-top:8px;border-top:1px solid var(--border)">';
       o += '<div class="text-dim" style="font-size:var(--text-xs);padding:8px 12px 4px">' + h(f.contractFile || '') + '</div>';
       o += '<pre style="margin:0;padding:4px 12px 12px;font-size:var(--text-xs);overflow-x:auto;max-height:400px;overflow-y:auto">' + h(f.contractContent) + '</pre>';
@@ -2571,17 +2571,17 @@ function renderTabConfig(d) {
 
   var o = '<div class="card"><div class="section-label">Configuration</div>';
 
-  // v8: Schema line
+  // Schema line
   if (cfg.schema) {
     o += '<div style="margin-bottom:16px"><span class="text-dim">Schema:</span> <code>' + h(cfg.schema) + '</code></div>';
   }
 
-  // v8: Ref line
+  // Ref line
   if (cfg.ref) {
     o += '<div style="margin-bottom:16px"><span class="text-dim">Ref:</span> ' + refLink(cfg.ref) + '</div>';
   }
 
-  // v8: Values table (Key / Value / Type) — use flattened values if available
+  // Values table (Key / Value / Type) — use flattened values if available
   var vals = cfg.values;
   if (vals && vals.length) {
     o += '<div class="table-wrapper"><table><thead><tr><th>Key</th><th>Value</th><th>Type</th></tr></thead><tbody>';
@@ -2621,7 +2621,7 @@ function renderTabConfig(d) {
     if (vals && vals.length) o += '</div>';
   }
 
-  // v8: empty state
+  // empty state
   if (!vals && (!cfg.valueKeys || !cfg.valueKeys.length) && !cfg.schema && !cfg.ref && (!cfg.secretKeys || !cfg.secretKeys.length)) {
     o += '<div style="color:var(--text-dim);font-size:var(--text-sm)">Configuration section is empty</div>';
   }
@@ -2637,7 +2637,7 @@ function renderTabPolicy(d) {
 
   var o = '<div class="card"><div class="section-label">Policy</div>';
 
-  // v8: Schema + Reference table
+  // Schema + Reference table
   o += '<table>';
   if (pol.schema) {
     o += '<tr><td class="text-dim" style="width:160px">Schema</td><td><span class="badge badge-info">' + h(pol.schema) + '</span></td></tr>';
@@ -2649,7 +2649,7 @@ function renderTabPolicy(d) {
   }
   o += '</table>';
 
-  // v8: Values table (Key / Value / Type) — parsed from policy file
+  // Values table (Key / Value / Type) — parsed from policy file
   if (pol.values && pol.values.length) {
     o += '<div class="table-wrapper" style="margin-top:16px"><table><thead><tr><th>Key</th><th>Value</th><th>Type</th></tr></thead><tbody>';
     for (var i = 0; i < pol.values.length; i++) {
@@ -2665,7 +2665,7 @@ function renderTabPolicy(d) {
     }
     o += '</tbody></table></div>';
   } else if (pol.content) {
-    // v8: raw content fallback
+    // raw content fallback
     o += '<div style="margin-top:8px;border-top:1px solid var(--border)">';
     if (pol.ref) o += '<div class="text-dim" style="font-size:var(--text-xs);padding:8px 12px 4px">' + h(pol.ref) + '</div>';
     o += '<pre style="margin:0;padding:4px 12px 12px;font-size:var(--text-xs);overflow-x:auto;max-height:500px;overflow-y:auto">' + h(pol.content) + '</pre>';
