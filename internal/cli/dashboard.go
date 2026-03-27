@@ -79,6 +79,14 @@ Services are grouped by name across sources and merged using priority rules:
 			}
 
 			cacheDir := v.GetString("cache-dir")
+			// Resolve cacheDir from the BundleStore when not explicitly set,
+			// so the server can create a CacheSource on-the-fly (e.g. after
+			// fetch-all-versions with --no-cache).
+			if cacheDir == "" {
+				if cs, ok := svc.BundleStore.(interface{ CacheDir() string }); ok {
+					cacheDir = cs.CacheDir()
+				}
+			}
 
 			// Auto-detect available sources.
 			detectResult := dashboard.DetectSources(cmd.Context(), dashboard.DetectOptions{

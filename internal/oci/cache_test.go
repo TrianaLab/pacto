@@ -285,6 +285,36 @@ func TestCachedStore_DisableCache(t *testing.T) {
 	}
 }
 
+func TestCachedStore_DisableCache_StillWritesToDisk(t *testing.T) {
+	store, _ := newCachedStoreWithTempDir(t)
+	ctx := context.Background()
+	ref := "ghcr.io/test/newref:2.0.0"
+
+	store.DisableCache()
+
+	// Pull after disable — should still write bundle to disk.
+	if _, err := store.Pull(ctx, ref); err != nil {
+		t.Fatalf("Pull() error: %v", err)
+	}
+
+	// Verify bundle was written to disk.
+	cachePath := filepath.Join(store.CacheDir(), strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
+		t.Fatalf("expected bundle.tar.gz to be written at %s after DisableCache", cachePath)
+	}
+}
+
+func TestCachedStore_CacheDir(t *testing.T) {
+	store, _ := newCachedStoreWithTempDir(t)
+	dir := store.CacheDir()
+	if dir == "" {
+		t.Fatal("expected non-empty CacheDir")
+	}
+	if !strings.Contains(dir, "pacto") {
+		t.Errorf("expected CacheDir to contain 'pacto', got %q", dir)
+	}
+}
+
 func TestCachedStore_DisabledWhenHomeDirFails(t *testing.T) {
 	old := oci.SetUserHomeDirFn(func() (string, error) {
 		return "", errors.New("no home")

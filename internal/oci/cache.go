@@ -22,6 +22,10 @@ type CachedStore struct {
 	inner    BundleStore
 	cacheDir string
 
+	// skipDiskReads disables loading from disk cache (cold-start mode).
+	// Disk writes remain enabled so same-session pulls are persisted.
+	skipDiskReads bool
+
 	pullMu    sync.Mutex
 	pullCache map[string]*contract.Bundle
 
@@ -44,12 +48,20 @@ func NewCachedStore(inner BundleStore) *CachedStore {
 	}
 }
 
-// DisableCache turns off caching so all operations go directly to the registry.
+// DisableCache skips reading from the disk cache (cold-start mode) and clears
+// the in-memory cache. Disk writes remain enabled so that same-session pulls
+// (e.g. fetch-all-versions) are still persisted and available for enrichment.
 func (c *CachedStore) DisableCache() {
-	c.cacheDir = ""
+	c.skipDiskReads = true
 	c.pullMu.Lock()
 	c.pullCache = map[string]*contract.Bundle{}
 	c.pullMu.Unlock()
+}
+
+// CacheDir returns the resolved on-disk cache directory (e.g. ~/.cache/pacto/oci).
+// Returns empty string if no cache directory could be determined at creation time.
+func (c *CachedStore) CacheDir() string {
+	return c.cacheDir
 }
 
 func pactoCacheDir() (string, error) {
@@ -103,8 +115,8 @@ func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, e
 	}
 	c.pullMu.Unlock()
 
-	// 2. Disk cache.
-	if c.cacheDir != "" {
+	// 2. Disk cache (skipped when --no-cache / DisableCache is active).
+	if c.cacheDir != "" && !c.skipDiskReads {
 		cachePath := c.cachePath(ref)
 		if bundle, err := c.loadFromCache(cachePath); err == nil {
 			slog.Debug("cache hit (disk)", "ref", ref)

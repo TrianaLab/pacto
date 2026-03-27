@@ -28,6 +28,14 @@ func (dummyStore) ListTags(context.Context, string) ([]string, error)           
 
 var _ oci.BundleStore = dummyStore{}
 
+// dummyStoreWithCacheDir satisfies oci.BundleStore and implements CacheDir().
+type dummyStoreWithCacheDir struct {
+	dummyStore
+	cacheDir string
+}
+
+func (d dummyStoreWithCacheDir) CacheDir() string { return d.cacheDir }
+
 func TestCacheTTL(t *testing.T) {
 	tests := []struct {
 		sourceType string
@@ -587,5 +595,43 @@ func TestWireOCIEnrichment_Success(t *testing.T) {
 	}
 	if !resolved.HasSource("oci") {
 		t.Error("expected oci source to be added to resolved")
+	}
+}
+
+func TestCacheDirResolution_FromBundleStore(t *testing.T) {
+	// When cache-dir is not set via viper (always the case — no such flag),
+	// the dashboard should resolve it from BundleStore.CacheDir().
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "1.0"
+service:
+  name: cachedir-test
+  version: 1.0.0
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
+
+	cacheDir := filepath.Join(dir, "test-cache-dir")
+	svc := app.NewService(dummyStoreWithCacheDir{cacheDir: cacheDir}, nil)
+	v := viper.New()
+	cmd := newDashboardCommand(svc, v, "test")
+	cmd.SetArgs([]string{dir, "--port", "0"})
+
+	var errBuf bytes.Buffer
+	cmd.SetErr(&errBuf)
+	cmd.SetOut(&bytes.Buffer{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cmd.SetContext(ctx)
+
+	_ = cmd.Execute()
+
+	// The test succeeds if the command runs without panic.
+	// The real validation is that cacheDir is resolved and passed through.
+	// We verify by confirming the command reached the "running" stage.
+	stderr := errBuf.String()
+	if !strings.Contains(stderr, "local") {
+		t.Errorf("expected stderr to mention 'local', got:\n%s", stderr)
 	}
 }

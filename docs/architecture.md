@@ -285,9 +285,10 @@ The `createdAt` timestamp from cached bundles reflects **local materialization t
 The `--no-cache` flag is a **cold-start mode**, not a fully stateless mode:
 
 - At startup, `DetectSources()` skips `detectCache()` entirely -- no pre-existing cached bundles are scanned or indexed
-- OCI pulls during the session still write bundles to disk (via `CachedStore`)
-- If the user triggers "Fetch all versions" or lazy dependency resolution, `RefreshCacheSources()` creates a `CacheSource` on the fly and wires it into the OCI source for enrichment
+- `CachedStore.DisableCache()` skips disk **reads** (no stale data), but disk **writes** remain enabled so same-session pulls are persisted
+- The dashboard resolves `cacheDir` from `CachedStore.CacheDir()` when not explicitly set, ensuring `RefreshCacheSources()` knows where to find materialized bundles
 - The `memCache` is always wired at startup (even with `--no-cache`) via `SetCacheSource(nil, memCache)`, ensuring `RefreshCacheSources()` can invalidate stale entries after on-the-fly creation
+- If the user triggers "Fetch all versions" or lazy dependency resolution, `RefreshCacheSources()` creates a `CacheSource` on the fly from disk and wires it into the OCI source for enrichment
 - The `onDiscover` callback is wired to `server.RefreshCacheSources` (not just `memCache.InvalidateAll`), so continuous background discovery also triggers on-the-fly `CacheSource` creation
 - This means `--no-cache` ensures a clean start but allows same-session materialization to enrich the current view
 
@@ -356,7 +357,8 @@ These rules must be preserved by future changes. Each exists for a specific reas
 | Cache must never become a public source | Users see three sources: `local`, `oci`, `k8s`. Cache is an internal optimization. Exposing it would create confusion about which "oci" data is authoritative. |
 | `resolverVersionSources` must not include `"cache"` | Cache enrichment happens inside `OCISource.GetVersions()`, not at the resolver level. Adding cache to the resolver would double-count versions. |
 | Classification requires materialized bundles | `ClassifyVersions()` diffs consecutive bundles. Without both bundles available, no classification is computed. This is correct behavior, not a bug. |
-| `--no-cache` skips startup scanning, not same-session materialization | Cold-start mode ensures deterministic initial state. But bundles fetched during the session are still cached and usable, preventing a degraded experience. |
+| `--no-cache` skips startup scanning, not same-session materialization | Cold-start mode ensures deterministic initial state. `DisableCache()` only skips disk reads — disk writes remain enabled so bundles fetched during the session are persisted and available for enrichment. |
+| `DisableCache()` must never disable disk writes | Same-session materialization (fetch-all-versions, resolve) relies on `CachedStore` writing bundles to disk. `CacheSource` then reads these during `RefreshCacheSources()` to provide hash, createdAt, and classification enrichment. |
 | `internal/app` methods are stateless | Options in, result out. No side effects beyond the operation itself. This makes testing and composition straightforward. |
 | Validation is deterministic | No configurable rule sets. Same contract + same schema = same result, always. |
 | `CacheSource` labels its output as `"oci"`, never `"cache"` | When cache stands in for OCI (offline fallback), `mergeServiceEntry()` picks up `Source` from the service. Labeling as `"cache"` would leak the internal concept to the UI. |
