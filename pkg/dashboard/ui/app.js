@@ -1406,7 +1406,7 @@ function renderGraphLegend(nodes) {
 
 function isNodeFiltered(d) {
   if (state.filter !== 'all') {
-    var phase = (d.status === 'Unmonitored' || d.status === 'External') ? 'Unknown' : d.status;
+    var phase = (d.status === 'Unmonitored' || d.status === 'External' || d.status === 'Reference') ? 'Unknown' : d.status;
     if (phase !== state.filter) return true;
   }
   if (Object.keys(enabledSources).length > 0) {
