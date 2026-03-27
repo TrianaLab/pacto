@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -1745,6 +1746,62 @@ func TestServerRefreshCacheSources(t *testing.T) {
 	// Memory cache should be invalidated.
 	if _, ok := memCache.Get("test-key"); ok {
 		t.Error("expected test-key to be invalidated from memory cache")
+	}
+}
+
+func TestServerSetCacheDir(t *testing.T) {
+	srv := NewServer(&mockSource{}, fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}})
+	srv.SetCacheDir("/tmp/test-cache")
+	if srv.cacheDir != "/tmp/test-cache" {
+		t.Errorf("expected cacheDir to be set, got %q", srv.cacheDir)
+	}
+}
+
+func TestServerRefreshCacheSources_OnTheFly(t *testing.T) {
+	// Test the on-the-fly CacheSource creation path when cacheSource == nil
+	// but cacheDir has data.
+	cacheDir := t.TempDir()
+	writeBundleTarGzFile(t,
+		filepath.Join(cacheDir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: svc
+  version: 1.0.0
+`)
+
+	source := &mockSource{
+		services: []Service{{Name: "svc", Version: "1.0.0"}},
+	}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
+
+	// Set up OCI source so the wiring branch is exercised.
+	ociSource := NewOCISource(newMockBundleStore(), []string{"ghcr.io/org/svc"})
+	srv.SetOCISource(ociSource)
+	srv.SetCacheDir(cacheDir)
+
+	memCache := NewMemoryCache()
+	memCache.Set("test-key", "value", time.Hour)
+	srv.memCache = memCache
+
+	// No cacheSource yet — refreshCacheSources should create one on-the-fly.
+	srv.refreshCacheSources()
+
+	if srv.cacheSource == nil {
+		t.Error("expected cacheSource to be created on-the-fly")
+	}
+
+	// Verify OCI source has internal cache wired.
+	ociSource.mu.RLock()
+	hasCache := ociSource.cache != nil
+	ociSource.mu.RUnlock()
+	if !hasCache {
+		t.Error("expected OCI source to have internal cache wired")
+	}
+
+	// Memory cache should be invalidated.
+	if _, ok := memCache.Get("test-key"); ok {
+		t.Error("expected memory cache to be invalidated")
 	}
 }
 

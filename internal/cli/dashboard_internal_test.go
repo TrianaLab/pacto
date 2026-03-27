@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"os"
 	"path/filepath"
@@ -123,11 +125,13 @@ service:
 	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
 	t.Setenv("PACTO_DASHBOARD_REPO", "ghcr.io/org/svc-a")
 
-	// Create a cache dir with a dummy bundle to exercise SetCacheSource.
-	cacheDir := filepath.Join(dir, ".cache", "pacto", "oci", "ghcr.io", "org", "cached", "1.0.0")
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	// Create a cache dir with a real bundle to exercise SetCache wiring.
+	bundlePath := filepath.Join(dir, ".cache", "pacto", "oci", "ghcr.io", "org", "cached", "1.0.0", "bundle.tar.gz")
+	writeTestBundleTarGz(t, bundlePath, `pactoVersion: "1.0"
+service:
+  name: cached-svc
+  version: 1.0.0
+`)
 	t.Setenv("HOME", dir)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(dir, ".cache"))
 
@@ -529,6 +533,27 @@ func TestRetryOCIEnrichment_SucceedsOnFirstTry(t *testing.T) {
 	if detectResult.OCI == nil {
 		t.Error("expected OCI source to be created")
 	}
+}
+
+// writeTestBundleTarGz creates a minimal bundle.tar.gz at the given path.
+func writeTestBundleTarGz(t *testing.T, path string, pactoYAML string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	gw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gw)
+	data := []byte(pactoYAML)
+	_ = tw.WriteHeader(&tar.Header{Name: "pacto.yaml", Size: int64(len(data)), Mode: 0644})
+	_, _ = tw.Write(data)
+	_ = tw.Close()
+	_ = gw.Close()
 }
 
 func TestWireOCIEnrichment_Success(t *testing.T) {
