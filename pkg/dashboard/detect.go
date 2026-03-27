@@ -347,7 +347,14 @@ func (r *DetectResult) EnrichFromK8s(ctx context.Context, store oci.BundleStore,
 	}
 
 	slog.Info("OCI enrichment: discovering repos from K8s imageRefs")
-	repos := r.discoverOCIReposFromK8s(ctx)
+	repos, err := r.discoverOCIReposFromK8s(ctx)
+	if err != nil {
+		// Mark K8s as unavailable so retry loop stops immediately.
+		// A ListServices error means the CRD is not installed or
+		// the API server is unreachable — retrying won't help.
+		r.K8s = nil
+		return
+	}
 	if len(repos) == 0 {
 		slog.Info("OCI enrichment: no repos found (K8s resources may not be ready yet)")
 		return
@@ -366,11 +373,11 @@ func (r *DetectResult) EnrichFromK8s(ctx context.Context, store oci.BundleStore,
 
 // discoverOCIReposFromK8s queries K8s services and extracts unique OCI
 // repository references from their imageRef fields.
-func (r *DetectResult) discoverOCIReposFromK8s(ctx context.Context) []string {
+func (r *DetectResult) discoverOCIReposFromK8s(ctx context.Context) ([]string, error) {
 	services, err := r.K8s.ListServices(ctx)
 	if err != nil {
 		slog.Warn("OCI enrichment: failed to list K8s services", "error", err)
-		return nil
+		return nil, err
 	}
 	slog.Debug("OCI enrichment: found K8s services", "count", len(services))
 
@@ -388,7 +395,7 @@ func (r *DetectResult) discoverOCIReposFromK8s(ctx context.Context) []string {
 			repos = append(repos, repo)
 		}
 	}
-	return repos
+	return repos, nil
 }
 
 // ensureCacheSource creates a CacheSource if one doesn't exist, creating the

@@ -776,6 +776,9 @@ func TestEnrichFromK8s_K8sListError(t *testing.T) {
 	if r.OCI != nil {
 		t.Error("expected nil OCI when K8s list fails")
 	}
+	if r.K8s != nil {
+		t.Error("expected K8s to be nil after permanent list error")
+	}
 }
 
 func TestEnrichFromK8s_NoImageRefs(t *testing.T) {
