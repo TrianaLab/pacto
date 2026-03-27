@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/pkg/contract"
 )
@@ -925,4 +927,37 @@ func TestOCISource_RescanCache(t *testing.T) {
 func waitForDiscoveryDone(t *testing.T, src *OCISource) {
 	t.Helper()
 	<-src.done
+}
+
+func TestOCISource_BackgroundLoop_Rediscovery(t *testing.T) {
+	// Use a very short rediscovery interval so the loop runs a second cycle.
+	old := ociRediscoverInterval
+	ociRediscoverInterval = 10 * time.Millisecond
+	t.Cleanup(func() { ociRediscoverInterval = old })
+
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/svc", "1.0.0", "svc", "1.0.0")
+
+	var calls int32
+	src := NewOCISource(store, []string{"ghcr.io/org/svc"})
+	src.SetOnDiscover(func() { atomic.AddInt32(&calls, 1) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	_, err := src.ListServices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Wait for initial discovery.
+	<-src.done
+
+	// Wait long enough for at least one rediscovery cycle.
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	// onDiscover should have been called at least twice (initial + rediscovery).
+	if n := atomic.LoadInt32(&calls); n < 2 {
+		t.Errorf("expected onDiscover called ≥2 times, got %d", n)
+	}
 }

@@ -124,6 +124,15 @@ function morphNode(parent, ln, nn) {
     return;
   }
 
+  // Preserve <details> open/closed state across DOM patches
+  if (tag === 'DETAILS') {
+    var wasOpen = ln.open;
+    morphAttrs(ln, nn);
+    morphChildren(ln, nn);
+    ln.open = wasOpen;
+    return;
+  }
+
   morphAttrs(ln, nn);
   morphChildren(ln, nn);
 }
@@ -535,11 +544,17 @@ function renderOverviewPage() {
   if (!svcs.length) {
     var emptyHTML = '<h1 class="page-title">Overview</h1><p class="page-subtitle">0 contracts</p>';
     emptyHTML += '<div class="empty-state"><div class="empty-state-title">No Pacto resources found</div><p>No service contracts detected from any source.</p></div>';
+    emptyHTML += '<div id="debug-panel-slot"></div>';
+    updateApp(emptyHTML, 'overview-empty');
     api.getDebugSources().then(function(debug) {
-      document.getElementById('app').innerHTML = emptyHTML + renderDebugPanel(debug);
-    }).catch(function() {
-      document.getElementById('app').innerHTML = emptyHTML;
-    });
+      var panel = document.getElementById('debug-panel-slot');
+      if (!panel) return;
+      if (panel.children.length > 0) {
+        patchDOM(panel, renderDebugPanel(debug));
+      } else {
+        panel.innerHTML = renderDebugPanel(debug);
+      }
+    }).catch(function() {});
     return;
   }
 
@@ -717,10 +732,16 @@ function renderOverviewPage() {
   // Render connections table
   renderConnectionsTable();
 
-  // Load debug panel in background
+  // Load debug panel in background (patchDOM preserves <details> open state)
   api.getDebugSources().then(function(debug) {
     var panel = document.getElementById('debug-panel-slot');
-    if (panel) panel.innerHTML = renderDebugPanel(debug);
+    if (!panel) return;
+    var html = renderDebugPanel(debug);
+    if (panel.children.length > 0) {
+      patchDOM(panel, html);
+    } else {
+      panel.innerHTML = html;
+    }
   }).catch(function() {});
 }
 

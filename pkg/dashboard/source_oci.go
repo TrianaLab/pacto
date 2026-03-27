@@ -7,10 +7,15 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/contract"
 )
+
+// ociRediscoverInterval controls how often background discovery re-runs
+// after the initial cycle completes. Tests may override this.
+var ociRediscoverInterval = 60 * time.Second
 
 // OCISource implements DataSource by pulling bundles from an OCI registry.
 // It discovers the full dependency tree progressively in the background,
@@ -88,10 +93,9 @@ func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 		// Run synchronous shallow scan of configured repos (fast: 1 pull per repo).
 		s.shallowScan(ctx)
 		// Kick off background deep discovery of dependencies + version prefetch.
-		go func() {
-			s.backgroundDiscover(context.WithoutCancel(ctx))
-			close(s.done)
-		}()
+		// Runs continuously: first cycle closes s.done (ending "discovering" state),
+		// then re-runs periodically to pick up new services and versions.
+		go s.backgroundLoop(context.WithoutCancel(ctx))
 	} else {
 		s.mu.Unlock()
 	}
@@ -115,9 +119,26 @@ func (s *OCISource) shallowScan(ctx context.Context) {
 	}
 }
 
-// backgroundDiscover recursively discovers OCI dependencies from all known
-// services and prefetches their version history. Runs in a background goroutine.
-func (s *OCISource) backgroundDiscover(ctx context.Context) {
+// backgroundLoop runs discoverAndPrefetch in a loop. The first cycle closes
+// s.done (ending the "discovering" state for the UI). Subsequent cycles
+// re-run periodically to pick up new services, dependencies, and versions.
+func (s *OCISource) backgroundLoop(ctx context.Context) {
+	s.discoverAndPrefetch(ctx)
+	close(s.done) // signal initial discovery complete
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(ociRediscoverInterval):
+			s.discoverAndPrefetch(ctx)
+		}
+	}
+}
+
+// discoverAndPrefetch recursively discovers OCI dependencies from all known
+// services and prefetches their version history.
+func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 	visited := make(map[string]bool)
 
 	// Mark already-discovered repos as visited.
@@ -173,6 +194,13 @@ func (s *OCISource) backgroundDiscover(ctx context.Context) {
 				slog.Debug("OCI prefetch version failed", "ref", ref, "error", err)
 			}
 		}
+	}
+
+	// Rescan the internal cache so GetVersions can enrich with hash,
+	// createdAt, and classification from the newly materialized bundles.
+	s.RescanCache()
+	if s.onDiscover != nil {
+		s.onDiscover()
 	}
 
 	slog.Debug("OCI background discovery complete", "services", len(repos))
