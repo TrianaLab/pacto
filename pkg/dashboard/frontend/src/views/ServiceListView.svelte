@@ -1,5 +1,6 @@
 <script>
   import { serviceUrl } from '../lib/router.js';
+  import { phaseClass, complianceStatusClass, sourceTooltip } from '../lib/format.js';
 
   let { services = [], sourcesInfo = [], discovering = false } = $props();
 
@@ -10,11 +11,12 @@
 
   // Stats
   let stats = $derived.by(() => {
-    const s = { total: services.length, healthy: 0, degraded: 0, invalid: 0, unknown: 0 };
+    const s = { total: services.length, healthy: 0, degraded: 0, invalid: 0, unknown: 0, reference: 0 };
     for (const svc of services) {
       if (svc.phase === 'Healthy') s.healthy++;
       else if (svc.phase === 'Degraded') s.degraded++;
       else if (svc.phase === 'Invalid') s.invalid++;
+      else if (svc.phase === 'Reference') s.reference++;
       else s.unknown++;
     }
     return s;
@@ -28,10 +30,7 @@
       list = list.filter((s) => s.name.toLowerCase().includes(q) || (s.owner || '').toLowerCase().includes(q));
     }
     if (phaseFilter !== 'all') {
-      list = list.filter((s) => {
-        if (phaseFilter === 'Unknown') return s.phase === 'Unknown' || s.phase === 'Reference';
-        return s.phase === phaseFilter;
-      });
+      list = list.filter((s) => s.phase === phaseFilter);
     }
     const dir = sortAsc ? 1 : -1;
     list = [...list].sort((a, b) => {
@@ -44,9 +43,12 @@
     return list;
   });
 
-  // At-risk: Invalid or high blast radius
-  let atRisk = $derived(
-    services.filter((s) => s.phase === 'Invalid' || (s.blastRadius || 0) >= 3).slice(0, 5)
+  // Needs attention: degraded/invalid services, sorted by blast radius descending
+  let needsAttention = $derived(
+    services
+      .filter((s) => s.phase === 'Invalid' || s.phase === 'Degraded')
+      .sort((a, b) => (b.blastRadius || 0) - (a.blastRadius || 0))
+      .slice(0, 5)
   );
 
   function toggleSort(col) {
@@ -58,28 +60,10 @@
     if (sortBy !== col) return '';
     return sortAsc ? ' ↑' : ' ↓';
   }
-
-  function complianceClass(status) {
-    if (status === 'OK') return 'score-ok';
-    if (status === 'WARNING') return 'score-warn';
-    if (status === 'ERROR') return 'score-err';
-    return '';
-  }
-
-  function phaseClass(phase) {
-    if (phase === 'Healthy') return 'ok';
-    if (phase === 'Degraded') return 'warn';
-    if (phase === 'Invalid') return 'err';
-    return 'neutral';
-  }
 </script>
 
 <div class="list-header">
   <h1>Services</h1>
-  <a href="#/graph" class="btn btn-sm">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
-    Graph
-  </a>
 </div>
 
 <!-- Stats bar -->
@@ -101,6 +85,12 @@
       <span class="stat-value" style="color:var(--c-err)">{stats.invalid}</span>
       <span class="stat-label">Invalid</span>
     </button>
+    {#if stats.reference > 0}
+      <button type="button" class="stat" class:stat-active={phaseFilter === 'Reference'} onclick={() => phaseFilter = phaseFilter === 'Reference' ? 'all' : 'Reference'}>
+        <span class="stat-value" style="color:var(--c-info)">{stats.reference}</span>
+        <span class="stat-label">Reference</span>
+      </button>
+    {/if}
     {#if stats.unknown > 0}
       <button type="button" class="stat" class:stat-active={phaseFilter === 'Unknown'} onclick={() => phaseFilter = phaseFilter === 'Unknown' ? 'all' : 'Unknown'}>
         <span class="stat-value" style="color:var(--c-neutral)">{stats.unknown}</span>
@@ -108,21 +98,27 @@
       </button>
     {/if}
   </div>
+  <a href="#/graph" class="graph-cta">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
+    <div class="graph-cta-text">
+      <span class="graph-cta-title">Dependency Graph</span>
+      <span class="graph-cta-desc">Visualize service relationships and blast radius</span>
+    </div>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0; opacity:0.5"><path d="M9 18l6-6-6-6"/></svg>
+  </a>
 {/if}
 
-<!-- At-risk alerts -->
-{#if atRisk.length > 0}
+<!-- Needs attention -->
+{#if needsAttention.length > 0}
   <div class="alerts">
-    {#each atRisk as svc}
-      <a href={serviceUrl(svc.name)} class="alert-item">
-        {#if svc.phase === 'Invalid'}
-          <span class="alert-dot" style="background:var(--c-err)"></span>
-        {:else}
-          <span class="alert-dot" style="background:var(--c-warn)"></span>
-        {/if}
+    <div class="alerts-title">Needs attention</div>
+    {#each needsAttention as svc}
+      <a href={serviceUrl(svc.name)} class="alert-item" class:alert-err={svc.phase === 'Invalid'} class:alert-warn={svc.phase === 'Degraded'}>
+        <span class="alert-dot" style="background:{svc.phase === 'Invalid' ? 'var(--c-err)' : 'var(--c-warn)'}"></span>
         <span class="alert-name">{svc.name}</span>
+        <span class="badge badge-{svc.phase === 'Invalid' ? 'err' : 'warn'}" style="font-size:10px">{svc.phase}</span>
         {#if svc.topInsight}<span class="alert-reason">{svc.topInsight}</span>{/if}
-        {#if (svc.blastRadius || 0) >= 3}<span class="pill">blast: {svc.blastRadius}</span>{/if}
+        {#if (svc.blastRadius || 0) > 0}<span class="pill">blast: {svc.blastRadius}</span>{/if}
       </a>
     {/each}
   </div>
@@ -137,9 +133,16 @@
 {#if services.length === 0}
   <div class="state-box">
     {#if discovering}
-      <div class="spinner"></div>
-      <h3>Discovering services…</h3>
-      <p>Looking for contracts in connected sources.</p>
+      <div class="skeleton-table fade-in">
+        {#each Array(5) as _}
+          <div class="skeleton-row">
+            <div class="skeleton skeleton-line" style="width:30%"></div>
+            <div class="skeleton skeleton-line" style="width:15%"></div>
+            <div class="skeleton skeleton-line" style="width:20%"></div>
+          </div>
+        {/each}
+      </div>
+      <p style="margin-top:var(--sp-3); color:var(--c-text-3)">Discovering services…</p>
     {:else}
       <h3>No services found</h3>
       <p>Connect a source (Kubernetes, OCI registry, or local directory) to see contracts.</p>
@@ -151,17 +154,17 @@
     <p>Try a different search or filter.</p>
   </div>
 {:else}
-  <div class="table-wrap">
+  <div class="table-wrap fade-in-up">
     <table>
       <thead>
         <tr>
-          <th><button type="button" class="col-sort" onclick={() => toggleSort('name')}>Name{sortIcon('name')}</button></th>
-          <th>Version</th>
-          <th><button type="button" class="col-sort" onclick={() => toggleSort('phase')}>Status{sortIcon('phase')}</button></th>
-          <th><button type="button" class="col-sort" onclick={() => toggleSort('compliance')}>Compliance{sortIcon('compliance')}</button></th>
-          <th>Checks</th>
-          <th><button type="button" class="col-sort" onclick={() => toggleSort('blast')}>Blast{sortIcon('blast')}</button></th>
-          <th>Source</th>
+          <th><button type="button" class="col-sort" data-tip="Service contract name" onclick={() => toggleSort('name')}>Name{sortIcon('name')}</button></th>
+          <th data-tip="Current contract version">Version</th>
+          <th><button type="button" class="col-sort" data-tip="Service health phase" onclick={() => toggleSort('phase')}>Status{sortIcon('phase')}</button></th>
+          <th><button type="button" class="col-sort" data-tip="Contract compliance score (0–100%)" onclick={() => toggleSort('compliance')}>Compliance{sortIcon('compliance')}</button></th>
+          <th data-tip="Validation checks passed / total">Checks</th>
+          <th><button type="button" class="col-sort" data-tip="Number of services impacted if this one fails" onclick={() => toggleSort('blast')}>Blast{sortIcon('blast')}</button></th>
+          <th data-tip="Data source: k8s, oci, or local">Source</th>
         </tr>
       </thead>
       <tbody>
@@ -175,7 +178,7 @@
             <td><span class="badge badge-{phaseClass(svc.phase)}"><span class="badge-dot"></span>{svc.phase}</span></td>
             <td>
               {#if svc.complianceScore != null}
-                <span class="score {complianceClass(svc.complianceStatus)}">{svc.complianceScore}%</span>
+                <span class="score {complianceStatusClass(svc.complianceStatus)}">{svc.complianceScore}%</span>
               {:else}
                 <span class="text-dim">—</span>
               {/if}
@@ -198,7 +201,7 @@
             </td>
             <td>
               {#each (svc.sources || [svc.source]) as src}
-                <span class="source-dot source-dot-{src}" title={src}></span>
+                <span class="source-dot source-dot-{src}" data-tip={sourceTooltip(src)} data-tip-align="right"></span>
               {/each}
             </td>
           </tr>
@@ -222,15 +225,34 @@
   .stat-active { border-color: var(--c-accent); background: var(--c-accent-bg); }
   .stat-value { font-size: var(--text-lg); font-weight: 700; }
   .stat-label { font-size: var(--text-xs); color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.05em; }
+  .graph-cta {
+    display: flex; align-items: center; gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    border: 1px solid var(--c-accent); border-radius: var(--radius-sm);
+    background: var(--c-accent-bg); color: var(--c-accent);
+    text-decoration: none; margin-bottom: var(--sp-5);
+    transition: all var(--transition);
+  }
+  .graph-cta:hover {
+    background: var(--c-accent); color: white;
+    text-decoration: none; box-shadow: var(--shadow-md);
+  }
+  .graph-cta-text { flex: 1; }
+  .graph-cta-title { display: block; font-weight: 600; font-size: var(--text-sm); }
+  .graph-cta-desc { display: block; font-size: var(--text-xs); opacity: 0.8; }
 
   .alerts { display: flex; flex-direction: column; gap: var(--sp-1); margin-bottom: var(--sp-5); }
+  .alerts-title { font-size: var(--text-xs); font-weight: 600; color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--sp-1); }
   .alert-item {
     display: flex; align-items: center; gap: var(--sp-2);
     padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-xs);
-    background: var(--c-err-bg); font-size: var(--text-sm);
+    font-size: var(--text-sm);
     text-decoration: none; color: var(--c-text);
+    transition: opacity var(--transition);
   }
-  .alert-item:hover { text-decoration: none; opacity: 0.9; }
+  .alert-err { background: var(--c-err-bg); }
+  .alert-warn { background: var(--c-warn-bg); }
+  .alert-item:hover { text-decoration: none; opacity: 0.85; }
   .alert-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
   .alert-name { font-weight: 600; }
   .alert-reason { color: var(--c-text-2); }
@@ -254,4 +276,8 @@
   .text-ok { color: var(--c-ok); }
   .text-err { color: var(--c-err); }
   .text-warn { color: var(--c-warn); }
+
+  .skeleton-table { width: 100%; max-width: 600px; }
+  .skeleton-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-3); }
+  .skeleton-row .skeleton-line { height: 16px; border-radius: var(--radius-xs); }
 </style>

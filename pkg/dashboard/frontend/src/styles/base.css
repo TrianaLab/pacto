@@ -4,7 +4,7 @@
 html {
   font-family: var(--font-sans);
   font-size: var(--text-base);
-  line-height: 1.5;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   background: var(--c-bg);
   color: var(--c-text);
@@ -13,7 +13,7 @@ html {
 
 body { min-height: 100vh; }
 
-a { color: var(--c-accent); text-decoration: none; }
+a { color: var(--c-accent); text-decoration: none; transition: color var(--transition); }
 a:hover { color: var(--c-accent-hover); text-decoration: underline; }
 
 code, pre {
@@ -60,6 +60,7 @@ table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
 thead { border-bottom: 1px solid var(--c-border); }
 th { text-align: left; padding: var(--sp-2) var(--sp-3); color: var(--c-text-3); font-weight: 500; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em; }
 td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--c-border-subtle); vertical-align: top; }
+tbody tr { transition: background var(--transition); }
 tbody tr:hover { background: var(--c-surface-hover); }
 
 /* Layout utility */
@@ -74,3 +75,37 @@ tbody tr:hover { background: var(--c-surface-hover); }
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
+
+/* ─── Animations ─── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in { animation: fadeIn 0.2s ease-out both; }
+.fade-in-up { animation: fadeInUp 0.3s ease-out both; }
+
+/* Skeleton loader */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--c-surface-inset) 25%, var(--c-surface-hover) 50%, var(--c-surface-inset) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-xs);
+}
+.skeleton-line { height: 14px; margin-bottom: var(--sp-2); }
+.skeleton-line:last-child { width: 60%; }

@@ -1,5 +1,6 @@
 <script>
   import { navigate, serviceUrl } from './lib/router.js';
+  import { phaseClass, sourceTooltip } from './lib/format.js';
 
   let {
     services = [], sourcesInfo = [], version = '', discovering = false,
@@ -42,13 +43,6 @@
   }
 
   const enabledSources = $derived(sourcesInfo.filter((s) => s.enabled));
-
-  function phaseClass(phase) {
-    if (phase === 'Healthy') return 'ok';
-    if (phase === 'Degraded') return 'warn';
-    if (phase === 'Invalid') return 'err';
-    return 'neutral';
-  }
 </script>
 
 <svelte:document onclick={handleClickOutside} />
@@ -100,7 +94,7 @@
 
   <div class="navbar-right">
     {#each enabledSources as src}
-      <span class="source-tag"><span class="source-dot source-dot-{src.type}"></span>{src.type}</span>
+      <span class="source-tag" data-tip={sourceTooltip(src.type)} data-tip-align="right"><span class="source-dot source-dot-{src.type}"></span>{src.type}</span>
     {/each}
     {#if discovering}
       <span class="pill" style="font-size:10px">discovering…</span>
@@ -160,6 +154,7 @@
     margin-top: 4px; background: var(--c-surface);
     border: 1px solid var(--c-border); border-radius: var(--radius-sm);
     box-shadow: var(--shadow-md); max-height: 320px; overflow-y: auto; z-index: 200;
+    animation: slideDown 150ms ease-out both;
   }
   .search-empty { padding: 12px 16px; color: var(--c-text-3); font-size: var(--text-sm); }
   .search-result {
@@ -167,6 +162,7 @@
     padding: 8px 16px; text-decoration: none; color: var(--c-text);
     font-size: var(--text-sm); cursor: pointer;
   }
+  .search-result { transition: background var(--transition); }
   .search-result:hover, .search-result.selected { background: var(--c-surface-hover); text-decoration: none; }
   .search-result-name { font-weight: 500; }
   .search-result-meta { color: var(--c-text-3); font-size: var(--text-xs); }
@@ -177,7 +173,10 @@
     display: inline-flex; align-items: center; gap: 4px;
     font-size: 10px; font-weight: 600; text-transform: uppercase;
     color: var(--c-text-3);
+    padding: 2px 8px; border-radius: var(--radius-xs);
+    transition: background var(--transition), color var(--transition);
   }
+  .source-tag:hover { background: var(--c-surface-hover); color: var(--c-text-2); }
   .active { color: var(--c-accent) !important; }
 
   /* Theme toggle */

@@ -2,7 +2,16 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { navigate, serviceUrl, diffUrl } from '../lib/router.js';
-  import GraphCanvas from '../GraphCanvas.svelte';
+  import { phaseClass, complianceClass, sourceTooltip } from '../lib/format.js';
+
+  import OverviewSection from '../sections/OverviewSection.svelte';
+  import InterfacesSection from '../sections/InterfacesSection.svelte';
+  import DependenciesSection from '../sections/DependenciesSection.svelte';
+  import ConfigSection from '../sections/ConfigSection.svelte';
+  import PolicySection from '../sections/PolicySection.svelte';
+  import ValidationSection from '../sections/ValidationSection.svelte';
+  import RuntimeDiffSection from '../sections/RuntimeDiffSection.svelte';
+  import ObservedRuntimeSection from '../sections/ObservedRuntimeSection.svelte';
 
   let { name, services = [], onServiceResolved } = $props();
 
@@ -16,38 +25,34 @@
   let resolving = $state(false);
   let resolveError = $state(null);
 
-  // Which sections are open
+  // Section open states
   let openSections = $state({
     overview: true, interfaces: true, dependencies: true,
-    config: false, policy: false, runtime: false, validation: false,
+    config: false, policy: false, validation: false,
     runtimeDiff: false, observed: false,
   });
 
-  function toggle(section) {
-    openSections = { ...openSections, [section]: !openSections[section] };
-  }
-
-  // Computed
+  // Derived view model
   let insights = $derived(detail?.insights || []);
-  let hasInterfaces = $derived((detail?.interfaces?.length || 0) > 0);
-  let hasDeps = $derived((detail?.dependencies?.length || 0) > 0);
-  let hasConfig = $derived(!!detail?.configuration);
-  let hasPolicy = $derived(!!detail?.policy);
-  let hasRuntime = $derived(!!detail?.runtime);
-  let hasValidation = $derived(
-    (detail?.validation?.errors?.length > 0) ||
-    (detail?.validation?.warnings?.length > 0) ||
-    (detail?.conditions?.length > 0)
-  );
-  let hasRuntimeDiff = $derived((detail?.runtimeDiff?.length || 0) > 0);
-  let hasObserved = $derived(!!detail?.observedRuntime);
-  let cfg = $derived(detail?.configuration);
-  let pol = $derived(detail?.policy);
-  let obs = $derived(detail?.observedRuntime);
-  let sources = $derived(() => {
+  let sources = $derived.by(() => {
     const s = detail?.sources || [];
-    if (s.length) return s;
-    return detail?.source ? [detail.source] : [];
+    return s.length ? s : detail?.source ? [detail.source] : [];
+  });
+  let availableSections = $derived.by(() => {
+    if (!detail) return [];
+    const sections = [];
+    sections.push({ id: 'overview', label: 'Overview' });
+    if (detail.interfaces?.length > 0) sections.push({ id: 'interfaces', label: 'Interfaces' });
+    if (detail.dependencies?.length > 0 || dependents.length > 0 || crossRefs)
+      sections.push({ id: 'dependencies', label: 'Dependencies' });
+    if (detail.configuration) sections.push({ id: 'config', label: 'Configuration' });
+    if (detail.policy) sections.push({ id: 'policy', label: 'Policy' });
+    if ((detail.validation?.errors?.length > 0) || (detail.validation?.warnings?.length > 0))
+      sections.push({ id: 'validation', label: 'Validation' });
+    if (detail.runtimeDiff?.length > 0) sections.push({ id: 'runtimeDiff', label: 'Contract vs Runtime' });
+    if (detail.observedRuntime) sections.push({ id: 'observed', label: 'Observed Runtime' });
+    if (versions.length > 0) sections.push({ id: 'versions', label: 'Versions' });
+    return sections;
   });
 
   async function load() {
@@ -58,7 +63,6 @@
       detail = await api.service(name);
       loading = false;
 
-      // Background loads
       const [vers, deps, refs, graph] = await Promise.all([
         api.versions(name).catch(() => []),
         api.dependents(name).catch(() => []),
@@ -70,39 +74,9 @@
       crossRefs = refs;
       graphData = graph;
     } catch (e) {
-      if (e.status === 404) {
-        // Try to find ref info from services list for lazy resolution
-        const depInfo = findDepRef(name);
-        if (depInfo) {
-          await resolveRemote(depInfo.ref, depInfo.compatibility);
-          return;
-        }
-      }
       error = e.message;
       loading = false;
     }
-  }
-
-  function findDepRef(targetName) {
-    // Look in services list for any service that has targetName as a dependency
-    // This is a simplified approach - the real resolution happens server-side
-    return null;
-  }
-
-  async function resolveRemote(ref, compatibility) {
-    resolving = true;
-    try {
-      detail = await api.resolve(ref, compatibility || '');
-      if (detail.name && detail.name !== name) {
-        navigate('detail', { name: detail.name });
-        return;
-      }
-      if (onServiceResolved) onServiceResolved();
-    } catch (e) {
-      resolveError = { title: resolveErrorTitle(e.status), message: e.message, ref };
-    }
-    resolving = false;
-    loading = false;
   }
 
   function resolveErrorTitle(status) {
@@ -113,37 +87,17 @@
     return 'Failed to resolve';
   }
 
-  function phaseClass(phase) {
-    if (phase === 'Healthy') return 'ok';
-    if (phase === 'Degraded') return 'warn';
-    if (phase === 'Invalid') return 'err';
-    return 'neutral';
-  }
-
-  function complianceClass(score) {
-    if (score >= 80) return 'score-ok';
-    if (score >= 50) return 'score-warn';
-    return 'score-err';
-  }
-
-  function methodClass(method) {
-    const m = method?.toUpperCase();
-    if (m === 'GET') return 'badge-ok';
-    if (m === 'POST') return 'badge-info';
-    if (m === 'PUT' || m === 'PATCH') return 'badge-warn';
-    if (m === 'DELETE') return 'badge-err';
-    return 'badge-neutral';
-  }
-
-  function svcExists(svcName) {
-    return services.some((s) => s.name === svcName);
+  function scrollToSection(id) {
+    const el = document.getElementById(`section-${id}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (openSections[id] === false) openSections = { ...openSections, [id]: true };
   }
 
   onMount(() => { load(); });
 </script>
 
 {#if resolving}
-  <div class="state-box"><div class="spinner"></div><h3>Resolving remote dependency…</h3></div>
+  <div class="state-box"><div class="spinner"></div><h3>Resolving remote dependency...</h3></div>
 {:else if resolveError}
   <div class="state-box">
     <h3>{resolveError.title}</h3>
@@ -152,7 +106,14 @@
     <a href="#/" class="btn" style="margin-top:12px">Back to overview</a>
   </div>
 {:else if loading}
-  <div class="state-box"><div class="spinner"></div><p>Loading…</p></div>
+  <div class="detail-skeleton fade-in">
+    <div class="skeleton skeleton-line" style="width:40%; height:24px; margin-bottom:var(--sp-4)"></div>
+    <div class="skeleton skeleton-line" style="width:60%; margin-bottom:var(--sp-2)"></div>
+    <div class="skeleton skeleton-line" style="width:45%; margin-bottom:var(--sp-6)"></div>
+    <div class="skeleton skeleton-line" style="width:100%; height:80px; margin-bottom:var(--sp-4)"></div>
+    <div class="skeleton skeleton-line" style="width:80%; margin-bottom:var(--sp-2)"></div>
+    <div class="skeleton skeleton-line" style="width:55%"></div>
+  </div>
 {:else if error}
   <div class="state-box">
     <h3>Service not found</h3>
@@ -162,14 +123,14 @@
 {:else if detail}
 
   <!-- Breadcrumb -->
-  <nav class="breadcrumb" aria-label="Breadcrumb">
+  <nav class="breadcrumb fade-in" aria-label="Breadcrumb">
     <a href="#/">Services</a>
     <span class="sep">/</span>
     <span>{detail.name}</span>
   </nav>
 
   <!-- Header -->
-  <header class="detail-header">
+  <header class="detail-header fade-in-up">
     <div class="detail-title-row">
       <h1>{detail.name}</h1>
       <span class="badge badge-{phaseClass(detail.phase)}"><span class="badge-dot"></span>{detail.phase}</span>
@@ -190,8 +151,8 @@
     </div>
     <div class="detail-meta">
       {#if detail.version}<span class="pill">{detail.version}</span>{/if}
-      {#each sources() as src}
-        <span class="source-dot source-dot-{src}" title={src}></span>
+      {#each sources as src}
+        <span class="source-dot source-dot-{src}" data-tip={sourceTooltip(src)}></span>
       {/each}
       {#if detail.owner}<span class="text-2">owner: {detail.owner}</span>{/if}
       {#if detail.namespace}<span class="text-2">ns: {detail.namespace}</span>{/if}
@@ -207,6 +168,17 @@
     <div class="ref-banner">
       <strong>Reference-only contract</strong> — no runtime target. Used as a shared definition or dependency reference.
     </div>
+  {/if}
+
+  <!-- Section nav -->
+  {#if availableSections.length > 2}
+    <nav class="section-nav" aria-label="Sections">
+      {#each availableSections as sec}
+        <button type="button" class="section-nav-item" onclick={() => scrollToSection(sec.id)}>
+          {sec.label}
+        </button>
+      {/each}
+    </nav>
   {/if}
 
   <!-- Insights -->
@@ -242,443 +214,67 @@
     </div>
   {/if}
 
-  <!-- Overview: conditions, runtime, scaling -->
-  <section class="section">
-    <button type="button" class="section-toggle" onclick={() => toggle('overview')}>
-      <span class="section-title">Overview</span>
-      <span class="toggle-icon">{openSections.overview ? '−' : '+'}</span>
-    </button>
-    {#if openSections.overview}
-      <div class="section-body">
-        <!-- Conditions -->
-        {#if detail.conditions?.length > 0}
-          <div class="subsection">
-            <h3>Conditions</h3>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Check</th><th>Status</th><th>Reason</th><th>Message</th></tr></thead>
-                <tbody>
-                  {#each detail.conditions as cond}
-                    <tr>
-                      <td><strong>{cond.type}</strong></td>
-                      <td>
-                        {#if cond.status === 'True'}
-                          <span class="badge badge-ok">Pass</span>
-                        {:else if cond.status === 'False'}
-                          <span class="badge badge-{cond.severity === 'warning' ? 'warn' : 'err'}">Fail</span>
-                        {:else}
-                          <span class="badge badge-neutral">{cond.status}</span>
-                        {/if}
-                      </td>
-                      <td class="text-2">{cond.reason || '—'}</td>
-                      <td class="text-2">{cond.message || '—'}</td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        {/if}
+  <!-- Domain sections -->
+  <OverviewSection
+    id="section-overview"
+    conditions={detail.conditions || []}
+    runtime={detail.runtime}
+    scaling={detail.scaling}
+    metadata={detail.metadata}
+    bind:open={openSections.overview}
+  />
 
-        <!-- Runtime + Scaling cards -->
-        <div class="cards-row">
-          {#if hasRuntime}
-            <div class="card">
-              <h3>Runtime</h3>
-              <dl class="kv-grid">
-                {#if detail.runtime.workload}<dt>Workload</dt><dd>{detail.runtime.workload}</dd>{/if}
-                {#if detail.runtime.stateType}<dt>State</dt><dd>{detail.runtime.stateType}</dd>{/if}
-                {#if detail.runtime.upgradeStrategy}<dt>Upgrade</dt><dd>{detail.runtime.upgradeStrategy}</dd>{/if}
-                {#if detail.runtime.gracefulShutdownSeconds != null}<dt>Graceful shutdown</dt><dd>{detail.runtime.gracefulShutdownSeconds}s</dd>{/if}
-                {#if detail.runtime.healthPath}<dt>Health</dt><dd>{detail.runtime.healthInterface}:{detail.runtime.healthPath}</dd>{/if}
-                {#if detail.runtime.metricsPath}<dt>Metrics</dt><dd>{detail.runtime.metricsInterface}:{detail.runtime.metricsPath}</dd>{/if}
-                {#if detail.runtime.persistenceScope}<dt>Persistence</dt><dd>{detail.runtime.persistenceScope} / {detail.runtime.persistenceDurability || '—'}</dd>{/if}
-                {#if detail.runtime.dataCriticality}<dt>Data criticality</dt><dd>{detail.runtime.dataCriticality}</dd>{/if}
-              </dl>
-            </div>
-          {/if}
-          {#if detail.scaling}
-            <div class="card">
-              <h3>Scaling</h3>
-              <dl class="kv-grid">
-                {#if detail.scaling.replicas != null}<dt>Replicas</dt><dd>{detail.scaling.replicas}</dd>{/if}
-                {#if detail.scaling.min != null}<dt>Min</dt><dd>{detail.scaling.min}</dd>{/if}
-                {#if detail.scaling.max != null}<dt>Max</dt><dd>{detail.scaling.max}</dd>{/if}
-              </dl>
-            </div>
-          {/if}
-          {#if detail.metadata && Object.keys(detail.metadata).length > 0}
-            <div class="card">
-              <h3>Metadata</h3>
-              <dl class="kv-grid">
-                {#each Object.entries(detail.metadata) as [k, v]}
-                  <dt>{k}</dt><dd>{v}</dd>
-                {/each}
-              </dl>
-            </div>
-          {/if}
-        </div>
-      </div>
-    {/if}
-  </section>
+  <InterfacesSection
+    id="section-interfaces"
+    interfaces={detail.interfaces || []}
+    bind:open={openSections.interfaces}
+  />
 
-  <!-- Interfaces -->
-  {#if hasInterfaces}
-    <section class="section">
-      <button type="button" class="section-toggle" onclick={() => toggle('interfaces')}>
-        <span class="section-title">Interfaces <span class="tab-count">{detail.interfaces.length}</span></span>
-        <span class="toggle-icon">{openSections.interfaces ? '−' : '+'}</span>
-      </button>
-      {#if openSections.interfaces}
-        <div class="section-body">
-          {#each detail.interfaces as iface}
-            <div class="card iface-card">
-              <div class="iface-header">
-                <strong>{iface.name}</strong>
-                <span class="badge badge-info">{iface.type}</span>
-                {#if iface.port != null}<span class="pill">:{iface.port}</span>{/if}
-                {#if iface.visibility}<span class="pill">{iface.visibility}</span>{/if}
-                {#if iface.hasContractFile}<span class="pill" title={iface.contractFile}>has contract</span>{/if}
-              </div>
-              {#if iface.endpoints?.length > 0}
-                <div class="table-wrap">
-                  <table>
-                    <thead><tr><th>Method</th><th>Path</th><th>Summary</th></tr></thead>
-                    <tbody>
-                      {#each iface.endpoints as ep}
-                        <tr>
-                          <td><span class="badge {methodClass(ep.method)}">{ep.method}</span></td>
-                          <td><code>{ep.path}</code></td>
-                          <td class="text-2">{ep.summary || ''}</td>
-                        </tr>
-                      {/each}
-                    </tbody>
-                  </table>
-                </div>
-              {/if}
-              {#if iface.contractContent}
-                <details class="contract-content">
-                  <summary>Contract content</summary>
-                  <pre>{iface.contractContent}</pre>
-                </details>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </section>
-  {/if}
+  <DependenciesSection
+    id="section-dependencies"
+    {name} {services} {graphData} {dependents} {crossRefs}
+    dependencies={detail.dependencies || []}
+    bind:open={openSections.dependencies}
+  />
 
-  <!-- Dependencies -->
-  {#if hasDeps || dependents.length > 0 || crossRefs}
-    <section class="section">
-      <button type="button" class="section-toggle" onclick={() => toggle('dependencies')}>
-        <span class="section-title">Dependencies <span class="tab-count">{(detail.dependencies?.length || 0) + dependents.length}</span></span>
-        <span class="toggle-icon">{openSections.dependencies ? '−' : '+'}</span>
-      </button>
-      {#if openSections.dependencies}
-        <div class="section-body">
-          <!-- Dependency graph -->
-          {#if graphData}
-            <div class="dep-graph-box">
-              <GraphCanvas {graphData} focusId={name} height={300} onNavigate={(n) => navigate('detail', { name: n })} />
-            </div>
-          {/if}
+  <ConfigSection
+    id="section-config"
+    config={detail.configuration}
+    bind:open={openSections.config}
+  />
 
-          <!-- Depends on -->
-          {#if detail.dependencies?.length > 0}
-            <div class="subsection">
-              <h3>Depends on</h3>
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>Service</th><th>Ref</th><th>Required</th><th>Compatibility</th></tr></thead>
-                  <tbody>
-                    {#each detail.dependencies as dep}
-                      <tr>
-                        <td>
-                          {#if svcExists(dep.name)}
-                            <a href={serviceUrl(dep.name)}>{dep.name}</a>
-                          {:else}
-                            {dep.name} <span class="badge badge-neutral">external</span>
-                          {/if}
-                        </td>
-                        <td><code class="text-3">{dep.ref}</code></td>
-                        <td>{dep.required ? 'Yes' : 'No'}</td>
-                        <td>{dep.compatibility || '—'}</td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          {/if}
+  <PolicySection
+    id="section-policy"
+    policy={detail.policy}
+    bind:open={openSections.policy}
+  />
 
-          <!-- Dependents -->
-          {#if dependents.length > 0}
-            <div class="subsection">
-              <h3>Depended on by</h3>
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>Service</th><th>Phase</th><th>Required</th></tr></thead>
-                  <tbody>
-                    {#each dependents as dep}
-                      <tr>
-                        <td><a href={serviceUrl(dep.name)}>{dep.name}</a></td>
-                        <td><span class="badge badge-{phaseClass(dep.phase)}"><span class="badge-dot"></span>{dep.phase}</span></td>
-                        <td>{dep.required ? 'Yes' : 'No'}</td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          {/if}
+  <ValidationSection
+    id="section-validation"
+    validation={detail.validation}
+    conditions={detail.conditions || []}
+    bind:open={openSections.validation}
+  />
 
-          <!-- Cross-references -->
-          {#if crossRefs?.references?.length > 0 || crossRefs?.referencedBy?.length > 0}
-            <div class="subsection">
-              <h3>Cross-references</h3>
-              {#if crossRefs.references?.length > 0}
-                <p class="text-2" style="margin-bottom:8px">References:</p>
-                <div class="table-wrap">
-                  <table>
-                    <thead><tr><th>Service</th><th>Type</th><th>Phase</th></tr></thead>
-                    <tbody>
-                      {#each crossRefs.references as ref}
-                        <tr>
-                          <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
-                          <td><span class="pill">{ref.refType}</span></td>
-                          <td><span class="badge badge-{phaseClass(ref.phase)}"><span class="badge-dot"></span>{ref.phase || 'Unknown'}</span></td>
-                        </tr>
-                      {/each}
-                    </tbody>
-                  </table>
-                </div>
-              {/if}
-              {#if crossRefs.referencedBy?.length > 0}
-                <p class="text-2" style="margin: 12px 0 8px">Referenced by:</p>
-                <div class="table-wrap">
-                  <table>
-                    <thead><tr><th>Service</th><th>Type</th><th>Phase</th></tr></thead>
-                    <tbody>
-                      {#each crossRefs.referencedBy as ref}
-                        <tr>
-                          <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
-                          <td><span class="pill">{ref.refType}</span></td>
-                          <td><span class="badge badge-{phaseClass(ref.phase)}"><span class="badge-dot"></span>{ref.phase || 'Unknown'}</span></td>
-                        </tr>
-                      {/each}
-                    </tbody>
-                  </table>
-                </div>
-              {/if}
-            </div>
-          {/if}
-        </div>
-      {/if}
-    </section>
-  {/if}
+  <RuntimeDiffSection
+    id="section-runtimeDiff"
+    runtimeDiff={detail.runtimeDiff || []}
+    bind:open={openSections.runtimeDiff}
+  />
 
-  <!-- Configuration -->
-  {#if hasConfig}
-    <section class="section">
-      <button type="button" class="section-toggle" onclick={() => toggle('config')}>
-        <span class="section-title">Configuration</span>
-        <span class="toggle-icon">{openSections.config ? '−' : '+'}</span>
-      </button>
-      {#if openSections.config}
-        <div class="section-body">
-
-          {#if cfg.schema}<p class="text-2">Schema: <code>{cfg.schema}</code></p>{/if}
-          {#if cfg.ref}
-            <p class="text-2">Ref: <a href={serviceUrl(cfg.ref.split('/').pop().split(':')[0])}>{cfg.ref}</a></p>
-          {/if}
-          {#if cfg.values?.length > 0}
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Key</th><th>Value</th><th>Type</th></tr></thead>
-                <tbody>
-                  {#each cfg.values as v}
-                    <tr>
-                      <td><code>{v.key}</code></td>
-                      <td>{v.value === '(any)' ? '—' : v.value}</td>
-                      <td><span class="pill">{v.type}</span></td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {:else if cfg.valueKeys?.length > 0}
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Key</th></tr></thead>
-                <tbody>
-                  {#each cfg.valueKeys as key}
-                    <tr><td><code>{key}</code></td></tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {/if}
-          {#if cfg.secretKeys?.length > 0}
-            <div class="subsection">
-              <h3>Secret Keys</h3>
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>Key</th><th>Type</th></tr></thead>
-                  <tbody>
-                    {#each cfg.secretKeys as key}
-                      <tr><td><code>{key}</code></td><td><span class="pill" style="color:var(--c-warn)">secret</span></td></tr>
-                    {/each}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          {/if}
-        </div>
-      {/if}
-    </section>
-  {/if}
-
-  <!-- Policy -->
-  {#if hasPolicy}
-    <section class="section">
-      <button type="button" class="section-toggle" onclick={() => toggle('policy')}>
-        <span class="section-title">Policy</span>
-        <span class="toggle-icon">{openSections.policy ? '−' : '+'}</span>
-      </button>
-      {#if openSections.policy}
-        <div class="section-body">
-
-          {#if pol.schema}<p class="text-2">Schema: <code>{pol.schema}</code></p>{/if}
-          {#if pol.ref}
-            <p class="text-2">Ref: <a href={serviceUrl(pol.ref.split('/').pop().split(':')[0])}>{pol.ref}</a></p>
-          {/if}
-          {#if pol.values?.length > 0}
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Key</th><th>Value</th><th>Type</th></tr></thead>
-                <tbody>
-                  {#each pol.values as v}
-                    <tr>
-                      <td><code>{v.key}</code></td>
-                      <td>{v.value === '(any)' ? '—' : v.value}</td>
-                      <td><span class="pill">{v.type}</span></td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {/if}
-          {#if pol.content}
-            <details><summary>Raw content</summary><pre>{pol.content}</pre></details>
-          {/if}
-        </div>
-      {/if}
-    </section>
-  {/if}
-
-  <!-- Validation -->
-  {#if hasValidation}
-    <section class="section">
-      <button type="button" class="section-toggle" onclick={() => toggle('validation')}>
-        <span class="section-title">Validation</span>
-        <span class="toggle-icon">{openSections.validation ? '−' : '+'}</span>
-      </button>
-      {#if openSections.validation}
-        <div class="section-body">
-          {#if detail.validation?.errors?.length > 0}
-            <div class="subsection">
-              <h3 style="color:var(--c-err)">Errors</h3>
-              {#each detail.validation.errors as issue}
-                <div class="insight insight-critical">
-                  <code>{issue.path}</code> <strong>[{issue.code}]</strong> {issue.message}
-                </div>
-              {/each}
-            </div>
-          {/if}
-          {#if detail.validation?.warnings?.length > 0}
-            <div class="subsection">
-              <h3 style="color:var(--c-warn)">Warnings</h3>
-              {#each detail.validation.warnings as issue}
-                <div class="insight insight-warning">
-                  <code>{issue.path}</code> <strong>[{issue.code}]</strong> {issue.message}
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/if}
-    </section>
-  {/if}
-
-  <!-- Runtime Diff -->
-  {#if hasRuntimeDiff}
-    <section class="section">
-      <button type="button" class="section-toggle" onclick={() => toggle('runtimeDiff')}>
-        <span class="section-title">Contract vs Runtime</span>
-        <span class="toggle-icon">{openSections.runtimeDiff ? '−' : '+'}</span>
-      </button>
-      {#if openSections.runtimeDiff}
-        <div class="section-body">
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Field</th><th>Declared</th><th>Observed</th><th>Status</th></tr></thead>
-              <tbody>
-                {#each detail.runtimeDiff as row}
-                  <tr>
-                    <td><strong>{row.field}</strong><br><code class="text-3">{row.contractPath}</code></td>
-                    <td>{row.declaredValue || '—'}</td>
-                    <td>{row.observedValue || '—'}</td>
-                    <td>
-                      {#if row.status === 'match'}<span class="badge badge-ok">Match</span>
-                      {:else if row.status === 'mismatch'}<span class="badge badge-err">Mismatch</span>
-                      {:else}<span class="badge badge-neutral">{row.status}</span>
-                      {/if}
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      {/if}
-    </section>
-  {/if}
-
-  <!-- Observed Runtime -->
-  {#if hasObserved}
-    <section class="section">
-      <button type="button" class="section-toggle" onclick={() => toggle('observed')}>
-        <span class="section-title">Observed Runtime</span>
-        <span class="toggle-icon">{openSections.observed ? '−' : '+'}</span>
-      </button>
-      {#if openSections.observed}
-        <div class="section-body">
-
-          <div class="card">
-            <dl class="kv-grid">
-              {#if obs.workloadKind}<dt>Workload kind</dt><dd>{obs.workloadKind}</dd>{/if}
-              {#if obs.deploymentStrategy}<dt>Strategy</dt><dd>{obs.deploymentStrategy}</dd>{/if}
-              {#if obs.containerImages?.length > 0}<dt>Images</dt><dd>{obs.containerImages.join(', ')}</dd>{/if}
-              {#if obs.hasPVC != null}<dt>Has PVC</dt><dd>{obs.hasPVC ? 'Yes' : 'No'}</dd>{/if}
-              {#if obs.hasEmptyDir != null}<dt>Has EmptyDir</dt><dd>{obs.hasEmptyDir ? 'Yes' : 'No'}</dd>{/if}
-              {#if obs.terminationGracePeriodSeconds != null}<dt>Termination grace</dt><dd>{obs.terminationGracePeriodSeconds}s</dd>{/if}
-              {#if obs.healthProbeInitialDelaySeconds != null}<dt>Health probe delay</dt><dd>{obs.healthProbeInitialDelaySeconds}s</dd>{/if}
-            </dl>
-          </div>
-        </div>
-      {/if}
-    </section>
-  {/if}
+  <ObservedRuntimeSection
+    id="section-observed"
+    observed={detail.observedRuntime}
+    bind:open={openSections.observed}
+  />
 
   <!-- Version History -->
   {#if versions.length > 0}
-    <section class="section">
+    <section class="section" id="section-versions">
       <div class="section-title">Version History <span class="tab-count">{versions.length}</span></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Version</th><th>Classification</th><th>Source</th><th>Created</th></tr></thead>
+          <thead><tr><th data-tip="Semver version tag">Version</th><th data-tip="Change impact vs previous version">Classification</th><th data-tip="Where this version was found">Source</th><th data-tip="When this version was published">Created</th><th data-tip="Compare this version against current">Compare</th></tr></thead>
           <tbody>
             {#each versions as ver}
               <tr>
@@ -690,8 +286,15 @@
                   {:else}<span class="text-3">—</span>
                   {/if}
                 </td>
-                <td>{#if ver.source}<span class="source-dot source-dot-{ver.source}" title={ver.source}></span>{:else}—{/if}</td>
+                <td>{#if ver.source}<span class="source-dot source-dot-{ver.source}" data-tip={sourceTooltip(ver.source)}></span> <span class="text-3" style="font-size:var(--text-xs)">{ver.source}</span>{:else}—{/if}</td>
                 <td class="text-2">{ver.createdAt ? new Date(ver.createdAt).toLocaleDateString() : '—'}</td>
+                <td>
+                  {#if ver.version !== detail.version}
+                    <a href={diffUrl(name, ver.version, detail.version)} class="btn btn-sm">vs current</a>
+                  {:else}
+                    <span class="badge badge-neutral">current</span>
+                  {/if}
+                </td>
               </tr>
             {/each}
           </tbody>
@@ -728,6 +331,24 @@
     font-size: var(--text-sm);
   }
 
+  .section-nav {
+    display: flex; gap: var(--sp-1); flex-wrap: wrap;
+    margin-bottom: var(--sp-5);
+    padding: var(--sp-2) 0;
+    border-bottom: 1px solid var(--c-border);
+    position: sticky; top: 48px; z-index: 50;
+    background: var(--c-bg);
+  }
+  .section-nav-item {
+    padding: var(--sp-1) var(--sp-3);
+    border: none; background: none;
+    font: inherit; font-size: var(--text-xs); font-weight: 500;
+    color: var(--c-text-3); cursor: pointer;
+    border-radius: var(--radius-xs);
+    transition: color var(--transition), background var(--transition);
+  }
+  .section-nav-item:hover { color: var(--c-text); background: var(--c-surface-hover); }
+
   .insights-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 
   .probes-grid { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
@@ -743,36 +364,9 @@
   .probe-label { font-weight: 500; }
   .probe-url { font-size: 10px; color: var(--c-text-3); }
 
-  .section-toggle {
-    display: flex; align-items: center; justify-content: space-between;
-    width: 100%; background: none; border: none; padding: 0; cursor: pointer;
-    font: inherit; color: var(--c-text); text-align: left;
-  }
-  .section-toggle:hover .section-title { color: var(--c-accent); }
-  .toggle-icon { color: var(--c-text-3); font-size: var(--text-lg); }
-
-  .section-body { margin-top: var(--sp-3); }
-  .subsection { margin-top: var(--sp-4); }
-  .subsection h3 { margin-bottom: var(--sp-2); }
-
-  .cards-row { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-top: var(--sp-3); }
-  .cards-row .card { flex: 1; min-width: 240px; }
-  .cards-row .card h3 { margin-bottom: var(--sp-2); }
-
-  .iface-card { margin-bottom: var(--sp-3); }
-  .iface-header { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); flex-wrap: wrap; }
-
-  .contract-content { margin-top: var(--sp-2); }
-  .contract-content summary { cursor: pointer; color: var(--c-text-3); font-size: var(--text-sm); }
-
-  .dep-graph-box {
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-sm);
-    margin-bottom: var(--sp-4);
-    overflow: hidden;
-  }
-
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); }
   .text-err { color: var(--c-err); font-size: var(--text-xs); }
+
+  .detail-skeleton { padding: var(--sp-4) 0; }
 </style>

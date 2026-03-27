@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { renderGraph, extractSubgraph } from './lib/graph.js';
 
   let { graphData = null, focusId = null, height = 400, onNavigate, filterFn } = $props();
@@ -14,6 +14,7 @@
     const data = focusId ? extractSubgraph(graphData, focusId) : graphData;
     if (!data || !data.nodes?.length) {
       containerEl.innerHTML = '';
+      instance = null;
       return;
     }
 
@@ -25,13 +26,17 @@
   }
 
   onMount(() => {
-    init();
     return () => { if (instance) instance.destroy(); };
   });
 
   $effect(() => {
-    // Re-init when data changes
-    if (graphData && containerEl) init();
+    // Track only graphData, focusId, containerEl — not callback props
+    const _data = graphData;
+    const _focus = focusId;
+    const _el = containerEl;
+    if (_data && _el) {
+      untrack(() => init());
+    }
   });
 
   export function zoomIn() { instance?.zoomIn(); }

@@ -50,15 +50,37 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
 
   // Defs for arrow markers
   const defs = svg.append('defs');
+
+  // Resolve CSS variable to actual color for marker fill (CSS vars don't work inside markers)
+  const markerColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim() || '#94a3b8';
+
   defs.append('marker')
     .attr('id', 'arrow')
     .attr('viewBox', '0 0 10 6')
     .attr('refX', 10).attr('refY', 3)
-    .attr('markerWidth', 8).attr('markerHeight', 6)
+    .attr('markerWidth', 10).attr('markerHeight', 8)
     .attr('orient', 'auto')
     .append('path')
-    .attr('d', 'M0,0 L10,3 L0,6')
-    .attr('fill', 'var(--c-text-3)');
+    .attr('d', 'M0,0 L10,3 L0,6 Z')
+    .attr('fill', markerColor);
+
+  defs.append('marker')
+    .attr('id', 'arrow-ref')
+    .attr('viewBox', '0 0 10 6')
+    .attr('refX', 10).attr('refY', 3)
+    .attr('markerWidth', 10).attr('markerHeight', 8)
+    .attr('orient', 'auto')
+    .append('path')
+    .attr('d', 'M0,0 L10,3 L0,6 Z')
+    .attr('fill', 'var(--c-accent, #818cf8)');
+
+  // Glow filter for focused node
+  const focusGlow = defs.append('filter').attr('id', 'focus-glow');
+  focusGlow.append('feDropShadow')
+    .attr('dx', 0).attr('dy', 0)
+    .attr('stdDeviation', 4)
+    .attr('flood-color', 'var(--c-accent, #818cf8)')
+    .attr('flood-opacity', 0.5);
 
   const g = svg.append('g');
 
@@ -66,6 +88,18 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
     .scaleExtent([0.2, 3])
     .on('zoom', (e) => g.attr('transform', e.transform));
   svg.call(zoom);
+
+  // Prevent zoom's click suppression from blocking node clicks
+  svg.on('dblclick.zoom', null);
+
+  // Pin focused node to center so it's always clearly visible
+  if (focusId) {
+    const focusNode = nodes.find((n) => n.id === focusId || n.serviceName === focusId);
+    if (focusNode) {
+      focusNode.fx = width / 2;
+      focusNode.fy = height / 2;
+    }
+  }
 
   const sim = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links).id((d) => d.id).distance(180))
@@ -84,24 +118,36 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
       if (d.type === 'reference') return '6,3';
       return d.required ? 'none' : '4,3';
     })
-    .attr('marker-end', 'url(#arrow)')
+    .attr('marker-end', (d) => d.type === 'reference' ? 'url(#arrow-ref)' : 'url(#arrow)')
     .attr('opacity', 0.6);
 
-  // Nodes
+  // Nodes — track drag movement to distinguish click from drag
   const nodeG = g.append('g').attr('class', 'nodes');
+  let dragMoved = false;
+
   const nodeEls = nodeG.selectAll('g')
     .data(nodes)
     .join('g')
     .attr('cursor', 'pointer')
     .call(d3.drag()
-      .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-      .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
-      .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
+      .on('start', (e, d) => {
+        dragMoved = false;
+        if (!e.active) sim.alphaTarget(0.3).restart();
+        d.fx = d.x; d.fy = d.y;
+      })
+      .on('drag', (e, d) => {
+        dragMoved = true;
+        d.fx = e.x; d.fy = e.y;
+      })
+      .on('end', (e, d) => {
+        if (!e.active) sim.alphaTarget(0);
+        d.fx = null; d.fy = null;
+        // Navigate on click (no drag movement)
+        if (!dragMoved && d.status !== 'external' && onNavigate) {
+          onNavigate(d.serviceName);
+        }
+      })
     );
-
-  nodeEls.on('click', (e, d) => {
-    if (d.status !== 'external' && onNavigate) onNavigate(d.serviceName);
-  });
 
   // Node rect
   nodeEls.append('rect')
@@ -110,7 +156,8 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
     .attr('rx', 6)
     .attr('fill', 'var(--c-surface)')
     .attr('stroke', (d) => STATUS_COLORS[d.status] || STATUS_COLORS.Unknown)
-    .attr('stroke-width', (d) => d.serviceName === focusId ? 2.5 : 1.5);
+    .attr('stroke-width', (d) => d.serviceName === focusId ? 3 : 1.5)
+    .attr('filter', (d) => d.serviceName === focusId ? 'url(#focus-glow)' : null);
 
   // Status dot
   nodeEls.append('circle')
@@ -127,6 +174,91 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
     .text((d) => {
       const name = d.serviceName || d.id;
       return name.length > 16 ? name.slice(0, 15) + '…' : name;
+    });
+
+  // Build adjacency (bidirectional) and reverse-dependency map (who depends on X)
+  const adjacency = new Map();
+  const dependedOnBy = new Map(); // targetId -> set of sourceIds that depend on it
+  nodes.forEach((n) => {
+    adjacency.set(n.id, new Set());
+    dependedOnBy.set(n.id, new Set());
+  });
+  links.forEach((l) => {
+    const sid = typeof l.source === 'object' ? l.source.id : l.source;
+    const tid = typeof l.target === 'object' ? l.target.id : l.target;
+    adjacency.get(sid)?.add(tid);
+    adjacency.get(tid)?.add(sid);
+    // source depends on target, so target being broken impacts source
+    dependedOnBy.get(tid)?.add(sid);
+  });
+
+  // BFS upstream: find all nodes that depend on `startId` (directly or transitively)
+  function blastRadiusBFS(startId) {
+    const impacted = new Set();
+    const queue = [startId];
+    while (queue.length) {
+      const id = queue.shift();
+      for (const depId of dependedOnBy.get(id) || []) {
+        if (!impacted.has(depId) && depId !== startId) {
+          impacted.add(depId);
+          queue.push(depId);
+        }
+      }
+    }
+    return impacted;
+  }
+
+  // Resolve marker color for blast-radius highlight
+  const blastColor = getComputedStyle(container).getPropertyValue('--c-err').trim() || '#f87171';
+  const warnColor = getComputedStyle(container).getPropertyValue('--c-warn').trim() || '#fbbf24';
+
+  nodeEls
+    .on('mouseenter', (_, d) => {
+      const isDegraded = d.status === 'Degraded' || d.status === 'Invalid';
+      const neighbors = adjacency.get(d.id) || new Set();
+      const impacted = isDegraded ? blastRadiusBFS(d.id) : new Set();
+      const highlight = new Set([d.id, ...neighbors, ...impacted]);
+
+      nodeEls.transition().duration(150)
+        .attr('opacity', (n) => highlight.has(n.id) ? 1 : 0.15);
+
+      // Pulse the stroke of impacted nodes to show blast radius
+      if (isDegraded && impacted.size > 0) {
+        const pulseColor = d.status === 'Invalid' ? blastColor : warnColor;
+        nodeEls.select('rect')
+          .transition().duration(150)
+          .attr('stroke', (n) => {
+            if (impacted.has(n.id)) return pulseColor;
+            return STATUS_COLORS[n.status] || STATUS_COLORS.Unknown;
+          })
+          .attr('stroke-width', (n) => {
+            if (impacted.has(n.id)) return 2.5;
+            return n.serviceName === focusId ? 2.5 : 1.5;
+          });
+      }
+
+      linkEls.transition().duration(150)
+        .attr('opacity', (l) => {
+          const sid = typeof l.source === 'object' ? l.source.id : l.source;
+          const tid = typeof l.target === 'object' ? l.target.id : l.target;
+          return highlight.has(sid) && highlight.has(tid) ? 0.8 : 0.05;
+        })
+        .attr('stroke-width', (l) => {
+          const sid = typeof l.source === 'object' ? l.source.id : l.source;
+          const tid = typeof l.target === 'object' ? l.target.id : l.target;
+          const connected = (sid === d.id || tid === d.id) || (impacted.has(sid) && impacted.has(tid));
+          return connected ? (l.required ? 2.5 : 1.5) : (l.required ? 2 : 1);
+        });
+    })
+    .on('mouseleave', () => {
+      nodeEls.transition().duration(150).attr('opacity', 1);
+      nodeEls.select('rect')
+        .transition().duration(150)
+        .attr('stroke', (n) => STATUS_COLORS[n.status] || STATUS_COLORS.Unknown)
+        .attr('stroke-width', (n) => n.serviceName === focusId ? 2.5 : 1.5);
+      linkEls.transition().duration(150)
+        .attr('opacity', 0.6)
+        .attr('stroke-width', (l) => l.required ? 2 : 1);
     });
 
   // Apply filter if provided
@@ -148,10 +280,28 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
 
   if (filterFn) applyFilter(filterFn);
 
+  // Clip line endpoint to target node's rectangle boundary
+  function clipToRect(sx, sy, tx, ty, hw, hh) {
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len === 0) return { x: tx, y: ty };
+    const nx = dx / len;
+    const ny = dy / len;
+    // Find intersection with rect edges
+    const scaleX = Math.abs(nx) > 1e-6 ? hw / Math.abs(nx) : Infinity;
+    const scaleY = Math.abs(ny) > 1e-6 ? hh / Math.abs(ny) : Infinity;
+    const scale = Math.min(scaleX, scaleY);
+    return { x: tx - nx * scale, y: ty - ny * scale };
+  }
+
   sim.on('tick', () => {
-    linkEls
-      .attr('x1', (d) => d.source.x).attr('y1', (d) => d.source.y)
-      .attr('x2', (d) => d.target.x).attr('y2', (d) => d.target.y);
+    linkEls.each(function (d) {
+      const clipped = clipToRect(d.source.x, d.source.y, d.target.x, d.target.y, NODE_W / 2, NODE_H / 2);
+      d3.select(this)
+        .attr('x1', d.source.x).attr('y1', d.source.y)
+        .attr('x2', clipped.x).attr('y2', clipped.y);
+    });
     nodeEls.attr('transform', (d) => `translate(${d.x},${d.y})`);
   });
 

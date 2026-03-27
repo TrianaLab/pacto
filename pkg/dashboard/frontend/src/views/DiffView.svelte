@@ -2,12 +2,13 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { serviceUrl } from '../lib/router.js';
+  import { classificationClass, changeTypeClass } from '../lib/format.js';
 
-  let { name } = $props();
+  let { name, initialFrom = '', initialTo = '' } = $props();
 
   let versions = $state([]);
-  let fromVer = $state('');
-  let toVer = $state('');
+  let fromVer = $state(initialFrom); // initial value from URL param
+  let toVer = $state(initialTo); // initial value from URL param
   let loading = $state(false);
   let error = $state(null);
   let result = $state(null);
@@ -15,11 +16,18 @@
   async function loadVersions() {
     try {
       versions = await api.versions(name);
-      if (versions.length >= 2) {
-        fromVer = versions[1].version;
-        toVer = versions[0].version;
-      } else if (versions.length === 1) {
-        toVer = versions[0].version;
+      // Only auto-select versions if not provided via URL params
+      if (!fromVer && !toVer) {
+        if (versions.length >= 2) {
+          fromVer = versions[1].version;
+          toVer = versions[0].version;
+        } else if (versions.length === 1) {
+          toVer = versions[0].version;
+        }
+      }
+      // Auto-run diff if both versions are pre-selected
+      if (fromVer && toVer) {
+        runDiff();
       }
     } catch {}
   }
@@ -35,20 +43,6 @@
       error = e.message;
     }
     loading = false;
-  }
-
-  function classificationClass(c) {
-    if (c === 'BREAKING') return 'badge-err';
-    if (c === 'POTENTIAL_BREAKING') return 'badge-warn';
-    if (c === 'NON_BREAKING') return 'badge-ok';
-    return 'badge-neutral';
-  }
-
-  function changeTypeClass(t) {
-    if (t === 'added') return 'diff-added';
-    if (t === 'removed') return 'diff-removed';
-    if (t === 'modified') return 'diff-modified';
-    return '';
   }
 
   function formatValue(val) {
@@ -110,7 +104,7 @@
     {:else}
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Path</th><th>Change</th><th>Old value</th><th>New value</th><th>Impact</th></tr></thead>
+          <thead><tr><th data-tip="Field path in the contract">Path</th><th data-tip="Type of change: added, removed, or modified">Change</th><th data-tip="Value in the older version">Old value</th><th data-tip="Value in the newer version">New value</th><th data-tip="Breaking change classification">Impact</th></tr></thead>
           <tbody>
             {#each result.changes as change}
               <tr>

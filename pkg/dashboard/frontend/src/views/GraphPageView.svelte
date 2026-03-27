@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { serviceUrl } from '../lib/router.js';
+  import { phaseClass } from '../lib/format.js';
   import GraphCanvas from '../GraphCanvas.svelte';
 
   let { services = [], sourcesInfo = [] } = $props();
@@ -10,6 +11,18 @@
   let loading = $state(true);
   let graphRef = $state(null);
   let phaseFilter = $state('all');
+
+  let stats = $derived.by(() => {
+    const s = { total: services.length, healthy: 0, degraded: 0, invalid: 0, unknown: 0, reference: 0 };
+    for (const svc of services) {
+      if (svc.phase === 'Healthy') s.healthy++;
+      else if (svc.phase === 'Degraded') s.degraded++;
+      else if (svc.phase === 'Invalid') s.invalid++;
+      else if (svc.phase === 'Reference') s.reference++;
+      else s.unknown++;
+    }
+    return s;
+  });
 
   async function loadGraph() {
     loading = true;
@@ -25,46 +38,59 @@
     return phase !== phaseFilter;
   }
 
-  function phaseClass(phase) {
-    if (phase === 'Healthy') return 'ok';
-    if (phase === 'Degraded') return 'warn';
-    if (phase === 'Invalid') return 'err';
-    return 'neutral';
-  }
-
   $effect(() => {
-    // Re-apply filter when phaseFilter changes
     if (graphRef) graphRef.applyFilter(phaseFilter === 'all' ? null : filterFn);
   });
 
   onMount(() => { loadGraph(); });
-
-  const statusColors = {
-    Healthy: 'var(--c-ok)', Degraded: 'var(--c-warn)', Invalid: 'var(--c-err)',
-    Unknown: 'var(--c-neutral)', external: 'var(--c-text-3)',
-  };
 </script>
 
 <div class="graph-header">
   <a href="#/" class="btn btn-sm btn-ghost">← Services</a>
   <h1>Dependency Graph</h1>
-  <div class="graph-filters">
-    <select bind:value={phaseFilter} aria-label="Filter by phase">
-      <option value="all">All phases</option>
-      <option value="Healthy">Healthy</option>
-      <option value="Degraded">Degraded</option>
-      <option value="Invalid">Invalid</option>
-      <option value="Unknown">Unknown</option>
-    </select>
-  </div>
 </div>
 
+{#if stats.total > 0}
+  <div class="stats-bar">
+    <button type="button" class="stat" class:stat-active={phaseFilter === 'all'} onclick={() => phaseFilter = 'all'}>
+      <span class="stat-value">{stats.total}</span>
+      <span class="stat-label">Total</span>
+    </button>
+    <button type="button" class="stat" class:stat-active={phaseFilter === 'Healthy'} onclick={() => phaseFilter = phaseFilter === 'Healthy' ? 'all' : 'Healthy'}>
+      <span class="stat-value" style="color:var(--c-ok)">{stats.healthy}</span>
+      <span class="stat-label">Healthy</span>
+    </button>
+    <button type="button" class="stat" class:stat-active={phaseFilter === 'Degraded'} onclick={() => phaseFilter = phaseFilter === 'Degraded' ? 'all' : 'Degraded'}>
+      <span class="stat-value" style="color:var(--c-warn)">{stats.degraded}</span>
+      <span class="stat-label">Degraded</span>
+    </button>
+    <button type="button" class="stat" class:stat-active={phaseFilter === 'Invalid'} onclick={() => phaseFilter = phaseFilter === 'Invalid' ? 'all' : 'Invalid'}>
+      <span class="stat-value" style="color:var(--c-err)">{stats.invalid}</span>
+      <span class="stat-label">Invalid</span>
+    </button>
+    {#if stats.reference > 0}
+      <button type="button" class="stat" class:stat-active={phaseFilter === 'Reference'} onclick={() => phaseFilter = phaseFilter === 'Reference' ? 'all' : 'Reference'}>
+        <span class="stat-value" style="color:var(--c-info)">{stats.reference}</span>
+        <span class="stat-label">Reference</span>
+      </button>
+    {/if}
+    {#if stats.unknown > 0}
+      <button type="button" class="stat" class:stat-active={phaseFilter === 'Unknown'} onclick={() => phaseFilter = phaseFilter === 'Unknown' ? 'all' : 'Unknown'}>
+        <span class="stat-value" style="color:var(--c-neutral)">{stats.unknown}</span>
+        <span class="stat-label">Unknown</span>
+      </button>
+    {/if}
+  </div>
+{/if}
+
 {#if loading}
-  <div class="state-box"><div class="spinner"></div><p>Loading graph…</p></div>
+  <div class="fade-in" style="padding:var(--sp-4) 0">
+    <div class="skeleton" style="width:100%; height:400px; border-radius:var(--radius-sm)"></div>
+  </div>
 {:else if !graphData?.nodes?.length}
   <div class="state-box"><h3>No services to graph</h3><p>Services need dependencies to appear in the graph.</p></div>
 {:else}
-  <div class="graph-page-canvas">
+  <div class="graph-page-canvas fade-in-up">
     <div class="graph-controls">
       <button type="button" class="btn btn-sm" onclick={() => graphRef?.zoomIn()} title="Zoom in">+</button>
       <button type="button" class="btn btn-sm" onclick={() => graphRef?.zoomOut()} title="Zoom out">−</button>
@@ -77,12 +103,11 @@
       onNavigate={(name) => location.hash = serviceUrl(name).slice(0)}
     />
     <div class="graph-legend">
-      {#each ['Healthy', 'Degraded', 'Invalid', 'Unknown', 'external'] as s}
-        <span class="legend-item">
-          <span class="legend-dot" style="background:{statusColors[s]}"></span>
-          {s}
-        </span>
-      {/each}
+      <span class="legend-item"><span class="legend-dot" style="background:var(--c-ok)"></span> Healthy</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--c-warn)"></span> Degraded</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--c-err)"></span> Invalid</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--c-neutral)"></span> Unknown</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--c-text-3)"></span> external</span>
       <span class="legend-sep">|</span>
       <span class="legend-item"><span class="legend-line solid"></span> required</span>
       <span class="legend-item"><span class="legend-line dashed"></span> optional</span>
@@ -91,14 +116,21 @@
   </div>
 
   <!-- Connections table -->
-  {#if graphData.nodes.length > 0}
+  {@const filteredNodes = phaseFilter === 'all'
+    ? graphData.nodes
+    : graphData.nodes.filter((n) => {
+        const phase = n.status === 'external' ? 'external' : n.status;
+        return phase === phaseFilter;
+      })
+  }
+  {#if filteredNodes.length > 0}
     <div class="section" style="margin-top:var(--sp-6)">
-      <div class="section-title">Service Connections</div>
+      <div class="section-title">Service Connections <span class="tab-count">{filteredNodes.length}</span></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Service</th><th>Status</th><th>Dependencies</th></tr></thead>
+          <thead><tr><th data-tip="Service name">Service</th><th data-tip="Service health phase">Status</th><th data-tip="Services this one depends on">Dependencies</th></tr></thead>
           <tbody>
-            {#each graphData.nodes as node}
+            {#each filteredNodes as node}
               {@const edges = node.edges || []}
               <tr class={node.status !== 'external' ? 'clickable' : ''} onclick={() => { if (node.status !== 'external') location.hash = serviceUrl(node.serviceName).slice(0); }}>
                 <td>
@@ -133,7 +165,18 @@
   .graph-header {
     display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-5); flex-wrap: wrap;
   }
-  .graph-filters { margin-left: auto; }
+  .stats-bar { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-5); flex-wrap: wrap; }
+  .stat {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: var(--sp-2) var(--sp-4); border-radius: var(--radius-sm);
+    background: var(--c-surface); border: 1px solid var(--c-border);
+    cursor: pointer; font: inherit; color: var(--c-text);
+    min-width: 64px; transition: border-color var(--transition);
+  }
+  .stat:hover { border-color: var(--c-text-3); }
+  .stat-active { border-color: var(--c-accent); background: var(--c-accent-bg); }
+  .stat-value { font-size: var(--text-lg); font-weight: 700; }
+  .stat-label { font-size: var(--text-xs); color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.05em; }
 
   .graph-page-canvas { position: relative; }
   .graph-controls {

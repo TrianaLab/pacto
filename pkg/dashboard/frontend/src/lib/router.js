@@ -4,9 +4,17 @@ export function parseHash(hash) {
   const raw = (hash || '').replace(/^#\/?/, '');
   if (!raw || raw === '/') return { view: 'list', params: {} };
 
-  // #/services/:name/diff
-  const diffMatch = raw.match(/^services\/(.+)\/diff$/);
-  if (diffMatch) return { view: 'diff', params: { name: decodeURIComponent(diffMatch[1]) } };
+  // #/services/:name/diff?from=X&to=Y
+  const diffMatch = raw.match(/^services\/(.+?)\/diff(?:\?(.*))?$/);
+  if (diffMatch) {
+    const params = { name: decodeURIComponent(diffMatch[1]) };
+    if (diffMatch[2]) {
+      const qs = new URLSearchParams(diffMatch[2]);
+      if (qs.get('from')) params.from = qs.get('from');
+      if (qs.get('to')) params.to = qs.get('to');
+    }
+    return { view: 'diff', params };
+  }
 
   // #/services/:name
   const svcMatch = raw.match(/^services\/(.+)$/);
@@ -30,6 +38,11 @@ export function serviceUrl(name) {
   return `#/services/${encodeURIComponent(name)}`;
 }
 
-export function diffUrl(name) {
-  return `#/services/${encodeURIComponent(name)}/diff`;
+export function diffUrl(name, from, to) {
+  let url = `#/services/${encodeURIComponent(name)}/diff`;
+  const qs = new URLSearchParams();
+  if (from) qs.set('from', from);
+  if (to) qs.set('to', to);
+  const str = qs.toString();
+  return str ? `${url}?${str}` : url;
 }

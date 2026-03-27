@@ -13,7 +13,7 @@
   let sourcesInfo = $state([]);
   let discovering = $state(false);
   let appVersion = $state('');
-  let autoReload = $state(false);
+  let autoReload = $state(true);
   let reloadTimer = $state(null);
 
   function onHashChange() {
@@ -60,6 +60,8 @@
   onMount(() => {
     window.addEventListener('hashchange', onHashChange);
     loadGlobal();
+    // Start auto-reload by default
+    reloadTimer = setInterval(loadGlobal, 10000);
     return () => {
       window.removeEventListener('hashchange', onHashChange);
       if (reloadTimer) clearInterval(reloadTimer);
@@ -84,7 +86,7 @@
       <ServiceDetailView name={route.params.name} {services} onServiceResolved={loadGlobal} />
     {/key}
   {:else if route.view === 'diff'}
-    <DiffView name={route.params.name} />
+    <DiffView name={route.params.name} initialFrom={route.params.from} initialTo={route.params.to} />
   {:else if route.view === 'graph'}
     <GraphPageView {services} {sourcesInfo} />
   {:else}
