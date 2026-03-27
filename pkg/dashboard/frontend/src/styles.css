@@ -89,7 +89,8 @@ code{font-family:var(--font-mono);font-size:var(--text-xs);background:var(--bg-i
 /* ─── Top Bar ─── */
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:0 32px;height:48px;border-bottom:1px solid var(--border);background:var(--bg-surface);position:sticky;top:0;z-index:100;transition:background var(--transition),border-color var(--transition);gap:16px;}
 .topbar-left{display:flex;align-items:center;gap:24px;flex-shrink:0;}
-.topbar-logo{font-size:15px;font-weight:700;letter-spacing:-0.03em;color:var(--text);display:flex;align-items:center;gap:6px;cursor:pointer;}
+.topbar-logo{font-size:15px;font-weight:700;letter-spacing:-0.03em;color:var(--text);display:flex;align-items:center;gap:6px;cursor:pointer;background:none;border:none;padding:0;font-family:var(--font-sans);}
+.link-btn{background:none;border:none;padding:0;font:inherit;font-size:inherit;color:inherit;cursor:pointer;text-align:left;}
 .topbar-logo-icon{width:18px;height:18px;color:var(--accent);}
 .version-badge{font-size:10px;font-weight:500;color:var(--text-dim);background:var(--bg);border:1px solid var(--border);padding:1px 6px;border-radius:100px;line-height:1.4;margin-left:2px;}
 .topbar-search{position:relative;flex:1;max-width:480px;}
@@ -316,7 +317,7 @@ tr[data-click]{cursor:pointer;}
 .classification-NON_BREAKING{background:var(--ok-bg);color:var(--ok);border-color:var(--ok-border);}
 
 /* ─── Dep link ─── */
-.dep-link{color:var(--accent);cursor:pointer;font-weight:500;}
+.dep-link{color:var(--accent);cursor:pointer;font-weight:500;background:none;border:none;padding:0;font:inherit;font-size:inherit;text-align:left;display:inline;}
 .dep-link:hover{color:var(--accent-hover);text-decoration:underline;}
 
 /* ─── Column Help Tooltips ─── */
