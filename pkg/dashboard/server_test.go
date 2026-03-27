@@ -2020,21 +2020,8 @@ func TestNoCache_AllowsSameSessionEnrichment(t *testing.T) {
 
 	// ── Step 2: GetVersions returns bare versions ──
 
-	versions, err := resolved.GetVersions(ctx, "svc")
-	if err != nil {
-		t.Fatalf("GetVersions before enrichment: %v", err)
-	}
-	if len(versions) != 2 {
-		t.Fatalf("expected 2 versions, got %d", len(versions))
-	}
-	for _, v := range versions {
-		if v.ContractHash != "" {
-			t.Errorf("version %s should have no hash before enrichment, got %q", v.Version, v.ContractHash)
-		}
-		if v.CreatedAt != nil {
-			t.Errorf("version %s should have no createdAt before enrichment", v.Version)
-		}
-	}
+	versions := getVersions(t, resolved, "svc", 2)
+	assertBareVersions(t, versions)
 
 	// ── Step 3: Simulate fetch-all-versions writing bundles to disk ──
 
@@ -2076,13 +2063,36 @@ service:
 
 	// ── Step 5: GetVersions returns enriched versions ──
 
-	versions, err = resolved.GetVersions(ctx, "svc")
+	versions = getVersions(t, resolved, "svc", 2)
+	assertEnrichedVersions(t, versions)
+}
+
+func getVersions(t *testing.T, rs *ResolvedSource, name string, expectedCount int) []Version {
+	t.Helper()
+	versions, err := rs.GetVersions(context.Background(), name)
 	if err != nil {
-		t.Fatalf("GetVersions after enrichment: %v", err)
+		t.Fatalf("GetVersions(%s): %v", name, err)
 	}
-	if len(versions) != 2 {
-		t.Fatalf("expected 2 versions after enrichment, got %d", len(versions))
+	if len(versions) != expectedCount {
+		t.Fatalf("expected %d versions, got %d", expectedCount, len(versions))
 	}
+	return versions
+}
+
+func assertBareVersions(t *testing.T, versions []Version) {
+	t.Helper()
+	for _, v := range versions {
+		if v.ContractHash != "" {
+			t.Errorf("version %s should have no hash before enrichment, got %q", v.Version, v.ContractHash)
+		}
+		if v.CreatedAt != nil {
+			t.Errorf("version %s should have no createdAt before enrichment", v.Version)
+		}
+	}
+}
+
+func assertEnrichedVersions(t *testing.T, versions []Version) {
+	t.Helper()
 	for _, v := range versions {
 		if v.ContractHash == "" {
 			t.Errorf("version %s: ContractHash should be populated after enrichment", v.Version)
@@ -2091,8 +2101,6 @@ service:
 			t.Errorf("version %s: CreatedAt should be populated after enrichment", v.Version)
 		}
 	}
-
-	// With 2 versions, classification should be computed for at least one.
 	hasClassification := false
 	for _, v := range versions {
 		if v.Classification != "" {
