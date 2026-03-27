@@ -175,6 +175,13 @@ func (s *OCISource) backgroundDiscover(ctx context.Context) {
 		}
 	}
 
+	// Rescan the internal cache so GetVersions can enrich with hash,
+	// createdAt, and classification from the newly materialized bundles.
+	s.RescanCache()
+	if s.onDiscover != nil {
+		s.onDiscover()
+	}
+
 	slog.Debug("OCI background discovery complete", "services", len(repos))
 }
 
