@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.js';
   import { navigate, serviceUrl, diffUrl } from '../lib/router.js';
-  import { phaseClass, complianceClass, sourceTooltip } from '../lib/format.js';
+  import { phaseClass, complianceClass, classificationClass, changeTypeClass, sourceTooltip } from '../lib/format.js';
 
   import OverviewSection from '../sections/OverviewSection.svelte';
   import InterfacesSection from '../sections/InterfacesSection.svelte';
@@ -24,6 +24,35 @@
   let graphData = $state(null);
   let resolving = $state(false);
   let resolveError = $state(null);
+
+  // Inline version diff
+  let diffExpandedVer = $state(null);
+  let diffLoading = $state(false);
+  let diffResult = $state(null);
+  let diffError = $state(null);
+
+  async function compareVersion(fromVersion) {
+    if (diffExpandedVer === fromVersion) {
+      diffExpandedVer = null;
+      return;
+    }
+    diffExpandedVer = fromVersion;
+    diffLoading = true;
+    diffResult = null;
+    diffError = null;
+    try {
+      diffResult = await api.diff(name, fromVersion, name, detail.version);
+    } catch (e) {
+      diffError = e.message;
+    }
+    diffLoading = false;
+  }
+
+  function formatDiffValue(val) {
+    if (val == null) return '—';
+    if (typeof val === 'object') return JSON.stringify(val, null, 2);
+    return String(val);
+  }
 
   // Section open states
   let openSections = $state({
@@ -290,12 +319,56 @@
                 <td class="text-2">{ver.createdAt ? new Date(ver.createdAt).toLocaleDateString() : '—'}</td>
                 <td>
                   {#if ver.version !== detail.version}
-                    <a href={diffUrl(name, ver.version, detail.version)} class="btn btn-sm">vs current</a>
+                    <button type="button" class="btn btn-sm" class:btn-active={diffExpandedVer === ver.version} onclick={() => compareVersion(ver.version)}>
+                      {diffExpandedVer === ver.version ? 'Close' : 'vs current'}
+                    </button>
                   {:else}
                     <span class="badge badge-neutral">current</span>
                   {/if}
                 </td>
               </tr>
+              {#if diffExpandedVer === ver.version}
+                <tr class="diff-expand-row">
+                  <td colspan="5">
+                    {#if diffLoading}
+                      <div class="diff-inline-loading"><div class="spinner"></div> Comparing {ver.version} → {detail.version}…</div>
+                    {:else if diffError}
+                      <div class="insight insight-critical">{diffError}</div>
+                    {:else if diffResult}
+                      <div class="diff-inline">
+                        <div class="diff-inline-header">
+                          <span class="badge {classificationClass(diffResult.classification)}">{diffResult.classification.replace(/_/g, ' ')}</span>
+                          <span class="text-2">{diffResult.changes.length} change{diffResult.changes.length !== 1 ? 's' : ''}</span>
+                          <span class="text-3">{ver.version} → {detail.version}</span>
+                        </div>
+                        {#if diffResult.changes.length === 0}
+                          <p class="text-2">No changes detected</p>
+                        {:else}
+                          <div class="table-wrap">
+                            <table class="diff-table">
+                              <thead><tr><th>Path</th><th>Change</th><th>Old</th><th>New</th><th>Impact</th></tr></thead>
+                              <tbody>
+                                {#each diffResult.changes as change}
+                                  <tr>
+                                    <td><code>{change.path}</code></td>
+                                    <td><span class={changeTypeClass(change.type)}>{change.type}</span></td>
+                                    <td><pre class="diff-value">{formatDiffValue(change.oldValue)}</pre></td>
+                                    <td><pre class="diff-value">{formatDiffValue(change.newValue)}</pre></td>
+                                    <td>
+                                      <span class="badge {classificationClass(change.classification)}">{change.classification.replace(/_/g, ' ')}</span>
+                                      {#if change.reason}<br><span class="text-3" style="font-size:var(--text-xs)">{change.reason}</span>{/if}
+                                    </td>
+                                  </tr>
+                                {/each}
+                              </tbody>
+                            </table>
+                          </div>
+                        {/if}
+                      </div>
+                    {/if}
+                  </td>
+                </tr>
+              {/if}
             {/each}
           </tbody>
         </table>
@@ -369,4 +442,37 @@
   .text-err { color: var(--c-err); font-size: var(--text-xs); }
 
   .detail-skeleton { padding: var(--sp-4) 0; }
+
+  .btn-active { background: var(--c-accent); color: white; }
+
+  .diff-expand-row td {
+    padding: 0 !important;
+    border-top: none !important;
+  }
+  .diff-inline {
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--c-surface-inset);
+    border-top: 1px solid var(--c-border);
+    animation: slideDown 200ms ease;
+  }
+  .diff-inline-header {
+    display: flex; align-items: center; gap: var(--sp-2);
+    margin-bottom: var(--sp-3);
+  }
+  .diff-inline-loading {
+    display: flex; align-items: center; gap: var(--sp-2);
+    padding: var(--sp-3) var(--sp-4);
+    color: var(--c-text-2); font-size: var(--text-sm);
+  }
+  .diff-table { font-size: var(--text-xs); }
+  .diff-value {
+    font-size: var(--text-xs);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0;
+    padding: 2px 4px;
+    background: var(--c-surface);
+    border-radius: var(--radius-xs);
+  }
 </style>
