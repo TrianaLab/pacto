@@ -1,128 +1,93 @@
 <script>
   import { onMount } from 'svelte';
+  import { parseHash } from './lib/router.js';
   import { api } from './lib/api.js';
-  import {
-    currentView, currentService, services, graphData,
-    sourcesInfo, discovering, appVersion, navigateTo, initFromHash,
-  } from './lib/stores.js';
-  import Navbar from './components/Navbar.svelte';
-  import ServiceList from './components/ServiceList.svelte';
-  import ServiceDetail from './components/ServiceDetail.svelte';
+  import Navbar from './Navbar.svelte';
+  import ServiceListView from './views/ServiceListView.svelte';
+  import ServiceDetailView from './views/ServiceDetailView.svelte';
+  import GraphPageView from './views/GraphPageView.svelte';
+  import DiffView from './views/DiffView.svelte';
 
-  let autoReloadEnabled = $state(localStorage.getItem('pacto-auto-reload') === 'true');
-  let autoReloadTimer = $state(null);
-  let discoveryTimer = $state(null);
-  let spinning = $state(false);
+  let route = $state(parseHash(location.hash));
+  let services = $state([]);
+  let sourcesInfo = $state([]);
+  let discovering = $state(false);
+  let appVersion = $state('');
+  let autoReload = $state(false);
+  let reloadTimer = $state(null);
 
-  function startAutoReload() {
-    stopAutoReload();
-    autoReloadTimer = setInterval(doRefresh, 10000);
+  function onHashChange() {
+    route = parseHash(location.hash);
   }
 
-  function stopAutoReload() {
-    if (autoReloadTimer) {
-      clearInterval(autoReloadTimer);
-      autoReloadTimer = null;
-    }
-  }
-
-  function toggleAutoReload() {
-    autoReloadEnabled = !autoReloadEnabled;
-    localStorage.setItem('pacto-auto-reload', String(autoReloadEnabled));
-    if (autoReloadEnabled) startAutoReload();
-    else stopAutoReload();
-  }
-
-  async function doRefresh() {
-    if (document.hidden) return;
-    spinning = true;
-    setTimeout(() => (spinning = false), 600);
-    await loadOverviewData();
-  }
-
-  async function loadOverviewData() {
+  async function loadGlobal() {
     try {
-      const [svcList, srcResp, graph] = await Promise.all([
-        api.listServices(),
-        api.getSources().catch(() => ({ sources: [], discovering: false })),
-        api.getGraph().catch(() => null),
+      const [svcList, srcData, health] = await Promise.all([
+        api.services(),
+        api.sources().catch(() => ({ sources: [], discovering: false })),
+        api.health().catch(() => ({})),
       ]);
-      services.set(svcList || []);
-      applySourcesResponse(srcResp);
-      graphData.set(graph);
-      scheduleDiscoveryRefresh();
+      services = svcList || [];
+      sourcesInfo = srcData.sources || [];
+      discovering = srcData.discovering || false;
+      appVersion = health.version || '';
     } catch {
       // keep stale data
     }
   }
 
-  function applySourcesResponse(r) {
-    if (Array.isArray(r)) {
-      sourcesInfo.set(r);
-      discovering.set(false);
-    } else if (r?.sources) {
-      sourcesInfo.set(r.sources);
-      discovering.set(!!r.discovering);
+  function toggleAutoReload() {
+    autoReload = !autoReload;
+    if (autoReload) {
+      reloadTimer = setInterval(loadGlobal, 10000);
     } else {
-      sourcesInfo.set([]);
-      discovering.set(false);
+      clearInterval(reloadTimer);
+      reloadTimer = null;
     }
   }
 
-  function scheduleDiscoveryRefresh() {
-    let disc;
-    discovering.subscribe((v) => (disc = v))();
-    if (disc && !discoveryTimer) {
-      discoveryTimer = setInterval(doRefresh, 2000);
-    } else if (!disc && discoveryTimer) {
-      clearInterval(discoveryTimer);
-      discoveryTimer = null;
-    }
+  function toggleTheme() {
+    const root = document.documentElement;
+    const current = root.getAttribute('data-theme');
+    let isDark;
+    if (current) isDark = current === 'dark';
+    else isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+    const next = isDark ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    localStorage.setItem('pacto-theme', next);
   }
 
   onMount(() => {
-    initFromHash();
-
-    // Fetch app version
-    api.getHealth().then((d) => {
-      if (d.version) appVersion.set(d.version);
-    }).catch(() => {});
-
-    // Load initial data
-    loadOverviewData();
-
-    if (autoReloadEnabled) startAutoReload();
-
-    // Handle popstate for browser back/forward
-    const onPopState = () => {
-      const hash = location.hash;
-      if (hash.startsWith('#service/')) {
-        const svc = decodeURIComponent(hash.substring(9));
-        currentView.set('detail');
-        currentService.set(svc);
-      } else if (hash === '#graph') {
-        currentView.set('list');
-      } else {
-        currentView.set('list');
-        currentService.set(null);
-      }
-    };
-    window.addEventListener('popstate', onPopState);
-
+    window.addEventListener('hashchange', onHashChange);
+    loadGlobal();
     return () => {
-      window.removeEventListener('popstate', onPopState);
-      stopAutoReload();
-      if (discoveryTimer) clearInterval(discoveryTimer);
+      window.removeEventListener('hashchange', onHashChange);
+      if (reloadTimer) clearInterval(reloadTimer);
     };
   });
 </script>
 
-<Navbar {spinning} {autoReloadEnabled} onRefresh={doRefresh} onToggleAutoReload={toggleAutoReload} />
+<Navbar
+  {services}
+  {sourcesInfo}
+  version={appVersion}
+  {discovering}
+  {autoReload}
+  onRefresh={loadGlobal}
+  onToggleAutoReload={toggleAutoReload}
+  onToggleTheme={toggleTheme}
+/>
 
-<div class="container">
-  {#if $currentView === 'detail' && $currentService}
-    <ServiceDetail name={$currentService} />
+<main class="container">
+  {#if route.view === 'detail'}
+    {#key route.params.name}
+      <ServiceDetailView name={route.params.name} {services} onServiceResolved={loadGlobal} />
+    {/key}
+  {:else if route.view === 'diff'}
+    <DiffView name={route.params.name} />
+  {:else if route.view === 'graph'}
+    <GraphPageView {services} {sourcesInfo} />
   {:else}
-    <ServiceList />
+    <ServiceListView {services} {sourcesInfo} {discovering} />
   {/if}
-</div>
+</main>

@@ -1,54 +1,46 @@
+/** Pacto Dashboard API client — thin typed wrapper over fetch. */
+
 class ApiError extends Error {
-  constructor(message, status) {
+  constructor(status, message) {
     super(message);
     this.status = status;
   }
 }
 
-async function get(path) {
-  const r = await fetch('/api' + path);
-  if (!r.ok) throw new ApiError('API ' + r.status, r.status);
-  return r.json();
+async function request(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    let msg = text;
+    try { msg = JSON.parse(text).detail || JSON.parse(text).title || text; } catch {}
+    throw new ApiError(res.status, msg);
+  }
+  if (res.status === 204) return null;
+  return res.json();
 }
 
-async function post(path, body) {
-  const r = await fetch('/api' + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) {
-    const data = await r.json().catch(() => null);
-    const msg = data?.detail || data?.title || 'API ' + r.status;
-    throw new ApiError(msg, r.status);
-  }
-  return r.json();
-}
+const get = (path) => request('GET', path);
+const post = (path, body) => request('POST', path, body);
 
 export const api = {
-  listServices: () => get('/services'),
-  getService: (name) => get('/services/' + encodeURIComponent(name)),
-  getVersions: (name) => get('/services/' + encodeURIComponent(name) + '/versions'),
-  getServiceSources: (name) => get('/services/' + encodeURIComponent(name) + '/sources'),
-  getDependents: (name) => get('/services/' + encodeURIComponent(name) + '/dependents'),
-  getGraph: () => get('/graph'),
-  getServiceGraph: (name) => get('/services/' + encodeURIComponent(name) + '/graph'),
-  getSources: () => get('/sources'),
-  getCrossRefs: (name) => get('/services/' + encodeURIComponent(name) + '/refs'),
-  getDiff: (from, to) =>
-    get(
-      '/diff?from_name=' + encodeURIComponent(from.name) +
-      '&from_version=' + encodeURIComponent(from.version) +
-      '&to_name=' + encodeURIComponent(to.name) +
-      '&to_version=' + encodeURIComponent(to.version)
-    ),
-  getDebugSources: () => get('/debug/sources'),
-  getHealth: () => fetch('/health').then((r) => r.json()),
-  resolveRef: (ref, compatibility) => {
-    const payload = { ref };
-    if (compatibility) payload.compatibility = compatibility;
-    return post('/resolve', payload);
-  },
-  listRemoteVersions: (ref, fetchAll) =>
-    post('/versions', { ref, fetch: !!fetchAll }),
+  health: () => get('/health'),
+  sources: () => get('/api/sources'),
+  services: () => get('/api/services'),
+  service: (name) => get(`/api/services/${encodeURIComponent(name)}`),
+  versions: (name) => get(`/api/services/${encodeURIComponent(name)}/versions`),
+  serviceSources: (name) => get(`/api/services/${encodeURIComponent(name)}/sources`),
+  dependents: (name) => get(`/api/services/${encodeURIComponent(name)}/dependents`),
+  crossRefs: (name) => get(`/api/services/${encodeURIComponent(name)}/refs`),
+  graph: () => get('/api/graph'),
+  serviceGraph: (name) => get(`/api/services/${encodeURIComponent(name)}/graph`),
+  diff: (fromName, fromVersion, toName, toVersion) =>
+    get(`/api/diff?from_name=${encodeURIComponent(fromName)}&from_version=${encodeURIComponent(fromVersion || '')}&to_name=${encodeURIComponent(toName)}&to_version=${encodeURIComponent(toVersion || '')}`),
+  resolve: (ref, compatibility) => post('/api/resolve', { ref, compatibility }),
+  remoteVersions: (ref, fetch) => post('/api/versions', { ref, fetch }),
+  debugSources: () => get('/api/debug/sources'),
 };

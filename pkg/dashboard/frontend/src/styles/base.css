@@ -1,0 +1,76 @@
+/* ─── Reset & Base ─── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  background: var(--c-bg);
+  color: var(--c-text);
+  transition: background var(--transition), color var(--transition);
+}
+
+body { min-height: 100vh; }
+
+a { color: var(--c-accent); text-decoration: none; }
+a:hover { color: var(--c-accent-hover); text-decoration: underline; }
+
+code, pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+code {
+  background: var(--c-surface-inset);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+}
+
+pre {
+  background: var(--c-surface-inset);
+  padding: var(--sp-4);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--c-text-3); border-radius: 3px; }
+
+/* Selection */
+::selection { background: var(--c-accent-bg); color: var(--c-accent); }
+
+/* Headings */
+h1 { font-size: var(--text-xl); font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; }
+h3 { font-size: var(--text-base); font-weight: 600; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+thead { border-bottom: 1px solid var(--c-border); }
+th { text-align: left; padding: var(--sp-2) var(--sp-3); color: var(--c-text-3); font-weight: 500; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em; }
+td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--c-border-subtle); vertical-align: top; }
+tbody tr:hover { background: var(--c-surface-hover); }
+
+/* Layout utility */
+.container { max-width: 1200px; margin: 0 auto; padding: var(--sp-6) var(--sp-8); }
+
+/* Spinner */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--c-border);
+  border-top-color: var(--c-accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
