@@ -4,7 +4,7 @@
 
   let {
     services = [], sourcesInfo = [], version = '', discovering = false,
-    autoReload = false, onRefresh, onToggleAutoReload, onToggleTheme,
+    autoReload = false, refreshing = false, onRefresh, onToggleAutoReload, onToggleTheme,
   } = $props();
 
   let query = $state('');
@@ -100,7 +100,7 @@
       <span class="pill" style="font-size:10px">discovering…</span>
     {/if}
 
-    <button type="button" class="btn-ghost" onclick={onRefresh} aria-label="Refresh" title="Refresh data">
+    <button type="button" class="btn-ghost" class:spinning={refreshing} onclick={onRefresh} aria-label="Refresh" title="Refresh data">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
     </button>
     <button type="button" class="btn-ghost" class:active={autoReload} onclick={onToggleAutoReload} aria-label="Toggle auto-reload" title="Auto-reload ({autoReload ? 'on' : 'off'})">
@@ -178,6 +178,7 @@
   }
   .source-tag:hover { background: var(--c-surface-hover); color: var(--c-text-2); }
   .active { color: var(--c-accent) !important; }
+  .spinning svg { animation: spin 0.8s linear infinite; }
 
   /* Theme toggle */
   :global([data-theme="light"]) .theme-sun { display: none; }

@@ -238,6 +238,9 @@
 [data-tip] {
   position: relative;
 }
+[data-tip]:hover {
+  z-index: 1001;
+}
 [data-tip]::after {
   content: attr(data-tip);
   position: absolute;
@@ -267,7 +270,9 @@
 [data-tip-align="right"]:hover::after { transform: translateY(0); }
 
 /* ─── Table wrapper ─── */
-.table-wrap { overflow-x: auto; }
+.table-wrap {
+  overflow: visible;
+}
 
 /* ─── Diff change styling ─── */
 .diff-added { color: var(--c-ok); font-weight: 500; }

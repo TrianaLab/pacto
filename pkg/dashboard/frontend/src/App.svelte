@@ -15,12 +15,15 @@
   let appVersion = $state('');
   let autoReload = $state(true);
   let reloadTimer = $state(null);
+  let refreshing = $state(false);
+  let refreshTick = $state(0);
 
   function onHashChange() {
     route = parseHash(location.hash);
   }
 
   async function loadGlobal() {
+    refreshing = true;
     try {
       const [svcList, srcData, health] = await Promise.all([
         api.services(),
@@ -31,9 +34,11 @@
       sourcesInfo = srcData.sources || [];
       discovering = srcData.discovering || false;
       appVersion = health.version || '';
+      refreshTick++;
     } catch {
       // keep stale data
     }
+    refreshing = false;
   }
 
   function toggleAutoReload() {
@@ -75,6 +80,7 @@
   version={appVersion}
   {discovering}
   {autoReload}
+  {refreshing}
   onRefresh={loadGlobal}
   onToggleAutoReload={toggleAutoReload}
   onToggleTheme={toggleTheme}
@@ -83,7 +89,7 @@
 <main class="container">
   {#if route.view === 'detail'}
     {#key route.params.name}
-      <ServiceDetailView name={route.params.name} {services} onServiceResolved={loadGlobal} />
+      <ServiceDetailView name={route.params.name} {services} {refreshTick} onServiceResolved={loadGlobal} />
     {/key}
   {:else if route.view === 'diff'}
     <DiffView name={route.params.name} initialFrom={route.params.from} initialTo={route.params.to} />

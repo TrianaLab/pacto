@@ -13,7 +13,7 @@
   import RuntimeDiffSection from '../sections/RuntimeDiffSection.svelte';
   import ObservedRuntimeSection from '../sections/ObservedRuntimeSection.svelte';
 
-  let { name, services = [], onServiceResolved } = $props();
+  let { name, services = [], refreshTick = 0, onServiceResolved } = $props();
 
   let loading = $state(true);
   let error = $state(null);
@@ -120,6 +120,31 @@
     const el = document.getElementById(`section-${id}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     if (openSections[id] === false) openSections = { ...openSections, [id]: true };
+  }
+
+  let initialTick = refreshTick;
+
+  $effect(() => {
+    if (refreshTick > initialTick) {
+      reload();
+    }
+  });
+
+  async function reload() {
+    try {
+      const [svc, vers, deps, refs] = await Promise.all([
+        api.service(name),
+        api.versions(name).catch(() => []),
+        api.dependents(name).catch(() => []),
+        api.crossRefs(name).catch(() => null),
+      ]);
+      detail = svc;
+      versions = vers || [];
+      dependents = deps || [];
+      crossRefs = refs;
+    } catch {
+      // keep stale data on background refresh
+    }
   }
 
   onMount(() => { load(); });
