@@ -878,3 +878,45 @@ func TestEnsureCacheSource_HomeDirError(t *testing.T) {
 		t.Error("expected nil CacheSource when home dir fails")
 	}
 }
+
+func TestRedetectK8s_NoClient(t *testing.T) {
+	old := newK8sClientFunc
+	newK8sClientFunc = func() (K8sClient, error) {
+		return nil, fmt.Errorf("no cluster")
+	}
+	t.Cleanup(func() { newK8sClientFunc = old })
+
+	r := &DetectResult{Diagnostics: &SourceDiagnostics{}}
+	RedetectK8s(context.Background(), r, "")
+	if r.K8s != nil {
+		t.Error("expected nil K8s when client creation fails")
+	}
+}
+
+func TestRedetectK8s_WithClient(t *testing.T) {
+	old := newK8sClientFunc
+	newK8sClientFunc = func() (K8sClient, error) {
+		return &mockK8sClient{
+			crdDiscovery: &CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"},
+			listJSON:     []byte(`{"items":[]}`),
+		}, nil
+	}
+	t.Cleanup(func() { newK8sClientFunc = old })
+
+	r := &DetectResult{Diagnostics: &SourceDiagnostics{}}
+	RedetectK8s(context.Background(), r, "")
+	if r.K8s == nil {
+		t.Error("expected K8s source when client succeeds")
+	}
+}
+
+func TestCurrentKubeContext(t *testing.T) {
+	old := currentKubeContextFunc
+	currentKubeContextFunc = func() string { return "test-context" }
+	t.Cleanup(func() { currentKubeContextFunc = old })
+
+	got := CurrentKubeContext()
+	if got != "test-context" {
+		t.Errorf("CurrentKubeContext() = %q, want %q", got, "test-context")
+	}
+}

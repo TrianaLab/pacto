@@ -561,6 +561,111 @@ func TestWireOCIEnrichment_Success(t *testing.T) {
 	}
 }
 
+func TestWireK8sRedetect_NoChange(t *testing.T) {
+	contextName := "ctx-a"
+	fn := wireK8sRedetect("", dashboard.NewMemoryCache(),
+		func() string { return contextName },
+		func(_ context.Context, result *dashboard.DetectResult, _ string) {
+			result.K8s = dashboard.NewK8sSource(&cliMockK8sClient{listJSON: []byte(`{"items":[]}`)}, "", "pactos")
+		},
+	)
+	// First call: context changes from "" to "ctx-a", k8s available → returns source.
+	ds, err := fn(context.Background())
+	if err != nil || ds == nil {
+		t.Fatalf("first call: err=%v, ds=%v", err, ds)
+	}
+
+	// Second call: context is still "ctx-a" → "no change" error.
+	_, err = fn(context.Background())
+	if err == nil || err.Error() != "no change" {
+		t.Errorf("expected 'no change' error, got %v", err)
+	}
+}
+
+func TestWireK8sRedetect_K8sNotAvailableOnFirstCall(t *testing.T) {
+	// Context changes from "" to "ctx-a" but k8s detection fails → "k8s not available".
+	fn := wireK8sRedetect("", dashboard.NewMemoryCache(),
+		func() string { return "ctx-a" },
+		func(_ context.Context, _ *dashboard.DetectResult, _ string) {
+			// Don't set result.K8s — simulates k8s being unavailable.
+		},
+	)
+	_, err := fn(context.Background())
+	if err == nil || err.Error() != "k8s not available" {
+		t.Errorf("expected 'k8s not available' error, got %v", err)
+	}
+}
+
+func TestWireK8sRedetect_ContextSwitch(t *testing.T) {
+	callCount := 0
+	contextName := "ctx-a"
+	getContext := func() string { return contextName }
+	redetect := func(_ context.Context, result *dashboard.DetectResult, _ string) {
+		callCount++
+		result.K8s = dashboard.NewK8sSource(&cliMockK8sClient{listJSON: []byte(`{"items":[]}`)}, "", "pactos")
+	}
+
+	fn := wireK8sRedetect("default", dashboard.NewMemoryCache(), getContext, redetect)
+
+	// First call: context changes from "" to "ctx-a", k8s available → returns source.
+	ds, err := fn(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ds == nil {
+		t.Error("expected non-nil DataSource")
+	}
+
+	// Second call with same context → "no change".
+	_, err = fn(context.Background())
+	if err == nil || err.Error() != "no change" {
+		t.Errorf("expected 'no change', got %v", err)
+	}
+
+	// Third call: context switches to "ctx-b".
+	contextName = "ctx-b"
+	ds, err = fn(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error on context switch: %v", err)
+	}
+	if ds == nil {
+		t.Error("expected non-nil DataSource after context switch")
+	}
+	if callCount != 2 {
+		t.Errorf("expected redetect called 2 times, got %d", callCount)
+	}
+}
+
+func TestWireK8sRedetect_ContextSwitch_K8sUnavailable(t *testing.T) {
+	contextName := "ctx-a"
+	k8sAvailable := true
+	getContext := func() string { return contextName }
+	redetect := func(_ context.Context, result *dashboard.DetectResult, _ string) {
+		if k8sAvailable {
+			result.K8s = dashboard.NewK8sSource(&cliMockK8sClient{listJSON: []byte(`{"items":[]}`)}, "", "pactos")
+		}
+	}
+
+	fn := wireK8sRedetect("", dashboard.NewMemoryCache(), getContext, redetect)
+
+	// First call: k8s available.
+	ds, err := fn(context.Background())
+	if err != nil || ds == nil {
+		t.Fatalf("first call: err=%v, ds=%v", err, ds)
+	}
+
+	// Context switches but k8s is now unreachable → returns (nil, nil).
+	contextName = "ctx-b"
+	k8sAvailable = false
+	ds, err = fn(context.Background())
+	if err != nil {
+		t.Errorf("expected nil error when context changed but k8s unreachable, got %v", err)
+	}
+	if ds != nil {
+		t.Error("expected nil DataSource when k8s unreachable")
+	}
+}
+
 func TestCacheDirResolution_FromBundleStore(t *testing.T) {
 	// When cache-dir is not set via viper (always the case — no such flag),
 	// the dashboard should resolve it from BundleStore.CacheDir().

@@ -2243,6 +2243,46 @@ func TestServerRefresh_K8sSourceSwap(t *testing.T) {
 	}
 }
 
+func TestServerRedetect_NilSource(t *testing.T) {
+	// Cover the newSource == nil return path in redetectK8sIfNeeded.
+	source := &mockSource{
+		services: []Service{{Name: "svc", Phase: PhaseHealthy, Source: "local"}},
+		details: map[string]*ServiceDetails{
+			"svc": {Service: Service{Name: "svc", Phase: PhaseHealthy, Source: "local"}},
+		},
+	}
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
+	memCache := NewMemoryCache()
+	srv.SetCacheSource(nil, memCache)
+
+	// Redetect callback returns nil source (context changed but k8s unreachable).
+	srv.SetK8sRedetect(func(_ context.Context) (DataSource, error) {
+		return nil, nil
+	})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.ServeOnListener(ctx, ln) }()
+	time.Sleep(50 * time.Millisecond)
+
+	// POST /api/refresh triggers redetect which returns nil.
+	resp, err := http.Post("http://"+ln.Addr().String()+"/api/refresh", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
 func findEntry(t *testing.T, entries []ServiceListEntry, name string) *ServiceListEntry {
 	t.Helper()
 	for i := range entries {

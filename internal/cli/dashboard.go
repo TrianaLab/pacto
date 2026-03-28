@@ -159,7 +159,7 @@ Services are grouped by name across sources and merged using priority rules:
 			}
 
 			// Enable k8s re-detection for kubectl context switches.
-			server.SetK8sRedetect(wireK8sRedetect(namespace, memCache))
+			server.SetK8sRedetect(wireK8sRedetect(namespace, memCache, dashboard.CurrentKubeContext, dashboard.RedetectK8s))
 
 			// Register cache source (if available) and memory cache for runtime
 			// refresh after resolve or fetch-all-versions operations.
@@ -308,10 +308,12 @@ func deduplicateSourceInfo(info []dashboard.SourceInfo) []dashboard.SourceInfo {
 func wireK8sRedetect(
 	namespace string,
 	memCache dashboard.Cache,
+	getContext func() string,
+	redetect func(ctx context.Context, result *dashboard.DetectResult, namespace string),
 ) func(ctx context.Context) (dashboard.DataSource, error) {
 	var currentContext string
 	return func(ctx context.Context) (dashboard.DataSource, error) {
-		ctxName := dashboard.CurrentKubeContext()
+		ctxName := getContext()
 		if ctxName == currentContext {
 			return nil, fmt.Errorf("no change")
 		}
@@ -319,7 +321,7 @@ func wireK8sRedetect(
 		result := &dashboard.DetectResult{
 			Diagnostics: &dashboard.SourceDiagnostics{},
 		}
-		dashboard.RedetectK8s(ctx, result, namespace)
+		redetect(ctx, result, namespace)
 		if result.K8s == nil {
 			if currentContext != "" {
 				// Context changed but k8s is now unreachable.

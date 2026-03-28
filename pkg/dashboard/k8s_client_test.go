@@ -600,3 +600,37 @@ func TestK8sGoClient_CountResources_Error_AllNamespaces(t *testing.T) {
 		t.Error("expected error")
 	}
 }
+
+func TestReadCurrentKubeContext_ValidConfig(t *testing.T) {
+	dir := t.TempDir()
+	kubeconfigPath := filepath.Join(dir, "kubeconfig")
+	if err := os.WriteFile(kubeconfigPath, []byte(`apiVersion: v1
+kind: Config
+current-context: my-cluster
+contexts:
+- context:
+    cluster: my-cluster
+  name: my-cluster
+clusters:
+- cluster:
+    server: https://localhost:6443
+  name: my-cluster
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBECONFIG", kubeconfigPath)
+
+	got := readCurrentKubeContext()
+	if got != "my-cluster" {
+		t.Errorf("readCurrentKubeContext() = %q, want %q", got, "my-cluster")
+	}
+}
+
+func TestReadCurrentKubeContext_NoConfig(t *testing.T) {
+	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "nonexistent"))
+
+	got := readCurrentKubeContext()
+	if got != "" {
+		t.Errorf("readCurrentKubeContext() = %q, want empty", got)
+	}
+}

@@ -939,3 +939,37 @@ func TestOCISource_BackgroundLoop_Rediscovery(t *testing.T) {
 		t.Errorf("expected onDiscover called ≥2 times, got %d", n)
 	}
 }
+
+func TestOCISource_BackgroundLoop_CtxCancel(t *testing.T) {
+	// Directly call backgroundLoop with a cancellable context to cover
+	// the ctx.Done() return path.
+	old := ociRediscoverInterval
+	ociRediscoverInterval = 1 * time.Hour // prevent timer-based rediscovery
+	t.Cleanup(func() { ociRediscoverInterval = old })
+
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/svc", "1.0.0", "svc", "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/svc"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		src.backgroundLoop(ctx)
+		close(done)
+	}()
+
+	// Wait for initial discovery to complete (done channel closed by backgroundLoop).
+	<-src.done
+
+	// Cancel ctx to trigger the ctx.Done() path in the select.
+	cancel()
+
+	// backgroundLoop should return.
+	select {
+	case <-done:
+		// success
+	case <-time.After(2 * time.Second):
+		t.Fatal("backgroundLoop did not return after context cancellation")
+	}
+}
