@@ -9,6 +9,10 @@ inputs:
     description: Install golangci-lint (needed for ci-static)
     required: false
     default: 'false'
+  node:
+    description: Setup Node.js (needed for ci-test which runs ci-ui)
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -16,6 +20,13 @@ runs:
     - uses: actions/setup-go@v6.3.0
       with:
         go-version: '1.25'
+
+    - uses: actions/setup-node@v4
+      if: inputs.node == 'true'
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: pkg/dashboard/frontend/package-lock.json
 
     - uses: actions/cache@v5.0.3
       with:

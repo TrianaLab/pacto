@@ -42,6 +42,7 @@ type CRDDiscovery struct {
 var (
 	newK8sClientFunc            = newK8sGoClient
 	inClusterConfigFunc         = rest.InClusterConfig
+	currentKubeContextFunc      = readCurrentKubeContext
 	newDiscoveryClientForConfig = func(c *rest.Config) (discovery.DiscoveryInterface, error) {
 		return discovery.NewDiscoveryClientForConfig(c)
 	}
@@ -49,6 +50,16 @@ var (
 		return dynamic.NewForConfig(c)
 	}
 )
+
+// readCurrentKubeContext reads the current context name from the kubeconfig file.
+func readCurrentKubeContext() string {
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	config, err := loadingRules.Load()
+	if err != nil {
+		return ""
+	}
+	return config.CurrentContext
+}
 
 // k8sGoClient implements K8sClient using k8s.io/client-go.
 type k8sGoClient struct {

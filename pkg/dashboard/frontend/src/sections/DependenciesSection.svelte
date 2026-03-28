@@ -1,8 +1,8 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import GraphCanvas from '../GraphCanvas.svelte';
-  import { phaseClass } from '../lib/format.js';
-  import { navigate, serviceUrl } from '../lib/router.js';
+  import { phaseClass } from '../lib/format.ts';
+  import { navigate, serviceUrl } from '../lib/router.ts';
 
   let {
     name, dependencies = [], dependents = [], crossRefs = null,

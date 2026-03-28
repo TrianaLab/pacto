@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -98,11 +97,10 @@ Services are grouped by name across sources and merged using priority rules:
 				NoCache:   noCache,
 			})
 
-			// Auto-discover OCI repos from K8s services when no explicit
-			// repos are specified. This enriches the K8s-only dashboard
-			// with full contract bundles, version history, and diffs.
-			needsLazyEnrich := retryOCIEnrichment(
-				cmd.Context(), cmd.ErrOrStderr(),
+			// Try a single OCI enrichment attempt from K8s (non-blocking).
+			// If it fails, lazy enrichment retries on first API request.
+			needsLazyEnrich := tryOCIEnrichment(
+				cmd.Context(),
 				detectResult, svc.BundleStore, cacheDir, repos,
 			)
 
@@ -159,6 +157,9 @@ Services are grouped by name across sources and merged using priority rules:
 			if detectResult.OCI != nil {
 				server.SetOCISource(detectResult.OCI)
 			}
+
+			// Enable k8s re-detection for kubectl context switches.
+			server.SetK8sRedetect(wireK8sRedetect(namespace, memCache))
 
 			// Register cache source (if available) and memory cache for runtime
 			// refresh after resolve or fetch-all-versions operations.
@@ -269,15 +270,10 @@ func cacheTTL(sourceType string) time.Duration {
 	}
 }
 
-// enrichRetryInterval is the delay between OCI enrichment retries. Tests may
-// override this to avoid 5-second waits.
-var enrichRetryInterval = 5 * time.Second
-
-// retryOCIEnrichment attempts to discover OCI repos from K8s with retries.
-// Returns true if lazy enrichment is needed (all retries exhausted without finding OCI).
-func retryOCIEnrichment(
+// tryOCIEnrichment makes a single non-blocking attempt to discover OCI repos
+// from K8s. Returns true if lazy enrichment is needed (OCI not found yet).
+func tryOCIEnrichment(
 	ctx context.Context,
-	w io.Writer,
 	detectResult *dashboard.DetectResult,
 	store oci.BundleStore,
 	cacheDir string,
@@ -286,23 +282,8 @@ func retryOCIEnrichment(
 	if len(repos) != 0 || store == nil {
 		return false
 	}
-	const maxRetries = 6
-	for i := range maxRetries {
-		detectResult.EnrichFromK8s(ctx, store, cacheDir)
-		if detectResult.OCI != nil {
-			return false
-		}
-		if i < maxRetries-1 {
-			_, _ = fmt.Fprintf(w, "  waiting for K8s resources to discover OCI repos (%d/%d)...\n", i+1, maxRetries)
-			select {
-			case <-ctx.Done():
-				return true
-			case <-time.After(enrichRetryInterval):
-			}
-		}
-	}
-	_, _ = fmt.Fprintln(w, "  OCI repos not found at startup; will retry lazily on first request")
-	return true
+	detectResult.EnrichFromK8s(ctx, store, cacheDir)
+	return detectResult.OCI == nil
 }
 
 // deduplicateSourceInfo keeps only the last occurrence of each source type.
@@ -318,6 +299,40 @@ func deduplicateSourceInfo(info []dashboard.SourceInfo) []dashboard.SourceInfo {
 		}
 	}
 	return out
+}
+
+// wireK8sRedetect returns a callback that recreates the k8s client from fresh
+// kubeconfig. Returns a new cached DataSource on success, or an error if k8s
+// is not available or unchanged. Uses the current kubeconfig context name to
+// detect context switches.
+func wireK8sRedetect(
+	namespace string,
+	memCache dashboard.Cache,
+) func(ctx context.Context) (dashboard.DataSource, error) {
+	var currentContext string
+	return func(ctx context.Context) (dashboard.DataSource, error) {
+		ctxName := dashboard.CurrentKubeContext()
+		if ctxName == currentContext {
+			return nil, fmt.Errorf("no change")
+		}
+
+		result := &dashboard.DetectResult{
+			Diagnostics: &dashboard.SourceDiagnostics{},
+		}
+		dashboard.RedetectK8s(ctx, result, namespace)
+		if result.K8s == nil {
+			if currentContext != "" {
+				// Context changed but k8s is now unreachable.
+				currentContext = ctxName
+				return nil, nil
+			}
+			return nil, fmt.Errorf("k8s not available")
+		}
+
+		currentContext = ctxName
+		cached := dashboard.NewCachedDataSource(result.K8s, memCache, cacheTTL("k8s"), "k8s:")
+		return cached, nil
+	}
 }
 
 // wireOCIEnrichment returns a callback that attempts OCI discovery from K8s

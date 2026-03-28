@@ -84,12 +84,8 @@ func TestOCISource_ListServices(t *testing.T) {
 	store.addBundle("ghcr.io/org/worker", "1.0.0", "worker", "1.0.0")
 
 	src := NewOCISource(store, []string{"ghcr.io/org/api", "ghcr.io/org/worker"})
-	ctx := context.Background()
 
-	services, err := src.ListServices(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	services := waitForDiscovery(t, src)
 	if len(services) != 2 {
 		t.Fatalf("expected 2 services, got %d", len(services))
 	}
@@ -110,12 +106,8 @@ func TestOCISource_ListServices_SkipsUnreachableRepos(t *testing.T) {
 	// "ghcr.io/org/unreachable" has no tags registered, so ListTags will fail
 
 	src := NewOCISource(store, []string{"ghcr.io/org/api", "ghcr.io/org/unreachable"})
-	ctx := context.Background()
 
-	services, err := src.ListServices(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	services := waitForDiscovery(t, src)
 	if len(services) != 1 {
 		t.Fatalf("expected 1 service (skipping unreachable), got %d", len(services))
 	}
@@ -126,12 +118,8 @@ func TestOCISource_ListServices_SkipsEmptyTagRepos(t *testing.T) {
 	store.tags["ghcr.io/org/empty"] = []string{} // repo exists but has no tags
 
 	src := NewOCISource(store, []string{"ghcr.io/org/empty"})
-	ctx := context.Background()
 
-	services, err := src.ListServices(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	services := waitForDiscovery(t, src)
 	if len(services) != 0 {
 		t.Fatalf("expected 0 services, got %d", len(services))
 	}
@@ -144,12 +132,8 @@ func TestOCISource_ListServices_SkipsPullErrors(t *testing.T) {
 	// No bundle registered for the ref, so Pull will fail
 
 	src := NewOCISource(store, []string{"ghcr.io/org/bad"})
-	ctx := context.Background()
 
-	services, err := src.ListServices(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	services := waitForDiscovery(t, src)
 	if len(services) != 0 {
 		t.Fatalf("expected 0 services (pull failed), got %d", len(services))
 	}
@@ -636,26 +620,20 @@ func TestOCISource_ListServices_SharedDependency(t *testing.T) {
 	}
 }
 
-func TestOCISource_ListServices_ShallowScanImmediate(t *testing.T) {
+func TestOCISource_ListServices_ShallowScanNonBlocking(t *testing.T) {
 	store := newMockBundleStore()
 
-	// Root has deps but the first call should return immediately with just root.
+	// Root has deps — first ListServices returns immediately (empty),
+	// discovery runs in the background.
 	store.addBundleWithDeps("ghcr.io/org/root", "1.0.0", "root", "1.0.0", []contract.Dependency{
 		{Ref: "oci://ghcr.io/org/dep"},
 	})
 	store.addBundle("ghcr.io/org/dep", "1.0.0", "dep", "1.0.0")
 
 	src := NewOCISource(store, []string{"ghcr.io/org/root"})
-	ctx := context.Background()
 
-	// First call should return at least the root (shallow scan).
-	services, err := src.ListServices(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(services) < 1 {
-		t.Fatalf("expected at least 1 service from shallow scan, got %d", len(services))
-	}
+	// After full discovery, both root and dep should be present.
+	services := waitForDiscovery(t, src)
 	found := false
 	for _, svc := range services {
 		if svc.Name == "root" {
@@ -663,7 +641,7 @@ func TestOCISource_ListServices_ShallowScanImmediate(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("expected root service in shallow scan results")
+		t.Errorf("expected root service after discovery")
 	}
 }
 

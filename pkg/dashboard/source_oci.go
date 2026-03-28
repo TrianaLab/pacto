@@ -90,14 +90,17 @@ func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 	if !s.started {
 		s.started = true
 		s.mu.Unlock()
-		// Run synchronous shallow scan of configured repos (fast: 1 pull per repo).
-		// Use a detached context so the scan isn't cancelled by the triggering
-		// HTTP request's timeout (e.g. readiness probe, browser fetch).
-		s.shallowScan(context.WithoutCancel(ctx))
-		// Kick off background deep discovery of dependencies + version prefetch.
-		// Runs continuously: first cycle closes s.done (ending "discovering" state),
-		// then re-runs periodically to pick up new services and versions.
-		go s.backgroundLoop(context.WithoutCancel(ctx))
+		// Kick off discovery entirely in the background so the first
+		// ListServices call returns immediately (empty list). The UI
+		// shows "Discovering services…" via Discovering() until the
+		// initial scan completes. shallowScan + backgroundLoop run
+		// with a detached context so they aren't cancelled by the
+		// triggering HTTP request's lifecycle.
+		go func() {
+			bgCtx := context.WithoutCancel(ctx)
+			s.shallowScan(bgCtx)
+			s.backgroundLoop(bgCtx)
+		}()
 	} else {
 		s.mu.Unlock()
 	}

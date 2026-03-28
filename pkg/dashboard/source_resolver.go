@@ -111,6 +111,33 @@ func (r *ResolvedSource) AddContractSource(name string, ds DataSource) {
 	r.contract = newContract
 }
 
+// SetRuntimeSource replaces the runtime (k8s) source. This is used when the
+// kubeconfig context changes at runtime and the k8s client must be recreated.
+// Thread-safe via copy-on-write.
+func (r *ResolvedSource) SetRuntimeSource(ds DataSource) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if ds != nil {
+		r.runtime = &runtimeSourceEntry{source: ds}
+	} else {
+		r.runtime = nil
+	}
+
+	// Update the "k8s" entry in the all-sources map.
+	newAll := make(map[string]DataSource, len(r.all))
+	for k, v := range r.all {
+		if k == "k8s" {
+			continue
+		}
+		newAll[k] = v
+	}
+	if ds != nil {
+		newAll["k8s"] = ds
+	}
+	r.all = newAll
+}
+
 // AddSource registers a data source for version/diff lookups only
 // (not contract resolution). Thread-safe via copy-on-write.
 func (r *ResolvedSource) AddSource(name string, ds DataSource) {

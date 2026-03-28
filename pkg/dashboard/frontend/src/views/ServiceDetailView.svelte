@@ -1,8 +1,9 @@
 <script>
   import { onMount } from 'svelte';
-  import { api } from '../lib/api.js';
-  import { navigate, serviceUrl, diffUrl } from '../lib/router.js';
-  import { phaseClass, complianceClass, classificationClass, changeTypeClass, sourceTooltip } from '../lib/format.js';
+  import { api } from '../lib/api.ts';
+  import { navigate, serviceUrl, diffUrl } from '../lib/router.ts';
+  import { phaseClass, complianceClass, classificationClass, sourceTooltip } from '../lib/format.ts';
+  import DiffChangesTable from '../DiffChangesTable.svelte';
 
   import OverviewSection from '../sections/OverviewSection.svelte';
   import InterfacesSection from '../sections/InterfacesSection.svelte';
@@ -48,12 +49,6 @@
     diffLoading = false;
   }
 
-  function formatDiffValue(val) {
-    if (val == null) return '—';
-    if (typeof val === 'object') return JSON.stringify(val, null, 2);
-    return String(val);
-  }
-
   // Section open states
   let openSections = $state({
     overview: true, interfaces: true, dependencies: true,
@@ -92,21 +87,39 @@
       detail = await api.service(name);
       loading = false;
 
-      const [vers, deps, refs, graph] = await Promise.all([
+      const [vers, deps, refs] = await Promise.all([
         api.versions(name).catch(() => []),
         api.dependents(name).catch(() => []),
         api.crossRefs(name).catch(() => null),
-        api.graph().catch(() => null),
       ]);
       versions = vers || [];
       dependents = deps || [];
       crossRefs = refs;
-      graphData = graph;
+
+      // Lazy-load graph only when dependencies section is already open
+      if (openSections.dependencies && (detail.dependencies?.length > 0 || deps.length > 0)) {
+        loadGraph();
+      }
     } catch (e) {
       error = e.message;
       loading = false;
     }
   }
+
+  let graphLoaded = $state(false);
+
+  async function loadGraph() {
+    if (graphLoaded) return;
+    graphLoaded = true;
+    graphData = await api.graph().catch(() => null);
+  }
+
+  // Trigger graph load when dependencies section is opened
+  $effect(() => {
+    if (openSections.dependencies && !graphLoaded && detail) {
+      loadGraph();
+    }
+  });
 
   function resolveErrorTitle(status) {
     if (status === 403) return 'Authentication failed';
@@ -366,29 +379,7 @@
                           <span class="text-2">{diffResult.changes.length} change{diffResult.changes.length !== 1 ? 's' : ''}</span>
                           <span class="text-3">{ver.version} → {detail.version}</span>
                         </div>
-                        {#if diffResult.changes.length === 0}
-                          <p class="text-2">No changes detected</p>
-                        {:else}
-                          <div class="table-wrap">
-                            <table class="diff-table">
-                              <thead><tr><th>Path</th><th>Change</th><th>Old</th><th>New</th><th>Impact</th></tr></thead>
-                              <tbody>
-                                {#each diffResult.changes as change}
-                                  <tr>
-                                    <td><code>{change.path}</code></td>
-                                    <td><span class={changeTypeClass(change.type)}>{change.type}</span></td>
-                                    <td><pre class="diff-value">{formatDiffValue(change.oldValue)}</pre></td>
-                                    <td><pre class="diff-value">{formatDiffValue(change.newValue)}</pre></td>
-                                    <td>
-                                      <span class="badge {classificationClass(change.classification)}">{change.classification.replace(/_/g, ' ')}</span>
-                                      {#if change.reason}<br><span class="text-3" style="font-size:var(--text-xs)">{change.reason}</span>{/if}
-                                    </td>
-                                  </tr>
-                                {/each}
-                              </tbody>
-                            </table>
-                          </div>
-                        {/if}
+                        <DiffChangesTable changes={diffResult.changes} compact />
                       </div>
                     {/if}
                   </td>
@@ -488,16 +479,5 @@
     display: flex; align-items: center; gap: var(--sp-2);
     padding: var(--sp-3) var(--sp-4);
     color: var(--c-text-2); font-size: var(--text-sm);
-  }
-  .diff-table { font-size: var(--text-xs); }
-  .diff-value {
-    font-size: var(--text-xs);
-    max-width: 180px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    margin: 0;
-    padding: 2px 4px;
-    background: var(--c-surface);
-    border-radius: var(--radius-xs);
   }
 </style>

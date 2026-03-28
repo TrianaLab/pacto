@@ -383,10 +383,9 @@ func TestDeduplicateSourceInfo_NoDuplicates(t *testing.T) {
 	}
 }
 
-func TestRetryOCIEnrichment_WithExplicitRepos(t *testing.T) {
-	var buf bytes.Buffer
-	result := retryOCIEnrichment(
-		context.Background(), &buf,
+func TestTryOCIEnrichment_WithExplicitRepos(t *testing.T) {
+	result := tryOCIEnrichment(
+		context.Background(),
 		&dashboard.DetectResult{Diagnostics: &dashboard.SourceDiagnostics{}},
 		dummyStore{}, "", []string{"ghcr.io/org/svc"},
 	)
@@ -395,10 +394,9 @@ func TestRetryOCIEnrichment_WithExplicitRepos(t *testing.T) {
 	}
 }
 
-func TestRetryOCIEnrichment_NilStore(t *testing.T) {
-	var buf bytes.Buffer
-	result := retryOCIEnrichment(
-		context.Background(), &buf,
+func TestTryOCIEnrichment_NilStore(t *testing.T) {
+	result := tryOCIEnrichment(
+		context.Background(),
 		&dashboard.DetectResult{Diagnostics: &dashboard.SourceDiagnostics{}},
 		nil, "", nil,
 	)
@@ -407,48 +405,18 @@ func TestRetryOCIEnrichment_NilStore(t *testing.T) {
 	}
 }
 
-func TestRetryOCIEnrichment_CancelledContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
-
-	var buf bytes.Buffer
-	result := retryOCIEnrichment(
-		ctx, &buf,
+func TestTryOCIEnrichment_NoK8s(t *testing.T) {
+	result := tryOCIEnrichment(
+		context.Background(),
 		&dashboard.DetectResult{
 			Diagnostics: &dashboard.SourceDiagnostics{},
 		},
 		dummyStore{}, t.TempDir(), nil,
 	)
-	// With cancelled context and no K8s source, enrichment won't find OCI.
+	// Without K8s source, enrichment won't find OCI.
 	// Should return true (needs lazy enrichment).
 	if !result {
-		t.Error("expected true (needs lazy enrichment) with cancelled context")
-	}
-}
-
-func TestRetryOCIEnrichment_ExhaustsRetries(t *testing.T) {
-	// Override retry interval to avoid 5s waits.
-	old := enrichRetryInterval
-	enrichRetryInterval = time.Millisecond
-	t.Cleanup(func() { enrichRetryInterval = old })
-
-	var buf bytes.Buffer
-	result := retryOCIEnrichment(
-		context.Background(), &buf,
-		&dashboard.DetectResult{
-			Diagnostics: &dashboard.SourceDiagnostics{},
-		},
-		dummyStore{}, t.TempDir(), nil,
-	)
-	if !result {
-		t.Error("expected true (needs lazy enrichment) after exhausting retries")
-	}
-	output := buf.String()
-	if !strings.Contains(output, "waiting for K8s") {
-		t.Errorf("expected retry progress messages, got:\n%s", output)
-	}
-	if !strings.Contains(output, "will retry lazily") {
-		t.Errorf("expected lazy retry message, got:\n%s", output)
+		t.Error("expected true (needs lazy enrichment) without K8s source")
 	}
 }
 
@@ -505,11 +473,7 @@ func (s *enrichStore) ListTags(_ context.Context, _ string) ([]string, error) {
 	return s.tags, nil
 }
 
-func TestRetryOCIEnrichment_SucceedsOnFirstTry(t *testing.T) {
-	old := enrichRetryInterval
-	enrichRetryInterval = time.Millisecond
-	t.Cleanup(func() { enrichRetryInterval = old })
-
+func TestTryOCIEnrichment_SucceedsOnFirstTry(t *testing.T) {
 	k8sData := `{"items": [
 		{"metadata": {"name": "svc", "namespace": "default"},
 		 "status": {"contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:1.0.0"}}}
@@ -530,9 +494,8 @@ func TestRetryOCIEnrichment_SucceedsOnFirstTry(t *testing.T) {
 		K8s:         dashboard.NewK8sSource(k8sClient, "", "pactos"),
 	}
 
-	var buf bytes.Buffer
-	result := retryOCIEnrichment(
-		context.Background(), &buf,
+	result := tryOCIEnrichment(
+		context.Background(),
 		detectResult, store, t.TempDir(), nil,
 	)
 	if result {

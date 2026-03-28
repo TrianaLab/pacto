@@ -1,6 +1,6 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
-  import { serviceUrl } from '../lib/router.js';
+  import { serviceUrl } from '../lib/router.ts';
 
   let { config, open = $bindable(false), id = '' } = $props();
 </script>

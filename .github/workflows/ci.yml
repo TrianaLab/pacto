@@ -30,6 +30,7 @@ jobs:
       - uses: ./.github/actions/ci
         with:
           target: ci-test
+          node: 'true'
       - name: Upload results to Codecov
         if: github.event_name == 'push'
         uses: codecov/codecov-action@v5.5.2
@@ -37,6 +38,17 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.out
           fail_ci_if_error: true
+
+  frontend-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: pkg/dashboard/frontend/package-lock.json
+      - run: make ci-ui
 
   e2e:
     runs-on: ubuntu-latest

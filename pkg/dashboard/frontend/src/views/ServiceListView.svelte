@@ -1,36 +1,31 @@
 <script>
-  import { serviceUrl } from '../lib/router.js';
-  import { phaseClass, complianceStatusClass, sourceTooltip } from '../lib/format.js';
+  import { serviceUrl } from '../lib/router.ts';
+  import { phaseClass, complianceStatusClass, sourceTooltip } from '../lib/format.ts';
+  import StatsBar from '../StatsBar.svelte';
 
   let { services = [], sourcesInfo = [], discovering = false } = $props();
 
-  let search = $state('');
+  let enabledSources = $derived(sourcesInfo.filter((s) => s.enabled));
+  let disabledSources = $derived(sourcesInfo.filter((s) => !s.enabled));
+
+  let nameFilter = $state('');
   let phaseFilter = $state('all');
+  let sourceFilter = $state('all');
   let sortBy = $state('name');
   let sortAsc = $state(true);
-
-  // Stats
-  let stats = $derived.by(() => {
-    const s = { total: services.length, healthy: 0, degraded: 0, invalid: 0, unknown: 0, reference: 0 };
-    for (const svc of services) {
-      if (svc.phase === 'Healthy') s.healthy++;
-      else if (svc.phase === 'Degraded') s.degraded++;
-      else if (svc.phase === 'Invalid') s.invalid++;
-      else if (svc.phase === 'Reference') s.reference++;
-      else s.unknown++;
-    }
-    return s;
-  });
 
   // Filter + sort
   let filtered = $derived.by(() => {
     let list = services;
-    if (search) {
-      const q = search.toLowerCase();
+    if (nameFilter) {
+      const q = nameFilter.toLowerCase();
       list = list.filter((s) => s.name.toLowerCase().includes(q) || (s.owner || '').toLowerCase().includes(q));
     }
     if (phaseFilter !== 'all') {
       list = list.filter((s) => s.phase === phaseFilter);
+    }
+    if (sourceFilter !== 'all') {
+      list = list.filter((s) => (s.sources || [s.source]).includes(sourceFilter));
     }
     const dir = sortAsc ? 1 : -1;
     list = [...list].sort((a, b) => {
@@ -67,37 +62,9 @@
 </div>
 
 <!-- Stats bar -->
-{#if stats.total > 0}
-  <div class="stats-bar">
-    <button type="button" class="stat" class:stat-active={phaseFilter === 'all'} onclick={() => phaseFilter = 'all'}>
-      <span class="stat-value">{stats.total}</span>
-      <span class="stat-label">Total</span>
-    </button>
-    <button type="button" class="stat" class:stat-active={phaseFilter === 'Healthy'} onclick={() => phaseFilter = phaseFilter === 'Healthy' ? 'all' : 'Healthy'}>
-      <span class="stat-value" style="color:var(--c-ok)">{stats.healthy}</span>
-      <span class="stat-label">Healthy</span>
-    </button>
-    <button type="button" class="stat" class:stat-active={phaseFilter === 'Degraded'} onclick={() => phaseFilter = phaseFilter === 'Degraded' ? 'all' : 'Degraded'}>
-      <span class="stat-value" style="color:var(--c-warn)">{stats.degraded}</span>
-      <span class="stat-label">Degraded</span>
-    </button>
-    <button type="button" class="stat" class:stat-active={phaseFilter === 'Invalid'} onclick={() => phaseFilter = phaseFilter === 'Invalid' ? 'all' : 'Invalid'}>
-      <span class="stat-value" style="color:var(--c-err)">{stats.invalid}</span>
-      <span class="stat-label">Invalid</span>
-    </button>
-    {#if stats.reference > 0}
-      <button type="button" class="stat" class:stat-active={phaseFilter === 'Reference'} onclick={() => phaseFilter = phaseFilter === 'Reference' ? 'all' : 'Reference'}>
-        <span class="stat-value" style="color:var(--c-info)">{stats.reference}</span>
-        <span class="stat-label">Reference</span>
-      </button>
-    {/if}
-    {#if stats.unknown > 0}
-      <button type="button" class="stat" class:stat-active={phaseFilter === 'Unknown'} onclick={() => phaseFilter = phaseFilter === 'Unknown' ? 'all' : 'Unknown'}>
-        <span class="stat-value" style="color:var(--c-neutral)">{stats.unknown}</span>
-        <span class="stat-label">Unknown</span>
-      </button>
-    {/if}
-  </div>
+<StatsBar {services} bind:phaseFilter bind:sourceFilter bind:nameFilter />
+
+{#if services.length > 0}
   <a href="#/graph" class="graph-cta">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
     <div class="graph-cta-text">
@@ -107,6 +74,8 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0; opacity:0.5"><path d="M9 18l6-6-6-6"/></svg>
   </a>
 {/if}
+
+
 
 <!-- Needs attention -->
 {#if needsAttention.length > 0}
@@ -124,11 +93,6 @@
   </div>
 {/if}
 
-<!-- Search / Filter -->
-<div class="toolbar">
-  <input class="input" type="text" placeholder="Filter services…" bind:value={search} aria-label="Filter services" />
-</div>
-
 <!-- Table -->
 {#if services.length === 0}
   <div class="state-box">
@@ -145,7 +109,30 @@
       <p style="margin-top:var(--sp-3); color:var(--c-text-3)">Discovering services…</p>
     {:else}
       <h3>No services found</h3>
-      <p>Connect a source (Kubernetes, OCI registry, or local directory) to see contracts.</p>
+      {#if enabledSources.length === 0}
+        <p>No data sources are available. Start with one of these:</p>
+        <ul class="source-hints">
+          <li><strong>Local:</strong> run from a directory containing <code>pacto.yaml</code></li>
+          <li><strong>Kubernetes:</strong> ensure a valid kubeconfig and reachable cluster</li>
+          <li><strong>OCI:</strong> specify a registry with <code>--repo</code></li>
+        </ul>
+        {#if disabledSources.length > 0}
+          <div class="source-reasons">
+            {#each disabledSources as src}
+              <span class="source-reason"><span class="source-dot source-dot-{src.type}"></span>{src.type}: {src.reason}</span>
+            {/each}
+          </div>
+        {/if}
+      {:else}
+        <p>Connected sources have no contract data yet.</p>
+        {#if enabledSources.length > 0}
+          <div class="source-reasons">
+            {#each enabledSources as src}
+              <span class="source-reason"><span class="source-dot source-dot-{src.type}"></span>{src.type}: {src.reason}</span>
+            {/each}
+          </div>
+        {/if}
+      {/if}
     {/if}
   </div>
 {:else if filtered.length === 0}
@@ -154,6 +141,12 @@
     <p>Try a different search or filter.</p>
   </div>
 {:else}
+  {#if discovering}
+    <div class="discovering-banner">
+      <div class="spinner" style="width:14px;height:14px"></div>
+      <span>Discovering more services...</span>
+    </div>
+  {/if}
   <div class="table-wrap fade-in-up">
     <table>
       <thead>
@@ -213,18 +206,6 @@
 
 <style>
   .list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-5); }
-  .stats-bar { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-5); flex-wrap: wrap; }
-  .stat {
-    display: flex; flex-direction: column; align-items: center; gap: 2px;
-    padding: var(--sp-3) var(--sp-5); border-radius: var(--radius-sm);
-    background: var(--c-surface); border: 1px solid var(--c-border);
-    cursor: pointer; font: inherit; color: var(--c-text);
-    min-width: 80px; transition: border-color var(--transition);
-  }
-  .stat:hover { border-color: var(--c-text-3); }
-  .stat-active { border-color: var(--c-accent); background: var(--c-accent-bg); }
-  .stat-value { font-size: var(--text-lg); font-weight: 700; }
-  .stat-label { font-size: var(--text-xs); color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.05em; }
   .graph-cta {
     display: flex; align-items: center; gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
@@ -257,9 +238,6 @@
   .alert-name { font-weight: 600; }
   .alert-reason { color: var(--c-text-2); }
 
-  .toolbar { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-4); }
-  .toolbar .input { flex: 1; max-width: 360px; }
-
   .svc-name { font-weight: 600; text-decoration: none; }
   .svc-name:hover { text-decoration: underline; }
   .svc-owner { color: var(--c-text-3); font-size: var(--text-xs); margin-left: 6px; }
@@ -280,4 +258,25 @@
   .skeleton-table { width: 100%; max-width: 600px; }
   .skeleton-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-3); }
   .skeleton-row .skeleton-line { height: 16px; border-radius: var(--radius-xs); }
+
+  .source-hints {
+    list-style: none; text-align: left; margin-top: var(--sp-2);
+    display: flex; flex-direction: column; gap: var(--sp-1);
+    font-size: var(--text-sm); color: var(--c-text-2);
+  }
+  .source-hints li::before { content: '→ '; color: var(--c-text-3); }
+  .source-reasons {
+    display: flex; flex-direction: column; gap: var(--sp-1);
+    margin-top: var(--sp-3); font-size: var(--text-xs); color: var(--c-text-3);
+  }
+  .source-reason {
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .discovering-banner {
+    display: flex; align-items: center; gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3);
+    border-radius: var(--radius-sm);
+    background: var(--c-accent-bg); border: 1px solid var(--c-accent);
+    color: var(--c-accent); font-size: var(--text-sm); font-weight: 500;
+  }
 </style>

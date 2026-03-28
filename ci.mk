@@ -4,14 +4,14 @@
 
 BUNDLE_DIR := pactos/pacto-dashboard
 
-.PHONY: ci ci-static ci-test ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
+.PHONY: ci ci-static ci-test ci-ui ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
 ci: ci-static ci-test e2e gen-bundle
 
 ci-static: ci-fmt ci-vet ci-cyclo ci-lint ci-docs
 
-ci-test:
+ci-test: ci-ui
 	@echo "==> Running unit tests with coverage..."
 	@go test $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle) -coverprofile=coverage.out
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
@@ -21,6 +21,10 @@ ci-test:
 		exit 1; \
 	fi
 	@echo "    total coverage: 100.0%"
+
+ci-ui:
+	@echo "==> Running frontend tests..."
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npm test
 
 ci-fmt:
 	@echo "==> Checking formatting..."

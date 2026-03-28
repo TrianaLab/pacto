@@ -80,13 +80,18 @@
 .btn-sm { padding: 2px var(--sp-2); font-size: var(--text-xs); }
 .btn-ghost {
   background: none;
-  border: none;
-  color: var(--c-text-2);
+  border: 1px solid transparent;
+  color: var(--c-text-3);
   padding: var(--sp-1) var(--sp-2);
   border-radius: var(--radius-xs);
+  cursor: pointer;
   transition: all var(--transition);
 }
-.btn-ghost:hover { color: var(--c-text); background: var(--c-surface-hover); }
+.btn-ghost:hover {
+  color: var(--c-text);
+  background: var(--c-surface-hover);
+  border-color: var(--c-border);
+}
 
 /* ─── Link button (inline, looks like text) ─── */
 .link {

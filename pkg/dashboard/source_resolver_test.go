@@ -842,6 +842,81 @@ func TestResolvedSource_AddSource(t *testing.T) {
 	}
 }
 
+func TestResolvedSource_SetRuntimeSource(t *testing.T) {
+	k8sOld := &stubSource{
+		services: []Service{{Name: "svc", Phase: PhaseDegraded, Source: "k8s"}},
+		details: map[string]*ServiceDetails{
+			"svc": {Service: Service{Name: "svc", Phase: PhaseDegraded, Source: "k8s"}},
+		},
+	}
+	local := &stubSource{
+		services: []Service{{Name: "svc", Version: "1.0.0", Source: "local"}},
+		details: map[string]*ServiceDetails{
+			"svc": {Service: Service{Name: "svc", Version: "1.0.0", Source: "local"}},
+		},
+	}
+
+	resolved := BuildResolvedSource(map[string]DataSource{
+		"k8s":   k8sOld,
+		"local": local,
+	})
+
+	// Initially, phase from old k8s (Degraded)
+	details, err := resolved.GetService(context.Background(), "svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Phase != PhaseDegraded {
+		t.Errorf("expected Degraded from old k8s, got %q", details.Phase)
+	}
+
+	// Swap to a new k8s source with Healthy phase
+	k8sNew := &stubSource{
+		services: []Service{{Name: "svc", Phase: PhaseHealthy, Source: "k8s"}},
+		details: map[string]*ServiceDetails{
+			"svc": {Service: Service{Name: "svc", Phase: PhaseHealthy, Source: "k8s"}},
+		},
+	}
+	resolved.SetRuntimeSource(k8sNew)
+
+	// Now phase should come from new k8s (Healthy)
+	details, err = resolved.GetService(context.Background(), "svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Phase != PhaseHealthy {
+		t.Errorf("expected Healthy from new k8s after SetRuntimeSource, got %q", details.Phase)
+	}
+
+	// Verify k8s is in the all-sources map
+	if !resolved.HasSource("k8s") {
+		t.Error("expected HasSource('k8s') = true after SetRuntimeSource")
+	}
+}
+
+func TestResolvedSource_SetRuntimeSource_Nil(t *testing.T) {
+	k8s := &stubSource{
+		services: []Service{{Name: "svc", Phase: PhaseHealthy, Source: "k8s"}},
+		details: map[string]*ServiceDetails{
+			"svc": {Service: Service{Name: "svc", Phase: PhaseHealthy, Source: "k8s"}},
+		},
+	}
+	resolved := BuildResolvedSource(map[string]DataSource{"k8s": k8s})
+
+	// Remove k8s by setting nil
+	resolved.SetRuntimeSource(nil)
+
+	if resolved.HasSource("k8s") {
+		t.Error("expected HasSource('k8s') = false after SetRuntimeSource(nil)")
+	}
+
+	// Should return error since no source has the service
+	_, err := resolved.GetService(context.Background(), "svc")
+	if err == nil {
+		t.Error("expected error after removing k8s source")
+	}
+}
+
 func TestEnrichWithRuntime_SlicesAndMetadata(t *testing.T) {
 	contract := &ServiceDetails{
 		Service: Service{Name: "svc", Version: "1.0.0"},

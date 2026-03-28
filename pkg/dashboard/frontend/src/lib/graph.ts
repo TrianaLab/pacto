@@ -4,7 +4,7 @@
  */
 import * as d3 from 'd3';
 
-const STATUS_COLORS = {
+const STATUS_COLORS: Record<string, string> = {
   Healthy: '#34d399',
   Degraded: '#fbbf24',
   Invalid: '#f87171',
@@ -16,9 +16,53 @@ const STATUS_COLORS = {
 const NODE_W = 140;
 const NODE_H = 36;
 
-export function renderGraph(container, graphData, { onNavigate, focusId, filterFn } = {}) {
-  const nodes = (graphData.nodes || []).map((n) => ({ ...n }));
-  const links = [];
+export interface GraphEdge {
+  targetId: string;
+  required?: boolean;
+  type?: string;
+}
+
+export interface GraphNode {
+  id: string;
+  serviceName: string;
+  status: string;
+  edges?: GraphEdge[];
+  // D3 simulation adds these at runtime
+  x?: number;
+  y?: number;
+  fx?: number | null;
+  fy?: number | null;
+}
+
+export interface GraphData {
+  nodes: GraphNode[];
+}
+
+interface SimLink {
+  source: string | GraphNode;
+  target: string | GraphNode;
+  required?: boolean;
+  type: string;
+}
+
+export interface GraphControls {
+  nodes: GraphNode[];
+  destroy: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetView: () => void;
+  applyFilter: (fn: ((n: GraphNode) => boolean) | null) => void;
+}
+
+interface RenderOptions {
+  onNavigate?: (name: string) => void;
+  focusId?: string;
+  filterFn?: (n: GraphNode) => boolean;
+}
+
+export function renderGraph(container: HTMLElement, graphData: GraphData, { onNavigate, focusId, filterFn }: RenderOptions = {}): GraphControls {
+  const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
+  const links: SimLink[] = [];
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
   for (const node of nodes) {
@@ -84,10 +128,12 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
 
   const g = svg.append('g');
 
-  const zoom = d3.zoom()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const zoom = d3.zoom<SVGSVGElement, unknown>()
     .scaleExtent([0.2, 3])
     .on('zoom', (e) => g.attr('transform', e.transform));
-  svg.call(zoom);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (svg as any).call(zoom);
 
   // Prevent zoom's click suppression from blocking node clicks
   svg.on('dblclick.zoom', null);
@@ -101,8 +147,8 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
     }
   }
 
-  const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id((d) => d.id).distance(180))
+  const sim = d3.forceSimulation(nodes as d3.SimulationNodeDatum[])
+    .force('link', d3.forceLink(links as d3.SimulationLinkDatum<d3.SimulationNodeDatum>[]).id((d: any) => d.id).distance(180))
     .force('charge', d3.forceManyBody().strength(-400))
     .force('center', d3.forceCenter(width / 2, height / 2))
     .force('collision', d3.forceCollide().radius(NODE_W / 2 + 10));
@@ -125,11 +171,11 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
   const nodeG = g.append('g').attr('class', 'nodes');
   let dragMoved = false;
 
-  const nodeEls = nodeG.selectAll('g')
+  const nodeEls = nodeG.selectAll<SVGGElement, GraphNode>('g')
     .data(nodes)
     .join('g')
-    .attr('cursor', 'pointer')
-    .call(d3.drag()
+    .attr('cursor', (d) => d.status === 'external' ? 'grab' : 'pointer')
+    .call(d3.drag<SVGGElement, GraphNode>()
       .on('start', (e, d) => {
         dragMoved = false;
         if (!e.active) sim.alphaTarget(0.3).restart();
@@ -176,16 +222,24 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
       return name.length > 16 ? name.slice(0, 15) + '…' : name;
     });
 
+  // Native SVG tooltip for full name (shown on hover)
+  nodeEls.append('title')
+    .text((d) => {
+      const name = d.serviceName || d.id;
+      const phase = d.status || 'Unknown';
+      return d.status === 'external' ? `${name} (external)` : `${name} — ${phase}`;
+    });
+
   // Build adjacency (bidirectional) and reverse-dependency map (who depends on X)
-  const adjacency = new Map();
-  const dependedOnBy = new Map(); // targetId -> set of sourceIds that depend on it
+  const adjacency = new Map<string, Set<string>>();
+  const dependedOnBy = new Map<string, Set<string>>(); // targetId -> set of sourceIds that depend on it
   nodes.forEach((n) => {
     adjacency.set(n.id, new Set());
     dependedOnBy.set(n.id, new Set());
   });
   links.forEach((l) => {
-    const sid = typeof l.source === 'object' ? l.source.id : l.source;
-    const tid = typeof l.target === 'object' ? l.target.id : l.target;
+    const sid = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source;
+    const tid = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target;
     adjacency.get(sid)?.add(tid);
     adjacency.get(tid)?.add(sid);
     // source depends on target, so target being broken impacts source
@@ -193,11 +247,11 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
   });
 
   // BFS upstream: find all nodes that depend on `startId` (directly or transitively)
-  function blastRadiusBFS(startId) {
-    const impacted = new Set();
+  function blastRadiusBFS(startId: string): Set<string> {
+    const impacted = new Set<string>();
     const queue = [startId];
     while (queue.length) {
-      const id = queue.shift();
+      const id = queue.shift()!;
       for (const depId of dependedOnBy.get(id) || []) {
         if (!impacted.has(depId) && depId !== startId) {
           impacted.add(depId);
@@ -215,8 +269,8 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
   nodeEls
     .on('mouseenter', (_, d) => {
       const isDegraded = d.status === 'Degraded' || d.status === 'Invalid';
-      const neighbors = adjacency.get(d.id) || new Set();
-      const impacted = isDegraded ? blastRadiusBFS(d.id) : new Set();
+      const neighbors = adjacency.get(d.id) || new Set<string>();
+      const impacted = isDegraded ? blastRadiusBFS(d.id) : new Set<string>();
       const highlight = new Set([d.id, ...neighbors, ...impacted]);
 
       nodeEls.transition().duration(150)
@@ -227,11 +281,11 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
         const pulseColor = d.status === 'Invalid' ? blastColor : warnColor;
         nodeEls.select('rect')
           .transition().duration(150)
-          .attr('stroke', (n) => {
+          .attr('stroke', (n: any) => {
             if (impacted.has(n.id)) return pulseColor;
             return STATUS_COLORS[n.status] || STATUS_COLORS.Unknown;
           })
-          .attr('stroke-width', (n) => {
+          .attr('stroke-width', (n: any) => {
             if (impacted.has(n.id)) return 2.5;
             return n.serviceName === focusId ? 2.5 : 1.5;
           });
@@ -239,13 +293,13 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
 
       linkEls.transition().duration(150)
         .attr('opacity', (l) => {
-          const sid = typeof l.source === 'object' ? l.source.id : l.source;
-          const tid = typeof l.target === 'object' ? l.target.id : l.target;
+          const sid = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source;
+          const tid = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target;
           return highlight.has(sid) && highlight.has(tid) ? 0.8 : 0.05;
         })
         .attr('stroke-width', (l) => {
-          const sid = typeof l.source === 'object' ? l.source.id : l.source;
-          const tid = typeof l.target === 'object' ? l.target.id : l.target;
+          const sid = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source;
+          const tid = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target;
           const connected = (sid === d.id || tid === d.id) || (impacted.has(sid) && impacted.has(tid));
           return connected ? (l.required ? 2.5 : 1.5) : (l.required ? 2 : 1);
         });
@@ -254,26 +308,26 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
       nodeEls.transition().duration(150).attr('opacity', 1);
       nodeEls.select('rect')
         .transition().duration(150)
-        .attr('stroke', (n) => STATUS_COLORS[n.status] || STATUS_COLORS.Unknown)
-        .attr('stroke-width', (n) => n.serviceName === focusId ? 2.5 : 1.5);
+        .attr('stroke', (n: any) => STATUS_COLORS[n.status] || STATUS_COLORS.Unknown)
+        .attr('stroke-width', (n: any) => n.serviceName === focusId ? 2.5 : 1.5);
       linkEls.transition().duration(150)
         .attr('opacity', 0.6)
         .attr('stroke-width', (l) => l.required ? 2 : 1);
     });
 
   // Apply filter if provided
-  function applyFilter(fn) {
+  function applyFilter(fn: ((n: GraphNode) => boolean) | null): void {
     if (!fn) {
       nodeEls.attr('opacity', 1);
       linkEls.attr('opacity', 0.6);
       return;
     }
-    const hidden = new Set();
+    const hidden = new Set<string>();
     nodes.forEach((n) => { if (fn(n)) hidden.add(n.id); });
     nodeEls.attr('opacity', (d) => hidden.has(d.id) ? 0.1 : 1);
     linkEls.attr('opacity', (d) => {
-      const sid = typeof d.source === 'object' ? d.source.id : d.source;
-      const tid = typeof d.target === 'object' ? d.target.id : d.target;
+      const sid = typeof d.source === 'object' ? (d.source as GraphNode).id : d.source;
+      const tid = typeof d.target === 'object' ? (d.target as GraphNode).id : d.target;
       return hidden.has(sid) || hidden.has(tid) ? 0.05 : 0.6;
     });
   }
@@ -281,7 +335,7 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
   if (filterFn) applyFilter(filterFn);
 
   // Clip line endpoint to target node's rectangle boundary
-  function clipToRect(sx, sy, tx, ty, hw, hh) {
+  function clipToRect(sx: number, sy: number, tx: number, ty: number, hw: number, hh: number): { x: number; y: number } {
     const dx = tx - sx;
     const dy = ty - sy;
     const len = Math.sqrt(dx * dx + dy * dy);
@@ -296,21 +350,21 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
   }
 
   sim.on('tick', () => {
-    linkEls.each(function (d) {
+    linkEls.each(function (d: any) {
       const clipped = clipToRect(d.source.x, d.source.y, d.target.x, d.target.y, NODE_W / 2, NODE_H / 2);
       d3.select(this)
         .attr('x1', d.source.x).attr('y1', d.source.y)
         .attr('x2', clipped.x).attr('y2', clipped.y);
     });
-    nodeEls.attr('transform', (d) => `translate(${d.x},${d.y})`);
+    nodeEls.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
   });
 
   return {
     nodes,
     destroy: () => { sim.stop(); container.innerHTML = ''; },
-    zoomIn: () => svg.transition().duration(300).call(zoom.scaleBy, 1.4),
-    zoomOut: () => svg.transition().duration(300).call(zoom.scaleBy, 0.7),
-    resetView: () => svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity),
+    zoomIn: () => (svg as any).transition().duration(300).call(zoom.scaleBy, 1.4),
+    zoomOut: () => (svg as any).transition().duration(300).call(zoom.scaleBy, 0.7),
+    resetView: () => (svg as any).transition().duration(300).call(zoom.transform, d3.zoomIdentity),
     applyFilter,
   };
 }
@@ -318,7 +372,7 @@ export function renderGraph(container, graphData, { onNavigate, focusId, filterF
 /**
  * Extract a subgraph centered on focusId via BFS.
  */
-export function extractSubgraph(graphData, focusId) {
+export function extractSubgraph(graphData: GraphData | null, focusId: string | null): GraphData | null {
   if (!graphData?.nodes?.length || !focusId) return null;
   const nodeMap = new Map(graphData.nodes.map((n) => [n.id, n]));
   const focus = nodeMap.get(focusId);
@@ -328,7 +382,7 @@ export function extractSubgraph(graphData, focusId) {
   const queue = [focusId];
   // Gather direct edges from focus + edges pointing to focus
   while (queue.length) {
-    const id = queue.shift();
+    const id = queue.shift()!;
     const node = nodeMap.get(id);
     if (!node) continue;
     for (const edge of node.edges || []) {

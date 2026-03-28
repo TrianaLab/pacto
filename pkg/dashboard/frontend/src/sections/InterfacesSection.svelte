@@ -1,6 +1,6 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
-  import { methodClass } from '../lib/format.js';
+  import { methodClass } from '../lib/format.ts';
 
   let { interfaces = [], open = $bindable(true), id = '' } = $props();
 </script>

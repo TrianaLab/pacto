@@ -424,6 +424,19 @@ func (r *DetectResult) ensureCacheSource(cacheDir string) {
 	}
 }
 
+// RedetectK8s performs a fresh k8s source detection, reading the current
+// kubeconfig from disk. This is used for runtime re-detection when the user
+// switches kubectl contexts without restarting the dashboard.
+func RedetectK8s(ctx context.Context, result *DetectResult, namespace string) {
+	result.detectK8s(ctx, namespace)
+}
+
+// CurrentKubeContext returns the name of the current kubectl context by reading
+// the kubeconfig file. Returns an empty string if the context cannot be determined.
+func CurrentKubeContext() string {
+	return currentKubeContextFunc()
+}
+
 // splitNonEmpty splits a string by newlines and returns non-empty trimmed lines.
 func splitNonEmpty(s string) []string {
 	var result []string

@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { parseHash } from './lib/router.js';
-  import { api } from './lib/api.js';
+  import { parseHash } from './lib/router.ts';
+  import { api } from './lib/api.ts';
   import Navbar from './Navbar.svelte';
   import ServiceListView from './views/ServiceListView.svelte';
   import ServiceDetailView from './views/ServiceDetailView.svelte';
@@ -22,15 +22,25 @@
     route = parseHash(location.hash);
   }
 
-  async function loadGlobal() {
+  async function loadGlobal(forceRefresh = false) {
     refreshing = true;
     try {
-      const [svcList, srcData, health] = await Promise.all([
-        api.services(),
+      // On manual refresh, tell the backend to re-detect sources (e.g. k8s context switch).
+      if (forceRefresh) {
+        await api.refresh().catch(() => {});
+      }
+
+      // On detail/diff views, skip the heavy services list fetch —
+      // those views fetch their own data independently.
+      const needsServices = route.view === 'list' || route.view === 'graph' || route.view === 'diff';
+
+      const fetches = [
+        needsServices ? api.services() : Promise.resolve(null),
         api.sources().catch(() => ({ sources: [], discovering: false })),
         api.health().catch(() => ({})),
-      ]);
-      services = svcList || [];
+      ];
+      const [svcList, srcData, health] = await Promise.all(fetches);
+      if (svcList !== null) services = svcList || [];
       sourcesInfo = srcData.sources || [];
       discovering = srcData.discovering || false;
       appVersion = health.version || '';
@@ -81,7 +91,7 @@
   {discovering}
   {autoReload}
   {refreshing}
-  onRefresh={loadGlobal}
+  onRefresh={() => loadGlobal(true)}
   onToggleAutoReload={toggleAutoReload}
   onToggleTheme={toggleTheme}
 />
@@ -92,7 +102,14 @@
       <ServiceDetailView name={route.params.name} {services} {refreshTick} onServiceResolved={loadGlobal} />
     {/key}
   {:else if route.view === 'diff'}
-    <DiffView name={route.params.name} initialFrom={route.params.from} initialTo={route.params.to} />
+    <DiffView
+      name={route.params.name || ''}
+      initialFrom={route.params.fromVer || route.params.from || ''}
+      initialTo={route.params.toVer || route.params.to || ''}
+      initialFromName={route.params.fromName || route.params.name || ''}
+      initialToName={route.params.toName || route.params.name || ''}
+      {services}
+    />
   {:else if route.view === 'graph'}
     <GraphPageView {services} {sourcesInfo} />
   {:else}

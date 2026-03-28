@@ -1,6 +1,6 @@
 <script>
-  import { navigate, serviceUrl } from './lib/router.js';
-  import { phaseClass, sourceTooltip } from './lib/format.js';
+  import { navigate, serviceUrl } from './lib/router.ts';
+  import { phaseClass, sourceTooltip } from './lib/format.ts';
 
   let {
     services = [], sourcesInfo = [], version = '', discovering = false,
@@ -10,6 +10,15 @@
   let query = $state('');
   let showResults = $state(false);
   let selectedIdx = $state(-1);
+  let searchInputEl = $state(null);
+
+  function handleGlobalKeydown(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      searchInputEl?.focus();
+      showResults = !!query;
+    }
+  }
 
   let matches = $derived.by(() => {
     if (!query) return [];
@@ -34,7 +43,7 @@
     else if (e.key === 'Escape') closeSearch();
   }
 
-  function closeSearch() { showResults = false; selectedIdx = -1; }
+  function closeSearch() { showResults = false; selectedIdx = -1; query = ''; searchInputEl?.blur(); }
 
   function pick(name) { closeSearch(); navigate('detail', { name }); }
 
@@ -45,7 +54,7 @@
   const enabledSources = $derived(sourcesInfo.filter((s) => s.enabled));
 </script>
 
-<svelte:document onclick={handleClickOutside} />
+<svelte:document onclick={handleClickOutside} onkeydown={handleGlobalKeydown} />
 
 <nav class="navbar">
   <div class="navbar-left">
@@ -59,6 +68,7 @@
   <div class="search-box">
     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     <input
+      bind:this={searchInputEl}
       type="text"
       placeholder="Search services…"
       value={query}
@@ -67,6 +77,9 @@
       onkeydown={onKeydown}
       aria-label="Search services"
     />
+    <kbd class="search-kbd">
+      {navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl+'}K
+    </kbd>
     {#if showResults}
       <div class="search-results" role="listbox">
         {#if matches.length === 0}
@@ -149,6 +162,14 @@
     font: inherit; font-size: var(--text-sm);
   }
   .search-box input:focus { border-color: var(--c-accent); outline: none; }
+  .search-box input:focus + .search-kbd { display: none; }
+  .search-kbd {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    padding: 1px 5px; border-radius: 3px;
+    background: var(--c-surface-hover); border: 1px solid var(--c-border);
+    font-family: var(--font-sans); font-size: 10px; color: var(--c-text-3);
+    pointer-events: none; line-height: 1.6;
+  }
   .search-results {
     position: absolute; top: 100%; left: 0; right: 0;
     margin-top: 4px; background: var(--c-surface);
@@ -177,6 +198,25 @@
     transition: background var(--transition), color var(--transition);
   }
   .source-tag:hover { background: var(--c-surface-hover); color: var(--c-text-2); }
+  .navbar-right :global(.btn-ghost) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    border: 1px solid transparent;
+    color: var(--c-text-3);
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+  .navbar-right :global(.btn-ghost:hover) {
+    color: var(--c-text);
+    background: var(--c-surface-hover);
+    border-color: var(--c-border);
+  }
   .active { color: var(--c-accent) !important; }
   .spinning svg { animation: spin 0.8s linear infinite; }
 

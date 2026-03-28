@@ -2113,6 +2113,136 @@ func assertEnrichedVersions(t *testing.T, versions []Version) {
 	}
 }
 
+func TestServerRefresh_Endpoint(t *testing.T) {
+	source := &mockSource{
+		services: []Service{{Name: "svc", Phase: PhaseHealthy, Source: "local"}},
+		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Phase: PhaseHealthy, Source: "local"}}},
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(source, ui)
+
+	// Set up a k8s redetect callback that records whether it was called.
+	redetectCalled := false
+	srv.SetK8sRedetect(func(_ context.Context) (DataSource, error) {
+		redetectCalled = true
+		return nil, fmt.Errorf("no change")
+	})
+
+	memCache := NewMemoryCache()
+	srv.SetCacheSource(nil, memCache)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.ServeOnListener(ctx, ln) }()
+	time.Sleep(50 * time.Millisecond)
+
+	// POST /api/refresh should return 200.
+	resp, err := http.Post("http://"+ln.Addr().String()+"/api/refresh", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "ok" {
+		t.Errorf("expected status 'ok', got %q", body.Status)
+	}
+
+	// K8s redetect should have been triggered (cooldown reset by refresh).
+	if !redetectCalled {
+		t.Error("expected k8s redetect to be called on POST /api/refresh")
+	}
+}
+
+func TestServerRefresh_K8sSourceSwap(t *testing.T) {
+	k8sOld := &mockSource{
+		services: []Service{{Name: "svc", Phase: PhaseDegraded, Source: "k8s"}},
+		details: map[string]*ServiceDetails{
+			"svc": {Service: Service{Name: "svc", Phase: PhaseDegraded, Source: "k8s"}},
+		},
+	}
+	local := &mockSource{
+		services: []Service{{Name: "svc", Version: "1.0.0", Source: "local"}},
+		details: map[string]*ServiceDetails{
+			"svc": {Service: Service{Name: "svc", Version: "1.0.0", Source: "local"}},
+		},
+	}
+
+	resolved := BuildResolvedSource(map[string]DataSource{
+		"k8s":   k8sOld,
+		"local": local,
+	})
+
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewResolvedServer(resolved, ui, nil, nil)
+	memCache := NewMemoryCache()
+	srv.SetCacheSource(nil, memCache)
+
+	// Redetect callback that returns a new k8s source.
+	k8sNew := &mockSource{
+		services: []Service{{Name: "svc", Phase: PhaseHealthy, Source: "k8s"}},
+		details: map[string]*ServiceDetails{
+			"svc": {Service: Service{Name: "svc", Phase: PhaseHealthy, Source: "k8s"}},
+		},
+	}
+	srv.SetK8sRedetect(func(_ context.Context) (DataSource, error) {
+		return k8sNew, nil
+	})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.ServeOnListener(ctx, ln) }()
+	time.Sleep(50 * time.Millisecond)
+
+	// POST /api/refresh to trigger source swap.
+	resp, err := http.Post("http://"+ln.Addr().String()+"/api/refresh", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close() //nolint:errcheck
+
+	// Verify the swap: GET /api/services should show Healthy (from new k8s).
+	time.Sleep(50 * time.Millisecond)
+	resp2, err := http.Get("http://" + ln.Addr().String() + "/api/services")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close() //nolint:errcheck
+
+	var entries []ServiceListEntry
+	if err := json.NewDecoder(resp2.Body).Decode(&entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected at least 1 service")
+	}
+	if entries[0].Phase != PhaseHealthy {
+		t.Errorf("expected Healthy from new k8s after refresh, got %q", entries[0].Phase)
+	}
+}
+
 func findEntry(t *testing.T, entries []ServiceListEntry, name string) *ServiceListEntry {
 	t.Helper()
 	for i := range entries {

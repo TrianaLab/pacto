@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
     "svelte": "^5.30.2",
-    "vite": "^6.3.5"
+    "typescript": "^5.9.3",
+    "vite": "^6.3.5",
+    "vitest": "^4.1.2"
   },
   "dependencies": {
     "d3": "^7.9.0"

@@ -1,9 +1,10 @@
 <script>
   import { onMount } from 'svelte';
-  import { api } from '../lib/api.js';
-  import { serviceUrl } from '../lib/router.js';
-  import { phaseClass } from '../lib/format.js';
+  import { api } from '../lib/api.ts';
+  import { serviceUrl } from '../lib/router.ts';
+  import { phaseClass } from '../lib/format.ts';
   import GraphCanvas from '../GraphCanvas.svelte';
+  import StatsBar from '../StatsBar.svelte';
 
   let { services = [], sourcesInfo = [] } = $props();
 
@@ -11,18 +12,7 @@
   let loading = $state(true);
   let graphRef = $state(null);
   let phaseFilter = $state('all');
-
-  let stats = $derived.by(() => {
-    const s = { total: services.length, healthy: 0, degraded: 0, invalid: 0, unknown: 0, reference: 0 };
-    for (const svc of services) {
-      if (svc.phase === 'Healthy') s.healthy++;
-      else if (svc.phase === 'Degraded') s.degraded++;
-      else if (svc.phase === 'Invalid') s.invalid++;
-      else if (svc.phase === 'Reference') s.reference++;
-      else s.unknown++;
-    }
-    return s;
-  });
+  let nameFilter = $state('');
 
   async function loadGraph() {
     loading = true;
@@ -33,13 +23,20 @@
   }
 
   function filterFn(node) {
-    if (phaseFilter === 'all') return false;
-    const phase = node.status === 'external' ? 'external' : node.status;
-    return phase !== phaseFilter;
+    let dominated = false;
+    if (phaseFilter !== 'all') {
+      const phase = node.status === 'external' ? 'external' : node.status;
+      if (phase !== phaseFilter) dominated = true;
+    }
+    if (nameFilter) {
+      const q = nameFilter.toLowerCase();
+      if (!node.serviceName.toLowerCase().includes(q)) dominated = true;
+    }
+    return dominated;
   }
 
   $effect(() => {
-    if (graphRef) graphRef.applyFilter(phaseFilter === 'all' ? null : filterFn);
+    if (graphRef) graphRef.applyFilter((phaseFilter === 'all' && !nameFilter) ? null : filterFn);
   });
 
   onMount(() => { loadGraph(); });
@@ -50,38 +47,7 @@
   <h1>Dependency Graph</h1>
 </div>
 
-{#if stats.total > 0}
-  <div class="stats-bar">
-    <button type="button" class="stat" class:stat-active={phaseFilter === 'all'} onclick={() => phaseFilter = 'all'}>
-      <span class="stat-value">{stats.total}</span>
-      <span class="stat-label">Total</span>
-    </button>
-    <button type="button" class="stat" class:stat-active={phaseFilter === 'Healthy'} onclick={() => phaseFilter = phaseFilter === 'Healthy' ? 'all' : 'Healthy'}>
-      <span class="stat-value" style="color:var(--c-ok)">{stats.healthy}</span>
-      <span class="stat-label">Healthy</span>
-    </button>
-    <button type="button" class="stat" class:stat-active={phaseFilter === 'Degraded'} onclick={() => phaseFilter = phaseFilter === 'Degraded' ? 'all' : 'Degraded'}>
-      <span class="stat-value" style="color:var(--c-warn)">{stats.degraded}</span>
-      <span class="stat-label">Degraded</span>
-    </button>
-    <button type="button" class="stat" class:stat-active={phaseFilter === 'Invalid'} onclick={() => phaseFilter = phaseFilter === 'Invalid' ? 'all' : 'Invalid'}>
-      <span class="stat-value" style="color:var(--c-err)">{stats.invalid}</span>
-      <span class="stat-label">Invalid</span>
-    </button>
-    {#if stats.reference > 0}
-      <button type="button" class="stat" class:stat-active={phaseFilter === 'Reference'} onclick={() => phaseFilter = phaseFilter === 'Reference' ? 'all' : 'Reference'}>
-        <span class="stat-value" style="color:var(--c-info)">{stats.reference}</span>
-        <span class="stat-label">Reference</span>
-      </button>
-    {/if}
-    {#if stats.unknown > 0}
-      <button type="button" class="stat" class:stat-active={phaseFilter === 'Unknown'} onclick={() => phaseFilter = phaseFilter === 'Unknown' ? 'all' : 'Unknown'}>
-        <span class="stat-value" style="color:var(--c-neutral)">{stats.unknown}</span>
-        <span class="stat-label">Unknown</span>
-      </button>
-    {/if}
-  </div>
-{/if}
+<StatsBar {services} bind:phaseFilter bind:nameFilter />
 
 {#if loading}
   <div class="fade-in" style="padding:var(--sp-4) 0">
@@ -116,12 +82,16 @@
   </div>
 
   <!-- Connections table -->
-  {@const filteredNodes = phaseFilter === 'all'
-    ? graphData.nodes
-    : graphData.nodes.filter((n) => {
+  {@const filteredNodes = graphData.nodes.filter((n) => {
+      if (phaseFilter !== 'all') {
         const phase = n.status === 'external' ? 'external' : n.status;
-        return phase === phaseFilter;
-      })
+        if (phase !== phaseFilter) return false;
+      }
+      if (nameFilter) {
+        if (!n.serviceName.toLowerCase().includes(nameFilter.toLowerCase())) return false;
+      }
+      return true;
+    })
   }
   {#if filteredNodes.length > 0}
     <div class="section" style="margin-top:var(--sp-6)">
@@ -165,19 +135,6 @@
   .graph-header {
     display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-5); flex-wrap: wrap;
   }
-  .stats-bar { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-5); flex-wrap: wrap; }
-  .stat {
-    display: flex; flex-direction: column; align-items: center; gap: 2px;
-    padding: var(--sp-2) var(--sp-4); border-radius: var(--radius-sm);
-    background: var(--c-surface); border: 1px solid var(--c-border);
-    cursor: pointer; font: inherit; color: var(--c-text);
-    min-width: 64px; transition: border-color var(--transition);
-  }
-  .stat:hover { border-color: var(--c-text-3); }
-  .stat-active { border-color: var(--c-accent); background: var(--c-accent-bg); }
-  .stat-value { font-size: var(--text-lg); font-weight: 700; }
-  .stat-label { font-size: var(--text-xs); color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.05em; }
-
   .graph-page-canvas { position: relative; }
   .graph-controls {
     position: absolute; top: 12px; right: 12px; z-index: 10;

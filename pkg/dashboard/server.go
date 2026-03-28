@@ -40,6 +40,11 @@ type Server struct {
 	enrichMu      sync.Mutex
 	enrichDone    bool
 	enrichLastTry time.Time
+
+	// K8s re-detection: allows swapping the k8s client when kubeconfig changes.
+	k8sRedetect   func(ctx context.Context) (DataSource, error) // returns new cached k8s source
+	k8sRedetectMu sync.Mutex
+	k8sLastCheck  time.Time
 }
 
 // serviceIndexCache holds a pre-built index of all service details with a short TTL.
@@ -121,6 +126,13 @@ func (s *Server) SetLazyEnrich(fn func(ctx context.Context) bool) {
 	s.lazyEnrich = fn
 }
 
+// SetK8sRedetect registers a callback that recreates the k8s client from
+// fresh kubeconfig and returns a new cached DataSource. Called periodically
+// to detect kubectl context switches without requiring a dashboard restart.
+func (s *Server) SetK8sRedetect(fn func(ctx context.Context) (DataSource, error)) {
+	s.k8sRedetect = fn
+}
+
 // UpdateSourceInfo replaces the source metadata shown by /api/sources.
 // Deduplicates by type (keeps last occurrence).
 func (s *Server) UpdateSourceInfo(info []SourceInfo) {
@@ -139,6 +151,43 @@ func (s *Server) UpdateSourceInfo(info []SourceInfo) {
 
 // enrichCooldown is the minimum interval between lazy enrichment attempts.
 const enrichCooldown = 10 * time.Second
+
+// k8sRedetectInterval is the minimum interval between k8s re-detection checks.
+const k8sRedetectInterval = 30 * time.Second
+
+// redetectK8sIfNeeded checks whether the k8s source needs re-creation
+// (e.g. due to a kubectl context switch). Called from getCachedIndex.
+func (s *Server) redetectK8sIfNeeded(ctx context.Context) {
+	if s.k8sRedetect == nil {
+		return
+	}
+	s.k8sRedetectMu.Lock()
+	if time.Since(s.k8sLastCheck) < k8sRedetectInterval {
+		s.k8sRedetectMu.Unlock()
+		return
+	}
+	s.k8sLastCheck = time.Now()
+	s.k8sRedetectMu.Unlock()
+
+	newSource, err := s.k8sRedetect(ctx)
+	if err != nil {
+		slog.Debug("k8s re-detection: failed", "error", err)
+		return
+	}
+	if newSource == nil {
+		return
+	}
+	slog.Info("k8s re-detection: context change detected, swapping source")
+	if s.resolved != nil {
+		s.resolved.SetRuntimeSource(newSource)
+	}
+	if s.memCache != nil {
+		s.memCache.InvalidateAll()
+	}
+	s.indexMu.Lock()
+	s.indexCache = nil
+	s.indexMu.Unlock()
+}
 
 // ensureOCIEnriched attempts lazy OCI enrichment if it was not available at startup.
 // Safe for concurrent calls: guarded by enrichMu with a cooldown between attempts.
@@ -330,6 +379,15 @@ func (s *Server) RegisterOperations(api huma.API) {
 		Description: "Returns the list of detected data sources and their status.",
 		Tags:        []string{"Sources"},
 	}, s.getSources)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "refresh",
+		Method:      http.MethodPost,
+		Path:        "/api/refresh",
+		Summary:     "Force refresh all sources",
+		Description: "Invalidates all caches, re-detects k8s context changes, and forces a fresh data fetch.",
+		Tags:        []string{"Sources"},
+	}, s.refresh)
 
 	if s.resolver != nil {
 		huma.Register(api, huma.Operation{
@@ -702,6 +760,34 @@ func (s *Server) getDiff(ctx context.Context, input *diffInput) (*getDiffOutput,
 	return &getDiffOutput{Body: result}, nil
 }
 
+type refreshOutput struct {
+	Body struct {
+		Status string `json:"status" example:"ok" doc:"Refresh result"`
+	}
+}
+
+func (s *Server) refresh(ctx context.Context, _ *struct{}) (*refreshOutput, error) {
+	// Force k8s re-detection (bypass cooldown).
+	if s.k8sRedetect != nil {
+		s.k8sRedetectMu.Lock()
+		s.k8sLastCheck = time.Time{} // reset cooldown
+		s.k8sRedetectMu.Unlock()
+		s.redetectK8sIfNeeded(ctx)
+	}
+
+	// Invalidate all caches.
+	if s.memCache != nil {
+		s.memCache.InvalidateAll()
+	}
+	s.indexMu.Lock()
+	s.indexCache = nil
+	s.indexMu.Unlock()
+
+	out := &refreshOutput{}
+	out.Body.Status = "ok"
+	return out, nil
+}
+
 func (s *Server) getSources(_ context.Context, _ *struct{}) (*getSourcesOutput, error) {
 	out := &getSourcesOutput{}
 	out.Body.Sources = s.sourceInfo
@@ -833,6 +919,7 @@ func (s *Server) listRemoteVersions(ctx context.Context, input *listRemoteVersio
 // getCachedIndex returns the cached service index, rebuilding it if stale.
 func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 	s.ensureOCIEnriched(ctx)
+	s.redetectK8sIfNeeded(ctx)
 	s.indexMu.Lock()
 	if s.indexCache != nil && time.Since(s.indexCache.builtAt) < indexCacheTTL {
 		cached := s.indexCache

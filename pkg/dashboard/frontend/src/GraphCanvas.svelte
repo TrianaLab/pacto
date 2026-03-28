@@ -1,6 +1,6 @@
 <script>
   import { onMount, untrack } from 'svelte';
-  import { renderGraph, extractSubgraph } from './lib/graph.js';
+  import { renderGraph, extractSubgraph } from './lib/graph.ts';
 
   let { graphData = null, focusId = null, height = 400, onNavigate, filterFn } = $props();
 
