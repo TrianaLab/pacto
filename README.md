@@ -23,7 +23,7 @@ No sidecars. No new infrastructure. The CLI uses your existing OCI registry. The
 
 **[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)** · **[Demo](https://github.com/TrianaLab/pacto-demo)**
 
-https://github.com/user-attachments/assets/665337df-0ea3-4dc3-9b9b-9eeacc5b1c7e
+![Pacto Demo](assets/pacto.gif)
 
 ---
 
