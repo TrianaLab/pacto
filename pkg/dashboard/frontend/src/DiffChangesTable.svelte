@@ -17,7 +17,7 @@
   }
 </script>
 
-{#if changes.length === 0}
+{#if !changes?.length}
   <p class="text-2">No changes detected</p>
 {:else}
   <div class="table-wrap">

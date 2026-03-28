@@ -75,7 +75,7 @@
       sections.push({ id: 'validation', label: 'Validation' });
     if (detail.runtimeDiff?.length > 0) sections.push({ id: 'runtimeDiff', label: 'Contract vs Runtime' });
     if (detail.observedRuntime) sections.push({ id: 'observed', label: 'Observed Runtime' });
-    if (versions.length > 0) sections.push({ id: 'versions', label: 'Versions' });
+    if (versions?.length > 0) sections.push({ id: 'versions', label: 'Versions' });
     return sections;
   });
 
@@ -224,7 +224,7 @@
       {#if detail.owner}<span class="text-2">owner: {detail.owner}</span>{/if}
       {#if detail.namespace}<span class="text-2">ns: {detail.namespace}</span>{/if}
       {#if detail.imageRef}<code class="text-3">{detail.imageRef}</code>{/if}
-      {#if versions.length > 1}
+      {#if versions?.length > 1}
         <a href={diffUrl(name)} class="btn btn-sm" style="margin-left:auto">Compare versions</a>
       {/if}
     </div>
@@ -238,7 +238,7 @@
   {/if}
 
   <!-- Section nav -->
-  {#if availableSections.length > 2}
+  {#if availableSections?.length > 2}
     <nav class="section-nav" aria-label="Sections">
       {#each availableSections as sec}
         <button type="button" class="section-nav-item" onclick={() => scrollToSection(sec.id)}>
@@ -249,7 +249,7 @@
   {/if}
 
   <!-- Insights -->
-  {#if insights.length > 0}
+  {#if insights?.length > 0}
     <div class="section">
       <div class="section-title">Insights</div>
       <div class="insights-list">
@@ -336,7 +336,7 @@
   />
 
   <!-- Version History -->
-  {#if versions.length > 0}
+  {#if versions?.length > 0}
     <section class="section" id="section-versions">
       <div class="section-title">Version History <span class="tab-count">{versions.length}</span></div>
       <div class="table-wrap">
@@ -376,10 +376,10 @@
                       <div class="diff-inline">
                         <div class="diff-inline-header">
                           <span class="badge {classificationClass(diffResult.classification)}">{diffResult.classification.replace(/_/g, ' ')}</span>
-                          <span class="text-2">{diffResult.changes.length} change{diffResult.changes.length !== 1 ? 's' : ''}</span>
+                          <span class="text-2">{diffResult.changes?.length || 0} change{(diffResult.changes?.length ?? 0) !== 1 ? 's' : ''}</span>
                           <span class="text-3">{ver.version} → {detail.version}</span>
                         </div>
-                        <DiffChangesTable changes={diffResult.changes} compact />
+                        <DiffChangesTable changes={diffResult.changes || []} compact />
                       </div>
                     {/if}
                   </td>
