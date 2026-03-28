@@ -705,7 +705,7 @@ func (s *Server) getDependents(ctx context.Context, input *ServiceNameInput) (*g
 	cached := s.getCachedIndex(ctx)
 	aliases := cached.aliases
 
-	var dependents []DependentInfo
+	dependents := []DependentInfo{}
 	for _, d := range cached.index {
 		for _, dep := range d.Dependencies {
 			if depRefMatchesName(dep.Ref, input.Name, aliases) {

@@ -8,7 +8,7 @@
 </script>
 
 <CollapsibleSection title="Overview" bind:open {id}>
-  {#if conditions.length > 0}
+  {#if conditions?.length > 0}
     <div class="subsection">
       <h3>Conditions</h3>
       <div class="table-wrap">

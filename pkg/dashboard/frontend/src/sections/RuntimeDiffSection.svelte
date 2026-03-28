@@ -4,7 +4,7 @@
   let { runtimeDiff = [], open = $bindable(false), id = '' } = $props();
 </script>
 
-{#if runtimeDiff.length > 0}
+{#if runtimeDiff?.length > 0}
   <CollapsibleSection title="Contract vs Runtime" bind:open {id}>
     <div class="table-wrap">
       <table>

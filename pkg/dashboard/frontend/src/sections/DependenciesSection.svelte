@@ -10,14 +10,14 @@
     open = $bindable(true), id = '',
   } = $props();
 
-  let totalCount = $derived((dependencies.length || 0) + (dependents.length || 0));
+  let totalCount = $derived((dependencies?.length || 0) + (dependents?.length || 0));
 
   function svcExists(svcName) {
     return services.some((s) => s.name === svcName);
   }
 </script>
 
-{#if dependencies.length > 0 || dependents.length > 0 || crossRefs}
+{#if dependencies?.length > 0 || dependents?.length > 0 || crossRefs}
   <CollapsibleSection title="Dependencies" count={totalCount} bind:open {id}>
     {#if graphData}
       <div class="dep-graph-box">
@@ -25,7 +25,7 @@
       </div>
     {/if}
 
-    {#if dependencies.length > 0}
+    {#if dependencies?.length > 0}
       <div class="subsection">
         <h3>Depends on</h3>
         <div class="table-wrap">
@@ -52,7 +52,7 @@
       </div>
     {/if}
 
-    {#if dependents.length > 0}
+    {#if dependents?.length > 0}
       <div class="subsection">
         <h3>Depended on by</h3>
         <div class="table-wrap">

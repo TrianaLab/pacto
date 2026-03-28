@@ -5,7 +5,7 @@
   let { interfaces = [], open = $bindable(true), id = '' } = $props();
 </script>
 
-{#if interfaces.length > 0}
+{#if interfaces?.length > 0}
   <CollapsibleSection title="Interfaces" count={interfaces.length} bind:open {id}>
     {#each interfaces as iface}
       <div class="card iface-card">

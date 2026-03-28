@@ -53,7 +53,7 @@
     toVersions = tv;
 
     // Auto-select versions if not provided via URL
-    if (!fromVer && !toVer && fromName === toName && fromVersions.length >= 2) {
+    if (!fromVer && !toVer && fromName === toName && fromVersions?.length >= 2) {
       fromVer = fromVersions[1].version;
       toVer = fromVersions[0].version;
     }
@@ -178,13 +178,13 @@
   <div class="diff-result">
     <div class="diff-summary">
       <span class="badge {classificationClass(result.classification)}">{result.classification.replace(/_/g, ' ')}</span>
-      <span class="text-2">{result.changes.length} change{result.changes.length !== 1 ? 's' : ''}</span>
+      <span class="text-2">{result.changes?.length || 0} change{(result.changes?.length ?? 0) !== 1 ? 's' : ''}</span>
       {#if !isSameService}
         <span class="text-3">({fromName} {fromVer} vs {toName} {toVer})</span>
       {/if}
     </div>
 
-    <DiffChangesTable changes={result.changes} />
+    <DiffChangesTable changes={result.changes || []} />
   </div>
 {/if}
 
