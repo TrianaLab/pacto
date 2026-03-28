@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra/doc"
 	"github.com/trianalab/pacto/internal/app"
 	"github.com/trianalab/pacto/internal/cli"
-	"github.com/trianalab/pacto/internal/oci"
+	"github.com/trianalab/pacto/pkg/oci"
 	"github.com/trianalab/pacto/pkg/plugin"
 )
 

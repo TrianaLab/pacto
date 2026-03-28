@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/trianalab/pacto/internal/oci"
+	"github.com/trianalab/pacto/pkg/oci"
 )
 
 func TestEncodeAuth(t *testing.T) {

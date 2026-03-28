@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/trianalab/pacto/internal/oci"
+	"github.com/trianalab/pacto/pkg/oci"
 )
 
 func TestNewKeychain_WithToken(t *testing.T) {

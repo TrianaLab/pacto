@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/oci"
 )
 
 // mockStore implements oci.BundleStore for resolver tests.

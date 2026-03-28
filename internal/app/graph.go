@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/graph"
+	"github.com/trianalab/pacto/pkg/oci"
 	"github.com/trianalab/pacto/pkg/override"
 )
 
@@ -44,7 +44,7 @@ func (s *Service) Graph(ctx context.Context, opts GraphOptions) (*GraphResult, e
 }
 
 // BundlePuller is the subset of oci.BundleStore needed by the fetcher.
-// Defined here to avoid importing internal/oci from internal/graph.
+// Defined here to avoid importing pkg/oci from internal/graph.
 type BundlePuller interface {
 	Pull(ctx context.Context, ref string) (*contract.Bundle, error)
 	ListTags(ctx context.Context, repo string) ([]string, error)

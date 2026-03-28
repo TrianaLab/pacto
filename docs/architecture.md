@@ -35,7 +35,7 @@ graph TD
     APP --> VAL[pkg/validation<br/>Three-Layer Validator]
     APP --> DIFF[pkg/diff<br/>Change Classifier]
     APP --> GRAPH[pkg/graph<br/>Dependency Resolver]
-    APP --> OCI[internal/oci<br/>OCI Adapter]
+    APP --> OCI[pkg/oci<br/>OCI Adapter]
     APP --> PLUG[pkg/plugin<br/>Plugin Runner]
     APP --> DOC[pkg/doc<br/>Doc Generator]
     APP --> OVER[pkg/override<br/>YAML Overrides]
@@ -45,7 +45,7 @@ graph TD
     DASH --> DIFF
     DASH --> VAL
     DASH --> GRAPH
-    DASH -.-> OCI
+    DASH --> OCI
     DIFF --> SBOM[pkg/sbom<br/>SBOM Parser & Differ]
     VAL --> GRAPH
     DOC --> GRAPH
@@ -60,11 +60,11 @@ graph TD
 
     classDef pkg fill:#e0f0ff,stroke:#4a90d9
     classDef internal fill:#fff3e0,stroke:#e6a23c
-    class CONTRACT,VAL,DIFF,GRAPH,PLUG,DOC,SBOM,OVER,DASH pkg
-    class APP,CLI,LOG,MCP,OCI,MAIN,UPDATE internal
+    class CONTRACT,VAL,DIFF,GRAPH,PLUG,DOC,SBOM,OVER,DASH,OCI pkg
+    class APP,CLI,LOG,MCP,MAIN,UPDATE internal
 ```
 
-Dependencies flow **downward only** with one deliberate exception: `pkg/dashboard` imports `internal/oci` (shown as a dashed edge). The dashboard needs OCI resolution and materialization primitives directly — `BundleStore` for pulling bundles and `Resolver` for lazy dependency resolution. This exception is intentional and must not spread to other `pkg/*` packages.
+Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}).
 
 All core domain logic lives in `pkg/` and is reusable outside the CLI — for example, by the [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}).
 
@@ -84,10 +84,11 @@ Infrastructure adapters live in `internal/` because they depend on external syst
 
 | Package | Role |
 |---------|------|
-| `internal/oci` | OCI registry client, caching, credential resolution, bundle serialization |
 | `internal/mcp` | Model Context Protocol server for AI tool integration |
 | `internal/logger` | Global `slog` configuration |
 | `internal/update` | Async GitHub version checking and self-update |
+
+The OCI adapter (`pkg/oci`) is a public package so it can be imported by external consumers (e.g., the Kubernetes operator).
 
 Test infrastructure lives in `internal/testutil`, which provides shared mocks and fixtures (`MockBundleStore`, `MockPluginRunner`, `TestBundle()`) used across test packages.
 
@@ -178,9 +179,9 @@ Each CLI command maps to exactly one service method. This layer orchestrates `pk
 
 Cobra command handlers and Viper configuration. **Zero business logic** -- only input parsing, orchestration, and output formatting.
 
-### `internal/oci` -- OCI adapter
+### `pkg/oci` -- OCI adapter
 
-Wraps `go-containerregistry` to handle OCI registry operations. Pacto distributes contracts as OCI artifacts -- the same standard behind container images -- so they work with any OCI-compliant registry (GHCR, ECR, ACR, Docker Hub, Harbor) without new infrastructure. Every pushed contract is content-addressed with a digest, making it immutable and verifiable.
+Wraps `go-containerregistry` to handle OCI registry operations. This is a public package, importable by external consumers such as the Kubernetes operator. Pacto distributes contracts as OCI artifacts -- the same standard behind container images -- so they work with any OCI-compliant registry (GHCR, ECR, ACR, Docker Hub, Harbor) without new infrastructure. Every pushed contract is content-addressed with a digest, making it immutable and verifiable.
 
 Key components:
 
@@ -336,7 +337,7 @@ When running alongside the Kubernetes operator, `EnrichFromK8s()` automatically 
 ## Design principles
 
 1. **Pure core** -- `pkg/*` packages have zero CLI/Kubernetes dependencies and are reusable from any Go program
-2. **Strict layering** -- CLI → App → Core (`pkg/`) → Domain (`pkg/contract`), with one documented exception (`pkg/dashboard` → `internal/oci`)
+2. **Strict layering** -- CLI → App → Core (`pkg/`) → Domain (`pkg/contract`)
 3. **Observation separated from validation** -- runtime observation (collecting actual state from Kubernetes, CI, etc.) happens outside `pkg/`; validation against observed state happens inside `pkg/validation`
 4. **No global state** -- all instances created in the composition root (`main.go`); the only global is `slog.SetDefault()` configured once at startup
 5. **Interface-based** -- engines depend on interfaces (`DataSource`, `BundleStore`, `ContractFetcher`, `Runner`), not concrete implementations
@@ -354,7 +355,7 @@ These rules must be preserved by future changes. Each exists for a specific reas
 |-----------|-----------|
 | `pkg/contract` imports nothing from the project | Foundation layer. If it depends on anything above, the entire dependency graph becomes circular. |
 | `pkg/*` must not import `internal/cli` or `internal/app` | Core logic must remain reusable outside the CLI (operator, MCP, tests). |
-| Only `pkg/dashboard` may import `internal/oci` from `pkg/` | The dashboard needs OCI primitives directly for lazy resolution and materialization. This exception must not spread to other `pkg/*` packages. |
+| `pkg/oci` is a public package | OCI primitives (client, credentials, tag resolution) are importable by external consumers such as the Kubernetes operator. |
 | K8s enriches runtime only, never overrides contract content | Contract is the source of truth for interfaces, config, dependencies, version. K8s provides live state (contract status, conditions, endpoints). Mixing them would make the contract unreliable. |
 | Cache must never become a public source | Users see three sources: `local`, `oci`, `k8s`. Cache is an internal optimization. Exposing it would create confusion about which "oci" data is authoritative. |
 | `resolverVersionSources` must not include `"cache"` | Cache enrichment happens inside `OCISource.GetVersions()`, not at the resolver level. Adding cache to the resolver would double-count versions. |

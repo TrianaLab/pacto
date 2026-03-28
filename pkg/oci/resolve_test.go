@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/trianalab/pacto/internal/oci"
+	"github.com/trianalab/pacto/pkg/oci"
 )
 
 func TestHasExplicitTag(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/trianalab/pacto/internal/oci"
+	"github.com/trianalab/pacto/pkg/oci"
 )
 
 // CheckResult holds the outcome of a version check.

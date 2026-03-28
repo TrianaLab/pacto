@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/graph"
+	"github.com/trianalab/pacto/pkg/oci"
 )
 
 // PullOptions holds options for the pull command.

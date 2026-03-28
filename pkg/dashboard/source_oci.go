@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/oci"
 )
 
 // ociRediscoverInterval controls how often background discovery re-runs

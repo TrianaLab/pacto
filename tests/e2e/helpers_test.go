@@ -19,7 +19,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/registry"
 	"github.com/trianalab/pacto/internal/app"
 	"github.com/trianalab/pacto/internal/cli"
-	"github.com/trianalab/pacto/internal/oci"
+	"github.com/trianalab/pacto/pkg/oci"
 	"github.com/trianalab/pacto/pkg/plugin"
 )
 

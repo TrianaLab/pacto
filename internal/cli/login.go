@@ -9,7 +9,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/internal/oci"
+	"github.com/trianalab/pacto/pkg/oci"
 	"golang.org/x/term"
 )
 

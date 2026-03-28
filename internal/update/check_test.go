@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/internal/oci"
+	"github.com/trianalab/pacto/pkg/oci"
 )
 
 // errorTransport is an http.RoundTripper that always returns a connection error.

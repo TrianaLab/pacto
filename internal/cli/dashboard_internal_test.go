@@ -13,9 +13,9 @@ import (
 
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/internal/app"
-	"github.com/trianalab/pacto/internal/oci"
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/dashboard"
+	"github.com/trianalab/pacto/pkg/oci"
 )
 
 // dummyStore satisfies oci.BundleStore for CLI tests.
