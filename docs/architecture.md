@@ -319,10 +319,12 @@ Key API operations:
 | `/api/services/{name}/versions` | GET | Version history |
 | `/api/services/{name}/sources` | GET | Per-source breakdown |
 | `/api/services/{name}/dependents` | GET | Reverse dependency lookup |
+| `/api/services/{name}/refs` | GET | Config/policy cross-references |
 | `/api/services/{name}/graph` | GET | Per-service dependency tree |
 | `/api/graph` | GET | Global D3-ready dependency graph |
 | `/api/diff` | GET | Classified diff between two versions |
 | `/api/sources` | GET | Detected source status and discovery state |
+| `/api/refresh` | POST | Force-refresh all sources |
 | `/api/resolve` | POST | Lazy-resolve a remote dependency |
 | `/api/versions` | POST | List registry tags, optionally fetch all |
 | `/api/debug/*` | GET | Diagnostics (requires `--diagnostics` flag) |

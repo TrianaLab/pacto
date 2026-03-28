@@ -77,6 +77,7 @@ Each check produces a structured condition on the CRD status with a type, status
 - **Warning** — some checks fail (warnings or errors)
 - **NonCompliant** — the contract itself has validation errors
 - **Reference** — no target workload (the contract is a shared definition, not a deployed service)
+- **Unknown** — contract status has not been determined yet
 
 {: .note }
 > Contract status reflects whether the service contract is valid and compliant, not whether the service is healthy at runtime.
@@ -106,7 +107,7 @@ Each check produces a structured condition on the CRD status with a type, status
 
 When `pacto dashboard` detects a Kubernetes cluster with the Pacto CRD installed, it uses the operator's status data as the **k8s** runtime source. This provides:
 
-- Live contract status (Compliant / Warning / Non-Compliant / Reference)
+- Live contract status (Compliant / Warning / NonCompliant / Reference / Unknown)
 - Reconciliation conditions with timestamps
 - Endpoint health and metrics reachability results
 - Resource existence checks (Service, Workload)

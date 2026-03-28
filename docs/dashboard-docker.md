@@ -111,7 +111,7 @@ docker run -p 3000:3000 \
 
 | Endpoint | Description |
 |---|---|
-| `GET /health` | Returns `{"status": "ok"}`. Use for liveness and readiness probes. |
+| `GET /health` | Returns `{"status": "ok", "version": "..."}`. Use for liveness and readiness probes. |
 | `GET /metrics` | Returns `{"serviceCount": N, "sourceCount": N}`. |
 | `GET /openapi` | OpenAPI 3.1 specification (includes server URL matching the bind address). |
 | `GET /docs` | Interactive API documentation. |

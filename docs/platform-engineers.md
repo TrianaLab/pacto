@@ -374,11 +374,12 @@ Sources are auto-detected at startup:
 | **local** | `pacto.yaml` found in the working directory | In-progress contract changes |
 | **k8s** | Valid kubeconfig found and cluster reachable | Runtime state: contract status, conditions, endpoints, resources |
 | **oci** | `--repo` flags provided, or auto-discovered from K8s `imageRef` fields | Full contract bundles, registry versions, and diffs |
-| **cache** | `~/.cache/pacto/oci` contains cached bundles | Offline baseline from previously pulled contracts |
+
+Materialized bundles on disk (`~/.cache/pacto/oci`) are used internally by the OCI source to enrich version data (hash, classification, timestamps) without appearing as a separate source.
 
 When running alongside the Kubernetes operator, the dashboard automatically discovers OCI repositories from the `imageRef` fields in Pacto CRD statuses. This means a K8s deployment of the dashboard provides the full contract experience — version history, interface details, configuration schemas, and diffs — without explicit `--repo` flags.
 
-Pass `--no-cache` to disable the cache source entirely (useful when cached data is stale).
+Pass `--no-cache` to skip pre-existing cached bundles at startup (cold-start mode). Bundles materialized during the current session (via fetch-all-versions, dependency resolution, or OCI pulls) are still cached to disk and reused for enrichment within the same session.
 
 ### Merge priority
 
@@ -387,7 +388,6 @@ When a service appears in multiple sources, fields are merged using priority rul
 1. **Kubernetes** — runtime state (contract status, resources, ports, conditions, endpoints)
 2. **Local** — in-progress contract edits
 3. **OCI** — published contract baseline
-4. **Cache** — offline fallback from previously pulled bundles
 
 The merged view is used for the service list and detail pages. Per-source data is available via the `/api/services/{name}/sources` endpoint.
 
@@ -396,7 +396,7 @@ The merged view is used for the service list and detail pages. Per-source data i
 The dashboard provides a layered filter pipeline:
 
 1. **Source filter** — click source pills in the header to show/hide services from specific sources
-2. **Status filter** — click status pills (Compliant, Warning, Non-Compliant, Unknown) to filter by contract status
+2. **Status filter** — click status pills (Compliant, Warning, Non-Compliant, Reference, Unknown) to filter by contract status
 3. **Search** — type in the search bar to filter by name, owner, version, or source
 
 All three filters compose: a service must pass all active filters to appear in both the table and graph views.
@@ -408,7 +408,6 @@ The built-in D3 force-directed graph shows:
 - **Dependency edges** (solid lines) — declared `dependencies[].ref` relationships
 - **Reference edges** (dashed lines) — `configuration.ref` and `policy.ref` cross-references
 - **External nodes** — dependencies that don't resolve to any known service
-- **Unmonitored nodes** — contracts without a runtime target (e.g. shared definitions)
 
 Hover over a node to highlight its impact chain. Click a node to navigate to its detail page.
 
