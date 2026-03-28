@@ -1,6 +1,6 @@
 <script>
   import { serviceUrl } from '../lib/router.ts';
-  import { phaseClass, complianceStatusClass, sourceTooltip } from '../lib/format.ts';
+  import { statusClass, complianceStatusClass, sourceTooltip } from '../lib/format.ts';
   import StatsBar from '../StatsBar.svelte';
 
   let { services = [], sourcesInfo = [], discovering = false } = $props();
@@ -9,10 +9,13 @@
   let disabledSources = $derived(sourcesInfo.filter((s) => !s.enabled));
 
   let nameFilter = $state('');
-  let phaseFilter = $state('all');
+  let statusFilter = $state('all');
   let sourceFilter = $state('all');
   let sortBy = $state('name');
   let sortAsc = $state(true);
+
+  const STATUS_LABELS = { Compliant: 'Compliant', Warning: 'Warning', NonCompliant: 'Non-Compliant', Unknown: 'Unknown', Reference: 'Reference' };
+  function statusLabel(s) { return STATUS_LABELS[s] || s; }
 
   // Filter + sort
   let filtered = $derived.by(() => {
@@ -21,8 +24,8 @@
       const q = nameFilter.toLowerCase();
       list = list.filter((s) => s.name.toLowerCase().includes(q) || (s.owner || '').toLowerCase().includes(q));
     }
-    if (phaseFilter !== 'all') {
-      list = list.filter((s) => s.phase === phaseFilter);
+    if (statusFilter !== 'all') {
+      list = list.filter((s) => s.contractStatus === statusFilter);
     }
     if (sourceFilter !== 'all') {
       list = list.filter((s) => (s.sources || [s.source]).includes(sourceFilter));
@@ -30,7 +33,7 @@
     const dir = sortAsc ? 1 : -1;
     list = [...list].sort((a, b) => {
       if (sortBy === 'name') return a.name.localeCompare(b.name) * dir;
-      if (sortBy === 'phase') return a.phase.localeCompare(b.phase) * dir;
+      if (sortBy === 'status') return (a.contractStatus || '').localeCompare(b.contractStatus || '') * dir;
       if (sortBy === 'compliance') return ((a.complianceScore ?? -1) - (b.complianceScore ?? -1)) * dir;
       if (sortBy === 'blast') return ((a.blastRadius || 0) - (b.blastRadius || 0)) * dir;
       return 0;
@@ -38,10 +41,10 @@
     return list;
   });
 
-  // Needs attention: degraded/invalid services, sorted by blast radius descending
+  // Needs attention: non-compliant/warning services, sorted by blast radius descending
   let needsAttention = $derived(
     services
-      .filter((s) => s.phase === 'Invalid' || s.phase === 'Degraded')
+      .filter((s) => s.contractStatus === 'NonCompliant' || s.contractStatus === 'Warning')
       .sort((a, b) => (b.blastRadius || 0) - (a.blastRadius || 0))
       .slice(0, 5)
   );
@@ -62,7 +65,7 @@
 </div>
 
 <!-- Stats bar -->
-<StatsBar {services} bind:phaseFilter bind:sourceFilter bind:nameFilter />
+<StatsBar {services} bind:statusFilter bind:sourceFilter bind:nameFilter />
 
 {#if services.length > 0}
   <a href="#/graph" class="graph-cta">
@@ -82,10 +85,10 @@
   <div class="alerts">
     <div class="alerts-title">Needs attention</div>
     {#each needsAttention as svc}
-      <a href={serviceUrl(svc.name)} class="alert-item" class:alert-err={svc.phase === 'Invalid'} class:alert-warn={svc.phase === 'Degraded'}>
-        <span class="alert-dot" style="background:{svc.phase === 'Invalid' ? 'var(--c-err)' : 'var(--c-warn)'}"></span>
+      <a href={serviceUrl(svc.name)} class="alert-item" class:alert-err={svc.contractStatus === 'NonCompliant'} class:alert-warn={svc.contractStatus === 'Warning'}>
+        <span class="alert-dot" style="background:{svc.contractStatus === 'NonCompliant' ? 'var(--c-err)' : 'var(--c-warn)'}"></span>
         <span class="alert-name">{svc.name}</span>
-        <span class="badge badge-{svc.phase === 'Invalid' ? 'err' : 'warn'}" style="font-size:10px">{svc.phase}</span>
+        <span class="badge badge-{svc.contractStatus === 'NonCompliant' ? 'err' : 'warn'}" style="font-size:10px">{statusLabel(svc.contractStatus)}</span>
         {#if svc.topInsight}<span class="alert-reason">{svc.topInsight}</span>{/if}
         {#if (svc.blastRadius || 0) > 0}<span class="pill">blast: {svc.blastRadius}</span>{/if}
       </a>
@@ -153,7 +156,7 @@
         <tr>
           <th><button type="button" class="col-sort" data-tip="Service contract name" onclick={() => toggleSort('name')}>Name{sortIcon('name')}</button></th>
           <th data-tip="Current contract version">Version</th>
-          <th><button type="button" class="col-sort" data-tip="Service health phase" onclick={() => toggleSort('phase')}>Status{sortIcon('phase')}</button></th>
+          <th><button type="button" class="col-sort" data-tip="Contract compliance status" onclick={() => toggleSort('status')}>Contract Status{sortIcon('status')}</button></th>
           <th><button type="button" class="col-sort" data-tip="Contract compliance score (0–100%)" onclick={() => toggleSort('compliance')}>Compliance{sortIcon('compliance')}</button></th>
           <th data-tip="Validation checks passed / total">Checks</th>
           <th><button type="button" class="col-sort" data-tip="Number of services impacted if this one fails" onclick={() => toggleSort('blast')}>Blast{sortIcon('blast')}</button></th>
@@ -168,7 +171,7 @@
               {#if svc.owner}<span class="svc-owner">{svc.owner}</span>{/if}
             </td>
             <td><span class="pill">{svc.version || '—'}</span></td>
-            <td><span class="badge badge-{phaseClass(svc.phase)}"><span class="badge-dot"></span>{svc.phase}</span></td>
+            <td><span class="badge badge-{statusClass(svc.contractStatus)}"><span class="badge-dot"></span>{statusLabel(svc.contractStatus)}</span></td>
             <td>
               {#if svc.complianceScore != null}
                 <span class="score {complianceStatusClass(svc.complianceStatus)}">{svc.complianceScore}%</span>

@@ -50,7 +50,7 @@ type pactoResource struct {
 // Slice fields that the CRD may emit as a single object use json.RawMessage
 // so we can handle both `{...}` (single) and `[{...}]` (array) formats.
 type pactoStatus struct {
-	Phase              string                   `json:"phase"`
+	ContractStatus     string                   `json:"contractStatus"`
 	ContractVersion    string                   `json:"contractVersion"`
 	Contract           *k8sContractInfo         `json:"contract,omitempty"`
 	Validation         *k8sValidation           `json:"validation,omitempty"`
@@ -440,9 +440,9 @@ func (s *K8sSource) getPacto(ctx context.Context, name string) (*pactoResource, 
 
 func serviceFromK8sStatus(r pactoResource) Service {
 	svc := Service{
-		Name:   r.Metadata.Name,
-		Phase:  NormalizePhase(Phase(r.Status.Phase)),
-		Source: "k8s",
+		Name:           r.Metadata.Name,
+		ContractStatus: NormalizeContractStatus(ContractStatus(r.Status.ContractStatus)),
+		Source:         "k8s",
 	}
 	if r.Status.Contract != nil {
 		svc.Name = r.Status.Contract.ServiceName
@@ -555,8 +555,8 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 		}
 	}
 
-	// Compute compliance from phase and conditions.
-	svc.Compliance = ComputeCompliance(svc.Phase, svc.Conditions)
+	// Compute compliance from contract status and conditions.
+	svc.Compliance = ComputeCompliance(svc.ContractStatus, svc.Conditions)
 
 	// Compute runtime diff if both contract runtime and observed runtime are available.
 	svc.RuntimeDiff = ComputeRuntimeDiff(svc.Runtime, svc.ObservedRuntime)

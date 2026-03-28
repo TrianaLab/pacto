@@ -42,16 +42,16 @@ func LookupValidation(conditionType string) ValidationCatalogEntry {
 	}
 }
 
-// ComputeCompliance computes the compliance status and score from phase and conditions.
-func ComputeCompliance(phase Phase, conditions []Condition) *ComplianceInfo {
+// ComputeCompliance computes the compliance status and score from contract status and conditions.
+func ComputeCompliance(cs ContractStatus, conditions []Condition) *ComplianceInfo {
 	info := &ComplianceInfo{}
 
-	if phase == PhaseReference {
+	if cs == StatusReference {
 		info.Status = ComplianceReference
 		return info
 	}
 
-	if phase == PhaseInvalid {
+	if cs == StatusNonCompliant {
 		info.Status = ComplianceError
 	}
 
@@ -91,7 +91,7 @@ func ComputeCompliance(phase Phase, conditions []Condition) *ComplianceInfo {
 		info.Score = &score
 	}
 
-	// Determine status from conditions if not already set by phase.
+	// Determine status from conditions if not already set by contract status.
 	if info.Status == "" {
 		switch {
 		case errors > 0:

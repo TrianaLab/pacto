@@ -710,11 +710,11 @@ func TestEnrichFromK8s_DiscoverRepos(t *testing.T) {
 	// K8s source with services that have imageRefs.
 	k8sData := `{"items": [
 		{"metadata": {"name": "order-svc", "namespace": "default"},
-		 "status": {"phase": "Healthy", "contract": {"serviceName": "order-service", "version": "1.0.0", "imageRef": "ghcr.io/org/order-pacto:1.0.0"}}},
+		 "status": {"contractStatus": "Compliant", "contract": {"serviceName": "order-service", "version": "1.0.0", "imageRef": "ghcr.io/org/order-pacto:1.0.0"}}},
 		{"metadata": {"name": "pay-svc", "namespace": "default"},
-		 "status": {"phase": "Healthy", "contract": {"serviceName": "payment-service", "version": "2.0.0", "imageRef": "ghcr.io/org/payment-pacto:2.0.0"}}},
+		 "status": {"contractStatus": "Compliant", "contract": {"serviceName": "payment-service", "version": "2.0.0", "imageRef": "ghcr.io/org/payment-pacto:2.0.0"}}},
 		{"metadata": {"name": "no-image", "namespace": "default"},
-		 "status": {"phase": "Healthy", "contract": {"serviceName": "no-image-svc", "version": "1.0.0"}}}
+		 "status": {"contractStatus": "Compliant", "contract": {"serviceName": "no-image-svc", "version": "1.0.0"}}}
 	]}`
 
 	client := &mockK8sClient{listJSON: []byte(k8sData)}
@@ -784,7 +784,7 @@ func TestEnrichFromK8s_K8sListError(t *testing.T) {
 func TestEnrichFromK8s_NoImageRefs(t *testing.T) {
 	k8sData := `{"items": [
 		{"metadata": {"name": "svc", "namespace": "default"},
-		 "status": {"phase": "Healthy", "contract": {"serviceName": "svc", "version": "1.0.0"}}}
+		 "status": {"contractStatus": "Compliant", "contract": {"serviceName": "svc", "version": "1.0.0"}}}
 	]}`
 
 	client := &mockK8sClient{listJSON: []byte(k8sData)}

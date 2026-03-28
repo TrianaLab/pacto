@@ -14,8 +14,8 @@ import (
 // Resolution model:
 //   - Contract: exactly ONE authoritative snapshot per service.
 //     local wins over OCI. Cache is internal to OCI (not a separate source).
-//   - Runtime: k8s enriches with phase, conditions, endpoints, resources,
-//     ports, scaling, insights, checks. Never overrides contract fields.
+//   - Runtime: k8s enriches with contract status, conditions, endpoints,
+//     resources, ports, scaling, insights, checks. Never overrides contract fields.
 //   - History: merged across all sources, labeled by origin.
 //   - Diff: only works with real contract bundles (local or OCI/cache).
 //   - Graph: built from the authoritative contract snapshot only.
@@ -168,7 +168,7 @@ type serviceEntry struct {
 
 // mergeServiceEntry builds a merged Service from grouped source data.
 func mergeServiceEntry(name string, entry *serviceEntry) Service {
-	merged := Service{Name: name, Phase: PhaseUnknown}
+	merged := Service{Name: name, ContractStatus: StatusUnknown}
 	sort.Strings(entry.sources)
 	merged.Sources = entry.sources
 
@@ -179,14 +179,14 @@ func mergeServiceEntry(name string, entry *serviceEntry) Service {
 	}
 
 	if entry.runtime != nil {
-		if entry.runtime.Phase != PhaseUnknown && entry.runtime.Phase != "" {
-			merged.Phase = entry.runtime.Phase
+		if entry.runtime.ContractStatus != StatusUnknown && entry.runtime.ContractStatus != "" {
+			merged.ContractStatus = entry.runtime.ContractStatus
 		}
 		if merged.Source == "" {
 			merged.Source = "k8s"
 		}
 	} else if entry.contract != nil {
-		merged.Phase = entry.contract.Phase
+		merged.ContractStatus = entry.contract.ContractStatus
 	}
 
 	return merged
@@ -306,9 +306,9 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 // It NEVER overrides contract content (interfaces, configuration, policy,
 // dependencies, version, owner).
 func enrichWithRuntime(contract *ServiceDetails, runtime *ServiceDetails) {
-	// Phase: k8s is authoritative for runtime state.
-	if runtime.Phase != PhaseUnknown && runtime.Phase != "" {
-		contract.Phase = runtime.Phase
+	// Contract status: k8s is authoritative when present.
+	if runtime.ContractStatus != StatusUnknown && runtime.ContractStatus != "" {
+		contract.ContractStatus = runtime.ContractStatus
 	}
 
 	// Runtime-only struct fields: always set from k8s when present.

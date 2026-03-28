@@ -5,9 +5,9 @@
 import * as d3 from 'd3';
 
 const STATUS_COLORS: Record<string, string> = {
-  Healthy: '#34d399',
-  Degraded: '#fbbf24',
-  Invalid: '#f87171',
+  Compliant: '#34d399',
+  Warning: '#fbbf24',
+  NonCompliant: '#f87171',
   Unknown: '#64748b',
   Reference: '#64748b',
   external: '#475569',
@@ -226,8 +226,8 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
   nodeEls.append('title')
     .text((d) => {
       const name = d.serviceName || d.id;
-      const phase = d.status || 'Unknown';
-      return d.status === 'external' ? `${name} (external)` : `${name} — ${phase}`;
+      const status = d.status || 'Unknown';
+      return d.status === 'external' ? `${name} (external)` : `${name} — ${status}`;
     });
 
   // Build adjacency (bidirectional) and reverse-dependency map (who depends on X)
@@ -268,17 +268,17 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
 
   nodeEls
     .on('mouseenter', (_, d) => {
-      const isDegraded = d.status === 'Degraded' || d.status === 'Invalid';
+      const hasIssues = d.status === 'Warning' || d.status === 'NonCompliant';
       const neighbors = adjacency.get(d.id) || new Set<string>();
-      const impacted = isDegraded ? blastRadiusBFS(d.id) : new Set<string>();
+      const impacted = hasIssues ? blastRadiusBFS(d.id) : new Set<string>();
       const highlight = new Set([d.id, ...neighbors, ...impacted]);
 
       nodeEls.transition().duration(150)
         .attr('opacity', (n) => highlight.has(n.id) ? 1 : 0.15);
 
       // Pulse the stroke of impacted nodes to show blast radius
-      if (isDegraded && impacted.size > 0) {
-        const pulseColor = d.status === 'Invalid' ? blastColor : warnColor;
+      if (hasIssues && impacted.size > 0) {
+        const pulseColor = d.status === 'NonCompliant' ? blastColor : warnColor;
         nodeEls.select('rect')
           .transition().duration(150)
           .attr('stroke', (n: any) => {

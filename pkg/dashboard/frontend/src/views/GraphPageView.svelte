@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl } from '../lib/router.ts';
-  import { phaseClass } from '../lib/format.ts';
+  import { statusClass } from '../lib/format.ts';
   import GraphCanvas from '../GraphCanvas.svelte';
   import StatsBar from '../StatsBar.svelte';
 
@@ -11,7 +11,7 @@
   let graphData = $state(null);
   let loading = $state(true);
   let graphRef = $state(null);
-  let phaseFilter = $state('all');
+  let statusFilter = $state('all');
   let nameFilter = $state('');
 
   async function loadGraph() {
@@ -24,9 +24,9 @@
 
   function filterFn(node) {
     let dominated = false;
-    if (phaseFilter !== 'all') {
-      const phase = node.status === 'external' ? 'external' : node.status;
-      if (phase !== phaseFilter) dominated = true;
+    if (statusFilter !== 'all') {
+      const status = node.status === 'external' ? 'external' : node.status;
+      if (status !== statusFilter) dominated = true;
     }
     if (nameFilter) {
       const q = nameFilter.toLowerCase();
@@ -36,7 +36,7 @@
   }
 
   $effect(() => {
-    if (graphRef) graphRef.applyFilter((phaseFilter === 'all' && !nameFilter) ? null : filterFn);
+    if (graphRef) graphRef.applyFilter((statusFilter === 'all' && !nameFilter) ? null : filterFn);
   });
 
   onMount(() => { loadGraph(); });
@@ -47,7 +47,7 @@
   <h1>Dependency Graph</h1>
 </div>
 
-<StatsBar {services} bind:phaseFilter bind:nameFilter />
+<StatsBar {services} bind:statusFilter bind:nameFilter />
 
 {#if loading}
   <div class="fade-in" style="padding:var(--sp-4) 0">
@@ -69,10 +69,10 @@
       onNavigate={(name) => location.hash = serviceUrl(name).slice(0)}
     />
     <div class="graph-legend">
-      <span class="legend-item"><span class="legend-dot" style="background:var(--c-ok)"></span> Healthy</span>
-      <span class="legend-item"><span class="legend-dot" style="background:var(--c-warn)"></span> Degraded</span>
-      <span class="legend-item"><span class="legend-dot" style="background:var(--c-err)"></span> Invalid</span>
-      <span class="legend-item"><span class="legend-dot" style="background:var(--c-neutral)"></span> Unknown</span>
+      <span class="legend-item" data-tip="All contract checks pass"><span class="legend-dot" style="background:var(--c-ok)"></span> Compliant</span>
+      <span class="legend-item" data-tip="Some contract checks fail (warnings or errors)"><span class="legend-dot" style="background:var(--c-warn)"></span> Warning</span>
+      <span class="legend-item" data-tip="The contract has validation errors"><span class="legend-dot" style="background:var(--c-err)"></span> Non-Compliant</span>
+      <span class="legend-item" data-tip="Contract status could not be determined"><span class="legend-dot" style="background:var(--c-neutral)"></span> Unknown</span>
       <span class="legend-item"><span class="legend-dot" style="background:var(--c-text-3)"></span> external</span>
       <span class="legend-sep">|</span>
       <span class="legend-item"><span class="legend-line solid"></span> required</span>
@@ -83,9 +83,9 @@
 
   <!-- Connections table -->
   {@const filteredNodes = graphData.nodes.filter((n) => {
-      if (phaseFilter !== 'all') {
-        const phase = n.status === 'external' ? 'external' : n.status;
-        if (phase !== phaseFilter) return false;
+      if (statusFilter !== 'all') {
+        const status = n.status === 'external' ? 'external' : n.status;
+        if (status !== statusFilter) return false;
       }
       if (nameFilter) {
         if (!n.serviceName.toLowerCase().includes(nameFilter.toLowerCase())) return false;
@@ -98,7 +98,7 @@
       <div class="section-title">Service Connections <span class="tab-count">{filteredNodes.length}</span></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th data-tip="Service name">Service</th><th data-tip="Service health phase">Status</th><th data-tip="Services this one depends on">Dependencies</th></tr></thead>
+          <thead><tr><th data-tip="Service name">Service</th><th data-tip="Contract compliance status">Status</th><th data-tip="Services this one depends on">Dependencies</th></tr></thead>
           <tbody>
             {#each filteredNodes as node}
               {@const edges = node.edges || []}
@@ -110,7 +110,7 @@
                     {node.serviceName} <span class="badge badge-neutral">external</span>
                   {/if}
                 </td>
-                <td><span class="badge badge-{phaseClass(node.status === 'external' ? 'Unknown' : node.status)}"><span class="badge-dot"></span>{node.status}</span></td>
+                <td><span class="badge badge-{statusClass(node.status === 'external' ? 'Unknown' : node.status)}"><span class="badge-dot"></span>{node.status}</span></td>
                 <td>
                   {#if edges.length > 0}
                     {#each edges as e, j}

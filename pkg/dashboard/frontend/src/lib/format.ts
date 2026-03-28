@@ -1,9 +1,9 @@
 /** Shared formatting/classification helpers used across views. */
 
-export function phaseClass(phase: string | undefined): string {
-  if (phase === 'Healthy') return 'ok';
-  if (phase === 'Degraded') return 'warn';
-  if (phase === 'Invalid') return 'err';
+export function statusClass(status: string | undefined): string {
+  if (status === 'Compliant') return 'ok';
+  if (status === 'Warning') return 'warn';
+  if (status === 'NonCompliant') return 'err';
   return 'neutral';
 }
 

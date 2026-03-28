@@ -16,25 +16,26 @@ import (
 // ServiceFromContract builds a Service summary from a parsed contract.
 func ServiceFromContract(c *contract.Contract, source string) Service {
 	return Service{
-		Name:    c.Service.Name,
-		Version: c.Service.Version,
-		Owner:   c.Service.Owner,
-		Phase:   PhaseUnknown,
-		Source:  source,
+		Name:           c.Service.Name,
+		Version:        c.Service.Version,
+		Owner:          c.Service.Owner,
+		ContractStatus: StatusUnknown,
+		Source:         source,
 	}
 }
 
-// phaseFromBundle computes the Phase from a bundle without building full details.
-// Used by ListServices to avoid expensive validation/parsing just for the list view.
-func phaseFromBundle(bundle *contract.Bundle) Phase {
+// contractStatusFromBundle computes the ContractStatus from a bundle without
+// building full details. Used by ListServices to avoid expensive
+// validation/parsing just for the list view.
+func contractStatusFromBundle(bundle *contract.Bundle) ContractStatus {
 	if bundle.RawYAML == nil {
-		return PhaseUnknown
+		return StatusUnknown
 	}
 	result := validation.Validate(bundle.Contract, bundle.RawYAML, bundle.FS)
 	if result.IsValid() {
-		return PhaseHealthy
+		return StatusCompliant
 	}
-	return PhaseInvalid
+	return StatusNonCompliant
 }
 
 // ServiceDetailsFromBundle builds full ServiceDetails from a contract bundle.
@@ -65,14 +66,14 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 		result := validation.Validate(c, bundle.RawYAML, bundle.FS)
 		svc.Validation = validationInfoFromResult(result)
 		if result.IsValid() {
-			svc.Phase = PhaseHealthy
+			svc.ContractStatus = StatusCompliant
 		} else {
-			svc.Phase = PhaseInvalid
+			svc.ContractStatus = StatusNonCompliant
 		}
 	}
 
 	// Compute compliance for non-k8s sources (no conditions available).
-	svc.Compliance = ComputeCompliance(svc.Phase, svc.Conditions)
+	svc.Compliance = ComputeCompliance(svc.ContractStatus, svc.Conditions)
 
 	return svc
 }

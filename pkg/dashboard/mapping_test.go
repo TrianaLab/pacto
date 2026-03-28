@@ -33,8 +33,8 @@ func TestServiceFromContract(t *testing.T) {
 	if svc.Source != "local" {
 		t.Errorf("expected source 'local', got %q", svc.Source)
 	}
-	if svc.Phase != PhaseUnknown {
-		t.Errorf("expected phase Unknown, got %q", svc.Phase)
+	if svc.ContractStatus != StatusUnknown {
+		t.Errorf("expected status Unknown, got %q", svc.ContractStatus)
 	}
 }
 
@@ -1004,19 +1004,19 @@ paths:
 	}
 }
 
-func TestPhaseFromBundle(t *testing.T) {
+func TestContractStatusFromBundle(t *testing.T) {
 	t.Run("nil RawYAML returns unknown", func(t *testing.T) {
 		b := &contract.Bundle{
 			Contract: &contract.Contract{
 				Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 			},
 		}
-		if got := phaseFromBundle(b); got != PhaseUnknown {
-			t.Errorf("expected PhaseUnknown, got %v", got)
+		if got := contractStatusFromBundle(b); got != StatusUnknown {
+			t.Errorf("expected StatusUnknown, got %v", got)
 		}
 	})
 
-	t.Run("valid contract returns healthy", func(t *testing.T) {
+	t.Run("valid contract returns compliant", func(t *testing.T) {
 		raw := []byte(`pactoVersion: "1.0"
 service:
   name: svc
@@ -1024,12 +1024,12 @@ service:
 `)
 		c, _ := contract.Parse(bytes.NewReader(raw))
 		b := &contract.Bundle{Contract: c, RawYAML: raw}
-		if got := phaseFromBundle(b); got != PhaseHealthy {
-			t.Errorf("expected PhaseHealthy, got %v", got)
+		if got := contractStatusFromBundle(b); got != StatusCompliant {
+			t.Errorf("expected StatusCompliant, got %v", got)
 		}
 	})
 
-	t.Run("invalid contract returns invalid", func(t *testing.T) {
+	t.Run("invalid contract returns non-compliant", func(t *testing.T) {
 		// Missing required service.version field triggers validation error.
 		raw := []byte(`pactoVersion: "1.0"
 service:
@@ -1040,8 +1040,8 @@ service:
 			Service:      contract.ServiceIdentity{Name: "svc"},
 		}
 		b := &contract.Bundle{Contract: c, RawYAML: raw}
-		if got := phaseFromBundle(b); got != PhaseInvalid {
-			t.Errorf("expected PhaseInvalid, got %v", got)
+		if got := contractStatusFromBundle(b); got != StatusNonCompliant {
+			t.Errorf("expected StatusNonCompliant, got %v", got)
 		}
 	})
 }

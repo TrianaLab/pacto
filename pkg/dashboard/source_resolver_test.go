@@ -67,18 +67,18 @@ func intPtr(i int) *int {
 func TestResolvedSource_ListServices_GroupsByName(t *testing.T) {
 	k8s := &stubSource{
 		services: []Service{
-			{Name: "order-service", Version: "1.4.0", Phase: PhaseHealthy, Source: "k8s"},
+			{Name: "order-service", Version: "1.4.0", ContractStatus: StatusCompliant, Source: "k8s"},
 		},
 	}
 	oci := &stubSource{
 		services: []Service{
-			{Name: "order-service", Version: "1.4.0", Phase: PhaseUnknown, Source: "oci"},
-			{Name: "payment-service", Version: "2.0.0", Phase: PhaseUnknown, Source: "oci"},
+			{Name: "order-service", Version: "1.4.0", ContractStatus: StatusUnknown, Source: "oci"},
+			{Name: "payment-service", Version: "2.0.0", ContractStatus: StatusUnknown, Source: "oci"},
 		},
 	}
 	local := &stubSource{
 		services: []Service{
-			{Name: "order-service", Version: "1.5.0-dev", Phase: PhaseInvalid, Source: "local"},
+			{Name: "order-service", Version: "1.5.0-dev", ContractStatus: StatusNonCompliant, Source: "local"},
 		},
 	}
 
@@ -114,9 +114,9 @@ func TestResolvedSource_ListServices_GroupsByName(t *testing.T) {
 		t.Errorf("expected 3 sources, got %d: %v", len(order.Sources), order.Sources)
 	}
 
-	// Phase should come from k8s (runtime)
-	if order.Phase != PhaseHealthy {
-		t.Errorf("expected phase Healthy (from k8s), got %q", order.Phase)
+	// ContractStatus should come from k8s (runtime)
+	if order.ContractStatus != StatusCompliant {
+		t.Errorf("expected Compliant (from k8s), got %q", order.ContractStatus)
 	}
 
 	// Version should come from local (highest contract priority)
@@ -129,7 +129,7 @@ func TestResolvedSource_GetService_ContractPlusRuntime(t *testing.T) {
 	k8s := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service: Service{Name: "svc", Version: "1.0.0", Phase: PhaseHealthy, Source: "k8s"},
+				Service: Service{Name: "svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "k8s"},
 				Runtime: &RuntimeInfo{Workload: "service", HealthInterface: "api", HealthPath: "/healthz"},
 				Resources: &ResourcesInfo{
 					ServiceExists: boolPtr(true),
@@ -140,7 +140,7 @@ func TestResolvedSource_GetService_ContractPlusRuntime(t *testing.T) {
 	local := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service:      Service{Name: "svc", Version: "1.1.0-dev", Phase: PhaseInvalid, Source: "local"},
+				Service:      Service{Name: "svc", Version: "1.1.0-dev", ContractStatus: StatusNonCompliant, Source: "local"},
 				Interfaces:   []InterfaceInfo{{Name: "api", Type: "http", Visibility: "public"}},
 				Dependencies: []DependencyInfo{{Ref: "oci://other", Required: true}},
 			},
@@ -157,9 +157,9 @@ func TestResolvedSource_GetService_ContractPlusRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Phase from k8s (runtime enrichment)
-	if details.Phase != PhaseHealthy {
-		t.Errorf("expected phase Healthy, got %q", details.Phase)
+	// ContractStatus from k8s (runtime enrichment)
+	if details.ContractStatus != StatusCompliant {
+		t.Errorf("expected Compliant, got %q", details.ContractStatus)
 	}
 
 	// Version from local (contract source, never overridden by runtime)
@@ -237,7 +237,7 @@ func TestResolvedSource_GetService_K8sOnly(t *testing.T) {
 	k8s := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service:   Service{Name: "svc", Phase: PhaseHealthy, Source: "k8s"},
+				Service:   Service{Name: "svc", ContractStatus: StatusCompliant, Source: "k8s"},
 				Runtime:   &RuntimeInfo{Workload: "service"},
 				Resources: &ResourcesInfo{ServiceExists: boolPtr(true)},
 			},
@@ -254,8 +254,8 @@ func TestResolvedSource_GetService_K8sOnly(t *testing.T) {
 	}
 
 	// K8s-only service: no contract, just runtime
-	if details.Phase != PhaseHealthy {
-		t.Errorf("expected phase Healthy, got %q", details.Phase)
+	if details.ContractStatus != StatusCompliant {
+		t.Errorf("expected Compliant, got %q", details.ContractStatus)
 	}
 	if details.Runtime == nil {
 		t.Error("expected runtime from k8s")
@@ -462,7 +462,7 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 	k8s := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service:       Service{Name: "svc", Version: "1.0.0", Owner: "k8s-team", Phase: PhaseHealthy, Source: "k8s"},
+				Service:       Service{Name: "svc", Version: "1.0.0", Owner: "k8s-team", ContractStatus: StatusCompliant, Source: "k8s"},
 				Interfaces:    []InterfaceInfo{{Name: "api", Type: "http"}},
 				Configuration: &ConfigurationInfo{HasSchema: true, Ref: "oci://config"},
 				Dependencies:  []DependencyInfo{{Ref: "oci://auth:1.0.0", Required: true}},
@@ -473,7 +473,7 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 	local := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service:       Service{Name: "svc", Version: "1.1.0-dev", Owner: "local-team", Phase: PhaseInvalid, Source: "local"},
+				Service:       Service{Name: "svc", Version: "1.1.0-dev", Owner: "local-team", ContractStatus: StatusNonCompliant, Source: "local"},
 				Interfaces:    []InterfaceInfo{{Name: "api", Type: "http", Endpoints: []InterfaceEndpoint{{Method: "GET", Path: "/v2"}}}},
 				Configuration: &ConfigurationInfo{HasSchema: true, Schema: "config.json", Values: []ConfigValue{{Key: "port", Value: "8080"}}},
 				Dependencies:  []DependencyInfo{{Ref: "oci://auth:2.0.0", Required: true}},
@@ -509,8 +509,8 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 	}
 
 	// Runtime fields from k8s:
-	if details.Phase != PhaseHealthy {
-		t.Errorf("expected phase from k8s runtime, got %q", details.Phase)
+	if details.ContractStatus != StatusCompliant {
+		t.Errorf("expected Compliant from k8s runtime, got %q", details.ContractStatus)
 	}
 	if details.Runtime == nil || details.Runtime.Workload != "service" {
 		t.Error("expected runtime from k8s")
@@ -607,7 +607,7 @@ func TestIsHigherContractPriority(t *testing.T) {
 func TestResolvedSource_ListServices_K8sOnlySource(t *testing.T) {
 	// When only k8s reports a service (no contract source), Source should be "k8s".
 	k8s := &stubSource{
-		services: []Service{{Name: "runtime-svc", Phase: PhaseHealthy, Source: "k8s"}},
+		services: []Service{{Name: "runtime-svc", ContractStatus: StatusCompliant, Source: "k8s"}},
 	}
 	resolved := BuildResolvedSource(map[string]DataSource{"k8s": k8s})
 
@@ -621,8 +621,8 @@ func TestResolvedSource_ListServices_K8sOnlySource(t *testing.T) {
 	if services[0].Source != "k8s" {
 		t.Errorf("expected source 'k8s' for k8s-only service, got %q", services[0].Source)
 	}
-	if services[0].Phase != PhaseHealthy {
-		t.Errorf("expected phase Healthy, got %q", services[0].Phase)
+	if services[0].ContractStatus != StatusCompliant {
+		t.Errorf("expected Compliant, got %q", services[0].ContractStatus)
 	}
 }
 
@@ -649,7 +649,7 @@ func TestResolvedSource_GetAggregated_WithRuntime(t *testing.T) {
 	k8s := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service: Service{Name: "svc", Phase: PhaseHealthy, Source: "k8s"},
+				Service: Service{Name: "svc", ContractStatus: StatusCompliant, Source: "k8s"},
 				Runtime: &RuntimeInfo{Workload: "service"},
 			},
 		},
@@ -694,7 +694,7 @@ func TestResolvedSource_GetAggregated_NotFound(t *testing.T) {
 
 func newFullRuntime() *ServiceDetails {
 	return &ServiceDetails{
-		Service:          Service{Name: "svc", Phase: PhaseHealthy},
+		Service:          Service{Name: "svc", ContractStatus: StatusCompliant},
 		Runtime:          &RuntimeInfo{Workload: "service"},
 		Resources:        &ResourcesInfo{ServiceExists: boolPtr(true)},
 		Ports:            &PortsInfo{Expected: []int{8080}},
@@ -720,8 +720,8 @@ func TestEnrichWithRuntime_StructFields(t *testing.T) {
 	}
 	enrichWithRuntime(contract, newFullRuntime())
 
-	if contract.Phase != PhaseHealthy {
-		t.Error("expected phase from runtime")
+	if contract.ContractStatus != StatusCompliant {
+		t.Error("expected contract status from runtime")
 	}
 	if contract.Runtime == nil {
 		t.Error("expected runtime")
@@ -844,9 +844,9 @@ func TestResolvedSource_AddSource(t *testing.T) {
 
 func TestResolvedSource_SetRuntimeSource(t *testing.T) {
 	k8sOld := &stubSource{
-		services: []Service{{Name: "svc", Phase: PhaseDegraded, Source: "k8s"}},
+		services: []Service{{Name: "svc", ContractStatus: StatusWarning, Source: "k8s"}},
 		details: map[string]*ServiceDetails{
-			"svc": {Service: Service{Name: "svc", Phase: PhaseDegraded, Source: "k8s"}},
+			"svc": {Service: Service{Name: "svc", ContractStatus: StatusWarning, Source: "k8s"}},
 		},
 	}
 	local := &stubSource{
@@ -861,31 +861,31 @@ func TestResolvedSource_SetRuntimeSource(t *testing.T) {
 		"local": local,
 	})
 
-	// Initially, phase from old k8s (Degraded)
+	// Initially, contract status from old k8s (Warning)
 	details, err := resolved.GetService(context.Background(), "svc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if details.Phase != PhaseDegraded {
-		t.Errorf("expected Degraded from old k8s, got %q", details.Phase)
+	if details.ContractStatus != StatusWarning {
+		t.Errorf("expected Warning from old k8s, got %q", details.ContractStatus)
 	}
 
-	// Swap to a new k8s source with Healthy phase
+	// Swap to a new k8s source with Compliant status
 	k8sNew := &stubSource{
-		services: []Service{{Name: "svc", Phase: PhaseHealthy, Source: "k8s"}},
+		services: []Service{{Name: "svc", ContractStatus: StatusCompliant, Source: "k8s"}},
 		details: map[string]*ServiceDetails{
-			"svc": {Service: Service{Name: "svc", Phase: PhaseHealthy, Source: "k8s"}},
+			"svc": {Service: Service{Name: "svc", ContractStatus: StatusCompliant, Source: "k8s"}},
 		},
 	}
 	resolved.SetRuntimeSource(k8sNew)
 
-	// Now phase should come from new k8s (Healthy)
+	// Now contract status should come from new k8s (Compliant)
 	details, err = resolved.GetService(context.Background(), "svc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if details.Phase != PhaseHealthy {
-		t.Errorf("expected Healthy from new k8s after SetRuntimeSource, got %q", details.Phase)
+	if details.ContractStatus != StatusCompliant {
+		t.Errorf("expected Compliant from new k8s after SetRuntimeSource, got %q", details.ContractStatus)
 	}
 
 	// Verify k8s is in the all-sources map
@@ -896,9 +896,9 @@ func TestResolvedSource_SetRuntimeSource(t *testing.T) {
 
 func TestResolvedSource_SetRuntimeSource_Nil(t *testing.T) {
 	k8s := &stubSource{
-		services: []Service{{Name: "svc", Phase: PhaseHealthy, Source: "k8s"}},
+		services: []Service{{Name: "svc", ContractStatus: StatusCompliant, Source: "k8s"}},
 		details: map[string]*ServiceDetails{
-			"svc": {Service: Service{Name: "svc", Phase: PhaseHealthy, Source: "k8s"}},
+			"svc": {Service: Service{Name: "svc", ContractStatus: StatusCompliant, Source: "k8s"}},
 		},
 	}
 	resolved := BuildResolvedSource(map[string]DataSource{"k8s": k8s})

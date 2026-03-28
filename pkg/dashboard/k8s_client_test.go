@@ -475,7 +475,7 @@ func newTestPactoObject(name, namespace string) *unstructured.Unstructured {
 				"namespace": namespace,
 			},
 			"status": map[string]any{
-				"phase": "Healthy",
+				"contractStatus": "Compliant",
 			},
 		},
 	}

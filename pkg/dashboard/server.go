@@ -566,12 +566,12 @@ type perSourceResult struct {
 }
 
 type debugServiceEntry struct {
-	Name             string   `json:"name"`
-	MergedSource     string   `json:"mergedSource"`
-	MergedSources    []string `json:"mergedSources"`
-	MergedPhase      Phase    `json:"mergedPhase"`
-	MergedVersion    string   `json:"mergedVersion"`
-	PresentInSources []string `json:"presentInSources"`
+	Name                 string         `json:"name"`
+	MergedSource         string         `json:"mergedSource"`
+	MergedSources        []string       `json:"mergedSources"`
+	MergedContractStatus ContractStatus `json:"mergedContractStatus"`
+	MergedVersion        string         `json:"mergedVersion"`
+	PresentInSources     []string       `json:"presentInSources"`
 }
 
 // ── Huma operation handlers ─────────────────────────────────────────
@@ -629,7 +629,7 @@ func (s *Server) listServices(ctx context.Context, _ *struct{}) (*listServicesOu
 					entry.ComplianceWarns = d.Compliance.Summary.Warnings
 				}
 			} else {
-				c := ComputeCompliance(svc.Phase, d.Conditions)
+				c := ComputeCompliance(svc.ContractStatus, d.Conditions)
 				entry.ComplianceStatus = c.Status
 				entry.ComplianceScore = c.Score
 				if c.Summary != nil {
@@ -710,11 +710,11 @@ func (s *Server) getDependents(ctx context.Context, input *ServiceNameInput) (*g
 		for _, dep := range d.Dependencies {
 			if depRefMatchesName(dep.Ref, input.Name, aliases) {
 				dependents = append(dependents, DependentInfo{
-					Name:          d.Name,
-					Version:       d.Version,
-					Phase:         string(d.Phase),
-					Required:      dep.Required,
-					Compatibility: dep.Compatibility,
+					Name:           d.Name,
+					Version:        d.Version,
+					ContractStatus: string(d.ContractStatus),
+					Required:       dep.Required,
+					Compatibility:  dep.Compatibility,
 				})
 				break
 			}
@@ -843,12 +843,12 @@ func (s *Server) debugServices(ctx context.Context, _ *struct{}) (*debugServices
 	}
 	for _, svc := range services {
 		out.Body.AggregatedList = append(out.Body.AggregatedList, debugServiceEntry{
-			Name:             svc.Name,
-			MergedSource:     svc.Source,
-			MergedSources:    svc.Sources,
-			MergedPhase:      svc.Phase,
-			MergedVersion:    svc.Version,
-			PresentInSources: svc.Sources,
+			Name:                 svc.Name,
+			MergedSource:         svc.Source,
+			MergedSources:        svc.Sources,
+			MergedContractStatus: svc.ContractStatus,
+			MergedVersion:        svc.Version,
+			PresentInSources:     svc.Sources,
 		})
 	}
 
@@ -993,11 +993,11 @@ func appendOutgoingRef(refs []CrossReference, ref, refType string, index map[str
 		return refs
 	}
 	refName := resolveServiceName(extractServiceNameFromRef(ref), index, aliases)
-	phase := ""
+	cs := ""
 	if d := index[refName]; d != nil {
-		phase = string(d.Phase)
+		cs = string(d.ContractStatus)
 	}
-	return append(refs, CrossReference{Name: refName, RefType: refType, Ref: ref, Phase: phase})
+	return append(refs, CrossReference{Name: refName, RefType: refType, Ref: ref, ContractStatus: cs})
 }
 
 func appendIncomingRef(refs []CrossReference, d *ServiceDetails, targetName, refType, ref string, index map[string]*ServiceDetails, aliases map[string]string) []CrossReference {
@@ -1006,7 +1006,7 @@ func appendIncomingRef(refs []CrossReference, d *ServiceDetails, targetName, ref
 	}
 	resolved := resolveServiceName(extractServiceNameFromRef(ref), index, aliases)
 	if resolved == targetName {
-		refs = append(refs, CrossReference{Name: d.Name, RefType: refType, Ref: ref, Phase: string(d.Phase)})
+		refs = append(refs, CrossReference{Name: d.Name, RefType: refType, Ref: ref, ContractStatus: string(d.ContractStatus)})
 	}
 	return refs
 }

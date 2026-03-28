@@ -372,7 +372,7 @@ Sources are auto-detected at startup:
 | Source | Detected when | Provides |
 |--------|--------------|----------|
 | **local** | `pacto.yaml` found in the working directory | In-progress contract changes |
-| **k8s** | Valid kubeconfig found and cluster reachable | Runtime state: phase, conditions, endpoints, resources |
+| **k8s** | Valid kubeconfig found and cluster reachable | Runtime state: contract status, conditions, endpoints, resources |
 | **oci** | `--repo` flags provided, or auto-discovered from K8s `imageRef` fields | Full contract bundles, registry versions, and diffs |
 | **cache** | `~/.cache/pacto/oci` contains cached bundles | Offline baseline from previously pulled contracts |
 
@@ -384,7 +384,7 @@ Pass `--no-cache` to disable the cache source entirely (useful when cached data 
 
 When a service appears in multiple sources, fields are merged using priority rules:
 
-1. **Kubernetes** — runtime state (phase, resources, ports, conditions, endpoints)
+1. **Kubernetes** — runtime state (contract status, resources, ports, conditions, endpoints)
 2. **Local** — in-progress contract edits
 3. **OCI** — published contract baseline
 4. **Cache** — offline fallback from previously pulled bundles
@@ -396,7 +396,7 @@ The merged view is used for the service list and detail pages. Per-source data i
 The dashboard provides a layered filter pipeline:
 
 1. **Source filter** — click source pills in the header to show/hide services from specific sources
-2. **Status filter** — click KPI cards (Healthy, Degraded, Invalid, Unmonitored) to filter by phase
+2. **Status filter** — click status pills (Compliant, Warning, Non-Compliant, Unknown) to filter by contract status
 3. **Search** — type in the search bar to filter by name, owner, version, or source
 
 All three filters compose: a service must pass all active filters to appear in both the table and graph views.

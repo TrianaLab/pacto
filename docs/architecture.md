@@ -237,7 +237,7 @@ Sources are divided into two categories with different roles:
 
 **Contract sources** (`local`, `oci`) provide the authoritative service definition -- interfaces, configuration, dependencies, version, owner. Exactly one contract snapshot wins per service. Priority: `local` > `oci` (explicit dev intent wins over registry baseline).
 
-**Runtime source** (`k8s`) enriches the contract with live cluster state -- phase, conditions, endpoints, resources, ports, scaling, insights, checks. Runtime data **never overrides contract content**. The `enrichWithRuntime()` function in `source_resolver.go` enforces this boundary: it copies k8s-specific fields but preserves all contract fields untouched.
+**Runtime source** (`k8s`) enriches the contract with live cluster state -- contract status, conditions, endpoints, resources, ports, scaling, insights, checks. Runtime data **never overrides contract content**. The `enrichWithRuntime()` function in `source_resolver.go` enforces this boundary: it copies k8s-specific fields but preserves all contract fields untouched.
 
 ### Resolution model
 
@@ -353,7 +353,7 @@ These rules must be preserved by future changes. Each exists for a specific reas
 | `pkg/contract` imports nothing from the project | Foundation layer. If it depends on anything above, the entire dependency graph becomes circular. |
 | `pkg/*` must not import `internal/cli` or `internal/app` | Core logic must remain reusable outside the CLI (operator, MCP, tests). |
 | Only `pkg/dashboard` may import `internal/oci` from `pkg/` | The dashboard needs OCI primitives directly for lazy resolution and materialization. This exception must not spread to other `pkg/*` packages. |
-| K8s enriches runtime only, never overrides contract content | Contract is the source of truth for interfaces, config, dependencies, version. K8s provides live state (phase, conditions, endpoints). Mixing them would make the contract unreliable. |
+| K8s enriches runtime only, never overrides contract content | Contract is the source of truth for interfaces, config, dependencies, version. K8s provides live state (contract status, conditions, endpoints). Mixing them would make the contract unreliable. |
 | Cache must never become a public source | Users see three sources: `local`, `oci`, `k8s`. Cache is an internal optimization. Exposing it would create confusion about which "oci" data is authoritative. |
 | `resolverVersionSources` must not include `"cache"` | Cache enrichment happens inside `OCISource.GetVersions()`, not at the resolver level. Adding cache to the resolver would double-count versions. |
 | Classification requires materialized bundles | `ClassifyVersions()` diffs consecutive bundles. Without both bundles available, no classification is computed. This is correct behavior, not a bug. |

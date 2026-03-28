@@ -29,14 +29,14 @@ func TestLookupValidation_Unknown(t *testing.T) {
 }
 
 func TestComputeCompliance_Reference(t *testing.T) {
-	info := ComputeCompliance(PhaseReference, nil)
+	info := ComputeCompliance(StatusReference, nil)
 	if info.Status != ComplianceReference {
 		t.Errorf("expected REFERENCE, got %q", info.Status)
 	}
 }
 
 func TestComputeCompliance_Invalid(t *testing.T) {
-	info := ComputeCompliance(PhaseInvalid, nil)
+	info := ComputeCompliance(StatusNonCompliant, nil)
 	if info.Status != ComplianceError {
 		t.Errorf("expected ERROR, got %q", info.Status)
 	}
@@ -47,7 +47,7 @@ func TestComputeCompliance_AllPassed(t *testing.T) {
 		{Type: "ContractValid", Status: "True"},
 		{Type: "ServiceExists", Status: "True"},
 	}
-	info := ComputeCompliance(PhaseHealthy, conds)
+	info := ComputeCompliance(StatusCompliant, conds)
 	if info.Status != ComplianceOK {
 		t.Errorf("expected OK, got %q", info.Status)
 	}
@@ -64,7 +64,7 @@ func TestComputeCompliance_WithWarnings(t *testing.T) {
 		{Type: "ContractValid", Status: "True"},
 		{Type: "UpgradeStrategyMatch", Status: "False"},
 	}
-	info := ComputeCompliance(PhaseHealthy, conds)
+	info := ComputeCompliance(StatusCompliant, conds)
 	if info.Status != ComplianceWarning {
 		t.Errorf("expected WARNING, got %q", info.Status)
 	}
@@ -81,7 +81,7 @@ func TestComputeCompliance_WithErrors(t *testing.T) {
 		{Type: "ContractValid", Status: "True"},
 		{Type: "ServiceExists", Status: "False"},
 	}
-	info := ComputeCompliance(PhaseHealthy, conds)
+	info := ComputeCompliance(StatusCompliant, conds)
 	if info.Status != ComplianceError {
 		t.Errorf("expected ERROR, got %q", info.Status)
 	}
@@ -95,7 +95,7 @@ func TestComputeCompliance_ExplicitSeverity(t *testing.T) {
 		{Type: "ContractValid", Status: "True"},
 		{Type: "ServiceExists", Status: "False", Severity: "warning"},
 	}
-	info := ComputeCompliance(PhaseHealthy, conds)
+	info := ComputeCompliance(StatusCompliant, conds)
 	// ServiceExists normally severity=error, but explicit severity=warning overrides.
 	if info.Status != ComplianceWarning {
 		t.Errorf("expected WARNING, got %q", info.Status)
@@ -106,7 +106,7 @@ func TestComputeCompliance_ExplicitSeverity(t *testing.T) {
 }
 
 func TestComputeCompliance_NoConds(t *testing.T) {
-	info := ComputeCompliance(PhaseHealthy, nil)
+	info := ComputeCompliance(StatusCompliant, nil)
 	if info.Status != ComplianceOK {
 		t.Errorf("expected OK, got %q", info.Status)
 	}

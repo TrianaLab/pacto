@@ -1,13 +1,13 @@
 <script>
-  let { services = [], phaseFilter = $bindable('all'), sourceFilter = $bindable('all'), nameFilter = $bindable('') } = $props();
+  let { services = [], statusFilter = $bindable('all'), sourceFilter = $bindable('all'), nameFilter = $bindable('') } = $props();
 
   let stats = $derived.by(() => {
-    const s = { total: services.length, healthy: 0, degraded: 0, invalid: 0, unknown: 0, reference: 0 };
+    const s = { total: services.length, compliant: 0, warning: 0, nonCompliant: 0, unknown: 0, reference: 0 };
     for (const svc of services) {
-      if (svc.phase === 'Healthy') s.healthy++;
-      else if (svc.phase === 'Degraded') s.degraded++;
-      else if (svc.phase === 'Invalid') s.invalid++;
-      else if (svc.phase === 'Reference') s.reference++;
+      if (svc.contractStatus === 'Compliant') s.compliant++;
+      else if (svc.contractStatus === 'Warning') s.warning++;
+      else if (svc.contractStatus === 'NonCompliant') s.nonCompliant++;
+      else if (svc.contractStatus === 'Reference') s.reference++;
       else s.unknown++;
     }
     return s;
@@ -27,16 +27,16 @@
   let barSegments = $derived.by(() => {
     if (stats.total === 0) return [];
     const segments = [];
-    if (stats.healthy > 0) segments.push({ phase: 'Healthy', count: stats.healthy, color: 'var(--c-ok)', pct: (stats.healthy / stats.total * 100) });
-    if (stats.degraded > 0) segments.push({ phase: 'Degraded', count: stats.degraded, color: 'var(--c-warn)', pct: (stats.degraded / stats.total * 100) });
-    if (stats.invalid > 0) segments.push({ phase: 'Invalid', count: stats.invalid, color: 'var(--c-err)', pct: (stats.invalid / stats.total * 100) });
-    if (stats.reference > 0) segments.push({ phase: 'Reference', count: stats.reference, color: 'var(--c-info)', pct: (stats.reference / stats.total * 100) });
-    if (stats.unknown > 0) segments.push({ phase: 'Unknown', count: stats.unknown, color: 'var(--c-neutral)', pct: (stats.unknown / stats.total * 100) });
+    if (stats.compliant > 0) segments.push({ status: 'Compliant', label: 'Compliant', count: stats.compliant, color: 'var(--c-ok)', pct: (stats.compliant / stats.total * 100), tip: 'All contract checks pass' });
+    if (stats.warning > 0) segments.push({ status: 'Warning', label: 'Warning', count: stats.warning, color: 'var(--c-warn)', pct: (stats.warning / stats.total * 100), tip: 'Some contract checks fail (warnings or errors)' });
+    if (stats.nonCompliant > 0) segments.push({ status: 'NonCompliant', label: 'Non-Compliant', count: stats.nonCompliant, color: 'var(--c-err)', pct: (stats.nonCompliant / stats.total * 100), tip: 'The contract has validation errors' });
+    if (stats.reference > 0) segments.push({ status: 'Reference', label: 'Reference', count: stats.reference, color: 'var(--c-info)', pct: (stats.reference / stats.total * 100), tip: 'Shared contract definition with no deployed workload' });
+    if (stats.unknown > 0) segments.push({ status: 'Unknown', label: 'Unknown', count: stats.unknown, color: 'var(--c-neutral)', pct: (stats.unknown / stats.total * 100), tip: 'Contract status could not be determined' });
     return segments;
   });
 
-  function togglePhase(phase) {
-    phaseFilter = phaseFilter === phase ? 'all' : phase;
+  function toggleStatus(status) {
+    statusFilter = statusFilter === status ? 'all' : status;
   }
 
   function toggleSource(src) {
@@ -52,24 +52,24 @@
         <button
           type="button"
           class="dist-segment"
-          class:dimmed={phaseFilter !== 'all' && phaseFilter !== seg.phase}
+          class:dimmed={statusFilter !== 'all' && statusFilter !== seg.status}
           style="width:{Math.max(seg.pct, 2)}%; background:{seg.color}"
-          onclick={() => togglePhase(seg.phase)}
-          title="{seg.count} {seg.phase}"
-          aria-label="Filter by {seg.phase} ({seg.count})"
+          onclick={() => toggleStatus(seg.status)}
+          data-tip="{seg.label}: {seg.tip} ({seg.count})"
+          aria-label="Filter by {seg.label} ({seg.count})"
         ></button>
       {/each}
     </div>
 
-    <!-- Phase pills -->
+    <!-- Status pills -->
     <div class="filter-row">
-      <button type="button" class="filter-pill" class:active={phaseFilter === 'all'} onclick={() => phaseFilter = 'all'}>
+      <button type="button" class="filter-pill" class:active={statusFilter === 'all'} onclick={() => statusFilter = 'all'} data-tip="Show all services regardless of contract status">
         All <span class="filter-count">{stats.total}</span>
       </button>
       {#each barSegments as seg}
-        <button type="button" class="filter-pill" class:active={phaseFilter === seg.phase} onclick={() => togglePhase(seg.phase)}>
+        <button type="button" class="filter-pill" class:active={statusFilter === seg.status} onclick={() => toggleStatus(seg.status)} data-tip={seg.tip}>
           <span class="filter-dot" style="background:{seg.color}"></span>
-          {seg.phase} <span class="filter-count">{seg.count}</span>
+          {seg.label} <span class="filter-count">{seg.count}</span>
         </button>
       {/each}
 

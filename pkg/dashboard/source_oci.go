@@ -243,7 +243,7 @@ func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 	s.repoMap[name] = repo
 
 	svc := ServiceFromContract(bundle.Contract, "oci")
-	svc.Phase = phaseFromBundle(bundle)
+	svc.ContractStatus = contractStatusFromBundle(bundle)
 	s.services = append(s.services, svc)
 	cb := s.onDiscover
 	s.mu.Unlock()

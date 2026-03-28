@@ -71,12 +71,15 @@ The operator checks runtime alignment across these dimensions:
 | **Metrics endpoint** | Is the declared `runtime.metrics.path` reachable? |
 | **Scaling** | Do actual replica counts align with declared `scaling.min` / `scaling.max` / `scaling.replicas`? |
 
-Each check produces a structured condition on the CRD status with a type, status, reason, and severity. The operator aggregates these into a phase:
+Each check produces a structured condition on the CRD status with a type, status, reason, and severity. The operator aggregates these into a contract status:
 
-- **Healthy** — all checks pass
-- **Degraded** — some checks fail (warnings or errors)
-- **Invalid** — the contract itself has validation errors
+- **Compliant** — all checks pass
+- **Warning** — some checks fail (warnings or errors)
+- **NonCompliant** — the contract itself has validation errors
 - **Reference** — no target workload (the contract is a shared definition, not a deployed service)
+
+{: .note }
+> Contract status reflects whether the service contract is valid and compliant, not whether the service is healthy at runtime.
 
 {: .warning }
 > The operator does **not** currently validate:
@@ -103,7 +106,7 @@ Each check produces a structured condition on the CRD status with a type, status
 
 When `pacto dashboard` detects a Kubernetes cluster with the Pacto CRD installed, it uses the operator's status data as the **k8s** runtime source. This provides:
 
-- Live phase status (Healthy / Degraded / Invalid / Reference)
+- Live contract status (Compliant / Warning / Non-Compliant / Reference)
 - Reconciliation conditions with timestamps
 - Endpoint health and metrics reachability results
 - Resource existence checks (Service, Workload)

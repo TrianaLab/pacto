@@ -46,7 +46,7 @@ explicit --repo flags. The result is a hybrid view: runtime truth from the
 operator combined with contract truth from OCI.
 
 Services are grouped by name across sources and merged using priority rules:
-  - Kubernetes for runtime state (phase, checks, endpoints)
+  - Kubernetes for runtime state (contract status, checks, endpoints)
   - OCI for contract content and version history
   - Local for in-progress contract changes`,
 		Example: `  # Start dashboard with auto-detected sources

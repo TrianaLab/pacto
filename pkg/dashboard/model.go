@@ -7,25 +7,27 @@ import (
 	"time"
 )
 
-// Phase represents the overall health status of a service.
-type Phase string
+// ContractStatus represents the contract compliance status of a service.
+// It reflects whether the service's contract/bundle is valid and compliant,
+// NOT the runtime health of the service itself.
+type ContractStatus string
 
 const (
-	PhaseHealthy   Phase = "Healthy"
-	PhaseDegraded  Phase = "Degraded"
-	PhaseInvalid   Phase = "Invalid"
-	PhaseUnknown   Phase = "Unknown"
-	PhaseReference Phase = "Reference"
+	StatusCompliant    ContractStatus = "Compliant"
+	StatusWarning      ContractStatus = "Warning"
+	StatusNonCompliant ContractStatus = "NonCompliant"
+	StatusUnknown      ContractStatus = "Unknown"
+	StatusReference    ContractStatus = "Reference"
 )
 
-// NormalizePhase maps any non-standard phase to one of the five canonical
-// dashboard phases. "Reference" is preserved as-is for reference-only contracts.
-func NormalizePhase(p Phase) Phase {
-	switch p {
-	case PhaseHealthy, PhaseDegraded, PhaseInvalid, PhaseUnknown, PhaseReference:
-		return p
+// NormalizeContractStatus maps any non-standard status to one of the five
+// canonical contract statuses.
+func NormalizeContractStatus(s ContractStatus) ContractStatus {
+	switch s {
+	case StatusCompliant, StatusWarning, StatusNonCompliant, StatusUnknown, StatusReference:
+		return s
 	default:
-		return PhaseUnknown
+		return StatusUnknown
 	}
 }
 
@@ -78,12 +80,12 @@ type RuntimeDiffRow struct {
 
 // Service is a summary entry for the service list view.
 type Service struct {
-	Name    string   `json:"name"`
-	Version string   `json:"version"`
-	Owner   string   `json:"owner,omitempty"`
-	Phase   Phase    `json:"phase"`
-	Source  string   `json:"source"`            // primary source: k8s, oci, local
-	Sources []string `json:"sources,omitempty"` // all sources this service appears in
+	Name           string         `json:"name"`
+	Version        string         `json:"version"`
+	Owner          string         `json:"owner,omitempty"`
+	ContractStatus ContractStatus `json:"contractStatus"`
+	Source         string         `json:"source"`            // primary source: k8s, oci, local
+	Sources        []string       `json:"sources,omitempty"` // all sources this service appears in
 }
 
 // ServiceDetails contains all information for the service detail view.
@@ -368,11 +370,11 @@ func (d *ServiceDetails) GenerateInsights() {
 	}
 	var ins []Insight
 
-	switch d.Phase {
-	case PhaseInvalid:
-		ins = append(ins, Insight{Severity: "critical", Title: "Contract is invalid", Description: "One or more critical validation checks have failed."})
-	case PhaseDegraded:
-		ins = append(ins, Insight{Severity: "warning", Title: "Contract is degraded", Description: "Some validation checks are failing but service is operational."})
+	switch d.ContractStatus {
+	case StatusNonCompliant:
+		ins = append(ins, Insight{Severity: "critical", Title: "Contract is non-compliant", Description: "One or more critical validation checks have failed."})
+	case StatusWarning:
+		ins = append(ins, Insight{Severity: "warning", Title: "Contract has warnings", Description: "Some validation checks are failing."})
 	}
 
 	ins = append(ins, validationInsights(d.Validation)...)

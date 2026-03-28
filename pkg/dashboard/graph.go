@@ -8,19 +8,19 @@ import (
 
 // DependentInfo describes a service that depends on another service.
 type DependentInfo struct {
-	Name          string `json:"name"`
-	Version       string `json:"version,omitempty"`
-	Phase         string `json:"phase,omitempty"`
-	Required      bool   `json:"required"`
-	Compatibility string `json:"compatibility,omitempty"`
+	Name           string `json:"name"`
+	Version        string `json:"version,omitempty"`
+	ContractStatus string `json:"contractStatus,omitempty"`
+	Required       bool   `json:"required"`
+	Compatibility  string `json:"compatibility,omitempty"`
 }
 
 // CrossReference describes a cross-reference between services via config/policy refs.
 type CrossReference struct {
-	Name    string `json:"name"`
-	RefType string `json:"refType"` // "config" or "policy"
-	Ref     string `json:"ref,omitempty"`
-	Phase   string `json:"phase,omitempty"`
+	Name           string `json:"name"`
+	RefType        string `json:"refType"` // "config" or "policy"
+	Ref            string `json:"ref,omitempty"`
+	ContractStatus string `json:"contractStatus,omitempty"`
 }
 
 // CrossReferences contains both outgoing references and incoming "referenced by".
@@ -116,7 +116,7 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails) *Glo
 		node := GraphNodeData{
 			ID:          svc.Name,
 			ServiceName: svc.Name,
-			Status:      string(svc.Phase),
+			Status:      string(svc.ContractStatus),
 			Version:     svc.Version,
 			Source:      svc.Source,
 		}

@@ -174,29 +174,29 @@ func TestGenerateInsights_NoopWhenPresent(t *testing.T) {
 	}
 }
 
-func TestGenerateInsights_Phase(t *testing.T) {
+func TestGenerateInsights_ContractStatus(t *testing.T) {
 	for _, tc := range []struct {
-		phase    Phase
+		status   ContractStatus
 		severity string
 	}{
-		{PhaseInvalid, "critical"},
-		{PhaseDegraded, "warning"},
+		{StatusNonCompliant, "critical"},
+		{StatusWarning, "warning"},
 	} {
 		d := &ServiceDetails{}
-		d.Phase = tc.phase
+		d.ContractStatus = tc.status
 		d.GenerateInsights()
 		if len(d.Insights) == 0 || d.Insights[0].Severity != tc.severity {
-			t.Errorf("phase %s: expected %s insight, got %v", tc.phase, tc.severity, d.Insights)
+			t.Errorf("status %s: expected %s insight, got %v", tc.status, tc.severity, d.Insights)
 		}
 	}
 }
 
-func TestGenerateInsights_Healthy(t *testing.T) {
+func TestGenerateInsights_Compliant(t *testing.T) {
 	d := &ServiceDetails{}
-	d.Phase = PhaseHealthy
+	d.ContractStatus = StatusCompliant
 	d.GenerateInsights()
 	if len(d.Insights) != 0 {
-		t.Errorf("expected no insights for healthy, got %v", d.Insights)
+		t.Errorf("expected no insights for compliant, got %v", d.Insights)
 	}
 }
 

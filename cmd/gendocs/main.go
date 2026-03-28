@@ -144,14 +144,14 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"- **Configuration schemas** — JSON Schema properties for environment variables and settings\n" +
 		"- **Policy references** — organizational standards enforcement via referenced policy contracts\n" +
 		"- **Diffs between versions** — classified changes (breaking, non-breaking, potential) between any two versions\n" +
-		"- **Runtime compliance** — when Kubernetes is available, live phase, conditions, endpoint health, and contract-vs-runtime comparison\n\n" +
+		"- **Runtime compliance** — when Kubernetes is available, live contract status, conditions, endpoint health, and contract-vs-runtime comparison\n\n" +
 		"### Public source model\n\n" +
 		"The dashboard exposes three public source types: `local`, `k8s`, and `oci`. " +
 		"There is no separate \"cache\" source visible to the user or API.\n\n" +
 		"### Contract-first resolution\n\n" +
 		"Sources are resolved using a contract-first model. " +
 		"Contract sources (`local`, `oci`) provide the authoritative service definition — exactly one contract snapshot wins per service, with `local` taking priority over `oci`. " +
-		"The runtime source (`k8s`) enriches the contract with live cluster state (phase, conditions, endpoints) but never overrides contract content.\n\n" +
+		"The runtime source (`k8s`) enriches the contract with live cluster state (contract status, conditions, endpoints) but never overrides contract content.\n\n" +
 		"### Internal cache / materialization\n\n" +
 		"Materialized bundles on disk (`~/.cache/pacto/oci/`) are used internally by the OCI source to enrich version data " +
 		"(contract hash, classification, timestamps) without appearing as a separate source in the UI or API. " +

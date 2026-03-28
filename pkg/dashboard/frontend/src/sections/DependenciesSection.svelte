@@ -1,7 +1,7 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import GraphCanvas from '../GraphCanvas.svelte';
-  import { phaseClass } from '../lib/format.ts';
+  import { statusClass } from '../lib/format.ts';
   import { navigate, serviceUrl } from '../lib/router.ts';
 
   let {
@@ -57,12 +57,12 @@
         <h3>Depended on by</h3>
         <div class="table-wrap">
           <table>
-            <thead><tr><th data-tip="Service that depends on this one">Service</th><th data-tip="Service health phase">Phase</th><th data-tip="Is this a required dependency?">Required</th></tr></thead>
+            <thead><tr><th data-tip="Service that depends on this one">Service</th><th data-tip="Contract compliance status">Status</th><th data-tip="Is this a required dependency?">Required</th></tr></thead>
             <tbody>
               {#each dependents as dep}
                 <tr>
                   <td><a href={serviceUrl(dep.name)}>{dep.name}</a></td>
-                  <td><span class="badge badge-{phaseClass(dep.phase)}"><span class="badge-dot"></span>{dep.phase}</span></td>
+                  <td><span class="badge badge-{statusClass(dep.contractStatus)}"><span class="badge-dot"></span>{dep.contractStatus}</span></td>
                   <td>{dep.required ? 'Yes' : 'No'}</td>
                 </tr>
               {/each}
@@ -79,13 +79,13 @@
           <p class="text-2" style="margin-bottom:8px">References:</p>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Service</th><th>Type</th><th>Phase</th></tr></thead>
+              <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
               <tbody>
                 {#each crossRefs.references as ref}
                   <tr>
                     <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
                     <td><span class="pill">{ref.refType}</span></td>
-                    <td><span class="badge badge-{phaseClass(ref.phase)}"><span class="badge-dot"></span>{ref.phase || 'Unknown'}</span></td>
+                    <td><span class="badge badge-{statusClass(ref.contractStatus)}"><span class="badge-dot"></span>{ref.contractStatus || 'Unknown'}</span></td>
                   </tr>
                 {/each}
               </tbody>
@@ -96,13 +96,13 @@
           <p class="text-2" style="margin: 12px 0 8px">Referenced by:</p>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Service</th><th>Type</th><th>Phase</th></tr></thead>
+              <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
               <tbody>
                 {#each crossRefs.referencedBy as ref}
                   <tr>
                     <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
                     <td><span class="pill">{ref.refType}</span></td>
-                    <td><span class="badge badge-{phaseClass(ref.phase)}"><span class="badge-dot"></span>{ref.phase || 'Unknown'}</span></td>
+                    <td><span class="badge badge-{statusClass(ref.contractStatus)}"><span class="badge-dot"></span>{ref.contractStatus || 'Unknown'}</span></td>
                   </tr>
                 {/each}
               </tbody>

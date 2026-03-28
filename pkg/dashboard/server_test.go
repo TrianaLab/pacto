@@ -53,7 +53,7 @@ func (m *mockSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) {
 func newMockWithDetails(details map[string]*ServiceDetails) *mockSource {
 	var services []Service
 	for name, d := range details {
-		svc := Service{Name: name, Version: d.Version, Phase: d.Phase, Source: d.Source}
+		svc := Service{Name: name, Version: d.Version, ContractStatus: d.ContractStatus, Source: d.Source}
 		services = append(services, svc)
 	}
 	return &mockSource{services: services, details: details}
@@ -62,7 +62,7 @@ func newMockWithDetails(details map[string]*ServiceDetails) *mockSource {
 func TestServerListServices(t *testing.T) {
 	source := &mockSource{
 		services: []Service{
-			{Name: "svc-a", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+			{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 		},
 	}
 
@@ -108,7 +108,7 @@ func TestServerGetService(t *testing.T) {
 	source := &mockSource{
 		details: map[string]*ServiceDetails{
 			"my-svc": {
-				Service: Service{Name: "my-svc", Version: "2.0.0", Phase: PhaseHealthy, Source: "local"},
+				Service: Service{Name: "my-svc", Version: "2.0.0", ContractStatus: StatusCompliant, Source: "local"},
 			},
 		},
 	}
@@ -239,11 +239,11 @@ func TestServerGetDiff_MissingParams(t *testing.T) {
 func TestServerGetGraph_OK(t *testing.T) {
 	source := newMockWithDetails(map[string]*ServiceDetails{
 		"svc-a": {
-			Service:      Service{Name: "svc-a", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service:      Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 			Dependencies: []DependencyInfo{{Ref: "svc-b", Required: true}},
 		},
 		"svc-b": {
-			Service: Service{Name: "svc-b", Version: "2.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service: Service{Name: "svc-b", Version: "2.0.0", ContractStatus: StatusCompliant, Source: "local"},
 		},
 	})
 	base := startTestServer(t, source)
@@ -315,11 +315,11 @@ func TestServerGetGlobalGraph(t *testing.T) {
 func TestServerGetDependents(t *testing.T) {
 	source := newMockWithDetails(map[string]*ServiceDetails{
 		"svc-a": {
-			Service:      Service{Name: "svc-a", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service:      Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 			Dependencies: []DependencyInfo{{Ref: "svc-b", Required: true, Compatibility: "^2.0.0"}},
 		},
 		"svc-b": {
-			Service: Service{Name: "svc-b", Version: "2.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service: Service{Name: "svc-b", Version: "2.0.0", ContractStatus: StatusCompliant, Source: "local"},
 		},
 	})
 	base := startTestServer(t, source)
@@ -369,15 +369,15 @@ func TestServerGetDependents_NoDependents(t *testing.T) {
 func TestServerGetCrossRefs(t *testing.T) {
 	source := newMockWithDetails(map[string]*ServiceDetails{
 		"svc-a": {
-			Service:       Service{Name: "svc-a", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service:       Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 			Configuration: &ConfigurationInfo{Ref: "config-svc"},
 			Policy:        &PolicyInfo{Ref: "policy-svc"},
 		},
 		"config-svc": {
-			Service: Service{Name: "config-svc", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service: Service{Name: "config-svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 		},
 		"other": {
-			Service:       Service{Name: "other", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service:       Service{Name: "other", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 			Configuration: &ConfigurationInfo{Ref: "svc-a"},
 		},
 	})
@@ -588,7 +588,7 @@ func fetchEnrichedEntries(t *testing.T) []ServiceListEntry {
 	score80 := 80
 	source := newMockWithDetails(map[string]*ServiceDetails{
 		"svc-a": {
-			Service:       Service{Name: "svc-a", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service:       Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 			Dependencies:  []DependencyInfo{{Ref: "svc-b", Required: true}},
 			ChecksSummary: &ChecksSummary{Total: 5, Passed: 3, Failed: 2},
 			Insights:      []Insight{{Severity: "warning", Title: "something wrong"}},
@@ -599,7 +599,7 @@ func fetchEnrichedEntries(t *testing.T) []ServiceListEntry {
 			},
 		},
 		"svc-b": {
-			Service: Service{Name: "svc-b", Version: "2.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service: Service{Name: "svc-b", Version: "2.0.0", ContractStatus: StatusCompliant, Source: "local"},
 			Conditions: []Condition{
 				{Type: "ContractValid", Status: "True"},
 				{Type: "ServiceExists", Status: "False"},
@@ -1121,11 +1121,11 @@ func TestGetCachedIndex_ListServicesError_WithStaleCache(t *testing.T) {
 func TestServerGetCrossRefs_PolicyRefLookup(t *testing.T) {
 	source := newMockWithDetails(map[string]*ServiceDetails{
 		"svc-a": {
-			Service: Service{Name: "svc-a", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service: Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 			Policy:  &PolicyInfo{Ref: "policy-svc"},
 		},
 		"policy-svc": {
-			Service: Service{Name: "policy-svc", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service: Service{Name: "policy-svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 		},
 	})
 	base := startTestServer(t, source)
@@ -1150,8 +1150,8 @@ func TestServerGetCrossRefs_PolicyRefLookup(t *testing.T) {
 	if refs.References[0].RefType != "policy" {
 		t.Errorf("expected refType 'policy', got %q", refs.References[0].RefType)
 	}
-	if refs.References[0].Phase != string(PhaseHealthy) {
-		t.Errorf("expected phase 'Healthy', got %q", refs.References[0].Phase)
+	if refs.References[0].ContractStatus != string(StatusCompliant) {
+		t.Errorf("expected status 'Compliant', got %q", refs.References[0].ContractStatus)
 	}
 }
 
@@ -1285,10 +1285,10 @@ func TestServerGetCrossRefs_PolicyReferencedBy(t *testing.T) {
 	// "other" in its ReferencedBy list with refType "policy".
 	source := newMockWithDetails(map[string]*ServiceDetails{
 		"svc-a": {
-			Service: Service{Name: "svc-a", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service: Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 		},
 		"other": {
-			Service: Service{Name: "other", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+			Service: Service{Name: "other", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 			Policy:  &PolicyInfo{Ref: "svc-a"},
 		},
 	})
@@ -2115,8 +2115,8 @@ func assertEnrichedVersions(t *testing.T, versions []Version) {
 
 func TestServerRefresh_Endpoint(t *testing.T) {
 	source := &mockSource{
-		services: []Service{{Name: "svc", Phase: PhaseHealthy, Source: "local"}},
-		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Phase: PhaseHealthy, Source: "local"}}},
+		services: []Service{{Name: "svc", ContractStatus: StatusCompliant, Source: "local"}},
+		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", ContractStatus: StatusCompliant, Source: "local"}}},
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -2172,9 +2172,9 @@ func TestServerRefresh_Endpoint(t *testing.T) {
 
 func TestServerRefresh_K8sSourceSwap(t *testing.T) {
 	k8sOld := &mockSource{
-		services: []Service{{Name: "svc", Phase: PhaseDegraded, Source: "k8s"}},
+		services: []Service{{Name: "svc", ContractStatus: StatusWarning, Source: "k8s"}},
 		details: map[string]*ServiceDetails{
-			"svc": {Service: Service{Name: "svc", Phase: PhaseDegraded, Source: "k8s"}},
+			"svc": {Service: Service{Name: "svc", ContractStatus: StatusWarning, Source: "k8s"}},
 		},
 	}
 	local := &mockSource{
@@ -2196,9 +2196,9 @@ func TestServerRefresh_K8sSourceSwap(t *testing.T) {
 
 	// Redetect callback that returns a new k8s source.
 	k8sNew := &mockSource{
-		services: []Service{{Name: "svc", Phase: PhaseHealthy, Source: "k8s"}},
+		services: []Service{{Name: "svc", ContractStatus: StatusCompliant, Source: "k8s"}},
 		details: map[string]*ServiceDetails{
-			"svc": {Service: Service{Name: "svc", Phase: PhaseHealthy, Source: "k8s"}},
+			"svc": {Service: Service{Name: "svc", ContractStatus: StatusCompliant, Source: "k8s"}},
 		},
 	}
 	srv.SetK8sRedetect(func(_ context.Context) (DataSource, error) {
@@ -2223,7 +2223,7 @@ func TestServerRefresh_K8sSourceSwap(t *testing.T) {
 	}
 	resp.Body.Close() //nolint:errcheck
 
-	// Verify the swap: GET /api/services should show Healthy (from new k8s).
+	// Verify the swap: GET /api/services should show Compliant (from new k8s).
 	time.Sleep(50 * time.Millisecond)
 	resp2, err := http.Get("http://" + ln.Addr().String() + "/api/services")
 	if err != nil {
@@ -2238,17 +2238,17 @@ func TestServerRefresh_K8sSourceSwap(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatal("expected at least 1 service")
 	}
-	if entries[0].Phase != PhaseHealthy {
-		t.Errorf("expected Healthy from new k8s after refresh, got %q", entries[0].Phase)
+	if entries[0].ContractStatus != StatusCompliant {
+		t.Errorf("expected Compliant from new k8s after refresh, got %q", entries[0].ContractStatus)
 	}
 }
 
 func TestServerRedetect_NilSource(t *testing.T) {
 	// Cover the newSource == nil return path in redetectK8sIfNeeded.
 	source := &mockSource{
-		services: []Service{{Name: "svc", Phase: PhaseHealthy, Source: "local"}},
+		services: []Service{{Name: "svc", ContractStatus: StatusCompliant, Source: "local"}},
 		details: map[string]*ServiceDetails{
-			"svc": {Service: Service{Name: "svc", Phase: PhaseHealthy, Source: "local"}},
+			"svc": {Service: Service{Name: "svc", ContractStatus: StatusCompliant, Source: "local"}},
 		},
 	}
 	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}

@@ -1,6 +1,6 @@
 <script>
   import { navigate, serviceUrl } from './lib/router.ts';
-  import { phaseClass, sourceTooltip } from './lib/format.ts';
+  import { statusClass, sourceTooltip } from './lib/format.ts';
 
   let {
     services = [], sourcesInfo = [], version = '', discovering = false,
@@ -97,7 +97,7 @@
             >
               <span class="search-result-name">{svc.name}</span>
               {#if svc.version}<span class="search-result-meta">{svc.version}</span>{/if}
-              <span class="badge badge-{phaseClass(svc.phase)}"><span class="badge-dot"></span>{svc.phase}</span>
+              <span class="badge badge-{statusClass(svc.contractStatus)}"><span class="badge-dot"></span>{svc.contractStatus}</span>
             </a>
           {/each}
         {/if}

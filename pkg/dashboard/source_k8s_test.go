@@ -16,15 +16,15 @@ import (
 func TestK8s_serviceFromK8sStatus_Minimal(t *testing.T) {
 	r := pactoResource{}
 	r.Metadata.Name = "my-svc"
-	r.Status.Phase = "Healthy"
+	r.Status.ContractStatus = "Compliant"
 
 	svc := serviceFromK8sStatus(r)
 
 	if svc.Name != "my-svc" {
 		t.Errorf("expected name 'my-svc', got %q", svc.Name)
 	}
-	if svc.Phase != PhaseHealthy {
-		t.Errorf("expected phase Healthy, got %q", svc.Phase)
+	if svc.ContractStatus != StatusCompliant {
+		t.Errorf("expected Compliant, got %q", svc.ContractStatus)
 	}
 	if svc.Source != "k8s" {
 		t.Errorf("expected source 'k8s', got %q", svc.Source)
@@ -40,7 +40,7 @@ func TestK8s_serviceFromK8sStatus_Minimal(t *testing.T) {
 func TestK8s_serviceFromK8sStatus_WithContract(t *testing.T) {
 	r := pactoResource{}
 	r.Metadata.Name = "k8s-name"
-	r.Status.Phase = "Degraded"
+	r.Status.ContractStatus = "Warning"
 	r.Status.Contract = &k8sContractInfo{
 		ServiceName: "api-gateway",
 		Version:     "2.0.0",
@@ -74,14 +74,14 @@ func TestK8s_serviceFromK8sStatus_ContractVersionOverride(t *testing.T) {
 	}
 }
 
-func TestK8s_serviceFromK8sStatus_EmptyPhaseDefaultsToUnknown(t *testing.T) {
+func TestK8s_serviceFromK8sStatus_EmptyStatusDefaultsToUnknown(t *testing.T) {
 	r := pactoResource{}
 	r.Metadata.Name = "svc"
 
 	svc := serviceFromK8sStatus(r)
 
-	if svc.Phase != PhaseUnknown {
-		t.Errorf("expected phase Unknown, got %q", svc.Phase)
+	if svc.ContractStatus != StatusUnknown {
+		t.Errorf("expected Unknown, got %q", svc.ContractStatus)
 	}
 }
 
@@ -118,8 +118,8 @@ func assertDetailsServiceFields(t *testing.T, d *ServiceDetails) {
 	if d.Owner != "payments" {
 		t.Errorf("owner: got %q", d.Owner)
 	}
-	if d.Phase != PhaseHealthy {
-		t.Errorf("phase: got %q", d.Phase)
+	if d.ContractStatus != StatusCompliant {
+		t.Errorf("contractStatus: got %q", d.ContractStatus)
 	}
 	if d.ImageRef != "ghcr.io/org/billing:1.2.3" {
 		t.Errorf("imageRef: got %q", d.ImageRef)
@@ -306,7 +306,7 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 
 	r := &pactoResource{}
 	r.Metadata.Name = "k8s-name"
-	r.Status.Phase = "Healthy"
+	r.Status.ContractStatus = "Compliant"
 	r.Status.ContractVersion = "1.2.3"
 	r.Status.LastReconciledAt = time.Now().Add(-5 * time.Minute).Format(time.RFC3339)
 	r.Status.Contract = &k8sContractInfo{ServiceName: "billing", Version: "1.0.0", Owner: "payments", ImageRef: "ghcr.io/org/billing:1.2.3", ResolvedRef: "sha256:abc"}
@@ -510,7 +510,7 @@ func TestK8s_setListCache(t *testing.T) {
 	src := NewK8sSource(client, "default", "pactos")
 
 	items := []pactoResource{
-		{Status: pactoStatus{Phase: "Healthy"}},
+		{Status: pactoStatus{ContractStatus: "Compliant"}},
 	}
 	items[0].Metadata.Name = "svc-a"
 
@@ -593,7 +593,7 @@ func TestK8s_GetDiff_ReturnsError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestK8s_ListServices(t *testing.T) {
-	listJSON := `{"items": [{"metadata": {"name": "svc-b", "namespace": "default"}, "status": {"phase": "Healthy", "contract": {"serviceName": "svc-b", "version": "1.0.0"}}}, {"metadata": {"name": "svc-a"}, "status": {"phase": "Progressing"}}]}`
+	listJSON := `{"items": [{"metadata": {"name": "svc-b", "namespace": "default"}, "status": {"contractStatus": "Compliant", "contract": {"serviceName": "svc-b", "version": "1.0.0"}}}, {"metadata": {"name": "svc-a"}, "status": {"contractStatus": "Progressing"}}]}`
 	client := &mockK8sClient{listJSON: []byte(listJSON)}
 
 	src := NewK8sSource(client, "default", "pactos")
@@ -614,11 +614,11 @@ func TestK8s_ListServices(t *testing.T) {
 	if services[1].Version != "1.0.0" {
 		t.Errorf("expected version '1.0.0', got %q", services[1].Version)
 	}
-	if services[0].Phase != PhaseUnknown {
-		t.Errorf("expected phase Unknown (normalized from Progressing), got %q", services[0].Phase)
+	if services[0].ContractStatus != StatusUnknown {
+		t.Errorf("expected Unknown (normalized from Progressing), got %q", services[0].ContractStatus)
 	}
-	if services[1].Phase != PhaseHealthy {
-		t.Errorf("expected phase Healthy, got %q", services[1].Phase)
+	if services[1].ContractStatus != StatusCompliant {
+		t.Errorf("expected Compliant, got %q", services[1].ContractStatus)
 	}
 }
 
@@ -627,7 +627,7 @@ func TestK8s_ListServices(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestK8s_GetService_WithNamespace(t *testing.T) {
-	singleJSON := `{"metadata": {"name": "my-svc", "namespace": "default"}, "status": {"phase": "Healthy", "contract": {"serviceName": "my-svc", "version": "2.0.0"}}}`
+	singleJSON := `{"metadata": {"name": "my-svc", "namespace": "default"}, "status": {"contractStatus": "Compliant", "contract": {"serviceName": "my-svc", "version": "2.0.0"}}}`
 	client := &mockK8sClient{getJSON: []byte(singleJSON)}
 
 	src := NewK8sSource(client, "default", "pactos")
@@ -641,8 +641,8 @@ func TestK8s_GetService_WithNamespace(t *testing.T) {
 	if details.Version != "2.0.0" {
 		t.Errorf("expected version '2.0.0', got %q", details.Version)
 	}
-	if details.Phase != PhaseHealthy {
-		t.Errorf("expected phase Healthy, got %q", details.Phase)
+	if details.ContractStatus != StatusCompliant {
+		t.Errorf("expected Compliant, got %q", details.ContractStatus)
 	}
 }
 
@@ -651,7 +651,7 @@ func TestK8s_GetService_WithNamespace(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestK8s_GetService_WithoutNamespace(t *testing.T) {
-	listJSON := `{"items": [{"metadata": {"name": "svc-a"}, "status": {"phase": "Healthy"}}, {"metadata": {"name": "target-svc"}, "status": {"phase": "Degraded", "contract": {"serviceName": "target-svc", "version": "3.0.0"}}}]}`
+	listJSON := `{"items": [{"metadata": {"name": "svc-a"}, "status": {"contractStatus": "Compliant"}}, {"metadata": {"name": "target-svc"}, "status": {"contractStatus": "Warning", "contract": {"serviceName": "target-svc", "version": "3.0.0"}}}]}`
 	client := &mockK8sClient{listJSON: []byte(listJSON)}
 
 	src := NewK8sSource(client, "", "pactos")
@@ -665,8 +665,8 @@ func TestK8s_GetService_WithoutNamespace(t *testing.T) {
 	if details.Version != "3.0.0" {
 		t.Errorf("expected version '3.0.0', got %q", details.Version)
 	}
-	if details.Phase != PhaseDegraded {
-		t.Errorf("expected phase Degraded, got %q", details.Phase)
+	if details.ContractStatus != StatusWarning {
+		t.Errorf("expected Warning, got %q", details.ContractStatus)
 	}
 }
 
@@ -709,7 +709,7 @@ func TestK8s_listPactos_BadJSON(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestK8s_getPacto_NotFound(t *testing.T) {
-	listJSON := `{"items": [{"metadata": {"name": "svc-a"}, "status": {"phase": "Healthy"}}, {"metadata": {"name": "svc-b"}, "status": {"phase": "Healthy"}}]}`
+	listJSON := `{"items": [{"metadata": {"name": "svc-a"}, "status": {"contractStatus": "Compliant"}}, {"metadata": {"name": "svc-b"}, "status": {"contractStatus": "Compliant"}}]}`
 	client := &mockK8sClient{listJSON: []byte(listJSON)}
 
 	src := NewK8sSource(client, "", "pactos")
@@ -727,7 +727,7 @@ func TestK8s_getPacto_NotFound(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestK8s_listPactos_CacheHit(t *testing.T) {
-	listJSON := `{"items": [{"metadata": {"name": "svc-a"}, "status": {"phase": "Healthy"}}]}`
+	listJSON := `{"items": [{"metadata": {"name": "svc-a"}, "status": {"contractStatus": "Compliant"}}]}`
 	client := &mockK8sClient{listJSON: []byte(listJSON)}
 
 	src := NewK8sSource(client, "default", "pactos")
@@ -760,7 +760,7 @@ func TestK8s_listPactos_CacheHit(t *testing.T) {
 
 func TestK8s_getPacto_MatchByServiceName(t *testing.T) {
 	listJSON := `{"items": [
-		{"metadata": {"name": "k8s-resource-name"}, "status": {"phase": "Healthy", "contract": {"serviceName": "my-service", "version": "1.0.0"}}}
+		{"metadata": {"name": "k8s-resource-name"}, "status": {"contractStatus": "Compliant", "contract": {"serviceName": "my-service", "version": "1.0.0"}}}
 	]}`
 	client := &mockK8sClient{listJSON: []byte(listJSON)}
 

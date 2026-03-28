@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { navigate, serviceUrl, diffUrl } from '../lib/router.ts';
-  import { phaseClass, complianceClass, classificationClass, sourceTooltip } from '../lib/format.ts';
+  import { statusClass, complianceClass, classificationClass, sourceTooltip } from '../lib/format.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
 
   import OverviewSection from '../sections/OverviewSection.svelte';
@@ -200,7 +200,7 @@
   <header class="detail-header fade-in-up">
     <div class="detail-title-row">
       <h1>{detail.name}</h1>
-      <span class="badge badge-{phaseClass(detail.phase)}"><span class="badge-dot"></span>{detail.phase}</span>
+      <span class="badge badge-{statusClass(detail.contractStatus)}"><span class="badge-dot"></span>{detail.contractStatus}</span>
       {#if detail.compliance}
         {#if detail.compliance.score != null}
           <span class="score {complianceClass(detail.compliance.score)}">{detail.compliance.score}%</span>
@@ -231,7 +231,7 @@
   </header>
 
   <!-- Reference-only banner -->
-  {#if detail.phase === 'Unknown' || detail.phase === 'Reference'}
+  {#if detail.contractStatus === 'Unknown' || detail.contractStatus === 'Reference'}
     <div class="ref-banner">
       <strong>Reference-only contract</strong> — no runtime target. Used as a shared definition or dependency reference.
     </div>

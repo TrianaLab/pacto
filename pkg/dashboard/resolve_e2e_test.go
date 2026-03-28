@@ -86,7 +86,7 @@ func newOrderServiceSource() *stubSource {
 		},
 		details: map[string]*ServiceDetails{
 			"order-service": {
-				Service: Service{Name: "order-service", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+				Service: Service{Name: "order-service", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 				Dependencies: []DependencyInfo{
 					{
 						Name:          "payment-service",

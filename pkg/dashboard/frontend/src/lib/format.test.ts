@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  phaseClass,
+  statusClass,
   complianceClass,
   complianceStatusClass,
   methodClass,
@@ -10,13 +10,13 @@ import {
   formatDiffValue,
 } from './format.ts';
 
-describe('phaseClass', () => {
-  it('maps Healthy to ok', () => expect(phaseClass('Healthy')).toBe('ok'));
-  it('maps Degraded to warn', () => expect(phaseClass('Degraded')).toBe('warn'));
-  it('maps Invalid to err', () => expect(phaseClass('Invalid')).toBe('err'));
-  it('maps Unknown to neutral', () => expect(phaseClass('Unknown')).toBe('neutral'));
-  it('maps Reference to neutral', () => expect(phaseClass('Reference')).toBe('neutral'));
-  it('maps undefined to neutral', () => expect(phaseClass(undefined)).toBe('neutral'));
+describe('statusClass', () => {
+  it('maps Compliant to ok', () => expect(statusClass('Compliant')).toBe('ok'));
+  it('maps Warning to warn', () => expect(statusClass('Warning')).toBe('warn'));
+  it('maps NonCompliant to err', () => expect(statusClass('NonCompliant')).toBe('err'));
+  it('maps Unknown to neutral', () => expect(statusClass('Unknown')).toBe('neutral'));
+  it('maps Reference to neutral', () => expect(statusClass('Reference')).toBe('neutral'));
+  it('maps undefined to neutral', () => expect(statusClass(undefined)).toBe('neutral'));
 });
 
 describe('complianceClass', () => {

@@ -145,7 +145,7 @@ func (s *CacheSource) ListServices(_ context.Context) ([]Service, error) {
 			continue
 		}
 		service := ServiceFromContract(latest.bundle.Contract, "oci")
-		service.Phase = phaseFromBundle(latest.bundle)
+		service.ContractStatus = contractStatusFromBundle(latest.bundle)
 		services = append(services, service)
 	}
 

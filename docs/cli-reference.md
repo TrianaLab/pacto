@@ -70,7 +70,7 @@ explicit --repo flags. The result is a hybrid view: runtime truth from the
 operator combined with contract truth from OCI.
 
 Services are grouped by name across sources and merged using priority rules:
-  - Kubernetes for runtime state (phase, checks, endpoints)
+  - Kubernetes for runtime state (contract status, checks, endpoints)
   - OCI for contract content and version history
   - Local for in-progress contract changes
 
@@ -118,7 +118,7 @@ The dashboard is the exploration and observability layer of the Pacto system. It
 - **Configuration schemas** — JSON Schema properties for environment variables and settings
 - **Policy references** — organizational standards enforcement via referenced policy contracts
 - **Diffs between versions** — classified changes (breaking, non-breaking, potential) between any two versions
-- **Runtime compliance** — when Kubernetes is available, live phase, conditions, endpoint health, and contract-vs-runtime comparison
+- **Runtime compliance** — when Kubernetes is available, live contract status, conditions, endpoint health, and contract-vs-runtime comparison
 
 ### Public source model
 
@@ -126,7 +126,7 @@ The dashboard exposes three public source types: `local`, `k8s`, and `oci`. Ther
 
 ### Contract-first resolution
 
-Sources are resolved using a contract-first model. Contract sources (`local`, `oci`) provide the authoritative service definition — exactly one contract snapshot wins per service, with `local` taking priority over `oci`. The runtime source (`k8s`) enriches the contract with live cluster state (phase, conditions, endpoints) but never overrides contract content.
+Sources are resolved using a contract-first model. Contract sources (`local`, `oci`) provide the authoritative service definition — exactly one contract snapshot wins per service, with `local` taking priority over `oci`. The runtime source (`k8s`) enriches the contract with live cluster state (contract status, conditions, endpoints) but never overrides contract content.
 
 ### Internal cache / materialization
 

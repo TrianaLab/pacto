@@ -3,10 +3,10 @@ import { extractSubgraph } from './graph.ts';
 
 const sampleGraph = {
   nodes: [
-    { id: 'a', serviceName: 'svc-a', status: 'Healthy', edges: [{ targetId: 'b', required: true }] },
-    { id: 'b', serviceName: 'svc-b', status: 'Healthy', edges: [{ targetId: 'c', required: false }] },
-    { id: 'c', serviceName: 'svc-c', status: 'Degraded', edges: [] },
-    { id: 'd', serviceName: 'svc-d', status: 'Healthy', edges: [{ targetId: 'a', required: true }] },
+    { id: 'a', serviceName: 'svc-a', status: 'Compliant', edges: [{ targetId: 'b', required: true }] },
+    { id: 'b', serviceName: 'svc-b', status: 'Compliant', edges: [{ targetId: 'c', required: false }] },
+    { id: 'c', serviceName: 'svc-c', status: 'Warning', edges: [] },
+    { id: 'd', serviceName: 'svc-d', status: 'Compliant', edges: [{ targetId: 'a', required: true }] },
     { id: 'e', serviceName: 'svc-e', status: 'Unknown', edges: [] },
   ],
 };

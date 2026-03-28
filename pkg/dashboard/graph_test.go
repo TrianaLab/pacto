@@ -173,8 +173,8 @@ func TestComputeBlastRadius_NilDetails(t *testing.T) {
 
 func TestBuildGlobalGraph_BasicServices(t *testing.T) {
 	services := []Service{
-		{Name: "svc-a", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
-		{Name: "svc-b", Version: "2.0.0", Phase: PhaseHealthy, Source: "local"},
+		{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+		{Name: "svc-b", Version: "2.0.0", ContractStatus: StatusCompliant, Source: "local"},
 	}
 	index := map[string]*ServiceDetails{
 		"svc-a": {
@@ -226,7 +226,7 @@ func TestBuildGlobalGraph_BasicServices(t *testing.T) {
 
 func TestBuildGlobalGraph_ExternalNode(t *testing.T) {
 	services := []Service{
-		{Name: "svc-a", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+		{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 	}
 	index := map[string]*ServiceDetails{
 		"svc-a": {
@@ -260,8 +260,8 @@ func TestBuildGlobalGraph_ExternalNode(t *testing.T) {
 
 func TestBuildGlobalGraph_ReferenceEdges(t *testing.T) {
 	services := []Service{
-		{Name: "svc-a", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
-		{Name: "config-svc", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+		{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+		{Name: "config-svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 	}
 	index := map[string]*ServiceDetails{
 		"svc-a": {
@@ -581,8 +581,8 @@ func TestComputeBlastRadius_WithAliases(t *testing.T) {
 func TestBuildGlobalGraph_WithOCIRefAliases(t *testing.T) {
 	// Test that buildGlobalGraph correctly resolves OCI ref aliases.
 	services := []Service{
-		{Name: "svc-a", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
-		{Name: "svc-b", Version: "1.0.0", Phase: PhaseHealthy, Source: "local"},
+		{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+		{Name: "svc-b", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 	}
 	index := map[string]*ServiceDetails{
 		"svc-a": {
@@ -622,23 +622,23 @@ func TestBuildGlobalGraph_WithOCIRefAliases(t *testing.T) {
 	}
 }
 
-func TestNormalizePhase(t *testing.T) {
+func TestNormalizeContractStatus(t *testing.T) {
 	cases := []struct {
-		in   Phase
-		want Phase
+		in   ContractStatus
+		want ContractStatus
 	}{
-		{PhaseHealthy, PhaseHealthy},
-		{PhaseDegraded, PhaseDegraded},
-		{PhaseInvalid, PhaseInvalid},
-		{PhaseUnknown, PhaseUnknown},
-		{PhaseReference, PhaseReference},
-		{"Progressing", PhaseUnknown},
-		{"", PhaseUnknown},
+		{StatusCompliant, StatusCompliant},
+		{StatusWarning, StatusWarning},
+		{StatusNonCompliant, StatusNonCompliant},
+		{StatusUnknown, StatusUnknown},
+		{StatusReference, StatusReference},
+		{"Progressing", StatusUnknown},
+		{"", StatusUnknown},
 	}
 	for _, c := range cases {
-		got := NormalizePhase(c.in)
+		got := NormalizeContractStatus(c.in)
 		if got != c.want {
-			t.Errorf("NormalizePhase(%q) = %q, want %q", c.in, got, c.want)
+			t.Errorf("NormalizeContractStatus(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
