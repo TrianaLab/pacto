@@ -49,13 +49,14 @@ type Server struct {
 
 // serviceIndexCache holds a pre-built index of all service details with a short TTL.
 type serviceIndexCache struct {
-	services []Service
-	index    map[string]*ServiceDetails
-	aliases  map[string]string // OCI repo name -> contract name
-	builtAt  time.Time
+	services    []Service
+	index       map[string]*ServiceDetails
+	aliases     map[string]string // OCI repo name -> contract name
+	globalGraph *GlobalGraph      // precomputed global graph
+	builtAt     time.Time
 }
 
-const indexCacheTTL = 3 * time.Second
+const indexCacheTTL = 15 * time.Second
 
 // APIConfig returns the Huma configuration for the dashboard API.
 func APIConfig() huma.Config {
@@ -687,8 +688,7 @@ func (s *Server) getServiceSources(ctx context.Context, input *ServiceNameInput)
 
 func (s *Server) getGlobalGraph(ctx context.Context, _ *struct{}) (*getGlobalGraphOutput, error) {
 	cached := s.getCachedIndex(ctx)
-	graph := buildGlobalGraph(cached.services, cached.index)
-	return &getGlobalGraphOutput{Body: graph}, nil
+	return &getGlobalGraphOutput{Body: cached.globalGraph}, nil
 }
 
 func (s *Server) getServiceGraph(ctx context.Context, input *ServiceNameInput) (*getServiceGraphOutput, error) {
@@ -955,10 +955,11 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 	}
 
 	rebuilt := &serviceIndexCache{
-		services: services,
-		index:    index,
-		aliases:  aliases,
-		builtAt:  time.Now(),
+		services:    services,
+		index:       index,
+		aliases:     aliases,
+		globalGraph: buildGlobalGraph(services, index),
+		builtAt:     time.Now(),
 	}
 
 	s.indexMu.Lock()

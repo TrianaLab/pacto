@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -216,7 +217,7 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 	tags, err := s.store.ListTags(ctx, repo)
 	if err != nil {
-		slog.Warn("OCI ListTags failed", "repo", repo, "error", err)
+		logOCIError("OCI ListTags failed", "repo", repo, err)
 		return ""
 	}
 	if len(tags) == 0 {
@@ -225,11 +226,15 @@ func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 	}
 
 	latest := latestTag(tags)
+	if latest == "" {
+		slog.Warn("OCI repo has no semver tags", "repo", repo)
+		return ""
+	}
 	ref := repo + ":" + latest
 
 	bundle, err := s.store.Pull(ctx, ref)
 	if err != nil {
-		slog.Warn("OCI Pull failed", "ref", ref, "error", err)
+		logOCIError("OCI Pull failed", "ref", ref, err)
 		return ""
 	}
 
@@ -428,6 +433,17 @@ func extractOCIRepo(ref string) string {
 		return ""
 	}
 	return strings.TrimPrefix(ref, "oci://")
+}
+
+// logOCIError logs an OCI operation error at the appropriate level.
+// Auth errors are logged at ERROR (actionable), others at WARN.
+func logOCIError(msg, key, val string, err error) {
+	var authErr *oci.AuthenticationError
+	if errors.As(err, &authErr) {
+		slog.Error(msg, key, val, "error", err)
+	} else {
+		slog.Warn(msg, key, val, "error", err)
+	}
 }
 
 // stripTag removes the tag portion from an OCI ref (e.g. "repo:tag" -> "repo").
