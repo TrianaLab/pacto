@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/oci"
 )
 
 // mockBundleStore implements oci.BundleStore for testing.
@@ -714,6 +715,43 @@ func TestOCISource_Discovering(t *testing.T) {
 	waitForDiscovery(t, src2)
 	if src2.Discovering() {
 		t.Error("expected Discovering()=false after completion")
+	}
+}
+
+// authErrorStore is a BundleStore that returns AuthenticationError on ListTags.
+type authErrorStore struct{}
+
+func (s *authErrorStore) Pull(_ context.Context, _ string) (*contract.Bundle, error) {
+	return nil, &oci.AuthenticationError{Ref: "test", Err: fmt.Errorf("401 unauthorized")}
+}
+func (s *authErrorStore) Push(_ context.Context, _ string, _ *contract.Bundle) (string, error) {
+	return "", nil
+}
+func (s *authErrorStore) ListTags(_ context.Context, repo string) ([]string, error) {
+	return nil, &oci.AuthenticationError{Ref: repo, Err: fmt.Errorf("401 unauthorized")}
+}
+func (s *authErrorStore) Resolve(_ context.Context, _ string) (string, error) { return "", nil }
+
+func TestOCISource_DiscoverRepo_NoSemverTags(t *testing.T) {
+	store := newMockBundleStore()
+	// Repo with only non-semver tags — latestTag returns "".
+	store.tags["ghcr.io/org/no-semver"] = []string{"latest", "main", "dev"}
+
+	src := NewOCISource(store, []string{"ghcr.io/org/no-semver"})
+	services := waitForDiscovery(t, src)
+
+	if len(services) != 0 {
+		t.Errorf("expected 0 services for repo with no semver tags, got %d", len(services))
+	}
+}
+
+func TestOCISource_DiscoverRepo_AuthError(t *testing.T) {
+	store := &authErrorStore{}
+	src := NewOCISource(store, []string{"ghcr.io/org/private"})
+	services := waitForDiscovery(t, src)
+
+	if len(services) != 0 {
+		t.Errorf("expected 0 services when auth fails, got %d", len(services))
 	}
 }
 
