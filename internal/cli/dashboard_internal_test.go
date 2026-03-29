@@ -476,7 +476,7 @@ func (s *enrichStore) ListTags(_ context.Context, _ string) ([]string, error) {
 func TestTryOCIEnrichment_SucceedsOnFirstTry(t *testing.T) {
 	k8sData := `{"items": [
 		{"metadata": {"name": "svc", "namespace": "default"},
-		 "status": {"contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:1.0.0"}}}
+		 "status": {"contract": {"serviceName": "svc", "resolvedRef": "ghcr.io/org/svc:1.0.0"}}}
 	]}`
 	k8sClient := &cliMockK8sClient{listJSON: []byte(k8sData)}
 	store := &enrichStore{
@@ -530,7 +530,7 @@ func writeTestBundleTarGz(t *testing.T, path string, pactoYAML string) {
 func TestWireOCIEnrichment_Success(t *testing.T) {
 	k8sData := `{"items": [
 		{"metadata": {"name": "svc", "namespace": "default"},
-		 "status": {"contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:1.0.0"}}}
+		 "status": {"contract": {"serviceName": "svc", "resolvedRef": "ghcr.io/org/svc:1.0.0"}}}
 	]}`
 	k8sClient := &cliMockK8sClient{listJSON: []byte(k8sData)}
 	store := &enrichStore{

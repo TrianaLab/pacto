@@ -707,12 +707,12 @@ func TestEnrichFromK8s_NilStore(t *testing.T) {
 }
 
 func TestEnrichFromK8s_DiscoverRepos(t *testing.T) {
-	// K8s source with services that have imageRefs.
+	// K8s source with services that have resolvedRefs (Pacto bundle OCI references).
 	k8sData := `{"items": [
 		{"metadata": {"name": "order-svc", "namespace": "default"},
-		 "status": {"contractStatus": "Compliant", "contract": {"serviceName": "order-service", "version": "1.0.0", "imageRef": "ghcr.io/org/order-pacto:1.0.0"}}},
+		 "status": {"contractStatus": "Compliant", "contract": {"serviceName": "order-service", "version": "1.0.0", "resolvedRef": "ghcr.io/org/order-pacto:1.0.0"}}},
 		{"metadata": {"name": "pay-svc", "namespace": "default"},
-		 "status": {"contractStatus": "Compliant", "contract": {"serviceName": "payment-service", "version": "2.0.0", "imageRef": "ghcr.io/org/payment-pacto:2.0.0"}}},
+		 "status": {"contractStatus": "Compliant", "contract": {"serviceName": "payment-service", "version": "2.0.0", "resolvedRef": "ghcr.io/org/payment-pacto:2.0.0"}}},
 		{"metadata": {"name": "no-image", "namespace": "default"},
 		 "status": {"contractStatus": "Compliant", "contract": {"serviceName": "no-image-svc", "version": "1.0.0"}}}
 	]}`
@@ -728,9 +728,9 @@ func TestEnrichFromK8s_DiscoverRepos(t *testing.T) {
 	r.EnrichFromK8s(context.Background(), store, cacheDir)
 
 	if r.OCI == nil {
-		t.Fatal("expected OCI source to be created from K8s imageRefs")
+		t.Fatal("expected OCI source to be created from K8s resolvedRefs")
 	}
-	// Should have discovered 2 repos (the service without imageRef is skipped).
+	// Should have discovered 2 repos (the service without resolvedRef is skipped).
 	if len(r.OCI.repos) != 2 {
 		t.Errorf("expected 2 repos, got %d: %v", len(r.OCI.repos), r.OCI.repos)
 	}
@@ -743,9 +743,9 @@ func TestEnrichFromK8s_DiscoverRepos(t *testing.T) {
 func TestEnrichFromK8s_DeduplicatesRepos(t *testing.T) {
 	k8sData := `{"items": [
 		{"metadata": {"name": "svc-a", "namespace": "default"},
-		 "status": {"contract": {"serviceName": "svc-a", "imageRef": "ghcr.io/org/svc-pacto:1.0.0"}}},
+		 "status": {"contract": {"serviceName": "svc-a", "resolvedRef": "ghcr.io/org/svc-pacto:1.0.0"}}},
 		{"metadata": {"name": "svc-b", "namespace": "default"},
-		 "status": {"contract": {"serviceName": "svc-b", "imageRef": "ghcr.io/org/svc-pacto:2.0.0"}}}
+		 "status": {"contract": {"serviceName": "svc-b", "resolvedRef": "ghcr.io/org/svc-pacto:2.0.0"}}}
 	]}`
 
 	client := &mockK8sClient{listJSON: []byte(k8sData)}
@@ -781,7 +781,7 @@ func TestEnrichFromK8s_K8sListError(t *testing.T) {
 	}
 }
 
-func TestEnrichFromK8s_NoImageRefs(t *testing.T) {
+func TestEnrichFromK8s_NoResolvedRefs(t *testing.T) {
 	k8sData := `{"items": [
 		{"metadata": {"name": "svc", "namespace": "default"},
 		 "status": {"contractStatus": "Compliant", "contract": {"serviceName": "svc", "version": "1.0.0"}}}
@@ -795,14 +795,14 @@ func TestEnrichFromK8s_NoImageRefs(t *testing.T) {
 
 	r.EnrichFromK8s(context.Background(), newMockBundleStore(), "")
 	if r.OCI != nil {
-		t.Error("expected nil OCI when no services have imageRefs")
+		t.Error("expected nil OCI when no services have resolvedRefs")
 	}
 }
 
 func TestEnrichFromK8s_CacheSourceAlreadyExists(t *testing.T) {
 	k8sData := `{"items": [
 		{"metadata": {"name": "svc", "namespace": "default"},
-		 "status": {"contract": {"serviceName": "svc", "imageRef": "ghcr.io/org/svc:1.0.0"}}}
+		 "status": {"contract": {"serviceName": "svc", "resolvedRef": "ghcr.io/org/svc:1.0.0"}}}
 	]}`
 
 	client := &mockK8sClient{listJSON: []byte(k8sData)}
