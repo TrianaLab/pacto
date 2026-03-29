@@ -322,7 +322,7 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	r.Status.Ports = &k8sPorts{Expected: []int{8080}, Observed: []int{8080, 9090}, Missing: nil, Unexpected: []int{9090}}
 	condTime := time.Now().Add(-2 * time.Hour).Format(time.RFC3339)
 	r.Status.Conditions = flexSlice[k8sCondition]{{Type: "Ready", Status: "True", Reason: "AllChecks", Message: "all good", LastTransitionTime: condTime}}
-	r.Status.Endpoints = flexSlice[k8sEndpoint]{{Interface: "http", Type: "health", URL: "http://billing:8080/healthz", Healthy: &healthy, StatusCode: &statusCode, LatencyMs: &latency, Error: "", Message: "OK"}}
+	r.Status.Endpoints = k8sEndpoints{{Interface: "http", Type: "health", URL: "http://billing:8080/healthz", Healthy: &healthy, StatusCode: &statusCode, LatencyMs: &latency, Error: "", Message: "OK"}}
 	r.Status.Insights = flexSlice[k8sInsight]{{Severity: "warning", Title: "High latency", Description: "p99 > 500ms"}}
 	r.Status.Summary = &k8sSummary{Total: 10, Passed: 8, Failed: 2}
 
@@ -432,6 +432,80 @@ func TestK8s_flexSlice_InvalidJSON_ViaStatus(t *testing.T) {
 	var status pactoStatus
 	if err := json.Unmarshal([]byte(input), &status); err == nil {
 		t.Error("expected error for invalid interfaces value")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// k8sEndpoints unmarshal tests
+// ---------------------------------------------------------------------------
+
+func TestK8s_k8sEndpoints_Array(t *testing.T) {
+	input := `[{"interface":"http","url":"http://svc:8080/health","statusCode":200}]`
+	var ep k8sEndpoints
+	if err := json.Unmarshal([]byte(input), &ep); err != nil {
+		t.Fatal(err)
+	}
+	if len(ep) != 1 || ep[0].Interface != "http" || ep[0].URL != "http://svc:8080/health" {
+		t.Errorf("unexpected: %+v", ep)
+	}
+}
+
+func TestK8s_k8sEndpoints_SingleObject(t *testing.T) {
+	input := `{"interface":"http","url":"http://svc:8080/health"}`
+	var ep k8sEndpoints
+	if err := json.Unmarshal([]byte(input), &ep); err != nil {
+		t.Fatal(err)
+	}
+	if len(ep) != 1 || ep[0].Interface != "http" {
+		t.Errorf("unexpected: %+v", ep)
+	}
+}
+
+func TestK8s_k8sEndpoints_Map(t *testing.T) {
+	input := `{"health":{"url":"http://svc:8080/health","reachable":true,"statusCode":200,"latencyMs":5}}`
+	var ep k8sEndpoints
+	if err := json.Unmarshal([]byte(input), &ep); err != nil {
+		t.Fatal(err)
+	}
+	if len(ep) != 1 {
+		t.Fatalf("expected 1 endpoint, got %d", len(ep))
+	}
+	if ep[0].Interface != "health" {
+		t.Errorf("expected interface 'health', got %q", ep[0].Interface)
+	}
+	if ep[0].URL != "http://svc:8080/health" {
+		t.Errorf("expected url, got %q", ep[0].URL)
+	}
+	if ep[0].Healthy == nil || !*ep[0].Healthy {
+		t.Error("expected healthy=true")
+	}
+	if ep[0].StatusCode == nil || *ep[0].StatusCode != 200 {
+		t.Error("expected statusCode=200")
+	}
+	if ep[0].LatencyMs == nil || *ep[0].LatencyMs != 5 {
+		t.Error("expected latencyMs=5")
+	}
+}
+
+func TestK8s_k8sEndpoints_MapMultiple(t *testing.T) {
+	input := `{"health":{"url":"http://svc:8080/health"},"metrics":{"url":"http://svc:9090/metrics"}}`
+	var ep k8sEndpoints
+	if err := json.Unmarshal([]byte(input), &ep); err != nil {
+		t.Fatal(err)
+	}
+	if len(ep) != 2 {
+		t.Fatalf("expected 2 endpoints, got %d", len(ep))
+	}
+	// Should be sorted alphabetically.
+	if ep[0].Interface != "health" || ep[1].Interface != "metrics" {
+		t.Errorf("expected sorted [health, metrics], got [%s, %s]", ep[0].Interface, ep[1].Interface)
+	}
+}
+
+func TestK8s_k8sEndpoints_InvalidJSON(t *testing.T) {
+	var ep k8sEndpoints
+	if err := json.Unmarshal([]byte(`not json`), &ep); err == nil {
+		t.Error("expected error for invalid JSON")
 	}
 }
 

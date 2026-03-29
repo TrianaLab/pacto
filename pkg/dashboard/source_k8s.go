@@ -65,7 +65,7 @@ type pactoStatus struct {
 	Metadata           map[string]string        `json:"metadata,omitempty"`
 	Summary            *k8sSummary              `json:"summary,omitempty"`
 	Conditions         flexSlice[k8sCondition]  `json:"conditions,omitempty"`
-	Endpoints          flexSlice[k8sEndpoint]   `json:"endpoints,omitempty"`
+	Endpoints          k8sEndpoints             `json:"endpoints,omitempty"`
 	Insights           flexSlice[k8sInsight]    `json:"insights,omitempty"`
 	ObservedRuntime    *k8sObservedRuntime      `json:"observedRuntime,omitempty"`
 	LastReconciledAt   string                   `json:"lastReconciledAt,omitempty"`
@@ -212,6 +212,61 @@ type k8sEndpoint struct {
 	LatencyMs  *int64 `json:"latencyMs,omitempty"`
 	Error      string `json:"error,omitempty"`
 	Message    string `json:"message,omitempty"`
+}
+
+// k8sEndpoints unmarshals the CRD endpoints field which may be:
+//   - an array of k8sEndpoint objects: [{"interface":"health","url":"..."}]
+//   - a single k8sEndpoint object:    {"interface":"health","url":"..."}
+//   - a map keyed by name:            {"health":{"url":"...","reachable":true,...}}
+type k8sEndpoints []k8sEndpoint
+
+// k8sEndpointMapValue represents the per-endpoint value when the CRD writes
+// endpoints as a map (e.g. {"health": {"url":"...","reachable":true}}).
+type k8sEndpointMapValue struct {
+	URL        string `json:"url,omitempty"`
+	Reachable  *bool  `json:"reachable,omitempty"`
+	StatusCode *int   `json:"statusCode,omitempty"`
+	LatencyMs  *int64 `json:"latencyMs,omitempty"`
+	Error      string `json:"error,omitempty"`
+	Message    string `json:"message,omitempty"`
+}
+
+func (e *k8sEndpoints) UnmarshalJSON(data []byte) error {
+	// Try array first.
+	var arr []k8sEndpoint
+	if err := json.Unmarshal(data, &arr); err == nil {
+		*e = arr
+		return nil
+	}
+
+	// Try map keyed by endpoint name (operator format).
+	var m map[string]k8sEndpointMapValue
+	if err := json.Unmarshal(data, &m); err == nil {
+		out := make([]k8sEndpoint, 0, len(m))
+		for name, v := range m {
+			out = append(out, k8sEndpoint{
+				Interface:  name,
+				Type:       name,
+				URL:        v.URL,
+				Healthy:    v.Reachable,
+				StatusCode: v.StatusCode,
+				LatencyMs:  v.LatencyMs,
+				Error:      v.Error,
+				Message:    v.Message,
+			})
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].Interface < out[j].Interface })
+		*e = out
+		return nil
+	}
+
+	// Fall back to single object.
+	var single k8sEndpoint
+	if err := json.Unmarshal(data, &single); err != nil {
+		return err
+	}
+	*e = []k8sEndpoint{single}
+	return nil
 }
 
 type k8sInsight struct {
@@ -629,7 +684,7 @@ func observedRuntimeFromK8s(obs *k8sObservedRuntime) *ObservedRuntime {
 	}
 }
 
-func endpointsFromK8s(endpoints flexSlice[k8sEndpoint]) []EndpointStatus {
+func endpointsFromK8s(endpoints k8sEndpoints) []EndpointStatus {
 	var out []EndpointStatus
 	for _, ep := range endpoints {
 		out = append(out, EndpointStatus(ep))
