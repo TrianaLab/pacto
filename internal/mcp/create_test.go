@@ -679,7 +679,7 @@ func TestCheck_InvalidPath(t *testing.T) {
 
 func TestCheck_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("not: valid: yaml: {{"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("not: valid: yaml: {{"), 0644)
 	result, err := Check(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -725,7 +725,7 @@ runtime:
     interface: api
     path: /health
 `
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
 	result, err := Check(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1177,7 +1177,7 @@ func TestHasRuntimeEdits(t *testing.T) {
 
 func TestScaffoldNewInterfaceFiles(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
+	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
 
 	scaffoldNewInterfaceFiles(dir, []InterfaceInput{
 		{Name: "grpc-api", Type: "grpc"},
@@ -1197,8 +1197,8 @@ func TestScaffoldNewInterfaceFiles(t *testing.T) {
 func TestScaffoldNewInterfaceFiles_ExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	ifaceDir := filepath.Join(dir, "interfaces")
-	os.MkdirAll(ifaceDir, 0755)
-	os.WriteFile(filepath.Join(ifaceDir, "api.yaml"), []byte("existing"), 0644)
+	_ = os.MkdirAll(ifaceDir, 0755)
+	_ = os.WriteFile(filepath.Join(ifaceDir, "api.yaml"), []byte("existing"), 0644)
 
 	scaffoldNewInterfaceFiles(dir, []InterfaceInput{
 		{Name: "api", Type: "http"},
@@ -1298,9 +1298,9 @@ runtime:
       durability: ephemeral
     dataCriticality: low
 `
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
-	os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
-	os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
+	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
+	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
 
 	sd := true
 	_, err := Edit(EditInput{
@@ -1673,9 +1673,9 @@ interfaces:
     port: 8080
     contract: interfaces/api.yaml
 `
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
-	os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
-	os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
+	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
+	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
 
 	sd := false
 	_, err := Edit(EditInput{
@@ -1711,9 +1711,9 @@ runtime:
     interface: missing-iface
     path: /health
 `
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
-	os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
-	os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
+	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
+	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
 
 	result, err := Check(dir)
 	if err != nil {
@@ -1743,7 +1743,7 @@ runtime:
       durability: ephemeral
     dataCriticality: low
 `
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
 	result, err := Check(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1775,9 +1775,9 @@ interfaces:
     port: 8080
     contract: interfaces/api.yaml
 `
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
-	os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
-	os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
+	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
+	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
 
 	result, err := Check(dir)
 	if err != nil {
@@ -1816,9 +1816,9 @@ runtime:
       durability: ephemeral
     dataCriticality: low
 `
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
-	os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
-	os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
+	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
+	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
 
 	result, err := Check(dir)
 	if err != nil {
@@ -1985,7 +1985,7 @@ func TestSummarizeFromMap_Empty(t *testing.T) {
 
 func TestEdit_ParseYAMLError(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("invalid: yaml: {{"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("invalid: yaml: {{"), 0644)
 	_, err := Edit(EditInput{Path: dir, Version: strPtr("1.0.0")})
 	if err == nil {
 		t.Error("expected error for bad YAML")
@@ -2236,7 +2236,7 @@ runtime:
       durability: ephemeral
     dataCriticality: low
 `
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
 
 	result, err := Edit(EditInput{
 		Path:    dir,
@@ -2337,13 +2337,13 @@ func TestBuildBundleFSForValidation_WalkError(t *testing.T) {
 func TestBuildBundleFSForValidation_ReadFileError(t *testing.T) {
 	// Create a dir with a file that has permissions removed
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("test"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("test"), 0644)
 
 	// Create a file that's unreadable
 	unreadable := filepath.Join(dir, "unreadable.txt")
-	os.WriteFile(unreadable, []byte("data"), 0644)
-	os.Chmod(unreadable, 0000)
-	defer os.Chmod(unreadable, 0644)
+	_ = os.WriteFile(unreadable, []byte("data"), 0644)
+	_ = os.Chmod(unreadable, 0000)
+	defer func() { _ = os.Chmod(unreadable, 0644) }()
 
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "test"},
@@ -2371,7 +2371,7 @@ runtime:
       durability: ephemeral
     dataCriticality: low
 `
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yamlContent), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yamlContent), 0644)
 	_, err := Edit(EditInput{Path: dir, Version: strPtr("2.0.0")})
 	if err == nil {
 		t.Error("expected parse error for unknown field")
