@@ -23,6 +23,8 @@ No sidecars. No new infrastructure. The CLI uses your existing OCI registry. The
 
 **[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)** · **[Demo](https://github.com/TrianaLab/pacto-demo)**
 
+> **Why Pacto exists** — [MANIFEST.md](MANIFEST.md)
+
 ---
 
 ## The system
@@ -55,7 +57,7 @@ The lifecycle:
 
 ## What you get
 
-- **One contract per service** — a single `pacto.yaml` replaces scattered docs, wiki pages, and tribal knowledge
+- **One contract per service** — a single `pacto.yaml` captures interfaces, dependencies, runtime semantics, configuration, and scaling
 - **Versioned OCI artifacts** — contracts are pushed to the same registries you already use for container images
 - **Runtime state in Kubernetes** — the operator tracks every contract version and checks alignment against running workloads
 - **Dependency graph + version history** — the dashboard visualizes relationships, diffs, and compliance across all services
@@ -121,31 +123,7 @@ Run it locally with `pacto dashboard`, or deploy the [container image](https://t
 
 ---
 
-## The problem
-
-A cloud service is described across **six different places** — none of which talk to each other:
-
-```
-OpenAPI spec    → the API, but not the runtime
-Helm values     → deployment config, but not the service itself
-env vars        → documented in a wiki (maybe), validated never
-K8s manifests   → hardcoded ports, guessed health checks
-Dependencies    → tribal knowledge in Slack threads
-README.md       → outdated the day it was written
-```
-
-The result:
-
-- Platforms guess service behavior — *Is it stateful? What port? Does it need persistent storage?*
-- Developers ship code; platform engineers reverse-engineer how to run it
-- Breaking changes are detected in production, not CI
-- No one knows what depends on what until something breaks
-
----
-
-## What Pacto captures
-
-One file. Machine-validated. Versioned and distributed as an OCI artifact.
+## Contract example
 
 ```yaml
 pactoVersion: "1.0"
@@ -189,59 +167,6 @@ scaling:
 ```
 
 Only `pactoVersion` and `service` are required — everything else is opt-in, so a contract can be as minimal or as detailed as your service needs.
-
----
-
-## Before and after
-
-<table>
-<tr><th>Without Pacto</th><th>With Pacto</th></tr>
-<tr><td>
-
-```
-my-service/
-  src/
-  Dockerfile
-  helm/
-    values.yaml        ← ports, replicas
-  k8s/
-    deployment.yaml    ← health checks
-  docs/
-    README.md          ← maybe outdated
-  .env.example         ← config keys
-```
-
-*"Is it stateful?"* — Check the Helm chart.<br>
-*"What does it depend on?"* — Ask the team lead.<br>
-*"Did anything break?"* — Deploy and find out.
-
-</td><td>
-
-```
-my-service/
-  src/
-  Dockerfile
-  pacto.yaml             ← single source of truth
-  interfaces/            ← optional
-    openapi.yaml
-  configuration/         ← optional
-    schema.json
-  policy/                ← optional
-    schema.json
-  docs/                  ← optional
-    README.md
-  sbom/                  ← optional
-    sbom.spdx.json
-```
-
-```bash
-pacto validate .          # validates everything
-pacto diff old new        # detects breaking changes
-pacto dashboard           # explore in the browser
-```
-
-</td></tr>
-</table>
 
 ---
 
@@ -308,22 +233,6 @@ payments-api/
 ```
 
 The contract lives next to the code it describes. CI validates it on every push and publishes it to an OCI registry on release.
-
----
-
-## Why Pacto is different
-
-Most tools describe **how to deploy** a service. Pacto describes **what a service is** operationally.
-
-A Helm chart tells Kubernetes how many replicas to run and what image to pull. A Pacto contract tells *any* platform that the service is stateful, persists data locally, exposes an HTTP API on port 8080, depends on auth-service ^2.0.0, and should scale between 2 and 10 instances.
-
-This distinction matters because:
-
-- **Runtime state semantics** — the contract declares whether a service is stateless, stateful, or hybrid, and what that means for persistence and data criticality. Platforms use this to choose the right infrastructure without guessing.
-- **Typed dependencies** — dependencies are declared with version constraints and resolved from OCI registries. `pacto graph` shows the full tree; `pacto diff` shows what shifted between versions.
-- **Configuration schema** — environment variables and settings are defined with JSON Schema, so platforms can validate config before deployment.
-- **Scaling intent** — the contract declares whether scaling is fixed or elastic, giving platforms the information they need to configure autoscaling correctly.
-- **Machine-validated contracts** — every contract passes three validation layers before it can be pushed. Invalid contracts never reach the registry.
 
 ---
 
@@ -427,20 +336,11 @@ payments-api
 
 ## Why OCI?
 
-OCI registries are already the standard distribution layer for cloud-native artifacts. Your organization runs one for container images. Pacto uses the same infrastructure to distribute service contracts — no new systems to deploy or maintain.
-
-Pacto bundles are distributed as **OCI artifacts**, which means:
-
-- **Versioned and immutable** — every contract is content-addressed with a digest
-- **Works with existing registries** — GHCR, ECR, ACR, Docker Hub, Harbor — no new infrastructure
-- **Signable and scannable** — use cosign, Notary, or any OCI-compatible signing tool
-- **Pull from CI, platforms, or scripts** — standard tooling, no proprietary clients
+Pacto bundles are distributed as OCI artifacts — versioned, content-addressed, and compatible with GHCR, ECR, ACR, Docker Hub, and Harbor. Same registries, same auth, same tooling you already use for container images. Signable with cosign or Notary. No new infrastructure.
 
 ---
 
 ## How Pacto compares
-
-Pacto doesn't replace these tools — it fills the gap between them.
 
 | Concern | OpenAPI | Helm | Terraform | Backstage | Pacto |
 |---------|---------|------|-----------|-----------|-------|
@@ -454,25 +354,16 @@ Pacto doesn't replace these tools — it fills the gap between them.
 | OCI-native distribution | — | ✅ | — | — | ✅ |
 | Machine validation | ✅ | — | ✅ | — | ✅ |
 
-**Why not just OpenAPI + Helm?** OpenAPI describes your API surface. Helm describes how to deploy one particular way. Neither captures runtime behavior, dependency relationships, configuration schemas, or scaling intent — and there's no way to diff two versions across all of these dimensions. Pacto is the layer that ties them together.
+Pacto does not replace these tools. It provides the operational contract layer between them.
 
 ## What Pacto is NOT
 
-- **Not a deployment tool.** Pacto doesn't deploy anything. It describes *what* a service is — platforms decide *how* to run it.
-- **Not a runtime behavior validator.** The operator checks runtime alignment against the contract (ports, replicas, health endpoints). It does not perform deep API conformance testing or full live configuration validation.
-- **Not a service mesh or runtime agent.** No sidecars. The operator watches CRs and compares them to workloads — it doesn't intercept traffic.
-- **Not a service catalog.** The dashboard visualizes contracts and runtime state, but it's not a portal like Backstage. It can feed data into one.
-- **Not a replacement for OpenAPI or Helm.** It references your OpenAPI specs and complements deployment tools — it doesn't replace them.
+- Not a deployment tool — it describes services, not how to run them
+- Not a service mesh — no sidecars, no traffic interception
+- Not a replacement for OpenAPI or Helm — it complements them
+- Not a service catalog — the dashboard can feed data into one
 
----
-
-## Vision
-
-Pacto aims to become the standard operational contract for cloud-native services — a shared language between developers, platforms, and automation.
-
-Describe once. Validate early. Observe at runtime. Explore via dashboard.
-
-The contract is the API between developers and the platform. Pacto provides the format, the validation, the distribution, the runtime verification, and the visualization — what you build on top is up to you.
+See [MANIFEST.md](MANIFEST.md) for the full rationale.
 
 ---
 
