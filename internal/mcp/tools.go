@@ -128,6 +128,65 @@ func editTool() *mcpsdk.Tool {
 	}
 }
 
+// parseEditScalars extracts scalar (string/bool) fields into EditInput.
+func parseEditScalars(req *mcpsdk.CallToolRequest, input *EditInput) {
+	for _, f := range []struct {
+		field string
+		dst   **string
+	}{
+		{"name", &input.Name},
+		{"version", &input.Version},
+		{"owner", &input.Owner},
+		{"workload", &input.Workload},
+		{"data_loss_impact", &input.DataLossImpact},
+	} {
+		if s := parseInput(req, f.field); s != "" {
+			*f.dst = &s
+		}
+	}
+	for _, f := range []struct {
+		field string
+		dst   **bool
+	}{
+		{"stores_data", &input.StoresData},
+		{"data_survives_restart", &input.DataSurvivesRestart},
+		{"data_shared_across_instances", &input.DataSharedAcrossInstances},
+	} {
+		if parseInputHasField(req, f.field) {
+			b := parseInputBool(req, f.field)
+			*f.dst = &b
+		}
+	}
+	input.Replicas = parseInputIntPtr(req, "replicas")
+	input.MinReplicas = parseInputIntPtr(req, "min_replicas")
+	input.MaxReplicas = parseInputIntPtr(req, "max_replicas")
+}
+
+// parseEditJSONFields extracts JSON array/object fields into EditInput.
+func parseEditJSONFields(req *mcpsdk.CallToolRequest, input *EditInput) error {
+	type jsonField struct {
+		name string
+		dst  interface{}
+	}
+	fields := []jsonField{
+		{"add_interfaces", &input.AddInterfaces},
+		{"remove_interfaces", &input.RemoveInterfaces},
+		{"add_dependencies", &input.AddDependencies},
+		{"remove_dependencies", &input.RemoveDeps},
+		{"add_config_properties", &input.AddConfigProperties},
+		{"set_metadata", &input.SetMetadata},
+		{"remove_metadata", &input.RemoveMetadata},
+	}
+	for _, f := range fields {
+		if raw := parseInput(req, f.name); raw != "" {
+			if err := json.Unmarshal([]byte(raw), f.dst); err != nil {
+				return fmt.Errorf("invalid %s JSON: %w", f.name, err)
+			}
+		}
+	}
+	return nil
+}
+
 func editHandler() mcpsdk.ToolHandler {
 	return func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 		input := EditInput{
@@ -135,75 +194,11 @@ func editHandler() mcpsdk.ToolHandler {
 			DryRun: parseInputBool(req, "dry_run"),
 		}
 
-		if s := parseInput(req, "name"); s != "" {
-			input.Name = &s
-		}
-		if s := parseInput(req, "version"); s != "" {
-			input.Version = &s
-		}
-		if s := parseInput(req, "owner"); s != "" {
-			input.Owner = &s
-		}
-		if s := parseInput(req, "workload"); s != "" {
-			input.Workload = &s
-		}
-		if s := parseInput(req, "data_loss_impact"); s != "" {
-			input.DataLossImpact = &s
-		}
+		parseEditScalars(req, &input)
 
-		if parseInputHasField(req, "stores_data") {
-			b := parseInputBool(req, "stores_data")
-			input.StoresData = &b
+		if err := parseEditJSONFields(req, &input); err != nil {
+			return errorResult(err), nil
 		}
-		if parseInputHasField(req, "data_survives_restart") {
-			b := parseInputBool(req, "data_survives_restart")
-			input.DataSurvivesRestart = &b
-		}
-		if parseInputHasField(req, "data_shared_across_instances") {
-			b := parseInputBool(req, "data_shared_across_instances")
-			input.DataSharedAcrossInstances = &b
-		}
-
-		// Parse JSON array fields
-		if raw := parseInput(req, "add_interfaces"); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &input.AddInterfaces); err != nil {
-				return errorResult(fmt.Errorf("invalid add_interfaces JSON: %w", err)), nil
-			}
-		}
-		if raw := parseInput(req, "remove_interfaces"); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &input.RemoveInterfaces); err != nil {
-				return errorResult(fmt.Errorf("invalid remove_interfaces JSON: %w", err)), nil
-			}
-		}
-		if raw := parseInput(req, "add_dependencies"); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &input.AddDependencies); err != nil {
-				return errorResult(fmt.Errorf("invalid add_dependencies JSON: %w", err)), nil
-			}
-		}
-		if raw := parseInput(req, "remove_dependencies"); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &input.RemoveDeps); err != nil {
-				return errorResult(fmt.Errorf("invalid remove_dependencies JSON: %w", err)), nil
-			}
-		}
-		if raw := parseInput(req, "add_config_properties"); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &input.AddConfigProperties); err != nil {
-				return errorResult(fmt.Errorf("invalid add_config_properties JSON: %w", err)), nil
-			}
-		}
-		if raw := parseInput(req, "set_metadata"); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &input.SetMetadata); err != nil {
-				return errorResult(fmt.Errorf("invalid set_metadata JSON: %w", err)), nil
-			}
-		}
-		if raw := parseInput(req, "remove_metadata"); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &input.RemoveMetadata); err != nil {
-				return errorResult(fmt.Errorf("invalid remove_metadata JSON: %w", err)), nil
-			}
-		}
-
-		input.Replicas = parseInputIntPtr(req, "replicas")
-		input.MinReplicas = parseInputIntPtr(req, "min_replicas")
-		input.MaxReplicas = parseInputIntPtr(req, "max_replicas")
 
 		result, err := Edit(input)
 		if err != nil {

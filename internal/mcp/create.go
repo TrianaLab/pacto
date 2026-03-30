@@ -582,7 +582,7 @@ func applyEdits(m map[string]interface{}, input EditInput) []string {
 	}
 
 	// Scaling
-	if input.Replicas != nil || input.MinReplicas != nil || input.MaxReplicas != nil {
+	if hasScalingEdits(input) {
 		m["scaling"] = buildScalingMap(input.Replicas, input.MinReplicas, input.MaxReplicas)
 		changes = append(changes, "updated scaling")
 	}
@@ -599,6 +599,10 @@ func applyEdits(m map[string]interface{}, input EditInput) []string {
 	}
 
 	return changes
+}
+
+func hasScalingEdits(input EditInput) bool {
+	return input.Replicas != nil || input.MinReplicas != nil || input.MaxReplicas != nil
 }
 
 func removeInterfaces(m map[string]interface{}, names []string) []string {
@@ -716,53 +720,8 @@ func applyRuntimeEdits(m map[string]interface{}, input EditInput) []string {
 		changes = append(changes, fmt.Sprintf("set workload to %q", *input.Workload))
 	}
 
-	// If any state-related fields are set, rebuild the state section
-	if input.StoresData != nil || input.DataSurvivesRestart != nil ||
-		input.DataSharedAcrossInstances != nil || input.DataLossImpact != nil {
-
-		// Read current state values as defaults
-		storesData := false
-		dataSurvives := false
-		dataShared := false
-		dataLossImpact := ""
-
-		if state, ok := rt["state"].(map[string]interface{}); ok {
-			if t, ok := state["type"].(string); ok && t != contract.StateStateless {
-				storesData = true
-			}
-			if p, ok := state["persistence"].(map[string]interface{}); ok {
-				if d, ok := p["durability"].(string); ok && d == contract.DurabilityPersistent {
-					dataSurvives = true
-				}
-				if s, ok := p["scope"].(string); ok && s == contract.ScopeShared {
-					dataShared = true
-				}
-			}
-			if dc, ok := state["dataCriticality"].(string); ok {
-				dataLossImpact = dc
-			}
-		}
-
-		// Apply overrides
-		if input.StoresData != nil {
-			storesData = *input.StoresData
-		}
-		if input.DataSurvivesRestart != nil {
-			dataSurvives = *input.DataSurvivesRestart
-		}
-		if input.DataSharedAcrossInstances != nil {
-			dataShared = *input.DataSharedAcrossInstances
-		}
-		if input.DataLossImpact != nil {
-			dataLossImpact = *input.DataLossImpact
-		}
-
-		intent := runtimeIntent{
-			storesData:                storesData,
-			dataSurvivesRestart:       dataSurvives,
-			dataSharedAcrossInstances: dataShared,
-			dataLossImpact:            dataLossImpact,
-		}
+	if hasStateEdits(input) {
+		intent := buildStateIntent(rt, input)
 		derived := deriveRuntimeMap(intent)
 		rt["state"] = derived["state"]
 		changes = append(changes, "updated state model")
@@ -770,24 +729,80 @@ func applyRuntimeEdits(m map[string]interface{}, input EditInput) []string {
 
 	m["runtime"] = rt
 
-	// Re-wire health/metrics if interfaces exist and no health is configured
-	if _, hasHealth := rt["health"]; !hasHealth {
-		if ifaces, ok := m["interfaces"].([]interface{}); ok {
-			var ifaceInputs []InterfaceInput
-			for _, iface := range ifaces {
-				if ifaceMap, ok := iface.(map[string]interface{}); ok {
-					ii := InterfaceInput{
-						Name: ifaceMap["name"].(string),
-						Type: ifaceMap["type"].(string),
-					}
-					ifaceInputs = append(ifaceInputs, ii)
-				}
-			}
-			wireHealthMetrics(rt, ifaceInputs)
-		}
-	}
+	rewireHealthMetricsIfNeeded(rt, m)
 
 	return changes
+}
+
+func hasStateEdits(input EditInput) bool {
+	return input.StoresData != nil || input.DataSurvivesRestart != nil ||
+		input.DataSharedAcrossInstances != nil || input.DataLossImpact != nil
+}
+
+func buildStateIntent(rt map[string]interface{}, input EditInput) runtimeIntent {
+	storesData, dataSurvives, dataShared, dataLossImpact := readCurrentState(rt)
+
+	if input.StoresData != nil {
+		storesData = *input.StoresData
+	}
+	if input.DataSurvivesRestart != nil {
+		dataSurvives = *input.DataSurvivesRestart
+	}
+	if input.DataSharedAcrossInstances != nil {
+		dataShared = *input.DataSharedAcrossInstances
+	}
+	if input.DataLossImpact != nil {
+		dataLossImpact = *input.DataLossImpact
+	}
+
+	return runtimeIntent{
+		storesData:                storesData,
+		dataSurvivesRestart:       dataSurvives,
+		dataSharedAcrossInstances: dataShared,
+		dataLossImpact:            dataLossImpact,
+	}
+}
+
+func readCurrentState(rt map[string]interface{}) (storesData, dataSurvives, dataShared bool, dataLossImpact string) {
+	state, ok := rt["state"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	if t, ok := state["type"].(string); ok && t != contract.StateStateless {
+		storesData = true
+	}
+	if p, ok := state["persistence"].(map[string]interface{}); ok {
+		if d, ok := p["durability"].(string); ok && d == contract.DurabilityPersistent {
+			dataSurvives = true
+		}
+		if s, ok := p["scope"].(string); ok && s == contract.ScopeShared {
+			dataShared = true
+		}
+	}
+	if dc, ok := state["dataCriticality"].(string); ok {
+		dataLossImpact = dc
+	}
+	return
+}
+
+func rewireHealthMetricsIfNeeded(rt, m map[string]interface{}) {
+	if _, hasHealth := rt["health"]; hasHealth {
+		return
+	}
+	ifaces, ok := m["interfaces"].([]interface{})
+	if !ok {
+		return
+	}
+	var ifaceInputs []InterfaceInput
+	for _, iface := range ifaces {
+		if ifaceMap, ok := iface.(map[string]interface{}); ok {
+			ifaceInputs = append(ifaceInputs, InterfaceInput{
+				Name: ifaceMap["name"].(string),
+				Type: ifaceMap["type"].(string),
+			})
+		}
+	}
+	wireHealthMetrics(rt, ifaceInputs)
 }
 
 func ensureConfigSection(m map[string]interface{}) {
@@ -1180,51 +1195,64 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 
 func summarizeFromMap(m map[string]interface{}) ContractSummary {
 	s := ContractSummary{Sections: make(map[string]string)}
+	summarizeService(&s, m)
+	summarizeRuntime(&s, m)
+	summarizeInterfacesFromMap(&s, m)
+	summarizeDepsFromMap(&s, m)
+	summarizeSectionsFromMap(&s, m)
+	return s
+}
 
-	if svc, ok := m["service"].(map[string]interface{}); ok {
-		if name, ok := svc["name"].(string); ok {
-			s.Name = name
-		}
-		if ver, ok := svc["version"].(string); ok {
-			s.Version = ver
-		}
-		if owner, ok := svc["owner"].(string); ok {
-			s.Owner = owner
+func summarizeService(s *ContractSummary, m map[string]interface{}) {
+	svc, ok := m["service"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	s.Name, _ = svc["name"].(string)
+	s.Version, _ = svc["version"].(string)
+	s.Owner, _ = svc["owner"].(string)
+}
+
+func summarizeRuntime(s *ContractSummary, m map[string]interface{}) {
+	rt, ok := m["runtime"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	s.Workload, _ = rt["workload"].(string)
+	if state, ok := rt["state"].(map[string]interface{}); ok {
+		s.StateType, _ = state["type"].(string)
+	}
+}
+
+func summarizeInterfacesFromMap(s *ContractSummary, m map[string]interface{}) {
+	ifaces, ok := m["interfaces"].([]interface{})
+	if !ok {
+		return
+	}
+	for _, iface := range ifaces {
+		if ifaceMap, ok := iface.(map[string]interface{}); ok {
+			name, _ := ifaceMap["name"].(string)
+			typ, _ := ifaceMap["type"].(string)
+			s.Interfaces = append(s.Interfaces, fmt.Sprintf("%s (%s)", name, typ))
 		}
 	}
+}
 
-	if rt, ok := m["runtime"].(map[string]interface{}); ok {
-		if w, ok := rt["workload"].(string); ok {
-			s.Workload = w
-		}
-		if state, ok := rt["state"].(map[string]interface{}); ok {
-			if t, ok := state["type"].(string); ok {
-				s.StateType = t
+func summarizeDepsFromMap(s *ContractSummary, m map[string]interface{}) {
+	deps, ok := m["dependencies"].([]interface{})
+	if !ok {
+		return
+	}
+	for _, dep := range deps {
+		if depMap, ok := dep.(map[string]interface{}); ok {
+			if ref, ok := depMap["ref"].(string); ok {
+				s.Dependencies = append(s.Dependencies, ref)
 			}
 		}
 	}
+}
 
-	if ifaces, ok := m["interfaces"].([]interface{}); ok {
-		for _, iface := range ifaces {
-			if ifaceMap, ok := iface.(map[string]interface{}); ok {
-				name, _ := ifaceMap["name"].(string)
-				typ, _ := ifaceMap["type"].(string)
-				s.Interfaces = append(s.Interfaces, fmt.Sprintf("%s (%s)", name, typ))
-			}
-		}
-	}
-
-	if deps, ok := m["dependencies"].([]interface{}); ok {
-		for _, dep := range deps {
-			if depMap, ok := dep.(map[string]interface{}); ok {
-				if ref, ok := depMap["ref"].(string); ok {
-					s.Dependencies = append(s.Dependencies, ref)
-				}
-			}
-		}
-	}
-
-	// Assess sections from map
+func summarizeSectionsFromMap(s *ContractSummary, m map[string]interface{}) {
 	for _, key := range []string{"service", "interfaces", "runtime"} {
 		if _, ok := m[key]; ok {
 			s.Sections[key] = "present"
@@ -1237,8 +1265,6 @@ func summarizeFromMap(m map[string]interface{}) ContractSummary {
 			s.Sections[key] = "absent"
 		}
 	}
-
-	return s
 }
 
 func assessSections(c *contract.Contract) map[string]string {

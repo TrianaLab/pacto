@@ -146,6 +146,10 @@ func TestCreateTool(t *testing.T) {
 			t.Error("expected IsError for missing name")
 		}
 	})
+}
+
+func TestCreateToolErrors(t *testing.T) {
+	svc := app.NewService(nil, nil)
 
 	t.Run("invalid interfaces JSON", func(t *testing.T) {
 		result := callTool(t, svc, "pacto_create", map[string]any{
