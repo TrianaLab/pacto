@@ -241,7 +241,7 @@
   </header>
 
   <!-- Reference-only banner -->
-  {#if detail.contractStatus === 'Unknown' || detail.contractStatus === 'Reference'}
+  {#if detail.contractStatus === 'Reference'}
     <div class="ref-banner">
       <strong>Reference-only contract</strong> — no runtime target. Used as a shared definition or dependency reference.
     </div>

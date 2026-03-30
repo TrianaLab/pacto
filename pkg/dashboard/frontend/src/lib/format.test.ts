@@ -65,11 +65,11 @@ describe('sourceTooltip', () => {
     expect(sourceTooltip('k8s')).toContain('Kubernetes');
     expect(sourceTooltip('oci')).toContain('OCI');
     expect(sourceTooltip('local')).toContain('Local');
-    expect(sourceTooltip('cache')).toContain('Cache');
   });
 
   it('returns the input for unknown sources', () => {
     expect(sourceTooltip('custom')).toBe('custom');
+    expect(sourceTooltip('cache')).toBe('cache');
   });
 });
 

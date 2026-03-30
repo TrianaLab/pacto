@@ -468,15 +468,10 @@ The server exposes the following tools:
 
 | Tool | Description |
 |------|-------------|
-| `pacto_validate` | Validate a contract and return errors/warnings |
-| `pacto_inspect` | Return the full structured contract representation |
-| `pacto_resolve_dependencies` | Resolve the dependency graph, detecting cycles and conflicts |
-| `pacto_list_interfaces` | List interfaces exposed by a service |
-| `pacto_generate_docs` | Generate Markdown documentation from a contract |
-| `pacto_explain` | Return a human-readable summary of a contract |
-| `pacto_generate_contract` | Generate a new contract YAML from structured inputs |
-| `pacto_suggest_dependencies` | Suggest likely dependencies based on service characteristics |
-| `pacto_schema` | Return the Pacto JSON Schema and documentation link |
+| `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |
+| `pacto_edit` | Edit an existing contract — add/remove interfaces and dependencies, change runtime, update metadata. Supports dry run. |
+| `pacto_check` | Validate a contract and return errors, warnings, and actionable improvement suggestions. |
+| `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |
 
 All tools accept both local directory paths and `oci://` references.
 

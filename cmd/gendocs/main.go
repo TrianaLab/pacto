@@ -194,15 +194,10 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 	"mcp": "The server exposes the following tools:\n\n" +
 		"| Tool | Description |\n" +
 		"|------|-------------|\n" +
-		"| `pacto_validate` | Validate a contract and return errors/warnings |\n" +
-		"| `pacto_inspect` | Return the full structured contract representation |\n" +
-		"| `pacto_resolve_dependencies` | Resolve the dependency graph, detecting cycles and conflicts |\n" +
-		"| `pacto_list_interfaces` | List interfaces exposed by a service |\n" +
-		"| `pacto_generate_docs` | Generate Markdown documentation from a contract |\n" +
-		"| `pacto_explain` | Return a human-readable summary of a contract |\n" +
-		"| `pacto_generate_contract` | Generate a new contract YAML from structured inputs |\n" +
-		"| `pacto_suggest_dependencies` | Suggest likely dependencies based on service characteristics |\n" +
-		"| `pacto_schema` | Return the Pacto JSON Schema and documentation link |\n\n" +
+		"| `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |\n" +
+		"| `pacto_edit` | Edit an existing contract — add/remove interfaces and dependencies, change runtime, update metadata. Supports dry run. |\n" +
+		"| `pacto_check` | Validate a contract and return errors, warnings, and actionable improvement suggestions. |\n" +
+		"| `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |\n\n" +
 		"All tools accept both local directory paths and `oci://` references.\n\n" +
 		"See [MCP Integration]({{ site.baseurl }}{% link mcp-integration.md %}) for detailed setup instructions with Claude and other AI tools.",
 }
