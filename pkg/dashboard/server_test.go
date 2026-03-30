@@ -2614,6 +2614,58 @@ func TestServerVersionTracking_PinnedOlderThanLatest(t *testing.T) {
 	}
 }
 
+func TestServerVersionTracking_FreshVersionRecomputesUpdate(t *testing.T) {
+	// The cached index may have computed updateAvailable against an old version.
+	// When getService returns a fresh version (e.g. operator upgraded), the
+	// handler must recompute updateAvailable against the fresh version.
+	source := &mockSource{
+		services: []Service{
+			{Name: "svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+		},
+		details: map[string]*ServiceDetails{
+			"svc": {
+				Service:     Service{Name: "svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+				ResolvedRef: "ghcr.io/org/svc:1.0.0",
+			},
+		},
+		versions: map[string][]Version{
+			"svc": {{Version: "2.0.0"}, {Version: "1.0.0"}},
+		},
+	}
+	base := startTestServer(t, source)
+
+	// Build index (caches updateAvailable=true against version 1.0.0).
+	resp, err := http.Get(base + "/api/services")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close() //nolint:errcheck
+
+	// Simulate operator upgrading to 2.0.0: mutate the mock's detail.
+	source.details["svc"] = &ServiceDetails{
+		Service:     Service{Name: "svc", Version: "2.0.0", ContractStatus: StatusCompliant, Source: "local"},
+		ResolvedRef: "ghcr.io/org/svc:2.0.0",
+	}
+
+	// getService should recompute: version=2.0.0, latestAvailable=2.0.0 → updateAvailable=false.
+	resp, err = http.Get(base + "/api/services/svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	var detail ServiceDetails
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Version != "2.0.0" {
+		t.Errorf("expected fresh version=2.0.0, got %q", detail.Version)
+	}
+	if detail.UpdateAvailable {
+		t.Error("expected updateAvailable=false after upgrade to latest, but got true (stale cache)")
+	}
+}
+
 func findEntry(t *testing.T, entries []ServiceListEntry, name string) *ServiceListEntry {
 	t.Helper()
 	for i := range entries {

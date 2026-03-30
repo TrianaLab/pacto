@@ -74,5 +74,6 @@ export function versionPolicyLabel(policy: string | undefined): string {
 export function versionPolicyClass(policy: string | undefined): string {
   if (policy === 'pinned-digest') return 'policy-digest';
   if (policy === 'pinned-tag') return 'policy-tag';
-  return 'policy-tracking';
+  if (policy === 'tracking') return 'policy-tracking';
+  return '';
 }

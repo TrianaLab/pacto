@@ -659,9 +659,13 @@ func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getS
 	s.indexMu.Unlock()
 	if cached != nil {
 		if indexed, ok := cached.index[input.Name]; ok {
-			details.VersionPolicy = indexed.VersionPolicy
+			if details.VersionPolicy == "" {
+				details.VersionPolicy = indexed.VersionPolicy
+			}
 			details.LatestAvailable = indexed.LatestAvailable
-			details.UpdateAvailable = indexed.UpdateAvailable
+			// Recompute against fresh version — the cached value may be
+			// stale if the operator changed the version within the TTL.
+			details.UpdateAvailable = IsUpdateAvailable(details.Version, indexed.LatestAvailable)
 		}
 	}
 	// Conservative fallback: only when neither operator nor index provided a policy.
