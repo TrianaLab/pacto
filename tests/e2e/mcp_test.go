@@ -5,6 +5,8 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -53,172 +55,101 @@ func mcpResultText(t *testing.T, result *mcpsdk.CallToolResult) string {
 	return tc.Text
 }
 
-func TestMCPValidate(t *testing.T) {
-	t.Parallel()
-	postgresPath := writePostgresBundle(t)
-	svc := app.NewService(nil, nil)
-
-	result := mcpCallTool(t, svc, "pacto_validate", map[string]any{"path": postgresPath})
-	text := mcpResultText(t, result)
-	assertContains(t, text, `"Valid": true`)
-}
-
-func TestMCPInspect(t *testing.T) {
-	t.Parallel()
-	postgresPath := writePostgresBundle(t)
-	svc := app.NewService(nil, nil)
-
-	result := mcpCallTool(t, svc, "pacto_inspect", map[string]any{"ref": postgresPath})
-	text := mcpResultText(t, result)
-	assertContains(t, text, "postgres-pacto")
-	assertContains(t, text, "1.0.0")
-}
-
-func TestMCPResolveDependencies(t *testing.T) {
-	t.Parallel()
-	postgresPath := writePostgresBundle(t)
-	svc := app.NewService(nil, nil)
-
-	result := mcpCallTool(t, svc, "pacto_resolve_dependencies", map[string]any{"ref": postgresPath})
-	text := mcpResultText(t, result)
-	assertContains(t, text, "postgres-pacto")
-}
-
-func TestMCPListInterfaces(t *testing.T) {
-	t.Parallel()
-	postgresPath := writePostgresBundle(t)
-	svc := app.NewService(nil, nil)
-
-	result := mcpCallTool(t, svc, "pacto_list_interfaces", map[string]any{"ref": postgresPath})
-	text := mcpResultText(t, result)
-
-	var parsed struct {
-		Interfaces []struct {
-			Name string `json:"name"`
-			Type string `json:"type"`
-		} `json:"interfaces"`
-	}
-	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
-		t.Fatalf("expected valid JSON: %v", err)
-	}
-	if len(parsed.Interfaces) != 1 {
-		t.Fatalf("expected 1 interface, got %d", len(parsed.Interfaces))
-	}
-	if parsed.Interfaces[0].Name != "db" {
-		t.Errorf("expected interface name 'db', got %q", parsed.Interfaces[0].Name)
-	}
-}
-
-func TestMCPGenerateDocs(t *testing.T) {
-	t.Parallel()
-	postgresPath := writePostgresBundle(t)
-	svc := app.NewService(nil, nil)
-
-	result := mcpCallTool(t, svc, "pacto_generate_docs", map[string]any{"ref": postgresPath})
-	text := mcpResultText(t, result)
-	assertContains(t, text, "# postgres-pacto")
-	assertContains(t, text, "Interfaces")
-}
-
-func TestMCPExplain(t *testing.T) {
-	t.Parallel()
-	postgresPath := writePostgresBundle(t)
-	svc := app.NewService(nil, nil)
-
-	result := mcpCallTool(t, svc, "pacto_explain", map[string]any{"ref": postgresPath})
-	text := mcpResultText(t, result)
-
-	var parsed struct {
-		Summary      string `json:"summary"`
-		Interfaces   string `json:"interfaces"`
-		Dependencies string `json:"dependencies"`
-	}
-	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
-		t.Fatalf("expected valid JSON: %v", err)
-	}
-	assertContains(t, parsed.Summary, "postgres-pacto")
-	assertContains(t, parsed.Summary, "stateful")
-	assertContains(t, parsed.Interfaces, "db")
-}
-
-func TestMCPGenerateContract(t *testing.T) {
+func TestMCPCreate(t *testing.T) {
 	t.Parallel()
 	svc := app.NewService(nil, nil)
 
-	result := mcpCallTool(t, svc, "pacto_generate_contract", map[string]any{
-		"service_name":   "payments",
-		"language":       "go",
-		"exposes_http":   true,
-		"needs_database": true,
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "payments")
+
+	result := mcpCallTool(t, svc, "pacto_create", map[string]any{
+		"name":        "payments",
+		"path":        outPath,
+		"description": "REST API backed by postgres",
 	})
 	text := mcpResultText(t, result)
-	assertContains(t, text, "name: payments")
-	assertContains(t, text, "http-api")
-	assertContains(t, text, "postgres")
-	assertContains(t, text, "language: go")
+	assertContains(t, text, "payments")
+	assertContains(t, text, "pacto.yaml")
+
+	// Verify files were created
+	if _, err := os.Stat(filepath.Join(outPath, "pacto.yaml")); err != nil {
+		t.Errorf("expected pacto.yaml to exist: %v", err)
+	}
 }
 
-func TestMCPGenerateContractMissingName(t *testing.T) {
+func TestMCPCreateDryRun(t *testing.T) {
 	t.Parallel()
 	svc := app.NewService(nil, nil)
-	result := mcpCallTool(t, svc, "pacto_generate_contract", map[string]any{})
+
+	result := mcpCallTool(t, svc, "pacto_create", map[string]any{
+		"name":    "dry-run-svc",
+		"dry_run": true,
+	})
+	text := mcpResultText(t, result)
+	assertContains(t, text, "dry-run-svc")
+
+	var parsed struct {
+		FileCount int `json:"fileCount"`
+	}
+	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+		t.Fatalf("expected valid JSON: %v", err)
+	}
+	if parsed.FileCount != 0 {
+		t.Errorf("expected fileCount=0 for dry run, got %d", parsed.FileCount)
+	}
+}
+
+func TestMCPCreateMissingName(t *testing.T) {
+	t.Parallel()
+	svc := app.NewService(nil, nil)
+	result := mcpCallTool(t, svc, "pacto_create", map[string]any{})
 	if !result.IsError {
-		t.Error("expected IsError for missing service_name")
+		t.Error("expected IsError for missing name")
 	}
 }
 
-func TestMCPSuggestDependencies(t *testing.T) {
+func TestMCPCheck(t *testing.T) {
 	t.Parallel()
 	postgresPath := writePostgresBundle(t)
 	svc := app.NewService(nil, nil)
 
-	result := mcpCallTool(t, svc, "pacto_suggest_dependencies", map[string]any{"contract": postgresPath})
+	result := mcpCallTool(t, svc, "pacto_check", map[string]any{"path": postgresPath})
 	text := mcpResultText(t, result)
+	assertContains(t, text, `"valid": true`)
+	assertContains(t, text, "postgres-pacto")
+}
+
+func TestMCPEdit(t *testing.T) {
+	t.Parallel()
+	postgresPath := writePostgresBundle(t)
+	svc := app.NewService(nil, nil)
+
+	result := mcpCallTool(t, svc, "pacto_edit", map[string]any{
+		"path":    postgresPath,
+		"version": "2.0.0",
+	})
+	text := mcpResultText(t, result)
+	assertContains(t, text, "2.0.0")
 
 	var parsed struct {
-		Suggested []string `json:"suggested"`
+		Changes []string `json:"changes"`
 	}
 	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
 		t.Fatalf("expected valid JSON: %v", err)
 	}
-	if len(parsed.Suggested) == 0 {
-		t.Error("expected at least one suggestion")
+	if len(parsed.Changes) == 0 {
+		t.Error("expected at least one change")
 	}
 }
 
-func TestMCPWithOCIReferences(t *testing.T) {
+func TestMCPSchema(t *testing.T) {
 	t.Parallel()
-	reg := newTestRegistry(t)
+	svc := app.NewService(nil, nil)
 
-	postgresPath := writePostgresBundle(t)
-	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
-	if err != nil {
-		t.Fatalf("push failed: %v", err)
-	}
-
-	svc := app.NewService(reg.client, nil)
-	ref := "oci://" + reg.host + "/postgres-pacto:1.0.0"
-
-	t.Run("validate OCI", func(t *testing.T) {
-		t.Parallel()
-		result := mcpCallTool(t, svc, "pacto_validate", map[string]any{"path": ref})
-		text := mcpResultText(t, result)
-		assertContains(t, text, `"Valid": true`)
-	})
-
-	t.Run("inspect OCI", func(t *testing.T) {
-		t.Parallel()
-		result := mcpCallTool(t, svc, "pacto_inspect", map[string]any{"ref": ref})
-		text := mcpResultText(t, result)
-		assertContains(t, text, "postgres-pacto")
-	})
-
-	t.Run("explain OCI", func(t *testing.T) {
-		t.Parallel()
-		result := mcpCallTool(t, svc, "pacto_explain", map[string]any{"ref": ref})
-		text := mcpResultText(t, result)
-		assertContains(t, text, "postgres-pacto")
-	})
+	result := mcpCallTool(t, svc, "pacto_schema", map[string]any{})
+	text := mcpResultText(t, result)
+	assertContains(t, text, "pactoVersion")
+	assertContains(t, text, "operational contract format")
 }
 
 func TestMCPCommandHelp(t *testing.T) {

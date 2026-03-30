@@ -11,31 +11,27 @@ import (
 )
 
 // NewServer creates a new MCP server with all Pacto tools registered.
-func NewServer(svc *app.Service, version string) *mcpsdk.Server {
+func NewServer(_ *app.Service, version string) *mcpsdk.Server {
 	server := mcpsdk.NewServer(
 		&mcpsdk.Implementation{Name: "pacto", Version: version},
 		&mcpsdk.ServerOptions{
 			Instructions: "Pacto is an operational contract format for cloud-native services. " +
-				"Before creating or editing pacto.yaml files, call the pacto_schema tool to get " +
-				"the JSON Schema and documentation link. This ensures you use the correct syntax " +
-				"and avoid validation errors.",
+				"Use pacto_create to generate new contracts from intent-level descriptions. " +
+				"Use pacto_edit to modify existing contracts. Use pacto_check to validate " +
+				"and get actionable improvement suggestions. Call pacto_schema first if you " +
+				"need the full JSON Schema reference.",
 		},
 	)
 
-	registerTools(server, svc)
+	registerTools(server)
 	return server
 }
 
 // registerTools adds all Pacto tools to the MCP server.
-func registerTools(server *mcpsdk.Server, svc *app.Service) {
-	server.AddTool(validateTool(), validateHandler(svc))
-	server.AddTool(inspectTool(), inspectHandler(svc))
-	server.AddTool(resolveDependenciesTool(), resolveDependenciesHandler(svc))
-	server.AddTool(listInterfacesTool(), listInterfacesHandler(svc))
-	server.AddTool(generateDocsTool(), generateDocsHandler(svc))
-	server.AddTool(explainTool(), explainHandler(svc))
-	server.AddTool(generateContractTool(), generateContractHandler())
-	server.AddTool(suggestDependenciesTool(), suggestDependenciesHandler(svc))
+func registerTools(server *mcpsdk.Server) {
+	server.AddTool(createTool(), createHandler())
+	server.AddTool(editTool(), editHandler())
+	server.AddTool(checkTool(), checkHandler())
 	server.AddTool(schemaTool(), schemaHandler())
 }
 

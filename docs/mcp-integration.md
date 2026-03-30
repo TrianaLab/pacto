@@ -7,7 +7,7 @@ nav_order: 9
 # MCP Integration
 {: .no_toc }
 
-Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that exposes contract operations as tools for AI assistants. This enables AI tools like Claude, Cursor, and GitHub Copilot to validate, inspect, and generate Pacto contracts directly.
+Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that exposes contract operations as tools for AI assistants. This enables AI tools like Claude, Cursor, and GitHub Copilot to create, edit, and validate Pacto contracts directly.
 
 ---
 
@@ -21,9 +21,9 @@ Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.
 
 ## Why MCP?
 
-[MCP](https://modelcontextprotocol.io) (Model Context Protocol) is an open standard that lets AI tools call external functions through structured tool calls — similar to how a browser calls an API, but designed for LLMs. Instead of pasting CLI output into a chat window, the assistant calls `pacto_validate` or `pacto_resolve_dependencies` directly and gets structured JSON back.
+[MCP](https://modelcontextprotocol.io) (Model Context Protocol) is an open standard that lets AI tools call external functions through structured tool calls — similar to how a browser calls an API, but designed for LLMs. Instead of pasting CLI output into a chat window, the assistant calls `pacto_create` or `pacto_check` directly and gets structured JSON back.
 
-This matters because Pacto contracts are already machine-readable. MCP turns that into a two-way interaction: the assistant doesn't just *read* contracts — it can validate them, generate new ones, resolve dependencies, and explain changes, all within a single conversation.
+This matters because Pacto contracts are already machine-readable. MCP turns that into a two-way interaction: the assistant doesn't just *read* contracts — it can create new ones from intent-level descriptions, edit existing ones, and validate them, all within a single conversation.
 
 ---
 
@@ -32,12 +32,12 @@ This matters because Pacto contracts are already machine-readable. MCP turns tha
 ```mermaid
 flowchart LR
     AI["AI Assistant<br/>(Claude, Cursor, Copilot)"] -->|"MCP tool calls"| MCP["pacto mcp<br/>stdio or HTTP"]
-    MCP -->|"validate, inspect,<br/>explain, generate, ..."| Sources["Local dirs<br/>OCI registries"]
+    MCP -->|"create, edit,<br/>check, schema"| Sources["Local dirs<br/>Contract files"]
     Sources -->|"structured results"| MCP
     MCP -->|"JSON responses"| AI
 ```
 
-An AI assistant sends MCP tool calls to the `pacto mcp` server. Pacto executes the operation against local contract directories or OCI registries and returns structured JSON results. The assistant works entirely through the tool interface — no direct file access needed.
+An AI assistant sends MCP tool calls to the `pacto mcp` server. Pacto executes the operation against local contract directories and returns structured JSON results. The assistant works entirely through the tool interface — no direct file access needed.
 
 ---
 
@@ -45,17 +45,57 @@ An AI assistant sends MCP tool calls to the `pacto mcp` server. Pacto executes t
 
 | Tool | Description |
 |------|-------------|
-| `pacto_validate` | Validate a contract file and return errors/warnings |
-| `pacto_inspect` | Return the full structured representation of a contract |
-| `pacto_resolve_dependencies` | Resolve the complete dependency graph, detecting cycles and conflicts |
-| `pacto_list_interfaces` | List interfaces exposed by a service |
-| `pacto_generate_docs` | Generate Markdown documentation from a contract |
-| `pacto_explain` | Return a human-readable summary of a contract |
-| `pacto_generate_contract` | Generate a new contract YAML from structured inputs |
-| `pacto_suggest_dependencies` | Suggest likely dependencies based on service characteristics |
-| `pacto_schema` | Return the Pacto format explanation and full JSON Schema (call first before writing contracts) |
+| `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |
+| `pacto_edit` | Edit an existing contract — add/remove interfaces and dependencies, change runtime, update metadata. Supports dry run. |
+| `pacto_check` | Validate a contract and return errors, warnings, and actionable improvement suggestions. |
+| `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. Call this first if the assistant needs schema details. |
 
-All tools accept both local directory paths and `oci://` references.
+### pacto_create
+
+Creates a new Pacto contract from structured input. The tool infers contract details from a natural-language description and explicit parameters.
+
+**Key inputs:**
+- `name` (required) — service name
+- `description` — natural-language description (triggers automatic inference of interfaces, dependencies, and runtime)
+- `interfaces` — JSON array of `{name, type, port}` objects
+- `stores_data`, `data_survives_restart`, `data_shared_across_instances` — intent-level runtime flags mapped to contract primitives
+- `dry_run` — validate and return the result without writing files
+
+**Description inference:** When a description mentions terms like "REST API", "gRPC", "PostgreSQL", or "Kafka", the tool automatically infers interfaces, dependencies, and runtime configuration. Explicit inputs always override inferred values.
+
+**Runtime mapping:** Intent-level flags are deterministically mapped to contract primitives:
+
+| Intent | Contract field |
+|--------|---------------|
+| `stores_data=true` + `data_survives_restart=false` | `state.type: ephemeral`, `persistence.durability: ephemeral` |
+| `stores_data=true` + `data_survives_restart=true` | `state.type: stateful`, `persistence.durability: persistent` |
+| `data_shared_across_instances=true` | `persistence.scope: shared` |
+| `data_loss_impact=high` | `dataCriticality: high` |
+
+### pacto_edit
+
+Modifies an existing contract. Reads the current `pacto.yaml`, applies changes, validates the result, and writes back atomically.
+
+**Key inputs:**
+- `path` — directory containing `pacto.yaml` (defaults to `.`)
+- `add_interfaces` / `remove_interfaces` — add or remove interfaces
+- `add_dependencies` / `remove_dependencies` — add or remove dependencies
+- Runtime flags (`stores_data`, `data_survives_restart`, etc.)
+- `dry_run` — validate without writing
+
+### pacto_check
+
+Validates a contract and returns structured results including errors, warnings, a contract summary, and actionable suggestions for improvement.
+
+**Output includes:**
+- `valid` — whether the contract passes validation
+- `errors` / `warnings` — validation issues with path, code, and message
+- `summary` — parsed contract overview (name, version, interfaces, runtime state)
+- `suggestions` — actionable improvements with tool call references (e.g., "add a health interface" with the exact `pacto_edit` call to do it)
+
+### pacto_schema
+
+Returns the Pacto format description and the full JSON Schema for `pacto.yaml`. Useful as a first call so the assistant understands the contract structure before creating or editing.
 
 ---
 
@@ -89,7 +129,7 @@ Add Pacto as an MCP server in your project's `.mcp.json` file:
 }
 ```
 
-Claude Code uses stdio transport — no port configuration needed. Once configured, Claude can validate contracts, inspect dependencies, and generate new contracts directly from your conversation.
+Claude Code uses stdio transport — no port configuration needed. Once configured, Claude can create contracts, edit them, and validate changes directly from your conversation.
 
 ### Claude Desktop
 
@@ -114,20 +154,21 @@ The config file is located at `~/Library/Application Support/Claude/claude_deskt
 Once connected, you can interact with contracts conversationally:
 
 ```
-You:    Validate the contract in ./payments-api
-Claude: ✓ payments-api is valid. No errors or warnings.
+You:    Create a pacto contract for a stateful Go HTTP API called user-service
+        that stores data in PostgreSQL
+Claude: [creates pacto.yaml with HTTP interface, postgres dependency,
+         stateful runtime, and persistent storage]
 
-You:    Generate a pacto.yaml for a stateless Go HTTP API called user-service
-Claude: Here's a contract for user-service: [generates complete pacto.yaml]
+You:    Check the contract in ./payments-api
+Claude: payments-api is valid. Suggestions: add a health interface,
+        consider adding scaling configuration.
 
-You:    Explain the breaking changes between payments-api:1.0.0 and 2.0.0
-Claude: The state model changed from stateless to stateful, and the
-        metrics interface was removed. Both are classified as BREAKING.
+You:    Add a gRPC interface called "internal-api" on port 9090
+        to the payments-api contract
+Claude: [edits pacto.yaml, adds gRPC interface, validates result]
 
-You:    What does oci://ghcr.io/acme/api-gateway-pacto:2.0.0 depend on?
-Claude: api-gateway depends on auth-service@2.3.0 (required) and
-        cache@1.0.0 (optional). auth-service transitively depends
-        on user-store@1.0.0.
+You:    What's the Pacto schema format?
+Claude: [returns full JSON Schema and format description]
 ```
 
 ---
@@ -181,7 +222,7 @@ Alternatively, create a `.vscode/mcp.json` file in your project root:
 }
 ```
 
-Once configured, Copilot Chat in agent mode can use Pacto tools. Try asking: *"@workspace validate the contract in ./my-service"*.
+Once configured, Copilot Chat in agent mode can use Pacto tools. Try asking: *"@workspace create a pacto contract for my-service"*.
 
 {: .note }
 MCP support in GitHub Copilot requires VS Code 1.99+ and the GitHub Copilot Chat extension.
@@ -224,7 +265,3 @@ The server listens on `127.0.0.1` and serves the MCP Streamable HTTP protocol at
    ```bash
    pacto mcp -v
    ```
-
-**OCI references not resolving?**
-
-Ensure you are authenticated to the registry. See [Authentication]({{ site.baseurl }}{% link cli-reference.md %}#authentication) for the credential resolution chain.
