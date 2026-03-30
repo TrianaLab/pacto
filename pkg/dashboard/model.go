@@ -102,9 +102,9 @@ type ServiceDetails struct {
 	CurrentRevision string `json:"currentRevision,omitempty"`
 
 	// Version tracking: derived from resolvedRef and version history.
-	VersionPolicy    string `json:"versionPolicy,omitempty"`    // "tracking", "pinned-tag", "pinned-digest"
-	LatestAvailable  string `json:"latestAvailable,omitempty"`  // highest semver from version history
-	UpdateAvailable  bool   `json:"updateAvailable,omitempty"`  // true when latestAvailable > version
+	VersionPolicy   string `json:"versionPolicy,omitempty"`   // "tracking", "pinned-tag", "pinned-digest"
+	LatestAvailable string `json:"latestAvailable,omitempty"` // highest semver from version history
+	UpdateAvailable bool   `json:"updateAvailable,omitempty"` // true when latestAvailable > version
 
 	Interfaces    []InterfaceInfo    `json:"interfaces,omitempty"`
 	Configuration *ConfigurationInfo `json:"configuration,omitempty"`

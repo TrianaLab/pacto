@@ -757,6 +757,28 @@ func TestResolvedSource_ListServices_K8sOnlySource(t *testing.T) {
 	}
 }
 
+func TestResolvedSource_ListServices_K8sOwnerOverride(t *testing.T) {
+	// When k8s provides an owner, it should override the contract source's owner.
+	k8s := &stubSource{
+		services: []Service{{Name: "svc", Version: "1.0.0", Owner: "platform-team", ContractStatus: StatusCompliant, Source: "k8s"}},
+	}
+	oci := &stubSource{
+		services: []Service{{Name: "svc", Version: "1.0.0", Owner: "dev-team", Source: "oci"}},
+	}
+	resolved := BuildResolvedSource(map[string]DataSource{"k8s": k8s, "oci": oci})
+
+	services, err := resolved.ListServices(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services) != 1 {
+		t.Fatalf("expected 1 service, got %d", len(services))
+	}
+	if services[0].Owner != "platform-team" {
+		t.Errorf("expected owner 'platform-team' from k8s, got %q", services[0].Owner)
+	}
+}
+
 func TestResolvedSource_ListServices_SourceError(t *testing.T) {
 	// A failing source should be skipped, not block other sources.
 	local := &stubSource{

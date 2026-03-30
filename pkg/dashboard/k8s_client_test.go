@@ -634,3 +634,16 @@ func TestReadCurrentKubeContext_NoConfig(t *testing.T) {
 		t.Errorf("readCurrentKubeContext() = %q, want empty", got)
 	}
 }
+
+func TestReadCurrentKubeContext_MalformedConfig(t *testing.T) {
+	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
+	if err := os.WriteFile(kubeconfigPath, []byte("not: valid: yaml: ["), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBECONFIG", kubeconfigPath)
+
+	got := readCurrentKubeContext()
+	if got != "" {
+		t.Errorf("readCurrentKubeContext() = %q, want empty for malformed config", got)
+	}
+}

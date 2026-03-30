@@ -538,6 +538,14 @@ func TestK8s_k8sEndpoints_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestK8s_k8sEndpoints_InvalidType(t *testing.T) {
+	// Valid JSON that is neither array, map, nor object — triggers final fallback error.
+	var ep k8sEndpoints
+	if err := json.Unmarshal([]byte(`42`), &ep); err == nil {
+		t.Error("expected error for non-object/array JSON value")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Mock K8sClient for source tests
 // ---------------------------------------------------------------------------

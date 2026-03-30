@@ -130,7 +130,7 @@
       <select id="from-ver" bind:value={fromVer}>
         <option value="">Select version</option>
         {#each fromVersions as v}
-          <option value={v.version}>{v.version}</option>
+          <option value={v.version}>{v.version}{v.isCurrent ? ' (current)' : ''}</option>
         {/each}
       </select>
     </div>
@@ -159,7 +159,7 @@
       <select id="to-ver" bind:value={toVer}>
         <option value="">Select version</option>
         {#each toVersions as v}
-          <option value={v.version}>{v.version}</option>
+          <option value={v.version}>{v.version}{v.isCurrent ? ' (current)' : ''}</option>
         {/each}
       </select>
     </div>

@@ -17,9 +17,10 @@ import (
 )
 
 type mockSource struct {
-	services []Service
-	details  map[string]*ServiceDetails
-	versions map[string][]Version
+	services    []Service
+	details     map[string]*ServiceDetails
+	versions    map[string][]Version
+	versionsErr map[string]error
 }
 
 func (m *mockSource) ListServices(_ context.Context) ([]Service, error) {
@@ -34,6 +35,11 @@ func (m *mockSource) GetService(_ context.Context, name string) (*ServiceDetails
 }
 
 func (m *mockSource) GetVersions(_ context.Context, name string) ([]Version, error) {
+	if m.versionsErr != nil {
+		if err, ok := m.versionsErr[name]; ok {
+			return nil, err
+		}
+	}
 	if m.versions != nil {
 		if v, ok := m.versions[name]; ok {
 			return v, nil
@@ -1108,7 +1114,7 @@ func TestGetCachedIndex_ListServicesError_WithStaleCache(t *testing.T) {
 	}
 
 	// Force cache to be stale and switch to an erroring source.
-	srv.indexCache.builtAt = time.Now().Add(-10 * time.Second)
+	srv.indexCache.builtAt = time.Now().Add(-20 * time.Second)
 	srv.source = &errorSource{listErr: fmt.Errorf("list failed")}
 
 	// Should return stale cache.
@@ -2530,11 +2536,8 @@ func TestServerVersionTracking_FallbackPinnedDigest(t *testing.T) {
 	}
 }
 
-func TestServerVersionTracking_PinnedOlderThanLatest(t *testing.T) {
-	// K8s-backed service pinned to 1.2.0, OCI has 2.0.0.
-	// Dashboard must show current=1.2.0, latestAvailable=2.0.0, updateAvailable=true,
-	// and isCurrent on 1.2.0 (not 2.0.0).
-	source := &mockSource{
+func pinnedOlderSource() *mockSource {
+	return &mockSource{
 		services: []Service{
 			{Name: "payments", Version: "1.2.0", ContractStatus: StatusCompliant, Source: "oci"},
 		},
@@ -2549,9 +2552,10 @@ func TestServerVersionTracking_PinnedOlderThanLatest(t *testing.T) {
 			"payments": {{Version: "2.0.0"}, {Version: "1.2.0"}, {Version: "1.0.0"}},
 		},
 	}
-	base := startTestServer(t, source)
+}
 
-	// List: updateAvailable=true, version=1.2.0
+func TestServerVersionTracking_PinnedOlderThanLatest_List(t *testing.T) {
+	base := startTestServer(t, pinnedOlderSource())
 	resp, err := http.Get(base + "/api/services")
 	if err != nil {
 		t.Fatal(err)
@@ -2565,14 +2569,21 @@ func TestServerVersionTracking_PinnedOlderThanLatest(t *testing.T) {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 	if entries[0].Version != "1.2.0" {
-		t.Errorf("list: expected version=1.2.0, got %q", entries[0].Version)
+		t.Errorf("expected version=1.2.0, got %q", entries[0].Version)
 	}
 	if !entries[0].UpdateAvailable {
-		t.Error("list: expected updateAvailable=true")
+		t.Error("expected updateAvailable=true")
 	}
+}
 
-	// Detail: version=1.2.0, latestAvailable=2.0.0
-	resp, err = http.Get(base + "/api/services/payments")
+func TestServerVersionTracking_PinnedOlderThanLatest_Detail(t *testing.T) {
+	base := startTestServer(t, pinnedOlderSource())
+	// Warm service index cache (version tracking runs on list).
+	warmResp, _ := http.Get(base + "/api/services") //nolint:errcheck
+	if warmResp != nil {
+		warmResp.Body.Close() //nolint:errcheck
+	}
+	resp, err := http.Get(base + "/api/services/payments")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2582,20 +2593,27 @@ func TestServerVersionTracking_PinnedOlderThanLatest(t *testing.T) {
 	}
 	resp.Body.Close() //nolint:errcheck
 	if detail.Version != "1.2.0" {
-		t.Errorf("detail: expected version=1.2.0, got %q", detail.Version)
+		t.Errorf("expected version=1.2.0, got %q", detail.Version)
 	}
 	if detail.LatestAvailable != "2.0.0" {
-		t.Errorf("detail: expected latestAvailable=2.0.0, got %q", detail.LatestAvailable)
+		t.Errorf("expected latestAvailable=2.0.0, got %q", detail.LatestAvailable)
 	}
 	if !detail.UpdateAvailable {
-		t.Error("detail: expected updateAvailable=true")
+		t.Error("expected updateAvailable=true")
 	}
 	if detail.VersionPolicy != VersionPolicyPinnedTag {
-		t.Errorf("detail: expected versionPolicy=%q, got %q", VersionPolicyPinnedTag, detail.VersionPolicy)
+		t.Errorf("expected versionPolicy=%q, got %q", VersionPolicyPinnedTag, detail.VersionPolicy)
 	}
+}
 
-	// Versions: isCurrent on 1.2.0, not on 2.0.0
-	resp, err = http.Get(base + "/api/services/payments/versions")
+func TestServerVersionTracking_PinnedOlderThanLatest_Versions(t *testing.T) {
+	base := startTestServer(t, pinnedOlderSource())
+	// Warm service index cache (version tracking runs on list).
+	warmResp, _ := http.Get(base + "/api/services") //nolint:errcheck
+	if warmResp != nil {
+		warmResp.Body.Close() //nolint:errcheck
+	}
+	resp, err := http.Get(base + "/api/services/payments/versions")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2606,11 +2624,45 @@ func TestServerVersionTracking_PinnedOlderThanLatest(t *testing.T) {
 	resp.Body.Close() //nolint:errcheck
 	for _, v := range versions {
 		if v.Version == "1.2.0" && !v.IsCurrent {
-			t.Error("versions: expected 1.2.0 to be marked as current")
+			t.Error("expected 1.2.0 to be marked as current")
 		}
 		if v.Version == "2.0.0" && v.IsCurrent {
-			t.Error("versions: expected 2.0.0 NOT to be marked as current")
+			t.Error("expected 2.0.0 NOT to be marked as current")
 		}
+	}
+}
+
+func TestServerVersionTracking_VersionsError(t *testing.T) {
+	// When GetVersions fails, enrichVersionTracking should skip the service
+	// without latestAvailable or updateAvailable.
+	source := &mockSource{
+		services: []Service{
+			{Name: "broken", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "oci"},
+		},
+		details: map[string]*ServiceDetails{
+			"broken": {
+				Service: Service{Name: "broken", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "oci"},
+			},
+		},
+		versionsErr: map[string]error{
+			"broken": fmt.Errorf("versions unavailable"),
+		},
+	}
+	base := startTestServer(t, source)
+	resp, err := http.Get(base + "/api/services")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []ServiceListEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close() //nolint:errcheck
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].UpdateAvailable {
+		t.Error("expected updateAvailable=false when versions fail")
 	}
 }
 

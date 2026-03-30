@@ -9,8 +9,8 @@ import (
 // Version policy constants describe how a service tracks its contract version.
 const (
 	VersionPolicyTracking     = "tracking"      // follows latest (no explicit pin)
-	VersionPolicyPinnedTag    = "pinned-tag"     // pinned to a specific semver tag
-	VersionPolicyPinnedDigest = "pinned-digest"  // pinned to an immutable digest
+	VersionPolicyPinnedTag    = "pinned-tag"    // pinned to a specific semver tag
+	VersionPolicyPinnedDigest = "pinned-digest" // pinned to an immutable digest
 )
 
 // NormalizeResolutionPolicy converts the operator's resolutionPolicy value
