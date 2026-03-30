@@ -166,7 +166,7 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"computed by diffing consecutive bundles. Classification requires materialized bundles: if a version has not been fetched " +
 		"yet, it will have no classification until its bundle is pulled (e.g. via \"Fetch all versions\").\n\n" +
 		"### Kubernetes + OCI hybrid view\n\n" +
-		"When running alongside the Kubernetes operator (no `--repo` flags needed), the dashboard automatically discovers OCI repositories from the `imageRef` fields in Pacto CRD statuses. " +
+		"When running alongside the Kubernetes operator (no explicit OCI arguments needed), the dashboard automatically discovers OCI repositories from the `resolvedRef` fields in Pacto CRD statuses. " +
 		"This means a K8s-only dashboard deployment gets the full contract experience: version history, interface details, configuration schemas, and diffs — " +
 		"all loaded from OCI and merged with runtime state from the operator.\n\n" +
 		"### Dependency resolution\n\n" +

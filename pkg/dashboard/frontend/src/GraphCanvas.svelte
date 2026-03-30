@@ -57,5 +57,6 @@
     position: relative;
     background: var(--c-surface-inset);
     border-radius: var(--radius-sm);
+    touch-action: none; /* Allows D3 zoom/pan to handle touch */
   }
 </style>

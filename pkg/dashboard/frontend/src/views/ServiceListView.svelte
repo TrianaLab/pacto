@@ -117,7 +117,7 @@
         <ul class="source-hints">
           <li><strong>Local:</strong> run from a directory containing <code>pacto.yaml</code></li>
           <li><strong>Kubernetes:</strong> ensure a valid kubeconfig and reachable cluster</li>
-          <li><strong>OCI:</strong> specify a registry with <code>--repo</code></li>
+          <li><strong>OCI:</strong> pass an <code>oci://registry/repo</code> argument</li>
         </ul>
         {#if disabledSources.length > 0}
           <div class="source-reasons">
@@ -215,6 +215,7 @@
   .graph-cta {
     display: flex; align-items: center; gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
+    min-height: var(--touch-min);
     border: 1px solid var(--c-accent); border-radius: var(--radius-sm);
     background: var(--c-accent-bg); color: var(--c-accent);
     text-decoration: none; margin-bottom: var(--sp-5);
@@ -226,21 +227,22 @@
   }
   .graph-cta-text { flex: 1; }
   .graph-cta-title { display: block; font-weight: 600; font-size: var(--text-sm); }
-  .graph-cta-desc { display: block; font-size: var(--text-xs); opacity: 0.8; }
+  .graph-cta-desc { display: block; font-size: var(--text-xs); opacity: 0.8; margin-top: 2px; }
 
-  .alerts { display: flex; flex-direction: column; gap: var(--sp-1); margin-bottom: var(--sp-5); }
+  .alerts { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-5); }
   .alerts-title { font-size: var(--text-xs); font-weight: 600; color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--sp-1); }
   .alert-item {
     display: flex; align-items: center; gap: var(--sp-2);
-    padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-xs);
+    padding: var(--sp-3) var(--sp-3); border-radius: var(--radius-xs);
     font-size: var(--text-sm);
     text-decoration: none; color: var(--c-text);
     transition: opacity var(--transition);
+    min-height: var(--touch-min);
   }
   .alert-err { background: var(--c-err-bg); }
   .alert-warn { background: var(--c-warn-bg); }
   .alert-item:hover { text-decoration: none; opacity: 0.85; }
-  .alert-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .alert-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .alert-name { font-weight: 600; }
   .alert-reason { color: var(--c-text-2); }
 
@@ -263,16 +265,16 @@
 
   .skeleton-table { width: 100%; max-width: 600px; }
   .skeleton-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-3); }
-  .skeleton-row .skeleton-line { height: 16px; border-radius: var(--radius-xs); }
+  .skeleton-row .skeleton-line { height: 18px; border-radius: var(--radius-xs); }
 
   .source-hints {
     list-style: none; text-align: left; margin-top: var(--sp-2);
-    display: flex; flex-direction: column; gap: var(--sp-1);
+    display: flex; flex-direction: column; gap: var(--sp-2);
     font-size: var(--text-sm); color: var(--c-text-2);
   }
   .source-hints li::before { content: '→ '; color: var(--c-text-3); }
   .source-reasons {
-    display: flex; flex-direction: column; gap: var(--sp-1);
+    display: flex; flex-direction: column; gap: var(--sp-2);
     margin-top: var(--sp-3); font-size: var(--text-xs); color: var(--c-text-3);
   }
   .source-reason {
@@ -280,15 +282,22 @@
   }
   .discovering-banner {
     display: flex; align-items: center; gap: var(--sp-2);
-    padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3);
+    padding: var(--sp-3) var(--sp-3); margin-bottom: var(--sp-3);
     border-radius: var(--radius-sm);
     background: var(--c-accent-bg); border: 1px solid var(--c-accent);
     color: var(--c-accent); font-size: var(--text-sm); font-weight: 500;
   }
 
   .update-dot {
-    display: inline-block; width: 6px; height: 6px;
+    display: inline-block; width: 7px; height: 7px;
     border-radius: 50%; background: var(--c-accent);
     margin-left: 4px; vertical-align: middle;
+  }
+
+  /* ─── Mobile ─── */
+  @media (max-width: 768px) {
+    .alert-item { flex-wrap: wrap; }
+    .alert-reason { width: 100%; font-size: var(--text-xs); margin-top: 2px; }
+    .svc-owner { display: block; margin-left: 0; margin-top: 2px; }
   }
 </style>

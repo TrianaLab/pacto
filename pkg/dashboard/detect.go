@@ -277,13 +277,13 @@ func (r *DetectResult) detectOCI(store oci.BundleStore, repos []string) {
 	diag.StoreConfigured = true
 
 	if len(repos) == 0 {
-		info.Reason = "no OCI repositories specified (use --repo)"
+		info.Reason = "no OCI repositories specified (pass oci://registry/repo as argument)"
 		r.Sources = append(r.Sources, info)
 		return
 	}
 
 	// Strip oci:// prefix from repos — other commands handle this via
-	// graph.ParseDependencyRef, but the dashboard receives raw --repo values.
+	// graph.ParseDependencyRef, but the dashboard may receive prefixed values.
 	cleaned := make([]string, len(repos))
 	for i, repo := range repos {
 		cleaned[i] = strings.TrimPrefix(repo, "oci://")
@@ -346,7 +346,7 @@ func (r *DetectResult) EnrichFromK8s(ctx context.Context, store oci.BundleStore,
 		return
 	}
 
-	slog.Info("OCI enrichment: discovering repos from K8s imageRefs")
+	slog.Info("OCI enrichment: discovering repos from K8s resolvedRefs")
 	repos, err := r.discoverOCIReposFromK8s(ctx)
 	if err != nil {
 		// Mark K8s as unavailable so retry loop stops immediately.
@@ -372,7 +372,7 @@ func (r *DetectResult) EnrichFromK8s(ctx context.Context, store oci.BundleStore,
 }
 
 // discoverOCIReposFromK8s queries K8s services and extracts unique OCI
-// repository references from their imageRef fields.
+// repository references from their resolvedRef fields.
 func (r *DetectResult) discoverOCIReposFromK8s(ctx context.Context) ([]string, error) {
 	services, err := r.K8s.ListServices(ctx)
 	if err != nil {

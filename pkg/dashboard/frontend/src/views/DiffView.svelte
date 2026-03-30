@@ -205,27 +205,39 @@
     display: flex; gap: var(--sp-2); flex: 1; min-width: 200px;
   }
   .diff-field {
-    display: flex; flex-direction: column; gap: 4px; flex: 1;
+    display: flex; flex-direction: column; gap: 6px; flex: 1;
   }
   .diff-field label { font-size: var(--text-xs); color: var(--c-text-3); font-weight: 500; text-transform: uppercase; }
   .diff-field select, .diff-field input {
-    padding: 6px 8px; border: 1px solid var(--c-border); border-radius: var(--radius-sm);
+    padding: var(--sp-2) var(--sp-3);
+    min-height: var(--touch-min);
+    border: 1px solid var(--c-border); border-radius: var(--radius-sm);
     background: var(--c-bg); color: var(--c-text); font: inherit; font-size: var(--text-sm);
   }
 
   .btn-swap {
     display: flex; align-items: center; justify-content: center;
-    padding: 6px; border: 1px solid var(--c-border); border-radius: var(--radius-sm);
+    width: var(--touch-min); height: var(--touch-min);
+    border: 1px solid var(--c-border); border-radius: var(--radius-sm);
     background: var(--c-surface); cursor: pointer; color: var(--c-text-2);
     transition: all var(--transition); align-self: flex-end;
+    flex-shrink: 0;
   }
   .btn-swap:hover { border-color: var(--c-accent); color: var(--c-accent); }
 
   .diff-run { align-self: flex-end; white-space: nowrap; }
 
-  .diff-result { margin-top: var(--sp-4); }
-  .diff-summary { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+  .diff-result { margin-top: var(--sp-5); }
+  .diff-summary { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-4); flex-wrap: wrap; }
 
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); font-size: var(--text-sm); }
+
+  /* ─── Mobile ─── */
+  @media (max-width: 768px) {
+    .diff-controls { flex-direction: column; align-items: stretch; }
+    .diff-side { min-width: 0; }
+    .btn-swap { align-self: center; transform: rotate(90deg); }
+    .diff-run { align-self: stretch; justify-content: center; }
+  }
 </style>

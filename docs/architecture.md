@@ -330,7 +330,7 @@ Key API operations:
 | `/api/versions` | POST | List registry tags, optionally fetch all |
 | `/api/debug/*` | GET | Diagnostics (requires `--diagnostics` flag) |
 
-When running alongside the Kubernetes operator, `EnrichFromK8s()` automatically discovers OCI repositories from CRD `imageRef` fields, enabling full contract bundles, version history, and diffs without explicit `--repo` flags.
+When running alongside the Kubernetes operator, `EnrichFromK8s()` automatically discovers OCI repositories from CRD `resolvedRef` fields, enabling full contract bundles, version history, and diffs without explicit OCI arguments.
 
 ### Version tracking
 

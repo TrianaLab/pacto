@@ -233,9 +233,9 @@
       {/each}
       {#if detail.owner}<span class="text-2">owner: {detail.owner}</span>{/if}
       {#if detail.namespace}<span class="text-2">ns: {detail.namespace}</span>{/if}
-      {#if detail.resolvedRef || detail.imageRef}<code class="text-3">{detail.resolvedRef || detail.imageRef}</code>{/if}
+      {#if detail.resolvedRef || detail.imageRef}<code class="detail-ref text-3">{detail.resolvedRef || detail.imageRef}</code>{/if}
       {#if versions?.length > 1}
-        <a href={diffUrl(name)} class="btn btn-sm" style="margin-left:auto">Compare versions</a>
+        <a href={diffUrl(name)} class="btn btn-sm btn-compare">Compare versions</a>
       {/if}
     </div>
   </header>
@@ -413,10 +413,10 @@
   .breadcrumb a:hover { color: var(--c-text); }
   .sep { color: var(--c-text-3); }
 
-  .detail-header { margin-bottom: var(--sp-5); position: relative; z-index: 60; }
+  .detail-header { margin-bottom: var(--sp-6); position: relative; z-index: 60; }
   .detail-title-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .detail-meta {
-    display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2);
+    display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3);
     flex-wrap: wrap; font-size: var(--text-sm);
   }
 
@@ -431,20 +431,27 @@
   }
 
   .section-nav {
-    display: flex; gap: var(--sp-1); flex-wrap: wrap;
+    display: flex; gap: var(--sp-1);
     margin-bottom: var(--sp-5);
     padding: var(--sp-2) 0;
     border-bottom: 1px solid var(--c-border);
-    position: sticky; top: 48px; z-index: 50;
+    position: sticky; top: var(--navbar-h); z-index: 50;
     background: var(--c-bg);
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
   }
+  .section-nav::-webkit-scrollbar { display: none; }
   .section-nav-item {
-    padding: var(--sp-1) var(--sp-3);
+    padding: var(--sp-2) var(--sp-3);
     border: none; background: none;
     font: inherit; font-size: var(--text-xs); font-weight: 500;
     color: var(--c-text-3); cursor: pointer;
     border-radius: var(--radius-xs);
     transition: color var(--transition), background var(--transition);
+    white-space: nowrap;
+    min-height: 36px;
+    display: inline-flex; align-items: center;
   }
   .section-nav-item:hover { color: var(--c-text); background: var(--c-surface-hover); }
 
@@ -453,7 +460,7 @@
   .probes-grid { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
   .probe {
     display: flex; align-items: center; gap: var(--sp-2);
-    padding: var(--sp-2) var(--sp-3);
+    padding: var(--sp-3) var(--sp-3);
     border-radius: var(--radius-sm);
     background: var(--c-surface); border: 1px solid var(--c-border);
     font-size: var(--text-sm);
@@ -461,7 +468,7 @@
   .probe-ok { border-color: var(--c-ok-border); }
   .probe-err { border-color: var(--c-err-border); }
   .probe-label { font-weight: 500; }
-  .probe-url { font-size: 10px; color: var(--c-text-3); }
+  .probe-url { font-size: var(--text-xs); color: var(--c-text-3); }
 
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); }
@@ -484,6 +491,7 @@
   .diff-inline-header {
     display: flex; align-items: center; gap: var(--sp-2);
     margin-bottom: var(--sp-3);
+    flex-wrap: wrap;
   }
   .diff-inline-loading {
     display: flex; align-items: center; gap: var(--sp-2);
@@ -503,10 +511,28 @@
     font-size: var(--text-xs); font-weight: 500;
   }
   .btn-update {
-    font-size: var(--text-xs); padding: 2px 8px;
+    font-size: var(--text-xs); padding: 4px 10px;
   }
 
   .version-current {
     background: var(--c-surface-hover);
+  }
+
+  .detail-ref {
+    word-break: break-all;
+    font-size: var(--text-xs);
+  }
+
+  .btn-compare { margin-left: auto; }
+
+  /* ─── Mobile ─── */
+  @media (max-width: 768px) {
+    .detail-title-row { gap: var(--sp-2); }
+    .detail-title-row h1 { width: 100%; }
+    .detail-meta { gap: var(--sp-2); }
+    .probes-grid { flex-direction: column; }
+    .probe { flex-wrap: wrap; }
+    .diff-inline-header { flex-wrap: wrap; }
+    .btn-compare { margin-left: 0; width: 100%; justify-content: center; }
   }
 </style>

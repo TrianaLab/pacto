@@ -96,8 +96,8 @@
   .stats-bar { margin-bottom: var(--sp-5); }
 
   .dist-bar {
-    display: flex; height: 6px; border-radius: 3px; overflow: hidden;
-    margin-bottom: var(--sp-2); gap: 1px;
+    display: flex; height: 8px; border-radius: 4px; overflow: hidden;
+    margin-bottom: var(--sp-3); gap: 1px;
   }
   .dist-segment {
     border: none; padding: 0; cursor: pointer;
@@ -108,36 +108,46 @@
   .dist-segment.dimmed { opacity: 0.25; }
 
   .filter-row {
-    display: flex; gap: var(--sp-1); flex-wrap: wrap; align-items: center;
+    display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center;
   }
   .filter-pill {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 3px 10px; border-radius: 100px;
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 12px; border-radius: 100px;
     border: 1px solid var(--c-border); background: var(--c-surface);
     font: inherit; font-size: var(--text-xs); color: var(--c-text-2);
     cursor: pointer; transition: all var(--transition);
     white-space: nowrap;
+    min-height: 32px;
   }
   .filter-pill:hover { border-color: var(--c-text-3); color: var(--c-text); }
   .filter-pill.active { border-color: var(--c-accent); background: var(--c-accent-bg); color: var(--c-accent); }
-  .filter-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .filter-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .filter-count { font-weight: 600; }
   .filter-sep {
-    width: 1px; height: 16px; background: var(--c-border); margin: 0 var(--sp-1);
+    width: 1px; height: 18px; background: var(--c-border); margin: 0 var(--sp-1);
   }
-  .filter-pill-source { text-transform: uppercase; font-size: 10px; font-weight: 600; }
+  .filter-pill-source { text-transform: uppercase; font-size: var(--text-xs); font-weight: 600; }
   .filter-search {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 2px 8px; border-radius: 100px;
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 100px;
     border: 1px solid var(--c-border); background: var(--c-surface);
     transition: border-color var(--transition);
+    min-height: 32px;
   }
   .filter-search:focus-within { border-color: var(--c-accent); }
   .filter-search svg { color: var(--c-text-3); flex-shrink: 0; }
   .filter-search input {
     border: none; background: none; outline: none;
     font: inherit; font-size: var(--text-xs); color: var(--c-text);
-    width: 120px; padding: 1px 0;
+    width: 120px; padding: 2px 0;
   }
   .filter-search input::placeholder { color: var(--c-text-3); }
+
+  /* ─── Mobile ─── */
+  @media (max-width: 768px) {
+    .filter-row { gap: var(--sp-1); }
+    .filter-sep { display: none; }
+    .filter-search { flex: 1; min-width: 0; }
+    .filter-search input { width: 100%; }
+  }
 </style>

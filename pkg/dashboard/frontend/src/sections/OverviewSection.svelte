@@ -85,4 +85,9 @@
   .cards-row .card { flex: 1; min-width: 240px; }
   .cards-row .card h3 { margin-bottom: var(--sp-2); }
   .text-2 { color: var(--c-text-2); }
+
+  @media (max-width: 768px) {
+    .cards-row { flex-direction: column; }
+    .cards-row .card { min-width: 0; }
+  }
 </style>

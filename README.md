@@ -92,7 +92,7 @@ pacto mcp                                     # start MCP server for AI assistan
 # Dashboard
 pacto dashboard                                # auto-detects local contracts
 pacto dashboard --namespace production         # auto-detects from K8s + OCI
-pacto dashboard --repo oci://ghcr.io/acme/payments  # explicit OCI repos
+pacto dashboard oci://ghcr.io/acme/payments   # explicit OCI repos
 ```
 
 ---
@@ -353,7 +353,7 @@ This distinction matters because:
 - **Contract tracking** — watches Pacto CRs, resolves OCI references, creates a PactoRevision per version for fast in-cluster querying
 - **Workload linking** — matches contracts to running Deployments, StatefulSets, DaemonSets, and Jobs
 - **Runtime alignment** — checks replica counts, port mappings, health endpoints, container image references, and resource requests against the contract. Does not perform deep API conformance testing or full live configuration validation
-- **Dashboard integration** — the dashboard auto-discovers OCI repos from the operator's CRD `imageRef` fields, enabling full contract bundles, version history, and diffs without explicit `--repo` flags
+- **Dashboard integration** — the dashboard auto-discovers OCI repos from the operator's CRD `imageRef` fields, enabling full contract bundles, version history, and diffs without explicit OCI arguments
 
 Interested in contributing? See the [Architecture](https://trianalab.github.io/pacto/architecture/) guide for the internal design.
 

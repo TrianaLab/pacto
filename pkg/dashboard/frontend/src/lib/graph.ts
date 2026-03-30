@@ -13,8 +13,8 @@ const STATUS_COLORS: Record<string, string> = {
   external: '#475569',
 };
 
-const NODE_W = 140;
-const NODE_H = 36;
+const NODE_W = 164;
+const NODE_H = 42;
 
 export interface GraphEdge {
   targetId: string;
@@ -128,9 +128,12 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
 
   const g = svg.append('g');
 
+  // D3 zoom registers wheel/touchstart as non-passive because it calls
+  // preventDefault() to stop page scroll while zooming the graph.
+  // The container's `touch-action: none` CSS handles touch on mobile.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const zoom = d3.zoom<SVGSVGElement, unknown>()
-    .scaleExtent([0.2, 3])
+    .scaleExtent([0.2, 4])
     .on('zoom', (e) => g.attr('transform', e.transform));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (svg as any).call(zoom);
@@ -148,10 +151,10 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
   }
 
   const sim = d3.forceSimulation(nodes as d3.SimulationNodeDatum[])
-    .force('link', d3.forceLink(links as d3.SimulationLinkDatum<d3.SimulationNodeDatum>[]).id((d: any) => d.id).distance(180))
-    .force('charge', d3.forceManyBody().strength(-400))
+    .force('link', d3.forceLink(links as d3.SimulationLinkDatum<d3.SimulationNodeDatum>[]).id((d: any) => d.id).distance(200))
+    .force('charge', d3.forceManyBody().strength(-500))
     .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collision', d3.forceCollide().radius(NODE_W / 2 + 10));
+    .force('collision', d3.forceCollide().radius(NODE_W / 2 + 14));
 
   // Links
   const linkG = g.append('g').attr('class', 'links');
@@ -207,19 +210,19 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
 
   // Status dot
   nodeEls.append('circle')
-    .attr('cx', -NODE_W / 2 + 12).attr('cy', 0).attr('r', 4)
+    .attr('cx', -NODE_W / 2 + 14).attr('cy', 0).attr('r', 5)
     .attr('fill', (d) => STATUS_COLORS[d.status] || STATUS_COLORS.Unknown);
 
   // Label
   nodeEls.append('text')
-    .attr('x', -NODE_W / 2 + 22).attr('y', 1)
+    .attr('x', -NODE_W / 2 + 26).attr('y', 1)
     .attr('dominant-baseline', 'middle')
     .attr('fill', 'var(--c-text)')
-    .attr('font-size', '11px')
+    .attr('font-size', '13px')
     .attr('font-weight', '500')
     .text((d) => {
       const name = d.serviceName || d.id;
-      return name.length > 16 ? name.slice(0, 15) + '…' : name;
+      return name.length > 18 ? name.slice(0, 17) + '…' : name;
     });
 
   // Native SVG tooltip for full name (shown on hover)

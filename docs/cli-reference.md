@@ -53,10 +53,14 @@ It visualizes the same contracts the CLI manages and the operator verifies —
 dependency graphs, version history, interfaces, configuration schemas, diffs,
 and runtime compliance — in a single unified view.
 
-Public sources are auto-detected at startup:
+Each positional argument is a pacto source reference:
+  - oci://registry/repo  → OCI registry source (can be repeated)
+  - ./path/to/dir        → local filesystem source (at most one)
+
+When no arguments are given, sources are auto-detected:
   - local: enabled if pacto.yaml is found in the working directory
   - k8s:   enabled if a valid kubeconfig is found and the cluster is reachable
-  - oci:   enabled if --repo is specified, or auto-discovered from K8s imageRefs
+  - oci:   auto-discovered from K8s resolvedRefs, or via PACTO_DASHBOARD_REPO env var
 
 Materialized bundles on disk (~/.cache/pacto/oci) are used internally by the
 OCI source to enrich version data (hash, classification, timestamps) without
@@ -64,9 +68,9 @@ appearing as a separate source. The --no-cache flag skips pre-existing cache
 at startup but still allows same-session materialization (e.g. fetch-all-versions).
 
 When running alongside the Kubernetes operator, OCI repositories are automatically
-discovered from the imageRef fields of Pacto CRD resources. This provides full
+discovered from the resolvedRef fields of Pacto CRD resources. This provides full
 contract bundles, version history, interfaces, and diffs — without needing
-explicit --repo flags. The result is a hybrid view: runtime truth from the
+explicit OCI arguments. The result is a hybrid view: runtime truth from the
 operator combined with contract truth from OCI.
 
 Services are grouped by name across sources and merged using priority rules:
@@ -75,7 +79,7 @@ Services are grouped by name across sources and merged using priority rules:
   - Local for in-progress contract changes
 
 ```
-pacto dashboard [dir] [flags]
+pacto dashboard [sources...] [flags]
 ```
 
 **Examples:**
@@ -88,7 +92,10 @@ pacto dashboard [dir] [flags]
   pacto dashboard ./services
 
   # Include OCI repositories
-  pacto dashboard --repo ghcr.io/org/order-service --repo ghcr.io/org/payment-service
+  pacto dashboard oci://ghcr.io/org/order-service oci://ghcr.io/org/payment-service
+
+  # Mix local and OCI sources
+  pacto dashboard ./services oci://ghcr.io/org/payment-service
 
   # Custom port
   pacto dashboard --port 9090
@@ -105,7 +112,6 @@ pacto dashboard [dir] [flags]
       --host string        bind address for the dashboard server (default "127.0.0.1")
       --namespace string   Kubernetes namespace (empty = all namespaces)
       --port int           port for the dashboard server (default 3000)
-      --repo stringArray   OCI repository to scan (can be repeated)
 ```
 
 The dashboard is the exploration and observability layer of the Pacto system. It visualizes the same contracts the CLI manages and the operator verifies — making dependency graphs, version history, interfaces, configuration schemas, and diffs accessible in one place.
@@ -142,7 +148,7 @@ Each version (except the oldest) receives a classification — `NON_BREAKING`, `
 
 ### Kubernetes + OCI hybrid view
 
-When running alongside the Kubernetes operator (no `--repo` flags needed), the dashboard automatically discovers OCI repositories from the `imageRef` fields in Pacto CRD statuses. This means a K8s-only dashboard deployment gets the full contract experience: version history, interface details, configuration schemas, and diffs — all loaded from OCI and merged with runtime state from the operator.
+When running alongside the Kubernetes operator (no explicit OCI arguments needed), the dashboard automatically discovers OCI repositories from the `resolvedRef` fields in Pacto CRD statuses. This means a K8s-only dashboard deployment gets the full contract experience: version history, interface details, configuration schemas, and diffs — all loaded from OCI and merged with runtime state from the operator.
 
 ### Dependency resolution
 

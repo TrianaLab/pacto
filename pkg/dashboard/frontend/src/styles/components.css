@@ -15,7 +15,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 10px;
+  padding: 3px 10px;
   border-radius: 100px;
   font-size: var(--text-xs);
   font-weight: 600;
@@ -25,7 +25,7 @@
   transition: opacity var(--transition), transform var(--transition);
 }
 .badge-dot {
-  width: 6px; height: 6px;
+  width: 7px; height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -44,7 +44,7 @@
 /* ─── Pill (small inline tag) ─── */
 .pill {
   display: inline-block;
-  padding: 1px 8px;
+  padding: 2px 10px;
   border-radius: 100px;
   font-size: var(--text-xs);
   font-weight: 500;
@@ -59,7 +59,8 @@
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  min-height: var(--touch-min);
   border: 1px solid var(--c-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
@@ -77,7 +78,7 @@
   color: white;
 }
 .btn-primary:hover { opacity: 0.9; border-color: var(--c-accent); }
-.btn-sm { padding: 2px var(--sp-2); font-size: var(--text-xs); }
+.btn-sm { padding: 4px var(--sp-3); min-height: 32px; font-size: var(--text-xs); }
 .btn-ghost {
   background: none;
   border: 1px solid transparent;
@@ -109,6 +110,7 @@
 /* ─── Input / Select ─── */
 .input, select {
   padding: var(--sp-2) var(--sp-3);
+  min-height: var(--touch-min);
   border: 1px solid var(--c-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
@@ -133,7 +135,7 @@
 }
 .tabs::-webkit-scrollbar { display: none; }
 .tab {
-  padding: var(--sp-2) var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
   border: none;
   background: none;
   color: var(--c-text-3);
@@ -144,6 +146,7 @@
   white-space: nowrap;
   border-bottom: 2px solid transparent;
   transition: color var(--transition), border-color var(--transition);
+  min-height: var(--touch-min);
 }
 .tab:hover { color: var(--c-text); }
 .tab.active { color: var(--c-accent); border-bottom-color: var(--c-accent); }
@@ -151,11 +154,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px; height: 18px;
-  padding: 0 5px;
+  min-width: 20px; height: 20px;
+  padding: 0 6px;
   border-radius: 100px;
   background: var(--c-surface-hover);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   margin-left: 4px;
 }
@@ -173,7 +176,7 @@
   animation: fadeIn 0.3s ease-out;
 }
 .state-box h3 { color: var(--c-text-2); }
-.state-box p { max-width: 400px; line-height: 1.6; }
+.state-box p { max-width: 400px; line-height: var(--line-height); }
 
 /* ─── Section heading ─── */
 .section {
@@ -227,7 +230,7 @@
 
 /* ─── Source dot ─── */
 .source-dot {
-  width: 8px; height: 8px;
+  width: 9px; height: 9px;
   border-radius: 50%;
   display: inline-block;
   flex-shrink: 0;
@@ -252,7 +255,7 @@
   top: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%) translateY(-4px);
-  padding: 5px 12px;
+  padding: 6px 14px;
   background: var(--c-surface-raised);
   color: var(--c-text);
   font-size: var(--text-xs);
@@ -274,6 +277,11 @@
 [data-tip-align="right"]::after { left: auto; right: 0; transform: translateY(-4px); }
 [data-tip-align="right"]:hover::after { transform: translateY(0); }
 
+/* Hide tooltips on touch devices (they conflict with tap) */
+@media (hover: none) {
+  [data-tip]::after { display: none; }
+}
+
 /* ─── Table wrapper ─── */
 .table-wrap {
   overflow: visible;
@@ -288,3 +296,16 @@
 tr.clickable { cursor: pointer; transition: background var(--transition), box-shadow var(--transition); }
 tr.clickable:hover { background: var(--c-surface-hover); box-shadow: inset 3px 0 0 var(--c-accent); }
 tr.clickable:active { background: var(--c-surface-inset); }
+
+/* ─── Responsive: Mobile ─── */
+@media (max-width: 768px) {
+  .kv-grid {
+    grid-template-columns: 1fr;
+    gap: var(--sp-1) 0;
+  }
+  .kv-grid dt { font-size: var(--text-xs); margin-top: var(--sp-2); }
+  .kv-grid dd { margin-bottom: var(--sp-1); min-width: 0; }
+
+  /* Prevent insight cards from overflowing */
+  .insight { flex-wrap: wrap; }
+}

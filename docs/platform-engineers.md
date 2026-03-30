@@ -373,11 +373,11 @@ Sources are auto-detected at startup:
 |--------|--------------|----------|
 | **local** | `pacto.yaml` found in the working directory | In-progress contract changes |
 | **k8s** | Valid kubeconfig found and cluster reachable | Runtime state: contract status, conditions, endpoints, resources |
-| **oci** | `--repo` flags provided, or auto-discovered from K8s `imageRef` fields | Full contract bundles, registry versions, and diffs |
+| **oci** | `oci://` positional arguments provided, or auto-discovered from K8s `resolvedRef` fields | Full contract bundles, registry versions, and diffs |
 
 Materialized bundles on disk (`~/.cache/pacto/oci`) are used internally by the OCI source to enrich version data (hash, classification, timestamps) without appearing as a separate source.
 
-When running alongside the Kubernetes operator, the dashboard automatically discovers OCI repositories from the `imageRef` fields in Pacto CRD statuses. This means a K8s deployment of the dashboard provides the full contract experience — version history, interface details, configuration schemas, and diffs — without explicit `--repo` flags.
+When running alongside the Kubernetes operator, the dashboard automatically discovers OCI repositories from the `resolvedRef` fields in Pacto CRD statuses. This means a K8s deployment of the dashboard provides the full contract experience — version history, interface details, configuration schemas, and diffs — without explicit OCI arguments.
 
 Pass `--no-cache` to skip pre-existing cached bundles at startup (cold-start mode). Bundles materialized during the current session (via fetch-all-versions, dependency resolution, or OCI pulls) are still cached to disk and reused for enrichment within the same session.
 

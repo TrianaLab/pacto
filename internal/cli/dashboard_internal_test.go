@@ -268,7 +268,7 @@ func TestNewDashboardCommand_RepoEnvVar(t *testing.T) {
 	}
 }
 
-func TestNewDashboardCommand_RepoFlagOverridesEnv(t *testing.T) {
+func TestNewDashboardCommand_OCIPositionalArgsOverrideEnv(t *testing.T) {
 	emptyDir := t.TempDir()
 	t.Setenv("PACTO_DASHBOARD_REPO", "ghcr.io/org/from-env")
 	t.Setenv("HOME", emptyDir)
@@ -278,7 +278,7 @@ func TestNewDashboardCommand_RepoFlagOverridesEnv(t *testing.T) {
 	svc := app.NewService(dummyStore{}, nil)
 	v := viper.New()
 	cmd := newDashboardCommand(svc, v, "test")
-	cmd.SetArgs([]string{emptyDir, "--port", "0", "--repo", "ghcr.io/org/from-flag"})
+	cmd.SetArgs([]string{emptyDir, "oci://ghcr.io/org/from-arg", "--port", "0"})
 
 	var errBuf bytes.Buffer
 	cmd.SetErr(&errBuf)
@@ -291,7 +291,7 @@ func TestNewDashboardCommand_RepoFlagOverridesEnv(t *testing.T) {
 	_ = cmd.Execute()
 
 	stderr := errBuf.String()
-	// The flag value should be used, not the env var — both enable OCI.
+	// The positional arg should be used, not the env var — both enable OCI.
 	if !strings.Contains(stderr, "oci") {
 		t.Errorf("expected stderr to mention 'oci' source, got:\n%s", stderr)
 	}
@@ -351,6 +351,132 @@ func TestNewDashboardCommand_DefaultFlags(t *testing.T) {
 	diag, _ := cmd.Flags().GetBool("diagnostics")
 	if diag {
 		t.Error("expected diagnostics default false")
+	}
+}
+
+func TestParseDashboardArgs_Empty(t *testing.T) {
+	t.Setenv("PACTO_DASHBOARD_REPO", "")
+	dir, repos, err := parseDashboardArgs(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dir != "." {
+		t.Errorf("expected default dir \".\", got %q", dir)
+	}
+	if len(repos) != 0 {
+		t.Errorf("expected no repos, got %v", repos)
+	}
+}
+
+func TestParseDashboardArgs_LocalOnly(t *testing.T) {
+	dir, repos, err := parseDashboardArgs([]string{"./services"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dir != "./services" {
+		t.Errorf("expected dir ./services, got %q", dir)
+	}
+	if len(repos) != 0 {
+		t.Errorf("expected no repos, got %v", repos)
+	}
+}
+
+func TestParseDashboardArgs_OCIOnly(t *testing.T) {
+	t.Setenv("PACTO_DASHBOARD_REPO", "")
+	dir, repos, err := parseDashboardArgs([]string{
+		"oci://ghcr.io/org/svc-a",
+		"oci://ghcr.io/org/svc-b",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dir != "." {
+		t.Errorf("expected default dir \".\", got %q", dir)
+	}
+	if len(repos) != 2 || repos[0] != "ghcr.io/org/svc-a" || repos[1] != "ghcr.io/org/svc-b" {
+		t.Errorf("expected 2 repos, got %v", repos)
+	}
+}
+
+func TestParseDashboardArgs_Mixed(t *testing.T) {
+	dir, repos, err := parseDashboardArgs([]string{
+		"./services",
+		"oci://ghcr.io/org/svc-a",
+		"oci://ghcr.io/org/svc-b",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dir != "./services" {
+		t.Errorf("expected dir ./services, got %q", dir)
+	}
+	if len(repos) != 2 {
+		t.Errorf("expected 2 repos, got %v", repos)
+	}
+}
+
+func TestParseDashboardArgs_MultipleLocalPaths(t *testing.T) {
+	_, _, err := parseDashboardArgs([]string{"./a", "./b"})
+	if err == nil {
+		t.Error("expected error for multiple local paths")
+	}
+	if !strings.Contains(err.Error(), "only one local path") {
+		t.Errorf("expected 'only one local path' error, got: %v", err)
+	}
+}
+
+func TestParseDashboardArgs_EnvVarFallback(t *testing.T) {
+	t.Setenv("PACTO_DASHBOARD_REPO", "ghcr.io/org/svc-a,ghcr.io/org/svc-b")
+	dir, repos, err := parseDashboardArgs(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dir != "." {
+		t.Errorf("expected default dir \".\", got %q", dir)
+	}
+	if len(repos) != 2 || repos[0] != "ghcr.io/org/svc-a" || repos[1] != "ghcr.io/org/svc-b" {
+		t.Errorf("expected 2 repos from env, got %v", repos)
+	}
+}
+
+func TestParseDashboardArgs_OCIArgsOverrideEnvVar(t *testing.T) {
+	t.Setenv("PACTO_DASHBOARD_REPO", "ghcr.io/org/from-env")
+	_, repos, err := parseDashboardArgs([]string{"oci://ghcr.io/org/from-arg"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(repos) != 1 || repos[0] != "ghcr.io/org/from-arg" {
+		t.Errorf("expected OCI arg to override env, got %v", repos)
+	}
+}
+
+func TestNewDashboardCommand_InvalidArgs(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	v := viper.New()
+	cmd := newDashboardCommand(svc, v, "test")
+	cmd.SetArgs([]string{"./a", "./b"})
+
+	var errBuf bytes.Buffer
+	cmd.SetErr(&errBuf)
+	cmd.SetOut(&bytes.Buffer{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cmd.SetContext(ctx)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("expected error for multiple local paths")
+	}
+}
+
+func TestParseDashboardArgs_EmptyOCIRef(t *testing.T) {
+	_, _, err := parseDashboardArgs([]string{"oci://"})
+	if err == nil {
+		t.Error("expected error for empty OCI reference")
+	}
+	if !strings.Contains(err.Error(), "empty OCI reference") {
+		t.Errorf("expected 'empty OCI reference' error, got: %v", err)
 	}
 }
 

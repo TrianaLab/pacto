@@ -4,7 +4,7 @@
 html {
   font-family: var(--font-sans);
   font-size: var(--text-base);
-  line-height: 1.6;
+  line-height: var(--line-height);
   -webkit-font-smoothing: antialiased;
   background: var(--c-bg);
   color: var(--c-text);
@@ -23,7 +23,7 @@ code, pre {
 
 code {
   background: var(--c-surface-inset);
-  padding: 1px 5px;
+  padding: 2px 6px;
   border-radius: var(--radius-xs);
 }
 
@@ -51,26 +51,39 @@ pre {
 ::selection { background: var(--c-accent-bg); color: var(--c-accent); }
 
 /* Headings */
-h1 { font-size: var(--text-xl); font-weight: 700; letter-spacing: -0.02em; }
-h2 { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; }
+h1 { font-size: var(--text-xl); font-weight: 700; letter-spacing: -0.02em; line-height: 1.3; }
+h2 { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; line-height: 1.35; }
 h3 { font-size: var(--text-base); font-weight: 600; }
 
 /* Tables */
 table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); table-layout: auto; }
 td code { word-break: break-all; }
 thead { border-bottom: 1px solid var(--c-border); }
-th { text-align: left; padding: var(--sp-2) var(--sp-3); color: var(--c-text-3); font-weight: 500; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em; position: relative; z-index: 1; }
-td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--c-border-subtle); vertical-align: top; }
+th {
+  text-align: left; padding: var(--sp-3) var(--sp-3);
+  color: var(--c-text-3); font-weight: 500;
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+  position: relative; z-index: 1;
+}
+td {
+  padding: var(--sp-3) var(--sp-3);
+  border-bottom: 1px solid var(--c-border-subtle);
+  vertical-align: top;
+}
 tbody tr { transition: background var(--transition); }
 tbody tr:hover { background: var(--c-surface-hover); }
 
 /* Layout utility */
-.container { max-width: 1200px; margin: 0 auto; padding: var(--sp-6) var(--sp-8); }
+.container {
+  max-width: var(--container-max);
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-8);
+}
 
 /* Spinner */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner {
-  width: 20px; height: 20px;
+  width: 22px; height: 22px;
   border: 2px solid var(--c-border);
   border-top-color: var(--c-accent);
   border-radius: 50%;
@@ -108,5 +121,31 @@ tbody tr:hover { background: var(--c-surface-hover); }
   animation: shimmer 1.5s ease-in-out infinite;
   border-radius: var(--radius-xs);
 }
-.skeleton-line { height: 14px; margin-bottom: var(--sp-2); }
+.skeleton-line { height: 16px; margin-bottom: var(--sp-2); }
 .skeleton-line:last-child { width: 60%; }
+
+/* ─── Responsive: Mobile ─── */
+@media (max-width: 768px) {
+  .container {
+    padding: var(--sp-4) var(--sp-4);
+  }
+
+  h1 { font-size: 1.375rem; }
+  h2 { font-size: 1.125rem; }
+
+  /* Make tables horizontally scrollable on mobile */
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-inline: calc(-1 * var(--sp-4));
+    padding-inline: var(--sp-4);
+  }
+
+  /* Only apply min-width to tables with many columns (5+).
+     3-column tables (like the graph connections table) can fit at mobile widths. */
+  .table-wrap table { min-width: 560px; }
+
+  /* Prevent long inline code from pushing containers */
+  code { word-break: break-all; }
+  pre { max-width: 100%; }
+}

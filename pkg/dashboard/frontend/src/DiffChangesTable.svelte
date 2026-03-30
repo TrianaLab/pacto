@@ -63,14 +63,14 @@
   .diff-value {
     font-size: var(--text-xs);
     margin: 0;
-    padding: 2px 4px;
+    padding: 4px 6px;
     background: var(--c-surface);
     border-radius: var(--radius-xs);
     white-space: pre-wrap;
     word-break: break-word;
   }
   .diff-value-collapsed {
-    max-height: 2.8em;
+    max-height: 3.2em;
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
@@ -79,10 +79,11 @@
   }
   .diff-table-compact { font-size: var(--text-xs); }
   .expand-toggle {
-    background: none; border: none; padding: 0;
-    font: inherit; font-size: 10px; font-weight: 500;
+    background: none; border: none; padding: 2px 0;
+    font: inherit; font-size: var(--text-xs); font-weight: 500;
     color: var(--c-accent); cursor: pointer;
     margin-top: 2px; display: block;
+    min-height: 28px;
   }
   .expand-toggle:hover { color: var(--c-accent-hover); text-decoration: underline; }
   .text-2 { color: var(--c-text-2); }

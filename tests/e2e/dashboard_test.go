@@ -83,7 +83,7 @@ func TestDashboardWithOCI(t *testing.T) {
 		t.Fatalf("failed to push bundle: %v", err)
 	}
 
-	output, err := runCommandWithCancelledCtx(t, reg, "dashboard", "--repo", reg.host+"/postgres-pacto")
+	output, err := runCommandWithCancelledCtx(t, reg, "dashboard", "oci://"+reg.host+"/postgres-pacto")
 	// The cancelled context causes the server to return immediately, but
 	// source detection output should already be written to stderr.
 	_ = err

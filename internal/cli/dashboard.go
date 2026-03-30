@@ -19,7 +19,7 @@ import (
 
 func newDashboardCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "dashboard [dir]",
+		Use:   "dashboard [sources...]",
 		Short: "Start a local web dashboard for exploring service contracts",
 		Long: `Launches a contract exploration dashboard that aggregates data from all
 available sources (local filesystem, Kubernetes, OCI registries).
@@ -29,10 +29,14 @@ It visualizes the same contracts the CLI manages and the operator verifies —
 dependency graphs, version history, interfaces, configuration schemas, diffs,
 and runtime compliance — in a single unified view.
 
-Public sources are auto-detected at startup:
+Each positional argument is a pacto source reference:
+  - oci://registry/repo  → OCI registry source (can be repeated)
+  - ./path/to/dir        → local filesystem source (at most one)
+
+When no arguments are given, sources are auto-detected:
   - local: enabled if pacto.yaml is found in the working directory
   - k8s:   enabled if a valid kubeconfig is found and the cluster is reachable
-  - oci:   enabled if --repo is specified, or auto-discovered from K8s imageRefs
+  - oci:   auto-discovered from K8s resolvedRefs, or via PACTO_DASHBOARD_REPO env var
 
 Materialized bundles on disk (~/.cache/pacto/oci) are used internally by the
 OCI source to enrich version data (hash, classification, timestamps) without
@@ -40,9 +44,9 @@ appearing as a separate source. The --no-cache flag skips pre-existing cache
 at startup but still allows same-session materialization (e.g. fetch-all-versions).
 
 When running alongside the Kubernetes operator, OCI repositories are automatically
-discovered from the imageRef fields of Pacto CRD resources. This provides full
+discovered from the resolvedRef fields of Pacto CRD resources. This provides full
 contract bundles, version history, interfaces, and diffs — without needing
-explicit --repo flags. The result is a hybrid view: runtime truth from the
+explicit OCI arguments. The result is a hybrid view: runtime truth from the
 operator combined with contract truth from OCI.
 
 Services are grouped by name across sources and merged using priority rules:
@@ -56,25 +60,27 @@ Services are grouped by name across sources and merged using priority rules:
   pacto dashboard ./services
 
   # Include OCI repositories
-  pacto dashboard --repo ghcr.io/org/order-service --repo ghcr.io/org/payment-service
+  pacto dashboard oci://ghcr.io/org/order-service oci://ghcr.io/org/payment-service
+
+  # Mix local and OCI sources
+  pacto dashboard ./services oci://ghcr.io/org/payment-service
 
   # Custom port
   pacto dashboard --port 9090
 
   # Specify Kubernetes namespace (default: all namespaces)
   pacto dashboard --namespace production`,
-		Args: cobra.MaximumNArgs(1),
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			host := v.GetString("dashboard.host")
 			port := v.GetInt("dashboard.port")
 			namespace := v.GetString("dashboard.namespace")
-			repos := dashboardRepos(cmd)
 			noCache := v.GetBool("no-cache")
 			diagnostics := v.GetBool("dashboard.diagnostics")
-			dir := optionalArg(args)
 
-			if dir == "" {
-				dir = "."
+			dir, repos, err := parseDashboardArgs(args)
+			if err != nil {
+				return err
 			}
 
 			cacheDir := v.GetString("cache-dir")
@@ -207,7 +213,6 @@ Services are grouped by name across sources and merged using priority rules:
 	cmd.Flags().String("host", "127.0.0.1", "bind address for the dashboard server")
 	cmd.Flags().Int("port", 3000, "port for the dashboard server")
 	cmd.Flags().String("namespace", "", "Kubernetes namespace (empty = all namespaces)")
-	cmd.Flags().StringArray("repo", nil, "OCI repository to scan (can be repeated)")
 	cmd.Flags().Bool("diagnostics", false, "enable source diagnostics panel in the dashboard UI")
 
 	// Bind to viper so flags can be overridden via PACTO_DASHBOARD_* env vars.
@@ -219,15 +224,34 @@ Services are grouped by name across sources and merged using priority rules:
 	return cmd
 }
 
-// dashboardRepos returns OCI repos from --repo flags, falling back to PACTO_DASHBOARD_REPO env var.
-func dashboardRepos(cmd *cobra.Command) []string {
-	repos, _ := cmd.Flags().GetStringArray("repo")
-	if len(repos) == 0 {
-		if envRepos := os.Getenv("PACTO_DASHBOARD_REPO"); envRepos != "" {
-			return strings.Split(envRepos, ",")
+// parseDashboardArgs splits positional arguments into a local directory and
+// OCI repository references. Arguments prefixed with "oci://" are treated as
+// OCI refs (prefix stripped); all others are local paths. At most one local
+// path is allowed. When no OCI args are given, falls back to the
+// PACTO_DASHBOARD_REPO env var. When no local path is given, defaults to ".".
+func parseDashboardArgs(args []string) (dir string, repos []string, err error) {
+	for _, arg := range args {
+		if ref, ok := strings.CutPrefix(arg, "oci://"); ok {
+			if ref == "" {
+				return "", nil, fmt.Errorf("empty OCI reference: %q", arg)
+			}
+			repos = append(repos, ref)
+		} else {
+			if dir != "" {
+				return "", nil, fmt.Errorf("only one local path is allowed, got both %q and %q", dir, arg)
+			}
+			dir = arg
 		}
 	}
-	return repos
+	if len(repos) == 0 {
+		if envRepos := os.Getenv("PACTO_DASHBOARD_REPO"); envRepos != "" {
+			repos = strings.Split(envRepos, ",")
+		}
+	}
+	if dir == "" {
+		dir = "."
+	}
+	return dir, repos, nil
 }
 
 // displayHost returns a user-friendly address for display (maps 0.0.0.0 to 127.0.0.1).

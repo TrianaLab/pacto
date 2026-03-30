@@ -37,23 +37,24 @@
   --c-accent-bg: rgba(129, 140, 248, 0.08);
   --c-accent-hover: #a5b4fc;
 
-  /* Typography */
+  /* Typography — scaled up for readability at 100% zoom */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-  --text-xs: 0.6875rem;
-  --text-sm: 0.8125rem;
-  --text-base: 0.875rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.5rem;
+  --text-xs: 0.75rem;    /* 12px (was 11px) */
+  --text-sm: 0.875rem;   /* 14px (was 13px) */
+  --text-base: 0.9375rem; /* 15px (was 14px) */
+  --text-lg: 1.25rem;    /* 20px (was 18px) */
+  --text-xl: 1.625rem;   /* 26px (was 24px) */
+  --line-height: 1.65;
 
-  /* Spacing */
+  /* Spacing — slightly larger scale */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
   --sp-4: 16px;
-  --sp-5: 20px;
-  --sp-6: 24px;
-  --sp-8: 32px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-8: 40px;
 
   /* Radii */
   --radius: 10px;
@@ -66,6 +67,11 @@
 
   /* Transitions */
   --transition: 150ms ease;
+
+  /* Layout */
+  --navbar-h: 56px;
+  --container-max: 1200px;
+  --touch-min: 40px;
 }
 
 /* ─── Light theme ─── */
@@ -100,4 +106,15 @@
   --c-accent-hover: #4f46e5;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* ─── Responsive token overrides ─── */
+@media (max-width: 768px) {
+  :root, [data-theme="light"] {
+    --sp-5: 20px;
+    --sp-6: 24px;
+    --sp-8: 32px;
+    --navbar-h: 52px;
+    --container-max: 100%;
+  }
 }

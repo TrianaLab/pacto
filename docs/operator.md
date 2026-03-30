@@ -115,7 +115,7 @@ When `pacto dashboard` detects a Kubernetes cluster with the Pacto CRD installed
 - Observed runtime state (workload kind, strategy, images, storage)
 - Contract-vs-runtime comparison rows
 
-The dashboard also **automatically discovers OCI repositories** from the `imageRef` fields in Pacto CRD statuses. This means when the dashboard runs in Kubernetes (e.g., as a Deployment alongside the operator), it can load full contract bundles from OCI — providing version history, interface details, configuration schemas, and diffs — without needing explicit `--repo` flags.
+The dashboard also **automatically discovers OCI repositories** from the `resolvedRef` fields in Pacto CRD statuses. This means when the dashboard runs in Kubernetes (e.g., as a Deployment alongside the operator), it can load full contract bundles from OCI — providing version history, interface details, configuration schemas, and diffs — without needing explicit OCI arguments.
 
 The result is a hybrid view: **runtime truth from the operator + contract truth from OCI**, merged in one place.
 

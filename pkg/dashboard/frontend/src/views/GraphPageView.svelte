@@ -65,7 +65,7 @@
     <GraphCanvas
       bind:this={graphRef}
       {graphData}
-      height={500}
+      height={Math.min(window.innerHeight - 200, 600)}
       onNavigate={(name) => location.hash = serviceUrl(name).slice(0)}
     />
     <div class="graph-legend">
@@ -96,7 +96,7 @@
   {#if filteredNodes.length > 0}
     <div class="section" style="margin-top:var(--sp-6)">
       <div class="section-title">Service Connections <span class="tab-count">{filteredNodes.length}</span></div>
-      <div class="table-wrap">
+      <div class="table-wrap table-wrap-fit">
         <table>
           <thead><tr><th data-tip="Service name">Service</th><th data-tip="Contract compliance status">Status</th><th data-tip="Services this one depends on">Dependencies</th></tr></thead>
           <tbody>
@@ -138,21 +138,30 @@
   .graph-page-canvas { position: relative; }
   .graph-controls {
     position: absolute; top: 12px; right: 12px; z-index: 10;
-    display: flex; gap: 4px;
+    display: flex; gap: 6px;
   }
 
   .graph-legend {
-    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-    padding: var(--sp-2) var(--sp-3);
+    display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+    padding: var(--sp-3) var(--sp-3);
     font-size: var(--text-xs); color: var(--c-text-3);
   }
-  .legend-item { display: flex; align-items: center; gap: 4px; }
-  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 9px; height: 9px; border-radius: 50%; }
   .legend-sep { color: var(--c-border); }
-  .legend-line { display: inline-block; width: 16px; height: 0; }
+  .legend-line { display: inline-block; width: 18px; height: 0; }
   .legend-line.solid { border-top: 2px solid var(--c-text-2); }
   .legend-line.dashed { border-top: 1px dashed var(--c-text-3); }
   .legend-line.ref { border-top: 1.5px dashed var(--c-accent); }
 
   .text-dim { color: var(--c-text-3); }
+
+  /* Override the global min-width for tables that fit on mobile */
+  .table-wrap-fit table { min-width: 0; }
+
+  /* ─── Mobile ─── */
+  @media (max-width: 768px) {
+    .graph-legend { gap: var(--sp-2); font-size: var(--text-xs); }
+    .legend-sep { display: none; }
+  }
 </style>
