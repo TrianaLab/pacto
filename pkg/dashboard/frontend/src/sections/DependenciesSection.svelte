@@ -1,7 +1,7 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import GraphCanvas from '../GraphCanvas.svelte';
-  import { statusClass } from '../lib/format.ts';
+  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass } from '../lib/format.ts';
   import { navigate, serviceUrl } from '../lib/router.ts';
 
   let {
@@ -14,6 +14,13 @@
 
   function svcExists(svcName) {
     return services.some((s) => s.name === svcName);
+  }
+
+  /** Look up the resolution reason for a dependency from graph nodes. */
+  function depReason(depName) {
+    if (!graphData?.nodes) return undefined;
+    const node = graphData.nodes.find((n) => n.id === depName || n.serviceName === depName);
+    return node?.status === 'external' ? node.reason : undefined;
   }
 </script>
 
@@ -33,12 +40,13 @@
             <thead><tr><th data-tip="Dependency service name">Service</th><th data-tip="OCI or version reference">Ref</th><th data-tip="Is this dependency required?">Required</th><th data-tip="Version compatibility constraint">Compatibility</th></tr></thead>
             <tbody>
               {#each dependencies as dep}
+                {@const reason = svcExists(dep.name) ? undefined : depReason(dep.name)}
                 <tr>
                   <td>
                     {#if svcExists(dep.name)}
                       <a href={serviceUrl(dep.name)}>{dep.name}</a>
                     {:else}
-                      {dep.name} <span class="badge badge-neutral">external</span>
+                      {dep.name} <span class="badge {reasonBadgeClass(reason)}" data-tip={reasonTooltip(reason)}>{reasonLabel(reason)}</span>
                     {/if}
                   </td>
                   <td><code class="text-3">{dep.ref}</code></td>

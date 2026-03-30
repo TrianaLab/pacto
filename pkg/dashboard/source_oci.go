@@ -25,11 +25,12 @@ type OCISource struct {
 	store oci.BundleStore
 	repos []string // OCI repository references to scan
 
-	mu       sync.RWMutex
-	repoMap  map[string]string // service name -> repo
-	services []Service         // discovered so far
-	started  bool              // background discovery launched
-	done     chan struct{}     // closed when background discovery completes
+	mu          sync.RWMutex
+	repoMap     map[string]string // service name -> repo
+	failedRepos map[string]string // repo -> failure reason (auth_failed, no_semver_tags, not_found, pull_failed)
+	services    []Service         // discovered so far
+	started     bool              // background discovery launched
+	done        chan struct{}     // closed when background discovery completes
 
 	onDiscover func() // called when a new service is discovered (cache invalidation)
 
@@ -43,7 +44,7 @@ type OCISource struct {
 // NewOCISource creates a data source backed by OCI registries.
 // repos is a list of OCI repository references (e.g., "ghcr.io/org/service").
 func NewOCISource(store oci.BundleStore, repos []string) *OCISource {
-	return &OCISource{store: store, repos: repos, repoMap: make(map[string]string), done: make(chan struct{})}
+	return &OCISource{store: store, repos: repos, repoMap: make(map[string]string), failedRepos: make(map[string]string), done: make(chan struct{})}
 }
 
 // SetOnDiscover sets a callback invoked each time a new service is discovered
@@ -175,6 +176,7 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 
 		name := s.discoverRepo(ctx, repo)
 		if name == "" {
+			slog.Info("OCI dependency not resolved (will appear as external)", "repo", repo)
 			continue
 		}
 		// Collect deps from the newly discovered service.
@@ -214,20 +216,24 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 
 // discoverRepo pulls the latest bundle from a repo and registers it.
 // Returns the service name if successful, empty string otherwise.
+// On failure, records the reason in failedRepos for graph diagnostics.
 func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 	tags, err := s.store.ListTags(ctx, repo)
 	if err != nil {
 		logOCIError("OCI ListTags failed", "repo", repo, err)
+		s.recordFailure(repo, classifyOCIError(err))
 		return ""
 	}
 	if len(tags) == 0 {
 		slog.Warn("OCI repo has no tags", "repo", repo)
+		s.recordFailure(repo, "no_semver_tags")
 		return ""
 	}
 
 	latest := latestTag(tags)
 	if latest == "" {
 		slog.Warn("OCI repo has no semver tags", "repo", repo)
+		s.recordFailure(repo, "no_semver_tags")
 		return ""
 	}
 	ref := repo + ":" + latest
@@ -235,6 +241,7 @@ func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 	bundle, err := s.store.Pull(ctx, ref)
 	if err != nil {
 		logOCIError("OCI Pull failed", "ref", ref, err)
+		s.recordFailure(repo, classifyOCIError(err))
 		return ""
 	}
 
@@ -435,6 +442,57 @@ func extractOCIRepo(ref string) string {
 	return strings.TrimPrefix(ref, "oci://")
 }
 
+// recordFailure stores why a repo could not be discovered.
+func (s *OCISource) recordFailure(repo, reason string) {
+	s.mu.Lock()
+	s.failedRepos[repo] = reason
+	s.mu.Unlock()
+}
+
+// classifyOCIError maps an OCI error to a resolution failure reason.
+func classifyOCIError(err error) string {
+	var authErr *oci.AuthenticationError
+	if errors.As(err, &authErr) {
+		return "auth_failed"
+	}
+	var notFound *oci.ArtifactNotFoundError
+	if errors.As(err, &notFound) {
+		return "not_found"
+	}
+	return "not_found"
+}
+
+// UnresolvedReason returns why a dependency ref could not be resolved during
+// OCI background discovery. Returns "" if the ref is not an OCI ref, was
+// successfully resolved, or discovery is still in progress for this repo.
+func (s *OCISource) UnresolvedReason(depRef string) string {
+	repo := extractOCIRepo(depRef)
+	if repo == "" {
+		return ""
+	}
+	if oci.HasExplicitTag(repo) {
+		repo = stripTag(repo)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// If still discovering and repo isn't failed yet, report as discovering.
+	if reason, ok := s.failedRepos[repo]; ok {
+		return reason
+	}
+
+	select {
+	case <-s.done:
+		return "" // discovery complete, no recorded failure — unknown
+	default:
+		if s.started {
+			return "discovering"
+		}
+		return ""
+	}
+}
+
 // logOCIError logs an OCI operation error at the appropriate level.
 // Auth errors are logged at ERROR (actionable), others at WARN.
 func logOCIError(msg, key, val string, err error) {
@@ -446,11 +504,18 @@ func logOCIError(msg, key, val string, err error) {
 	}
 }
 
-// stripTag removes the tag portion from an OCI ref (e.g. "repo:tag" -> "repo").
+// stripTag removes the tag and/or digest from an OCI ref, returning the bare
+// repository. Handles all common formats:
+//
+//	"repo:tag"                → "repo"
+//	"repo@sha256:abc"         → "repo"
+//	"repo:tag@sha256:abc"     → "repo"
 func stripTag(ref string) string {
+	// Strip digest first (@sha256:...).
 	if idx := strings.LastIndex(ref, "@"); idx > 0 {
-		return ref[:idx]
+		ref = ref[:idx]
 	}
+	// Strip tag (":version" after the last slash).
 	lastSlash := strings.LastIndex(ref, "/")
 	lastColon := strings.LastIndex(ref, ":")
 	if lastColon > lastSlash {

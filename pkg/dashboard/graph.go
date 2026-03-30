@@ -36,6 +36,7 @@ type GraphNodeData struct {
 	Status      string          `json:"status"`
 	Version     string          `json:"version,omitempty"`
 	Source      string          `json:"source,omitempty"`
+	Reason      string          `json:"reason,omitempty"` // why unresolved: non_oci_ref, auth_failed, no_semver_tags, not_found, pull_failed, discovering
 	Edges       []GraphEdgeData `json:"edges,omitempty"`
 }
 
@@ -103,8 +104,14 @@ func resolveServiceName(name string, index map[string]*ServiceDetails, aliases m
 	return name
 }
 
+// unresolvedReasonFunc returns a human-readable reason why a dependency ref
+// could not be resolved. Returns "" if no specific reason is available.
+type unresolvedReasonFunc func(depRef string) string
+
 // buildGlobalGraph constructs the flat graph representation used by the D3 visualization.
-func buildGlobalGraph(services []Service, index map[string]*ServiceDetails) *GlobalGraph {
+// reasonFn is optional (may be nil); when provided, it populates GraphNodeData.Reason
+// for unresolved nodes so the UI can distinguish auth failures from missing repos, etc.
+func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reasonFn unresolvedReasonFunc) *GlobalGraph {
 	graph := &GlobalGraph{}
 	aliases := buildRefAliases(index)
 
@@ -142,6 +149,7 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails) *Glo
 						ID:          depName,
 						ServiceName: depName,
 						Status:      "external",
+						Reason:      unresolvedReason(dep.Ref, reasonFn),
 					})
 				}
 			}
@@ -168,6 +176,7 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails) *Glo
 						ID:          refName,
 						ServiceName: refName,
 						Status:      "external",
+						Reason:      unresolvedReason(ref, reasonFn),
 					})
 				}
 			}
@@ -186,18 +195,31 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails) *Glo
 	return graph
 }
 
+// unresolvedReason classifies why a dependency ref could not be resolved.
+func unresolvedReason(depRef string, reasonFn unresolvedReasonFunc) string {
+	if !strings.HasPrefix(depRef, "oci://") {
+		return "non_oci_ref"
+	}
+	if reasonFn != nil {
+		if r := reasonFn(depRef); r != "" {
+			return r
+		}
+	}
+	return ""
+}
+
 // buildGraph constructs a DependencyGraph rooted at the given service.
-func buildGraph(root *ServiceDetails, index map[string]*ServiceDetails) *DependencyGraph {
+func buildGraph(root *ServiceDetails, index map[string]*ServiceDetails, reasonFn unresolvedReasonFunc) *DependencyGraph {
 	visited := make(map[string]bool)
 	aliases := buildRefAliases(index)
-	node := buildGraphNode(root, index, aliases, visited)
+	node := buildGraphNode(root, index, aliases, visited, reasonFn)
 
 	return &DependencyGraph{
 		Root: node,
 	}
 }
 
-func buildGraphNode(svc *ServiceDetails, index map[string]*ServiceDetails, aliases map[string]string, visited map[string]bool) *GraphNode {
+func buildGraphNode(svc *ServiceDetails, index map[string]*ServiceDetails, aliases map[string]string, visited map[string]bool, reasonFn unresolvedReasonFunc) *GraphNode {
 	if svc == nil {
 		return nil
 	}
@@ -221,9 +243,14 @@ func buildGraphNode(svc *ServiceDetails, index map[string]*ServiceDetails, alias
 
 		depName := resolveServiceName(extractServiceNameFromRef(dep.Ref), index, aliases)
 		if resolved, ok := index[depName]; ok {
-			edge.Node = buildGraphNode(resolved, index, aliases, visited)
+			edge.Node = buildGraphNode(resolved, index, aliases, visited, reasonFn)
 		} else {
-			edge.Error = "not resolved"
+			reason := unresolvedReason(dep.Ref, reasonFn)
+			if reason != "" {
+				edge.Error = reason
+			} else {
+				edge.Error = "not resolved"
+			}
 		}
 
 		node.Dependencies = append(node.Dependencies, edge)

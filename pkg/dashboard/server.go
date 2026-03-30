@@ -120,6 +120,15 @@ func (s *Server) SetOCISource(src *OCISource) {
 	s.ociSource = src
 }
 
+// unresolvedReasonFn returns a reason-lookup function for the graph builder.
+// Returns nil when no OCI source is configured (graph uses no reason info).
+func (s *Server) unresolvedReasonFn() unresolvedReasonFunc {
+	if s.ociSource == nil {
+		return nil
+	}
+	return s.ociSource.UnresolvedReason
+}
+
 // SetLazyEnrich registers a callback that attempts OCI enrichment from K8s.
 // The callback is invoked on-demand (from API handlers) if OCI was not
 // available at startup. It returns true if enrichment succeeded.
@@ -725,7 +734,7 @@ func (s *Server) getServiceGraph(ctx context.Context, input *ServiceNameInput) (
 	if !ok {
 		return nil, huma.Error404NotFound("service not found: " + input.Name)
 	}
-	graph := buildGraph(root, cached.index)
+	graph := buildGraph(root, cached.index, s.unresolvedReasonFn())
 	return &getServiceGraphOutput{Body: graph}, nil
 }
 
@@ -989,7 +998,7 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 		services:    services,
 		index:       index,
 		aliases:     aliases,
-		globalGraph: buildGlobalGraph(services, index),
+		globalGraph: buildGlobalGraph(services, index, s.unresolvedReasonFn()),
 		builtAt:     time.Now(),
 	}
 

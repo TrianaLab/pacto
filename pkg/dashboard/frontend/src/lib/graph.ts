@@ -3,6 +3,7 @@
  * Returns { destroy, zoomIn, zoomOut, resetView, applyFilter }.
  */
 import * as d3 from 'd3';
+import { reasonLabel, reasonTooltip } from './format.ts';
 
 const STATUS_COLORS: Record<string, string> = {
   Compliant: '#34d399',
@@ -11,6 +12,15 @@ const STATUS_COLORS: Record<string, string> = {
   Unknown: '#64748b',
   Reference: '#64748b',
   external: '#475569',
+};
+
+/** Reason-specific stroke colors for external nodes. */
+const REASON_COLORS: Record<string, string> = {
+  non_oci_ref: '#475569',   // neutral gray — expected
+  auth_failed: '#f87171',   // red — needs action
+  no_semver_tags: '#fbbf24', // yellow — warning
+  not_found: '#fbbf24',     // yellow — warning
+  discovering: '#818cf8',   // accent — transient
 };
 
 const NODE_W = 164;
@@ -26,6 +36,7 @@ export interface GraphNode {
   id: string;
   serviceName: string;
   status: string;
+  reason?: string;    // why unresolved: non_oci_ref, auth_failed, no_semver_tags, not_found, discovering
   edges?: GraphEdge[];
   // D3 simulation adds these at runtime
   x?: number;
@@ -198,20 +209,66 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
       })
     );
 
+  /** Returns the stroke/dot color for a node, accounting for reason on external nodes. */
+  function nodeColor(d: GraphNode): string {
+    if (d.status === 'external' && d.reason && REASON_COLORS[d.reason]) {
+      return REASON_COLORS[d.reason];
+    }
+    return STATUS_COLORS[d.status] || STATUS_COLORS.Unknown;
+  }
+
   // Node rect
   nodeEls.append('rect')
     .attr('width', NODE_W).attr('height', NODE_H)
     .attr('x', -NODE_W / 2).attr('y', -NODE_H / 2)
     .attr('rx', 6)
     .attr('fill', 'var(--c-surface)')
-    .attr('stroke', (d) => STATUS_COLORS[d.status] || STATUS_COLORS.Unknown)
+    .attr('stroke', (d) => nodeColor(d))
     .attr('stroke-width', (d) => d.serviceName === focusId ? 3 : 1.5)
+    .attr('stroke-dasharray', (d) => d.reason === 'discovering' ? '4,3' : null)
     .attr('filter', (d) => d.serviceName === focusId ? 'url(#focus-glow)' : null);
 
-  // Status dot
-  nodeEls.append('circle')
-    .attr('cx', -NODE_W / 2 + 14).attr('cy', 0).attr('r', 5)
-    .attr('fill', (d) => STATUS_COLORS[d.status] || STATUS_COLORS.Unknown);
+  // Status indicator — icon varies by reason for external nodes
+  nodeEls.each(function (d: GraphNode) {
+    const el = d3.select(this);
+    const cx = -NODE_W / 2 + 14;
+    if (d.status === 'external' && d.reason === 'auth_failed') {
+      // Lock icon (SVG path)
+      el.append('text')
+        .attr('x', cx).attr('y', 1)
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .attr('font-size', '12px')
+        .attr('fill', REASON_COLORS.auth_failed)
+        .text('🔒');
+    } else if (d.status === 'external' && d.reason === 'discovering') {
+      // Pulsing dot for discovering state
+      const dot = el.append('circle')
+        .attr('cx', cx).attr('cy', 0).attr('r', 5)
+        .attr('fill', REASON_COLORS.discovering);
+      // Simple CSS-like pulse via repeated transition
+      function pulse() {
+        dot.transition().duration(800).attr('opacity', 0.3)
+          .transition().duration(800).attr('opacity', 1)
+          .on('end', pulse);
+      }
+      pulse();
+    } else if (d.status === 'external' && (d.reason === 'no_semver_tags' || d.reason === 'not_found')) {
+      // Warning triangle
+      el.append('text')
+        .attr('x', cx).attr('y', 1)
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .attr('font-size', '12px')
+        .attr('fill', REASON_COLORS[d.reason])
+        .text('⚠');
+    } else {
+      // Default dot
+      el.append('circle')
+        .attr('cx', cx).attr('cy', 0).attr('r', 5)
+        .attr('fill', nodeColor(d));
+    }
+  });
 
   // Label
   nodeEls.append('text')
@@ -225,12 +282,14 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
       return name.length > 18 ? name.slice(0, 17) + '…' : name;
     });
 
-  // Native SVG tooltip for full name (shown on hover)
+  // Native SVG tooltip — reason-aware for external nodes
   nodeEls.append('title')
     .text((d) => {
       const name = d.serviceName || d.id;
-      const status = d.status || 'Unknown';
-      return d.status === 'external' ? `${name} (external)` : `${name} — ${status}`;
+      if (d.status === 'external') {
+        return `${name} — ${reasonTooltip(d.reason)}`;
+      }
+      return `${name} — ${d.status || 'Unknown'}`;
     });
 
   // Build adjacency (bidirectional) and reverse-dependency map (who depends on X)
@@ -286,7 +345,7 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
           .transition().duration(150)
           .attr('stroke', (n: any) => {
             if (impacted.has(n.id)) return pulseColor;
-            return STATUS_COLORS[n.status] || STATUS_COLORS.Unknown;
+            return nodeColor(n);
           })
           .attr('stroke-width', (n: any) => {
             if (impacted.has(n.id)) return 2.5;
@@ -311,7 +370,7 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
       nodeEls.transition().duration(150).attr('opacity', 1);
       nodeEls.select('rect')
         .transition().duration(150)
-        .attr('stroke', (n: any) => STATUS_COLORS[n.status] || STATUS_COLORS.Unknown)
+        .attr('stroke', (n: any) => nodeColor(n))
         .attr('stroke-width', (n: any) => n.serviceName === focusId ? 2.5 : 1.5);
       linkEls.transition().duration(150)
         .attr('opacity', 0.6)

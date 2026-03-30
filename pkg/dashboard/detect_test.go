@@ -781,6 +781,53 @@ func TestEnrichFromK8s_K8sListError(t *testing.T) {
 	}
 }
 
+func TestEnrichFromK8s_ImageRefFallback(t *testing.T) {
+	// resolvedRef is empty but imageRef is set — should use imageRef.
+	k8sData := `{"items": [
+		{"metadata": {"name": "svc", "namespace": "default"},
+		 "status": {"contractStatus": "Compliant", "contract": {"serviceName": "svc", "version": "1.0.0", "imageRef": "ghcr.io/org/svc-pacto:1.0.0"}}}
+	]}`
+
+	client := &mockK8sClient{listJSON: []byte(k8sData)}
+	r := &DetectResult{
+		Diagnostics: &SourceDiagnostics{},
+		K8s:         NewK8sSource(client, "", "pactos"),
+	}
+
+	r.EnrichFromK8s(context.Background(), newMockBundleStore(), t.TempDir())
+	if r.OCI == nil {
+		t.Fatal("expected OCI source via imageRef fallback")
+	}
+	if len(r.OCI.repos) != 1 {
+		t.Errorf("expected 1 repo, got %d", len(r.OCI.repos))
+	}
+	if r.OCI.repos[0] != "ghcr.io/org/svc-pacto" {
+		t.Errorf("expected bare repo 'ghcr.io/org/svc-pacto', got %q", r.OCI.repos[0])
+	}
+}
+
+func TestEnrichFromK8s_TagDigestFormat(t *testing.T) {
+	// resolvedRef has both tag and digest — stripTag must strip both.
+	k8sData := `{"items": [
+		{"metadata": {"name": "svc", "namespace": "default"},
+		 "status": {"contract": {"serviceName": "svc", "version": "1.0.0", "resolvedRef": "ghcr.io/org/svc-pacto:1.0.0@sha256:abc123"}}}
+	]}`
+
+	client := &mockK8sClient{listJSON: []byte(k8sData)}
+	r := &DetectResult{
+		Diagnostics: &SourceDiagnostics{},
+		K8s:         NewK8sSource(client, "", "pactos"),
+	}
+
+	r.EnrichFromK8s(context.Background(), newMockBundleStore(), t.TempDir())
+	if r.OCI == nil {
+		t.Fatal("expected OCI source")
+	}
+	if r.OCI.repos[0] != "ghcr.io/org/svc-pacto" {
+		t.Errorf("expected bare repo without tag or digest, got %q", r.OCI.repos[0])
+	}
+}
+
 func TestEnrichFromK8s_NoResolvedRefs(t *testing.T) {
 	k8sData := `{"items": [
 		{"metadata": {"name": "svc", "namespace": "default"},
@@ -796,6 +843,28 @@ func TestEnrichFromK8s_NoResolvedRefs(t *testing.T) {
 	r.EnrichFromK8s(context.Background(), newMockBundleStore(), "")
 	if r.OCI != nil {
 		t.Error("expected nil OCI when no services have resolvedRefs")
+	}
+}
+
+func TestEnrichFromK8s_GetServiceError(t *testing.T) {
+	// When GetService fails for a service, discoverOCIReposFromK8s should skip it.
+	k8sData := `{"items": [
+		{"metadata": {"name": "svc", "namespace": "ns"},
+		 "status": {"contract": {"serviceName": "svc", "version": "1.0.0", "resolvedRef": "ghcr.io/org/svc:1.0.0"}}}
+	]}`
+
+	client := &mockK8sClient{
+		listJSON: []byte(k8sData),
+		getErr:   fmt.Errorf("connection reset"),
+	}
+	r := &DetectResult{
+		Diagnostics: &SourceDiagnostics{},
+		K8s:         NewK8sSource(client, "ns", "pactos"),
+	}
+
+	r.EnrichFromK8s(context.Background(), newMockBundleStore(), "")
+	if r.OCI != nil {
+		t.Error("expected nil OCI when GetService fails for all services")
 	}
 }
 

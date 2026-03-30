@@ -386,10 +386,19 @@ func (r *DetectResult) discoverOCIReposFromK8s(ctx context.Context) ([]string, e
 
 	for _, svc := range services {
 		d, err := r.K8s.GetService(ctx, svc.Name)
-		if err != nil || d == nil || d.ResolvedRef == "" {
+		if err != nil || d == nil {
 			continue
 		}
-		repo := stripTag(d.ResolvedRef)
+		// Prefer resolvedRef (most specific); fall back to imageRef
+		// (the declared ref, which may not have a digest).
+		ref := d.ResolvedRef
+		if ref == "" {
+			ref = d.ImageRef
+		}
+		if ref == "" {
+			continue
+		}
+		repo := stripTag(ref)
 		if repo != "" && !seen[repo] {
 			seen[repo] = true
 			repos = append(repos, repo)

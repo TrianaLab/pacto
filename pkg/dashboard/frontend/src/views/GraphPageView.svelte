@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl } from '../lib/router.ts';
-  import { statusClass } from '../lib/format.ts';
+  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable } from '../lib/format.ts';
   import GraphCanvas from '../GraphCanvas.svelte';
   import StatsBar from '../StatsBar.svelte';
 
@@ -73,7 +73,11 @@
       <span class="legend-item" data-tip="Some contract checks fail (warnings or errors)"><span class="legend-dot" style="background:var(--c-warn)"></span> Warning</span>
       <span class="legend-item" data-tip="The contract has validation errors"><span class="legend-dot" style="background:var(--c-err)"></span> Non-Compliant</span>
       <span class="legend-item" data-tip="Contract status could not be determined"><span class="legend-dot" style="background:var(--c-neutral)"></span> Unknown</span>
-      <span class="legend-item"><span class="legend-dot" style="background:var(--c-text-3)"></span> external</span>
+      <span class="legend-sep">|</span>
+      <span class="legend-item" data-tip="Non-OCI dependency — not a contract-backed service"><span class="legend-dot" style="background:var(--c-text-3)"></span> External</span>
+      <span class="legend-item" data-tip="Registry authentication failed"><span class="legend-dot" style="background:var(--c-err)"></span> Auth required</span>
+      <span class="legend-item" data-tip="OCI repo found but no valid semver tags, or registry unreachable"><span class="legend-dot" style="background:var(--c-warn)"></span> Not found / No versions</span>
+      <span class="legend-item" data-tip="Background OCI discovery still running"><span class="legend-dot legend-dot-pulse" style="background:var(--c-accent)"></span> Discovering</span>
       <span class="legend-sep">|</span>
       <span class="legend-item"><span class="legend-line solid"></span> required</span>
       <span class="legend-item"><span class="legend-line dashed"></span> optional</span>
@@ -107,10 +111,16 @@
                   {#if node.status !== 'external'}
                     <a href={serviceUrl(node.serviceName)}>{node.serviceName}</a>
                   {:else}
-                    {node.serviceName} <span class="badge badge-neutral">external</span>
+                    {node.serviceName} <span class="badge {reasonBadgeClass(node.reason)}" data-tip={reasonTooltip(node.reason)}>{reasonLabel(node.reason)}</span>
                   {/if}
                 </td>
-                <td><span class="badge badge-{statusClass(node.status === 'external' ? 'Unknown' : node.status)}"><span class="badge-dot"></span>{node.status}</span></td>
+                <td>
+                  {#if node.status !== 'external'}
+                    <span class="badge badge-{statusClass(node.status)}"><span class="badge-dot"></span>{node.status}</span>
+                  {:else}
+                    <span class="badge {reasonBadgeClass(node.reason)}">{reasonLabel(node.reason)}</span>
+                  {/if}
+                </td>
                 <td>
                   {#if edges.length > 0}
                     {#each edges as e, j}
@@ -147,7 +157,9 @@
     font-size: var(--text-xs); color: var(--c-text-3);
   }
   .legend-item { display: flex; align-items: center; gap: 5px; }
-  .legend-dot { width: 9px; height: 9px; border-radius: 50%; }
+  .legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .legend-dot-pulse { animation: legend-pulse 1.6s ease-in-out infinite; }
+  @keyframes legend-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
   .legend-sep { color: var(--c-border); }
   .legend-line { display: inline-block; width: 18px; height: 0; }
   .legend-line.solid { border-top: 2px solid var(--c-text-2); }

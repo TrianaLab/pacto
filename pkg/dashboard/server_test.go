@@ -2718,6 +2718,24 @@ func TestServerVersionTracking_FreshVersionRecomputesUpdate(t *testing.T) {
 	}
 }
 
+func TestServer_UnresolvedReasonFn(t *testing.T) {
+	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	srv := NewServer(newMockWithDetails(nil), ui)
+
+	// Without OCI source, should return nil.
+	if fn := srv.unresolvedReasonFn(); fn != nil {
+		t.Error("expected nil when ociSource is nil")
+	}
+
+	// With OCI source, should return the method reference.
+	ociSrc := NewOCISource(newMockBundleStore(), []string{"ghcr.io/org/svc"})
+	srv.SetOCISource(ociSrc)
+	fn := srv.unresolvedReasonFn()
+	if fn == nil {
+		t.Fatal("expected non-nil function when ociSource is set")
+	}
+}
+
 func findEntry(t *testing.T, entries []ServiceListEntry, name string) *ServiceListEntry {
 	t.Helper()
 	for i := range entries {

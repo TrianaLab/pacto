@@ -16,6 +16,7 @@ import (
 type mockBundleStore struct {
 	bundles map[string]*contract.Bundle // keyed by ref (repo:tag)
 	tags    map[string][]string         // keyed by repo
+	tagsErr map[string]error            // per-repo ListTags errors (overrides tags)
 }
 
 func newMockBundleStore() *mockBundleStore {
@@ -38,6 +39,11 @@ func (m *mockBundleStore) Push(_ context.Context, _ string, _ *contract.Bundle) 
 }
 
 func (m *mockBundleStore) ListTags(_ context.Context, repo string) ([]string, error) {
+	if m.tagsErr != nil {
+		if err, ok := m.tagsErr[repo]; ok {
+			return nil, err
+		}
+	}
 	tags, ok := m.tags[repo]
 	if !ok {
 		return nil, fmt.Errorf("repo not found: %s", repo)
@@ -673,6 +679,8 @@ func TestStripTag(t *testing.T) {
 		{"ghcr.io/org/svc:1.0.0", "ghcr.io/org/svc"},
 		{"ghcr.io/org/svc", "ghcr.io/org/svc"},
 		{"ghcr.io/org/svc@sha256:abc", "ghcr.io/org/svc"},
+		{"ghcr.io/org/svc:1.0.0@sha256:abc123", "ghcr.io/org/svc"},
+		{"ghcr.io/org/svc:v2.3.4@sha256:deadbeef", "ghcr.io/org/svc"},
 	}
 	for _, tt := range tests {
 		got := stripTag(tt.ref)
@@ -1009,5 +1017,135 @@ func TestOCISource_BackgroundLoop_CtxCancel(t *testing.T) {
 		// success
 	case <-time.After(2 * time.Second):
 		t.Fatal("backgroundLoop did not return after context cancellation")
+	}
+}
+
+func TestClassifyOCIError(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    error
+		expect string
+	}{
+		{"auth error", &oci.AuthenticationError{Ref: "ghcr.io", Err: fmt.Errorf("401")}, "auth_failed"},
+		{"not found error", &oci.ArtifactNotFoundError{Ref: "ghcr.io/org/svc:1.0.0", Err: fmt.Errorf("404")}, "not_found"},
+		{"generic error", fmt.Errorf("connection timeout"), "not_found"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := classifyOCIError(tc.err)
+			if got != tc.expect {
+				t.Errorf("classifyOCIError(%v) = %q, want %q", tc.err, got, tc.expect)
+			}
+		})
+	}
+}
+
+func TestOCISource_UnresolvedReason(t *testing.T) {
+	store := &mockBundleStore{
+		tags: map[string][]string{
+			"ghcr.io/org/main-svc": {"1.0.0"},
+		},
+		bundles: map[string]*contract.Bundle{
+			"ghcr.io/org/main-svc:1.0.0": {
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "main-svc", Version: "1.0.0"},
+				},
+			},
+		},
+	}
+
+	src := NewOCISource(store, []string{"ghcr.io/org/main-svc"})
+
+	// Before discovery starts, no reasons available.
+	reason := src.UnresolvedReason("oci://ghcr.io/org/unknown:1.0.0")
+	if reason != "" {
+		t.Errorf("before discovery, expected empty reason, got %q", reason)
+	}
+
+	// Non-OCI ref should return empty (classification is done by unresolvedReason in graph.go).
+	reason = src.UnresolvedReason("postgres")
+	if reason != "" {
+		t.Errorf("non-OCI ref: expected empty, got %q", reason)
+	}
+
+	// Simulate a recorded failure.
+	src.recordFailure("ghcr.io/org/private", "auth_failed")
+	reason = src.UnresolvedReason("oci://ghcr.io/org/private:1.0.0")
+	if reason != "auth_failed" {
+		t.Errorf("expected 'auth_failed', got %q", reason)
+	}
+
+	// Simulate a no-semver-tags failure.
+	src.recordFailure("ghcr.io/org/no-tags", "no_semver_tags")
+	reason = src.UnresolvedReason("oci://ghcr.io/org/no-tags:latest")
+	if reason != "no_semver_tags" {
+		t.Errorf("expected 'no_semver_tags', got %q", reason)
+	}
+}
+
+func TestOCISource_UnresolvedReason_Discovering(t *testing.T) {
+	store := &mockBundleStore{
+		tags:    map[string][]string{"ghcr.io/org/svc": {"1.0.0"}},
+		bundles: map[string]*contract.Bundle{},
+	}
+
+	src := NewOCISource(store, []string{"ghcr.io/org/svc"})
+
+	// Mark as started (simulating background discovery in progress).
+	src.mu.Lock()
+	src.started = true
+	src.mu.Unlock()
+
+	reason := src.UnresolvedReason("oci://ghcr.io/org/unknown-dep:1.0.0")
+	if reason != "discovering" {
+		t.Errorf("during discovery, expected 'discovering', got %q", reason)
+	}
+
+	// After discovery completes, unknown deps get empty reason.
+	close(src.done)
+	reason = src.UnresolvedReason("oci://ghcr.io/org/unknown-dep:1.0.0")
+	if reason != "" {
+		t.Errorf("after discovery, expected empty for unknown, got %q", reason)
+	}
+}
+
+func TestOCISource_DiscoverRepo_TracksFailures(t *testing.T) {
+	authErr := &oci.AuthenticationError{Ref: "ghcr.io", Err: fmt.Errorf("401")}
+	store := &mockBundleStore{
+		tagsErr: map[string]error{
+			"ghcr.io/org/private": authErr,
+		},
+		tags: map[string][]string{
+			"ghcr.io/org/empty": {},
+		},
+		bundles: map[string]*contract.Bundle{},
+	}
+
+	src := NewOCISource(store, nil)
+
+	// Auth failure should be tracked.
+	name := src.discoverRepo(context.Background(), "ghcr.io/org/private")
+	if name != "" {
+		t.Errorf("expected empty name for auth failure, got %q", name)
+	}
+
+	src.mu.RLock()
+	reason := src.failedRepos["ghcr.io/org/private"]
+	src.mu.RUnlock()
+	if reason != "auth_failed" {
+		t.Errorf("expected failedRepos reason 'auth_failed', got %q", reason)
+	}
+
+	// No tags should be tracked as no_semver_tags.
+	name = src.discoverRepo(context.Background(), "ghcr.io/org/empty")
+	if name != "" {
+		t.Errorf("expected empty name for no tags, got %q", name)
+	}
+
+	src.mu.RLock()
+	reason = src.failedRepos["ghcr.io/org/empty"]
+	src.mu.RUnlock()
+	if reason != "no_semver_tags" {
+		t.Errorf("expected failedRepos reason 'no_semver_tags', got %q", reason)
 	}
 }

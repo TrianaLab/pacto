@@ -49,6 +49,51 @@ export function formatDiffValue(val: unknown): string {
   return String(val);
 }
 
+// ── Dependency resolution reason helpers ──
+
+const REASON_LABELS: Record<string, string> = {
+  non_oci_ref: 'External',
+  auth_failed: 'Auth required',
+  no_semver_tags: 'No versions',
+  not_found: 'Not found',
+  discovering: 'Discovering…',
+};
+
+const REASON_TOOLTIPS: Record<string, string> = {
+  non_oci_ref: 'Non-OCI dependency — not a contract-backed service',
+  auth_failed: 'Registry authentication failed — run `pacto login` or check credentials',
+  no_semver_tags: 'OCI repository found but contains no valid semver tags',
+  not_found: 'OCI dependency could not be found or the registry is unreachable',
+  discovering: 'Background OCI discovery is still running — this may resolve shortly',
+};
+
+const REASON_BADGE_CLASSES: Record<string, string> = {
+  non_oci_ref: 'badge-neutral',
+  auth_failed: 'badge-err',
+  no_semver_tags: 'badge-warn',
+  not_found: 'badge-warn',
+  discovering: 'badge-info',
+};
+
+export function reasonLabel(reason: string | undefined): string {
+  if (!reason) return 'External';
+  return REASON_LABELS[reason] || 'External';
+}
+
+export function reasonTooltip(reason: string | undefined): string {
+  if (!reason) return 'External dependency';
+  return REASON_TOOLTIPS[reason] || 'External dependency';
+}
+
+export function reasonBadgeClass(reason: string | undefined): string {
+  if (!reason) return 'badge-neutral';
+  return REASON_BADGE_CLASSES[reason] || 'badge-neutral';
+}
+
+export function isReasonActionable(reason: string | undefined): boolean {
+  return reason === 'auth_failed' || reason === 'not_found' || reason === 'no_semver_tags';
+}
+
 const SOURCE_DESCRIPTIONS: Record<string, string> = {
   k8s: 'Kubernetes — live cluster runtime data',
   oci: 'OCI Registry — versioned contract bundles',

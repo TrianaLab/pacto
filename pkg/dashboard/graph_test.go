@@ -186,7 +186,7 @@ func TestBuildGlobalGraph_BasicServices(t *testing.T) {
 		},
 	}
 
-	graph := buildGlobalGraph(services, index)
+	graph := buildGlobalGraph(services, index, nil)
 	if graph == nil {
 		t.Fatal("expected non-nil graph")
 	}
@@ -235,7 +235,7 @@ func TestBuildGlobalGraph_ExternalNode(t *testing.T) {
 		},
 	}
 
-	graph := buildGlobalGraph(services, index)
+	graph := buildGlobalGraph(services, index, nil)
 
 	// Should have 2 nodes: svc-a + external node for external-svc
 	if len(graph.Nodes) != 2 {
@@ -274,7 +274,7 @@ func TestBuildGlobalGraph_ReferenceEdges(t *testing.T) {
 		},
 	}
 
-	graph := buildGlobalGraph(services, index)
+	graph := buildGlobalGraph(services, index, nil)
 
 	// Find svc-a node
 	var svcA *GraphNodeData
@@ -315,7 +315,7 @@ func TestBuildGlobalGraph_SkipsSelfRefs(t *testing.T) {
 		},
 	}
 
-	graph := buildGlobalGraph(services, index)
+	graph := buildGlobalGraph(services, index, nil)
 
 	var svcA *GraphNodeData
 	for i := range graph.Nodes {
@@ -344,7 +344,7 @@ func TestBuildGlobalGraph_EmptyRefSkipped(t *testing.T) {
 		},
 	}
 
-	graph := buildGlobalGraph(services, index)
+	graph := buildGlobalGraph(services, index, nil)
 	var svcA *GraphNodeData
 	for i := range graph.Nodes {
 		if graph.Nodes[i].ID == "svc-a" {
@@ -371,7 +371,7 @@ func TestBuildGraph_BasicTree(t *testing.T) {
 		},
 	}
 
-	graph := buildGraph(index["root"], index)
+	graph := buildGraph(index["root"], index, nil)
 	if graph == nil {
 		t.Fatal("expected non-nil graph")
 	}
@@ -401,13 +401,14 @@ func TestBuildGraph_UnresolvedDep(t *testing.T) {
 		},
 	}
 
-	graph := buildGraph(index["root"], index)
+	graph := buildGraph(index["root"], index, nil)
 	if len(graph.Root.Dependencies) != 1 {
 		t.Fatalf("expected 1 dependency, got %d", len(graph.Root.Dependencies))
 	}
 	dep := graph.Root.Dependencies[0]
-	if dep.Error != "not resolved" {
-		t.Errorf("expected error 'not resolved', got %q", dep.Error)
+	// "missing" has no oci:// prefix → classified as non_oci_ref
+	if dep.Error != "non_oci_ref" {
+		t.Errorf("expected error 'non_oci_ref', got %q", dep.Error)
 	}
 	if dep.Node != nil {
 		t.Error("expected nil node for unresolved dep")
@@ -427,7 +428,7 @@ func TestBuildGraph_CyclePrevention(t *testing.T) {
 		},
 	}
 
-	graph := buildGraph(index["a"], index)
+	graph := buildGraph(index["a"], index, nil)
 	if graph.Root == nil {
 		t.Fatal("expected non-nil root")
 	}
@@ -454,7 +455,7 @@ func TestBuildGraph_CyclePrevention(t *testing.T) {
 }
 
 func TestBuildGraph_NilRoot(t *testing.T) {
-	graph := buildGraph(nil, nil)
+	graph := buildGraph(nil, nil, nil)
 	if graph.Root != nil {
 		t.Error("expected nil root for nil service")
 	}
@@ -595,7 +596,7 @@ func TestBuildGlobalGraph_WithOCIRefAliases(t *testing.T) {
 		},
 	}
 
-	graph := buildGlobalGraph(services, index)
+	graph := buildGlobalGraph(services, index, nil)
 	if graph == nil {
 		t.Fatal("expected non-nil graph")
 	}
@@ -620,6 +621,191 @@ func TestBuildGlobalGraph_WithOCIRefAliases(t *testing.T) {
 	if !svcB.Edges[0].Resolved {
 		t.Error("expected edge to be resolved via alias")
 	}
+}
+
+func TestBuildGlobalGraph_NonOCIRefReason(t *testing.T) {
+	// A non-OCI dependency ref should produce Reason="non_oci_ref".
+	services := []Service{
+		{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+	}
+	index := map[string]*ServiceDetails{
+		"svc-a": {
+			Service:      Service{Name: "svc-a"},
+			Dependencies: []DependencyInfo{{Ref: "postgres", Required: true}},
+		},
+	}
+
+	graph := buildGlobalGraph(services, index, nil)
+
+	var extNode *GraphNodeData
+	for i := range graph.Nodes {
+		if graph.Nodes[i].Status == "external" {
+			extNode = &graph.Nodes[i]
+			break
+		}
+	}
+	if extNode == nil {
+		t.Fatal("expected external node for non-OCI ref")
+	}
+	if extNode.Reason != "non_oci_ref" {
+		t.Errorf("expected Reason 'non_oci_ref', got %q", extNode.Reason)
+	}
+}
+
+func TestBuildGlobalGraph_WithReasonFn(t *testing.T) {
+	// When a reasonFn is provided, OCI refs get specific failure reasons.
+	services := []Service{
+		{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "oci"},
+	}
+	index := map[string]*ServiceDetails{
+		"svc-a": {
+			Service: Service{Name: "svc-a"},
+			Dependencies: []DependencyInfo{
+				{Ref: "oci://ghcr.io/org/auth-dep:1.0.0", Required: true},
+				{Ref: "oci://ghcr.io/org/no-tags-dep:1.0.0", Required: false},
+			},
+		},
+	}
+
+	reasonFn := func(depRef string) string {
+		switch {
+		case contains(depRef, "auth-dep"):
+			return "auth_failed"
+		case contains(depRef, "no-tags-dep"):
+			return "no_semver_tags"
+		}
+		return ""
+	}
+
+	graph := buildGlobalGraph(services, index, reasonFn)
+
+	reasons := make(map[string]string) // id -> reason
+	for _, n := range graph.Nodes {
+		if n.Status == "external" {
+			reasons[n.ID] = n.Reason
+		}
+	}
+
+	if reasons["auth-dep"] != "auth_failed" {
+		t.Errorf("auth-dep: expected Reason 'auth_failed', got %q", reasons["auth-dep"])
+	}
+	if reasons["no-tags-dep"] != "no_semver_tags" {
+		t.Errorf("no-tags-dep: expected Reason 'no_semver_tags', got %q", reasons["no-tags-dep"])
+	}
+}
+
+func TestBuildGlobalGraph_ResolvedTransitiveOCIDep(t *testing.T) {
+	// When an OCI dep IS in the index, it should be resolved (not external).
+	services := []Service{
+		{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "oci"},
+		{Name: "openfga", Version: "2.0.0", ContractStatus: StatusCompliant, Source: "oci"},
+	}
+	index := map[string]*ServiceDetails{
+		"svc-a": {
+			Service:      Service{Name: "svc-a"},
+			Dependencies: []DependencyInfo{{Ref: "oci://ghcr.io/org/openfga:^2.0.0", Required: true}},
+		},
+		"openfga": {
+			Service: Service{Name: "openfga", Version: "2.0.0"},
+		},
+	}
+
+	graph := buildGlobalGraph(services, index, nil)
+
+	// No external nodes — openfga is resolved.
+	for _, n := range graph.Nodes {
+		if n.Status == "external" {
+			t.Errorf("unexpected external node: %q", n.ID)
+		}
+	}
+
+	// svc-a edge to openfga should be resolved.
+	var svcA *GraphNodeData
+	for i := range graph.Nodes {
+		if graph.Nodes[i].ID == "svc-a" {
+			svcA = &graph.Nodes[i]
+		}
+	}
+	if svcA == nil {
+		t.Fatal("svc-a not found")
+	}
+	if len(svcA.Edges) != 1 || !svcA.Edges[0].Resolved {
+		t.Error("expected resolved edge to openfga")
+	}
+}
+
+func TestBuildGraph_ReasonInTreeGraph(t *testing.T) {
+	// The tree graph should also propagate reason into GraphEdge.Error.
+	index := map[string]*ServiceDetails{
+		"root": {
+			Service: Service{Name: "root", Version: "1.0.0"},
+			Dependencies: []DependencyInfo{
+				{Ref: "oci://ghcr.io/org/private-svc:1.0.0", Required: true},
+				{Ref: "external-db", Required: false},
+			},
+		},
+	}
+
+	reasonFn := func(depRef string) string {
+		if contains(depRef, "private-svc") {
+			return "auth_failed"
+		}
+		return ""
+	}
+
+	graph := buildGraph(index["root"], index, reasonFn)
+	if len(graph.Root.Dependencies) != 2 {
+		t.Fatalf("expected 2 deps, got %d", len(graph.Root.Dependencies))
+	}
+
+	errors := make(map[string]string)
+	for _, dep := range graph.Root.Dependencies {
+		errors[dep.Ref] = dep.Error
+	}
+
+	if errors["oci://ghcr.io/org/private-svc:1.0.0"] != "auth_failed" {
+		t.Errorf("expected 'auth_failed' for private-svc, got %q", errors["oci://ghcr.io/org/private-svc:1.0.0"])
+	}
+	if errors["external-db"] != "non_oci_ref" {
+		t.Errorf("expected 'non_oci_ref' for external-db, got %q", errors["external-db"])
+	}
+}
+
+func TestBuildGraph_EmptyReasonFallback(t *testing.T) {
+	// When reasonFn returns "" for an OCI ref, the edge error should fall back to "not resolved".
+	index := map[string]*ServiceDetails{
+		"svc": {
+			Service: Service{Name: "svc", Version: "1.0.0"},
+			Dependencies: []DependencyInfo{
+				{Ref: "oci://ghcr.io/org/unknown:1.0.0", Required: true},
+			},
+		},
+	}
+
+	// reasonFn that always returns empty.
+	reasonFn := func(depRef string) string { return "" }
+
+	graph := buildGraph(index["svc"], index, reasonFn)
+	if len(graph.Root.Dependencies) != 1 {
+		t.Fatalf("expected 1 dep, got %d", len(graph.Root.Dependencies))
+	}
+	if graph.Root.Dependencies[0].Error != "not resolved" {
+		t.Errorf("expected 'not resolved', got %q", graph.Root.Dependencies[0].Error)
+	}
+}
+
+// contains is a test helper — checks if s contains substr.
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
+}
+
+func containsStr(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
 
 func TestNormalizeContractStatus(t *testing.T) {

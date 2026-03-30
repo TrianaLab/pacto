@@ -8,6 +8,10 @@ import {
   changeTypeClass,
   sourceTooltip,
   formatDiffValue,
+  reasonLabel,
+  reasonTooltip,
+  reasonBadgeClass,
+  isReasonActionable,
 } from './format.ts';
 
 describe('statusClass', () => {
@@ -86,4 +90,44 @@ describe('formatDiffValue', () => {
   });
   it('returns "false" for boolean false', () => expect(formatDiffValue(false)).toBe('false'));
   it('returns "0" for zero', () => expect(formatDiffValue(0)).toBe('0'));
+});
+
+describe('reasonLabel', () => {
+  it('returns External for non_oci_ref', () => expect(reasonLabel('non_oci_ref')).toBe('External'));
+  it('returns Auth required for auth_failed', () => expect(reasonLabel('auth_failed')).toBe('Auth required'));
+  it('returns No versions for no_semver_tags', () => expect(reasonLabel('no_semver_tags')).toBe('No versions'));
+  it('returns Not found for not_found', () => expect(reasonLabel('not_found')).toBe('Not found'));
+  it('returns Discovering… for discovering', () => expect(reasonLabel('discovering')).toBe('Discovering…'));
+  it('returns External for undefined', () => expect(reasonLabel(undefined)).toBe('External'));
+  it('returns External for empty string', () => expect(reasonLabel('')).toBe('External'));
+  it('returns External for unknown reason', () => expect(reasonLabel('something_else')).toBe('External'));
+});
+
+describe('reasonTooltip', () => {
+  it('returns non-OCI tooltip', () => expect(reasonTooltip('non_oci_ref')).toContain('Non-OCI'));
+  it('returns auth tooltip', () => expect(reasonTooltip('auth_failed')).toContain('authentication'));
+  it('returns no semver tooltip', () => expect(reasonTooltip('no_semver_tags')).toContain('semver'));
+  it('returns not found tooltip', () => expect(reasonTooltip('not_found')).toContain('found'));
+  it('returns discovering tooltip', () => expect(reasonTooltip('discovering')).toContain('discovery'));
+  it('returns fallback for undefined', () => expect(reasonTooltip(undefined)).toBe('External dependency'));
+  it('returns fallback for unknown reason', () => expect(reasonTooltip('xyz')).toBe('External dependency'));
+});
+
+describe('reasonBadgeClass', () => {
+  it('returns badge-neutral for non_oci_ref', () => expect(reasonBadgeClass('non_oci_ref')).toBe('badge-neutral'));
+  it('returns badge-err for auth_failed', () => expect(reasonBadgeClass('auth_failed')).toBe('badge-err'));
+  it('returns badge-warn for no_semver_tags', () => expect(reasonBadgeClass('no_semver_tags')).toBe('badge-warn'));
+  it('returns badge-warn for not_found', () => expect(reasonBadgeClass('not_found')).toBe('badge-warn'));
+  it('returns badge-info for discovering', () => expect(reasonBadgeClass('discovering')).toBe('badge-info'));
+  it('returns badge-neutral for undefined', () => expect(reasonBadgeClass(undefined)).toBe('badge-neutral'));
+  it('returns badge-neutral for unknown reason', () => expect(reasonBadgeClass('other')).toBe('badge-neutral'));
+});
+
+describe('isReasonActionable', () => {
+  it('returns true for auth_failed', () => expect(isReasonActionable('auth_failed')).toBe(true));
+  it('returns false for non_oci_ref', () => expect(isReasonActionable('non_oci_ref')).toBe(false));
+  it('returns true for no_semver_tags', () => expect(isReasonActionable('no_semver_tags')).toBe(true));
+  it('returns true for not_found', () => expect(isReasonActionable('not_found')).toBe(true));
+  it('returns false for discovering', () => expect(isReasonActionable('discovering')).toBe(false));
+  it('returns false for undefined', () => expect(isReasonActionable(undefined)).toBe(false));
 });
