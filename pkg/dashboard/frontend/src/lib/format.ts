@@ -59,3 +59,20 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
 export function sourceTooltip(src: string): string {
   return SOURCE_DESCRIPTIONS[src] || src;
 }
+
+const VERSION_POLICY_LABELS: Record<string, string> = {
+  'tracking': 'Tracking latest',
+  'pinned-tag': 'Pinned to tag',
+  'pinned-digest': 'Pinned to digest',
+};
+
+export function versionPolicyLabel(policy: string | undefined): string {
+  if (!policy) return '';
+  return VERSION_POLICY_LABELS[policy] || policy;
+}
+
+export function versionPolicyClass(policy: string | undefined): string {
+  if (policy === 'pinned-digest') return 'policy-digest';
+  if (policy === 'pinned-tag') return 'policy-tag';
+  return 'policy-tracking';
+}

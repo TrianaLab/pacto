@@ -638,6 +638,7 @@ func (s *Server) listServices(ctx context.Context, _ *struct{}) (*listServicesOu
 					entry.ComplianceWarns = c.Summary.Warnings
 				}
 			}
+			entry.UpdateAvailable = d.UpdateAvailable
 		}
 		enriched[i] = entry
 	}
@@ -651,6 +652,23 @@ func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getS
 		return nil, huma.Error404NotFound(err.Error())
 	}
 	details.GenerateInsights()
+
+	// Enrich with version tracking from the cached index if available.
+	s.indexMu.Lock()
+	cached := s.indexCache
+	s.indexMu.Unlock()
+	if cached != nil {
+		if indexed, ok := cached.index[input.Name]; ok {
+			details.VersionPolicy = indexed.VersionPolicy
+			details.LatestAvailable = indexed.LatestAvailable
+			details.UpdateAvailable = indexed.UpdateAvailable
+		}
+	}
+	// Conservative fallback: only when neither operator nor index provided a policy.
+	if details.VersionPolicy == "" {
+		details.VersionPolicy = ClassifyVersionPolicy(details.ResolvedRef)
+	}
+
 	return &getServiceOutput{Body: details}, nil
 }
 
@@ -662,6 +680,12 @@ func (s *Server) getVersions(ctx context.Context, input *ServiceNameInput) (*get
 		// OCI cache). Return an empty list instead of 500.
 		return &getVersionsOutput{Body: []Version{}}, nil
 	}
+
+	// Mark the currently active version.
+	if detail, detailErr := s.source.GetService(ctx, input.Name); detailErr == nil && detail != nil {
+		MarkCurrentVersion(versions, detail.Version)
+	}
+
 	return &getVersionsOutput{Body: versions}, nil
 }
 
@@ -954,6 +978,9 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 		}
 	}
 
+	// Enrich services with version tracking metadata.
+	s.enrichVersionTracking(ctx, index)
+
 	rebuilt := &serviceIndexCache{
 		services:    services,
 		index:       index,
@@ -1041,6 +1068,29 @@ func (s *Server) RefreshCacheSources() {
 	s.indexMu.Lock()
 	s.indexCache = nil
 	s.indexMu.Unlock()
+}
+
+// enrichVersionTracking populates VersionPolicy, LatestAvailable, and
+// UpdateAvailable on each ServiceDetails in the index. Called during
+// index rebuild so the data is available for both list and detail views.
+//
+// VersionPolicy precedence:
+//  1. Operator-provided resolutionPolicy (set by k8s source via enrichWithRuntime)
+//  2. Conservative fallback from resolvedRef (only for non-k8s or old operator)
+func (s *Server) enrichVersionTracking(ctx context.Context, index map[string]*ServiceDetails) {
+	for _, d := range index {
+		// Only apply fallback heuristic when the operator didn't provide a policy.
+		if d.VersionPolicy == "" {
+			d.VersionPolicy = ClassifyVersionPolicy(d.ResolvedRef)
+		}
+
+		versions, err := s.source.GetVersions(ctx, d.Name)
+		if err != nil || len(versions) == 0 {
+			continue
+		}
+		d.LatestAvailable = ComputeLatestAvailable(versions)
+		d.UpdateAvailable = IsUpdateAvailable(d.Version, d.LatestAvailable)
+	}
 }
 
 func corsMiddleware(next http.Handler) http.Handler {

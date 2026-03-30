@@ -332,6 +332,19 @@ Key API operations:
 
 When running alongside the Kubernetes operator, `EnrichFromK8s()` automatically discovers OCI repositories from CRD `imageRef` fields, enabling full contract bundles, version history, and diffs without explicit `--repo` flags.
 
+### Version tracking
+
+The dashboard computes version tracking semantics from two sources:
+
+- **Version policy** (`versionPolicy`): the preferred source is the operator's `status.contract.resolutionPolicy` field (`Latest` → `"tracking"`, `PinnedTag` → `"pinned-tag"`, `PinnedDigest` → `"pinned-digest"`), normalized by `NormalizeResolutionPolicy()`. When unavailable (non-K8s sources, older operators), `ClassifyVersionPolicy()` provides a conservative fallback that only classifies unambiguous cases (digest, explicit semver tag) and returns empty for ambiguous refs.
+- **Latest available** (`latestAvailable`): the highest semver version from the existing version list. Computed by `ComputeLatestAvailable()`.
+- **Update available** (`updateAvailable`): true when `latestAvailable` is a higher semver than the current `version`. Computed by `IsUpdateAvailable()`. This is informational -- it does **not** affect contract compliance status.
+- **Current version marker** (`isCurrent`): set on the `Version` entry matching `ServiceDetails.Version` via `MarkCurrentVersion()`.
+
+Operator-provided `resolutionPolicy` is propagated through the K8s source (`serviceDetailsFromK8sStatus`), carried forward by `enrichWithRuntime()`, and preserved by `enrichVersionTracking()` which only applies the fallback when no policy is already set.
+
+These fields are populated during the service index cache rebuild (`enrichVersionTracking()`) and surfaced through the existing `/api/services` and `/api/services/{name}` endpoints.
+
 ---
 
 ## Design principles

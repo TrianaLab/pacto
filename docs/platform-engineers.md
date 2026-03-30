@@ -411,6 +411,24 @@ The built-in D3 force-directed graph shows:
 
 Hover over a node to highlight its impact chain. Click a node to navigate to its detail page.
 
+### Version tracking
+
+The dashboard classifies how each service tracks its contract version:
+
+| Policy | Meaning | Source |
+|--------|---------|--------|
+| **Tracking latest** | Service follows the latest available version (no explicit pin) | Operator `resolutionPolicy=Latest` |
+| **Pinned to tag** | Service is pinned to a specific semver tag | Operator `resolutionPolicy=PinnedTag`, or fallback from semver tag in `resolvedRef` |
+| **Pinned to digest** | Service is pinned to an immutable OCI digest | Operator `resolutionPolicy=PinnedDigest`, or fallback from `@sha256:` in `resolvedRef` |
+
+The **preferred source of truth** is the operator's `status.contract.resolutionPolicy` field, available for Kubernetes-backed services. For non-Kubernetes sources (OCI-only, local) or older operator versions that don't expose `resolutionPolicy`, the dashboard falls back to a conservative heuristic based on `resolvedRef`. The fallback only classifies unambiguous cases (digest refs, explicit semver tags) — ambiguous refs are left unclassified rather than assumed to be tracking.
+
+Note: `"latest"` is not a valid Pacto contract version. The dashboard does not infer "tracking latest" from a `:latest` OCI tag.
+
+The dashboard also compares the current version against the latest available semver tag from OCI and shows an informational indicator when a newer version exists. This is purely informational — **update availability does not affect compliance status**. A service running an older version remains Compliant as long as its contract passes validation.
+
+In the version history table, the currently active version is highlighted so you can see at a glance where you stand relative to the full version timeline. You can click "Compare" to diff the current version against the latest available.
+
 ### Diagnostics
 
 Pass `--diagnostics` to enable debug endpoints (`/api/debug/sources`, `/api/debug/services`) that expose raw per-source detection details and service data for troubleshooting.

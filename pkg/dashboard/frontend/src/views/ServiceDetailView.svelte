@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { navigate, serviceUrl, diffUrl } from '../lib/router.ts';
-  import { statusClass, complianceClass, classificationClass, sourceTooltip } from '../lib/format.ts';
+  import { statusClass, complianceClass, classificationClass, sourceTooltip, versionPolicyLabel, versionPolicyClass } from '../lib/format.ts';
+  import { compareDiffUrl } from '../lib/router.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
 
   import OverviewSection from '../sections/OverviewSection.svelte';
@@ -218,6 +219,15 @@
     </div>
     <div class="detail-meta">
       {#if detail.version}<span class="pill">{detail.version}</span>{/if}
+      {#if detail.versionPolicy}
+        <span class="pill pill-policy {versionPolicyClass(detail.versionPolicy)}" data-tip={detail.resolvedRef || ''}>{versionPolicyLabel(detail.versionPolicy)}</span>
+      {/if}
+      {#if detail.updateAvailable && detail.latestAvailable}
+        <span class="pill pill-update" data-tip="Informational — does not affect compliance">
+          {detail.latestAvailable} available
+        </span>
+        <a href={compareDiffUrl({ fromName: name, fromVer: detail.version, toName: name, toVer: detail.latestAvailable })} class="btn btn-sm btn-update">Compare</a>
+      {/if}
       {#each sources as src}
         <span class="source-dot source-dot-{src}" data-tip={sourceTooltip(src)}></span>
       {/each}
@@ -344,8 +354,8 @@
           <thead><tr><th data-tip="Semver version tag">Version</th><th data-tip="Change impact vs previous version">Classification</th><th data-tip="Where this version was found">Source</th><th data-tip="When this version was published">Created</th><th data-tip="Compare this version against current">Compare</th></tr></thead>
           <tbody>
             {#each versions as ver}
-              <tr>
-                <td><code>{ver.version}</code></td>
+              <tr class:version-current={ver.isCurrent}>
+                <td><code>{ver.version}</code>{#if ver.isCurrent}<span class="badge badge-neutral" style="margin-left:6px;font-size:10px">current</span>{/if}</td>
                 <td>
                   {#if ver.classification === 'BREAKING'}<span class="badge badge-err">Breaking</span>
                   {:else if ver.classification === 'POTENTIAL_BREAKING'}<span class="badge badge-warn">Potential breaking</span>
@@ -479,5 +489,24 @@
     display: flex; align-items: center; gap: var(--sp-2);
     padding: var(--sp-3) var(--sp-4);
     color: var(--c-text-2); font-size: var(--text-sm);
+  }
+
+  .pill-policy {
+    font-size: var(--text-xs); font-weight: 500; opacity: 0.85;
+  }
+  .policy-tracking { background: var(--c-neutral-bg); color: var(--c-text-2); }
+  .policy-tag { background: var(--c-accent-bg); color: var(--c-accent); }
+  .policy-digest { background: var(--c-accent-bg); color: var(--c-accent); }
+
+  .pill-update {
+    background: var(--c-info-bg, var(--c-accent-bg)); color: var(--c-info, var(--c-accent));
+    font-size: var(--text-xs); font-weight: 500;
+  }
+  .btn-update {
+    font-size: var(--text-xs); padding: 2px 8px;
+  }
+
+  .version-current {
+    background: var(--c-surface-hover);
   }
 </style>

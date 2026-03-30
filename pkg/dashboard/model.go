@@ -101,6 +101,11 @@ type ServiceDetails struct {
 	ResolvedRef     string `json:"resolvedRef,omitempty"`
 	CurrentRevision string `json:"currentRevision,omitempty"`
 
+	// Version tracking: derived from resolvedRef and version history.
+	VersionPolicy    string `json:"versionPolicy,omitempty"`    // "tracking", "pinned-tag", "pinned-digest"
+	LatestAvailable  string `json:"latestAvailable,omitempty"`  // highest semver from version history
+	UpdateAvailable  bool   `json:"updateAvailable,omitempty"`  // true when latestAvailable > version
+
 	Interfaces    []InterfaceInfo    `json:"interfaces,omitempty"`
 	Configuration *ConfigurationInfo `json:"configuration,omitempty"`
 	Dependencies  []DependencyInfo   `json:"dependencies,omitempty"`
@@ -250,6 +255,7 @@ type Version struct {
 	CreatedAt      *time.Time `json:"createdAt,omitempty"`
 	Source         string     `json:"source,omitempty"`         // origin: "k8s", "oci", "local"
 	Classification string     `json:"classification,omitempty"` // diff vs previous: "NON_BREAKING", "POTENTIAL_BREAKING", "BREAKING"
+	IsCurrent      bool       `json:"isCurrent,omitempty"`      // true for the version currently deployed/active
 }
 
 // Ref identifies a specific version of a service for diffing.
@@ -456,4 +462,5 @@ type ServiceListEntry struct {
 	ComplianceErrors int              `json:"complianceErrors"`
 	ComplianceWarns  int              `json:"complianceWarnings"`
 	TopInsight       string           `json:"topInsight,omitempty"`
+	UpdateAvailable  bool             `json:"updateAvailable,omitempty"`
 }

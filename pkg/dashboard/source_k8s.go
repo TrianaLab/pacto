@@ -94,12 +94,13 @@ func (f *flexSlice[T]) UnmarshalJSON(data []byte) error {
 }
 
 type k8sContractInfo struct {
-	ServiceName     string `json:"serviceName"`
-	Version         string `json:"version"`
-	Owner           string `json:"owner"`
-	ImageRef        string `json:"imageRef"`
-	ResolvedRef     string `json:"resolvedRef"`
-	CurrentRevision string `json:"currentRevision,omitempty"`
+	ServiceName      string `json:"serviceName"`
+	Version          string `json:"version"`
+	Owner            string `json:"owner"`
+	ImageRef         string `json:"imageRef"`
+	ResolvedRef      string `json:"resolvedRef"`
+	CurrentRevision  string `json:"currentRevision,omitempty"`
+	ResolutionPolicy string `json:"resolutionPolicy,omitempty"` // "Latest", "PinnedTag", "PinnedDigest"
 }
 
 type k8sValidation struct {
@@ -521,6 +522,9 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 		svc.ImageRef = r.Status.Contract.ImageRef
 		svc.ResolvedRef = r.Status.Contract.ResolvedRef
 		svc.CurrentRevision = r.Status.Contract.CurrentRevision
+		if r.Status.Contract.ResolutionPolicy != "" {
+			svc.VersionPolicy = NormalizeResolutionPolicy(r.Status.Contract.ResolutionPolicy)
+		}
 	}
 
 	svc.Metadata = r.Status.Metadata

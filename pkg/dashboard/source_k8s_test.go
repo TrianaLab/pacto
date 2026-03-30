@@ -329,6 +329,35 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	return serviceDetailsFromK8sStatus(r)
 }
 
+func TestK8s_serviceDetailsFromK8sStatus_ResolutionPolicy(t *testing.T) {
+	tests := []struct {
+		name             string
+		resolutionPolicy string
+		wantPolicy       string
+	}{
+		{"Latest", "Latest", VersionPolicyTracking},
+		{"PinnedTag", "PinnedTag", VersionPolicyPinnedTag},
+		{"PinnedDigest", "PinnedDigest", VersionPolicyPinnedDigest},
+		{"absent", "", ""},
+		{"unknown value", "SomeOther", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &pactoResource{}
+			r.Status.ContractStatus = "Compliant"
+			r.Status.Contract = &k8sContractInfo{
+				ServiceName:      "svc",
+				Version:          "1.0.0",
+				ResolutionPolicy: tt.resolutionPolicy,
+			}
+			d := serviceDetailsFromK8sStatus(r)
+			if d.VersionPolicy != tt.wantPolicy {
+				t.Errorf("resolutionPolicy=%q → versionPolicy=%q, want %q", tt.resolutionPolicy, d.VersionPolicy, tt.wantPolicy)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // timeAgoFromRFC3339
 // ---------------------------------------------------------------------------

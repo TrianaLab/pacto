@@ -170,7 +170,10 @@
               <a href={serviceUrl(svc.name)} class="svc-name">{svc.name}</a>
               {#if svc.owner}<span class="svc-owner">{svc.owner}</span>{/if}
             </td>
-            <td><span class="pill">{svc.version || '—'}</span></td>
+            <td>
+              <span class="pill">{svc.version || '—'}</span>
+              {#if svc.updateAvailable}<span class="update-dot" data-tip="Newer version available"></span>{/if}
+            </td>
             <td><span class="badge badge-{statusClass(svc.contractStatus)}"><span class="badge-dot"></span>{statusLabel(svc.contractStatus)}</span></td>
             <td>
               {#if svc.complianceScore != null}
@@ -281,5 +284,11 @@
     border-radius: var(--radius-sm);
     background: var(--c-accent-bg); border: 1px solid var(--c-accent);
     color: var(--c-accent); font-size: var(--text-sm); font-weight: 500;
+  }
+
+  .update-dot {
+    display: inline-block; width: 6px; height: 6px;
+    border-radius: 50%; background: var(--c-accent);
+    margin-left: 4px; vertical-align: middle;
   }
 </style>

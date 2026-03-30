@@ -374,6 +374,10 @@ func enrichRuntimeMetadata(contract *ServiceDetails, runtime *ServiceDetails) {
 	if runtime.LastReconciledAt != "" {
 		contract.LastReconciledAt = runtime.LastReconciledAt
 	}
+	// Operator-provided resolution policy is authoritative.
+	if runtime.VersionPolicy != "" {
+		contract.VersionPolicy = runtime.VersionPolicy
+	}
 }
 
 // resolverVersionSources governs the order in which sources are tried for GetVersions.
