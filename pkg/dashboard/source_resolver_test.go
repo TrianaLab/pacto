@@ -119,9 +119,9 @@ func TestResolvedSource_ListServices_GroupsByName(t *testing.T) {
 		t.Errorf("expected Compliant (from k8s), got %q", order.ContractStatus)
 	}
 
-	// Version should come from local (highest contract priority)
-	if order.Version != "1.5.0-dev" {
-		t.Errorf("expected version '1.5.0-dev' from local, got %q", order.Version)
+	// Version should come from k8s (operator is authoritative for deployed version)
+	if order.Version != "1.4.0" {
+		t.Errorf("expected version '1.4.0' from k8s operator, got %q", order.Version)
 	}
 }
 
@@ -162,9 +162,9 @@ func TestResolvedSource_GetService_ContractPlusRuntime(t *testing.T) {
 		t.Errorf("expected Compliant, got %q", details.ContractStatus)
 	}
 
-	// Version from local (contract source, never overridden by runtime)
-	if details.Version != "1.1.0-dev" {
-		t.Errorf("expected version '1.1.0-dev', got %q", details.Version)
+	// Version from k8s (operator is authoritative for deployed version)
+	if details.Version != "1.0.0" {
+		t.Errorf("expected version '1.0.0' from k8s operator, got %q", details.Version)
 	}
 
 	// Runtime from k8s
@@ -458,7 +458,9 @@ func TestResolvedSource_GetDiff_K8sCannotDiff(t *testing.T) {
 
 func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 	// k8s has interfaces and config (sparse metadata), local has full contract data.
-	// Runtime enrichment must NOT override contract fields.
+	// Runtime enrichment must NOT override contract definitions (interfaces,
+	// configuration, dependencies) but DOES override Version and Owner because
+	// the operator is the authoritative source of the deployed version.
 	k8s := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
@@ -491,13 +493,15 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Contract fields from local (never overridden):
-	if details.Version != "1.1.0-dev" {
-		t.Errorf("expected version from local contract, got %q", details.Version)
+	// Version and Owner come from k8s (operator is authoritative for deployed state):
+	if details.Version != "1.0.0" {
+		t.Errorf("expected version from k8s operator, got %q", details.Version)
 	}
-	if details.Owner != "local-team" {
-		t.Errorf("expected owner from local contract, got %q", details.Owner)
+	if details.Owner != "k8s-team" {
+		t.Errorf("expected owner from k8s operator, got %q", details.Owner)
 	}
+
+	// Contract definitions from local (never overridden):
 	if len(details.Interfaces) != 1 || details.Interfaces[0].Endpoints[0].Path != "/v2" {
 		t.Error("expected interfaces from local contract")
 	}
@@ -559,6 +563,133 @@ func TestResolvedSource_NoContractMerging(t *testing.T) {
 	// Local has no configuration — it should be nil, NOT filled from OCI
 	if details.Configuration != nil {
 		t.Error("expected nil configuration — local contract has none, should NOT fill from OCI")
+	}
+}
+
+func TestResolvedSource_K8sPinnedVersionOverridesOCILatest(t *testing.T) {
+	// Bug scenario: service pinned to 1.2.0 via operator, OCI has 2.0.0 as latest.
+	// The dashboard must show current=1.2.0, not 2.0.0.
+	k8s := &stubSource{
+		services: []Service{
+			{Name: "payments", Version: "1.2.0", ContractStatus: StatusCompliant, Source: "k8s"},
+		},
+		details: map[string]*ServiceDetails{
+			"payments": {
+				Service:       Service{Name: "payments", Version: "1.2.0", Owner: "billing", ContractStatus: StatusCompliant, Source: "k8s"},
+				ResolvedRef:   "ghcr.io/org/payments:1.2.0",
+				VersionPolicy: VersionPolicyPinnedTag,
+			},
+		},
+	}
+	ociSrc := &stubSource{
+		services: []Service{
+			{Name: "payments", Version: "2.0.0", Source: "oci"},
+		},
+		details: map[string]*ServiceDetails{
+			"payments": {
+				Service:    Service{Name: "payments", Version: "2.0.0", Owner: "billing", Source: "oci"},
+				Interfaces: []InterfaceInfo{{Name: "api", Type: "http"}},
+			},
+		},
+	}
+
+	resolved := BuildResolvedSource(map[string]DataSource{
+		"k8s": k8s,
+		"oci": ociSrc,
+	})
+
+	// GetService: k8s version must win.
+	details, err := resolved.GetService(context.Background(), "payments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Version != "1.2.0" {
+		t.Errorf("GetService: expected version=1.2.0 from k8s, got %q", details.Version)
+	}
+	if details.VersionPolicy != VersionPolicyPinnedTag {
+		t.Errorf("GetService: expected versionPolicy=%q, got %q", VersionPolicyPinnedTag, details.VersionPolicy)
+	}
+	// Contract content (interfaces) still from OCI.
+	if len(details.Interfaces) != 1 || details.Interfaces[0].Name != "api" {
+		t.Error("GetService: expected interfaces from OCI contract")
+	}
+
+	// ListServices: k8s version must win.
+	services, err := resolved.ListServices(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services) != 1 {
+		t.Fatalf("ListServices: expected 1 service, got %d", len(services))
+	}
+	if services[0].Version != "1.2.0" {
+		t.Errorf("ListServices: expected version=1.2.0 from k8s, got %q", services[0].Version)
+	}
+}
+
+func TestResolvedSource_K8sVersionChangeFromLatestToPinned(t *testing.T) {
+	// Scenario: service was on 2.0.0 (latest), then pinned back to 1.2.0.
+	// After the operator updates, dashboard must reflect the new version.
+	k8s := &stubSource{
+		services: []Service{
+			{Name: "svc", Version: "1.2.0", ContractStatus: StatusCompliant, Source: "k8s"},
+		},
+		details: map[string]*ServiceDetails{
+			"svc": {
+				Service: Service{Name: "svc", Version: "1.2.0", ContractStatus: StatusCompliant, Source: "k8s"},
+			},
+		},
+	}
+	ociSrc := &stubSource{
+		services: []Service{
+			{Name: "svc", Version: "2.0.0", Source: "oci"},
+		},
+		details: map[string]*ServiceDetails{
+			"svc": {
+				Service: Service{Name: "svc", Version: "2.0.0", Source: "oci"},
+			},
+		},
+		versions: map[string][]Version{
+			"svc": {{Version: "2.0.0"}, {Version: "1.2.0"}, {Version: "1.0.0"}},
+		},
+	}
+
+	resolved := BuildResolvedSource(map[string]DataSource{
+		"k8s": k8s,
+		"oci": ociSrc,
+	})
+
+	details, err := resolved.GetService(context.Background(), "svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Current version from k8s, not OCI latest.
+	if details.Version != "1.2.0" {
+		t.Errorf("expected version=1.2.0 from k8s, got %q", details.Version)
+	}
+}
+
+func TestResolvedSource_NoK8s_VersionFromContract(t *testing.T) {
+	// Without k8s, Version comes from the contract source (no regression).
+	ociSrc := &stubSource{
+		details: map[string]*ServiceDetails{
+			"svc": {
+				Service: Service{Name: "svc", Version: "2.0.0", Source: "oci"},
+			},
+		},
+	}
+
+	resolved := BuildResolvedSource(map[string]DataSource{
+		"oci": ociSrc,
+	})
+
+	details, err := resolved.GetService(context.Background(), "svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Version != "2.0.0" {
+		t.Errorf("expected version=2.0.0 from OCI (no k8s), got %q", details.Version)
 	}
 }
 

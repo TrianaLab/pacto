@@ -179,6 +179,13 @@ func mergeServiceEntry(name string, entry *serviceEntry) Service {
 	}
 
 	if entry.runtime != nil {
+		// Operator is authoritative for the effective deployed version.
+		if entry.runtime.Version != "" {
+			merged.Version = entry.runtime.Version
+		}
+		if entry.runtime.Owner != "" {
+			merged.Owner = entry.runtime.Owner
+		}
 		if entry.runtime.ContractStatus != StatusUnknown && entry.runtime.ContractStatus != "" {
 			merged.ContractStatus = entry.runtime.ContractStatus
 		}
@@ -303,8 +310,9 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 }
 
 // enrichWithRuntime attaches k8s runtime fields to a contract-based service.
-// It NEVER overrides contract content (interfaces, configuration, policy,
-// dependencies, version, owner).
+// It does not override contract definitions (interfaces, configuration, policy,
+// dependencies) but DOES override Version and Owner because the operator is
+// the authoritative source of the currently deployed/effective version.
 func enrichWithRuntime(contract *ServiceDetails, runtime *ServiceDetails) {
 	// Contract status: k8s is authoritative when present.
 	if runtime.ContractStatus != StatusUnknown && runtime.ContractStatus != "" {
@@ -361,7 +369,16 @@ func enrichRuntimeFields(contract *ServiceDetails, runtime *ServiceDetails) {
 }
 
 // enrichRuntimeMetadata copies k8s-specific string metadata fields.
+// Version and Owner are overridden because the operator is the authoritative
+// source of the currently deployed version (the OCI source returns the latest
+// available, which may differ from the pinned/effective version).
 func enrichRuntimeMetadata(contract *ServiceDetails, runtime *ServiceDetails) {
+	if runtime.Version != "" {
+		contract.Version = runtime.Version
+	}
+	if runtime.Owner != "" {
+		contract.Owner = runtime.Owner
+	}
 	if runtime.Namespace != "" {
 		contract.Namespace = runtime.Namespace
 	}

@@ -2530,6 +2530,90 @@ func TestServerVersionTracking_FallbackPinnedDigest(t *testing.T) {
 	}
 }
 
+func TestServerVersionTracking_PinnedOlderThanLatest(t *testing.T) {
+	// K8s-backed service pinned to 1.2.0, OCI has 2.0.0.
+	// Dashboard must show current=1.2.0, latestAvailable=2.0.0, updateAvailable=true,
+	// and isCurrent on 1.2.0 (not 2.0.0).
+	source := &mockSource{
+		services: []Service{
+			{Name: "payments", Version: "1.2.0", ContractStatus: StatusCompliant, Source: "oci"},
+		},
+		details: map[string]*ServiceDetails{
+			"payments": {
+				Service:       Service{Name: "payments", Version: "1.2.0", ContractStatus: StatusCompliant, Source: "oci"},
+				ResolvedRef:   "ghcr.io/org/payments:1.2.0",
+				VersionPolicy: VersionPolicyPinnedTag,
+			},
+		},
+		versions: map[string][]Version{
+			"payments": {{Version: "2.0.0"}, {Version: "1.2.0"}, {Version: "1.0.0"}},
+		},
+	}
+	base := startTestServer(t, source)
+
+	// List: updateAvailable=true, version=1.2.0
+	resp, err := http.Get(base + "/api/services")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []ServiceListEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close() //nolint:errcheck
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].Version != "1.2.0" {
+		t.Errorf("list: expected version=1.2.0, got %q", entries[0].Version)
+	}
+	if !entries[0].UpdateAvailable {
+		t.Error("list: expected updateAvailable=true")
+	}
+
+	// Detail: version=1.2.0, latestAvailable=2.0.0
+	resp, err = http.Get(base + "/api/services/payments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var detail ServiceDetails
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close() //nolint:errcheck
+	if detail.Version != "1.2.0" {
+		t.Errorf("detail: expected version=1.2.0, got %q", detail.Version)
+	}
+	if detail.LatestAvailable != "2.0.0" {
+		t.Errorf("detail: expected latestAvailable=2.0.0, got %q", detail.LatestAvailable)
+	}
+	if !detail.UpdateAvailable {
+		t.Error("detail: expected updateAvailable=true")
+	}
+	if detail.VersionPolicy != VersionPolicyPinnedTag {
+		t.Errorf("detail: expected versionPolicy=%q, got %q", VersionPolicyPinnedTag, detail.VersionPolicy)
+	}
+
+	// Versions: isCurrent on 1.2.0, not on 2.0.0
+	resp, err = http.Get(base + "/api/services/payments/versions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var versions []Version
+	if err := json.NewDecoder(resp.Body).Decode(&versions); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close() //nolint:errcheck
+	for _, v := range versions {
+		if v.Version == "1.2.0" && !v.IsCurrent {
+			t.Error("versions: expected 1.2.0 to be marked as current")
+		}
+		if v.Version == "2.0.0" && v.IsCurrent {
+			t.Error("versions: expected 2.0.0 NOT to be marked as current")
+		}
+	}
+}
+
 func findEntry(t *testing.T, entries []ServiceListEntry, name string) *ServiceListEntry {
 	t.Helper()
 	for i := range entries {
