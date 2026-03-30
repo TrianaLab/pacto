@@ -233,7 +233,7 @@
       {/each}
       {#if detail.owner}<span class="text-2">owner: {detail.owner}</span>{/if}
       {#if detail.namespace}<span class="text-2">ns: {detail.namespace}</span>{/if}
-      {#if detail.imageRef}<code class="text-3">{detail.imageRef}</code>{/if}
+      {#if detail.resolvedRef || detail.imageRef}<code class="text-3">{detail.resolvedRef || detail.imageRef}</code>{/if}
       {#if versions?.length > 1}
         <a href={diffUrl(name)} class="btn btn-sm" style="margin-left:auto">Compare versions</a>
       {/if}
