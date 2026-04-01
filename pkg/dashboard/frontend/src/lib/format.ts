@@ -203,8 +203,7 @@ export function extractOwnerDetail(ownerKeyStr: string, services: Array<Record<s
   const detail: OwnerDetail = { key: ownerKeyStr, team: '', dri: '', contacts: [], isStructured: false };
 
   // Find a representative structured owner from the services
-  let found: Record<string, unknown> | null = null;
-  let consistent = true;
+  let found = false;
 
   for (const svc of services) {
     const o = svc.owner;
@@ -214,18 +213,13 @@ export function extractOwnerDetail(ownerKeyStr: string, services: Array<Record<s
       continue;
     }
     detail.isStructured = true;
-    const obj = o as Record<string, unknown>;
     if (!found) {
-      found = obj;
+      found = true;
+      const obj = o as Record<string, unknown>;
       detail.team = String(obj.team || '');
       detail.dri = String(obj.dri || '');
       const contacts = obj.contacts as OwnerContact[] | undefined;
       if (contacts?.length) detail.contacts = contacts;
-    } else {
-      // Check consistency
-      if (String(obj.team || '') !== detail.team || String(obj.dri || '') !== detail.dri) {
-        consistent = false;
-      }
     }
   }
 

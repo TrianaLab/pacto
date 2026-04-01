@@ -3,7 +3,7 @@
  * Returns { destroy, zoomIn, zoomOut, resetView, applyFilter }.
  */
 import * as d3 from 'd3';
-import { reasonLabel, reasonTooltip } from './format.ts';
+import { reasonTooltip } from './format.ts';
 
 const STATUS_COLORS: Record<string, string> = {
   Compliant: '#34d399',
