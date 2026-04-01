@@ -2,23 +2,37 @@
   import { ownerUrl } from './lib/router.ts';
   import { complianceClass, computeTooltipPosition } from './lib/format.ts';
 
-  let { owners = [] } = $props();
+  let { owners = [], sortBy = 'services' } = $props();
 
-  let maxServices = $derived(Math.max(1, ...owners.map((o) => o.services)));
-
-  const SEGMENTS = [
+  // Determine chart mode from current sort
+  const STATUS_SEGMENTS = [
     { key: 'compliant', label: 'Compliant', color: 'var(--c-ok)' },
     { key: 'warning', label: 'Warning', color: 'var(--c-warn)' },
     { key: 'nonCompliant', label: 'Non-Compliant', color: 'var(--c-err)' },
     { key: 'reference', label: 'Reference', color: 'var(--c-neutral)' },
   ];
 
+  const METRIC_CONFIG = {
+    services: { label: 'Services by Status', getValue: (o) => o.services, segments: true },
+    blast: { label: 'Blast Radius', getValue: (o) => o.totalBlast, color: 'var(--c-warn)', unit: '' },
+    compliance: { label: '% Compliant', getValue: (o) => o.compliancePercent >= 0 ? o.compliancePercent : 0, color: 'var(--c-ok)', unit: '%', max: 100 },
+    warning: { label: 'Warnings', getValue: (o) => o.warning, color: 'var(--c-warn)', unit: '' },
+    nonCompliant: { label: 'Non-Compliant', getValue: (o) => o.nonCompliant, color: 'var(--c-err)', unit: '' },
+    key: { label: 'Services by Status', getValue: (o) => o.services, segments: true },
+  };
+
+  let metric = $derived(METRIC_CONFIG[sortBy] || METRIC_CONFIG.services);
+  let maxValue = $derived.by(() => {
+    if (metric.max) return metric.max;
+    if (metric.segments) return Math.max(1, ...owners.map((o) => o.services));
+    return Math.max(1, ...owners.map((o) => metric.getValue(o)));
+  });
+
   // Tooltip uses fixed positioning to avoid clipping by container overflow
   let tip = $state({ visible: false, left: 0, top: 0, owner: null });
   let tipEl = $state(null);
 
   function showTooltip(e, owner) {
-    // Measure tooltip dimensions (use previous render or estimate)
     const w = tipEl?.offsetWidth || 180;
     const h = tipEl?.offsetHeight || 100;
     const pos = computeTooltipPosition(e.clientX, e.clientY, w, h);
@@ -36,15 +50,17 @@
 
 <div class="chart-card fade-in-up">
   <div class="chart-header">
-    <span class="chart-title">Compliance by Owner</span>
-    <div class="chart-legend">
-      {#each SEGMENTS as seg}
-        <span class="legend-item">
-          <span class="legend-dot" style="background:{seg.color}"></span>
-          {seg.label}
-        </span>
-      {/each}
-    </div>
+    <span class="chart-title">{metric.label}</span>
+    {#if metric.segments}
+      <div class="chart-legend">
+        {#each STATUS_SEGMENTS as seg}
+          <span class="legend-item">
+            <span class="legend-dot" style="background:{seg.color}"></span>
+            {seg.label}
+          </span>
+        {/each}
+      </div>
+    {/if}
   </div>
 
   <div class="chart-body">
@@ -62,19 +78,30 @@
         <span class="row-label" title={owner.key}>{owner.key}</span>
         <div class="row-bar">
           <div class="bar-track">
-            {#each SEGMENTS as seg}
-              {#if owner[seg.key] > 0}
+            {#if metric.segments}
+              {#each STATUS_SEGMENTS as seg}
+                {#if owner[seg.key] > 0}
+                  <div
+                    class="bar-seg"
+                    style="width:{(owner[seg.key] / maxValue) * 100}%; background:{seg.color}"
+                  ></div>
+                {/if}
+              {/each}
+            {:else}
+              {@const val = metric.getValue(owner)}
+              {#if val > 0}
                 <div
-                  class="bar-seg"
-                  style="width:{(owner[seg.key] / maxServices) * 100}%; background:{seg.color}"
+                  class="bar-seg bar-seg-single"
+                  style="width:{(val / maxValue) * 100}%; background:{metric.color}"
                 ></div>
               {/if}
-            {/each}
+            {/if}
           </div>
           <span class="row-count">
-            {owner.services}
-            {#if owner.totalBlast > 0}
-              <span class="row-blast" class:blast-high={owner.totalBlast >= 5}>💥{owner.totalBlast}</span>
+            {#if metric.segments}
+              {owner.services}
+            {:else}
+              {metric.getValue(owner)}{metric.unit}
             {/if}
           </span>
         </div>
@@ -184,16 +211,12 @@
   .bar-seg:first-child { border-radius: 3px 0 0 3px; }
   .bar-seg:last-child { border-radius: 0 3px 3px 0; }
   .bar-seg:only-child { border-radius: 3px; }
+  .bar-seg-single { border-radius: 3px; }
 
   .row-count {
     font-size: var(--text-xs); font-weight: 600; color: var(--c-text-2);
     min-width: 28px; white-space: nowrap;
-    display: inline-flex; align-items: center; gap: 6px;
   }
-  .row-blast {
-    font-size: 10px; font-weight: 500; color: var(--c-text-3);
-  }
-  .row-blast.blast-high { color: var(--c-warn); }
 
   /* ── Tooltip (fixed position, outside container) ── */
   .chart-tooltip {

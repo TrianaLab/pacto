@@ -49,11 +49,16 @@
     });
   });
 
-  // Totals for filter pills (from unfiltered list)
+  // Totals for filter pills — filtered by name (but not status) so counts update dynamically
   let allOwners = $derived(aggregateByOwner(services));
+  let nameFilteredOwners = $derived.by(() => {
+    if (!nameFilter) return allOwners;
+    const q = nameFilter.toLowerCase();
+    return allOwners.filter((o) => o.key.toLowerCase().includes(q));
+  });
   let filterCounts = $derived.by(() => {
     let warnings = 0, nonCompliant = 0, compliant = 0;
-    for (const o of allOwners) {
+    for (const o of nameFilteredOwners) {
       if (o.warning > 0) warnings++;
       if (o.nonCompliant > 0) nonCompliant++;
       if (o.compliancePercent === 100) compliant++;
@@ -156,7 +161,7 @@
   {:else}
     <!-- Chart -->
     {#if owners.length > 1}
-      <OwnerBarChart {owners} />
+      <OwnerBarChart {owners} {sortBy} />
     {/if}
 
     <!-- Table -->

@@ -1,9 +1,24 @@
 <script>
+  import { ownerMatchesFilter } from './lib/format.ts';
+
   let { services = [], statusFilter = $bindable('all'), sourceFilter = $bindable('all'), nameFilter = $bindable('') } = $props();
 
+  // Pre-filter by name and source (but NOT status) so pill counts update dynamically
+  let baseFiltered = $derived.by(() => {
+    let list = services;
+    if (nameFilter) {
+      const q = nameFilter.toLowerCase();
+      list = list.filter((s) => s.name.toLowerCase().includes(q) || ownerMatchesFilter(s.owner, q));
+    }
+    if (sourceFilter !== 'all') {
+      list = list.filter((s) => (s.sources || [s.source]).includes(sourceFilter));
+    }
+    return list;
+  });
+
   let stats = $derived.by(() => {
-    const s = { total: services.length, compliant: 0, warning: 0, nonCompliant: 0, unknown: 0, reference: 0 };
-    for (const svc of services) {
+    const s = { total: baseFiltered.length, compliant: 0, warning: 0, nonCompliant: 0, unknown: 0, reference: 0 };
+    for (const svc of baseFiltered) {
       if (svc.contractStatus === 'Compliant') s.compliant++;
       else if (svc.contractStatus === 'Warning') s.warning++;
       else if (svc.contractStatus === 'NonCompliant') s.nonCompliant++;
