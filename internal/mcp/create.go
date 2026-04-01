@@ -1210,7 +1210,15 @@ func summarizeService(s *ContractSummary, m map[string]interface{}) {
 	}
 	s.Name, _ = svc["name"].(string)
 	s.Version, _ = svc["version"].(string)
-	s.Owner, _ = svc["owner"].(string)
+	if str, ok := svc["owner"].(string); ok {
+		s.Owner = str
+	} else if obj, ok := svc["owner"].(map[string]interface{}); ok {
+		if team, _ := obj["team"].(string); team != "" {
+			s.Owner = team
+		} else if dri, _ := obj["dri"].(string); dri != "" {
+			s.Owner = dri
+		}
+	}
 }
 
 func summarizeRuntime(s *ContractSummary, m map[string]interface{}) {
