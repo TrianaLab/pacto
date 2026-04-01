@@ -170,8 +170,8 @@ func buildSummaryParagraph(c *contract.Contract) string {
 
 func buildSummaryDetails(c *contract.Contract) []string {
 	var details []string
-	if c.Service.Owner != "" {
-		details = append(details, fmt.Sprintf("owned by `%s`", c.Service.Owner))
+	if !c.Service.Owner.IsEmpty() {
+		details = append(details, fmt.Sprintf("owned by `%s`", c.Service.Owner.DisplayString()))
 	}
 	if c.Service.Image != nil {
 		visibility := "public"

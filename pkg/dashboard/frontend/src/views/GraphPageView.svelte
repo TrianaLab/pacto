@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl } from '../lib/router.ts';
-  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable } from '../lib/format.ts';
+  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerKey, ownerMatchesFilter } from '../lib/format.ts';
   import GraphCanvas from '../GraphCanvas.svelte';
   import StatsBar from '../StatsBar.svelte';
 
@@ -22,6 +22,13 @@
     loading = false;
   }
 
+  // Build a lookup: service name → owner (for graph filtering)
+  let ownerByService = $derived.by(() => {
+    const m = new Map();
+    for (const s of services) m.set(s.name, s.owner);
+    return m;
+  });
+
   function filterFn(node) {
     let dominated = false;
     if (statusFilter !== 'all') {
@@ -30,7 +37,10 @@
     }
     if (nameFilter) {
       const q = nameFilter.toLowerCase();
-      if (!node.serviceName.toLowerCase().includes(q)) dominated = true;
+      const nameMatch = node.serviceName.toLowerCase().includes(q);
+      const svcOwner = ownerByService.get(node.serviceName);
+      const ownerMatch = svcOwner ? ownerMatchesFilter(svcOwner, q) : false;
+      if (!nameMatch && !ownerMatch) dominated = true;
     }
     return dominated;
   }
@@ -66,7 +76,7 @@
       bind:this={graphRef}
       {graphData}
       height={Math.min(window.innerHeight - 200, 600)}
-      onNavigate={(name) => location.hash = serviceUrl(name).slice(0)}
+      onNavigate={(name) => location.hash = serviceUrl(name)}
     />
     <div class="graph-legend">
       <span class="legend-item" data-tip="All contract checks pass"><span class="legend-dot" style="background:var(--c-ok)"></span> Compliant</span>
@@ -92,7 +102,11 @@
         if (status !== statusFilter) return false;
       }
       if (nameFilter) {
-        if (!n.serviceName.toLowerCase().includes(nameFilter.toLowerCase())) return false;
+        const q = nameFilter.toLowerCase();
+        const nameMatch = n.serviceName.toLowerCase().includes(q);
+        const svcOwner = ownerByService.get(n.serviceName);
+        const ownerMatch = svcOwner ? ownerMatchesFilter(svcOwner, q) : false;
+        if (!nameMatch && !ownerMatch) return false;
       }
       return true;
     })
@@ -106,7 +120,7 @@
           <tbody>
             {#each filteredNodes as node}
               {@const edges = node.edges || []}
-              <tr class={node.status !== 'external' ? 'clickable' : ''} onclick={() => { if (node.status !== 'external') location.hash = serviceUrl(node.serviceName).slice(0); }}>
+              <tr class={node.status !== 'external' ? 'clickable' : ''} onclick={() => { if (node.status !== 'external') location.hash = serviceUrl(node.serviceName); }}>
                 <td>
                   {#if node.status !== 'external'}
                     <a href={serviceUrl(node.serviceName)}>{node.serviceName}</a>

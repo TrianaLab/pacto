@@ -17,7 +17,7 @@ type Contract struct {
 type ServiceIdentity struct {
 	Name    string `yaml:"name" json:"name"`
 	Version string `yaml:"version" json:"version"`
-	Owner   string `yaml:"owner,omitempty" json:"owner,omitempty"`
+	Owner   Owner  `yaml:"owner,omitempty" json:"owner,omitempty"`
 	Image   *Image `yaml:"image,omitempty" json:"image,omitempty"`
 	Chart   *Chart `yaml:"chart,omitempty" json:"chart,omitempty"`
 }

@@ -185,8 +185,8 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
 		_, _ = fmt.Fprintf(w, "Service: %s@%s\n", result.Name, result.Version)
-		if result.Owner != "" {
-			_, _ = fmt.Fprintf(w, "Owner: %s\n", result.Owner)
+		if !result.Owner.IsEmpty() {
+			_, _ = fmt.Fprintf(w, "Owner: %s\n", result.Owner.DisplayString())
 		}
 		_, _ = fmt.Fprintf(w, "Pacto Version: %s\n", result.PactoVersion)
 

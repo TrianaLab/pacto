@@ -126,6 +126,16 @@ func TestValidateCommand(t *testing.T) {
 		assertContains(t, output, "Usage")
 	})
 
+	t.Run("structured owner valid", func(t *testing.T) {
+		t.Parallel()
+		bundlePath := writeStructuredOwnerBundle(t)
+
+		output, err := runCommand(t, nil, "validate", bundlePath)
+		if err != nil {
+			t.Fatalf("validate failed for structured owner: %v\noutput: %s", err, output)
+		}
+	})
+
 }
 
 func TestValidateFileContent(t *testing.T) {

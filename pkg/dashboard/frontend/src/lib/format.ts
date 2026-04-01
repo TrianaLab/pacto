@@ -121,3 +121,197 @@ export function versionPolicyClass(policy: string | undefined): string {
   if (policy === 'tracking') return 'policy-tracking';
   return '';
 }
+
+// ── Owner helpers ──
+
+/** Extract a display string from the owner field (string or structured object). */
+export function ownerDisplay(owner: unknown): string {
+  if (!owner) return '';
+  if (typeof owner === 'string') return owner;
+  if (typeof owner === 'object') {
+    const o = owner as Record<string, unknown>;
+    if (o.team) return String(o.team);
+    if (o.dri) return String(o.dri);
+    return '';
+  }
+  return '';
+}
+
+/**
+ * Canonical owner key used for grouping, aggregation, and navigation.
+ * Normalization: structured.team > legacy string > structured.dri > empty.
+ * This is the single source of truth — reuse everywhere.
+ */
+export const ownerKey = ownerDisplay;
+
+/** Extract the team from an owner (string or structured). */
+export function ownerTeam(owner: unknown): string {
+  if (!owner) return '';
+  if (typeof owner === 'string') return owner;
+  if (typeof owner === 'object') return String((owner as Record<string, unknown>).team || '');
+  return '';
+}
+
+/** Check whether an owner value matches a search query (case-insensitive). */
+export function ownerMatchesFilter(owner: unknown, query: string): boolean {
+  if (!owner) return false;
+  const q = query.toLowerCase();
+  if (typeof owner === 'string') return owner.toLowerCase().includes(q);
+  if (typeof owner === 'object') {
+    const o = owner as Record<string, unknown>;
+    if (String(o.team || '').toLowerCase().includes(q)) return true;
+    if (String(o.dri || '').toLowerCase().includes(q)) return true;
+    const contacts = o.contacts as Array<Record<string, unknown>> | undefined;
+    if (contacts) {
+      for (const c of contacts) {
+        if (String(c.value || '').toLowerCase().includes(q)) return true;
+      }
+    }
+    return false;
+  }
+  return false;
+}
+
+/** Check if owner is a structured object (not a plain string). */
+export function ownerIsStructured(owner: unknown): boolean {
+  return owner != null && typeof owner === 'object';
+}
+
+// ── Owner detail extraction ──
+
+export interface OwnerContact {
+  type: string;
+  value: string;
+  purpose?: string;
+}
+
+export interface OwnerDetail {
+  key: string;
+  team: string;
+  dri: string;
+  contacts: OwnerContact[];
+  isStructured: boolean;
+}
+
+/**
+ * Extract a consistent OwnerDetail from the services sharing an owner key.
+ * If all services have identical structured data, returns it directly.
+ * If structured data differs, merges and flags inconsistency.
+ * For legacy string owners, returns the string as team.
+ */
+export function extractOwnerDetail(ownerKeyStr: string, services: Array<Record<string, unknown>>): OwnerDetail {
+  const detail: OwnerDetail = { key: ownerKeyStr, team: '', dri: '', contacts: [], isStructured: false };
+
+  // Find a representative structured owner from the services
+  let found: Record<string, unknown> | null = null;
+  let consistent = true;
+
+  for (const svc of services) {
+    const o = svc.owner;
+    if (!o || typeof o !== 'object') {
+      // Legacy string owner — use the key as team
+      if (typeof o === 'string' && !detail.team) detail.team = o;
+      continue;
+    }
+    detail.isStructured = true;
+    const obj = o as Record<string, unknown>;
+    if (!found) {
+      found = obj;
+      detail.team = String(obj.team || '');
+      detail.dri = String(obj.dri || '');
+      const contacts = obj.contacts as OwnerContact[] | undefined;
+      if (contacts?.length) detail.contacts = contacts;
+    } else {
+      // Check consistency
+      if (String(obj.team || '') !== detail.team || String(obj.dri || '') !== detail.dri) {
+        consistent = false;
+      }
+    }
+  }
+
+  if (!detail.team && !detail.isStructured) detail.team = ownerKeyStr;
+
+  return detail;
+}
+
+// ── Owner aggregation ──
+
+export interface OwnerAggregation {
+  key: string;
+  services: number;
+  compliant: number;
+  warning: number;
+  nonCompliant: number;
+  reference: number;
+  unknown: number;
+  totalBlast: number;
+  compliancePercent: number;
+}
+
+/** Aggregate services by canonical owner key. */
+export function aggregateByOwner(services: Array<Record<string, unknown>>): OwnerAggregation[] {
+  const map = new Map<string, OwnerAggregation>();
+  for (const svc of services) {
+    const key = ownerKey(svc.owner) || '(unowned)';
+    let agg = map.get(key);
+    if (!agg) {
+      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, totalBlast: 0, compliancePercent: 0 };
+      map.set(key, agg);
+    }
+    agg.services++;
+    const status = svc.contractStatus as string;
+    if (status === 'Compliant') agg.compliant++;
+    else if (status === 'Warning') agg.warning++;
+    else if (status === 'NonCompliant') agg.nonCompliant++;
+    else if (status === 'Reference') agg.reference++;
+    else agg.unknown++;
+    agg.totalBlast += (svc.blastRadius as number) || 0;
+  }
+  for (const agg of map.values()) {
+    const assessed = agg.compliant + agg.warning + agg.nonCompliant;
+    agg.compliancePercent = assessed > 0 ? Math.round((agg.compliant / assessed) * 100) : -1;
+  }
+  return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
+}
+
+// ── Tooltip positioning ──
+
+export interface TooltipPosition {
+  left: number;
+  top: number;
+}
+
+/**
+ * Compute tooltip position in fixed viewport coordinates, avoiding clipping.
+ * Prefers placement above the cursor, centered horizontally.
+ * Falls back to below if insufficient space above.
+ * Clamps horizontally to stay within viewport.
+ */
+export function computeTooltipPosition(
+  cursorX: number,
+  cursorY: number,
+  tipWidth: number,
+  tipHeight: number,
+  margin: number = 8,
+): TooltipPosition {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+
+  // Horizontal: center on cursor, clamp to viewport
+  let left = cursorX - tipWidth / 2;
+  if (left < margin) left = margin;
+  if (left + tipWidth > vw - margin) left = vw - margin - tipWidth;
+
+  // Vertical: prefer above cursor
+  let top = cursorY - tipHeight - margin;
+  if (top < margin) {
+    // Not enough room above — place below cursor
+    top = cursorY + margin;
+  }
+  // Clamp bottom
+  if (top + tipHeight > vh - margin) {
+    top = vh - margin - tipHeight;
+  }
+
+  return { left, top };
+}

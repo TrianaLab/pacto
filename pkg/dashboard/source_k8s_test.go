@@ -32,8 +32,8 @@ func TestK8s_serviceFromK8sStatus_Minimal(t *testing.T) {
 	if svc.Version != "" {
 		t.Errorf("expected empty version, got %q", svc.Version)
 	}
-	if svc.Owner != "" {
-		t.Errorf("expected empty owner, got %q", svc.Owner)
+	if !svc.Owner.IsEmpty() {
+		t.Errorf("expected empty owner, got %q", svc.Owner.DisplayString())
 	}
 }
 
@@ -55,8 +55,8 @@ func TestK8s_serviceFromK8sStatus_WithContract(t *testing.T) {
 	if svc.Version != "2.0.0" {
 		t.Errorf("expected version '2.0.0', got %q", svc.Version)
 	}
-	if svc.Owner != "platform-team" {
-		t.Errorf("expected owner 'platform-team', got %q", svc.Owner)
+	if svc.Owner.DisplayString() != "platform-team" {
+		t.Errorf("expected owner 'platform-team', got %q", svc.Owner.DisplayString())
 	}
 }
 
@@ -115,8 +115,8 @@ func assertDetailsServiceFields(t *testing.T, d *ServiceDetails) {
 	if d.Version != "1.2.3" {
 		t.Errorf("version: got %q", d.Version)
 	}
-	if d.Owner != "payments" {
-		t.Errorf("owner: got %q", d.Owner)
+	if d.Owner.DisplayString() != "payments" {
+		t.Errorf("owner: got %q", d.Owner.DisplayString())
 	}
 	if d.ContractStatus != StatusCompliant {
 		t.Errorf("contractStatus: got %q", d.ContractStatus)

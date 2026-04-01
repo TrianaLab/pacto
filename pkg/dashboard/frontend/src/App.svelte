@@ -7,6 +7,8 @@
   import ServiceDetailView from './views/ServiceDetailView.svelte';
   import GraphPageView from './views/GraphPageView.svelte';
   import DiffView from './views/DiffView.svelte';
+  import OwnersView from './views/OwnersView.svelte';
+  import OwnerDetailView from './views/OwnerDetailView.svelte';
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -17,6 +19,7 @@
   let reloadTimer = $state(null);
   let refreshing = $state(false);
   let refreshTick = $state(0);
+  let initialLoading = $state(true);
 
   function onHashChange() {
     route = parseHash(location.hash);
@@ -32,7 +35,7 @@
 
       // On detail/diff views, skip the heavy services list fetch —
       // those views fetch their own data independently.
-      const needsServices = route.view === 'list' || route.view === 'graph' || route.view === 'diff';
+      const needsServices = route.view === 'list' || route.view === 'graph' || route.view === 'diff' || route.view === 'owners' || route.view === 'owner-detail';
 
       const fetches = [
         needsServices ? api.services() : Promise.resolve(null),
@@ -49,6 +52,7 @@
       // keep stale data
     }
     refreshing = false;
+    initialLoading = false;
   }
 
   function toggleAutoReload() {
@@ -112,7 +116,13 @@
     />
   {:else if route.view === 'graph'}
     <GraphPageView {services} {sourcesInfo} />
+  {:else if route.view === 'owners'}
+    <OwnersView {services} {initialLoading} />
+  {:else if route.view === 'owner-detail'}
+    {#key route.params.owner}
+      <OwnerDetailView owner={route.params.owner} {services} {initialLoading} />
+    {/key}
   {:else}
-    <ServiceListView {services} {sourcesInfo} {discovering} />
+    <ServiceListView {services} {sourcesInfo} {discovering} {initialLoading} />
   {/if}
 </main>

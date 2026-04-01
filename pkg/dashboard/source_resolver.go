@@ -183,7 +183,7 @@ func mergeServiceEntry(name string, entry *serviceEntry) Service {
 		if entry.runtime.Version != "" {
 			merged.Version = entry.runtime.Version
 		}
-		if entry.runtime.Owner != "" {
+		if !entry.runtime.Owner.IsEmpty() {
 			merged.Owner = entry.runtime.Owner
 		}
 		if entry.runtime.ContractStatus != StatusUnknown && entry.runtime.ContractStatus != "" {
@@ -376,7 +376,7 @@ func enrichRuntimeMetadata(contract *ServiceDetails, runtime *ServiceDetails) {
 	if runtime.Version != "" {
 		contract.Version = runtime.Version
 	}
-	if runtime.Owner != "" {
+	if !runtime.Owner.IsEmpty() {
 		contract.Owner = runtime.Owner
 	}
 	if runtime.Namespace != "" {

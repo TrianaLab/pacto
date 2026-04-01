@@ -1172,7 +1172,7 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 	s := ContractSummary{
 		Name:     c.Service.Name,
 		Version:  c.Service.Version,
-		Owner:    c.Service.Owner,
+		Owner:    c.Service.Owner.DisplayString(),
 		Sections: assessSections(c),
 	}
 

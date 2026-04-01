@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/trianalab/pacto/pkg/contract"
 )
 
 // ContractStatus represents the contract compliance status of a service.
@@ -82,7 +84,7 @@ type RuntimeDiffRow struct {
 type Service struct {
 	Name           string         `json:"name"`
 	Version        string         `json:"version"`
-	Owner          string         `json:"owner,omitempty"`
+	Owner          contract.Owner `json:"owner,omitempty"`
 	ContractStatus ContractStatus `json:"contractStatus"`
 	Source         string         `json:"source"`            // primary source: k8s, oci, local
 	Sources        []string       `json:"sources,omitempty"` // all sources this service appears in

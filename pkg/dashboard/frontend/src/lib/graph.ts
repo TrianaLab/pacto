@@ -69,9 +69,11 @@ interface RenderOptions {
   onNavigate?: (name: string) => void;
   focusId?: string;
   filterFn?: (n: GraphNode) => boolean;
+  /** Set of service names to persistently emphasize (e.g. owner's services). Survives hover. */
+  focusNodes?: Set<string>;
 }
 
-export function renderGraph(container: HTMLElement, graphData: GraphData, { onNavigate, focusId, filterFn }: RenderOptions = {}): GraphControls {
+export function renderGraph(container: HTMLElement, graphData: GraphData, { onNavigate, focusId, filterFn, focusNodes }: RenderOptions = {}): GraphControls {
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
   const links: SimLink[] = [];
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
@@ -292,6 +294,47 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
       return `${name} — ${d.status || 'Unknown'}`;
     });
 
+  // focusNodes: IDs of nodes that should stay emphasized (owner view)
+  const focusSet = new Set<string>();
+  const focusContextSet = new Set<string>(); // direct neighbors of focus nodes
+  if (focusNodes?.size) {
+    for (const n of nodes) {
+      if (focusNodes.has(n.serviceName)) focusSet.add(n.id);
+    }
+    // Compute direct dependency context of focus nodes
+    for (const l of links) {
+      const sid = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source;
+      const tid = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target;
+      if (focusSet.has(sid) && !focusSet.has(tid)) focusContextSet.add(tid);
+      if (focusSet.has(tid) && !focusSet.has(sid)) focusContextSet.add(sid);
+    }
+  }
+
+  const hasFocus = focusSet.size > 0;
+
+  /** Compute base opacity for a node respecting focusNodes. */
+  function baseOpacity(n: GraphNode): number {
+    if (!hasFocus) return 1;
+    if (focusSet.has(n.id)) return 1;
+    if (focusContextSet.has(n.id)) return 0.45;
+    return 0.12;
+  }
+
+  /** Compute base stroke width for a node. */
+  function baseStrokeWidth(n: GraphNode): number {
+    if (hasFocus && focusSet.has(n.id)) return 2.5;
+    return n.serviceName === focusId ? 2.5 : 1.5;
+  }
+
+  /** Compute base link opacity. */
+  function baseLinkOpacity(l: SimLink): number {
+    if (!hasFocus) return 0.6;
+    const sid = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source;
+    const tid = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target;
+    if (focusSet.has(sid) || focusSet.has(tid)) return 0.6;
+    return 0.05;
+  }
+
   // Build adjacency (bidirectional) and reverse-dependency map (who depends on X)
   const adjacency = new Map<string, Set<string>>();
   const dependedOnBy = new Map<string, Set<string>>(); // targetId -> set of sourceIds that depend on it
@@ -328,6 +371,13 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
   const blastColor = getComputedStyle(container).getPropertyValue('--c-err').trim() || '#f87171';
   const warnColor = getComputedStyle(container).getPropertyValue('--c-warn').trim() || '#fbbf24';
 
+  // Apply initial focus emphasis
+  if (hasFocus) {
+    nodeEls.attr('opacity', (n) => baseOpacity(n));
+    nodeEls.select('rect').attr('stroke-width', (n: any) => baseStrokeWidth(n));
+    linkEls.attr('opacity', (l) => baseLinkOpacity(l));
+  }
+
   nodeEls
     .on('mouseenter', (_, d) => {
       const hasIssues = d.status === 'Warning' || d.status === 'NonCompliant';
@@ -336,7 +386,12 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
       const highlight = new Set([d.id, ...neighbors, ...impacted]);
 
       nodeEls.transition().duration(150)
-        .attr('opacity', (n) => highlight.has(n.id) ? 1 : 0.15);
+        .attr('opacity', (n) => {
+          if (highlight.has(n.id)) return 1;
+          // Preserve focus emphasis during hover
+          if (hasFocus && focusSet.has(n.id)) return 0.5;
+          return 0.12;
+        });
 
       // Pulse the stroke of impacted nodes to show blast radius
       if (hasIssues && impacted.size > 0) {
@@ -349,7 +404,7 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
           })
           .attr('stroke-width', (n: any) => {
             if (impacted.has(n.id)) return 2.5;
-            return n.serviceName === focusId ? 2.5 : 1.5;
+            return baseStrokeWidth(n);
           });
       }
 
@@ -367,13 +422,14 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
         });
     })
     .on('mouseleave', () => {
-      nodeEls.transition().duration(150).attr('opacity', 1);
+      // Restore to base state (respects focusNodes)
+      nodeEls.transition().duration(150).attr('opacity', (n) => baseOpacity(n));
       nodeEls.select('rect')
         .transition().duration(150)
         .attr('stroke', (n: any) => nodeColor(n))
-        .attr('stroke-width', (n: any) => n.serviceName === focusId ? 2.5 : 1.5);
+        .attr('stroke-width', (n: any) => baseStrokeWidth(n));
       linkEls.transition().duration(150)
-        .attr('opacity', 0.6)
+        .attr('opacity', (l) => baseLinkOpacity(l))
         .attr('stroke-width', (l) => l.required ? 2 : 1);
     });
 
@@ -420,6 +476,31 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
     });
     nodeEls.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
   });
+
+  // Auto-center on focus nodes once simulation settles
+  if (hasFocus) {
+    sim.on('end.focus', () => {
+      const focusNodesList = nodes.filter((n) => focusSet.has(n.id));
+      if (!focusNodesList.length) return;
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const n of focusNodesList) {
+        const x = n.x ?? 0, y = n.y ?? 0;
+        if (x - NODE_W / 2 < minX) minX = x - NODE_W / 2;
+        if (x + NODE_W / 2 > maxX) maxX = x + NODE_W / 2;
+        if (y - NODE_H / 2 < minY) minY = y - NODE_H / 2;
+        if (y + NODE_H / 2 > maxY) maxY = y + NODE_H / 2;
+      }
+      // Add padding
+      const pad = 60;
+      minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+      const bw = maxX - minX, bh = maxY - minY;
+      const scale = Math.min(width / bw, height / bh, 1.5);
+      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+      const tx = width / 2 - cx * scale, ty = height / 2 - cy * scale;
+      const transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+      (svg as any).transition().duration(600).call(zoom.transform, transform);
+    });
+  }
 
   return {
     nodes,

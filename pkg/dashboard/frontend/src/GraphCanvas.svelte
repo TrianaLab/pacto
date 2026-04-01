@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { renderGraph, extractSubgraph } from './lib/graph.ts';
 
-  let { graphData = null, focusId = null, height = 400, onNavigate, filterFn } = $props();
+  let { graphData = null, focusId = null, height = 400, onNavigate, filterFn, focusNodes = null } = $props();
 
   let containerEl = $state(null);
   let instance = $state(null);
@@ -22,6 +22,7 @@
       focusId,
       onNavigate,
       filterFn,
+      focusNodes: focusNodes || undefined,
     });
   }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"github.com/trianalab/pacto/pkg/contract"
 )
 
 type stubSource struct {
@@ -464,7 +466,7 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 	k8s := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service:       Service{Name: "svc", Version: "1.0.0", Owner: "k8s-team", ContractStatus: StatusCompliant, Source: "k8s"},
+				Service:       Service{Name: "svc", Version: "1.0.0", Owner: contract.NewOwnerFromString("k8s-team"), ContractStatus: StatusCompliant, Source: "k8s"},
 				Interfaces:    []InterfaceInfo{{Name: "api", Type: "http"}},
 				Configuration: &ConfigurationInfo{HasSchema: true, Ref: "oci://config"},
 				Dependencies:  []DependencyInfo{{Ref: "oci://auth:1.0.0", Required: true}},
@@ -475,7 +477,7 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 	local := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service:       Service{Name: "svc", Version: "1.1.0-dev", Owner: "local-team", ContractStatus: StatusNonCompliant, Source: "local"},
+				Service:       Service{Name: "svc", Version: "1.1.0-dev", Owner: contract.NewOwnerFromString("local-team"), ContractStatus: StatusNonCompliant, Source: "local"},
 				Interfaces:    []InterfaceInfo{{Name: "api", Type: "http", Endpoints: []InterfaceEndpoint{{Method: "GET", Path: "/v2"}}}},
 				Configuration: &ConfigurationInfo{HasSchema: true, Schema: "config.json", Values: []ConfigValue{{Key: "port", Value: "8080"}}},
 				Dependencies:  []DependencyInfo{{Ref: "oci://auth:2.0.0", Required: true}},
@@ -497,8 +499,8 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 	if details.Version != "1.0.0" {
 		t.Errorf("expected version from k8s operator, got %q", details.Version)
 	}
-	if details.Owner != "k8s-team" {
-		t.Errorf("expected owner from k8s operator, got %q", details.Owner)
+	if details.Owner.DisplayString() != "k8s-team" {
+		t.Errorf("expected owner from k8s operator, got %q", details.Owner.DisplayString())
 	}
 
 	// Contract definitions from local (never overridden):
@@ -575,7 +577,7 @@ func TestResolvedSource_K8sPinnedVersionOverridesOCILatest(t *testing.T) {
 		},
 		details: map[string]*ServiceDetails{
 			"payments": {
-				Service:       Service{Name: "payments", Version: "1.2.0", Owner: "billing", ContractStatus: StatusCompliant, Source: "k8s"},
+				Service:       Service{Name: "payments", Version: "1.2.0", Owner: contract.NewOwnerFromString("billing"), ContractStatus: StatusCompliant, Source: "k8s"},
 				ResolvedRef:   "ghcr.io/org/payments:1.2.0",
 				VersionPolicy: VersionPolicyPinnedTag,
 			},
@@ -587,7 +589,7 @@ func TestResolvedSource_K8sPinnedVersionOverridesOCILatest(t *testing.T) {
 		},
 		details: map[string]*ServiceDetails{
 			"payments": {
-				Service:    Service{Name: "payments", Version: "2.0.0", Owner: "billing", Source: "oci"},
+				Service:    Service{Name: "payments", Version: "2.0.0", Owner: contract.NewOwnerFromString("billing"), Source: "oci"},
 				Interfaces: []InterfaceInfo{{Name: "api", Type: "http"}},
 			},
 		},
@@ -760,10 +762,10 @@ func TestResolvedSource_ListServices_K8sOnlySource(t *testing.T) {
 func TestResolvedSource_ListServices_K8sOwnerOverride(t *testing.T) {
 	// When k8s provides an owner, it should override the contract source's owner.
 	k8s := &stubSource{
-		services: []Service{{Name: "svc", Version: "1.0.0", Owner: "platform-team", ContractStatus: StatusCompliant, Source: "k8s"}},
+		services: []Service{{Name: "svc", Version: "1.0.0", Owner: contract.NewOwnerFromString("platform-team"), ContractStatus: StatusCompliant, Source: "k8s"}},
 	}
 	oci := &stubSource{
-		services: []Service{{Name: "svc", Version: "1.0.0", Owner: "dev-team", Source: "oci"}},
+		services: []Service{{Name: "svc", Version: "1.0.0", Owner: contract.NewOwnerFromString("dev-team"), Source: "oci"}},
 	}
 	resolved := BuildResolvedSource(map[string]DataSource{"k8s": k8s, "oci": oci})
 
@@ -774,8 +776,8 @@ func TestResolvedSource_ListServices_K8sOwnerOverride(t *testing.T) {
 	if len(services) != 1 {
 		t.Fatalf("expected 1 service, got %d", len(services))
 	}
-	if services[0].Owner != "platform-team" {
-		t.Errorf("expected owner 'platform-team' from k8s, got %q", services[0].Owner)
+	if services[0].Owner.DisplayString() != "platform-team" {
+		t.Errorf("expected owner 'platform-team' from k8s, got %q", services[0].Owner.DisplayString())
 	}
 }
 
@@ -868,44 +870,44 @@ func newFullRuntime() *ServiceDetails {
 }
 
 func TestEnrichWithRuntime_StructFields(t *testing.T) {
-	contract := &ServiceDetails{
-		Service: Service{Name: "svc", Version: "1.0.0", Owner: "team-a"},
+	svcDetails := &ServiceDetails{
+		Service: Service{Name: "svc", Version: "1.0.0", Owner: contract.NewOwnerFromString("team-a")},
 	}
-	enrichWithRuntime(contract, newFullRuntime())
+	enrichWithRuntime(svcDetails, newFullRuntime())
 
-	if contract.ContractStatus != StatusCompliant {
+	if svcDetails.ContractStatus != StatusCompliant {
 		t.Error("expected contract status from runtime")
 	}
-	if contract.Runtime == nil {
+	if svcDetails.Runtime == nil {
 		t.Error("expected runtime")
 	}
-	if contract.Resources == nil {
+	if svcDetails.Resources == nil {
 		t.Error("expected resources")
 	}
-	if contract.Ports == nil {
+	if svcDetails.Ports == nil {
 		t.Error("expected ports")
 	}
-	if contract.Validation == nil {
+	if svcDetails.Validation == nil {
 		t.Error("expected validation")
 	}
-	if contract.Scaling == nil {
+	if svcDetails.Scaling == nil {
 		t.Error("expected scaling")
 	}
-	if contract.ChecksSummary == nil {
+	if svcDetails.ChecksSummary == nil {
 		t.Error("expected checks summary")
 	}
-	if contract.ObservedRuntime == nil {
+	if svcDetails.ObservedRuntime == nil {
 		t.Error("expected observed runtime")
 	}
-	if contract.Compliance == nil {
+	if svcDetails.Compliance == nil {
 		t.Error("expected compliance")
 	}
 	// Contract fields must NOT be overridden.
-	if contract.Version != "1.0.0" {
-		t.Errorf("contract version overridden: %q", contract.Version)
+	if svcDetails.Version != "1.0.0" {
+		t.Errorf("contract version overridden: %q", svcDetails.Version)
 	}
-	if contract.Owner != "team-a" {
-		t.Errorf("contract owner overridden: %q", contract.Owner)
+	if svcDetails.Owner.DisplayString() != "team-a" {
+		t.Errorf("contract owner overridden: %q", svcDetails.Owner.DisplayString())
 	}
 }
 

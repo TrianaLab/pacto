@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseHash, serviceUrl, diffUrl, compareDiffUrl } from './router.ts';
+import { parseHash, serviceUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl } from './router.ts';
 
 describe('parseHash', () => {
   it('returns list view for empty hash', () => {
@@ -128,5 +128,41 @@ describe('compareDiffUrl', () => {
 
   it('builds diff URL with no params', () => {
     expect(compareDiffUrl()).toBe('#/diff');
+  });
+});
+
+describe('parseHash — owner routes', () => {
+  it('parses owners list route', () => {
+    expect(parseHash('#/owners')).toEqual({ view: 'owners', params: {} });
+  });
+
+  it('parses owner detail route', () => {
+    expect(parseHash('#/owners/team-a')).toEqual({
+      view: 'owner-detail',
+      params: { owner: 'team-a' },
+    });
+  });
+
+  it('decodes encoded owner names', () => {
+    expect(parseHash('#/owners/team%2Fpayments')).toEqual({
+      view: 'owner-detail',
+      params: { owner: 'team/payments' },
+    });
+  });
+});
+
+describe('ownersUrl', () => {
+  it('returns owners URL', () => {
+    expect(ownersUrl()).toBe('#/owners');
+  });
+});
+
+describe('ownerUrl', () => {
+  it('builds owner detail URL', () => {
+    expect(ownerUrl('team-a')).toBe('#/owners/team-a');
+  });
+
+  it('encodes special characters', () => {
+    expect(ownerUrl('team/payments')).toBe('#/owners/team%2Fpayments');
   });
 });

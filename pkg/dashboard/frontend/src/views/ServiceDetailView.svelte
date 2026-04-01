@@ -1,8 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { navigate, serviceUrl, diffUrl } from '../lib/router.ts';
-  import { statusClass, complianceClass, classificationClass, sourceTooltip, versionPolicyLabel, versionPolicyClass } from '../lib/format.ts';
+  import { navigate, serviceUrl, diffUrl, ownerUrl } from '../lib/router.ts';
+  import { statusClass, complianceClass, classificationClass, sourceTooltip, versionPolicyLabel, versionPolicyClass, ownerDisplay, ownerKey, ownerIsStructured } from '../lib/format.ts';
   import { compareDiffUrl } from '../lib/router.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
 
@@ -231,7 +231,12 @@
       {#each sources as src}
         <span class="source-dot source-dot-{src}" data-tip={sourceTooltip(src)}></span>
       {/each}
-      {#if detail.owner}<span class="text-2">owner: {detail.owner}</span>{/if}
+      {#if ownerDisplay(detail.owner)}
+        <a href={ownerUrl(ownerKey(detail.owner))} class="text-2 owner-link">owner: {ownerDisplay(detail.owner)}</a>
+        {#if ownerIsStructured(detail.owner) && detail.owner.dri}
+          <span class="text-3">dri: {detail.owner.dri}</span>
+        {/if}
+      {/if}
       {#if detail.namespace}<span class="text-2">ns: {detail.namespace}</span>{/if}
       {#if detail.resolvedRef || detail.imageRef}<code class="detail-ref text-3">{detail.resolvedRef || detail.imageRef}</code>{/if}
       {#if versions?.length > 1}
@@ -472,6 +477,8 @@
 
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); }
+  .owner-link { text-decoration: none; }
+  .owner-link:hover { text-decoration: underline; color: var(--c-text); }
   .text-err { color: var(--c-err); font-size: var(--text-xs); }
 
   .detail-skeleton { padding: var(--sp-4) 0; }

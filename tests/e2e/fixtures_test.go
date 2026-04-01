@@ -763,3 +763,48 @@ func writeOpenAPIDiffBundleV2(t *testing.T) string {
 		"openapi.yaml": openapiWithMethodsV2,
 	})
 }
+
+// ── Structured owner fixture ──
+
+const structuredOwnerContract = `pactoVersion: "1.0"
+
+service:
+  name: owned-service
+  version: 1.0.0
+  owner:
+    team: foundations
+    dri: eduardo.diaz
+    contacts:
+      - type: email
+        value: foundations@acme.com
+        purpose: ownership
+      - type: chat
+        value: "#foundations"
+
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    contract: interfaces/openapi.yaml
+
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+
+// writeStructuredOwnerBundle creates a bundle with structured owner metadata.
+func writeStructuredOwnerBundle(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "owned-service")
+	return writeBundleDir(t, dir, structuredOwnerContract, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "owned-service", "1.0.0"),
+	})
+}

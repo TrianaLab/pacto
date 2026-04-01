@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/trianalab/pacto/pkg/contract"
 )
 
 // K8sSource implements DataSource by reading Pacto CRD status from a Kubernetes cluster.
@@ -503,7 +505,7 @@ func serviceFromK8sStatus(r pactoResource) Service {
 	if r.Status.Contract != nil {
 		svc.Name = r.Status.Contract.ServiceName
 		svc.Version = r.Status.Contract.Version
-		svc.Owner = r.Status.Contract.Owner
+		svc.Owner = contract.NewOwnerFromString(r.Status.Contract.Owner)
 	}
 	if r.Status.ContractVersion != "" {
 		svc.Version = r.Status.ContractVersion

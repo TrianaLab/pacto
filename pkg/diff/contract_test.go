@@ -125,9 +125,9 @@ func TestDiffScaling_OldNilNewReplicas(t *testing.T) {
 
 func TestDiffContract_OwnerAdded(t *testing.T) {
 	old := minimalContract()
-	old.Service.Owner = ""
+	old.Service.Owner = contract.Owner{}
 	new := minimalContract()
-	new.Service.Owner = "team/new"
+	new.Service.Owner = contract.NewOwnerFromString("team/new")
 	changes := diffContract(old, new)
 	found := false
 	for _, c := range changes {
@@ -142,9 +142,9 @@ func TestDiffContract_OwnerAdded(t *testing.T) {
 
 func TestDiffContract_OwnerRemoved(t *testing.T) {
 	old := minimalContract()
-	old.Service.Owner = "team/old"
+	old.Service.Owner = contract.NewOwnerFromString("team/old")
 	new := minimalContract()
-	new.Service.Owner = ""
+	new.Service.Owner = contract.Owner{}
 	changes := diffContract(old, new)
 	found := false
 	for _, c := range changes {

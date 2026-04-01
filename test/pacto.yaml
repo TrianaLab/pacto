@@ -1,0 +1,67 @@
+pactoVersion: "1.0"
+
+service:
+  name: test
+  version: 0.1.0
+  owner:
+    team: platform-foundations
+    dri: alice.johnson
+    contacts:
+      - type: email
+        value: platform-foundations@acme.com
+        purpose: escalation
+      - type: chat
+        value: "#platform-foundations"
+        purpose: support
+      - type: oncall
+        value: platform-foundations-oncall
+        purpose: oncall
+  image:
+    ref: ghcr.io/my-org/test:0.1.0
+    private: false
+
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: interfaces/openapi.yaml
+
+configuration:
+  schema: configuration/schema.json
+
+# dependencies:
+#   - ref: oci://ghcr.io/my-org/other-service-pacto:1.0.0
+#     required: true
+#     compatibility: "^1.0.0"
+
+runtime:
+  workload: service
+
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+
+  lifecycle:
+    upgradeStrategy: rolling
+    gracefulShutdownSeconds: 30
+
+  health:
+    interface: api
+    path: /health
+    initialDelaySeconds: 5
+
+  metrics:
+    interface: api
+    path: /metrics
+
+scaling:
+  min: 1
+  max: 3
+
+metadata:
+  team: my-team
+  tier: standard

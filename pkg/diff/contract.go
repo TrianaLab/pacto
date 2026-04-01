@@ -17,14 +17,14 @@ func diffContract(old, new *contract.Contract) []Change {
 	if old.Service.Version != new.Service.Version {
 		changes = append(changes, newChange("service.version", Modified, old.Service.Version, new.Service.Version))
 	}
-	if old.Service.Owner != new.Service.Owner {
+	if !old.Service.Owner.Equal(new.Service.Owner) {
 		ct := Modified
-		if old.Service.Owner == "" {
+		if old.Service.Owner.IsEmpty() {
 			ct = Added
-		} else if new.Service.Owner == "" {
+		} else if new.Service.Owner.IsEmpty() {
 			ct = Removed
 		}
-		changes = append(changes, newChange("service.owner", ct, old.Service.Owner, new.Service.Owner))
+		changes = append(changes, newChange("service.owner", ct, old.Service.Owner.DisplayString(), new.Service.Owner.DisplayString()))
 	}
 
 	// Image

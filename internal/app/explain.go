@@ -18,7 +18,7 @@ type ExplainOptions struct {
 type ExplainResult struct {
 	Name         string                 `json:"name"`
 	Version      string                 `json:"version"`
-	Owner        string                 `json:"owner,omitempty"`
+	Owner        contract.Owner         `json:"owner,omitempty"`
 	PactoVersion string                 `json:"pactoVersion"`
 	Runtime      ExplainRuntime         `json:"runtime"`
 	Interfaces   []ExplainInterface     `json:"interfaces,omitempty"`

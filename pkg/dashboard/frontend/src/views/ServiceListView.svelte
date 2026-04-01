@@ -1,9 +1,9 @@
 <script>
-  import { serviceUrl } from '../lib/router.ts';
-  import { statusClass, complianceStatusClass, sourceTooltip } from '../lib/format.ts';
+  import { serviceUrl, ownerUrl } from '../lib/router.ts';
+  import { statusClass, complianceStatusClass, sourceTooltip, ownerDisplay, ownerKey, ownerMatchesFilter } from '../lib/format.ts';
   import StatsBar from '../StatsBar.svelte';
 
-  let { services = [], sourcesInfo = [], discovering = false } = $props();
+  let { services = [], sourcesInfo = [], discovering = false, initialLoading = false } = $props();
 
   let enabledSources = $derived(sourcesInfo.filter((s) => s.enabled));
   let disabledSources = $derived(sourcesInfo.filter((s) => !s.enabled));
@@ -22,7 +22,7 @@
     let list = services;
     if (nameFilter) {
       const q = nameFilter.toLowerCase();
-      list = list.filter((s) => s.name.toLowerCase().includes(q) || (s.owner || '').toLowerCase().includes(q));
+      list = list.filter((s) => s.name.toLowerCase().includes(q) || ownerMatchesFilter(s.owner, q));
     }
     if (statusFilter !== 'all') {
       list = list.filter((s) => s.contractStatus === statusFilter);
@@ -68,14 +68,24 @@
 <StatsBar {services} bind:statusFilter bind:sourceFilter bind:nameFilter />
 
 {#if services.length > 0}
-  <a href="#/graph" class="graph-cta">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
-    <div class="graph-cta-text">
-      <span class="graph-cta-title">Dependency Graph</span>
-      <span class="graph-cta-desc">Visualize service relationships and blast radius</span>
-    </div>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0; opacity:0.5"><path d="M9 18l6-6-6-6"/></svg>
-  </a>
+  <div class="cta-row">
+    <a href="#/graph" class="graph-cta">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
+      <div class="graph-cta-text">
+        <span class="graph-cta-title">Dependency Graph</span>
+        <span class="graph-cta-desc">Visualize service relationships and blast radius</span>
+      </div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0; opacity:0.5"><path d="M9 18l6-6-6-6"/></svg>
+    </a>
+    <a href="#/owners" class="graph-cta">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <div class="graph-cta-text">
+        <span class="graph-cta-title">Owners</span>
+        <span class="graph-cta-desc">Explore services grouped by ownership</span>
+      </div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0; opacity:0.5"><path d="M9 18l6-6-6-6"/></svg>
+    </a>
+  </div>
 {/if}
 
 
@@ -99,7 +109,7 @@
 <!-- Table -->
 {#if services.length === 0}
   <div class="state-box">
-    {#if discovering}
+    {#if initialLoading || discovering}
       <div class="skeleton-table fade-in">
         {#each Array(5) as _}
           <div class="skeleton-row">
@@ -109,7 +119,7 @@
           </div>
         {/each}
       </div>
-      <p style="margin-top:var(--sp-3); color:var(--c-text-3)">Discovering services…</p>
+      <p style="margin-top:var(--sp-3); color:var(--c-text-3)">{initialLoading ? 'Loading services…' : 'Discovering services…'}</p>
     {:else}
       <h3>No services found</h3>
       {#if enabledSources.length === 0}
@@ -165,10 +175,10 @@
       </thead>
       <tbody>
         {#each filtered as svc}
-          <tr class="clickable" onclick={() => location.hash = serviceUrl(svc.name).slice(0)}>
+          <tr class="clickable" onclick={() => location.hash = serviceUrl(svc.name)}>
             <td>
               <a href={serviceUrl(svc.name)} class="svc-name">{svc.name}</a>
-              {#if svc.owner}<span class="svc-owner">{svc.owner}</span>{/if}
+              {#if ownerDisplay(svc.owner)}<a href={ownerUrl(ownerKey(svc.owner))} class="svc-owner" onclick={(e) => e.stopPropagation()}>{ownerDisplay(svc.owner)}</a>{/if}
             </td>
             <td>
               <span class="pill">{svc.version || '—'}</span>
@@ -212,6 +222,8 @@
 
 <style>
   .list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-5); }
+  .cta-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-5); flex-wrap: wrap; }
+  .cta-row .graph-cta { margin-bottom: 0; flex: 1; min-width: 220px; }
   .graph-cta {
     display: flex; align-items: center; gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
@@ -248,7 +260,8 @@
 
   .svc-name { font-weight: 600; text-decoration: none; }
   .svc-name:hover { text-decoration: underline; }
-  .svc-owner { color: var(--c-text-3); font-size: var(--text-xs); margin-left: 6px; }
+  .svc-owner { color: var(--c-text-3); font-size: var(--text-xs); margin-left: 6px; text-decoration: none; }
+  .svc-owner:hover { color: var(--c-text-2); text-decoration: underline; }
 
   .col-sort {
     background: none; border: none; padding: 0; font: inherit;

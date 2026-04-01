@@ -14,7 +14,7 @@ func minimalContract() *contract.Contract {
 		Service: contract.ServiceIdentity{
 			Name:    "my-svc",
 			Version: "1.0.0",
-			Owner:   "team/backend",
+			Owner:   contract.NewOwnerFromString("team/backend"),
 		},
 		Interfaces: []contract.Interface{
 			{Name: "api", Type: "http", Port: &port, Visibility: "internal", Contract: "interfaces/openapi.yaml"},

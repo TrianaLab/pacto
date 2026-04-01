@@ -17,7 +17,7 @@ func fullContract() *contract.Contract {
 		Service: contract.ServiceIdentity{
 			Name:    "payments-api",
 			Version: "2.1.0",
-			Owner:   "team/payments",
+			Owner:   contract.NewOwnerFromString("team/payments"),
 			Image:   &contract.Image{Ref: "ghcr.io/acme/payments-api:2.1.0", Private: true},
 			Chart:   &contract.Chart{Ref: "oci://ghcr.io/acme/payments-chart", Version: "2.1.0"},
 		},

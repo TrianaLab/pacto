@@ -12,6 +12,16 @@ import {
   reasonTooltip,
   reasonBadgeClass,
   isReasonActionable,
+  ownerDisplay,
+  ownerKey,
+  ownerTeam,
+  ownerMatchesFilter,
+  ownerIsStructured,
+  aggregateByOwner,
+  extractOwnerDetail,
+  computeTooltipPosition,
+  versionPolicyLabel,
+  versionPolicyClass,
 } from './format.ts';
 
 describe('statusClass', () => {
@@ -130,4 +140,350 @@ describe('isReasonActionable', () => {
   it('returns true for not_found', () => expect(isReasonActionable('not_found')).toBe(true));
   it('returns false for discovering', () => expect(isReasonActionable('discovering')).toBe(false));
   it('returns false for undefined', () => expect(isReasonActionable(undefined)).toBe(false));
+});
+
+describe('ownerDisplay', () => {
+  it('returns empty for null', () => expect(ownerDisplay(null)).toBe(''));
+  it('returns empty for undefined', () => expect(ownerDisplay(undefined)).toBe(''));
+  it('returns string as-is', () => expect(ownerDisplay('team/payments')).toBe('team/payments'));
+  it('returns team from structured', () => expect(ownerDisplay({ team: 'foundations' })).toBe('foundations'));
+  it('returns dri when no team', () => expect(ownerDisplay({ dri: 'alice' })).toBe('alice'));
+  it('returns empty for empty object', () => expect(ownerDisplay({})).toBe(''));
+  it('prefers team over dri', () => expect(ownerDisplay({ team: 't', dri: 'd' })).toBe('t'));
+});
+
+describe('ownerKey', () => {
+  it('is the same function as ownerDisplay', () => expect(ownerKey).toBe(ownerDisplay));
+});
+
+describe('ownerTeam', () => {
+  it('returns string owner as team', () => expect(ownerTeam('team/x')).toBe('team/x'));
+  it('returns team from structured', () => expect(ownerTeam({ team: 'a' })).toBe('a'));
+  it('returns empty for null', () => expect(ownerTeam(null)).toBe(''));
+});
+
+describe('ownerMatchesFilter', () => {
+  it('matches string owner', () => expect(ownerMatchesFilter('team/payments', 'pay')).toBe(true));
+  it('no match string owner', () => expect(ownerMatchesFilter('team/payments', 'xyz')).toBe(false));
+  it('matches structured team', () => expect(ownerMatchesFilter({ team: 'foundations' }, 'found')).toBe(true));
+  it('matches structured dri', () => expect(ownerMatchesFilter({ dri: 'alice' }, 'ali')).toBe(true));
+  it('matches structured contacts', () => {
+    expect(ownerMatchesFilter({ contacts: [{ value: 'alice@acme.com' }] }, 'acme')).toBe(true);
+  });
+  it('case-insensitive', () => expect(ownerMatchesFilter('TEAM', 'team')).toBe(true));
+  it('returns false for null', () => expect(ownerMatchesFilter(null, 'x')).toBe(false));
+});
+
+describe('ownerIsStructured', () => {
+  it('returns false for null', () => expect(ownerIsStructured(null)).toBe(false));
+  it('returns false for string', () => expect(ownerIsStructured('str')).toBe(false));
+  it('returns true for object', () => expect(ownerIsStructured({ team: 'x' })).toBe(true));
+});
+
+describe('aggregateByOwner', () => {
+  const services = [
+    { name: 'a', owner: 'team-a', contractStatus: 'Compliant', blastRadius: 2 },
+    { name: 'b', owner: 'team-a', contractStatus: 'Warning', blastRadius: 1 },
+    { name: 'c', owner: 'team-b', contractStatus: 'NonCompliant', blastRadius: 3 },
+    { name: 'd', owner: { team: 'team-a' }, contractStatus: 'Compliant', blastRadius: 0 },
+    { name: 'e', owner: null, contractStatus: 'Reference', blastRadius: 0 },
+    { name: 'f', owner: { dri: 'alice' }, contractStatus: 'Compliant', blastRadius: 1 },
+  ];
+
+  it('groups by canonical owner key', () => {
+    const result = aggregateByOwner(services);
+    const keys = result.map((r) => r.key);
+    expect(keys).toContain('team-a');
+    expect(keys).toContain('team-b');
+    expect(keys).toContain('(unowned)');
+    expect(keys).toContain('alice');
+  });
+
+  it('counts services correctly', () => {
+    const result = aggregateByOwner(services);
+    const teamA = result.find((r) => r.key === 'team-a')!;
+    expect(teamA.services).toBe(3); // 'a', 'b', and 'd' (structured with team: team-a)
+    expect(teamA.compliant).toBe(2);
+    expect(teamA.warning).toBe(1);
+  });
+
+  it('computes blast radius sum', () => {
+    const result = aggregateByOwner(services);
+    const teamA = result.find((r) => r.key === 'team-a')!;
+    expect(teamA.totalBlast).toBe(3); // 2 + 1 + 0
+  });
+
+  it('computes compliance percentage', () => {
+    const result = aggregateByOwner(services);
+    const teamA = result.find((r) => r.key === 'team-a')!;
+    // 2 compliant out of 3 assessed (compliant + warning + nonCompliant)
+    expect(teamA.compliancePercent).toBe(67);
+  });
+
+  it('handles reference-only owner (no assessed services)', () => {
+    const result = aggregateByOwner(services);
+    const unowned = result.find((r) => r.key === '(unowned)')!;
+    expect(unowned.reference).toBe(1);
+    expect(unowned.compliancePercent).toBe(-1); // no assessed services
+  });
+
+  it('returns sorted by key', () => {
+    const result = aggregateByOwner(services);
+    const keys = result.map((r) => r.key);
+    expect(keys).toEqual([...keys].sort());
+  });
+
+  it('returns empty array for no services', () => {
+    expect(aggregateByOwner([])).toEqual([]);
+  });
+
+  it('produces chart-ready segments that sum to total services', () => {
+    const result = aggregateByOwner(services);
+    for (const agg of result) {
+      const segTotal = agg.compliant + agg.warning + agg.nonCompliant + agg.reference + agg.unknown;
+      expect(segTotal).toBe(agg.services);
+    }
+  });
+
+  it('handles owner with only compliant services', () => {
+    const svc = [
+      { name: 'x', owner: 'clean-team', contractStatus: 'Compliant', blastRadius: 0 },
+      { name: 'y', owner: 'clean-team', contractStatus: 'Compliant', blastRadius: 0 },
+    ];
+    const result = aggregateByOwner(svc);
+    const team = result.find((r) => r.key === 'clean-team')!;
+    expect(team.compliant).toBe(2);
+    expect(team.warning).toBe(0);
+    expect(team.nonCompliant).toBe(0);
+    expect(team.reference).toBe(0);
+    expect(team.compliancePercent).toBe(100);
+  });
+
+  it('handles owner with mixed statuses', () => {
+    const svc = [
+      { name: 'a', owner: 'mixed', contractStatus: 'Compliant', blastRadius: 0 },
+      { name: 'b', owner: 'mixed', contractStatus: 'Warning', blastRadius: 0 },
+      { name: 'c', owner: 'mixed', contractStatus: 'NonCompliant', blastRadius: 0 },
+      { name: 'd', owner: 'mixed', contractStatus: 'Reference', blastRadius: 0 },
+    ];
+    const result = aggregateByOwner(svc);
+    const team = result.find((r) => r.key === 'mixed')!;
+    expect(team.compliant).toBe(1);
+    expect(team.warning).toBe(1);
+    expect(team.nonCompliant).toBe(1);
+    expect(team.reference).toBe(1);
+    expect(team.services).toBe(4);
+  });
+
+  it('handles owner with only reference services', () => {
+    const svc = [
+      { name: 'r1', owner: 'ref-only', contractStatus: 'Reference', blastRadius: 0 },
+    ];
+    const result = aggregateByOwner(svc);
+    const team = result.find((r) => r.key === 'ref-only')!;
+    expect(team.reference).toBe(1);
+    expect(team.compliant).toBe(0);
+    expect(team.compliancePercent).toBe(-1);
+  });
+});
+
+describe('extractOwnerDetail', () => {
+  it('extracts structured owner with all fields', () => {
+    const services = [
+      {
+        name: 'svc-a',
+        owner: {
+          team: 'platform',
+          dri: 'alice',
+          contacts: [
+            { type: 'email', value: 'platform@acme.com', purpose: 'escalation' },
+            { type: 'chat', value: '#platform', purpose: 'support' },
+          ],
+        },
+      },
+    ];
+    const detail = extractOwnerDetail('platform', services);
+    expect(detail.key).toBe('platform');
+    expect(detail.team).toBe('platform');
+    expect(detail.dri).toBe('alice');
+    expect(detail.isStructured).toBe(true);
+    expect(detail.contacts).toHaveLength(2);
+    expect(detail.contacts[0]).toEqual({ type: 'email', value: 'platform@acme.com', purpose: 'escalation' });
+    expect(detail.contacts[1]).toEqual({ type: 'chat', value: '#platform', purpose: 'support' });
+  });
+
+  it('shows team from structured owner', () => {
+    const detail = extractOwnerDetail('foundations', [
+      { name: 'a', owner: { team: 'foundations' } },
+    ]);
+    expect(detail.team).toBe('foundations');
+    expect(detail.isStructured).toBe(true);
+  });
+
+  it('shows DRI from structured owner', () => {
+    const detail = extractOwnerDetail('alice', [
+      { name: 'a', owner: { dri: 'alice' } },
+    ]);
+    expect(detail.dri).toBe('alice');
+    expect(detail.isStructured).toBe(true);
+  });
+
+  it('shows contact purpose when present', () => {
+    const detail = extractOwnerDetail('t', [
+      { name: 'a', owner: { team: 't', contacts: [{ type: 'oncall', value: 'pg-team', purpose: 'oncall' }] } },
+    ]);
+    expect(detail.contacts[0].purpose).toBe('oncall');
+  });
+
+  it('handles legacy string owner', () => {
+    const detail = extractOwnerDetail('team/payments', [
+      { name: 'a', owner: 'team/payments' },
+    ]);
+    expect(detail.team).toBe('team/payments');
+    expect(detail.isStructured).toBe(false);
+    expect(detail.contacts).toHaveLength(0);
+  });
+
+  it('handles multiple services with consistent structured owner', () => {
+    const owner = { team: 'platform', dri: 'alice', contacts: [{ type: 'email', value: 'p@a.com' }] };
+    const detail = extractOwnerDetail('platform', [
+      { name: 'a', owner: { ...owner } },
+      { name: 'b', owner: { ...owner } },
+    ]);
+    expect(detail.team).toBe('platform');
+    expect(detail.dri).toBe('alice');
+    expect(detail.contacts).toHaveLength(1);
+  });
+
+  it('uses first structured owner when services differ', () => {
+    const detail = extractOwnerDetail('platform', [
+      { name: 'a', owner: { team: 'platform', dri: 'alice' } },
+      { name: 'b', owner: { team: 'platform', dri: 'bob' } },
+    ]);
+    // First service wins for display
+    expect(detail.dri).toBe('alice');
+  });
+
+  it('returns key as team for empty services', () => {
+    const detail = extractOwnerDetail('team-x', []);
+    expect(detail.team).toBe('team-x');
+    expect(detail.isStructured).toBe(false);
+  });
+});
+
+describe('computeTooltipPosition', () => {
+  // Mock window dimensions: tests use default 1200x800
+
+  it('positions above cursor by default', () => {
+    const pos = computeTooltipPosition(500, 400, 180, 100);
+    expect(pos.top).toBeLessThan(400);
+    // Centered horizontally
+    expect(pos.left).toBeCloseTo(500 - 90, 0);
+  });
+
+  it('falls back below cursor when near top edge', () => {
+    const pos = computeTooltipPosition(500, 30, 180, 100);
+    // Not enough room above (30 - 100 - 8 < 8), so below
+    expect(pos.top).toBeGreaterThan(30);
+  });
+
+  it('clamps to left edge', () => {
+    const pos = computeTooltipPosition(20, 400, 180, 100);
+    expect(pos.left).toBeGreaterThanOrEqual(8);
+  });
+
+  it('clamps to right edge', () => {
+    const pos = computeTooltipPosition(1180, 400, 180, 100);
+    // Should not overflow right edge (1200 - 8 = 1192)
+    expect(pos.left + 180).toBeLessThanOrEqual(1200 - 8);
+  });
+
+  it('clamps to bottom edge', () => {
+    // Cursor near bottom, not enough room above OR below normally
+    const pos = computeTooltipPosition(500, 790, 180, 100);
+    expect(pos.top + 100).toBeLessThanOrEqual(800 - 8);
+  });
+
+  it('handles large tooltip centered', () => {
+    const pos = computeTooltipPosition(600, 500, 400, 200);
+    expect(pos.left).toBeGreaterThanOrEqual(8);
+    expect(pos.left + 400).toBeLessThanOrEqual(1200 - 8);
+  });
+});
+
+describe('aggregateByOwner — sorting/filtering support', () => {
+  const services = [
+    { name: 'a', owner: 'team-a', contractStatus: 'Compliant', blastRadius: 5 },
+    { name: 'b', owner: 'team-a', contractStatus: 'Warning', blastRadius: 3 },
+    { name: 'c', owner: 'team-b', contractStatus: 'NonCompliant', blastRadius: 10 },
+    { name: 'd', owner: 'team-c', contractStatus: 'Compliant', blastRadius: 0 },
+    { name: 'e', owner: 'team-c', contractStatus: 'Compliant', blastRadius: 1 },
+  ];
+
+  it('supports sort by services (descending)', () => {
+    const result = aggregateByOwner(services);
+    const sorted = [...result].sort((a, b) => b.services - a.services);
+    expect(sorted[0].key).toBe('team-a');
+    expect(sorted[0].services).toBe(2);
+  });
+
+  it('supports sort by blast radius (descending)', () => {
+    const result = aggregateByOwner(services);
+    const sorted = [...result].sort((a, b) => b.totalBlast - a.totalBlast);
+    expect(sorted[0].key).toBe('team-b');
+    expect(sorted[0].totalBlast).toBe(10);
+  });
+
+  it('supports sort by compliance % (ascending)', () => {
+    const result = aggregateByOwner(services);
+    const sorted = [...result].sort((a, b) => a.compliancePercent - b.compliancePercent);
+    // team-b: 0% compliant, team-a: 50%, team-c: 100%
+    expect(sorted[0].key).toBe('team-b');
+    expect(sorted[0].compliancePercent).toBe(0);
+  });
+
+  it('supports filter: has warnings', () => {
+    const result = aggregateByOwner(services);
+    const filtered = result.filter((o) => o.warning > 0);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].key).toBe('team-a');
+  });
+
+  it('supports filter: has non-compliant', () => {
+    const result = aggregateByOwner(services);
+    const filtered = result.filter((o) => o.nonCompliant > 0);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].key).toBe('team-b');
+  });
+
+  it('supports filter: fully compliant (100%)', () => {
+    const result = aggregateByOwner(services);
+    const filtered = result.filter((o) => o.compliancePercent === 100);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].key).toBe('team-c');
+  });
+
+  it('supports text filter by owner key', () => {
+    const result = aggregateByOwner(services);
+    const filtered = result.filter((o) => o.key.toLowerCase().includes('team-b'));
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].key).toBe('team-b');
+  });
+});
+
+describe('versionPolicyLabel', () => {
+  it('returns label for tracking', () => expect(versionPolicyLabel('tracking')).toBe('Tracking latest'));
+  it('returns label for pinned-tag', () => expect(versionPolicyLabel('pinned-tag')).toBe('Pinned to tag'));
+  it('returns label for pinned-digest', () => expect(versionPolicyLabel('pinned-digest')).toBe('Pinned to digest'));
+  it('returns empty for undefined', () => expect(versionPolicyLabel(undefined)).toBe(''));
+  it('returns empty for empty string', () => expect(versionPolicyLabel('')).toBe(''));
+  it('returns raw value for unknown policy', () => expect(versionPolicyLabel('custom')).toBe('custom'));
+});
+
+describe('versionPolicyClass', () => {
+  it('returns policy-tracking for tracking', () => expect(versionPolicyClass('tracking')).toBe('policy-tracking'));
+  it('returns policy-tag for pinned-tag', () => expect(versionPolicyClass('pinned-tag')).toBe('policy-tag'));
+  it('returns policy-digest for pinned-digest', () => expect(versionPolicyClass('pinned-digest')).toBe('policy-digest'));
+  it('returns empty for undefined', () => expect(versionPolicyClass(undefined)).toBe(''));
+  it('returns empty for unknown policy', () => expect(versionPolicyClass('other')).toBe(''));
 });

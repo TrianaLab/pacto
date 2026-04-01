@@ -1,6 +1,6 @@
 <script>
   import { navigate, serviceUrl } from './lib/router.ts';
-  import { statusClass, sourceTooltip } from './lib/format.ts';
+  import { statusClass, sourceTooltip, ownerMatchesFilter } from './lib/format.ts';
 
   let {
     services = [], sourcesInfo = [], version = '', discovering = false,
@@ -25,7 +25,7 @@
     if (!query) return [];
     const q = query.toLowerCase();
     return services
-      .filter((s) => s.name.toLowerCase().includes(q) || (s.owner || '').toLowerCase().includes(q))
+      .filter((s) => s.name.toLowerCase().includes(q) || ownerMatchesFilter(s.owner, q))
       .slice(0, 8);
   });
 

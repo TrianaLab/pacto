@@ -1,7 +1,7 @@
 /** Minimal hash router — returns a reactive route object. */
 
 export interface Route {
-  view: 'list' | 'detail' | 'diff' | 'graph';
+  view: 'list' | 'detail' | 'diff' | 'graph' | 'owners' | 'owner-detail';
   params: Record<string, string>;
 }
 
@@ -45,6 +45,13 @@ export function parseHash(hash: string | null | undefined): Route {
   // #/graph
   if (raw === 'graph') return { view: 'graph', params: {} };
 
+  // #/owners/:id
+  const ownerMatch = raw.match(/^owners\/(.+)$/);
+  if (ownerMatch) return { view: 'owner-detail', params: { owner: decodeURIComponent(ownerMatch[1]) } };
+
+  // #/owners
+  if (raw === 'owners') return { view: 'owners', params: {} };
+
   return { view: 'list', params: {} };
 }
 
@@ -53,6 +60,8 @@ export function navigate(view: string, params: Record<string, string> = {}): voi
   if (view === 'detail' && params.name) hash = `#/services/${encodeURIComponent(params.name)}`;
   else if (view === 'diff' && params.name) hash = `#/services/${encodeURIComponent(params.name)}/diff`;
   else if (view === 'graph') hash = '#/graph';
+  else if (view === 'owners') hash = '#/owners';
+  else if (view === 'owner-detail' && params.owner) hash = `#/owners/${encodeURIComponent(params.owner)}`;
   location.hash = hash;
 }
 
@@ -67,6 +76,14 @@ export function diffUrl(name: string, from?: string, to?: string): string {
   if (to) qs.set('to', to);
   const str = qs.toString();
   return str ? `${url}?${str}` : url;
+}
+
+export function ownersUrl(): string {
+  return '#/owners';
+}
+
+export function ownerUrl(key: string): string {
+  return `#/owners/${encodeURIComponent(key)}`;
 }
 
 export function compareDiffUrl(opts: { fromName?: string; fromVer?: string; toName?: string; toVer?: string } = {}): string {

@@ -30,8 +30,61 @@
           "description": "The current version of the service, typically following semantic versioning."
         },
         "owner": {
-          "type": "string",
-          "description": "The team or individual responsible for this service."
+          "description": "Ownership information for the service. Supports a legacy string form for backward compatibility and a structured provider-neutral object form.",
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Legacy ownership format. Prefer the structured object form for new contracts."
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "properties": {
+                "team": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[a-zA-Z0-9._/-]+$",
+                  "description": "The canonical team that owns the service."
+                },
+                "dri": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[a-zA-Z0-9._@/-]+$",
+                  "description": "The directly responsible individual for this service."
+                },
+                "contacts": {
+                  "type": "array",
+                  "minItems": 1,
+                  "description": "Provider-neutral ownership and escalation contact points.",
+                  "items": {
+                    "type": "object",
+                    "required": ["type", "value"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": ["email", "url", "group", "oncall", "chat", "other"],
+                        "description": "The kind of contact point."
+                      },
+                      "value": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The contact value, such as an email address, URL, or group identifier."
+                      },
+                      "purpose": {
+                        "type": "string",
+                        "enum": ["ownership", "support", "escalation", "oncall", "notifications"],
+                        "description": "The intended operational purpose of this contact point."
+                      }
+                    }
+                  }
+                }
+              },
+              "description": "Structured ownership metadata in a provider-neutral format."
+            }
+          ]
         },
         "image": {
           "type": "object",

@@ -106,6 +106,7 @@ The dashboard is the entry point for humans. It auto-detects available sources �
 What it shows:
 
 - **Dependency graph** — interactive visualization of service relationships, with recursive resolution
+- **Ownership views** — aggregated compliance and blast radius per owner, with drill-down to individual services and owner-filtered graphs
 - **Version history** — all published versions from OCI, with the ability to fetch and cache every version
 - **Diffs between versions** — classified changes (breaking, non-breaking) between any two versions
 - **Service details** — interfaces, configuration schemas, policy references, documentation
@@ -253,6 +254,7 @@ The contract lives next to the code it describes. CI validates it on every push 
 
 - **Multi-source auto-detection** — Kubernetes, OCI registries, local directories, and disk cache merged into one view
 - **Interactive dependency graph** — D3 visualization of service relationships with recursive resolution
+- **Ownership views** — aggregated compliance, blast radius, and service count per owner with drill-down and owner-filtered graphs
 - **Version history and diffs** — browse all published versions, compare any two with classified change detection
 - **Service detail pages** — interfaces, configuration schemas, policy references, documentation, and contract-vs-runtime comparison
 - **Runtime alignment status** — derived compliance status based on how closely a deployed service matches its contract

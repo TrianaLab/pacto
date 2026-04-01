@@ -16,7 +16,7 @@ func TestServiceFromContract(t *testing.T) {
 		Service: contract.ServiceIdentity{
 			Name:    "my-service",
 			Version: "1.2.3",
-			Owner:   "team-a",
+			Owner:   contract.NewOwnerFromString("team-a"),
 		},
 	}
 
@@ -27,8 +27,8 @@ func TestServiceFromContract(t *testing.T) {
 	if svc.Version != "1.2.3" {
 		t.Errorf("expected version '1.2.3', got %q", svc.Version)
 	}
-	if svc.Owner != "team-a" {
-		t.Errorf("expected owner 'team-a', got %q", svc.Owner)
+	if svc.Owner.DisplayString() != "team-a" {
+		t.Errorf("expected owner 'team-a', got %q", svc.Owner.DisplayString())
 	}
 	if svc.Source != "local" {
 		t.Errorf("expected source 'local', got %q", svc.Source)
@@ -1044,4 +1044,45 @@ service:
 			t.Errorf("expected StatusNonCompliant, got %v", got)
 		}
 	})
+}
+
+func TestServiceFromContract_StructuredOwner(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{
+			Name:    "my-service",
+			Version: "1.0.0",
+			Owner:   contract.NewOwnerFromInfo(contract.OwnerInfo{Team: "foundations", DRI: "alice"}),
+		},
+	}
+
+	svc := ServiceFromContract(c, "oci")
+	if !svc.Owner.IsStructured() {
+		t.Error("expected structured owner")
+	}
+	if svc.Owner.Team() != "foundations" {
+		t.Errorf("expected team 'foundations', got %q", svc.Owner.Team())
+	}
+	if svc.Owner.DRI() != "alice" {
+		t.Errorf("expected dri 'alice', got %q", svc.Owner.DRI())
+	}
+	if svc.Owner.DisplayString() != "foundations" {
+		t.Errorf("expected display 'foundations', got %q", svc.Owner.DisplayString())
+	}
+}
+
+func TestServiceFromContract_EmptyOwner(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{
+			Name:    "my-service",
+			Version: "1.0.0",
+		},
+	}
+
+	svc := ServiceFromContract(c, "local")
+	if !svc.Owner.IsEmpty() {
+		t.Error("expected empty owner")
+	}
+	if svc.Owner.DisplayString() != "" {
+		t.Errorf("expected empty display, got %q", svc.Owner.DisplayString())
+	}
 }

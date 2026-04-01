@@ -1,0 +1,33 @@
+pactoVersion: "1.0"
+
+service:
+  name: my-service
+  version: 1.0.0
+  owner:
+    team: foundations
+    dri: eduardo.diaz
+    contacts:
+      - type: email
+        value: foundations@acme.com
+        purpose: ownership
+      - type: chat
+        value: "#foundations"
+
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+
+runtime:
+  workload: service
+
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+
+  health:
+    interface: api
+    path: /health

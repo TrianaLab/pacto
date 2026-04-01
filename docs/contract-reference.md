@@ -218,7 +218,7 @@ Identifies the service.
 |-------|------|----------|-------------|
 | `name` | string | Yes | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` |
 | `version` | string | Yes | Valid semver (e.g., `2.1.0`) |
-| `owner` | string | No | |
+| `owner` | string \| [OwnerInfo](#ownerinfo) | No | |
 | `image` | [Image](#image) | No | |
 | `chart` | [Chart](#chart) | No | |
 
@@ -240,6 +240,57 @@ Optional Helm chart reference for deploying the service.
 
 {: .warning }
 Local chart references are only allowed during development. `pacto push` rejects contracts with local chart references — use an OCI reference before publishing.
+
+#### OwnerInfo
+
+Structured ownership metadata. All fields are optional but at least one must be present.
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `team` | string | No | Team name |
+| `dri` | string | No | Directly Responsible Individual |
+| `contacts` | [OwnerContact](#ownercontact)[] | No | Contact points |
+
+#### OwnerContact
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `type` | string | Yes | One of: `email`, `url`, `group`, `oncall`, `chat`, `other` |
+| `value` | string | Yes | Non-empty |
+| `purpose` | string | No | One of: `ownership`, `support`, `escalation`, `oncall`, `notifications` |
+
+**Examples:**
+
+```yaml
+# Legacy string form (still supported)
+service:
+  owner: team/payments
+
+# Structured form
+service:
+  owner:
+    team: foundations
+    dri: eduardo.diaz
+    contacts:
+      - type: email
+        value: foundations@acme.com
+        purpose: ownership
+      - type: chat
+        value: "#foundations"
+```
+
+**Dashboard integration:**
+
+The dashboard uses a canonical owner key for aggregation and navigation:
+1. If structured owner has `team` → uses `team`
+2. If legacy string → uses that string
+3. If structured owner has `dri` (no team) → uses `dri`
+
+This key is used consistently across the owners aggregation view (`#/owners`), owner detail view (`#/owners/:key`), service list filtering, and dependency graph highlighting.
+
+The owners aggregation view (`#/owners`) includes a stacked horizontal bar chart showing the compliance breakdown per owner — Compliant (green), Warning (yellow), Non-Compliant (red), and Reference (gray). The chart is sorted by number of services descending. Clicking any bar navigates to the owner detail view. Hovering shows a tooltip with the full breakdown and compliance percentage.
+
+The owner detail view (`#/owners/:key`) surfaces all available structured ownership metadata — team, DRI, and contacts with their type, value, and purpose — in a clean metadata block. When the owner has a dependency graph, owned services are persistently emphasized with a three-tier visual hierarchy (owned → direct dependencies → rest), auto-centered viewport, and stable highlighting that survives hover interactions.
 
 ---
 
