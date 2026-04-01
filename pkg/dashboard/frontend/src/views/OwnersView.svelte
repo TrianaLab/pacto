@@ -365,9 +365,12 @@
     border-top: none !important;
   }
   .expand-panel {
-    padding: var(--sp-3) var(--sp-4);
+    padding: var(--sp-3) var(--sp-4) var(--sp-3) var(--sp-6);
+    margin-left: var(--sp-5);
     background: var(--c-surface-inset);
     border-top: 1px solid var(--c-border);
+    border-left: 2px solid var(--c-accent);
+    border-radius: 0 0 var(--radius-xs) var(--radius-xs);
     animation: slideDown 200ms ease;
   }
   .expand-table {
@@ -380,7 +383,7 @@
     text-align: left; border-bottom: 1px solid var(--c-border);
   }
   .expand-table td {
-    padding: var(--sp-2) var(--sp-3);
+    padding: var(--sp-3) var(--sp-3);
     font-size: var(--text-sm);
     border-bottom: 1px solid var(--c-border);
   }
