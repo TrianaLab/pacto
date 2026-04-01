@@ -103,7 +103,12 @@ func TestExplainCommand(t *testing.T) {
 		assertContains(t, output, "Usage")
 	})
 
-	t.Run("structured owner text", func(t *testing.T) {
+}
+
+func TestExplainStructuredOwner(t *testing.T) {
+	t.Parallel()
+
+	t.Run("text output", func(t *testing.T) {
 		t.Parallel()
 		bundlePath := writeStructuredOwnerBundle(t)
 
@@ -115,7 +120,7 @@ func TestExplainCommand(t *testing.T) {
 		assertContains(t, output, "Owner: foundations")
 	})
 
-	t.Run("structured owner json", func(t *testing.T) {
+	t.Run("json output", func(t *testing.T) {
 		t.Parallel()
 		bundlePath := writeStructuredOwnerBundle(t)
 

@@ -1981,6 +1981,48 @@ func TestSummarizeFromMap_Empty(t *testing.T) {
 	}
 }
 
+func TestSummarizeFromMap_StructuredOwner(t *testing.T) {
+	t.Run("team and dri", func(t *testing.T) {
+		m := map[string]interface{}{
+			"service": map[string]interface{}{
+				"name":    "svc",
+				"version": "1.0.0",
+				"owner":   map[string]interface{}{"team": "foundations", "dri": "alice"},
+			},
+		}
+		s := summarizeFromMap(m)
+		if s.Owner != "foundations" {
+			t.Errorf("expected owner=foundations, got %q", s.Owner)
+		}
+	})
+	t.Run("dri only", func(t *testing.T) {
+		m := map[string]interface{}{
+			"service": map[string]interface{}{
+				"name":    "svc",
+				"version": "1.0.0",
+				"owner":   map[string]interface{}{"dri": "bob"},
+			},
+		}
+		s := summarizeFromMap(m)
+		if s.Owner != "bob" {
+			t.Errorf("expected owner=bob, got %q", s.Owner)
+		}
+	})
+	t.Run("empty structured", func(t *testing.T) {
+		m := map[string]interface{}{
+			"service": map[string]interface{}{
+				"name":    "svc",
+				"version": "1.0.0",
+				"owner":   map[string]interface{}{},
+			},
+		}
+		s := summarizeFromMap(m)
+		if s.Owner != "" {
+			t.Errorf("expected empty owner, got %q", s.Owner)
+		}
+	})
+}
+
 // --- Error path coverage ---
 
 func TestEdit_ParseYAMLError(t *testing.T) {
