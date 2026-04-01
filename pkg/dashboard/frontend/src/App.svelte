@@ -21,6 +21,9 @@
   let refreshTick = $state(0);
   let initialLoading = $state(true);
 
+  const POLL_FAST = 2000;   // during discovery
+  const POLL_NORMAL = 10000;
+
   function onHashChange() {
     route = parseHash(location.hash);
   }
@@ -28,43 +31,44 @@
   async function loadGlobal(forceRefresh = false) {
     refreshing = true;
     try {
-      // On manual refresh, tell the backend to re-detect sources (e.g. k8s context switch).
       if (forceRefresh) {
         await api.refresh().catch(() => {});
       }
 
-      // On detail/diff views, skip the heavy services list fetch —
-      // those views fetch their own data independently.
       const needsServices = route.view === 'list' || route.view === 'graph' || route.view === 'diff' || route.view === 'owners' || route.view === 'owner-detail';
 
-      // Fire all fetches in parallel but process each as it arrives
-      // so the UI shows data progressively instead of waiting for all three.
-      const svcPromise = needsServices ? api.services() : Promise.resolve(null);
-      const srcPromise = api.sources().catch(() => ({ sources: [], discovering: false }));
-      const healthPromise = api.health().catch(() => ({}));
-
-      // Show services as soon as they arrive (don't wait for sources/health)
-      svcPromise.then((svcList) => {
-        if (svcList !== null) services = svcList || [];
-        initialLoading = false;
-      }).catch(() => { initialLoading = false; });
-
-      // Wait for sources and health in the background
-      const [srcData, health] = await Promise.all([srcPromise, healthPromise]);
+      const [svcList, srcData, health] = await Promise.all([
+        needsServices ? api.services() : Promise.resolve(null),
+        api.sources().catch(() => ({ sources: [], discovering: false })),
+        api.health().catch(() => ({})),
+      ]);
+      if (svcList !== null) services = svcList || [];
       sourcesInfo = srcData.sources || [];
+      const wasDiscovering = discovering;
       discovering = srcData.discovering || false;
       appVersion = health.version || '';
       refreshTick++;
+
+      // Adjust polling speed: fast during discovery, normal otherwise
+      if (autoReload) {
+        const shouldBeFast = discovering;
+        const wasFast = wasDiscovering;
+        if (shouldBeFast !== wasFast) {
+          clearInterval(reloadTimer);
+          reloadTimer = setInterval(loadGlobal, shouldBeFast ? POLL_FAST : POLL_NORMAL);
+        }
+      }
     } catch {
       // keep stale data
     }
     refreshing = false;
+    initialLoading = false;
   }
 
   function toggleAutoReload() {
     autoReload = !autoReload;
     if (autoReload) {
-      reloadTimer = setInterval(loadGlobal, 10000);
+      reloadTimer = setInterval(loadGlobal, discovering ? POLL_FAST : POLL_NORMAL);
     } else {
       clearInterval(reloadTimer);
       reloadTimer = null;
@@ -85,8 +89,8 @@
   onMount(() => {
     window.addEventListener('hashchange', onHashChange);
     loadGlobal();
-    // Start auto-reload by default
-    reloadTimer = setInterval(loadGlobal, 10000);
+    // Start with fast polling; loadGlobal adjusts interval based on discovery state
+    reloadTimer = setInterval(loadGlobal, POLL_FAST);
     return () => {
       window.removeEventListener('hashchange', onHashChange);
       if (reloadTimer) clearInterval(reloadTimer);

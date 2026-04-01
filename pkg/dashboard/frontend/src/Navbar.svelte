@@ -1,6 +1,6 @@
 <script>
-  import { navigate, serviceUrl } from './lib/router.ts';
-  import { statusClass, sourceTooltip, ownerMatchesFilter } from './lib/format.ts';
+  import { navigate, serviceUrl, ownerUrl } from './lib/router.ts';
+  import { statusClass, sourceTooltip, ownerMatchesFilter, ownerKey, ownerDisplay } from './lib/format.ts';
 
   let {
     services = [], sourcesInfo = [], version = '', discovering = false,
@@ -29,17 +29,43 @@
       .slice(0, 8);
   });
 
+  // Unique owners matching the query
+  let ownerMatches = $derived.by(() => {
+    if (!query) return [];
+    const q = query.toLowerCase();
+    const seen = new Set();
+    const result = [];
+    for (const s of services) {
+      const key = ownerKey(s.owner);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      if (key.toLowerCase().includes(q)) {
+        result.push(key);
+        if (result.length >= 4) break;
+      }
+    }
+    return result;
+  });
+
   function onInput(e) {
     query = e.target.value;
     showResults = !!query;
     selectedIdx = -1;
   }
 
+  let totalResults = $derived(ownerMatches.length + matches.length);
+
   function onKeydown(e) {
-    if (e.key === 'ArrowDown') { e.preventDefault(); selectedIdx = Math.min(selectedIdx + 1, matches.length - 1); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); selectedIdx = Math.min(selectedIdx + 1, totalResults - 1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIdx = Math.max(selectedIdx - 1, -1); }
-    else if (e.key === 'Enter' && selectedIdx >= 0 && matches[selectedIdx]) {
-      e.preventDefault(); closeSearch(); navigate('detail', { name: matches[selectedIdx].name });
+    else if (e.key === 'Enter' && selectedIdx >= 0) {
+      e.preventDefault();
+      if (selectedIdx < ownerMatches.length) {
+        pickOwner(ownerMatches[selectedIdx]);
+      } else {
+        const svcIdx = selectedIdx - ownerMatches.length;
+        if (matches[svcIdx]) pick(matches[svcIdx].name);
+      }
     }
     else if (e.key === 'Escape') closeSearch();
   }
@@ -47,6 +73,8 @@
   function closeSearch() { showResults = false; selectedIdx = -1; query = ''; searchInputEl?.blur(); }
 
   function pick(name) { closeSearch(); navigate('detail', { name }); }
+
+  function pickOwner(key) { closeSearch(); location.hash = ownerUrl(key); }
 
   function handleClickOutside(e) {
     if (!e.target.closest('.search-box')) closeSearch();
@@ -72,7 +100,7 @@
     <input
       bind:this={searchInputEl}
       type="text"
-      placeholder="Search services…"
+      placeholder="Search services..."
       value={query}
       oninput={onInput}
       onfocus={() => { if (query) showResults = true; }}
@@ -84,24 +112,46 @@
     </kbd>
     {#if showResults}
       <div class="search-results" role="listbox">
-        {#if matches.length === 0}
+        {#if ownerMatches.length === 0 && matches.length === 0}
           <div class="search-empty">No results for "{query}"</div>
         {:else}
-          {#each matches as svc, i}
-            <a
-              href={serviceUrl(svc.name)}
-              class="search-result"
-              class:selected={i === selectedIdx}
-              role="option"
-              aria-selected={i === selectedIdx}
-              onclick={(e) => { e.preventDefault(); pick(svc.name); }}
-              onmouseenter={() => { selectedIdx = i; }}
-            >
-              <span class="search-result-name">{svc.name}</span>
-              {#if svc.version}<span class="search-result-meta">{svc.version}</span>{/if}
-              <span class="badge badge-{statusClass(svc.contractStatus)}"><span class="badge-dot"></span>{svc.contractStatus}</span>
-            </a>
-          {/each}
+          {#if ownerMatches.length > 0}
+            <div class="search-group-label">Owners</div>
+            {#each ownerMatches as key, i}
+              <a
+                href={ownerUrl(key)}
+                class="search-result"
+                class:selected={i === selectedIdx}
+                role="option"
+                aria-selected={i === selectedIdx}
+                onclick={(e) => { e.preventDefault(); pickOwner(key); }}
+                onmouseenter={() => { selectedIdx = i; }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="flex-shrink:0; color:var(--c-text-3)"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                <span class="search-result-name">{key}</span>
+                <span class="search-result-meta">owner</span>
+              </a>
+            {/each}
+          {/if}
+          {#if matches.length > 0}
+            {#if ownerMatches.length > 0}<div class="search-group-label">Services</div>{/if}
+            {#each matches as svc, i}
+              {@const idx = ownerMatches.length + i}
+              <a
+                href={serviceUrl(svc.name)}
+                class="search-result"
+                class:selected={idx === selectedIdx}
+                role="option"
+                aria-selected={idx === selectedIdx}
+                onclick={(e) => { e.preventDefault(); pick(svc.name); }}
+                onmouseenter={() => { selectedIdx = idx; }}
+              >
+                <span class="search-result-name">{svc.name}</span>
+                {#if svc.version}<span class="search-result-meta">{svc.version}</span>{/if}
+                <span class="badge badge-{statusClass(svc.contractStatus)}"><span class="badge-dot"></span>{svc.contractStatus}</span>
+              </a>
+            {/each}
+          {/if}
         {/if}
       </div>
     {/if}
@@ -226,6 +276,10 @@
   .search-result:hover, .search-result.selected { background: var(--c-surface-hover); text-decoration: none; }
   .search-result-name { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .search-result-meta { color: var(--c-text-3); font-size: var(--text-xs); }
+  .search-group-label {
+    padding: 6px var(--sp-4) 2px; font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em; color: var(--c-text-3);
+  }
   .navbar-right {
     display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-shrink: 0;
   }
