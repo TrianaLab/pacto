@@ -8,6 +8,7 @@
   let { owner = '', services = [], initialLoading = false } = $props();
 
   let graphData = $state(null);
+  let graphLoading = $state(true);
 
   // Services belonging to this owner
   let ownerServices = $derived(
@@ -40,6 +41,7 @@
     try {
       graphData = await api.graph();
     } catch {}
+    graphLoading = false;
   });
 </script>
 
@@ -195,18 +197,27 @@
 {/if}
 
 <!-- Owner graph -->
-{#if graphData?.nodes?.length > 0 && ownerServiceNames.size > 0}
+{#if ownerServiceNames.size > 0}
   <div class="section" style="margin-top:var(--sp-5)">
     <div class="section-title">Dependency Graph</div>
-    <p class="text-3" style="font-size:var(--text-xs); margin-bottom:var(--sp-3)">Services owned by {owner} are highlighted; others are dimmed.</p>
-    <div class="graph-wrap">
-      <GraphCanvas
-        {graphData}
-        focusNodes={ownerServiceNames}
-        height={Math.min(window.innerHeight - 300, 500)}
-        onNavigate={(name) => location.hash = serviceUrl(name)}
-      />
-    </div>
+    {#if graphLoading}
+      <div class="fade-in" style="padding:var(--sp-3) 0">
+        <div class="skeleton" style="width:100%; height:300px; border-radius:var(--radius-sm)"></div>
+        <p class="text-3" style="font-size:var(--text-xs); margin-top:var(--sp-2)">Loading dependency graph…</p>
+      </div>
+    {:else if graphData?.nodes?.length > 0}
+      <p class="text-3" style="font-size:var(--text-xs); margin-bottom:var(--sp-3)">Services owned by {owner} are highlighted; others are dimmed.</p>
+      <div class="graph-wrap">
+        <GraphCanvas
+          {graphData}
+          focusNodes={ownerServiceNames}
+          height={Math.min(window.innerHeight - 300, 500)}
+          onNavigate={(name) => location.hash = serviceUrl(name)}
+        />
+      </div>
+    {:else}
+      <p class="text-3" style="font-size:var(--text-xs)">No dependency data available.</p>
+    {/if}
   </div>
 {/if}
 

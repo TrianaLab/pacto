@@ -37,13 +37,20 @@
       // those views fetch their own data independently.
       const needsServices = route.view === 'list' || route.view === 'graph' || route.view === 'diff' || route.view === 'owners' || route.view === 'owner-detail';
 
-      const fetches = [
-        needsServices ? api.services() : Promise.resolve(null),
-        api.sources().catch(() => ({ sources: [], discovering: false })),
-        api.health().catch(() => ({})),
-      ];
-      const [svcList, srcData, health] = await Promise.all(fetches);
-      if (svcList !== null) services = svcList || [];
+      // Fire all fetches in parallel but process each as it arrives
+      // so the UI shows data progressively instead of waiting for all three.
+      const svcPromise = needsServices ? api.services() : Promise.resolve(null);
+      const srcPromise = api.sources().catch(() => ({ sources: [], discovering: false }));
+      const healthPromise = api.health().catch(() => ({}));
+
+      // Show services as soon as they arrive (don't wait for sources/health)
+      svcPromise.then((svcList) => {
+        if (svcList !== null) services = svcList || [];
+        initialLoading = false;
+      }).catch(() => { initialLoading = false; });
+
+      // Wait for sources and health in the background
+      const [srcData, health] = await Promise.all([srcPromise, healthPromise]);
       sourcesInfo = srcData.sources || [];
       discovering = srcData.discovering || false;
       appVersion = health.version || '';
@@ -52,7 +59,6 @@
       // keep stale data
     }
     refreshing = false;
-    initialLoading = false;
   }
 
   function toggleAutoReload() {
