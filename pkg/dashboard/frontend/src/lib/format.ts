@@ -251,12 +251,14 @@ export interface OwnerAggregation {
 /** Aggregate services by canonical owner key. */
 export function aggregateByOwner(services: Array<Record<string, unknown>>): OwnerAggregation[] {
   const map = new Map<string, OwnerAggregation>();
+  const scores = new Map<string, number[]>();
   for (const svc of services) {
     const key = ownerKey(svc.owner) || '(unowned)';
     let agg = map.get(key);
     if (!agg) {
       agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, totalBlast: 0, compliancePercent: 0 };
       map.set(key, agg);
+      scores.set(key, []);
     }
     agg.services++;
     const status = svc.contractStatus as string;
@@ -266,10 +268,11 @@ export function aggregateByOwner(services: Array<Record<string, unknown>>): Owne
     else if (status === 'Reference') agg.reference++;
     else agg.unknown++;
     agg.totalBlast += (svc.blastRadius as number) || 0;
+    if (svc.complianceScore != null) scores.get(key)!.push(svc.complianceScore as number);
   }
-  for (const agg of map.values()) {
-    const assessed = agg.compliant + agg.warning + agg.nonCompliant;
-    agg.compliancePercent = assessed > 0 ? Math.round((agg.compliant / assessed) * 100) : -1;
+  for (const [key, agg] of map) {
+    const s = scores.get(key)!;
+    agg.compliancePercent = s.length > 0 ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : -1;
   }
   return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
 }

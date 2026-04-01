@@ -182,12 +182,12 @@ describe('ownerIsStructured', () => {
 
 describe('aggregateByOwner', () => {
   const services = [
-    { name: 'a', owner: 'team-a', contractStatus: 'Compliant', blastRadius: 2 },
-    { name: 'b', owner: 'team-a', contractStatus: 'Warning', blastRadius: 1 },
-    { name: 'c', owner: 'team-b', contractStatus: 'NonCompliant', blastRadius: 3 },
-    { name: 'd', owner: { team: 'team-a' }, contractStatus: 'Compliant', blastRadius: 0 },
+    { name: 'a', owner: 'team-a', contractStatus: 'Compliant', blastRadius: 2, complianceScore: 100 },
+    { name: 'b', owner: 'team-a', contractStatus: 'Warning', blastRadius: 1, complianceScore: 60 },
+    { name: 'c', owner: 'team-b', contractStatus: 'NonCompliant', blastRadius: 3, complianceScore: 20 },
+    { name: 'd', owner: { team: 'team-a' }, contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
     { name: 'e', owner: null, contractStatus: 'Reference', blastRadius: 0 },
-    { name: 'f', owner: { dri: 'alice' }, contractStatus: 'Compliant', blastRadius: 1 },
+    { name: 'f', owner: { dri: 'alice' }, contractStatus: 'Compliant', blastRadius: 1, complianceScore: 100 },
   ];
 
   it('groups by canonical owner key', () => {
@@ -213,18 +213,18 @@ describe('aggregateByOwner', () => {
     expect(teamA.totalBlast).toBe(3); // 2 + 1 + 0
   });
 
-  it('computes compliance percentage', () => {
+  it('computes compliance as average of service scores', () => {
     const result = aggregateByOwner(services);
     const teamA = result.find((r) => r.key === 'team-a')!;
-    // 2 compliant out of 3 assessed (compliant + warning + nonCompliant)
-    expect(teamA.compliancePercent).toBe(67);
+    // avg(100, 60, 100) = 86.67 → 87
+    expect(teamA.compliancePercent).toBe(87);
   });
 
-  it('handles reference-only owner (no assessed services)', () => {
+  it('handles reference-only owner (no compliance scores)', () => {
     const result = aggregateByOwner(services);
     const unowned = result.find((r) => r.key === '(unowned)')!;
     expect(unowned.reference).toBe(1);
-    expect(unowned.compliancePercent).toBe(-1); // no assessed services
+    expect(unowned.compliancePercent).toBe(-1); // no scores
   });
 
   it('returns sorted by key', () => {
@@ -247,8 +247,8 @@ describe('aggregateByOwner', () => {
 
   it('handles owner with only compliant services', () => {
     const svc = [
-      { name: 'x', owner: 'clean-team', contractStatus: 'Compliant', blastRadius: 0 },
-      { name: 'y', owner: 'clean-team', contractStatus: 'Compliant', blastRadius: 0 },
+      { name: 'x', owner: 'clean-team', contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
+      { name: 'y', owner: 'clean-team', contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
     ];
     const result = aggregateByOwner(svc);
     const team = result.find((r) => r.key === 'clean-team')!;
@@ -413,11 +413,11 @@ describe('computeTooltipPosition', () => {
 
 describe('aggregateByOwner — sorting/filtering support', () => {
   const services = [
-    { name: 'a', owner: 'team-a', contractStatus: 'Compliant', blastRadius: 5 },
-    { name: 'b', owner: 'team-a', contractStatus: 'Warning', blastRadius: 3 },
-    { name: 'c', owner: 'team-b', contractStatus: 'NonCompliant', blastRadius: 10 },
-    { name: 'd', owner: 'team-c', contractStatus: 'Compliant', blastRadius: 0 },
-    { name: 'e', owner: 'team-c', contractStatus: 'Compliant', blastRadius: 1 },
+    { name: 'a', owner: 'team-a', contractStatus: 'Compliant', blastRadius: 5, complianceScore: 100 },
+    { name: 'b', owner: 'team-a', contractStatus: 'Warning', blastRadius: 3, complianceScore: 50 },
+    { name: 'c', owner: 'team-b', contractStatus: 'NonCompliant', blastRadius: 10, complianceScore: 0 },
+    { name: 'd', owner: 'team-c', contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
+    { name: 'e', owner: 'team-c', contractStatus: 'Compliant', blastRadius: 1, complianceScore: 100 },
   ];
 
   it('supports sort by services (descending)', () => {
@@ -437,7 +437,7 @@ describe('aggregateByOwner — sorting/filtering support', () => {
   it('supports sort by compliance % (ascending)', () => {
     const result = aggregateByOwner(services);
     const sorted = [...result].sort((a, b) => a.compliancePercent - b.compliancePercent);
-    // team-b: 0% compliant, team-a: 50%, team-c: 100%
+    // team-b: avg(0)=0%, team-a: avg(100,50)=75%, team-c: avg(100,100)=100%
     expect(sorted[0].key).toBe('team-b');
     expect(sorted[0].compliancePercent).toBe(0);
   });
@@ -459,6 +459,7 @@ describe('aggregateByOwner — sorting/filtering support', () => {
   it('supports filter: fully compliant (100%)', () => {
     const result = aggregateByOwner(services);
     const filtered = result.filter((o) => o.compliancePercent === 100);
+    // team-c: avg(100,100)=100%
     expect(filtered).toHaveLength(1);
     expect(filtered[0].key).toBe('team-c');
   });
