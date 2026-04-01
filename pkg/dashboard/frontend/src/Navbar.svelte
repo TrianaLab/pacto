@@ -1,6 +1,6 @@
 <script>
   import { navigate, serviceUrl, ownerUrl } from './lib/router.ts';
-  import { statusClass, sourceTooltip, ownerMatchesFilter, ownerKey, ownerDisplay } from './lib/format.ts';
+  import { statusClass, sourceTooltip, ownerMatchesFilter, ownerKey, ownerDisplay, complianceClass } from './lib/format.ts';
 
   let {
     services = [], sourcesInfo = [], version = '', discovering = false,
@@ -29,20 +29,34 @@
       .slice(0, 8);
   });
 
-  // Unique owners matching the query
+  // Unique owners matching the query, with summary stats
   let ownerMatches = $derived.by(() => {
     if (!query) return [];
     const q = query.toLowerCase();
-    const seen = new Set();
-    const result = [];
+    // Build per-owner aggregation
+    const agg = new Map();
     for (const s of services) {
       const key = ownerKey(s.owner);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      if (key.toLowerCase().includes(q)) {
-        result.push(key);
-        if (result.length >= 4) break;
+      if (!key) continue;
+      let o = agg.get(key);
+      if (!o) {
+        o = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, totalBlast: 0, scores: [] };
+        agg.set(key, o);
       }
+      o.services++;
+      const st = s.contractStatus;
+      if (st === 'Compliant') o.compliant++;
+      else if (st === 'Warning') o.warning++;
+      else if (st === 'NonCompliant') o.nonCompliant++;
+      o.totalBlast += s.blastRadius || 0;
+      if (s.complianceScore != null) o.scores.push(s.complianceScore);
+    }
+    const result = [];
+    for (const [key, o] of agg) {
+      if (!key.toLowerCase().includes(q)) continue;
+      o.compliancePercent = o.scores.length > 0 ? Math.round(o.scores.reduce((a, b) => a + b, 0) / o.scores.length) : -1;
+      result.push(o);
+      if (result.length >= 4) break;
     }
     return result;
   });
@@ -61,7 +75,7 @@
     else if (e.key === 'Enter' && selectedIdx >= 0) {
       e.preventDefault();
       if (selectedIdx < ownerMatches.length) {
-        pickOwner(ownerMatches[selectedIdx]);
+        pickOwner(ownerMatches[selectedIdx].key);
       } else {
         const svcIdx = selectedIdx - ownerMatches.length;
         if (matches[svcIdx]) pick(matches[svcIdx].name);
@@ -100,7 +114,7 @@
     <input
       bind:this={searchInputEl}
       type="text"
-      placeholder="Search services..."
+      placeholder="Search..."
       value={query}
       oninput={onInput}
       onfocus={() => { if (query) showResults = true; }}
@@ -117,19 +131,22 @@
         {:else}
           {#if ownerMatches.length > 0}
             <div class="search-group-label">Owners</div>
-            {#each ownerMatches as key, i}
+            {#each ownerMatches as om, i}
               <a
-                href={ownerUrl(key)}
+                href={ownerUrl(om.key)}
                 class="search-result"
                 class:selected={i === selectedIdx}
                 role="option"
                 aria-selected={i === selectedIdx}
-                onclick={(e) => { e.preventDefault(); pickOwner(key); }}
+                onclick={(e) => { e.preventDefault(); pickOwner(om.key); }}
                 onmouseenter={() => { selectedIdx = i; }}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="flex-shrink:0; color:var(--c-text-3)"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-                <span class="search-result-name">{key}</span>
-                <span class="search-result-meta">owner</span>
+                <span class="search-result-name">{om.key}</span>
+                <span class="search-result-meta">{om.services} svc{om.services !== 1 ? 's' : ''}</span>
+                {#if om.compliancePercent >= 0}<span class="search-score {complianceClass(om.compliancePercent)}">{om.compliancePercent}%</span>{/if}
+                {#if om.warning > 0}<span class="search-stat search-stat-warn">{om.warning}w</span>{/if}
+                {#if om.nonCompliant > 0}<span class="search-stat search-stat-err">{om.nonCompliant}nc</span>{/if}
               </a>
             {/each}
           {/if}
@@ -280,6 +297,15 @@
     padding: 6px var(--sp-4) 2px; font-size: 10px; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.05em; color: var(--c-text-3);
   }
+  .search-score {
+    font-size: var(--text-xs); font-weight: 600; margin-left: auto;
+  }
+  .search-stat {
+    font-size: 10px; font-weight: 600; padding: 1px 5px;
+    border-radius: var(--radius-xs);
+  }
+  .search-stat-warn { color: var(--c-warn); }
+  .search-stat-err { color: var(--c-err); }
   .navbar-right {
     display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-shrink: 0;
   }
