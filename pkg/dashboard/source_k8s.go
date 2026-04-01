@@ -96,13 +96,13 @@ func (f *flexSlice[T]) UnmarshalJSON(data []byte) error {
 }
 
 type k8sContractInfo struct {
-	ServiceName      string `json:"serviceName"`
-	Version          string `json:"version"`
-	Owner            string `json:"owner"`
-	ImageRef         string `json:"imageRef"`
-	ResolvedRef      string `json:"resolvedRef"`
-	CurrentRevision  string `json:"currentRevision,omitempty"`
-	ResolutionPolicy string `json:"resolutionPolicy,omitempty"` // "Latest", "PinnedTag", "PinnedDigest"
+	ServiceName      string         `json:"serviceName"`
+	Version          string         `json:"version"`
+	Owner            contract.Owner `json:"owner"`
+	ImageRef         string         `json:"imageRef"`
+	ResolvedRef      string         `json:"resolvedRef"`
+	CurrentRevision  string         `json:"currentRevision,omitempty"`
+	ResolutionPolicy string         `json:"resolutionPolicy,omitempty"` // "Latest", "PinnedTag", "PinnedDigest"
 }
 
 type k8sValidation struct {
@@ -505,7 +505,7 @@ func serviceFromK8sStatus(r pactoResource) Service {
 	if r.Status.Contract != nil {
 		svc.Name = r.Status.Contract.ServiceName
 		svc.Version = r.Status.Contract.Version
-		svc.Owner = contract.NewOwnerFromString(r.Status.Contract.Owner)
+		svc.Owner = r.Status.Contract.Owner
 	}
 	if r.Status.ContractVersion != "" {
 		svc.Version = r.Status.ContractVersion

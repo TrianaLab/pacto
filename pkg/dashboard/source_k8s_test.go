@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/trianalab/pacto/pkg/contract"
 )
 
 // ---------------------------------------------------------------------------
@@ -44,7 +46,7 @@ func TestK8s_serviceFromK8sStatus_WithContract(t *testing.T) {
 	r.Status.Contract = &k8sContractInfo{
 		ServiceName: "api-gateway",
 		Version:     "2.0.0",
-		Owner:       "platform-team",
+		Owner:       contract.NewOwnerFromString("platform-team"),
 	}
 
 	svc := serviceFromK8sStatus(r)
@@ -57,6 +59,206 @@ func TestK8s_serviceFromK8sStatus_WithContract(t *testing.T) {
 	}
 	if svc.Owner.DisplayString() != "platform-team" {
 		t.Errorf("expected owner 'platform-team', got %q", svc.Owner.DisplayString())
+	}
+}
+
+func TestK8s_serviceFromK8sStatus_StructuredOwner(t *testing.T) {
+	r := pactoResource{}
+	r.Metadata.Name = "k8s-name"
+	r.Status.ContractStatus = "Compliant"
+	r.Status.Contract = &k8sContractInfo{
+		ServiceName: "api-gateway",
+		Version:     "2.0.0",
+		Owner:       contract.NewOwnerFromInfo(contract.OwnerInfo{Team: "foundations", DRI: "alice"}),
+	}
+
+	svc := serviceFromK8sStatus(r)
+
+	if !svc.Owner.IsStructured() {
+		t.Fatal("expected structured owner")
+	}
+	if svc.Owner.DisplayString() != "foundations" {
+		t.Errorf("expected owner display 'foundations', got %q", svc.Owner.DisplayString())
+	}
+	if svc.Owner.DRI() != "alice" {
+		t.Errorf("expected dri 'alice', got %q", svc.Owner.DRI())
+	}
+}
+
+func TestK8s_serviceFromK8sStatus_StructuredOwnerFromJSON(t *testing.T) {
+	// Simulate the actual K8s API path: JSON unmarshal of operator payload.
+	payload := `{
+		"metadata": {"name": "k8s-name"},
+		"status": {
+			"contractStatus": "Compliant",
+			"contract": {
+				"serviceName": "billing",
+				"version": "1.0.0",
+				"owner": {
+					"team": "payments",
+					"dri": "bob.smith",
+					"contacts": [
+						{"type": "email", "value": "payments@acme.com", "purpose": "ownership"},
+						{"type": "chat", "value": "#payments"}
+					]
+				}
+			}
+		}
+	}`
+	var r pactoResource
+	if err := json.Unmarshal([]byte(payload), &r); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	svc := serviceFromK8sStatus(r)
+
+	if !svc.Owner.IsStructured() {
+		t.Fatal("expected structured owner from JSON")
+	}
+	if svc.Owner.DisplayString() != "payments" {
+		t.Errorf("expected display 'payments', got %q", svc.Owner.DisplayString())
+	}
+	if svc.Owner.DRI() != "bob.smith" {
+		t.Errorf("expected dri 'bob.smith', got %q", svc.Owner.DRI())
+	}
+	contacts := svc.Owner.Contacts()
+	if len(contacts) != 2 {
+		t.Fatalf("expected 2 contacts, got %d", len(contacts))
+	}
+	if contacts[0].Type != "email" || contacts[0].Value != "payments@acme.com" || contacts[0].Purpose != "ownership" {
+		t.Errorf("contact[0] mismatch: %+v", contacts[0])
+	}
+	if contacts[1].Type != "chat" || contacts[1].Value != "#payments" {
+		t.Errorf("contact[1] mismatch: %+v", contacts[1])
+	}
+}
+
+func TestK8s_serviceFromK8sStatus_LegacyStringOwnerFromJSON(t *testing.T) {
+	// Confirm backward compatibility: string owner from JSON still works.
+	payload := `{
+		"metadata": {"name": "svc"},
+		"status": {
+			"contractStatus": "Compliant",
+			"contract": {
+				"serviceName": "svc",
+				"version": "1.0.0",
+				"owner": "team/platform"
+			}
+		}
+	}`
+	var r pactoResource
+	if err := json.Unmarshal([]byte(payload), &r); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	svc := serviceFromK8sStatus(r)
+
+	if svc.Owner.IsStructured() {
+		t.Error("expected legacy string owner, got structured")
+	}
+	if svc.Owner.DisplayString() != "team/platform" {
+		t.Errorf("expected 'team/platform', got %q", svc.Owner.DisplayString())
+	}
+}
+
+func TestK8s_serviceFromK8sStatus_EmptyOwnerFromJSON(t *testing.T) {
+	// Confirm missing owner field works.
+	payload := `{
+		"metadata": {"name": "svc"},
+		"status": {
+			"contractStatus": "Compliant",
+			"contract": {
+				"serviceName": "svc",
+				"version": "1.0.0"
+			}
+		}
+	}`
+	var r pactoResource
+	if err := json.Unmarshal([]byte(payload), &r); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	svc := serviceFromK8sStatus(r)
+
+	if !svc.Owner.IsEmpty() {
+		t.Errorf("expected empty owner, got %q", svc.Owner.DisplayString())
+	}
+}
+
+func TestK8s_serviceFromK8sStatus_NullOwnerFromJSON(t *testing.T) {
+	// Confirm explicit null owner works.
+	payload := `{
+		"metadata": {"name": "svc"},
+		"status": {
+			"contractStatus": "Compliant",
+			"contract": {
+				"serviceName": "svc",
+				"version": "1.0.0",
+				"owner": null
+			}
+		}
+	}`
+	var r pactoResource
+	if err := json.Unmarshal([]byte(payload), &r); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	svc := serviceFromK8sStatus(r)
+
+	if !svc.Owner.IsEmpty() {
+		t.Errorf("expected empty owner for null, got %q", svc.Owner.DisplayString())
+	}
+}
+
+func TestK8s_serviceDetailsFromK8sStatus_StructuredOwnerPreserved(t *testing.T) {
+	// Verify structured owner flows through to ServiceDetails (the full detail path).
+	payload := `{
+		"metadata": {"name": "svc", "namespace": "prod"},
+		"status": {
+			"contractStatus": "Compliant",
+			"contract": {
+				"serviceName": "billing",
+				"version": "2.0.0",
+				"owner": {"team": "finops", "dri": "carol"},
+				"imageRef": "ghcr.io/org/billing:2.0.0"
+			}
+		}
+	}`
+	var r pactoResource
+	if err := json.Unmarshal([]byte(payload), &r); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	details := serviceDetailsFromK8sStatus(&r)
+
+	if !details.Owner.IsStructured() {
+		t.Fatal("expected structured owner in details")
+	}
+	if details.Owner.DisplayString() != "finops" {
+		t.Errorf("expected 'finops', got %q", details.Owner.DisplayString())
+	}
+	if details.Owner.DRI() != "carol" {
+		t.Errorf("expected dri 'carol', got %q", details.Owner.DRI())
+	}
+
+	// Verify JSON marshaling preserves structure.
+	data, err := json.Marshal(details)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("unmarshal output failed: %v", err)
+	}
+	ownerMap, ok := m["owner"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected owner to be object in JSON, got %T: %v", m["owner"], m["owner"])
+	}
+	if ownerMap["team"] != "finops" {
+		t.Errorf("expected team=finops in JSON, got %v", ownerMap["team"])
+	}
+	if ownerMap["dri"] != "carol" {
+		t.Errorf("expected dri=carol in JSON, got %v", ownerMap["dri"])
 	}
 }
 
@@ -309,7 +511,7 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	r.Status.ContractStatus = "Compliant"
 	r.Status.ContractVersion = "1.2.3"
 	r.Status.LastReconciledAt = time.Now().Add(-5 * time.Minute).Format(time.RFC3339)
-	r.Status.Contract = &k8sContractInfo{ServiceName: "billing", Version: "1.0.0", Owner: "payments", ImageRef: "ghcr.io/org/billing:1.2.3", ResolvedRef: "sha256:abc"}
+	r.Status.Contract = &k8sContractInfo{ServiceName: "billing", Version: "1.0.0", Owner: contract.NewOwnerFromString("payments"), ImageRef: "ghcr.io/org/billing:1.2.3", ResolvedRef: "sha256:abc"}
 	r.Status.Metadata = map[string]string{"team": "platform", "env": "prod"}
 	r.Status.Interfaces = flexSlice[k8sInterface]{{Name: "http", Type: "http", Port: &port, Visibility: "public", HasContractFile: true}}
 	r.Status.Configuration = &k8sConfig{HasSchema: true, Ref: "config-ref", ValueKeys: []string{"key1"}, SecretKeys: []string{"secret1"}}
