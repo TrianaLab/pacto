@@ -58,7 +58,7 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 
 	path := defaultPath(opts.Path)
 
-	c, _, bundleFS, err := loadAndValidateLocal(path, opts.Overrides)
+	c, _, bundleFS, err := loadAndValidateFull(ctx, path, opts.Overrides, s.BundleStore)
 	if err != nil {
 		return nil, err
 	}

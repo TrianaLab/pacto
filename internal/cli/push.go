@@ -13,7 +13,7 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push <ref>",
 		Short: "Push a contract bundle to an OCI registry",
-		Long:  "Validates the contract, builds an OCI image, and pushes it to the specified registry reference.",
+		Long:  "Validates the contract (including remote policy and config refs), builds an OCI image, and pushes it to the specified registry reference.",
 		Example: `  # Push with auto-tag (uses contract version)
   pacto push oci://ghcr.io/acme/my-service-pacto -p my-service
 

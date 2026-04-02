@@ -202,6 +202,36 @@ func loadAndValidateLocal(dir string, overrides override.Overrides) (*contract.C
 	return bundle.Contract, bundle.RawYAML, bundle.FS, nil
 }
 
+// loadAndValidateFull reads a local contract directory, parses pacto.yaml,
+// validates it with full remote ref resolution (policies and configs), and
+// returns the parsed contract and bundle FS. Used by push to enforce remote
+// policies before publishing.
+func loadAndValidateFull(ctx context.Context, dir string, overrides override.Overrides, store oci.BundleStore) (*contract.Contract, []byte, fs.FS, error) {
+	slog.Debug("loading and validating local bundle with remote resolution", "dir", dir)
+	bundle, err := loadLocalBundle(dir)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	bundle, err = applyOverrides(bundle, overrides)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	var resolver validation.BundleResolver
+	if store != nil {
+		resolver = &bundleResolverAdapter{svc: &Service{BundleStore: store}}
+	}
+	result := validation.ValidateWithResolver(ctx, bundle.Contract, bundle.RawYAML, bundle.FS, resolver)
+	if !result.IsValid() {
+		slog.Debug("validation failed", "errors", len(result.Errors))
+		return nil, nil, nil, fmt.Errorf("contract validation failed with %d error(s)", len(result.Errors))
+	}
+
+	slog.Debug("validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
+	return bundle.Contract, bundle.RawYAML, bundle.FS, nil
+}
+
 // isOCIRef reports whether ref uses the oci:// scheme.
 func isOCIRef(ref string) bool {
 	return graph.ParseDependencyRef(ref).IsOCI()

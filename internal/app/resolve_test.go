@@ -454,6 +454,194 @@ func TestLoadAndValidateLocal_ValidationFails(t *testing.T) {
 	}
 }
 
+func TestLoadAndValidateFull_Success(t *testing.T) {
+	dir := writeTestBundle(t)
+	store := &mockBundleStore{}
+	c, rawYAML, bundleFS, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Service.Name != "test-svc" {
+		t.Errorf("expected test-svc, got %s", c.Service.Name)
+	}
+	if rawYAML == nil {
+		t.Error("expected rawYAML to be set")
+	}
+	if bundleFS == nil {
+		t.Error("expected bundleFS to be set")
+	}
+}
+
+func TestLoadAndValidateFull_NilStore(t *testing.T) {
+	dir := writeTestBundle(t)
+	c, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Service.Name != "test-svc" {
+		t.Errorf("expected test-svc, got %s", c.Service.Name)
+	}
+}
+
+func TestLoadAndValidateFull_FileNotFound(t *testing.T) {
+	_, _, _, err := loadAndValidateFull(context.Background(), "/nonexistent/dir", override.Overrides{}, nil)
+	if err == nil {
+		t.Error("expected error for nonexistent directory")
+	}
+}
+
+func TestLoadAndValidateFull_OverrideError(t *testing.T) {
+	dir := writeTestBundle(t)
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{
+		SetValues: []string{"no-equals"},
+	}, nil)
+	if err == nil {
+		t.Error("expected error for invalid override")
+	}
+}
+
+func TestLoadAndValidateFull_ValidationFails(t *testing.T) {
+	dir := writeInvalidBundle(t)
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil)
+	if err == nil {
+		t.Error("expected error for invalid bundle")
+	}
+}
+
+func TestLoadAndValidateFull_PolicyRefUnresolved(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`pactoVersion: "1.0"
+service:
+  name: test-svc
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - ref: oci://ghcr.io/acme/policy:1.0.0
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`)
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// With nil store, ref-based policies fail with POLICY_REF_UNRESOLVED
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil)
+	if err == nil {
+		t.Error("expected error for unresolvable policy ref")
+	}
+}
+
+func TestLoadAndValidateFull_PolicyRefResolved(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`pactoVersion: "1.0"
+service:
+  name: test-svc
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - ref: oci://ghcr.io/acme/policy:1.0.0
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`)
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Policy bundle that requires "service" (which the contract has)
+	policySchema := []byte(`{"type":"object","required":["service"]}`)
+	store := &mockBundleStore{
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			return &contract.Bundle{
+				Contract: &contract.Contract{},
+				FS: fstest.MapFS{
+					"pacto.yaml":         &fstest.MapFile{Data: []byte(`pactoVersion: "1.0"`)},
+					"policy/schema.json": &fstest.MapFile{Data: policySchema},
+				},
+			}, nil
+		},
+	}
+
+	c, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Service.Name != "test-svc" {
+		t.Errorf("expected test-svc, got %s", c.Service.Name)
+	}
+}
+
+func TestLoadAndValidateFull_PolicyViolation(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`pactoVersion: "1.0"
+service:
+  name: test-svc
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - ref: oci://ghcr.io/acme/policy:1.0.0
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`)
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Policy bundle that requires "scaling" (which the contract does NOT have)
+	policySchema := []byte(`{"type":"object","required":["scaling"]}`)
+	store := &mockBundleStore{
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			return &contract.Bundle{
+				Contract: &contract.Contract{},
+				FS: fstest.MapFS{
+					"pacto.yaml":         &fstest.MapFile{Data: []byte(`pactoVersion: "1.0"`)},
+					"policy/schema.json": &fstest.MapFile{Data: policySchema},
+				},
+			}, nil
+		},
+	}
+
+	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store)
+	if err == nil {
+		t.Error("expected error for policy violation (missing scaling)")
+	}
+}
+
 func TestCopyFSWithReplace_ErrorFS(t *testing.T) {
 	_, err := copyFSWithReplace(errFS{}, "pacto.yaml", []byte("data"))
 	if err == nil {

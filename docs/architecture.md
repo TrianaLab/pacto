@@ -174,7 +174,7 @@ Each CLI command maps to exactly one service method. This layer orchestrates `pk
 
 - `Init()`, `Validate()`, `Pack()`, `Push()`, `Pull()`
 - `Diff()`, `Graph()`, `Explain()`, `Generate()`, `Doc()`
-- Shared helpers: `resolveBundle()`, `resolveBundleWithOverrides()`, `loadAndValidateLocal()`
+- Shared helpers: `resolveBundle()`, `resolveBundleWithOverrides()`, `loadAndValidateLocal()`, `loadAndValidateFull()`
 
 ### `internal/cli` -- CLI layer
 

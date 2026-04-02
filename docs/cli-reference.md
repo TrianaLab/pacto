@@ -535,7 +535,7 @@ pacto pull <ref> [flags]
 
 ## `pacto push`
 
-Validates the contract, builds an OCI image, and pushes it to the specified registry reference.
+Validates the contract (including remote policy and config refs), builds an OCI image, and pushes it to the specified registry reference.
 
 ```
 pacto push <ref> [flags]

@@ -447,6 +447,129 @@ configuration:
 	assertContains(t, output, "is valid")
 }
 
+func TestPushRejectsRemotePolicyViolation(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// Push a policy that requires "scaling"
+	policyDir := filepath.Join(t.TempDir(), "scaling-policy")
+	policyYAML := `pactoVersion: "1.0"
+service:
+  name: scaling-policy
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+`
+	policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyYAML,
+		`{"type":"object","required":["scaling"],"properties":{"scaling":{"type":"object","required":["replicas"]}}}`)
+	if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/scaling-policy:1.0.0", "-p", policyBundlePath)
+	if err != nil {
+		t.Fatalf("failed to push policy bundle: %v", err)
+	}
+
+	// Create a service without scaling — push should fail
+	svcDir := filepath.Join(t.TempDir(), "no-scaling-svc")
+	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+service:
+  name: no-scaling-svc
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: interfaces/openapi.yaml
+policies:
+  - ref: oci://%s/scaling-policy:1.0.0
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`, reg.host)
+	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "no-scaling-svc", "1.0.0"),
+	})
+
+	_, err = runCommand(t, reg, "push", "oci://"+reg.host+"/no-scaling-svc:1.0.0", "-p", svcBundlePath)
+	if err == nil {
+		t.Fatal("expected push to reject contract that violates remote policy (missing scaling)")
+	}
+}
+
+func TestPushSucceedsWithRemotePolicyCompliance(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// Push a policy that requires "service" (which every valid contract has)
+	policyDir := filepath.Join(t.TempDir(), "basic-policy")
+	policyYAML := `pactoVersion: "1.0"
+service:
+  name: basic-policy
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+`
+	policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyYAML,
+		`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["service"]}`)
+	if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/basic-policy:1.0.0", "-p", policyBundlePath)
+	if err != nil {
+		t.Fatalf("failed to push policy bundle: %v", err)
+	}
+
+	// Create a compliant service — push should succeed
+	svcDir := filepath.Join(t.TempDir(), "compliant-svc")
+	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+service:
+  name: compliant-svc
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: interfaces/openapi.yaml
+policies:
+  - ref: oci://%s/basic-policy:1.0.0
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`, reg.host)
+	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "compliant-svc", "1.0.0"),
+	})
+
+	output, err := runCommand(t, reg, "push", "oci://"+reg.host+"/compliant-svc:1.0.0", "-p", svcBundlePath)
+	if err != nil {
+		t.Fatalf("push failed for compliant service: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "Pushed compliant-svc@1.0.0")
+}
+
 func TestPushRejectsLocalConfigRef(t *testing.T) {
 	t.Parallel()
 	reg := newTestRegistry(t)

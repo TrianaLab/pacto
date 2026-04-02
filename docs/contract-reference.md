@@ -527,6 +527,9 @@ Like `configuration.ref`, policy references create **reference edges** in the de
 {: .warning }
 Local policy references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local `policies[].ref` — all refs must use `oci://` before publishing.
 
+{: .important }
+`pacto push` resolves and enforces all remote `policies[].ref` entries before publishing. If the contract violates any referenced policy schema, the push is rejected. This ensures non-compliant contracts are never published to the registry.
+
 #### Bundle structure with policy
 
 ```

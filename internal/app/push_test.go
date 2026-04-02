@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/oci"
@@ -455,6 +456,61 @@ runtime:
 		t.Fatal("expected error for local config ref")
 	}
 	if !strings.Contains(err.Error(), "local config ref detected") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestPush_RejectsRemotePolicyViolation(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`pactoVersion: "1.0"
+service:
+  name: test-svc
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - ref: oci://ghcr.io/acme/policy:1.0.0
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`)
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Policy requires "scaling" which the contract does not have
+	policySchema := []byte(`{"type":"object","required":["scaling"]}`)
+	store := &mockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) {
+			return "", &oci.ArtifactNotFoundError{Ref: "ghcr.io/acme/svc:1.0.0"}
+		},
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			return &contract.Bundle{
+				Contract: &contract.Contract{},
+				FS: fstest.MapFS{
+					"pacto.yaml":         &fstest.MapFile{Data: []byte(`pactoVersion: "1.0"`)},
+					"policy/schema.json": &fstest.MapFile{Data: policySchema},
+				},
+			}, nil
+		},
+	}
+
+	svc := NewService(store, nil)
+	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
+	if err == nil {
+		t.Fatal("expected push to reject contract that violates remote policy")
+	}
+	if !strings.Contains(err.Error(), "validation failed") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
