@@ -101,12 +101,7 @@ func (c *Configuration) EffectiveConfigs() []EffectiveConfigSource {
 	if len(c.Configs) > 0 {
 		result := make([]EffectiveConfigSource, len(c.Configs))
 		for i, cfg := range c.Configs {
-			result[i] = EffectiveConfigSource{
-				Name:   cfg.Name,
-				Schema: cfg.Schema,
-				Ref:    cfg.Ref,
-				Values: cfg.Values,
-			}
+			result[i] = EffectiveConfigSource(cfg)
 		}
 		return result
 	}

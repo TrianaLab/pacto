@@ -111,3 +111,16 @@ func TestValidate_OCIRef_NilStore(t *testing.T) {
 		t.Error("expected invalid result for nil store")
 	}
 }
+
+func TestBundleResolverAdapter(t *testing.T) {
+	store := &mockBundleStore{}
+	svc := NewService(store, nil)
+	adapter := &bundleResolverAdapter{svc: svc}
+	bundle, err := adapter.ResolveBundle(context.Background(), "oci://ghcr.io/acme/svc:1.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bundle == nil {
+		t.Fatal("expected non-nil bundle")
+	}
+}

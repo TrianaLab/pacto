@@ -94,43 +94,7 @@ func diffConfiguration(old, new *contract.Contract, oldFS, newFS fs.FS) []Change
 	}
 
 	// Compare configs array (positional)
-	maxLen := len(oldCfg.Configs)
-	if len(newCfg.Configs) > maxLen {
-		maxLen = len(newCfg.Configs)
-	}
-
-	for i := 0; i < maxLen; i++ {
-		prefix := fmt.Sprintf("configuration.configs[%d]", i)
-		if i >= len(oldCfg.Configs) {
-			changes = append(changes, newChange(prefix, Added, nil, namedConfigSummary(&newCfg.Configs[i])))
-			continue
-		}
-		if i >= len(newCfg.Configs) {
-			changes = append(changes, newChange(prefix, Removed, namedConfigSummary(&oldCfg.Configs[i]), nil))
-			continue
-		}
-		oldNamed := &oldCfg.Configs[i]
-		newNamed := &newCfg.Configs[i]
-
-		if oldNamed.Name != newNamed.Name {
-			changes = append(changes, newChange(prefix+".name", Modified, oldNamed.Name, newNamed.Name))
-		}
-		if oldNamed.Schema != newNamed.Schema {
-			changes = append(changes, newChange(prefix+".schema", Modified, oldNamed.Schema, newNamed.Schema))
-		}
-		if oldNamed.Ref != newNamed.Ref {
-			ct := Modified
-			if oldNamed.Ref == "" {
-				ct = Added
-			} else if newNamed.Ref == "" {
-				ct = Removed
-			}
-			changes = append(changes, newChange(prefix+".ref", ct, oldNamed.Ref, newNamed.Ref))
-		}
-		if oldNamed.Schema != "" && newNamed.Schema != "" {
-			changes = append(changes, diffSchema(oldNamed.Schema, newNamed.Schema, oldFS, newFS)...)
-		}
-	}
+	changes = append(changes, diffNamedConfigs(oldCfg.Configs, newCfg.Configs, oldFS, newFS)...)
 
 	return changes
 }
@@ -156,6 +120,48 @@ func namedConfigSummary(cfg *contract.NamedConfigSource) string {
 		return cfg.Name + ": " + cfg.Ref
 	}
 	return cfg.Name + ": " + cfg.Schema
+}
+
+// diffNamedConfigs compares the configs[] arrays positionally.
+func diffNamedConfigs(oldConfigs, newConfigs []contract.NamedConfigSource, oldFS, newFS fs.FS) []Change {
+	var changes []Change
+	maxLen := len(oldConfigs)
+	if len(newConfigs) > maxLen {
+		maxLen = len(newConfigs)
+	}
+	for i := 0; i < maxLen; i++ {
+		prefix := fmt.Sprintf("configuration.configs[%d]", i)
+		if i >= len(oldConfigs) {
+			changes = append(changes, newChange(prefix, Added, nil, namedConfigSummary(&newConfigs[i])))
+			continue
+		}
+		if i >= len(newConfigs) {
+			changes = append(changes, newChange(prefix, Removed, namedConfigSummary(&oldConfigs[i]), nil))
+			continue
+		}
+		oldNamed := &oldConfigs[i]
+		newNamed := &newConfigs[i]
+
+		if oldNamed.Name != newNamed.Name {
+			changes = append(changes, newChange(prefix+".name", Modified, oldNamed.Name, newNamed.Name))
+		}
+		if oldNamed.Schema != newNamed.Schema {
+			changes = append(changes, newChange(prefix+".schema", Modified, oldNamed.Schema, newNamed.Schema))
+		}
+		if oldNamed.Ref != newNamed.Ref {
+			ct := Modified
+			if oldNamed.Ref == "" {
+				ct = Added
+			} else if newNamed.Ref == "" {
+				ct = Removed
+			}
+			changes = append(changes, newChange(prefix+".ref", ct, oldNamed.Ref, newNamed.Ref))
+		}
+		if oldNamed.Schema != "" && newNamed.Schema != "" {
+			changes = append(changes, diffSchema(oldNamed.Schema, newNamed.Schema, oldFS, newFS)...)
+		}
+	}
+	return changes
 }
 
 // diffPolicy compares policies arrays.

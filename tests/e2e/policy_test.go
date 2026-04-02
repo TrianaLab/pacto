@@ -9,13 +9,10 @@ import (
 	"testing"
 )
 
-func TestPolicyAndConfigRef(t *testing.T) {
+func TestPolicyLocalSchema(t *testing.T) {
 	t.Parallel()
-
-	t.Run("validate contract with local policy schema", func(t *testing.T) {
-		t.Parallel()
-		dir := filepath.Join(t.TempDir(), "policy-svc")
-		contractYAML := `pactoVersion: "1.0"
+	dir := filepath.Join(t.TempDir(), "policy-svc")
+	contractYAML := `pactoVersion: "1.0"
 service:
   name: policy-svc
   version: 1.0.0
@@ -39,29 +36,29 @@ runtime:
     interface: api
     path: /health
 `
-		bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
-			"openapi.yaml": fmt.Sprintf(openapiTemplate, "policy-svc", "1.0.0"),
-		})
-		policyDir := filepath.Join(bundlePath, "policy")
-		if err := os.MkdirAll(policyDir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		policySchema := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`
-		if err := os.WriteFile(filepath.Join(policyDir, "schema.json"), []byte(policySchema), 0644); err != nil {
-			t.Fatal(err)
-		}
-
-		output, err := runCommand(t, nil, "validate", bundlePath)
-		if err != nil {
-			t.Fatalf("validate failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "is valid")
+	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "policy-svc", "1.0.0"),
 	})
+	policyDir := filepath.Join(bundlePath, "policy")
+	if err := os.MkdirAll(policyDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	policySchema := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`
+	if err := os.WriteFile(filepath.Join(policyDir, "schema.json"), []byte(policySchema), 0644); err != nil {
+		t.Fatal(err)
+	}
 
-	t.Run("validate fails closed for unresolvable policy ref", func(t *testing.T) {
-		t.Parallel()
-		dir := filepath.Join(t.TempDir(), "policy-ref-svc")
-		contractYAML := `pactoVersion: "1.0"
+	output, err := runCommand(t, nil, "validate", bundlePath)
+	if err != nil {
+		t.Fatalf("validate failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "is valid")
+}
+
+func TestPolicyRefUnresolvable(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "policy-ref-svc")
+	contractYAML := `pactoVersion: "1.0"
 service:
   name: policy-ref-svc
   version: 1.0.0
@@ -85,21 +82,21 @@ runtime:
     interface: api
     path: /health
 `
-		bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
-			"openapi.yaml": fmt.Sprintf(openapiTemplate, "policy-ref-svc", "1.0.0"),
-		})
-
-		output, err := runCommand(t, nil, "validate", bundlePath)
-		if err == nil {
-			t.Fatalf("expected validation to fail for unresolvable policy ref, output: %s", output)
-		}
-		assertContains(t, output, "POLICY_REF_UNRESOLVED")
+	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "policy-ref-svc", "1.0.0"),
 	})
 
-	t.Run("validate contract with config ref", func(t *testing.T) {
-		t.Parallel()
-		dir := filepath.Join(t.TempDir(), "config-ref-svc")
-		contractYAML := `pactoVersion: "1.0"
+	output, err := runCommand(t, nil, "validate", bundlePath)
+	if err == nil {
+		t.Fatalf("expected validation to fail for unresolvable policy ref, output: %s", output)
+	}
+	assertContains(t, output, "POLICY_REF_UNRESOLVED")
+}
+
+func TestConfigRef(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "config-ref-svc")
+	contractYAML := `pactoVersion: "1.0"
 service:
   name: config-ref-svc
   version: 1.0.0
@@ -123,21 +120,21 @@ runtime:
     interface: api
     path: /health
 `
-		bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
-			"openapi.yaml": fmt.Sprintf(openapiTemplate, "config-ref-svc", "1.0.0"),
-		})
-
-		output, err := runCommand(t, nil, "validate", bundlePath)
-		if err != nil {
-			t.Fatalf("validate failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "is valid")
+	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "config-ref-svc", "1.0.0"),
 	})
 
-	t.Run("validate rejects empty policy", func(t *testing.T) {
-		t.Parallel()
-		dir := filepath.Join(t.TempDir(), "empty-policy-svc")
-		contractYAML := `pactoVersion: "1.0"
+	output, err := runCommand(t, nil, "validate", bundlePath)
+	if err != nil {
+		t.Fatalf("validate failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "is valid")
+}
+
+func TestPolicyEmptyRejected(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "empty-policy-svc")
+	contractYAML := `pactoVersion: "1.0"
 service:
   name: empty-policy-svc
   version: 1.0.0
@@ -160,21 +157,21 @@ runtime:
     interface: api
     path: /health
 `
-		bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
-			"openapi.yaml": fmt.Sprintf(openapiTemplate, "empty-policy-svc", "1.0.0"),
-		})
-
-		output, err := runCommand(t, nil, "validate", bundlePath)
-		if err == nil {
-			t.Fatalf("expected validation to fail for empty policy, output: %s", output)
-		}
-		assertContains(t, output, "SCHEMA_VIOLATION")
+	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "empty-policy-svc", "1.0.0"),
 	})
 
-	t.Run("validate rejects missing policy schema file", func(t *testing.T) {
-		t.Parallel()
-		dir := filepath.Join(t.TempDir(), "missing-policy-svc")
-		contractYAML := `pactoVersion: "1.0"
+	output, err := runCommand(t, nil, "validate", bundlePath)
+	if err == nil {
+		t.Fatalf("expected validation to fail for empty policy, output: %s", output)
+	}
+	assertContains(t, output, "SCHEMA_VIOLATION")
+}
+
+func TestPolicyMissingSchemaFile(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "missing-policy-svc")
+	contractYAML := `pactoVersion: "1.0"
 service:
   name: missing-policy-svc
   version: 1.0.0
@@ -198,22 +195,22 @@ runtime:
     interface: api
     path: /health
 `
-		bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
-			"openapi.yaml": fmt.Sprintf(openapiTemplate, "missing-policy-svc", "1.0.0"),
-		})
-
-		output, err := runCommand(t, nil, "validate", bundlePath)
-		if err == nil {
-			t.Fatalf("expected validation to fail for missing policy schema, output: %s", output)
-		}
-		assertContains(t, output, "FILE_NOT_FOUND")
+	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "missing-policy-svc", "1.0.0"),
 	})
 
-	t.Run("push rejects local policy ref", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		dir := filepath.Join(t.TempDir(), "local-policy-svc")
-		contractYAML := `pactoVersion: "1.0"
+	output, err := runCommand(t, nil, "validate", bundlePath)
+	if err == nil {
+		t.Fatalf("expected validation to fail for missing policy schema, output: %s", output)
+	}
+	assertContains(t, output, "FILE_NOT_FOUND")
+}
+
+func TestPushRejectsLocalPolicyRef(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	dir := filepath.Join(t.TempDir(), "local-policy-svc")
+	contractYAML := `pactoVersion: "1.0"
 service:
   name: local-policy-svc
   version: 1.0.0
@@ -237,23 +234,23 @@ runtime:
     interface: api
     path: /health
 `
-		bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
-			"openapi.yaml": fmt.Sprintf(openapiTemplate, "local-policy-svc", "1.0.0"),
-		})
-
-		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/local-policy-svc:1.0.0", "-p", bundlePath)
-		if err == nil {
-			t.Fatal("expected push to reject local policy ref")
-		}
+	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "local-policy-svc", "1.0.0"),
 	})
 
-	t.Run("validate with OCI policy ref succeeds", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/local-policy-svc:1.0.0", "-p", bundlePath)
+	if err == nil {
+		t.Fatal("expected push to reject local policy ref")
+	}
+}
 
-		// Push a policy contract to the registry
-		policyDir := filepath.Join(t.TempDir(), "platform-policy")
-		policyContractYAML := `pactoVersion: "1.0"
+func TestPolicyOCIRefSuccess(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// Push a policy contract to the registry
+	policyDir := filepath.Join(t.TempDir(), "platform-policy")
+	policyContractYAML := `pactoVersion: "1.0"
 service:
   name: platform-policy
   version: 1.0.0
@@ -262,19 +259,19 @@ interfaces:
     type: http
     port: 8080
 `
-		policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyContractYAML,
-			`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["service"]}`)
-		if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
-			t.Fatal(err)
-		}
-		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/platform-policy:1.0.0", "-p", policyBundlePath)
-		if err != nil {
-			t.Fatalf("failed to push policy bundle: %v", err)
-		}
+	policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyContractYAML,
+		`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["service"]}`)
+	if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/platform-policy:1.0.0", "-p", policyBundlePath)
+	if err != nil {
+		t.Fatalf("failed to push policy bundle: %v", err)
+	}
 
-		// Create a service that references this policy
-		svcDir := filepath.Join(t.TempDir(), "svc-with-ref-policy")
-		svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	// Create a service that references this policy
+	svcDir := filepath.Join(t.TempDir(), "svc-with-ref-policy")
+	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
 service:
   name: svc-with-ref-policy
   version: 1.0.0
@@ -287,24 +284,24 @@ interfaces:
 policies:
   - ref: oci://%s/platform-policy:1.0.0
 `, reg.host)
-		svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
-			"openapi.yaml": fmt.Sprintf(openapiTemplate, "svc-with-ref-policy", "1.0.0"),
-		})
-
-		output, err := runCommand(t, reg, "validate", svcBundlePath)
-		if err != nil {
-			t.Fatalf("validate failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "is valid")
+	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "svc-with-ref-policy", "1.0.0"),
 	})
 
-	t.Run("validate with OCI policy ref violated", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
+	output, err := runCommand(t, reg, "validate", svcBundlePath)
+	if err != nil {
+		t.Fatalf("validate failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "is valid")
+}
 
-		// Push a policy that requires runtime.health
-		policyDir := filepath.Join(t.TempDir(), "strict-policy")
-		policyYAML := `pactoVersion: "1.0"
+func TestPolicyOCIRefViolated(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// Push a policy that requires runtime.health
+	policyDir := filepath.Join(t.TempDir(), "strict-policy")
+	policyYAML := `pactoVersion: "1.0"
 service:
   name: strict-policy
   version: 1.0.0
@@ -313,19 +310,19 @@ interfaces:
     type: http
     port: 8080
 `
-		policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyYAML,
-			`{"type":"object","required":["runtime"],"properties":{"runtime":{"type":"object","required":["health"]}}}`)
-		if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
-			t.Fatal(err)
-		}
-		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/strict-policy:1.0.0", "-p", policyBundlePath)
-		if err != nil {
-			t.Fatalf("failed to push policy bundle: %v", err)
-		}
+	policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyYAML,
+		`{"type":"object","required":["runtime"],"properties":{"runtime":{"type":"object","required":["health"]}}}`)
+	if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/strict-policy:1.0.0", "-p", policyBundlePath)
+	if err != nil {
+		t.Fatalf("failed to push policy bundle: %v", err)
+	}
 
-		// Create a service without health — policy violated
-		svcDir := filepath.Join(t.TempDir(), "no-health-svc")
-		svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	// Create a service without health — policy violated
+	svcDir := filepath.Join(t.TempDir(), "no-health-svc")
+	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
 service:
   name: no-health-svc
   version: 1.0.0
@@ -338,24 +335,24 @@ interfaces:
 policies:
   - ref: oci://%s/strict-policy:1.0.0
 `, reg.host)
-		svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
-			"openapi.yaml": fmt.Sprintf(openapiTemplate, "no-health-svc", "1.0.0"),
-		})
-
-		output, err := runCommand(t, reg, "validate", svcBundlePath)
-		if err == nil {
-			t.Fatalf("expected validation to fail for policy violation, output: %s", output)
-		}
-		assertContains(t, output, "POLICY_VIOLATION")
+	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "no-health-svc", "1.0.0"),
 	})
 
-	t.Run("validate with mixed local and ref policies AND semantics", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
+	output, err := runCommand(t, reg, "validate", svcBundlePath)
+	if err == nil {
+		t.Fatalf("expected validation to fail for policy violation, output: %s", output)
+	}
+	assertContains(t, output, "POLICY_VIOLATION")
+}
 
-		// Push a ref policy that requires "service"
-		policyDir := filepath.Join(t.TempDir(), "ref-policy")
-		policyYAML := `pactoVersion: "1.0"
+func TestPolicyMixedLocalAndRef(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// Push a ref policy that requires "service"
+	policyDir := filepath.Join(t.TempDir(), "ref-policy")
+	policyYAML := `pactoVersion: "1.0"
 service:
   name: ref-policy
   version: 1.0.0
@@ -364,19 +361,19 @@ interfaces:
     type: http
     port: 8080
 `
-		policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyYAML,
-			`{"type":"object","required":["service"]}`)
-		if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
-			t.Fatal(err)
-		}
-		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/ref-policy:1.0.0", "-p", policyBundlePath)
-		if err != nil {
-			t.Fatalf("failed to push policy: %v", err)
-		}
+	policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyYAML,
+		`{"type":"object","required":["service"]}`)
+	if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/ref-policy:1.0.0", "-p", policyBundlePath)
+	if err != nil {
+		t.Fatalf("failed to push policy: %v", err)
+	}
 
-		// Create service with both local policy (requires runtime.health) and ref policy
-		svcDir := filepath.Join(t.TempDir(), "mixed-policy-svc")
-		svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	// Create service with both local policy (requires runtime.health) and ref policy
+	svcDir := filepath.Join(t.TempDir(), "mixed-policy-svc")
+	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
 service:
   name: mixed-policy-svc
   version: 1.0.0
@@ -401,28 +398,28 @@ runtime:
     interface: api
     path: /health
 `, reg.host)
-		svcBundlePath := writeBundleDirWithPolicy(t, svcDir, svcYAML,
-			`{"type":"object","required":["runtime"],"properties":{"runtime":{"type":"object","required":["health"]}}}`)
-		if err := os.MkdirAll(filepath.Join(svcBundlePath, "interfaces"), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(svcBundlePath, "interfaces", "openapi.yaml"),
-			[]byte(fmt.Sprintf(openapiTemplate, "mixed-policy-svc", "1.0.0")), 0644); err != nil {
-			t.Fatal(err)
-		}
+	svcBundlePath := writeBundleDirWithPolicy(t, svcDir, svcYAML,
+		`{"type":"object","required":["runtime"],"properties":{"runtime":{"type":"object","required":["health"]}}}`)
+	if err := os.MkdirAll(filepath.Join(svcBundlePath, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svcBundlePath, "interfaces", "openapi.yaml"),
+		[]byte(fmt.Sprintf(openapiTemplate, "mixed-policy-svc", "1.0.0")), 0644); err != nil {
+		t.Fatal(err)
+	}
 
-		output, err := runCommand(t, reg, "validate", svcBundlePath)
-		if err != nil {
-			t.Fatalf("validate failed for mixed policies: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "is valid")
-	})
+	output, err := runCommand(t, reg, "validate", svcBundlePath)
+	if err != nil {
+		t.Fatalf("validate failed for mixed policies: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "is valid")
+}
 
-	t.Run("validate with multi-config form", func(t *testing.T) {
-		t.Parallel()
-		dir := filepath.Join(t.TempDir(), "multi-config-svc")
-		configSchema := `{"type":"object","properties":{"PORT":{"type":"integer"}}}`
-		contractYAML := `pactoVersion: "1.0"
+func TestMultiConfigValidation(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "multi-config-svc")
+	configSchema := `{"type":"object","properties":{"PORT":{"type":"integer"}}}`
+	contractYAML := `pactoVersion: "1.0"
 service:
   name: multi-config-svc
   version: 1.0.0
@@ -439,22 +436,22 @@ configuration:
       values:
         PORT: 8080
 `
-		bundlePath := writeBundleDirRaw(t, dir, contractYAML, map[string]string{
-			"openapi.yaml": fmt.Sprintf(openapiTemplate, "multi-config-svc", "1.0.0"),
-		}, configSchema)
+	bundlePath := writeBundleDirRaw(t, dir, contractYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "multi-config-svc", "1.0.0"),
+	}, configSchema)
 
-		output, err := runCommand(t, nil, "validate", bundlePath)
-		if err != nil {
-			t.Fatalf("validate failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "is valid")
-	})
+	output, err := runCommand(t, nil, "validate", bundlePath)
+	if err != nil {
+		t.Fatalf("validate failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "is valid")
+}
 
-	t.Run("push rejects local config ref", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-		dir := filepath.Join(t.TempDir(), "local-config-svc")
-		contractYAML := `pactoVersion: "1.0"
+func TestPushRejectsLocalConfigRef(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+	dir := filepath.Join(t.TempDir(), "local-config-svc")
+	contractYAML := `pactoVersion: "1.0"
 service:
   name: local-config-svc
   version: 1.0.0
@@ -478,13 +475,12 @@ runtime:
     interface: api
     path: /health
 `
-		bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
-			"openapi.yaml": fmt.Sprintf(openapiTemplate, "local-config-svc", "1.0.0"),
-		})
-
-		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/local-config-svc:1.0.0", "-p", bundlePath)
-		if err == nil {
-			t.Fatal("expected push to reject local config ref")
-		}
+	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "local-config-svc", "1.0.0"),
 	})
+
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/local-config-svc:1.0.0", "-p", bundlePath)
+	if err == nil {
+		t.Fatal("expected push to reject local config ref")
+	}
 }

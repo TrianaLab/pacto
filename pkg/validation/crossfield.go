@@ -413,45 +413,50 @@ func validateConfigValues(c *contract.Contract, bundleFS fs.FS, result *Validati
 		} else {
 			fieldPath = "configuration.values"
 		}
-		if cfg.Schema == "" && cfg.Ref == "" {
-			result.AddError(
-				fieldPath,
-				"VALUES_WITHOUT_SCHEMA",
-				"configuration values require a configuration schema to validate against",
-			)
-			continue
-		}
-		if cfg.Schema == "" {
-			// Schema is external (ref) — values validation deferred to runtime resolution.
-			continue
-		}
-		if bundleFS == nil {
-			continue
-		}
-		schemaData, err := fs.ReadFile(bundleFS, cfg.Schema)
-		if err != nil {
-			// File-not-found is already caught by validateConfigFiles; skip here.
-			continue
-		}
+		validateSingleConfigValues(cfg, fieldPath, bundleFS, result)
+	}
+}
 
-		schema, err := compileConfigSchema(schemaData)
-		if err != nil {
-			// Schema compilation errors are already caught by validateConfigSchemaContent.
-			continue
-		}
+// validateSingleConfigValues validates a single config's values against its schema.
+func validateSingleConfigValues(cfg contract.EffectiveConfigSource, fieldPath string, bundleFS fs.FS, result *ValidationResult) {
+	if cfg.Schema == "" && cfg.Ref == "" {
+		result.AddError(
+			fieldPath,
+			"VALUES_WITHOUT_SCHEMA",
+			"configuration values require a configuration schema to validate against",
+		)
+		return
+	}
+	if cfg.Schema == "" {
+		// Schema is external (ref) — values validation deferred to runtime resolution.
+		return
+	}
+	if bundleFS == nil {
+		return
+	}
+	schemaData, err := fs.ReadFile(bundleFS, cfg.Schema)
+	if err != nil {
+		// File-not-found is already caught by validateConfigFiles; skip here.
+		return
+	}
 
-		// Round-trip through JSON to normalize types (e.g. YAML int → JSON float64).
-		valuesJSON, _ := json.Marshal(cfg.Values)
-		var valuesGeneric interface{}
-		json.Unmarshal(valuesJSON, &valuesGeneric) //nolint:errcheck // round-trip of valid data
+	schema, err := compileConfigSchema(schemaData)
+	if err != nil {
+		// Schema compilation errors are already caught by validateConfigSchemaContent.
+		return
+	}
 
-		if err := schema.Validate(valuesGeneric); err != nil {
-			result.AddError(
-				fieldPath,
-				"CONFIG_VALUES_VALIDATION_FAILED",
-				fmt.Sprintf("configuration values do not match schema: %v", err),
-			)
-		}
+	// Round-trip through JSON to normalize types (e.g. YAML int → JSON float64).
+	valuesJSON, _ := json.Marshal(cfg.Values)
+	var valuesGeneric interface{}
+	json.Unmarshal(valuesJSON, &valuesGeneric) //nolint:errcheck // round-trip of valid data
+
+	if err := schema.Validate(valuesGeneric); err != nil {
+		result.AddError(
+			fieldPath,
+			"CONFIG_VALUES_VALIDATION_FAILED",
+			fmt.Sprintf("configuration values do not match schema: %v", err),
+		)
 	}
 }
 

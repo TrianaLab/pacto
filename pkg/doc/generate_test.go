@@ -790,6 +790,9 @@ paths:
 		Interfaces: []contract.Interface{
 			{Name: "http", Type: "http", Port: intPtr(8080), Visibility: "public"},
 		},
+		Configuration: &contract.Configuration{
+			Ref: "oci://ghcr.io/acme/keycloak-config:1.0.0",
+		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
@@ -822,6 +825,7 @@ paths:
 						Name:     "keycloak",
 						Version:  "26.0.0",
 						Contract: keycloakContract,
+						FS:       fstest.MapFS{},
 						Dependencies: []graph.Edge{
 							{Ref: "reg/postgres:16.4.0", Shared: true, Node: &graph.Node{Name: "postgres", Version: "16.4.0"}},
 						},

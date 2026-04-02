@@ -2746,3 +2746,17 @@ func findEntry(t *testing.T, entries []ServiceListEntry, name string) *ServiceLi
 	t.Fatalf("%s not found in entries", name)
 	return nil
 }
+
+func TestAppendOutgoingRef_EmptyRef(t *testing.T) {
+	refs := appendOutgoingRef(nil, "", "config", nil, nil)
+	if len(refs) != 0 {
+		t.Errorf("expected no refs for empty ref, got %d", len(refs))
+	}
+}
+
+func TestAppendIncomingRef_EmptyRef(t *testing.T) {
+	refs := appendIncomingRef(nil, &ServiceDetails{Service: Service{Name: "svc"}}, "target", "config", "", nil, nil)
+	if len(refs) != 0 {
+		t.Errorf("expected no refs for empty ref, got %d", len(refs))
+	}
+}

@@ -886,6 +886,52 @@ func TestOCISource_DepReposForService_WithExplicitTag(t *testing.T) {
 	}
 }
 
+func TestOCISource_DepReposForService_ConfigRefWithTag(t *testing.T) {
+	store := newMockBundleStore()
+	ref := "ghcr.io/org/svc:1.0.0"
+	store.bundles[ref] = &contract.Bundle{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+			Configuration: &contract.Configuration{
+				Ref: "oci://ghcr.io/org/shared-config:2.0.0",
+			},
+		},
+		RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: svc\n  version: 1.0.0\n"),
+	}
+	store.tags["ghcr.io/org/svc"] = []string{"1.0.0"}
+
+	src := NewOCISource(store, []string{"ghcr.io/org/svc"})
+	_ = waitForDiscovery(t, src)
+
+	repos := src.depReposForService(context.Background(), "svc")
+	if len(repos) != 1 || repos[0] != "ghcr.io/org/shared-config" {
+		t.Errorf("expected [ghcr.io/org/shared-config], got %v", repos)
+	}
+}
+
+func TestOCISource_DepReposForService_PolicyRefEmpty(t *testing.T) {
+	store := newMockBundleStore()
+	ref := "ghcr.io/org/svc:1.0.0"
+	store.bundles[ref] = &contract.Bundle{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+			Policies: []contract.PolicySource{
+				{Schema: "policy/schema.json"}, // local policy, no ref
+			},
+		},
+		RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: svc\n  version: 1.0.0\n"),
+	}
+	store.tags["ghcr.io/org/svc"] = []string{"1.0.0"}
+
+	src := NewOCISource(store, []string{"ghcr.io/org/svc"})
+	_ = waitForDiscovery(t, src)
+
+	repos := src.depReposForService(context.Background(), "svc")
+	if len(repos) != 0 {
+		t.Errorf("expected no repos for local policy, got %v", repos)
+	}
+}
+
 func TestOCISource_GetVersions_InternalCacheEnrichment(t *testing.T) {
 	// Create a disk cache with materialized bundles that have hash + classification.
 	root := t.TempDir()
