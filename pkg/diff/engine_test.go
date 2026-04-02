@@ -259,7 +259,7 @@ func TestCompare_SchemaPropertyAdded_NonBreaking(t *testing.T) {
 
 	result := Compare(old, new, oldFS, newFS)
 
-	assertHasChange(t, result, "schema.properties[debug]", Added, NonBreaking)
+	assertHasChange(t, result, "schema.properties.debug", Added, PotentialBreaking)
 }
 
 func TestCompare_OverallClassification_MaxSeverity(t *testing.T) {

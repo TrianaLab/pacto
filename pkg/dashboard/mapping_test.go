@@ -600,6 +600,90 @@ func TestServiceDetailsFromBundle_PolicySchemaFallback(t *testing.T) {
 	}
 }
 
+func TestServiceDetailsFromBundle_PolicyProviderAutoDetect(t *testing.T) {
+	// Bundle has policy/schema.json but no policies declared in contract.
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "shared-policy", Version: "1.0.0"},
+	}
+	fsys := fstest.MapFS{
+		"policy/schema.json": &fstest.MapFile{
+			Data: []byte(`{
+				"title": "Platform HTTP Policy",
+				"description": "Enforces platform standards",
+				"type": "object",
+				"properties": {
+					"service": {"type": "object", "required": ["owner"]}
+				},
+				"required": ["service"]
+			}`),
+		},
+	}
+	bundle := &contract.Bundle{Contract: c, FS: fsys}
+	details := ServiceDetailsFromBundle(bundle, "oci")
+	if len(details.Policies) != 1 {
+		t.Fatalf("expected 1 auto-detected policy, got %d", len(details.Policies))
+	}
+	if !details.Policies[0].HasSchema {
+		t.Error("expected HasSchema=true")
+	}
+	if details.Policies[0].Schema != validation.PolicySchemaPath {
+		t.Errorf("expected schema=%q, got %q", validation.PolicySchemaPath, details.Policies[0].Schema)
+	}
+	if details.Policies[0].Content == "" {
+		t.Error("expected content to be populated")
+	}
+	if len(details.Policies[0].Values) == 0 {
+		t.Error("expected values extracted from schema")
+	}
+	if details.Policies[0].Title != "Platform HTTP Policy" {
+		t.Errorf("expected title, got %q", details.Policies[0].Title)
+	}
+	if details.Policies[0].Description != "Enforces platform standards" {
+		t.Errorf("expected description, got %q", details.Policies[0].Description)
+	}
+}
+
+func TestServiceDetailsFromBundle_PolicyProviderAutoDetectNoProperties(t *testing.T) {
+	// Auto-detected policy schema with no "properties" — falls back to parseContentAsValues.
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "shared-policy", Version: "1.0.0"},
+	}
+	fsys := fstest.MapFS{
+		"policy/schema.json": &fstest.MapFile{
+			Data: []byte(`{"title": "Simple", "type": "boolean"}`),
+		},
+	}
+	bundle := &contract.Bundle{Contract: c, FS: fsys}
+	details := ServiceDetailsFromBundle(bundle, "oci")
+	if len(details.Policies) != 1 {
+		t.Fatalf("expected 1 auto-detected policy, got %d", len(details.Policies))
+	}
+	if details.Policies[0].Title != "Simple" {
+		t.Errorf("expected title 'Simple', got %q", details.Policies[0].Title)
+	}
+}
+
+func TestServiceDetailsFromBundle_PolicyProviderNoAutoDetectWhenDeclared(t *testing.T) {
+	// Bundle has policy/schema.json AND explicit policies — use declared only.
+	c := &contract.Contract{
+		Service:  contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Policies: []contract.PolicySource{{Ref: "other-policy"}},
+	}
+	fsys := fstest.MapFS{
+		"policy/schema.json": &fstest.MapFile{
+			Data: []byte(`{"type":"object"}`),
+		},
+	}
+	bundle := &contract.Bundle{Contract: c, FS: fsys}
+	details := ServiceDetailsFromBundle(bundle, "local")
+	if len(details.Policies) != 1 {
+		t.Fatalf("expected 1 policy, got %d", len(details.Policies))
+	}
+	if details.Policies[0].Ref != "other-policy" {
+		t.Errorf("expected declared policy ref, got %q", details.Policies[0].Ref)
+	}
+}
+
 func TestValidationInfoFromResult_WithWarnings(t *testing.T) {
 	r := validation.ValidationResult{
 		Warnings: []contract.ValidationWarning{

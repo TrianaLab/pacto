@@ -58,7 +58,7 @@ type pactoStatus struct {
 	Validation         *k8sValidation           `json:"validation,omitempty"`
 	Interfaces         flexSlice[k8sInterface]  `json:"interfaces,omitempty"`
 	Configuration      *k8sConfig               `json:"configuration,omitempty"`
-	Policy             *k8sPolicy               `json:"policy,omitempty"`
+	Policies           flexSlice[k8sPolicy]     `json:"policies,omitempty"`
 	Dependencies       flexSlice[k8sDependency] `json:"dependencies,omitempty"`
 	Runtime            *k8sRuntime              `json:"runtime,omitempty"`
 	Scaling            *k8sScaling              `json:"scaling,omitempty"`
@@ -556,13 +556,13 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 		}}
 	}
 
-	// Policy
-	if r.Status.Policy != nil {
-		svc.Policies = []PolicyInfo{{
-			HasSchema: r.Status.Policy.HasSchema,
-			Schema:    r.Status.Policy.Schema,
-			Ref:       r.Status.Policy.Ref,
-		}}
+	// Policies
+	for _, pol := range r.Status.Policies {
+		svc.Policies = append(svc.Policies, PolicyInfo{
+			HasSchema: pol.HasSchema,
+			Schema:    pol.Schema,
+			Ref:       pol.Ref,
+		})
 	}
 
 	// Dependencies

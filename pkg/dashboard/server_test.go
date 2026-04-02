@@ -2760,3 +2760,133 @@ func TestAppendIncomingRef_EmptyRef(t *testing.T) {
 		t.Errorf("expected no refs for empty ref, got %d", len(refs))
 	}
 }
+
+func TestEnrichPolicyRefs(t *testing.T) {
+	index := map[string]*ServiceDetails{
+		"shared-policy": {
+			Policies: []PolicyInfo{{
+				HasSchema:   true,
+				Schema:      "policy/schema.json",
+				Title:       "Shared Policy",
+				Description: "Enforces standards",
+				Values:      []ConfigValue{{Key: "service.owner", Type: "object"}},
+			}},
+		},
+	}
+	details := &ServiceDetails{
+		Policies: []PolicyInfo{{
+			Ref: "oci://ghcr.io/org/pactos/shared-policy:v1",
+		}},
+	}
+	enrichPolicyRefs(details, index, nil)
+	if len(details.Policies[0].Values) != 1 {
+		t.Fatalf("expected 1 value, got %d", len(details.Policies[0].Values))
+	}
+	if details.Policies[0].Title != "Shared Policy" {
+		t.Errorf("expected title, got %q", details.Policies[0].Title)
+	}
+	if details.Policies[0].Description != "Enforces standards" {
+		t.Errorf("expected description, got %q", details.Policies[0].Description)
+	}
+}
+
+func TestEnrichConfigRefs(t *testing.T) {
+	index := map[string]*ServiceDetails{
+		"shared-config": {
+			Configurations: []ConfigurationInfo{{
+				HasSchema: true,
+				Values:    []ConfigValue{{Key: "host", Value: "localhost", Type: "string"}},
+			}},
+		},
+	}
+	details := &ServiceDetails{
+		Configurations: []ConfigurationInfo{{
+			Ref: "oci://ghcr.io/org/pactos/shared-config:v1",
+		}},
+	}
+	enrichConfigRefs(details, index, nil)
+	if len(details.Configurations[0].Values) != 1 {
+		t.Fatalf("expected 1 value, got %d", len(details.Configurations[0].Values))
+	}
+	if !details.Configurations[0].HasSchema {
+		t.Error("expected HasSchema to be true")
+	}
+}
+
+func TestEnrichConfigRefs_NoMatch(t *testing.T) {
+	details := &ServiceDetails{
+		Configurations: []ConfigurationInfo{{Ref: "oci://ghcr.io/org/unknown:v1"}},
+	}
+	enrichConfigRefs(details, map[string]*ServiceDetails{}, nil)
+	if len(details.Configurations[0].Values) != 0 {
+		t.Error("expected no values for unresolved ref")
+	}
+}
+
+func TestEnrichConfigRefs_SkipsLocal(t *testing.T) {
+	details := &ServiceDetails{
+		Configurations: []ConfigurationInfo{{Schema: "config/schema.json", Values: []ConfigValue{{Key: "k"}}}},
+	}
+	enrichConfigRefs(details, map[string]*ServiceDetails{}, nil)
+	if len(details.Configurations[0].Values) != 1 {
+		t.Error("should not modify configs without ref")
+	}
+}
+
+func TestEnrichPolicyRefs_NoMatch(t *testing.T) {
+	details := &ServiceDetails{
+		Policies: []PolicyInfo{{Ref: "oci://ghcr.io/org/unknown:v1"}},
+	}
+	enrichPolicyRefs(details, map[string]*ServiceDetails{}, nil)
+	if len(details.Policies[0].Values) != 0 {
+		t.Error("expected no values for unresolved ref")
+	}
+}
+
+func TestEnrichPolicyRefs_SkipsLocalPolicies(t *testing.T) {
+	details := &ServiceDetails{
+		Policies: []PolicyInfo{{Schema: "policy/schema.json", Values: []ConfigValue{{Key: "k"}}}},
+	}
+	enrichPolicyRefs(details, map[string]*ServiceDetails{}, nil)
+	if len(details.Policies[0].Values) != 1 {
+		t.Error("should not modify policies without ref")
+	}
+}
+
+func TestResolveServiceByName_Direct(t *testing.T) {
+	svc := &ServiceDetails{}
+	svc.Name = "svc"
+	index := map[string]*ServiceDetails{"svc": svc}
+	got := resolveServiceByName("svc", index, nil)
+	if got == nil || got.Name != "svc" {
+		t.Error("expected direct match")
+	}
+}
+
+func TestResolveServiceByName_Alias(t *testing.T) {
+	svc := &ServiceDetails{}
+	svc.Name = "real-name"
+	index := map[string]*ServiceDetails{"real-name": svc}
+	aliases := map[string]string{"alias": "real-name"}
+	got := resolveServiceByName("alias", index, aliases)
+	if got == nil || got.Name != "real-name" {
+		t.Error("expected alias resolution")
+	}
+}
+
+func TestResolveServiceByName_PactoSuffix(t *testing.T) {
+	svc := &ServiceDetails{}
+	svc.Name = "my-svc"
+	index := map[string]*ServiceDetails{"my-svc": svc}
+	got := resolveServiceByName("my-svc-pacto", index, nil)
+	if got == nil || got.Name != "my-svc" {
+		t.Error("expected pacto suffix stripping")
+	}
+}
+
+func TestResolveServiceByName_NotFound(t *testing.T) {
+	got := resolveServiceByName("missing", map[string]*ServiceDetails{}, nil)
+	if got != nil {
+		t.Error("expected nil for unknown service")
+	}
+}

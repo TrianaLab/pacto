@@ -307,6 +307,8 @@ describe('extractOwnerDetail', () => {
     expect(detail.team).toBe('platform');
     expect(detail.dri).toBe('alice');
     expect(detail.isStructured).toBe(true);
+    expect(detail.driConflict).toBe(false);
+    expect(detail.allDris).toEqual(['alice']);
     expect(detail.contacts).toHaveLength(2);
     expect(detail.contacts[0]).toEqual({ type: 'email', value: 'platform@acme.com', purpose: 'escalation' });
     expect(detail.contacts[1]).toEqual({ type: 'chat', value: '#platform', purpose: 'support' });
@@ -341,6 +343,8 @@ describe('extractOwnerDetail', () => {
     ]);
     expect(detail.team).toBe('team/payments');
     expect(detail.isStructured).toBe(false);
+    expect(detail.driConflict).toBe(false);
+    expect(detail.allDris).toEqual([]);
     expect(detail.contacts).toHaveLength(0);
   });
 
@@ -352,22 +356,57 @@ describe('extractOwnerDetail', () => {
     ]);
     expect(detail.team).toBe('platform');
     expect(detail.dri).toBe('alice');
+    expect(detail.driConflict).toBe(false);
     expect(detail.contacts).toHaveLength(1);
   });
 
-  it('uses first structured owner when services differ', () => {
+  it('merges contacts from different services and deduplicates', () => {
+    const detail = extractOwnerDetail('platform', [
+      { name: 'a', owner: { team: 'platform', dri: 'alice', contacts: [
+        { type: 'slack', value: '#platform-alerts' },
+        { type: 'email', value: 'platform@acme.com' },
+      ] } },
+      { name: 'b', owner: { team: 'platform', dri: 'alice', contacts: [
+        { type: 'slack', value: '#platform-alerts' },
+        { type: 'pagerduty', value: 'platform-oncall' },
+      ] } },
+    ]);
+    expect(detail.contacts).toHaveLength(3);
+    expect(detail.contacts.map(c => c.value)).toEqual([
+      '#platform-alerts', 'platform@acme.com', 'platform-oncall',
+    ]);
+    expect(detail.driConflict).toBe(false);
+  });
+
+  it('flags DRI conflict when services have different DRIs', () => {
     const detail = extractOwnerDetail('platform', [
       { name: 'a', owner: { team: 'platform', dri: 'alice' } },
       { name: 'b', owner: { team: 'platform', dri: 'bob' } },
     ]);
-    // First service wins for display
-    expect(detail.dri).toBe('alice');
+    expect(detail.driConflict).toBe(true);
+    expect(detail.allDris).toEqual(['alice', 'bob']);
+    expect(detail.dri).toBe('alice'); // first alphabetically
+  });
+
+  it('merges contacts and flags DRI conflict together', () => {
+    const detail = extractOwnerDetail('platform', [
+      { name: 'a', owner: { team: 'platform', dri: 'alice', contacts: [
+        { type: 'slack', value: '#svc-a' },
+      ] } },
+      { name: 'b', owner: { team: 'platform', dri: 'bob', contacts: [
+        { type: 'pagerduty', value: 'oncall-b' },
+      ] } },
+    ]);
+    expect(detail.driConflict).toBe(true);
+    expect(detail.allDris).toEqual(['alice', 'bob']);
+    expect(detail.contacts).toHaveLength(2);
   });
 
   it('returns key as team for empty services', () => {
     const detail = extractOwnerDetail('team-x', []);
     expect(detail.team).toBe('team-x');
     expect(detail.isStructured).toBe(false);
+    expect(detail.driConflict).toBe(false);
   });
 });
 

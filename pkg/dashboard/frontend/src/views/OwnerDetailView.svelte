@@ -9,6 +9,11 @@
 
   let graphData = $state(null);
   let graphLoading = $state(true);
+  let expanded = $state({});
+
+  function toggle(i) {
+    expanded = { ...expanded, [i]: !expanded[i] };
+  }
 
   // Services belonging to this owner
   let ownerServices = $derived(
@@ -71,8 +76,12 @@
       {/if}
       {#if ownerDetail.dri}
         <div class="meta-item">
-          <span class="meta-label">DRI</span>
-          <span class="meta-value">{ownerDetail.dri}</span>
+          <span class="meta-label">DRI{ownerDetail.driConflict ? ' (inconsistent)' : ''}</span>
+          {#if ownerDetail.driConflict}
+            <span class="meta-value dri-conflict">{ownerDetail.allDris.join(', ')}</span>
+          {:else}
+            <span class="meta-value">{ownerDetail.dri}</span>
+          {/if}
         </div>
       {/if}
     </div>
@@ -129,51 +138,63 @@
   </div>
 {/if}
 
-<!-- Services table -->
+<!-- Services list -->
 {#if ownerServices.length > 0}
   <div class="section">
     <div class="section-title">Services <span class="tab-count">{ownerServices.length}</span></div>
-    <div class="table-wrap fade-in-up">
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Version</th>
-            <th>Status</th>
-            <th data-tip="Compliance score">Compliance</th>
-            <th data-tip="Blast radius">Blast</th>
-            <th data-tip="Data source">Source</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each ownerServices as svc}
-            <tr class="clickable" onclick={() => location.hash = serviceUrl(svc.name)}>
-              <td><a href={serviceUrl(svc.name)} class="svc-name">{svc.name}</a></td>
-              <td><span class="pill">{svc.version || '—'}</span></td>
-              <td><span class="badge badge-{statusClass(svc.contractStatus)}"><span class="badge-dot"></span>{svc.contractStatus}</span></td>
-              <td>
+    <div class="fade-in-up">
+      {#each ownerServices as svc, i}
+        <div class="detail-card">
+          <button type="button" class="detail-card-header expandable" onclick={() => toggle(i)}>
+            <div class="detail-card-header-left">
+              <span class="expand-icon" class:open={expanded[i]}>
+                <svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span class="badge badge-{statusClass(svc.contractStatus)}"><span class="badge-dot"></span>{svc.contractStatus}</span>
+              <span class="detail-card-title">{svc.name}</span>
+              {#if svc.version}<span class="pill">{svc.version}</span>{/if}
+            </div>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <a href={serviceUrl(svc.name)} class="ref-link" onclick={(e) => e.stopPropagation()}>
+              View details →
+            </a>
+          </button>
+
+          {#if expanded[i]}
+            <div class="detail-card-body">
+              <div class="svc-detail-grid">
                 {#if svc.complianceScore != null}
-                  <span class="score {complianceStatusClass(svc.complianceStatus)}">{svc.complianceScore}%</span>
-                {:else}
-                  <span class="text-dim">—</span>
+                  <div class="svc-detail-item">
+                    <span class="svc-detail-label">Compliance</span>
+                    <span class="score {complianceStatusClass(svc.complianceStatus)}">{svc.complianceScore}%</span>
+                  </div>
                 {/if}
-              </td>
-              <td>
                 {#if (svc.blastRadius || 0) > 0}
-                  <span class:text-warn={svc.blastRadius >= 3}>{svc.blastRadius}</span>
-                {:else}
-                  <span class="text-dim">0</span>
+                  <div class="svc-detail-item">
+                    <span class="svc-detail-label">Blast radius</span>
+                    <span class:text-warn={svc.blastRadius >= 3}>{svc.blastRadius}</span>
+                  </div>
                 {/if}
-              </td>
-              <td>
-                {#each (svc.sources || [svc.source]) as src}
-                  <span class="source-dot source-dot-{src}" data-tip={sourceTooltip(src)} data-tip-align="right"></span>
-                {/each}
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+                {#if svc.checksPassed != null}
+                  <div class="svc-detail-item">
+                    <span class="svc-detail-label">Checks</span>
+                    <span>{svc.checksPassed}/{svc.checksTotal}{#if svc.checksFailed > 0} <span class="text-err">({svc.checksFailed} failed)</span>{/if}</span>
+                  </div>
+                {/if}
+                <div class="svc-detail-item">
+                  <span class="svc-detail-label">Source</span>
+                  <span>
+                    {#each (svc.sources || [svc.source]) as src}
+                      <span class="source-dot source-dot-{src}" data-tip={sourceTooltip(src)}></span>
+                      <span class="text-3" style="font-size:var(--text-xs)">{src}</span>
+                    {/each}
+                  </span>
+                </div>
+              </div>
+            </div>
+          {/if}
+        </div>
+      {/each}
     </div>
   </div>
 {:else}
@@ -255,14 +276,12 @@
   .card-err .summary-count { color: var(--c-err); }
   .card-neutral .summary-count { color: var(--c-text-3); }
 
-  .svc-name { font-weight: 600; text-decoration: none; }
-  .svc-name:hover { text-decoration: underline; }
-
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); }
-  .text-dim { color: var(--c-text-3); }
   .text-warn { color: var(--c-warn); }
+  .text-err { color: var(--c-err); }
 
+  /* ── Owner metadata ── */
   .owner-meta {
     background: var(--c-surface); border: 1px solid var(--c-border);
     border-radius: var(--radius-sm); padding: var(--sp-4);
@@ -295,12 +314,87 @@
     color: var(--c-text-3); font-style: italic;
   }
   .contact-purpose::before { content: '· '; }
+  .dri-conflict { color: var(--c-warn); }
+
+  /* ── Detail cards (unified pattern) ── */
+  .detail-card {
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-sm);
+    background: var(--c-surface);
+    margin-bottom: var(--sp-2);
+  }
+  .detail-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: var(--sp-3);
+    background: none;
+    border: none;
+    font: inherit;
+    color: var(--c-text);
+    text-align: left;
+    gap: var(--sp-3);
+  }
+  .detail-card-header.expandable { cursor: pointer; }
+  .detail-card-header.expandable:hover { background: var(--c-surface-hover, var(--c-surface-inset)); border-radius: var(--radius-sm); }
+  .detail-card-header-left {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-width: 0;
+  }
+  .expand-icon {
+    display: inline-flex;
+    color: var(--c-text-3);
+    transition: transform 200ms ease;
+    transform: rotate(-90deg);
+    flex-shrink: 0;
+  }
+  .expand-icon.open { transform: rotate(0deg); }
+  .expand-icon svg { width: 12px; height: 12px; }
+  .detail-card-title { font-weight: 600; }
+  .ref-link {
+    font-size: var(--text-xs);
+    color: var(--c-accent);
+    text-decoration: none;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .ref-link:hover { text-decoration: underline; }
+  .detail-card-body {
+    padding: 0 var(--sp-3) var(--sp-3);
+    animation: slideReveal 200ms ease-out both;
+  }
+
+  .svc-detail-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-3) var(--sp-5);
+  }
+  .svc-detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .svc-detail-label {
+    font-size: var(--text-xs);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--c-text-3);
+  }
 
   .graph-wrap { position: relative; }
 
   .skeleton-table { width: 100%; max-width: 600px; }
   .skeleton-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-3); }
   .skeleton-row .skeleton-line { height: 18px; border-radius: var(--radius-xs); }
+
+  @keyframes slideReveal {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 
   @media (max-width: 768px) {
     .summary-cards { gap: var(--sp-2); }

@@ -80,43 +80,43 @@
       </div>
     {/if}
 
-    {#if crossRefs?.references?.length > 0 || crossRefs?.referencedBy?.length > 0}
+    {#if crossRefs?.references?.length > 0}
       <div class="subsection">
-        <h3>Cross-references</h3>
-        {#if crossRefs.references?.length > 0}
-          <p class="text-2" style="margin-bottom:8px">References:</p>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
-              <tbody>
-                {#each crossRefs.references as ref}
-                  <tr>
-                    <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
-                    <td><span class="pill">{ref.refType}</span></td>
-                    <td><span class="badge badge-{statusClass(ref.contractStatus)}"><span class="badge-dot"></span>{ref.contractStatus || 'Unknown'}</span></td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {/if}
-        {#if crossRefs.referencedBy?.length > 0}
-          <p class="text-2" style="margin: 12px 0 8px">Referenced by:</p>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
-              <tbody>
-                {#each crossRefs.referencedBy as ref}
-                  <tr>
-                    <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
-                    <td><span class="pill">{ref.refType}</span></td>
-                    <td><span class="badge badge-{statusClass(ref.contractStatus)}"><span class="badge-dot"></span>{ref.contractStatus || 'Unknown'}</span></td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {/if}
+        <h3>References</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
+            <tbody>
+              {#each crossRefs.references as ref}
+                <tr>
+                  <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
+                  <td><span class="pill">{ref.refType}</span></td>
+                  <td><span class="badge badge-{statusClass(ref.contractStatus)}"><span class="badge-dot"></span>{ref.contractStatus || 'Unknown'}</span></td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {/if}
+
+    {#if crossRefs?.referencedBy?.length > 0}
+      <div class="subsection">
+        <h3>Referenced by</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
+            <tbody>
+              {#each crossRefs.referencedBy as ref}
+                <tr>
+                  <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
+                  <td><span class="pill">{ref.refType}</span></td>
+                  <td><span class="badge badge-{statusClass(ref.contractStatus)}"><span class="badge-dot"></span>{ref.contractStatus || 'Unknown'}</span></td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       </div>
     {/if}
   </CollapsibleSection>

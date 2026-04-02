@@ -1163,12 +1163,17 @@ openapi.paths[/users].methods[POST].request-body
 openapi.paths[/users].methods[GET].responses[200]
 ```
 
-### JSON Schema properties
+### JSON Schema (configuration & policy schemas)
+
+Schema files referenced by `configuration.schema`, `configuration.configs[].schema`, `policies[].schema`, or the auto-detected `policy/schema.json` are compared recursively. Every structural difference — properties, types, constraints, defaults, enums, etc. — is detected and classified.
 
 | Field | Change | Classification |
 |-------|--------|----------------|
-| `schema.properties` | Added | NON_BREAKING |
-| `schema.properties` | Removed | **BREAKING** |
+| `schema.properties.*` | Added | POTENTIAL_BREAKING |
+| `schema.properties.*` | Removed | POTENTIAL_BREAKING |
+| `schema.properties.*` | Modified | POTENTIAL_BREAKING |
+| `schema.required` | Added / Removed | **BREAKING** |
+| `schema.*` (any other path) | Added / Removed / Modified | POTENTIAL_BREAKING |
 
 ### SBOM
 

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/validation"
 )
 
 // diffInterfaces compares interface lists and delegates to OpenAPI diff
@@ -125,10 +126,7 @@ func namedConfigSummary(cfg *contract.NamedConfigSource) string {
 // diffNamedConfigs compares the configs[] arrays positionally.
 func diffNamedConfigs(oldConfigs, newConfigs []contract.NamedConfigSource, oldFS, newFS fs.FS) []Change {
 	var changes []Change
-	maxLen := len(oldConfigs)
-	if len(newConfigs) > maxLen {
-		maxLen = len(newConfigs)
-	}
+	maxLen := max(len(oldConfigs), len(newConfigs))
 	for i := 0; i < maxLen; i++ {
 		prefix := fmt.Sprintf("configuration.configs[%d]", i)
 		if i >= len(oldConfigs) {
@@ -165,13 +163,10 @@ func diffNamedConfigs(oldConfigs, newConfigs []contract.NamedConfigSource, oldFS
 }
 
 // diffPolicy compares policies arrays.
-func diffPolicy(old, new *contract.Contract) []Change {
+func diffPolicy(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 	var changes []Change
 
-	maxLen := len(old.Policies)
-	if len(new.Policies) > maxLen {
-		maxLen = len(new.Policies)
-	}
+	maxLen := max(len(old.Policies), len(new.Policies))
 
 	for i := 0; i < maxLen; i++ {
 		prefix := fmt.Sprintf("policies[%d]", i)
@@ -198,9 +193,46 @@ func diffPolicy(old, new *contract.Contract) []Change {
 			}
 			changes = append(changes, newChange(prefix+".ref", ct, oldPol.Ref, newPol.Ref))
 		}
+
+		// Diff schema file contents when both policies reference local schemas.
+		if oldPol.Schema != "" && newPol.Schema != "" {
+			changes = append(changes, diffSchema(oldPol.Schema, newPol.Schema, oldFS, newFS)...)
+		}
+	}
+
+	// Auto-detect: compare policy/schema.json when bundles ship it but
+	// the contract has no policies field (policy-provider bundles).
+	if len(old.Policies) == 0 && len(new.Policies) == 0 {
+		changes = append(changes, diffPolicySchemaFile(oldFS, newFS)...)
 	}
 
 	return changes
+}
+
+// diffPolicySchemaFile compares policy/schema.json between two bundles
+// that ship the file but don't declare policies in the contract.
+func diffPolicySchemaFile(oldFS, newFS fs.FS) []Change {
+	if oldFS == nil || newFS == nil {
+		return nil
+	}
+	oldExists := fileExists(oldFS, validation.PolicySchemaPath)
+	newExists := fileExists(newFS, validation.PolicySchemaPath)
+
+	if !oldExists && !newExists {
+		return nil
+	}
+	if !oldExists && newExists {
+		return []Change{newChange(validation.PolicySchemaPath, Added, nil, validation.PolicySchemaPath)}
+	}
+	if oldExists && !newExists {
+		return []Change{newChange(validation.PolicySchemaPath, Removed, validation.PolicySchemaPath, nil)}
+	}
+	return diffSchema(validation.PolicySchemaPath, validation.PolicySchemaPath, oldFS, newFS)
+}
+
+func fileExists(fsys fs.FS, path string) bool {
+	_, err := fs.Stat(fsys, path)
+	return err == nil
 }
 
 func policySummary(p *contract.PolicySource) string {

@@ -215,11 +215,13 @@ type ScalingInfo struct {
 
 // PolicyInfo describes an attached policy (JSON Schema constraint).
 type PolicyInfo struct {
-	HasSchema bool          `json:"hasSchema"`
-	Schema    string        `json:"schema,omitempty"`
-	Ref       string        `json:"ref,omitempty"`
-	Content   string        `json:"content,omitempty"`
-	Values    []ConfigValue `json:"values,omitempty"`
+	HasSchema   bool          `json:"hasSchema"`
+	Schema      string        `json:"schema,omitempty"`
+	Ref         string        `json:"ref,omitempty"`
+	Title       string        `json:"title,omitempty"`
+	Description string        `json:"description,omitempty"`
+	Content     string        `json:"content,omitempty"`
+	Values      []ConfigValue `json:"values,omitempty"`
 }
 
 // ValidationInfo holds validation results.

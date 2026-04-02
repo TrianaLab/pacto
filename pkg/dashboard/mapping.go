@@ -196,31 +196,68 @@ func scalingFromContract(c *contract.Contract) *ScalingInfo {
 }
 
 func policiesFromContract(c *contract.Contract, fsys fs.FS) []PolicyInfo {
-	if len(c.Policies) == 0 {
-		return nil
-	}
-	var out []PolicyInfo
-	for _, pol := range c.Policies {
-		pi := PolicyInfo{
-			HasSchema: pol.Schema != "",
-			Schema:    pol.Schema,
-			Ref:       pol.Ref,
-		}
-		if pol.Ref != "" && fsys != nil {
-			if data, err := fs.ReadFile(fsys, pol.Ref); err == nil {
-				pi.Content = truncateContent(string(data))
-				pi.Values = extractSchemaProperties(fsys, pol.Ref)
-				if len(pi.Values) == 0 {
-					pi.Values = parseContentAsValues(data, pol.Ref)
+	// If the contract declares policies explicitly, use them.
+	if len(c.Policies) > 0 {
+		var out []PolicyInfo
+		for _, pol := range c.Policies {
+			pi := PolicyInfo{
+				HasSchema: pol.Schema != "",
+				Schema:    pol.Schema,
+				Ref:       pol.Ref,
+			}
+			if pol.Ref != "" && fsys != nil {
+				enrichPolicyFromFile(&pi, fsys, pol.Ref)
+			}
+			if len(pi.Values) == 0 && pol.Schema != "" && fsys != nil {
+				pi.Values = extractSchemaProperties(fsys, pol.Schema)
+			}
+			if fsys != nil {
+				path := pol.Schema
+				if path == "" {
+					path = pol.Ref
+				}
+				if path != "" {
+					pi.Title, pi.Description = extractSchemaMeta(fsys, path)
 				}
 			}
+			out = append(out, pi)
 		}
-		if len(pi.Values) == 0 && pol.Schema != "" && fsys != nil {
-			pi.Values = extractSchemaProperties(fsys, pol.Schema)
-		}
-		out = append(out, pi)
+		return out
 	}
-	return out
+
+	// Auto-detect: bundle ships policy/schema.json but contract has no policies declared.
+	if fsys == nil {
+		return nil
+	}
+	data, err := fs.ReadFile(fsys, validation.PolicySchemaPath)
+	if err != nil {
+		return nil
+	}
+	title, desc := extractSchemaMeta(fsys, validation.PolicySchemaPath)
+	pi := PolicyInfo{
+		HasSchema:   true,
+		Schema:      validation.PolicySchemaPath,
+		Title:       title,
+		Description: desc,
+		Content:     truncateContent(string(data)),
+		Values:      extractSchemaProperties(fsys, validation.PolicySchemaPath),
+	}
+	if len(pi.Values) == 0 {
+		pi.Values = parseContentAsValues(data, validation.PolicySchemaPath)
+	}
+	return []PolicyInfo{pi}
+}
+
+func enrichPolicyFromFile(pi *PolicyInfo, fsys fs.FS, path string) {
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return
+	}
+	pi.Content = truncateContent(string(data))
+	pi.Values = extractSchemaProperties(fsys, path)
+	if len(pi.Values) == 0 {
+		pi.Values = parseContentAsValues(data, path)
+	}
 }
 
 func metadataFromContract(c *contract.Contract) map[string]string {
@@ -374,6 +411,25 @@ func parseContentAsValues(data []byte, path string) []ConfigValue {
 		return nil
 	}
 	return flattenValues(spec)
+}
+
+// extractSchemaMeta reads title and description from a JSON Schema file.
+func extractSchemaMeta(fsys fs.FS, path string) (title, description string) {
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return "", ""
+	}
+	spec, err := doc.UnmarshalSpec(data, path)
+	if err != nil {
+		return "", ""
+	}
+	if t, ok := spec["title"].(string); ok {
+		title = t
+	}
+	if d, ok := spec["description"].(string); ok {
+		description = d
+	}
+	return title, description
 }
 
 // extractSchemaProperties reads a JSON Schema file from the bundle FS and

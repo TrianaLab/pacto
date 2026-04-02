@@ -191,37 +191,53 @@ export interface OwnerDetail {
   dri: string;
   contacts: OwnerContact[];
   isStructured: boolean;
+  driConflict: boolean;
+  allDris: string[];
 }
 
 /**
  * Extract a consistent OwnerDetail from the services sharing an owner key.
- * If all services have identical structured data, returns it directly.
- * If structured data differs, merges and flags inconsistency.
+ * Merges contacts from all services (deduped by type+value).
+ * Flags DRI inconsistency when services disagree.
  * For legacy string owners, returns the string as team.
  */
 export function extractOwnerDetail(ownerKeyStr: string, services: Array<Record<string, unknown>>): OwnerDetail {
-  const detail: OwnerDetail = { key: ownerKeyStr, team: '', dri: '', contacts: [], isStructured: false };
+  const detail: OwnerDetail = { key: ownerKeyStr, team: '', dri: '', contacts: [], isStructured: false, driConflict: false, allDris: [] };
 
-  // Find a representative structured owner from the services
-  let found = false;
+  const contactSet = new Set<string>();
+  const mergedContacts: OwnerContact[] = [];
+  const dris = new Set<string>();
 
   for (const svc of services) {
     const o = svc.owner;
     if (!o || typeof o !== 'object') {
-      // Legacy string owner — use the key as team
       if (typeof o === 'string' && !detail.team) detail.team = o;
       continue;
     }
     detail.isStructured = true;
-    if (!found) {
-      found = true;
-      const obj = o as Record<string, unknown>;
-      detail.team = String(obj.team || '');
-      detail.dri = String(obj.dri || '');
-      const contacts = obj.contacts as OwnerContact[] | undefined;
-      if (contacts?.length) detail.contacts = contacts;
+    const obj = o as Record<string, unknown>;
+    if (!detail.team && obj.team) detail.team = String(obj.team);
+    const dri = String(obj.dri || '');
+    if (dri) dris.add(dri);
+
+    const contacts = obj.contacts as OwnerContact[] | undefined;
+    if (contacts) {
+      for (const c of contacts) {
+        const key = `${c.type}\0${c.value}`;
+        if (!contactSet.has(key)) {
+          contactSet.add(key);
+          mergedContacts.push(c);
+        }
+      }
     }
   }
+
+  if (dris.size > 0) {
+    detail.allDris = Array.from(dris).sort();
+    detail.dri = detail.allDris[0];
+    detail.driConflict = dris.size > 1;
+  }
+  detail.contacts = mergedContacts;
 
   if (!detail.team && !detail.isStructured) detail.team = ownerKeyStr;
 

@@ -132,7 +132,7 @@ Compares two contracts and classifies every change using a deterministic rule ta
 - `interfaces.go` -- interface additions/removals/changes, configuration and policy diffing
 - `dependency.go` -- dependency list changes
 - `openapi.go` -- deep OpenAPI diff (paths, methods, parameters, request bodies, responses)
-- `schema.go` -- JSON Schema property-level diff
+- `schema.go` -- recursive JSON Schema diff (properties, required fields, types, constraints)
 
 ### `pkg/sbom` -- SBOM parser and differ
 

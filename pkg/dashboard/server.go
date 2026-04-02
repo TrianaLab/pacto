@@ -682,7 +682,83 @@ func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getS
 		details.VersionPolicy = ClassifyVersionPolicy(details.ResolvedRef)
 	}
 
+	// Enrich remote refs with values from the referenced service.
+	if cached != nil {
+		enrichConfigRefs(details, cached.index, cached.aliases)
+		enrichPolicyRefs(details, cached.index, cached.aliases)
+	}
+
 	return &getServiceOutput{Body: details}, nil
+}
+
+// enrichConfigRefs resolves remote configuration references by looking up the
+// referenced service in the index and copying its configuration values.
+func enrichConfigRefs(details *ServiceDetails, index map[string]*ServiceDetails, aliases map[string]string) {
+	for i, cfg := range details.Configurations {
+		if cfg.Ref == "" || len(cfg.Values) > 0 {
+			continue
+		}
+		refName := extractServiceNameFromRef(cfg.Ref)
+		target := resolveServiceByName(refName, index, aliases)
+		if target == nil || len(target.Configurations) == 0 {
+			continue
+		}
+		for _, tc := range target.Configurations {
+			if len(tc.Values) > 0 {
+				details.Configurations[i].Values = tc.Values
+				details.Configurations[i].HasSchema = true
+				break
+			}
+		}
+	}
+}
+
+// enrichPolicyRefs resolves remote policy references by looking up the
+// referenced service in the index and copying its policy values/content.
+func enrichPolicyRefs(details *ServiceDetails, index map[string]*ServiceDetails, aliases map[string]string) {
+	for i, pol := range details.Policies {
+		if pol.Ref == "" || len(pol.Values) > 0 {
+			continue
+		}
+		refName := extractServiceNameFromRef(pol.Ref)
+		target := resolveServiceByName(refName, index, aliases)
+		if target == nil || len(target.Policies) == 0 {
+			continue
+		}
+		// Copy values and metadata from the referenced service's first policy with values.
+		for _, tp := range target.Policies {
+			if len(tp.Values) > 0 {
+				details.Policies[i].Values = tp.Values
+				details.Policies[i].HasSchema = true
+				if tp.Title != "" {
+					details.Policies[i].Title = tp.Title
+				}
+				if tp.Description != "" {
+					details.Policies[i].Description = tp.Description
+				}
+				break
+			}
+		}
+	}
+}
+
+// resolveServiceByName looks up a service by extracted ref name, trying
+// direct match, alias resolution, and pacto-suffix stripping.
+func resolveServiceByName(name string, index map[string]*ServiceDetails, aliases map[string]string) *ServiceDetails {
+	if d, ok := index[name]; ok {
+		return d
+	}
+	if resolved, ok := aliases[name]; ok {
+		if d, ok := index[resolved]; ok {
+			return d
+		}
+	}
+	if stripped, ok := stripPactoSuffix(name); ok {
+		if d, ok := index[stripped]; ok {
+			return d
+		}
+	}
+	return nil
 }
 
 func (s *Server) getVersions(ctx context.Context, input *ServiceNameInput) (*getVersionsOutput, error) {

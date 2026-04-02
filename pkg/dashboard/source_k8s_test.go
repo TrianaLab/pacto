@@ -516,7 +516,7 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	r.Status.Metadata = map[string]string{"team": "platform", "env": "prod"}
 	r.Status.Interfaces = flexSlice[k8sInterface]{{Name: "http", Type: "http", Port: &port, Visibility: "public", HasContractFile: true}}
 	r.Status.Configuration = &k8sConfig{HasSchema: true, Ref: "config-ref", ValueKeys: []string{"key1"}, SecretKeys: []string{"secret1"}}
-	r.Status.Policy = &k8sPolicy{HasSchema: true, Schema: "policy.json", Ref: "policy-ref"}
+	r.Status.Policies = flexSlice[k8sPolicy]{{HasSchema: true, Schema: "policy.json", Ref: "policy-ref"}}
 	r.Status.Dependencies = flexSlice[k8sDependency]{{Ref: "auth@^1.0.0", Required: true, Compatibility: "strict"}}
 	r.Status.Runtime = &k8sRuntime{Workload: "service", StateType: "stateless", PersistenceScope: "none", PersistenceDurability: "ephemeral", DataCriticality: "low", UpgradeStrategy: "rolling", GracefulShutdownSeconds: &graceful, HealthInterface: "http", HealthPath: "/healthz", MetricsInterface: "http", MetricsPath: "/metrics"}
 	r.Status.Scaling = &k8sScaling{Replicas: &replicas, Min: &minR, Max: &maxR}
@@ -636,6 +636,54 @@ func TestK8s_flexSlice_SingleObject(t *testing.T) {
 	}
 	if fs[0].Name != "only" {
 		t.Errorf("expected name 'only', got %q", fs[0].Name)
+	}
+}
+
+func TestK8s_policiesFromJSON_Array(t *testing.T) {
+	payload := `{
+		"metadata": {"name": "svc"},
+		"status": {
+			"contractStatus": "Compliant",
+			"policies": [
+				{"hasSchema": true, "schema": "policy/schema.json"},
+				{"hasSchema": false, "ref": "ghcr.io/org/shared-policy:v1"}
+			]
+		}
+	}`
+	var r pactoResource
+	if err := json.Unmarshal([]byte(payload), &r); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	d := serviceDetailsFromK8sStatus(&r)
+	if len(d.Policies) != 2 {
+		t.Fatalf("expected 2 policies, got %d", len(d.Policies))
+	}
+	if !d.Policies[0].HasSchema || d.Policies[0].Schema != "policy/schema.json" {
+		t.Errorf("policy[0] mismatch: %+v", d.Policies[0])
+	}
+	if d.Policies[1].HasSchema || d.Policies[1].Ref != "ghcr.io/org/shared-policy:v1" {
+		t.Errorf("policy[1] mismatch: %+v", d.Policies[1])
+	}
+}
+
+func TestK8s_policiesFromJSON_SingleObject(t *testing.T) {
+	payload := `{
+		"metadata": {"name": "svc"},
+		"status": {
+			"contractStatus": "Compliant",
+			"policies": {"hasSchema": true, "schema": "policy.json", "ref": "policy-ref"}
+		}
+	}`
+	var r pactoResource
+	if err := json.Unmarshal([]byte(payload), &r); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	d := serviceDetailsFromK8sStatus(&r)
+	if len(d.Policies) != 1 {
+		t.Fatalf("expected 1 policy, got %d", len(d.Policies))
+	}
+	if !d.Policies[0].HasSchema || d.Policies[0].Schema != "policy.json" || d.Policies[0].Ref != "policy-ref" {
+		t.Errorf("policy mismatch: %+v", d.Policies[0])
 	}
 }
 
