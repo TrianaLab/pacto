@@ -136,16 +136,18 @@ func rejectLocalDeps(c *contract.Contract) error {
 	return nil
 }
 
-// rejectLocalRefs returns an error if configuration.ref or policy.ref uses a local reference.
+// rejectLocalRefs returns an error if any config or policy ref uses a local reference.
 func rejectLocalRefs(c *contract.Contract) error {
-	if c.Configuration != nil && c.Configuration.Ref != "" {
-		if graph.ParseDependencyRef(c.Configuration.Ref).IsLocal() {
-			return fmt.Errorf("local configuration ref detected: %s\nLocal references are not allowed when publishing. Use an OCI reference (oci://...)", c.Configuration.Ref)
+	if c.Configuration != nil {
+		for i, cfg := range c.Configuration.EffectiveConfigs() {
+			if cfg.Ref != "" && graph.ParseDependencyRef(cfg.Ref).IsLocal() {
+				return fmt.Errorf("local config ref detected: %s (configuration.configs[%d])\nLocal references are not allowed when publishing. Use an OCI reference (oci://...)", cfg.Ref, i)
+			}
 		}
 	}
-	if c.Policy != nil && c.Policy.Ref != "" {
-		if graph.ParseDependencyRef(c.Policy.Ref).IsLocal() {
-			return fmt.Errorf("local policy ref detected: %s\nLocal references are not allowed when publishing. Use an OCI reference (oci://...)", c.Policy.Ref)
+	for i, pol := range c.Policies {
+		if pol.Ref != "" && graph.ParseDependencyRef(pol.Ref).IsLocal() {
+			return fmt.Errorf("local policy ref detected: %s (policies[%d])\nLocal references are not allowed when publishing. Use an OCI reference (oci://...)", pol.Ref, i)
 		}
 	}
 	return nil

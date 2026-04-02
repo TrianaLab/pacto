@@ -180,11 +180,11 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 					})
 				}
 			}
-			if details.Configuration != nil {
-				addRefEdge(details.Configuration.Ref)
+			for _, cfg := range details.Configurations {
+				addRefEdge(cfg.Ref)
 			}
-			if details.Policy != nil {
-				addRefEdge(details.Policy.Ref)
+			for _, pol := range details.Policies {
+				addRefEdge(pol.Ref)
 			}
 		}
 

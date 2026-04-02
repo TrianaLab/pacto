@@ -619,6 +619,32 @@ func TestGenerate_ConfigPropertyWithoutDescription(t *testing.T) {
 	}
 }
 
+func TestGenerate_ConfigRefOnlySkipsSchema(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion: "1.0",
+		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
+		Configuration: &contract.Configuration{
+			Ref: "oci://ghcr.io/acme/config:1.0.0",
+		},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			State:    contract.State{Type: "stateless", DataCriticality: "low"},
+		},
+	}
+
+	fsys := fstest.MapFS{}
+	md, err := Generate(c, fsys, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Ref-only config with no schema should not produce a Configuration section body.
+	if strings.Contains(md, "## ") && strings.Contains(md, ". Configuration\n\n|") {
+		t.Error("should not contain Configuration table for ref-only config")
+	}
+}
+
 func TestGenerate_EndpointWithoutSummary(t *testing.T) {
 	c := &contract.Contract{
 		PactoVersion: "1.0",
@@ -1004,5 +1030,144 @@ func TestGenerate_MinimalContract(t *testing.T) {
 	}
 	if !strings.Contains(out, "Packaged as `ghcr.io/acme/minimal:0.1.0` (`public`)") {
 		t.Error("expected public image ref in output")
+	}
+}
+
+func TestGenerate_Policies(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion: "1.0",
+		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
+		Policies: []contract.PolicySource{
+			{Schema: "policy/schema.json"},
+			{Ref: "oci://ghcr.io/acme/platform-policy:1.0.0"},
+		},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			State:    contract.State{Type: "stateless", DataCriticality: "low"},
+		},
+	}
+
+	md, err := Generate(c, fstest.MapFS{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mustContain := []string{
+		". Policies",
+		"| # | Type | Source |",
+		"| 1 | Local | `policy/schema.json` |",
+		"| 2 | Remote | `oci://ghcr.io/acme/platform-policy:1.0.0` |",
+		"Policies](#",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(md, s) {
+			t.Errorf("expected %q in output", s)
+		}
+	}
+}
+
+func TestGenerate_NoPolicies(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion: "1.0",
+		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			State:    contract.State{Type: "stateless", DataCriticality: "low"},
+		},
+	}
+
+	md, err := Generate(c, fstest.MapFS{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if strings.Contains(md, "Policies") {
+		t.Error("should not contain Policies section when there are none")
+	}
+}
+
+func TestGenerate_MultiConfig(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion: "1.0",
+		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
+		Configuration: &contract.Configuration{
+			Configs: []contract.NamedConfigSource{
+				{Name: "app", Schema: "config/app.json"},
+				{Name: "db", Ref: "oci://ghcr.io/acme/db-config:1.0.0"},
+			},
+		},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			State:    contract.State{Type: "stateless", DataCriticality: "low"},
+		},
+	}
+
+	fsys := fstest.MapFS{
+		"config/app.json": &fstest.MapFile{Data: []byte(`{
+			"type": "object",
+			"properties": {
+				"PORT": {"type": "integer", "default": 8080}
+			}
+		}`)},
+	}
+
+	md, err := Generate(c, fsys, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mustContain := []string{
+		". Configuration",
+		". app",
+		". db",
+		"| `PORT` | `integer` |",
+		"References: `oci://ghcr.io/acme/db-config:1.0.0`",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(md, s) {
+			t.Errorf("expected %q in output:\n%s", s, md)
+		}
+	}
+}
+
+func TestGenerate_MultiConfigEdgeCases(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion: "1.0",
+		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
+		Configuration: &contract.Configuration{
+			Configs: []contract.NamedConfigSource{
+				{Name: "", Schema: "config/missing.json"},           // empty name → "default", schema error
+				{Name: "no-schema"},                                 // no schema, no ref → skip
+				{Name: "empty-schema", Schema: "config/empty.json"}, // valid schema, empty props
+			},
+		},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			State:    contract.State{Type: "stateless", DataCriticality: "low"},
+		},
+	}
+
+	fsys := fstest.MapFS{
+		"config/empty.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{}}`)},
+	}
+
+	md, err := Generate(c, fsys, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mustContain := []string{
+		". default",       // empty name fallback
+		"_Could not read", // missing schema error
+		". no-schema",
+		". empty-schema",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(md, s) {
+			t.Errorf("expected %q in output:\n%s", s, md)
+		}
 	}
 }

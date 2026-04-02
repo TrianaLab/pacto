@@ -466,21 +466,21 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 	k8s := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service:       Service{Name: "svc", Version: "1.0.0", Owner: contract.NewOwnerFromString("k8s-team"), ContractStatus: StatusCompliant, Source: "k8s"},
-				Interfaces:    []InterfaceInfo{{Name: "api", Type: "http"}},
-				Configuration: &ConfigurationInfo{HasSchema: true, Ref: "oci://config"},
-				Dependencies:  []DependencyInfo{{Ref: "oci://auth:1.0.0", Required: true}},
-				Runtime:       &RuntimeInfo{Workload: "service"},
+				Service:        Service{Name: "svc", Version: "1.0.0", Owner: contract.NewOwnerFromString("k8s-team"), ContractStatus: StatusCompliant, Source: "k8s"},
+				Interfaces:     []InterfaceInfo{{Name: "api", Type: "http"}},
+				Configurations: []ConfigurationInfo{{HasSchema: true, Ref: "oci://config"}},
+				Dependencies:   []DependencyInfo{{Ref: "oci://auth:1.0.0", Required: true}},
+				Runtime:        &RuntimeInfo{Workload: "service"},
 			},
 		},
 	}
 	local := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service:       Service{Name: "svc", Version: "1.1.0-dev", Owner: contract.NewOwnerFromString("local-team"), ContractStatus: StatusNonCompliant, Source: "local"},
-				Interfaces:    []InterfaceInfo{{Name: "api", Type: "http", Endpoints: []InterfaceEndpoint{{Method: "GET", Path: "/v2"}}}},
-				Configuration: &ConfigurationInfo{HasSchema: true, Schema: "config.json", Values: []ConfigValue{{Key: "port", Value: "8080"}}},
-				Dependencies:  []DependencyInfo{{Ref: "oci://auth:2.0.0", Required: true}},
+				Service:        Service{Name: "svc", Version: "1.1.0-dev", Owner: contract.NewOwnerFromString("local-team"), ContractStatus: StatusNonCompliant, Source: "local"},
+				Interfaces:     []InterfaceInfo{{Name: "api", Type: "http", Endpoints: []InterfaceEndpoint{{Method: "GET", Path: "/v2"}}}},
+				Configurations: []ConfigurationInfo{{HasSchema: true, Schema: "config.json", Values: []ConfigValue{{Key: "port", Value: "8080"}}}},
+				Dependencies:   []DependencyInfo{{Ref: "oci://auth:2.0.0", Required: true}},
 			},
 		},
 	}
@@ -507,7 +507,7 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 	if len(details.Interfaces) != 1 || details.Interfaces[0].Endpoints[0].Path != "/v2" {
 		t.Error("expected interfaces from local contract")
 	}
-	if details.Configuration.Schema != "config.json" {
+	if len(details.Configurations) != 1 || details.Configurations[0].Schema != "config.json" {
 		t.Error("expected configuration from local contract")
 	}
 	if len(details.Dependencies) != 1 || details.Dependencies[0].Ref != "oci://auth:2.0.0" {
@@ -531,10 +531,10 @@ func TestResolvedSource_NoContractMerging(t *testing.T) {
 			"svc": {
 				Service:    Service{Name: "svc", Version: "1.0.0", Source: "oci"},
 				Interfaces: []InterfaceInfo{{Name: "api"}, {Name: "admin"}},
-				Configuration: &ConfigurationInfo{
+				Configurations: []ConfigurationInfo{{
 					Schema: "schema.json",
 					Values: []ConfigValue{{Key: "port", Value: "8080"}},
-				},
+				}},
 			},
 		},
 	}
@@ -562,9 +562,9 @@ func TestResolvedSource_NoContractMerging(t *testing.T) {
 		t.Errorf("expected 1 interface from local (no merging), got %d", len(details.Interfaces))
 	}
 
-	// Local has no configuration — it should be nil, NOT filled from OCI
-	if details.Configuration != nil {
-		t.Error("expected nil configuration — local contract has none, should NOT fill from OCI")
+	// Local has no configuration — it should be empty, NOT filled from OCI
+	if len(details.Configurations) != 0 {
+		t.Error("expected empty configurations — local contract has none, should NOT fill from OCI")
 	}
 }
 

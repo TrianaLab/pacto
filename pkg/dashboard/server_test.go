@@ -375,16 +375,16 @@ func TestServerGetDependents_NoDependents(t *testing.T) {
 func TestServerGetCrossRefs(t *testing.T) {
 	source := newMockWithDetails(map[string]*ServiceDetails{
 		"svc-a": {
-			Service:       Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
-			Configuration: &ConfigurationInfo{Ref: "config-svc"},
-			Policy:        &PolicyInfo{Ref: "policy-svc"},
+			Service:        Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+			Configurations: []ConfigurationInfo{{Ref: "config-svc"}},
+			Policies:       []PolicyInfo{{Ref: "policy-svc"}},
 		},
 		"config-svc": {
 			Service: Service{Name: "config-svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 		},
 		"other": {
-			Service:       Service{Name: "other", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
-			Configuration: &ConfigurationInfo{Ref: "svc-a"},
+			Service:        Service{Name: "other", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+			Configurations: []ConfigurationInfo{{Ref: "svc-a"}},
 		},
 	})
 	base := startTestServer(t, source)
@@ -1127,8 +1127,8 @@ func TestGetCachedIndex_ListServicesError_WithStaleCache(t *testing.T) {
 func TestServerGetCrossRefs_PolicyRefLookup(t *testing.T) {
 	source := newMockWithDetails(map[string]*ServiceDetails{
 		"svc-a": {
-			Service: Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
-			Policy:  &PolicyInfo{Ref: "policy-svc"},
+			Service:  Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+			Policies: []PolicyInfo{{Ref: "policy-svc"}},
 		},
 		"policy-svc": {
 			Service: Service{Name: "policy-svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
@@ -1294,8 +1294,8 @@ func TestServerGetCrossRefs_PolicyReferencedBy(t *testing.T) {
 			Service: Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 		},
 		"other": {
-			Service: Service{Name: "other", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
-			Policy:  &PolicyInfo{Ref: "svc-a"},
+			Service:  Service{Name: "other", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+			Policies: []PolicyInfo{{Ref: "svc-a"}},
 		},
 	})
 	base := startTestServer(t, source)

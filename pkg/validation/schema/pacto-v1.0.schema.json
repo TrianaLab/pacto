@@ -189,50 +189,97 @@
 
     "configuration": {
       "type": "object",
-      "description": "Declares the service's configuration model via a JSON Schema file that describes expected environment variables or config entries.",
+      "description": "Configuration for the service. Supports a legacy single-source form (schema/ref at the top level) and a new multi-source form via the configs array. When configs is present, top-level schema/ref/values must not be set.",
       "additionalProperties": false,
       "properties": {
         "schema": {
           "type": "string",
           "minLength": 1,
-          "description": "Path to a JSON Schema file describing the service's configuration properties (within the bundle)."
+          "description": "Path to a JSON Schema file describing configuration properties (within the bundle). Part of the legacy single-source form."
         },
         "ref": {
           "type": "string",
           "minLength": 1,
-          "description": "OCI or local reference to another Pacto contract whose bundle contains the configuration schema at the fixed path configuration/schema.json."
+          "description": "OCI or local reference to another Pacto contract whose bundle contains the configuration schema at the fixed path configuration/schema.json. Part of the legacy single-source form."
         },
         "values": {
           "type": "object",
-          "description": "Configuration values to be validated against the configuration schema."
+          "description": "Configuration values to be validated against the configuration schema. Only valid with the legacy schema form."
+        },
+        "configs": {
+          "type": "array",
+          "description": "Named configuration sources. Each entry is an independent named scope with no implicit merge semantics.",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A unique name for this configuration scope."
+              },
+              "schema": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Path to a JSON Schema file describing configuration properties (within the bundle)."
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "description": "OCI or local reference to another Pacto contract whose bundle contains the configuration schema."
+              },
+              "values": {
+                "type": "object",
+                "description": "Configuration values to be validated against the configuration schema."
+              }
+            },
+            "oneOf": [
+              { "required": ["schema"], "not": { "required": ["ref"] } },
+              { "required": ["ref"], "not": { "anyOf": [{ "required": ["schema"] }, { "required": ["values"] }] } }
+            ]
+          }
         }
       },
       "oneOf": [
-        { "required": ["schema"], "not": { "required": ["ref"] } },
-        { "required": ["ref"], "not": { "anyOf": [{ "required": ["schema"] }, { "required": ["values"] }] } }
+        {
+          "required": ["schema"],
+          "not": { "anyOf": [{ "required": ["ref"] }, { "required": ["configs"] }] }
+        },
+        {
+          "required": ["ref"],
+          "not": { "anyOf": [{ "required": ["schema"] }, { "required": ["values"] }, { "required": ["configs"] }] }
+        },
+        {
+          "required": ["configs"],
+          "not": { "anyOf": [{ "required": ["schema"] }, { "required": ["ref"] }, { "required": ["values"] }] }
+        }
       ]
     },
 
-    "policy": {
-      "type": "object",
-      "description": "Defines or references policy constraints for the contract. A policy is a JSON Schema that validates the contract itself, enabling platform teams to enforce organizational standards.",
-      "additionalProperties": false,
-      "properties": {
-        "schema": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Path to a JSON Schema file within the bundle that defines policy constraints (fixed convention: policy/schema.json)."
+    "policies": {
+      "type": "array",
+      "description": "Policy constraints for the contract. Each entry defines or references a JSON Schema that validates the contract itself, enabling platform teams to enforce organizational standards. Multiple policies apply with strict AND semantics.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path to a JSON Schema file within the bundle that defines policy constraints (convention: policy/schema.json)."
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "description": "OCI or local reference to another Pacto contract whose bundle contains the policy schema at the fixed path policy/schema.json."
+          }
         },
-        "ref": {
-          "type": "string",
-          "minLength": 1,
-          "description": "OCI or local reference to another Pacto contract whose bundle contains the policy schema at the fixed path policy/schema.json."
-        }
-      },
-      "oneOf": [
-        { "required": ["schema"], "not": { "required": ["ref"] } },
-        { "required": ["ref"], "not": { "required": ["schema"] } }
-      ]
+        "oneOf": [
+          { "required": ["schema"], "not": { "required": ["ref"] } },
+          { "required": ["ref"], "not": { "required": ["schema"] } }
+        ]
+      }
     },
 
     "dependencies": {

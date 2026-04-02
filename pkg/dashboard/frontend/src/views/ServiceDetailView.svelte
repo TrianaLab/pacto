@@ -70,8 +70,8 @@
     if (detail.interfaces?.length > 0) sections.push({ id: 'interfaces', label: 'Interfaces' });
     if (detail.dependencies?.length > 0 || dependents.length > 0 || crossRefs)
       sections.push({ id: 'dependencies', label: 'Dependencies' });
-    if (detail.configuration) sections.push({ id: 'config', label: 'Configuration' });
-    if (detail.policy) sections.push({ id: 'policy', label: 'Policy' });
+    if (detail.configurations?.length > 0) sections.push({ id: 'config', label: 'Configuration' });
+    if (detail.policies?.length > 0) sections.push({ id: 'policy', label: 'Policies' });
     if ((detail.validation?.errors?.length > 0) || (detail.validation?.warnings?.length > 0))
       sections.push({ id: 'validation', label: 'Validation' });
     if (detail.runtimeDiff?.length > 0) sections.push({ id: 'runtimeDiff', label: 'Contract vs Runtime' });
@@ -321,13 +321,13 @@
 
   <ConfigSection
     id="section-config"
-    config={detail.configuration}
+    configs={detail.configurations || []}
     bind:open={openSections.config}
   />
 
   <PolicySection
     id="section-policy"
-    policy={detail.policy}
+    policies={detail.policies || []}
     bind:open={openSections.policy}
   />
 

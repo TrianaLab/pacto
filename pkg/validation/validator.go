@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -9,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Validate runs all three validation layers in order on the given contract.
+// Validate runs all four validation layers in order on the given contract.
 // If structural validation fails, subsequent layers are skipped.
 // The rawYAML parameter is the original YAML bytes for JSON Schema validation.
 // The bundleFS parameter provides access to bundle files for cross-field validation.
@@ -30,6 +31,46 @@ func Validate(c *contract.Contract, rawYAML []byte, bundleFS fs.FS) ValidationRe
 	// Layer 3: Semantic validation.
 	semanticResult := ValidateSemantic(c)
 	result.Merge(semanticResult)
+
+	// Layer 4: Policy enforcement.
+	policies, policyResResult := ResolvePoliciesFromBundle(c, bundleFS)
+	result.Merge(policyResResult)
+	if result.IsValid() {
+		enforcementResult := EnforcePolicies(rawYAML, policies)
+		result.Merge(enforcementResult)
+	}
+
+	return result
+}
+
+// ValidateWithResolver runs all four validation layers, using the provided
+// BundleResolver for recursive ref-based policy resolution. If resolver is nil,
+// any ref-based policies produce a hard POLICY_REF_UNRESOLVED error (fail closed).
+func ValidateWithResolver(ctx context.Context, c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolver BundleResolver) ValidationResult {
+	// Layer 1: Structural validation via JSON Schema.
+	result := ValidateStructuralRaw(rawYAML)
+	if !result.IsValid() {
+		return result
+	}
+
+	// Layer 2: Cross-field validation.
+	crossFieldResult := ValidateCrossField(c, bundleFS)
+	result.Merge(crossFieldResult)
+	if !result.IsValid() {
+		return result
+	}
+
+	// Layer 3: Semantic validation.
+	semanticResult := ValidateSemantic(c)
+	result.Merge(semanticResult)
+
+	// Layer 4: Policy enforcement with recursive resolution.
+	policies, policyResult := ResolvePoliciesWithResolver(ctx, c, bundleFS, resolver)
+	result.Merge(policyResult)
+	if result.IsValid() {
+		enforcementResult := EnforcePolicies(rawYAML, policies)
+		result.Merge(enforcementResult)
+	}
 
 	return result
 }

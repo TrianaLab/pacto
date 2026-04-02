@@ -224,8 +224,8 @@ interfaces:
     type: http
     port: 8080
     visibility: internal
-policy:
-  schema: policy/schema.json
+policies:
+  - schema: policy/schema.json
 runtime:
   workload: service
   state:

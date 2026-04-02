@@ -1,6 +1,8 @@
 package validation_test
 
 import (
+	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"strings"
@@ -10,6 +12,19 @@ import (
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/validation"
 )
+
+// testBundleResolver implements validation.BundleResolver for external tests.
+type testBundleResolver struct {
+	bundles map[string]*contract.Bundle
+}
+
+func (r *testBundleResolver) ResolveBundle(_ context.Context, ref string) (*contract.Bundle, error) {
+	b, ok := r.bundles[ref]
+	if !ok {
+		return nil, fmt.Errorf("not found: %s", ref)
+	}
+	return b, nil
+}
 
 func loadFixture(t *testing.T, path string) []byte {
 	t.Helper()
@@ -599,6 +614,269 @@ scaling:
 		t.Error("expected JOB_SCALING_NOT_ALLOWED error")
 		for _, e := range result.Errors {
 			t.Logf("  got: [%s] %s: %s", e.Code, e.Path, e.Message)
+		}
+	}
+}
+
+func TestValidate_PolicyEnforcementSatisfied(t *testing.T) {
+	yaml := `
+pactoVersion: "1.0"
+service:
+  name: my-svc
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - schema: policy.json
+`
+	data, c := parseString(t, yaml)
+	bundleFS := fstest.MapFS{
+		"policy.json": &fstest.MapFile{Data: []byte(`{
+			"type": "object",
+			"required": ["service"]
+		}`)},
+	}
+	result := validation.Validate(c, data, bundleFS)
+	if !result.IsValid() {
+		for _, e := range result.Errors {
+			t.Errorf("unexpected error: [%s] %s: %s", e.Code, e.Path, e.Message)
+		}
+	}
+}
+
+func TestValidate_PolicyEnforcementViolated(t *testing.T) {
+	yaml := `
+pactoVersion: "1.0"
+service:
+  name: my-svc
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - schema: policy.json
+`
+	data, c := parseString(t, yaml)
+	bundleFS := fstest.MapFS{
+		"policy.json": &fstest.MapFile{Data: []byte(`{
+			"type": "object",
+			"properties": {
+				"service": {
+					"type": "object",
+					"required": ["owner"]
+				}
+			}
+		}`)},
+	}
+	result := validation.Validate(c, data, bundleFS)
+	if result.IsValid() {
+		t.Error("expected policy violation")
+	}
+	found := false
+	for _, e := range result.Errors {
+		if e.Code == "POLICY_VIOLATION" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected POLICY_VIOLATION error")
+		for _, e := range result.Errors {
+			t.Logf("  got: [%s] %s: %s", e.Code, e.Path, e.Message)
+		}
+	}
+}
+
+func TestValidateWithResolver_RefPolicyEnforced(t *testing.T) {
+	yaml := `
+pactoVersion: "1.0"
+service:
+  name: my-svc
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - ref: oci://example.com/policy:1.0
+`
+	data, c := parseString(t, yaml)
+	refBundle := &contract.Bundle{
+		Contract: &contract.Contract{},
+		FS: fstest.MapFS{
+			"policy/schema.json": &fstest.MapFile{Data: []byte(`{
+				"type": "object",
+				"required": ["service"]
+			}`)},
+		},
+	}
+	resolver := &testBundleResolver{bundles: map[string]*contract.Bundle{
+		"oci://example.com/policy:1.0": refBundle,
+	}}
+	result := validation.ValidateWithResolver(context.Background(), c, data, fstest.MapFS{}, resolver)
+	if !result.IsValid() {
+		for _, e := range result.Errors {
+			t.Errorf("unexpected error: [%s] %s", e.Code, e.Message)
+		}
+	}
+}
+
+func TestValidateWithResolver_RefPolicyViolated(t *testing.T) {
+	yaml := `
+pactoVersion: "1.0"
+service:
+  name: my-svc
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - ref: oci://example.com/policy:1.0
+`
+	data, c := parseString(t, yaml)
+	refBundle := &contract.Bundle{
+		Contract: &contract.Contract{},
+		FS: fstest.MapFS{
+			"policy/schema.json": &fstest.MapFile{Data: []byte(`{
+				"type": "object",
+				"properties": {
+					"service": {
+						"type": "object",
+						"required": ["owner"]
+					}
+				}
+			}`)},
+		},
+	}
+	resolver := &testBundleResolver{bundles: map[string]*contract.Bundle{
+		"oci://example.com/policy:1.0": refBundle,
+	}}
+	result := validation.ValidateWithResolver(context.Background(), c, data, fstest.MapFS{}, resolver)
+	if result.IsValid() {
+		t.Error("expected policy violation from ref policy")
+	}
+	found := false
+	for _, e := range result.Errors {
+		if e.Code == "POLICY_VIOLATION" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected POLICY_VIOLATION error")
+	}
+}
+
+func TestValidateWithResolver_NilResolverFailsClosed(t *testing.T) {
+	yaml := `
+pactoVersion: "1.0"
+service:
+  name: my-svc
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - ref: oci://example.com/policy:1.0
+`
+	data, c := parseString(t, yaml)
+	result := validation.ValidateWithResolver(context.Background(), c, data, fstest.MapFS{}, nil)
+	if result.IsValid() {
+		t.Error("expected POLICY_REF_UNRESOLVED error when resolver is nil")
+	}
+	found := false
+	for _, e := range result.Errors {
+		if e.Code == "POLICY_REF_UNRESOLVED" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected POLICY_REF_UNRESOLVED error code")
+	}
+}
+
+func TestValidateWithResolver_CrossFieldFailureSkipsPolicy(t *testing.T) {
+	// Interface references a non-existent file — cross-field error
+	yaml := `
+pactoVersion: "1.0"
+service:
+  name: my-svc
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    contract: interfaces/openapi.yaml
+policies:
+  - ref: oci://example.com/policy:1.0
+`
+	data, c := parseString(t, yaml)
+	// Empty bundleFS means the contract file won't be found
+	result := validation.ValidateWithResolver(context.Background(), c, data, fstest.MapFS{}, nil)
+	if result.IsValid() {
+		t.Error("expected cross-field error for missing interface file")
+	}
+	for _, e := range result.Errors {
+		if e.Code == "POLICY_REF_UNRESOLVED" {
+			t.Error("should not reach policy layer when cross-field fails")
+		}
+	}
+}
+
+func TestValidateWithResolver_ResolutionErrorSkipsEnforcement(t *testing.T) {
+	// Ref that fails resolution should produce POLICY_REF_UNRESOLVED but no POLICY_VIOLATION
+	yaml := `
+pactoVersion: "1.0"
+service:
+  name: my-svc
+  version: "1.0.0"
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - ref: oci://example.com/missing:1.0
+`
+	data, c := parseString(t, yaml)
+	resolver := &testBundleResolver{bundles: map[string]*contract.Bundle{}}
+	result := validation.ValidateWithResolver(context.Background(), c, data, fstest.MapFS{}, resolver)
+	if result.IsValid() {
+		t.Error("expected error")
+	}
+	foundRef := false
+	for _, e := range result.Errors {
+		if e.Code == "POLICY_REF_UNRESOLVED" {
+			foundRef = true
+		}
+		if e.Code == "POLICY_VIOLATION" {
+			t.Error("should not enforce when resolution failed")
+		}
+	}
+	if !foundRef {
+		t.Error("expected POLICY_REF_UNRESOLVED")
+	}
+}
+
+func TestValidateWithResolver_StructuralFailureSkipsPolicy(t *testing.T) {
+	yaml := `
+pactoVersion: "999"
+service:
+  name: my-svc
+  version: "1.0.0"
+`
+	data, c := parseString(t, yaml)
+	result := validation.ValidateWithResolver(context.Background(), c, data, fstest.MapFS{}, nil)
+	if result.IsValid() {
+		t.Error("expected structural error")
+	}
+	// Should not see POLICY_REF_UNRESOLVED since structural fails first
+	for _, e := range result.Errors {
+		if e.Code == "POLICY_REF_UNRESOLVED" {
+			t.Error("should not reach policy layer when structural fails")
 		}
 	}
 }

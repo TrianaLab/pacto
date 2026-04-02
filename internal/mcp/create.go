@@ -900,7 +900,7 @@ func Check(path string) (*CheckResult, error) {
 
 var topLevelKeyOrder = []string{
 	"pactoVersion", "service", "interfaces", "configuration",
-	"policy", "dependencies", "runtime", "scaling", "metadata",
+	"policies", "dependencies", "runtime", "scaling", "metadata",
 }
 
 func marshalContract(m map[string]interface{}) ([]byte, error) {
@@ -982,8 +982,12 @@ func buildStubFS(c *contract.Contract, yamlBytes []byte) fstest.MapFS {
 			m[iface.Contract] = &fstest.MapFile{Data: []byte("{}")}
 		}
 	}
-	if c.Configuration != nil && c.Configuration.Schema != "" {
-		m[c.Configuration.Schema] = &fstest.MapFile{Data: []byte(`{"type":"object"}`)}
+	if c.Configuration != nil {
+		for _, cfg := range c.Configuration.EffectiveConfigs() {
+			if cfg.Schema != "" {
+				m[cfg.Schema] = &fstest.MapFile{Data: []byte(`{"type":"object"}`)}
+			}
+		}
 	}
 	return m
 }
@@ -1023,9 +1027,13 @@ func buildBundleFSForValidation(dir string, yamlBytes []byte, c *contract.Contra
 			}
 		}
 	}
-	if c.Configuration != nil && c.Configuration.Schema != "" {
-		if _, ok := m[c.Configuration.Schema]; !ok {
-			m[c.Configuration.Schema] = &fstest.MapFile{Data: []byte(`{"type":"object"}`)}
+	if c.Configuration != nil {
+		for _, cfg := range c.Configuration.EffectiveConfigs() {
+			if cfg.Schema != "" {
+				if _, ok := m[cfg.Schema]; !ok {
+					m[cfg.Schema] = &fstest.MapFile{Data: []byte(`{"type":"object"}`)}
+				}
+			}
 		}
 	}
 
@@ -1266,7 +1274,7 @@ func summarizeSectionsFromMap(s *ContractSummary, m map[string]interface{}) {
 			s.Sections[key] = "present"
 		}
 	}
-	for _, key := range []string{"configuration", "dependencies", "scaling", "metadata"} {
+	for _, key := range []string{"configuration", "policies", "dependencies", "scaling", "metadata"} {
 		if _, ok := m[key]; ok {
 			s.Sections[key] = "present"
 		} else {
@@ -1309,6 +1317,11 @@ func assessSections(c *contract.Contract) map[string]string {
 		sections["metadata"] = "present"
 	} else {
 		sections["metadata"] = "absent"
+	}
+	if len(c.Policies) > 0 {
+		sections["policies"] = "present"
+	} else {
+		sections["policies"] = "absent"
 	}
 
 	return sections

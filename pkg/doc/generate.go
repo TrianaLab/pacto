@@ -100,6 +100,7 @@ func Generate(c *contract.Contract, fsys fs.FS, gr *graph.Result) (string, error
 	writeMermaidDiagram(&b, c, gr, num)
 	writeInterfaces(&b, c, fsys, num)
 	writeConfiguration(&b, c, fsys, num)
+	writePolicies(&b, c, fsys, num)
 	writeDependencies(&b, c, gr, num)
 
 	fmt.Fprintln(&b, "---")
@@ -281,9 +282,13 @@ func writeTableOfContents(b *strings.Builder, c *contract.Contract, gr *graph.Re
 			fmt.Fprintf(b, "  - [%s. %s](#%s)\n", isec, heading, headingAnchor(isec+". "+heading))
 		}
 	}
-	if c.Configuration != nil && c.Configuration.Schema != "" {
+	if c.Configuration != nil {
 		sec := num.Next(1)
 		fmt.Fprintf(b, "- [%s. Configuration](#%s)\n", sec, headingAnchor(sec+". Configuration"))
+	}
+	if len(c.Policies) > 0 {
+		sec := num.Next(1)
+		fmt.Fprintf(b, "- [%s. Policies](#%s)\n", sec, headingAnchor(sec+". Policies"))
 	}
 	if len(c.Dependencies) > 0 {
 		sec := num.Next(1)
@@ -305,7 +310,7 @@ func writeDependencyTOCEntry(b *strings.Builder, node *graph.Node, num *sectionN
 	if len(dc.Interfaces) > 0 {
 		fmt.Fprintf(b, "    - [%s. Interfaces](#%s-interfaces)\n", num.Next(3), anchor)
 	}
-	if dc.Configuration != nil && dc.Configuration.Schema != "" {
+	if dc.Configuration != nil {
 		fmt.Fprintf(b, "    - [%s. Configuration](#%s-configuration)\n", num.Next(3), anchor)
 	}
 	if len(dc.Dependencies) > 0 {
@@ -570,23 +575,80 @@ func writeInterfaces(b *strings.Builder, c *contract.Contract, fsys fs.FS, num *
 }
 
 func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, num *sectionNumberer) {
-	if c.Configuration == nil || c.Configuration.Schema == "" {
+	if c.Configuration == nil {
 		return
 	}
 
-	props, err := readSchemaProperties(fsys, c.Configuration.Schema)
-	if err != nil {
+	configs := c.Configuration.EffectiveConfigs()
+	multiConfig := len(configs) > 1
+
+	// For single-config (legacy), render a flat table as before.
+	if !multiConfig {
+		var allProps []Property
+		for _, cfg := range configs {
+			if cfg.Schema == "" {
+				continue
+			}
+			props, err := readSchemaProperties(fsys, cfg.Schema)
+			if err != nil {
+				fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
+				fmt.Fprintf(b, "_Could not read configuration schema: %v_\n\n", err)
+				return
+			}
+			allProps = append(allProps, props...)
+		}
+		if len(allProps) == 0 {
+			return
+		}
 		fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
-		fmt.Fprintf(b, "_Could not read configuration schema: %v_\n\n", err)
+		writeConfigurationTable(b, allProps)
 		return
 	}
 
-	if len(props) == 0 {
+	// Multi-config: render named subsections.
+	sec := num.Next(1)
+	fmt.Fprintf(b, "## %s. Configuration\n\n", sec)
+	for _, cfg := range configs {
+		name := cfg.Name
+		if name == "" {
+			name = "default"
+		}
+		subSec := num.Next(2)
+		fmt.Fprintf(b, "### %s. %s\n\n", subSec, name)
+		if cfg.Ref != "" {
+			fmt.Fprintf(b, "References: `%s`\n\n", cfg.Ref)
+			continue
+		}
+		if cfg.Schema == "" {
+			continue
+		}
+		props, err := readSchemaProperties(fsys, cfg.Schema)
+		if err != nil {
+			fmt.Fprintf(b, "_Could not read configuration schema: %v_\n\n", err)
+			continue
+		}
+		if len(props) > 0 {
+			writeConfigurationTable(b, props)
+		}
+	}
+}
+
+func writePolicies(b *strings.Builder, c *contract.Contract, _ fs.FS, num *sectionNumberer) {
+	if len(c.Policies) == 0 {
 		return
 	}
 
-	fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
-	writeConfigurationTable(b, props)
+	fmt.Fprintf(b, "## %s. Policies\n\n", num.Next(1))
+	fmt.Fprintln(b, "| # | Type | Source |")
+	fmt.Fprintln(b, "|---|------|--------|")
+	for i, pol := range c.Policies {
+		if pol.Ref != "" {
+			fmt.Fprintf(b, "| %d | Remote | `%s` |\n", i+1, pol.Ref)
+		} else if pol.Schema != "" {
+			fmt.Fprintf(b, "| %d | Local | `%s` |\n", i+1, pol.Schema)
+		}
+	}
+	fmt.Fprintln(b)
 }
 
 func interfaceHeading(iface contract.Interface) string {
@@ -780,14 +842,24 @@ func writeDependencyDetail(b *strings.Builder, node *graph.Node, num *sectionNum
 		writeInterfaceDetails(b, dc, node.FS, 5, num)
 	}
 
-	if dc.Configuration != nil && dc.Configuration.Schema != "" && node.FS != nil {
-		props, err := readSchemaProperties(node.FS, dc.Configuration.Schema)
-		if err != nil {
+	if dc.Configuration != nil && node.FS != nil {
+		var allProps []Property
+		for _, cfg := range dc.Configuration.EffectiveConfigs() {
+			if cfg.Schema == "" {
+				continue
+			}
+			props, err := readSchemaProperties(node.FS, cfg.Schema)
+			if err != nil {
+				fmt.Fprintf(b, "<h4 id=\"%s-configuration\">%s. Configuration</h4>\n\n", anchor, num.Next(3))
+				fmt.Fprintf(b, "_Could not read configuration schema: %v_\n\n", err)
+				allProps = nil
+				break
+			}
+			allProps = append(allProps, props...)
+		}
+		if len(allProps) > 0 {
 			fmt.Fprintf(b, "<h4 id=\"%s-configuration\">%s. Configuration</h4>\n\n", anchor, num.Next(3))
-			fmt.Fprintf(b, "_Could not read configuration schema: %v_\n\n", err)
-		} else if len(props) > 0 {
-			fmt.Fprintf(b, "<h4 id=\"%s-configuration\">%s. Configuration</h4>\n\n", anchor, num.Next(3))
-			writeConfigurationTable(b, props)
+			writeConfigurationTable(b, allProps)
 		}
 	}
 

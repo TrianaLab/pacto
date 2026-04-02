@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"fmt"
 	"io/fs"
 
 	"github.com/trianalab/pacto/pkg/contract"
@@ -51,80 +52,152 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 	return changes
 }
 
-// diffConfiguration compares configuration fields and delegates to JSON Schema diff.
+// diffConfiguration compares configuration objects and delegates to JSON Schema diff.
 func diffConfiguration(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 	var changes []Change
 
-	if old.Configuration == nil && new.Configuration == nil {
+	oldCfg := old.Configuration
+	newCfg := new.Configuration
+
+	// Both nil — no changes
+	if oldCfg == nil && newCfg == nil {
 		return nil
 	}
-	if old.Configuration == nil {
-		changes = append(changes, newChange("configuration", Added, nil, configSummary(new.Configuration)))
+
+	// One nil — entire configuration added/removed
+	if oldCfg == nil {
+		changes = append(changes, newChange("configuration", Added, nil, configSummary(newCfg)))
 		return changes
 	}
-	if new.Configuration == nil {
-		changes = append(changes, newChange("configuration", Removed, configSummary(old.Configuration), nil))
+	if newCfg == nil {
+		changes = append(changes, newChange("configuration", Removed, configSummary(oldCfg), nil))
 		return changes
 	}
 
-	if old.Configuration.Schema != new.Configuration.Schema {
-		changes = append(changes, newChange("configuration.schema", Modified, old.Configuration.Schema, new.Configuration.Schema))
+	// Compare legacy fields (schema, ref, values)
+	if oldCfg.Schema != newCfg.Schema {
+		changes = append(changes, newChange("configuration.schema", Modified, oldCfg.Schema, newCfg.Schema))
 	}
-
-	if old.Configuration.Ref != new.Configuration.Ref {
+	if oldCfg.Ref != newCfg.Ref {
 		ct := Modified
-		if old.Configuration.Ref == "" {
+		if oldCfg.Ref == "" {
 			ct = Added
-		} else if new.Configuration.Ref == "" {
+		} else if newCfg.Ref == "" {
 			ct = Removed
 		}
-		changes = append(changes, newChange("configuration.ref", ct, old.Configuration.Ref, new.Configuration.Ref))
+		changes = append(changes, newChange("configuration.ref", ct, oldCfg.Ref, newCfg.Ref))
 	}
 
-	// Diff the JSON Schema files.
-	oldSchema := old.Configuration.Schema
-	newSchema := new.Configuration.Schema
-	if oldSchema != "" && newSchema != "" {
-		changes = append(changes, diffSchema(oldSchema, newSchema, oldFS, newFS)...)
+	// Diff schema files if both have legacy schema
+	if oldCfg.Schema != "" && newCfg.Schema != "" {
+		changes = append(changes, diffSchema(oldCfg.Schema, newCfg.Schema, oldFS, newFS)...)
+	}
+
+	// Compare configs array (positional)
+	maxLen := len(oldCfg.Configs)
+	if len(newCfg.Configs) > maxLen {
+		maxLen = len(newCfg.Configs)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		prefix := fmt.Sprintf("configuration.configs[%d]", i)
+		if i >= len(oldCfg.Configs) {
+			changes = append(changes, newChange(prefix, Added, nil, namedConfigSummary(&newCfg.Configs[i])))
+			continue
+		}
+		if i >= len(newCfg.Configs) {
+			changes = append(changes, newChange(prefix, Removed, namedConfigSummary(&oldCfg.Configs[i]), nil))
+			continue
+		}
+		oldNamed := &oldCfg.Configs[i]
+		newNamed := &newCfg.Configs[i]
+
+		if oldNamed.Name != newNamed.Name {
+			changes = append(changes, newChange(prefix+".name", Modified, oldNamed.Name, newNamed.Name))
+		}
+		if oldNamed.Schema != newNamed.Schema {
+			changes = append(changes, newChange(prefix+".schema", Modified, oldNamed.Schema, newNamed.Schema))
+		}
+		if oldNamed.Ref != newNamed.Ref {
+			ct := Modified
+			if oldNamed.Ref == "" {
+				ct = Added
+			} else if newNamed.Ref == "" {
+				ct = Removed
+			}
+			changes = append(changes, newChange(prefix+".ref", ct, oldNamed.Ref, newNamed.Ref))
+		}
+		if oldNamed.Schema != "" && newNamed.Schema != "" {
+			changes = append(changes, diffSchema(oldNamed.Schema, newNamed.Schema, oldFS, newFS)...)
+		}
 	}
 
 	return changes
 }
 
 func configSummary(cfg *contract.Configuration) string {
+	if cfg == nil {
+		return ""
+	}
 	if cfg.Ref != "" {
 		return cfg.Ref
 	}
-	return cfg.Schema
+	if cfg.Schema != "" {
+		return cfg.Schema
+	}
+	if len(cfg.Configs) > 0 {
+		return fmt.Sprintf("%d configs", len(cfg.Configs))
+	}
+	return ""
 }
 
-// diffPolicy compares policy fields.
+func namedConfigSummary(cfg *contract.NamedConfigSource) string {
+	if cfg.Ref != "" {
+		return cfg.Name + ": " + cfg.Ref
+	}
+	return cfg.Name + ": " + cfg.Schema
+}
+
+// diffPolicy compares policies arrays.
 func diffPolicy(old, new *contract.Contract) []Change {
 	var changes []Change
 
-	if old.Policy == nil && new.Policy == nil {
-		return nil
-	}
-	if old.Policy == nil {
-		changes = append(changes, newChange("policy", Added, nil, policySummary(new.Policy)))
-		return changes
-	}
-	if new.Policy == nil {
-		changes = append(changes, newChange("policy", Removed, policySummary(old.Policy), nil))
-		return changes
+	maxLen := len(old.Policies)
+	if len(new.Policies) > maxLen {
+		maxLen = len(new.Policies)
 	}
 
-	if old.Policy.Schema != new.Policy.Schema {
-		changes = append(changes, newChange("policy.schema", Modified, old.Policy.Schema, new.Policy.Schema))
-	}
-	if old.Policy.Ref != new.Policy.Ref {
-		changes = append(changes, newChange("policy.ref", Modified, old.Policy.Ref, new.Policy.Ref))
+	for i := 0; i < maxLen; i++ {
+		prefix := fmt.Sprintf("policies[%d]", i)
+		if i >= len(old.Policies) {
+			changes = append(changes, newChange(prefix, Added, nil, policySummary(&new.Policies[i])))
+			continue
+		}
+		if i >= len(new.Policies) {
+			changes = append(changes, newChange(prefix, Removed, policySummary(&old.Policies[i]), nil))
+			continue
+		}
+		oldPol := &old.Policies[i]
+		newPol := &new.Policies[i]
+
+		if oldPol.Schema != newPol.Schema {
+			changes = append(changes, newChange(prefix+".schema", Modified, oldPol.Schema, newPol.Schema))
+		}
+		if oldPol.Ref != newPol.Ref {
+			ct := Modified
+			if oldPol.Ref == "" {
+				ct = Added
+			} else if newPol.Ref == "" {
+				ct = Removed
+			}
+			changes = append(changes, newChange(prefix+".ref", ct, oldPol.Ref, newPol.Ref))
+		}
 	}
 
 	return changes
 }
 
-func policySummary(p *contract.Policy) string {
+func policySummary(p *contract.PolicySource) string {
 	if p.Ref != "" {
 		return p.Ref
 	}

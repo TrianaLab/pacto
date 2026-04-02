@@ -220,6 +220,7 @@ func TestOverrideConfigValues(t *testing.T) {
 		bundlePath := writeOverrideBundle(t)
 
 		valuesFile := writeValuesFile(t, t.TempDir(), "config-values.yaml", `configuration:
+  schema: configuration/schema.json
   values:
     DB_HOST: db.example.com
     DB_PORT: 3306
@@ -238,6 +239,7 @@ func TestOverrideConfigValues(t *testing.T) {
 
 		// Values file sets a valid DB_PORT. --set overrides it with a string (wrong type).
 		valuesFile := writeValuesFile(t, t.TempDir(), "config-values.yaml", `configuration:
+  schema: configuration/schema.json
   values:
     DB_PORT: 5432
 `)

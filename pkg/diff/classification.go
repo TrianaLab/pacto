@@ -1,5 +1,9 @@
 package diff
 
+import "regexp"
+
+var indexRe = regexp.MustCompile(`\[\d+\]`)
+
 // classificationKey maps a field path and change type to a classification.
 type classificationKey struct {
 	Path string
@@ -44,11 +48,11 @@ var rules = map[classificationKey]Classification{
 	{"configuration", Added}:           NonBreaking,
 	{"configuration", Removed}:         Breaking,
 
-	// Policy
-	{"policy", Added}:           NonBreaking,
-	{"policy", Removed}:         PotentialBreaking,
-	{"policy.schema", Modified}: PotentialBreaking,
-	{"policy.ref", Modified}:    PotentialBreaking,
+	// Policy (pluralized, indexed)
+	{"policies", Added}:           NonBreaking,
+	{"policies", Removed}:         PotentialBreaking,
+	{"policies.schema", Modified}: PotentialBreaking,
+	{"policies.ref", Modified}:    PotentialBreaking,
 
 	// Runtime — workload
 	{"runtime.workload", Modified}: Breaking,
@@ -115,9 +119,15 @@ var rules = map[classificationKey]Classification{
 }
 
 // classify returns the classification for a given path and change type.
-// Unknown paths default to PotentialBreaking.
+// Indexed paths like "configs[0].schema" are normalised to "configs.schema"
+// before lookup. Unknown paths default to PotentialBreaking.
 func classify(path string, ct ChangeType) Classification {
 	if c, ok := rules[classificationKey{path, ct}]; ok {
+		return c
+	}
+	// Strip array indices so "configs[0].schema" matches "configs.schema".
+	norm := indexRe.ReplaceAllString(path, "")
+	if c, ok := rules[classificationKey{norm, ct}]; ok {
 		return c
 	}
 	return PotentialBreaking

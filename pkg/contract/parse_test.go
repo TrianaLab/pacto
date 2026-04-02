@@ -85,8 +85,12 @@ func TestParse_ValidFull_Service(t *testing.T) {
 	if c.Configuration == nil {
 		t.Fatal("expected configuration to be present")
 	}
-	if c.Configuration.Schema != "configuration/schema.json" {
-		t.Errorf("expected configuration schema, got %s", c.Configuration.Schema)
+	effectiveConfigs := c.Configuration.EffectiveConfigs()
+	if len(effectiveConfigs) == 0 {
+		t.Fatal("expected effective configs to be present")
+	}
+	if effectiveConfigs[0].Schema != "configuration/schema.json" {
+		t.Errorf("expected configuration schema, got %s", effectiveConfigs[0].Schema)
 	}
 	if len(c.Dependencies) != 2 {
 		t.Errorf("expected 2 dependencies, got %d", len(c.Dependencies))

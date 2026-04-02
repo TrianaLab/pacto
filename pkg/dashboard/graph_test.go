@@ -265,9 +265,9 @@ func TestBuildGlobalGraph_ReferenceEdges(t *testing.T) {
 	}
 	index := map[string]*ServiceDetails{
 		"svc-a": {
-			Service:       Service{Name: "svc-a"},
-			Configuration: &ConfigurationInfo{Ref: "config-svc"},
-			Policy:        &PolicyInfo{Ref: "policy-svc"},
+			Service:        Service{Name: "svc-a"},
+			Configurations: []ConfigurationInfo{{Ref: "config-svc"}},
+			Policies:       []PolicyInfo{{Ref: "policy-svc"}},
 		},
 		"config-svc": {
 			Service: Service{Name: "config-svc"},
@@ -310,8 +310,8 @@ func TestBuildGlobalGraph_SkipsSelfRefs(t *testing.T) {
 	}
 	index := map[string]*ServiceDetails{
 		"svc-a": {
-			Service:       Service{Name: "svc-a"},
-			Configuration: &ConfigurationInfo{Ref: "svc-a"}, // self-reference
+			Service:        Service{Name: "svc-a"},
+			Configurations: []ConfigurationInfo{{Ref: "svc-a"}}, // self-reference
 		},
 	}
 
@@ -338,9 +338,9 @@ func TestBuildGlobalGraph_EmptyRefSkipped(t *testing.T) {
 	}
 	index := map[string]*ServiceDetails{
 		"svc-a": {
-			Service:       Service{Name: "svc-a"},
-			Configuration: &ConfigurationInfo{Ref: ""},
-			Policy:        &PolicyInfo{Ref: ""},
+			Service:        Service{Name: "svc-a"},
+			Configurations: []ConfigurationInfo{{Ref: ""}},
+			Policies:       []PolicyInfo{{Ref: ""}},
 		},
 	}
 

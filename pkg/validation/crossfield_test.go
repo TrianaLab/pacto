@@ -709,7 +709,7 @@ func TestValidateConfigRef_LocalRef(t *testing.T) {
 
 func TestValidatePolicyFields_NilPolicy(t *testing.T) {
 	c := validContract()
-	c.Policy = nil
+	c.Policies = nil
 	var result ValidationResult
 	validatePolicyFields(c, nil, &result)
 	if !result.IsValid() {
@@ -719,7 +719,7 @@ func TestValidatePolicyFields_NilPolicy(t *testing.T) {
 
 func TestValidatePolicyFields_EmptyPolicy(t *testing.T) {
 	c := validContract()
-	c.Policy = &contract.Policy{}
+	c.Policies = []contract.PolicySource{{}}
 	var result ValidationResult
 	validatePolicyFields(c, nil, &result)
 	if result.IsValid() {
@@ -729,7 +729,7 @@ func TestValidatePolicyFields_EmptyPolicy(t *testing.T) {
 
 func TestValidatePolicyFields_SchemaFileNotFound(t *testing.T) {
 	c := validContract()
-	c.Policy = &contract.Policy{Schema: "policy/schema.json"}
+	c.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
 	bundleFS := fstest.MapFS{}
 	var result ValidationResult
 	validatePolicyFields(c, bundleFS, &result)
@@ -740,7 +740,7 @@ func TestValidatePolicyFields_SchemaFileNotFound(t *testing.T) {
 
 func TestValidatePolicyFields_SchemaFileExists(t *testing.T) {
 	c := validContract()
-	c.Policy = &contract.Policy{Schema: "policy/schema.json"}
+	c.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
 	bundleFS := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{Data: []byte("{}")},
 	}
@@ -753,7 +753,7 @@ func TestValidatePolicyFields_SchemaFileExists(t *testing.T) {
 
 func TestValidatePolicyFields_SchemaNilBundleFS(t *testing.T) {
 	c := validContract()
-	c.Policy = &contract.Policy{Schema: "policy/schema.json"}
+	c.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
 	var result ValidationResult
 	validatePolicyFields(c, nil, &result)
 	if !result.IsValid() {
@@ -763,7 +763,7 @@ func TestValidatePolicyFields_SchemaNilBundleFS(t *testing.T) {
 
 func TestValidatePolicyFields_ValidOCIRef(t *testing.T) {
 	c := validContract()
-	c.Policy = &contract.Policy{Ref: "oci://ghcr.io/acme/policy-pacto:1.0.0"}
+	c.Policies = []contract.PolicySource{{Ref: "oci://ghcr.io/acme/policy-pacto:1.0.0"}}
 	var result ValidationResult
 	validatePolicyFields(c, nil, &result)
 	if !result.IsValid() {
@@ -773,7 +773,7 @@ func TestValidatePolicyFields_ValidOCIRef(t *testing.T) {
 
 func TestValidatePolicyFields_InvalidOCIRef(t *testing.T) {
 	c := validContract()
-	c.Policy = &contract.Policy{Ref: "oci://invalid"}
+	c.Policies = []contract.PolicySource{{Ref: "oci://invalid"}}
 	var result ValidationResult
 	validatePolicyFields(c, nil, &result)
 	if result.IsValid() {
@@ -783,7 +783,7 @@ func TestValidatePolicyFields_InvalidOCIRef(t *testing.T) {
 
 func TestValidatePolicyFields_LocalRef(t *testing.T) {
 	c := validContract()
-	c.Policy = &contract.Policy{Ref: "file://../policy"}
+	c.Policies = []contract.PolicySource{{Ref: "file://../policy"}}
 	var result ValidationResult
 	validatePolicyFields(c, nil, &result)
 	if !result.IsValid() {
@@ -793,10 +793,10 @@ func TestValidatePolicyFields_LocalRef(t *testing.T) {
 
 func TestValidatePolicyFields_BothSchemaAndRef(t *testing.T) {
 	c := validContract()
-	c.Policy = &contract.Policy{
+	c.Policies = []contract.PolicySource{{
 		Schema: "policy/schema.json",
 		Ref:    "oci://ghcr.io/acme/policy-pacto:1.0.0",
-	}
+	}}
 	bundleFS := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{Data: []byte("{}")},
 	}
@@ -977,7 +977,7 @@ func TestValidateConfigSchemaContent_WithoutValues(t *testing.T) {
 
 func TestValidatePolicySchemaContent_ValidJSON(t *testing.T) {
 	c := validContract()
-	c.Policy = &contract.Policy{Schema: "policy/schema.json"}
+	c.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
 	bundleFS := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
 	}
@@ -990,7 +990,7 @@ func TestValidatePolicySchemaContent_ValidJSON(t *testing.T) {
 
 func TestValidatePolicySchemaContent_InvalidJSON(t *testing.T) {
 	c := validContract()
-	c.Policy = &contract.Policy{Schema: "policy/schema.json"}
+	c.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
 	bundleFS := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{Data: []byte("not json")},
 	}
@@ -1006,7 +1006,7 @@ func TestValidatePolicySchemaContent_InvalidJSON(t *testing.T) {
 
 func TestValidatePolicySchemaContent_InvalidSchema(t *testing.T) {
 	c := validContract()
-	c.Policy = &contract.Policy{Schema: "policy/schema.json"}
+	c.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
 	bundleFS := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"k":{"$ref":"nonexistent://bad"}}}`)},
 	}
@@ -1022,7 +1022,7 @@ func TestValidatePolicySchemaContent_InvalidSchema(t *testing.T) {
 
 func TestValidatePolicySchemaContent_NilPolicy(t *testing.T) {
 	c := validContract()
-	c.Policy = nil
+	c.Policies = nil
 	var result ValidationResult
 	validatePolicySchemaContent(c, nil, &result)
 	if !result.IsValid() {
@@ -1032,7 +1032,7 @@ func TestValidatePolicySchemaContent_NilPolicy(t *testing.T) {
 
 func TestValidatePolicySchemaContent_EmptySchema(t *testing.T) {
 	c := validContract()
-	c.Policy = &contract.Policy{Ref: "oci://ghcr.io/acme/policy:1.0.0"}
+	c.Policies = []contract.PolicySource{{Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	var result ValidationResult
 	validatePolicySchemaContent(c, nil, &result)
 	if !result.IsValid() {
@@ -1068,5 +1068,273 @@ func TestIsYAMLFile(t *testing.T) {
 		if got := isYAMLFile(tt.path); got != tt.want {
 			t.Errorf("isYAMLFile(%q) = %v, want %v", tt.path, got, tt.want)
 		}
+	}
+}
+
+// --- Tests for new configuration.configs[] form ---
+
+func TestValidateConfigFiles_MultiConfigsForm(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+			{Name: "db", Schema: "config/db.json"},
+		},
+	}
+	bundleFS := fstest.MapFS{
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+	}
+	var result ValidationResult
+	validateConfigFiles(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error for missing db.json")
+	}
+	// Check that error path uses configs[N] form
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d", len(result.Errors))
+	}
+	if result.Errors[0].Path != "configuration.configs[1].schema" {
+		t.Errorf("expected path configuration.configs[1].schema, got %s", result.Errors[0].Path)
+	}
+}
+
+func TestValidateConfigValues_MultiConfigsForm(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{
+				Name:   "app",
+				Schema: "config/app.json",
+				Values: map[string]interface{}{"PORT": 8080},
+			},
+			{
+				Name:   "db",
+				Schema: "config/db.json",
+				Values: map[string]interface{}{"HOST": "localhost"},
+			},
+		},
+	}
+	bundleFS := fstest.MapFS{
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"PORT":{"type":"integer"}}}`)},
+		"config/db.json":  &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"HOST":{"type":"string"}}}`)},
+	}
+	var result ValidationResult
+	validateConfigValues(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for valid multi-config values, got %v", result.Errors)
+	}
+}
+
+func TestValidateConfigValues_MultiConfigsFormInvalid(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{
+				Name:   "app",
+				Schema: "config/app.json",
+				Values: map[string]interface{}{"PORT": "not-a-number"},
+			},
+		},
+	}
+	bundleFS := fstest.MapFS{
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"PORT":{"type":"integer"}}}`)},
+	}
+	var result ValidationResult
+	validateConfigValues(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid value in multi-config form")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d", len(result.Errors))
+	}
+	if result.Errors[0].Path != "configuration.configs[0].values" {
+		t.Errorf("expected path configuration.configs[0].values, got %s", result.Errors[0].Path)
+	}
+}
+
+func TestValidateConfigFiles_MultiConfigsFormEmptySchema(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"}, // no schema
+		},
+	}
+	var result ValidationResult
+	validateConfigFiles(c, fstest.MapFS{}, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for config without schema, got %v", result.Errors)
+	}
+}
+
+func TestValidateConfigSchemaContent_MultiConfigsFormEmptySchema(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"}, // no schema
+		},
+	}
+	var result ValidationResult
+	validateConfigSchemaContent(c, fstest.MapFS{}, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for config without schema, got %v", result.Errors)
+	}
+}
+
+func TestValidateConfigFiles_MultiConfigsFormAllFound(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+			{Name: "db", Schema: "config/db.json"},
+		},
+	}
+	bundleFS := fstest.MapFS{
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+		"config/db.json":  &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+	}
+	var result ValidationResult
+	validateConfigFiles(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no errors when all multi-config files found, got %v", result.Errors)
+	}
+}
+
+func TestValidateConfigRef_MultiConfigsForm(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"},
+		},
+	}
+	var result ValidationResult
+	validateConfigRef(c, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for valid OCI ref in multi-config, got %v", result.Errors)
+	}
+}
+
+func TestValidateConfigRef_MultiConfigsFormInvalidOCI(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Ref: "oci://INVALID REF!!!"},
+		},
+	}
+	var result ValidationResult
+	validateConfigRef(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid OCI ref in multi-config")
+	}
+	if result.Errors[0].Path != "configuration.configs[0].ref" {
+		t.Errorf("expected path configuration.configs[0].ref, got %s", result.Errors[0].Path)
+	}
+}
+
+func TestValidateConfigSchemaContent_MultiConfigsForm(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+		},
+	}
+	bundleFS := fstest.MapFS{
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+	}
+	var result ValidationResult
+	validateConfigSchemaContent(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for valid schema in multi-config, got %v", result.Errors)
+	}
+}
+
+func TestValidateConfigSchemaContent_MultiConfigsFormInvalidSchema(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+		},
+	}
+	bundleFS := fstest.MapFS{
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type": 123}`)},
+	}
+	var result ValidationResult
+	validateConfigSchemaContent(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid schema in multi-config")
+	}
+	if result.Errors[0].Path != "configuration.configs[0].schema" {
+		t.Errorf("expected path configuration.configs[0].schema, got %s", result.Errors[0].Path)
+	}
+}
+
+func TestValidateConfigSchemaContent_MultiConfigsFormMissingFile(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/missing.json"},
+		},
+	}
+	var result ValidationResult
+	validateConfigSchemaContent(c, fstest.MapFS{}, &result)
+	if !result.IsValid() {
+		t.Error("expected no error for missing file (handled by validateConfigFiles)")
+	}
+}
+
+func TestValidateConfigSchemaContent_MultiConfigsFormInvalid(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+		},
+	}
+	bundleFS := fstest.MapFS{
+		"config/app.json": &fstest.MapFile{Data: []byte(`not json`)},
+	}
+	var result ValidationResult
+	validateConfigSchemaContent(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid JSON in multi-config schema")
+	}
+	if result.Errors[0].Path != "configuration.configs[0].schema" {
+		t.Errorf("expected path configuration.configs[0].schema, got %s", result.Errors[0].Path)
+	}
+}
+
+func TestValidateConfigValues_MultiConfigsFormWithoutSchema(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{
+				Name:   "app",
+				Values: map[string]interface{}{"PORT": 8080},
+			},
+		},
+	}
+	var result ValidationResult
+	validateConfigValues(c, fstest.MapFS{}, &result)
+	if result.IsValid() {
+		t.Error("expected VALUES_WITHOUT_SCHEMA for multi-config values without schema")
+	}
+	if result.Errors[0].Path != "configuration.configs[0].values" {
+		t.Errorf("expected path configuration.configs[0].values, got %s", result.Errors[0].Path)
+	}
+}
+
+func TestValidateConfigValues_MultiConfigsFormExternalRef(t *testing.T) {
+	c := validContract()
+	c.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{
+				Name:   "app",
+				Ref:    "oci://ghcr.io/acme/config:1.0",
+				Values: map[string]interface{}{"PORT": 8080},
+			},
+		},
+	}
+	var result ValidationResult
+	validateConfigValues(c, fstest.MapFS{}, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for external ref config values, got %v", result.Errors)
 	}
 }

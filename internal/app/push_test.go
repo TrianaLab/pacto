@@ -454,7 +454,7 @@ runtime:
 	if err == nil {
 		t.Fatal("expected error for local config ref")
 	}
-	if !strings.Contains(err.Error(), "local configuration ref detected") {
+	if !strings.Contains(err.Error(), "local config ref detected") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -474,14 +474,14 @@ func TestRejectLocalRefs_LocalConfigRef(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for local config ref")
 	}
-	if !strings.Contains(err.Error(), "local configuration ref detected") {
+	if !strings.Contains(err.Error(), "local config ref detected") {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
 
 func TestRejectLocalRefs_LocalPolicyRef(t *testing.T) {
 	c := &contract.Contract{
-		Policy: &contract.Policy{Ref: "../policy"},
+		Policies: []contract.PolicySource{{Ref: "../policy"}},
 	}
 	err := rejectLocalRefs(c)
 	if err == nil {
@@ -495,7 +495,7 @@ func TestRejectLocalRefs_LocalPolicyRef(t *testing.T) {
 func TestRejectLocalRefs_OCIRefsAllowed(t *testing.T) {
 	c := &contract.Contract{
 		Configuration: &contract.Configuration{Ref: "oci://ghcr.io/acme/config:1.0.0"},
-		Policy:        &contract.Policy{Ref: "oci://ghcr.io/acme/policy:1.0.0"},
+		Policies:      []contract.PolicySource{{Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
 	}
 	if err := rejectLocalRefs(c); err != nil {
 		t.Fatalf("unexpected error for OCI refs: %v", err)
@@ -505,7 +505,7 @@ func TestRejectLocalRefs_OCIRefsAllowed(t *testing.T) {
 func TestRejectLocalRefs_EmptyRefs(t *testing.T) {
 	c := &contract.Contract{
 		Configuration: &contract.Configuration{Schema: "configuration/schema.json"},
-		Policy:        &contract.Policy{Schema: "policy/schema.json"},
+		Policies:      []contract.PolicySource{{Schema: "policy/schema.json"}},
 	}
 	if err := rejectLocalRefs(c); err != nil {
 		t.Fatalf("unexpected error for empty refs: %v", err)

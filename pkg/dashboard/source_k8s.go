@@ -548,21 +548,21 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 
 	// Configuration
 	if r.Status.Configuration != nil {
-		svc.Configuration = &ConfigurationInfo{
+		svc.Configurations = []ConfigurationInfo{{
 			HasSchema:  r.Status.Configuration.HasSchema,
 			Ref:        r.Status.Configuration.Ref,
 			ValueKeys:  r.Status.Configuration.ValueKeys,
 			SecretKeys: r.Status.Configuration.SecretKeys,
-		}
+		}}
 	}
 
 	// Policy
 	if r.Status.Policy != nil {
-		svc.Policy = &PolicyInfo{
+		svc.Policies = []PolicyInfo{{
 			HasSchema: r.Status.Policy.HasSchema,
 			Schema:    r.Status.Policy.Schema,
 			Ref:       r.Status.Policy.Ref,
-		}
+		}}
 	}
 
 	// Dependencies

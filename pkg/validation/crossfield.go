@@ -229,56 +229,81 @@ func validateInterfaceFiles(c *contract.Contract, bundleFS fs.FS, result *Valida
 }
 
 func validateConfigFiles(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
-	if c.Configuration == nil || c.Configuration.Schema == "" {
-		return
-	}
 	if bundleFS == nil {
 		return
 	}
-	if _, err := fs.Stat(bundleFS, c.Configuration.Schema); err != nil {
-		result.AddError(
-			"configuration.schema",
-			"FILE_NOT_FOUND",
-			fmt.Sprintf("configuration schema file %q not found in bundle", c.Configuration.Schema),
-		)
+	if c.Configuration == nil {
+		return
+	}
+
+	configs := c.Configuration.EffectiveConfigs()
+	for i, cfg := range configs {
+		if cfg.Schema == "" {
+			continue
+		}
+		var fieldPath string
+		if len(c.Configuration.Configs) > 0 {
+			fieldPath = fmt.Sprintf("configuration.configs[%d].schema", i)
+		} else {
+			fieldPath = "configuration.schema"
+		}
+		if _, err := fs.Stat(bundleFS, cfg.Schema); err != nil {
+			result.AddError(
+				fieldPath,
+				"FILE_NOT_FOUND",
+				fmt.Sprintf("configuration schema file %q not found in bundle", cfg.Schema),
+			)
+		}
 	}
 }
 
 func validateConfigRef(c *contract.Contract, result *ValidationResult) {
-	if c.Configuration == nil || c.Configuration.Ref == "" {
+	if c.Configuration == nil {
 		return
 	}
-	parsed := graph.ParseDependencyRef(c.Configuration.Ref)
-	if parsed.IsOCI() {
-		validateOCIRef(parsed.Location, "configuration.ref", "INVALID_CONFIG_REF", result)
+
+	configs := c.Configuration.EffectiveConfigs()
+	for i, cfg := range configs {
+		if cfg.Ref == "" {
+			continue
+		}
+		var fieldPath string
+		if len(c.Configuration.Configs) > 0 {
+			fieldPath = fmt.Sprintf("configuration.configs[%d].ref", i)
+		} else {
+			fieldPath = "configuration.ref"
+		}
+		parsed := graph.ParseDependencyRef(cfg.Ref)
+		if parsed.IsOCI() {
+			validateOCIRef(parsed.Location, fieldPath, "INVALID_CONFIG_REF", result)
+		}
 	}
 }
 
 func validatePolicyFields(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
-	if c.Policy == nil {
-		return
-	}
-	if c.Policy.Schema == "" && c.Policy.Ref == "" {
-		result.AddError(
-			"policy",
-			"POLICY_EMPTY",
-			"policy must specify at least one of schema or ref",
-		)
-		return
-	}
-	if c.Policy.Schema != "" && bundleFS != nil {
-		if _, err := fs.Stat(bundleFS, c.Policy.Schema); err != nil {
+	for i, pol := range c.Policies {
+		if pol.Schema == "" && pol.Ref == "" {
 			result.AddError(
-				"policy.schema",
-				"FILE_NOT_FOUND",
-				fmt.Sprintf("policy schema file %q not found in bundle", c.Policy.Schema),
+				fmt.Sprintf("policies[%d]", i),
+				"POLICY_EMPTY",
+				"policy must specify at least one of schema or ref",
 			)
+			continue
 		}
-	}
-	if c.Policy.Ref != "" {
-		parsed := graph.ParseDependencyRef(c.Policy.Ref)
-		if parsed.IsOCI() {
-			validateOCIRef(parsed.Location, "policy.ref", "INVALID_POLICY_REF", result)
+		if pol.Schema != "" && bundleFS != nil {
+			if _, err := fs.Stat(bundleFS, pol.Schema); err != nil {
+				result.AddError(
+					fmt.Sprintf("policies[%d].schema", i),
+					"FILE_NOT_FOUND",
+					fmt.Sprintf("policy schema file %q not found in bundle", pol.Schema),
+				)
+			}
+		}
+		if pol.Ref != "" {
+			parsed := graph.ParseDependencyRef(pol.Ref)
+			if parsed.IsOCI() {
+				validateOCIRef(parsed.Location, fmt.Sprintf("policies[%d].ref", i), "INVALID_POLICY_REF", result)
+			}
 		}
 	}
 }
@@ -362,10 +387,13 @@ func validateChartRef(c *contract.Contract, result *ValidationResult) {
 }
 
 func validateConfigValues(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
-	if c.Configuration == nil || len(c.Configuration.Values) == 0 {
+	if c.Configuration == nil {
 		return
 	}
-	if c.Configuration.Schema == "" && c.Configuration.Ref == "" {
+
+	// Check for the pathological case: values without schema or ref.
+	// EffectiveConfigs() returns nil in this case, so we need to check explicitly.
+	if len(c.Configuration.Values) > 0 && c.Configuration.Schema == "" && c.Configuration.Ref == "" && len(c.Configuration.Configs) == 0 {
 		result.AddError(
 			"configuration.values",
 			"VALUES_WITHOUT_SCHEMA",
@@ -373,36 +401,57 @@ func validateConfigValues(c *contract.Contract, bundleFS fs.FS, result *Validati
 		)
 		return
 	}
-	if c.Configuration.Schema == "" {
-		// Schema is external (ref) — values validation deferred to runtime resolution.
-		return
-	}
-	if bundleFS == nil {
-		return
-	}
-	schemaData, err := fs.ReadFile(bundleFS, c.Configuration.Schema)
-	if err != nil {
-		// File-not-found is already caught by validateConfigFiles; skip here.
-		return
-	}
 
-	schema, err := compileConfigSchema(schemaData)
-	if err != nil {
-		// Schema compilation errors are already caught by validateConfigSchemaContent.
-		return
-	}
+	configs := c.Configuration.EffectiveConfigs()
+	for i, cfg := range configs {
+		if len(cfg.Values) == 0 {
+			continue
+		}
+		var fieldPath string
+		if len(c.Configuration.Configs) > 0 {
+			fieldPath = fmt.Sprintf("configuration.configs[%d].values", i)
+		} else {
+			fieldPath = "configuration.values"
+		}
+		if cfg.Schema == "" && cfg.Ref == "" {
+			result.AddError(
+				fieldPath,
+				"VALUES_WITHOUT_SCHEMA",
+				"configuration values require a configuration schema to validate against",
+			)
+			continue
+		}
+		if cfg.Schema == "" {
+			// Schema is external (ref) — values validation deferred to runtime resolution.
+			continue
+		}
+		if bundleFS == nil {
+			continue
+		}
+		schemaData, err := fs.ReadFile(bundleFS, cfg.Schema)
+		if err != nil {
+			// File-not-found is already caught by validateConfigFiles; skip here.
+			continue
+		}
 
-	// Round-trip through JSON to normalize types (e.g. YAML int → JSON float64).
-	valuesJSON, _ := json.Marshal(c.Configuration.Values)
-	var valuesGeneric interface{}
-	json.Unmarshal(valuesJSON, &valuesGeneric) //nolint:errcheck // round-trip of valid data
+		schema, err := compileConfigSchema(schemaData)
+		if err != nil {
+			// Schema compilation errors are already caught by validateConfigSchemaContent.
+			continue
+		}
 
-	if err := schema.Validate(valuesGeneric); err != nil {
-		result.AddError(
-			"configuration.values",
-			"CONFIG_VALUES_VALIDATION_FAILED",
-			fmt.Sprintf("configuration values do not match schema: %v", err),
-		)
+		// Round-trip through JSON to normalize types (e.g. YAML int → JSON float64).
+		valuesJSON, _ := json.Marshal(cfg.Values)
+		var valuesGeneric interface{}
+		json.Unmarshal(valuesJSON, &valuesGeneric) //nolint:errcheck // round-trip of valid data
+
+		if err := schema.Validate(valuesGeneric); err != nil {
+			result.AddError(
+				fieldPath,
+				"CONFIG_VALUES_VALIDATION_FAILED",
+				fmt.Sprintf("configuration values do not match schema: %v", err),
+			)
+		}
 	}
 }
 
@@ -474,19 +523,34 @@ func validateJSONSchemaFile(bundleFS fs.FS, path, field, invalidJSONCode, invali
 }
 
 func validateConfigSchemaContent(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
-	if c.Configuration == nil || c.Configuration.Schema == "" {
+	if c.Configuration == nil {
 		return
 	}
-	validateJSONSchemaFile(bundleFS, c.Configuration.Schema,
-		"configuration.schema", "INVALID_CONFIG_JSON", "INVALID_CONFIG_SCHEMA", result)
+
+	configs := c.Configuration.EffectiveConfigs()
+	for i, cfg := range configs {
+		if cfg.Schema == "" {
+			continue
+		}
+		var fieldPath string
+		if len(c.Configuration.Configs) > 0 {
+			fieldPath = fmt.Sprintf("configuration.configs[%d].schema", i)
+		} else {
+			fieldPath = "configuration.schema"
+		}
+		validateJSONSchemaFile(bundleFS, cfg.Schema,
+			fieldPath, "INVALID_CONFIG_JSON", "INVALID_CONFIG_SCHEMA", result)
+	}
 }
 
 func validatePolicySchemaContent(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
-	if c.Policy == nil || c.Policy.Schema == "" {
-		return
+	for i, pol := range c.Policies {
+		if pol.Schema == "" {
+			continue
+		}
+		validateJSONSchemaFile(bundleFS, pol.Schema,
+			fmt.Sprintf("policies[%d].schema", i), "INVALID_POLICY_JSON", "INVALID_POLICY_SCHEMA", result)
 	}
-	validateJSONSchemaFile(bundleFS, c.Policy.Schema,
-		"policy.schema", "INVALID_POLICY_JSON", "INVALID_POLICY_SCHEMA", result)
 }
 
 func validateStatePersistenceInvariants(c *contract.Contract, result *ValidationResult) {

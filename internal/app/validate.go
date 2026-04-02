@@ -56,7 +56,11 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	}
 
 	slog.Debug("running validation", "ref", ref)
-	result := validation.Validate(bundle.Contract, rawYAML, bundle.FS)
+	var resolver validation.BundleResolver
+	if s.BundleStore != nil {
+		resolver = &bundleResolverAdapter{svc: s}
+	}
+	result := validation.ValidateWithResolver(ctx, bundle.Contract, rawYAML, bundle.FS, resolver)
 	slog.Debug("validation complete", "valid", result.IsValid(), "errors", len(result.Errors), "warnings", len(result.Warnings))
 
 	return &ValidateResult{
@@ -65,4 +69,13 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		Errors:   result.Errors,
 		Warnings: result.Warnings,
 	}, nil
+}
+
+// bundleResolverAdapter adapts *Service to the validation.BundleResolver interface.
+type bundleResolverAdapter struct {
+	svc *Service
+}
+
+func (a *bundleResolverAdapter) ResolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
+	return a.svc.resolveBundle(ctx, ref)
 }

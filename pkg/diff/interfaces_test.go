@@ -289,109 +289,429 @@ func TestDiffPolicy_BothNil(t *testing.T) {
 func TestDiffPolicy_Added(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	new.Policy = &contract.Policy{Schema: "policy/schema.json"}
+	new.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
 	changes := diffPolicy(old, new)
 	found := false
 	for _, c := range changes {
-		if c.Path == "policy" && c.Type == Added {
+		if c.Path == "policies[0]" && c.Type == Added {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected policy Added change")
+		t.Error("expected policies[0] Added change")
 	}
 }
 
 func TestDiffPolicy_AddedWithRef(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	new.Policy = &contract.Policy{Ref: "oci://ghcr.io/acme/policy:1.0.0"}
+	new.Policies = []contract.PolicySource{{Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	changes := diffPolicy(old, new)
 	found := false
 	for _, c := range changes {
-		if c.Path == "policy" && c.Type == Added {
+		if c.Path == "policies[0]" && c.Type == Added {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected policy Added change")
+		t.Error("expected policies[0] Added change")
 	}
 }
 
 func TestDiffPolicy_Removed(t *testing.T) {
 	old := minimalContract()
-	old.Policy = &contract.Policy{Schema: "policy/schema.json"}
+	old.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
 	new := minimalContract()
 	changes := diffPolicy(old, new)
 	found := false
 	for _, c := range changes {
-		if c.Path == "policy" && c.Type == Removed {
+		if c.Path == "policies[0]" && c.Type == Removed {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected policy Removed change")
+		t.Error("expected policies[0] Removed change")
 	}
 }
 
 func TestDiffPolicy_RemovedWithRef(t *testing.T) {
 	old := minimalContract()
-	old.Policy = &contract.Policy{Ref: "oci://ghcr.io/acme/policy:1.0.0"}
+	old.Policies = []contract.PolicySource{{Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	new := minimalContract()
 	changes := diffPolicy(old, new)
 	found := false
 	for _, c := range changes {
-		if c.Path == "policy" && c.Type == Removed {
+		if c.Path == "policies[0]" && c.Type == Removed {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected policy Removed change")
+		t.Error("expected policies[0] Removed change")
 	}
 }
 
 func TestDiffPolicy_SchemaChanged(t *testing.T) {
 	old := minimalContract()
-	old.Policy = &contract.Policy{Schema: "policy/old.json"}
+	old.Policies = []contract.PolicySource{{Schema: "policy/old.json"}}
 	new := minimalContract()
-	new.Policy = &contract.Policy{Schema: "policy/new.json"}
+	new.Policies = []contract.PolicySource{{Schema: "policy/new.json"}}
 	changes := diffPolicy(old, new)
 	found := false
 	for _, c := range changes {
-		if c.Path == "policy.schema" && c.Type == Modified {
+		if c.Path == "policies[0].schema" && c.Type == Modified {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected policy.schema Modified change")
+		t.Error("expected policies[0].schema Modified change")
 	}
 }
 
 func TestDiffPolicy_RefChanged(t *testing.T) {
 	old := minimalContract()
-	old.Policy = &contract.Policy{Ref: "oci://ghcr.io/acme/policy:1.0.0"}
+	old.Policies = []contract.PolicySource{{Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	new := minimalContract()
-	new.Policy = &contract.Policy{Ref: "oci://ghcr.io/acme/policy:2.0.0"}
+	new.Policies = []contract.PolicySource{{Ref: "oci://ghcr.io/acme/policy:2.0.0"}}
 	changes := diffPolicy(old, new)
 	found := false
 	for _, c := range changes {
-		if c.Path == "policy.ref" && c.Type == Modified {
+		if c.Path == "policies[0].ref" && c.Type == Modified {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected policy.ref Modified change")
+		t.Error("expected policies[0].ref Modified change")
 	}
 }
 
 func TestDiffPolicy_NoChanges(t *testing.T) {
 	old := minimalContract()
-	old.Policy = &contract.Policy{Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}
+	old.Policies = []contract.PolicySource{{Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	new := minimalContract()
-	new.Policy = &contract.Policy{Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}
+	new.Policies = []contract.PolicySource{{Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	changes := diffPolicy(old, new)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
+	}
+}
+
+func TestDiffPolicy_RefAdded(t *testing.T) {
+	old := minimalContract()
+	old.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
+	new := minimalContract()
+	new.Policies = []contract.PolicySource{{Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+	changes := diffPolicy(old, new)
+	found := false
+	for _, c := range changes {
+		if c.Path == "policies[0].ref" && c.Type == Added {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected policies[0].ref Added change")
+	}
+}
+
+func TestDiffPolicy_RefRemoved(t *testing.T) {
+	old := minimalContract()
+	old.Policies = []contract.PolicySource{{Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+	new := minimalContract()
+	new.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
+	changes := diffPolicy(old, new)
+	found := false
+	for _, c := range changes {
+		if c.Path == "policies[0].ref" && c.Type == Removed {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected policies[0].ref Removed change")
+	}
+}
+
+func TestDiffConfiguration_ConfigsArrayAdded(t *testing.T) {
+	old := minimalContract()
+	old.Configuration = &contract.Configuration{}
+	new := minimalContract()
+	new.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+		},
+	}
+	changes := diffConfiguration(old, new, nil, nil)
+	found := false
+	for _, c := range changes {
+		if c.Path == "configuration.configs[0]" && c.Type == Added {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected configuration.configs[0] Added change")
+	}
+}
+
+func TestDiffConfiguration_ConfigsArrayRemoved(t *testing.T) {
+	old := minimalContract()
+	old.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+		},
+	}
+	new := minimalContract()
+	new.Configuration = &contract.Configuration{}
+	changes := diffConfiguration(old, new, nil, nil)
+	found := false
+	for _, c := range changes {
+		if c.Path == "configuration.configs[0]" && c.Type == Removed {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected configuration.configs[0] Removed change")
+	}
+}
+
+func TestDiffConfiguration_ConfigsNameChanged(t *testing.T) {
+	old := minimalContract()
+	old.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+		},
+	}
+	new := minimalContract()
+	new.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "web", Schema: "config/app.json"},
+		},
+	}
+	changes := diffConfiguration(old, new, nil, nil)
+	found := false
+	for _, c := range changes {
+		if c.Path == "configuration.configs[0].name" && c.Type == Modified {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected configuration.configs[0].name Modified change")
+	}
+}
+
+func TestDiffConfiguration_ConfigsSchemaChanged(t *testing.T) {
+	old := minimalContract()
+	old.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/old.json"},
+		},
+	}
+	new := minimalContract()
+	new.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/new.json"},
+		},
+	}
+	changes := diffConfiguration(old, new, nil, nil)
+	found := false
+	for _, c := range changes {
+		if c.Path == "configuration.configs[0].schema" && c.Type == Modified {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected configuration.configs[0].schema Modified change")
+	}
+}
+
+func TestDiffConfiguration_ConfigsRefChanged(t *testing.T) {
+	old := minimalContract()
+	old.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"},
+		},
+	}
+	new := minimalContract()
+	new.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Ref: "oci://ghcr.io/acme/config:2.0"},
+		},
+	}
+	changes := diffConfiguration(old, new, nil, nil)
+	found := false
+	for _, c := range changes {
+		if c.Path == "configuration.configs[0].ref" && c.Type == Modified {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected configuration.configs[0].ref Modified change")
+	}
+}
+
+func TestDiffConfiguration_ConfigsRefAdded(t *testing.T) {
+	old := minimalContract()
+	old.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+		},
+	}
+	new := minimalContract()
+	new.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json", Ref: "oci://ghcr.io/acme/config:1.0"},
+		},
+	}
+	changes := diffConfiguration(old, new, nil, nil)
+	found := false
+	for _, c := range changes {
+		if c.Path == "configuration.configs[0].ref" && c.Type == Added {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected configuration.configs[0].ref Added change")
+	}
+}
+
+func TestDiffConfiguration_ConfigsRefRemoved(t *testing.T) {
+	old := minimalContract()
+	old.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"},
+		},
+	}
+	new := minimalContract()
+	new.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+		},
+	}
+	changes := diffConfiguration(old, new, nil, nil)
+	found := false
+	for _, c := range changes {
+		if c.Path == "configuration.configs[0].ref" && c.Type == Removed {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected configuration.configs[0].ref Removed change")
+	}
+}
+
+func TestDiffConfiguration_ConfigsSchemaFileDiffed(t *testing.T) {
+	oldFS := fstest.MapFS{
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"a":{"type":"string"}}}`)},
+	}
+	newFS := fstest.MapFS{
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"number"}}}`)},
+	}
+	old := minimalContract()
+	old.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+		},
+	}
+	new := minimalContract()
+	new.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+		},
+	}
+	changes := diffConfiguration(old, new, oldFS, newFS)
+	found := false
+	for _, c := range changes {
+		if c.Path == "schema.properties[b]" && c.Type == Added {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected schema property diff in configs array")
+	}
+}
+
+func TestConfigSummary_Nil(t *testing.T) {
+	if got := configSummary(nil); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+}
+
+func TestConfigSummary_Ref(t *testing.T) {
+	cfg := &contract.Configuration{Ref: "oci://example.com/config:1.0"}
+	if got := configSummary(cfg); got != "oci://example.com/config:1.0" {
+		t.Errorf("expected ref, got %q", got)
+	}
+}
+
+func TestConfigSummary_Configs(t *testing.T) {
+	cfg := &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "a"},
+			{Name: "b"},
+		},
+	}
+	if got := configSummary(cfg); got != "2 configs" {
+		t.Errorf("expected '2 configs', got %q", got)
+	}
+}
+
+func TestConfigSummary_Empty(t *testing.T) {
+	cfg := &contract.Configuration{}
+	if got := configSummary(cfg); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+}
+
+func TestNamedConfigSummary_WithRef(t *testing.T) {
+	cfg := &contract.NamedConfigSource{Name: "app", Ref: "oci://example.com/config:1.0"}
+	if got := namedConfigSummary(cfg); got != "app: oci://example.com/config:1.0" {
+		t.Errorf("expected 'app: oci://...', got %q", got)
+	}
+}
+
+func TestNamedConfigSummary_WithSchema(t *testing.T) {
+	cfg := &contract.NamedConfigSource{Name: "app", Schema: "config/app.json"}
+	if got := namedConfigSummary(cfg); got != "app: config/app.json" {
+		t.Errorf("expected 'app: config/app.json', got %q", got)
+	}
+}
+
+func TestDiffConfiguration_OldNilWithConfigs(t *testing.T) {
+	old := minimalContract()
+	old.Configuration = nil
+	new := minimalContract()
+	new.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+		},
+	}
+	changes := diffConfiguration(old, new, nil, nil)
+	found := false
+	for _, c := range changes {
+		if c.Path == "configuration" && c.Type == Added {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected configuration Added change")
+	}
+}
+
+func TestDiffConfiguration_NewNilWithConfigs(t *testing.T) {
+	old := minimalContract()
+	old.Configuration = &contract.Configuration{
+		Configs: []contract.NamedConfigSource{
+			{Name: "app", Schema: "config/app.json"},
+		},
+	}
+	new := minimalContract()
+	new.Configuration = nil
+	changes := diffConfiguration(old, new, nil, nil)
+	found := false
+	for _, c := range changes {
+		if c.Path == "configuration" && c.Type == Removed {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected configuration Removed change")
 	}
 }
 

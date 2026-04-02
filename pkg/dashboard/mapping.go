@@ -54,11 +54,11 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 	}
 
 	svc.Interfaces = interfacesFromContract(c, bundle.FS)
-	svc.Configuration = configFromContract(c, bundle.FS)
+	svc.Configurations = configsFromContract(c, bundle.FS)
 	svc.Dependencies = depsFromContract(c)
 	svc.Runtime = runtimeFromContract(c)
 	svc.Scaling = scalingFromContract(c)
-	svc.Policy = policyFromContract(c, bundle.FS)
+	svc.Policies = policiesFromContract(c, bundle.FS)
 	svc.Metadata = metadataFromContract(c)
 
 	// Validation
@@ -110,24 +110,34 @@ func interfacesFromContract(c *contract.Contract, fsys fs.FS) []InterfaceInfo {
 	return out
 }
 
-func configFromContract(c *contract.Contract, fsys fs.FS) *ConfigurationInfo {
+func configsFromContract(c *contract.Contract, fsys fs.FS) []ConfigurationInfo {
 	if c.Configuration == nil {
 		return nil
 	}
-	ci := &ConfigurationInfo{
-		HasSchema: c.Configuration.Schema != "",
-		Schema:    c.Configuration.Schema,
-		Ref:       c.Configuration.Ref,
+	effectiveConfigs := c.Configuration.EffectiveConfigs()
+	if len(effectiveConfigs) == 0 {
+		return nil
 	}
-	if len(c.Configuration.Values) > 0 {
-		ci.Values = flattenValues(c.Configuration.Values)
-		for k := range c.Configuration.Values {
-			ci.ValueKeys = append(ci.ValueKeys, k)
+	var out []ConfigurationInfo
+	for _, cfg := range effectiveConfigs {
+		ci := ConfigurationInfo{
+			Name:      cfg.Name,
+			HasSchema: cfg.Schema != "",
+			Schema:    cfg.Schema,
+			Ref:       cfg.Ref,
 		}
-	} else if c.Configuration.Schema != "" && fsys != nil {
-		ci.Values = extractSchemaProperties(fsys, c.Configuration.Schema)
+		if len(cfg.Values) > 0 {
+			ci.Values = flattenValues(cfg.Values)
+			for k := range cfg.Values {
+				ci.ValueKeys = append(ci.ValueKeys, k)
+			}
+			sort.Strings(ci.ValueKeys)
+		} else if cfg.Schema != "" && fsys != nil {
+			ci.Values = extractSchemaProperties(fsys, cfg.Schema)
+		}
+		out = append(out, ci)
 	}
-	return ci
+	return out
 }
 
 func depsFromContract(c *contract.Contract) []DependencyInfo {
@@ -185,28 +195,32 @@ func scalingFromContract(c *contract.Contract) *ScalingInfo {
 	return si
 }
 
-func policyFromContract(c *contract.Contract, fsys fs.FS) *PolicyInfo {
-	if c.Policy == nil {
+func policiesFromContract(c *contract.Contract, fsys fs.FS) []PolicyInfo {
+	if len(c.Policies) == 0 {
 		return nil
 	}
-	pi := &PolicyInfo{
-		HasSchema: c.Policy.Schema != "",
-		Schema:    c.Policy.Schema,
-		Ref:       c.Policy.Ref,
-	}
-	if c.Policy.Ref != "" && fsys != nil {
-		if data, err := fs.ReadFile(fsys, c.Policy.Ref); err == nil {
-			pi.Content = truncateContent(string(data))
-			pi.Values = extractSchemaProperties(fsys, c.Policy.Ref)
-			if len(pi.Values) == 0 {
-				pi.Values = parseContentAsValues(data, c.Policy.Ref)
+	var out []PolicyInfo
+	for _, pol := range c.Policies {
+		pi := PolicyInfo{
+			HasSchema: pol.Schema != "",
+			Schema:    pol.Schema,
+			Ref:       pol.Ref,
+		}
+		if pol.Ref != "" && fsys != nil {
+			if data, err := fs.ReadFile(fsys, pol.Ref); err == nil {
+				pi.Content = truncateContent(string(data))
+				pi.Values = extractSchemaProperties(fsys, pol.Ref)
+				if len(pi.Values) == 0 {
+					pi.Values = parseContentAsValues(data, pol.Ref)
+				}
 			}
 		}
+		if len(pi.Values) == 0 && pol.Schema != "" && fsys != nil {
+			pi.Values = extractSchemaProperties(fsys, pol.Schema)
+		}
+		out = append(out, pi)
 	}
-	if len(pi.Values) == 0 && c.Policy.Schema != "" && fsys != nil {
-		pi.Values = extractSchemaProperties(fsys, c.Policy.Schema)
-	}
-	return pi
+	return out
 }
 
 func metadataFromContract(c *contract.Contract) map[string]string {

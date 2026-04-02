@@ -535,8 +535,8 @@ interfaces:
     port: 8080
     visibility: internal
     contract: interfaces/openapi.yaml
-policy:
-  ref: oci://ghcr.io/acme/policy:1.0.0
+policies:
+  - ref: oci://ghcr.io/acme/policy:1.0.0
 runtime:
   workload: service
   state:
@@ -557,5 +557,5 @@ runtime:
 	})
 
 	output, _ := runCommand(t, nil, "diff", path1, path2)
-	assertContains(t, output, "policy")
+	assertContains(t, output, "policies")
 }

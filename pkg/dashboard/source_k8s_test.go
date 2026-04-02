@@ -347,24 +347,25 @@ func assertDetailsInterfaces(t *testing.T, d *ServiceDetails) {
 
 func assertDetailsConfig(t *testing.T, d *ServiceDetails) {
 	t.Helper()
-	if d.Configuration == nil {
-		t.Fatal("expected configuration")
+	if len(d.Configurations) != 1 {
+		t.Fatal("expected 1 configuration entry")
 	}
-	if !d.Configuration.HasSchema || d.Configuration.Ref != "config-ref" {
-		t.Errorf("configuration mismatch: %+v", d.Configuration)
+	cfg := d.Configurations[0]
+	if !cfg.HasSchema || cfg.Ref != "config-ref" {
+		t.Errorf("configuration mismatch: %+v", cfg)
 	}
-	if len(d.Configuration.ValueKeys) != 1 || d.Configuration.ValueKeys[0] != "key1" {
-		t.Errorf("config valueKeys: %v", d.Configuration.ValueKeys)
+	if len(cfg.ValueKeys) != 1 || cfg.ValueKeys[0] != "key1" {
+		t.Errorf("config valueKeys: %v", cfg.ValueKeys)
 	}
 }
 
 func assertDetailsPolicy(t *testing.T, d *ServiceDetails) {
 	t.Helper()
-	if d.Policy == nil {
-		t.Fatal("expected policy")
+	if len(d.Policies) != 1 {
+		t.Fatal("expected 1 policy entry")
 	}
-	if !d.Policy.HasSchema || d.Policy.Schema != "policy.json" || d.Policy.Ref != "policy-ref" {
-		t.Errorf("policy mismatch: %+v", d.Policy)
+	if !d.Policies[0].HasSchema || d.Policies[0].Schema != "policy.json" || d.Policies[0].Ref != "policy-ref" {
+		t.Errorf("policy mismatch: %+v", d.Policies[0])
 	}
 }
 

@@ -108,12 +108,12 @@ type ServiceDetails struct {
 	LatestAvailable string `json:"latestAvailable,omitempty"` // highest semver from version history
 	UpdateAvailable bool   `json:"updateAvailable,omitempty"` // true when latestAvailable > version
 
-	Interfaces    []InterfaceInfo    `json:"interfaces,omitempty"`
-	Configuration *ConfigurationInfo `json:"configuration,omitempty"`
-	Dependencies  []DependencyInfo   `json:"dependencies,omitempty"`
-	Runtime       *RuntimeInfo       `json:"runtime,omitempty"`
-	Scaling       *ScalingInfo       `json:"scaling,omitempty"`
-	Policy        *PolicyInfo        `json:"policy,omitempty"`
+	Interfaces     []InterfaceInfo     `json:"interfaces,omitempty"`
+	Configurations []ConfigurationInfo `json:"configurations,omitempty"`
+	Dependencies   []DependencyInfo    `json:"dependencies,omitempty"`
+	Runtime        *RuntimeInfo        `json:"runtime,omitempty"`
+	Scaling        *ScalingInfo        `json:"scaling,omitempty"`
+	Policies       []PolicyInfo        `json:"policies,omitempty"`
 
 	Validation *ValidationInfo `json:"validation,omitempty"`
 
@@ -172,8 +172,9 @@ type ConfigValue struct {
 	Type  string `json:"type"`
 }
 
-// ConfigurationInfo describes the configuration section.
+// ConfigurationInfo describes a single configuration scope.
 type ConfigurationInfo struct {
+	Name       string        `json:"name,omitempty"`
 	HasSchema  bool          `json:"hasSchema"`
 	Schema     string        `json:"schema,omitempty"`
 	Ref        string        `json:"ref,omitempty"`

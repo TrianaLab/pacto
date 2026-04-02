@@ -278,20 +278,21 @@ func TestServiceDetailsFromBundle_Configuration(t *testing.T) {
 		},
 	}
 	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
-	if details.Configuration == nil {
-		t.Fatal("expected configuration to be set")
+	if len(details.Configurations) != 1 {
+		t.Fatal("expected 1 configuration entry")
 	}
-	if !details.Configuration.HasSchema {
+	cfg := details.Configurations[0]
+	if !cfg.HasSchema {
 		t.Error("expected HasSchema=true")
 	}
-	if details.Configuration.Schema != "config.schema.json" {
-		t.Errorf("expected schema path, got %q", details.Configuration.Schema)
+	if cfg.Schema != "config.schema.json" {
+		t.Errorf("expected schema path, got %q", cfg.Schema)
 	}
-	if details.Configuration.Ref != "shared-config" {
-		t.Errorf("expected ref 'shared-config', got %q", details.Configuration.Ref)
+	if cfg.Ref != "shared-config" {
+		t.Errorf("expected ref 'shared-config', got %q", cfg.Ref)
 	}
-	if len(details.Configuration.Values) != 2 {
-		t.Fatalf("expected 2 config values, got %d", len(details.Configuration.Values))
+	if len(cfg.Values) != 2 {
+		t.Fatalf("expected 2 config values, got %d", len(cfg.Values))
 	}
 }
 
@@ -323,23 +324,23 @@ func TestServiceDetailsFromBundle_Scaling(t *testing.T) {
 func TestServiceDetailsFromBundle_Policy(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Policy: &contract.Policy{
+		Policies: []contract.PolicySource{{
 			Schema: "policy.schema.json",
 			Ref:    "shared-policy",
-		},
+		}},
 	}
 	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
-	if details.Policy == nil {
-		t.Fatal("expected policy to be set")
+	if len(details.Policies) != 1 {
+		t.Fatal("expected 1 policy entry")
 	}
-	if !details.Policy.HasSchema {
+	if !details.Policies[0].HasSchema {
 		t.Error("expected HasSchema=true")
 	}
-	if details.Policy.Schema != "policy.schema.json" {
-		t.Errorf("expected schema, got %q", details.Policy.Schema)
+	if details.Policies[0].Schema != "policy.schema.json" {
+		t.Errorf("expected schema, got %q", details.Policies[0].Schema)
 	}
-	if details.Policy.Ref != "shared-policy" {
-		t.Errorf("expected ref, got %q", details.Policy.Ref)
+	if details.Policies[0].Ref != "shared-policy" {
+		t.Errorf("expected ref, got %q", details.Policies[0].Ref)
 	}
 }
 
@@ -535,23 +536,24 @@ func TestServiceDetailsFromBundle_ConfigurationSchemaExtract(t *testing.T) {
 	}
 	bundle := &contract.Bundle{Contract: c, FS: fsys}
 	details := ServiceDetailsFromBundle(bundle, "local")
-	if details.Configuration == nil {
-		t.Fatal("expected configuration")
+	if len(details.Configurations) != 1 {
+		t.Fatal("expected 1 configuration entry")
 	}
-	if len(details.Configuration.Values) != 1 {
-		t.Fatalf("expected 1 config value from schema, got %d", len(details.Configuration.Values))
+	cfg := details.Configurations[0]
+	if len(cfg.Values) != 1 {
+		t.Fatalf("expected 1 config value from schema, got %d", len(cfg.Values))
 	}
-	if details.Configuration.Values[0].Key != "port" {
-		t.Errorf("expected key 'port', got %q", details.Configuration.Values[0].Key)
+	if cfg.Values[0].Key != "port" {
+		t.Errorf("expected key 'port', got %q", cfg.Values[0].Key)
 	}
 }
 
 func TestServiceDetailsFromBundle_PolicyContent(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Policy: &contract.Policy{
+		Policies: []contract.PolicySource{{
 			Ref: "policy.yaml",
-		},
+		}},
 	}
 	fsys := fstest.MapFS{
 		"policy.yaml": &fstest.MapFile{
@@ -560,13 +562,13 @@ func TestServiceDetailsFromBundle_PolicyContent(t *testing.T) {
 	}
 	bundle := &contract.Bundle{Contract: c, FS: fsys}
 	details := ServiceDetailsFromBundle(bundle, "local")
-	if details.Policy == nil {
-		t.Fatal("expected policy")
+	if len(details.Policies) != 1 {
+		t.Fatal("expected 1 policy entry")
 	}
-	if details.Policy.Content == "" {
+	if details.Policies[0].Content == "" {
 		t.Error("expected policy content to be populated")
 	}
-	if len(details.Policy.Values) == 0 {
+	if len(details.Policies[0].Values) == 0 {
 		t.Error("expected policy values parsed from content")
 	}
 }
@@ -574,9 +576,9 @@ func TestServiceDetailsFromBundle_PolicyContent(t *testing.T) {
 func TestServiceDetailsFromBundle_PolicySchemaFallback(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Policy: &contract.Policy{
+		Policies: []contract.PolicySource{{
 			Schema: "policy.schema.json",
-		},
+		}},
 	}
 	fsys := fstest.MapFS{
 		"policy.schema.json": &fstest.MapFile{
@@ -590,11 +592,11 @@ func TestServiceDetailsFromBundle_PolicySchemaFallback(t *testing.T) {
 	}
 	bundle := &contract.Bundle{Contract: c, FS: fsys}
 	details := ServiceDetailsFromBundle(bundle, "local")
-	if details.Policy == nil {
-		t.Fatal("expected policy")
+	if len(details.Policies) != 1 {
+		t.Fatal("expected 1 policy entry")
 	}
-	if len(details.Policy.Values) != 1 {
-		t.Fatalf("expected 1 value from schema, got %d", len(details.Policy.Values))
+	if len(details.Policies[0].Values) != 1 {
+		t.Fatalf("expected 1 value from schema, got %d", len(details.Policies[0].Values))
 	}
 }
 
@@ -917,11 +919,11 @@ func TestServiceDetailsFromBundle_ConfigurationValuesWithKeys(t *testing.T) {
 		},
 	}
 	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
-	if details.Configuration == nil {
-		t.Fatal("expected configuration")
+	if len(details.Configurations) != 1 {
+		t.Fatal("expected 1 configuration entry")
 	}
-	if len(details.Configuration.ValueKeys) != 1 {
-		t.Fatalf("expected 1 value key, got %d", len(details.Configuration.ValueKeys))
+	if len(details.Configurations[0].ValueKeys) != 1 {
+		t.Fatalf("expected 1 value key, got %d", len(details.Configurations[0].ValueKeys))
 	}
 }
 
@@ -952,9 +954,9 @@ func TestServiceDetailsFromBundle_LargePolicyContentTruncated(t *testing.T) {
 	// Test that large policy content (>10KB) is truncated.
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Policy: &contract.Policy{
+		Policies: []contract.PolicySource{{
 			Ref: "policy.yaml",
-		},
+		}},
 	}
 	bigContent := make([]byte, 11000)
 	for i := range bigContent {
@@ -965,11 +967,11 @@ func TestServiceDetailsFromBundle_LargePolicyContentTruncated(t *testing.T) {
 	}
 	bundle := &contract.Bundle{Contract: c, FS: fsys}
 	details := ServiceDetailsFromBundle(bundle, "local")
-	if details.Policy == nil {
-		t.Fatal("expected policy")
+	if len(details.Policies) != 1 {
+		t.Fatal("expected 1 policy entry")
 	}
-	if len(details.Policy.Content) != 10240+len("\n... (truncated)") {
-		t.Errorf("expected truncated content, got length %d", len(details.Policy.Content))
+	if len(details.Policies[0].Content) != 10240+len("\n... (truncated)") {
+		t.Errorf("expected truncated content, got length %d", len(details.Policies[0].Content))
 	}
 }
 
@@ -1084,5 +1086,61 @@ func TestServiceFromContract_EmptyOwner(t *testing.T) {
 	}
 	if svc.Owner.DisplayString() != "" {
 		t.Errorf("expected empty display, got %q", svc.Owner.DisplayString())
+	}
+}
+
+func TestServiceDetailsFromBundle_MultiConfig(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Configuration: &contract.Configuration{
+			Configs: []contract.NamedConfigSource{
+				{Name: "app", Schema: "config/app.json", Values: map[string]interface{}{"PORT": float64(8080)}},
+				{Name: "db", Ref: "oci://ghcr.io/acme/db-config:1.0.0"},
+			},
+		},
+	}
+	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
+	if len(details.Configurations) != 2 {
+		t.Fatalf("expected 2 configuration entries, got %d", len(details.Configurations))
+	}
+	app := details.Configurations[0]
+	if app.Name != "app" {
+		t.Errorf("expected name 'app', got %q", app.Name)
+	}
+	if !app.HasSchema {
+		t.Error("expected HasSchema=true for app config")
+	}
+	if len(app.Values) != 1 {
+		t.Fatalf("expected 1 value, got %d", len(app.Values))
+	}
+
+	db := details.Configurations[1]
+	if db.Name != "db" {
+		t.Errorf("expected name 'db', got %q", db.Name)
+	}
+	if db.Ref != "oci://ghcr.io/acme/db-config:1.0.0" {
+		t.Errorf("expected ref, got %q", db.Ref)
+	}
+}
+
+func TestServiceDetailsFromBundle_NilConfiguration(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+	}
+	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
+	if len(details.Configurations) != 0 {
+		t.Errorf("expected 0 configurations, got %d", len(details.Configurations))
+	}
+}
+
+func TestServiceDetailsFromBundle_EmptyConfiguration(t *testing.T) {
+	// Configuration present but all fields empty → EffectiveConfigs returns empty.
+	c := &contract.Contract{
+		Service:       contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Configuration: &contract.Configuration{},
+	}
+	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
+	if len(details.Configurations) != 0 {
+		t.Errorf("expected 0 configurations for empty Configuration, got %d", len(details.Configurations))
 	}
 }

@@ -6,7 +6,7 @@ type Contract struct {
 	Service       ServiceIdentity        `yaml:"service" json:"service"`
 	Interfaces    []Interface            `yaml:"interfaces" json:"interfaces"`
 	Configuration *Configuration         `yaml:"configuration,omitempty" json:"configuration,omitempty"`
-	Policy        *Policy                `yaml:"policy,omitempty" json:"policy,omitempty"`
+	Policies      []PolicySource         `yaml:"policies,omitempty" json:"policies,omitempty"`
 	Dependencies  []Dependency           `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
 	Runtime       *Runtime               `yaml:"runtime,omitempty" json:"runtime,omitempty"`
 	Scaling       *Scaling               `yaml:"scaling,omitempty" json:"scaling,omitempty"`
@@ -56,17 +56,76 @@ const (
 	VisibilityInternal = "internal"
 )
 
-// Configuration describes the service's configuration model.
-// Required configuration keys are derived exclusively from JSON Schema.
+// Configuration holds the configuration section of a contract.
+// It supports two forms:
+//   - Legacy: top-level Schema/Ref/Values fields (single configuration source)
+//   - New: a Configs array of named configuration sources (multiple independent scopes)
+//
+// When both forms are present, Configs takes precedence. Internally, use
+// EffectiveConfigs() to normalize both forms into a uniform slice.
 type Configuration struct {
+	Schema  string                 `yaml:"schema,omitempty" json:"schema,omitempty"`
+	Ref     string                 `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Values  map[string]interface{} `yaml:"values,omitempty" json:"values,omitempty"`
+	Configs []NamedConfigSource    `yaml:"configs,omitempty" json:"configs,omitempty"`
+}
+
+// NamedConfigSource declares a named configuration source within the
+// configuration.configs[] array. Name is required and each entry is an
+// independent named scope with no implicit merge semantics.
+type NamedConfigSource struct {
+	Name   string                 `yaml:"name" json:"name"`
 	Schema string                 `yaml:"schema,omitempty" json:"schema,omitempty"`
 	Ref    string                 `yaml:"ref,omitempty" json:"ref,omitempty"`
 	Values map[string]interface{} `yaml:"values,omitempty" json:"values,omitempty"`
 }
 
-// Policy defines or references policy constraints for the contract.
-// A policy is a JSON Schema that validates the contract itself.
-type Policy struct {
+// EffectiveConfigSource is the normalized internal representation of a single
+// configuration source, regardless of whether it came from the legacy form
+// or the new configuration.configs[] form.
+type EffectiveConfigSource struct {
+	Name   string
+	Schema string
+	Ref    string
+	Values map[string]interface{}
+}
+
+// EffectiveConfigs normalizes both configuration forms into a uniform slice.
+// If Configs is non-empty, each named entry is returned directly.
+// Otherwise, if legacy fields (Schema or Ref) are set, a single entry is returned.
+// Returns nil if the Configuration is nil or has no effective sources.
+func (c *Configuration) EffectiveConfigs() []EffectiveConfigSource {
+	if c == nil {
+		return nil
+	}
+	if len(c.Configs) > 0 {
+		result := make([]EffectiveConfigSource, len(c.Configs))
+		for i, cfg := range c.Configs {
+			result[i] = EffectiveConfigSource{
+				Name:   cfg.Name,
+				Schema: cfg.Schema,
+				Ref:    cfg.Ref,
+				Values: cfg.Values,
+			}
+		}
+		return result
+	}
+	if c.Schema != "" || c.Ref != "" || len(c.Values) > 0 {
+		return []EffectiveConfigSource{{
+			Schema: c.Schema,
+			Ref:    c.Ref,
+			Values: c.Values,
+		}}
+	}
+	return nil
+}
+
+// PolicySource declares a policy constraint source.
+// Each entry provides either a local JSON Schema file or a reference to an
+// external contract whose bundle contains the policy schema at policy/schema.json.
+// A policy schema validates the contract itself, enabling platform teams to
+// enforce organizational standards. Schema and Ref are mutually exclusive.
+type PolicySource struct {
 	Schema string `yaml:"schema,omitempty" json:"schema,omitempty"`
 	Ref    string `yaml:"ref,omitempty" json:"ref,omitempty"`
 }

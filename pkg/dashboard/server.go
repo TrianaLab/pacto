@@ -771,15 +771,23 @@ func (s *Server) getCrossRefs(ctx context.Context, input *ServiceNameInput) (*ge
 	}
 
 	result := CrossReferences{}
-	result.References = appendOutgoingRef(result.References, configRef(target), "config", cached.index, aliases)
-	result.References = appendOutgoingRef(result.References, policyRef(target), "policy", cached.index, aliases)
+	for _, ref := range configRefs(target) {
+		result.References = appendOutgoingRef(result.References, ref, "config", cached.index, aliases)
+	}
+	for _, ref := range policyRefs(target) {
+		result.References = appendOutgoingRef(result.References, ref, "policy", cached.index, aliases)
+	}
 
 	for svcName, d := range cached.index {
 		if svcName == input.Name {
 			continue
 		}
-		result.ReferencedBy = appendIncomingRef(result.ReferencedBy, d, input.Name, "config", configRef(d), cached.index, aliases)
-		result.ReferencedBy = appendIncomingRef(result.ReferencedBy, d, input.Name, "policy", policyRef(d), cached.index, aliases)
+		for _, ref := range configRefs(d) {
+			result.ReferencedBy = appendIncomingRef(result.ReferencedBy, d, input.Name, "config", ref, cached.index, aliases)
+		}
+		for _, ref := range policyRefs(d) {
+			result.ReferencedBy = appendIncomingRef(result.ReferencedBy, d, input.Name, "policy", ref, cached.index, aliases)
+		}
 	}
 
 	return &getCrossRefsOutput{Body: &result}, nil
@@ -1015,18 +1023,24 @@ type liveDebugInfo struct {
 	Error        string   `json:"error,omitempty"`
 }
 
-func configRef(d *ServiceDetails) string {
-	if d.Configuration != nil {
-		return d.Configuration.Ref
+func configRefs(d *ServiceDetails) []string {
+	var refs []string
+	for _, cfg := range d.Configurations {
+		if cfg.Ref != "" {
+			refs = append(refs, cfg.Ref)
+		}
 	}
-	return ""
+	return refs
 }
 
-func policyRef(d *ServiceDetails) string {
-	if d.Policy != nil {
-		return d.Policy.Ref
+func policyRefs(d *ServiceDetails) []string {
+	var refs []string
+	for _, pol := range d.Policies {
+		if pol.Ref != "" {
+			refs = append(refs, pol.Ref)
+		}
 	}
-	return ""
+	return refs
 }
 
 func appendOutgoingRef(refs []CrossReference, ref, refType string, index map[string]*ServiceDetails, aliases map[string]string) []CrossReference {

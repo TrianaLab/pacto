@@ -1100,10 +1100,11 @@ func TestEnsureConfigSection(t *testing.T) {
 
 	t.Run("no-op when present", func(t *testing.T) {
 		m := map[string]interface{}{
-			"configuration": map[string]interface{}{"schema": "custom.json"},
+			"configuration": []interface{}{map[string]interface{}{"schema": "custom.json"}},
 		}
 		ensureConfigSection(m)
-		cfg := m["configuration"].(map[string]interface{})
+		cfgs := m["configuration"].([]interface{})
+		cfg := cfgs[0].(map[string]interface{})
 		if cfg["schema"] != "custom.json" {
 			t.Error("should not overwrite existing config")
 		}
@@ -1583,7 +1584,9 @@ func TestBuildStubFS(t *testing.T) {
 		Interfaces: []contract.Interface{
 			{Name: "api", Type: "http", Port: &port, Contract: "interfaces/api.yaml"},
 		},
-		Configuration: &contract.Configuration{Schema: "configuration/schema.json"},
+		Configuration: &contract.Configuration{
+			Schema: "configuration/schema.json",
+		},
 	}
 	fs := buildStubFS(c, []byte("test"))
 	if _, ok := fs["pacto.yaml"]; !ok {
@@ -1870,9 +1873,10 @@ func TestAssessSections_Full(t *testing.T) {
 		Dependencies:  []contract.Dependency{{Ref: "pg", Compatibility: "^1.0.0"}},
 		Scaling:       &contract.Scaling{Min: 1, Max: 3},
 		Metadata:      map[string]interface{}{"team": "x"},
+		Policies:      []contract.PolicySource{{Schema: "policy/schema.json"}},
 	}
 	s := assessSections(c)
-	for _, key := range []string{"service", "interfaces", "runtime", "configuration", "dependencies", "scaling", "metadata"} {
+	for _, key := range []string{"service", "interfaces", "runtime", "configuration", "dependencies", "scaling", "metadata", "policies"} {
 		if s[key] != "present" {
 			t.Errorf("expected %s=present, got %q", key, s[key])
 		}

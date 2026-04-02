@@ -137,10 +137,12 @@ func ExtractReferenceEdges(c *contract.Contract) []Edge {
 	}
 
 	if c.Configuration != nil {
-		addRef(c.Configuration.Ref)
+		for _, cfg := range c.Configuration.EffectiveConfigs() {
+			addRef(cfg.Ref)
+		}
 	}
-	if c.Policy != nil {
-		addRef(c.Policy.Ref)
+	for _, pol := range c.Policies {
+		addRef(pol.Ref)
 	}
 	return edges
 }
