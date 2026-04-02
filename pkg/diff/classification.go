@@ -38,7 +38,7 @@ var rules = map[classificationKey]Classification{
 	{"interfaces.visibility", Modified}: PotentialBreaking,
 	{"interfaces.contract", Modified}:   PotentialBreaking,
 
-	// Configuration
+	// Configuration (legacy form)
 	{"configuration.schema", Modified}: PotentialBreaking,
 	{"configuration.schema", Added}:    NonBreaking,
 	{"configuration.schema", Removed}:  Breaking,
@@ -48,11 +48,24 @@ var rules = map[classificationKey]Classification{
 	{"configuration", Added}:           NonBreaking,
 	{"configuration", Removed}:         Breaking,
 
-	// Policy (pluralized, indexed)
+	// Configuration (multi-config form, indices stripped by classify)
+	{"configuration.configs", Added}:           NonBreaking,
+	{"configuration.configs", Removed}:         Breaking,
+	{"configuration.configs.name", Modified}:   PotentialBreaking,
+	{"configuration.configs.schema", Modified}: PotentialBreaking,
+	{"configuration.configs.schema", Added}:    NonBreaking,
+	{"configuration.configs.schema", Removed}:  Breaking,
+	{"configuration.configs.ref", Modified}:    PotentialBreaking,
+	{"configuration.configs.ref", Added}:       NonBreaking,
+	{"configuration.configs.ref", Removed}:     Breaking,
+
+	// Policy (pluralized, indices stripped by classify)
 	{"policies", Added}:           NonBreaking,
 	{"policies", Removed}:         PotentialBreaking,
 	{"policies.schema", Modified}: PotentialBreaking,
 	{"policies.ref", Modified}:    PotentialBreaking,
+	{"policies.ref", Added}:       NonBreaking,
+	{"policies.ref", Removed}:     PotentialBreaking,
 
 	// Runtime — workload
 	{"runtime.workload", Modified}: Breaking,

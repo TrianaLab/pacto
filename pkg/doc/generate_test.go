@@ -1175,3 +1175,55 @@ func TestGenerate_MultiConfigEdgeCases(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerate_SingleConfigRefOnly(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion: "1.0",
+		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
+		Configuration: &contract.Configuration{
+			Ref: "oci://ghcr.io/acme/shared-config:1.0.0",
+		},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			State:    contract.State{Type: "stateless", DataCriticality: "low"},
+		},
+	}
+
+	md, err := Generate(c, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mustContain := []string{
+		"Configuration",
+		"References: `oci://ghcr.io/acme/shared-config:1.0.0`",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(md, s) {
+			t.Errorf("expected %q in output:\n%s", s, md)
+		}
+	}
+}
+
+func TestGenerate_EmptyConfiguration(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion:  "1.0",
+		Service:       contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Interfaces:    []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
+		Configuration: &contract.Configuration{},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			State:    contract.State{Type: "stateless", DataCriticality: "low"},
+		},
+	}
+
+	md, err := Generate(c, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if strings.Contains(md, "Configuration") {
+		t.Errorf("empty configuration should not produce a section:\n%s", md)
+	}
+}

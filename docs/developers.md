@@ -253,7 +253,7 @@ pacto validate my-service -f staging-values.yaml
 pacto validate my-service -f staging-values.yaml --set service.version=3.0.0
 
 # Set configuration values
-pacto validate my-service --set configs[0].values.DB_HOST=localhost
+pacto validate my-service --set configuration.values.DB_HOST=localhost
 ```
 
 Overrides work on all commands that take a contract reference. For `diff`, use `--old-set`/`--old-values` and `--new-set`/`--new-values` to override each contract independently.

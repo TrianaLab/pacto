@@ -184,7 +184,7 @@ metadata:
 
 ## Minimal contract
 
-Only `pactoVersion` and `service` are required. All other sections — `interfaces`, `runtime`, `configs`, `policies`, `dependencies`, `scaling`, and `metadata` — are optional:
+Only `pactoVersion` and `service` are required. All other sections — `interfaces`, `runtime`, `configuration`, `policies`, `dependencies`, `scaling`, and `metadata` — are optional:
 
 ```yaml
 pactoVersion: "1.0"
@@ -456,7 +456,7 @@ Characteristics:
 
 #### Hybrid Approaches
 
-In practice, organizations may combine both models — a platform-defined base schema that covers shared infrastructure (database connections, observability, secrets) with service-specific extensions for application-level configuration. Pacto does not prescribe a specific pattern; the schema format is identical regardless of where it originates. Note that `configs[].schema` and `configs[].ref` are mutually exclusive within a single entry — choose one approach per entry.
+In practice, organizations may combine both models — a platform-defined base schema that covers shared infrastructure (database connections, observability, secrets) with service-specific extensions for application-level configuration. Pacto does not prescribe a specific pattern; the schema format is identical regardless of where it originates. Note that `schema` and `ref` are mutually exclusive within a single entry — choose one approach per entry.
 
 ---
 
@@ -522,7 +522,7 @@ policies:
 The referenced contract's bundle must have the policy schema at the fixed path `policy/schema.json`. The reference supports recursive resolution: if the referenced contract itself has a `policies[].ref`, Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
 
 {: .tip }
-Like `configs[].ref`, policy references create **reference edges** in the dependency graph. Use `pacto graph --with-references` to see them alongside dependencies.
+Like `configuration.ref`, policy references create **reference edges** in the dependency graph. Use `pacto graph --with-references` to see them alongside dependencies.
 
 {: .warning }
 Local policy references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local `policies[].ref` — all refs must use `oci://` before publishing.
@@ -793,10 +793,10 @@ Validates semantic references and consistency:
 | `image.ref` is a valid OCI reference | `INVALID_IMAGE_REF` |
 | `chart.ref` (OCI) is a valid OCI reference | `INVALID_CHART_REF` |
 | `chart.version` is valid semver | `INVALID_CHART_VERSION` |
-| `configs[].ref` is not a valid OCI reference | `INVALID_CONFIG_REF` |
-| `configs[].values` without a `configs[].schema` | `VALUES_WITHOUT_SCHEMA` |
-| `configs[].schema` file is not valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
-| `configs[].values` don't match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
+| `configuration.configs[].ref` is not a valid OCI reference | `INVALID_CONFIG_REF` |
+| `configuration.configs[].values` without a schema | `VALUES_WITHOUT_SCHEMA` |
+| `configuration.configs[].schema` file is not valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
+| `configuration.configs[].values` don't match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
 | `policies` entry has neither `schema` nor `ref` | `POLICY_EMPTY` |
 | `policies[].schema` file does not exist in the bundle | `FILE_NOT_FOUND` |
 | `policies[].ref` is not a valid OCI reference | `INVALID_POLICY_REF` |
@@ -1003,7 +1003,7 @@ configuration:
 
 ```bash
 # This will fail if DB_PORT expects an integer but receives a string
-pacto validate my-service --set configs[0].values.DB_PORT=not-a-number
+pacto validate my-service --set configuration.values.DB_PORT=not-a-number
 ```
 
 ---
@@ -1045,23 +1045,33 @@ Each change is classified as:
 
 | Field | Change | Classification |
 |-------|--------|----------------|
-| `configs` | Added | NON_BREAKING |
-| `configs` | Removed | **BREAKING** |
-| `configs[].schema` | Added | NON_BREAKING |
-| `configs[].schema` | Modified | POTENTIAL_BREAKING |
-| `configs[].schema` | Removed | **BREAKING** |
-| `configs[].ref` | Added | NON_BREAKING |
-| `configs[].ref` | Modified | POTENTIAL_BREAKING |
-| `configs[].ref` | Removed | **BREAKING** |
+| `configuration` | Added | NON_BREAKING |
+| `configuration` | Removed | **BREAKING** |
+| `configuration.schema` | Added | NON_BREAKING |
+| `configuration.schema` | Modified | POTENTIAL_BREAKING |
+| `configuration.schema` | Removed | **BREAKING** |
+| `configuration.ref` | Added | NON_BREAKING |
+| `configuration.ref` | Modified | POTENTIAL_BREAKING |
+| `configuration.ref` | Removed | **BREAKING** |
+| `configuration.configs[]` | Added | NON_BREAKING |
+| `configuration.configs[]` | Removed | **BREAKING** |
+| `configuration.configs[].schema` | Added | NON_BREAKING |
+| `configuration.configs[].schema` | Modified | POTENTIAL_BREAKING |
+| `configuration.configs[].schema` | Removed | **BREAKING** |
+| `configuration.configs[].ref` | Added | NON_BREAKING |
+| `configuration.configs[].ref` | Modified | POTENTIAL_BREAKING |
+| `configuration.configs[].ref` | Removed | **BREAKING** |
 
 ### Policy
 
 | Field | Change | Classification |
 |-------|--------|----------------|
-| `policies` | Added | NON_BREAKING |
-| `policies` | Removed | POTENTIAL_BREAKING |
+| `policies[]` | Added | NON_BREAKING |
+| `policies[]` | Removed | POTENTIAL_BREAKING |
 | `policies[].schema` | Modified | POTENTIAL_BREAKING |
+| `policies[].ref` | Added | NON_BREAKING |
 | `policies[].ref` | Modified | POTENTIAL_BREAKING |
+| `policies[].ref` | Removed | POTENTIAL_BREAKING |
 
 ### Runtime
 

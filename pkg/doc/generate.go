@@ -282,7 +282,7 @@ func writeTableOfContents(b *strings.Builder, c *contract.Contract, gr *graph.Re
 			fmt.Fprintf(b, "  - [%s. %s](#%s)\n", isec, heading, headingAnchor(isec+". "+heading))
 		}
 	}
-	if c.Configuration != nil {
+	if c.Configuration != nil && len(c.Configuration.EffectiveConfigs()) > 0 {
 		sec := num.Next(1)
 		fmt.Fprintf(b, "- [%s. Configuration](#%s)\n", sec, headingAnchor(sec+". Configuration"))
 	}
@@ -310,7 +310,7 @@ func writeDependencyTOCEntry(b *strings.Builder, node *graph.Node, num *sectionN
 	if len(dc.Interfaces) > 0 {
 		fmt.Fprintf(b, "    - [%s. Interfaces](#%s-interfaces)\n", num.Next(3), anchor)
 	}
-	if dc.Configuration != nil {
+	if dc.Configuration != nil && len(dc.Configuration.EffectiveConfigs()) > 0 {
 		fmt.Fprintf(b, "    - [%s. Configuration](#%s-configuration)\n", num.Next(3), anchor)
 	}
 	if len(dc.Dependencies) > 0 {
@@ -580,28 +580,33 @@ func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, nu
 	}
 
 	configs := c.Configuration.EffectiveConfigs()
+	if len(configs) == 0 {
+		return
+	}
 	multiConfig := len(configs) > 1
 
 	// For single-config (legacy), render a flat table as before.
 	if !multiConfig {
-		var allProps []Property
-		for _, cfg := range configs {
-			if cfg.Schema == "" {
-				continue
-			}
-			props, err := readSchemaProperties(fsys, cfg.Schema)
-			if err != nil {
-				fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
-				fmt.Fprintf(b, "_Could not read configuration schema: %v_\n\n", err)
-				return
-			}
-			allProps = append(allProps, props...)
+		cfg := configs[0]
+		if cfg.Ref != "" {
+			fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
+			fmt.Fprintf(b, "References: `%s`\n\n", cfg.Ref)
+			return
 		}
-		if len(allProps) == 0 {
+		if cfg.Schema == "" {
+			return
+		}
+		props, err := readSchemaProperties(fsys, cfg.Schema)
+		if err != nil {
+			fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
+			fmt.Fprintf(b, "_Could not read configuration schema: %v_\n\n", err)
+			return
+		}
+		if len(props) == 0 {
 			return
 		}
 		fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
-		writeConfigurationTable(b, allProps)
+		writeConfigurationTable(b, props)
 		return
 	}
 

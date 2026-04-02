@@ -92,3 +92,38 @@ func TestClassify_UnknownPath(t *testing.T) {
 		t.Errorf("expected PotentialBreaking for unknown path, got %s", got)
 	}
 }
+
+func TestClassify_IndexedPaths(t *testing.T) {
+	tests := []struct {
+		path string
+		ct   ChangeType
+		want Classification
+	}{
+		// Multi-config paths (indices stripped)
+		{"configuration.configs[0]", Added, NonBreaking},
+		{"configuration.configs[2]", Removed, Breaking},
+		{"configuration.configs[0].schema", Modified, PotentialBreaking},
+		{"configuration.configs[0].schema", Added, NonBreaking},
+		{"configuration.configs[0].schema", Removed, Breaking},
+		{"configuration.configs[0].ref", Modified, PotentialBreaking},
+		{"configuration.configs[0].ref", Added, NonBreaking},
+		{"configuration.configs[0].ref", Removed, Breaking},
+		{"configuration.configs[0].name", Modified, PotentialBreaking},
+
+		// Policy paths (indices stripped)
+		{"policies[0]", Added, NonBreaking},
+		{"policies[0]", Removed, PotentialBreaking},
+		{"policies[0].schema", Modified, PotentialBreaking},
+		{"policies[0].ref", Modified, PotentialBreaking},
+		{"policies[0].ref", Added, NonBreaking},
+		{"policies[0].ref", Removed, PotentialBreaking},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path+"_"+tt.ct.String(), func(t *testing.T) {
+			got := classify(tt.path, tt.ct)
+			if got != tt.want {
+				t.Errorf("classify(%q, %s) = %s, want %s", tt.path, tt.ct, got, tt.want)
+			}
+		})
+	}
+}
