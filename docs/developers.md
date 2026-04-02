@@ -217,11 +217,12 @@ Local chart references are rejected by `pacto push`. Switch to an OCI reference 
 pacto validate my-service
 ```
 
-Validation catches errors in three layers:
+Validation catches errors in four layers:
 
 1. **Structural** — missing fields, wrong types, invalid enum values
 2. **Cross-field** — interface references match, state invariants hold, files exist
 3. **Semantic** — strategy consistency warnings
+4. **Policy enforcement** — referenced policies are resolved and enforced
 
 ### 9. Pack and push
 

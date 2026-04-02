@@ -681,6 +681,20 @@ pacto version [flags]
 | `PACTO_REGISTRY_USERNAME` | Registry username for authentication |
 | `PACTO_REGISTRY_PASSWORD` | Registry password for authentication |
 | `PACTO_REGISTRY_TOKEN` | Registry token for authentication |
+| `XDG_CONFIG_HOME` | Override config directory (default: `~/.config`). Affects `pacto login` credentials and update check cache |
+| `XDG_CACHE_HOME` | Override cache directory (default: `~/.cache`). Affects OCI bundle cache location |
+
+### Dashboard environment variables
+
+The following variables configure the dashboard when set (see also [Dashboard Container]({{ site.baseurl }}{% link dashboard-docker.md %})):
+
+| Variable | Description |
+|----------|-------------|
+| `PACTO_DASHBOARD_REPO` | Comma-separated OCI repositories (fallback when no positional args) |
+| `PACTO_DASHBOARD_HOST` | Bind address (default: `127.0.0.1`) |
+| `PACTO_DASHBOARD_PORT` | HTTP port (default: `3000`) |
+| `PACTO_DASHBOARD_NAMESPACE` | Kubernetes namespace filter (empty = all) |
+| `PACTO_DASHBOARD_DIAGNOSTICS` | Enable debug endpoints |
 
 ---
 

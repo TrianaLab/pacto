@@ -4,7 +4,7 @@ package contract
 type Contract struct {
 	PactoVersion  string                 `yaml:"pactoVersion" json:"pactoVersion"`
 	Service       ServiceIdentity        `yaml:"service" json:"service"`
-	Interfaces    []Interface            `yaml:"interfaces" json:"interfaces"`
+	Interfaces    []Interface            `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
 	Configuration *Configuration         `yaml:"configuration,omitempty" json:"configuration,omitempty"`
 	Policies      []PolicySource         `yaml:"policies,omitempty" json:"policies,omitempty"`
 	Dependencies  []Dependency           `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`

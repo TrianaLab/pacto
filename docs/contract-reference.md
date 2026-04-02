@@ -755,7 +755,7 @@ metadata:
 
 ## Validation layers
 
-Pacto validates contracts through three successive layers. Each layer short-circuits — if it fails, subsequent layers are skipped.
+Pacto validates contracts through four successive layers. Each layer short-circuits — if it fails, subsequent layers are skipped.
 
 ### Layer 1: Structural (JSON Schema)
 

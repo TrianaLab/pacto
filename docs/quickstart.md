@@ -52,7 +52,7 @@ $ pacto validate my-service
 my-service is valid
 ```
 
-Validation runs three layers: structural (JSON Schema), cross-field (references and consistency), and semantic (strategy checks). The generated contract passes all three out of the box.
+Validation runs four layers: structural (JSON Schema), cross-field (references and consistency), semantic (strategy checks), and policy enforcement. The generated contract passes all four out of the box.
 
 ## 4. Customize your contract
 
@@ -138,7 +138,7 @@ Exit code is non-zero when breaking changes are detected — use this in CI to g
 | Understand every contract field | [Contract Reference]({{ site.baseurl }}{% link contract-reference.md %}) |
 | Write and maintain contracts | [For Developers]({{ site.baseurl }}{% link developers.md %}) |
 | Consume contracts for deployment | [For Platform Engineers]({{ site.baseurl }}{% link platform-engineers.md %}) |
-| See contracts for real services | [Examples]({{ site.baseurl }}{% link examples/index.md %}) (PostgreSQL, Redis, RabbitMQ, NGINX, Cron Worker) |
+| See contracts for real services | [Examples]({{ site.baseurl }}{% link examples/index.md %}) (PostgreSQL, Redis, RabbitMQ, NGINX, gRPC, and more) |
 | Integrate with CI/CD | [GitHub Actions]({{ site.baseurl }}{% link github-actions.md %}) |
 | Explore contracts visually | Run `pacto dashboard` to launch the web UI with dependency graph |
 | Runtime compliance in Kubernetes | [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}) |

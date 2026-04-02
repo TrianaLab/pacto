@@ -1,7 +1,7 @@
 ---
 title: MCP Integration
 layout: default
-nav_order: 9
+nav_order: 10
 ---
 
 # MCP Integration

@@ -112,7 +112,7 @@ pacto/
   cmd/gendocs/        # CLI docs generator
   pkg/                # Public, reusable core packages
     contract/         #   Domain model (Contract, Bundle, types)
-    validation/       #   Three-layer validator + runtime validation
+    validation/       #   Four-layer validator + runtime validation
     diff/             #   Change classifier
     graph/            #   Dependency resolver
     doc/              #   Markdown documentation generator

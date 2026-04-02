@@ -35,7 +35,7 @@ Pacto connects design-time authoring to runtime verification to human exploratio
 CLI                        Operator                      Dashboard
  │                          │                             │
  ├─ define contracts        ├─ watch Pacto CRs            ├─ auto-detect sources
- ├─ validate (3 layers)     ├─ resolve OCI refs           │  (K8s, OCI, local, cache)
+ ├─ validate (4 layers)     ├─ resolve OCI refs           │  (K8s, OCI, local, cache)
  ├─ diff versions           ├─ track versions             ├─ dependency graph
  ├─ publish to OCI          │  (PactoRevision per ver)    ├─ version history + diffs
  └─ resolve dep graphs      ├─ link to workloads          ├─ service details
@@ -84,7 +84,7 @@ This output is generated automatically by `pacto diff` (with `--output-format ma
 
 ```bash
 # CLI
-pacto validate .                              # 3-layer contract validation
+pacto validate .                              # 4-layer contract validation
 pacto push oci://ghcr.io/acme/svc-pacto       # push to any OCI registry (skips if exists)
 pacto diff oci://registry/svc:1.0 svc:2.0     # detect breaking changes
 pacto graph .                                  # resolve dependency tree
@@ -144,6 +144,7 @@ interfaces:
     type: grpc
     port: 9090
     visibility: internal
+    contract: interfaces/service.proto
 
 dependencies:
   - ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123
@@ -171,168 +172,19 @@ Only `pactoVersion` and `service` are required — everything else is opt-in, so
 
 ---
 
-## What's inside a Pacto bundle
-
-```mermaid
-graph LR
-    subgraph Bundle["Pacto Bundle"]
-        direction TB
-        YAML["pacto.yaml<br/><i>required</i>"]
-
-        subgraph Sections["Contract Sections <i>(all optional)</i>"]
-            direction TB
-            Interfaces["Interfaces<br/>HTTP · gRPC · ports · visibility"]
-            Dependencies["Dependencies<br/>oci://auth:2.0.0 · oci://db:1.0.0"]
-            Runtime["Runtime<br/>state · health · lifecycle · scaling"]
-            Config["Configuration<br/>schema.json"]
-            Policy["Policy<br/>schema.json"]
-        end
-
-        subgraph Extras["Metadata <i>(optional)</i>"]
-            direction TB
-            Docs["docs/<br/>README · runbooks · guides"]
-            SBOM["sbom/<br/>SPDX · CycloneDX"]
-        end
-
-        YAML --> Sections
-    end
-
-    Bundle -- "pacto push" --> Registry["OCI Registry<br/>GHCR · ECR · ACR<br/>Docker Hub"]
-```
-
-A bundle is a self-contained directory (or OCI artifact) containing:
-
-- **`pacto.yaml`** — the contract: interfaces, dependencies, runtime semantics, scaling *(required)*
-- **`interfaces/`** *(optional)* — OpenAPI specs, protobuf definitions, event schemas
-- **`configuration/`** *(optional)* — JSON Schema for environment variables and settings
-- **`policy/`** *(optional)* — JSON Schema that validates the contract itself, enabling platform teams to enforce organizational standards
-- **`docs/`** *(optional)* — service documentation (README, runbooks, architecture notes, integration guides). Travels with the contract but has no effect on validation, diffing, or compatibility classification
-- **`sbom/`** *(optional)* — Software Bill of Materials in SPDX 2.3 (`.spdx.json`) or CycloneDX 1.5 (`.cdx.json`) format. When present, `pacto diff` reports package-level changes (added, removed, version/license modified). Generate with tools like [Syft](https://github.com/anchore/syft), [Trivy](https://github.com/aquasecurity/trivy), or [cdxgen](https://github.com/CycloneDX/cdxgen)
-
-Only `pacto.yaml` is required. All other directories are optional — include them when your contract references files in them.
-
-## Example repository layout
-
-```
-payments-api/
-  src/                           ← your application code
-  Dockerfile
-  pacto.yaml                     ← the contract (committed to the repo)
-  interfaces/                    ← optional, referenced by pacto.yaml
-    openapi.yaml
-  configuration/                 ← optional, JSON Schema for config
-    schema.json
-  policy/                        ← optional, policy enforcement
-    schema.json
-  docs/                          ← optional, service documentation
-    README.md
-    runbook.md
-  sbom/                          ← optional, SBOM (SPDX or CycloneDX)
-    sbom.spdx.json
-  .github/workflows/
-    ci.yml                       ← pacto validate + pacto diff + pacto push
-```
-
-The contract lives next to the code it describes. CI validates it on every push and publishes it to an OCI registry on release.
-
----
-
 ## Key capabilities
 
-### CLI (design-time + CI)
+- **4-layer validation** — structural (JSON Schema), cross-field, semantic, and policy enforcement
+- **Breaking change detection** — deep OpenAPI diffing + dependency graph diff with full blast radius
+- **Dependency graph resolution** — recursive transitive resolution from OCI registries with parallel fetching
+- **OCI distribution** — push/pull to GHCR, ECR, ACR, Docker Hub, Harbor with local caching
+- **Plugin-based generation** — out-of-process plugins produce deployment artifacts from contracts
+- **Dashboard** — multi-source exploration UI with dependency graphs, version history, diffs, and runtime compliance
+- **Kubernetes Operator** — runtime contract tracking, workload linking, and alignment verification
+- **AI integration** — `pacto mcp` exposes contract operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and Copilot
+- **SBOM diffing** — SPDX / CycloneDX package-level change detection
 
-- **3-layer validation** — structural (YAML schema), cross-field (port references, interface names), semantic (state vs. persistence consistency)
-- **Breaking change detection** — `pacto diff` compares two contracts field-by-field *and* resolves both dependency trees to show the full blast radius
-- **Dependency graph resolution** — recursively resolve transitive dependencies from OCI registries, with parallel sibling fetching
-- **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor), with local caching
-- **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
-- **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
-- **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
-- **AI assistant integration** — `pacto mcp` exposes all operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and Copilot
-
-### Dashboard (exploration + observability)
-
-- **Multi-source auto-detection** — Kubernetes, OCI registries, local directories, and disk cache merged into one view
-- **Interactive dependency graph** — D3 visualization of service relationships with recursive resolution
-- **Ownership views** — aggregated compliance, blast radius, and service count per owner with drill-down and owner-filtered graphs
-- **Version history and diffs** — browse all published versions, compare any two with classified change detection
-- **Service detail pages** — interfaces, configuration schemas, policy references, documentation, and contract-vs-runtime comparison
-- **Runtime alignment status** — derived compliance status based on how closely a deployed service matches its contract
-
-### Kubernetes Operator (runtime)
-
-- **Contract tracking** — watches Pacto CRs, resolves OCI references, creates a PactoRevision per version for fast in-cluster querying
-- **Workload linking** — matches contracts to running Deployments, StatefulSets, DaemonSets, and Jobs
-- **Runtime alignment** — checks replica counts, port mappings, health endpoints, container image references, and resource requests against the contract. Does not perform deep API conformance testing or full live configuration validation
-- **Dashboard integration** — the dashboard auto-discovers OCI repos from the operator's CRD `imageRef` fields, enabling full contract bundles, version history, and diffs without explicit OCI arguments
-
-Interested in contributing? See the [Architecture](https://trianalab.github.io/pacto/architecture/) guide for the internal design.
-
----
-
-## AI-native contracts
-
-Pacto contracts are machine-readable by design — which makes them a natural fit for AI assistants. Running `pacto mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io) server that lets tools like **Claude**, **Cursor**, and **GitHub Copilot** interact with your contracts directly:
-
-```bash
-pacto mcp                       # stdio (Claude Code, Cursor)
-pacto mcp -t http --port 9090   # HTTP (remote or web-based tools)
-```
-
-Through MCP, an AI assistant can validate contracts, inspect dependency graphs, generate new contracts from a description, and explain breaking changes — all without leaving your editor. See the [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) guide for setup instructions.
-
----
-
-## CLI demo
-
-```bash
-# Scaffold a new contract
-$ pacto init payments-api
-Created payments-api/
-  payments-api/pacto.yaml
-  payments-api/interfaces/
-  payments-api/configuration/
-
-# Validate (3-layer: structural → cross-field → semantic)
-$ pacto validate payments-api
-payments-api is valid
-
-# Push to any OCI registry (skips if the artifact already exists)
-$ pacto push oci://ghcr.io/acme/payments-api-pacto -p payments-api
-Pushed payments-api@1.0.0 -> ghcr.io/acme/payments-api-pacto:1.0.0
-Digest: sha256:a1b2c3d4...
-
-# Re-push fails gracefully; use --force to overwrite
-$ pacto push oci://ghcr.io/acme/payments-api-pacto -p payments-api
-Warning: artifact already exists: ghcr.io/acme/payments-api-pacto:1.0.0 (use --force to overwrite)
-
-# Visualize the dependency tree
-$ pacto graph payments-api
-payments-api@2.1.0
-├─ auth-service@2.3.0
-│  └─ user-store@1.0.0
-└─ postgres@16.0.0
-
-# Generate documentation with architecture diagrams
-$ pacto doc payments-api --serve
-Serving documentation at http://127.0.0.1:8484
-Press Ctrl+C to stop
-
-# Detect breaking changes — deep OpenAPI diff, dependency graph shifts
-$ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
-             oci://ghcr.io/acme/payments-api-pacto:2.0.0
-Classification: BREAKING
-Changes (4):
-  [BREAKING] runtime.state.type (modified): runtime.state.type modified
-  [BREAKING] runtime.state.persistence.durability (modified): runtime.state.persistence.durability modified
-  [BREAKING] interfaces (removed): interfaces removed
-  [BREAKING] dependencies (removed): dependencies removed
-
-Dependency graph changes:
-payments-api
-├─ auth-service  1.5.0 → 2.3.0
-└─ postgres      -16.0.0
-```
+See the [full documentation](https://trianalab.github.io/pacto) for details on each capability.
 
 ---
 
@@ -406,7 +258,7 @@ Full documentation at **[trianalab.github.io/pacto](https://trianalab.github.io/
 | [Kubernetes Operator](https://trianalab.github.io/pacto/operator) | Runtime contract tracking and consistency verification |
 | [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) | Connect AI tools (Claude, Cursor, Copilot) to Pacto via MCP |
 | [Plugin Development](https://trianalab.github.io/pacto/plugins) | Build plugins to generate artifacts from contracts |
-| [Examples](https://trianalab.github.io/pacto/examples) | PostgreSQL, Redis, RabbitMQ, NGINX, Cron Worker |
+| [Examples](https://trianalab.github.io/pacto/examples) | PostgreSQL, Redis, RabbitMQ, NGINX, gRPC, and more |
 | [Architecture](https://trianalab.github.io/pacto/architecture) | Internal design for contributors |
 
 ---

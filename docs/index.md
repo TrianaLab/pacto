@@ -198,7 +198,7 @@ Only `pacto.yaml` is required. All other directories are optional — include th
 
 ## Key capabilities
 
-- **3-layer validation** — structural (YAML schema), cross-field (port references, interface names), and semantic (state vs. persistence consistency)
+- **4-layer validation** — structural (JSON Schema), cross-field (port references, interface names), semantic (state vs. persistence consistency), and policy enforcement
 - **Breaking change detection** — `pacto diff` compares two contract versions field-by-field *and* resolves both dependency trees to show the full blast radius
 - **Dependency graph resolution** — recursively resolve transitive dependencies from OCI registries; sibling deps are fetched in parallel
 - **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor); bundles are cached locally for fast repeated operations

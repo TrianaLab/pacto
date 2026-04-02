@@ -1,7 +1,7 @@
 ---
 title: Architecture
 layout: default
-nav_order: 12
+nav_order: 13
 ---
 
 # Architecture
@@ -32,7 +32,7 @@ graph TD
     CLI --> UPDATE[internal/update<br/>Update Checker]
     MCP --> APP
     CLI --> APP[internal/app<br/>Application Services]
-    APP --> VAL[pkg/validation<br/>Three-Layer Validator]
+    APP --> VAL[pkg/validation<br/>Four-Layer Validator]
     APP --> DIFF[pkg/diff<br/>Change Classifier]
     APP --> GRAPH[pkg/graph<br/>Dependency Resolver]
     APP --> OCI[pkg/oci<br/>OCI Adapter]
@@ -110,12 +110,13 @@ The root public package. Contains pure Go types and logic with **zero I/O and ze
 
 ### `pkg/validation` -- Validation engine
 
-Three-layer, short-circuit validation:
+Four-layer, short-circuit validation:
 
 ```mermaid
 flowchart LR
     A[Layer 1<br/>Structural<br/>JSON Schema] --> B[Layer 2<br/>Cross-Field<br/>Reference Validation]
     B --> C[Layer 3<br/>Semantic<br/>Consistency Checks]
+    C --> D[Layer 4<br/>Policy<br/>Enforcement]
 ```
 
 Each layer short-circuits -- if it produces errors, subsequent layers are skipped.
