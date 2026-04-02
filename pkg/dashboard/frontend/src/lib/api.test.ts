@@ -6,7 +6,7 @@ vi.stubGlobal('fetch', mockFetch);
 
 const { api } = await import('./api.ts');
 
-function jsonResponse(data, status = 200) {
+function jsonResponse(data: unknown, status = 200) {
   return {
     ok: true,
     status,
@@ -15,7 +15,7 @@ function jsonResponse(data, status = 200) {
   };
 }
 
-function errorResponse(status, body = '') {
+function errorResponse(status: number, body = '') {
   return {
     ok: false,
     status,
@@ -93,8 +93,8 @@ describe('error handling', () => {
     await expect(api.service('missing')).rejects.toThrow('not found');
     try {
       await api.service('missing');
-    } catch (e) {
-      expect(e.status).toBe(404);
+    } catch (e: unknown) {
+      expect((e as { status: number }).status).toBe(404);
     }
   });
 

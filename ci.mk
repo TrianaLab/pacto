@@ -23,8 +23,8 @@ ci-test: ci-ui
 	@echo "    total coverage: 100.0%"
 
 ci-ui:
-	@echo "==> Running frontend tests..."
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npm test
+	@echo "==> Running frontend lint & tests..."
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npm run lint && npm test
 
 ci-fmt:
 	@echo "==> Checking formatting..."

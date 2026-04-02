@@ -31,7 +31,7 @@ describe('extractSubgraph', () => {
   it('returns subgraph centered on focus node', () => {
     const sub = extractSubgraph(sampleGraph, 'a');
     expect(sub).not.toBeNull();
-    const ids = sub.nodes.map((n) => n.id);
+    const ids = sub!.nodes.map((n) => n.id);
     // 'a' depends on 'b', 'b' depends on 'c', 'd' depends on 'a'
     expect(ids).toContain('a');
     expect(ids).toContain('b');
@@ -43,7 +43,7 @@ describe('extractSubgraph', () => {
 
   it('includes nodes that point TO visited nodes', () => {
     const sub = extractSubgraph(sampleGraph, 'b');
-    const ids = sub.nodes.map((n) => n.id);
+    const ids = sub!.nodes.map((n) => n.id);
     // b -> c (downstream), a -> b (upstream)
     expect(ids).toContain('b');
     expect(ids).toContain('c');
@@ -59,12 +59,12 @@ describe('extractSubgraph', () => {
   it('handles graph with single connected pair', () => {
     const small = {
       nodes: [
-        { id: 'x', serviceName: 'x', edges: [{ targetId: 'y' }] },
-        { id: 'y', serviceName: 'y', edges: [] },
+        { id: 'x', serviceName: 'x', status: 'Unknown', edges: [{ targetId: 'y' }] },
+        { id: 'y', serviceName: 'y', status: 'Unknown', edges: [] },
       ],
     };
     const sub = extractSubgraph(small, 'x');
     expect(sub).not.toBeNull();
-    expect(sub.nodes).toHaveLength(2);
+    expect(sub!.nodes).toHaveLength(2);
   });
 });
