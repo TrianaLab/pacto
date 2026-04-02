@@ -282,7 +282,7 @@ func writeTableOfContents(b *strings.Builder, c *contract.Contract, gr *graph.Re
 			fmt.Fprintf(b, "  - [%s. %s](#%s)\n", isec, heading, headingAnchor(isec+". "+heading))
 		}
 	}
-	if c.Configuration != nil && len(c.Configuration.EffectiveConfigs()) > 0 {
+	if hasConfigContent(c) {
 		sec := num.Next(1)
 		fmt.Fprintf(b, "- [%s. Configuration](#%s)\n", sec, headingAnchor(sec+". Configuration"))
 	}
@@ -310,7 +310,7 @@ func writeDependencyTOCEntry(b *strings.Builder, node *graph.Node, num *sectionN
 	if len(dc.Interfaces) > 0 {
 		fmt.Fprintf(b, "    - [%s. Interfaces](#%s-interfaces)\n", num.Next(3), anchor)
 	}
-	if dc.Configuration != nil && len(dc.Configuration.EffectiveConfigs()) > 0 {
+	if hasConfigContent(dc) {
 		fmt.Fprintf(b, "    - [%s. Configuration](#%s-configuration)\n", num.Next(3), anchor)
 	}
 	if len(dc.Dependencies) > 0 {
@@ -574,15 +574,26 @@ func writeInterfaces(b *strings.Builder, c *contract.Contract, fsys fs.FS, num *
 	writeInterfaceDetails(b, c, fsys, 3, num)
 }
 
-func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, num *sectionNumberer) {
+// hasConfigContent returns true if the contract has configuration content
+// worth rendering (schema or ref). Values-only configs are not renderable.
+func hasConfigContent(c *contract.Contract) bool {
 	if c.Configuration == nil {
+		return false
+	}
+	for _, cfg := range c.Configuration.EffectiveConfigs() {
+		if cfg.Schema != "" || cfg.Ref != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, num *sectionNumberer) {
+	if !hasConfigContent(c) {
 		return
 	}
 
 	configs := c.Configuration.EffectiveConfigs()
-	if len(configs) == 0 {
-		return
-	}
 	multiConfig := len(configs) > 1
 
 	// For single-config (legacy), render a flat table as before.
@@ -591,9 +602,6 @@ func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, nu
 		if cfg.Ref != "" {
 			fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
 			fmt.Fprintf(b, "References: `%s`\n\n", cfg.Ref)
-			return
-		}
-		if cfg.Schema == "" {
 			return
 		}
 		props, err := readSchemaProperties(fsys, cfg.Schema)

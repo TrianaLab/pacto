@@ -1207,23 +1207,35 @@ func TestGenerate_SingleConfigRefOnly(t *testing.T) {
 }
 
 func TestGenerate_EmptyConfiguration(t *testing.T) {
-	c := &contract.Contract{
-		PactoVersion:  "1.0",
-		Service:       contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Interfaces:    []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
-		Configuration: &contract.Configuration{},
-		Runtime: &contract.Runtime{
-			Workload: "service",
-			State:    contract.State{Type: "stateless", DataCriticality: "low"},
-		},
+	cases := []struct {
+		name string
+		cfg  *contract.Configuration
+	}{
+		{"nil", nil},
+		{"empty struct", &contract.Configuration{}},
+		{"values only", &contract.Configuration{Values: map[string]interface{}{"KEY": "val"}}},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &contract.Contract{
+				PactoVersion:  "1.0",
+				Service:       contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+				Interfaces:    []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
+				Configuration: tc.cfg,
+				Runtime: &contract.Runtime{
+					Workload: "service",
+					State:    contract.State{Type: "stateless", DataCriticality: "low"},
+				},
+			}
 
-	md, err := Generate(c, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+			md, err := Generate(c, nil, nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
-	if strings.Contains(md, "Configuration") {
-		t.Errorf("empty configuration should not produce a section:\n%s", md)
+			if strings.Contains(md, "Configuration") {
+				t.Errorf("configuration %q should not produce a section:\n%s", tc.name, md)
+			}
+		})
 	}
 }
