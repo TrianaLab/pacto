@@ -117,7 +117,10 @@ func (c *Configuration) EffectiveConfigs() []EffectiveConfigSource {
 
 // PolicySource declares a policy constraint source.
 // Each entry provides either a local JSON Schema file or a reference to an
-// external contract whose bundle contains the policy schema at policy/schema.json.
+// external contract. When resolving a ref, if the referenced contract declares
+// its own policies[] entries, those schemas are used directly (supporting custom
+// paths and multiple schemas). Otherwise, the fixed path policy/schema.json is
+// used as a backward-compatible fallback.
 // A policy schema validates the contract itself, enabling platform teams to
 // enforce organizational standards. Schema and Ref are mutually exclusive.
 type PolicySource struct {

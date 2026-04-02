@@ -247,6 +247,8 @@ Example policy schema (`policy/schema.json`) requiring all contracts to have a h
 }
 ```
 
+Policy providers SHOULD declare their schemas explicitly in `policies[]` for full control over schema paths and multi-schema support. The fixed `policy/schema.json` path is a legacy fallback used only when the referenced contract has no `policies[]` entries.
+
 Policy references support recursive resolution — if the referenced contract itself has a `policies[].ref`, Pacto follows the chain with cycle detection.
 
 See [policies]({{ site.baseurl }}{% link contract-reference.md %}#policies) in the Contract Reference for the full specification.

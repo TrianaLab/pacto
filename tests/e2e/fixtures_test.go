@@ -746,6 +746,28 @@ func writeBundleDirWithPolicy(t *testing.T, dir, contractYAML string, policySche
 	return dir
 }
 
+// writeBundleDirWithPolicies creates a bundle with policy schemas at custom paths.
+// schemas maps relative file paths (e.g. "policy/custom.json") to JSON schema content.
+func writeBundleDirWithPolicies(t *testing.T, dir, contractYAML string, schemas map[string]string) string {
+	t.Helper()
+
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	for path, content := range schemas {
+		full := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	return dir
+}
+
 // writeOpenAPIDiffBundleV1 creates a bundle with the v1 OpenAPI spec.
 func writeOpenAPIDiffBundleV1(t *testing.T) string {
 	t.Helper()

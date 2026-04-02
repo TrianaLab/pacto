@@ -469,7 +469,7 @@ When present, each entry must have either `schema` or `ref` specified.
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `schema` | string | Conditional | Non-empty. Path to a JSON Schema file in the bundle (convention: `policy/schema.json`). Required if `ref` is not set |
-| `ref` | string | Conditional | Non-empty. OCI or local reference to another Pacto contract whose bundle contains the policy schema at the fixed path `policy/schema.json`. Required if `schema` is not set |
+| `ref` | string | Conditional | Non-empty. OCI or local reference to another Pacto contract. If the referenced contract declares `policies[]`, those schemas are used directly; otherwise falls back to the fixed path `policy/schema.json`. Required if `schema` is not set |
 
 **`schema` and `ref` are mutually exclusive** — a contract either defines its own policy inline or references an external one, not both.
 
@@ -519,7 +519,7 @@ policies:
   - ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
 ```
 
-The referenced contract's bundle must have the policy schema at the fixed path `policy/schema.json`. The reference supports recursive resolution: if the referenced contract itself has a `policies[].ref`, Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
+When a consumer references a policy contract, Pacto uses conditional resolution: if the referenced contract explicitly declares `policies[]` entries, those schemas are used directly (supporting custom paths and multiple schemas). If the referenced contract has no `policies[]` entries, Pacto falls back to reading the fixed path `policy/schema.json`. The reference supports recursive resolution: if the referenced contract itself has a `policies[].ref`, Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
 
 {: .tip }
 Like `configuration.ref`, policy references create **reference edges** in the dependency graph. Use `pacto graph --with-references` to see them alongside dependencies.

@@ -648,9 +648,11 @@ func TestResolvePoliciesWithResolver_NHopChain(t *testing.T) {
 	if !result.IsValid() {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
-	// Should have 2 policies: A's policy/schema.json + B's policy/schema.json
-	if len(policies) != 2 {
-		t.Fatalf("expected 2 policies from N-hop chain, got %d", len(policies))
+	// A has explicit policies[], so recursion is used (no fixed-path duplication).
+	// B has no policies[], so its policy/schema.json is read via fixed-path fallback.
+	// Result: 1 policy (B's schema only, resolved via A's policies[0].ref → B).
+	if len(policies) != 1 {
+		t.Fatalf("expected 1 policy from N-hop chain (A uses recursion, B uses fallback), got %d", len(policies))
 	}
 }
 
@@ -826,5 +828,138 @@ func TestResolveLocalPolicySchema_NilBundleFS(t *testing.T) {
 	rp := resolveLocalPolicySchema(nil, "policy.json", "test", 0)
 	if rp != nil {
 		t.Error("expected nil for nil bundleFS")
+	}
+}
+
+func TestResolvePoliciesWithResolver_RefBundleWithExplicitPolicies(t *testing.T) {
+	// Provider declares policies: [{schema: policy/schema.json}] explicitly.
+	// Consumer should get exactly 1 policy (not 2 from double enforcement).
+	refBundle := &contract.Bundle{
+		Contract: &contract.Contract{
+			Policies: []contract.PolicySource{{Schema: "policy/schema.json"}},
+		},
+		FS: fstest.MapFS{
+			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
+		},
+	}
+	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
+		"oci://example.com/policy:1.0": refBundle,
+	}}
+	c := &contract.Contract{
+		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
+	if !result.IsValid() {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+	if len(policies) != 1 {
+		t.Fatalf("expected 1 policy (no double enforcement), got %d", len(policies))
+	}
+}
+
+func TestResolvePoliciesWithResolver_RefBundleCustomSchemaPath(t *testing.T) {
+	// Provider uses custom path policies: [{schema: policy/custom.json}]
+	// with NO policy/schema.json. Should resolve successfully via recursion.
+	refBundle := &contract.Bundle{
+		Contract: &contract.Contract{
+			Policies: []contract.PolicySource{{Schema: "policy/custom.json"}},
+		},
+		FS: fstest.MapFS{
+			"policy/custom.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
+		},
+	}
+	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
+		"oci://example.com/policy:1.0": refBundle,
+	}}
+	c := &contract.Contract{
+		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
+	if !result.IsValid() {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+	if len(policies) != 1 {
+		t.Fatalf("expected 1 policy from custom schema path, got %d", len(policies))
+	}
+}
+
+func TestResolvePoliciesWithResolver_RefBundleMultiplePolicies(t *testing.T) {
+	// Provider declares 2 policy schemas. Consumer should get both.
+	refBundle := &contract.Bundle{
+		Contract: &contract.Contract{
+			Policies: []contract.PolicySource{
+				{Schema: "policy/scaling.json"},
+				{Schema: "policy/naming.json"},
+			},
+		},
+		FS: fstest.MapFS{
+			"policy/scaling.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
+			"policy/naming.json":  &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["pactoVersion"]}`)},
+		},
+	}
+	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
+		"oci://example.com/policy:1.0": refBundle,
+	}}
+	c := &contract.Contract{
+		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
+	if !result.IsValid() {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+	if len(policies) != 2 {
+		t.Fatalf("expected 2 policies from multi-schema provider, got %d", len(policies))
+	}
+}
+
+func TestResolvePoliciesWithResolver_RefBundleEmptyPoliciesSlice(t *testing.T) {
+	// Provider has Policies: [] (empty slice) — should fall back to fixed-path.
+	refBundle := &contract.Bundle{
+		Contract: &contract.Contract{
+			Policies: []contract.PolicySource{},
+		},
+		FS: fstest.MapFS{
+			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
+		},
+	}
+	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
+		"oci://example.com/policy:1.0": refBundle,
+	}}
+	c := &contract.Contract{
+		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
+	if !result.IsValid() {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+	if len(policies) != 1 {
+		t.Fatalf("expected 1 policy from fixed-path fallback, got %d", len(policies))
+	}
+}
+
+func TestResolvePoliciesWithResolver_RefBundleNoPoliciesNoFixedPath(t *testing.T) {
+	// Provider has no policies[] AND no policy/schema.json — should error.
+	refBundle := &contract.Bundle{
+		Contract: &contract.Contract{},
+		FS:       fstest.MapFS{},
+	}
+	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
+		"oci://example.com/policy:1.0": refBundle,
+	}}
+	c := &contract.Contract{
+		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
+	}
+	_, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
+	if result.IsValid() {
+		t.Fatal("expected error when no policies[] and no fixed-path schema")
+	}
+	found := false
+	for _, e := range result.Errors {
+		if e.Code == "POLICY_REF_UNRESOLVED" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected POLICY_REF_UNRESOLVED error")
 	}
 }

@@ -570,6 +570,250 @@ runtime:
 	assertContains(t, output, "Pushed compliant-svc@1.0.0")
 }
 
+func TestPushPolicyProviderWithExplicitPolicies(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// Push a policy provider that declares policies: [{schema: policy/schema.json}]
+	policyDir := filepath.Join(t.TempDir(), "explicit-policy")
+	if err := os.MkdirAll(policyDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	policyYAML := `pactoVersion: "1.0"
+service:
+  name: explicit-policy
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - schema: policy/schema.json
+`
+	policyBundlePath := writeBundleDirWithPolicies(t, policyDir, policyYAML, map[string]string{
+		"policy/schema.json": `{"type":"object","required":["service"]}`,
+	})
+	if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/explicit-policy:1.0.0", "-p", policyBundlePath)
+	if err != nil {
+		t.Fatalf("failed to push policy bundle: %v", err)
+	}
+
+	// Consumer references this policy — should validate with exactly 1 policy (no double enforcement)
+	svcDir := filepath.Join(t.TempDir(), "consumer-explicit")
+	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+service:
+  name: consumer-explicit
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: interfaces/openapi.yaml
+policies:
+  - ref: oci://%s/explicit-policy:1.0.0
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`, reg.host)
+	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "consumer-explicit", "1.0.0"),
+	})
+
+	output, err := runCommand(t, reg, "validate", svcBundlePath)
+	if err != nil {
+		t.Fatalf("validate failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "is valid")
+}
+
+func TestPushPolicyProviderWithCustomSchemaPath(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// Push a policy provider with custom path and NO policy/schema.json
+	policyDir := filepath.Join(t.TempDir(), "custom-path-policy")
+	if err := os.MkdirAll(policyDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	policyYAML := `pactoVersion: "1.0"
+service:
+  name: custom-path-policy
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - schema: policy/custom.json
+`
+	policyBundlePath := writeBundleDirWithPolicies(t, policyDir, policyYAML, map[string]string{
+		"policy/custom.json": `{"type":"object","required":["service"]}`,
+	})
+	if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/custom-path-policy:1.0.0", "-p", policyBundlePath)
+	if err != nil {
+		t.Fatalf("failed to push policy bundle: %v", err)
+	}
+
+	// Consumer references this policy — should resolve via recursion (no fixed-path needed)
+	svcDir := filepath.Join(t.TempDir(), "consumer-custom")
+	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+service:
+  name: consumer-custom
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: interfaces/openapi.yaml
+policies:
+  - ref: oci://%s/custom-path-policy:1.0.0
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`, reg.host)
+	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "consumer-custom", "1.0.0"),
+	})
+
+	output, err := runCommand(t, reg, "validate", svcBundlePath)
+	if err != nil {
+		t.Fatalf("validate failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "is valid")
+}
+
+func TestPushPolicyProviderWithMultiplePolicies(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// Push a policy provider with 2 schemas
+	policyDir := filepath.Join(t.TempDir(), "multi-policy")
+	if err := os.MkdirAll(policyDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// The provider itself must comply with its own policies, so both schemas
+	// must be satisfiable by the provider's contract.
+	policyYAML := `pactoVersion: "1.0"
+service:
+  name: multi-policy
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+policies:
+  - schema: policy/service.json
+  - schema: policy/runtime.json
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+	policyBundlePath := writeBundleDirWithPolicies(t, policyDir, policyYAML, map[string]string{
+		"policy/service.json": `{"type":"object","required":["service"]}`,
+		"policy/runtime.json": `{"type":"object","required":["runtime"],"properties":{"runtime":{"type":"object","required":["health"]}}}`,
+	})
+	if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/multi-policy:1.0.0", "-p", policyBundlePath)
+	if err != nil {
+		t.Fatalf("failed to push policy bundle: %v", err)
+	}
+
+	// Consumer that complies with both policies
+	svcDir := filepath.Join(t.TempDir(), "consumer-multi")
+	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+service:
+  name: consumer-multi
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: interfaces/openapi.yaml
+policies:
+  - ref: oci://%s/multi-policy:1.0.0
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`, reg.host)
+	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "consumer-multi", "1.0.0"),
+	})
+
+	output, err := runCommand(t, reg, "validate", svcBundlePath)
+	if err != nil {
+		t.Fatalf("validate failed: %v\noutput: %s", err, output)
+	}
+	assertContains(t, output, "is valid")
+
+	// Consumer that violates runtime policy (no health) — should fail
+	svcDir2 := filepath.Join(t.TempDir(), "consumer-multi-fail")
+	svcYAML2 := fmt.Sprintf(`pactoVersion: "1.0"
+service:
+  name: consumer-multi-fail
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: interfaces/openapi.yaml
+policies:
+  - ref: oci://%s/multi-policy:1.0.0
+`, reg.host)
+	svcBundlePath2 := writeBundleDir(t, svcDir2, svcYAML2, map[string]string{
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "consumer-multi-fail", "1.0.0"),
+	})
+
+	output2, err := runCommand(t, reg, "validate", svcBundlePath2)
+	if err == nil {
+		t.Fatalf("expected validation to fail for multi-policy violation, output: %s", output2)
+	}
+	assertContains(t, output2, "POLICY_VIOLATION")
+}
+
 func TestPushRejectsLocalConfigRef(t *testing.T) {
 	t.Parallel()
 	reg := newTestRegistry(t)

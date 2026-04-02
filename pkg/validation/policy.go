@@ -199,9 +199,15 @@ func resolveRefPolicy(ctx context.Context, ref, origin string, resolver BundleRe
 		return nil, result
 	}
 
-	var policies []ResolvedPolicy
+	// If the referenced bundle explicitly declares policies[], use those
+	// (recursion only). Otherwise, fall back to the fixed-path policy/schema.json
+	// for backward compatibility.
+	if bundle.Contract != nil && len(bundle.Contract.Policies) > 0 {
+		childPath := append(append([]string{}, path...), ref)
+		return resolvePoliciesRecursive(ctx, bundle.Contract, bundle.FS, resolver, visited, childPath)
+	}
 
-	// Read the fixed-path policy schema from the referenced bundle.
+	// Legacy fallback: read fixed-path policy schema.
 	data, err := fs.ReadFile(bundle.FS, PolicySchemaPath)
 	if err != nil {
 		result.AddError("", "POLICY_REF_UNRESOLVED",
@@ -219,17 +225,8 @@ func resolveRefPolicy(ctx context.Context, ref, origin string, resolver BundleRe
 			fmt.Sprintf("policy %s: ref %q %s failed to compile: %v", origin, ref, PolicySchemaPath, err))
 		return nil, result
 	}
-	policies = append(policies, ResolvedPolicy{Origin: origin, Schema: schema})
 
-	// Recurse into the referenced bundle's own policies.
-	if bundle.Contract != nil && len(bundle.Contract.Policies) > 0 {
-		childPath := append(append([]string{}, path...), ref)
-		childPolicies, childResult := resolvePoliciesRecursive(ctx, bundle.Contract, bundle.FS, resolver, visited, childPath)
-		policies = append(policies, childPolicies...)
-		result.Merge(childResult)
-	}
-
-	return policies, result
+	return []ResolvedPolicy{{Origin: origin, Schema: schema}}, result
 }
 
 // compilePolicySchema compiles a JSON Schema from raw bytes for policy enforcement.
