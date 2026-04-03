@@ -1865,15 +1865,15 @@ func TestCollectDerived_AllInferences(t *testing.T) {
 func TestAssessSections_Full(t *testing.T) {
 	port := 8080
 	c := &contract.Contract{
-		PactoVersion:  "1.0",
-		Service:       contract.ServiceIdentity{Name: "test", Version: "1.0.0"},
-		Interfaces:    []contract.Interface{{Name: "api", Type: "http", Port: &port}},
-		Runtime:       &contract.Runtime{Workload: "service", State: contract.State{Type: "stateless"}},
+		PactoVersion:   "1.0",
+		Service:        contract.ServiceIdentity{Name: "test", Version: "1.0.0"},
+		Interfaces:     []contract.Interface{{Name: "api", Type: "http", Port: &port}},
+		Runtime:        &contract.Runtime{Workload: "service", State: contract.State{Type: "stateless"}},
 		Configurations: []contract.ConfigurationSource{{Name: "default", Schema: "schema.json"}},
 		Dependencies:   []contract.Dependency{{Name: "pg", Ref: "pg", Compatibility: "^1.0.0"}},
-		Scaling:       &contract.Scaling{Min: 1, Max: 3},
-		Metadata:      map[string]interface{}{"team": "x"},
-		Policies:      []contract.PolicySource{{Name: "local", Schema: "policy/schema.json"}},
+		Scaling:        &contract.Scaling{Min: 1, Max: 3},
+		Metadata:       map[string]interface{}{"team": "x"},
+		Policies:       []contract.PolicySource{{Name: "local", Schema: "policy/schema.json"}},
 	}
 	s := assessSections(c)
 	for _, key := range []string{"service", "interfaces", "runtime", "configuration", "dependencies", "scaling", "metadata", "policies"} {
@@ -2248,9 +2248,9 @@ func TestBuildBundleFSForValidation_WalkDirErrorsSkipped(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	port := 8080
 	c := &contract.Contract{
-		PactoVersion:  "1.0",
-		Service:       contract.ServiceIdentity{Name: "test", Version: "1.0.0"},
-		Interfaces:    []contract.Interface{{Name: "new-api", Type: "http", Port: &port, Contract: "interfaces/new-api.yaml"}},
+		PactoVersion:   "1.0",
+		Service:        contract.ServiceIdentity{Name: "test", Version: "1.0.0"},
+		Interfaces:     []contract.Interface{{Name: "new-api", Type: "http", Port: &port, Contract: "interfaces/new-api.yaml"}},
 		Configurations: []contract.ConfigurationSource{{Name: "default", Schema: "configuration/schema.json"}},
 	}
 	result := buildBundleFSForValidation(dir, []byte("test"), c)
@@ -2452,6 +2452,31 @@ func TestEdit_YAMLMarshalError(t *testing.T) {
 // --- Test helpers ---
 
 // brokenFS is a filesystem that returns errors for all operations.
+func TestRewireHealthMetricsIfNeeded_NonMapInterface(t *testing.T) {
+	rt := map[string]interface{}{}
+	m := map[string]interface{}{
+		"interfaces": []interface{}{
+			"not-a-map", // triggers the non-map branch in the loop
+			map[string]interface{}{"name": "api", "type": "http"},
+		},
+	}
+	rewireHealthMetricsIfNeeded(rt, m)
+	if _, ok := rt["health"]; !ok {
+		t.Error("expected health to be wired from the valid interface entry")
+	}
+}
+
+func TestRewireHealthMetricsIfNeeded_InterfacesNotSlice(t *testing.T) {
+	rt := map[string]interface{}{}
+	m := map[string]interface{}{
+		"interfaces": "not-a-slice", // triggers the !ok return on type assertion
+	}
+	rewireHealthMetricsIfNeeded(rt, m)
+	if _, ok := rt["health"]; ok {
+		t.Error("expected no health when interfaces is not a slice")
+	}
+}
+
 type brokenFS struct{}
 
 func (b *brokenFS) Open(name string) (fs.File, error) {

@@ -1349,6 +1349,116 @@ func TestValidateConfigValues_MultiConfigsWithoutSchema(t *testing.T) {
 	}
 }
 
+// --- Duplicate name validation ---
+
+func TestValidateConfigurationNamesUnique_Duplicates(t *testing.T) {
+	c := validContract()
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Schema: "config/app.json"},
+		{Name: "db", Schema: "config/db.json"},
+		{Name: "app", Schema: "config/app2.json"},
+	}
+	var result ValidationResult
+	validateConfigurationNamesUnique(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for duplicate configuration name")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d", len(result.Errors))
+	}
+	if result.Errors[0].Code != "DUPLICATE_CONFIGURATION_NAME" {
+		t.Errorf("expected code DUPLICATE_CONFIGURATION_NAME, got %s", result.Errors[0].Code)
+	}
+	if result.Errors[0].Path != "configurations[2].name" {
+		t.Errorf("expected path configurations[2].name, got %s", result.Errors[0].Path)
+	}
+}
+
+func TestValidateConfigurationNamesUnique_NoDuplicates(t *testing.T) {
+	c := validContract()
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Schema: "config/app.json"},
+		{Name: "db", Schema: "config/db.json"},
+	}
+	var result ValidationResult
+	validateConfigurationNamesUnique(c, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for unique configuration names, got %v", result.Errors)
+	}
+}
+
+func TestValidatePolicyNamesUnique_Duplicates(t *testing.T) {
+	c := validContract()
+	c.Policies = []contract.PolicySource{
+		{Name: "security", Schema: "policy/security.json"},
+		{Name: "compliance", Schema: "policy/compliance.json"},
+		{Name: "security", Ref: "oci://ghcr.io/acme/policy:1.0.0"},
+	}
+	var result ValidationResult
+	validatePolicyNamesUnique(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for duplicate policy name")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d", len(result.Errors))
+	}
+	if result.Errors[0].Code != "DUPLICATE_POLICY_NAME" {
+		t.Errorf("expected code DUPLICATE_POLICY_NAME, got %s", result.Errors[0].Code)
+	}
+	if result.Errors[0].Path != "policies[2].name" {
+		t.Errorf("expected path policies[2].name, got %s", result.Errors[0].Path)
+	}
+}
+
+func TestValidatePolicyNamesUnique_NoDuplicates(t *testing.T) {
+	c := validContract()
+	c.Policies = []contract.PolicySource{
+		{Name: "security", Schema: "policy/security.json"},
+		{Name: "compliance", Schema: "policy/compliance.json"},
+	}
+	var result ValidationResult
+	validatePolicyNamesUnique(c, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for unique policy names, got %v", result.Errors)
+	}
+}
+
+func TestValidateDependencyNamesUnique_Duplicates(t *testing.T) {
+	c := validContract()
+	c.Dependencies = []contract.Dependency{
+		{Name: "auth", Ref: "oci://ghcr.io/acme/auth@sha256:abc123", Compatibility: "^1.0.0"},
+		{Name: "cache", Ref: "oci://ghcr.io/acme/cache@sha256:def456", Compatibility: "^2.0.0"},
+		{Name: "auth", Ref: "oci://ghcr.io/acme/auth@sha256:xyz789", Compatibility: "^1.1.0"},
+	}
+	var result ValidationResult
+	validateDependencyNamesUnique(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for duplicate dependency name")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d", len(result.Errors))
+	}
+	if result.Errors[0].Code != "DUPLICATE_DEPENDENCY_NAME" {
+		t.Errorf("expected code DUPLICATE_DEPENDENCY_NAME, got %s", result.Errors[0].Code)
+	}
+	if result.Errors[0].Path != "dependencies[2].name" {
+		t.Errorf("expected path dependencies[2].name, got %s", result.Errors[0].Path)
+	}
+}
+
+func TestValidateDependencyNamesUnique_NoDuplicates(t *testing.T) {
+	c := validContract()
+	c.Dependencies = []contract.Dependency{
+		{Name: "auth", Ref: "oci://ghcr.io/acme/auth@sha256:abc123", Compatibility: "^1.0.0"},
+		{Name: "cache", Ref: "oci://ghcr.io/acme/cache@sha256:def456", Compatibility: "^2.0.0"},
+	}
+	var result ValidationResult
+	validateDependencyNamesUnique(c, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for unique dependency names, got %v", result.Errors)
+	}
+}
+
 func TestValidateConfigValues_MultiConfigsExternalRef(t *testing.T) {
 	c := validContract()
 	c.Configurations = []contract.ConfigurationSource{

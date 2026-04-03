@@ -117,6 +117,12 @@ func TestClassify_NameIndexedPaths(t *testing.T) {
 		{"policies.ref", Added, NonBreaking},
 		{"policies.ref", Removed, PotentialBreaking},
 
+		// Indexed paths (array indices stripped before lookup)
+		{"configurations[0].schema", Modified, PotentialBreaking},
+		{"configurations[0].schema", Added, NonBreaking},
+		{"configurations[0].schema", Removed, Breaking},
+		{"policies[1].ref", Modified, PotentialBreaking},
+
 		// Dependencies
 		{"dependencies", Added, NonBreaking},
 		{"dependencies", Removed, Breaking},

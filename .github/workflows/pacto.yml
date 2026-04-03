@@ -31,15 +31,15 @@ jobs:
         with:
           go-version: '1.25'
 
-      # On push-to-main, build pacto from source to avoid a race condition
-      # with the auto-release workflow that creates the release concurrently.
-      # On PRs and releases, download the latest published release instead.
+      # Build pacto from source so that bundle generation and validation
+      # always use the contract model from this branch. On releases, fall
+      # back to the published binary via pacto-actions.
       - name: Build pacto from source
-        if: github.event_name == 'push'
+        if: github.event_name != 'release'
         run: go install ./cmd/pacto
 
       - name: Install official plugins
-        if: github.event_name == 'push'
+        if: github.event_name != 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -52,7 +52,7 @@ jobs:
           done
 
       - uses: trianalab/pacto-actions@v1
-        if: github.event_name != 'push'
+        if: github.event_name == 'release'
         with:
           command: setup
 
@@ -64,12 +64,8 @@ jobs:
         run: make gen-bundle
 
       # Validate the generated contract
-      - uses: trianalab/pacto-actions@v1
-        with:
-          command: validate
-          path: ./pactos/pacto-dashboard
-          set: |
-            service.version=0.1.0
+      - name: Validate contract
+        run: pacto validate ./pactos/pacto-dashboard --set service.version=0.1.0
 
       # Upload bundle as artifact for later use
       - name: Upload bundle artifact
@@ -79,27 +75,23 @@ jobs:
           path: pactos/pacto-dashboard/
 
       # On PRs: diff against the published contract
-      - uses: trianalab/pacto-actions@v1
+      # On PRs: diff against the published contract
+      - name: Contract diff
         if: github.event_name == 'pull_request'
-        with:
-          command: diff
-          old: oci://ghcr.io/trianalab/pactos/pacto-dashboard
-          new: ./pactos/pacto-dashboard
-          new-set: |
-            service.version=0.0.0-pr.${{ github.event.pull_request.number }}
-          fail-on-breaking: 'false'
-          comment-on-pr: 'true'
-          output-format: markdown
+        continue-on-error: true
+        run: |
+          pacto diff \
+            oci://ghcr.io/trianalab/pactos/pacto-dashboard \
+            ./pactos/pacto-dashboard \
+            --new-set service.version=0.0.0-pr.${{ github.event.pull_request.number }} \
+            -o markdown || true
 
-      # On PRs: generate docs as PR comment
-      - uses: trianalab/pacto-actions@v1
+      # On PRs: generate docs
+      - name: Contract doc
         if: github.event_name == 'pull_request'
-        with:
-          command: doc
-          path: ./pactos/pacto-dashboard
-          set: |
-            service.version=0.0.0-pr.${{ github.event.pull_request.number }}
-          comment-on-pr: 'true'
+        run: |
+          pacto doc ./pactos/pacto-dashboard \
+            --set service.version=0.0.0-pr.${{ github.event.pull_request.number }}
 
   publish:
     if: >-
