@@ -57,7 +57,7 @@ type pactoStatus struct {
 	Contract           *k8sContractInfo         `json:"contract,omitempty"`
 	Validation         *k8sValidation           `json:"validation,omitempty"`
 	Interfaces         flexSlice[k8sInterface]  `json:"interfaces,omitempty"`
-	Configuration      *k8sConfig               `json:"configuration,omitempty"`
+	Configurations     flexSlice[k8sConfig]     `json:"configurations,omitempty"`
 	Policies           flexSlice[k8sPolicy]     `json:"policies,omitempty"`
 	Dependencies       flexSlice[k8sDependency] `json:"dependencies,omitempty"`
 	Runtime            *k8sRuntime              `json:"runtime,omitempty"`
@@ -126,6 +126,7 @@ type k8sInterface struct {
 }
 
 type k8sConfig struct {
+	Name       string   `json:"name"`
 	HasSchema  bool     `json:"hasSchema"`
 	Ref        string   `json:"ref,omitempty"`
 	ValueKeys  []string `json:"valueKeys,omitempty"`
@@ -133,12 +134,14 @@ type k8sConfig struct {
 }
 
 type k8sPolicy struct {
+	Name      string `json:"name"`
 	HasSchema bool   `json:"hasSchema"`
 	Schema    string `json:"schema,omitempty"`
 	Ref       string `json:"ref,omitempty"`
 }
 
 type k8sDependency struct {
+	Name          string `json:"name"`
 	Ref           string `json:"ref"`
 	Required      bool   `json:"required"`
 	Compatibility string `json:"compatibility"`
@@ -546,21 +549,21 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 		})
 	}
 
-	// Configuration — the K8s CRD status uses singular Configuration;
-	// wrap into the plural Configurations model with a default name.
-	if r.Status.Configuration != nil {
-		svc.Configurations = []ConfigurationInfo{{
-			Name:       "default",
-			HasSchema:  r.Status.Configuration.HasSchema,
-			Ref:        r.Status.Configuration.Ref,
-			ValueKeys:  r.Status.Configuration.ValueKeys,
-			SecretKeys: r.Status.Configuration.SecretKeys,
-		}}
+	// Configurations
+	for _, cfg := range r.Status.Configurations {
+		svc.Configurations = append(svc.Configurations, ConfigurationInfo{
+			Name:       cfg.Name,
+			HasSchema:  cfg.HasSchema,
+			Ref:        cfg.Ref,
+			ValueKeys:  cfg.ValueKeys,
+			SecretKeys: cfg.SecretKeys,
+		})
 	}
 
 	// Policies
 	for _, pol := range r.Status.Policies {
 		svc.Policies = append(svc.Policies, PolicyInfo{
+			Name:      pol.Name,
 			HasSchema: pol.HasSchema,
 			Schema:    pol.Schema,
 			Ref:       pol.Ref,
@@ -570,7 +573,7 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 	// Dependencies
 	for _, d := range r.Status.Dependencies {
 		svc.Dependencies = append(svc.Dependencies, DependencyInfo{
-			Name:          extractServiceNameFromRef(d.Ref),
+			Name:          d.Name,
 			Ref:           d.Ref,
 			Required:      d.Required,
 			Compatibility: d.Compatibility,

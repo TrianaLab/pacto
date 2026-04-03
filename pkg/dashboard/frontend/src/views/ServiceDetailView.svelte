@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { navigate, serviceUrl, diffUrl, ownerUrl } from '../lib/router.ts';
   import { statusClass, complianceClass, classificationClass, sourceTooltip, versionPolicyLabel, versionPolicyClass, ownerDisplay, ownerKey, ownerIsStructured } from '../lib/format.ts';
@@ -136,7 +136,7 @@
     if (openSections[id] === false) openSections = { ...openSections, [id]: true };
   }
 
-  let initialTick = refreshTick;
+  let initialTick = untrack(() => refreshTick);
 
   $effect(() => {
     if (refreshTick > initialTick) {

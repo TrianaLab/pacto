@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl } from '../lib/router.ts';
   import { classificationClass } from '../lib/format.ts';
@@ -12,13 +12,13 @@
     services = [],
   } = $props();
 
-  // Service selection for from/to
-  let fromName = $state(initialFromName || name || '');
-  let toName = $state(initialToName || name || '');
+  // Service selection for from/to — seeded from props via untrack (initial values only).
+  let fromName = $state(untrack(() => initialFromName || name || ''));
+  let toName = $state(untrack(() => initialToName || name || ''));
   let fromVersions = $state([]);
   let toVersions = $state([]);
-  let fromVer = $state(initialFrom);
-  let toVer = $state(initialTo);
+  let fromVer = $state(untrack(() => initialFrom));
+  let toVer = $state(untrack(() => initialTo));
   let loading = $state(false);
   let error = $state(null);
   let result = $state(null);

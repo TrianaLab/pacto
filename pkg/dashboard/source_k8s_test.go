@@ -351,6 +351,9 @@ func assertDetailsConfig(t *testing.T, d *ServiceDetails) {
 		t.Fatal("expected 1 configuration entry")
 	}
 	cfg := d.Configurations[0]
+	if cfg.Name != "default" {
+		t.Errorf("config name: got %q, want %q", cfg.Name, "default")
+	}
 	if !cfg.HasSchema || cfg.Ref != "config-ref" {
 		t.Errorf("configuration mismatch: %+v", cfg)
 	}
@@ -364,8 +367,12 @@ func assertDetailsPolicy(t *testing.T, d *ServiceDetails) {
 	if len(d.Policies) != 1 {
 		t.Fatal("expected 1 policy entry")
 	}
-	if !d.Policies[0].HasSchema || d.Policies[0].Schema != "policy.json" || d.Policies[0].Ref != "policy-ref" {
-		t.Errorf("policy mismatch: %+v", d.Policies[0])
+	pol := d.Policies[0]
+	if pol.Name != "security" {
+		t.Errorf("policy name: got %q, want %q", pol.Name, "security")
+	}
+	if !pol.HasSchema || pol.Schema != "policy.json" || pol.Ref != "policy-ref" {
+		t.Errorf("policy mismatch: %+v", pol)
 	}
 }
 
@@ -375,6 +382,9 @@ func assertDetailsDeps(t *testing.T, d *ServiceDetails) {
 		t.Fatalf("expected 1 dependency, got %d", len(d.Dependencies))
 	}
 	dep := d.Dependencies[0]
+	if dep.Name != "auth" {
+		t.Errorf("dependency name: got %q, want %q", dep.Name, "auth")
+	}
 	if dep.Ref != "auth@^1.0.0" || !dep.Required || dep.Compatibility != "strict" {
 		t.Errorf("dependency mismatch: %+v", dep)
 	}
@@ -515,9 +525,9 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	r.Status.Contract = &k8sContractInfo{ServiceName: "billing", Version: "1.0.0", Owner: contract.NewOwnerFromString("payments"), ImageRef: "ghcr.io/org/billing:1.2.3", ResolvedRef: "sha256:abc"}
 	r.Status.Metadata = map[string]string{"team": "platform", "env": "prod"}
 	r.Status.Interfaces = flexSlice[k8sInterface]{{Name: "http", Type: "http", Port: &port, Visibility: "public", HasContractFile: true}}
-	r.Status.Configuration = &k8sConfig{HasSchema: true, Ref: "config-ref", ValueKeys: []string{"key1"}, SecretKeys: []string{"secret1"}}
-	r.Status.Policies = flexSlice[k8sPolicy]{{HasSchema: true, Schema: "policy.json", Ref: "policy-ref"}}
-	r.Status.Dependencies = flexSlice[k8sDependency]{{Ref: "auth@^1.0.0", Required: true, Compatibility: "strict"}}
+	r.Status.Configurations = flexSlice[k8sConfig]{{Name: "default", HasSchema: true, Ref: "config-ref", ValueKeys: []string{"key1"}, SecretKeys: []string{"secret1"}}}
+	r.Status.Policies = flexSlice[k8sPolicy]{{Name: "security", HasSchema: true, Schema: "policy.json", Ref: "policy-ref"}}
+	r.Status.Dependencies = flexSlice[k8sDependency]{{Name: "auth", Ref: "auth@^1.0.0", Required: true, Compatibility: "strict"}}
 	r.Status.Runtime = &k8sRuntime{Workload: "service", StateType: "stateless", PersistenceScope: "none", PersistenceDurability: "ephemeral", DataCriticality: "low", UpgradeStrategy: "rolling", GracefulShutdownSeconds: &graceful, HealthInterface: "http", HealthPath: "/healthz", MetricsInterface: "http", MetricsPath: "/metrics"}
 	r.Status.Scaling = &k8sScaling{Replicas: &replicas, Min: &minR, Max: &maxR}
 	r.Status.Validation = &k8sValidation{Valid: false, Errors: []k8sIssue{{Code: "E001", Path: "/service/name", Message: "name is required"}}, Warnings: []k8sIssue{{Code: "W001", Path: "/runtime", Message: "deprecated field"}}}
