@@ -21,7 +21,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Configuration" count={configs.length > 1 ? configs.length : null} bind:open {id}>
+  <CollapsibleSection title="Configurations" count={configs.length} bind:open {id}>
     {#each configs as config, i}
       <div class="detail-card">
         <button type="button" class="detail-card-header" class:expandable={hasDetails(config)} onclick={() => hasDetails(config) && toggle(i)}>
@@ -32,9 +32,7 @@
               </span>
             {/if}
             <span class="pill {config.ref ? 'pill-ref' : 'pill-local'}">{config.ref ? 'Remote' : 'Local'}</span>
-            {#if config.name}
-              <span class="detail-card-title">{config.name}</span>
-            {/if}
+            <span class="detail-card-title">{config.name}</span>
             {#if config.schema}
               <code class="detail-card-sub">{config.schema}</code>
             {/if}

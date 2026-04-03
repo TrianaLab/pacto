@@ -546,9 +546,11 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 		})
 	}
 
-	// Configuration
+	// Configuration — the K8s CRD status uses singular Configuration;
+	// wrap into the plural Configurations model with a default name.
 	if r.Status.Configuration != nil {
 		svc.Configurations = []ConfigurationInfo{{
+			Name:       "default",
 			HasSchema:  r.Status.Configuration.HasSchema,
 			Ref:        r.Status.Configuration.Ref,
 			ValueKeys:  r.Status.Configuration.ValueKeys,

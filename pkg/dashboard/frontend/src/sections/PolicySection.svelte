@@ -28,9 +28,7 @@
               </span>
             {/if}
             <span class="pill {pol.ref ? 'pill-ref' : 'pill-local'}">{pol.ref ? 'Remote' : 'Local'}</span>
-            {#if pol.name}
-              <span class="detail-card-title">{pol.name}</span>
-            {/if}
+            <span class="detail-card-title">{pol.name}</span>
             {#if pol.title && pol.title !== pol.name}
               <span class="detail-card-sub">{pol.title}</span>
             {:else if pol.schema}

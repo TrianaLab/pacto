@@ -232,6 +232,7 @@ func policiesFromContract(c *contract.Contract, fsys fs.FS) []PolicyInfo {
 	}
 	title, desc := extractSchemaMeta(fsys, validation.PolicySchemaPath)
 	pi := PolicyInfo{
+		Name:        "default",
 		HasSchema:   true,
 		Schema:      validation.PolicySchemaPath,
 		Title:       title,

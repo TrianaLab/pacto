@@ -70,7 +70,7 @@
     if (detail.interfaces?.length > 0) sections.push({ id: 'interfaces', label: 'Interfaces' });
     if (detail.dependencies?.length > 0 || dependents.length > 0 || crossRefs)
       sections.push({ id: 'dependencies', label: 'Dependencies' });
-    if (detail.configurations?.length > 0) sections.push({ id: 'config', label: 'Configuration' });
+    if (detail.configurations?.length > 0) sections.push({ id: 'config', label: 'Configurations' });
     if (detail.policies?.length > 0) sections.push({ id: 'policy', label: 'Policies' });
     if ((detail.validation?.errors?.length > 0) || (detail.validation?.warnings?.length > 0))
       sections.push({ id: 'validation', label: 'Validation' });
