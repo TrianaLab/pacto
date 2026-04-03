@@ -67,6 +67,7 @@ type InterfaceInput struct {
 
 // DependencyInput describes a dependency to add.
 type DependencyInput struct {
+	Name          string `json:"name"`
 	Ref           string `json:"ref"`
 	Required      bool   `json:"required,omitempty"`
 	Compatibility string `json:"compatibility,omitempty"`
@@ -388,8 +389,11 @@ func buildCreateMap(input CreateInput) map[string]interface{} {
 	}
 
 	if len(input.ConfigProperties) > 0 {
-		m["configuration"] = map[string]interface{}{
-			"schema": "configuration/schema.json",
+		m["configurations"] = []interface{}{
+			map[string]interface{}{
+				"name":   "default",
+				"schema": "configuration/schema.json",
+			},
 		}
 	}
 
@@ -427,6 +431,7 @@ func buildDependenciesList(inputs []DependencyInput) []interface{} {
 	var result []interface{}
 	for _, dep := range inputs {
 		entry := map[string]interface{}{
+			"name":          dep.Name,
 			"ref":           dep.Ref,
 			"compatibility": defaultCompatibility(dep.Compatibility, dep.Ref),
 		}
@@ -688,6 +693,7 @@ func addDependencies(m map[string]interface{}, inputs []DependencyInput) []strin
 	deps, _ := m["dependencies"].([]interface{})
 	for _, dep := range inputs {
 		entry := map[string]interface{}{
+			"name":          dep.Name,
 			"ref":           dep.Ref,
 			"compatibility": defaultCompatibility(dep.Compatibility, dep.Ref),
 		}
@@ -806,11 +812,14 @@ func rewireHealthMetricsIfNeeded(rt, m map[string]interface{}) {
 }
 
 func ensureConfigSection(m map[string]interface{}) {
-	if _, ok := m["configuration"]; ok {
+	if _, ok := m["configurations"]; ok {
 		return
 	}
-	m["configuration"] = map[string]interface{}{
-		"schema": "configuration/schema.json",
+	m["configurations"] = []interface{}{
+		map[string]interface{}{
+			"name":   "default",
+			"schema": "configuration/schema.json",
+		},
 	}
 }
 
@@ -899,7 +908,7 @@ func Check(path string) (*CheckResult, error) {
 // --- YAML marshaling with ordered keys ---
 
 var topLevelKeyOrder = []string{
-	"pactoVersion", "service", "interfaces", "configuration",
+	"pactoVersion", "service", "interfaces", "configurations",
 	"policies", "dependencies", "runtime", "scaling", "metadata",
 }
 
@@ -982,11 +991,9 @@ func buildStubFS(c *contract.Contract, yamlBytes []byte) fstest.MapFS {
 			m[iface.Contract] = &fstest.MapFile{Data: []byte("{}")}
 		}
 	}
-	if c.Configuration != nil {
-		for _, cfg := range c.Configuration.EffectiveConfigs() {
-			if cfg.Schema != "" {
-				m[cfg.Schema] = &fstest.MapFile{Data: []byte(`{"type":"object"}`)}
-			}
+	for _, cfg := range c.Configurations {
+		if cfg.Schema != "" {
+			m[cfg.Schema] = &fstest.MapFile{Data: []byte(`{"type":"object"}`)}
 		}
 	}
 	return m
@@ -1027,12 +1034,10 @@ func buildBundleFSForValidation(dir string, yamlBytes []byte, c *contract.Contra
 			}
 		}
 	}
-	if c.Configuration != nil {
-		for _, cfg := range c.Configuration.EffectiveConfigs() {
-			if cfg.Schema != "" {
-				if _, ok := m[cfg.Schema]; !ok {
-					m[cfg.Schema] = &fstest.MapFile{Data: []byte(`{"type":"object"}`)}
-				}
+	for _, cfg := range c.Configurations {
+		if cfg.Schema != "" {
+			if _, ok := m[cfg.Schema]; !ok {
+				m[cfg.Schema] = &fstest.MapFile{Data: []byte(`{"type":"object"}`)}
 			}
 		}
 	}
@@ -1274,12 +1279,17 @@ func summarizeSectionsFromMap(s *ContractSummary, m map[string]interface{}) {
 			s.Sections[key] = "present"
 		}
 	}
-	for _, key := range []string{"configuration", "policies", "dependencies", "scaling", "metadata"} {
+	for _, key := range []string{"policies", "dependencies", "scaling", "metadata"} {
 		if _, ok := m[key]; ok {
 			s.Sections[key] = "present"
 		} else {
 			s.Sections[key] = "absent"
 		}
+	}
+	if _, ok := m["configurations"]; ok {
+		s.Sections["configuration"] = "present"
+	} else {
+		s.Sections["configuration"] = "absent"
 	}
 }
 
@@ -1298,7 +1308,7 @@ func assessSections(c *contract.Contract) map[string]string {
 	if c.Runtime != nil {
 		sections["runtime"] = "present"
 	}
-	if c.Configuration != nil {
+	if len(c.Configurations) > 0 {
 		sections["configuration"] = "present"
 	} else {
 		sections["configuration"] = "absent"
@@ -1352,7 +1362,7 @@ func buildSuggestions(c *contract.Contract, valid bool) []Suggestion {
 		})
 	}
 
-	if c.Configuration == nil {
+	if len(c.Configurations) == 0 {
 		suggestions = append(suggestions, Suggestion{
 			Message: "No configuration defined. Add a JSON Schema to document config requirements.",
 		})

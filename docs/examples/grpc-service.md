@@ -37,16 +37,18 @@ interfaces:
     port: 9102
     visibility: internal
 
-configuration:
-  schema: configuration/schema.json
-  values:
-    DB_HOST: user-db.internal
-    DB_PORT: 5432
-    DB_PASSWORD: secret://vault/user-service/db-password
-    CACHE_TTL_SECONDS: 300
+configurations:
+  - name: default
+    schema: configuration/schema.json
+    values:
+      DB_HOST: user-db.internal
+      DB_PORT: 5432
+      DB_PASSWORD: secret://vault/user-service/db-password
+      CACHE_TTL_SECONDS: 300
 
 dependencies:
-  - ref: oci://ghcr.io/acme/postgres-pacto@sha256:def456
+  - name: postgres
+    ref: oci://ghcr.io/acme/postgres-pacto@sha256:def456
     required: true
     compatibility: "^16.0.0"
 

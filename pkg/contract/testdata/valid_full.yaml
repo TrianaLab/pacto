@@ -26,14 +26,17 @@ interfaces:
     visibility: internal
     contract: interfaces/events.yaml
 
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 
 dependencies:
-  - ref: ghcr.io/acme/auth-service-pacto@sha256:abc123def456
+  - name: auth-service
+    ref: ghcr.io/acme/auth-service-pacto@sha256:abc123def456
     required: true
     compatibility: "^2.0.0"
-  - ref: ghcr.io/acme/notification-service-pacto:1.0.0
+  - name: notification-service
+    ref: ghcr.io/acme/notification-service-pacto:1.0.0
     required: false
     compatibility: "~1.0.0"
 

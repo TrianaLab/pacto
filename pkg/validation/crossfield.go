@@ -22,6 +22,9 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 
 	validateServiceVersion(c, &result)
 	validateInterfaceNamesUnique(c, &result)
+	validateConfigurationNamesUnique(c, &result)
+	validatePolicyNamesUnique(c, &result)
+	validateDependencyNamesUnique(c, &result)
 	validateInterfacePorts(c, &result)
 	validateInterfaceContracts(c, &result)
 	validateHealthInterface(c, &result)
@@ -71,6 +74,48 @@ func validateInterfaceNamesUnique(c *contract.Contract, result *ValidationResult
 			)
 		}
 		seen[iface.Name] = i
+	}
+}
+
+func validateConfigurationNamesUnique(c *contract.Contract, result *ValidationResult) {
+	seen := make(map[string]int)
+	for i, cfg := range c.Configurations {
+		if prev, exists := seen[cfg.Name]; exists {
+			result.AddError(
+				fmt.Sprintf("configurations[%d].name", i),
+				"DUPLICATE_CONFIGURATION_NAME",
+				fmt.Sprintf("configuration name %q is already declared at configurations[%d]", cfg.Name, prev),
+			)
+		}
+		seen[cfg.Name] = i
+	}
+}
+
+func validatePolicyNamesUnique(c *contract.Contract, result *ValidationResult) {
+	seen := make(map[string]int)
+	for i, pol := range c.Policies {
+		if prev, exists := seen[pol.Name]; exists {
+			result.AddError(
+				fmt.Sprintf("policies[%d].name", i),
+				"DUPLICATE_POLICY_NAME",
+				fmt.Sprintf("policy name %q is already declared at policies[%d]", pol.Name, prev),
+			)
+		}
+		seen[pol.Name] = i
+	}
+}
+
+func validateDependencyNamesUnique(c *contract.Contract, result *ValidationResult) {
+	seen := make(map[string]int)
+	for i, dep := range c.Dependencies {
+		if prev, exists := seen[dep.Name]; exists {
+			result.AddError(
+				fmt.Sprintf("dependencies[%d].name", i),
+				"DUPLICATE_DEPENDENCY_NAME",
+				fmt.Sprintf("dependency name %q is already declared at dependencies[%d]", dep.Name, prev),
+			)
+		}
+		seen[dep.Name] = i
 	}
 }
 
@@ -232,21 +277,12 @@ func validateConfigFiles(c *contract.Contract, bundleFS fs.FS, result *Validatio
 	if bundleFS == nil {
 		return
 	}
-	if c.Configuration == nil {
-		return
-	}
 
-	configs := c.Configuration.EffectiveConfigs()
-	for i, cfg := range configs {
+	for i, cfg := range c.Configurations {
 		if cfg.Schema == "" {
 			continue
 		}
-		var fieldPath string
-		if len(c.Configuration.Configs) > 0 {
-			fieldPath = fmt.Sprintf("configuration.configs[%d].schema", i)
-		} else {
-			fieldPath = "configuration.schema"
-		}
+		fieldPath := fmt.Sprintf("configurations[%d].schema", i)
 		if _, err := fs.Stat(bundleFS, cfg.Schema); err != nil {
 			result.AddError(
 				fieldPath,
@@ -258,21 +294,11 @@ func validateConfigFiles(c *contract.Contract, bundleFS fs.FS, result *Validatio
 }
 
 func validateConfigRef(c *contract.Contract, result *ValidationResult) {
-	if c.Configuration == nil {
-		return
-	}
-
-	configs := c.Configuration.EffectiveConfigs()
-	for i, cfg := range configs {
+	for i, cfg := range c.Configurations {
 		if cfg.Ref == "" {
 			continue
 		}
-		var fieldPath string
-		if len(c.Configuration.Configs) > 0 {
-			fieldPath = fmt.Sprintf("configuration.configs[%d].ref", i)
-		} else {
-			fieldPath = "configuration.ref"
-		}
+		fieldPath := fmt.Sprintf("configurations[%d].ref", i)
 		parsed := graph.ParseDependencyRef(cfg.Ref)
 		if parsed.IsOCI() {
 			validateOCIRef(parsed.Location, fieldPath, "INVALID_CONFIG_REF", result)
@@ -282,14 +308,6 @@ func validateConfigRef(c *contract.Contract, result *ValidationResult) {
 
 func validatePolicyFields(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
 	for i, pol := range c.Policies {
-		if pol.Schema == "" && pol.Ref == "" {
-			result.AddError(
-				fmt.Sprintf("policies[%d]", i),
-				"POLICY_EMPTY",
-				"policy must specify at least one of schema or ref",
-			)
-			continue
-		}
 		if pol.Schema != "" && bundleFS != nil {
 			if _, err := fs.Stat(bundleFS, pol.Schema); err != nil {
 				result.AddError(
@@ -387,38 +405,17 @@ func validateChartRef(c *contract.Contract, result *ValidationResult) {
 }
 
 func validateConfigValues(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
-	if c.Configuration == nil {
-		return
-	}
-
-	// Check for the pathological case: values without schema or ref.
-	// EffectiveConfigs() returns nil in this case, so we need to check explicitly.
-	if len(c.Configuration.Values) > 0 && c.Configuration.Schema == "" && c.Configuration.Ref == "" && len(c.Configuration.Configs) == 0 {
-		result.AddError(
-			"configuration.values",
-			"VALUES_WITHOUT_SCHEMA",
-			"configuration values require a configuration schema to validate against",
-		)
-		return
-	}
-
-	configs := c.Configuration.EffectiveConfigs()
-	for i, cfg := range configs {
+	for i, cfg := range c.Configurations {
 		if len(cfg.Values) == 0 {
 			continue
 		}
-		var fieldPath string
-		if len(c.Configuration.Configs) > 0 {
-			fieldPath = fmt.Sprintf("configuration.configs[%d].values", i)
-		} else {
-			fieldPath = "configuration.values"
-		}
+		fieldPath := fmt.Sprintf("configurations[%d].values", i)
 		validateSingleConfigValues(cfg, fieldPath, bundleFS, result)
 	}
 }
 
 // validateSingleConfigValues validates a single config's values against its schema.
-func validateSingleConfigValues(cfg contract.EffectiveConfigSource, fieldPath string, bundleFS fs.FS, result *ValidationResult) {
+func validateSingleConfigValues(cfg contract.ConfigurationSource, fieldPath string, bundleFS fs.FS, result *ValidationResult) {
 	if cfg.Schema == "" && cfg.Ref == "" {
 		result.AddError(
 			fieldPath,
@@ -528,21 +525,11 @@ func validateJSONSchemaFile(bundleFS fs.FS, path, field, invalidJSONCode, invali
 }
 
 func validateConfigSchemaContent(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
-	if c.Configuration == nil {
-		return
-	}
-
-	configs := c.Configuration.EffectiveConfigs()
-	for i, cfg := range configs {
+	for i, cfg := range c.Configurations {
 		if cfg.Schema == "" {
 			continue
 		}
-		var fieldPath string
-		if len(c.Configuration.Configs) > 0 {
-			fieldPath = fmt.Sprintf("configuration.configs[%d].schema", i)
-		} else {
-			fieldPath = "configuration.schema"
-		}
+		fieldPath := fmt.Sprintf("configurations[%d].schema", i)
 		validateJSONSchemaFile(bundleFS, cfg.Schema,
 			fieldPath, "INVALID_CONFIG_JSON", "INVALID_CONFIG_SCHEMA", result)
 	}

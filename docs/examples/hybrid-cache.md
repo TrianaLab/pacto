@@ -32,17 +32,19 @@ interfaces:
     port: 9090
     visibility: internal
 
-configuration:
-  schema: configuration/schema.json
-  values:
-    UPSTREAM_API: https://inventory.internal/api
-    CACHE_MAX_SIZE_MB: 512
-    CACHE_TTL_SECONDS: 3600
-    WARMUP_ON_START: true
-    API_KEY: secret://vault/product-catalog/upstream-api-key
+configurations:
+  - name: default
+    schema: configuration/schema.json
+    values:
+      UPSTREAM_API: https://inventory.internal/api
+      CACHE_MAX_SIZE_MB: 512
+      CACHE_TTL_SECONDS: 3600
+      WARMUP_ON_START: true
+      API_KEY: secret://vault/product-catalog/upstream-api-key
 
 dependencies:
-  - ref: oci://ghcr.io/acme/inventory-pacto@sha256:789abc
+  - name: inventory
+    ref: oci://ghcr.io/acme/inventory-pacto@sha256:789abc
     required: true
     compatibility: "^1.0.0"
 

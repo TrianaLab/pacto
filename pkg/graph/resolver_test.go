@@ -933,7 +933,7 @@ func TestExtractReferenceEdges_NoConfigNoPolicy(t *testing.T) {
 func TestExtractReferenceEdges_ConfigOnly(t *testing.T) {
 	c := &contract.Contract{
 		Service:       contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
-		Configuration: &contract.Configuration{Ref: "oci://registry.io/config:1.0.0"},
+		Configurations: []contract.ConfigurationSource{{Name: "default", Ref: "oci://registry.io/config:1.0.0"}},
 	}
 	edges := ExtractReferenceEdges(c)
 	if len(edges) != 1 {
@@ -950,7 +950,7 @@ func TestExtractReferenceEdges_ConfigOnly(t *testing.T) {
 func TestExtractReferenceEdges_PolicyOnly(t *testing.T) {
 	c := &contract.Contract{
 		Service:  contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
-		Policies: []contract.PolicySource{{Ref: "oci://registry.io/policy:2.0.0"}},
+		Policies: []contract.PolicySource{{Name: "remote", Ref: "oci://registry.io/policy:2.0.0"}},
 	}
 	edges := ExtractReferenceEdges(c)
 	if len(edges) != 1 {
@@ -966,9 +966,9 @@ func TestExtractReferenceEdges_PolicyOnly(t *testing.T) {
 
 func TestExtractReferenceEdges_ConfigAndPolicy(t *testing.T) {
 	c := &contract.Contract{
-		Service:       contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
-		Configuration: &contract.Configuration{Ref: "oci://registry.io/config:1.0.0"},
-		Policies:      []contract.PolicySource{{Ref: "oci://registry.io/policy:2.0.0"}},
+		Service:        contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Configurations: []contract.ConfigurationSource{{Name: "default", Ref: "oci://registry.io/config:1.0.0"}},
+		Policies:       []contract.PolicySource{{Name: "remote", Ref: "oci://registry.io/policy:2.0.0"}},
 	}
 	edges := ExtractReferenceEdges(c)
 	if len(edges) != 2 {
@@ -990,8 +990,8 @@ func TestExtractReferenceEdges_ConfigAndPolicy(t *testing.T) {
 func TestExtractReferenceEdges_DuplicateRefs(t *testing.T) {
 	c := &contract.Contract{
 		Service:       contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
-		Configuration: &contract.Configuration{Ref: "oci://registry.io/shared:1.0.0"},
-		Policies:      []contract.PolicySource{{Ref: "oci://registry.io/shared:1.0.0"}},
+		Configurations: []contract.ConfigurationSource{{Name: "default", Ref: "oci://registry.io/shared:1.0.0"}},
+		Policies:       []contract.PolicySource{{Name: "shared", Ref: "oci://registry.io/shared:1.0.0"}},
 	}
 	edges := ExtractReferenceEdges(c)
 	if len(edges) != 1 {
@@ -1005,8 +1005,8 @@ func TestExtractReferenceEdges_DuplicateRefs(t *testing.T) {
 func TestExtractReferenceEdges_EmptyRefs(t *testing.T) {
 	c := &contract.Contract{
 		Service:       contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
-		Configuration: &contract.Configuration{Ref: ""},
-		Policies:      []contract.PolicySource{{Ref: ""}},
+		Configurations: []contract.ConfigurationSource{{Name: "default"}},
+		Policies:       []contract.PolicySource{{Name: "empty"}},
 	}
 	edges := ExtractReferenceEdges(c)
 	if len(edges) != 0 {
@@ -1051,10 +1051,10 @@ func TestResolveWithOptions_OnlyReferences(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
-			{Ref: "oci://dep-a", Required: true},
+			{Name: "dep-a", Ref: "oci://dep-a", Required: true},
 		},
-		Configuration: &contract.Configuration{Ref: "oci://config-svc"},
-		Policies:      []contract.PolicySource{{Ref: "oci://policy-svc"}},
+		Configurations: []contract.ConfigurationSource{{Name: "default", Ref: "oci://config-svc"}},
+		Policies:       []contract.PolicySource{{Name: "policy", Ref: "oci://policy-svc"}},
 	}
 
 	result := ResolveWithOptions(context.Background(), c, nil, ResolveOptions{OnlyReferences: true})

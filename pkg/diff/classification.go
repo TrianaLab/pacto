@@ -38,28 +38,17 @@ var rules = map[classificationKey]Classification{
 	{"interfaces.visibility", Modified}: PotentialBreaking,
 	{"interfaces.contract", Modified}:   PotentialBreaking,
 
-	// Configuration (legacy form)
-	{"configuration.schema", Modified}: PotentialBreaking,
-	{"configuration.schema", Added}:    NonBreaking,
-	{"configuration.schema", Removed}:  Breaking,
-	{"configuration.ref", Modified}:    PotentialBreaking,
-	{"configuration.ref", Added}:       NonBreaking,
-	{"configuration.ref", Removed}:     Breaking,
-	{"configuration", Added}:           NonBreaking,
-	{"configuration", Removed}:         Breaking,
+	// Configurations (name-indexed)
+	{"configurations", Added}:           NonBreaking,
+	{"configurations", Removed}:         Breaking,
+	{"configurations.schema", Modified}: PotentialBreaking,
+	{"configurations.schema", Added}:    NonBreaking,
+	{"configurations.schema", Removed}:  Breaking,
+	{"configurations.ref", Modified}:    PotentialBreaking,
+	{"configurations.ref", Added}:       NonBreaking,
+	{"configurations.ref", Removed}:     Breaking,
 
-	// Configuration (multi-config form, indices stripped by classify)
-	{"configuration.configs", Added}:           NonBreaking,
-	{"configuration.configs", Removed}:         Breaking,
-	{"configuration.configs.name", Modified}:   PotentialBreaking,
-	{"configuration.configs.schema", Modified}: PotentialBreaking,
-	{"configuration.configs.schema", Added}:    NonBreaking,
-	{"configuration.configs.schema", Removed}:  Breaking,
-	{"configuration.configs.ref", Modified}:    PotentialBreaking,
-	{"configuration.configs.ref", Added}:       NonBreaking,
-	{"configuration.configs.ref", Removed}:     Breaking,
-
-	// Policy (pluralized, indices stripped by classify)
+	// Policies (name-indexed)
 	{"policies", Added}:           NonBreaking,
 	{"policies", Removed}:         PotentialBreaking,
 	{"policies.schema", Modified}: PotentialBreaking,
@@ -97,9 +86,10 @@ var rules = map[classificationKey]Classification{
 	{"scaling", Added}:        NonBreaking,
 	{"scaling", Removed}:      PotentialBreaking,
 
-	// Dependencies
+	// Dependencies (name-indexed)
 	{"dependencies", Added}:                  NonBreaking,
 	{"dependencies", Removed}:                Breaking,
+	{"dependencies.ref", Modified}:           PotentialBreaking,
 	{"dependencies.compatibility", Modified}: PotentialBreaking,
 	{"dependencies.required", Modified}:      PotentialBreaking,
 

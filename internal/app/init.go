@@ -36,11 +36,13 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 
 # dependencies:
-#   - ref: oci://ghcr.io/my-org/other-service-pacto:1.0.0
+#   - name: other-service
+#     ref: oci://ghcr.io/my-org/other-service-pacto:1.0.0
 #     required: true
 #     compatibility: "^1.0.0"
 

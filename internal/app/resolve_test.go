@@ -519,7 +519,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - ref: oci://ghcr.io/acme/policy:1.0.0
+  - name: org
+    ref: oci://ghcr.io/acme/policy:1.0.0
 runtime:
   workload: service
   state:
@@ -554,7 +555,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - ref: oci://ghcr.io/acme/policy:1.0.0
+  - name: org
+    ref: oci://ghcr.io/acme/policy:1.0.0
 runtime:
   workload: service
   state:
@@ -605,7 +607,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - ref: oci://ghcr.io/acme/policy:1.0.0
+  - name: org
+    ref: oci://ghcr.io/acme/policy:1.0.0
 runtime:
   workload: service
   state:

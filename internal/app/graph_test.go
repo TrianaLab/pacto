@@ -214,7 +214,8 @@ interfaces:
     type: http
     port: 8080
 dependencies:
-  - ref: ../dep-svc
+  - name: dep
+    ref: ../dep-svc
     required: true
     compatibility: "^2.0.0"
 runtime:
@@ -283,7 +284,8 @@ interfaces:
     type: http
     port: 8080
 dependencies:
-  - ref: "file://%s"
+  - name: dep
+    ref: "file://%s"
     required: true
     compatibility: "^1.0.0"
 runtime:

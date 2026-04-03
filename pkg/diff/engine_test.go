@@ -19,7 +19,9 @@ func minimalContract() *contract.Contract {
 		Interfaces: []contract.Interface{
 			{Name: "api", Type: "http", Port: &port, Visibility: "internal", Contract: "interfaces/openapi.yaml"},
 		},
-		Configuration: &contract.Configuration{Schema: "configuration/schema.json"},
+		Configurations: []contract.ConfigurationSource{
+			{Name: "default", Schema: "configuration/schema.json"},
+		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
 			State: contract.State{
@@ -116,7 +118,7 @@ func TestCompare_InterfaceAdded_NonBreaking(t *testing.T) {
 func TestCompare_DependencyRemoved_Breaking(t *testing.T) {
 	old := minimalContract()
 	old.Dependencies = []contract.Dependency{
-		{Ref: "ghcr.io/acme/auth:1.0.0", Required: true, Compatibility: "^1.0.0"},
+		{Name: "auth", Ref: "ghcr.io/acme/auth:1.0.0", Required: true, Compatibility: "^1.0.0"},
 	}
 	new := minimalContract()
 
@@ -132,7 +134,7 @@ func TestCompare_DependencyAdded_NonBreaking(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
 	new.Dependencies = []contract.Dependency{
-		{Ref: "ghcr.io/acme/auth:1.0.0", Required: true, Compatibility: "^1.0.0"},
+		{Name: "auth", Ref: "ghcr.io/acme/auth:1.0.0", Required: true, Compatibility: "^1.0.0"},
 	}
 
 	result := Compare(old, new, nil, nil)
@@ -198,14 +200,14 @@ func TestCompare_PersistenceScopeChange_Breaking(t *testing.T) {
 func TestCompare_ConfigurationRemoved_Breaking(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	new.Configuration = nil
+	new.Configurations = nil
 
 	result := Compare(old, new, nil, nil)
 
 	if result.Classification != Breaking {
 		t.Errorf("expected BREAKING, got %s", result.Classification)
 	}
-	assertHasChange(t, result, "configuration", Removed, Breaking)
+	assertHasChange(t, result, "configurations", Removed, Breaking)
 }
 
 func TestCompare_OpenAPIPathRemoved_Breaking(t *testing.T) {

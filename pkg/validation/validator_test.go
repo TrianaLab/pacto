@@ -629,7 +629,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - schema: policy.json
+  - name: default
+    schema: policy.json
 `
 	data, c := parseString(t, yaml)
 	bundleFS := fstest.MapFS{
@@ -657,7 +658,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - schema: policy.json
+  - name: default
+    schema: policy.json
 `
 	data, c := parseString(t, yaml)
 	bundleFS := fstest.MapFS{
@@ -701,7 +703,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - ref: oci://example.com/policy:1.0
+  - name: external
+    ref: oci://example.com/policy:1.0
 `
 	data, c := parseString(t, yaml)
 	refBundle := &contract.Bundle{
@@ -735,7 +738,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - ref: oci://example.com/policy:1.0
+  - name: external
+    ref: oci://example.com/policy:1.0
 `
 	data, c := parseString(t, yaml)
 	refBundle := &contract.Bundle{
@@ -781,7 +785,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - ref: oci://example.com/policy:1.0
+  - name: external
+    ref: oci://example.com/policy:1.0
 `
 	data, c := parseString(t, yaml)
 	result := validation.ValidateWithResolver(context.Background(), c, data, fstest.MapFS{}, nil)
@@ -812,7 +817,8 @@ interfaces:
     port: 8080
     contract: interfaces/openapi.yaml
 policies:
-  - ref: oci://example.com/policy:1.0
+  - name: external
+    ref: oci://example.com/policy:1.0
 `
 	data, c := parseString(t, yaml)
 	// Empty bundleFS means the contract file won't be found
@@ -839,7 +845,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - ref: oci://example.com/missing:1.0
+  - name: missing
+    ref: oci://example.com/missing:1.0
 `
 	data, c := parseString(t, yaml)
 	resolver := &testBundleResolver{bundles: map[string]*contract.Bundle{}}

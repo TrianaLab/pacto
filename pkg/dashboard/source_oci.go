@@ -288,18 +288,15 @@ func (s *OCISource) depReposForService(ctx context.Context, name string) []strin
 	}
 	// Also follow configuration and policy references so they are
 	// pulled recursively alongside regular dependencies.
-	if bundle.Contract.Configuration != nil {
-		effectiveConfigs := bundle.Contract.Configuration.EffectiveConfigs()
-		for _, cfg := range effectiveConfigs {
-			refRepo := extractOCIRepo(cfg.Ref)
-			if refRepo == "" {
-				continue
-			}
-			if oci.HasExplicitTag(refRepo) {
-				refRepo = stripTag(refRepo)
-			}
-			repos = append(repos, refRepo)
+	for _, cfg := range bundle.Contract.Configurations {
+		refRepo := extractOCIRepo(cfg.Ref)
+		if refRepo == "" {
+			continue
 		}
+		if oci.HasExplicitTag(refRepo) {
+			refRepo = stripTag(refRepo)
+		}
+		repos = append(repos, refRepo)
 	}
 	for _, pol := range bundle.Contract.Policies {
 		refRepo := extractOCIRepo(pol.Ref)

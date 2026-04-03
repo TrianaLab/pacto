@@ -175,14 +175,17 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 
 dependencies:
-  - ref: oci://%s/redis-pacto:1.0.0
+  - name: redis-v1
+    ref: oci://%s/redis-pacto:1.0.0
     required: true
     compatibility: "^1.0.0"
-  - ref: oci://%s/redis-pacto:2.0.0
+  - name: redis-v2
+    ref: oci://%s/redis-pacto:2.0.0
     required: true
     compatibility: "^2.0.0"
 

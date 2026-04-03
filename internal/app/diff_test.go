@@ -74,7 +74,8 @@ service:
   name: parent-svc
   version: "` + parentVersion + `"
 dependencies:
-  - ref: ./child
+  - name: child
+    ref: ./child
     required: true
     compatibility: "^1.0.0"
 `)
@@ -243,7 +244,8 @@ service:
   name: parent-svc
   version: "1.0.0"
 dependencies:
-  - ref: oci://ghcr.io/acme/child-svc:1.0.0
+  - name: child
+    ref: oci://ghcr.io/acme/child-svc:1.0.0
     required: true
     compatibility: "^1.0.0"
 `)
@@ -373,7 +375,7 @@ func TestLocalOverrideFetcher_FallbackToInner(t *testing.T) {
 	svc := NewService(store, nil)
 	inner := svc.newDepFetcher("oci://ghcr.io/acme/svc:1.0.0")
 	f := &localOverrideFetcher{inner: inner, parentDir: t.TempDir()}
-	dep := contract.Dependency{Ref: "oci://ghcr.io/acme/child-svc:1.0.0", Compatibility: "^1.0.0"}
+	dep := contract.Dependency{Name: "child-svc", Ref: "oci://ghcr.io/acme/child-svc:1.0.0", Compatibility: "^1.0.0"}
 	bundle, err := f.Fetch(context.Background(), dep)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -390,7 +392,7 @@ func TestLocalOverrideFetcher_LocalDep(t *testing.T) {
 	svc := NewService(nil, nil)
 	inner := svc.newDepFetcher(parentDir)
 	f := &localOverrideFetcher{inner: inner, parentDir: parentDir}
-	dep := contract.Dependency{Ref: filepath.Base(bundleDir), Compatibility: "^1.0.0"}
+	dep := contract.Dependency{Name: "local-dep", Ref: filepath.Base(bundleDir), Compatibility: "^1.0.0"}
 	bundle, err := f.Fetch(context.Background(), dep)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

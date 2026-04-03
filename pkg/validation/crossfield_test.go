@@ -87,7 +87,7 @@ func TestValidateInterfaceFiles_EmptyContract(t *testing.T) {
 
 func TestValidateConfigFiles_NilConfig(t *testing.T) {
 	c := validContract()
-	c.Configuration = nil
+	c.Configurations = nil
 	var result ValidationResult
 	validateConfigFiles(c, nil, &result)
 	if !result.IsValid() {
@@ -97,7 +97,9 @@ func TestValidateConfigFiles_NilConfig(t *testing.T) {
 
 func TestValidateConfigFiles_NilBundleFS(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Schema: "schema.json"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Schema: "schema.json"},
+	}
 	var result ValidationResult
 	validateConfigFiles(c, nil, &result)
 	if !result.IsValid() {
@@ -107,7 +109,9 @@ func TestValidateConfigFiles_NilBundleFS(t *testing.T) {
 
 func TestValidateConfigFiles_FileNotFound(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Schema: "schema.json"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Schema: "schema.json"},
+	}
 	bundleFS := fstest.MapFS{}
 	var result ValidationResult
 	validateConfigFiles(c, bundleFS, &result)
@@ -118,7 +122,9 @@ func TestValidateConfigFiles_FileNotFound(t *testing.T) {
 
 func TestValidateConfigFiles_FileExists(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Schema: "schema.json"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Schema: "schema.json"},
+	}
 	bundleFS := fstest.MapFS{
 		"schema.json": &fstest.MapFile{Data: []byte("{}")},
 	}
@@ -131,7 +137,9 @@ func TestValidateConfigFiles_FileExists(t *testing.T) {
 
 func TestValidateConfigFiles_EmptySchema(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Schema: ""}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Schema: ""},
+	}
 	var result ValidationResult
 	validateConfigFiles(c, nil, &result)
 	if !result.IsValid() {
@@ -142,7 +150,7 @@ func TestValidateConfigFiles_EmptySchema(t *testing.T) {
 func TestValidateDependencyRefs_InvalidOCIRef(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "oci://invalid", Compatibility: "^1.0.0"},
+		{Name: "dep1", Ref: "oci://invalid", Compatibility: "^1.0.0"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -154,7 +162,7 @@ func TestValidateDependencyRefs_InvalidOCIRef(t *testing.T) {
 func TestValidateDependencyRefs_NoTagWithCompatibility(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "oci://ghcr.io/acme/svc", Compatibility: "^1.0.0"},
+		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc", Compatibility: "^1.0.0"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -166,7 +174,7 @@ func TestValidateDependencyRefs_NoTagWithCompatibility(t *testing.T) {
 func TestValidateDependencyRefs_NoTagNoCompatibility(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "oci://ghcr.io/acme/svc", Compatibility: ""},
+		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc", Compatibility: ""},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -178,7 +186,7 @@ func TestValidateDependencyRefs_NoTagNoCompatibility(t *testing.T) {
 func TestValidateDependencyRefs_LocalRef(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "file://../local-dep", Compatibility: "^1.0.0"},
+		{Name: "dep1", Ref: "file://../local-dep", Compatibility: "^1.0.0"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -190,7 +198,7 @@ func TestValidateDependencyRefs_LocalRef(t *testing.T) {
 func TestValidateDependencyRefs_TagNotDigestWarning(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"},
+		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -202,7 +210,7 @@ func TestValidateDependencyRefs_TagNotDigestWarning(t *testing.T) {
 func TestValidateDependencyRefs_EmptyCompatibility(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: ""},
+		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: ""},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -214,7 +222,7 @@ func TestValidateDependencyRefs_EmptyCompatibility(t *testing.T) {
 func TestValidateDependencyRefs_InvalidCompatibility(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: "not-a-range"},
+		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: "not-a-range"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -226,7 +234,7 @@ func TestValidateDependencyRefs_InvalidCompatibility(t *testing.T) {
 func TestValidateDependencyRefs_Valid(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: "^1.0.0"},
+		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: "^1.0.0"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -502,7 +510,7 @@ func TestValidateChartRef_InvalidVersion(t *testing.T) {
 
 func TestValidateConfigValues_NoConfig(t *testing.T) {
 	c := validContract()
-	c.Configuration = nil
+	c.Configurations = nil
 	var result ValidationResult
 	validateConfigValues(c, nil, &result)
 	if !result.IsValid() {
@@ -512,7 +520,9 @@ func TestValidateConfigValues_NoConfig(t *testing.T) {
 
 func TestValidateConfigValues_NoValues(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Schema: "schema.json"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Schema: "schema.json"},
+	}
 	var result ValidationResult
 	validateConfigValues(c, nil, &result)
 	if !result.IsValid() {
@@ -522,8 +532,8 @@ func TestValidateConfigValues_NoValues(t *testing.T) {
 
 func TestValidateConfigValues_ValuesWithoutSchema(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Values: map[string]interface{}{"key": "val"},
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Values: map[string]interface{}{"key": "val"}},
 	}
 	var result ValidationResult
 	validateConfigValues(c, nil, &result)
@@ -534,9 +544,12 @@ func TestValidateConfigValues_ValuesWithoutSchema(t *testing.T) {
 
 func TestValidateConfigValues_NilBundleFS(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Schema: "config-schema.json",
-		Values: map[string]interface{}{"key": "val"},
+	c.Configurations = []contract.ConfigurationSource{
+		{
+			Name:   "default",
+			Schema: "config-schema.json",
+			Values: map[string]interface{}{"key": "val"},
+		},
 	}
 	var result ValidationResult
 	validateConfigValues(c, nil, &result)
@@ -547,9 +560,12 @@ func TestValidateConfigValues_NilBundleFS(t *testing.T) {
 
 func TestValidateConfigValues_Valid(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Schema: "config-schema.json",
-		Values: map[string]interface{}{"DB_HOST": "localhost"},
+	c.Configurations = []contract.ConfigurationSource{
+		{
+			Name:   "default",
+			Schema: "config-schema.json",
+			Values: map[string]interface{}{"DB_HOST": "localhost"},
+		},
 	}
 	bundleFS := fstest.MapFS{
 		"config-schema.json": &fstest.MapFile{Data: []byte(`{
@@ -568,9 +584,12 @@ func TestValidateConfigValues_Valid(t *testing.T) {
 
 func TestValidateConfigValues_SchemaFileNotFound(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Schema: "missing-schema.json",
-		Values: map[string]interface{}{"key": "val"},
+	c.Configurations = []contract.ConfigurationSource{
+		{
+			Name:   "default",
+			Schema: "missing-schema.json",
+			Values: map[string]interface{}{"key": "val"},
+		},
 	}
 	bundleFS := fstest.MapFS{}
 	var result ValidationResult
@@ -583,9 +602,12 @@ func TestValidateConfigValues_SchemaFileNotFound(t *testing.T) {
 
 func TestValidateConfigValues_InvalidSchemaJSON(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Schema: "bad-schema.json",
-		Values: map[string]interface{}{"key": "val"},
+	c.Configurations = []contract.ConfigurationSource{
+		{
+			Name:   "default",
+			Schema: "bad-schema.json",
+			Values: map[string]interface{}{"key": "val"},
+		},
 	}
 	bundleFS := fstest.MapFS{
 		"bad-schema.json": &fstest.MapFile{Data: []byte("not valid json")},
@@ -601,9 +623,12 @@ func TestValidateConfigValues_InvalidSchemaJSON(t *testing.T) {
 
 func TestValidateConfigValues_InvalidSchemaCompile(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Schema: "bad-compile.json",
-		Values: map[string]interface{}{"key": "val"},
+	c.Configurations = []contract.ConfigurationSource{
+		{
+			Name:   "default",
+			Schema: "bad-compile.json",
+			Values: map[string]interface{}{"key": "val"},
+		},
 	}
 	// Valid JSON but references a non-existent $ref — should fail compilation.
 	bundleFS := fstest.MapFS{
@@ -625,9 +650,12 @@ func TestValidateConfigValues_InvalidSchemaCompile(t *testing.T) {
 
 func TestValidateConfigValues_InvalidValue(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Schema: "config-schema.json",
-		Values: map[string]interface{}{"DB_PORT": "not-a-number"},
+	c.Configurations = []contract.ConfigurationSource{
+		{
+			Name:   "default",
+			Schema: "config-schema.json",
+			Values: map[string]interface{}{"DB_PORT": "not-a-number"},
+		},
 	}
 	bundleFS := fstest.MapFS{
 		"config-schema.json": &fstest.MapFile{Data: []byte(`{
@@ -646,9 +674,12 @@ func TestValidateConfigValues_InvalidValue(t *testing.T) {
 
 func TestValidateConfigValues_ExternalRef(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Ref:    "oci://ghcr.io/acme/config-pacto:1.0.0",
-		Values: map[string]interface{}{"key": "val"},
+	c.Configurations = []contract.ConfigurationSource{
+		{
+			Name:   "default",
+			Ref:    "oci://ghcr.io/acme/config-pacto:1.0.0",
+			Values: map[string]interface{}{"key": "val"},
+		},
 	}
 	var result ValidationResult
 	validateConfigValues(c, nil, &result)
@@ -659,7 +690,7 @@ func TestValidateConfigValues_ExternalRef(t *testing.T) {
 
 func TestValidateConfigRef_NilConfig(t *testing.T) {
 	c := validContract()
-	c.Configuration = nil
+	c.Configurations = nil
 	var result ValidationResult
 	validateConfigRef(c, &result)
 	if !result.IsValid() {
@@ -669,7 +700,9 @@ func TestValidateConfigRef_NilConfig(t *testing.T) {
 
 func TestValidateConfigRef_EmptyRef(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Schema: "schema.json"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Schema: "schema.json"},
+	}
 	var result ValidationResult
 	validateConfigRef(c, &result)
 	if !result.IsValid() {
@@ -679,7 +712,9 @@ func TestValidateConfigRef_EmptyRef(t *testing.T) {
 
 func TestValidateConfigRef_ValidOCI(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Ref: "oci://ghcr.io/acme/config-pacto:1.0.0"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Ref: "oci://ghcr.io/acme/config-pacto:1.0.0"},
+	}
 	var result ValidationResult
 	validateConfigRef(c, &result)
 	if !result.IsValid() {
@@ -689,7 +724,9 @@ func TestValidateConfigRef_ValidOCI(t *testing.T) {
 
 func TestValidateConfigRef_InvalidOCI(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Ref: "oci://invalid"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Ref: "oci://invalid"},
+	}
 	var result ValidationResult
 	validateConfigRef(c, &result)
 	if result.IsValid() {
@@ -699,7 +736,9 @@ func TestValidateConfigRef_InvalidOCI(t *testing.T) {
 
 func TestValidateConfigRef_LocalRef(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Ref: "file://../config"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Ref: "file://../config"},
+	}
 	var result ValidationResult
 	validateConfigRef(c, &result)
 	if !result.IsValid() {
@@ -718,18 +757,20 @@ func TestValidatePolicyFields_NilPolicy(t *testing.T) {
 }
 
 func TestValidatePolicyFields_EmptyPolicy(t *testing.T) {
+	// Empty policy (no schema, no ref) is caught by structural JSON Schema validation
+	// (oneOf requires schema or ref). The crossfield check does not duplicate this.
 	c := validContract()
-	c.Policies = []contract.PolicySource{{}}
+	c.Policies = []contract.PolicySource{{Name: "empty"}}
 	var result ValidationResult
 	validatePolicyFields(c, nil, &result)
-	if result.IsValid() {
-		t.Error("expected error for empty policy")
+	if !result.IsValid() {
+		t.Errorf("crossfield should not produce error for empty policy (caught by structural), got %v", result.Errors)
 	}
 }
 
 func TestValidatePolicyFields_SchemaFileNotFound(t *testing.T) {
 	c := validContract()
-	c.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
+	c.Policies = []contract.PolicySource{{Name: "pol1", Schema: "policy/schema.json"}}
 	bundleFS := fstest.MapFS{}
 	var result ValidationResult
 	validatePolicyFields(c, bundleFS, &result)
@@ -740,7 +781,7 @@ func TestValidatePolicyFields_SchemaFileNotFound(t *testing.T) {
 
 func TestValidatePolicyFields_SchemaFileExists(t *testing.T) {
 	c := validContract()
-	c.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
+	c.Policies = []contract.PolicySource{{Name: "pol1", Schema: "policy/schema.json"}}
 	bundleFS := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{Data: []byte("{}")},
 	}
@@ -753,7 +794,7 @@ func TestValidatePolicyFields_SchemaFileExists(t *testing.T) {
 
 func TestValidatePolicyFields_SchemaNilBundleFS(t *testing.T) {
 	c := validContract()
-	c.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
+	c.Policies = []contract.PolicySource{{Name: "pol1", Schema: "policy/schema.json"}}
 	var result ValidationResult
 	validatePolicyFields(c, nil, &result)
 	if !result.IsValid() {
@@ -763,7 +804,7 @@ func TestValidatePolicyFields_SchemaNilBundleFS(t *testing.T) {
 
 func TestValidatePolicyFields_ValidOCIRef(t *testing.T) {
 	c := validContract()
-	c.Policies = []contract.PolicySource{{Ref: "oci://ghcr.io/acme/policy-pacto:1.0.0"}}
+	c.Policies = []contract.PolicySource{{Name: "pol1", Ref: "oci://ghcr.io/acme/policy-pacto:1.0.0"}}
 	var result ValidationResult
 	validatePolicyFields(c, nil, &result)
 	if !result.IsValid() {
@@ -773,7 +814,7 @@ func TestValidatePolicyFields_ValidOCIRef(t *testing.T) {
 
 func TestValidatePolicyFields_InvalidOCIRef(t *testing.T) {
 	c := validContract()
-	c.Policies = []contract.PolicySource{{Ref: "oci://invalid"}}
+	c.Policies = []contract.PolicySource{{Name: "pol1", Ref: "oci://invalid"}}
 	var result ValidationResult
 	validatePolicyFields(c, nil, &result)
 	if result.IsValid() {
@@ -783,7 +824,7 @@ func TestValidatePolicyFields_InvalidOCIRef(t *testing.T) {
 
 func TestValidatePolicyFields_LocalRef(t *testing.T) {
 	c := validContract()
-	c.Policies = []contract.PolicySource{{Ref: "file://../policy"}}
+	c.Policies = []contract.PolicySource{{Name: "pol1", Ref: "file://../policy"}}
 	var result ValidationResult
 	validatePolicyFields(c, nil, &result)
 	if !result.IsValid() {
@@ -794,6 +835,7 @@ func TestValidatePolicyFields_LocalRef(t *testing.T) {
 func TestValidatePolicyFields_BothSchemaAndRef(t *testing.T) {
 	c := validContract()
 	c.Policies = []contract.PolicySource{{
+		Name:   "pol1",
 		Schema: "policy/schema.json",
 		Ref:    "oci://ghcr.io/acme/policy-pacto:1.0.0",
 	}}
@@ -886,7 +928,9 @@ func TestValidateInterfaceFileContent_MissingFileSkipped(t *testing.T) {
 
 func TestValidateConfigSchemaContent_ValidJSON(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Schema: "config/schema.json"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Schema: "config/schema.json"},
+	}
 	bundleFS := fstest.MapFS{
 		"config/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
 	}
@@ -899,7 +943,9 @@ func TestValidateConfigSchemaContent_ValidJSON(t *testing.T) {
 
 func TestValidateConfigSchemaContent_InvalidJSON(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Schema: "config/schema.json"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Schema: "config/schema.json"},
+	}
 	bundleFS := fstest.MapFS{
 		"config/schema.json": &fstest.MapFile{Data: []byte("not json")},
 	}
@@ -915,7 +961,9 @@ func TestValidateConfigSchemaContent_InvalidJSON(t *testing.T) {
 
 func TestValidateConfigSchemaContent_InvalidSchema(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Schema: "config/schema.json"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Schema: "config/schema.json"},
+	}
 	bundleFS := fstest.MapFS{
 		"config/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"k":{"$ref":"nonexistent://bad"}}}`)},
 	}
@@ -931,7 +979,7 @@ func TestValidateConfigSchemaContent_InvalidSchema(t *testing.T) {
 
 func TestValidateConfigSchemaContent_NilConfig(t *testing.T) {
 	c := validContract()
-	c.Configuration = nil
+	c.Configurations = nil
 	var result ValidationResult
 	validateConfigSchemaContent(c, nil, &result)
 	if !result.IsValid() {
@@ -941,7 +989,9 @@ func TestValidateConfigSchemaContent_NilConfig(t *testing.T) {
 
 func TestValidateConfigSchemaContent_EmptySchema(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Schema: ""}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Schema: ""},
+	}
 	var result ValidationResult
 	validateConfigSchemaContent(c, nil, &result)
 	if !result.IsValid() {
@@ -951,7 +1001,9 @@ func TestValidateConfigSchemaContent_EmptySchema(t *testing.T) {
 
 func TestValidateConfigSchemaContent_MissingFileSkipped(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Schema: "missing.json"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Schema: "missing.json"},
+	}
 	bundleFS := fstest.MapFS{}
 	var result ValidationResult
 	validateConfigSchemaContent(c, bundleFS, &result)
@@ -962,7 +1014,9 @@ func TestValidateConfigSchemaContent_MissingFileSkipped(t *testing.T) {
 
 func TestValidateConfigSchemaContent_WithoutValues(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{Schema: "config/schema.json"}
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "default", Schema: "config/schema.json"},
+	}
 	bundleFS := fstest.MapFS{
 		"config/schema.json": &fstest.MapFile{Data: []byte("not json")},
 	}
@@ -977,7 +1031,7 @@ func TestValidateConfigSchemaContent_WithoutValues(t *testing.T) {
 
 func TestValidatePolicySchemaContent_ValidJSON(t *testing.T) {
 	c := validContract()
-	c.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
+	c.Policies = []contract.PolicySource{{Name: "pol1", Schema: "policy/schema.json"}}
 	bundleFS := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
 	}
@@ -990,7 +1044,7 @@ func TestValidatePolicySchemaContent_ValidJSON(t *testing.T) {
 
 func TestValidatePolicySchemaContent_InvalidJSON(t *testing.T) {
 	c := validContract()
-	c.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
+	c.Policies = []contract.PolicySource{{Name: "pol1", Schema: "policy/schema.json"}}
 	bundleFS := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{Data: []byte("not json")},
 	}
@@ -1006,7 +1060,7 @@ func TestValidatePolicySchemaContent_InvalidJSON(t *testing.T) {
 
 func TestValidatePolicySchemaContent_InvalidSchema(t *testing.T) {
 	c := validContract()
-	c.Policies = []contract.PolicySource{{Schema: "policy/schema.json"}}
+	c.Policies = []contract.PolicySource{{Name: "pol1", Schema: "policy/schema.json"}}
 	bundleFS := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"k":{"$ref":"nonexistent://bad"}}}`)},
 	}
@@ -1032,7 +1086,7 @@ func TestValidatePolicySchemaContent_NilPolicy(t *testing.T) {
 
 func TestValidatePolicySchemaContent_EmptySchema(t *testing.T) {
 	c := validContract()
-	c.Policies = []contract.PolicySource{{Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+	c.Policies = []contract.PolicySource{{Name: "pol1", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	var result ValidationResult
 	validatePolicySchemaContent(c, nil, &result)
 	if !result.IsValid() {
@@ -1071,15 +1125,13 @@ func TestIsYAMLFile(t *testing.T) {
 	}
 }
 
-// --- Tests for new configuration.configs[] form ---
+// --- Tests for multi-configuration form ---
 
-func TestValidateConfigFiles_MultiConfigsForm(t *testing.T) {
+func TestValidateConfigFiles_MultiConfigs(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{Name: "app", Schema: "config/app.json"},
-			{Name: "db", Schema: "config/db.json"},
-		},
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Schema: "config/app.json"},
+		{Name: "db", Schema: "config/db.json"},
 	}
 	bundleFS := fstest.MapFS{
 		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
@@ -1089,29 +1141,27 @@ func TestValidateConfigFiles_MultiConfigsForm(t *testing.T) {
 	if result.IsValid() {
 		t.Error("expected error for missing db.json")
 	}
-	// Check that error path uses configs[N] form
+	// Check that error path uses configurations[N] form
 	if len(result.Errors) != 1 {
 		t.Fatalf("expected 1 error, got %d", len(result.Errors))
 	}
-	if result.Errors[0].Path != "configuration.configs[1].schema" {
-		t.Errorf("expected path configuration.configs[1].schema, got %s", result.Errors[0].Path)
+	if result.Errors[0].Path != "configurations[1].schema" {
+		t.Errorf("expected path configurations[1].schema, got %s", result.Errors[0].Path)
 	}
 }
 
-func TestValidateConfigValues_MultiConfigsForm(t *testing.T) {
+func TestValidateConfigValues_MultiConfigs(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{
-				Name:   "app",
-				Schema: "config/app.json",
-				Values: map[string]interface{}{"PORT": 8080},
-			},
-			{
-				Name:   "db",
-				Schema: "config/db.json",
-				Values: map[string]interface{}{"HOST": "localhost"},
-			},
+	c.Configurations = []contract.ConfigurationSource{
+		{
+			Name:   "app",
+			Schema: "config/app.json",
+			Values: map[string]interface{}{"PORT": 8080},
+		},
+		{
+			Name:   "db",
+			Schema: "config/db.json",
+			Values: map[string]interface{}{"HOST": "localhost"},
 		},
 	}
 	bundleFS := fstest.MapFS{
@@ -1125,15 +1175,13 @@ func TestValidateConfigValues_MultiConfigsForm(t *testing.T) {
 	}
 }
 
-func TestValidateConfigValues_MultiConfigsFormInvalid(t *testing.T) {
+func TestValidateConfigValues_MultiConfigsInvalid(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{
-				Name:   "app",
-				Schema: "config/app.json",
-				Values: map[string]interface{}{"PORT": "not-a-number"},
-			},
+	c.Configurations = []contract.ConfigurationSource{
+		{
+			Name:   "app",
+			Schema: "config/app.json",
+			Values: map[string]interface{}{"PORT": "not-a-number"},
 		},
 	}
 	bundleFS := fstest.MapFS{
@@ -1147,17 +1195,15 @@ func TestValidateConfigValues_MultiConfigsFormInvalid(t *testing.T) {
 	if len(result.Errors) != 1 {
 		t.Fatalf("expected 1 error, got %d", len(result.Errors))
 	}
-	if result.Errors[0].Path != "configuration.configs[0].values" {
-		t.Errorf("expected path configuration.configs[0].values, got %s", result.Errors[0].Path)
+	if result.Errors[0].Path != "configurations[0].values" {
+		t.Errorf("expected path configurations[0].values, got %s", result.Errors[0].Path)
 	}
 }
 
-func TestValidateConfigFiles_MultiConfigsFormEmptySchema(t *testing.T) {
+func TestValidateConfigFiles_MultiConfigsEmptySchema(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"}, // no schema
-		},
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"}, // no schema
 	}
 	var result ValidationResult
 	validateConfigFiles(c, fstest.MapFS{}, &result)
@@ -1166,12 +1212,10 @@ func TestValidateConfigFiles_MultiConfigsFormEmptySchema(t *testing.T) {
 	}
 }
 
-func TestValidateConfigSchemaContent_MultiConfigsFormEmptySchema(t *testing.T) {
+func TestValidateConfigSchemaContent_MultiConfigsEmptySchema(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"}, // no schema
-		},
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"}, // no schema
 	}
 	var result ValidationResult
 	validateConfigSchemaContent(c, fstest.MapFS{}, &result)
@@ -1180,13 +1224,11 @@ func TestValidateConfigSchemaContent_MultiConfigsFormEmptySchema(t *testing.T) {
 	}
 }
 
-func TestValidateConfigFiles_MultiConfigsFormAllFound(t *testing.T) {
+func TestValidateConfigFiles_MultiConfigsAllFound(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{Name: "app", Schema: "config/app.json"},
-			{Name: "db", Schema: "config/db.json"},
-		},
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Schema: "config/app.json"},
+		{Name: "db", Schema: "config/db.json"},
 	}
 	bundleFS := fstest.MapFS{
 		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
@@ -1199,12 +1241,10 @@ func TestValidateConfigFiles_MultiConfigsFormAllFound(t *testing.T) {
 	}
 }
 
-func TestValidateConfigRef_MultiConfigsForm(t *testing.T) {
+func TestValidateConfigRef_MultiConfigs(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"},
-		},
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"},
 	}
 	var result ValidationResult
 	validateConfigRef(c, &result)
@@ -1213,29 +1253,25 @@ func TestValidateConfigRef_MultiConfigsForm(t *testing.T) {
 	}
 }
 
-func TestValidateConfigRef_MultiConfigsFormInvalidOCI(t *testing.T) {
+func TestValidateConfigRef_MultiConfigsInvalidOCI(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{Name: "app", Ref: "oci://INVALID REF!!!"},
-		},
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Ref: "oci://INVALID REF!!!"},
 	}
 	var result ValidationResult
 	validateConfigRef(c, &result)
 	if result.IsValid() {
 		t.Error("expected error for invalid OCI ref in multi-config")
 	}
-	if result.Errors[0].Path != "configuration.configs[0].ref" {
-		t.Errorf("expected path configuration.configs[0].ref, got %s", result.Errors[0].Path)
+	if result.Errors[0].Path != "configurations[0].ref" {
+		t.Errorf("expected path configurations[0].ref, got %s", result.Errors[0].Path)
 	}
 }
 
-func TestValidateConfigSchemaContent_MultiConfigsForm(t *testing.T) {
+func TestValidateConfigSchemaContent_MultiConfigs(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{Name: "app", Schema: "config/app.json"},
-		},
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Schema: "config/app.json"},
 	}
 	bundleFS := fstest.MapFS{
 		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
@@ -1247,12 +1283,10 @@ func TestValidateConfigSchemaContent_MultiConfigsForm(t *testing.T) {
 	}
 }
 
-func TestValidateConfigSchemaContent_MultiConfigsFormInvalidSchema(t *testing.T) {
+func TestValidateConfigSchemaContent_MultiConfigsInvalidSchema(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{Name: "app", Schema: "config/app.json"},
-		},
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Schema: "config/app.json"},
 	}
 	bundleFS := fstest.MapFS{
 		"config/app.json": &fstest.MapFile{Data: []byte(`{"type": 123}`)},
@@ -1262,17 +1296,15 @@ func TestValidateConfigSchemaContent_MultiConfigsFormInvalidSchema(t *testing.T)
 	if result.IsValid() {
 		t.Error("expected error for invalid schema in multi-config")
 	}
-	if result.Errors[0].Path != "configuration.configs[0].schema" {
-		t.Errorf("expected path configuration.configs[0].schema, got %s", result.Errors[0].Path)
+	if result.Errors[0].Path != "configurations[0].schema" {
+		t.Errorf("expected path configurations[0].schema, got %s", result.Errors[0].Path)
 	}
 }
 
-func TestValidateConfigSchemaContent_MultiConfigsFormMissingFile(t *testing.T) {
+func TestValidateConfigSchemaContent_MultiConfigsMissingFile(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{Name: "app", Schema: "config/missing.json"},
-		},
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Schema: "config/missing.json"},
 	}
 	var result ValidationResult
 	validateConfigSchemaContent(c, fstest.MapFS{}, &result)
@@ -1281,12 +1313,10 @@ func TestValidateConfigSchemaContent_MultiConfigsFormMissingFile(t *testing.T) {
 	}
 }
 
-func TestValidateConfigSchemaContent_MultiConfigsFormInvalid(t *testing.T) {
+func TestValidateConfigSchemaContent_MultiConfigsInvalidJSON(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{Name: "app", Schema: "config/app.json"},
-		},
+	c.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Schema: "config/app.json"},
 	}
 	bundleFS := fstest.MapFS{
 		"config/app.json": &fstest.MapFile{Data: []byte(`not json`)},
@@ -1296,19 +1326,17 @@ func TestValidateConfigSchemaContent_MultiConfigsFormInvalid(t *testing.T) {
 	if result.IsValid() {
 		t.Error("expected error for invalid JSON in multi-config schema")
 	}
-	if result.Errors[0].Path != "configuration.configs[0].schema" {
-		t.Errorf("expected path configuration.configs[0].schema, got %s", result.Errors[0].Path)
+	if result.Errors[0].Path != "configurations[0].schema" {
+		t.Errorf("expected path configurations[0].schema, got %s", result.Errors[0].Path)
 	}
 }
 
-func TestValidateConfigValues_MultiConfigsFormWithoutSchema(t *testing.T) {
+func TestValidateConfigValues_MultiConfigsWithoutSchema(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{
-				Name:   "app",
-				Values: map[string]interface{}{"PORT": 8080},
-			},
+	c.Configurations = []contract.ConfigurationSource{
+		{
+			Name:   "app",
+			Values: map[string]interface{}{"PORT": 8080},
 		},
 	}
 	var result ValidationResult
@@ -1316,20 +1344,18 @@ func TestValidateConfigValues_MultiConfigsFormWithoutSchema(t *testing.T) {
 	if result.IsValid() {
 		t.Error("expected VALUES_WITHOUT_SCHEMA for multi-config values without schema")
 	}
-	if result.Errors[0].Path != "configuration.configs[0].values" {
-		t.Errorf("expected path configuration.configs[0].values, got %s", result.Errors[0].Path)
+	if result.Errors[0].Path != "configurations[0].values" {
+		t.Errorf("expected path configurations[0].values, got %s", result.Errors[0].Path)
 	}
 }
 
-func TestValidateConfigValues_MultiConfigsFormExternalRef(t *testing.T) {
+func TestValidateConfigValues_MultiConfigsExternalRef(t *testing.T) {
 	c := validContract()
-	c.Configuration = &contract.Configuration{
-		Configs: []contract.NamedConfigSource{
-			{
-				Name:   "app",
-				Ref:    "oci://ghcr.io/acme/config:1.0",
-				Values: map[string]interface{}{"PORT": 8080},
-			},
+	c.Configurations = []contract.ConfigurationSource{
+		{
+			Name:   "app",
+			Ref:    "oci://ghcr.io/acme/config:1.0",
+			Values: map[string]interface{}{"PORT": 8080},
 		},
 	}
 	var result ValidationResult

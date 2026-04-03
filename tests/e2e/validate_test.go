@@ -189,8 +189,9 @@ interfaces:
     type: http
     port: 8080
     visibility: internal
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 runtime:
   workload: service
   state:
@@ -225,7 +226,8 @@ interfaces:
     port: 8080
     visibility: internal
 policies:
-  - schema: policy/schema.json
+  - name: default
+    schema: policy/schema.json
 runtime:
   workload: service
   state:
@@ -259,8 +261,9 @@ interfaces:
     type: http
     port: 8080
     visibility: internal
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 runtime:
   workload: service
   state:

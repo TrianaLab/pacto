@@ -43,16 +43,18 @@ func fullContract() *contract.Contract {
 				Contract:   "interfaces/events.yaml",
 			},
 		},
-		Configuration: &contract.Configuration{
-			Schema: "configuration/schema.json",
+		Configurations: []contract.ConfigurationSource{
+			{Name: "default", Schema: "configuration/schema.json"},
 		},
 		Dependencies: []contract.Dependency{
 			{
+				Name:          "auth",
 				Ref:           "ghcr.io/acme/auth-service-pacto@sha256:abc123",
 				Required:      true,
 				Compatibility: "^2.0.0",
 			},
 			{
+				Name:          "notification",
 				Ref:           "ghcr.io/acme/notification-service-pacto:1.0.0",
 				Required:      false,
 				Compatibility: "~1.0.0",
@@ -336,8 +338,8 @@ func TestGenerate_MissingSpecFiles(t *testing.T) {
 				Contract: "interfaces/openapi.yaml",
 			},
 		},
-		Configuration: &contract.Configuration{
-			Schema: "configuration/schema.json",
+		Configurations: []contract.ConfigurationSource{
+			{Name: "default", Schema: "configuration/schema.json"},
 		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
@@ -557,8 +559,8 @@ func TestGenerate_ConfigurationSchemaError(t *testing.T) {
 		PactoVersion: "1.0",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
-		Configuration: &contract.Configuration{
-			Schema: "configuration/schema.json",
+		Configurations: []contract.ConfigurationSource{
+			{Name: "default", Schema: "configuration/schema.json"},
 		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
@@ -587,8 +589,8 @@ func TestGenerate_ConfigPropertyWithoutDescription(t *testing.T) {
 		PactoVersion: "1.0",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
-		Configuration: &contract.Configuration{
-			Schema: "configuration/schema.json",
+		Configurations: []contract.ConfigurationSource{
+			{Name: "default", Schema: "configuration/schema.json"},
 		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
@@ -624,8 +626,8 @@ func TestGenerate_ConfigRefOnlySkipsSchema(t *testing.T) {
 		PactoVersion: "1.0",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
-		Configuration: &contract.Configuration{
-			Ref: "oci://ghcr.io/acme/config:1.0.0",
+		Configurations: []contract.ConfigurationSource{
+			{Name: "default", Ref: "oci://ghcr.io/acme/config:1.0.0"},
 		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
@@ -720,8 +722,8 @@ func TestWriteMermaidDiagram_WithGraphResult(t *testing.T) {
 			{Name: "http", Type: "http", Port: intPtr(3000), Visibility: "public"},
 		},
 		Dependencies: []contract.Dependency{
-			{Ref: "reg/backend:1.0.0", Required: true, Compatibility: "^1.0.0"},
-			{Ref: "reg/keycloak:26.0.0", Required: false, Compatibility: "^26.0.0"},
+			{Name: "backend", Ref: "reg/backend:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Name: "keycloak", Ref: "reg/keycloak:26.0.0", Required: false, Compatibility: "^26.0.0"},
 		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
@@ -735,9 +737,9 @@ func TestWriteMermaidDiagram_WithGraphResult(t *testing.T) {
 			{Name: "api", Type: "http", Port: intPtr(8080), Visibility: "public", Contract: "interfaces/openapi.yaml"},
 		},
 		Dependencies: []contract.Dependency{
-			{Ref: "reg/postgres:16.4.0", Required: true, Compatibility: "^16.0.0"},
+			{Name: "postgres", Ref: "reg/postgres:16.4.0", Required: true, Compatibility: "^16.0.0"},
 		},
-		Configuration: &contract.Configuration{Schema: "configuration/schema.json"},
+		Configurations: []contract.ConfigurationSource{{Name: "default", Schema: "configuration/schema.json"}},
 		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
@@ -771,7 +773,7 @@ paths:
 		Interfaces: []contract.Interface{
 			{Name: "tcp", Type: "http", Port: intPtr(5432), Visibility: "internal"},
 		},
-		Configuration: &contract.Configuration{Schema: "configuration/schema.json"},
+		Configurations: []contract.ConfigurationSource{{Name: "default", Schema: "configuration/schema.json"}},
 		Runtime: &contract.Runtime{
 			Workload: "service",
 			State: contract.State{
@@ -790,8 +792,8 @@ paths:
 		Interfaces: []contract.Interface{
 			{Name: "http", Type: "http", Port: intPtr(8080), Visibility: "public"},
 		},
-		Configuration: &contract.Configuration{
-			Ref: "oci://ghcr.io/acme/keycloak-config:1.0.0",
+		Configurations: []contract.ConfigurationSource{
+			{Name: "default", Ref: "oci://ghcr.io/acme/keycloak-config:1.0.0"},
 		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
@@ -1043,8 +1045,8 @@ func TestGenerate_Policies(t *testing.T) {
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
 		Policies: []contract.PolicySource{
-			{Schema: "policy/schema.json"},
-			{Ref: "oci://ghcr.io/acme/platform-policy:1.0.0"},
+			{Name: "local", Schema: "policy/schema.json"},
+			{Name: "platform", Ref: "oci://ghcr.io/acme/platform-policy:1.0.0"},
 		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
@@ -1059,9 +1061,9 @@ func TestGenerate_Policies(t *testing.T) {
 
 	mustContain := []string{
 		". Policies",
-		"| # | Type | Source |",
-		"| 1 | Local | `policy/schema.json` |",
-		"| 2 | Remote | `oci://ghcr.io/acme/platform-policy:1.0.0` |",
+		"| Name | Type | Source |",
+		"| `local` | Local | `policy/schema.json` |",
+		"| `platform` | Remote | `oci://ghcr.io/acme/platform-policy:1.0.0` |",
 		"Policies](#",
 	}
 	for _, s := range mustContain {
@@ -1096,11 +1098,9 @@ func TestGenerate_MultiConfig(t *testing.T) {
 		PactoVersion: "1.0",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
-		Configuration: &contract.Configuration{
-			Configs: []contract.NamedConfigSource{
-				{Name: "app", Schema: "config/app.json"},
-				{Name: "db", Ref: "oci://ghcr.io/acme/db-config:1.0.0"},
-			},
+		Configurations: []contract.ConfigurationSource{
+			{Name: "app", Schema: "config/app.json"},
+			{Name: "db", Ref: "oci://ghcr.io/acme/db-config:1.0.0"},
 		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
@@ -1141,12 +1141,10 @@ func TestGenerate_MultiConfigEdgeCases(t *testing.T) {
 		PactoVersion: "1.0",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
-		Configuration: &contract.Configuration{
-			Configs: []contract.NamedConfigSource{
-				{Name: "", Schema: "config/missing.json"},           // empty name → "default", schema error
-				{Name: "no-schema"},                                 // no schema, no ref → skip
-				{Name: "empty-schema", Schema: "config/empty.json"}, // valid schema, empty props
-			},
+		Configurations: []contract.ConfigurationSource{
+			{Name: "", Schema: "config/missing.json"},           // empty name → "default", schema error
+			{Name: "no-schema"},                                 // no schema, no ref → skip
+			{Name: "empty-schema", Schema: "config/empty.json"}, // valid schema, empty props
 		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
@@ -1181,8 +1179,8 @@ func TestGenerate_SingleConfigRefOnly(t *testing.T) {
 		PactoVersion: "1.0",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
-		Configuration: &contract.Configuration{
-			Ref: "oci://ghcr.io/acme/shared-config:1.0.0",
+		Configurations: []contract.ConfigurationSource{
+			{Name: "default", Ref: "oci://ghcr.io/acme/shared-config:1.0.0"},
 		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
@@ -1209,19 +1207,19 @@ func TestGenerate_SingleConfigRefOnly(t *testing.T) {
 func TestGenerate_EmptyConfiguration(t *testing.T) {
 	cases := []struct {
 		name string
-		cfg  *contract.Configuration
+		cfgs []contract.ConfigurationSource
 	}{
 		{"nil", nil},
-		{"empty struct", &contract.Configuration{}},
-		{"values only", &contract.Configuration{Values: map[string]interface{}{"KEY": "val"}}},
+		{"empty slice", []contract.ConfigurationSource{}},
+		{"values only", []contract.ConfigurationSource{{Name: "default", Values: map[string]interface{}{"KEY": "val"}}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := &contract.Contract{
-				PactoVersion:  "1.0",
-				Service:       contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-				Interfaces:    []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
-				Configuration: tc.cfg,
+				PactoVersion:   "1.0",
+				Service:        contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+				Interfaces:     []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
+				Configurations: tc.cfgs,
 				Runtime: &contract.Runtime{
 					Workload: "service",
 					State:    contract.State{Type: "stateless", DataCriticality: "low"},

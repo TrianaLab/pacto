@@ -46,6 +46,7 @@ type ExplainInterface struct {
 
 // ExplainDependency is a simplified dependency summary.
 type ExplainDependency struct {
+	Name          string `json:"name"`
 	Ref           string `json:"ref"`
 	Required      bool   `json:"required"`
 	Compatibility string `json:"compatibility"`
@@ -94,6 +95,7 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 
 	for _, dep := range c.Dependencies {
 		result.Dependencies = append(result.Dependencies, ExplainDependency{
+			Name:          dep.Name,
 			Ref:           dep.Ref,
 			Required:      dep.Required,
 			Compatibility: dep.Compatibility,

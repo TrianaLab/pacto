@@ -36,8 +36,9 @@ interfaces:
     port: 9113
     visibility: internal
 
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 
 runtime:
   workload: service

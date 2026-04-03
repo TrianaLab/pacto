@@ -138,11 +138,9 @@ func rejectLocalDeps(c *contract.Contract) error {
 
 // rejectLocalRefs returns an error if any config or policy ref uses a local reference.
 func rejectLocalRefs(c *contract.Contract) error {
-	if c.Configuration != nil {
-		for i, cfg := range c.Configuration.EffectiveConfigs() {
-			if cfg.Ref != "" && graph.ParseDependencyRef(cfg.Ref).IsLocal() {
-				return fmt.Errorf("local config ref detected: %s (configuration.configs[%d])\nLocal references are not allowed when publishing. Use an OCI reference (oci://...)", cfg.Ref, i)
-			}
+	for _, cfg := range c.Configurations {
+		if cfg.Ref != "" && graph.ParseDependencyRef(cfg.Ref).IsLocal() {
+			return fmt.Errorf("local config ref detected: %s (configurations[%q])\nLocal references are not allowed when publishing. Use an OCI reference (oci://...)", cfg.Ref, cfg.Name)
 		}
 	}
 	for i, pol := range c.Policies {

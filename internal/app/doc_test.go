@@ -135,8 +135,8 @@ func TestDoc_WithConfiguration(t *testing.T) {
 					PactoVersion: "1.0",
 					Service:      contract.ServiceIdentity{Name: "cfg-svc", Version: "1.0.0"},
 					Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
-					Configuration: &contract.Configuration{
-						Schema: "configuration/schema.json",
+					Configurations: []contract.ConfigurationSource{
+						{Name: "default", Schema: "configuration/schema.json"},
 					},
 					Runtime: &contract.Runtime{
 						Workload: "service",

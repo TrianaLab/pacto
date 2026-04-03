@@ -12,8 +12,9 @@ interfaces:
     visibility: public
     contract: interfaces/openapi.json
 
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 
 dependencies: []
 

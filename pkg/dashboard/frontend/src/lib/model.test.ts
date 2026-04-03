@@ -18,6 +18,7 @@ interface ConfigurationInfo {
 }
 
 interface PolicyInfo {
+  name: string;
   hasSchema: boolean;
   schema?: string;
   ref?: string;
@@ -126,7 +127,7 @@ describe('policies — data shape', () => {
 
   it('single local policy', () => {
     const policies: PolicyInfo[] = [
-      { hasSchema: true, schema: 'policy/schema.json' },
+      { name: 'local', hasSchema: true, schema: 'policy/schema.json' },
     ];
     expect(policies).toHaveLength(1);
     expect(policies[0].hasSchema).toBe(true);
@@ -135,7 +136,7 @@ describe('policies — data shape', () => {
 
   it('single ref policy', () => {
     const policies: PolicyInfo[] = [
-      { hasSchema: false, ref: 'oci://ghcr.io/org/platform-policy:1.0.0' },
+      { name: 'platform', hasSchema: false, ref: 'oci://ghcr.io/org/platform-policy:1.0.0' },
     ];
     expect(policies).toHaveLength(1);
     expect(policies[0].ref).toBeTruthy();
@@ -144,9 +145,9 @@ describe('policies — data shape', () => {
 
   it('mixed local + ref policies', () => {
     const policies: PolicyInfo[] = [
-      { hasSchema: true, schema: 'policy/custom.json' },
-      { hasSchema: false, ref: 'oci://ghcr.io/org/http-policy:1.0.0' },
-      { hasSchema: false, ref: 'oci://ghcr.io/org/security-policy:2.0.0' },
+      { name: 'custom', hasSchema: true, schema: 'policy/custom.json' },
+      { name: 'http', hasSchema: false, ref: 'oci://ghcr.io/org/http-policy:1.0.0' },
+      { name: 'security', hasSchema: false, ref: 'oci://ghcr.io/org/security-policy:2.0.0' },
     ];
     expect(policies).toHaveLength(3);
     const local = policies.filter(p => p.hasSchema);
@@ -157,6 +158,7 @@ describe('policies — data shape', () => {
 
   it('policy with values (schema properties)', () => {
     const policy: PolicyInfo = {
+      name: 'compliance',
       hasSchema: true,
       schema: 'policy/schema.json',
       values: [
@@ -169,6 +171,7 @@ describe('policies — data shape', () => {
 
   it('policy with raw content', () => {
     const policy: PolicyInfo = {
+      name: 'content-policy',
       hasSchema: false,
       ref: 'oci://ghcr.io/org/policy:1.0',
       content: '{"type":"object","required":["service"]}',
@@ -186,7 +189,7 @@ describe('service detail — combined model', () => {
         { name: 'shared', hasSchema: false, ref: 'oci://ghcr.io/org/shared:1.0' },
       ],
       policies: [
-        { hasSchema: false, ref: 'oci://ghcr.io/org/http-policy:1.0' },
+        { name: 'http', hasSchema: false, ref: 'oci://ghcr.io/org/http-policy:1.0' },
       ],
     };
     expect(hasConfigurations(detail)).toBe(true);
@@ -210,7 +213,7 @@ describe('service detail — combined model', () => {
     const detail: ServiceDetails = {
       name: 'platform-policy',
       policies: [
-        { hasSchema: true, schema: 'policy/schema.json' },
+        { name: 'platform', hasSchema: true, schema: 'policy/schema.json' },
       ],
     };
     expect(hasConfigurations(detail)).toBe(false);

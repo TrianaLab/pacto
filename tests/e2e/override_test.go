@@ -21,8 +21,9 @@ interfaces:
     port: 8080
     visibility: internal
     contract: interfaces/openapi.yaml
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 runtime:
   workload: service
   state:
@@ -177,9 +178,9 @@ func TestOverrideConfigValues(t *testing.T) {
 		bundlePath := writeOverrideBundle(t)
 
 		output, err := runCommand(t, nil, "validate", bundlePath,
-			"--set", "configuration.values.DB_HOST=localhost",
-			"--set", "configuration.values.DB_PORT=5432",
-			"--set", "configuration.values.DEBUG=true",
+			"--set", "configurations[0].values.DB_HOST=localhost",
+			"--set", "configurations[0].values.DB_PORT=5432",
+			"--set", "configurations[0].values.DEBUG=true",
 		)
 		if err != nil {
 			t.Fatalf("validate with valid config values failed: %v\noutput: %s", err, output)
@@ -193,7 +194,7 @@ func TestOverrideConfigValues(t *testing.T) {
 
 		// DB_PORT expects integer, "not-a-number" is a string.
 		output, err := runCommand(t, nil, "validate", bundlePath,
-			"--set", "configuration.values.DB_PORT=not-a-number",
+			"--set", "configurations[0].values.DB_PORT=not-a-number",
 		)
 		if err == nil {
 			t.Fatalf("expected validation to fail for wrong type config value\noutput: %s", output)
@@ -207,7 +208,7 @@ func TestOverrideConfigValues(t *testing.T) {
 
 		// UNKNOWN_KEY is not in the schema (additionalProperties: false).
 		output, err := runCommand(t, nil, "validate", bundlePath,
-			"--set", "configuration.values.UNKNOWN_KEY=hello",
+			"--set", "configurations[0].values.UNKNOWN_KEY=hello",
 		)
 		if err == nil {
 			t.Fatalf("expected validation to fail for undefined config property\noutput: %s", output)
@@ -219,11 +220,12 @@ func TestOverrideConfigValues(t *testing.T) {
 		t.Parallel()
 		bundlePath := writeOverrideBundle(t)
 
-		valuesFile := writeValuesFile(t, t.TempDir(), "config-values.yaml", `configuration:
-  schema: configuration/schema.json
-  values:
-    DB_HOST: db.example.com
-    DB_PORT: 3306
+		valuesFile := writeValuesFile(t, t.TempDir(), "config-values.yaml", `configurations:
+  - name: default
+    schema: configuration/schema.json
+    values:
+      DB_HOST: db.example.com
+      DB_PORT: 3306
 `)
 
 		output, err := runCommand(t, nil, "validate", bundlePath, "-f", valuesFile)
@@ -238,15 +240,16 @@ func TestOverrideConfigValues(t *testing.T) {
 		bundlePath := writeOverrideBundle(t)
 
 		// Values file sets a valid DB_PORT. --set overrides it with a string (wrong type).
-		valuesFile := writeValuesFile(t, t.TempDir(), "config-values.yaml", `configuration:
-  schema: configuration/schema.json
-  values:
-    DB_PORT: 5432
+		valuesFile := writeValuesFile(t, t.TempDir(), "config-values.yaml", `configurations:
+  - name: default
+    schema: configuration/schema.json
+    values:
+      DB_PORT: 5432
 `)
 
 		output, err := runCommand(t, nil, "validate", bundlePath,
 			"-f", valuesFile,
-			"--set", "configuration.values.DB_PORT=not-a-number",
+			"--set", "configurations[0].values.DB_PORT=not-a-number",
 		)
 		if err == nil {
 			t.Fatalf("expected --set to override config values file and fail\noutput: %s", output)

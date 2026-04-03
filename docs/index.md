@@ -87,7 +87,8 @@ interfaces:
     contract: interfaces/openapi.yaml
 
 dependencies:
-  - ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123
+  - name: auth
+    ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123
     required: true
     compatibility: "^2.0.0"
 

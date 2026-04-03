@@ -114,8 +114,8 @@ func TestCreate_WithDependencies(t *testing.T) {
 	result, err := Create(CreateInput{
 		Name: "dep-svc",
 		Dependencies: []DependencyInput{
-			{Ref: "postgres", Required: true, Compatibility: "^1.0.0"},
-			{Ref: "redis"},
+			{Name: "postgres", Ref: "postgres", Required: true, Compatibility: "^1.0.0"},
+			{Name: "redis", Ref: "redis"},
 		},
 		DryRun: true,
 	})
@@ -523,7 +523,7 @@ func TestEdit_AddDependency(t *testing.T) {
 	result, err := Edit(EditInput{
 		Path: dir,
 		AddDependencies: []DependencyInput{
-			{Ref: "postgres", Required: true, Compatibility: "^1.0.0"},
+			{Name: "postgres", Ref: "postgres", Required: true, Compatibility: "^1.0.0"},
 		},
 	})
 	if err != nil {
@@ -540,7 +540,7 @@ func TestEdit_RemoveDependency(t *testing.T) {
 	// Add a dependency first
 	_, err := Edit(EditInput{
 		Path:            dir,
-		AddDependencies: []DependencyInput{{Ref: "redis", Compatibility: "^1.0.0"}},
+		AddDependencies: []DependencyInput{{Name: "redis", Ref: "redis", Compatibility: "^1.0.0"}},
 	})
 	if err != nil {
 		t.Fatalf("add dep: %v", err)
@@ -914,7 +914,7 @@ func TestBuildSuggestions(t *testing.T) {
 	t.Run("missing sections get suggestions", func(t *testing.T) {
 		bundle := testutil.TestBundle()
 		bundle.Contract.Dependencies = nil
-		bundle.Contract.Configuration = nil
+		bundle.Contract.Configurations = nil
 		bundle.Contract.Scaling = nil
 		s := buildSuggestions(bundle.Contract, true)
 		if len(s) == 0 {
@@ -1093,17 +1093,17 @@ func TestEnsureConfigSection(t *testing.T) {
 	t.Run("adds when missing", func(t *testing.T) {
 		m := map[string]interface{}{}
 		ensureConfigSection(m)
-		if _, ok := m["configuration"]; !ok {
-			t.Error("expected configuration added")
+		if _, ok := m["configurations"]; !ok {
+			t.Error("expected configurations added")
 		}
 	})
 
 	t.Run("no-op when present", func(t *testing.T) {
 		m := map[string]interface{}{
-			"configuration": []interface{}{map[string]interface{}{"schema": "custom.json"}},
+			"configurations": []interface{}{map[string]interface{}{"name": "default", "schema": "custom.json"}},
 		}
 		ensureConfigSection(m)
-		cfgs := m["configuration"].([]interface{})
+		cfgs := m["configurations"].([]interface{})
 		cfg := cfgs[0].(map[string]interface{})
 		if cfg["schema"] != "custom.json" {
 			t.Error("should not overwrite existing config")
@@ -1584,8 +1584,8 @@ func TestBuildStubFS(t *testing.T) {
 		Interfaces: []contract.Interface{
 			{Name: "api", Type: "http", Port: &port, Contract: "interfaces/api.yaml"},
 		},
-		Configuration: &contract.Configuration{
-			Schema: "configuration/schema.json",
+		Configurations: []contract.ConfigurationSource{
+			{Name: "default", Schema: "configuration/schema.json"},
 		},
 	}
 	fs := buildStubFS(c, []byte("test"))
@@ -1869,11 +1869,11 @@ func TestAssessSections_Full(t *testing.T) {
 		Service:       contract.ServiceIdentity{Name: "test", Version: "1.0.0"},
 		Interfaces:    []contract.Interface{{Name: "api", Type: "http", Port: &port}},
 		Runtime:       &contract.Runtime{Workload: "service", State: contract.State{Type: "stateless"}},
-		Configuration: &contract.Configuration{Schema: "schema.json"},
-		Dependencies:  []contract.Dependency{{Ref: "pg", Compatibility: "^1.0.0"}},
+		Configurations: []contract.ConfigurationSource{{Name: "default", Schema: "schema.json"}},
+		Dependencies:   []contract.Dependency{{Name: "pg", Ref: "pg", Compatibility: "^1.0.0"}},
 		Scaling:       &contract.Scaling{Min: 1, Max: 3},
 		Metadata:      map[string]interface{}{"team": "x"},
-		Policies:      []contract.PolicySource{{Schema: "policy/schema.json"}},
+		Policies:      []contract.PolicySource{{Name: "local", Schema: "policy/schema.json"}},
 	}
 	s := assessSections(c)
 	for _, key := range []string{"service", "interfaces", "runtime", "configuration", "dependencies", "scaling", "metadata", "policies"} {
@@ -2251,7 +2251,7 @@ func TestBuildBundleFSForValidation_WalkDirErrorsSkipped(t *testing.T) {
 		PactoVersion:  "1.0",
 		Service:       contract.ServiceIdentity{Name: "test", Version: "1.0.0"},
 		Interfaces:    []contract.Interface{{Name: "new-api", Type: "http", Port: &port, Contract: "interfaces/new-api.yaml"}},
-		Configuration: &contract.Configuration{Schema: "configuration/schema.json"},
+		Configurations: []contract.ConfigurationSource{{Name: "default", Schema: "configuration/schema.json"}},
 	}
 	result := buildBundleFSForValidation(dir, []byte("test"), c)
 	// Should have stub for new interface and config
@@ -2312,7 +2312,7 @@ func TestCreateHandler_AllPaths(t *testing.T) {
 		"data_shared_across_instances": true,
 		"data_loss_impact":             "high",
 		"interfaces":                   `[{"name":"api","type":"http","port":8080}]`,
-		"dependencies":                 `[{"ref":"postgres","required":true}]`,
+		"dependencies":                 `[{"name":"postgres","ref":"postgres","required":true}]`,
 		"config_properties":            `[{"name":"PORT","type":"integer","required":true}]`,
 		"metadata":                     `{"team":"platform"}`,
 	})

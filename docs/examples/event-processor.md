@@ -31,17 +31,19 @@ interfaces:
     port: 8080
     visibility: internal
 
-configuration:
-  schema: configuration/schema.json
-  values:
-    BROKER_HOST: rabbitmq.internal
-    BROKER_PORT: 5672
-    BROKER_CREDENTIALS: secret://vault/order-processor/broker-credentials
-    DEAD_LETTER_QUEUE: orders.dlq
-    MAX_RETRIES: 3
+configurations:
+  - name: default
+    schema: configuration/schema.json
+    values:
+      BROKER_HOST: rabbitmq.internal
+      BROKER_PORT: 5672
+      BROKER_CREDENTIALS: secret://vault/order-processor/broker-credentials
+      DEAD_LETTER_QUEUE: orders.dlq
+      MAX_RETRIES: 3
 
 dependencies:
-  - ref: oci://ghcr.io/acme/rabbitmq-pacto@sha256:abc123
+  - name: rabbitmq
+    ref: oci://ghcr.io/acme/rabbitmq-pacto@sha256:abc123
     required: true
     compatibility: "^3.13.0"
 

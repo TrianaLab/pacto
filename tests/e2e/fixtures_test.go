@@ -154,14 +154,17 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 
 dependencies:
-  - ref: oci://%s/postgres-pacto:1.0.0
+  - name: postgres
+    ref: oci://%s/postgres-pacto:1.0.0
     required: true
     compatibility: "^1.0.0"
-  - ref: oci://%s/redis-pacto:1.0.0
+  - name: redis
+    ref: oci://%s/redis-pacto:1.0.0
     required: false
     compatibility: "^1.0.0"
 
@@ -205,8 +208,9 @@ interfaces:
     visibility: internal
     contract: interfaces/db.proto
 
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 
 runtime:
   workload: service
@@ -243,8 +247,9 @@ interfaces:
     visibility: internal
     contract: interfaces/cache.proto
 
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 
 runtime:
   workload: service
@@ -281,8 +286,9 @@ interfaces:
     visibility: internal
     contract: interfaces/cache.proto
 
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 
 runtime:
   workload: service
@@ -342,11 +348,13 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 
 dependencies:
-  - ref: oci://%s/redis-pacto:2.0.0
+  - name: redis
+    ref: oci://%s/redis-pacto:2.0.0
     required: true
     compatibility: "^2.0.0"
 

@@ -96,7 +96,7 @@ func ResolvePoliciesFromBundle(c *contract.Contract, bundleFS fs.FS) ([]Resolved
 	}
 
 	for i, pol := range c.Policies {
-		origin := fmt.Sprintf("policies[%d]", i)
+		origin := policyOrigin(pol, i)
 
 		if pol.Schema != "" {
 			rp := resolveLocalPolicySchema(bundleFS, pol.Schema, origin, i)
@@ -126,9 +126,9 @@ func resolvePoliciesRecursive(ctx context.Context, c *contract.Contract, bundleF
 	var result ValidationResult
 
 	for i, pol := range c.Policies {
-		origin := fmt.Sprintf("policies[%d]", i)
+		origin := policyOrigin(pol, i)
 		if len(path) > 0 {
-			origin = fmt.Sprintf("%s → policies[%d]", path[len(path)-1], i)
+			origin = fmt.Sprintf("%s → %s", path[len(path)-1], policyOrigin(pol, i))
 		}
 
 		if pol.Schema != "" {
@@ -227,6 +227,15 @@ func resolveRefPolicy(ctx context.Context, ref, origin string, resolver BundleRe
 	}
 
 	return []ResolvedPolicy{{Origin: origin, Schema: schema}}, result
+}
+
+// policyOrigin returns a human-readable origin string for a policy source.
+// It uses the policy name if available, falling back to the index.
+func policyOrigin(pol contract.PolicySource, index int) string {
+	if pol.Name != "" {
+		return fmt.Sprintf("policies[%q]", pol.Name)
+	}
+	return fmt.Sprintf("policies[%d]", index)
 }
 
 // compilePolicySchema compiles a JSON Schema from raw bytes for policy enforcement.

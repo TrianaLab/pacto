@@ -268,12 +268,15 @@ func TestServiceDetailsFromBundle_Dependencies(t *testing.T) {
 func TestServiceDetailsFromBundle_Configuration(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Configuration: &contract.Configuration{
-			Schema: "config.schema.json",
-			Ref:    "shared-config",
-			Values: map[string]interface{}{
-				"port":    float64(8080),
-				"enabled": true,
+		Configurations: []contract.ConfigurationSource{
+			{
+				Name:   "default",
+				Schema: "config.schema.json",
+				Ref:    "shared-config",
+				Values: map[string]interface{}{
+					"port":    float64(8080),
+					"enabled": true,
+				},
 			},
 		},
 	}
@@ -520,8 +523,8 @@ func TestServiceDetailsFromBundle_ScalingNilFields(t *testing.T) {
 func TestServiceDetailsFromBundle_ConfigurationSchemaExtract(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Configuration: &contract.Configuration{
-			Schema: "config.schema.json",
+		Configurations: []contract.ConfigurationSource{
+			{Name: "default", Schema: "config.schema.json"},
 		},
 	}
 	fsys := fstest.MapFS{
@@ -996,9 +999,12 @@ func TestServiceDetailsFromBundle_ConfigurationValuesWithKeys(t *testing.T) {
 	// Ensure ValueKeys is populated when Configuration has inline Values.
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Configuration: &contract.Configuration{
-			Values: map[string]interface{}{
-				"port": float64(8080),
+		Configurations: []contract.ConfigurationSource{
+			{
+				Name: "default",
+				Values: map[string]interface{}{
+					"port": float64(8080),
+				},
 			},
 		},
 	}
@@ -1176,11 +1182,9 @@ func TestServiceFromContract_EmptyOwner(t *testing.T) {
 func TestServiceDetailsFromBundle_MultiConfig(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Configuration: &contract.Configuration{
-			Configs: []contract.NamedConfigSource{
-				{Name: "app", Schema: "config/app.json", Values: map[string]interface{}{"PORT": float64(8080)}},
-				{Name: "db", Ref: "oci://ghcr.io/acme/db-config:1.0.0"},
-			},
+		Configurations: []contract.ConfigurationSource{
+			{Name: "app", Schema: "config/app.json", Values: map[string]interface{}{"PORT": float64(8080)}},
+			{Name: "db", Ref: "oci://ghcr.io/acme/db-config:1.0.0"},
 		},
 	}
 	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
@@ -1218,10 +1222,10 @@ func TestServiceDetailsFromBundle_NilConfiguration(t *testing.T) {
 }
 
 func TestServiceDetailsFromBundle_EmptyConfiguration(t *testing.T) {
-	// Configuration present but all fields empty → EffectiveConfigs returns empty.
+	// Configurations present but empty slice → returns empty.
 	c := &contract.Contract{
-		Service:       contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Configuration: &contract.Configuration{},
+		Service:        contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.ConfigurationSource{},
 	}
 	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
 	if len(details.Configurations) != 0 {

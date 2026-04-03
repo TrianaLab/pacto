@@ -66,9 +66,12 @@ func TestValidateRuntime_EmptyPortsSkipsCheck(t *testing.T) {
 
 func TestValidateRuntime_ConfigPresent(t *testing.T) {
 	c := &contract.Contract{
-		Configuration: &contract.Configuration{
-			Values: map[string]interface{}{
-				"DB_HOST": "localhost",
+		Configurations: []contract.ConfigurationSource{
+			{
+				Name: "default",
+				Values: map[string]interface{}{
+					"DB_HOST": "localhost",
+				},
 			},
 		},
 	}
@@ -90,9 +93,12 @@ func TestValidateRuntime_ConfigPresent(t *testing.T) {
 
 func TestValidateRuntime_ConfigMissing(t *testing.T) {
 	c := &contract.Contract{
-		Configuration: &contract.Configuration{
-			Values: map[string]interface{}{
-				"DB_HOST": "localhost",
+		Configurations: []contract.ConfigurationSource{
+			{
+				Name: "default",
+				Values: map[string]interface{}{
+					"DB_HOST": "localhost",
+				},
 			},
 		},
 	}
@@ -145,9 +151,12 @@ func TestValidateRuntime_MultiplePorts(t *testing.T) {
 
 func TestValidateRuntime_ConfigValuesWithEmptyEnvVars(t *testing.T) {
 	c := &contract.Contract{
-		Configuration: &contract.Configuration{
-			Values: map[string]interface{}{
-				"DB_HOST": "localhost",
+		Configurations: []contract.ConfigurationSource{
+			{
+				Name: "default",
+				Values: map[string]interface{}{
+					"DB_HOST": "localhost",
+				},
 			},
 		},
 	}
@@ -163,18 +172,16 @@ func TestValidateRuntime_ConfigValuesWithEmptyEnvVars(t *testing.T) {
 	}
 }
 
-func TestValidateRuntime_MultiConfigsForm(t *testing.T) {
+func TestValidateRuntime_MultiConfigs(t *testing.T) {
 	c := &contract.Contract{
-		Configuration: &contract.Configuration{
-			Configs: []contract.NamedConfigSource{
-				{
-					Name:   "app",
-					Values: map[string]interface{}{"APP_PORT": "8080"},
-				},
-				{
-					Name:   "db",
-					Values: map[string]interface{}{"DB_HOST": "localhost"},
-				},
+		Configurations: []contract.ConfigurationSource{
+			{
+				Name:   "app",
+				Values: map[string]interface{}{"APP_PORT": "8080"},
+			},
+			{
+				Name:   "db",
+				Values: map[string]interface{}{"DB_HOST": "localhost"},
 			},
 		},
 	}
@@ -189,12 +196,12 @@ func TestValidateRuntime_MultiConfigsForm(t *testing.T) {
 	if !result.IsValid() {
 		t.Errorf("expected valid, got errors: %v", result.Errors)
 	}
-	// DB_HOST not in env → should produce warning
+	// DB_HOST not in env -> should produce warning
 	if len(result.Warnings) != 1 {
 		t.Fatalf("expected 1 warning for missing DB_HOST, got %d", len(result.Warnings))
 	}
-	if result.Warnings[0].Path != "configuration.configs[1].values.DB_HOST" {
-		t.Errorf("expected path configuration.configs[1].values.DB_HOST, got %s", result.Warnings[0].Path)
+	if result.Warnings[0].Code != "CONFIG_NOT_OBSERVED" {
+		t.Errorf("expected CONFIG_NOT_OBSERVED, got %s", result.Warnings[0].Code)
 	}
 }
 

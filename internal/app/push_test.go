@@ -191,7 +191,8 @@ interfaces:
     type: http
     port: 8080
 dependencies:
-  - ref: "../local-dep"
+  - name: local-dep
+    ref: "../local-dep"
     required: true
     compatibility: "^1.0.0"
 runtime:
@@ -432,8 +433,9 @@ interfaces:
   - name: api
     type: http
     port: 8080
-configuration:
-  ref: "../local-config"
+configurations:
+  - name: default
+    ref: "../local-config"
 runtime:
   workload: service
   state:
@@ -471,7 +473,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - ref: oci://ghcr.io/acme/policy:1.0.0
+  - name: acme
+    ref: oci://ghcr.io/acme/policy:1.0.0
 runtime:
   workload: service
   state:
@@ -524,7 +527,7 @@ func TestRejectLocalRefs_NilPolicyAndConfig(t *testing.T) {
 
 func TestRejectLocalRefs_LocalConfigRef(t *testing.T) {
 	c := &contract.Contract{
-		Configuration: &contract.Configuration{Ref: "file://../config"},
+		Configurations: []contract.ConfigurationSource{{Name: "default", Ref: "file://../config"}},
 	}
 	err := rejectLocalRefs(c)
 	if err == nil {
@@ -537,7 +540,7 @@ func TestRejectLocalRefs_LocalConfigRef(t *testing.T) {
 
 func TestRejectLocalRefs_LocalPolicyRef(t *testing.T) {
 	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "../policy"}},
+		Policies: []contract.PolicySource{{Name: "local", Ref: "../policy"}},
 	}
 	err := rejectLocalRefs(c)
 	if err == nil {
@@ -550,8 +553,8 @@ func TestRejectLocalRefs_LocalPolicyRef(t *testing.T) {
 
 func TestRejectLocalRefs_OCIRefsAllowed(t *testing.T) {
 	c := &contract.Contract{
-		Configuration: &contract.Configuration{Ref: "oci://ghcr.io/acme/config:1.0.0"},
-		Policies:      []contract.PolicySource{{Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
+		Configurations: []contract.ConfigurationSource{{Name: "default", Ref: "oci://ghcr.io/acme/config:1.0.0"}},
+		Policies:       []contract.PolicySource{{Name: "remote", Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
 	}
 	if err := rejectLocalRefs(c); err != nil {
 		t.Fatalf("unexpected error for OCI refs: %v", err)
@@ -560,8 +563,8 @@ func TestRejectLocalRefs_OCIRefsAllowed(t *testing.T) {
 
 func TestRejectLocalRefs_EmptyRefs(t *testing.T) {
 	c := &contract.Contract{
-		Configuration: &contract.Configuration{Schema: "configuration/schema.json"},
-		Policies:      []contract.PolicySource{{Schema: "policy/schema.json"}},
+		Configurations: []contract.ConfigurationSource{{Name: "default", Schema: "configuration/schema.json"}},
+		Policies:       []contract.PolicySource{{Name: "local", Schema: "policy/schema.json"}},
 	}
 	if err := rejectLocalRefs(c); err != nil {
 		t.Fatalf("unexpected error for empty refs: %v", err)

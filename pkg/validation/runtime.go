@@ -91,22 +91,16 @@ func validateRuntimePorts(c *contract.Contract, ctx RuntimeContext, result *Runt
 // validateRuntimeConfig checks that configuration values declared in
 // the contract are present as environment variables at runtime.
 func validateRuntimeConfig(c *contract.Contract, ctx RuntimeContext, result *RuntimeValidationResult) {
-	if c.Configuration == nil {
+	if len(c.Configurations) == 0 {
 		return
 	}
 	if len(ctx.EnvVars) == 0 {
 		return
 	}
 
-	configs := c.Configuration.EffectiveConfigs()
-	for i, cfg := range configs {
+	for _, cfg := range c.Configurations {
 		for key := range cfg.Values {
-			var fieldPath string
-			if len(c.Configuration.Configs) > 0 {
-				fieldPath = fmt.Sprintf("configuration.configs[%d].values.%s", i, key)
-			} else {
-				fieldPath = fmt.Sprintf("configuration.values.%s", key)
-			}
+			fieldPath := fmt.Sprintf("configurations[%q].values.%s", cfg.Name, key)
 			if _, ok := ctx.EnvVars[key]; !ok {
 				result.addWarning(
 					fieldPath,

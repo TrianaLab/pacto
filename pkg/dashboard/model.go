@@ -215,6 +215,7 @@ type ScalingInfo struct {
 
 // PolicyInfo describes an attached policy (JSON Schema constraint).
 type PolicyInfo struct {
+	Name        string        `json:"name"`
 	HasSchema   bool          `json:"hasSchema"`
 	Schema      string        `json:"schema,omitempty"`
 	Ref         string        `json:"ref,omitempty"`

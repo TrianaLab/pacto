@@ -2,15 +2,15 @@ package contract
 
 // Contract is the root aggregate — the parsed in-memory representation of a pacto.yaml.
 type Contract struct {
-	PactoVersion  string                 `yaml:"pactoVersion" json:"pactoVersion"`
-	Service       ServiceIdentity        `yaml:"service" json:"service"`
-	Interfaces    []Interface            `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
-	Configuration *Configuration         `yaml:"configuration,omitempty" json:"configuration,omitempty"`
-	Policies      []PolicySource         `yaml:"policies,omitempty" json:"policies,omitempty"`
-	Dependencies  []Dependency           `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
-	Runtime       *Runtime               `yaml:"runtime,omitempty" json:"runtime,omitempty"`
-	Scaling       *Scaling               `yaml:"scaling,omitempty" json:"scaling,omitempty"`
-	Metadata      map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	PactoVersion   string                 `yaml:"pactoVersion" json:"pactoVersion"`
+	Service        ServiceIdentity        `yaml:"service" json:"service"`
+	Interfaces     []Interface            `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
+	Configurations []ConfigurationSource  `yaml:"configurations,omitempty" json:"configurations,omitempty"`
+	Policies       []PolicySource         `yaml:"policies,omitempty" json:"policies,omitempty"`
+	Dependencies   []Dependency           `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+	Runtime        *Runtime               `yaml:"runtime,omitempty" json:"runtime,omitempty"`
+	Scaling        *Scaling               `yaml:"scaling,omitempty" json:"scaling,omitempty"`
+	Metadata       map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
 // ServiceIdentity holds service identification fields.
@@ -56,66 +56,18 @@ const (
 	VisibilityInternal = "internal"
 )
 
-// Configuration holds the configuration section of a contract.
-// It supports two forms:
-//   - Legacy: top-level Schema/Ref/Values fields (single configuration source)
-//   - New: a Configs array of named configuration sources (multiple independent scopes)
-//
-// When both forms are present, Configs takes precedence. Internally, use
-// EffectiveConfigs() to normalize both forms into a uniform slice.
-type Configuration struct {
-	Schema  string                 `yaml:"schema,omitempty" json:"schema,omitempty"`
-	Ref     string                 `yaml:"ref,omitempty" json:"ref,omitempty"`
-	Values  map[string]interface{} `yaml:"values,omitempty" json:"values,omitempty"`
-	Configs []NamedConfigSource    `yaml:"configs,omitempty" json:"configs,omitempty"`
-}
-
-// NamedConfigSource declares a named configuration source within the
-// configuration.configs[] array. Name is required and each entry is an
-// independent named scope with no implicit merge semantics.
-type NamedConfigSource struct {
+// ConfigurationSource declares a named configuration scope.
+// Each entry is an independent scope with no implicit merge semantics.
+// Name is required and must be unique within the configurations array.
+// Exactly one of Schema or Ref must be set. Values is only allowed with Schema.
+type ConfigurationSource struct {
 	Name   string                 `yaml:"name" json:"name"`
 	Schema string                 `yaml:"schema,omitempty" json:"schema,omitempty"`
 	Ref    string                 `yaml:"ref,omitempty" json:"ref,omitempty"`
 	Values map[string]interface{} `yaml:"values,omitempty" json:"values,omitempty"`
 }
 
-// EffectiveConfigSource is the normalized internal representation of a single
-// configuration source, regardless of whether it came from the legacy form
-// or the new configuration.configs[] form.
-type EffectiveConfigSource struct {
-	Name   string
-	Schema string
-	Ref    string
-	Values map[string]interface{}
-}
-
-// EffectiveConfigs normalizes both configuration forms into a uniform slice.
-// If Configs is non-empty, each named entry is returned directly.
-// Otherwise, if legacy fields (Schema or Ref) are set, a single entry is returned.
-// Returns nil if the Configuration is nil or has no effective sources.
-func (c *Configuration) EffectiveConfigs() []EffectiveConfigSource {
-	if c == nil {
-		return nil
-	}
-	if len(c.Configs) > 0 {
-		result := make([]EffectiveConfigSource, len(c.Configs))
-		for i, cfg := range c.Configs {
-			result[i] = EffectiveConfigSource(cfg)
-		}
-		return result
-	}
-	if c.Schema != "" || c.Ref != "" || len(c.Values) > 0 {
-		return []EffectiveConfigSource{{
-			Schema: c.Schema,
-			Ref:    c.Ref,
-			Values: c.Values,
-		}}
-	}
-	return nil
-}
-
-// PolicySource declares a policy constraint source.
+// PolicySource declares a named policy constraint source.
 // Each entry provides either a local JSON Schema file or a reference to an
 // external contract. When resolving a ref, if the referenced contract declares
 // its own policies[] entries, those schemas are used directly (supporting custom
@@ -123,13 +75,17 @@ func (c *Configuration) EffectiveConfigs() []EffectiveConfigSource {
 // used as a backward-compatible fallback.
 // A policy schema validates the contract itself, enabling platform teams to
 // enforce organizational standards. Schema and Ref are mutually exclusive.
+// Name is required and must be unique within the policies array.
 type PolicySource struct {
+	Name   string `yaml:"name" json:"name"`
 	Schema string `yaml:"schema,omitempty" json:"schema,omitempty"`
 	Ref    string `yaml:"ref,omitempty" json:"ref,omitempty"`
 }
 
-// Dependency represents a dependency on another service.
+// Dependency represents a named dependency on another service.
+// Name is required and must be unique within the dependencies array.
 type Dependency struct {
+	Name          string `yaml:"name" json:"name"`
 	Ref           string `yaml:"ref" json:"ref"`
 	Required      bool   `yaml:"required,omitempty" json:"required,omitempty"`
 	Compatibility string `yaml:"compatibility" json:"compatibility"`

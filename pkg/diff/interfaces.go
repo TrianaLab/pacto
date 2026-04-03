@@ -1,7 +1,6 @@
 package diff
 
 import (
-	"fmt"
 	"io/fs"
 
 	"github.com/trianalab/pacto/pkg/contract"
@@ -53,136 +52,85 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 	return changes
 }
 
-// diffConfiguration compares configuration objects and delegates to JSON Schema diff.
+// diffConfiguration compares configuration slices by name and delegates to JSON Schema diff.
 func diffConfiguration(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 	var changes []Change
 
-	oldCfg := old.Configuration
-	newCfg := new.Configuration
+	oldByName := indexConfigurations(old.Configurations)
+	newByName := indexConfigurations(new.Configurations)
 
-	// Both nil — no changes
-	if oldCfg == nil && newCfg == nil {
-		return nil
-	}
-
-	// One nil — entire configuration added/removed
-	if oldCfg == nil {
-		changes = append(changes, newChange("configuration", Added, nil, configSummary(newCfg)))
-		return changes
-	}
-	if newCfg == nil {
-		changes = append(changes, newChange("configuration", Removed, configSummary(oldCfg), nil))
-		return changes
-	}
-
-	// Compare legacy fields (schema, ref, values)
-	if oldCfg.Schema != newCfg.Schema {
-		changes = append(changes, newChange("configuration.schema", Modified, oldCfg.Schema, newCfg.Schema))
-	}
-	if oldCfg.Ref != newCfg.Ref {
-		ct := Modified
-		if oldCfg.Ref == "" {
-			ct = Added
-		} else if newCfg.Ref == "" {
-			ct = Removed
+	for name, oldCfg := range oldByName {
+		newCfg, exists := newByName[name]
+		if !exists {
+			changes = append(changes, newChange("configurations", Removed, configSummary(&oldCfg), nil))
+			continue
 		}
-		changes = append(changes, newChange("configuration.ref", ct, oldCfg.Ref, newCfg.Ref))
+
+		if oldCfg.Schema != newCfg.Schema {
+			changes = append(changes, newChange("configurations.schema", Modified, name+": "+oldCfg.Schema, name+": "+newCfg.Schema))
+		}
+		if oldCfg.Ref != newCfg.Ref {
+			ct := Modified
+			if oldCfg.Ref == "" {
+				ct = Added
+			} else if newCfg.Ref == "" {
+				ct = Removed
+			}
+			changes = append(changes, newChange("configurations.ref", ct, name+": "+oldCfg.Ref, name+": "+newCfg.Ref))
+		}
+
+		// Diff schema file contents when both reference local schemas.
+		if oldCfg.Schema != "" && newCfg.Schema != "" {
+			changes = append(changes, diffSchema(oldCfg.Schema, newCfg.Schema, oldFS, newFS)...)
+		}
 	}
 
-	// Diff schema files if both have legacy schema
-	if oldCfg.Schema != "" && newCfg.Schema != "" {
-		changes = append(changes, diffSchema(oldCfg.Schema, newCfg.Schema, oldFS, newFS)...)
+	for name, newCfg := range newByName {
+		if _, exists := oldByName[name]; !exists {
+			changes = append(changes, newChange("configurations", Added, nil, configSummary(&newCfg)))
+		}
 	}
-
-	// Compare configs array (positional)
-	changes = append(changes, diffNamedConfigs(oldCfg.Configs, newCfg.Configs, oldFS, newFS)...)
 
 	return changes
 }
 
-func configSummary(cfg *contract.Configuration) string {
+func configSummary(cfg *contract.ConfigurationSource) string {
 	if cfg == nil {
 		return ""
 	}
 	if cfg.Ref != "" {
-		return cfg.Ref
-	}
-	if cfg.Schema != "" {
-		return cfg.Schema
-	}
-	if len(cfg.Configs) > 0 {
-		return fmt.Sprintf("%d configs", len(cfg.Configs))
-	}
-	return ""
-}
-
-func namedConfigSummary(cfg *contract.NamedConfigSource) string {
-	if cfg.Ref != "" {
 		return cfg.Name + ": " + cfg.Ref
 	}
-	return cfg.Name + ": " + cfg.Schema
-}
-
-// diffNamedConfigs compares the configs[] arrays positionally.
-func diffNamedConfigs(oldConfigs, newConfigs []contract.NamedConfigSource, oldFS, newFS fs.FS) []Change {
-	var changes []Change
-	maxLen := max(len(oldConfigs), len(newConfigs))
-	for i := 0; i < maxLen; i++ {
-		prefix := fmt.Sprintf("configuration.configs[%d]", i)
-		if i >= len(oldConfigs) {
-			changes = append(changes, newChange(prefix, Added, nil, namedConfigSummary(&newConfigs[i])))
-			continue
-		}
-		if i >= len(newConfigs) {
-			changes = append(changes, newChange(prefix, Removed, namedConfigSummary(&oldConfigs[i]), nil))
-			continue
-		}
-		oldNamed := &oldConfigs[i]
-		newNamed := &newConfigs[i]
-
-		if oldNamed.Name != newNamed.Name {
-			changes = append(changes, newChange(prefix+".name", Modified, oldNamed.Name, newNamed.Name))
-		}
-		if oldNamed.Schema != newNamed.Schema {
-			changes = append(changes, newChange(prefix+".schema", Modified, oldNamed.Schema, newNamed.Schema))
-		}
-		if oldNamed.Ref != newNamed.Ref {
-			ct := Modified
-			if oldNamed.Ref == "" {
-				ct = Added
-			} else if newNamed.Ref == "" {
-				ct = Removed
-			}
-			changes = append(changes, newChange(prefix+".ref", ct, oldNamed.Ref, newNamed.Ref))
-		}
-		if oldNamed.Schema != "" && newNamed.Schema != "" {
-			changes = append(changes, diffSchema(oldNamed.Schema, newNamed.Schema, oldFS, newFS)...)
-		}
+	if cfg.Schema != "" {
+		return cfg.Name + ": " + cfg.Schema
 	}
-	return changes
+	return cfg.Name
 }
 
-// diffPolicy compares policies arrays.
+func indexConfigurations(cfgs []contract.ConfigurationSource) map[string]contract.ConfigurationSource {
+	m := make(map[string]contract.ConfigurationSource, len(cfgs))
+	for _, c := range cfgs {
+		m[c.Name] = c
+	}
+	return m
+}
+
+// diffPolicy compares policies arrays by name.
 func diffPolicy(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 	var changes []Change
 
-	maxLen := max(len(old.Policies), len(new.Policies))
+	oldByName := indexPolicies(old.Policies)
+	newByName := indexPolicies(new.Policies)
 
-	for i := 0; i < maxLen; i++ {
-		prefix := fmt.Sprintf("policies[%d]", i)
-		if i >= len(old.Policies) {
-			changes = append(changes, newChange(prefix, Added, nil, policySummary(&new.Policies[i])))
+	for name, oldPol := range oldByName {
+		newPol, exists := newByName[name]
+		if !exists {
+			changes = append(changes, newChange("policies", Removed, policySummary(&oldPol), nil))
 			continue
 		}
-		if i >= len(new.Policies) {
-			changes = append(changes, newChange(prefix, Removed, policySummary(&old.Policies[i]), nil))
-			continue
-		}
-		oldPol := &old.Policies[i]
-		newPol := &new.Policies[i]
 
 		if oldPol.Schema != newPol.Schema {
-			changes = append(changes, newChange(prefix+".schema", Modified, oldPol.Schema, newPol.Schema))
+			changes = append(changes, newChange("policies.schema", Modified, name+": "+oldPol.Schema, name+": "+newPol.Schema))
 		}
 		if oldPol.Ref != newPol.Ref {
 			ct := Modified
@@ -191,12 +139,18 @@ func diffPolicy(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 			} else if newPol.Ref == "" {
 				ct = Removed
 			}
-			changes = append(changes, newChange(prefix+".ref", ct, oldPol.Ref, newPol.Ref))
+			changes = append(changes, newChange("policies.ref", ct, name+": "+oldPol.Ref, name+": "+newPol.Ref))
 		}
 
 		// Diff schema file contents when both policies reference local schemas.
 		if oldPol.Schema != "" && newPol.Schema != "" {
 			changes = append(changes, diffSchema(oldPol.Schema, newPol.Schema, oldFS, newFS)...)
+		}
+	}
+
+	for name, newPol := range newByName {
+		if _, exists := oldByName[name]; !exists {
+			changes = append(changes, newChange("policies", Added, nil, policySummary(&newPol)))
 		}
 	}
 
@@ -237,9 +191,20 @@ func fileExists(fsys fs.FS, path string) bool {
 
 func policySummary(p *contract.PolicySource) string {
 	if p.Ref != "" {
-		return p.Ref
+		return p.Name + ": " + p.Ref
 	}
-	return p.Schema
+	if p.Schema != "" {
+		return p.Name + ": " + p.Schema
+	}
+	return p.Name
+}
+
+func indexPolicies(policies []contract.PolicySource) map[string]contract.PolicySource {
+	m := make(map[string]contract.PolicySource, len(policies))
+	for _, p := range policies {
+		m[p.Name] = p
+	}
+	return m
 }
 
 func indexInterfaces(ifaces []contract.Interface) map[string]contract.Interface {

@@ -111,15 +111,11 @@ func interfacesFromContract(c *contract.Contract, fsys fs.FS) []InterfaceInfo {
 }
 
 func configsFromContract(c *contract.Contract, fsys fs.FS) []ConfigurationInfo {
-	if c.Configuration == nil {
-		return nil
-	}
-	effectiveConfigs := c.Configuration.EffectiveConfigs()
-	if len(effectiveConfigs) == 0 {
+	if len(c.Configurations) == 0 {
 		return nil
 	}
 	var out []ConfigurationInfo
-	for _, cfg := range effectiveConfigs {
+	for _, cfg := range c.Configurations {
 		ci := ConfigurationInfo{
 			Name:      cfg.Name,
 			HasSchema: cfg.Schema != "",
@@ -144,7 +140,7 @@ func depsFromContract(c *contract.Contract) []DependencyInfo {
 	var out []DependencyInfo
 	for _, dep := range c.Dependencies {
 		out = append(out, DependencyInfo{
-			Name:          extractServiceNameFromRef(dep.Ref),
+			Name:          dep.Name,
 			Ref:           dep.Ref,
 			Required:      dep.Required,
 			Compatibility: dep.Compatibility,
@@ -201,6 +197,7 @@ func policiesFromContract(c *contract.Contract, fsys fs.FS) []PolicyInfo {
 		var out []PolicyInfo
 		for _, pol := range c.Policies {
 			pi := PolicyInfo{
+				Name:      pol.Name,
 				HasSchema: pol.Schema != "",
 				Schema:    pol.Schema,
 				Ref:       pol.Ref,

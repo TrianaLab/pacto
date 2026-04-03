@@ -133,18 +133,22 @@ interfaces:
     visibility: internal
     contract: interfaces/events.yaml
 
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 
 policies:
-  - ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
+  - name: platform-policy
+    ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
 
 dependencies:
-  - ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123def456
+  - name: auth
+    ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123def456
     required: true
     compatibility: "^2.0.0"
 
-  - ref: oci://ghcr.io/acme/notifications-pacto:1.0.0
+  - name: notifications
+    ref: oci://ghcr.io/acme/notifications-pacto:1.0.0
     required: false
     compatibility: "~1.0.0"
 
@@ -184,7 +188,7 @@ metadata:
 
 ## Minimal contract
 
-Only `pactoVersion` and `service` are required. All other sections — `interfaces`, `runtime`, `configuration`, `policies`, `dependencies`, `scaling`, and `metadata` — are optional:
+Only `pactoVersion` and `service` are required. All other sections — `interfaces`, `runtime`, `configurations`, `policies`, `dependencies`, `scaling`, and `metadata` — are optional:
 
 ```yaml
 pactoVersion: "1.0"
@@ -319,29 +323,18 @@ Interface names must be unique within a contract. The `contract` field for `http
 
 ---
 
-### `configuration`
+### `configurations`
 
 Defines the service's configuration model. Optional — services with no configuration schema may omit this section entirely.
 
-The `configuration` section supports two forms:
-
-**Legacy form** (single source — fields directly under `configuration:`):
+The `configurations` section is an array of named configuration entries:
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
+| `name` | string | Yes | Non-empty identifier for the configuration entry |
 | `schema` | string | Conditional | Non-empty. Must reference a file in the bundle. Required if `ref` is not set |
 | `ref` | string | Conditional | Non-empty. OCI or local reference to another Pacto contract. Required if `schema` is not set |
 | `values` | object | No | Must conform to the schema defined in `schema` |
-
-**Multi-config form** (named sources via `configuration.configs[]`):
-
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `configs` | array | Yes | Array of named configuration sources |
-| `configs[].name` | string | Yes | Non-empty identifier for the configuration source |
-| `configs[].schema` | string | Conditional | Non-empty. Required if `ref` is not set |
-| `configs[].ref` | string | Conditional | Non-empty. Required if `schema` is not set |
-| `configs[].values` | object | No | Must conform to the schema defined in `schema` |
 
 When `schema` is used, the configuration schema is a local file within the bundle. When `ref` is used, the schema is resolved from another Pacto contract's bundle at the fixed path `configuration/schema.json`. **`schema` and `ref` are mutually exclusive** — each entry must use one or the other, not both. When `ref` is set, `schema` and `values` must not be present.
 
@@ -357,11 +350,12 @@ All files referenced by the contract — including the configuration schema — 
 Instead of vendoring a configuration schema into the bundle, you can reference another Pacto contract that contains it. The referenced contract's bundle must have the schema at the fixed path `configuration/schema.json`:
 
 ```yaml
-configuration:
-  ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
+configurations:
+  - name: platform
+    ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
-This enables centralized configuration management — a platform team publishes a single configuration contract, and all services reference it. The reference supports recursive resolution: if the referenced contract itself has a `configuration.ref` (or `configuration.configs[].ref`), Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
+This enables centralized configuration management — a platform team publishes a single configuration contract, and all services reference it. The reference supports recursive resolution: if the referenced contract itself has a `configurations[].ref`, Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
 
 {: .tip }
 Configuration references create **reference edges** in the dependency graph, distinct from `dependencies[].ref` edges. Use `pacto graph --with-references` to visualize them, or `pacto graph --only-references` to show only reference edges. In the dashboard graph, reference edges appear as dashed lines.
@@ -374,13 +368,14 @@ Local configuration references (`file://` and bare paths) are only allowed durin
 Secrets should never be stored as literal values in a contract. Instead, use a reference convention that the platform resolves at deployment time. The contract declares *what* the service needs; the platform decides *how* to provide it.
 
 ```yaml
-configuration:
-  schema: configuration/schema.json
-  values:
-      DB_HOST: prod-db.internal
-      DB_PORT: 5432
-      DB_PASSWORD: secret://vault/payments/db-password
-      API_KEY: secret://vault/payments/stripe-api-key
+configurations:
+  - name: default
+    schema: configuration/schema.json
+    values:
+        DB_HOST: prod-db.internal
+        DB_PORT: 5432
+        DB_PASSWORD: secret://vault/payments/db-password
+        API_KEY: secret://vault/payments/stripe-api-key
 ```
 
 The `secret://` prefix is a convention — Pacto treats it as an opaque string value. Your platform tooling (Kubernetes operators, Terraform modules, deployment scripts) interprets these references and injects the actual secret at runtime. This keeps sensitive values out of the contract while making the dependency on secrets explicit and auditable.
@@ -402,15 +397,16 @@ Your configuration JSON Schema should declare secret fields as strings:
 
 ### Configuration Schema Ownership Models
 
-The configuration schema field is an **interface**. It defines a boundary between a service and its environment. The schema itself is always a JSON Schema document — but its *meaning* depends on who defines it.
+The configurations schema field is an **interface**. It defines a boundary between a service and its environment. The schema itself is always a JSON Schema document — but its *meaning* depends on who defines it.
 
 #### Service-Defined Schema
 
 When a service defines its own configuration schema, the schema expresses **what the service requires** to run. The service author knows what configuration keys the service reads, what types they expect, and which ones are mandatory.
 
 ```yaml
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 ```
 
 Characteristics:
@@ -428,15 +424,17 @@ There are two approaches for distributing platform schemas:
 **Vendored (local path):** The platform team publishes the schema externally, and services copy it into their bundle at build time:
 
 ```yaml
-configuration:
-  schema: configuration/platform-schema.json
+configurations:
+  - name: platform
+    schema: configuration/platform-schema.json
 ```
 
-**Referenced (OCI):** Services reference the platform's configuration contract directly via `configuration.ref`. No vendoring required — Pacto resolves the schema from the referenced bundle at the fixed path `configuration/schema.json`:
+**Referenced (OCI):** Services reference the platform's configuration contract directly via `configurations[].ref`. No vendoring required — Pacto resolves the schema from the referenced bundle at the fixed path `configuration/schema.json`:
 
 ```yaml
-configuration:
-  ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
+configurations:
+  - name: platform
+    ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
 Characteristics:
@@ -456,7 +454,7 @@ Characteristics:
 
 #### Hybrid Approaches
 
-In practice, organizations may combine both models — a platform-defined base schema that covers shared infrastructure (database connections, observability, secrets) with service-specific extensions for application-level configuration. Pacto does not prescribe a specific pattern; the schema format is identical regardless of where it originates. Note that `schema` and `ref` are mutually exclusive within a single entry — choose one approach per entry.
+In practice, organizations may combine both models — a platform-defined base schema that covers shared infrastructure (database connections, observability, secrets) with service-specific extensions for application-level configuration. Pacto does not prescribe a specific pattern; the schema format is identical regardless of where it originates. Since `configurations` is an array, you can have multiple named entries — one referencing a platform schema and another defining a service-specific schema. Note that `schema` and `ref` are mutually exclusive within a single entry — choose one approach per entry.
 
 ---
 
@@ -464,10 +462,11 @@ In practice, organizations may combine both models — a platform-defined base s
 
 Defines or references policy constraints for the contract. Optional — services not subject to a policy may omit this section entirely. A policy is a JSON Schema that validates the contract itself, enabling platform teams to enforce organizational standards (e.g., require health endpoints, mandate specific ports, enforce visibility rules).
 
-When present, each entry must have either `schema` or `ref` specified.
+When present, each entry must have a `name` and either `schema` or `ref` specified.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
+| `name` | string | Yes | Non-empty identifier for the policy entry |
 | `schema` | string | Conditional | Non-empty. Path to a JSON Schema file in the bundle (convention: `policy/schema.json`). Required if `ref` is not set |
 | `ref` | string | Conditional | Non-empty. OCI or local reference to another Pacto contract. If the referenced contract declares `policies[]`, those schemas are used directly; otherwise falls back to the fixed path `policy/schema.json`. Required if `schema` is not set |
 
@@ -485,7 +484,8 @@ service:
   version: 1.0.0
   owner: team/platform
 policies:
-  - schema: policy/schema.json
+  - name: platform-policy
+    schema: policy/schema.json
 ```
 
 Example policy schema (`policy/schema.json`) requiring all contracts to have a health check:
@@ -516,13 +516,14 @@ To adopt a policy, reference the policy contract via OCI:
 
 ```yaml
 policies:
-  - ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
+  - name: platform-policy
+    ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
 ```
 
 When a consumer references a policy contract, Pacto uses conditional resolution: if the referenced contract explicitly declares `policies[]` entries, those schemas are used directly (supporting custom paths and multiple schemas). If the referenced contract has no `policies[]` entries, Pacto falls back to reading the fixed path `policy/schema.json`. The reference supports recursive resolution: if the referenced contract itself has a `policies[].ref`, Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
 
 {: .tip }
-Like `configuration.ref`, policy references create **reference edges** in the dependency graph. Use `pacto graph --with-references` to see them alongside dependencies.
+Like `configurations[].ref`, policy references create **reference edges** in the dependency graph. Use `pacto graph --with-references` to see them alongside dependencies.
 
 {: .warning }
 Local policy references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local `policies[].ref` — all refs must use `oci://` before publishing.
@@ -552,6 +553,7 @@ Declares dependencies on other services via their Pacto contracts.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
+| `name` | string | Yes | Non-empty identifier for the dependency |
 | `ref` | string | Yes | Non-empty. OCI reference (`oci://...`) or local path (`file://...` or bare path) |
 | `required` | boolean | No | Default: `false` |
 | `compatibility` | string | Yes | Non-empty. Valid semver constraint |
@@ -796,10 +798,10 @@ Validates semantic references and consistency:
 | `image.ref` is a valid OCI reference | `INVALID_IMAGE_REF` |
 | `chart.ref` (OCI) is a valid OCI reference | `INVALID_CHART_REF` |
 | `chart.version` is valid semver | `INVALID_CHART_VERSION` |
-| `configuration.configs[].ref` is not a valid OCI reference | `INVALID_CONFIG_REF` |
-| `configuration.configs[].values` without a schema | `VALUES_WITHOUT_SCHEMA` |
-| `configuration.configs[].schema` file is not valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
-| `configuration.configs[].values` don't match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
+| `configurations[].ref` is not a valid OCI reference | `INVALID_CONFIG_REF` |
+| `configurations[].values` without a schema | `VALUES_WITHOUT_SCHEMA` |
+| `configurations[].schema` file is not valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
+| `configurations[].values` don't match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
 | `policies` entry has neither `schema` nor `ref` | `POLICY_EMPTY` |
 | `policies[].schema` file does not exist in the bundle | `FILE_NOT_FOUND` |
 | `policies[].ref` is not a valid OCI reference | `INVALID_POLICY_REF` |
@@ -867,7 +869,7 @@ pacto validate my-service -f staging-values.yaml
 pacto validate my-service -f staging-values.yaml --set service.version=3.0.0
 
 # Set configuration values validated against the config schema
-pacto validate my-service --set configuration.values.DB_HOST=localhost
+pacto validate my-service --set configurations[0].values.DB_HOST=localhost
 
 # Set array elements using bracket notation
 pacto validate my-service --set interfaces[0].port=9090
@@ -936,24 +938,26 @@ my-service/
 
 ```yaml
 # values/dev.yaml
-configuration:
-  values:
-    DB_HOST: localhost
-    DB_PORT: 5432
-    DB_PASSWORD: dev-password
-    LOG_LEVEL: debug
+configurations:
+  - name: default
+    values:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_PASSWORD: dev-password
+      LOG_LEVEL: debug
 scaling:
   replicas: 1
 ```
 
 ```yaml
 # values/staging.yaml
-configuration:
-  values:
-    DB_HOST: staging-db.internal
-    DB_PORT: 5432
-    DB_PASSWORD: secret://vault/payments-staging/db-password
-    LOG_LEVEL: info
+configurations:
+  - name: default
+    values:
+      DB_HOST: staging-db.internal
+      DB_PORT: 5432
+      DB_PASSWORD: secret://vault/payments-staging/db-password
+      LOG_LEVEL: info
 scaling:
   min: 2
   max: 4
@@ -961,12 +965,13 @@ scaling:
 
 ```yaml
 # values/production.yaml
-configuration:
-  values:
-    DB_HOST: prod-db.internal
-    DB_PORT: 5432
-    DB_PASSWORD: secret://vault/payments-prod/db-password
-    LOG_LEVEL: warn
+configurations:
+  - name: default
+    values:
+      DB_HOST: prod-db.internal
+      DB_PORT: 5432
+      DB_PASSWORD: secret://vault/payments-prod/db-password
+      LOG_LEVEL: warn
 scaling:
   min: 3
   max: 10
@@ -996,17 +1001,18 @@ pacto push my-service --values values/production.yaml --set service.version=2.1.
 
 ### Configuration values validation
 
-Overrides can set `configuration.values` fields. These values are validated against the JSON Schema referenced by `configuration.schema`. If a value has the wrong type or is not defined in the schema, validation fails.
+Overrides can set `configurations[].values` fields. These values are validated against the JSON Schema referenced by the corresponding `configurations[].schema`. If a value has the wrong type or is not defined in the schema, validation fails.
 
 ```yaml
 # pacto.yaml
-configuration:
-  schema: configuration/schema.json
+configurations:
+  - name: default
+    schema: configuration/schema.json
 ```
 
 ```bash
 # This will fail if DB_PORT expects an integer but receives a string
-pacto validate my-service --set configuration.values.DB_PORT=not-a-number
+pacto validate my-service --set configurations[0].values.DB_PORT=not-a-number
 ```
 
 ---
@@ -1044,26 +1050,18 @@ Each change is classified as:
 | `interfaces.visibility` | Modified | POTENTIAL_BREAKING |
 | `interfaces.contract` | Modified | POTENTIAL_BREAKING |
 
-### Configuration
+### Configurations
 
 | Field | Change | Classification |
 |-------|--------|----------------|
-| `configuration` | Added | NON_BREAKING |
-| `configuration` | Removed | **BREAKING** |
-| `configuration.schema` | Added | NON_BREAKING |
-| `configuration.schema` | Modified | POTENTIAL_BREAKING |
-| `configuration.schema` | Removed | **BREAKING** |
-| `configuration.ref` | Added | NON_BREAKING |
-| `configuration.ref` | Modified | POTENTIAL_BREAKING |
-| `configuration.ref` | Removed | **BREAKING** |
-| `configuration.configs[]` | Added | NON_BREAKING |
-| `configuration.configs[]` | Removed | **BREAKING** |
-| `configuration.configs[].schema` | Added | NON_BREAKING |
-| `configuration.configs[].schema` | Modified | POTENTIAL_BREAKING |
-| `configuration.configs[].schema` | Removed | **BREAKING** |
-| `configuration.configs[].ref` | Added | NON_BREAKING |
-| `configuration.configs[].ref` | Modified | POTENTIAL_BREAKING |
-| `configuration.configs[].ref` | Removed | **BREAKING** |
+| `configurations[]` | Added | NON_BREAKING |
+| `configurations[]` | Removed | **BREAKING** |
+| `configurations[].schema` | Added | NON_BREAKING |
+| `configurations[].schema` | Modified | POTENTIAL_BREAKING |
+| `configurations[].schema` | Removed | **BREAKING** |
+| `configurations[].ref` | Added | NON_BREAKING |
+| `configurations[].ref` | Modified | POTENTIAL_BREAKING |
+| `configurations[].ref` | Removed | **BREAKING** |
 
 ### Policy
 
@@ -1168,7 +1166,7 @@ openapi.paths[/users].methods[GET].responses[200]
 
 ### JSON Schema (configuration & policy schemas)
 
-Schema files referenced by `configuration.schema`, `configuration.configs[].schema`, `policies[].schema`, or the auto-detected `policy/schema.json` are compared recursively. Every structural difference — properties, types, constraints, defaults, enums, etc. — is detected and classified.
+Schema files referenced by `configurations[].schema`, `policies[].schema`, or the auto-detected `policy/schema.json` are compared recursively. Every structural difference — properties, types, constraints, defaults, enums, etc. — is detected and classified.
 
 | Field | Change | Classification |
 |-------|--------|----------------|

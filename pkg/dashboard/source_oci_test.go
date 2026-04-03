@@ -544,8 +544,8 @@ func TestOCISource_ListServices_RecursiveReferences(t *testing.T) {
 	store.bundles[ref] = &contract.Bundle{
 		Contract: &contract.Contract{
 			Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
-			Configuration: &contract.Configuration{
-				Ref: "oci://ghcr.io/org/shared-config",
+			Configurations: []contract.ConfigurationSource{
+				{Name: "default", Ref: "oci://ghcr.io/org/shared-config"},
 			},
 			Policies: []contract.PolicySource{{Ref: "oci://ghcr.io/org/shared-policy:1.0.0"}},
 		},
@@ -849,8 +849,8 @@ func TestOCISource_DepReposForService_EmptyConfigRef(t *testing.T) {
 	store.bundles[ref] = &contract.Bundle{
 		Contract: &contract.Contract{
 			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-			Configuration: &contract.Configuration{
-				Ref: "file://local/schema.json",
+			Configurations: []contract.ConfigurationSource{
+				{Name: "default", Ref: "file://local/schema.json"},
 			},
 		},
 		RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: svc\n  version: 1.0.0\n"),
@@ -892,8 +892,8 @@ func TestOCISource_DepReposForService_ConfigRefWithTag(t *testing.T) {
 	store.bundles[ref] = &contract.Bundle{
 		Contract: &contract.Contract{
 			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-			Configuration: &contract.Configuration{
-				Ref: "oci://ghcr.io/org/shared-config:2.0.0",
+			Configurations: []contract.ConfigurationSource{
+				{Name: "default", Ref: "oci://ghcr.io/org/shared-config:2.0.0"},
 			},
 		},
 		RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: svc\n  version: 1.0.0\n"),

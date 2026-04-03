@@ -536,7 +536,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - ref: oci://ghcr.io/acme/policy:1.0.0
+  - name: acme
+    ref: oci://ghcr.io/acme/policy:1.0.0
 runtime:
   workload: service
   state:

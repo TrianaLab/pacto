@@ -52,15 +52,17 @@ pacto generate schema-infer my-service --option file=config.yaml -o my-service
 This generates `config.schema.json`. Reference it in your contract:
 
 ```yaml
-configuration:
-  schema: config.schema.json
+configurations:
+  - name: default
+    schema: config.schema.json
 ```
 
 When you define your own configuration schema, you are declaring **what your service requires** to run. This is the most common model for services that need to be portable across environments. If your platform team provides a shared schema instead, you can either vendor it into your bundle or reference it via OCI:
 
 ```yaml
-configuration:
-  ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
+configurations:
+  - name: platform
+    ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
 See [Configuration Schema Ownership Models]({{ site.baseurl }}{% link contract-reference.md %}#configuration-schema-ownership-models) for details.
@@ -145,16 +147,19 @@ If your service depends on other Pacto-enabled services:
 
 ```yaml
 dependencies:
-  - ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123
+  - name: auth
+    ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123
     required: true
     compatibility: "^2.0.0"
 
-  - ref: oci://ghcr.io/acme/cache-pacto:1.0.0
+  - name: cache
+    ref: oci://ghcr.io/acme/cache-pacto:1.0.0
     required: false
     compatibility: "~1.0.0"
 
   # Tag omitted — resolves to the highest version matching ^3.0.0
-  - ref: oci://ghcr.io/acme/utils-pacto
+  - name: utils
+    ref: oci://ghcr.io/acme/utils-pacto
     required: true
     compatibility: "^3.0.0"
 ```
@@ -163,7 +168,8 @@ During development, you can reference local contracts:
 
 ```yaml
 dependencies:
-  - ref: file://../shared-db
+  - name: shared-db
+    ref: file://../shared-db
     required: true
     compatibility: "^1.0.0"
 ```
@@ -181,7 +187,8 @@ If your platform team publishes a policy contract, reference it in your contract
 
 ```yaml
 policies:
-  - ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
+  - name: platform-policy
+    ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
 ```
 
 A policy is a JSON Schema that validates the contract itself — enforcing organizational standards like requiring health endpoints or mandating specific ports. See [policies]({{ site.baseurl }}{% link contract-reference.md %}#policies) in the Contract Reference for details.
@@ -254,7 +261,7 @@ pacto validate my-service -f staging-values.yaml
 pacto validate my-service -f staging-values.yaml --set service.version=3.0.0
 
 # Set configuration values
-pacto validate my-service --set configuration.values.DB_HOST=localhost
+pacto validate my-service --set configurations[0].values.DB_HOST=localhost
 ```
 
 Overrides work on all commands that take a contract reference. For `diff`, use `--old-set`/`--old-values` and `--new-set`/`--new-values` to override each contract independently.

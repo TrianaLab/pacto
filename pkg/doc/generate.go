@@ -577,10 +577,10 @@ func writeInterfaces(b *strings.Builder, c *contract.Contract, fsys fs.FS, num *
 // hasConfigContent returns true if the contract has configuration content
 // worth rendering (schema or ref). Values-only configs are not renderable.
 func hasConfigContent(c *contract.Contract) bool {
-	if c.Configuration == nil {
+	if len(c.Configurations) == 0 {
 		return false
 	}
-	for _, cfg := range c.Configuration.EffectiveConfigs() {
+	for _, cfg := range c.Configurations {
 		if cfg.Schema != "" || cfg.Ref != "" {
 			return true
 		}
@@ -593,10 +593,10 @@ func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, nu
 		return
 	}
 
-	configs := c.Configuration.EffectiveConfigs()
+	configs := c.Configurations
 	multiConfig := len(configs) > 1
 
-	// For single-config (legacy), render a flat table as before.
+	// For single-config, render a flat table as before.
 	if !multiConfig {
 		cfg := configs[0]
 		if cfg.Ref != "" {
@@ -652,13 +652,13 @@ func writePolicies(b *strings.Builder, c *contract.Contract, _ fs.FS, num *secti
 	}
 
 	fmt.Fprintf(b, "## %s. Policies\n\n", num.Next(1))
-	fmt.Fprintln(b, "| # | Type | Source |")
-	fmt.Fprintln(b, "|---|------|--------|")
-	for i, pol := range c.Policies {
+	fmt.Fprintln(b, "| Name | Type | Source |")
+	fmt.Fprintln(b, "|------|------|--------|")
+	for _, pol := range c.Policies {
 		if pol.Ref != "" {
-			fmt.Fprintf(b, "| %d | Remote | `%s` |\n", i+1, pol.Ref)
+			fmt.Fprintf(b, "| `%s` | Remote | `%s` |\n", pol.Name, pol.Ref)
 		} else if pol.Schema != "" {
-			fmt.Fprintf(b, "| %d | Local | `%s` |\n", i+1, pol.Schema)
+			fmt.Fprintf(b, "| `%s` | Local | `%s` |\n", pol.Name, pol.Schema)
 		}
 	}
 	fmt.Fprintln(b)
@@ -818,14 +818,14 @@ func collectFlatDependencyNodes(gr *graph.Result) []*graph.Node {
 }
 
 func writeDependencyTable(b *strings.Builder, deps []contract.Dependency) {
-	fmt.Fprintln(b, "| Reference | Compatibility | Required |")
-	fmt.Fprintln(b, "|-----------|---------------|----------|")
+	fmt.Fprintln(b, "| Name | Reference | Compatibility | Required |")
+	fmt.Fprintln(b, "|------|-----------|---------------|----------|")
 	for _, dep := range deps {
 		req := "No"
 		if dep.Required {
 			req = "Yes"
 		}
-		fmt.Fprintf(b, "| `%s` | `%s` | %s |\n", dep.Ref, dep.Compatibility, req)
+		fmt.Fprintf(b, "| `%s` | `%s` | `%s` | %s |\n", dep.Name, dep.Ref, dep.Compatibility, req)
 	}
 	fmt.Fprintln(b)
 }
@@ -855,9 +855,9 @@ func writeDependencyDetail(b *strings.Builder, node *graph.Node, num *sectionNum
 		writeInterfaceDetails(b, dc, node.FS, 5, num)
 	}
 
-	if dc.Configuration != nil && node.FS != nil {
+	if len(dc.Configurations) > 0 && node.FS != nil {
 		var allProps []Property
-		for _, cfg := range dc.Configuration.EffectiveConfigs() {
+		for _, cfg := range dc.Configurations {
 			if cfg.Schema == "" {
 				continue
 			}

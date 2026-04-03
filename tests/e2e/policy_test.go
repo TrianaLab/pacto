@@ -23,7 +23,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - schema: policy/schema.json
+  - name: default
+    schema: policy/schema.json
 runtime:
   workload: service
   state:
@@ -69,7 +70,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - ref: oci://ghcr.io/acme/platform-policy:1.0.0
+  - name: platform
+    ref: oci://ghcr.io/acme/platform-policy:1.0.0
 runtime:
   workload: service
   state:
@@ -106,8 +108,9 @@ interfaces:
     port: 8080
     visibility: internal
     contract: interfaces/openapi.yaml
-configuration:
-  ref: oci://ghcr.io/acme/platform-config:1.0.0
+configurations:
+  - name: default
+    ref: oci://ghcr.io/acme/platform-config:1.0.0
 runtime:
   workload: service
   state:
@@ -182,7 +185,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - schema: policy/schema.json
+  - name: default
+    schema: policy/schema.json
 runtime:
   workload: service
   state:
@@ -221,7 +225,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - ref: file://../platform-policy
+  - name: platform
+    ref: file://../platform-policy
 runtime:
   workload: service
   state:
@@ -282,7 +287,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - ref: oci://%s/platform-policy:1.0.0
+  - name: platform
+    ref: oci://%s/platform-policy:1.0.0
 `, reg.host)
 	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "svc-with-ref-policy", "1.0.0"),
@@ -333,7 +339,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - ref: oci://%s/strict-policy:1.0.0
+  - name: strict
+    ref: oci://%s/strict-policy:1.0.0
 `, reg.host)
 	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "no-health-svc", "1.0.0"),
@@ -384,8 +391,10 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - schema: policy/schema.json
-  - ref: oci://%s/ref-policy:1.0.0
+  - name: local
+    schema: policy/schema.json
+  - name: ref
+    ref: oci://%s/ref-policy:1.0.0
 runtime:
   workload: service
   state:
@@ -429,12 +438,11 @@ interfaces:
     port: 8080
     visibility: internal
     contract: interfaces/openapi.yaml
-configuration:
-  configs:
-    - name: app
-      schema: configuration/schema.json
-      values:
-        PORT: 8080
+configurations:
+  - name: app
+    schema: configuration/schema.json
+    values:
+      PORT: 8080
 `
 	bundlePath := writeBundleDirRaw(t, dir, contractYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "multi-config-svc", "1.0.0"),
@@ -485,7 +493,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - ref: oci://%s/scaling-policy:1.0.0
+  - name: scaling
+    ref: oci://%s/scaling-policy:1.0.0
 runtime:
   workload: service
   state:
@@ -546,7 +555,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - ref: oci://%s/basic-policy:1.0.0
+  - name: basic
+    ref: oci://%s/basic-policy:1.0.0
 runtime:
   workload: service
   state:
@@ -588,7 +598,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - schema: policy/schema.json
+  - name: default
+    schema: policy/schema.json
 `
 	policyBundlePath := writeBundleDirWithPolicies(t, policyDir, policyYAML, map[string]string{
 		"policy/schema.json": `{"type":"object","required":["service"]}`,
@@ -614,7 +625,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - ref: oci://%s/explicit-policy:1.0.0
+  - name: explicit
+    ref: oci://%s/explicit-policy:1.0.0
 runtime:
   workload: service
   state:
@@ -656,7 +668,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - schema: policy/custom.json
+  - name: custom
+    schema: policy/custom.json
 `
 	policyBundlePath := writeBundleDirWithPolicies(t, policyDir, policyYAML, map[string]string{
 		"policy/custom.json": `{"type":"object","required":["service"]}`,
@@ -682,7 +695,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - ref: oci://%s/custom-path-policy:1.0.0
+  - name: custom-path
+    ref: oci://%s/custom-path-policy:1.0.0
 runtime:
   workload: service
   state:
@@ -726,8 +740,10 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - schema: policy/service.json
-  - schema: policy/runtime.json
+  - name: service
+    schema: policy/service.json
+  - name: runtime
+    schema: policy/runtime.json
 runtime:
   workload: service
   state:
@@ -765,7 +781,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - ref: oci://%s/multi-policy:1.0.0
+  - name: multi
+    ref: oci://%s/multi-policy:1.0.0
 runtime:
   workload: service
   state:
@@ -801,7 +818,8 @@ interfaces:
     visibility: internal
     contract: interfaces/openapi.yaml
 policies:
-  - ref: oci://%s/multi-policy:1.0.0
+  - name: multi
+    ref: oci://%s/multi-policy:1.0.0
 `, reg.host)
 	svcBundlePath2 := writeBundleDir(t, svcDir2, svcYAML2, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "consumer-multi-fail", "1.0.0"),
@@ -828,8 +846,9 @@ interfaces:
     port: 8080
     visibility: internal
     contract: interfaces/openapi.yaml
-configuration:
-  ref: file://../platform-config
+configurations:
+  - name: default
+    ref: file://../platform-config
 runtime:
   workload: service
   state:
