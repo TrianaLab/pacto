@@ -294,38 +294,32 @@ func (s *OCISource) depReposForService(ctx context.Context, name string) []strin
 	if err != nil {
 		return nil
 	}
-	var repos []string
+	var refs []string
 	for _, dep := range bundle.Contract.Dependencies {
-		depRepo := extractOCIRepo(dep.Ref)
-		if depRepo == "" {
-			continue
-		}
-		if oci.HasExplicitTag(depRepo) {
-			depRepo = stripTag(depRepo)
-		}
-		repos = append(repos, depRepo)
+		refs = append(refs, dep.Ref)
 	}
-	// Also follow configuration and policy references so they are
-	// pulled recursively alongside regular dependencies.
 	for _, cfg := range bundle.Contract.Configurations {
-		refRepo := extractOCIRepo(cfg.Ref)
-		if refRepo == "" {
-			continue
-		}
-		if oci.HasExplicitTag(refRepo) {
-			refRepo = stripTag(refRepo)
-		}
-		repos = append(repos, refRepo)
+		refs = append(refs, cfg.Ref)
 	}
 	for _, pol := range bundle.Contract.Policies {
-		refRepo := extractOCIRepo(pol.Ref)
-		if refRepo == "" {
+		refs = append(refs, pol.Ref)
+	}
+	return collectOCIRepos(refs)
+}
+
+// collectOCIRepos extracts and normalises OCI repository bases from a list
+// of refs, filtering out non-OCI references and stripping explicit tags.
+func collectOCIRepos(refs []string) []string {
+	var repos []string
+	for _, ref := range refs {
+		repo := extractOCIRepo(ref)
+		if repo == "" {
 			continue
 		}
-		if oci.HasExplicitTag(refRepo) {
-			refRepo = stripTag(refRepo)
+		if oci.HasExplicitTag(repo) {
+			repo = stripTag(repo)
 		}
-		repos = append(repos, refRepo)
+		repos = append(repos, repo)
 	}
 	return repos
 }
@@ -481,7 +475,11 @@ func classifyOCIError(err error) string {
 	if errors.As(err, &notFound) {
 		return "not_found"
 	}
-	return "not_found"
+	var unreachable *oci.RegistryUnreachableError
+	if errors.As(err, &unreachable) {
+		return "pull_failed"
+	}
+	return "pull_failed"
 }
 
 // UnresolvedReason returns why a dependency ref could not be resolved during

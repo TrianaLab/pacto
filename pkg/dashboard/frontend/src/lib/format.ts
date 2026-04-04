@@ -56,6 +56,7 @@ const REASON_LABELS: Record<string, string> = {
   auth_failed: 'Auth required',
   no_semver_tags: 'No versions',
   not_found: 'Not found',
+  pull_failed: 'Unreachable',
   discovering: 'Discovering…',
 };
 
@@ -63,7 +64,8 @@ const REASON_TOOLTIPS: Record<string, string> = {
   non_oci_ref: 'Non-OCI dependency — not a contract-backed service',
   auth_failed: 'Registry authentication failed — run `pacto login` or check credentials',
   no_semver_tags: 'OCI repository found but contains no valid semver tags',
-  not_found: 'OCI dependency could not be found or the registry is unreachable',
+  not_found: 'OCI artifact not found in the registry',
+  pull_failed: 'Registry unreachable — check network connectivity or DNS',
   discovering: 'Background OCI discovery is still running — this may resolve shortly',
 };
 
@@ -72,6 +74,7 @@ const REASON_BADGE_CLASSES: Record<string, string> = {
   auth_failed: 'badge-err',
   no_semver_tags: 'badge-warn',
   not_found: 'badge-warn',
+  pull_failed: 'badge-err',
   discovering: 'badge-info',
 };
 
@@ -91,7 +94,7 @@ export function reasonBadgeClass(reason: string | undefined): string {
 }
 
 export function isReasonActionable(reason: string | undefined): boolean {
-  return reason === 'auth_failed' || reason === 'not_found' || reason === 'no_semver_tags';
+  return reason === 'auth_failed' || reason === 'not_found' || reason === 'no_semver_tags' || reason === 'pull_failed';
 }
 
 const SOURCE_DESCRIPTIONS: Record<string, string> = {

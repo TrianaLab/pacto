@@ -13,10 +13,10 @@ const (
 	VersionPolicyPinnedDigest = "pinned-digest" // pinned to an immutable digest
 )
 
-// NormalizeResolutionPolicy converts the operator's resolutionPolicy value
+// normalizeResolutionPolicy converts the operator's resolutionPolicy value
 // (Latest, PinnedTag, PinnedDigest) to dashboard constants. Returns empty
 // string for unrecognized values.
-func NormalizeResolutionPolicy(operatorPolicy string) string {
+func normalizeResolutionPolicy(operatorPolicy string) string {
 	switch operatorPolicy {
 	case "Latest":
 		return VersionPolicyTracking
@@ -29,7 +29,7 @@ func NormalizeResolutionPolicy(operatorPolicy string) string {
 	}
 }
 
-// ClassifyVersionPolicy is a conservative fallback that derives the version
+// classifyVersionPolicy is a conservative fallback that derives the version
 // tracking policy from a resolvedRef string. Used only when the operator does
 // not provide resolutionPolicy (non-K8s sources, older operator versions).
 //
@@ -42,7 +42,7 @@ func NormalizeResolutionPolicy(operatorPolicy string) string {
 //   - "latest" is not a valid Pacto contract version
 //   - An unversioned OCI ref may resolve to a concrete semver tag,
 //     making it impossible to distinguish tracking from pinned
-func ClassifyVersionPolicy(resolvedRef string) string {
+func classifyVersionPolicy(resolvedRef string) string {
 	if resolvedRef == "" {
 		return ""
 	}
@@ -82,10 +82,10 @@ func extractTag(ref string) string {
 	return ""
 }
 
-// ComputeLatestAvailable returns the highest semver version from a version list.
+// computeLatestAvailable returns the highest semver version from a version list.
 // The list is assumed to be sorted descending (latest first), so we return the
 // first entry with a valid semver tag.
-func ComputeLatestAvailable(versions []Version) string {
+func computeLatestAvailable(versions []Version) string {
 	for _, v := range versions {
 		if _, err := semver.NewVersion(v.Version); err == nil {
 			return v.Version
@@ -94,8 +94,8 @@ func ComputeLatestAvailable(versions []Version) string {
 	return ""
 }
 
-// IsUpdateAvailable returns true when latest is a higher semver than current.
-func IsUpdateAvailable(current, latest string) bool {
+// isUpdateAvailable returns true when latest is a higher semver than current.
+func isUpdateAvailable(current, latest string) bool {
 	if current == "" || latest == "" {
 		return false
 	}
@@ -110,8 +110,8 @@ func IsUpdateAvailable(current, latest string) bool {
 	return lat.GreaterThan(cur)
 }
 
-// MarkCurrentVersion sets IsCurrent=true on the version matching currentVersion.
-func MarkCurrentVersion(versions []Version, currentVersion string) {
+// markCurrentVersion sets IsCurrent=true on the version matching currentVersion.
+func markCurrentVersion(versions []Version, currentVersion string) {
 	if currentVersion == "" {
 		return
 	}

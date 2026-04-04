@@ -2,7 +2,7 @@ package dashboard
 
 import "testing"
 
-func TestClassifyVersionPolicy(t *testing.T) {
+func Test_classifyVersionPolicy(t *testing.T) {
 	tests := []struct {
 		name        string
 		resolvedRef string
@@ -24,15 +24,15 @@ func TestClassifyVersionPolicy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ClassifyVersionPolicy(tt.resolvedRef)
+			got := classifyVersionPolicy(tt.resolvedRef)
 			if got != tt.want {
-				t.Errorf("ClassifyVersionPolicy(%q) = %q, want %q", tt.resolvedRef, got, tt.want)
+				t.Errorf("classifyVersionPolicy(%q) = %q, want %q", tt.resolvedRef, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestNormalizeResolutionPolicy(t *testing.T) {
+func Test_normalizeResolutionPolicy(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
@@ -46,15 +46,15 @@ func TestNormalizeResolutionPolicy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := NormalizeResolutionPolicy(tt.input)
+			got := normalizeResolutionPolicy(tt.input)
 			if got != tt.want {
-				t.Errorf("NormalizeResolutionPolicy(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("normalizeResolutionPolicy(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestComputeLatestAvailable(t *testing.T) {
+func Test_computeLatestAvailable(t *testing.T) {
 	tests := []struct {
 		name     string
 		versions []Version
@@ -69,15 +69,15 @@ func TestComputeLatestAvailable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ComputeLatestAvailable(tt.versions)
+			got := computeLatestAvailable(tt.versions)
 			if got != tt.want {
-				t.Errorf("ComputeLatestAvailable() = %q, want %q", got, tt.want)
+				t.Errorf("computeLatestAvailable() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestIsUpdateAvailable(t *testing.T) {
+func Test_isUpdateAvailable(t *testing.T) {
 	tests := []struct {
 		name    string
 		current string
@@ -100,21 +100,21 @@ func TestIsUpdateAvailable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsUpdateAvailable(tt.current, tt.latest)
+			got := isUpdateAvailable(tt.current, tt.latest)
 			if got != tt.want {
-				t.Errorf("IsUpdateAvailable(%q, %q) = %v, want %v", tt.current, tt.latest, got, tt.want)
+				t.Errorf("isUpdateAvailable(%q, %q) = %v, want %v", tt.current, tt.latest, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestMarkCurrentVersion(t *testing.T) {
+func Test_markCurrentVersion(t *testing.T) {
 	t.Run("marks matching version", func(t *testing.T) {
 		versions := []Version{
 			{Version: "2.0.0"},
 			{Version: "1.0.0"},
 		}
-		MarkCurrentVersion(versions, "1.0.0")
+		markCurrentVersion(versions, "1.0.0")
 		if versions[0].IsCurrent {
 			t.Error("2.0.0 should not be marked current")
 		}
@@ -128,7 +128,7 @@ func TestMarkCurrentVersion(t *testing.T) {
 			{Version: "2.0.0"},
 			{Version: "1.0.0"},
 		}
-		MarkCurrentVersion(versions, "3.0.0")
+		markCurrentVersion(versions, "3.0.0")
 		for _, v := range versions {
 			if v.IsCurrent {
 				t.Errorf("%s should not be marked current", v.Version)
@@ -138,7 +138,7 @@ func TestMarkCurrentVersion(t *testing.T) {
 
 	t.Run("empty current version", func(t *testing.T) {
 		versions := []Version{{Version: "1.0.0"}}
-		MarkCurrentVersion(versions, "")
+		markCurrentVersion(versions, "")
 		if versions[0].IsCurrent {
 			t.Error("should not mark any version when current is empty")
 		}

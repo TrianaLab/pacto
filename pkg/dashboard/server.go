@@ -679,12 +679,12 @@ func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getS
 			details.LatestAvailable = indexed.LatestAvailable
 			// Recompute against fresh version — the cached value may be
 			// stale if the operator changed the version within the TTL.
-			details.UpdateAvailable = IsUpdateAvailable(details.Version, indexed.LatestAvailable)
+			details.UpdateAvailable = isUpdateAvailable(details.Version, indexed.LatestAvailable)
 		}
 	}
 	// Conservative fallback: only when neither operator nor index provided a policy.
 	if details.VersionPolicy == "" {
-		details.VersionPolicy = ClassifyVersionPolicy(details.ResolvedRef)
+		details.VersionPolicy = classifyVersionPolicy(details.ResolvedRef)
 	}
 
 	// Enrich remote refs with values from the referenced service.
@@ -777,7 +777,7 @@ func (s *Server) getVersions(ctx context.Context, input *ServiceNameInput) (*get
 
 	// Mark the currently active version.
 	if detail, detailErr := s.source.GetService(ctx, input.Name); detailErr == nil && detail != nil {
-		MarkCurrentVersion(versions, detail.Version)
+		markCurrentVersion(versions, detail.Version)
 	}
 
 	return &getVersionsOutput{Body: versions}, nil
@@ -1083,7 +1083,7 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 	// Fast version policy classification (no I/O, just heuristics).
 	for _, d := range index {
 		if d.VersionPolicy == "" {
-			d.VersionPolicy = ClassifyVersionPolicy(d.ResolvedRef)
+			d.VersionPolicy = classifyVersionPolicy(d.ResolvedRef)
 		}
 	}
 
@@ -1209,8 +1209,8 @@ func (s *Server) deferredVersionEnrich(ctx context.Context, base *serviceIndexCa
 		if err != nil || len(versions) == 0 {
 			continue
 		}
-		d.LatestAvailable = ComputeLatestAvailable(versions)
-		d.UpdateAvailable = IsUpdateAvailable(d.Version, d.LatestAvailable)
+		d.LatestAvailable = computeLatestAvailable(versions)
+		d.UpdateAvailable = isUpdateAvailable(d.Version, d.LatestAvailable)
 	}
 
 	enriched := &serviceIndexCache{

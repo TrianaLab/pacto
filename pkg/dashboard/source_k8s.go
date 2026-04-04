@@ -528,7 +528,7 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 		svc.ResolvedRef = r.Status.Contract.ResolvedRef
 		svc.CurrentRevision = r.Status.Contract.CurrentRevision
 		if r.Status.Contract.ResolutionPolicy != "" {
-			svc.VersionPolicy = NormalizeResolutionPolicy(r.Status.Contract.ResolutionPolicy)
+			svc.VersionPolicy = normalizeResolutionPolicy(r.Status.Contract.ResolutionPolicy)
 		}
 	}
 

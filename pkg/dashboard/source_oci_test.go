@@ -1078,7 +1078,8 @@ func TestClassifyOCIError(t *testing.T) {
 	}{
 		{"auth error", &oci.AuthenticationError{Ref: "ghcr.io", Err: fmt.Errorf("401")}, "auth_failed"},
 		{"not found error", &oci.ArtifactNotFoundError{Ref: "ghcr.io/org/svc:1.0.0", Err: fmt.Errorf("404")}, "not_found"},
-		{"generic error", fmt.Errorf("connection timeout"), "not_found"},
+		{"registry unreachable", &oci.RegistryUnreachableError{Ref: "ghcr.io/org/svc", Err: fmt.Errorf("dial tcp: no route")}, "pull_failed"},
+		{"generic error", fmt.Errorf("connection timeout"), "pull_failed"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
