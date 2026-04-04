@@ -299,14 +299,14 @@ def main():
     contract = request["contract"]
     name = contract["service"]["name"]
 
-    # Read the configuration schema from the bundle
-    config = contract.get("configuration")
-    if not config:
-        response = {"files": [], "message": "No configuration section found"}
+    # Read the first configuration schema from the bundle
+    configs = contract.get("configurations", [])
+    if not configs or "schema" not in configs[0]:
+        response = {"files": [], "message": "No configurations section found"}
         json.dump(response, sys.stdout)
         return
 
-    schema_path = f"{request['bundleDir']}/{config['schema']}"
+    schema_path = f"{request['bundleDir']}/{configs[0]['schema']}"
     try:
         with open(schema_path) as f:
             schema = json.load(f)
@@ -342,4 +342,4 @@ if __name__ == "__main__":
 - **Use stderr for errors.** Anything on stderr is shown to the user on failure.
 - **Exit non-zero on failure.** Pacto checks the exit code.
 - **Be deterministic.** Given the same input, produce the same output.
-- **Handle missing optional fields.** Not all contracts have `runtime`, `configuration`, `dependencies`, `scaling`, etc.
+- **Handle missing optional fields.** Not all contracts have `runtime`, `configurations`, `dependencies`, `scaling`, etc.

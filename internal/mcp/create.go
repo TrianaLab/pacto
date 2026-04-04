@@ -1287,9 +1287,9 @@ func summarizeSectionsFromMap(s *ContractSummary, m map[string]interface{}) {
 		}
 	}
 	if _, ok := m["configurations"]; ok {
-		s.Sections["configuration"] = "present"
+		s.Sections["configurations"] = "present"
 	} else {
-		s.Sections["configuration"] = "absent"
+		s.Sections["configurations"] = "absent"
 	}
 }
 
@@ -1309,9 +1309,9 @@ func assessSections(c *contract.Contract) map[string]string {
 		sections["runtime"] = "present"
 	}
 	if len(c.Configurations) > 0 {
-		sections["configuration"] = "present"
+		sections["configurations"] = "present"
 	} else {
-		sections["configuration"] = "absent"
+		sections["configurations"] = "absent"
 	}
 	if len(c.Dependencies) > 0 {
 		sections["dependencies"] = "present"

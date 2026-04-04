@@ -224,8 +224,8 @@ func TestCreate_WithConfig(t *testing.T) {
 	if !strings.Contains(string(data), "PORT") {
 		t.Errorf("expected PORT in schema, got: %s", data)
 	}
-	if result.Summary.Sections["configuration"] != "present" {
-		t.Error("expected configuration section to be present")
+	if result.Summary.Sections["configurations"] != "present" {
+		t.Error("expected configurations section to be present")
 	}
 }
 
@@ -898,7 +898,7 @@ func TestAssessSections(t *testing.T) {
 	if sections["runtime"] != "present" {
 		t.Error("expected runtime present")
 	}
-	if sections["configuration"] != "absent" {
+	if sections["configurations"] != "absent" {
 		t.Error("expected configuration absent")
 	}
 }
@@ -1876,7 +1876,7 @@ func TestAssessSections_Full(t *testing.T) {
 		Policies:       []contract.PolicySource{{Name: "local", Schema: "policy/schema.json"}},
 	}
 	s := assessSections(c)
-	for _, key := range []string{"service", "interfaces", "runtime", "configuration", "dependencies", "scaling", "metadata", "policies"} {
+	for _, key := range []string{"service", "interfaces", "runtime", "configurations", "dependencies", "scaling", "metadata", "policies"} {
 		if s[key] != "present" {
 			t.Errorf("expected %s=present, got %q", key, s[key])
 		}
