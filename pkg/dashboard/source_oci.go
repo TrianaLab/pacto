@@ -34,6 +34,12 @@ type OCISource struct {
 
 	onDiscover func() // called when a new service is discovered (cache invalidation)
 
+	// repoProvider is an optional callback invoked during each background
+	// discovery cycle to obtain additional repos (e.g. from k8s resolvedRefs).
+	// This enables late-arriving CRDs to contribute repos even after the
+	// initial startup enrichment.
+	repoProvider func(ctx context.Context) []string
+
 	// cache is an optional internal CacheSource used to enrich version data
 	// (hash, createdAt, classification) from materialized bundles on disk.
 	// This is an internal implementation detail — cache is never exposed as
@@ -52,6 +58,13 @@ func NewOCISource(store oci.BundleStore, repos []string) *OCISource {
 // surfaces immediately on the next API call.
 func (s *OCISource) SetOnDiscover(fn func()) {
 	s.onDiscover = fn
+}
+
+// SetRepoProvider sets a callback invoked during each background discovery
+// cycle to obtain additional OCI repos. This allows k8s-discovered repos
+// to feed into OCI scanning even after the initial startup enrichment.
+func (s *OCISource) SetRepoProvider(fn func(ctx context.Context) []string) {
+	s.repoProvider = fn
 }
 
 // SetCache wires an internal CacheSource so that GetVersions can enrich
@@ -148,7 +161,7 @@ func (s *OCISource) backgroundLoop(ctx context.Context) {
 func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 	visited := make(map[string]bool)
 
-	// Mark already-discovered repos as visited.
+	// Mark already-discovered repos as visited (skip re-pulling).
 	s.mu.RLock()
 	for _, repo := range s.repoMap {
 		visited[repo] = true
@@ -158,10 +171,22 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 	copy(services, s.services)
 	s.mu.RUnlock()
 
+	// Clear failed repos so they are retried (bundles may have been
+	// re-published or parser fixes deployed since the last attempt).
+	s.mu.Lock()
+	clear(s.failedRepos)
+	s.mu.Unlock()
+
 	// Collect dependency repos from initial shallow scan.
 	var queue []string
 	for _, svc := range services {
 		queue = append(queue, s.depReposForService(ctx, svc.Name)...)
+	}
+
+	// Also add repos from the external provider (e.g. k8s resolvedRefs).
+	// This picks up CRDs that appeared after the initial startup scan.
+	if s.repoProvider != nil {
+		queue = append(queue, s.repoProvider(ctx)...)
 	}
 
 	// BFS: discover dependency repos, collecting new deps as we go.

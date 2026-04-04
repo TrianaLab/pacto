@@ -138,6 +138,17 @@ Services are grouped by name across sources and merged using priority rules:
 				if detectResult.Cache != nil {
 					detectResult.OCI.SetCache(detectResult.Cache)
 				}
+
+				// Wire k8s repo provider so that OCI background discovery
+				// picks up repos from CRDs that appear after startup
+				// (e.g. deployed by ArgoCD after the dashboard starts).
+				if detectResult.K8s != nil {
+					k8sSrc := detectResult.K8s
+					detectResult.OCI.SetRepoProvider(func(ctx context.Context) []string {
+						repos, _ := dashboard.DiscoverOCIReposFromSource(ctx, k8sSrc)
+						return repos
+					})
+				}
 			}
 
 			// Build resolved source with contract + runtime separation.
@@ -395,6 +406,16 @@ func wireOCIEnrichment(
 		if detectResult.Cache != nil {
 			detectResult.OCI.SetCache(detectResult.Cache)
 		}
+
+		// Wire k8s repo provider for late-arriving CRDs.
+		if detectResult.K8s != nil {
+			k8sSrc := detectResult.K8s
+			detectResult.OCI.SetRepoProvider(func(ctx context.Context) []string {
+				repos, _ := dashboard.DiscoverOCIReposFromSource(ctx, k8sSrc)
+				return repos
+			})
+		}
+
 		// Always pass memCache so RefreshCacheSources can invalidate stale
 		// data even when CacheSource is created on-the-fly (--no-cache).
 		server.SetCacheSource(detectResult.Cache, memCache)
