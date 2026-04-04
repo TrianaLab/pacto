@@ -154,7 +154,7 @@ func TestServerGetService(t *testing.T) {
 	}
 }
 
-func startTestServer(t *testing.T, source DataSource) string {
+func startTestServerWithSrv(t *testing.T, source DataSource) (*Server, string) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -168,7 +168,12 @@ func startTestServer(t *testing.T, source DataSource) string {
 	t.Cleanup(cancel)
 	go func() { _ = srv.ServeOnListener(ctx, ln) }()
 	time.Sleep(50 * time.Millisecond)
-	return "http://" + ln.Addr().String()
+	return srv, "http://" + ln.Addr().String()
+}
+
+func startTestServer(t *testing.T, source DataSource) string {
+	_, base := startTestServerWithSrv(t, source)
+	return base
 }
 
 func TestServerGetVersions(t *testing.T) {
@@ -1727,9 +1732,13 @@ func TestServerRefreshCacheSources(t *testing.T) {
 	cacheSource := NewCacheSource(root)
 	srv.SetCacheSource(cacheSource, memCache)
 
-	// Build initial index cache.
+	// Build initial index cache and wait for background enrichment.
 	_ = srv.getCachedIndex(context.Background())
-	if srv.indexCache == nil {
+	srv.WaitForVersionEnrich()
+	srv.indexMu.Lock()
+	indexBuilt := srv.indexCache != nil
+	srv.indexMu.Unlock()
+	if !indexBuilt {
 		t.Fatal("expected index cache to be built")
 	}
 
@@ -2304,9 +2313,18 @@ func TestServerVersionTracking_ListServices(t *testing.T) {
 			"svc-a": {{Version: "2.0.0"}, {Version: "1.0.0"}},
 		},
 	}
-	base := startTestServer(t, source)
+	srv, base := startTestServerWithSrv(t, source)
 
+	// Trigger index build (starts background version enrichment).
 	resp, err := http.Get(base + "/api/services")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close() //nolint:errcheck
+
+	// Wait for background enrichment, then re-fetch.
+	srv.WaitForVersionEnrich()
+	resp, err = http.Get(base + "/api/services")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2339,16 +2357,17 @@ func TestServerVersionTracking_ServiceDetail(t *testing.T) {
 			"svc": {{Version: "2.0.0"}, {Version: "1.0.0"}},
 		},
 	}
-	base := startTestServer(t, source)
+	srv, base := startTestServerWithSrv(t, source)
 
-	// First hit list to populate the cached index.
+	// Hit list to populate the cached index + trigger background version enrichment.
 	resp, err := http.Get(base + "/api/services")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close() //nolint:errcheck
+	srv.WaitForVersionEnrich()
 
-	// Now get the detail — should pick up version tracking from cached index.
+	// Now get the detail — should pick up version tracking from enriched cached index.
 	resp, err = http.Get(base + "/api/services/svc")
 	if err != nil {
 		t.Fatal(err)
@@ -2419,9 +2438,17 @@ func TestServerVersionTracking_NoUpdateWhenCurrent(t *testing.T) {
 			"svc": {{Version: "2.0.0"}, {Version: "1.0.0"}},
 		},
 	}
-	base := startTestServer(t, source)
+	srv, base := startTestServerWithSrv(t, source)
 
+	// Trigger build + wait for background enrichment.
 	resp, err := http.Get(base + "/api/services")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close() //nolint:errcheck
+	srv.WaitForVersionEnrich()
+
+	resp, err = http.Get(base + "/api/services")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2484,14 +2511,15 @@ func TestServerVersionTracking_OperatorPolicy(t *testing.T) {
 			"svc": {{Version: "2.0.0"}, {Version: "1.0.0"}},
 		},
 	}
-	base := startTestServer(t, source)
+	srv, base := startTestServerWithSrv(t, source)
 
-	// Build cached index via list.
+	// Build cached index via list + wait for version enrichment.
 	resp, err := http.Get(base + "/api/services")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close() //nolint:errcheck
+	srv.WaitForVersionEnrich()
 
 	// Get detail — should use operator-provided "tracking", not fallback "pinned-tag".
 	resp, err = http.Get(base + "/api/services/svc")
@@ -2555,8 +2583,16 @@ func pinnedOlderSource() *mockSource {
 }
 
 func TestServerVersionTracking_PinnedOlderThanLatest_List(t *testing.T) {
-	base := startTestServer(t, pinnedOlderSource())
+	srv, base := startTestServerWithSrv(t, pinnedOlderSource())
+	// Trigger build + wait for background enrichment.
 	resp, err := http.Get(base + "/api/services")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close() //nolint:errcheck
+	srv.WaitForVersionEnrich()
+
+	resp, err = http.Get(base + "/api/services")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2577,12 +2613,14 @@ func TestServerVersionTracking_PinnedOlderThanLatest_List(t *testing.T) {
 }
 
 func TestServerVersionTracking_PinnedOlderThanLatest_Detail(t *testing.T) {
-	base := startTestServer(t, pinnedOlderSource())
-	// Warm service index cache (version tracking runs on list).
+	srv, base := startTestServerWithSrv(t, pinnedOlderSource())
+	// Warm service index cache + wait for version enrichment.
 	warmResp, _ := http.Get(base + "/api/services") //nolint:errcheck
 	if warmResp != nil {
 		warmResp.Body.Close() //nolint:errcheck
 	}
+	srv.WaitForVersionEnrich()
+
 	resp, err := http.Get(base + "/api/services/payments")
 	if err != nil {
 		t.Fatal(err)
@@ -2607,12 +2645,13 @@ func TestServerVersionTracking_PinnedOlderThanLatest_Detail(t *testing.T) {
 }
 
 func TestServerVersionTracking_PinnedOlderThanLatest_Versions(t *testing.T) {
-	base := startTestServer(t, pinnedOlderSource())
-	// Warm service index cache (version tracking runs on list).
+	srv, base := startTestServerWithSrv(t, pinnedOlderSource())
+	// Warm service index cache + wait for version enrichment.
 	warmResp, _ := http.Get(base + "/api/services") //nolint:errcheck
 	if warmResp != nil {
 		warmResp.Body.Close() //nolint:errcheck
 	}
+	srv.WaitForVersionEnrich()
 	resp, err := http.Get(base + "/api/services/payments/versions")
 	if err != nil {
 		t.Fatal(err)
@@ -2633,7 +2672,7 @@ func TestServerVersionTracking_PinnedOlderThanLatest_Versions(t *testing.T) {
 }
 
 func TestServerVersionTracking_VersionsError(t *testing.T) {
-	// When GetVersions fails, enrichVersionTracking should skip the service
+	// When GetVersions fails, version enrichment should skip the service
 	// without latestAvailable or updateAvailable.
 	source := &mockSource{
 		services: []Service{
@@ -2648,8 +2687,16 @@ func TestServerVersionTracking_VersionsError(t *testing.T) {
 			"broken": fmt.Errorf("versions unavailable"),
 		},
 	}
-	base := startTestServer(t, source)
+	srv, base := startTestServerWithSrv(t, source)
+	// Trigger build + wait for background enrichment.
 	resp, err := http.Get(base + "/api/services")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close() //nolint:errcheck
+	srv.WaitForVersionEnrich()
+
+	resp, err = http.Get(base + "/api/services")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2684,14 +2731,15 @@ func TestServerVersionTracking_FreshVersionRecomputesUpdate(t *testing.T) {
 			"svc": {{Version: "2.0.0"}, {Version: "1.0.0"}},
 		},
 	}
-	base := startTestServer(t, source)
+	srv, base := startTestServerWithSrv(t, source)
 
-	// Build index (caches updateAvailable=true against version 1.0.0).
+	// Build index + wait for version enrichment (caches updateAvailable=true against version 1.0.0).
 	resp, err := http.Get(base + "/api/services")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close() //nolint:errcheck
+	srv.WaitForVersionEnrich()
 
 	// Simulate operator upgrading to 2.0.0: mutate the mock's detail.
 	source.details["svc"] = &ServiceDetails{

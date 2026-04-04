@@ -58,6 +58,7 @@
   });
 
   // Derived view model
+  let blastRadius = $derived(services.find(s => s.name === name)?.blastRadius || 0);
   let insights = $derived(detail?.insights || []);
   let sources = $derived.by(() => {
     const s = detail?.sources || [];
@@ -215,6 +216,12 @@
       {/if}
       {#if detail.checksSummary}
         <span class="text-2">{detail.checksSummary.passed}/{detail.checksSummary.total} checks</span>
+      {/if}
+      {#if blastRadius > 0}
+        <a href="#/graph" class="blast-indicator" class:blast-warn={blastRadius >= 3 && blastRadius < 5} class:blast-high={blastRadius >= 5} data-tip="If this service fails, {blastRadius} other service{blastRadius !== 1 ? 's are' : ' is'} transitively impacted">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" opacity="0.4"/><circle cx="12" cy="12" r="11" opacity="0.2"/></svg>
+          blast radius: {blastRadius}
+        </a>
       {/if}
     </div>
     <div class="detail-meta">
@@ -529,6 +536,18 @@
     word-break: break-all;
     font-size: var(--text-xs);
   }
+
+  .blast-indicator {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: var(--radius-xs);
+    font-size: var(--text-xs); font-weight: 600;
+    text-decoration: none;
+    background: var(--c-warn-bg); color: var(--c-warn);
+    transition: opacity var(--transition);
+  }
+  .blast-indicator:hover { opacity: 0.8; text-decoration: none; }
+  .blast-warn { background: var(--c-warn-bg); color: var(--c-warn); }
+  .blast-high { background: var(--c-err-bg); color: var(--c-err); }
 
   .btn-compare { margin-left: auto; }
 

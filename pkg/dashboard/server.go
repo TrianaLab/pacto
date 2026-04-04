@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -45,6 +46,10 @@ type Server struct {
 	k8sRedetect   func(ctx context.Context) (DataSource, error) // returns new cached k8s source
 	k8sRedetectMu sync.Mutex
 	k8sLastCheck  time.Time
+
+	// Background version enrichment: tracks in-flight goroutine for testing.
+	versionEnriching atomic.Bool
+	versionWg        sync.WaitGroup
 }
 
 // serviceIndexCache holds a pre-built index of all service details with a short TTL.
@@ -1075,8 +1080,12 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 		}
 	}
 
-	// Enrich services with version tracking metadata.
-	s.enrichVersionTracking(ctx, index)
+	// Fast version policy classification (no I/O, just heuristics).
+	for _, d := range index {
+		if d.VersionPolicy == "" {
+			d.VersionPolicy = ClassifyVersionPolicy(d.ResolvedRef)
+		}
+	}
 
 	rebuilt := &serviceIndexCache{
 		services:    services,
@@ -1089,6 +1098,13 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 	s.indexMu.Lock()
 	s.indexCache = rebuilt
 	s.indexMu.Unlock()
+
+	// Enrich version tracking in background so the first paint is not blocked
+	// by N×M GetVersions API calls. The enriched cache replaces the base once done.
+	if s.versionEnriching.CompareAndSwap(false, true) {
+		s.versionWg.Add(1)
+		go s.deferredVersionEnrich(context.WithoutCancel(ctx), rebuilt)
+	}
 
 	return rebuilt
 }
@@ -1173,20 +1189,22 @@ func (s *Server) RefreshCacheSources() {
 	s.indexMu.Unlock()
 }
 
-// enrichVersionTracking populates VersionPolicy, LatestAvailable, and
-// UpdateAvailable on each ServiceDetails in the index. Called during
-// index rebuild so the data is available for both list and detail views.
-//
-// VersionPolicy precedence:
-//  1. Operator-provided resolutionPolicy (set by k8s source via enrichWithRuntime)
-//  2. Conservative fallback from resolvedRef (only for non-k8s or old operator)
-func (s *Server) enrichVersionTracking(ctx context.Context, index map[string]*ServiceDetails) {
-	for _, d := range index {
-		// Only apply fallback heuristic when the operator didn't provide a policy.
-		if d.VersionPolicy == "" {
-			d.VersionPolicy = ClassifyVersionPolicy(d.ResolvedRef)
-		}
+// deferredVersionEnrich runs in a background goroutine to populate
+// LatestAvailable and UpdateAvailable without blocking the first paint.
+// It clones the index entries to avoid data races, then atomically swaps
+// the enriched cache in if the base cache is still current.
+func (s *Server) deferredVersionEnrich(ctx context.Context, base *serviceIndexCache) {
+	defer s.versionWg.Done()
+	defer s.versionEnriching.Store(false)
 
+	// Clone index entries so readers of the base cache are not affected.
+	enrichedIndex := make(map[string]*ServiceDetails, len(base.index))
+	for k, v := range base.index {
+		clone := *v
+		enrichedIndex[k] = &clone
+	}
+
+	for _, d := range enrichedIndex {
 		versions, err := s.source.GetVersions(ctx, d.Name)
 		if err != nil || len(versions) == 0 {
 			continue
@@ -1194,6 +1212,27 @@ func (s *Server) enrichVersionTracking(ctx context.Context, index map[string]*Se
 		d.LatestAvailable = ComputeLatestAvailable(versions)
 		d.UpdateAvailable = IsUpdateAvailable(d.Version, d.LatestAvailable)
 	}
+
+	enriched := &serviceIndexCache{
+		services:    base.services,
+		index:       enrichedIndex,
+		aliases:     base.aliases,
+		globalGraph: base.globalGraph,
+		builtAt:     time.Now(),
+	}
+
+	s.indexMu.Lock()
+	// Only replace if no newer cache was built while we were enriching.
+	if s.indexCache == base {
+		s.indexCache = enriched
+	}
+	s.indexMu.Unlock()
+}
+
+// WaitForVersionEnrich blocks until any in-flight background version
+// enrichment completes. Used by tests to synchronize.
+func (s *Server) WaitForVersionEnrich() {
+	s.versionWg.Wait()
 }
 
 func corsMiddleware(next http.Handler) http.Handler {

@@ -7,6 +7,7 @@
   import StatsBar from '../StatsBar.svelte';
 
   let { services = [], sourcesInfo = [] } = $props();
+  let blastByName = $derived(new Map(services.map(s => [s.name, s.blastRadius || 0])));
 
   let graphData = $state(null);
   let loading = $state(true);
@@ -116,10 +117,11 @@
       <div class="section-title">Service Connections <span class="tab-count">{filteredNodes.length}</span></div>
       <div class="table-wrap table-wrap-fit">
         <table>
-          <thead><tr><th data-tip="Service name">Service</th><th data-tip="Contract compliance status">Status</th><th data-tip="Services this one depends on">Dependencies</th></tr></thead>
+          <thead><tr><th data-tip="Service name">Service</th><th data-tip="Contract compliance status">Status</th><th data-tip="Number of services transitively impacted if this one fails">Blast</th><th data-tip="Services this one depends on">Dependencies</th></tr></thead>
           <tbody>
             {#each filteredNodes as node}
               {@const edges = node.edges || []}
+              {@const blast = blastByName.get(node.serviceName) || 0}
               <tr class={node.status !== 'external' ? 'clickable' : ''} onclick={() => { if (node.status !== 'external') location.hash = serviceUrl(node.serviceName); }}>
                 <td>
                   {#if node.status !== 'external'}
@@ -133,6 +135,13 @@
                     <span class="badge badge-{statusClass(node.status)}"><span class="badge-dot"></span>{node.status}</span>
                   {:else}
                     <span class="badge {reasonBadgeClass(node.reason)}">{reasonLabel(node.reason)}</span>
+                  {/if}
+                </td>
+                <td>
+                  {#if blast > 0}
+                    <span class="blast-badge" class:blast-low={blast < 3} class:blast-med={blast >= 3 && blast < 5} class:blast-high={blast >= 5}>{blast}</span>
+                  {:else}
+                    <span class="text-dim">0</span>
                   {/if}
                 </td>
                 <td>
@@ -181,6 +190,16 @@
   .legend-line.ref { border-top: 1.5px dashed var(--c-accent); }
 
   .text-dim { color: var(--c-text-3); }
+
+  .blast-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 26px; height: 22px; padding: 0 7px;
+    border-radius: var(--radius-xs);
+    font-size: var(--text-xs); font-weight: 600;
+  }
+  .blast-low { background: var(--c-warn-bg); color: var(--c-warn); }
+  .blast-med { background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid color-mix(in srgb, var(--c-warn) 25%, transparent); }
+  .blast-high { background: var(--c-err-bg); color: var(--c-err); border: 1px solid color-mix(in srgb, var(--c-err) 25%, transparent); }
 
   /* Override the global min-width for tables that fit on mobile */
   .table-wrap-fit table { min-width: 0; }

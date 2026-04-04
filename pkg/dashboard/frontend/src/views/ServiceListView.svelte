@@ -100,7 +100,11 @@
         <span class="alert-name">{svc.name}</span>
         <span class="badge badge-{svc.contractStatus === 'NonCompliant' ? 'err' : 'warn'}" style="font-size:10px">{statusLabel(svc.contractStatus)}</span>
         {#if svc.topInsight}<span class="alert-reason">{svc.topInsight}</span>{/if}
-        {#if (svc.blastRadius || 0) > 0}<span class="pill">blast: {svc.blastRadius}</span>{/if}
+        {#if (svc.blastRadius || 0) > 0}
+          <span class="blast-pill" class:blast-pill-high={svc.blastRadius >= 5} class:blast-pill-med={svc.blastRadius >= 3 && svc.blastRadius < 5}>
+            impacts {svc.blastRadius} service{svc.blastRadius !== 1 ? 's' : ''}
+          </span>
+        {/if}
       </a>
     {/each}
   </div>
@@ -203,7 +207,9 @@
             </td>
             <td>
               {#if svc.blastRadius > 0}
-                <span class:text-warn={svc.blastRadius >= 3}>{svc.blastRadius}</span>
+                <span class="blast-badge" class:blast-low={svc.blastRadius < 3} class:blast-med={svc.blastRadius >= 3 && svc.blastRadius < 5} class:blast-high={svc.blastRadius >= 5} data-tip="{svc.blastRadius} service{svc.blastRadius !== 1 ? 's' : ''} impacted if this one fails">
+                  {svc.blastRadius}
+                </span>
               {:else}
                 <span class="text-dim">0</span>
               {/if}
@@ -275,6 +281,24 @@
   .text-ok { color: var(--c-ok); }
   .text-err { color: var(--c-err); }
   .text-warn { color: var(--c-warn); }
+
+  .blast-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 26px; height: 22px; padding: 0 7px;
+    border-radius: var(--radius-xs);
+    font-size: var(--text-xs); font-weight: 600;
+  }
+  .blast-low { background: var(--c-warn-bg); color: var(--c-warn); }
+  .blast-med { background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid color-mix(in srgb, var(--c-warn) 25%, transparent); }
+  .blast-high { background: var(--c-err-bg); color: var(--c-err); border: 1px solid color-mix(in srgb, var(--c-err) 25%, transparent); }
+
+  .blast-pill {
+    font-size: var(--text-xs); font-weight: 500;
+    padding: 2px 8px; border-radius: var(--radius-xs);
+    background: var(--c-warn-bg); color: var(--c-warn);
+  }
+  .blast-pill-med { background: var(--c-warn-bg); color: var(--c-warn); }
+  .blast-pill-high { background: var(--c-err-bg); color: var(--c-err); }
 
   .skeleton-table { width: 100%; max-width: 600px; }
   .skeleton-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-3); }

@@ -172,7 +172,7 @@
                 {#if (svc.blastRadius || 0) > 0}
                   <div class="svc-detail-item">
                     <span class="svc-detail-label">Blast radius</span>
-                    <span class:text-warn={svc.blastRadius >= 3}>{svc.blastRadius}</span>
+                    <span class="blast-badge" class:blast-low={svc.blastRadius < 3} class:blast-med={svc.blastRadius >= 3 && svc.blastRadius < 5} class:blast-high={svc.blastRadius >= 5}>{svc.blastRadius}</span>
                   </div>
                 {/if}
                 {#if svc.checksPassed != null}
@@ -280,6 +280,16 @@
   .text-3 { color: var(--c-text-3); }
   .text-warn { color: var(--c-warn); }
   .text-err { color: var(--c-err); }
+
+  .blast-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 26px; height: 22px; padding: 0 7px;
+    border-radius: var(--radius-xs);
+    font-size: var(--text-xs); font-weight: 600;
+  }
+  .blast-low { background: var(--c-warn-bg); color: var(--c-warn); }
+  .blast-med { background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid color-mix(in srgb, var(--c-warn) 25%, transparent); }
+  .blast-high { background: var(--c-err-bg); color: var(--c-err); border: 1px solid color-mix(in srgb, var(--c-err) 25%, transparent); }
 
   /* ── Owner metadata ── */
   .owner-meta {
