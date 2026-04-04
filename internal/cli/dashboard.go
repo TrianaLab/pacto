@@ -143,11 +143,7 @@ Services are grouped by name across sources and merged using priority rules:
 				// picks up repos from CRDs that appear after startup
 				// (e.g. deployed by ArgoCD after the dashboard starts).
 				if detectResult.K8s != nil {
-					k8sSrc := detectResult.K8s
-					detectResult.OCI.SetRepoProvider(func(ctx context.Context) []string {
-						repos, _ := dashboard.DiscoverOCIReposFromSource(ctx, k8sSrc)
-						return repos
-					})
+					detectResult.OCI.SetRepoProvider(dashboard.RepoProviderFromSource(detectResult.K8s))
 				}
 			}
 
@@ -409,11 +405,7 @@ func wireOCIEnrichment(
 
 		// Wire k8s repo provider for late-arriving CRDs.
 		if detectResult.K8s != nil {
-			k8sSrc := detectResult.K8s
-			detectResult.OCI.SetRepoProvider(func(ctx context.Context) []string {
-				repos, _ := dashboard.DiscoverOCIReposFromSource(ctx, k8sSrc)
-				return repos
-			})
+			detectResult.OCI.SetRepoProvider(dashboard.RepoProviderFromSource(detectResult.K8s))
 		}
 
 		// Always pass memCache so RefreshCacheSources can invalidate stale

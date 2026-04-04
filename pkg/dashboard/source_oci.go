@@ -171,12 +171,6 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 	copy(services, s.services)
 	s.mu.RUnlock()
 
-	// Clear failed repos so they are retried (bundles may have been
-	// re-published or parser fixes deployed since the last attempt).
-	s.mu.Lock()
-	clear(s.failedRepos)
-	s.mu.Unlock()
-
 	// Collect dependency repos from initial shallow scan.
 	var queue []string
 	for _, svc := range services {
@@ -532,12 +526,6 @@ func logOCIError(msg, key, val string, err error) {
 	}
 }
 
-// stripTag removes the tag and/or digest from an OCI ref, returning the bare
-// repository. Handles all common formats:
-//
-//	"repo:tag"                → "repo"
-//	"repo@sha256:abc"         → "repo"
-//	"repo:tag@sha256:abc"     → "repo"
 func stripTag(ref string) string {
 	// Strip digest first (@sha256:...).
 	if idx := strings.LastIndex(ref, "@"); idx > 0 {
@@ -550,4 +538,47 @@ func stripTag(ref string) string {
 		return ref[:lastColon]
 	}
 	return ref
+}
+
+// RepoProviderFromSource returns a repoProvider callback that discovers OCI
+// repos by querying a DataSource for resolvedRef / imageRef fields. Use this
+// to wire k8s-discovered repos into OCI background scanning.
+func RepoProviderFromSource(src DataSource) func(ctx context.Context) []string {
+	return func(ctx context.Context) []string {
+		repos, _ := discoverOCIReposFromSource(ctx, src)
+		return repos
+	}
+}
+
+// discoverOCIReposFromSource queries a DataSource for services and extracts
+// unique OCI repository references from their resolvedRef / imageRef fields.
+func discoverOCIReposFromSource(ctx context.Context, src DataSource) ([]string, error) {
+	services, err := src.ListServices(ctx)
+	if err != nil {
+		slog.Warn("OCI repo discovery: failed to list services", "error", err)
+		return nil, err
+	}
+
+	seen := make(map[string]bool)
+	var repos []string
+
+	for _, svc := range services {
+		d, err := src.GetService(ctx, svc.Name)
+		if err != nil || d == nil {
+			continue
+		}
+		ref := d.ResolvedRef
+		if ref == "" {
+			ref = d.ImageRef
+		}
+		if ref == "" {
+			continue
+		}
+		repo := stripTag(ref)
+		if repo != "" && !seen[repo] {
+			seen[repo] = true
+			repos = append(repos, repo)
+		}
+	}
+	return repos, nil
 }

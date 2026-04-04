@@ -828,6 +828,17 @@ func TestEnrichFromK8s_TagDigestFormat(t *testing.T) {
 	}
 }
 
+func TestDiscoverOCIReposFromK8s_NilK8s(t *testing.T) {
+	r := &DetectResult{Diagnostics: &SourceDiagnostics{}}
+	repos, err := r.discoverOCIReposFromK8s(context.Background())
+	if err != nil {
+		t.Errorf("expected nil error, got %v", err)
+	}
+	if repos != nil {
+		t.Errorf("expected nil repos, got %v", repos)
+	}
+}
+
 func TestEnrichFromK8s_NoResolvedRefs(t *testing.T) {
 	k8sData := `{"items": [
 		{"metadata": {"name": "svc", "namespace": "default"},

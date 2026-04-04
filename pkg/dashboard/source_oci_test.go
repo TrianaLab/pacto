@@ -1199,3 +1199,143 @@ func TestOCISource_DiscoverRepo_TracksFailures(t *testing.T) {
 		t.Errorf("expected failedRepos reason 'no_semver_tags', got %q", reason)
 	}
 }
+
+// stubDataSource is a minimal DataSource for testing repo discovery.
+type stubDataSource struct {
+	services  []Service
+	details   map[string]*ServiceDetails
+	listErr   error
+	detailErr error
+}
+
+func (s *stubDataSource) ListServices(_ context.Context) ([]Service, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	return s.services, nil
+}
+
+func (s *stubDataSource) GetService(_ context.Context, name string) (*ServiceDetails, error) {
+	if s.detailErr != nil {
+		return nil, s.detailErr
+	}
+	if s.details != nil {
+		return s.details[name], nil
+	}
+	return nil, nil
+}
+
+func (s *stubDataSource) GetVersions(_ context.Context, _ string) ([]Version, error) {
+	return nil, nil
+}
+
+func (s *stubDataSource) GetDiff(_ context.Context, _, _ Ref) (*DiffResult, error) {
+	return nil, nil
+}
+
+func TestOCISource_RepoProvider(t *testing.T) {
+	old := ociRediscoverInterval
+	ociRediscoverInterval = 10 * time.Millisecond
+	t.Cleanup(func() { ociRediscoverInterval = old })
+
+	store := newMockBundleStore()
+	// Only the provider-discovered repo is in the store.
+	store.addBundle("ghcr.io/org/dynamic", "1.0.0", "dynamic-svc", "1.0.0")
+
+	src := NewOCISource(store, nil) // no initial repos
+	src.SetRepoProvider(func(_ context.Context) []string {
+		return []string{"ghcr.io/org/dynamic"}
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	_, _ = src.ListServices(ctx)
+	<-src.done
+
+	// Wait for at least one rediscovery cycle that uses the provider.
+	time.Sleep(100 * time.Millisecond)
+
+	services, _ := src.ListServices(ctx)
+	found := false
+	for _, svc := range services {
+		if svc.Name == "dynamic-svc" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected dynamic-svc discovered via repoProvider")
+	}
+}
+
+func TestRepoProviderFromSource(t *testing.T) {
+	src := &stubDataSource{
+		services: []Service{
+			{Name: "svc-a"},
+			{Name: "svc-b"},
+		},
+		details: map[string]*ServiceDetails{
+			"svc-a": {ResolvedRef: "ghcr.io/org/a:1.0.0"},
+			"svc-b": {ImageRef: "ghcr.io/org/b:2.0.0"},
+		},
+	}
+	provider := RepoProviderFromSource(src)
+	repos := provider(context.Background())
+	if len(repos) != 2 {
+		t.Fatalf("expected 2 repos, got %d: %v", len(repos), repos)
+	}
+	expected := map[string]bool{"ghcr.io/org/a": true, "ghcr.io/org/b": true}
+	for _, r := range repos {
+		if !expected[r] {
+			t.Errorf("unexpected repo %q", r)
+		}
+	}
+}
+
+func TestDiscoverOCIReposFromSource_SkipsNoRef(t *testing.T) {
+	src := &stubDataSource{
+		services: []Service{
+			{Name: "svc-a"},
+			{Name: "svc-b"},
+		},
+		details: map[string]*ServiceDetails{
+			"svc-a": {ResolvedRef: "ghcr.io/org/a:1.0.0"},
+			"svc-b": {}, // no ref
+		},
+	}
+	repos, err := discoverOCIReposFromSource(context.Background(), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repo, got %d", len(repos))
+	}
+	if repos[0] != "ghcr.io/org/a" {
+		t.Errorf("expected ghcr.io/org/a, got %q", repos[0])
+	}
+}
+
+func TestDiscoverOCIReposFromSource_ListError(t *testing.T) {
+	src := &stubDataSource{listErr: fmt.Errorf("connection refused")}
+	repos, err := discoverOCIReposFromSource(context.Background(), src)
+	if err == nil {
+		t.Error("expected error")
+	}
+	if repos != nil {
+		t.Errorf("expected nil repos, got %v", repos)
+	}
+}
+
+func TestDiscoverOCIReposFromSource_GetServiceError(t *testing.T) {
+	src := &stubDataSource{
+		services:  []Service{{Name: "svc-a"}},
+		detailErr: fmt.Errorf("not found"),
+	}
+	repos, err := discoverOCIReposFromSource(context.Background(), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repos) != 0 {
+		t.Errorf("expected 0 repos when GetService fails, got %d", len(repos))
+	}
+}

@@ -377,42 +377,7 @@ func (r *DetectResult) discoverOCIReposFromK8s(ctx context.Context) ([]string, e
 	if r.K8s == nil {
 		return nil, nil
 	}
-	return DiscoverOCIReposFromSource(ctx, r.K8s)
-}
-
-// DiscoverOCIReposFromSource queries a DataSource for services and extracts
-// unique OCI repository references from their resolvedRef / imageRef fields.
-// Exported so it can be used as an OCI repo provider callback.
-func DiscoverOCIReposFromSource(ctx context.Context, src DataSource) ([]string, error) {
-	services, err := src.ListServices(ctx)
-	if err != nil {
-		slog.Warn("OCI repo discovery: failed to list services", "error", err)
-		return nil, err
-	}
-
-	seen := make(map[string]bool)
-	var repos []string
-
-	for _, svc := range services {
-		d, err := src.GetService(ctx, svc.Name)
-		if err != nil || d == nil {
-			continue
-		}
-		// Prefer resolvedRef (most specific); fall back to imageRef.
-		ref := d.ResolvedRef
-		if ref == "" {
-			ref = d.ImageRef
-		}
-		if ref == "" {
-			continue
-		}
-		repo := stripTag(ref)
-		if repo != "" && !seen[repo] {
-			seen[repo] = true
-			repos = append(repos, repo)
-		}
-	}
-	return repos, nil
+	return discoverOCIReposFromSource(ctx, r.K8s)
 }
 
 // ensureCacheSource creates a CacheSource if one doesn't exist, creating the
