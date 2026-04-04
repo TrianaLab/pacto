@@ -1,5 +1,5 @@
 <script>
-  import { ownerMatchesFilter } from './lib/format.ts';
+  import { ownerMatchesFilter, countHighImpact } from './lib/format.ts';
 
   let { services = [], statusFilter = $bindable('all'), sourceFilter = $bindable('all'), nameFilter = $bindable('') } = $props();
 
@@ -28,7 +28,13 @@
     return s;
   });
 
-  let highBlastCount = $derived(baseFiltered.filter(s => (s.blastRadius || 0) >= 3).length);
+  // Apply all filters (including status) for metrics that should reflect the visible set
+  let fullyFiltered = $derived.by(() => {
+    if (statusFilter === 'all') return baseFiltered;
+    return baseFiltered.filter((s) => s.contractStatus === statusFilter);
+  });
+
+  let highBlastCount = $derived(countHighImpact(fullyFiltered));
 
   let activeSources = $derived.by(() => {
     const sourceSet = new Set();

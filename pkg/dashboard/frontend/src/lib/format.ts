@@ -122,6 +122,37 @@ export function versionPolicyClass(policy: string | undefined): string {
   return '';
 }
 
+// ── Stats helpers ──
+
+const HIGH_IMPACT_THRESHOLD = 3;
+
+/** Count services with blast radius at or above the high-impact threshold. */
+export function countHighImpact(services: Array<{ blastRadius?: number }>): number {
+  return services.filter(s => (s.blastRadius || 0) >= HIGH_IMPACT_THRESHOLD).length;
+}
+
+/**
+ * Apply all active filters (name, source, status) to a service list.
+ * Used to derive the visible set that stats like "high impact" should reflect.
+ */
+export function filterServices(
+  services: Array<Record<string, any>>,
+  filters: { nameFilter?: string; sourceFilter?: string; statusFilter?: string },
+): Array<Record<string, any>> {
+  let list = services;
+  if (filters.nameFilter) {
+    const q = filters.nameFilter.toLowerCase();
+    list = list.filter((s) => s.name.toLowerCase().includes(q) || ownerMatchesFilter(s.owner, q));
+  }
+  if (filters.sourceFilter && filters.sourceFilter !== 'all') {
+    list = list.filter((s) => (s.sources || [s.source]).includes(filters.sourceFilter));
+  }
+  if (filters.statusFilter && filters.statusFilter !== 'all') {
+    list = list.filter((s) => s.contractStatus === filters.statusFilter);
+  }
+  return list;
+}
+
 // ── Owner helpers ──
 
 /** Extract a display string from the owner field (string or structured object). */

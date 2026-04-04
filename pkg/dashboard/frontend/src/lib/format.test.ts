@@ -22,6 +22,8 @@ import {
   computeTooltipPosition,
   versionPolicyLabel,
   versionPolicyClass,
+  countHighImpact,
+  filterServices,
 } from './format.ts';
 
 describe('statusClass', () => {
@@ -526,4 +528,94 @@ describe('versionPolicyClass', () => {
   it('returns policy-digest for pinned-digest', () => expect(versionPolicyClass('pinned-digest')).toBe('policy-digest'));
   it('returns empty for undefined', () => expect(versionPolicyClass(undefined)).toBe(''));
   it('returns empty for unknown policy', () => expect(versionPolicyClass('other')).toBe(''));
+});
+
+describe('countHighImpact', () => {
+  it('counts services with blastRadius >= 3', () => {
+    const services = [
+      { blastRadius: 5 },
+      { blastRadius: 3 },
+      { blastRadius: 2 },
+      { blastRadius: 0 },
+    ];
+    expect(countHighImpact(services)).toBe(2);
+  });
+
+  it('returns 0 for empty list', () => {
+    expect(countHighImpact([])).toBe(0);
+  });
+
+  it('treats missing blastRadius as 0', () => {
+    expect(countHighImpact([{}, { blastRadius: undefined }])).toBe(0);
+  });
+
+  it('counts all when all are high impact', () => {
+    expect(countHighImpact([{ blastRadius: 3 }, { blastRadius: 10 }])).toBe(2);
+  });
+
+  it('returns 0 when none meet threshold', () => {
+    expect(countHighImpact([{ blastRadius: 1 }, { blastRadius: 2 }])).toBe(0);
+  });
+});
+
+describe('filterServices', () => {
+  const services = [
+    { name: 'api-gateway', owner: 'team-a', contractStatus: 'Compliant', sources: ['k8s'], blastRadius: 5 },
+    { name: 'auth-service', owner: 'team-a', contractStatus: 'Warning', sources: ['k8s', 'oci'], blastRadius: 3 },
+    { name: 'payment-svc', owner: 'team-b', contractStatus: 'NonCompliant', sources: ['oci'], blastRadius: 1 },
+    { name: 'user-db', owner: { team: 'team-b' }, contractStatus: 'Compliant', sources: ['local'], blastRadius: 0 },
+  ];
+
+  it('returns all services with no filters', () => {
+    expect(filterServices(services, {})).toHaveLength(4);
+  });
+
+  it('returns all with all-defaults', () => {
+    expect(filterServices(services, { nameFilter: '', sourceFilter: 'all', statusFilter: 'all' })).toHaveLength(4);
+  });
+
+  it('filters by name (case-insensitive)', () => {
+    const result = filterServices(services, { nameFilter: 'api' });
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('api-gateway');
+  });
+
+  it('filters by owner name match', () => {
+    const result = filterServices(services, { nameFilter: 'team-b' });
+    expect(result).toHaveLength(2); // payment-svc + user-db (structured owner)
+  });
+
+  it('filters by status', () => {
+    const result = filterServices(services, { statusFilter: 'Compliant' });
+    expect(result).toHaveLength(2);
+  });
+
+  it('filters by source', () => {
+    const result = filterServices(services, { sourceFilter: 'oci' });
+    expect(result).toHaveLength(2); // auth-service + payment-svc
+  });
+
+  it('combines name + status filters', () => {
+    const result = filterServices(services, { nameFilter: 'team-a', statusFilter: 'Warning' });
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('auth-service');
+  });
+
+  it('combines all three filters', () => {
+    const result = filterServices(services, { nameFilter: 'auth', sourceFilter: 'k8s', statusFilter: 'Warning' });
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('auth-service');
+  });
+
+  it('returns empty when no services match', () => {
+    expect(filterServices(services, { nameFilter: 'nonexistent' })).toHaveLength(0);
+  });
+
+  it('high impact count reflects status filter', () => {
+    // This is the core bug fix: high impact should change with status filter
+    const allFiltered = filterServices(services, {});
+    const compliantOnly = filterServices(services, { statusFilter: 'Compliant' });
+    expect(countHighImpact(allFiltered)).toBe(2); // api-gateway(5) + auth-service(3)
+    expect(countHighImpact(compliantOnly)).toBe(1); // only api-gateway(5) is Compliant
+  });
 });

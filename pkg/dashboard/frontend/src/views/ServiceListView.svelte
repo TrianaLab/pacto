@@ -1,6 +1,6 @@
 <script>
   import { serviceUrl, ownerUrl } from '../lib/router.ts';
-  import { statusClass, complianceStatusClass, sourceTooltip, ownerDisplay, ownerKey, ownerMatchesFilter } from '../lib/format.ts';
+  import { statusClass, complianceStatusClass, sourceTooltip, ownerDisplay, ownerKey, filterServices } from '../lib/format.ts';
   import StatsBar from '../StatsBar.svelte';
 
   let { services = [], sourcesInfo = [], discovering = false, initialLoading = false } = $props();
@@ -19,17 +19,7 @@
 
   // Filter + sort
   let filtered = $derived.by(() => {
-    let list = services;
-    if (nameFilter) {
-      const q = nameFilter.toLowerCase();
-      list = list.filter((s) => s.name.toLowerCase().includes(q) || ownerMatchesFilter(s.owner, q));
-    }
-    if (statusFilter !== 'all') {
-      list = list.filter((s) => s.contractStatus === statusFilter);
-    }
-    if (sourceFilter !== 'all') {
-      list = list.filter((s) => (s.sources || [s.source]).includes(sourceFilter));
-    }
+    let list = filterServices(services, { nameFilter, sourceFilter, statusFilter });
     const dir = sortAsc ? 1 : -1;
     list = [...list].sort((a, b) => {
       if (sortBy === 'name') return a.name.localeCompare(b.name) * dir;
