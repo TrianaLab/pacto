@@ -58,7 +58,7 @@ jobs:
 
       # Install syft and generate SBOM
       - name: Install syft
-        uses: anchore/sbom-action/download-syft@v0.20.0
+        uses: anchore/sbom-action/download-syft@v0.24.0
 
       - name: Generate bundle
         run: make gen-bundle
