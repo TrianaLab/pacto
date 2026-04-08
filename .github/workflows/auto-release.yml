@@ -113,7 +113,7 @@ jobs:
             -o dist/$output ./cmd/pacto
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pacto_${{ matrix.goos }}_${{ matrix.goarch }}
           path: dist/
@@ -202,7 +202,7 @@ jobs:
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digest-${{ matrix.runner }}
           path: /tmp/digests/*
