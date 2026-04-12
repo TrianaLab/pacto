@@ -248,7 +248,7 @@ jobs:
             "ghcr.io/trianalab/pacto-dashboard:${{ steps.meta.outputs.version }}"
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.0
+        uses: sigstore/cosign-installer@v4.1.1
 
       - name: Sign dashboard image
         run: |
