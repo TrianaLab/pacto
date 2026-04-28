@@ -1,10 +1,3 @@
----
-title: Cron Worker
-layout: default
-parent: Examples
-nav_order: 5
----
-
 # Cron Worker
 
 A Pacto contract for a scheduled batch job — a stateless worker that runs on a cron schedule.

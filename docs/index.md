@@ -1,30 +1,12 @@
----
-title: Home
-layout: home
-nav_order: 1
----
-
 # Pacto
-{: .no_toc }
-
 **A single YAML contract that describes how a cloud-native service behaves — validated, versioned, and distributed as an OCI artifact.**
-{: .fs-5 .fw-300 }
 
-[Get Started]({{ site.baseurl }}{% link quickstart.md %}){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[Specification]({{ site.baseurl }}{% link contract-reference.md %}){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[Examples]({{ site.baseurl }}{% link examples/index.md %}){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[Demo](https://github.com/TrianaLab/pacto-demo){: .btn .fs-5 .mb-4 .mb-md-0 }
-
----
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-- TOC
-{:toc}
-</details>
+[Get Started](quickstart.md){ .md-button .md-button--primary }
+[Specification](contract-reference.md){ .md-button }
+[Examples](examples/index.md){ .md-button }
+[Demo](https://github.com/TrianaLab/pacto-demo){ .md-button }
 
 ---
-
 ## What is Pacto?
 
 Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs to know about a service — interfaces, runtime behavior, dependencies, configuration, and scaling — in one YAML file that machines can validate and tooling can consume.
@@ -41,7 +23,7 @@ No runtime agents. No sidecars. No new infrastructure. The CLI runs at build tim
 
 ## AI-native contracts
 
-Pacto contracts are machine-readable by design. Beyond platforms and CI pipelines, they can be consumed directly by AI assistants through the [Model Context Protocol](https://modelcontextprotocol.io). Running `pacto mcp` starts an MCP server that exposes contract-aware tools — allowing assistants like Claude, Cursor, and GitHub Copilot to validate contracts, inspect dependency graphs, generate new contracts, and explain breaking changes. See the [MCP Integration]({{ site.baseurl }}{% link mcp-integration.md %}) guide.
+Pacto contracts are machine-readable by design. Beyond platforms and CI pipelines, they can be consumed directly by AI assistants through the [Model Context Protocol](https://modelcontextprotocol.io). Running `pacto mcp` starts an MCP server that exposes contract-aware tools — allowing assistants like Claude, Cursor, and GitHub Copilot to validate contracts, inspect dependency graphs, generate new contracts, and explain breaking changes. See the [MCP Integration](mcp-integration.md) guide.
 
 ---
 
@@ -207,7 +189,7 @@ Only `pacto.yaml` is required. All other directories are optional — include th
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
 - **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
 - **Contract exploration dashboard** — `pacto dashboard` launches a web UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, and diffs across local, OCI, and Kubernetes sources
-- **Runtime fidelity verification** — the optional [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}) continuously checks that deployed services match their contracts — port alignment, workload existence, health endpoint reachability, and more
+- **Runtime fidelity verification** — the optional [Kubernetes Operator](operator.md) continuously checks that deployed services match their contracts — port alignment, workload existence, health endpoint reachability, and more
 - **AI assistant integration** — `pacto mcp` exposes all contract operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and GitHub Copilot
 
 ---
@@ -251,11 +233,15 @@ api-gateway@2.0.0
 
 ### Developers
 
-Define your service's operational interface alongside your code. Declare interfaces, configuration schema, health checks, and dependencies. Validate locally before pushing. [Learn more]({{ site.baseurl }}{% link developers.md %})
+Define your service's operational interface alongside your code. Declare interfaces, configuration schema, health checks, and dependencies. Validate locally before pushing. [Learn more](developers.md)
 
 ### Platform engineers
 
-Consume contracts to generate deployment manifests, enforce policies, detect breaking changes, and build dependency graphs — deterministically and automatically. [Learn more]({{ site.baseurl }}{% link platform-engineers.md %})
+Consume contracts to generate deployment manifests, enforce policies, detect breaking changes, and build dependency graphs — deterministically and automatically. [Learn more](platform-engineers.md)
+
+### Building a platform on Pacto?
+
+These primitives compose into reusable platform patterns — root + component contracts for monorepos, infrastructure contracts with provisioner metadata, configurations as composable claims, platform-published policy + schema bundles, progressive policy versioning, and per-environment override files. See [Composition Patterns](patterns.md).
 
 ---
 

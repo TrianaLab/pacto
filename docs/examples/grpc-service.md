@@ -1,10 +1,3 @@
----
-title: gRPC Service
-layout: default
-parent: Examples
-nav_order: 7
----
-
 # gRPC Service
 
 A Pacto contract for a gRPC microservice — a user service exposing a Protocol Buffer API with internal visibility.

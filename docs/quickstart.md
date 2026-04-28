@@ -1,24 +1,7 @@
----
-title: Quickstart
-layout: default
-nav_order: 3
----
-
 # Quickstart
-{: .no_toc }
-
 From zero to a published contract in 2 minutes.
 
 ---
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-- TOC
-{:toc}
-</details>
-
----
-
 ## 1. Install Pacto
 
 ```bash
@@ -31,7 +14,7 @@ Or via Go:
 go install github.com/trianalab/pacto/cmd/pacto@latest
 ```
 
-See [Installation]({{ site.baseurl }}{% link installation.md %}) for more options.
+See [Installation](installation.md) for more options.
 
 ## 2. Scaffold a contract
 
@@ -67,7 +50,7 @@ service:
   owner: team/backend
 ```
 
-Add sections as needed — interfaces, runtime semantics, dependencies, configuration, policy, scaling. See the [Contract Reference]({{ site.baseurl }}{% link contract-reference.md %}) for every available field.
+Add sections as needed — interfaces, runtime semantics, dependencies, configuration, policy, scaling. See the [Contract Reference](contract-reference.md) for every available field.
 
 ## 5. Pack and push
 
@@ -127,7 +110,7 @@ Changes (1):
   [BREAKING] interfaces.port (modified): interfaces.port modified [8080 -> 9090]
 ```
 
-Exit code is non-zero when breaking changes are detected — use this in CI to gate merges. See [For Platform Engineers]({{ site.baseurl }}{% link platform-engineers.md %}) for the full CI integration guide.
+Exit code is non-zero when breaking changes are detected — use this in CI to gate merges. See [For Platform Engineers](platform-engineers.md) for the full CI integration guide.
 
 ---
 
@@ -135,11 +118,11 @@ Exit code is non-zero when breaking changes are detected — use this in CI to g
 
 | Goal | Guide |
 |------|-------|
-| Understand every contract field | [Contract Reference]({{ site.baseurl }}{% link contract-reference.md %}) |
-| Write and maintain contracts | [For Developers]({{ site.baseurl }}{% link developers.md %}) |
-| Consume contracts for deployment | [For Platform Engineers]({{ site.baseurl }}{% link platform-engineers.md %}) |
-| See contracts for real services | [Examples]({{ site.baseurl }}{% link examples/index.md %}) (PostgreSQL, Redis, RabbitMQ, NGINX, gRPC, and more) |
-| Integrate with CI/CD | [GitHub Actions]({{ site.baseurl }}{% link github-actions.md %}) |
+| Understand every contract field | [Contract Reference](contract-reference.md) |
+| Write and maintain contracts | [For Developers](developers.md) |
+| Consume contracts for deployment | [For Platform Engineers](platform-engineers.md) |
+| See contracts for real services | [Examples](examples/index.md) (PostgreSQL, Redis, RabbitMQ, NGINX, gRPC, and more) |
+| Integrate with CI/CD | [GitHub Actions](github-actions.md) |
 | Explore contracts visually | Run `pacto dashboard` to launch the web UI with dependency graph |
-| Runtime compliance in Kubernetes | [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}) |
-| Build a generation plugin | [Plugin Development]({{ site.baseurl }}{% link plugins.md %}) |
+| Runtime compliance in Kubernetes | [Kubernetes Operator](operator.md) |
+| Build a generation plugin | [Plugin Development](plugins.md) |

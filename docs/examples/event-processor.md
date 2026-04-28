@@ -1,10 +1,3 @@
----
-title: Event Processor
-layout: default
-parent: Examples
-nav_order: 6
----
-
 # Event Processor
 
 A Pacto contract for an event-driven service — a stateless consumer that processes messages from a message broker and exposes an HTTP health endpoint.

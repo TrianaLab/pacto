@@ -1,19 +1,5 @@
----
-layout: default
-title: Dashboard Container
-nav_order: 8
----
-
 # Dashboard Container
-{: .no_toc }
-
 ---
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-- TOC
-{:toc}
-</details>
 
 The Pacto dashboard is published as a container image for production and Kubernetes deployments. It provides the same contract exploration experience as the CLI's `pacto dashboard` command — dependency graphs, version history, interfaces, configuration schemas, and diffs — in a deployable container.
 
@@ -75,7 +61,7 @@ All `PACTO_DASHBOARD_*` variables map to the corresponding `--host`, `--port`, `
 The dashboard auto-detects available data sources at startup:
 
 - **oci**: Enabled when `PACTO_DASHBOARD_REPO` is set, or **automatically discovered from K8s `resolvedRef` fields** when the Kubernetes source is active. Scans OCI registries for published contracts — providing full contract bundles, version history, interfaces, and diffs. Materialized bundles on disk (`/home/pacto/.cache/pacto/oci/`) are used internally by the OCI source to enrich version data without appearing as a separate source.
-- **k8s**: Enabled when a valid kubeconfig is mounted or when running inside a Kubernetes cluster (in-cluster config). Provides runtime state from the [Pacto operator]({{ site.baseurl }}{% link operator.md %}).
+- **k8s**: Enabled when a valid kubeconfig is mounted or when running inside a Kubernetes cluster (in-cluster config). Provides runtime state from the [Pacto operator](operator.md).
 - **local**: Enabled when a `pacto.yaml` is found in the working directory (mount via volume).
 
 ### Kubernetes + OCI hybrid mode

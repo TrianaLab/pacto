@@ -1,26 +1,9 @@
----
-title: Plugin Development
-layout: default
-nav_order: 11
----
-
 # Plugin Development
-{: .no_toc }
-
 Pacto uses an out-of-process plugin architecture for artifact generation. A plugin is a standalone executable that receives a contract via JSON on stdin and writes generated file descriptions to stdout.
 
 This means you can turn a Pacto contract into anything — Helm charts, Terraform modules, Kubernetes manifests, monitoring configs — using any language you want.
 
 ---
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-- TOC
-{:toc}
-</details>
-
----
-
 ## Official plugins
 
 Pacto ships with two official plugins that are automatically installed alongside the CLI via the install script:

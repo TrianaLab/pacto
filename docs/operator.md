@@ -1,26 +1,9 @@
----
-title: Kubernetes Operator
-layout: default
-nav_order: 12
----
-
 # Kubernetes Operator
-{: .no_toc }
-
 The Pacto Operator is the runtime verification piece of the Pacto system. It continuously checks that deployed services in Kubernetes remain faithful to their contracts.
 
 For installation, configuration, and CRD reference, see the [pacto-operator repository](https://github.com/trianalab/pacto-operator).
 
 ---
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-- TOC
-{:toc}
-</details>
-
----
-
 ## Where the operator fits
 
 Pacto is a system made of three complementary pieces:
@@ -79,17 +62,17 @@ Each check produces a structured condition on the CRD status with a type, status
 - **Reference** — no target workload (the contract is a shared definition, not a deployed service)
 - **Unknown** — contract status has not been determined yet
 
-{: .note }
-> Contract status reflects whether the service contract is valid and compliant, not whether the service is healthy at runtime.
+!!! note
+    Contract status reflects whether the service contract is valid and compliant, not whether the service is healthy at runtime.
 
-{: .warning }
-> The operator does **not** currently validate:
-> - Full OpenAPI conformance of live endpoints (it checks reachability, not response schemas)
-> - JSON Schema validation of live configuration values
-> - Dependency compatibility semantics (whether transitive deps satisfy version constraints)
-> - Policy schema enforcement at runtime
->
-> These are potential future directions. Today, contract-level validation of these fields happens at build time via `pacto validate`.
+!!! warning
+    The operator does **not** currently validate:
+    - Full OpenAPI conformance of live endpoints (it checks reachability, not response schemas)
+    - JSON Schema validation of live configuration values
+    - Dependency compatibility semantics (whether transitive deps satisfy version constraints)
+    - Policy schema enforcement at runtime
+
+    These are potential future directions. Today, contract-level validation of these fields happens at build time via `pacto validate`.
 
 ---
 
@@ -119,7 +102,7 @@ The dashboard also **automatically discovers OCI repositories** from the `resolv
 
 The result is a hybrid view: **runtime truth from the operator + contract truth from OCI**, merged in one place.
 
-See [Dashboard Container]({{ site.baseurl }}{% link dashboard-docker.md %}) for deployment instructions.
+See [Dashboard Container](dashboard-docker.md) for deployment instructions.
 
 ---
 
@@ -149,6 +132,6 @@ The operator is distributed as a Helm chart:
 
 - **CRD API reference:** [api-reference.md](https://github.com/TrianaLab/pacto-operator/blob/main/docs/api-reference.md)
 - **Repository:** [pacto-operator on GitHub](https://github.com/trianalab/pacto-operator)
-- **CLI reference:** [CLI Reference]({{ site.baseurl }}{% link cli-reference.md %}) — author and validate contracts before deploying
-- **Dashboard:** [Dashboard Container]({{ site.baseurl }}{% link dashboard-docker.md %}) — explore contracts alongside runtime state
-- **Platform guide:** [For Platform Engineers]({{ site.baseurl }}{% link platform-engineers.md %}) — the full platform workflow
+- **CLI reference:** [CLI Reference](cli-reference.md) — author and validate contracts before deploying
+- **Dashboard:** [Dashboard Container](dashboard-docker.md) — explore contracts alongside runtime state
+- **Platform guide:** [For Platform Engineers](platform-engineers.md) — the full platform workflow
