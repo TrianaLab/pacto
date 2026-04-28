@@ -1,19 +1,5 @@
----
-title: Installation
-layout: default
-nav_order: 2
----
-
 # Installation
-{: .no_toc }
-
 ---
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-- TOC
-{:toc}
-</details>
 
 ## Via installer script
 
@@ -23,8 +9,8 @@ The fastest way to install Pacto:
 curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
 ```
 
-{: .warning }
-The installer script may request elevated permissions (sudo) to install the binary to `/usr/local/bin`. You can use `--no-sudo` to install without elevated permissions or set `PACTO_INSTALL_DIR` to a custom directory.
+!!! warning
+    The installer script may request elevated permissions (sudo) to install the binary to `/usr/local/bin`. You can use `--no-sudo` to install without elevated permissions or set `PACTO_INSTALL_DIR` to a custom directory.
 
 Verify the installation:
 
@@ -64,8 +50,8 @@ pacto update v1.2.0
 
 This downloads the new binary and replaces the current one. No additional tools required.
 
-{: .note }
-If you installed via `go install`, use `go install github.com/trianalab/pacto/cmd/pacto@latest` to update instead.
+!!! note
+    If you installed via `go install`, use `go install github.com/trianalab/pacto/cmd/pacto@latest` to update instead.
 
 Pacto also checks for updates automatically and shows a notification when a newer version is available. To disable this, set `PACTO_NO_UPDATE_CHECK=1` in your environment.
 
@@ -78,5 +64,6 @@ make lint     # Run go vet
 make clean    # Remove build artifacts
 ```
 
-{: .note }
-Pre-built binaries and package manager support (Homebrew, apt, etc.) are planned for future releases.
+!!! note
+    Pre-built binaries and package manager support (Homebrew, apt, etc.) are planned for future releases.
+

@@ -1,10 +1,3 @@
----
-title: NGINX
-layout: default
-parent: Examples
-nav_order: 4
----
-
 # NGINX
 
 A Pacto contract for NGINX — a stateless reverse proxy and web server.

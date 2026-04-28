@@ -1,10 +1,3 @@
----
-title: Hybrid Cache API
-layout: default
-parent: Examples
-nav_order: 8
----
-
 # Hybrid Cache API
 
 A Pacto contract for a service with hybrid state — an API that caches data locally for performance but can rebuild its cache from an upstream source. Loss of local state degrades performance but does not break the service.

@@ -1,21 +1,7 @@
----
-title: GitHub Actions
-layout: default
-nav_order: 9
----
-
 # GitHub Actions Integration
-{: .no_toc }
-
 Automate contract validation, breaking-change detection, and publishing in your CI/CD pipeline using the official [Pacto CLI](https://github.com/marketplace/actions/pacto-cli) GitHub Action.
 
 ---
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-- TOC
-{:toc}
-</details>
 
 ## Quick start
 

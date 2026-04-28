@@ -1,10 +1,3 @@
----
-title: Redis
-layout: default
-parent: Examples
-nav_order: 2
----
-
 # Redis
 
 A Pacto contract for Redis — a stateful in-memory data store with persistent durability.
@@ -66,8 +59,8 @@ metadata:
   eviction-policy: allkeys-lru
 ```
 
-{: .note }
-> The `resp` interface uses `type: grpc` as the closest available protocol type for Redis's RESP binary protocol. The Pacto schema currently supports `http`, `grpc`, and `event` — there is no dedicated `tcp` type. The `.proto` contract file is illustrative; in practice you may omit the interface or use a custom schema.
+!!! note
+    The `resp` interface uses `type: grpc` as the closest available protocol type for Redis's RESP binary protocol. The Pacto schema currently supports `http`, `grpc`, and `event` — there is no dedicated `tcp` type. The `.proto` contract file is illustrative; in practice you may omit the interface or use a custom schema.
 
 ### Key decisions
 

@@ -1,10 +1,3 @@
----
-title: RabbitMQ
-layout: default
-parent: Examples
-nav_order: 3
----
-
 # RabbitMQ
 
 A Pacto contract for RabbitMQ — a stateful message broker with persistent durability and multiple protocol interfaces.
@@ -74,8 +67,8 @@ metadata:
   quorum-queues: enabled
 ```
 
-{: .note }
-> The `amqp` interface uses `type: grpc` as the closest available protocol type for RabbitMQ's AMQP binary protocol. The Pacto schema currently supports `http`, `grpc`, and `event` — there is no dedicated `tcp` type. The `.proto` contract file is illustrative; in practice you may omit the interface or use a custom schema.
+!!! note
+    The `amqp` interface uses `type: grpc` as the closest available protocol type for RabbitMQ's AMQP binary protocol. The Pacto schema currently supports `http`, `grpc`, and `event` — there is no dedicated `tcp` type. The `.proto` contract file is illustrative; in practice you may omit the interface or use a custom schema.
 
 ### Key decisions
 

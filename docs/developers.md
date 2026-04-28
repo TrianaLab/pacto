@@ -1,26 +1,9 @@
----
-title: For Developers
-layout: default
-nav_order: 5
----
-
 # Pacto for Developers
-{: .no_toc }
-
 You own the service — and you own the contract. Pacto gives you a structured way to declare your service's operational interface alongside your code, so platform engineers, CI systems, and other teams have an accurate, machine-readable description of what your service needs to run.
 
 No forms. No tickets. No wiki pages that go stale. One YAML file, validated by tooling, versioned in a registry.
 
 ---
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-- TOC
-{:toc}
-</details>
-
----
-
 ## Your workflow
 
 ```mermaid
@@ -65,7 +48,7 @@ configurations:
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
-See [Configuration Schema Ownership Models]({{ site.baseurl }}{% link contract-reference.md %}#configuration-schema-ownership-models) for details.
+See [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models) for details.
 
 If your service exposes an HTTP API using FastAPI or Huma, use the `openapi-infer` plugin to extract an OpenAPI 3.1 spec from your source code:
 
@@ -91,7 +74,7 @@ interfaces:
     contract: interfaces/openapi.yaml
 ```
 
-Both plugins are installed automatically with Pacto. See the [Official plugins]({{ site.baseurl }}{% link plugins.md %}#official-plugins) section for details.
+Both plugins are installed automatically with Pacto. See the [Official plugins](plugins.md#official-plugins) section for details.
 
 ### 3. Declare your interfaces (optional)
 
@@ -139,7 +122,7 @@ runtime:
 - Does it keep optional in-memory state like caches (`hybrid`)?
 - How critical is the data it handles?
 
-The answers determine how platforms provision infrastructure for your service. See [runtime.state]({{ site.baseurl }}{% link contract-reference.md %}#runtimestate) in the Contract Reference for the full explanation.
+The answers determine how platforms provision infrastructure for your service. See [runtime.state](contract-reference.md#runtimestate) in the Contract Reference for the full explanation.
 
 ### 5. Declare dependencies
 
@@ -174,8 +157,8 @@ dependencies:
     compatibility: "^1.0.0"
 ```
 
-{: .warning }
-Local refs are rejected by `pacto push`. Switch all dependencies to `oci://` references before publishing.
+!!! warning
+    Local refs are rejected by `pacto push`. Switch all dependencies to `oci://` references before publishing.
 
 If your service depends on a cloud-managed resource (e.g. a database or message queue), create a minimal Pacto contract representing it and reference it as a dependency. This keeps cloud dependencies explicit and version-tracked.
 
@@ -191,7 +174,7 @@ policies:
     ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
 ```
 
-A policy is a JSON Schema that validates the contract itself — enforcing organizational standards like requiring health endpoints or mandating specific ports. See [policies]({{ site.baseurl }}{% link contract-reference.md %}#policies) in the Contract Reference for details.
+A policy is a JSON Schema that validates the contract itself — enforcing organizational standards like requiring health endpoints or mandating specific ports. See [policies](contract-reference.md#policies) in the Contract Reference for details.
 
 ### 7. Reference your Helm chart (optional)
 
@@ -215,8 +198,8 @@ service:
     version: 1.0.0
 ```
 
-{: .warning }
-Local chart references are rejected by `pacto push`. Switch to an OCI reference before publishing.
+!!! warning
+    Local chart references are rejected by `pacto push`. Switch to an OCI reference before publishing.
 
 ### 8. Validate before pushing
 
@@ -266,7 +249,7 @@ pacto validate my-service --set configurations[0].values.DB_HOST=localhost
 
 Overrides work on all commands that take a contract reference. For `diff`, use `--old-set`/`--old-values` and `--new-set`/`--new-values` to override each contract independently.
 
-See the [Contract Reference — Contract overrides]({{ site.baseurl }}{% link contract-reference.md %}#contract-overrides) section for full details.
+See the [Contract Reference — Contract overrides](contract-reference.md#contract-overrides) section for full details.
 
 ---
 
@@ -376,8 +359,8 @@ Changes (2):
 
 Integrate `pacto diff` into your CI pipeline to block merges that introduce breaking changes.
 
-{: .tip }
-Using GitHub Actions? Check out the official [Pacto CLI action]({{ site.baseurl }}{% link github-actions.md %}).
+!!! tip
+    Using GitHub Actions? Check out the official [Pacto CLI action](github-actions.md).
 
 ---
 
@@ -400,7 +383,7 @@ Add Pacto as an MCP server in your project. For Claude Code, create `.mcp.json` 
 }
 ```
 
-For other tools, see the full [MCP Integration]({{ site.baseurl }}{% link mcp-integration.md %}) guide.
+For other tools, see the full [MCP Integration](mcp-integration.md) guide.
 
 ### What you can do
 

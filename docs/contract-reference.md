@@ -1,21 +1,7 @@
----
-title: Contract Reference
-layout: default
-nav_order: 4
----
-
 # Contract Reference (v1.0)
-{: .no_toc }
-
 A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface — interfaces, dependencies, runtime behavior, configuration, and scaling. This page covers every section, field, validation rule, and change classification rule.
 
 ---
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-- TOC
-{:toc}
-</details>
 
 The canonical JSON Schema is available at [`schema/pacto-v1.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.0.schema.json).
 
@@ -242,8 +228,8 @@ Optional Helm chart reference for deploying the service.
 | `ref` | string | Yes | Non-empty. Local path (e.g. `./charts/my-chart`) or OCI reference (e.g. `oci://ghcr.io/org/chart`) |
 | `version` | string | Yes | Non-empty. Valid semver |
 
-{: .warning }
-Local chart references are only allowed during development. `pacto push` rejects contracts with local chart references — use an OCI reference before publishing.
+!!! warning
+    Local chart references are only allowed during development. `pacto push` rejects contracts with local chart references — use an OCI reference before publishing.
 
 #### OwnerInfo
 
@@ -318,8 +304,8 @@ Declares the service's communication boundaries. Optional — a service with no 
 | `grpc` | `port`, `contract` |
 | `event` | `contract` |
 
-{: .note }
-Interface names must be unique within a contract. The `contract` field for `http` interfaces is optional but recommended (typically an OpenAPI spec).
+!!! note
+    Interface names must be unique within a contract. The `contract` field for `http` interfaces is optional but recommended (typically an OpenAPI spec).
 
 ---
 
@@ -342,8 +328,8 @@ Required configuration keys are derived from the JSON Schema's `required` array.
 
 The optional `values` field provides default configuration values that are validated against the referenced JSON Schema. When using `ref`, values validation is deferred to runtime resolution. This is useful for documenting expected defaults or providing environment-specific overrides via the `--set` and `--values` flags (see [Contract overrides](#contract-overrides)).
 
-{: .tip }
-All files referenced by the contract — including the configuration schema — are packaged into the bundle when you run `pacto push`. The bundle is a self-contained OCI artifact that includes `pacto.yaml`, interface contracts, the configuration schema, and any other files in the contract directory.
+!!! tip
+    All files referenced by the contract — including the configuration schema — are packaged into the bundle when you run `pacto push`. The bundle is a self-contained OCI artifact that includes `pacto.yaml`, interface contracts, the configuration schema, and any other files in the contract directory.
 
 #### External configuration schema reference
 
@@ -357,11 +343,11 @@ configurations:
 
 This enables centralized configuration management — a platform team publishes a single configuration contract, and all services reference it. The reference supports recursive resolution: if the referenced contract itself has a `configurations[].ref`, Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
 
-{: .tip }
-Configuration references create **reference edges** in the dependency graph, distinct from `dependencies[].ref` edges. Use `pacto graph --with-references` to visualize them, or `pacto graph --only-references` to show only reference edges. In the dashboard graph, reference edges appear as dashed lines.
+!!! tip
+    Configuration references create **reference edges** in the dependency graph, distinct from `dependencies[].ref` edges. Use `pacto graph --with-references` to visualize them, or `pacto graph --only-references` to show only reference edges. In the dashboard graph, reference edges appear as dashed lines.
 
-{: .warning }
-Local configuration references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local configuration refs — all refs must use `oci://` before publishing.
+!!! warning
+    Local configuration references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local configuration refs — all refs must use `oci://` before publishing.
 
 #### Secret references
 
@@ -444,13 +430,13 @@ Characteristics:
 - **Platform-as-a-product model** — the schema becomes part of the platform's public interface
 - **Centralized or vendored** — choose between referencing the schema via OCI or vendoring it locally
 
-{: .important }
-> In Pacto, the configuration schema is an **interface**. Depending on ownership, it describes either:
->
-> - what a **service requires** (service-defined), or
-> - what a **platform provides** (platform-defined)
->
-> The schema format and validation mechanics are identical in both cases. The difference is purely one of ownership and intent.
+!!! info
+    In Pacto, the configuration schema is an **interface**. Depending on ownership, it describes either:
+
+    - what a **service requires** (service-defined), or
+    - what a **platform provides** (platform-defined)
+
+    The schema format and validation mechanics are identical in both cases. The difference is purely one of ownership and intent.
 
 #### Hybrid Approaches
 
@@ -522,14 +508,14 @@ policies:
 
 When a consumer references a policy contract, Pacto uses conditional resolution: if the referenced contract explicitly declares `policies[]` entries, those schemas are used directly (supporting custom paths and multiple schemas). If the referenced contract has no `policies[]` entries, Pacto falls back to reading the fixed path `policy/schema.json`. The reference supports recursive resolution: if the referenced contract itself has a `policies[].ref`, Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
 
-{: .tip }
-Like `configurations[].ref`, policy references create **reference edges** in the dependency graph. Use `pacto graph --with-references` to see them alongside dependencies.
+!!! tip
+    Like `configurations[].ref`, policy references create **reference edges** in the dependency graph. Use `pacto graph --with-references` to see them alongside dependencies.
 
-{: .warning }
-Local policy references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local `policies[].ref` — all refs must use `oci://` before publishing.
+!!! warning
+    Local policy references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local `policies[].ref` — all refs must use `oci://` before publishing.
 
-{: .important }
-`pacto push` resolves and enforces all remote `policies[].ref` entries before publishing. If the contract violates any referenced policy schema, the push is rejected. This ensures non-compliant contracts are never published to the registry.
+!!! info
+    `pacto push` resolves and enforces all remote `policies[].ref` entries before publishing. If the contract violates any referenced policy schema, the push is rejected. This ensures non-compliant contracts are never published to the registry.
 
 #### Bundle structure with policy
 
@@ -558,6 +544,9 @@ Declares dependencies on other services via their Pacto contracts.
 | `required` | boolean | No | Default: `false` |
 | `compatibility` | string | Yes | Non-empty. Valid semver constraint |
 
+!!! note
+    `required` is informational. Pacto itself does not act on it — it is metadata for downstream consumers (the dashboard uses it to compute blast radius; deployment tooling may use it to gate rollout). Treat it as a declaration of *intent*, not a deployment-time guard.
+
 #### Dependency reference schemes
 
 | Scheme | Example | Description |
@@ -581,14 +570,14 @@ Pacto uses [Masterminds/semver](https://github.com/Masterminds/semver#checking-v
 | `>= 2.0.0, < 4.0.0` | `2.x` and `3.x` only | Constrain to a range of major versions |
 | `*` | Any version | Always resolve to the absolute latest |
 
-{: .warning }
-Local dependency references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local dependencies — all refs must use `oci://` before publishing.
+!!! warning
+    Local dependency references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local dependencies — all refs must use `oci://` before publishing.
 
-{: .tip }
-Use digest-pinned references (`oci://...@sha256:...`) for production contracts. Tag-based references produce a validation warning.
+!!! tip
+    Use digest-pinned references (`oci://...@sha256:...`) for production contracts. Tag-based references produce a validation warning.
 
-{: .tip }
-If your service depends on a cloud-managed resource (e.g. GCP Cloud SQL, AWS SNS, Azure Service Bus), create a lightweight Pacto contract representing that resource and reference it as a dependency. This makes cloud dependencies explicit and version-tracked alongside your service contracts.
+!!! tip
+    If your service depends on a cloud-managed resource (e.g. GCP Cloud SQL, AWS SNS, Azure Service Bus), create a lightweight Pacto contract representing that resource and reference it as a dependency. This makes cloud dependencies explicit and version-tracked alongside your service contracts.
 
 ---
 
@@ -599,10 +588,10 @@ Describes how the service behaves at runtime. This section is what lets platform
 | Field | Type | Required |
 |-------|------|----------|
 | `workload` | string | Yes |
-| `state` | [State](#state) | Yes |
-| `lifecycle` | [Lifecycle](#lifecycle) | No |
-| `health` | [Health](#health) | No |
-| `metrics` | [Metrics](#metrics) | No |
+| `state` | [State](#runtimestate) | Yes |
+| `lifecycle` | [Lifecycle](#runtimelifecycle) | No |
+| `health` | [Health](#runtimehealth) | No |
+| `metrics` | [Metrics](#runtimemetrics) | No |
 
 #### `runtime.workload`
 
@@ -738,8 +727,8 @@ scaling:
   max: 10
 ```
 
-{: .warning }
-Scaling must not be applied to `job` workloads.
+!!! warning
+    Scaling must not be applied to `job` workloads.
 
 ---
 
@@ -755,6 +744,9 @@ metadata:
 ```
 
 `additionalProperties: false` — no extra fields allowed at any level (except inside `metadata`).
+
+!!! tip
+    `metadata` is a deliberate extension point for tooling. Platform teams use it to attach signals their CI or deployment systems can read off a contract — for example, infrastructure contracts can carry `metadata.labels` like `platform/provisioner: crossplane` to drive provisioning generically. See [Composition Patterns — Infrastructure contracts](patterns.md#2-infrastructure-contracts).
 
 ---
 
@@ -843,8 +835,8 @@ Pacto supports a Helm-style override system that lets you modify contract values
 | `--values <file>` | `-f` | Merge a YAML values file into the contract |
 | `--set <key=value>` | | Set an individual value using dot-notation |
 
-{: .note }
-The `-f` shorthand is not available on `pacto push` because `-f` is already used for `--force`.
+!!! note
+    The `-f` shorthand is not available on `pacto push` because `-f` is already used for `--force`.
 
 ### Precedence
 

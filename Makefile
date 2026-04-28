@@ -13,7 +13,7 @@ endif
 
 IMAGE := ghcr.io/trianalab/pacto-dashboard
 
-.PHONY: build test e2e coverage lint clean docs gen-cli-docs docker-build docker-run
+.PHONY: build test e2e coverage lint clean docs docs-build gen-cli-docs docker-build docker-run
 
 build:
 	rm -f "$(GOBIN)/pacto"
@@ -37,10 +37,13 @@ lint:
 gen-cli-docs:
 	go run ./cmd/gendocs/
 
-BUNDLE := $(shell command -v /opt/homebrew/opt/ruby@3.3/bin/bundle 2>/dev/null || command -v /opt/homebrew/opt/ruby/bin/bundle 2>/dev/null || command -v bundle 2>/dev/null)
-
+# Documentation (MkDocs Material). Install via `brew install mkdocs-material`
+# or `pip install -r docs/requirements.txt`.
 docs:
-	cd docs && $(BUNDLE) install && $(BUNDLE) exec jekyll serve --livereload
+	mkdocs serve
+
+docs-build:
+	mkdocs build
 
 docker-build:
 	docker build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) --build-arg BUILD_DATE=$(BUILD_DATE) -t $(IMAGE):$(VERSION) .

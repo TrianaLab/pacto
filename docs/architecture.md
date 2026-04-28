@@ -1,24 +1,7 @@
----
-title: Architecture
-layout: default
-nav_order: 13
----
-
 # Architecture
-{: .no_toc }
-
 Pacto follows a layered architecture where dependencies flow predominantly in one direction. There are small, deliberate exceptions documented below. This page describes the internal design for contributors and plugin authors.
 
 ---
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-- TOC
-{:toc}
-</details>
-
----
-
 ## Dependency graph
 
 ```mermaid
@@ -64,9 +47,9 @@ graph TD
     class APP,CLI,LOG,MCP,MAIN,UPDATE internal
 ```
 
-Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}).
+Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator](operator.md).
 
-All core domain logic lives in `pkg/` and is reusable outside the CLI — for example, by the [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}).
+All core domain logic lives in `pkg/` and is reusable outside the CLI — for example, by the [Kubernetes Operator](operator.md).
 
 ---
 
@@ -121,7 +104,7 @@ flowchart LR
 
 Each layer short-circuits -- if it produces errors, subsequent layers are skipped.
 
-Also includes **runtime validation** (`ValidateRuntime`) -- a foundational abstraction for comparing a contract's declared state against observed runtime conditions. This is consumed by the [Kubernetes Operator]({{ site.baseurl }}{% link operator.md %}) without introducing platform-specific dependencies into the core library.
+Also includes **runtime validation** (`ValidateRuntime`) -- a foundational abstraction for comparing a contract's declared state against observed runtime conditions. This is consumed by the [Kubernetes Operator](operator.md) without introducing platform-specific dependencies into the core library.
 
 ### `pkg/diff` -- Change classifier
 
@@ -162,7 +145,7 @@ Generates rich Markdown documentation from a contract. Reads OpenAPI specs, even
 
 ### `pkg/plugin` -- Plugin system
 
-Out-of-process plugin execution via JSON stdin/stdout. Discovers plugin binaries and manages the communication protocol. See the [Plugin Development]({{ site.baseurl }}{% link plugins.md %}) guide.
+Out-of-process plugin execution via JSON stdin/stdout. Discovers plugin binaries and manages the communication protocol. See the [Plugin Development](plugins.md) guide.
 
 ### `pkg/dashboard` -- Dashboard server
 

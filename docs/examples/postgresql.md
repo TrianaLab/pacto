@@ -1,10 +1,3 @@
----
-title: PostgreSQL
-layout: default
-parent: Examples
-nav_order: 1
----
-
 # PostgreSQL
 
 A Pacto contract for PostgreSQL — a stateful, persistent relational database with high data criticality.
@@ -67,8 +60,8 @@ metadata:
   storage-class: ssd
 ```
 
-{: .note }
-> The `sql` interface uses `type: grpc` as the closest available protocol type for PostgreSQL's binary wire protocol. The Pacto schema currently supports `http`, `grpc`, and `event` — there is no dedicated `tcp` type. The `.proto` contract file is illustrative; in practice you may omit the interface or use a custom schema.
+!!! note
+    The `sql` interface uses `type: grpc` as the closest available protocol type for PostgreSQL's binary wire protocol. The Pacto schema currently supports `http`, `grpc`, and `event` — there is no dedicated `tcp` type. The `.proto` contract file is illustrative; in practice you may omit the interface or use a custom schema.
 
 ### Key decisions
 

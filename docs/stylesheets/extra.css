@@ -1,0 +1,74 @@
+/* ---------------------------------------------------------------------------
+   Mermaid diagram contrast fixes for the dark (slate) color scheme.
+
+   Material's built-in mermaid integration sets theme variables, but in dark
+   mode the default node fills and edge strokes can lack contrast against
+   the dark background. The overrides below pin nodes/labels/edges to
+   Material's own CSS variables so contrast follows the theme.
+   --------------------------------------------------------------------------- */
+
+[data-md-color-scheme="slate"] .mermaid {
+    background: transparent;
+}
+
+/* Node shapes (rectangles, circles, diamonds, etc.) */
+[data-md-color-scheme="slate"] .mermaid .node rect,
+[data-md-color-scheme="slate"] .mermaid .node circle,
+[data-md-color-scheme="slate"] .mermaid .node ellipse,
+[data-md-color-scheme="slate"] .mermaid .node polygon,
+[data-md-color-scheme="slate"] .mermaid .node path {
+    fill: var(--md-code-bg-color) !important;
+    stroke: var(--md-default-fg-color--lighter) !important;
+    stroke-width: 1px !important;
+}
+
+/* Node and edge text labels */
+[data-md-color-scheme="slate"] .mermaid .nodeLabel,
+[data-md-color-scheme="slate"] .mermaid .edgeLabel,
+[data-md-color-scheme="slate"] .mermaid .label,
+[data-md-color-scheme="slate"] .mermaid foreignObject div {
+    color: var(--md-default-fg-color) !important;
+    background: transparent !important;
+}
+
+/* Edge label backgrounds (the small chip behind labels on links) */
+[data-md-color-scheme="slate"] .mermaid .edgeLabel rect {
+    fill: var(--md-default-bg-color) !important;
+}
+
+/* Connector lines and arrowheads */
+[data-md-color-scheme="slate"] .mermaid .edgePath .path,
+[data-md-color-scheme="slate"] .mermaid .flowchart-link,
+[data-md-color-scheme="slate"] .mermaid .messageLine0,
+[data-md-color-scheme="slate"] .mermaid .messageLine1 {
+    stroke: var(--md-default-fg-color--light) !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid .arrowheadPath,
+[data-md-color-scheme="slate"] .mermaid marker path {
+    fill: var(--md-default-fg-color--light) !important;
+    stroke: var(--md-default-fg-color--light) !important;
+}
+
+/* Subgraph (cluster) backgrounds and borders */
+[data-md-color-scheme="slate"] .mermaid .cluster rect {
+    fill: rgba(255, 255, 255, 0.03) !important;
+    stroke: var(--md-default-fg-color--lightest) !important;
+    stroke-width: 1px !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid .cluster .nodeLabel,
+[data-md-color-scheme="slate"] .mermaid .cluster .label {
+    color: var(--md-default-fg-color) !important;
+    font-weight: 600;
+}
+
+/* Sequence diagram actor boxes */
+[data-md-color-scheme="slate"] .mermaid .actor {
+    fill: var(--md-code-bg-color) !important;
+    stroke: var(--md-default-fg-color--lighter) !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid text.actor {
+    fill: var(--md-default-fg-color) !important;
+}

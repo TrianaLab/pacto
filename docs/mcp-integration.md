@@ -1,24 +1,7 @@
----
-title: MCP Integration
-layout: default
-nav_order: 10
----
-
 # MCP Integration
-{: .no_toc }
-
 Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that exposes contract operations as tools for AI assistants. This enables AI tools like Claude, Cursor, and GitHub Copilot to create, edit, and validate Pacto contracts directly.
 
 ---
-
-<details open markdown="block">
-  <summary>Table of contents</summary>
-- TOC
-{:toc}
-</details>
-
----
-
 ## Why MCP?
 
 [MCP](https://modelcontextprotocol.io) (Model Context Protocol) is an open standard that lets AI tools call external functions through structured tool calls — similar to how a browser calls an API, but designed for LLMs. Instead of pasting CLI output into a chat window, the assistant calls `pacto_create` or `pacto_check` directly and gets structured JSON back.
@@ -146,8 +129,8 @@ Add the server to your `claude_desktop_config.json`:
 }
 ```
 
-{: .tip }
-The config file is located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows.
+!!! tip
+    The config file is located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows.
 
 ### Example prompts
 
@@ -224,8 +207,8 @@ Alternatively, create a `.vscode/mcp.json` file in your project root:
 
 Once configured, Copilot Chat in agent mode can use Pacto tools. Try asking: *"@workspace create a pacto contract for my-service"*.
 
-{: .note }
-MCP support in GitHub Copilot requires VS Code 1.99+ and the GitHub Copilot Chat extension.
+!!! note
+    MCP support in GitHub Copilot requires VS Code 1.99+ and the GitHub Copilot Chat extension.
 
 ---
 

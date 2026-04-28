@@ -13,10 +13,8 @@ pacto
 coverage.out
 coverage.html
 
-# Jekyll
-docs/_site/
-docs/.jekyll-cache/
-docs/Gemfile.lock
+# MkDocs build output
+/site/
 
 # TODO
 TODO.md
