@@ -390,13 +390,3 @@ flowchart TD
 ```
 
 A platform team publishes its policy + chart schema (4) and one contract per infrastructure type (2). Each service is a monorepo with a root + component contracts (1). Components compose deployment + infrastructure configurations into a single override file per environment (3 + 6). The policy versions tighten over time without forcing migrations (5).
-
----
-
-## Where these patterns come from
-
-These patterns emerged from production use of Pacto on real platforms. They are documented here in abstracted form — primitives only, no platform-specific tooling — so they apply regardless of which CI engine, Kubernetes operator, or infrastructure provisioner you use behind them.
-
-The most thoroughly worked example is the [Emergence AI platform](https://github.com/emergenceai/em-foundations) — a multi-team platform built end-to-end on Pacto contracts, including a service template that scaffolds patterns 1, 3, and 6 from day one, and a Dagger-based deployment module that consumes patterns 2 and 4 at CI time.
-
-If you have a pattern that's served you well, please [open an issue](https://github.com/TrianaLab/pacto/issues) — this page is meant to grow.
