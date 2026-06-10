@@ -249,6 +249,32 @@ pacto validate my-service --set configurations[0].values.DB_HOST=localhost
 
 Overrides work on all commands that take a contract reference. For `diff`, use `--old-set`/`--old-values` and `--new-set`/`--new-values` to override each contract independently.
 
+### Override flag shorthands
+
+On most contract-taking commands, `-f` is the shorthand for `--values`. The exception is `pacto push`, where `-f` is `--force` — so on `push` you must spell out `--values`:
+
+```bash
+# Apply a values file when publishing (use --values, not -f, on push)
+pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service \
+  --values prod-values.yaml --set service.version=2.0.0
+
+# -f on push means --force (overwrite an existing artifact), not --values
+pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service -f
+```
+
+| Command | `--values` | `-f` shorthand |
+|---------|-----------|----------------|
+| `validate` | yes | `--values` |
+| `explain` | yes | `--values` |
+| `diff` | per-side (`--old-values`/`--new-values`) | `--values` |
+| `doc` | yes | `--values` |
+| `generate` | yes | `--values` |
+| `graph` | yes | `--values` |
+| `pack` | yes | `--values` |
+| `push` | yes (`--values` only) | **`--force`** |
+
+On `push`, `-f` maps to `--force`, so always use the long `--values` form there to apply overrides.
+
 See the [Contract Reference — Contract overrides](contract-reference.md#contract-overrides) section for full details.
 
 ---

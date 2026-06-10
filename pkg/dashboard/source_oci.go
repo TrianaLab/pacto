@@ -12,6 +12,7 @@ import (
 
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/oci"
+	"github.com/trianalab/pacto/pkg/semver"
 )
 
 // ociRediscoverInterval controls how often background discovery re-runs
@@ -215,7 +216,7 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		for _, tag := range filterValidSemver(tags) {
+		for _, tag := range semver.Filter(tags) {
 			ref := repo + ":" + tag
 			if _, err := s.store.Pull(ctx, ref); err != nil {
 				slog.Debug("OCI prefetch version failed", "ref", ref, "error", err)
@@ -249,7 +250,7 @@ func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 		return ""
 	}
 
-	latest := latestTag(tags)
+	latest := semver.Latest(tags)
 	if latest == "" {
 		slog.Warn("OCI repo has no semver tags", "repo", repo)
 		s.recordFailure(repo, "no_semver_tags")
@@ -344,7 +345,7 @@ func (s *OCISource) GetVersions(ctx context.Context, name string) ([]Version, er
 	}
 
 	// Filter to valid semver tags only, sorted descending (latest first).
-	semverTags := filterValidSemver(tags)
+	semverTags := semver.Filter(tags)
 
 	var versions []Version
 	for _, tag := range semverTags {
@@ -413,7 +414,7 @@ func (s *OCISource) findLatestBundle(ctx context.Context, name string) (*contrac
 		return nil, fmt.Errorf("no tags found for %s", repo)
 	}
 
-	ref := repo + ":" + latestTag(tags)
+	ref := repo + ":" + semver.Latest(tags)
 	return s.store.Pull(ctx, ref)
 }
 
@@ -438,7 +439,7 @@ func (s *OCISource) findRepo(ctx context.Context, name string) (string, error) {
 		if err != nil || len(tags) == 0 {
 			continue
 		}
-		bundle, err := s.store.Pull(ctx, repo+":"+latestTag(tags))
+		bundle, err := s.store.Pull(ctx, repo+":"+semver.Latest(tags))
 		if err != nil {
 			continue
 		}

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -13,6 +14,9 @@ import (
 	"github.com/trianalab/pacto/pkg/graph"
 	"gopkg.in/yaml.v3"
 )
+
+// readinessDateLayout is the strict YYYY-MM-DD layout for readiness expiry dates.
+const readinessDateLayout = "2006-01-02"
 
 // ValidateCrossField performs Layer 2 validation: cross-field consistency,
 // file existence, reference validation, and semantic rules that cannot be
@@ -43,8 +47,55 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateScaling(c, &result)
 	validateJobScaling(c, &result)
 	validateStatePersistenceInvariants(c, &result)
+	validateReadiness(c, &result)
 
 	return result
+}
+
+// validateReadiness enforces the readiness rules that JSON Schema cannot express:
+// readiness check IDs must be unique, evidence and (when present) description must
+// not be whitespace-only, and expires must be a strict canonical YYYY-MM-DD date.
+// Shape rules (id pattern, type enum, weight range, evidence length) are enforced
+// by the structural schema and are deliberately not duplicated here.
+func validateReadiness(c *contract.Contract, result *ValidationResult) {
+	if c.Readiness == nil {
+		return
+	}
+	seen := make(map[string]int)
+	for i, check := range c.Readiness.Checks {
+		if prev, exists := seen[check.ID]; exists {
+			result.AddError(
+				fmt.Sprintf("readiness.checks[%d].id", i),
+				"DUPLICATE_READINESS_ID",
+				fmt.Sprintf("readiness check id %q is already declared at readiness.checks[%d]", check.ID, prev),
+			)
+		}
+		seen[check.ID] = i
+
+		if strings.TrimSpace(check.Evidence) == "" {
+			result.AddError(
+				fmt.Sprintf("readiness.checks[%d].evidence", i),
+				"EMPTY_READINESS_EVIDENCE",
+				fmt.Sprintf("readiness check %q has blank evidence", check.ID),
+			)
+		}
+
+		if check.Description != "" && strings.TrimSpace(check.Description) == "" {
+			result.AddError(
+				fmt.Sprintf("readiness.checks[%d].description", i),
+				"EMPTY_READINESS_DESCRIPTION",
+				fmt.Sprintf("readiness check %q has a blank description", check.ID),
+			)
+		}
+
+		if t, err := time.Parse(readinessDateLayout, check.Expires); err != nil || t.Format(readinessDateLayout) != check.Expires {
+			result.AddError(
+				fmt.Sprintf("readiness.checks[%d].expires", i),
+				"INVALID_READINESS_EXPIRES",
+				fmt.Sprintf("readiness check %q expires %q is not a valid YYYY-MM-DD date", check.ID, check.Expires),
+			)
+		}
+	}
 }
 
 func validateSemver(version, field, code string, result *ValidationResult) {

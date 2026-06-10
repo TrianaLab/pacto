@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sort"
 	"sync"
+
+	"github.com/trianalab/pacto/pkg/semver"
 )
 
 // ResolvedSource implements DataSource by combining a contract source
@@ -306,6 +308,12 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 	sort.Strings(sources)
 	result.Sources = sources
 
+	// Record whether a runtime overlay was applied and explain every section's
+	// availability + provenance so the UI never silently hides data.
+	result.RuntimeEvaluated = runtimeDetails != nil
+	computeSectionMeta(result, contractSource, runtimeDetails != nil)
+	markRuntimeOverrides(result, contractDetails, runtimeDetails)
+
 	return result, nil
 }
 
@@ -333,8 +341,16 @@ func enrichWithRuntime(contract *ServiceDetails, runtime *ServiceDetails) {
 
 // enrichRuntimeFields copies runtime-only struct/slice fields from k8s.
 func enrichRuntimeFields(contract *ServiceDetails, runtime *ServiceDetails) {
-	if runtime.Runtime != nil {
+	// Declared Runtime and Scaling stay from the contract base (the contract is
+	// authoritative for what the service SHOULD be). The operator's observed/
+	// effective values live in ObservedRuntime + RuntimeDiff below, so the two
+	// are never conflated. Only fill the declared blocks when the contract base
+	// had none (e.g. a k8s-only service whose declared values come from status).
+	if contract.Runtime == nil && runtime.Runtime != nil {
 		contract.Runtime = runtime.Runtime
+	}
+	if contract.Scaling == nil && runtime.Scaling != nil {
+		contract.Scaling = runtime.Scaling
 	}
 	if runtime.Resources != nil {
 		contract.Resources = runtime.Resources
@@ -344,9 +360,6 @@ func enrichRuntimeFields(contract *ServiceDetails, runtime *ServiceDetails) {
 	}
 	if runtime.Validation != nil {
 		contract.Validation = runtime.Validation
-	}
-	if runtime.Scaling != nil {
-		contract.Scaling = runtime.Scaling
 	}
 	if runtime.ChecksSummary != nil {
 		contract.ChecksSummary = runtime.ChecksSummary
@@ -400,7 +413,7 @@ func enrichRuntimeMetadata(contract *ServiceDetails, runtime *ServiceDetails) {
 // resolverVersionSources governs the order in which sources are tried for GetVersions.
 // k8s (PactoRevision CRDs) is most authoritative, then OCI, then local.
 // Cache enrichment (hash, classification) is internal to OCISource.
-var resolverVersionSources = []string{"k8s", "oci", "local"}
+var resolverVersionSources = []string{"k8s", "oci", "local", "cache"}
 
 func (r *ResolvedSource) GetVersions(ctx context.Context, name string) ([]Version, error) {
 	_, _, all := r.sources()
@@ -436,7 +449,7 @@ func (r *ResolvedSource) GetVersions(ctx context.Context, name string) ([]Versio
 
 	// Sort descending by semver.
 	sort.Slice(merged, func(i, j int) bool {
-		return compareSemverDesc(merged[i].Version, merged[j].Version)
+		return semver.LessDesc(merged[i].Version, merged[j].Version)
 	})
 
 	return merged, nil
@@ -470,7 +483,7 @@ func (r *ResolvedSource) GetDiff(ctx context.Context, from, to Ref) (*DiffResult
 	}
 
 	// Try contract sources in order: oci first (has versioned bundles), then local.
-	for _, sourceType := range []string{"oci", "local"} {
+	for _, sourceType := range []string{"oci", "local", "cache"} {
 		ds, ok := all[sourceType]
 		if !ok {
 			continue
@@ -528,8 +541,8 @@ func BuildResolvedSource(sources map[string]DataSource) *ResolvedSource {
 	var contractSources []namedContractSource
 	var runtimeSource DataSource
 
-	// Contract sources in priority order: local first, then oci.
-	for _, name := range []string{"local", "oci"} {
+	// Contract sources in priority order: local, then live oci, then offline cache.
+	for _, name := range []string{"local", "oci", "cache"} {
 		if ds, ok := sources[name]; ok {
 			contractSources = append(contractSources, namedContractSource{name: name, source: ds})
 		}

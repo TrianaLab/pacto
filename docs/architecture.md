@@ -194,17 +194,24 @@ Performs async version checking against the GitHub releases API. Started in a ba
 
 The dashboard is complex enough to warrant its own design section. It provides a web-based UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, and diffs -- aggregated from multiple data sources.
 
-### Public source model
+### Source model
 
-The dashboard exposes exactly **three public source types**:
+The dashboard exposes up to **four source types**:
 
 | Source type | Role | Key type |
 |-------------|------|----------|
 | `local` | Contract from filesystem | `LocalSource` |
 | `oci` | Contract from OCI registry | `OCISource` |
+| `cache` | Contract baseline from the on-disk materialized cache | `CacheSource` |
 | `k8s` | Runtime enrichment from Kubernetes | `K8sSource` |
 
-There is no `"cache"` source visible to the API or UI. Materialized bundles on disk are an internal implementation detail of the OCI source (see [Internal materialization](#internal-materialization) below).
+`cache` is an **offline fallback**: it surfaces as a distinct source only when no
+live OCI registry is configured. When a live OCI registry *is* configured, the
+on-disk cache stays internal to the `oci` source (used for version enrichment) and
+is **not** listed separately — `ActiveSources()` in `detect.go` exposes the disk
+cache under the `"oci"` key in that case and under the `"cache"` key otherwise. So
+a session shows either `oci` **or** `cache` for the registry-backed baseline, never
+both (see [Internal materialization](#internal-materialization) below).
 
 ### Discovery lifecycle
 
@@ -220,15 +227,15 @@ There is no `"cache"` source visible to the API or UI. Materialized bundles on d
 
 Sources are divided into two categories with different roles:
 
-**Contract sources** (`local`, `oci`) provide the authoritative service definition -- interfaces, configuration, dependencies, version, owner. Exactly one contract snapshot wins per service. Priority: `local` > `oci` (explicit dev intent wins over registry baseline).
+**Contract sources** (`local`, `oci`, `cache`) provide the authoritative service definition -- interfaces, configuration, dependencies, version, owner. Exactly one contract snapshot wins per service. Priority: `local` > `oci` > `cache` (explicit dev intent wins over the registry baseline, which wins over the offline disk cache). `cache` only participates when no live `oci` source is configured.
 
-**Runtime source** (`k8s`) enriches the contract with live cluster state -- contract status, conditions, endpoints, resources, ports, scaling, insights, checks. Runtime data **never overrides contract content**. The `enrichWithRuntime()` function in `source_resolver.go` enforces this boundary: it copies k8s-specific fields but preserves all contract fields untouched.
+**Runtime source** (`k8s`) enriches the contract with live cluster state -- contract status, conditions, endpoints, resources, ports, scaling, insights, checks. Runtime data **never overrides contract content** (config and policy *content* always comes from the declared contract). The `enrichWithRuntime()` function in `source_resolver.go` enforces this boundary: it copies k8s-specific fields but preserves contract fields. The one computed exception is the `Validation` summary, which is derived (not declarable) and is recomputed from runtime state when k8s data is present — `computeSectionMeta` attributes that section to `k8s` in the section provenance.
 
 ### Resolution model
 
 `ResolvedSource` (`source_resolver.go`) is the central aggregation layer. It combines contract and runtime sources into a unified view:
 
-1. **Contract resolution** -- iterates contract sources in priority order (local first, then oci). The first source that has the service wins. This produces one authoritative contract snapshot.
+1. **Contract resolution** -- iterates contract sources in priority order (`local`, then `oci`, then `cache`). The first source that has the service wins. This produces one authoritative contract snapshot.
 2. **Runtime enrichment** -- if k8s is available and has data for the service, runtime fields are layered on top of the contract snapshot without replacing any contract content.
 3. **Service list** -- all sources are queried concurrently. Services are grouped by name across sources, merged using `mergeServiceEntry()`. The `Sources` array on each service lists all source types where that service was found.
 
@@ -236,13 +243,14 @@ Sources are divided into two categories with different roles:
 
 ### Version history
 
-Version history is merged across sources in a defined order (`resolverVersionSources` in `source_resolver.go`):
+Version history is merged across sources in a defined order (`resolverVersionSources` in `source_resolver.go` — `["k8s", "oci", "local", "cache"]`):
 
 1. **k8s** -- PactoRevision CRDs are most authoritative (deployed versions with timestamps)
 2. **oci** -- registry tags provide the full version catalog
 3. **local** -- current on-disk version
+4. **cache** -- the offline disk-cache baseline, consulted last
 
-Cache/materialized bundles do not participate as a separate history source at this level. Instead, `OCISource.GetVersions()` internally enriches its bare tag listings with hash, createdAt, and classification from materialized bundles before returning them. This keeps cache as an internal OCI concern, invisible to the resolver.
+When a live OCI registry is configured, `OCISource.GetVersions()` already enriches its bare tag listings with hash, createdAt, and classification from materialized bundles, so the separate `cache` entry contributes nothing extra. When no live registry is configured, the `cache` source supplies the version catalog from disk.
 
 Versions are deduplicated by version string. When the same version appears in multiple sources, `enrichVersion()` fills empty fields (hash, createdAt, classification, ref) from later sources without overwriting existing values.
 
@@ -254,16 +262,53 @@ Classification requires **materialized bundles** -- both the current and previou
 
 ### Internal materialization
 
-`CacheSource` (`source_cache.go`) reads materialized OCI bundles from the disk cache (`~/.cache/pacto/oci/`). It is **not a public data source** -- it exists solely as an internal backing store for `OCISource`, providing contract hash, classification, and createdAt enrichment from previously pulled bundles.
+`CacheSource` (`source_cache.go`) reads materialized OCI bundles from the disk cache (`~/.cache/pacto/oci/`). It plays **two distinct roles** depending on whether a live OCI registry is configured:
 
-The flow:
+- **Internal enrichment (live OCI present).** It backs `OCISource`, providing contract hash, classification, and createdAt enrichment for registry tag listings. In this mode it is invisible — `ActiveSources()` exposes the disk cache under the `"oci"` key.
+- **Offline contract source (no live OCI).** It is promoted to a first-class `cache` source: `ActiveSources()` exposes it under the `"cache"` key and `BuildResolvedSource()` includes it as the lowest-priority contract source (`local` > `oci` > `cache`).
+
+The flow when live OCI is present:
 
 1. `OCISource.SetCache(cs)` wires a `CacheSource` internally
 2. `OCISource.GetVersions()` lists tags from the registry (bare version + ref), then enriches each version with hash, createdAt, and classification from the internal cache
 3. Cache rescans happen in three places: after each background discovery cycle (`discoverAndPrefetch`), after resolve operations, and after fetch-all-versions -- all call `RescanCache()` + memory cache invalidation so new data surfaces immediately
-4. If no live OCI registry is configured but cached bundles exist, `ActiveSources()` in `detect.go` maps the `CacheSource` under the `"oci"` key -- the user sees `"oci"` as the source, never `"cache"`
 
 The `createdAt` timestamp from cached bundles reflects **local materialization time** (when the bundle was pulled to disk), not the registry push time. OCI registries do not expose push timestamps via tag listing.
+
+### Section provenance (`SectionMeta`)
+
+Every service-detail response carries a `SectionMeta` map so the UI can explain
+*why* a section is absent and *where* present data came from — not just show a
+blank. Each section reports a `state` and a `source`:
+
+| State | Meaning |
+|-------|---------|
+| `present` | Has data from an available source. |
+| `empty` | The section is applicable but was genuinely not declared. |
+| `not_applicable` | Cannot apply to this contract (e.g. runtime sections on a reference-only contract). |
+| `unavailable` | A source that would have supplied it was unreachable or absent. |
+
+`SectionInfo` also carries `OverriddenBy` (the source that overrode a contract
+value, e.g. `"k8s"` for the deployed `version`/`owner`) and a `Reason` note for
+non-present states. `computeSectionMeta` (`sectionmeta.go`) derives the map from
+what the resolver assembled; `markRuntimeOverrides` flags fields the k8s overlay
+replaced. The top-level `RuntimeEvaluated` flag is true only when a Kubernetes
+runtime overlay was actually applied, which lets the UI distinguish "no runtime
+data yet" from "runtime evaluated, nothing to report". `SectionMeta` is populated
+on **both** the resolved path and the single-source `getService` path, so every
+response is fully explained regardless of which sources are active.
+
+**Which source wins, per field.** This is the authoritative multi-source
+provenance table — the dashboard and operator attribute fields identically:
+
+| Field / section | Authority | Notes |
+|-----------------|-----------|-------|
+| interfaces, configurations, policies, dependencies, runtime declaration, readiness, scaling, metadata | Declared contract (`local` > `oci` > `cache`) | Config & policy **content** always comes from the declared contract — even for reference-only contracts (the operator extracts schema content into status). |
+| `version` | k8s overrides contract when deployed | `OverriddenBy: "k8s"`. |
+| `owner` | k8s overrides contract when deployed | `OverriddenBy: "k8s"`. |
+| namespace, `resolvedRef` | k8s only | Deployed-state fields; absent off-cluster. |
+| contract status, conditions, endpoints, observed runtime, resources, ports | k8s only (runtime overlay) | `not_applicable` for reference-only contracts off-cluster. |
+| `Validation` summary | Recomputed from runtime when k8s present | The one computed (non-declarable) field; `SectionMeta` attributes it to `k8s`. |
 
 ### `--no-cache` semantics
 
@@ -288,6 +333,8 @@ The dashboard builds two graph representations:
 Both graphs use **ref-alias mapping** (`buildRefAliases()`) to resolve OCI repository names (e.g., `my-service-pacto`) to contract service names (e.g., `my-service`), based on `imageRef` and `chartRef` fields from the service index.
 
 `computeBlastRadius()` performs BFS on the reverse dependency graph (required deps only) to count how many services would be transitively affected if a given service breaks.
+
+Multi-version **conflict detection** (`detectConflicts()` in `pkg/graph`) is a CLI-only concern used during `pacto graph` resolution; the dashboard does not call it, so version conflicts across the aggregated index are not surfaced through the dashboard API. A node can also appear with incomplete edges if its service details failed to load during a concurrent index rebuild; such nodes are rendered from the index alone.
 
 ### Server and API
 
@@ -353,15 +400,16 @@ These rules must be preserved by future changes. Each exists for a specific reas
 | `pkg/contract` imports nothing from the project | Foundation layer. If it depends on anything above, the entire dependency graph becomes circular. |
 | `pkg/*` must not import `internal/cli` or `internal/app` | Core logic must remain reusable outside the CLI (operator, MCP, tests). |
 | `pkg/oci` is a public package | OCI primitives (client, credentials, tag resolution) are importable by external consumers such as the Kubernetes operator. |
-| K8s enriches runtime only, never overrides contract content | Contract is the source of truth for interfaces, config, dependencies, version. K8s provides live state (contract status, conditions, endpoints). Mixing them would make the contract unreliable. |
-| Cache must never become a public source | Users see three sources: `local`, `oci`, `k8s`. Cache is an internal optimization. Exposing it would create confusion about which "oci" data is authoritative. |
-| `resolverVersionSources` must not include `"cache"` | Cache enrichment happens inside `OCISource.GetVersions()`, not at the resolver level. Adding cache to the resolver would double-count versions. |
+| K8s enriches runtime only, never overrides contract content | Contract is the source of truth for interfaces, config, dependencies, version. K8s provides live state (contract status, conditions, endpoints), and config/policy *content* always comes from the declared contract. The computed `Validation` summary is the one runtime-recomputed field, and `SectionMeta` attributes it to `k8s` so provenance stays honest. |
+| Cache is a public source only as an offline fallback | When a live `oci` source is configured the disk cache stays internal to it (exposed under the `"oci"` key). Only when no live registry is configured is the cache promoted to a distinct `cache` source. A session shows `oci` **or** `cache` for the registry baseline, never both — so users are never confused about which is authoritative. |
+| Contract source priority is `local` > `oci` > `cache` | Explicit dev intent beats the registry baseline, which beats the offline disk cache. `cache` only participates when `oci` is absent. |
+| `resolverVersionSources` is `["k8s", "oci", "local", "cache"]` | Version history is merged in this order. With a live registry, `OCISource.GetVersions()` already includes cache enrichment so the trailing `cache` entry is a no-op; without one, `cache` supplies the catalog from disk. |
 | Classification requires materialized bundles | `ClassifyVersions()` diffs consecutive bundles. Without both bundles available, no classification is computed. This is correct behavior, not a bug. |
 | `--no-cache` skips startup scanning, not same-session materialization | Cold-start mode ensures deterministic initial state. `DisableCache()` only skips disk reads — disk writes remain enabled so bundles fetched during the session are persisted and available for enrichment. |
 | `DisableCache()` must never disable disk writes | Same-session materialization (fetch-all-versions, resolve) relies on `CachedStore` writing bundles to disk. `CacheSource` then reads these during `RefreshCacheSources()` to provide hash, createdAt, and classification enrichment. |
 | `internal/app` methods are stateless | Options in, result out. No side effects beyond the operation itself. This makes testing and composition straightforward. |
 | Validation is deterministic | No configurable rule sets. Same contract + same schema = same result, always. |
-| `CacheSource` labels its output as `"oci"`, never `"cache"` | When cache stands in for OCI (offline fallback), `mergeServiceEntry()` picks up `Source` from the service. Labeling as `"cache"` would leak the internal concept to the UI. |
+| `SectionMeta` is populated on every service-detail path | Both the resolved (multi-source) path and the single-source `getService` path compute `SectionMeta`, so the UI can always distinguish `present` / `empty` / `not_applicable` / `unavailable` and label each section's `source`. |
 | OCI discovery is continuous, not one-shot | New services and versions pushed after startup must surface without restarting the dashboard. The background loop re-runs discovery every 60 seconds. |
 | K8s enrichment retries stop on permanent errors | If the Pacto CRD is not installed (`ListServices` returns "resource not found"), `EnrichFromK8s` nils the K8s source so the retry loop exits immediately instead of waiting 30 seconds. |
 | UI data refresh must not disrupt user state | DOM morphing preserves scroll position, form values, `<details>` open/closed state, and D3-managed containers. Debug panels use `patchDOM` instead of `innerHTML` replacement. |

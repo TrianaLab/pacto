@@ -24,6 +24,7 @@ Every question you'd normally have to ask the dev team — or discover in produc
 | `scaling.min` / `scaling.max` | Configure auto-scaling bounds |
 | `configurations[].schema` / `configurations[].ref` | Validate required configuration, generate config templates. Platform teams can publish a shared schema that services vendor into their bundles or reference via OCI — the schema then expresses what the platform *provides*. See [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models) |
 | `policies[].ref` | Enforce organizational standards — require health endpoints, mandate ports, enforce visibility rules. See [policies](contract-reference.md#policies) |
+| `readiness.checks[]` | Gate promotion and surface operational readiness — declare dashboard, runbook, security-review, SLO, AI-eval evidence with a weight and expiry; derive a freshness score. Enforce required checks via policies. See [readiness](contract-reference.md#readiness) |
 | `dependencies[].ref` | Validate dependency graph, check compatibility |
 | `docs/` *(optional)* | Access service documentation, runbooks, integration guides |
 | `sbom/` *(optional)* | Audit third-party packages, track license compliance |
@@ -254,6 +255,8 @@ See [policies](contract-reference.md#policies) in the Contract Reference for the
 
 `pacto diff` doesn't just compare contract fields — it performs deep OpenAPI diffing (paths, methods, parameters, request bodies, responses) and resolves both dependency trees to show the full blast radius.
 
+Deep diffing applies only to interfaces that reference a contract file (e.g. an OpenAPI spec). Interfaces without a contract file are compared on type, port, and visibility only. Config and policy JSON Schemas are diffed only when both bundles include the local schema files.
+
 ```bash
 $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
              oci://ghcr.io/acme/payments-api-pacto:2.0.0
@@ -428,7 +431,7 @@ Pass `--diagnostics` to enable debug endpoints (`/api/debug/sources`, `/api/debu
 
 - **Build a plugin for your platform.** A Helm plugin, Terraform plugin, or custom manifest generator can consume Pacto contracts deterministically.
 - **Use `pacto graph` to understand impact.** Before upgrading a shared service, check what depends on it.
-- **Disable cache in CI.** Use `--no-cache` or `PACTO_NO_CACHE=1` to ensure fresh OCI pulls in pipelines where the cache might be stale.
+- **Disable cache in CI.** Use `--no-cache` or `PACTO_NO_CACHE=1` to ensure fresh OCI pulls in pipelines where the cache might be stale. `--no-cache` is a cold-start flag: it skips disk *reads* of pre-existing cached bundles, but bundles fetched during the run are still *written* to disk and reused within the same session.
 - **Trust the state semantics.** If a contract says `stateless` + `ephemeral`, you can safely use a Deployment with no PVC. The validation engine enforces consistency.
 - **Use JSON output.** Every command supports `--output-format json` for programmatic consumption.
 - **Use markdown output for PR comments.** `pacto diff --output-format markdown` renders changes as tables with old/new values — pipe it into `gh pr comment` for rich CI feedback.

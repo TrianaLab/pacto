@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/schemax"
 )
 
 // ContractStatus represents the contract compliance status of a service.
@@ -57,6 +58,42 @@ type ComplianceCounts struct {
 	Failed   int `json:"failed"`
 	Errors   int `json:"errors"`
 	Warnings int `json:"warnings"`
+}
+
+// ReadinessInfo is the derived readiness assessment surfaced in the dashboard.
+type ReadinessInfo struct {
+	Score         int                  `json:"score"`
+	MinScore      int                  `json:"minScore"`
+	Passing       bool                 `json:"passing"`
+	TotalWeight   int                  `json:"totalWeight"`
+	CurrentWeight int                  `json:"currentWeight"`
+	CurrentCount  int                  `json:"currentCount"`
+	ExpiredCount  int                  `json:"expiredCount"`
+	InvalidCount  int                  `json:"invalidCount,omitempty"`
+	Checks        []ReadinessCheckInfo `json:"checks"`
+}
+
+// ReadinessCheckInfo is a single derived readiness check for the dashboard.
+type ReadinessCheckInfo struct {
+	ID            string `json:"id"`
+	Type          string `json:"type"`
+	Status        string `json:"status"` // Current | Expired | Invalid
+	Evidence      string `json:"evidence,omitempty"`
+	Weight        int    `json:"weight"`
+	Expires       string `json:"expires"`
+	Description   string `json:"description,omitempty"`
+	DaysRemaining *int   `json:"daysRemaining,omitempty"`
+	// DocPath is set when Evidence resolves to an in-bundle document (an entry in
+	// ServiceDetails.Docs), so the UI can render it inline. Empty for external evidence.
+	DocPath string `json:"docPath,omitempty"`
+}
+
+// DocInfo is one in-bundle Markdown document (docs/**/*.md) surfaced in the dashboard.
+type DocInfo struct {
+	Path      string `json:"path"`  // bundle-relative, e.g. docs/runbooks/payment-api.md
+	Title     string `json:"title"` // first H1, else humanized filename
+	Content   string `json:"content"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 // ObservedRuntime holds runtime state observed by the operator from the cluster.
@@ -120,6 +157,14 @@ type ServiceDetails struct {
 	// Compliance is the computed compliance assessment.
 	Compliance *ComplianceInfo `json:"compliance,omitempty"`
 
+	// Readiness is the derived operational readiness assessment. It is a separate
+	// dimension from contract compliance and does not affect compliance status.
+	Readiness *ReadinessInfo `json:"readiness,omitempty"`
+
+	// Docs are the in-bundle Markdown documents (docs/**/*.md). Populated by
+	// bundle-backed sources (local/OCI/cache); empty for k8s-only services.
+	Docs []DocInfo `json:"docs,omitempty"`
+
 	// ObservedRuntime holds runtime state observed by the operator.
 	ObservedRuntime *ObservedRuntime `json:"observedRuntime,omitempty"`
 
@@ -144,6 +189,55 @@ type ServiceDetails struct {
 
 	LastUpdated      *time.Time `json:"lastUpdated,omitempty"`
 	LastReconciledAt string     `json:"lastReconciledAt,omitempty"`
+
+	// RuntimeEvaluated is true only when a Kubernetes runtime overlay was applied
+	// (the operator actually observed this service). When false, the view is
+	// "definition only" — runtime status/sections cannot be asserted.
+	RuntimeEvaluated bool `json:"runtimeEvaluated,omitempty"`
+
+	// SectionMeta describes, per section id, why a section is shown or absent and
+	// which source supplied it — so the UI never silently hides data. Keys are the
+	// Section* ids. Populated by the resolver after the merge, or by the server's
+	// getService handler as a fallback on the non-resolved single-source path.
+	SectionMeta map[string]SectionInfo `json:"sectionMeta,omitempty"`
+}
+
+// Section state values for SectionInfo.State.
+const (
+	SectionPresent       = "present"        // has data from an available source
+	SectionEmpty         = "empty"          // applicable + source available, but nothing declared
+	SectionNotApplicable = "not_applicable" // cannot apply to this contract (e.g. runtime on a reference)
+	SectionUnavailable   = "unavailable"    // a source that would supply it was unreachable / not present
+)
+
+// Section ids for SectionMeta (sections embedded in a GetService response).
+// Version history / dependents / cross-refs are fetched separately and carry
+// their own state on the client.
+const (
+	SectionInterfaces      = "interfaces"
+	SectionConfigurations  = "configurations"
+	SectionPolicies        = "policies"
+	SectionDependencies    = "dependencies"
+	SectionReadiness       = "readiness"
+	SectionDocs            = "docs"
+	SectionRuntime         = "runtime"
+	SectionValidation      = "validation"
+	SectionObservedRuntime = "observedRuntime"
+	SectionRuntimeDiff     = "runtimeDiff"
+	SectionResources       = "resources"
+	SectionPorts           = "ports"
+	SectionEndpoints       = "endpoints"
+	SectionConditions      = "conditions"
+)
+
+// SectionInfo records the availability + provenance of one dashboard section so
+// the UI can explain absence (not-applicable vs unavailable vs empty) and label
+// where present data came from.
+type SectionInfo struct {
+	State        string `json:"state"`                  // one of the Section* state consts
+	Reason       string `json:"reason,omitempty"`       // human note for non-present states
+	Source       string `json:"source,omitempty"`       // "k8s" | "oci" | "local" | "cache"
+	OverriddenBy string `json:"overriddenBy,omitempty"` // source that overrode a contract value (e.g. "k8s")
 }
 
 // InterfaceEndpoint is a single API endpoint parsed from an OpenAPI spec.
@@ -165,12 +259,9 @@ type InterfaceInfo struct {
 	Endpoints       []InterfaceEndpoint `json:"endpoints,omitempty"`
 }
 
-// ConfigValue is a flattened key/value/type entry for display.
-type ConfigValue struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-	Type  string `json:"type"`
-}
+// ConfigValue is a flattened key/value/type entry for display. It aliases
+// schemax.Property so the dashboard and operator share one representation.
+type ConfigValue = schemax.Property
 
 // ConfigurationInfo describes a single configuration scope.
 type ConfigurationInfo struct {

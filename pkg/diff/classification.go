@@ -71,14 +71,25 @@ var rules = map[classificationKey]Classification{
 	{"runtime.lifecycle.upgradeStrategy", Removed}:          PotentialBreaking,
 	{"runtime.lifecycle.gracefulShutdownSeconds", Modified}: NonBreaking,
 
-	// Runtime — health
+	// Runtime — health (adding a health declaration is a new capability;
+	// removing one loses a runtime check, so potentially breaking).
 	{"runtime.health.interface", Modified}:           PotentialBreaking,
+	{"runtime.health.interface", Added}:              NonBreaking,
+	{"runtime.health.interface", Removed}:            PotentialBreaking,
 	{"runtime.health.path", Modified}:                PotentialBreaking,
+	{"runtime.health.path", Added}:                   NonBreaking,
+	{"runtime.health.path", Removed}:                 PotentialBreaking,
 	{"runtime.health.initialDelaySeconds", Modified}: NonBreaking,
+	{"runtime.health.initialDelaySeconds", Added}:    NonBreaking,
+	{"runtime.health.initialDelaySeconds", Removed}:  NonBreaking,
 
 	// Runtime — metrics
 	{"runtime.metrics.interface", Modified}: PotentialBreaking,
+	{"runtime.metrics.interface", Added}:    NonBreaking,
+	{"runtime.metrics.interface", Removed}:  PotentialBreaking,
 	{"runtime.metrics.path", Modified}:      PotentialBreaking,
+	{"runtime.metrics.path", Added}:         NonBreaking,
+	{"runtime.metrics.path", Removed}:       PotentialBreaking,
 
 	// Scaling
 	{"scaling.min", Modified}: PotentialBreaking,

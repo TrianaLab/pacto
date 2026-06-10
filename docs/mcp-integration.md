@@ -55,6 +55,8 @@ Creates a new Pacto contract from structured input. The tool infers contract det
 | `data_shared_across_instances=true` | `persistence.scope: shared` |
 | `data_loss_impact=high` | `dataCriticality: high` |
 
+**Scaling inputs:** `replicas` and `min_replicas`/`max_replicas` are mutually exclusive. If `replicas` is set, the min/max values are silently ignored (current behavior) — set either a fixed replica count or an auto-scaling range, not both.
+
 ### pacto_edit
 
 Modifies an existing contract. Reads the current `pacto.yaml`, applies changes, validates the result, and writes back atomically.
@@ -65,6 +67,11 @@ Modifies an existing contract. Reads the current `pacto.yaml`, applies changes, 
 - `add_dependencies` / `remove_dependencies` — add or remove dependencies
 - Runtime flags (`stores_data`, `data_survives_restart`, etc.)
 - `dry_run` — validate without writing
+
+Scaling inputs follow the same rule as `pacto_create`: `replicas` and `min_replicas`/`max_replicas` are mutually exclusive, and setting `replicas` silently ignores the min/max values (current behavior).
+
+!!! warning
+    When adding a new interface, `pacto_edit` scaffolds a stub for any referenced interface file. Errors while writing those stub files are not currently surfaced, so `pacto_edit` may report success even if a referenced interface file was not written. Verify the generated files after an edit that adds an interface.
 
 ### pacto_check
 

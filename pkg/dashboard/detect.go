@@ -107,8 +107,10 @@ func DetectSources(ctx context.Context, opts DetectOptions) *DetectResult {
 }
 
 // ActiveSources returns the DataSource instances that were successfully detected.
-// Cache is NOT included as a separate source — it is an internal implementation
-// detail of OCI used for offline access and version history.
+// When a live OCI registry is configured it is exposed as "oci"; when only the
+// on-disk cache is available it is exposed under its own "cache" key (an offline
+// baseline of previously pulled bundles) so the UI can label and date it
+// distinctly rather than presenting stale data as a live registry pull.
 func (r *DetectResult) ActiveSources() map[string]DataSource {
 	sources := make(map[string]DataSource)
 	if r.Local != nil {
@@ -117,14 +119,11 @@ func (r *DetectResult) ActiveSources() map[string]DataSource {
 	if r.K8s != nil {
 		sources["k8s"] = r.K8s
 	}
-	// OCI gets the live registry source; cache provides offline backing
-	// but is not exposed as a separate public source.
 	if r.OCI != nil {
 		sources["oci"] = r.OCI
 	} else if r.Cache != nil {
-		// No live OCI configured, but cache has data — expose cache as "oci"
-		// since it provides the same contract data from previously pulled bundles.
-		sources["oci"] = r.Cache
+		// No live OCI configured — surface the cache as a distinct "cache" source.
+		sources["cache"] = r.Cache
 	}
 	return sources
 }

@@ -2347,6 +2347,32 @@ func TestValueToNode_UnmarshalError(t *testing.T) {
 	}
 }
 
+func TestValueToNode_EmptyContent(t *testing.T) {
+	orig := yamlUnmarshalFn
+	defer func() { yamlUnmarshalFn = orig }()
+	// Simulate empty/whitespace input yielding a document with no content.
+	yamlUnmarshalFn = func(data []byte, v interface{}) error { return nil }
+	_, err := valueToNode("hello")
+	if err == nil || !strings.Contains(err.Error(), "no content") {
+		t.Errorf("expected 'no content' error (not a panic), got: %v", err)
+	}
+}
+
+func TestRewireHealthMetricsIfNeeded_MalformedInterface(t *testing.T) {
+	rt := map[string]interface{}{}
+	// Interfaces with missing/non-string name or type must be skipped, not panic.
+	m := map[string]interface{}{
+		"runtime": map[string]interface{}{},
+		"interfaces": []interface{}{
+			map[string]interface{}{"type": "http"},              // missing name
+			map[string]interface{}{"name": 123, "type": "http"}, // non-string name
+			map[string]interface{}{"name": "ok"},                // missing type
+		},
+	}
+	// Must not panic.
+	rewireHealthMetricsIfNeeded(rt, m)
+}
+
 func TestMarshalContract_ValueToNodeError(t *testing.T) {
 	orig := yamlMarshalFn
 	defer func() { yamlMarshalFn = orig }()

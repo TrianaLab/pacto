@@ -3,11 +3,118 @@
 package e2e
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/trianalab/pacto/pkg/contract"
 )
+
+// pushRawBundle pushes a bundle directly via the OCI client, bypassing the CLI's
+// push-time validation. This is needed to stage policy bundles that reference
+// each other (a cycle) — neither could be pushed first through `pacto push`,
+// which validates and would fail with POLICY_REF_UNRESOLVED.
+func pushRawBundle(t *testing.T, reg *testRegistry, ref, dir, contractYAML string) {
+	t.Helper()
+	c, err := contract.Parse(bytes.NewReader([]byte(contractYAML)))
+	if err != nil {
+		t.Fatalf("parse bundle %q: %v", ref, err)
+	}
+	bundle := &contract.Bundle{Contract: c, RawYAML: []byte(contractYAML), FS: os.DirFS(dir)}
+	if _, err := reg.client.Push(context.Background(), ref, bundle); err != nil {
+		t.Fatalf("raw push %q: %v", ref, err)
+	}
+}
+
+// TestPolicyRefCycleViaOCI exercises recursive policy-ref cycle detection through
+// the real OCI resolver chain (bundleResolverAdapter -> Service -> registry),
+// which the pkg/validation unit tests (stub resolver) cannot reach. A regression
+// in how the resolution chain is threaded could hang or mis-detect a cycle and
+// every unit test would still pass.
+func TestPolicyRefCycleViaOCI(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	aYAML := fmt.Sprintf(`pactoVersion: "1.0"
+service:
+  name: policy-a
+  version: 1.0.0
+policies:
+  - name: b
+    ref: oci://%s/policy-b:1.0.0
+`, reg.host)
+	bYAML := fmt.Sprintf(`pactoVersion: "1.0"
+service:
+  name: policy-b
+  version: 1.0.0
+policies:
+  - name: a
+    ref: oci://%s/policy-a:1.0.0
+`, reg.host)
+	aDir := writeBundleDir(t, filepath.Join(t.TempDir(), "policy-a"), aYAML, nil)
+	bDir := writeBundleDir(t, filepath.Join(t.TempDir(), "policy-b"), bYAML, nil)
+	pushRawBundle(t, reg, reg.host+"/policy-a:1.0.0", aDir, aYAML)
+	pushRawBundle(t, reg, reg.host+"/policy-b:1.0.0", bDir, bYAML)
+
+	// A consumer referencing policy-a triggers consumer -> A -> B -> A.
+	consumerYAML := fmt.Sprintf(`pactoVersion: "1.0"
+service:
+  name: cycle-consumer
+  version: 1.0.0
+policies:
+  - name: a
+    ref: oci://%s/policy-a:1.0.0
+`, reg.host)
+	consumerDir := writeBundleDir(t, filepath.Join(t.TempDir(), "cycle-consumer"), consumerYAML, nil)
+
+	out, err := runCommand(t, reg, "validate", consumerDir)
+	if err == nil {
+		t.Fatalf("expected POLICY_REF_CYCLE, got success:\n%s", out)
+	}
+	assertContains(t, out, "POLICY_REF_CYCLE")
+}
+
+// TestPolicyRefSharedAcrossSiblings asserts that two sibling policy refs pointing
+// at the SAME bundle resolve independently and are NOT a false cycle — the
+// end-to-end counterpart to the chain-membership cycle-detection fix.
+func TestPolicyRefSharedAcrossSiblings(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// A shared policy bundle with a trivially-satisfied schema (no refs of its own).
+	sharedYAML := `pactoVersion: "1.0"
+service:
+  name: shared-policy
+  version: 1.0.0
+`
+	sharedDir := writeBundleDirWithPolicy(t, filepath.Join(t.TempDir(), "shared-policy"), sharedYAML, `{"type":"object"}`)
+	if _, err := runCommand(t, reg, "push", "oci://"+reg.host+"/shared-policy:1.0.0", "-p", sharedDir); err != nil {
+		t.Fatalf("push shared policy: %v", err)
+	}
+
+	// Consumer references the same shared policy twice (two siblings).
+	consumerYAML := fmt.Sprintf(`pactoVersion: "1.0"
+service:
+  name: diamond-consumer
+  version: 1.0.0
+policies:
+  - name: p1
+    ref: oci://%s/shared-policy:1.0.0
+  - name: p2
+    ref: oci://%s/shared-policy:1.0.0
+`, reg.host, reg.host)
+	consumerDir := writeBundleDir(t, filepath.Join(t.TempDir(), "diamond-consumer"), consumerYAML, nil)
+
+	out, err := runCommand(t, reg, "validate", consumerDir)
+	if err != nil {
+		t.Fatalf("shared ref across siblings must not be a cycle, got: %v\n%s", err, out)
+	}
+	assertContains(t, out, "is valid")
+	assertNotContains(t, out, "POLICY_REF_CYCLE")
+}
 
 func TestPolicyLocalSchema(t *testing.T) {
 	t.Parallel()

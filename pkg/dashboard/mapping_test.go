@@ -2,8 +2,11 @@ package dashboard
 
 import (
 	"bytes"
+	"fmt"
+	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/diff"
@@ -133,114 +136,8 @@ func TestDiffResultFromEngine(t *testing.T) {
 	}
 }
 
-func TestFlattenValues_StringValue(t *testing.T) {
-	m := map[string]interface{}{"name": "hello"}
-	values := flattenValues(m)
-	if len(values) != 1 {
-		t.Fatalf("expected 1 value, got %d", len(values))
-	}
-	if values[0].Key != "name" {
-		t.Errorf("expected key 'name', got %q", values[0].Key)
-	}
-	if values[0].Value != "hello" {
-		t.Errorf("expected value 'hello', got %q", values[0].Value)
-	}
-	if values[0].Type != "string" {
-		t.Errorf("expected type 'string', got %q", values[0].Type)
-	}
-}
-
-func TestFlattenValues_NumberValue(t *testing.T) {
-	m := map[string]interface{}{"count": float64(42)}
-	values := flattenValues(m)
-	if len(values) != 1 {
-		t.Fatalf("expected 1 value, got %d", len(values))
-	}
-	if values[0].Type != "number" {
-		t.Errorf("expected type 'number', got %q", values[0].Type)
-	}
-	if values[0].Value != "42" {
-		t.Errorf("expected value '42', got %q", values[0].Value)
-	}
-}
-
-func TestFlattenValues_IntValue(t *testing.T) {
-	m := map[string]interface{}{"count": 7}
-	values := flattenValues(m)
-	if len(values) != 1 {
-		t.Fatalf("expected 1 value, got %d", len(values))
-	}
-	if values[0].Type != "number" {
-		t.Errorf("expected type 'number', got %q", values[0].Type)
-	}
-}
-
-func TestFlattenValues_BoolValue(t *testing.T) {
-	m := map[string]interface{}{"enabled": true}
-	values := flattenValues(m)
-	if len(values) != 1 {
-		t.Fatalf("expected 1 value, got %d", len(values))
-	}
-	if values[0].Type != "boolean" {
-		t.Errorf("expected type 'boolean', got %q", values[0].Type)
-	}
-	if values[0].Value != "true" {
-		t.Errorf("expected value 'true', got %q", values[0].Value)
-	}
-}
-
-func TestFlattenValues_NilValue(t *testing.T) {
-	m := map[string]interface{}{"optional": nil}
-	values := flattenValues(m)
-	if len(values) != 1 {
-		t.Fatalf("expected 1 value, got %d", len(values))
-	}
-	if values[0].Type != "any" {
-		t.Errorf("expected type 'any', got %q", values[0].Type)
-	}
-	if values[0].Value != "(any)" {
-		t.Errorf("expected value '(any)', got %q", values[0].Value)
-	}
-}
-
-func TestFlattenValues_ObjectValue(t *testing.T) {
-	m := map[string]interface{}{"nested": map[string]interface{}{"key": "val"}}
-	values := flattenValues(m)
-	if len(values) != 1 {
-		t.Fatalf("expected 1 value, got %d", len(values))
-	}
-	if values[0].Type != "object" {
-		t.Errorf("expected type 'object', got %q", values[0].Type)
-	}
-}
-
-func TestFlattenValues_Sorted(t *testing.T) {
-	m := map[string]interface{}{
-		"z_key": "last",
-		"a_key": "first",
-		"m_key": "middle",
-	}
-	values := flattenValues(m)
-	if len(values) != 3 {
-		t.Fatalf("expected 3 values, got %d", len(values))
-	}
-	if values[0].Key != "a_key" {
-		t.Errorf("expected first key 'a_key', got %q", values[0].Key)
-	}
-	if values[1].Key != "m_key" {
-		t.Errorf("expected second key 'm_key', got %q", values[1].Key)
-	}
-	if values[2].Key != "z_key" {
-		t.Errorf("expected third key 'z_key', got %q", values[2].Key)
-	}
-}
-
-func TestFlattenValues_Empty(t *testing.T) {
-	values := flattenValues(map[string]interface{}{})
-	if len(values) != 0 {
-		t.Errorf("expected 0 values, got %d", len(values))
-	}
-}
+// flattenValues / flattenSchemaProps behavior is now tested in pkg/schemax
+// (shared with the operator); see schemax_test.go.
 
 func TestServiceDetailsFromBundle_Dependencies(t *testing.T) {
 	c := &contract.Contract{
@@ -839,90 +736,6 @@ func TestServiceDetailsFromBundle_RuntimeMetrics(t *testing.T) {
 	}
 }
 
-func TestFlattenSchemaProps_Basic(t *testing.T) {
-	props := map[string]any{
-		"port": map[string]any{
-			"type":    "integer",
-			"default": 8080,
-		},
-		"host": map[string]any{
-			"type": "string",
-		},
-	}
-	var values []ConfigValue
-	flattenSchemaProps("", props, &values)
-
-	if len(values) != 2 {
-		t.Fatalf("expected 2 values, got %d", len(values))
-	}
-	if values[0].Key != "host" {
-		t.Errorf("expected first key 'host', got %q", values[0].Key)
-	}
-	if values[0].Type != "string" {
-		t.Errorf("expected type 'string', got %q", values[0].Type)
-	}
-	if values[0].Value != "(any)" {
-		t.Errorf("expected value '(any)' (no default), got %q", values[0].Value)
-	}
-	if values[1].Key != "port" {
-		t.Errorf("expected second key 'port', got %q", values[1].Key)
-	}
-	if values[1].Value != "8080" {
-		t.Errorf("expected default '8080', got %q", values[1].Value)
-	}
-}
-
-func TestFlattenSchemaProps_Nested(t *testing.T) {
-	props := map[string]any{
-		"cors": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"enabled": map[string]any{
-					"type":    "boolean",
-					"default": true,
-				},
-			},
-		},
-	}
-	var values []ConfigValue
-	flattenSchemaProps("", props, &values)
-
-	if len(values) != 1 {
-		t.Fatalf("expected 1 value (nested), got %d", len(values))
-	}
-	if values[0].Key != "cors.enabled" {
-		t.Errorf("expected key 'cors.enabled', got %q", values[0].Key)
-	}
-}
-
-func TestFlattenSchemaProps_WithPrefix(t *testing.T) {
-	props := map[string]any{
-		"port": map[string]any{
-			"type": "integer",
-		},
-	}
-	var values []ConfigValue
-	flattenSchemaProps("server", props, &values)
-
-	if len(values) != 1 {
-		t.Fatalf("expected 1 value, got %d", len(values))
-	}
-	if values[0].Key != "server.port" {
-		t.Errorf("expected key 'server.port', got %q", values[0].Key)
-	}
-}
-
-func TestFlattenSchemaProps_NonMapPropSkipped(t *testing.T) {
-	props := map[string]any{
-		"bad": "not a map",
-	}
-	var values []ConfigValue
-	flattenSchemaProps("", props, &values)
-	if len(values) != 0 {
-		t.Errorf("expected 0 values for non-map prop, got %d", len(values))
-	}
-}
-
 func TestExtractSchemaProperties_ValidSchema(t *testing.T) {
 	fsys := fstest.MapFS{
 		"schema.json": &fstest.MapFile{
@@ -1230,5 +1043,179 @@ func TestServiceDetailsFromBundle_EmptyConfiguration(t *testing.T) {
 	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
 	if len(details.Configurations) != 0 {
 		t.Errorf("expected 0 configurations for empty Configuration, got %d", len(details.Configurations))
+	}
+}
+
+// --- Readiness mapping ---
+
+func pinDashboardTime(t *testing.T, at time.Time) {
+	t.Helper()
+	old := timeNow
+	timeNow = func() time.Time { return at }
+	t.Cleanup(func() { timeNow = old })
+}
+
+func TestReadinessFromContract_Nil(t *testing.T) {
+	if got := readinessFromContract(&contract.Contract{}, nil); got != nil {
+		t.Errorf("expected nil readiness for contract without readiness, got %+v", got)
+	}
+}
+
+func TestServiceDetailsFromBundle_Readiness(t *testing.T) {
+	pinDashboardTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
+	c := &contract.Contract{
+		PactoVersion: "1.1",
+		Service:      contract.ServiceIdentity{Name: "payment-api", Version: "1.4.0"},
+		Readiness: &contract.Readiness{Checks: []contract.ReadinessCheck{
+			{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 60, Expires: "2026-12-31", Description: "Main"},
+			{ID: "security-review", Type: "ticket", Evidence: "SEC-1", Weight: 40, Expires: "2026-01-15"},
+		}},
+	}
+	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
+	if details.Readiness == nil {
+		t.Fatal("expected readiness info to be present")
+	}
+	r := details.Readiness
+	if r.Score != 60 || r.TotalWeight != 100 || r.CurrentWeight != 60 {
+		t.Errorf("unexpected readiness summary: %+v", r)
+	}
+	if r.MinScore != 100 || r.Passing {
+		t.Errorf("expected default minScore 100 and not passing, got minScore=%d passing=%v", r.MinScore, r.Passing)
+	}
+	if r.ExpiredCount != 1 || r.CurrentCount != 1 {
+		t.Errorf("unexpected counts: current=%d expired=%d", r.CurrentCount, r.ExpiredCount)
+	}
+	if len(r.Checks) != 2 {
+		t.Fatalf("expected 2 checks, got %d", len(r.Checks))
+	}
+	if r.Checks[0].Status != "Current" {
+		t.Errorf("expected first check Current, got %s", r.Checks[0].Status)
+	}
+	if r.Checks[0].DaysRemaining == nil {
+		t.Error("expected DaysRemaining for current check")
+	}
+	if r.Checks[1].Status != "Expired" {
+		t.Errorf("expected second check Expired, got %s", r.Checks[1].Status)
+	}
+	if r.Checks[1].DaysRemaining != nil {
+		t.Error("expected nil DaysRemaining for expired check")
+	}
+}
+
+// --- in-bundle docs ---
+
+// readFailDocsFS lists files (via embedded MapFS ReadDir) but fails ReadFile for
+// .md files, to exercise the "skip unreadable doc" path.
+type readFailDocsFS struct{ fstest.MapFS }
+
+func (f readFailDocsFS) ReadFile(name string) ([]byte, error) {
+	if strings.HasSuffix(name, ".md") {
+		return nil, fmt.Errorf("read denied: %s", name)
+	}
+	return f.MapFS.ReadFile(name)
+}
+
+func TestDocsFromContract_NilFS(t *testing.T) {
+	if got := docsFromContract(nil); got != nil {
+		t.Errorf("expected nil for nil FS, got %+v", got)
+	}
+}
+
+func TestDocsFromContract_NoDocsDir(t *testing.T) {
+	fsys := fstest.MapFS{"pacto.yaml": &fstest.MapFile{Data: []byte("x")}}
+	if got := docsFromContract(fsys); len(got) != 0 {
+		t.Errorf("expected no docs, got %+v", got)
+	}
+}
+
+func TestDocsFromContract_ReadsSortedTitlesIgnoresNonMd(t *testing.T) {
+	fsys := fstest.MapFS{
+		"docs/overview.md":        &fstest.MapFile{Data: []byte("# Overview\n\nhi")},
+		"docs/runbooks/deploy.md": &fstest.MapFile{Data: []byte("no h1 here")},
+		"docs/notes.txt":          &fstest.MapFile{Data: []byte("ignored")},
+	}
+	got := docsFromContract(fsys)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 md docs, got %d (%+v)", len(got), got)
+	}
+	if got[0].Path != "docs/overview.md" || got[0].Title != "Overview" {
+		t.Errorf("unexpected first doc: %+v", got[0])
+	}
+	if got[0].Content == "" || got[0].Truncated {
+		t.Errorf("unexpected content/truncation: %+v", got[0])
+	}
+	if got[1].Path != "docs/runbooks/deploy.md" || got[1].Title != "deploy" {
+		t.Errorf("expected filename title 'deploy', got %+v", got[1])
+	}
+}
+
+func TestDocsFromContract_PerDocTruncation(t *testing.T) {
+	old := maxDocBytes
+	maxDocBytes = 5
+	defer func() { maxDocBytes = old }()
+	fsys := fstest.MapFS{"docs/big.md": &fstest.MapFile{Data: []byte("0123456789")}}
+	got := docsFromContract(fsys)
+	if len(got) != 1 || !got[0].Truncated || got[0].Content != "01234" {
+		t.Errorf("expected truncated '01234', got %+v", got)
+	}
+}
+
+func TestDocsFromContract_CountCap(t *testing.T) {
+	old := maxDocCount
+	maxDocCount = 1
+	defer func() { maxDocCount = old }()
+	fsys := fstest.MapFS{
+		"docs/a.md": &fstest.MapFile{Data: []byte("# A")},
+		"docs/b.md": &fstest.MapFile{Data: []byte("# B")},
+	}
+	if got := docsFromContract(fsys); len(got) != 1 {
+		t.Errorf("expected count cap to 1, got %d", len(got))
+	}
+}
+
+func TestDocsFromContract_TotalCap(t *testing.T) {
+	old := maxTotalDocBytes
+	maxTotalDocBytes = 6
+	defer func() { maxTotalDocBytes = old }()
+	fsys := fstest.MapFS{
+		"docs/a.md": &fstest.MapFile{Data: []byte("aaaa")},
+		"docs/b.md": &fstest.MapFile{Data: []byte("bbbb")},
+	}
+	got := docsFromContract(fsys)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 docs, got %d (%+v)", len(got), got)
+	}
+	if got[1].Content != "bb" || !got[1].Truncated {
+		t.Errorf("expected second doc trimmed to 'bb' truncated, got %+v", got[1])
+	}
+}
+
+func TestDocsFromContract_UnreadableFileSkipped(t *testing.T) {
+	fsys := readFailDocsFS{fstest.MapFS{"docs/a.md": &fstest.MapFile{Data: []byte("# A")}}}
+	if got := docsFromContract(fsys); len(got) != 0 {
+		t.Errorf("expected unreadable doc skipped, got %+v", got)
+	}
+}
+
+func TestServiceDetailsFromBundle_ReadinessDocPath(t *testing.T) {
+	pinDashboardTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
+	c := &contract.Contract{
+		PactoVersion: "1.1",
+		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Readiness: &contract.Readiness{Checks: []contract.ReadinessCheck{
+			{ID: "runbook", Type: "document", Evidence: "docs/runbooks/deploy.md", Weight: 50, Expires: "2099-12-31"},
+			{ID: "dashboard", Type: "url", Evidence: "https://grafana/x", Weight: 50, Expires: "2099-12-31"},
+		}},
+	}
+	fsys := fstest.MapFS{"docs/runbooks/deploy.md": &fstest.MapFile{Data: []byte("# Deploy")}}
+	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c, FS: fsys}, "local")
+	if len(details.Docs) != 1 || details.Docs[0].Path != "docs/runbooks/deploy.md" {
+		t.Fatalf("expected 1 doc, got %+v", details.Docs)
+	}
+	if details.Readiness == nil || details.Readiness.Checks[0].DocPath != "docs/runbooks/deploy.md" {
+		t.Errorf("expected runbook DocPath set, got %+v", details.Readiness)
+	}
+	if details.Readiness.Checks[1].DocPath != "" {
+		t.Errorf("expected url check DocPath empty, got %q", details.Readiness.Checks[1].DocPath)
 	}
 }

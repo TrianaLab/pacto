@@ -79,15 +79,18 @@ func TestDetectResult_ActiveSources_LocalAndCache(t *testing.T) {
 		Cache: cache,
 	}
 	sources := r.ActiveSources()
-	// Cache without OCI is exposed as "oci" (offline access to previously pulled bundles).
+	// Cache without a live OCI registry is exposed under its own "cache" key.
 	if len(sources) != 2 {
 		t.Fatalf("expected 2 active sources, got %d", len(sources))
 	}
 	if _, ok := sources["local"]; !ok {
 		t.Error("expected 'local' in active sources")
 	}
-	if _, ok := sources["oci"]; !ok {
-		t.Error("expected 'oci' in active sources (cache exposed as oci)")
+	if _, ok := sources["cache"]; !ok {
+		t.Error("expected 'cache' in active sources")
+	}
+	if _, ok := sources["oci"]; ok {
+		t.Error("cache must not be exposed as 'oci'")
 	}
 }
 
@@ -102,12 +105,12 @@ func TestDetectResult_ActiveSources_AllTypes(t *testing.T) {
 		// OCI is nil — cache is exposed as "oci"
 	}
 	sources := r.ActiveSources()
-	// local + k8s + oci (from cache)
+	// local + k8s + cache (no live OCI configured)
 	if len(sources) != 3 {
 		t.Fatalf("expected 3 active sources, got %d", len(sources))
 	}
-	if _, ok := sources["oci"]; !ok {
-		t.Error("expected 'oci' in active sources (cache exposed as oci)")
+	if _, ok := sources["cache"]; !ok {
+		t.Error("expected 'cache' in active sources")
 	}
 }
 
@@ -362,7 +365,7 @@ service:
 	}
 }
 
-func TestDetectResult_AllSources_CacheOnlyExposedAsOCI(t *testing.T) {
+func TestDetectResult_AllSources_CacheExposedAsCache(t *testing.T) {
 	cacheDir := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz"),
@@ -375,11 +378,11 @@ service:
 		Cache: NewCacheSource(cacheDir),
 	}
 	all := r.AllSources()
-	if _, ok := all["oci"]; !ok {
-		t.Error("expected cache exposed as 'oci' when no live OCI")
+	if _, ok := all["cache"]; !ok {
+		t.Error("expected cache exposed under its own 'cache' key when no live OCI")
 	}
-	if _, ok := all["cache"]; ok {
-		t.Error("cache should not appear separately when no live OCI")
+	if _, ok := all["oci"]; ok {
+		t.Error("cache must not be exposed as 'oci'")
 	}
 }
 

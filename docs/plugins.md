@@ -135,6 +135,10 @@ The plugin writes a JSON object to stdout:
 | `files[].content` | string | File content |
 | `message` | string | Optional message displayed to the user |
 
+#### Path safety
+
+`files[].path` must be a **relative path that stays within the output directory**. Pacto rejects any path that escapes it — absolute paths and paths containing `..` are refused. Always return relative paths scoped to `outputDir`.
+
 ### Errors
 
 If the plugin encounters an error, it should:
@@ -322,6 +326,7 @@ if __name__ == "__main__":
 
 - **Read only from `bundleDir`.** Don't access files outside the bundle.
 - **Write only to stdout.** Don't write files directly; return them in the response. Pacto handles file creation.
+- **Return relative paths within the output dir.** Pacto rejects file paths that escape the output directory (no `..`, no absolute paths).
 - **Use stderr for errors.** Anything on stderr is shown to the user on failure.
 - **Exit non-zero on failure.** Pacto checks the exit code.
 - **Be deterministic.** Given the same input, produce the same output.

@@ -7,7 +7,7 @@
   let {
     name, dependencies = [], dependents = [], crossRefs = null,
     graphData = null, services = [],
-    open = $bindable(true), id = '',
+    open = $bindable(true), id = '', source = '',
   } = $props();
 
   let totalCount = $derived((dependencies?.length || 0) + (dependents?.length || 0));
@@ -25,7 +25,7 @@
 </script>
 
 {#if dependencies?.length > 0 || dependents?.length > 0 || crossRefs}
-  <CollapsibleSection title="Dependencies" count={totalCount} bind:open {id}>
+  <CollapsibleSection title="Dependencies" count={totalCount} bind:open {id} {source}>
     {#if graphData}
       <div class="dep-graph-box">
         <GraphCanvas {graphData} focusId={name} height={300} onNavigate={(n) => navigate('detail', { name: n })} />

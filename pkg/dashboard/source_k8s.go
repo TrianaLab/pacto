@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/readiness"
+	"github.com/trianalab/pacto/pkg/semver"
 )
 
 // K8sSource implements DataSource by reading Pacto CRD status from a Kubernetes cluster.
@@ -62,6 +62,7 @@ type pactoStatus struct {
 	Dependencies       flexSlice[k8sDependency] `json:"dependencies,omitempty"`
 	Runtime            *k8sRuntime              `json:"runtime,omitempty"`
 	Scaling            *k8sScaling              `json:"scaling,omitempty"`
+	Readiness          *k8sReadiness            `json:"readiness,omitempty"`
 	Resources          *k8sResources            `json:"resources,omitempty"`
 	Ports              *k8sPorts                `json:"ports,omitempty"`
 	Metadata           map[string]string        `json:"metadata,omitempty"`
@@ -126,18 +127,31 @@ type k8sInterface struct {
 }
 
 type k8sConfig struct {
-	Name       string   `json:"name"`
-	HasSchema  bool     `json:"hasSchema"`
-	Ref        string   `json:"ref,omitempty"`
-	ValueKeys  []string `json:"valueKeys,omitempty"`
-	SecretKeys []string `json:"secretKeys,omitempty"`
+	Name       string              `json:"name"`
+	HasSchema  bool                `json:"hasSchema"`
+	Ref        string              `json:"ref,omitempty"`
+	ValueKeys  []string            `json:"valueKeys,omitempty"`
+	SecretKeys []string            `json:"secretKeys,omitempty"`
+	Properties []k8sSchemaProperty `json:"properties,omitempty"`
 }
 
 type k8sPolicy struct {
-	Name      string `json:"name"`
-	HasSchema bool   `json:"hasSchema"`
-	Schema    string `json:"schema,omitempty"`
-	Ref       string `json:"ref,omitempty"`
+	Name        string              `json:"name"`
+	HasSchema   bool                `json:"hasSchema"`
+	Schema      string              `json:"schema,omitempty"`
+	Ref         string              `json:"ref,omitempty"`
+	Title       string              `json:"title,omitempty"`
+	Description string              `json:"description,omitempty"`
+	Properties  []k8sSchemaProperty `json:"properties,omitempty"`
+}
+
+// k8sSchemaProperty mirrors the operator's status config/policy schema
+// properties (flattened key/value/type), so the dashboard can render config and
+// policy content for operator-managed services without re-reading the bundle.
+type k8sSchemaProperty struct {
+	Key   string `json:"key"`
+	Value string `json:"value,omitempty"`
+	Type  string `json:"type,omitempty"`
 }
 
 type k8sDependency struct {
@@ -165,6 +179,29 @@ type k8sScaling struct {
 	Replicas *int `json:"replicas,omitempty"`
 	Min      *int `json:"min,omitempty"`
 	Max      *int `json:"max,omitempty"`
+}
+
+// k8sReadiness mirrors the operator's status.readiness (derived readiness).
+type k8sReadiness struct {
+	Score         int32                        `json:"score,omitempty"`
+	MinScore      int32                        `json:"minScore,omitempty"`
+	Passing       bool                         `json:"passing,omitempty"`
+	TotalWeight   int32                        `json:"totalWeight,omitempty"`
+	CurrentWeight int32                        `json:"currentWeight,omitempty"`
+	CurrentCount  int32                        `json:"currentCount,omitempty"`
+	ExpiredCount  int32                        `json:"expiredCount,omitempty"`
+	Checks        flexSlice[k8sReadinessCheck] `json:"checks,omitempty"`
+}
+
+type k8sReadinessCheck struct {
+	ID            string `json:"id"`
+	Type          string `json:"type"`
+	Evidence      string `json:"evidence,omitempty"`
+	Weight        int32  `json:"weight"`
+	Expires       string `json:"expires"`
+	Description   string `json:"description,omitempty"`
+	Status        string `json:"status"`
+	DaysRemaining *int32 `json:"daysRemaining,omitempty"`
 }
 
 type k8sResources struct {
@@ -334,9 +371,9 @@ func (s *K8sSource) GetVersions(ctx context.Context, name string) ([]Version, er
 		versions = append(versions, v)
 	}
 
-	// Sort by version descending (latest first) using semver when possible.
+	// Sort by version descending (latest first) using the shared semver order.
 	sort.Slice(versions, func(i, j int) bool {
-		return compareSemverDesc(versions[i].Version, versions[j].Version)
+		return semver.LessDesc(versions[i].Version, versions[j].Version)
 	})
 
 	return versions, nil
@@ -381,47 +418,6 @@ func (s *K8sSource) listRevisions(ctx context.Context) ([]pactoRevisionResource,
 		return nil, fmt.Errorf("parsing pactorevisions response: %w", err)
 	}
 	return list.Items, nil
-}
-
-// compareSemverDesc returns true if a should sort before b in descending order.
-// Falls back to lexicographic comparison for non-semver strings.
-func compareSemverDesc(a, b string) bool {
-	aParts := parseSemverParts(a)
-	bParts := parseSemverParts(b)
-	if aParts != nil && bParts != nil {
-		for i := 0; i < 3; i++ {
-			if aParts[i] != bParts[i] {
-				return aParts[i] > bParts[i]
-			}
-		}
-		return false
-	}
-	return a > b
-}
-
-// parseSemverParts extracts [major, minor, patch] from a semver string.
-// Returns nil if the string is not valid semver.
-func parseSemverParts(s string) []int {
-	s = strings.TrimPrefix(s, "v")
-	parts := strings.SplitN(s, ".", 3)
-	if len(parts) != 3 {
-		return nil
-	}
-	var nums [3]int
-	for i, p := range parts {
-		// Strip pre-release suffix from patch.
-		if i == 2 {
-			if idx := strings.IndexAny(p, "-+"); idx >= 0 {
-				p = p[:idx]
-			}
-		}
-		n, err := strconv.Atoi(p)
-		if err != nil {
-			return nil
-		}
-		nums[i] = n
-	}
-	return nums[:]
 }
 
 // listCacheTTL controls how long a listPactos result is reused.
@@ -516,6 +512,58 @@ func serviceFromK8sStatus(r pactoResource) Service {
 	return svc
 }
 
+// readinessFromK8s maps the operator's derived readiness status into the
+// dashboard ReadinessInfo DTO. It returns nil when the operator reported no
+// readiness (contract declares none).
+func readinessFromK8s(r *k8sReadiness) *ReadinessInfo {
+	if r == nil {
+		return nil
+	}
+	info := &ReadinessInfo{
+		Score:         int(r.Score),
+		MinScore:      int(r.MinScore),
+		Passing:       r.Passing,
+		TotalWeight:   int(r.TotalWeight),
+		CurrentWeight: int(r.CurrentWeight),
+		CurrentCount:  int(r.CurrentCount),
+		ExpiredCount:  int(r.ExpiredCount),
+	}
+	for _, c := range r.Checks {
+		check := ReadinessCheckInfo{
+			ID:          c.ID,
+			Type:        c.Type,
+			Status:      c.Status,
+			Evidence:    c.Evidence,
+			Weight:      int(c.Weight),
+			Expires:     c.Expires,
+			Description: c.Description,
+		}
+		if c.DaysRemaining != nil {
+			d := int(*c.DaysRemaining)
+			check.DaysRemaining = &d
+		}
+		if c.Status == string(readiness.StatusInvalid) {
+			info.InvalidCount++
+		}
+		info.Checks = append(info.Checks, check)
+	}
+	return info
+}
+
+// schemaPropsFromK8s converts operator-provided schema properties into the
+// dashboard's ConfigValue representation. Returns nil when empty so the JSON
+// field is omitted.
+func schemaPropsFromK8s(props []k8sSchemaProperty) []ConfigValue {
+	if len(props) == 0 {
+		return nil
+	}
+	out := make([]ConfigValue, 0, len(props))
+	for _, p := range props {
+		out = append(out, ConfigValue{Key: p.Key, Value: p.Value, Type: p.Type})
+	}
+	return out
+}
+
 func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 	svc := &ServiceDetails{
 		Service: serviceFromK8sStatus(*r),
@@ -557,16 +605,20 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 			Ref:        cfg.Ref,
 			ValueKeys:  cfg.ValueKeys,
 			SecretKeys: cfg.SecretKeys,
+			Values:     schemaPropsFromK8s(cfg.Properties),
 		})
 	}
 
 	// Policies
 	for _, pol := range r.Status.Policies {
 		svc.Policies = append(svc.Policies, PolicyInfo{
-			Name:      pol.Name,
-			HasSchema: pol.HasSchema,
-			Schema:    pol.Schema,
-			Ref:       pol.Ref,
+			Name:        pol.Name,
+			HasSchema:   pol.HasSchema,
+			Schema:      pol.Schema,
+			Ref:         pol.Ref,
+			Title:       pol.Title,
+			Description: pol.Description,
+			Values:      schemaPropsFromK8s(pol.Properties),
 		})
 	}
 
@@ -600,6 +652,8 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 			Max:      r.Status.Scaling.Max,
 		}
 	}
+
+	svc.Readiness = readinessFromK8s(r.Status.Readiness)
 
 	svc.Validation = validationFromK8s(r.Status.Validation)
 	svc.Resources = resourcesFromK8s(r.Status.Resources)

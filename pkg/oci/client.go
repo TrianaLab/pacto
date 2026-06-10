@@ -68,7 +68,7 @@ func (c *Client) remoteOptions(ctx context.Context) []remote.Option {
 func (c *Client) parseRef(ref string) (name.Reference, error) {
 	r, err := name.ParseReference(ref, c.nameOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("invalid reference %q: %w", ref, err)
+		return nil, &InvalidRefError{Ref: ref, Err: err}
 	}
 	return r, nil
 }
@@ -117,7 +117,7 @@ func (c *Client) Pull(ctx context.Context, ref string) (*contract.Bundle, error)
 	slog.Debug("extracting bundle from image", "ref", ref)
 	bundle, err := imageToBundle(img)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract bundle: %w", err)
+		return nil, &InvalidBundleError{Ref: ref, Err: err}
 	}
 
 	return bundle, nil
@@ -144,7 +144,7 @@ func (c *Client) Resolve(ctx context.Context, ref string) (string, error) {
 func (c *Client) ListTags(ctx context.Context, repo string) ([]string, error) {
 	r, err := name.NewRepository(repo, c.nameOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("invalid repository %q: %w", repo, err)
+		return nil, &InvalidRefError{Ref: repo, Err: err}
 	}
 
 	slog.Debug("listing tags", "repo", repo)

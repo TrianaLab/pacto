@@ -110,7 +110,7 @@ func TestResolver_CacheMissRegistryUnreachable(t *testing.T) {
 
 func TestResolver_InvalidBundle(t *testing.T) {
 	store := &mockStore{
-		pullErr: fmt.Errorf("failed to extract bundle: invalid tar"),
+		pullErr: &oci.InvalidBundleError{Ref: "ghcr.io/org/svc:1.0.0", Err: fmt.Errorf("invalid tar")},
 	}
 	resolver := oci.NewResolver(store)
 
@@ -126,7 +126,7 @@ func TestResolver_InvalidBundle(t *testing.T) {
 
 func TestResolver_InvalidRef(t *testing.T) {
 	store := &mockStore{
-		pullErr: fmt.Errorf("invalid reference \"bad-ref:1.0.0\": whatever"),
+		pullErr: &oci.InvalidRefError{Ref: "bad-ref:1.0.0", Err: fmt.Errorf("whatever")},
 	}
 	resolver := oci.NewResolver(store)
 
@@ -153,6 +153,50 @@ func TestResolver_LocalOnly_CacheMiss(t *testing.T) {
 	var notFoundErr *oci.ArtifactNotFoundError
 	if !errors.As(err, &notFoundErr) {
 		t.Errorf("expected ArtifactNotFoundError, got %T: %v", err, err)
+	}
+}
+
+func TestResolver_LocalOnly_TypedErrorPassthrough(t *testing.T) {
+	// A cached store can still reach the registry, so a typed auth error must
+	// surface as-is even in LocalOnly mode — not be masked as a cache miss.
+	store := &mockStore{
+		pullErr: &oci.AuthenticationError{Ref: "ghcr.io/org/svc:1.0.0", Err: fmt.Errorf("401")},
+	}
+	resolver := oci.NewResolver(store)
+
+	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0", oci.LocalOnly)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var authErr *oci.AuthenticationError
+	if !errors.As(err, &authErr) {
+		t.Errorf("expected AuthenticationError, got %T: %v", err, err)
+	}
+	var notFoundErr *oci.ArtifactNotFoundError
+	if errors.As(err, &notFoundErr) {
+		t.Errorf("typed error must not be masked as ArtifactNotFoundError: %v", err)
+	}
+}
+
+func TestResolver_ResolveConstrained_UntaggedTypedError(t *testing.T) {
+	// ListTags fails with a typed error while resolving an untagged ref; it must
+	// pass through rather than be wrapped as NoMatchingVersion/ArtifactNotFound.
+	store := &tagMockStore{
+		tagsErr: &oci.AuthenticationError{Ref: "ghcr.io/org/svc", Err: fmt.Errorf("401")},
+	}
+	resolver := oci.NewResolver(store)
+
+	_, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc", "^1.0.0", oci.RemoteAllowed)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var authErr *oci.AuthenticationError
+	if !errors.As(err, &authErr) {
+		t.Errorf("expected AuthenticationError, got %T: %v", err, err)
+	}
+	var noMatchErr *oci.NoMatchingVersionError
+	if errors.As(err, &noMatchErr) {
+		t.Errorf("typed error must not be wrapped as NoMatchingVersionError: %v", err)
 	}
 }
 

@@ -40,6 +40,14 @@
 .badge-neutral { background: var(--c-neutral-bg); color: var(--c-text-3); }
 .badge-neutral .badge-dot { background: var(--c-neutral); }
 .badge-accent { background: var(--c-accent-bg); color: var(--c-accent); }
+/* Reference: a shared definition with no runtime target. Distinct slate so it
+   never reads as "Unknown". */
+.badge-reference { background: rgba(100, 116, 139, 0.15); color: #475569; }
+.badge-reference .badge-dot { background: #64748b; }
+[data-theme='dark'] .badge-reference { color: #94a3b8; }
+/* Definition only: bundle/off-cluster view where runtime status is unknown. */
+.badge-definition { background: rgba(100, 116, 139, 0.12); color: #64748b; }
+.badge-definition .badge-dot { background: #94a3b8; }
 
 /* ─── Pill (small inline tag) ─── */
 .pill {
@@ -241,6 +249,7 @@
 .source-dot-k8s { background: #3b82f6; }
 .source-dot-oci { background: #8b5cf6; }
 .source-dot-local { background: #f59e0b; }
+.source-dot-cache { background: #64748b; }
 
 /* ─── Tooltip ─── */
 [data-tip] {

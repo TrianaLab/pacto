@@ -54,6 +54,12 @@ The operator checks runtime alignment across these dimensions:
 | **Metrics endpoint** | Is the declared `runtime.metrics.path` reachable? |
 | **Scaling** | Do actual replica counts align with declared `scaling.min` / `scaling.max` / `scaling.replicas`? |
 
+A few checks have deliberately shallow semantics worth calling out:
+
+- **Health and metrics endpoints** are tested for *reachability and basic structure* — the health probe expects a healthy HTTP response, and the metrics probe looks for Prometheus exposition markers (`# HELP` / `# TYPE`). Neither validates the response body against the declared OpenAPI/format.
+- **Port alignment** matches by port **number** between the contract's interface ports and the Kubernetes Service ports, reporting missing and unexpected ports.
+- **Scaling** compares observed replica bounds against `scaling.min`/`max`/`replicas`. Because the contract models `min`/`max` as plain integers, an explicit `0` is indistinguishable from "unset" and is treated as unset — so a declared lower bound of `0` is not reported (see the [scaling reference](contract-reference.md#scaling)).
+
 Each check produces a structured condition on the CRD status with a type, status, reason, and severity. The operator aggregates these into a contract status:
 
 - **Compliant** — all checks pass
@@ -62,17 +68,51 @@ Each check produces a structured condition on the CRD status with a type, status
 - **Reference** — no target workload (the contract is a shared definition, not a deployed service)
 - **Unknown** — contract status has not been determined yet
 
+If the operator cannot **observe** the cluster at all (the observation step
+itself fails, as opposed to "resources don't exist"), it does not report a
+misleading success: it sets the `RuntimeObserved` condition to `False` with
+reason `ObservationFailed`, records the reconciliation as failed, and emits a
+`Warning` / `ObservationFailed` event — distinct from a clean "service not
+found" result.
+
 !!! note
     Contract status reflects whether the service contract is valid and compliant, not whether the service is healthy at runtime.
 
 !!! warning
     The operator does **not** currently validate:
-    - Full OpenAPI conformance of live endpoints (it checks reachability, not response schemas)
+    - Full OpenAPI conformance of live endpoints (it checks reachability and basic structure, not response schemas)
     - JSON Schema validation of live configuration values
     - Dependency compatibility semantics (whether transitive deps satisfy version constraints)
-    - Policy schema enforcement at runtime
+    - `ref`-based policy schema enforcement at runtime
 
-    These are potential future directions. Today, contract-level validation of these fields happens at build time via `pacto validate`.
+    These are partly by design. The operator runs the contract through the
+    **local-only** `Validate()` path with **no resolver**, so `ref`-based
+    policies are never fetched or enforced (only locally-compiled `schema`
+    policies are). Likewise, contract loading passes an **empty constraint** to
+    OCI ref resolution, so a dependency's `compatibility` range is not applied at
+    load time. Build-time `pacto validate` (with network access) is where
+    `ref`-policy enforcement and constraint-aware resolution happen.
+
+---
+
+## Readiness status
+
+In addition to runtime compliance, the operator evaluates a contract's declared **readiness** — a `pactoVersion: "1.1"` feature (see the [Contract Reference](contract-reference.md#readiness)). Readiness is a **separate dimension** from contract compliance: an expired readiness check never changes `ContractStatus`.
+
+When a contract declares `readiness.checks`, the operator computes a derived assessment from the declared `weight`/`expires`/`minScore` values and the current time, and writes it to `status.readiness`:
+
+- `score`, `minScore`, `passing`, `totalWeight`, `currentWeight`, `currentCount`, `expiredCount`
+- per check: derived `status` (`Current` / `Expired` / `Invalid`) and `daysRemaining`
+
+It also sets a single aggregate condition, **`ReadinessSatisfied`** (the gate: `score >= minScore`, where `minScore` defaults to 100):
+
+| Status | Reason | Meaning |
+|--------|--------|---------|
+| `True`  | `Satisfied`     | the readiness score meets `minScore` |
+| `False` | `BelowMinScore` | the score is below `minScore` (e.g. checks expired) |
+| `False` | `Invalid`       | a check has an unparseable expiry date |
+
+On gate transitions the operator emits events sparingly: a `Warning` / `ReadinessGateUnmet` when the gate first drops, and a `Normal` / `ReadinessRecovered` when it is met again. Readiness is a separate dimension — it never changes `ContractStatus`. Contracts that declare no readiness get neither `status.readiness` nor the condition.
 
 ---
 
@@ -91,14 +131,18 @@ Each check produces a structured condition on the CRD status with a type, status
 When `pacto dashboard` detects a Kubernetes cluster with the Pacto CRD installed, it uses the operator's status data as the **k8s** runtime source. This provides:
 
 - Live contract status (Compliant / Warning / NonCompliant / Reference / Unknown)
+- Derived readiness (score, per-check Current/Expired status) as a separate dimension
 - Reconciliation conditions with timestamps
 - Endpoint health and metrics reachability results
 - Resource existence checks (Service, Workload)
 - Port alignment details (expected vs. observed)
 - Observed runtime state (workload kind, strategy, images, storage)
+- Declared **configuration and policy content** — the operator extracts each scope's schema properties (and the policy schema's title/description) into status, so the dashboard renders config/policy details even for reference-only contracts with no OCI source available to it
 - Contract-vs-runtime comparison rows
 
-The dashboard also **automatically discovers OCI repositories** from the `resolvedRef` fields in Pacto CRD statuses. This means when the dashboard runs in Kubernetes (e.g., as a Deployment alongside the operator), it can load full contract bundles from OCI — providing version history, interface details, configuration schemas, and diffs — without needing explicit OCI arguments.
+The dashboard also **automatically discovers OCI repositories** from the `resolvedRef` fields in Pacto CRD statuses. This means when the dashboard runs in Kubernetes (e.g., as a Deployment alongside the operator), it can load full contract bundles from OCI — providing version history, interface details, and diffs — without needing explicit OCI arguments. Configuration and policy content is available directly from status (above), so it shows even when no OCI bundle can be reached.
+
+If those registries are unreachable or unauthenticated, OCI enrichment **degrades silently** to a k8s-only view: live runtime status, conditions, endpoints, and the status-provided config/policy content still render, but version history and cross-version diffs (which require materialized bundles) are unavailable until the registries become reachable.
 
 The result is a hybrid view: **runtime truth from the operator + contract truth from OCI**, merged in one place.
 

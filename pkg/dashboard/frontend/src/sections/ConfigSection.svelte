@@ -2,7 +2,7 @@
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import { serviceUrl } from '../lib/router.ts';
 
-  let { configs = [], open = $bindable(false), id = '' } = $props();
+  let { configs = [], open = $bindable(false), id = '', source = '' } = $props();
 
   let hasContent = $derived(configs?.length > 0);
   let expanded = $state({});
@@ -21,7 +21,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Configurations" count={configs.length} bind:open {id}>
+  <CollapsibleSection title="Configurations" count={configs.length} bind:open {id} {source}>
     {#each configs as config, i}
       <div class="detail-card">
         <button type="button" class="detail-card-header" class:expandable={hasDetails(config)} onclick={() => hasDetails(config) && toggle(i)}>
@@ -31,7 +31,8 @@
                 <svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </span>
             {/if}
-            <span class="pill {config.ref ? 'pill-ref' : 'pill-local'}">{config.ref ? 'Remote' : 'Local'}</span>
+            <span class="pill {config.ref ? 'pill-ref' : 'pill-local'}"
+              data-tip={config.ref ? 'Schema referenced from another bundle' : 'Schema defined in this bundle'}>{config.ref ? 'Referenced' : 'In-bundle'}</span>
             <span class="detail-card-title">{config.name}</span>
             {#if config.schema}
               <code class="detail-card-sub">{config.schema}</code>

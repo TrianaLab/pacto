@@ -2,8 +2,8 @@ package oci_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -218,8 +218,9 @@ func TestClient_ListTags_InvalidRepo(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid repository")
 	}
-	if !strings.Contains(err.Error(), "invalid repository") {
-		t.Errorf("error = %q, want to contain %q", err.Error(), "invalid repository")
+	var refErr *oci.InvalidRefError
+	if !errors.As(err, &refErr) {
+		t.Errorf("error = %v, want *oci.InvalidRefError", err)
 	}
 }
 

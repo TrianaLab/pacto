@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { navigate, serviceUrl, diffUrl, ownerUrl } from '../lib/router.ts';
-  import { statusClass, complianceClass, classificationClass, sourceTooltip, versionPolicyLabel, versionPolicyClass, ownerDisplay, ownerKey, ownerIsStructured } from '../lib/format.ts';
+  import { statusClass, complianceClass, classificationClass, sourceTooltip, versionPolicyLabel, versionPolicyClass, ownerDisplay, ownerKey, ownerIsStructured, referencedDocPaths, paginate } from '../lib/format.ts';
   import { compareDiffUrl } from '../lib/router.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
 
@@ -11,6 +11,10 @@
   import DependenciesSection from '../sections/DependenciesSection.svelte';
   import ConfigSection from '../sections/ConfigSection.svelte';
   import PolicySection from '../sections/PolicySection.svelte';
+  import ReadinessSection from '../sections/ReadinessSection.svelte';
+  import DocsSection from '../sections/DocsSection.svelte';
+  import SectionState from '../sections/SectionState.svelte';
+  import SourcesPanel from '../sections/SourcesPanel.svelte';
   import ValidationSection from '../sections/ValidationSection.svelte';
   import RuntimeDiffSection from '../sections/RuntimeDiffSection.svelte';
   import ObservedRuntimeSection from '../sections/ObservedRuntimeSection.svelte';
@@ -23,9 +27,47 @@
   let versions = $state([]);
   let dependents = $state([]);
   let crossRefs = $state(null);
+  // Distinguish "failed to load" from "empty" for the secondary fetches so the
+  // sections render an explicit error/retry instead of silently disappearing.
+  let versionsError = $state(false);
+  let depsError = $state(false);
+
+  // Stable, ordered domain sections. `key` maps into detail.sectionMeta so each
+  // section reports present / empty / not_applicable / unavailable consistently.
+  const DOMAIN_SECTIONS = [
+    { id: 'interfaces', label: 'Interfaces', key: 'interfaces' },
+    { id: 'dependencies', label: 'Dependencies', key: 'dependencies' },
+    { id: 'config', label: 'Configurations', key: 'configurations' },
+    { id: 'policy', label: 'Policies', key: 'policies' },
+    { id: 'readiness', label: 'Readiness', key: 'readiness' },
+    { id: 'docs', label: 'Documentation', key: 'docs' },
+    { id: 'validation', label: 'Validation', key: 'validation' },
+    { id: 'runtimeDiff', label: 'Contract vs Runtime', key: 'runtimeDiff' },
+    { id: 'observed', label: 'Observed Runtime', key: 'observedRuntime' },
+  ];
+
+  function sectionState(key) {
+    return detail?.sectionMeta?.[key] ?? { state: 'present' };
+  }
+  function isPresent(key) {
+    return sectionState(key).state === 'present';
+  }
+  // Dependencies has extra client-side inputs (dependents/cross-refs) beyond the
+  // contract's own deps, so its presence is computed across all three.
+  let hasDependencyData = $derived(
+    isPresent('dependencies') ||
+    (dependents?.length > 0) ||
+    (crossRefs?.references?.length > 0) ||
+    (crossRefs?.referencedBy?.length > 0),
+  );
   let graphData = $state(null);
   let resolving = $state(false);
   let resolveError = $state(null);
+
+  // Version history pagination
+  const VERSIONS_PER_PAGE = 10;
+  let versionsPage = $state(1);
+  let pagedVersions = $derived(paginate(versions || [], versionsPage, VERSIONS_PER_PAGE));
 
   // Inline version diff
   let diffExpandedVer = $state(null);
@@ -52,8 +94,8 @@
 
   // Section open states
   let openSections = $state({
-    overview: true, interfaces: true, dependencies: true,
-    config: false, policy: false, validation: false,
+    overview: true, sources: false, interfaces: true, dependencies: true,
+    config: false, policy: false, readiness: false, docs: false, validation: false,
     runtimeDiff: false, observed: false,
   });
 
@@ -64,20 +106,13 @@
     const s = detail?.sources || [];
     return s.length ? s : detail?.source ? [detail.source] : [];
   });
+  // Stable section list: the same sections always appear (each self-explains its
+  // state) so nothing silently appears/disappears between services or reloads.
   let availableSections = $derived.by(() => {
     if (!detail) return [];
-    const sections = [];
-    sections.push({ id: 'overview', label: 'Overview' });
-    if (detail.interfaces?.length > 0) sections.push({ id: 'interfaces', label: 'Interfaces' });
-    if (detail.dependencies?.length > 0 || dependents.length > 0 || crossRefs)
-      sections.push({ id: 'dependencies', label: 'Dependencies' });
-    if (detail.configurations?.length > 0) sections.push({ id: 'config', label: 'Configurations' });
-    if (detail.policies?.length > 0) sections.push({ id: 'policy', label: 'Policies' });
-    if ((detail.validation?.errors?.length > 0) || (detail.validation?.warnings?.length > 0))
-      sections.push({ id: 'validation', label: 'Validation' });
-    if (detail.runtimeDiff?.length > 0) sections.push({ id: 'runtimeDiff', label: 'Contract vs Runtime' });
-    if (detail.observedRuntime) sections.push({ id: 'observed', label: 'Observed Runtime' });
-    if (versions?.length > 0) sections.push({ id: 'versions', label: 'Versions' });
+    const sections = [{ id: 'overview', label: 'Overview' }, { id: 'sources', label: 'Sources' }];
+    for (const s of DOMAIN_SECTIONS) sections.push({ id: s.id, label: s.label });
+    if (versions?.length > 0 || versionsError) sections.push({ id: 'versions', label: 'Versions' });
     return sections;
   });
 
@@ -89,12 +124,15 @@
       detail = await api.service(name);
       loading = false;
 
+      versionsError = false;
+      depsError = false;
       const [vers, deps, refs] = await Promise.all([
-        api.versions(name).catch(() => []),
-        api.dependents(name).catch(() => []),
-        api.crossRefs(name).catch(() => null),
+        api.versions(name).catch(() => { versionsError = true; return []; }),
+        api.dependents(name).catch(() => { depsError = true; return []; }),
+        api.crossRefs(name).catch(() => { depsError = true; return null; }),
       ]);
       versions = vers || [];
+      versionsPage = 1;
       dependents = deps || [];
       crossRefs = refs;
 
@@ -105,6 +143,16 @@
     } catch (e) {
       error = e.message;
       loading = false;
+    }
+  }
+
+  async function retryVersions() {
+    versionsError = false;
+    try {
+      versions = (await api.versions(name)) || [];
+      versionsPage = 1;
+    } catch {
+      versionsError = true;
     }
   }
 
@@ -147,16 +195,21 @@
 
   async function reload() {
     try {
+      // Background refresh (runs every poll tick). A transient failure on a
+      // secondary fetch must NOT clobber good data with empty — keep the stale
+      // value and surface failed!=empty, matching load(). (Sentinel marks a
+      // failed fetch so we can skip the overwrite.)
+      const FAILED = Symbol('failed');
       const [svc, vers, deps, refs] = await Promise.all([
         api.service(name),
-        api.versions(name).catch(() => []),
-        api.dependents(name).catch(() => []),
-        api.crossRefs(name).catch(() => null),
+        api.versions(name).catch(() => FAILED),
+        api.dependents(name).catch(() => FAILED),
+        api.crossRefs(name).catch(() => FAILED),
       ]);
       detail = svc;
-      versions = vers || [];
-      dependents = deps || [];
-      crossRefs = refs;
+      if (vers !== FAILED) { versions = vers || []; versionsError = false; } else { versionsError = true; }
+      if (deps !== FAILED) { dependents = deps || []; } else { depsError = true; }
+      if (refs !== FAILED) { crossRefs = refs; } else { depsError = true; }
     } catch {
       // keep stale data on background refresh
     }
@@ -202,8 +255,14 @@
   <header class="detail-header fade-in-up">
     <div class="detail-title-row">
       <h1>{detail.name}</h1>
-      <span class="badge badge-{statusClass(detail.contractStatus)}"><span class="badge-dot"></span>{detail.contractStatus}</span>
-      {#if detail.compliance}
+      {#if detail.runtimeEvaluated}
+        <span class="badge badge-{statusClass(detail.contractStatus)}"><span class="badge-dot"></span>{detail.contractStatus}</span>
+      {:else}
+        <span class="badge badge-definition" data-tip="No cluster runtime data for this view — showing the contract definition only (runtime status unknown)">
+          <span class="badge-dot"></span>Definition only
+        </span>
+      {/if}
+      {#if detail.runtimeEvaluated && detail.compliance}
         {#if detail.compliance.score != null}
           <span class="score {complianceClass(detail.compliance.score)}">{detail.compliance.score}%</span>
         {/if}
@@ -214,7 +273,7 @@
           <span class="badge badge-warn">{detail.compliance.summary.warnings} warning{detail.compliance.summary.warnings > 1 ? 's' : ''}</span>
         {/if}
       {/if}
-      {#if detail.checksSummary}
+      {#if detail.checksSummary && detail.runtimeEvaluated && detail.contractStatus !== 'Reference'}
         <span class="text-2">{detail.checksSummary.passed}/{detail.checksSummary.total} checks</span>
       {/if}
       {#if blastRadius > 0}
@@ -226,20 +285,28 @@
     </div>
     <div class="detail-meta">
       {#if detail.version}<span class="pill">{detail.version}</span>{/if}
-      {#if detail.versionPolicy}
-        <span class="pill pill-policy {versionPolicyClass(detail.versionPolicy)}" data-tip={detail.resolvedRef || ''}>{versionPolicyLabel(detail.versionPolicy)}</span>
+      {#if detail.sectionMeta?.version?.overriddenBy === 'k8s'}
+        <span class="pill pill-override" data-tip="Effective deployed version from the cluster — differs from the contract-declared version">via cluster</span>
       {/if}
-      {#if detail.updateAvailable && detail.latestAvailable}
-        <span class="pill pill-update" data-tip="Informational — does not affect compliance">
-          {detail.latestAvailable} available
-        </span>
-        <a href={compareDiffUrl({ fromName: name, fromVer: detail.version, toName: name, toVer: detail.latestAvailable })} class="btn btn-sm btn-update">Compare</a>
+      {#if detail.contractStatus !== 'Reference'}
+        {#if detail.versionPolicy}
+          <span class="pill pill-policy {versionPolicyClass(detail.versionPolicy)}" data-tip={detail.resolvedRef || ''}>{versionPolicyLabel(detail.versionPolicy)}</span>
+        {/if}
+        {#if detail.updateAvailable && detail.latestAvailable}
+          <span class="pill pill-update" data-tip="Informational — does not affect compliance">
+            {detail.latestAvailable} available
+          </span>
+          <a href={compareDiffUrl({ fromName: name, fromVer: detail.version, toName: name, toVer: detail.latestAvailable })} class="btn btn-sm btn-update">Compare</a>
+        {/if}
       {/if}
       {#each sources as src}
         <span class="source-dot source-dot-{src}" data-tip={sourceTooltip(src)}></span>
       {/each}
       {#if ownerDisplay(detail.owner)}
         <a href={ownerUrl(ownerKey(detail.owner))} class="text-2 owner-link">owner: {ownerDisplay(detail.owner)}</a>
+        {#if detail.sectionMeta?.owner?.overriddenBy === 'k8s'}
+          <span class="pill pill-override" data-tip="Owner from the cluster — differs from the contract-declared owner">via cluster</span>
+        {/if}
         {#if ownerIsStructured(detail.owner) && detail.owner.dri}
           <span class="text-3">dri: {detail.owner.dri}</span>
         {/if}
@@ -310,62 +377,92 @@
     runtime={detail.runtime}
     scaling={detail.scaling}
     metadata={detail.metadata}
+    source={detail.source || ''}
     bind:open={openSections.overview}
   />
 
-  <InterfacesSection
-    id="section-interfaces"
-    interfaces={detail.interfaces || []}
-    bind:open={openSections.interfaces}
-  />
+  <SourcesPanel id="section-sources" {name} bind:open={openSections.sources} />
 
-  <DependenciesSection
-    id="section-dependencies"
-    {name} {services} {graphData} {dependents} {crossRefs}
-    dependencies={detail.dependencies || []}
-    bind:open={openSections.dependencies}
-  />
+  {#if isPresent('interfaces')}
+    <InterfacesSection id="section-interfaces" interfaces={detail.interfaces || []} source={sectionState('interfaces').source} bind:open={openSections.interfaces} />
+  {:else}
+    <SectionState id="section-interfaces" title="Interfaces" meta={sectionState('interfaces')} bind:open={openSections.interfaces} />
+  {/if}
 
-  <ConfigSection
-    id="section-config"
-    configs={detail.configurations || []}
-    bind:open={openSections.config}
-  />
+  {#if hasDependencyData}
+    <DependenciesSection
+      id="section-dependencies"
+      {name} {services} {graphData} {dependents} {crossRefs}
+      dependencies={detail.dependencies || []}
+      source={sectionState('dependencies').source}
+      bind:open={openSections.dependencies}
+    />
+  {:else}
+    <SectionState id="section-dependencies" title="Dependencies"
+      meta={depsError ? { state: 'unavailable', reason: 'could not load dependents / references' } : sectionState('dependencies')}
+      onRetry={depsError ? load : null} bind:open={openSections.dependencies} />
+  {/if}
 
-  <PolicySection
-    id="section-policy"
-    policies={detail.policies || []}
-    bind:open={openSections.policy}
-  />
+  {#if isPresent('configurations')}
+    <ConfigSection id="section-config" configs={detail.configurations || []} source={sectionState('configurations').source} bind:open={openSections.config} />
+  {:else}
+    <SectionState id="section-config" title="Configurations" meta={sectionState('configurations')} bind:open={openSections.config} />
+  {/if}
 
-  <ValidationSection
-    id="section-validation"
-    validation={detail.validation}
-    conditions={detail.conditions || []}
-    bind:open={openSections.validation}
-  />
+  {#if isPresent('policies')}
+    <PolicySection id="section-policy" policies={detail.policies || []} source={sectionState('policies').source} bind:open={openSections.policy} />
+  {:else}
+    <SectionState id="section-policy" title="Policies" meta={sectionState('policies')} bind:open={openSections.policy} />
+  {/if}
 
-  <RuntimeDiffSection
-    id="section-runtimeDiff"
-    runtimeDiff={detail.runtimeDiff || []}
-    bind:open={openSections.runtimeDiff}
-  />
+  {#if isPresent('readiness')}
+    <ReadinessSection id="section-readiness" readiness={detail.readiness} docs={detail.docs || []} source={sectionState('readiness').source} bind:open={openSections.readiness} />
+  {:else}
+    <SectionState id="section-readiness" title="Readiness" meta={sectionState('readiness')} bind:open={openSections.readiness} />
+  {/if}
 
-  <ObservedRuntimeSection
-    id="section-observed"
-    observed={detail.observedRuntime}
-    bind:open={openSections.observed}
-  />
+  {#if isPresent('docs')}
+    <DocsSection id="section-docs" docs={detail.docs || []} referencedPaths={referencedDocPaths(detail.readiness)} source={sectionState('docs').source} bind:open={openSections.docs} />
+  {:else}
+    <SectionState id="section-docs" title="Documentation" meta={sectionState('docs')} bind:open={openSections.docs} />
+  {/if}
+
+  {#if isPresent('validation')}
+    <ValidationSection id="section-validation" validation={detail.validation} conditions={detail.conditions || []} source={sectionState('validation').source} bind:open={openSections.validation} />
+  {:else}
+    <SectionState id="section-validation" title="Validation" meta={sectionState('validation')} bind:open={openSections.validation} />
+  {/if}
+
+  {#if isPresent('runtimeDiff')}
+    <RuntimeDiffSection id="section-runtimeDiff" runtimeDiff={detail.runtimeDiff || []} source={sectionState('runtimeDiff').source} bind:open={openSections.runtimeDiff} />
+  {:else}
+    <SectionState id="section-runtimeDiff" title="Contract vs Runtime" meta={sectionState('runtimeDiff')} bind:open={openSections.runtimeDiff} />
+  {/if}
+
+  {#if isPresent('observedRuntime')}
+    <ObservedRuntimeSection id="section-observed" observed={detail.observedRuntime} source={sectionState('observedRuntime').source} bind:open={openSections.observed} />
+  {:else}
+    <SectionState id="section-observed" title="Observed Runtime" meta={sectionState('observedRuntime')} bind:open={openSections.observed} />
+  {/if}
 
   <!-- Version History -->
-  {#if versions?.length > 0}
+  {#if versionsError}
+    <section class="section" id="section-versions">
+      <div class="section-title">Version History</div>
+      <div class="section-state state-unavailable">
+        <span class="state-label">Couldn't load</span>
+        <span class="state-reason">version history could not be fetched</span>
+        <button type="button" class="state-retry" onclick={retryVersions}>Retry</button>
+      </div>
+    </section>
+  {:else if versions?.length > 0}
     <section class="section" id="section-versions">
       <div class="section-title">Version History <span class="tab-count">{versions.length}</span></div>
       <div class="table-wrap">
         <table>
           <thead><tr><th data-tip="Semver version tag">Version</th><th data-tip="Change impact vs previous version">Classification</th><th data-tip="Where this version was found">Source</th><th data-tip="When this version was published">Created</th><th data-tip="Compare this version against current">Compare</th></tr></thead>
           <tbody>
-            {#each versions as ver}
+            {#each pagedVersions.items as ver}
               <tr class:version-current={ver.isCurrent}>
                 <td><code>{ver.version}</code>{#if ver.isCurrent}<span class="badge badge-neutral" style="margin-left:6px;font-size:10px">current</span>{/if}</td>
                 <td>
@@ -411,12 +508,37 @@
           </tbody>
         </table>
       </div>
+      {#if pagedVersions.totalPages > 1}
+        <div class="pager">
+          <button type="button" class="btn btn-sm" disabled={pagedVersions.page <= 1}
+            onclick={() => { versionsPage = pagedVersions.page - 1; }} aria-label="Previous page">‹ Prev</button>
+          <span class="pager-info text-3">
+            Page {pagedVersions.page} of {pagedVersions.totalPages}
+            <span class="text-3">· {pagedVersions.total} versions</span>
+          </span>
+          <button type="button" class="btn btn-sm" disabled={pagedVersions.page >= pagedVersions.totalPages}
+            onclick={() => { versionsPage = pagedVersions.page + 1; }} aria-label="Next page">Next ›</button>
+        </div>
+      {/if}
     </section>
   {/if}
 
 {/if}
 
 <style>
+  .section-state {
+    display: flex; align-items: center; gap: var(--sp-2);
+    padding: var(--sp-3); border: 1px solid var(--c-warn);
+    border-radius: var(--radius-sm); font-size: var(--text-sm);
+  }
+  .section-state .state-label { font-weight: 600; color: var(--c-warn); }
+  .section-state .state-reason { color: var(--c-text-2); }
+  .section-state .state-retry {
+    margin-left: auto; background: none; border: 1px solid var(--c-border);
+    border-radius: var(--radius-xs); color: var(--c-accent); font: inherit;
+    padding: 4px 10px; cursor: pointer;
+  }
+  .section-state .state-retry:hover { background: var(--c-surface-hover, var(--c-surface-inset)); }
   .breadcrumb {
     font-size: var(--text-sm); margin-bottom: var(--sp-4);
     color: var(--c-text-3); display: flex; align-items: center; gap: 6px;
@@ -484,6 +606,10 @@
 
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); }
+  .pill-override {
+    background: rgba(59, 130, 246, 0.12); color: #2563eb;
+    font-size: var(--text-xs); font-weight: 500;
+  }
   .owner-link { text-decoration: none; }
   .owner-link:hover { text-decoration: underline; color: var(--c-text); }
   .text-err { color: var(--c-err); font-size: var(--text-xs); }
@@ -531,6 +657,13 @@
   .version-current {
     background: var(--c-surface-hover);
   }
+
+  .pager {
+    display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+    margin-top: 10px;
+  }
+  .pager-info { font-size: var(--text-xs); }
+  .pager .btn[disabled] { opacity: 0.4; cursor: default; }
 
   .detail-ref {
     word-break: break-all;

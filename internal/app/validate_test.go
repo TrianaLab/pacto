@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/pkg/contract"
 )
@@ -29,6 +32,119 @@ func TestValidate_LocalInvalid(t *testing.T) {
 	}
 	if result.Valid {
 		t.Error("expected invalid result")
+	}
+}
+
+func TestValidate_ReadinessValid(t *testing.T) {
+	dir := writeReadinessBundle(t)
+	svc := NewService(nil, nil)
+	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Valid {
+		t.Errorf("expected valid readiness contract, got errors: %v", result.Errors)
+	}
+}
+
+func TestValidate_ReadinessDuplicateID(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`pactoVersion: "1.1"
+service:
+  name: payment-api
+  version: "1.4.0"
+readiness:
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://x
+      weight: 50
+      expires: "2026-12-31"
+    - id: dashboard
+      type: url
+      evidence: https://y
+      weight: 50
+      expires: "2026-12-31"
+`)
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(nil, nil)
+	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("expected invalid result for duplicate readiness id")
+	}
+	found := false
+	for _, e := range result.Errors {
+		if e.Code == "DUPLICATE_READINESS_ID" && e.Path == "readiness.checks[1].id" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected DUPLICATE_READINESS_ID at readiness.checks[1].id, got %v", result.Errors)
+	}
+}
+
+func TestValidate_ReadinessGate_FailsWhenStale(t *testing.T) {
+	pinTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)) // security-review (2026-01-15) expired
+	dir := writeReadinessBundle(t)
+	svc := NewService(nil, nil)
+	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir, Readiness: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("expected --readiness gate to fail on a stale contract")
+	}
+	found := false
+	for _, e := range result.Errors {
+		if e.Code == "READINESS_GATE_UNMET" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected READINESS_GATE_UNMET, got %v", result.Errors)
+	}
+}
+
+func TestValidate_ReadinessGate_PassesWhenCurrent(t *testing.T) {
+	pinTime(t, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)) // both checks still current
+	dir := writeReadinessBundle(t)
+	svc := NewService(nil, nil)
+	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir, Readiness: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Valid {
+		t.Errorf("expected gate to pass when all current, got errors: %v", result.Errors)
+	}
+}
+
+func TestValidate_ReadinessGate_OffByDefault(t *testing.T) {
+	pinTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)) // stale, but gate not requested
+	dir := writeReadinessBundle(t)
+	svc := NewService(nil, nil)
+	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Valid {
+		t.Errorf("expected valid without --readiness (gate off), got errors: %v", result.Errors)
+	}
+}
+
+func TestValidate_ReadinessGate_NoReadinessDeclared(t *testing.T) {
+	dir := writeTestBundle(t) // no readiness section
+	svc := NewService(nil, nil)
+	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir, Readiness: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Valid {
+		t.Errorf("expected valid when no readiness declared, got errors: %v", result.Errors)
 	}
 }
 

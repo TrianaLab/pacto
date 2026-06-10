@@ -49,13 +49,17 @@ func NewCachedStore(inner BundleStore) *CachedStore {
 }
 
 // DisableCache skips reading from the disk cache (cold-start mode) and clears
-// the in-memory cache. Disk writes remain enabled so that same-session pulls
-// (e.g. fetch-all-versions) are still persisted and available for enrichment.
+// the in-memory caches (both pulled bundles and listed tags). Disk writes
+// remain enabled so that same-session pulls (e.g. fetch-all-versions) are still
+// persisted and available for enrichment.
 func (c *CachedStore) DisableCache() {
 	c.skipDiskReads = true
 	c.pullMu.Lock()
 	c.pullCache = map[string]*contract.Bundle{}
 	c.pullMu.Unlock()
+	c.tagsMu.Lock()
+	c.tagsCache = map[string][]string{}
+	c.tagsMu.Unlock()
 }
 
 // CacheDir returns the resolved on-disk cache directory (e.g. ~/.cache/pacto/oci).

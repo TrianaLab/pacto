@@ -307,6 +307,38 @@ func TestK8s_serviceDetailsFromK8sStatus_Comprehensive(t *testing.T) {
 	assertDetailsEndpoints(t, d)
 	assertDetailsInsights(t, d)
 	assertDetailsChecksSummary(t, d)
+	assertDetailsReadiness(t, d)
+}
+
+func assertDetailsReadiness(t *testing.T, d *ServiceDetails) {
+	t.Helper()
+	if d.Readiness == nil {
+		t.Fatal("expected readiness")
+	}
+	if d.Readiness.Score != 60 || d.Readiness.TotalWeight != 100 || d.Readiness.CurrentWeight != 60 {
+		t.Errorf("readiness summary mismatch: %+v", d.Readiness)
+	}
+	if d.Readiness.MinScore != 80 || d.Readiness.Passing {
+		t.Errorf("expected minScore 80 and not passing, got minScore=%d passing=%v", d.Readiness.MinScore, d.Readiness.Passing)
+	}
+	if d.Readiness.ExpiredCount != 1 || d.Readiness.InvalidCount != 1 {
+		t.Errorf("readiness counts mismatch: %+v", d.Readiness)
+	}
+	if len(d.Readiness.Checks) != 3 {
+		t.Fatalf("expected 3 readiness checks, got %d", len(d.Readiness.Checks))
+	}
+	if d.Readiness.Checks[0].Status != "Current" || d.Readiness.Checks[0].DaysRemaining == nil {
+		t.Errorf("expected first check Current with daysRemaining, got %+v", d.Readiness.Checks[0])
+	}
+	if d.Readiness.Checks[1].Status != "Expired" || d.Readiness.Checks[1].DaysRemaining != nil {
+		t.Errorf("expected second check Expired without daysRemaining, got %+v", d.Readiness.Checks[1])
+	}
+}
+
+func TestK8s_readinessFromK8s_Nil(t *testing.T) {
+	if got := readinessFromK8s(nil); got != nil {
+		t.Errorf("expected nil for nil readiness, got %+v", got)
+	}
 }
 
 func assertDetailsServiceFields(t *testing.T, d *ServiceDetails) {
@@ -530,6 +562,15 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	r.Status.Dependencies = flexSlice[k8sDependency]{{Name: "auth", Ref: "auth@^1.0.0", Required: true, Compatibility: "strict"}}
 	r.Status.Runtime = &k8sRuntime{Workload: "service", StateType: "stateless", PersistenceScope: "none", PersistenceDurability: "ephemeral", DataCriticality: "low", UpgradeStrategy: "rolling", GracefulShutdownSeconds: &graceful, HealthInterface: "http", HealthPath: "/healthz", MetricsInterface: "http", MetricsPath: "/metrics"}
 	r.Status.Scaling = &k8sScaling{Replicas: &replicas, Min: &minR, Max: &maxR}
+	days := int32(206)
+	r.Status.Readiness = &k8sReadiness{
+		Score: 60, MinScore: 80, Passing: false, TotalWeight: 100, CurrentWeight: 60, CurrentCount: 1, ExpiredCount: 1,
+		Checks: flexSlice[k8sReadinessCheck]{
+			{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 60, Expires: "2026-12-31", Status: "Current", DaysRemaining: &days},
+			{ID: "security-review", Type: "ticket", Evidence: "SEC-1", Weight: 25, Expires: "2026-01-15", Status: "Expired"},
+			{ID: "bad", Type: "url", Evidence: "https://y", Weight: 15, Expires: "not-a-date", Status: "Invalid"},
+		},
+	}
 	r.Status.Validation = &k8sValidation{Valid: false, Errors: []k8sIssue{{Code: "E001", Path: "/service/name", Message: "name is required"}}, Warnings: []k8sIssue{{Code: "W001", Path: "/runtime", Message: "deprecated field"}}}
 	r.Status.Resources = &k8sResources{Service: &k8sResourceStatus{Exists: true}, Workload: &k8sResourceStatus{Exists: false}}
 	r.Status.Ports = &k8sPorts{Expected: []int{8080}, Observed: []int{8080, 9090}, Missing: nil, Unexpected: []int{9090}}
@@ -540,6 +581,49 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	r.Status.Summary = &k8sSummary{Total: 10, Passed: 8, Failed: 2}
 
 	return serviceDetailsFromK8sStatus(r)
+}
+
+func TestK8s_serviceDetailsFromK8sStatus_ConfigPolicyContent(t *testing.T) {
+	r := &pactoResource{}
+	r.Metadata.Name = "redis"
+	r.Status.ContractStatus = "Reference"
+	r.Status.Configurations = flexSlice[k8sConfig]{{
+		Name:      "provisioning",
+		HasSchema: true,
+		Properties: []k8sSchemaProperty{
+			{Key: "maxMemory", Value: "256mb", Type: "string"},
+			{Key: "evictionPolicy", Value: "(any)", Type: "string"},
+		},
+	}}
+	r.Status.Policies = flexSlice[k8sPolicy]{{
+		Name:        "redis",
+		HasSchema:   true,
+		Schema:      "policy/schema.json",
+		Title:       "Redis Policy",
+		Description: "Redis hardening rules",
+		Properties: []k8sSchemaProperty{
+			{Key: "tlsRequired", Value: "true", Type: "boolean"},
+		},
+	}}
+
+	d := serviceDetailsFromK8sStatus(r)
+
+	if len(d.Configurations) != 1 || len(d.Configurations[0].Values) != 2 {
+		t.Fatalf("expected config with 2 values, got %+v", d.Configurations)
+	}
+	if d.Configurations[0].Values[0].Key != "maxMemory" || d.Configurations[0].Values[0].Value != "256mb" {
+		t.Errorf("config value mismatch: %+v", d.Configurations[0].Values)
+	}
+	if len(d.Policies) != 1 {
+		t.Fatalf("expected 1 policy, got %d", len(d.Policies))
+	}
+	pol := d.Policies[0]
+	if pol.Title != "Redis Policy" || pol.Description != "Redis hardening rules" {
+		t.Errorf("policy meta mismatch: %+v", pol)
+	}
+	if len(pol.Values) != 1 || pol.Values[0].Key != "tlsRequired" || pol.Values[0].Type != "boolean" {
+		t.Errorf("policy values mismatch: %+v", pol.Values)
+	}
 }
 
 func TestK8s_serviceDetailsFromK8sStatus_ResolutionPolicy(t *testing.T) {
@@ -1352,35 +1436,7 @@ func TestK8s_GetVersions_ListError(t *testing.T) {
 	}
 }
 
-func TestCompareSemverDesc(t *testing.T) {
-	tests := []struct {
-		a, b string
-		want bool
-	}{
-		{"2.0.0", "1.0.0", true},
-		{"1.0.0", "2.0.0", false},
-		{"1.1.0", "1.0.0", true},
-		{"1.0.1", "1.0.0", true},
-		{"1.0.0", "1.0.0", false},
-		{"v2.0.0", "v1.0.0", true},
-		{"abc", "xyz", false},             // non-semver: lexicographic
-		{"xyz", "abc", true},              // non-semver: lexicographic
-		{"1.0.0-rc1", "1.0.0-rc2", false}, // pre-release stripped from patch
-	}
-	for _, tt := range tests {
-		got := compareSemverDesc(tt.a, tt.b)
-		if got != tt.want {
-			t.Errorf("compareSemverDesc(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
-		}
-	}
-}
-
-func TestParseSemverParts_NonNumericPatch(t *testing.T) {
-	// "1.0.abc" has a non-numeric patch — should return nil.
-	if parts := parseSemverParts("1.0.abc"); parts != nil {
-		t.Errorf("expected nil for non-numeric patch, got %v", parts)
-	}
-}
+// Semver ordering is now tested in pkg/semver (shared with the CLI resolver).
 
 func TestListRevisions_InvalidJSON(t *testing.T) {
 	client := &mockK8sClient{

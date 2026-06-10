@@ -56,17 +56,28 @@ make docker-run
 
 All `PACTO_DASHBOARD_*` variables map to the corresponding `--host`, `--port`, `--namespace`, and `--diagnostics` CLI flags. OCI repositories can be passed as `oci://` positional arguments on the CLI; in the container, use the comma-separated `PACTO_DASHBOARD_REPO` env var instead.
 
+> **Note:** `PACTO_CACHE_DIR` is an **environment variable only** — there is no `--cache-dir` flag. When it is unset, the dashboard resolves the cache directory from the bundle store's `CacheDir()` (defaulting to `~/.cache/pacto/oci`).
+
 ## Data Sources
 
 The dashboard auto-detects available data sources at startup:
 
 - **oci**: Enabled when `PACTO_DASHBOARD_REPO` is set, or **automatically discovered from K8s `resolvedRef` fields** when the Kubernetes source is active. Scans OCI registries for published contracts — providing full contract bundles, version history, interfaces, and diffs. Materialized bundles on disk (`/home/pacto/.cache/pacto/oci/`) are used internally by the OCI source to enrich version data without appearing as a separate source.
+- **cache**: The on-disk OCI cache (`~/.cache/pacto/oci/`) is **internal to the OCI source** and normally stays hidden. It surfaces as a distinct `cache` source **only** when no live registry is reachable **and** the cache already has entries — an offline baseline of previously pulled bundles. When both a live registry and the cache hold data, **OCI takes priority** and the cache remains internal.
 - **k8s**: Enabled when a valid kubeconfig is mounted or when running inside a Kubernetes cluster (in-cluster config). Provides runtime state from the [Pacto operator](operator.md).
 - **local**: Enabled when a `pacto.yaml` is found in the working directory (mount via volume).
 
 ### Kubernetes + OCI hybrid mode
 
 When deployed alongside the Pacto operator in Kubernetes, the dashboard automatically discovers OCI repositories from the `resolvedRef` fields in Pacto CRD statuses — no `PACTO_DASHBOARD_REPO` needed. This creates a hybrid view: **runtime truth from the operator + contract truth from OCI**, giving you version history, interface details, configuration schemas, and diffs for every service the operator manages.
+
+**Prerequisites.** Hybrid mode only activates when all of the following hold:
+
+- A mounted kubeconfig **or** in-cluster config so the Kubernetes source is active.
+- The Pacto operator is running and has populated `status.resolvedRef` on the Pacto resources to discover.
+- The discovered registries are reachable and (for private repositories) authenticated via `PACTO_REGISTRY_*` credentials.
+
+If any prerequisite is missing — no `resolvedRef`, an unreachable registry, or missing credentials — the dashboard **silently degrades to k8s-only**: it still shows runtime state from the operator, but without the OCI-backed version history, interfaces, schemas, and diffs.
 
 ### Kubernetes Source
 

@@ -433,8 +433,28 @@ func TestServerGetCrossRefs_NotInIndex(t *testing.T) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 (empty refs), got %d", resp.StatusCode)
+	// A nonexistent service is a 404, consistent with the graph endpoint.
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for nonexistent service, got %d", resp.StatusCode)
+	}
+}
+
+func TestServerGetDependents_NotFound(t *testing.T) {
+	source := &mockSource{
+		services: []Service{},
+		details:  map[string]*ServiceDetails{},
+	}
+	base := startTestServer(t, source)
+
+	resp, err := http.Get(base + "/api/services/nonexistent/dependents")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	// A nonexistent service is a 404, consistent with the graph endpoint.
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for nonexistent service, got %d", resp.StatusCode)
 	}
 }
 
@@ -931,6 +951,7 @@ type errorSource struct {
 	listErr    error
 	versionErr map[string]error
 	diffErr    bool
+	diffErrVal error
 }
 
 func (e *errorSource) ListServices(_ context.Context) ([]Service, error) {
@@ -957,6 +978,9 @@ func (e *errorSource) GetVersions(_ context.Context, name string) ([]Version, er
 }
 
 func (e *errorSource) GetDiff(_ context.Context, _, _ Ref) (*DiffResult, error) {
+	if e.diffErrVal != nil {
+		return nil, e.diffErrVal
+	}
 	if e.diffErr {
 		return nil, fmt.Errorf("diff failed")
 	}
@@ -991,21 +1015,36 @@ func TestServerGetVersions_Error(t *testing.T) {
 }
 
 func TestServerGetDiff_Error(t *testing.T) {
-	source := &errorSource{
-		services: []Service{{Name: "svc", Version: "1.0.0"}},
-		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc"}}},
-		diffErr:  true,
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"generic upstream", fmt.Errorf("diff failed"), http.StatusBadGateway},
+		{"no bundle data", fmt.Errorf("diff requires contract bundle data (not available for %q)", "svc"), http.StatusUnprocessableEntity},
+		{"invalid ref", &oci.InvalidRefError{Ref: "x"}, http.StatusUnprocessableEntity},
+		{"no matching version", &oci.NoMatchingVersionError{Ref: "x"}, http.StatusUnprocessableEntity},
+		{"invalid bundle", &oci.InvalidBundleError{Ref: "x"}, http.StatusUnprocessableEntity},
+		{"auth", &oci.AuthenticationError{Ref: "x"}, http.StatusForbidden},
+		{"not found", &oci.ArtifactNotFoundError{Ref: "x"}, http.StatusNotFound},
 	}
-	base := startTestServer(t, source)
-
-	resp, err := http.Get(base + "/api/diff?from_name=svc&from_version=1.0.0&to_name=svc&to_version=2.0.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", resp.StatusCode)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			source := &errorSource{
+				services:   []Service{{Name: "svc", Version: "1.0.0"}},
+				details:    map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc"}}},
+				diffErrVal: tc.err,
+			}
+			base := startTestServer(t, source)
+			resp, err := http.Get(base + "/api/diff?from_name=svc&from_version=1.0.0&to_name=svc&to_version=2.0.0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close() //nolint:errcheck
+			if resp.StatusCode != tc.want {
+				t.Fatalf("%s: expected %d, got %d", tc.name, tc.want, resp.StatusCode)
+			}
+		})
 	}
 }
 

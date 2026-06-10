@@ -10,8 +10,50 @@ type Contract struct {
 	Dependencies   []Dependency           `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
 	Runtime        *Runtime               `yaml:"runtime,omitempty" json:"runtime,omitempty"`
 	Scaling        *Scaling               `yaml:"scaling,omitempty" json:"scaling,omitempty"`
+	Readiness      *Readiness             `yaml:"readiness,omitempty" json:"readiness,omitempty"`
 	Metadata       map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
+
+// Readiness declares operational readiness evidence for the service.
+// It is an optional, provider-neutral section introduced in pactoVersion 1.1.
+// Each check points at evidence (a dashboard, runbook, ticket, report, etc.)
+// without Pacto verifying the target content.
+type Readiness struct {
+	// MinScore is the gate: the derived readiness score must be >= this value for
+	// the contract to be considered ready. It is on the same 0..100 scale as the
+	// score. Omitted means 100 (every weighted check must be current); set lower to
+	// tolerate staleness. Enforced by `pacto validate --readiness` and the operator.
+	MinScore *int             `yaml:"minScore,omitempty" json:"minScore,omitempty"`
+	Checks   []ReadinessCheck `yaml:"checks,omitempty" json:"checks,omitempty"`
+}
+
+// ReadinessCheck is a single declared readiness requirement.
+// ID identifies the organizational requirement (e.g. dashboard, runbook),
+// Type classifies the evidence pointer, Evidence is the pointer itself,
+// Weight contributes to the readiness score, and Expires bounds freshness.
+// The service owner is declared at the contract level, so readiness checks
+// deliberately carry no per-check owner.
+type ReadinessCheck struct {
+	ID          string `yaml:"id" json:"id"`
+	Type        string `yaml:"type" json:"type"`
+	Evidence    string `yaml:"evidence" json:"evidence"`
+	Weight      int    `yaml:"weight" json:"weight"`
+	Expires     string `yaml:"expires" json:"expires"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+}
+
+// Evidence type constants for ReadinessCheck.Type. These classify the kind of
+// evidence pointer, not the organizational requirement (which is the ID).
+// "other" exists for forward compatibility.
+const (
+	EvidenceTypeURL        = "url"
+	EvidenceTypeDocument   = "document"
+	EvidenceTypeTicket     = "ticket"
+	EvidenceTypeReport     = "report"
+	EvidenceTypeArtifact   = "artifact"
+	EvidenceTypeIdentifier = "identifier"
+	EvidenceTypeOther      = "other"
+)
 
 // ServiceIdentity holds service identification fields.
 type ServiceIdentity struct {

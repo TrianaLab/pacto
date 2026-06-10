@@ -2,7 +2,7 @@
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import { serviceUrl } from '../lib/router.ts';
 
-  let { policies = [], open = $bindable(false), id = '' } = $props();
+  let { policies = [], open = $bindable(false), id = '', source = '' } = $props();
 
   let hasContent = $derived(policies?.length > 0);
   let expanded = $state({});
@@ -17,7 +17,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Policies" count={policies.length} bind:open {id}>
+  <CollapsibleSection title="Policies" count={policies.length} bind:open {id} {source}>
     {#each policies as pol, i}
       <div class="detail-card">
         <button type="button" class="detail-card-header" class:expandable={pol.values?.length > 0} onclick={() => pol.values?.length > 0 && toggle(i)}>
@@ -27,7 +27,8 @@
                 <svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </span>
             {/if}
-            <span class="pill {pol.ref ? 'pill-ref' : 'pill-local'}">{pol.ref ? 'Remote' : 'Local'}</span>
+            <span class="pill {pol.ref ? 'pill-ref' : 'pill-local'}"
+              data-tip={pol.ref ? 'Schema referenced from another bundle' : 'Schema defined in this bundle'}>{pol.ref ? 'Referenced' : 'In-bundle'}</span>
             <span class="detail-card-title">{pol.name}</span>
             {#if pol.title && pol.title !== pol.name}
               <span class="detail-card-sub">{pol.title}</span>

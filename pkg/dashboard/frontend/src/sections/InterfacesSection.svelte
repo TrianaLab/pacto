@@ -2,7 +2,7 @@
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import { methodClass } from '../lib/format.ts';
 
-  let { interfaces = [], open = $bindable(true), id = '' } = $props();
+  let { interfaces = [], open = $bindable(true), id = '', source = '' } = $props();
 
   let expanded = $state({});
 
@@ -16,7 +16,7 @@
 </script>
 
 {#if interfaces?.length > 0}
-  <CollapsibleSection title="Interfaces" count={interfaces.length} bind:open {id}>
+  <CollapsibleSection title="Interfaces" count={interfaces.length} bind:open {id} {source}>
     {#each interfaces as iface, i}
       <div class="detail-card">
         <button type="button" class="detail-card-header" class:expandable={hasDetails(iface)} onclick={() => hasDetails(iface) && toggle(i)}>

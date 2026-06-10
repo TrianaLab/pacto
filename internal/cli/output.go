@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/internal/app"
@@ -232,8 +233,40 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 			}
 		}
 
+		if result.Readiness != nil {
+			printReadiness(w, result.Readiness)
+		}
+
 		return nil
 	}, nil)
+}
+
+// printReadiness renders the readiness summary and per-check table for the text
+// output of `pacto explain`.
+func printReadiness(w io.Writer, r *app.ExplainReadiness) {
+	gate := "PASS"
+	if !r.Passing {
+		gate = "FAIL"
+	}
+	_, _ = fmt.Fprintf(w, "\nReadiness:\n")
+	_, _ = fmt.Fprintf(w, "  Score: %d\n", r.Score)
+	_, _ = fmt.Fprintf(w, "  Gate: %s (score %d / minScore %d)\n", gate, r.Score, r.MinScore)
+	_, _ = fmt.Fprintf(w, "  Current Weight: %d\n", r.CurrentWeight)
+	_, _ = fmt.Fprintf(w, "  Total Weight: %d\n", r.TotalWeight)
+	_, _ = fmt.Fprintf(w, "  Current Checks: %d\n", r.CurrentCount)
+	_, _ = fmt.Fprintf(w, "  Expired Checks: %d\n", r.ExpiredCount)
+	if r.InvalidCount > 0 {
+		_, _ = fmt.Fprintf(w, "  Invalid Checks: %d\n", r.InvalidCount)
+	}
+	_, _ = fmt.Fprintf(w, "\n  Checks:\n")
+	for _, ch := range r.Checks {
+		pct := 0
+		if r.TotalWeight > 0 {
+			pct = ch.Weight * 100 / r.TotalWeight
+		}
+		_, _ = fmt.Fprintf(w, "    - %-16s %-9s %-8s weight=%d (%d%%) expires=%s\n",
+			ch.ID, ch.Type, strings.ToLower(ch.Status), ch.Weight, pct, ch.Expires)
+	}
 }
 
 func printGenerateResult(cmd *cobra.Command, result *app.GenerateResult, format string) error {

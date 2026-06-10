@@ -1,5 +1,6 @@
 <script>
-  let { title, count, open = $bindable(false), id = '', children } = $props();
+  import { sourceTooltip } from './lib/format.ts';
+  let { title, count, source = '', open = $bindable(false), id = '', children } = $props();
 </script>
 
 <section class="section" {id}>
@@ -7,6 +8,7 @@
     <span class="section-title">
       {title}
       {#if count != null}<span class="tab-count">{count}</span>{/if}
+      {#if source}<span class="source-dot source-dot-{source}" data-tip={`Provided by ${sourceTooltip(source)}`}></span>{/if}
     </span>
     <span class="toggle-icon" class:open>
       <svg viewBox="0 0 12 12" fill="none">

@@ -3,15 +3,23 @@ package dashboard
 import (
 	"fmt"
 	"io/fs"
+	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/diff"
 	"github.com/trianalab/pacto/pkg/doc"
 	"github.com/trianalab/pacto/pkg/graph"
+	"github.com/trianalab/pacto/pkg/readiness"
+	"github.com/trianalab/pacto/pkg/schemax"
 	"github.com/trianalab/pacto/pkg/validation"
 )
+
+// timeNow is the clock used to derive readiness freshness. It is a variable so
+// tests can pin "now" for deterministic readiness status.
+var timeNow = time.Now
 
 // ServiceFromContract builds a Service summary from a parsed contract.
 func ServiceFromContract(c *contract.Contract, source string) Service {
@@ -59,6 +67,8 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 	svc.Runtime = runtimeFromContract(c)
 	svc.Scaling = scalingFromContract(c)
 	svc.Policies = policiesFromContract(c, bundle.FS)
+	svc.Docs = docsFromContract(bundle.FS)
+	svc.Readiness = readinessFromContract(c, docPathSet(svc.Docs))
 	svc.Metadata = metadataFromContract(c)
 
 	// Validation
@@ -76,6 +86,125 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 	svc.Compliance = ComputeCompliance(svc.ContractStatus, svc.Conditions)
 
 	return svc
+}
+
+// readinessFromContract derives the readiness assessment from the contract's
+// declared readiness section as of now. It returns nil when no readiness is
+// declared, so the dashboard treats readiness as an optional dimension. A check
+// whose evidence is the path of an in-bundle doc (a key in docPaths) gets DocPath
+// set so the UI can render that doc inline.
+func readinessFromContract(c *contract.Contract, docPaths map[string]bool) *ReadinessInfo {
+	eval := readiness.Evaluate(c.Readiness, timeNow())
+	if eval == nil {
+		return nil
+	}
+	info := &ReadinessInfo{
+		Score:         eval.Score,
+		MinScore:      eval.MinScore,
+		Passing:       eval.Passing,
+		TotalWeight:   eval.TotalWeight,
+		CurrentWeight: eval.CurrentWeight,
+		CurrentCount:  eval.CurrentCount,
+		ExpiredCount:  eval.ExpiredCount,
+		InvalidCount:  eval.InvalidCount,
+	}
+	for _, ch := range eval.Checks {
+		ci := ReadinessCheckInfo{
+			ID:            ch.ID,
+			Type:          ch.Type,
+			Status:        string(ch.Status),
+			Evidence:      ch.Evidence,
+			Weight:        ch.Weight,
+			Expires:       ch.Expires,
+			Description:   ch.Description,
+			DaysRemaining: ch.DaysRemaining,
+		}
+		if docPaths[ch.Evidence] {
+			ci.DocPath = ch.Evidence
+		}
+		info.Checks = append(info.Checks, ci)
+	}
+	return info
+}
+
+// Caps on in-bundle docs surfaced to the dashboard. Vars (not consts) so tests
+// can shrink them. The dashboard is a local read-only tool, so eager inlining
+// with these caps is acceptable.
+var (
+	maxDocBytes      = 256 * 1024  // per-doc cap before truncation
+	maxTotalDocBytes = 1024 * 1024 // total cap across all docs
+	maxDocCount      = 50          // safety cap on number of docs
+)
+
+const docsDir = "docs"
+
+// docsFromContract reads the bundle's docs/**/*.md files (sorted by path),
+// applying per-doc, total, and count caps. Missing docs/ or an unreadable file
+// is skipped rather than failing the whole service.
+func docsFromContract(fsys fs.FS) []DocInfo {
+	if fsys == nil {
+		return nil
+	}
+	var docs []DocInfo
+	total := 0
+	_ = fs.WalkDir(fsys, docsDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // docs/ absent or an unreadable subtree: skip silently
+		}
+		if d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
+			return nil
+		}
+		if len(docs) >= maxDocCount || total >= maxTotalDocBytes {
+			return fs.SkipAll
+		}
+		data, readErr := fs.ReadFile(fsys, p)
+		if readErr != nil {
+			return nil // skip unreadable file
+		}
+		truncated := false
+		if len(data) > maxDocBytes {
+			data = data[:maxDocBytes]
+			truncated = true
+		}
+		if total+len(data) > maxTotalDocBytes {
+			data = data[:maxTotalDocBytes-total]
+			truncated = true
+		}
+		total += len(data)
+		content := string(data)
+		docs = append(docs, DocInfo{
+			Path:      p,
+			Title:     docTitle(content, p),
+			Content:   content,
+			Truncated: truncated,
+		})
+		return nil
+	})
+	return docs
+}
+
+// docTitle returns the first Markdown H1 in content, or a humanized filename.
+func docTitle(content, p string) string {
+	for _, line := range strings.Split(content, "\n") {
+		if t, ok := strings.CutPrefix(strings.TrimSpace(line), "# "); ok {
+			return strings.TrimSpace(t)
+		}
+	}
+	name := strings.TrimSuffix(path.Base(p), path.Ext(p))
+	name = strings.ReplaceAll(name, "-", " ")
+	return strings.ReplaceAll(name, "_", " ")
+}
+
+// docPathSet builds a lookup of the doc paths present in the bundle.
+func docPathSet(docs []DocInfo) map[string]bool {
+	if len(docs) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(docs))
+	for _, d := range docs {
+		set[d.Path] = true
+	}
+	return set
 }
 
 func interfacesFromContract(c *contract.Contract, fsys fs.FS) []InterfaceInfo {
@@ -123,7 +252,7 @@ func configsFromContract(c *contract.Contract, fsys fs.FS) []ConfigurationInfo {
 			Ref:       cfg.Ref,
 		}
 		if len(cfg.Values) > 0 {
-			ci.Values = flattenValues(cfg.Values)
+			ci.Values = schemax.Values(cfg.Values)
 			for k := range cfg.Values {
 				ci.ValueKeys = append(ci.ValueKeys, k)
 			}
@@ -364,43 +493,6 @@ func validateBundle(bundle *contract.Bundle) *ValidationInfo {
 	return validationInfoFromResult(r)
 }
 
-// flattenValues converts a map[string]interface{} to sorted []ConfigValue entries.
-func flattenValues(m map[string]interface{}) []ConfigValue {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	values := make([]ConfigValue, 0, len(m))
-	for _, k := range keys {
-		v := m[k]
-		cv := ConfigValue{Key: k}
-		switch val := v.(type) {
-		case string:
-			cv.Value = val
-			cv.Type = "string"
-		case float64:
-			cv.Value = fmt.Sprintf("%g", val)
-			cv.Type = "number"
-		case int:
-			cv.Value = fmt.Sprintf("%d", val)
-			cv.Type = "number"
-		case bool:
-			cv.Value = fmt.Sprintf("%t", val)
-			cv.Type = "boolean"
-		case nil:
-			cv.Value = "(any)"
-			cv.Type = "any"
-		default:
-			cv.Value = fmt.Sprintf("%v", val)
-			cv.Type = "object"
-		}
-		values = append(values, cv)
-	}
-	return values
-}
-
 // parseContentAsValues tries to parse raw file content as YAML/JSON key-value pairs.
 func parseContentAsValues(data []byte, path string) []ConfigValue {
 	// Reuse the OpenAPI spec parser's unmarshal logic: JSON for .json, YAML otherwise.
@@ -408,91 +500,28 @@ func parseContentAsValues(data []byte, path string) []ConfigValue {
 	if err != nil || len(spec) == 0 {
 		return nil
 	}
-	return flattenValues(spec)
+	return schemax.Values(spec)
 }
 
-// extractSchemaMeta reads title and description from a JSON Schema file.
+// extractSchemaMeta reads title and description from a JSON Schema file in the
+// bundle FS. Extraction itself lives in pkg/schemax so the operator produces
+// identical results from the same bundle.
 func extractSchemaMeta(fsys fs.FS, path string) (title, description string) {
 	data, err := fs.ReadFile(fsys, path)
 	if err != nil {
 		return "", ""
 	}
-	spec, err := doc.UnmarshalSpec(data, path)
-	if err != nil {
-		return "", ""
-	}
-	if t, ok := spec["title"].(string); ok {
-		title = t
-	}
-	if d, ok := spec["description"].(string); ok {
-		description = d
-	}
-	return title, description
+	return schemax.Meta(data, path)
 }
 
 // extractSchemaProperties reads a JSON Schema file from the bundle FS and
-// extracts top-level properties into ConfigValue entries. Nested objects are
-// recursively flattened with dot-notation keys.
+// extracts its flattened properties (shared with the operator via pkg/schemax).
 func extractSchemaProperties(fsys fs.FS, path string) []ConfigValue {
 	data, err := fs.ReadFile(fsys, path)
 	if err != nil {
 		return nil
 	}
-	spec, err := doc.UnmarshalSpec(data, path)
-	if err != nil {
-		return nil
-	}
-	propsRaw, ok := spec["properties"]
-	if !ok {
-		return nil
-	}
-	props, ok := propsRaw.(map[string]any)
-	if !ok {
-		return nil
-	}
-	var values []ConfigValue
-	flattenSchemaProps("", props, &values)
-	return values
-}
-
-// flattenSchemaProps recursively walks JSON Schema properties and produces
-// ConfigValue entries. Nested objects use dot-notation (e.g. "cors.enabled").
-func flattenSchemaProps(prefix string, props map[string]any, out *[]ConfigValue) {
-	keys := make([]string, 0, len(props))
-	for k := range props {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, k := range keys {
-		fullKey := k
-		if prefix != "" {
-			fullKey = prefix + "." + k
-		}
-		propRaw, ok := props[k].(map[string]any)
-		if !ok {
-			continue
-		}
-		// If this property is an object with sub-properties, recurse.
-		if subType, _ := propRaw["type"].(string); subType == "object" {
-			if subPropsRaw, ok := propRaw["properties"]; ok {
-				if subProps, ok := subPropsRaw.(map[string]any); ok {
-					flattenSchemaProps(fullKey, subProps, out)
-					continue
-				}
-			}
-		}
-		cv := ConfigValue{Key: fullKey}
-		if t, ok := propRaw["type"].(string); ok {
-			cv.Type = t
-		}
-		if def, ok := propRaw["default"]; ok {
-			cv.Value = fmt.Sprintf("%v", def)
-		} else {
-			cv.Value = "(any)"
-		}
-		*out = append(*out, cv)
-	}
+	return schemax.Properties(data, path)
 }
 
 // ComputeDiff runs the diff engine on two bundles and returns a dashboard DiffResult.

@@ -26,6 +26,13 @@ For dependency references declared with a `compatibility` constraint, only tags 
 
 Non-semver tags (e.g. `latest`, `main`) are ignored during resolution. Digest-pinned references (`@sha256:...`) and explicitly tagged references are used as-is.
 
+!!! note "Constraints apply to the CLI's dependency graph, not dashboard discovery"
+    `compatibility` constraints are applied by the CLI when resolving a contract's
+    **declared dependencies** (e.g. `pacto graph`). The **dashboard's** version
+    discovery selects the highest semver tag and does **not** apply per-dependency
+    `compatibility` constraints. Root-contract pulls (a tagless top-level `oci://`
+    ref) also select the highest semver tag with no constraint.
+
 ---
 
 ## `pacto dashboard`
@@ -111,17 +118,17 @@ The dashboard is the exploration and observability layer of the Pacto system. It
 - **Diffs between versions** — classified changes (breaking, non-breaking, potential) between any two versions
 - **Runtime compliance** — when Kubernetes is available, live contract status, conditions, endpoint health, and contract-vs-runtime comparison
 
-### Public source model
+### Source model
 
-The dashboard exposes three public source types: `local`, `k8s`, and `oci`. There is no separate "cache" source visible to the user or API.
+The dashboard exposes up to **four** source types: `local`, `k8s`, `oci`, and `cache`. `cache` is the on-disk materialized-bundle baseline (`~/.cache/pacto/oci/`); it surfaces as a distinct source **only when no live OCI registry is configured** — an offline fallback. When a live OCI registry *is* configured, the cache stays internal to the `oci` source (used to enrich version data) and is not listed separately. So a session shows either `oci` **or** `cache` for the registry-backed baseline, plus `local` and/or `k8s` when available.
 
 ### Contract-first resolution
 
-Sources are resolved using a contract-first model. Contract sources (`local`, `oci`) provide the authoritative service definition — exactly one contract snapshot wins per service, with `local` taking priority over `oci`. The runtime source (`k8s`) enriches the contract with live cluster state (contract status, conditions, endpoints) but never overrides contract content.
+Sources are resolved using a contract-first model. The contract baseline comes from the highest-priority contract source available, in order `local` → `oci` → `cache` — exactly one contract snapshot wins per service. The runtime source (`k8s`) enriches the contract with live cluster state (contract status, conditions, endpoints) but never overrides contract content; config and policy **content** always comes from the declared contract.
 
 ### Internal cache / materialization
 
-Materialized bundles on disk (`~/.cache/pacto/oci/`) are used internally by the OCI source to enrich version data (contract hash, classification, timestamps) without appearing as a separate source in the UI or API. When bundles are fetched (via "Fetch all versions" or lazy dependency resolution), they are cached on disk and the OCI source's internal view is rescanned so the enriched data surfaces immediately.
+Materialized bundles on disk (`~/.cache/pacto/oci/`) back the `oci` source's version enrichment (contract hash, classification, timestamps). When bundles are fetched (via "Fetch all versions" or lazy dependency resolution), they are cached on disk and the source's internal view is rescanned so the enriched data surfaces immediately. When no live registry is configured, that same on-disk cache is promoted to a first-class `cache` source.
 
 ### `--no-cache` semantics
 
@@ -283,6 +290,8 @@ pacto explain [dir | oci://ref] [flags]
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
+
+**Readiness output.** When the contract declares a `readiness` section (requires `pactoVersion: "1.1"`), `explain` adds a Readiness block: the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), the **Current** and **Total Weight**, the **Current / Expired** check counts (and **Invalid** when any check has an unparseable `expires`), and a per-check table (id, type, status, weight with normalized %, expiry). `--output-format json` includes the same data plus `currentCount`, `expiredCount`, and `invalidCount` fields. Readiness status is time-dependent — it is derived from each check's `expires` against the current date.
 
 ---
 
@@ -551,6 +560,9 @@ pacto push <ref> [flags]
 
 If the artifact already exists in the registry, `pacto push` prints a warning and exits successfully without pushing. Use `--force` to overwrite.
 
+!!! note "`--values` has no `-f` shorthand on push"
+    On every other override-taking command `-f` is the shorthand for `--values`. On `pacto push`, `-f` is `--force`, so `--values` must be spelled out in full here.
+
 ---
 
 ## `pacto update`
@@ -620,15 +632,21 @@ pacto validate [dir | oci://ref] [flags]
 
   # JSON output
   pacto validate --output-format json my-service
+
+  # Also enforce the readiness gate (fail if score < minScore)
+  pacto validate --readiness my-service
 ```
 
 **Flags:**
 
 ```
   -h, --help                 help for validate
+      --readiness            also enforce the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
+
+The `--readiness` gate is **opt-in** because it is time-dependent: it compares each check's `expires` against the run time, which would make plain `validate` non-deterministic. Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). See the [readiness reference](contract-reference.md#readiness) for the score and gate semantics.
 
 **Exit code:** Non-zero if validation fails.
 

@@ -1,11 +1,11 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
 
-  let { observed, open = $bindable(false), id = '' } = $props();
+  let { observed, open = $bindable(false), id = '', source = '' } = $props();
 </script>
 
 {#if observed}
-  <CollapsibleSection title="Observed Runtime" bind:open {id}>
+  <CollapsibleSection title="Observed Runtime" bind:open {id} {source}>
     <div class="card">
       <dl class="kv-grid">
         {#if observed.workloadKind}<dt>Workload kind</dt><dd>{observed.workloadKind}</dd>{/if}
