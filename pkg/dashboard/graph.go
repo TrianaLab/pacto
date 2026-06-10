@@ -260,9 +260,13 @@ func buildGraphNode(svc *ServiceDetails, index map[string]*ServiceDetails, alias
 }
 
 // extractServiceNameFromRef extracts a service name from a dependency ref.
+// Scheme stripping uses the shared CLI parser (graph.ParseDependencyRef) so
+// oci:// and file:// are handled identically to `pacto graph`. The bare-name
+// extraction is dashboard-specific: it labels refs we couldn't resolve to a
+// contract (the CLI names nodes from the resolved contract instead).
 func extractServiceNameFromRef(ref string) string {
-	ref = strings.TrimPrefix(ref, "oci://")
-	parts := strings.Split(ref, "/")
+	loc := depgraph.ParseDependencyRef(ref).Location
+	parts := strings.Split(loc, "/")
 	name := parts[len(parts)-1]
 	// Strip digest (@sha256:...) before tag (:version).
 	if idx := strings.Index(name, "@"); idx > 0 {

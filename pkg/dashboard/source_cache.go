@@ -16,9 +16,8 @@ import (
 	"strings"
 	"testing/fstest"
 
-	"github.com/Masterminds/semver/v3"
-
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/semver"
 )
 
 // CacheSource implements DataSource by reading materialized OCI bundles from
@@ -238,51 +237,9 @@ func (svc *cachedService) sortedVersions() []cachedVersion {
 	sorted := make([]cachedVersion, len(svc.versions))
 	copy(sorted, svc.versions)
 	sort.Slice(sorted, func(i, j int) bool {
-		return semverDescending(sorted[i].tag, sorted[j].tag)
+		return semver.LessDesc(sorted[i].tag, sorted[j].tag)
 	})
 	return sorted
-}
-
-// semverDescending returns true if tag a should sort before tag b (latest first).
-// Valid semver tags are compared properly; non-semver tags fall back to reverse lexicographic.
-// Valid semver always sorts before non-semver.
-func semverDescending(a, b string) bool {
-	va, ea := semver.NewVersion(a)
-	vb, eb := semver.NewVersion(b)
-	if ea == nil && eb == nil {
-		return vb.LessThan(va) // descending: latest first
-	}
-	if ea != nil && eb != nil {
-		return a > b // fallback: reverse lexicographic
-	}
-	return ea == nil // valid semver sorts before non-semver
-}
-
-// latestTag returns the highest valid semver tag from a list.
-// Non-semver tags are ignored. Returns empty string if no valid semver tags exist.
-func latestTag(tags []string) string {
-	filtered := filterValidSemver(tags)
-	if len(filtered) == 0 {
-		return ""
-	}
-	return filtered[0]
-}
-
-// filterValidSemver returns only valid semver tags, sorted descending (latest first).
-func filterValidSemver(tags []string) []string {
-	var versions []*semver.Version
-	for _, t := range tags {
-		v, err := semver.NewVersion(t)
-		if err == nil {
-			versions = append(versions, v)
-		}
-	}
-	sort.Sort(sort.Reverse(semver.Collection(versions)))
-	var out []string
-	for _, v := range versions {
-		out = append(out, v.Original())
-	}
-	return out
 }
 
 func (svc *cachedService) findVersion(tag string) *cachedVersion {

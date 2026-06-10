@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sort"
 	"sync"
+
+	"github.com/trianalab/pacto/pkg/semver"
 )
 
 // ResolvedSource implements DataSource by combining a contract source
@@ -306,6 +308,11 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 	sort.Strings(sources)
 	result.Sources = sources
 
+	// Record whether a runtime overlay was applied and explain every section's
+	// availability + provenance so the UI never silently hides data.
+	result.RuntimeEvaluated = runtimeDetails != nil
+	computeSectionMeta(result, contractSource, runtimeDetails != nil)
+
 	return result, nil
 }
 
@@ -436,7 +443,7 @@ func (r *ResolvedSource) GetVersions(ctx context.Context, name string) ([]Versio
 
 	// Sort descending by semver.
 	sort.Slice(merged, func(i, j int) bool {
-		return compareSemverDesc(merged[i].Version, merged[j].Version)
+		return semver.LessDesc(merged[i].Version, merged[j].Version)
 	})
 
 	return merged, nil

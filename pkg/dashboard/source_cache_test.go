@@ -134,76 +134,8 @@ func TestCacheSource_ImplementsDataSource(t *testing.T) {
 	var _ DataSource = src
 }
 
-func TestSemverDescending_BothValid(t *testing.T) {
-	// 2.0.0 should sort before 1.0.0 (descending)
-	if !semverDescending("2.0.0", "1.0.0") {
-		t.Error("expected 2.0.0 before 1.0.0 in descending order")
-	}
-	if semverDescending("1.0.0", "2.0.0") {
-		t.Error("expected 1.0.0 NOT before 2.0.0 in descending order")
-	}
-}
-
-func TestSemverDescending_Equal(t *testing.T) {
-	if semverDescending("1.0.0", "1.0.0") {
-		t.Error("expected equal versions not to be ordered")
-	}
-}
-
-func TestSemverDescending_BothInvalid(t *testing.T) {
-	// Fallback to reverse lexicographic
-	if !semverDescending("beta", "alpha") {
-		t.Error("expected 'beta' before 'alpha' in reverse lex order")
-	}
-	if semverDescending("alpha", "beta") {
-		t.Error("expected 'alpha' NOT before 'beta' in reverse lex order")
-	}
-}
-
-func TestSemverDescending_ValidBeforeInvalid(t *testing.T) {
-	// Valid semver should sort before non-semver
-	if !semverDescending("1.0.0", "latest") {
-		t.Error("expected valid semver '1.0.0' before non-semver 'latest'")
-	}
-	if semverDescending("latest", "1.0.0") {
-		t.Error("expected non-semver 'latest' NOT before valid semver '1.0.0'")
-	}
-}
-
-func TestSemverDescending_PreRelease(t *testing.T) {
-	// 1.0.0 should sort before 1.0.0-alpha (prerelease is lower)
-	if !semverDescending("1.0.0", "1.0.0-alpha") {
-		t.Error("expected 1.0.0 before 1.0.0-alpha")
-	}
-}
-
-func TestLatestTag_Empty(t *testing.T) {
-	result := latestTag(nil)
-	if result != "" {
-		t.Errorf("expected empty string, got %q", result)
-	}
-}
-
-func TestLatestTag_SingleTag(t *testing.T) {
-	result := latestTag([]string{"1.0.0"})
-	if result != "1.0.0" {
-		t.Errorf("expected '1.0.0', got %q", result)
-	}
-}
-
-func TestLatestTag_MultipleTags(t *testing.T) {
-	result := latestTag([]string{"1.0.0", "3.0.0", "2.0.0"})
-	if result != "3.0.0" {
-		t.Errorf("expected '3.0.0', got %q", result)
-	}
-}
-
-func TestLatestTag_MixedSemverAndNonSemver(t *testing.T) {
-	result := latestTag([]string{"latest", "1.0.0", "2.0.0"})
-	if result != "2.0.0" {
-		t.Errorf("expected '2.0.0' (valid semver wins), got %q", result)
-	}
-}
+// Semver ordering / latest-tag selection is now tested in pkg/semver
+// (shared with the CLI resolver and the OCI source).
 
 func TestCacheSource_GetDiff(t *testing.T) {
 	root := t.TempDir()
@@ -591,62 +523,7 @@ service:
 	}
 }
 
-func TestFilterValidSemver(t *testing.T) {
-	tests := []struct {
-		name     string
-		tags     []string
-		expected []string
-	}{
-		{
-			name:     "mixed valid and invalid",
-			tags:     []string{"v1.0.0", "latest", "2.0.0", "abc", "1.5.0"},
-			expected: []string{"2.0.0", "1.5.0", "v1.0.0"},
-		},
-		{
-			name:     "all invalid",
-			tags:     []string{"latest", "main", "abc"},
-			expected: nil,
-		},
-		{
-			name:     "all valid sorted descending",
-			tags:     []string{"3.0.0", "1.0.0", "2.0.0"},
-			expected: []string{"3.0.0", "2.0.0", "1.0.0"},
-		},
-		{
-			name:     "empty",
-			tags:     nil,
-			expected: nil,
-		},
-	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := filterValidSemver(tt.tags)
-			if len(result) != len(tt.expected) {
-				t.Fatalf("expected %d tags, got %d: %v", len(tt.expected), len(result), result)
-			}
-			for i, v := range result {
-				if v != tt.expected[i] {
-					t.Errorf("index %d: expected %q, got %q", i, tt.expected[i], v)
-				}
-			}
-		})
-	}
-}
-
-func TestLatestTag_IgnoresNonSemver(t *testing.T) {
-	// When ALL tags are non-semver, latestTag returns empty string.
-	result := latestTag([]string{"latest", "main", "abc"})
-	if result != "" {
-		t.Errorf("expected empty string for all-non-semver tags, got %q", result)
-	}
-
-	// When mixed, returns highest semver.
-	result = latestTag([]string{"latest", "1.0.0", "2.0.0", "main"})
-	if result != "2.0.0" {
-		t.Errorf("expected '2.0.0', got %q", result)
-	}
-}
 
 func TestCacheSource_CurrentVersionIsHighestSemver(t *testing.T) {
 	root := t.TempDir()
