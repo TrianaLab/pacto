@@ -802,10 +802,14 @@ func rewireHealthMetricsIfNeeded(rt, m map[string]interface{}) {
 	var ifaceInputs []InterfaceInput
 	for _, iface := range ifaces {
 		if ifaceMap, ok := iface.(map[string]interface{}); ok {
-			ifaceInputs = append(ifaceInputs, InterfaceInput{
-				Name: ifaceMap["name"].(string),
-				Type: ifaceMap["type"].(string),
-			})
+			// Use safe assertions: a parseable-but-malformed interface (missing
+			// or non-string name/type) must not panic — skip it instead.
+			name, _ := ifaceMap["name"].(string)
+			typ, _ := ifaceMap["type"].(string)
+			if name == "" || typ == "" {
+				continue
+			}
+			ifaceInputs = append(ifaceInputs, InterfaceInput{Name: name, Type: typ})
 		}
 	}
 	wireHealthMetrics(rt, ifaceInputs)
@@ -958,7 +962,11 @@ func valueToNode(v interface{}) (*yaml.Node, error) {
 	if err := yamlUnmarshalFn(data, &doc); err != nil {
 		return nil, err
 	}
-	// yaml.Unmarshal always wraps in a DocumentNode with one content child.
+	// Normally yaml wraps in a DocumentNode with one content child, but empty or
+	// whitespace-only input yields no content — guard against an index panic.
+	if len(doc.Content) == 0 {
+		return nil, fmt.Errorf("yaml produced no content for value %#v", v)
+	}
 	return doc.Content[0], nil
 }
 

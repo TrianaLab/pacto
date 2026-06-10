@@ -197,7 +197,8 @@ type ServiceDetails struct {
 
 	// SectionMeta describes, per section id, why a section is shown or absent and
 	// which source supplied it — so the UI never silently hides data. Keys are the
-	// Section* ids. Populated by the resolver after the merge.
+	// Section* ids. Populated by the resolver after the merge, or by the server's
+	// getService handler as a fallback on the non-resolved single-source path.
 	SectionMeta map[string]SectionInfo `json:"sectionMeta,omitempty"`
 }
 

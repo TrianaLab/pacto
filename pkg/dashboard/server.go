@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -667,6 +668,14 @@ func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getS
 	}
 	details.GenerateInsights()
 
+	// The resolved source populates SectionMeta during its merge; on the
+	// non-resolved path (a single plain source) it is absent, which would leave
+	// the UI unable to distinguish "not applicable" from "empty". Compute it from
+	// what the source provided so every path returns explained sections.
+	if details.SectionMeta == nil {
+		computeSectionMeta(details, details.Source, details.RuntimeEvaluated)
+	}
+
 	// Enrich with version tracking from the cached index if available.
 	s.indexMu.Lock()
 	cached := s.indexCache
@@ -881,7 +890,26 @@ func (s *Server) getDiff(ctx context.Context, input *diffInput) (*getDiffOutput,
 
 	result, err := s.source.GetDiff(ctx, a, b)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		// Classify so user-level conditions (no bundle data, bad ref, auth, not
+		// found) are not reported as 500 — matching resolveRef and the way
+		// version listing degrades gracefully for the same services.
+		var authErr *oci.AuthenticationError
+		var notFoundErr *oci.ArtifactNotFoundError
+		var invalidRefErr *oci.InvalidRefError
+		var invalidBundleErr *oci.InvalidBundleError
+		var noMatchErr *oci.NoMatchingVersionError
+		switch {
+		case strings.Contains(err.Error(), "diff requires contract bundle data"):
+			return nil, huma.Error422UnprocessableEntity(err.Error())
+		case errors.As(err, &invalidRefErr), errors.As(err, &noMatchErr), errors.As(err, &invalidBundleErr):
+			return nil, huma.Error422UnprocessableEntity(err.Error())
+		case errors.As(err, &authErr):
+			return nil, huma.Error403Forbidden(err.Error())
+		case errors.As(err, &notFoundErr):
+			return nil, huma.Error404NotFound(err.Error())
+		default:
+			return nil, huma.Error502BadGateway(err.Error())
+		}
 	}
 	return &getDiffOutput{Body: result}, nil
 }
