@@ -4,6 +4,9 @@ import {
   complianceClass,
   complianceStatusClass,
   methodClass,
+  referencedDocPaths,
+  readinessStatusClass,
+  readinessDaysLabel,
   classificationClass,
   changeTypeClass,
   sourceTooltip,
@@ -24,6 +27,7 @@ import {
   versionPolicyClass,
   countHighImpact,
   filterServices,
+  paginate,
 } from './format.ts';
 
 describe('statusClass', () => {
@@ -60,6 +64,41 @@ describe('methodClass', () => {
   it('maps unknown to badge-neutral', () => expect(methodClass('OPTIONS')).toBe('badge-neutral'));
   it('is case-insensitive', () => expect(methodClass('get')).toBe('badge-ok'));
   it('handles null/undefined', () => expect(methodClass(null)).toBe('badge-neutral'));
+});
+
+describe('referencedDocPaths', () => {
+  it('returns [] for null/undefined or no checks', () => {
+    expect(referencedDocPaths(null)).toEqual([]);
+    expect(referencedDocPaths(undefined)).toEqual([]);
+    expect(referencedDocPaths({})).toEqual([]);
+  });
+  it('returns only paths of checks with docPath', () => {
+    const readiness = {
+      checks: [
+        { docPath: 'docs/runbook.md' },
+        { docPath: '' },
+        {},
+        { docPath: 'docs/overview.md' },
+      ],
+    };
+    expect(referencedDocPaths(readiness)).toEqual(['docs/runbook.md', 'docs/overview.md']);
+  });
+});
+
+describe('readinessStatusClass', () => {
+  it('maps Current to badge-ok', () => expect(readinessStatusClass('Current')).toBe('badge-ok'));
+  it('maps Expired to badge-err', () => expect(readinessStatusClass('Expired')).toBe('badge-err'));
+  it('maps Invalid to badge-warn', () => expect(readinessStatusClass('Invalid')).toBe('badge-warn'));
+  it('maps unknown to badge-neutral', () => expect(readinessStatusClass('other')).toBe('badge-neutral'));
+  it('handles undefined', () => expect(readinessStatusClass(undefined)).toBe('badge-neutral'));
+});
+
+describe('readinessDaysLabel', () => {
+  it('returns dash for non-current status', () => expect(readinessDaysLabel('Expired', 5)).toBe('—'));
+  it('returns dash when days is null', () => expect(readinessDaysLabel('Current', null)).toBe('—'));
+  it('returns today for 0 days', () => expect(readinessDaysLabel('Current', 0)).toBe('today'));
+  it('returns singular for 1 day', () => expect(readinessDaysLabel('Current', 1)).toBe('1 day'));
+  it('returns plural for many days', () => expect(readinessDaysLabel('Current', 42)).toBe('42 days'));
 });
 
 describe('classificationClass', () => {
@@ -621,5 +660,64 @@ describe('filterServices', () => {
     const compliantOnly = filterServices(services, { statusFilter: 'Compliant' });
     expect(countHighImpact(allFiltered)).toBe(2); // api-gateway(5) + auth-service(3)
     expect(countHighImpact(compliantOnly)).toBe(1); // only api-gateway(5) is Compliant
+  });
+});
+
+describe('paginate', () => {
+  const items = Array.from({ length: 23 }, (_, i) => i + 1); // 1..23
+
+  it('returns the first page with the requested size', () => {
+    const r = paginate(items, 1, 10);
+    expect(r.items).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(r.page).toBe(1);
+    expect(r.totalPages).toBe(3);
+    expect(r.total).toBe(23);
+    expect(r.perPage).toBe(10);
+  });
+
+  it('returns a middle page', () => {
+    const r = paginate(items, 2, 10);
+    expect(r.items).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
+    expect(r.page).toBe(2);
+  });
+
+  it('returns a partial last page', () => {
+    const r = paginate(items, 3, 10);
+    expect(r.items).toEqual([21, 22, 23]);
+    expect(r.page).toBe(3);
+    expect(r.totalPages).toBe(3);
+  });
+
+  it('clamps a page below 1 to the first page', () => {
+    const r = paginate(items, 0, 10);
+    expect(r.page).toBe(1);
+    expect(r.items[0]).toBe(1);
+  });
+
+  it('clamps a page beyond the range to the last page', () => {
+    const r = paginate(items, 99, 10);
+    expect(r.page).toBe(3);
+    expect(r.items).toEqual([21, 22, 23]);
+  });
+
+  it('handles an empty list', () => {
+    const r = paginate([], 1, 10);
+    expect(r.items).toEqual([]);
+    expect(r.totalPages).toBe(1);
+    expect(r.page).toBe(1);
+    expect(r.total).toBe(0);
+  });
+
+  it('handles an exact multiple of perPage', () => {
+    const r = paginate(Array.from({ length: 20 }, (_, i) => i + 1), 2, 10);
+    expect(r.totalPages).toBe(2);
+    expect(r.items).toHaveLength(10);
+  });
+
+  it('returns everything in one page when perPage is non-positive', () => {
+    const r = paginate(items, 1, 0);
+    expect(r.items).toHaveLength(23);
+    expect(r.totalPages).toBe(1);
+    expect(r.perPage).toBe(23);
   });
 });

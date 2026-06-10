@@ -1,0 +1,199 @@
+<script>
+  import CollapsibleSection from '../CollapsibleSection.svelte';
+  import MarkdownView from '../MarkdownView.svelte';
+  import DocModal from '../DocModal.svelte';
+  import { readinessStatusClass, readinessDaysLabel, complianceClass } from '../lib/format.ts';
+
+  let { readiness = null, docs = [], open = $bindable(false), id = '' } = $props();
+
+  let hasContent = $derived(!!readiness && (readiness.checks?.length ?? 0) > 0);
+  let expanded = $state({});
+  let modalDoc = $state(null);
+
+  function toggle(i) {
+    expanded = { ...expanded, [i]: !expanded[i] };
+  }
+
+  function docFor(path) {
+    return docs?.find((d) => d.path === path);
+  }
+
+  // Normalized contribution (%) so weights read consistently regardless of their absolute sum.
+  function pct(weight) {
+    const total = readiness?.totalWeight ?? 0;
+    return total > 0 ? Math.round((weight * 100) / total) : 0;
+  }
+</script>
+
+{#if hasContent}
+  <CollapsibleSection title="Readiness" count={readiness.checks.length} bind:open {id}>
+    <div class="readiness-summary">
+      <div class="score {complianceClass(readiness.score)}" data-tip="Percentage of declared weight that is currently satisfied">
+        {readiness.score}<span class="score-unit">/100</span>
+      </div>
+      <div class="readiness-metrics">
+        <div class="metric">
+          <span class="metric-label">Gate</span>
+          <span class="metric-value {readiness.passing ? 'gate-pass' : 'gate-fail'}" data-tip="score must be >= minScore">
+            {readiness.passing ? 'PASS' : 'FAIL'} (≥ {readiness.minScore})
+          </span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Current weight</span>
+          <span class="metric-value">{readiness.currentWeight} / {readiness.totalWeight}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Current</span>
+          <span class="metric-value">{readiness.currentCount}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Expired</span>
+          <span class="metric-value">{readiness.expiredCount}</span>
+        </div>
+        {#if readiness.invalidCount}
+          <div class="metric">
+            <span class="metric-label">Invalid</span>
+            <span class="metric-value">{readiness.invalidCount}</span>
+          </div>
+        {/if}
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="readiness-table">
+        <thead>
+          <tr>
+            <th>Check</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Weight</th>
+            <th>Expires</th>
+            <th>Remaining</th>
+            <th>Evidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each readiness.checks as c, i}
+            <tr>
+              <td>
+                <span class="check-id">{c.id}</span>
+                {#if c.description}<div class="check-desc">{c.description}</div>{/if}
+              </td>
+              <td><span class="pill">{c.type}</span></td>
+              <td><span class="badge {readinessStatusClass(c.status)}">{c.status}</span></td>
+              <td>{c.weight} <span class="text-3">({pct(c.weight)}%)</span></td>
+              <td><code>{c.expires}</code></td>
+              <td class="text-2">{readinessDaysLabel(c.status, c.daysRemaining)}</td>
+              <td class="evidence-cell">
+                {#if c.docPath && docFor(c.docPath)}
+                  <button type="button" class="doc-toggle" class:open={expanded[i]} onclick={() => toggle(i)}>
+                    <span class="doc-chevron" class:open={expanded[i]}>▸</span> view
+                  </button>
+                {:else}
+                  <code>{c.evidence}</code>
+                {/if}
+              </td>
+            </tr>
+            {#if c.docPath && expanded[i] && docFor(c.docPath)}
+              <tr class="doc-expand-row">
+                <td colspan="7">
+                  <div class="doc-expand">
+                    <div class="doc-expand-head">
+                      <code class="doc-expand-path">{c.docPath}</code>
+                      <button type="button" class="fullscreen-btn" title="Read full screen" aria-label="Read full screen"
+                        onclick={() => { modalDoc = docFor(c.docPath); }}>
+                        <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 5V2h3M12 5V2H9M2 9v3h3M12 9v3H9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                      </button>
+                    </div>
+                    <MarkdownView content={docFor(c.docPath).content} truncated={docFor(c.docPath).truncated} />
+                  </div>
+                </td>
+              </tr>
+            {/if}
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  </CollapsibleSection>
+  <DocModal doc={modalDoc} onClose={() => { modalDoc = null; }} />
+{/if}
+
+<style>
+  .readiness-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-5);
+    margin-bottom: var(--sp-4);
+    flex-wrap: wrap;
+  }
+  .score {
+    font-size: var(--text-2xl, 1.5rem);
+    font-weight: 700;
+    line-height: 1;
+  }
+  .score-unit { font-size: var(--text-sm); font-weight: 500; color: var(--c-text-3); }
+  .readiness-metrics {
+    display: flex;
+    gap: var(--sp-5);
+    flex-wrap: wrap;
+  }
+  .metric { display: flex; flex-direction: column; gap: 2px; }
+  .metric-label { font-size: var(--text-xs); color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.03em; }
+  .metric-value { font-size: var(--text-sm); font-weight: 600; color: var(--c-text); }
+
+  .readiness-table { font-size: var(--text-sm); width: 100%; }
+  .readiness-table th { font-size: var(--text-xs); }
+  .check-id { font-weight: 600; }
+  .check-desc { font-size: var(--text-xs); color: var(--c-text-3); margin-top: 2px; }
+  .evidence-cell code { font-size: var(--text-xs); color: var(--c-text-2); word-break: break-all; }
+  .text-2 { color: var(--c-text-2); }
+  .text-3 { color: var(--c-text-3); font-size: var(--text-xs); }
+  .gate-pass { color: var(--c-ok, #2da44e); }
+  .gate-fail { color: var(--c-err, #cf222e); }
+
+  .doc-toggle {
+    background: none;
+    border: none;
+    color: var(--c-accent);
+    font: inherit;
+    font-size: var(--text-xs);
+    cursor: pointer;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .doc-toggle:hover { text-decoration: underline; }
+  .doc-chevron { display: inline-block; transition: transform 200ms ease; }
+  .doc-chevron.open { transform: rotate(90deg); }
+  .doc-expand-row td { padding: 0 !important; }
+  .doc-expand {
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--c-surface-inset);
+    border-top: 1px solid var(--c-border);
+    animation: slideReveal 200ms ease-out both;
+  }
+  .doc-expand-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+  .doc-expand-path { display: block; font-size: var(--text-xs); color: var(--c-text-3); }
+  .fullscreen-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; flex-shrink: 0;
+    background: none;
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-xs);
+    color: var(--c-text-3);
+    cursor: pointer;
+  }
+  .fullscreen-btn:hover { background: var(--c-surface-hover, var(--c-surface-inset)); color: var(--c-text); }
+  .fullscreen-btn svg { width: 14px; height: 14px; }
+
+  @keyframes slideReveal {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (max-width: 768px) {
+    .readiness-summary { gap: var(--sp-3); }
+    .readiness-metrics { gap: var(--sp-3); }
+  }
+</style>

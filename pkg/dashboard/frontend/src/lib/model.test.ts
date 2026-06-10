@@ -26,10 +26,37 @@ interface PolicyInfo {
   values?: Array<{ key: string; value: string; type: string }>;
 }
 
+interface ReadinessCheckInfo {
+  id: string;
+  type: string;
+  status: string;
+  evidence?: string;
+  weight: number;
+  expires: string;
+  description?: string;
+  daysRemaining?: number;
+}
+
+interface ReadinessInfo {
+  score: number;
+  totalWeight: number;
+  currentWeight: number;
+  currentCount: number;
+  expiredCount: number;
+  invalidCount?: number;
+  checks: ReadinessCheckInfo[];
+}
+
 interface ServiceDetails {
   name: string;
   configurations?: ConfigurationInfo[];
   policies?: PolicyInfo[];
+  readiness?: ReadinessInfo;
+}
+
+// Mirrors the readiness section visibility logic in ServiceDetailView.svelte.
+function hasReadiness(detail: ServiceDetails): boolean {
+  return !!detail.readiness && (detail.readiness.checks?.length ?? 0) > 0;
 }
 
 // These mirror the logic used in the Svelte components
@@ -177,6 +204,46 @@ describe('policies — data shape', () => {
       content: '{"type":"object","required":["service"]}',
     };
     expect(policy.content).toBeTruthy();
+  });
+});
+
+describe('readiness — data shape', () => {
+  it('no readiness field → section hidden', () => {
+    const detail: ServiceDetails = { name: 'svc' };
+    expect(hasReadiness(detail)).toBe(false);
+  });
+
+  it('readiness with empty checks → section hidden', () => {
+    const detail: ServiceDetails = {
+      name: 'svc',
+      readiness: { score: 0, totalWeight: 0, currentWeight: 0, currentCount: 0, expiredCount: 0, checks: [] },
+    };
+    expect(hasReadiness(detail)).toBe(false);
+  });
+
+  it('readiness with checks → section shown', () => {
+    const detail: ServiceDetails = {
+      name: 'payment-api',
+      readiness: {
+        score: 75,
+        totalWeight: 80,
+        currentWeight: 60,
+        currentCount: 2,
+        expiredCount: 1,
+        checks: [
+          { id: 'dashboard', type: 'url', status: 'Current', weight: 20, expires: '2026-12-31', daysRemaining: 206 },
+          { id: 'security-review', type: 'ticket', status: 'Expired', weight: 25, expires: '2026-01-15' },
+        ],
+      },
+    };
+    expect(hasReadiness(detail)).toBe(true);
+    expect(detail.readiness!.checks).toHaveLength(2);
+    expect(detail.readiness!.score).toBe(75);
+  });
+
+  it('expired check carries no daysRemaining', () => {
+    const check: ReadinessCheckInfo = { id: 'old', type: 'url', status: 'Expired', weight: 10, expires: '2020-01-01' };
+    expect(check.daysRemaining).toBeUndefined();
   });
 });
 

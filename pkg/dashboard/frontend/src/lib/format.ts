@@ -20,6 +20,29 @@ export function complianceStatusClass(status: string): string {
   return '';
 }
 
+/** Paths of in-bundle docs referenced by a readiness check (docPath set). */
+export function referencedDocPaths(
+  readiness: { checks?: Array<{ docPath?: string }> } | null | undefined,
+): string[] {
+  if (!readiness?.checks) return [];
+  return readiness.checks.filter((c) => !!c.docPath).map((c) => c.docPath as string);
+}
+
+export function readinessStatusClass(status: string | undefined): string {
+  if (status === 'Current') return 'badge-ok';
+  if (status === 'Expired') return 'badge-err';
+  if (status === 'Invalid') return 'badge-warn';
+  return 'badge-neutral';
+}
+
+/** Human label for the whole-days-remaining value of a current readiness check. */
+export function readinessDaysLabel(status: string | undefined, days: number | null | undefined): string {
+  if (status !== 'Current' || days == null) return '—';
+  if (days === 0) return 'today';
+  if (days === 1) return '1 day';
+  return `${days} days`;
+}
+
 export function methodClass(method: string | null | undefined): string {
   const m = method?.toUpperCase();
   if (m === 'GET') return 'badge-ok';
@@ -154,6 +177,30 @@ export function filterServices(
     list = list.filter((s) => s.contractStatus === filters.statusFilter);
   }
   return list;
+}
+
+/** Result of paginating a list: the visible slice plus navigation metadata. */
+export interface Paginated<T> {
+  items: T[];
+  page: number; // clamped current page (1-based)
+  totalPages: number;
+  total: number;
+  perPage: number;
+}
+
+/**
+ * Slice `items` into a single page. `page` is 1-based and clamped to the valid
+ * range; a non-positive `perPage` disables pagination (everything on one page).
+ */
+export function paginate<T>(items: T[], page: number, perPage: number): Paginated<T> {
+  const total = items.length;
+  if (perPage <= 0) {
+    return { items: items.slice(), page: 1, totalPages: 1, total, perPage: total };
+  }
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const clamped = Math.min(Math.max(1, Math.floor(page) || 1), totalPages);
+  const start = (clamped - 1) * perPage;
+  return { items: items.slice(start, start + perPage), page: clamped, totalPages, total, perPage };
 }
 
 // ── Owner helpers ──
