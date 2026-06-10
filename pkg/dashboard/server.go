@@ -676,20 +676,18 @@ func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getS
 		computeSectionMeta(details, details.Source, details.RuntimeEvaluated)
 	}
 
-	// Enrich with version tracking from the cached index if available.
-	s.indexMu.Lock()
-	cached := s.indexCache
-	s.indexMu.Unlock()
-	if cached != nil {
-		if indexed, ok := cached.index[input.Name]; ok {
-			if details.VersionPolicy == "" {
-				details.VersionPolicy = indexed.VersionPolicy
-			}
-			details.LatestAvailable = indexed.LatestAvailable
-			// Recompute against fresh version — the cached value may be
-			// stale if the operator changed the version within the TTL.
-			details.UpdateAvailable = isUpdateAvailable(details.Version, indexed.LatestAvailable)
+	// Enrich with version tracking from the cached index, gated by the index TTL
+	// (like the other index-backed endpoints) so version policy and latest-available
+	// reflect a recent rebuild rather than an arbitrarily stale snapshot.
+	cached := s.getCachedIndex(ctx)
+	if indexed, ok := cached.index[input.Name]; ok {
+		if details.VersionPolicy == "" {
+			details.VersionPolicy = indexed.VersionPolicy
 		}
+		details.LatestAvailable = indexed.LatestAvailable
+		// Recompute against fresh version — the cached value may be
+		// stale if the operator changed the version within the TTL.
+		details.UpdateAvailable = isUpdateAvailable(details.Version, indexed.LatestAvailable)
 	}
 	// Conservative fallback: only when neither operator nor index provided a policy.
 	if details.VersionPolicy == "" {
@@ -697,10 +695,8 @@ func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getS
 	}
 
 	// Enrich remote refs with values from the referenced service.
-	if cached != nil {
-		enrichConfigRefs(details, cached.index, cached.aliases)
-		enrichPolicyRefs(details, cached.index, cached.aliases)
-	}
+	enrichConfigRefs(details, cached.index, cached.aliases)
+	enrichPolicyRefs(details, cached.index, cached.aliases)
 
 	return &getServiceOutput{Body: details}, nil
 }
@@ -830,6 +826,9 @@ func (s *Server) getServiceGraph(ctx context.Context, input *ServiceNameInput) (
 
 func (s *Server) getDependents(ctx context.Context, input *ServiceNameInput) (*getDependentsOutput, error) {
 	cached := s.getCachedIndex(ctx)
+	if _, ok := cached.index[input.Name]; !ok {
+		return nil, huma.Error404NotFound("service not found: " + input.Name)
+	}
 	aliases := cached.aliases
 
 	dependents := []DependentInfo{}
@@ -857,7 +856,7 @@ func (s *Server) getCrossRefs(ctx context.Context, input *ServiceNameInput) (*ge
 
 	target := cached.index[input.Name]
 	if target == nil {
-		return &getCrossRefsOutput{Body: &CrossReferences{}}, nil
+		return nil, huma.Error404NotFound("service not found: " + input.Name)
 	}
 
 	result := CrossReferences{}

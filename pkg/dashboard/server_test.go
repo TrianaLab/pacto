@@ -433,8 +433,28 @@ func TestServerGetCrossRefs_NotInIndex(t *testing.T) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 (empty refs), got %d", resp.StatusCode)
+	// A nonexistent service is a 404, consistent with the graph endpoint.
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for nonexistent service, got %d", resp.StatusCode)
+	}
+}
+
+func TestServerGetDependents_NotFound(t *testing.T) {
+	source := &mockSource{
+		services: []Service{},
+		details:  map[string]*ServiceDetails{},
+	}
+	base := startTestServer(t, source)
+
+	resp, err := http.Get(base + "/api/services/nonexistent/dependents")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	// A nonexistent service is a 404, consistent with the graph endpoint.
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for nonexistent service, got %d", resp.StatusCode)
 	}
 }
 
