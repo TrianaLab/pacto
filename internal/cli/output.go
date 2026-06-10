@@ -244,7 +244,11 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 			_, _ = fmt.Fprintf(w, "  Gate: %s (score %d / minScore %d)\n", gate, r.Score, r.MinScore)
 			_, _ = fmt.Fprintf(w, "  Current Weight: %d\n", r.CurrentWeight)
 			_, _ = fmt.Fprintf(w, "  Total Weight: %d\n", r.TotalWeight)
+			_, _ = fmt.Fprintf(w, "  Current Checks: %d\n", r.CurrentCount)
 			_, _ = fmt.Fprintf(w, "  Expired Checks: %d\n", r.ExpiredCount)
+			if r.InvalidCount > 0 {
+				_, _ = fmt.Fprintf(w, "  Invalid Checks: %d\n", r.InvalidCount)
+			}
 			_, _ = fmt.Fprintf(w, "\n  Checks:\n")
 			for _, ch := range r.Checks {
 				pct := 0

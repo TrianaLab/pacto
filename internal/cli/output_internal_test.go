@@ -453,6 +453,7 @@ func TestPrintExplainResult_Readiness(t *testing.T) {
 		"Gate: PASS (score 75 / minScore 70)",
 		"Current Weight: 60",
 		"Total Weight: 80",
+		"Current Checks: 2",
 		"Expired Checks: 1",
 		"dashboard",
 		"current",
@@ -463,6 +464,42 @@ func TestPrintExplainResult_Readiness(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in readiness output, got %q", want, out)
 		}
+	}
+	// InvalidCount is 0 here; the line is omitted (matches JSON omitempty).
+	if strings.Contains(out, "Invalid Checks:") {
+		t.Errorf("did not expect an Invalid Checks line when InvalidCount==0, got %q", out)
+	}
+}
+
+func TestPrintExplainResult_ReadinessInvalidCount(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{
+		Name:         "svc",
+		Version:      "1.0.0",
+		PactoVersion: "1.1",
+		Readiness: &app.ExplainReadiness{
+			Score:         50,
+			MinScore:      70,
+			Passing:       false,
+			TotalWeight:   40,
+			CurrentWeight: 20,
+			CurrentCount:  1,
+			InvalidCount:  1,
+			Checks: []app.ExplainReadinessCheck{
+				{ID: "dashboard", Type: "url", Status: "Current", Weight: 20, Expires: "2026-12-31"},
+				{ID: "broken", Type: "url", Status: "Invalid", Weight: 20, Expires: "not-a-date"},
+			},
+		},
+	}
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Current Checks: 1") {
+		t.Errorf("expected Current Checks line, got %q", out)
+	}
+	if !strings.Contains(out, "Invalid Checks: 1") {
+		t.Errorf("expected Invalid Checks line when InvalidCount>0, got %q", out)
 	}
 }
 
