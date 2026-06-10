@@ -106,6 +106,11 @@ func (r *Resolver) ResolveConstrained(ctx context.Context, ref, constraint strin
 	if !HasExplicitTag(ref) {
 		resolved, err := ResolveRef(ctx, r.store, ref, constraint)
 		if err != nil {
+			// Pass through typed errors (auth/unreachable/not-found/invalid) —
+			// only a genuine no-match-for-constraint becomes NoMatchingVersion.
+			if typed := classifyPullError(err); typed != nil {
+				return nil, typed
+			}
 			if constraint != "" {
 				return nil, &NoMatchingVersionError{Ref: ref, Constraint: constraint, Err: err}
 			}
@@ -149,10 +154,36 @@ func (r *Resolver) FetchAllVersions(ctx context.Context, ref string) ([]string, 
 	return versions, nil
 }
 
+// classifyPullError returns the error unchanged when it is already one of the
+// resolver's typed errors (the client types auth/not-found/unreachable via
+// wrapRemoteError, and invalid-ref/invalid-bundle at the parse/extract sites),
+// or nil when it is unrecognized so the caller can apply a default.
+func classifyPullError(err error) error {
+	var (
+		authErr          *AuthenticationError
+		notFoundErr      *ArtifactNotFoundError
+		unreachableErr   *RegistryUnreachableError
+		invalidRefErr    *InvalidRefError
+		invalidBundleErr *InvalidBundleError
+	)
+	switch {
+	case errors.As(err, &authErr), errors.As(err, &notFoundErr), errors.As(err, &unreachableErr),
+		errors.As(err, &invalidRefErr), errors.As(err, &invalidBundleErr):
+		return err
+	}
+	return nil
+}
+
 func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bundle, error) {
 	bundle, err := r.store.Pull(ctx, ref)
 	if err != nil {
-		return nil, &ArtifactNotFoundError{Ref: ref, Err: fmt.Errorf("not found in local cache")}
+		// A cached store can still reach the registry, so surface typed
+		// auth/not-found/unreachable/invalid errors rather than masking every
+		// failure as a local-cache miss.
+		if typed := classifyPullError(err); typed != nil {
+			return nil, typed
+		}
+		return nil, &ArtifactNotFoundError{Ref: ref, Err: fmt.Errorf("not found in local cache: %w", err)}
 	}
 	if bundle.Contract == nil {
 		return nil, &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
@@ -163,29 +194,11 @@ func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bund
 func (r *Resolver) resolveWithFetch(ctx context.Context, ref string) (*contract.Bundle, error) {
 	bundle, err := r.store.Pull(ctx, ref)
 	if err != nil {
-		// Classify the error.
-		var authErr *AuthenticationError
-		var notFoundErr *ArtifactNotFoundError
-		var unreachableErr *RegistryUnreachableError
-		switch {
-		case errors.As(err, &authErr):
-			return nil, err
-		case errors.As(err, &notFoundErr):
-			return nil, err
-		case errors.As(err, &unreachableErr):
-			return nil, err
-		default:
-			// Could be a parse error from an invalid ref or an extraction error.
-			if strings.Contains(err.Error(), "invalid reference") {
-				return nil, &InvalidRefError{Ref: ref, Err: err}
-			}
-			if strings.Contains(err.Error(), "failed to extract bundle") {
-				return nil, &InvalidBundleError{Ref: ref, Err: err}
-			}
-			return nil, err
+		if typed := classifyPullError(err); typed != nil {
+			return nil, typed
 		}
+		return nil, err
 	}
-
 	if bundle.Contract == nil {
 		return nil, &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
 	}

@@ -208,8 +208,9 @@ func TestClient_Pull_InvalidRef(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid reference")
 	}
-	if !strings.Contains(err.Error(), "invalid reference") {
-		t.Errorf("error = %q, want to contain %q", err.Error(), "invalid reference")
+	var refErr *oci.InvalidRefError
+	if !errors.As(err, &refErr) {
+		t.Errorf("error = %v, want *oci.InvalidRefError", err)
 	}
 }
 
@@ -221,8 +222,9 @@ func TestClient_Resolve_InvalidRef(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid reference")
 	}
-	if !strings.Contains(err.Error(), "invalid reference") {
-		t.Errorf("error = %q, want to contain %q", err.Error(), "invalid reference")
+	var refErr *oci.InvalidRefError
+	if !errors.As(err, &refErr) {
+		t.Errorf("error = %v, want *oci.InvalidRefError", err)
 	}
 }
 
@@ -273,8 +275,9 @@ func TestClient_Pull_InvalidImage(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for image without pacto.yaml")
 	}
-	if !strings.Contains(err.Error(), "failed to extract bundle") {
-		t.Errorf("error = %q, want to contain %q", err.Error(), "failed to extract bundle")
+	var bundleErr *oci.InvalidBundleError
+	if !errors.As(err, &bundleErr) {
+		t.Errorf("error = %v, want *oci.InvalidBundleError", err)
 	}
 }
 
