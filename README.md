@@ -170,6 +170,8 @@ scaling:
 
 Only `pactoVersion` and `service` are required — everything else is opt-in, so a contract can be as minimal or as detailed as your service needs.
 
+> This example uses `pactoVersion: "1.0"`, which `pacto init` creates. The optional `readiness` section is a v1.1+ feature — omit it for `1.0`. **Which version?** Use `1.0` for basic contracts; use `1.1` when you need `readiness` (everything from 1.0 stays valid under 1.1).
+
 ---
 
 ## Key capabilities

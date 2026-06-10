@@ -52,7 +52,32 @@ service:
 
 Add sections as needed — interfaces, runtime semantics, dependencies, configuration, policy, scaling. See the [Contract Reference](contract-reference.md) for every available field.
 
-## 5. Pack and push
+## 5. Add readiness (optional, v1.1+)
+
+The `readiness` section declares operational evidence for the service. It requires `pactoVersion: "1.1"` — declaring it under `1.0` is rejected at validation. Bump the version and add at least one check:
+
+```yaml
+pactoVersion: "1.1"
+
+readiness:
+  minScore: 80
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.company.com/my-service
+      weight: 20
+      expires: 2026-12-31
+```
+
+Then run the opt-in readiness gate:
+
+```bash
+$ pacto validate my-service --readiness
+```
+
+The gate compares each check's `expires` against the run time, so its result changes as evidence goes stale — that's why plain `pacto validate` does not enforce it. See [Contract Reference](contract-reference.md#readiness) for the full scoring and gate semantics.
+
+## 6. Pack and push
 
 ```bash
 # Create a tar.gz bundle
@@ -69,7 +94,7 @@ Pushed my-service@1.0.0 -> ghcr.io/your-org/my-service-pacto:1.0.0
 Digest: sha256:a1b2c3...
 ```
 
-## 6. Pull and inspect
+## 7. Pull and inspect
 
 ```bash
 # Pull from the registry
@@ -97,7 +122,7 @@ $ pacto doc my-service --serve
 Serving documentation at http://127.0.0.1:8484
 ```
 
-## 7. Detect breaking changes
+## 8. Detect breaking changes
 
 Make a change to your contract (e.g. modify a port number) and diff it against the version you just pushed:
 

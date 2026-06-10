@@ -95,6 +95,11 @@ Every question a platform could ask — *What port? Stateful or stateless? What 
 
 Only `pactoVersion` and `service` are required — everything else is opt-in, so a contract can be as minimal or as detailed as your service needs.
 
+!!! note
+    The example above uses `pactoVersion: "1.0"`, which `pacto init` creates. Add the optional [`readiness`](contract-reference.md#readiness) section only under `pactoVersion: "1.1"` — declaring it under `1.0` is rejected at validation.
+
+**Which version?** Use `1.0` for basic contracts; use `1.1` when you need the [`readiness`](contract-reference.md#readiness) section. Everything from 1.0 remains valid under 1.1.
+
 ---
 
 ## When should I use Pacto?
