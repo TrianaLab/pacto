@@ -151,6 +151,50 @@ func TestReadinessDoc(t *testing.T) {
 	assertContains(t, out, "| `dashboard` | `url` |")
 }
 
+// TestReadinessOCIRoundtrip pushes a pactoVersion 1.1 readiness contract to the
+// registry and pulls it back, asserting the readiness section survives the OCI
+// pack/push/pull cycle intact. A regression in bundle tar packing that dropped
+// or corrupted the 1.1 readiness block would otherwise pass silently (explain on
+// the local bundle would still work).
+func TestReadinessOCIRoundtrip(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	path := writeReadinessBundle(t)
+	ref := "oci://" + reg.host + "/readiness-svc:1.0.0"
+
+	if out, err := runCommand(t, reg, "push", ref, "-p", path); err != nil {
+		t.Fatalf("push failed: %v\n%s", err, out)
+	}
+
+	pullDir := filepath.Join(t.TempDir(), "pulled")
+	if out, err := runCommand(t, reg, "pull", ref, "-o", pullDir); err != nil {
+		t.Fatalf("pull failed: %v\n%s", err, out)
+	}
+
+	// Explain the pulled bundle: readiness must be present and identical.
+	out, err := runCommand(t, reg, "explain", pullDir)
+	if err != nil {
+		t.Fatalf("explain on pulled bundle failed: %v\n%s", err, out)
+	}
+	assertContains(t, out, "Pacto Version: 1.1")
+	assertContains(t, out, "Readiness:")
+	assertContains(t, out, "Score: 60")
+	assertContains(t, out, "Current Weight: 60")
+	assertContains(t, out, "Total Weight: 100")
+	assertContains(t, out, "Expired Checks: 1")
+	assertContains(t, out, "dashboard")
+	assertContains(t, out, "security-review")
+
+	// The roundtripped bundle must be byte-equivalent at the contract level:
+	// diffing the local source against the pulled copy reports no changes.
+	diffOut, diffErr := runCommand(t, reg, "diff", path, pullDir)
+	if diffErr != nil {
+		t.Fatalf("diff failed: %v\n%s", diffErr, diffOut)
+	}
+	assertContains(t, diffOut, "No changes")
+}
+
 func TestReadinessValidate(t *testing.T) {
 	t.Parallel()
 
