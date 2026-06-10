@@ -35,7 +35,7 @@ describe('statusClass', () => {
   it('maps Warning to warn', () => expect(statusClass('Warning')).toBe('warn'));
   it('maps NonCompliant to err', () => expect(statusClass('NonCompliant')).toBe('err'));
   it('maps Unknown to neutral', () => expect(statusClass('Unknown')).toBe('neutral'));
-  it('maps Reference to neutral', () => expect(statusClass('Reference')).toBe('neutral'));
+  it('maps Reference to reference', () => expect(statusClass('Reference')).toBe('reference'));
   it('maps undefined to neutral', () => expect(statusClass(undefined)).toBe('neutral'));
 });
 

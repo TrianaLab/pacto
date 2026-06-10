@@ -250,8 +250,14 @@
   <header class="detail-header fade-in-up">
     <div class="detail-title-row">
       <h1>{detail.name}</h1>
-      <span class="badge badge-{statusClass(detail.contractStatus)}"><span class="badge-dot"></span>{detail.contractStatus}</span>
-      {#if detail.compliance}
+      {#if detail.runtimeEvaluated}
+        <span class="badge badge-{statusClass(detail.contractStatus)}"><span class="badge-dot"></span>{detail.contractStatus}</span>
+      {:else}
+        <span class="badge badge-definition" data-tip="No cluster runtime data for this view — showing the contract definition only (runtime status unknown)">
+          <span class="badge-dot"></span>Definition only
+        </span>
+      {/if}
+      {#if detail.runtimeEvaluated && detail.compliance}
         {#if detail.compliance.score != null}
           <span class="score {complianceClass(detail.compliance.score)}">{detail.compliance.score}%</span>
         {/if}
@@ -262,7 +268,7 @@
           <span class="badge badge-warn">{detail.compliance.summary.warnings} warning{detail.compliance.summary.warnings > 1 ? 's' : ''}</span>
         {/if}
       {/if}
-      {#if detail.checksSummary}
+      {#if detail.checksSummary && detail.runtimeEvaluated && detail.contractStatus !== 'Reference'}
         <span class="text-2">{detail.checksSummary.passed}/{detail.checksSummary.total} checks</span>
       {/if}
       {#if blastRadius > 0}
@@ -274,14 +280,16 @@
     </div>
     <div class="detail-meta">
       {#if detail.version}<span class="pill">{detail.version}</span>{/if}
-      {#if detail.versionPolicy}
-        <span class="pill pill-policy {versionPolicyClass(detail.versionPolicy)}" data-tip={detail.resolvedRef || ''}>{versionPolicyLabel(detail.versionPolicy)}</span>
-      {/if}
-      {#if detail.updateAvailable && detail.latestAvailable}
-        <span class="pill pill-update" data-tip="Informational — does not affect compliance">
-          {detail.latestAvailable} available
-        </span>
-        <a href={compareDiffUrl({ fromName: name, fromVer: detail.version, toName: name, toVer: detail.latestAvailable })} class="btn btn-sm btn-update">Compare</a>
+      {#if detail.contractStatus !== 'Reference'}
+        {#if detail.versionPolicy}
+          <span class="pill pill-policy {versionPolicyClass(detail.versionPolicy)}" data-tip={detail.resolvedRef || ''}>{versionPolicyLabel(detail.versionPolicy)}</span>
+        {/if}
+        {#if detail.updateAvailable && detail.latestAvailable}
+          <span class="pill pill-update" data-tip="Informational — does not affect compliance">
+            {detail.latestAvailable} available
+          </span>
+          <a href={compareDiffUrl({ fromName: name, fromVer: detail.version, toName: name, toVer: detail.latestAvailable })} class="btn btn-sm btn-update">Compare</a>
+        {/if}
       {/if}
       {#each sources as src}
         <span class="source-dot source-dot-{src}" data-tip={sourceTooltip(src)}></span>

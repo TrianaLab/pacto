@@ -911,6 +911,29 @@ func TestEnrichWithRuntime_StructFields(t *testing.T) {
 	}
 }
 
+func TestEnrichWithRuntime_DeclaredRuntimeNotOverridden(t *testing.T) {
+	// When the contract base declares Runtime/Scaling, the k8s overlay must NOT
+	// replace them (contract is authoritative); observed values live in their own
+	// sections.
+	declared := &ServiceDetails{
+		Service: Service{Name: "svc", ContractStatus: StatusCompliant},
+		Runtime: &RuntimeInfo{Workload: "worker"},
+		Scaling: &ScalingInfo{Replicas: intPtr(2)},
+	}
+	enrichWithRuntime(declared, newFullRuntime()) // runtime declares workload "service", replicas 3
+
+	if declared.Runtime.Workload != "worker" {
+		t.Errorf("declared runtime overridden by k8s: %+v", declared.Runtime)
+	}
+	if declared.Scaling.Replicas == nil || *declared.Scaling.Replicas != 2 {
+		t.Errorf("declared scaling overridden by k8s: %+v", declared.Scaling)
+	}
+	// Observed runtime is still enriched from k8s.
+	if declared.ObservedRuntime == nil {
+		t.Error("expected observed runtime from k8s overlay")
+	}
+}
+
 func TestResolvedSource_HasSource(t *testing.T) {
 	resolved := BuildResolvedSource(map[string]DataSource{
 		"local": &stubSource{},

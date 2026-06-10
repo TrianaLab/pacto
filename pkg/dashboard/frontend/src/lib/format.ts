@@ -4,6 +4,7 @@ export function statusClass(status: string | undefined): string {
   if (status === 'Compliant') return 'ok';
   if (status === 'Warning') return 'warn';
   if (status === 'NonCompliant') return 'err';
+  if (status === 'Reference') return 'reference';
   return 'neutral';
 }
 

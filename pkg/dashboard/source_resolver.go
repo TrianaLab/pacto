@@ -340,8 +340,16 @@ func enrichWithRuntime(contract *ServiceDetails, runtime *ServiceDetails) {
 
 // enrichRuntimeFields copies runtime-only struct/slice fields from k8s.
 func enrichRuntimeFields(contract *ServiceDetails, runtime *ServiceDetails) {
-	if runtime.Runtime != nil {
+	// Declared Runtime and Scaling stay from the contract base (the contract is
+	// authoritative for what the service SHOULD be). The operator's observed/
+	// effective values live in ObservedRuntime + RuntimeDiff below, so the two
+	// are never conflated. Only fill the declared blocks when the contract base
+	// had none (e.g. a k8s-only service whose declared values come from status).
+	if contract.Runtime == nil && runtime.Runtime != nil {
 		contract.Runtime = runtime.Runtime
+	}
+	if contract.Scaling == nil && runtime.Scaling != nil {
+		contract.Scaling = runtime.Scaling
 	}
 	if runtime.Resources != nil {
 		contract.Resources = runtime.Resources
@@ -351,9 +359,6 @@ func enrichRuntimeFields(contract *ServiceDetails, runtime *ServiceDetails) {
 	}
 	if runtime.Validation != nil {
 		contract.Validation = runtime.Validation
-	}
-	if runtime.Scaling != nil {
-		contract.Scaling = runtime.Scaling
 	}
 	if runtime.ChecksSummary != nil {
 		contract.ChecksSummary = runtime.ChecksSummary
