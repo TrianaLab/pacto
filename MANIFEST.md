@@ -49,7 +49,7 @@ If a platform has to guess whether a service is stateful, the contract is incomp
 
 A standard for describing how a service behaves operationally.
 
-The contract captures interfaces, dependencies, runtime semantics, configuration, scaling, and policy. It can be validated, diffed, distributed as an OCI artifact, resolved into a dependency graph, verified against running workloads, and explored through a dashboard.
+The contract captures interfaces, dependencies, runtime semantics, configuration, scaling, readiness, and policy. It can be validated, diffed, distributed as an OCI artifact, resolved into a dependency graph, verified against running workloads, and explored through a dashboard.
 
 It is the minimum viable description that lets a platform run a service correctly without guessing.
 

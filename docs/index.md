@@ -168,7 +168,7 @@ graph LR
 
 A bundle is a self-contained directory (or OCI artifact) containing:
 
-- **`pacto.yaml`** — the contract: interfaces, dependencies, runtime semantics, scaling *(required)*
+- **`pacto.yaml`** — the contract: interfaces, dependencies, runtime semantics, scaling, readiness *(required)*
 - **`interfaces/`** *(optional)* — OpenAPI specs, protobuf definitions, event schemas
 - **`configuration/`** *(optional)* — JSON Schema for environment variables and settings
 - **`policy/`** *(optional)* — JSON Schema that validates the contract itself (organizational standards enforcement)

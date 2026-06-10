@@ -9,7 +9,7 @@
 
 **Pacto is to service operations what OpenAPI is to HTTP APIs.**
 
-Pacto (/ˈpak.to/ — Spanish for *pact*) is a contract system for cloud-native services. You describe a service's operational behavior once — interfaces, dependencies, runtime semantics, configuration, scaling — and Pacto validates it, distributes it, verifies it at runtime, and lets humans explore it.
+Pacto (/ˈpak.to/ — Spanish for *pact*) is a contract system for cloud-native services. You describe a service's operational behavior once — interfaces, dependencies, runtime semantics, configuration, scaling, readiness — and Pacto validates it, distributes it, verifies it at runtime, and lets humans explore it.
 
 The system has three pieces that work together:
 
@@ -57,7 +57,7 @@ The lifecycle:
 
 ## What you get
 
-- **One contract per service** — a single `pacto.yaml` captures interfaces, dependencies, runtime semantics, configuration, and scaling
+- **One contract per service** — a single `pacto.yaml` captures interfaces, dependencies, runtime semantics, configuration, scaling, and readiness
 - **Versioned OCI artifacts** — contracts are pushed to the same registries you already use for container images
 - **Runtime state in Kubernetes** — the operator tracks every contract version and checks alignment against running workloads
 - **Dependency graph + version history** — the dashboard visualizes relationships, diffs, and compliance across all services
@@ -109,7 +109,7 @@ What it shows:
 - **Ownership views** — aggregated compliance and blast radius per owner, with drill-down to individual services and owner-filtered graphs
 - **Version history** — all published versions from OCI, with the ability to fetch and cache every version
 - **Diffs between versions** — classified changes (breaking, non-breaking) between any two versions
-- **Service details** — interfaces, configuration schemas, policy references, documentation
+- **Service details** — interfaces, configuration schemas, policy references, readiness, documentation
 - **Runtime status** — when paired with the operator, shows whether deployed services align with their contracts
 
 Run it locally with `pacto dashboard`, or deploy the [container image](https://trianalab.github.io/pacto/dashboard-docker) alongside the operator for a combined view: runtime state from Kubernetes + contract data from OCI.

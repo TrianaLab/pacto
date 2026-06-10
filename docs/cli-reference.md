@@ -620,12 +620,16 @@ pacto validate [dir | oci://ref] [flags]
 
   # JSON output
   pacto validate --output-format json my-service
+
+  # Also enforce the readiness gate (fail if score < minScore)
+  pacto validate --readiness my-service
 ```
 
 **Flags:**
 
 ```
   -h, --help                 help for validate
+      --readiness            also enforce the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```

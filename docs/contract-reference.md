@@ -1,9 +1,12 @@
-# Contract Reference (v1.0)
-A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface — interfaces, dependencies, runtime behavior, configuration, and scaling. This page covers every section, field, validation rule, and change classification rule.
+# Contract Reference (v1.1)
+A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface — interfaces, dependencies, runtime behavior, configuration, scaling, and readiness. This page covers every section, field, validation rule, and change classification rule.
 
 ---
 
-The canonical JSON Schema is available at [`schema/pacto-v1.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.0.schema.json).
+The canonical JSON Schemas are available per version:
+[`schema/pacto-v1.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.0.schema.json)
+and [`schema/pacto-v1.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.1.schema.json).
+The schema is selected by the contract's [`pactoVersion`](#pactoversion).
 
 ---
 
@@ -192,11 +195,22 @@ This is useful for lightweight dependency declarations, shared libraries, or con
 
 ### `pactoVersion`
 
-The contract specification version. Currently only `"1.0"` is supported.
+The contract specification version. Supported values are `"1.0"` and `"1.1"`.
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.1"
 ```
+
+Each version is validated against its own JSON Schema, selected by the declared
+`pactoVersion`. An unrecognized version is a hard error (`UNSUPPORTED_PACTO_VERSION`).
+
+| Version | Adds |
+|---------|------|
+| `1.0`   | The base contract (service, interfaces, configurations, policies, dependencies, runtime, scaling, metadata). |
+| `1.1`   | The optional [`readiness`](#readiness) section. Everything from `1.0` remains valid. |
+
+Existing `1.0` contracts continue to validate unchanged. The `readiness` section
+is only accepted under `pactoVersion: "1.1"`; declaring it under `1.0` is rejected.
 
 ---
 
@@ -732,6 +746,139 @@ scaling:
 
 ---
 
+### `readiness`
+
+Optional. **Requires `pactoVersion: "1.1"`.** Declares operational readiness
+evidence for the service in a provider-neutral way. Each check points at evidence
+(a dashboard, runbook, ticket, report, etc.). Pacto stores the pointer verbatim
+and **does not verify the target** — there are no integrations with Grafana, Jira,
+Datadog, AWS, GCP, etc. Policies decide which checks must exist and what shape they
+must have; the base schema only enforces the generic shape.
+
+```yaml
+readiness:
+  minScore: 80          # gate: the derived score must be >= this (omitted ⇒ 100)
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.company.com/payment-api
+      weight: 20
+      expires: 2026-12-31
+      description: Main production dashboard
+
+    - id: runbook
+      type: document
+      evidence: docs/runbooks/payment-api.md
+      weight: 15
+      expires: 2026-09-30
+
+    - id: security-review
+      type: ticket
+      evidence: SEC-1842
+      weight: 25
+      expires: 2026-11-15
+```
+
+`readiness.checks` is required when `readiness` is present and must contain at
+least one check. `readiness.minScore` is optional (the [gate](#readiness-score-and-gate)).
+
+**`readiness` fields:**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `minScore` | integer | No | Gate threshold on the same 0–100 scale as the score. Omitted ⇒ `100` (all weighted evidence must be current). Enforced by `pacto validate --readiness` and the operator. |
+| `checks` | [Check](#readiness-check-fields)[] | Yes | At least one check. |
+
+**Check fields:**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `id` | string | Yes | Stable readiness requirement id. Pattern: `^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`. Unique within the contract. Policies usually target this field. |
+| `type` | string | Yes | Enum: `url`, `document`, `ticket`, `report`, `artifact`, `identifier`, `other`. Classifies the evidence pointer, not the requirement. |
+| `evidence` | string | Yes | Non-blank pointer to the evidence (1–2048 chars). |
+| `weight` | integer | Yes | Contribution to the readiness score. Range `0`–`100`. |
+| `expires` | string | Yes | Freshness boundary as a `YYYY-MM-DD` date. The check is current through the end of this date. |
+| `description` | string | No | Optional human-readable explanation (non-blank when present). |
+
+The service owner is declared at the contract level, so readiness checks carry no
+per-check owner. Derived freshness (`Current` / `Expired` / `Invalid`) and the
+readiness score are **not** stored in the contract — they are computed by tooling
+(`pacto explain`, the dashboard, and the operator) from `expires` and the current
+time.
+
+#### Readiness score and gate
+
+```text
+score   = currentWeight / totalWeight * 100
+passing = score >= minScore          # minScore defaults to 100
+```
+
+`currentWeight` is the sum of the weights of non-expired checks; `totalWeight` is
+the sum of all declared weights. When `totalWeight` is `0`, the score is `0`. A
+check is current while the current date is on or before its `expires` date.
+
+**Weights are relative.** Only the *ratio* of weights matters — the score
+normalizes by `totalWeight`, so a `weight` of `20` reads as "20%" only when the
+weights sum to 100. They can sum to anything; making them sum to 100 just makes
+each read as a percentage directly. `pacto explain` and the dashboard show each
+check's normalized contribution so you never have to do the math.
+
+**The gate (`minScore`)** turns the score from informational into actionable. It
+is a *staleness budget*: with `minScore: 80` you tolerate 20% of weighted evidence
+going stale; a check whose normalized weight exceeds that budget is effectively
+mandatory. The gate is evaluated by tooling, not baked into contract validity:
+
+- `pacto explain` shows `Gate: PASS/FAIL (score N / minScore M)`.
+- `pacto validate --readiness` (off by default) **fails** when `score < minScore`.
+  It is opt-in because it reads `expires` against the current time — making it
+  time-dependent — which would otherwise make plain `validate` non-deterministic.
+- The operator sets `status.readiness.passing` and the `ReadinessSatisfied`
+  condition from the same rule.
+
+Because `minScore` is an authored literal, a [policy](#policies) can still enforce
+it org-wide (e.g. require `readiness.minScore >= 80`) — presence rules stay in
+policies, the freshness bar lives here.
+
+#### Enforcing readiness with policies
+
+The base schema never requires a specific check. Organizational standards are
+expressed as [policies](#policies) using standard JSON Schema. For example, to
+require a `dashboard` check that is a `url` with `weight >= 20`:
+
+```json
+{
+  "type": "object",
+  "required": ["readiness"],
+  "properties": {
+    "readiness": {
+      "type": "object",
+      "required": ["checks"],
+      "properties": {
+        "checks": {
+          "type": "array",
+          "contains": {
+            "type": "object",
+            "required": ["id", "type", "weight"],
+            "properties": {
+              "id": { "const": "dashboard" },
+              "type": { "const": "url" },
+              "weight": { "minimum": 20 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Combine multiple `contains` under `allOf` to require several checks (e.g.
+`dashboard` + `runbook` + `security-review`). Constraints JSON Schema cannot
+express — such as "total weight must equal 100" — are left to a future policy
+engine.
+
+---
+
 ### `metadata`
 
 Optional. Free-form key-value pairs for organizational use. Not validated beyond type.
@@ -792,6 +939,10 @@ Validates semantic references and consistency:
 | `chart.version` is valid semver | `INVALID_CHART_VERSION` |
 | `configurations[].ref` is not a valid OCI reference | `INVALID_CONFIG_REF` |
 | `configurations[].values` without a schema | `VALUES_WITHOUT_SCHEMA` |
+| `readiness.checks[].id` are unique within the contract | `DUPLICATE_READINESS_ID` |
+| `readiness.checks[].evidence` is not blank/whitespace | `EMPTY_READINESS_EVIDENCE` |
+| `readiness.checks[].description` (when present) is not blank | `EMPTY_READINESS_DESCRIPTION` |
+| `readiness.checks[].expires` is a strict `YYYY-MM-DD` date | `INVALID_READINESS_EXPIRES` |
 | `configurations[].schema` file is not valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
 | `configurations[].values` don't match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
 | `policies` entry has neither `schema` nor `ref` | `POLICY_EMPTY` |
