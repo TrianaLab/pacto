@@ -65,13 +65,13 @@ func diffHealth(old, new *contract.Health) []Change {
 		newIface, newPath, newDelay = new.Interface, new.Path, new.InitialDelaySeconds
 	}
 	if oldIface != newIface {
-		changes = append(changes, newChange("runtime.health.interface", Modified, oldIface, newIface))
+		changes = append(changes, newChange("runtime.health.interface", strChangeType(oldIface, newIface), oldIface, newIface))
 	}
 	if oldPath != newPath {
-		changes = append(changes, newChange("runtime.health.path", Modified, oldPath, newPath))
+		changes = append(changes, newChange("runtime.health.path", strChangeType(oldPath, newPath), oldPath, newPath))
 	}
 	if intPtrChanged(oldDelay, newDelay) {
-		changes = append(changes, newChange("runtime.health.initialDelaySeconds", Modified, intPtrVal(oldDelay), intPtrVal(newDelay)))
+		changes = append(changes, newChange("runtime.health.initialDelaySeconds", intPtrChangeType(oldDelay, newDelay), intPtrVal(oldDelay), intPtrVal(newDelay)))
 	}
 	return changes
 }
@@ -87,10 +87,10 @@ func diffMetrics(old, new *contract.Metrics) []Change {
 		newIface, newPath = new.Interface, new.Path
 	}
 	if oldIface != newIface {
-		changes = append(changes, newChange("runtime.metrics.interface", Modified, oldIface, newIface))
+		changes = append(changes, newChange("runtime.metrics.interface", strChangeType(oldIface, newIface), oldIface, newIface))
 	}
 	if oldPath != newPath {
-		changes = append(changes, newChange("runtime.metrics.path", Modified, oldPath, newPath))
+		changes = append(changes, newChange("runtime.metrics.path", strChangeType(oldPath, newPath), oldPath, newPath))
 	}
 	return changes
 }
@@ -152,6 +152,18 @@ func intPtrChangeType(old, new *int) ChangeType {
 		return Added
 	}
 	if new == nil {
+		return Removed
+	}
+	return Modified
+}
+
+// strChangeType classifies a string field change as Added (was empty), Removed
+// (now empty), or Modified — so nil↔value transitions aren't reported as Modified.
+func strChangeType(old, new string) ChangeType {
+	if old == "" {
+		return Added
+	}
+	if new == "" {
 		return Removed
 	}
 	return Modified
