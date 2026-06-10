@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/semver"
 )
 
 // ResolveMode controls whether remote fetching is allowed.
@@ -194,18 +193,7 @@ func (r *Resolver) resolveWithFetch(ctx context.Context, ref string) (*contract.
 }
 
 // FilterSemverTags returns only valid semver tags, sorted descending (latest first).
+// Thin wrapper over pkg/semver so the resolver and the dashboard share one impl.
 func FilterSemverTags(tags []string) []string {
-	var versions []*semver.Version
-	for _, t := range tags {
-		v, err := semver.NewVersion(t)
-		if err == nil {
-			versions = append(versions, v)
-		}
-	}
-	sort.Sort(sort.Reverse(semver.Collection(versions)))
-	var out []string
-	for _, v := range versions {
-		out = append(out, v.Original())
-	}
-	return out
+	return semver.Filter(tags)
 }
