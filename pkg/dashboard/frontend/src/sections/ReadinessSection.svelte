@@ -4,7 +4,7 @@
   import DocModal from '../DocModal.svelte';
   import { readinessStatusClass, readinessDaysLabel, complianceClass } from '../lib/format.ts';
 
-  let { readiness = null, docs = [], open = $bindable(false), id = '' } = $props();
+  let { readiness = null, docs = [], open = $bindable(false), id = '', source = '' } = $props();
 
   let hasContent = $derived(!!readiness && (readiness.checks?.length ?? 0) > 0);
   let expanded = $state({});
@@ -26,7 +26,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Readiness" count={readiness.checks.length} bind:open {id}>
+  <CollapsibleSection title="Readiness" count={readiness.checks.length} bind:open {id} {source}>
     <div class="readiness-summary">
       <div class="score {complianceClass(readiness.score)}" data-tip="Percentage of declared weight that is currently satisfied">
         {readiness.score}<span class="score-unit">/100</span>

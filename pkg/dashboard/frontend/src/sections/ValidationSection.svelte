@@ -1,7 +1,7 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
 
-  let { validation, conditions = [], open = $bindable(false), id = '' } = $props();
+  let { validation, conditions = [], open = $bindable(false), id = '', source = '' } = $props();
 
   let hasContent = $derived(
     (validation?.errors?.length > 0) ||
@@ -11,7 +11,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Validation" bind:open {id}>
+  <CollapsibleSection title="Validation" bind:open {id} {source}>
     {#if validation?.errors?.length > 0}
       <div class="subsection">
         <h3 style="color:var(--c-err)">Errors</h3>

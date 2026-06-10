@@ -1,13 +1,13 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
 
-  let { conditions = [], runtime, scaling, metadata, open = $bindable(true), id = '' } = $props();
+  let { conditions = [], runtime, scaling, metadata, open = $bindable(true), id = '', source = '' } = $props();
 
   let hasRuntime = $derived(!!runtime);
   let hasCards = $derived(hasRuntime || !!scaling || (metadata && Object.keys(metadata).length > 0));
 </script>
 
-<CollapsibleSection title="Overview" bind:open {id}>
+<CollapsibleSection title="Overview" bind:open {id} {source}>
   {#if conditions?.length > 0}
     <div class="subsection">
       <h3>Conditions</h3>

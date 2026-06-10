@@ -124,6 +124,7 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
   k8s: 'Kubernetes — live cluster runtime data',
   oci: 'OCI Registry — versioned contract bundles',
   local: 'Local — contracts from local filesystem',
+  cache: 'Cache — offline baseline from a previously pulled bundle',
 };
 
 export function sourceTooltip(src: string): string {

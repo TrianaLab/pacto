@@ -2,7 +2,7 @@
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import { serviceUrl } from '../lib/router.ts';
 
-  let { policies = [], open = $bindable(false), id = '' } = $props();
+  let { policies = [], open = $bindable(false), id = '', source = '' } = $props();
 
   let hasContent = $derived(policies?.length > 0);
   let expanded = $state({});
@@ -17,7 +17,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Policies" count={policies.length} bind:open {id}>
+  <CollapsibleSection title="Policies" count={policies.length} bind:open {id} {source}>
     {#each policies as pol, i}
       <div class="detail-card">
         <button type="button" class="detail-card-header" class:expandable={pol.values?.length > 0} onclick={() => pol.values?.length > 0 && toggle(i)}>

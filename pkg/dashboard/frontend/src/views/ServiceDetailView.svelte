@@ -14,6 +14,7 @@
   import ReadinessSection from '../sections/ReadinessSection.svelte';
   import DocsSection from '../sections/DocsSection.svelte';
   import SectionState from '../sections/SectionState.svelte';
+  import SourcesPanel from '../sections/SourcesPanel.svelte';
   import ValidationSection from '../sections/ValidationSection.svelte';
   import RuntimeDiffSection from '../sections/RuntimeDiffSection.svelte';
   import ObservedRuntimeSection from '../sections/ObservedRuntimeSection.svelte';
@@ -93,7 +94,7 @@
 
   // Section open states
   let openSections = $state({
-    overview: true, interfaces: true, dependencies: true,
+    overview: true, sources: false, interfaces: true, dependencies: true,
     config: false, policy: false, readiness: false, docs: false, validation: false,
     runtimeDiff: false, observed: false,
   });
@@ -109,7 +110,7 @@
   // state) so nothing silently appears/disappears between services or reloads.
   let availableSections = $derived.by(() => {
     if (!detail) return [];
-    const sections = [{ id: 'overview', label: 'Overview' }];
+    const sections = [{ id: 'overview', label: 'Overview' }, { id: 'sources', label: 'Sources' }];
     for (const s of DOMAIN_SECTIONS) sections.push({ id: s.id, label: s.label });
     if (versions?.length > 0 || versionsError) sections.push({ id: 'versions', label: 'Versions' });
     return sections;
@@ -357,11 +358,14 @@
     runtime={detail.runtime}
     scaling={detail.scaling}
     metadata={detail.metadata}
+    source={detail.source || ''}
     bind:open={openSections.overview}
   />
 
+  <SourcesPanel id="section-sources" {name} bind:open={openSections.sources} />
+
   {#if isPresent('interfaces')}
-    <InterfacesSection id="section-interfaces" interfaces={detail.interfaces || []} bind:open={openSections.interfaces} />
+    <InterfacesSection id="section-interfaces" interfaces={detail.interfaces || []} source={sectionState('interfaces').source} bind:open={openSections.interfaces} />
   {:else}
     <SectionState id="section-interfaces" title="Interfaces" meta={sectionState('interfaces')} bind:open={openSections.interfaces} />
   {/if}
@@ -371,6 +375,7 @@
       id="section-dependencies"
       {name} {services} {graphData} {dependents} {crossRefs}
       dependencies={detail.dependencies || []}
+      source={sectionState('dependencies').source}
       bind:open={openSections.dependencies}
     />
   {:else}
@@ -380,43 +385,43 @@
   {/if}
 
   {#if isPresent('configurations')}
-    <ConfigSection id="section-config" configs={detail.configurations || []} bind:open={openSections.config} />
+    <ConfigSection id="section-config" configs={detail.configurations || []} source={sectionState('configurations').source} bind:open={openSections.config} />
   {:else}
     <SectionState id="section-config" title="Configurations" meta={sectionState('configurations')} bind:open={openSections.config} />
   {/if}
 
   {#if isPresent('policies')}
-    <PolicySection id="section-policy" policies={detail.policies || []} bind:open={openSections.policy} />
+    <PolicySection id="section-policy" policies={detail.policies || []} source={sectionState('policies').source} bind:open={openSections.policy} />
   {:else}
     <SectionState id="section-policy" title="Policies" meta={sectionState('policies')} bind:open={openSections.policy} />
   {/if}
 
   {#if isPresent('readiness')}
-    <ReadinessSection id="section-readiness" readiness={detail.readiness} docs={detail.docs || []} bind:open={openSections.readiness} />
+    <ReadinessSection id="section-readiness" readiness={detail.readiness} docs={detail.docs || []} source={sectionState('readiness').source} bind:open={openSections.readiness} />
   {:else}
     <SectionState id="section-readiness" title="Readiness" meta={sectionState('readiness')} bind:open={openSections.readiness} />
   {/if}
 
   {#if isPresent('docs')}
-    <DocsSection id="section-docs" docs={detail.docs || []} referencedPaths={referencedDocPaths(detail.readiness)} bind:open={openSections.docs} />
+    <DocsSection id="section-docs" docs={detail.docs || []} referencedPaths={referencedDocPaths(detail.readiness)} source={sectionState('docs').source} bind:open={openSections.docs} />
   {:else}
     <SectionState id="section-docs" title="Documentation" meta={sectionState('docs')} bind:open={openSections.docs} />
   {/if}
 
   {#if isPresent('validation')}
-    <ValidationSection id="section-validation" validation={detail.validation} conditions={detail.conditions || []} bind:open={openSections.validation} />
+    <ValidationSection id="section-validation" validation={detail.validation} conditions={detail.conditions || []} source={sectionState('validation').source} bind:open={openSections.validation} />
   {:else}
     <SectionState id="section-validation" title="Validation" meta={sectionState('validation')} bind:open={openSections.validation} />
   {/if}
 
   {#if isPresent('runtimeDiff')}
-    <RuntimeDiffSection id="section-runtimeDiff" runtimeDiff={detail.runtimeDiff || []} bind:open={openSections.runtimeDiff} />
+    <RuntimeDiffSection id="section-runtimeDiff" runtimeDiff={detail.runtimeDiff || []} source={sectionState('runtimeDiff').source} bind:open={openSections.runtimeDiff} />
   {:else}
     <SectionState id="section-runtimeDiff" title="Contract vs Runtime" meta={sectionState('runtimeDiff')} bind:open={openSections.runtimeDiff} />
   {/if}
 
   {#if isPresent('observedRuntime')}
-    <ObservedRuntimeSection id="section-observed" observed={detail.observedRuntime} bind:open={openSections.observed} />
+    <ObservedRuntimeSection id="section-observed" observed={detail.observedRuntime} source={sectionState('observedRuntime').source} bind:open={openSections.observed} />
   {:else}
     <SectionState id="section-observed" title="Observed Runtime" meta={sectionState('observedRuntime')} bind:open={openSections.observed} />
   {/if}
