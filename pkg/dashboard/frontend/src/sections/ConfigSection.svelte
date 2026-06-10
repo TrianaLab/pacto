@@ -31,7 +31,8 @@
                 <svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </span>
             {/if}
-            <span class="pill {config.ref ? 'pill-ref' : 'pill-local'}">{config.ref ? 'Remote' : 'Local'}</span>
+            <span class="pill {config.ref ? 'pill-ref' : 'pill-local'}"
+              data-tip={config.ref ? 'Schema referenced from another bundle' : 'Schema defined in this bundle'}>{config.ref ? 'Referenced' : 'In-bundle'}</span>
             <span class="detail-card-title">{config.name}</span>
             {#if config.schema}
               <code class="detail-card-sub">{config.schema}</code>

@@ -3,10 +3,11 @@
 
   let { validation, conditions = [], open = $bindable(false), id = '', source = '' } = $props();
 
+  // Only render when there are issues to show. Conditions live in Overview, so
+  // they must not make this (errors/warnings-only) section render empty.
   let hasContent = $derived(
     (validation?.errors?.length > 0) ||
-    (validation?.warnings?.length > 0) ||
-    (conditions?.length > 0)
+    (validation?.warnings?.length > 0)
   );
 </script>
 
