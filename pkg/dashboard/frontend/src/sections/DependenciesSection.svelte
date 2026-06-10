@@ -7,7 +7,7 @@
   let {
     name, dependencies = [], dependents = [], crossRefs = null,
     graphData = null, services = [],
-    open = $bindable(true), id = '',
+    open = $bindable(true), id = '', source = '',
   } = $props();
 
   let totalCount = $derived((dependencies?.length || 0) + (dependents?.length || 0));

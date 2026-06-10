@@ -195,16 +195,21 @@
 
   async function reload() {
     try {
+      // Background refresh (runs every poll tick). A transient failure on a
+      // secondary fetch must NOT clobber good data with empty — keep the stale
+      // value and surface failed!=empty, matching load(). (Sentinel marks a
+      // failed fetch so we can skip the overwrite.)
+      const FAILED = Symbol('failed');
       const [svc, vers, deps, refs] = await Promise.all([
         api.service(name),
-        api.versions(name).catch(() => []),
-        api.dependents(name).catch(() => []),
-        api.crossRefs(name).catch(() => null),
+        api.versions(name).catch(() => FAILED),
+        api.dependents(name).catch(() => FAILED),
+        api.crossRefs(name).catch(() => FAILED),
       ]);
       detail = svc;
-      versions = vers || [];
-      dependents = deps || [];
-      crossRefs = refs;
+      if (vers !== FAILED) { versions = vers || []; versionsError = false; } else { versionsError = true; }
+      if (deps !== FAILED) { dependents = deps || []; } else { depsError = true; }
+      if (refs !== FAILED) { crossRefs = refs; } else { depsError = true; }
     } catch {
       // keep stale data on background refresh
     }
