@@ -62,8 +62,8 @@ func TestEvaluate_AllCurrent(t *testing.T) {
 
 func TestEvaluate_PartiallyExpired_ScoreExample(t *testing.T) {
 	r := &contract.Readiness{Checks: []contract.ReadinessCheck{
-		check("dashboard", 40, "2026-12-31"),     // current
-		check("runbook", 20, "2026-09-30"),       // current
+		check("dashboard", 40, "2026-12-31"),       // current
+		check("runbook", 20, "2026-09-30"),         // current
 		check("security-review", 20, "2026-01-15"), // expired
 	}}
 	got := Evaluate(r, fixedNow)
@@ -158,7 +158,7 @@ func TestEvaluate_GateDefaultMinScore100_AllCurrentPasses(t *testing.T) {
 
 func TestEvaluate_GateDefaultFailsWhenStale(t *testing.T) {
 	r := &contract.Readiness{Checks: []contract.ReadinessCheck{
-		check("dashboard", 60, "2026-12-31"),     // current
+		check("dashboard", 60, "2026-12-31"),       // current
 		check("security-review", 40, "2026-01-15"), // expired
 	}}
 	got := Evaluate(r, fixedNow)
@@ -172,7 +172,7 @@ func TestEvaluate_GateDefaultFailsWhenStale(t *testing.T) {
 
 func TestEvaluate_GatePassesAtDeclaredMinScore(t *testing.T) {
 	checks := []contract.ReadinessCheck{
-		check("dashboard", 60, "2026-12-31"),     // current
+		check("dashboard", 60, "2026-12-31"),       // current
 		check("security-review", 40, "2026-01-15"), // expired -> score 60
 	}
 	if got := Evaluate(&contract.Readiness{MinScore: minScore(60), Checks: checks}, fixedNow); !got.Passing || got.MinScore != 60 {

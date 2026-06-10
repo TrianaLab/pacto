@@ -362,10 +362,10 @@ func TestLocalSource_ListServices_ReadDirError(t *testing.T) {
 
 func TestLocalSource_RecursiveDiscovery(t *testing.T) {
 	root := t.TempDir()
-	writeLocalPactoYAML(t, filepath.Join(root, "bundles", "svc-a"), "svc-a", "1.0.0")               // depth 2
-	writeLocalPactoYAML(t, filepath.Join(root, "bundles", "svc-b", "v1.0.0"), "svc-b", "1.0.0")     // depth 3
-	writeLocalPactoYAML(t, filepath.Join(root, "node_modules", "junk"), "junk", "1.0.0")            // must skip
-	writeLocalPactoYAML(t, filepath.Join(root, "a", "b", "c", "d", "e", "f"), "too-deep", "1.0.0")  // depth 6 > max
+	writeLocalPactoYAML(t, filepath.Join(root, "bundles", "svc-a"), "svc-a", "1.0.0")              // depth 2
+	writeLocalPactoYAML(t, filepath.Join(root, "bundles", "svc-b", "v1.0.0"), "svc-b", "1.0.0")    // depth 3
+	writeLocalPactoYAML(t, filepath.Join(root, "node_modules", "junk"), "junk", "1.0.0")           // must skip
+	writeLocalPactoYAML(t, filepath.Join(root, "a", "b", "c", "d", "e", "f"), "too-deep", "1.0.0") // depth 6 > max
 
 	src := NewLocalSource(root)
 	svcs, err := src.ListServices(context.Background())

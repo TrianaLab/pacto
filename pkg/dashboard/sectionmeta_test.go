@@ -10,13 +10,13 @@ func sectionState(d *ServiceDetails, id string) SectionInfo { return d.SectionMe
 
 func TestComputeSectionMeta_BundleWithRuntime(t *testing.T) {
 	d := &ServiceDetails{
-		Interfaces:     []InterfaceInfo{{Name: "http"}},
-		Configurations: []ConfigurationInfo{{Name: "app"}},
-		Runtime:        &RuntimeInfo{Workload: "service"},
-		Validation:     &ValidationInfo{Errors: []ValidationIssue{{Code: "E1"}}},
+		Interfaces:      []InterfaceInfo{{Name: "http"}},
+		Configurations:  []ConfigurationInfo{{Name: "app"}},
+		Runtime:         &RuntimeInfo{Workload: "service"},
+		Validation:      &ValidationInfo{Errors: []ValidationIssue{{Code: "E1"}}},
 		ObservedRuntime: &ObservedRuntime{},
-		Conditions:     []Condition{{Type: "Ready"}},
-		Docs:           []DocInfo{{Path: "docs/x.md"}},
+		Conditions:      []Condition{{Type: "Ready"}},
+		Docs:            []DocInfo{{Path: "docs/x.md"}},
 	}
 	d.ContractStatus = StatusCompliant
 	computeSectionMeta(d, "oci", true)

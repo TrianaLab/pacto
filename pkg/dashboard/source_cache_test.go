@@ -523,8 +523,6 @@ service:
 	}
 }
 
-
-
 func TestCacheSource_CurrentVersionIsHighestSemver(t *testing.T) {
 	root := t.TempDir()
 

@@ -2364,9 +2364,9 @@ func TestRewireHealthMetricsIfNeeded_MalformedInterface(t *testing.T) {
 	m := map[string]interface{}{
 		"runtime": map[string]interface{}{},
 		"interfaces": []interface{}{
-			map[string]interface{}{"type": "http"},        // missing name
+			map[string]interface{}{"type": "http"},              // missing name
 			map[string]interface{}{"name": 123, "type": "http"}, // non-string name
-			map[string]interface{}{"name": "ok"},           // missing type
+			map[string]interface{}{"name": "ok"},                // missing type
 		},
 	}
 	// Must not panic.
