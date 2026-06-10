@@ -578,9 +578,15 @@ func TestGenerate_ConfigurationSchemaError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Empty properties should not produce a Configuration section heading (## N. Configuration)
-	if strings.Contains(md, "## ") && strings.Contains(md, ". Configuration\n\n") {
-		t.Error("should not contain Configuration section when properties are empty")
+	// Empty properties still produce a Configuration section heading so the TOC
+	// numbering and anchors (which counted this section) stay in sync with the
+	// body. The section carries an explicit "no properties" note instead of a
+	// table.
+	if !strings.Contains(md, ". Configuration\n\n") {
+		t.Errorf("expected a Configuration section heading for an empty-props schema:\n%s", md)
+	}
+	if !strings.Contains(md, "_No configurable properties._") {
+		t.Errorf("expected a 'no configurable properties' note for an empty-props schema:\n%s", md)
 	}
 }
 
@@ -1143,7 +1149,7 @@ func TestGenerate_MultiConfigEdgeCases(t *testing.T) {
 		Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
 		Configurations: []contract.ConfigurationSource{
 			{Name: "", Schema: "config/missing.json"},           // empty name → "default", schema error
-			{Name: "no-schema"},                                 // no schema, no ref → skip
+			{Name: "no-schema"},                                 // no schema, no ref → skipped (no heading)
 			{Name: "empty-schema", Schema: "config/empty.json"}, // valid schema, empty props
 		},
 		Runtime: &contract.Runtime{
@@ -1162,15 +1168,19 @@ func TestGenerate_MultiConfigEdgeCases(t *testing.T) {
 	}
 
 	mustContain := []string{
-		". default",       // empty name fallback
-		"_Could not read", // missing schema error
-		". no-schema",
-		". empty-schema",
+		". default",                     // empty name fallback
+		"_Could not read",               // missing schema error
+		". empty-schema",                // valid schema, empty props → heading + note
+		"_No configurable properties._", // empty-props note
 	}
 	for _, s := range mustContain {
 		if !strings.Contains(md, s) {
 			t.Errorf("expected %q in output:\n%s", s, md)
 		}
+	}
+	// A config lacking both schema and ref is skipped entirely — no empty heading.
+	if strings.Contains(md, ". no-schema") {
+		t.Errorf("config without schema or ref should not produce a subsection heading:\n%s", md)
 	}
 }
 
@@ -1238,6 +1248,79 @@ func TestGenerate_EmptyConfiguration(t *testing.T) {
 	}
 }
 
+// tocAnchors extracts the anchor targets from the table-of-contents lines
+// (markdown links of the form "- [N. Name](#anchor)").
+func tocAnchors(md string) []string {
+	var anchors []string
+	for _, line := range strings.Split(md, "\n") {
+		t := strings.TrimSpace(line)
+		if !strings.HasPrefix(t, "- [") {
+			continue
+		}
+		i := strings.Index(t, "](#")
+		if i < 0 {
+			continue
+		}
+		rest := t[i+3:]
+		j := strings.Index(rest, ")")
+		if j < 0 {
+			continue
+		}
+		anchors = append(anchors, rest[:j])
+	}
+	return anchors
+}
+
+// headingAnchors returns the anchor for every ATX heading in the document.
+func headingAnchorsIn(md string) map[string]bool {
+	out := map[string]bool{}
+	for _, line := range strings.Split(md, "\n") {
+		t := strings.TrimLeft(line, "#")
+		if t == line || t == "" {
+			continue // not a heading
+		}
+		out[headingAnchor(strings.TrimSpace(t))] = true
+	}
+	return out
+}
+
+func TestGenerate_EmptyPropsConfigKeepsTOCInSync(t *testing.T) {
+	// A config whose schema resolves to zero properties must still render its
+	// section so the TOC numbering and anchors stay in sync with the body.
+	c := &contract.Contract{
+		PactoVersion:   "1.0",
+		Service:        contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Interfaces:     []contract.Interface{{Name: "api", Type: "http", Port: intPtr(8080)}},
+		Configurations: []contract.ConfigurationSource{{Name: "default", Schema: "config/schema.json"}},
+		Policies:       []contract.PolicySource{{Name: "guard", Schema: "policy/schema.json"}},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			State:    contract.State{Type: "stateless", DataCriticality: "low"},
+		},
+	}
+	fsys := fstest.MapFS{
+		"config/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{}}`)},
+		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+	}
+
+	md, err := Generate(c, fsys, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Every TOC anchor must resolve to a heading in the body.
+	headings := headingAnchorsIn(md)
+	for _, a := range tocAnchors(md) {
+		if !headings[a] {
+			t.Errorf("TOC anchor #%s has no matching heading\n%s", a, md)
+		}
+	}
+	// The Configuration section must be present even with empty properties.
+	if !strings.Contains(md, ". Configuration") {
+		t.Errorf("expected a Configuration section even with empty properties:\n%s", md)
+	}
+}
+
 func readinessContract() *contract.Contract {
 	return &contract.Contract{
 		PactoVersion: "1.1",
@@ -1269,6 +1352,26 @@ func TestGenerate_Readiness(t *testing.T) {
 		if !strings.Contains(md, want) {
 			t.Errorf("expected %q in readiness doc, got:\n%s", want, md)
 		}
+	}
+}
+
+func TestGenerate_ReadinessEscapesBackticksAndPipes(t *testing.T) {
+	// Free-form evidence containing a backtick or pipe must be escaped so it
+	// neither terminates the code span nor splits the table cell.
+	c := &contract.Contract{
+		PactoVersion: "1.1",
+		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Runtime:      &contract.Runtime{Workload: "service", State: contract.State{Type: "stateless", DataCriticality: "low"}},
+		Readiness: &contract.Readiness{Checks: []contract.ReadinessCheck{
+			{ID: "dash", Type: "url", Evidence: "https://x/q?a=`b`|c", Weight: 10, Expires: "2026-12-31"},
+		}},
+	}
+	md, err := Generate(c, fstest.MapFS{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(md, "https://x/q?a=\\`b\\`\\|c") {
+		t.Errorf("expected backticks and pipe in evidence to be escaped, got:\n%s", md)
 	}
 }
 

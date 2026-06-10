@@ -548,13 +548,24 @@ func writeInterfaceDetails(b *strings.Builder, c *contract.Contract, fsys fs.FS,
 	}
 }
 
+// escapeMarkdownCell escapes characters that would corrupt a Markdown table
+// cell that wraps user-controlled text in a code span. GitHub-flavored Markdown
+// resolves these backslash escapes inside table cells before code-span parsing,
+// so a backtick no longer terminates the span early and a pipe no longer splits
+// the cell into extra columns.
+func escapeMarkdownCell(s string) string {
+	s = strings.ReplaceAll(s, "`", "\\`")
+	s = strings.ReplaceAll(s, "|", "\\|")
+	return s
+}
+
 func writeConfigurationTable(b *strings.Builder, props []Property) {
 	fmt.Fprintln(b, "| Property | Type | Description | Default | Required |")
 	fmt.Fprintln(b, "|----------|------|-------------|---------|----------|")
 	for _, p := range props {
 		def := "\u2014"
 		if p.Default != "" {
-			def = fmt.Sprintf("`%s`", p.Default)
+			def = fmt.Sprintf("`%s`", escapeMarkdownCell(p.Default))
 		}
 		req := "No"
 		if p.Required {
@@ -564,7 +575,7 @@ func writeConfigurationTable(b *strings.Builder, props []Property) {
 		if desc == "" {
 			desc = "\u2014"
 		}
-		fmt.Fprintf(b, "| `%s` | `%s` | %s | %s | %s |\n", p.Name, p.Type, desc, def, req)
+		fmt.Fprintf(b, "| `%s` | `%s` | %s | %s | %s |\n", escapeMarkdownCell(p.Name), escapeMarkdownCell(p.Type), desc, def, req)
 	}
 	fmt.Fprintln(b)
 }
@@ -606,7 +617,7 @@ func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, nu
 		cfg := configs[0]
 		if cfg.Ref != "" {
 			fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
-			fmt.Fprintf(b, "References: `%s`\n\n", cfg.Ref)
+			fmt.Fprintf(b, "References: `%s`\n\n", escapeMarkdownCell(cfg.Ref))
 			return
 		}
 		props, err := readSchemaProperties(fsys, cfg.Schema)
@@ -615,10 +626,15 @@ func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, nu
 			fmt.Fprintf(b, "_Could not read configuration schema: %v_\n\n", err)
 			return
 		}
+		// Always emit the section heading when hasConfigContent reported this
+		// contract as having a configuration section, so the TOC numbering and
+		// anchors (which counted this section) stay in sync with the body even
+		// when the schema declares no properties.
+		fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
 		if len(props) == 0 {
+			fmt.Fprintf(b, "_No configurable properties._\n\n")
 			return
 		}
-		fmt.Fprintf(b, "## %s. Configuration\n\n", num.Next(1))
 		writeConfigurationTable(b, props)
 		return
 	}
@@ -627,6 +643,12 @@ func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, nu
 	sec := num.Next(1)
 	fmt.Fprintf(b, "## %s. Configuration\n\n", sec)
 	for _, cfg := range configs {
+		// Skip values-only / empty configs before writing a heading so we never
+		// emit an empty subsection. Parse-time validation requires exactly one
+		// of Schema or Ref, so this only guards malformed/code-built contracts.
+		if cfg.Schema == "" && cfg.Ref == "" {
+			continue
+		}
 		name := cfg.Name
 		if name == "" {
 			name = "default"
@@ -634,10 +656,7 @@ func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, nu
 		subSec := num.Next(2)
 		fmt.Fprintf(b, "### %s. %s\n\n", subSec, name)
 		if cfg.Ref != "" {
-			fmt.Fprintf(b, "References: `%s`\n\n", cfg.Ref)
-			continue
-		}
-		if cfg.Schema == "" {
+			fmt.Fprintf(b, "References: `%s`\n\n", escapeMarkdownCell(cfg.Ref))
 			continue
 		}
 		props, err := readSchemaProperties(fsys, cfg.Schema)
@@ -645,9 +664,11 @@ func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, nu
 			fmt.Fprintf(b, "_Could not read configuration schema: %v_\n\n", err)
 			continue
 		}
-		if len(props) > 0 {
-			writeConfigurationTable(b, props)
+		if len(props) == 0 {
+			fmt.Fprintf(b, "_No configurable properties._\n\n")
+			continue
 		}
+		writeConfigurationTable(b, props)
 	}
 }
 
@@ -672,7 +693,8 @@ func writeReadiness(b *strings.Builder, c *contract.Contract, num *sectionNumber
 		if desc == "" {
 			desc = "—"
 		}
-		fmt.Fprintf(b, "| `%s` | `%s` | `%s` | %d | `%s` | %s |\n", ch.ID, ch.Type, ch.Evidence, ch.Weight, ch.Expires, desc)
+		fmt.Fprintf(b, "| `%s` | `%s` | `%s` | %d | `%s` | %s |\n",
+			escapeMarkdownCell(ch.ID), escapeMarkdownCell(ch.Type), escapeMarkdownCell(ch.Evidence), ch.Weight, escapeMarkdownCell(ch.Expires), desc)
 	}
 	fmt.Fprintln(b)
 }
