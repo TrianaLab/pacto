@@ -298,6 +298,18 @@ data yet" from "runtime evaluated, nothing to report". `SectionMeta` is populate
 on **both** the resolved path and the single-source `getService` path, so every
 response is fully explained regardless of which sources are active.
 
+**Which source wins, per field.** This is the authoritative multi-source
+provenance table — the dashboard and operator attribute fields identically:
+
+| Field / section | Authority | Notes |
+|-----------------|-----------|-------|
+| interfaces, configurations, policies, dependencies, runtime declaration, readiness, scaling, metadata | Declared contract (`local` > `oci` > `cache`) | Config & policy **content** always comes from the declared contract — even for reference-only contracts (the operator extracts schema content into status). |
+| `version` | k8s overrides contract when deployed | `OverriddenBy: "k8s"`. |
+| `owner` | k8s overrides contract when deployed | `OverriddenBy: "k8s"`. |
+| namespace, `resolvedRef` | k8s only | Deployed-state fields; absent off-cluster. |
+| contract status, conditions, endpoints, observed runtime, resources, ports | k8s only (runtime overlay) | `not_applicable` for reference-only contracts off-cluster. |
+| `Validation` summary | Recomputed from runtime when k8s present | The one computed (non-declarable) field; `SectionMeta` attributes it to `k8s`. |
+
 ### `--no-cache` semantics
 
 The `--no-cache` flag is a **cold-start mode**, not a fully stateless mode:
