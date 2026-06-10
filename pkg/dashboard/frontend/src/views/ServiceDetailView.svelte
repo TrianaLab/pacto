@@ -285,6 +285,9 @@
     </div>
     <div class="detail-meta">
       {#if detail.version}<span class="pill">{detail.version}</span>{/if}
+      {#if detail.sectionMeta?.version?.overriddenBy === 'k8s'}
+        <span class="pill pill-override" data-tip="Effective deployed version from the cluster — differs from the contract-declared version">via cluster</span>
+      {/if}
       {#if detail.contractStatus !== 'Reference'}
         {#if detail.versionPolicy}
           <span class="pill pill-policy {versionPolicyClass(detail.versionPolicy)}" data-tip={detail.resolvedRef || ''}>{versionPolicyLabel(detail.versionPolicy)}</span>
@@ -301,6 +304,9 @@
       {/each}
       {#if ownerDisplay(detail.owner)}
         <a href={ownerUrl(ownerKey(detail.owner))} class="text-2 owner-link">owner: {ownerDisplay(detail.owner)}</a>
+        {#if detail.sectionMeta?.owner?.overriddenBy === 'k8s'}
+          <span class="pill pill-override" data-tip="Owner from the cluster — differs from the contract-declared owner">via cluster</span>
+        {/if}
         {#if ownerIsStructured(detail.owner) && detail.owner.dri}
           <span class="text-3">dri: {detail.owner.dri}</span>
         {/if}
@@ -600,6 +606,10 @@
 
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); }
+  .pill-override {
+    background: rgba(59, 130, 246, 0.12); color: #2563eb;
+    font-size: var(--text-xs); font-weight: 500;
+  }
   .owner-link { text-decoration: none; }
   .owner-link:hover { text-decoration: underline; color: var(--c-text); }
   .text-err { color: var(--c-err); font-size: var(--text-xs); }

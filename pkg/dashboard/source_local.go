@@ -9,11 +9,49 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
 const contractFile = "pacto.yaml"
+
+// maxLocalScanDepth bounds how deep local discovery walks for pacto.yaml so a
+// large repo root (e.g. bundles/<svc>/<version>/pacto.yaml) is found without
+// scanning the entire tree.
+const maxLocalScanDepth = 5
+
+// localBundleDirs returns directories at or under root that contain a pacto.yaml,
+// walking up to maxLocalScanDepth levels and skipping hidden/vendor dirs. Order
+// is deterministic (root first, then sorted subdirectories, depth-first).
+func localBundleDirs(root string) []string {
+	var dirs []string
+	collectBundleDirs(root, 0, &dirs)
+	return dirs
+}
+
+func collectBundleDirs(dir string, depth int, out *[]string) {
+	if depth > maxLocalScanDepth {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(dir, contractFile)); err == nil {
+		*out = append(*out, dir)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+			continue
+		}
+		collectBundleDirs(filepath.Join(dir, name), depth+1, out)
+	}
+}
 
 // LocalSource implements DataSource by reading from the local filesystem.
 // It scans a root directory for subdirectories containing pacto.yaml files.
@@ -28,27 +66,22 @@ func NewLocalSource(root string) *LocalSource {
 }
 
 func (s *LocalSource) ListServices(_ context.Context) ([]Service, error) {
-	entries, err := os.ReadDir(s.root)
-	if err != nil {
+	if _, err := os.ReadDir(s.root); err != nil {
 		return nil, fmt.Errorf("reading directory %s: %w", s.root, err)
 	}
 
+	seen := make(map[string]bool)
 	var services []Service
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		bundle, err := loadLocalBundle(filepath.Join(s.root, entry.Name()))
+	for _, dir := range localBundleDirs(s.root) {
+		bundle, err := loadLocalBundle(dir)
 		if err != nil {
 			continue // skip directories without valid contracts
 		}
-		svc := ServiceFromContract(bundle.Contract, "local")
-		svc.ContractStatus = contractStatusFromBundle(bundle)
-		services = append(services, svc)
-	}
-
-	// Also check root itself for a pacto.yaml
-	if bundle, err := loadLocalBundle(s.root); err == nil {
+		name := bundle.Contract.Service.Name
+		if seen[name] {
+			continue // first match wins (e.g. multiple versioned dirs of one service)
+		}
+		seen[name] = true
 		svc := ServiceFromContract(bundle.Contract, "local")
 		svc.ContractStatus = contractStatusFromBundle(bundle)
 		services = append(services, svc)
@@ -96,24 +129,8 @@ func (s *LocalSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) 
 }
 
 func (s *LocalSource) findBundle(name string) (*contract.Bundle, error) {
-	// Check root itself
-	if bundle, err := loadLocalBundle(s.root); err == nil {
-		if bundle.Contract.Service.Name == name {
-			return bundle, nil
-		}
-	}
-
-	// Check subdirectories
-	entries, err := os.ReadDir(s.root)
-	if err != nil {
-		return nil, fmt.Errorf("reading directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		bundle, err := loadLocalBundle(filepath.Join(s.root, entry.Name()))
+	for _, dir := range localBundleDirs(s.root) {
+		bundle, err := loadLocalBundle(dir)
 		if err != nil {
 			continue
 		}
@@ -121,7 +138,6 @@ func (s *LocalSource) findBundle(name string) (*contract.Bundle, error) {
 			return bundle, nil
 		}
 	}
-
 	return nil, fmt.Errorf("service %q not found in %s", name, s.root)
 }
 

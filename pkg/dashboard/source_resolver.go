@@ -312,6 +312,7 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 	// availability + provenance so the UI never silently hides data.
 	result.RuntimeEvaluated = runtimeDetails != nil
 	computeSectionMeta(result, contractSource, runtimeDetails != nil)
+	markRuntimeOverrides(result, contractDetails, runtimeDetails)
 
 	return result, nil
 }
@@ -412,7 +413,7 @@ func enrichRuntimeMetadata(contract *ServiceDetails, runtime *ServiceDetails) {
 // resolverVersionSources governs the order in which sources are tried for GetVersions.
 // k8s (PactoRevision CRDs) is most authoritative, then OCI, then local.
 // Cache enrichment (hash, classification) is internal to OCISource.
-var resolverVersionSources = []string{"k8s", "oci", "local"}
+var resolverVersionSources = []string{"k8s", "oci", "local", "cache"}
 
 func (r *ResolvedSource) GetVersions(ctx context.Context, name string) ([]Version, error) {
 	_, _, all := r.sources()
@@ -482,7 +483,7 @@ func (r *ResolvedSource) GetDiff(ctx context.Context, from, to Ref) (*DiffResult
 	}
 
 	// Try contract sources in order: oci first (has versioned bundles), then local.
-	for _, sourceType := range []string{"oci", "local"} {
+	for _, sourceType := range []string{"oci", "local", "cache"} {
 		ds, ok := all[sourceType]
 		if !ok {
 			continue
@@ -540,8 +541,8 @@ func BuildResolvedSource(sources map[string]DataSource) *ResolvedSource {
 	var contractSources []namedContractSource
 	var runtimeSource DataSource
 
-	// Contract sources in priority order: local first, then oci.
-	for _, name := range []string{"local", "oci"} {
+	// Contract sources in priority order: local, then live oci, then offline cache.
+	for _, name := range []string{"local", "oci", "cache"} {
 		if ds, ok := sources[name]; ok {
 			contractSources = append(contractSources, namedContractSource{name: name, source: ds})
 		}

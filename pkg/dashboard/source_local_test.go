@@ -359,3 +359,95 @@ func TestLocalSource_ListServices_ReadDirError(t *testing.T) {
 		t.Fatal("expected error when root directory does not exist")
 	}
 }
+
+func TestLocalSource_RecursiveDiscovery(t *testing.T) {
+	root := t.TempDir()
+	writeLocalPactoYAML(t, filepath.Join(root, "bundles", "svc-a"), "svc-a", "1.0.0")               // depth 2
+	writeLocalPactoYAML(t, filepath.Join(root, "bundles", "svc-b", "v1.0.0"), "svc-b", "1.0.0")     // depth 3
+	writeLocalPactoYAML(t, filepath.Join(root, "node_modules", "junk"), "junk", "1.0.0")            // must skip
+	writeLocalPactoYAML(t, filepath.Join(root, "a", "b", "c", "d", "e", "f"), "too-deep", "1.0.0")  // depth 6 > max
+
+	src := NewLocalSource(root)
+	svcs, err := src.ListServices(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, s := range svcs {
+		names[s.Name] = true
+	}
+	if !names["svc-a"] || !names["svc-b"] {
+		t.Errorf("expected nested svc-a and svc-b, got %v", names)
+	}
+	if names["junk"] {
+		t.Error("bundle under node_modules must be skipped")
+	}
+	if names["too-deep"] {
+		t.Error("bundle beyond max scan depth must be skipped")
+	}
+	if _, err := src.GetService(context.Background(), "svc-b"); err != nil {
+		t.Errorf("expected to resolve nested svc-b: %v", err)
+	}
+}
+
+func TestLocalSource_Dedup(t *testing.T) {
+	root := t.TempDir()
+	writeLocalPactoYAML(t, filepath.Join(root, "v1.0.0"), "dup", "1.0.0")
+	writeLocalPactoYAML(t, filepath.Join(root, "v2.0.0"), "dup", "2.0.0")
+	src := NewLocalSource(root)
+	svcs, _ := src.ListServices(context.Background())
+	count := 0
+	for _, s := range svcs {
+		if s.Name == "dup" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected one deduped 'dup' service, got %d", count)
+	}
+}
+
+func TestLocalBundleDirs_NonexistentRoot(t *testing.T) {
+	if dirs := localBundleDirs(filepath.Join(t.TempDir(), "nope")); len(dirs) != 0 {
+		t.Errorf("expected no bundle dirs for nonexistent root, got %v", dirs)
+	}
+}
+
+func TestLoadLocalBundle_Errors(t *testing.T) {
+	if _, err := loadLocalBundle(t.TempDir()); err == nil {
+		t.Error("expected error for dir without pacto.yaml")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, contractFile), []byte("{{{not yaml"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadLocalBundle(dir); err == nil {
+		t.Error("expected parse error for invalid pacto.yaml")
+	}
+}
+
+func TestLocalSource_InvalidContractSkipped(t *testing.T) {
+	root := t.TempDir()
+	writeLocalPactoYAML(t, filepath.Join(root, "good"), "good", "1.0.0")
+	bad := filepath.Join(root, "bad")
+	if err := os.MkdirAll(bad, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bad, contractFile), []byte("not: [valid"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	src := NewLocalSource(root)
+	svcs, err := src.ListServices(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, s := range svcs {
+		if s.Name == "good" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected 'good' service; invalid contract should be skipped, not fatal")
+	}
+}

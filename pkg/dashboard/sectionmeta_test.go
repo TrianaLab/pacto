@@ -1,6 +1,10 @@
 package dashboard
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/trianalab/pacto/pkg/contract"
+)
 
 func sectionState(d *ServiceDetails, id string) SectionInfo { return d.SectionMeta[id] }
 
@@ -76,6 +80,34 @@ func TestComputeSectionMeta_BundleOnly_NoRuntime(t *testing.T) {
 			t.Errorf("%s should be unavailable (no cluster): %+v", id, s)
 		}
 	}
+}
+
+func TestMarkRuntimeOverrides(t *testing.T) {
+	base := &ServiceDetails{Service: Service{Version: "1.0.0", Owner: contract.NewOwnerFromString("team-a")}}
+	rt := &ServiceDetails{Service: Service{Version: "2.0.0", Owner: contract.NewOwnerFromString("team-b")}}
+	res := &ServiceDetails{SectionMeta: map[string]SectionInfo{}}
+	markRuntimeOverrides(res, base, rt)
+	if res.SectionMeta["version"].OverriddenBy != "k8s" {
+		t.Errorf("expected version overridden by k8s, got %+v", res.SectionMeta["version"])
+	}
+	if res.SectionMeta["owner"].OverriddenBy != "k8s" {
+		t.Errorf("expected owner overridden by k8s, got %+v", res.SectionMeta["owner"])
+	}
+
+	// No override when values match.
+	same := &ServiceDetails{SectionMeta: map[string]SectionInfo{}}
+	markRuntimeOverrides(same, base, &ServiceDetails{Service: Service{Version: "1.0.0", Owner: contract.NewOwnerFromString("team-a")}})
+	if _, ok := same.SectionMeta["version"]; ok {
+		t.Error("did not expect version override when versions match")
+	}
+	if _, ok := same.SectionMeta["owner"]; ok {
+		t.Error("did not expect owner override when owners match")
+	}
+
+	// No-op guards (nil base/runtime/sectionMeta).
+	markRuntimeOverrides(&ServiceDetails{}, nil, rt)
+	markRuntimeOverrides(&ServiceDetails{}, base, nil)
+	markRuntimeOverrides(&ServiceDetails{SectionMeta: nil}, base, rt)
 }
 
 func TestComputeSectionMeta_K8sOnlyDefSource(t *testing.T) {

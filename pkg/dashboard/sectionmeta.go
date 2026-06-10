@@ -61,6 +61,23 @@ func computeSectionMeta(d *ServiceDetails, contractSource string, runtimeEvaluat
 	d.SectionMeta = meta
 }
 
+// markRuntimeOverrides records when the k8s overlay overrode a contract-declared
+// Version or Owner (the operator is authoritative for the effective deployed
+// value), so the UI can annotate those header fields with "overridden by
+// cluster" rather than silently showing a value that differs from the contract.
+func markRuntimeOverrides(result, contractBase, runtime *ServiceDetails) {
+	if contractBase == nil || runtime == nil || result.SectionMeta == nil {
+		return
+	}
+	if runtime.Version != "" && contractBase.Version != "" && runtime.Version != contractBase.Version {
+		result.SectionMeta["version"] = SectionInfo{State: SectionPresent, Source: "k8s", OverriddenBy: "k8s"}
+	}
+	if !runtime.Owner.IsEmpty() && !contractBase.Owner.IsEmpty() &&
+		runtime.Owner.DisplayString() != contractBase.Owner.DisplayString() {
+		result.SectionMeta["owner"] = SectionInfo{State: SectionPresent, Source: "k8s", OverriddenBy: "k8s"}
+	}
+}
+
 // defSection returns the state for a definition section.
 func defSection(present bool, source string) SectionInfo {
 	if present {
