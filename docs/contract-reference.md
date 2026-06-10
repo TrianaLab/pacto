@@ -741,8 +741,21 @@ scaling:
   max: 10
 ```
 
+**How the two forms relate.** `replicas` is shorthand: at parse time it is
+normalized to `min = max = replicas`, so downstream tooling (diff, operator,
+dashboard) always works with a `min`/`max` range. This is why the diff table has
+no distinct `scaling.replicas` behavior — a `replicas` change manifests as `min`
+and `max` changes.
+
 !!! warning
     Scaling must not be applied to `job` workloads.
+
+!!! note "`0` is not scale-to-zero"
+    The JSON Schema declares `minimum: 0` for `min`/`max`/`replicas`, but `min`
+    and `max` are plain (non-pointer) integers internally, so an explicit `0` is
+    indistinguishable from an omitted value. The operator and dashboard treat
+    `0` bounds as "unset" and drop them — Pacto does not model scale-to-zero.
+    Use `min: 1` if you need an explicit lower bound to be reported.
 
 ---
 
@@ -797,25 +810,37 @@ least one check. `readiness.minScore` is optional (the [gate](#readiness-score-a
 | `type` | string | Yes | Enum: `url`, `document`, `ticket`, `report`, `artifact`, `identifier`, `other`. Classifies the evidence pointer, not the requirement. |
 | `evidence` | string | Yes | Non-blank pointer to the evidence (1–2048 chars). |
 | `weight` | integer | Yes | Contribution to the readiness score. Range `0`–`100`. |
-| `expires` | string | Yes | Freshness boundary as a `YYYY-MM-DD` date. The check is current through the end of this date. |
+| `expires` | string | Yes | Freshness boundary as a strict `YYYY-MM-DD` date. The check is current through the end of this date. Parsing is exact round-trip: zero-padded fields are required and the value must re-serialize unchanged, so `2026-1-1`, RFC 3339 timestamps, and impossible dates (e.g. `2026-02-30`) are rejected — such a check evaluates to `Invalid` (and counts against the score). |
 | `description` | string | No | Optional human-readable explanation (non-blank when present). |
 
 The service owner is declared at the contract level, so readiness checks carry no
-per-check owner. Derived freshness (`Current` / `Expired` / `Invalid`) and the
-readiness score are **not** stored in the contract — they are computed by tooling
-(`pacto explain`, the dashboard, and the operator) from `expires` and the current
-time.
+per-check owner. Derived freshness and the readiness score are **not** stored in
+the contract — they are computed by tooling (`pacto explain`, the dashboard, and
+the operator) from `expires` and the current time. Each check derives one of
+three statuses: `Current` (expiry today or later), `Expired` (expiry in the
+past), or `Invalid` (`expires` is not a strict `YYYY-MM-DD` date). Only `Current`
+checks contribute to `currentWeight`; both `Expired` and `Invalid` count against
+the score.
 
 #### Readiness score and gate
 
 ```text
-score   = currentWeight / totalWeight * 100
+score   = round(currentWeight / totalWeight * 100)
 passing = score >= minScore          # minScore defaults to 100
 ```
 
 `currentWeight` is the sum of the weights of non-expired checks; `totalWeight` is
-the sum of all declared weights. When `totalWeight` is `0`, the score is `0`. A
-check is current while the current date is on or before its `expires` date.
+the sum of all declared weights. The raw percentage is rounded to the nearest
+integer, with halves rounded away from zero (Go's `math.Round`). When
+`totalWeight` is `0`, the score is `0` (the division is skipped, so a contract
+whose checks all declare `weight: 0` scores `0`, not a divide-by-zero). A check
+is current while the current date (UTC) is on or before its `expires` date.
+
+**Worked example.** Using the three checks above (`weight` `20`, `15`, `25`;
+`totalWeight = 60`): if the `security-review` check (weight `25`) has expired and
+the other two are current, `currentWeight = 35` and
+`score = round(35 / 60 × 100) = round(58.3) = 58`. If only `dashboard` (weight
+`20`) is still current, `score = round(20 / 60 × 100) = round(33.3) = 33`.
 
 **Weights are relative.** Only the *ratio* of weights matters — the score
 normalizes by `totalWeight`, so a `weight` of `20` reads as "20%" only when the
@@ -973,6 +998,16 @@ Resolves and enforces all declared policies against the contract. Policies are a
 
 `POLICY_REF_UNRESOLVED` is a **hard error** — validation fails closed when a referenced policy cannot be resolved. This ensures that missing or unreachable policies are never silently skipped.
 
+**When ref-based policies are resolved.** Recursive resolution of
+`policies[].ref` happens only when a resolver is configured. `pacto validate`
+supplies one (it can reach OCI/file refs), so a `ref` policy that cannot be
+fetched fails closed with `POLICY_REF_UNRESOLVED`. Local-only paths that pass no
+resolver — `pacto pack`/`pacto push`, and the **operator** — enforce only the
+locally-compiled `schema`-based policies and skip `ref` policies by design (they
+never reach the unresolved error). Cycle detection is per chain: a `ref` is a
+cycle only when it reappears in its own resolution chain (`A → B → A`); two
+sibling policies pointing at the same `ref` resolve independently.
+
 ---
 
 ## Contract overrides
@@ -998,6 +1033,20 @@ Overrides follow the same precedence logic as Helm (lowest to highest):
 3. `--set` values
 
 Later sources override earlier ones. Multiple `-f` flags are applied in order — the last file wins for any conflicting key.
+
+### `--set` type inference
+
+`--set key=value` infers the value's type from the string, trying in order:
+integer (`int64`) → float (`float64`) → boolean → string. The first parse that
+succeeds wins; anything that matches none stays a string. Consequences worth
+knowing:
+
+- `--set scaling.replicas=3` → integer `3`; `--set ratio=1.5` → float `1.5`.
+- `--set flag=true` → boolean `true` (but `--set flag=1` → integer `1`, not boolean).
+- A multi-dot semver like `--set service.version=1.0.0` has two dots, so it parses
+  as none of the numeric/boolean types and **stays a string** (the desired result).
+  A two-segment value like `1.0` parses as the float `1.0` — quote-sensitive values
+  that must remain strings are better set via a `-f` values file with explicit YAML typing.
 
 ### Examples
 
@@ -1230,11 +1279,25 @@ Each change is classified as:
 | `runtime.lifecycle.upgradeStrategy` | Modified | POTENTIAL_BREAKING |
 | `runtime.lifecycle.upgradeStrategy` | Removed | POTENTIAL_BREAKING |
 | `runtime.lifecycle.gracefulShutdownSeconds` | Modified | NON_BREAKING |
+| `runtime.health.interface` | Added | NON_BREAKING |
 | `runtime.health.interface` | Modified | POTENTIAL_BREAKING |
+| `runtime.health.interface` | Removed | POTENTIAL_BREAKING |
+| `runtime.health.path` | Added | NON_BREAKING |
 | `runtime.health.path` | Modified | POTENTIAL_BREAKING |
-| `runtime.health.initialDelaySeconds` | Modified | NON_BREAKING |
+| `runtime.health.path` | Removed | POTENTIAL_BREAKING |
+| `runtime.health.initialDelaySeconds` | Added / Modified / Removed | NON_BREAKING |
+| `runtime.metrics.interface` | Added | NON_BREAKING |
 | `runtime.metrics.interface` | Modified | POTENTIAL_BREAKING |
+| `runtime.metrics.interface` | Removed | POTENTIAL_BREAKING |
+| `runtime.metrics.path` | Added | NON_BREAKING |
 | `runtime.metrics.path` | Modified | POTENTIAL_BREAKING |
+| `runtime.metrics.path` | Removed | POTENTIAL_BREAKING |
+
+Adding a `health` or `metrics` block (or one of its fields) is a new capability
+and classifies as `NON_BREAKING`; removing the `interface`/`path` loses a runtime
+check and classifies as `POTENTIAL_BREAKING`. `initialDelaySeconds` is always
+`NON_BREAKING`. Health and metrics are compared field by field — a whole-block
+add or remove surfaces as the corresponding per-field changes.
 
 ### Scaling
 
@@ -1318,6 +1381,20 @@ Schema files referenced by `configurations[].schema`, `policies[].schema`, or th
 | `schema.properties.*` | Modified | POTENTIAL_BREAKING |
 | `schema.required` | Added / Removed | **BREAKING** |
 | `schema.*` (any other path) | Added / Removed / Modified | POTENTIAL_BREAKING |
+
+### Not currently compared
+
+Two declared sections are **not yet** inspected by `pacto diff`, so changes to
+them produce no diff entries and never affect the breaking/non-breaking verdict:
+
+| Section | Status |
+|---------|--------|
+| `readiness` | Not diffed. Adding, removing, or editing readiness checks, weights, or `minScore` between two versions yields no change entry. Readiness is surfaced live by `pacto explain`, the dashboard, and the operator, but it is not part of version-to-version diffing. |
+| `metadata` | Not diffed. Free-form `metadata` keys are carried through to documentation and the dashboard but are ignored by the diff engine. |
+
+If you rely on readiness or metadata changes being flagged in CI, gate on them
+separately (for example with a policy or a custom check) until diff coverage is
+added.
 
 ### SBOM
 
