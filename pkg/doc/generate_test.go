@@ -1237,3 +1237,52 @@ func TestGenerate_EmptyConfiguration(t *testing.T) {
 		})
 	}
 }
+
+func readinessContract() *contract.Contract {
+	return &contract.Contract{
+		PactoVersion: "1.1",
+		Service:      contract.ServiceIdentity{Name: "payment-api", Version: "1.4.0"},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			State:    contract.State{Type: "stateless", DataCriticality: "low"},
+		},
+		Readiness: &contract.Readiness{Checks: []contract.ReadinessCheck{
+			{ID: "dashboard", Type: "url", Evidence: "https://grafana.company.com/payment-api", Weight: 20, Expires: "2026-12-31", Description: "Main production dashboard"},
+			{ID: "runbook", Type: "document", Evidence: "docs/runbooks/payment-api.md", Weight: 15, Expires: "2026-09-30"},
+		}},
+	}
+}
+
+func TestGenerate_Readiness(t *testing.T) {
+	md, err := Generate(readinessContract(), fstest.MapFS{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	mustContain := []string{
+		"Readiness](#",
+		". Readiness",
+		"| ID | Type | Evidence | Weight | Expires | Description |",
+		"| `dashboard` | `url` | `https://grafana.company.com/payment-api` | 20 | `2026-12-31` | Main production dashboard |",
+		"| `runbook` | `document` | `docs/runbooks/payment-api.md` | 15 | `2026-09-30` | — |",
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(md, want) {
+			t.Errorf("expected %q in readiness doc, got:\n%s", want, md)
+		}
+	}
+}
+
+func TestGenerate_NoReadinessSection(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion: "1.0",
+		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Runtime:      &contract.Runtime{Workload: "service", State: contract.State{Type: "stateless", DataCriticality: "low"}},
+	}
+	md, err := Generate(c, fstest.MapFS{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(md, "Readiness") {
+		t.Errorf("did not expect a Readiness section, got:\n%s", md)
+	}
+}

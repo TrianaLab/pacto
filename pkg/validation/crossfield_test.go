@@ -1474,3 +1474,111 @@ func TestValidateConfigValues_MultiConfigsExternalRef(t *testing.T) {
 		t.Errorf("expected no error for external ref config values, got %v", result.Errors)
 	}
 }
+
+// --- Readiness cross-field validation ---
+
+func readinessContract(checks ...contract.ReadinessCheck) *contract.Contract {
+	c := validContract()
+	c.PactoVersion = "1.1"
+	c.Readiness = &contract.Readiness{Checks: checks}
+	return c
+}
+
+func readinessHasCode(result ValidationResult, code string) bool {
+	for _, e := range result.Errors {
+		if e.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func TestValidateReadiness_NoReadiness(t *testing.T) {
+	c := validContract() // no readiness section
+	var result ValidationResult
+	validateReadiness(c, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error when readiness absent, got %v", result.Errors)
+	}
+}
+
+func TestValidateReadiness_Valid(t *testing.T) {
+	c := readinessContract(
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 60, Expires: "2026-12-31", Description: "Main dashboard"},
+		contract.ReadinessCheck{ID: "runbook", Type: "document", Evidence: "docs/rb.md", Weight: 40, Expires: "2026-09-30"},
+	)
+	var result ValidationResult
+	validateReadiness(c, &result)
+	if !result.IsValid() {
+		t.Errorf("expected valid readiness, got %v", result.Errors)
+	}
+}
+
+func TestValidateReadiness_DuplicateID(t *testing.T) {
+	c := readinessContract(
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 50, Expires: "2026-12-31"},
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://y", Weight: 50, Expires: "2026-12-31"},
+	)
+	var result ValidationResult
+	validateReadiness(c, &result)
+	if !readinessHasCode(result, "DUPLICATE_READINESS_ID") {
+		t.Errorf("expected DUPLICATE_READINESS_ID, got %v", result.Errors)
+	}
+}
+
+func TestValidateReadiness_BlankEvidence(t *testing.T) {
+	c := readinessContract(
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "   ", Weight: 50, Expires: "2026-12-31"},
+	)
+	var result ValidationResult
+	validateReadiness(c, &result)
+	if !readinessHasCode(result, "EMPTY_READINESS_EVIDENCE") {
+		t.Errorf("expected EMPTY_READINESS_EVIDENCE, got %v", result.Errors)
+	}
+}
+
+func TestValidateReadiness_BlankDescription(t *testing.T) {
+	c := readinessContract(
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 50, Expires: "2026-12-31", Description: "   "},
+	)
+	var result ValidationResult
+	validateReadiness(c, &result)
+	if !readinessHasCode(result, "EMPTY_READINESS_DESCRIPTION") {
+		t.Errorf("expected EMPTY_READINESS_DESCRIPTION, got %v", result.Errors)
+	}
+}
+
+func TestValidateReadiness_EmptyDescriptionOK(t *testing.T) {
+	c := readinessContract(
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 50, Expires: "2026-12-31", Description: ""},
+	)
+	var result ValidationResult
+	validateReadiness(c, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for absent description, got %v", result.Errors)
+	}
+}
+
+func TestValidateReadiness_InvalidExpires(t *testing.T) {
+	c := readinessContract(
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 50, Expires: "not-a-date"},
+	)
+	var result ValidationResult
+	validateReadiness(c, &result)
+	if !readinessHasCode(result, "INVALID_READINESS_EXPIRES") {
+		t.Errorf("expected INVALID_READINESS_EXPIRES, got %v", result.Errors)
+	}
+}
+
+func TestValidateReadiness_NonCanonicalExpires(t *testing.T) {
+	// time.Parse is lenient about zero-padding; the strict round-trip check
+	// must reject a non-canonical date like "2026-1-1".
+	c := readinessContract(
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 50, Expires: "2026-1-1"},
+	)
+	var result ValidationResult
+	validateReadiness(c, &result)
+	if !readinessHasCode(result, "INVALID_READINESS_EXPIRES") {
+		t.Errorf("expected INVALID_READINESS_EXPIRES for non-canonical date, got %v", result.Errors)
+	}
+}

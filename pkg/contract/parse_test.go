@@ -265,6 +265,68 @@ scaling:
 	}
 }
 
+func TestParse_ValidReadiness(t *testing.T) {
+	f, err := os.Open("testdata/valid_readiness.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	c, err := contract.Parse(f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.PactoVersion != "1.1" {
+		t.Errorf("expected pactoVersion 1.1, got %s", c.PactoVersion)
+	}
+	if c.Readiness == nil {
+		t.Fatal("expected readiness to be present")
+	}
+	if len(c.Readiness.Checks) != 3 {
+		t.Fatalf("expected 3 readiness checks, got %d", len(c.Readiness.Checks))
+	}
+	first := c.Readiness.Checks[0]
+	if first.ID != "dashboard" || first.Type != "url" || first.Weight != 20 {
+		t.Errorf("unexpected first check: %+v", first)
+	}
+	if first.Evidence != "https://grafana.company.com/payment-api" {
+		t.Errorf("unexpected evidence: %s", first.Evidence)
+	}
+	if first.Expires != "2026-12-31" {
+		t.Errorf("unexpected expires: %s", first.Expires)
+	}
+	if first.Description != "Main production dashboard" {
+		t.Errorf("unexpected description: %s", first.Description)
+	}
+	if c.Readiness.Checks[2].Description != "" {
+		t.Errorf("expected empty description on third check, got %s", c.Readiness.Checks[2].Description)
+	}
+}
+
+func TestParse_ReadinessUnknownFieldRejected(t *testing.T) {
+	r := strings.NewReader(`
+pactoVersion: "1.1"
+service:
+  name: my-svc
+  version: "1.0.0"
+readiness:
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://x
+      weight: 20
+      expires: 2026-12-31
+      status: current
+`)
+	_, err := contract.Parse(r)
+	if err == nil {
+		t.Fatal("expected error for unknown readiness check field")
+	}
+	if _, ok := err.(*contract.ParseError); !ok {
+		t.Fatalf("expected ParseError, got %T", err)
+	}
+}
+
 func TestParse_MissingInterfaces(t *testing.T) {
 	r := strings.NewReader(`
 pactoVersion: "1.0"

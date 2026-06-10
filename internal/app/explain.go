@@ -3,10 +3,16 @@ package app
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/override"
+	"github.com/trianalab/pacto/pkg/readiness"
 )
+
+// timeNow is the clock used to derive readiness freshness. It is a variable so
+// tests can pin "now" for deterministic readiness status.
+var timeNow = time.Now
 
 // ExplainOptions holds options for the explain command.
 type ExplainOptions struct {
@@ -24,7 +30,31 @@ type ExplainResult struct {
 	Interfaces   []ExplainInterface     `json:"interfaces,omitempty"`
 	Dependencies []ExplainDependency    `json:"dependencies,omitempty"`
 	Scaling      *contract.Scaling      `json:"scaling,omitempty"`
+	Readiness    *ExplainReadiness      `json:"readiness,omitempty"`
 	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// ExplainReadiness is a derived readiness summary for the explain output.
+type ExplainReadiness struct {
+	Score         int                     `json:"score"`
+	MinScore      int                     `json:"minScore"`
+	Passing       bool                    `json:"passing"`
+	TotalWeight   int                     `json:"totalWeight"`
+	CurrentWeight int                     `json:"currentWeight"`
+	CurrentCount  int                     `json:"currentCount"`
+	ExpiredCount  int                     `json:"expiredCount"`
+	InvalidCount  int                     `json:"invalidCount,omitempty"`
+	Checks        []ExplainReadinessCheck `json:"checks"`
+}
+
+// ExplainReadinessCheck is a single derived readiness check for the explain output.
+type ExplainReadinessCheck struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Status   string `json:"status"`
+	Weight   int    `json:"weight"`
+	Expires  string `json:"expires"`
+	Evidence string `json:"evidence,omitempty"`
 }
 
 // ExplainRuntime is a simplified runtime summary.
@@ -100,6 +130,30 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 			Required:      dep.Required,
 			Compatibility: dep.Compatibility,
 		})
+	}
+
+	if eval := readiness.Evaluate(c.Readiness, timeNow()); eval != nil {
+		er := &ExplainReadiness{
+			Score:         eval.Score,
+			MinScore:      eval.MinScore,
+			Passing:       eval.Passing,
+			TotalWeight:   eval.TotalWeight,
+			CurrentWeight: eval.CurrentWeight,
+			CurrentCount:  eval.CurrentCount,
+			ExpiredCount:  eval.ExpiredCount,
+			InvalidCount:  eval.InvalidCount,
+		}
+		for _, ch := range eval.Checks {
+			er.Checks = append(er.Checks, ExplainReadinessCheck{
+				ID:       ch.ID,
+				Type:     ch.Type,
+				Status:   string(ch.Status),
+				Weight:   ch.Weight,
+				Expires:  ch.Expires,
+				Evidence: ch.Evidence,
+			})
+		}
+		result.Readiness = er
 	}
 
 	return result, nil

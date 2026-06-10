@@ -102,6 +102,7 @@ func Generate(c *contract.Contract, fsys fs.FS, gr *graph.Result) (string, error
 	writeConfiguration(&b, c, fsys, num)
 	writePolicies(&b, c, fsys, num)
 	writeDependencies(&b, c, gr, num)
+	writeReadiness(&b, c, num)
 
 	fmt.Fprintln(&b, "---")
 	fmt.Fprintln(&b)
@@ -296,6 +297,10 @@ func writeTableOfContents(b *strings.Builder, c *contract.Contract, gr *graph.Re
 		for _, node := range collectFlatDependencyNodes(gr) {
 			writeDependencyTOCEntry(b, node, num)
 		}
+	}
+	if hasReadinessContent(c) {
+		sec := num.Next(1)
+		fmt.Fprintf(b, "- [%s. Readiness](#%s)\n", sec, headingAnchor(sec+". Readiness"))
 	}
 	fmt.Fprintln(b)
 }
@@ -644,6 +649,32 @@ func writeConfiguration(b *strings.Builder, c *contract.Contract, fsys fs.FS, nu
 			writeConfigurationTable(b, props)
 		}
 	}
+}
+
+// hasReadinessContent reports whether the contract declares any readiness checks.
+func hasReadinessContent(c *contract.Contract) bool {
+	return c.Readiness != nil && len(c.Readiness.Checks) > 0
+}
+
+// writeReadiness renders the declared readiness checks as a table. It shows the
+// authored fields only; derived freshness (current/expired) is a runtime concern
+// surfaced by the operator and dashboard, not by static documentation.
+func writeReadiness(b *strings.Builder, c *contract.Contract, num *sectionNumberer) {
+	if !hasReadinessContent(c) {
+		return
+	}
+
+	fmt.Fprintf(b, "## %s. Readiness\n\n", num.Next(1))
+	fmt.Fprintln(b, "| ID | Type | Evidence | Weight | Expires | Description |")
+	fmt.Fprintln(b, "|----|------|----------|-------:|---------|-------------|")
+	for _, ch := range c.Readiness.Checks {
+		desc := ch.Description
+		if desc == "" {
+			desc = "—"
+		}
+		fmt.Fprintf(b, "| `%s` | `%s` | `%s` | %d | `%s` | %s |\n", ch.ID, ch.Type, ch.Evidence, ch.Weight, ch.Expires, desc)
+	}
+	fmt.Fprintln(b)
 }
 
 func writePolicies(b *strings.Builder, c *contract.Contract, _ fs.FS, num *sectionNumberer) {

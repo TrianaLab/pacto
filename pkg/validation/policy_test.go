@@ -963,3 +963,207 @@ func TestResolvePoliciesWithResolver_RefBundleNoPoliciesNoFixedPath(t *testing.T
 		t.Error("expected POLICY_REF_UNRESOLVED error")
 	}
 }
+
+// --- Readiness policy enforcement ---
+//
+// These prove that organizational readiness standards can be enforced purely
+// through JSON Schema policies (draft 2020-12 contains/const/minimum), without
+// baking any specific check into the base schema.
+
+// readinessContractYAML is a 1.1 contract with a dashboard (url, weight 20),
+// runbook and security-review readiness checks.
+const readinessContractYAML = `pactoVersion: "1.1"
+service:
+  name: payment-api
+  version: "1.4.0"
+readiness:
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.company.com/payment-api
+      weight: 20
+      expires: "2026-12-31"
+    - id: runbook
+      type: document
+      evidence: docs/runbooks/payment-api.md
+      weight: 15
+      expires: "2026-09-30"
+    - id: security-review
+      type: ticket
+      evidence: SEC-1842
+      weight: 25
+      expires: "2026-11-15"
+`
+
+func TestEnforcePolicies_RequireReadinessPresent(t *testing.T) {
+	pol := mustResolvePolicy(t, "policies[0]", `{
+		"type": "object",
+		"required": ["readiness"]
+	}`)
+
+	if r := EnforcePolicies([]byte(readinessContractYAML), []ResolvedPolicy{pol}); !r.IsValid() {
+		t.Errorf("expected contract with readiness to satisfy policy, got %v", r.Errors)
+	}
+
+	without := []byte("pactoVersion: \"1.1\"\nservice:\n  name: svc\n  version: \"1.0.0\"\n")
+	if r := EnforcePolicies(without, []ResolvedPolicy{pol}); r.IsValid() {
+		t.Error("expected contract without readiness to violate policy")
+	}
+}
+
+func TestEnforcePolicies_RequireDashboardCheck(t *testing.T) {
+	pol := mustResolvePolicy(t, "policies[0]", `{
+		"type": "object",
+		"required": ["readiness"],
+		"properties": {
+			"readiness": {
+				"type": "object",
+				"required": ["checks"],
+				"properties": {
+					"checks": {
+						"type": "array",
+						"contains": {
+							"type": "object",
+							"required": ["id"],
+							"properties": { "id": { "const": "dashboard" } }
+						}
+					}
+				}
+			}
+		}
+	}`)
+
+	if r := EnforcePolicies([]byte(readinessContractYAML), []ResolvedPolicy{pol}); !r.IsValid() {
+		t.Errorf("expected dashboard check to satisfy policy, got %v", r.Errors)
+	}
+
+	noDashboard := []byte(`pactoVersion: "1.1"
+service:
+  name: svc
+  version: "1.0.0"
+readiness:
+  checks:
+    - id: runbook
+      type: document
+      evidence: docs/rb.md
+      weight: 100
+      expires: "2026-09-30"
+`)
+	if r := EnforcePolicies(noDashboard, []ResolvedPolicy{pol}); r.IsValid() {
+		t.Error("expected contract without dashboard check to violate policy")
+	}
+}
+
+func TestEnforcePolicies_RequireDashboardUrlWeight(t *testing.T) {
+	pol := mustResolvePolicy(t, "policies[0]", `{
+		"type": "object",
+		"required": ["readiness"],
+		"properties": {
+			"readiness": {
+				"type": "object",
+				"required": ["checks"],
+				"properties": {
+					"checks": {
+						"type": "array",
+						"contains": {
+							"type": "object",
+							"required": ["id", "type", "weight"],
+							"properties": {
+								"id": { "const": "dashboard" },
+								"type": { "const": "url" },
+								"weight": { "minimum": 20 }
+							}
+						}
+					}
+				}
+			}
+		}
+	}`)
+
+	if r := EnforcePolicies([]byte(readinessContractYAML), []ResolvedPolicy{pol}); !r.IsValid() {
+		t.Errorf("expected dashboard url weight=20 to satisfy policy, got %v", r.Errors)
+	}
+
+	weakDashboard := []byte(`pactoVersion: "1.1"
+service:
+  name: svc
+  version: "1.0.0"
+readiness:
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://x
+      weight: 10
+      expires: "2026-12-31"
+`)
+	if r := EnforcePolicies(weakDashboard, []ResolvedPolicy{pol}); r.IsValid() {
+		t.Error("expected dashboard with weight 10 to violate weight>=20 policy")
+	}
+
+	wrongType := []byte(`pactoVersion: "1.1"
+service:
+  name: svc
+  version: "1.0.0"
+readiness:
+  checks:
+    - id: dashboard
+      type: document
+      evidence: docs/d.md
+      weight: 50
+      expires: "2026-12-31"
+`)
+	if r := EnforcePolicies(wrongType, []ResolvedPolicy{pol}); r.IsValid() {
+		t.Error("expected dashboard with type document to violate type:url policy")
+	}
+}
+
+func TestEnforcePolicies_ProductionReadinessAllOf(t *testing.T) {
+	// The full production-readiness policy: dashboard (url, weight>=20) AND
+	// runbook AND security-review must all be present.
+	pol := mustResolvePolicy(t, "policies[0]", `{
+		"type": "object",
+		"required": ["readiness"],
+		"properties": {
+			"readiness": {
+				"type": "object",
+				"required": ["checks"],
+				"properties": {
+					"checks": {
+						"type": "array",
+						"allOf": [
+							{ "contains": { "type": "object", "required": ["id", "type", "weight"],
+								"properties": { "id": {"const": "dashboard"}, "type": {"const": "url"}, "weight": {"minimum": 20} } } },
+							{ "contains": { "type": "object", "required": ["id"], "properties": { "id": {"const": "runbook"} } } },
+							{ "contains": { "type": "object", "required": ["id"], "properties": { "id": {"const": "security-review"} } } }
+						]
+					}
+				}
+			}
+		}
+	}`)
+
+	if r := EnforcePolicies([]byte(readinessContractYAML), []ResolvedPolicy{pol}); !r.IsValid() {
+		t.Errorf("expected full readiness contract to satisfy production-readiness policy, got %v", r.Errors)
+	}
+
+	missingSecurity := []byte(`pactoVersion: "1.1"
+service:
+  name: svc
+  version: "1.0.0"
+readiness:
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://x
+      weight: 20
+      expires: "2026-12-31"
+    - id: runbook
+      type: document
+      evidence: docs/rb.md
+      weight: 15
+      expires: "2026-09-30"
+`)
+	if r := EnforcePolicies(missingSecurity, []ResolvedPolicy{pol}); r.IsValid() {
+		t.Error("expected contract missing security-review to violate production-readiness policy")
+	}
+}

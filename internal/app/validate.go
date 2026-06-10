@@ -8,6 +8,7 @@ import (
 
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/override"
+	"github.com/trianalab/pacto/pkg/readiness"
 	"github.com/trianalab/pacto/pkg/validation"
 )
 
@@ -15,6 +16,11 @@ import (
 type ValidateOptions struct {
 	Path      string
 	Overrides override.Overrides
+	// Readiness, when true, also enforces the readiness gate: validation fails if
+	// the derived readiness score is below the declared (or default 100) minScore.
+	// Off by default because the gate is time-dependent (it reads expiry dates),
+	// which would otherwise make plain validation non-deterministic.
+	Readiness bool
 }
 
 // ValidateResult holds the result of the validate command.
@@ -63,10 +69,26 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	result := validation.ValidateWithResolver(ctx, bundle.Contract, rawYAML, bundle.FS, resolver)
 	slog.Debug("validation complete", "valid", result.IsValid(), "errors", len(result.Errors), "warnings", len(result.Warnings))
 
+	errors := result.Errors
+	valid := result.IsValid()
+
+	// Opt-in readiness gate. Time-dependent, so only when explicitly requested.
+	if opts.Readiness {
+		if eval := readiness.Evaluate(bundle.Contract.Readiness, timeNow()); eval != nil && !eval.Passing {
+			errors = append(errors, contract.ValidationError{
+				Path: "readiness",
+				Code: "READINESS_GATE_UNMET",
+				Message: fmt.Sprintf("readiness score %d is below minScore %d (%d current, %d expired, %d invalid of %d checks)",
+					eval.Score, eval.MinScore, eval.CurrentCount, eval.ExpiredCount, eval.InvalidCount, len(eval.Checks)),
+			})
+			valid = false
+		}
+	}
+
 	return &ValidateResult{
 		Path:     ref,
-		Valid:    result.IsValid(),
-		Errors:   result.Errors,
+		Valid:    valid,
+		Errors:   errors,
 		Warnings: result.Warnings,
 	}, nil
 }

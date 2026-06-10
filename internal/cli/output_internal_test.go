@@ -423,6 +423,77 @@ func TestPrintExplainResult_Minimal(t *testing.T) {
 	}
 }
 
+func TestPrintExplainResult_Readiness(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{
+		Name:         "svc",
+		Version:      "1.0.0",
+		PactoVersion: "1.1",
+		Readiness: &app.ExplainReadiness{
+			Score:         75,
+			MinScore:      70,
+			Passing:       true,
+			TotalWeight:   80,
+			CurrentWeight: 60,
+			ExpiredCount:  1,
+			CurrentCount:  2,
+			Checks: []app.ExplainReadinessCheck{
+				{ID: "dashboard", Type: "url", Status: "Current", Weight: 20, Expires: "2026-12-31"},
+				{ID: "security-review", Type: "ticket", Status: "Expired", Weight: 60, Expires: "2026-01-15"},
+			},
+		},
+	}
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Readiness:",
+		"Score: 75",
+		"Gate: PASS (score 75 / minScore 70)",
+		"Current Weight: 60",
+		"Total Weight: 80",
+		"Expired Checks: 1",
+		"dashboard",
+		"current",
+		"weight=20 (25%) expires=2026-12-31",
+		"security-review",
+		"expired",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in readiness output, got %q", want, out)
+		}
+	}
+}
+
+func TestPrintExplainResult_ReadinessGateFailZeroWeight(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{
+		Name:         "svc",
+		Version:      "1.0.0",
+		PactoVersion: "1.1",
+		Readiness: &app.ExplainReadiness{
+			Score:       0,
+			MinScore:    100,
+			Passing:     false,
+			TotalWeight: 0,
+			Checks: []app.ExplainReadinessCheck{
+				{ID: "dashboard", Type: "url", Status: "Current", Weight: 0, Expires: "2026-12-31"},
+			},
+		},
+	}
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Gate: FAIL (score 0 / minScore 100)") {
+		t.Errorf("expected gate FAIL line, got %q", out)
+	}
+	if !strings.Contains(out, "weight=0 (0%)") {
+		t.Errorf("expected zero-weight normalized 0%%, got %q", out)
+	}
+}
+
 func TestPrintGenerateResult_Text(t *testing.T) {
 	cmd, buf := testCmd()
 	result := &app.GenerateResult{Plugin: "k8s", OutputDir: "k8s-output", FilesCount: 3, Message: "generated manifests"}
@@ -490,6 +561,29 @@ func TestPrintExplainResult_JSON(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), `"name"`) {
 		t.Errorf("expected JSON output, got %q", buf.String())
+	}
+}
+
+func TestPrintExplainResult_ReadinessJSON(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{
+		Name:         "svc",
+		Version:      "1.0.0",
+		PactoVersion: "1.1",
+		Readiness: &app.ExplainReadiness{
+			Score:       75,
+			TotalWeight: 80,
+			Checks:      []app.ExplainReadinessCheck{{ID: "dashboard", Type: "url", Status: "Current", Weight: 20, Expires: "2026-12-31"}},
+		},
+	}
+	if err := printExplainResult(cmd, result, "json"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{`"readiness"`, `"score": 75`, `"dashboard"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in JSON output, got %q", want, out)
+		}
 	}
 }
 
