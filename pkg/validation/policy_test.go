@@ -620,6 +620,78 @@ func TestResolvePoliciesWithResolver_CycleDetection(t *testing.T) {
 	}
 }
 
+func TestResolvePoliciesWithResolver_SharedRefAcrossSiblingsNoCycle(t *testing.T) {
+	// Two top-level policies reference the SAME ref. This is a diamond, not a
+	// cycle: each sibling must resolve independently. A shared ref reached via
+	// distinct chains must not trigger a false POLICY_REF_CYCLE.
+	refBundle := &contract.Bundle{
+		Contract: &contract.Contract{},
+		FS: fstest.MapFS{
+			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object"}`)},
+		},
+	}
+	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
+		"oci://example.com/shared:1.0": refBundle,
+	}}
+
+	rootContract := &contract.Contract{
+		Policies: []contract.PolicySource{
+			{Ref: "oci://example.com/shared:1.0"},
+			{Ref: "oci://example.com/shared:1.0"},
+		},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), rootContract, fstest.MapFS{}, resolver)
+	if !result.IsValid() {
+		t.Fatalf("shared ref across siblings must not be a cycle, got errors: %v", result.Errors)
+	}
+	if len(policies) != 2 {
+		t.Fatalf("expected 2 resolved policies (one per sibling), got %d", len(policies))
+	}
+}
+
+func TestResolvePoliciesWithResolver_DiamondNoCycle(t *testing.T) {
+	// Root → A → C and Root → B → C. C is reached via two distinct chains but
+	// never appears twice within a single chain, so it is not a cycle.
+	bundleC := &contract.Bundle{
+		Contract: &contract.Contract{},
+		FS: fstest.MapFS{
+			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object"}`)},
+		},
+	}
+	bundleA := &contract.Bundle{
+		Contract: &contract.Contract{
+			Policies: []contract.PolicySource{{Ref: "oci://example.com/c:1.0"}},
+		},
+		FS: fstest.MapFS{},
+	}
+	bundleB := &contract.Bundle{
+		Contract: &contract.Contract{
+			Policies: []contract.PolicySource{{Ref: "oci://example.com/c:1.0"}},
+		},
+		FS: fstest.MapFS{},
+	}
+	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
+		"oci://example.com/a:1.0": bundleA,
+		"oci://example.com/b:1.0": bundleB,
+		"oci://example.com/c:1.0": bundleC,
+	}}
+
+	rootContract := &contract.Contract{
+		Policies: []contract.PolicySource{
+			{Ref: "oci://example.com/a:1.0"},
+			{Ref: "oci://example.com/b:1.0"},
+		},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), rootContract, fstest.MapFS{}, resolver)
+	if !result.IsValid() {
+		t.Fatalf("diamond dependency must not be a cycle, got errors: %v", result.Errors)
+	}
+	// A→C yields C's schema, B→C yields C's schema → 2 resolved policies.
+	if len(policies) != 2 {
+		t.Fatalf("expected 2 resolved policies from diamond, got %d", len(policies))
+	}
+}
+
 func TestResolvePoliciesWithResolver_NHopChain(t *testing.T) {
 	// Root → A → B (3 hops, all with policy/schema.json)
 	bundleB := &contract.Bundle{

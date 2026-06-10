@@ -115,13 +115,15 @@ func ResolvePoliciesFromBundle(c *contract.Contract, bundleFS fs.FS) ([]Resolved
 // own policies with cycle detection. If resolver is nil, ref-based policies produce
 // a hard POLICY_REF_UNRESOLVED error (fail closed).
 func ResolvePoliciesWithResolver(ctx context.Context, c *contract.Contract, bundleFS fs.FS, resolver BundleResolver) ([]ResolvedPolicy, ValidationResult) {
-	visited := map[string]bool{}
-	return resolvePoliciesRecursive(ctx, c, bundleFS, resolver, visited, nil)
+	return resolvePoliciesRecursive(ctx, c, bundleFS, resolver, nil)
 }
 
 // resolvePoliciesRecursive is the internal recursive implementation.
-// path tracks the chain of refs for cycle detection.
-func resolvePoliciesRecursive(ctx context.Context, c *contract.Contract, bundleFS fs.FS, resolver BundleResolver, visited map[string]bool, path []string) ([]ResolvedPolicy, ValidationResult) {
+// path tracks the chain of refs from the root to the current bundle, and is used
+// for cycle detection: a cycle exists only when a ref reappears within its own
+// chain (A→B→A). Refs reached via distinct chains (diamonds, shared siblings)
+// resolve independently and are not cycles.
+func resolvePoliciesRecursive(ctx context.Context, c *contract.Contract, bundleFS fs.FS, resolver BundleResolver, path []string) ([]ResolvedPolicy, ValidationResult) {
 	var policies []ResolvedPolicy
 	var result ValidationResult
 
@@ -140,7 +142,7 @@ func resolvePoliciesRecursive(ctx context.Context, c *contract.Contract, bundleF
 		}
 
 		if pol.Ref != "" {
-			resolved, refResult := resolveRefPolicy(ctx, pol.Ref, origin, resolver, visited, path)
+			resolved, refResult := resolveRefPolicy(ctx, pol.Ref, origin, resolver, path)
 			policies = append(policies, resolved...)
 			result.Merge(refResult)
 		}
@@ -170,7 +172,7 @@ func resolveLocalPolicySchema(bundleFS fs.FS, schemaPath, origin string, index i
 
 // resolveRefPolicy fetches a referenced bundle and extracts its policy schema,
 // then recurses into the referenced bundle's own policies.
-func resolveRefPolicy(ctx context.Context, ref, origin string, resolver BundleResolver, visited map[string]bool, path []string) ([]ResolvedPolicy, ValidationResult) {
+func resolveRefPolicy(ctx context.Context, ref, origin string, resolver BundleResolver, path []string) ([]ResolvedPolicy, ValidationResult) {
 	var result ValidationResult
 
 	if resolver == nil {
@@ -179,13 +181,14 @@ func resolveRefPolicy(ctx context.Context, ref, origin string, resolver BundleRe
 		return nil, result
 	}
 
-	// Cycle detection.
-	if visited[ref] {
+	// Cycle detection: a cycle exists only when this ref already appears in the
+	// chain from the root to here (A→B→A). Refs reached via distinct chains
+	// (shared siblings, diamonds) are not cycles and resolve independently.
+	if slices.Contains(path, ref) {
 		result.AddError("", "POLICY_REF_CYCLE",
-			fmt.Sprintf("policy %s: cycle detected resolving ref %q (chain: %v)", origin, ref, append(path, ref)))
+			fmt.Sprintf("policy %s: cycle detected resolving ref %q (chain: %v)", origin, ref, append(append([]string{}, path...), ref)))
 		return nil, result
 	}
-	visited[ref] = true
 
 	bundle, err := resolver.ResolveBundle(ctx, ref)
 	if err != nil {
@@ -204,7 +207,7 @@ func resolveRefPolicy(ctx context.Context, ref, origin string, resolver BundleRe
 	// for backward compatibility.
 	if bundle.Contract != nil && len(bundle.Contract.Policies) > 0 {
 		childPath := append(append([]string{}, path...), ref)
-		return resolvePoliciesRecursive(ctx, bundle.Contract, bundle.FS, resolver, visited, childPath)
+		return resolvePoliciesRecursive(ctx, bundle.Contract, bundle.FS, resolver, childPath)
 	}
 
 	// Legacy fallback: read fixed-path policy schema.
