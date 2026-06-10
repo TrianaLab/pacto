@@ -526,6 +526,35 @@ func TestCachedStore_ListTags_CachesInMemory(t *testing.T) {
 	}
 }
 
+func TestCachedStore_DisableCache_ClearsTagsCache(t *testing.T) {
+	inner := &countingStore{
+		bundle:         newTestBundle(),
+		listTagsResult: []string{"1.0.0", "2.0.0"},
+	}
+	store := oci.NewCachedStore(inner)
+	ctx := context.Background()
+	repo := "ghcr.io/test/repo"
+
+	// Prime the tags cache.
+	if _, err := store.ListTags(ctx, repo); err != nil {
+		t.Fatalf("first ListTags() error: %v", err)
+	}
+	if inner.listTagsCount.Load() != 1 {
+		t.Fatalf("expected 1 inner ListTags call after priming, got %d", inner.listTagsCount.Load())
+	}
+
+	// DisableCache must clear the tags cache so subsequent ListTags refetch
+	// instead of returning stale tags.
+	store.DisableCache()
+
+	if _, err := store.ListTags(ctx, repo); err != nil {
+		t.Fatalf("ListTags() after DisableCache error: %v", err)
+	}
+	if inner.listTagsCount.Load() != 2 {
+		t.Errorf("expected ListTags to refetch after DisableCache (2 inner calls), got %d", inner.listTagsCount.Load())
+	}
+}
+
 func TestCachedStore_ListTags_DifferentReposMissCache(t *testing.T) {
 	inner := &countingStore{
 		bundle:         newTestBundle(),
