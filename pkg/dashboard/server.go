@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,7 @@ type Server struct {
 	diagnostics *SourceDiagnostics
 	listenAddr  string // optional: server URL for OpenAPI spec
 	version     string // optional: Pacto version to expose via /health
+	corsOrigin  string // optional: explicit cross-origin allowed to call the API (startup-only)
 
 	// cfgMu guards the optional wiring fields that can be set AFTER startup from
 	// request goroutines via lazy OCI enrichment (wireOCIEnrichment) or
@@ -299,7 +301,14 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	// Static UI — served on the raw mux, not through Huma.
 	mux.Handle("/", http.FileServer(http.FS(s.ui)))
 
-	srv := &http.Server{Handler: corsMiddleware(mux)}
+	srv := &http.Server{
+		Handler:           s.corsMiddleware(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// WriteTimeout is intentionally unset: the static handler streams the
+		// multi-MB embedded UI bundle, which can be slow on throttled links.
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -313,7 +322,10 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 		if oci := s.getOCISource(); oci != nil {
 			oci.Close()
 		}
-		return srv.Close()
+		// Graceful shutdown: drain in-flight requests with a bounded timeout.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
 	case err := <-errCh:
 		return err
 	}
@@ -639,6 +651,13 @@ type debugServiceEntry struct {
 // SetVersion sets the Pacto version exposed by the health endpoint.
 func (s *Server) SetVersion(v string) {
 	s.version = v
+}
+
+// SetCORSOrigin allows an explicit cross-origin client to call the API. When
+// empty (the default) the API is same-origin only and cross-origin mutating
+// requests are rejected. Must be called before Serve.
+func (s *Server) SetCORSOrigin(origin string) {
+	s.corsOrigin = origin
 }
 
 func (s *Server) health(_ context.Context, _ *struct{}) (*healthOutput, error) {
@@ -1311,15 +1330,53 @@ func (s *Server) WaitForVersionEnrich() {
 	s.versionWg.Wait()
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+// corsMiddleware handles CORS and protects mutating endpoints from
+// browser-driven cross-origin (CSRF/SSRF) requests. The dashboard UI is served
+// same-origin, so by default no Access-Control-Allow-Origin is emitted and
+// cross-origin mutating requests are rejected. An explicit cross-origin client
+// can be allowed via SetCORSOrigin.
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		origin := r.Header.Get("Origin")
+		if s.corsOrigin != "" && origin == s.corsOrigin {
+			w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		// Reject cross-origin mutating requests (the SSRF/CSRF surface on
+		// /api/resolve, /api/versions, /api/refresh). Same-origin requests and
+		// non-browser clients (no Origin header) are allowed.
+		if isMutatingMethod(r.Method) && !s.originAllowed(r) {
+			http.Error(w, "cross-origin request forbidden", http.StatusForbidden)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// originAllowed reports whether r may perform a mutating request: true for
+// same-origin requests, the explicitly allowed cross-origin, or clients that
+// send no Origin header (e.g. curl, the CLI).
+func (s *Server) originAllowed(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	if s.corsOrigin != "" && origin == s.corsOrigin {
+		return true
+	}
+	u, err := url.Parse(origin)
+	return err == nil && u.Host == r.Host
+}
+
+func isMutatingMethod(m string) bool {
+	switch m {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	}
+	return false
 }

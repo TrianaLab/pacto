@@ -77,6 +77,7 @@ Services are grouped by name across sources and merged using priority rules:
 			namespace := v.GetString("dashboard.namespace")
 			noCache := v.GetBool("no-cache")
 			diagnostics := v.GetBool("dashboard.diagnostics")
+			corsOrigin := v.GetString("dashboard.cors-origin")
 
 			dir, repos, err := parseDashboardArgs(args)
 			if err != nil {
@@ -160,6 +161,7 @@ Services are grouped by name across sources and merged using priority rules:
 			server.UpdateSourceInfo(detectResult.Sources)
 			server.SetVersion(version)
 			server.SetListenAddr(host, port)
+			server.SetCORSOrigin(corsOrigin)
 
 			// Enable lazy resolution of remote OCI dependencies when a BundleStore is available.
 			if svc.BundleStore != nil {
@@ -221,12 +223,14 @@ Services are grouped by name across sources and merged using priority rules:
 	cmd.Flags().Int("port", 3000, "port for the dashboard server")
 	cmd.Flags().String("namespace", "", "Kubernetes namespace (empty = all namespaces)")
 	cmd.Flags().Bool("diagnostics", false, "enable source diagnostics panel in the dashboard UI")
+	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 
 	// Bind to viper so flags can be overridden via PACTO_DASHBOARD_* env vars.
 	_ = v.BindPFlag("dashboard.host", cmd.Flags().Lookup("host"))
 	_ = v.BindPFlag("dashboard.port", cmd.Flags().Lookup("port"))
 	_ = v.BindPFlag("dashboard.namespace", cmd.Flags().Lookup("namespace"))
 	_ = v.BindPFlag("dashboard.diagnostics", cmd.Flags().Lookup("diagnostics"))
+	_ = v.BindPFlag("dashboard.cors-origin", cmd.Flags().Lookup("cors-origin"))
 
 	return cmd
 }

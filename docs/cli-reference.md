@@ -99,11 +99,12 @@ pacto dashboard [sources...] [flags]
 **Flags:**
 
 ```
-      --diagnostics        enable source diagnostics panel in the dashboard UI
-  -h, --help               help for dashboard
-      --host string        bind address for the dashboard server (default "127.0.0.1")
-      --namespace string   Kubernetes namespace (empty = all namespaces)
-      --port int           port for the dashboard server (default 3000)
+      --cors-origin string   explicit cross-origin allowed to call the API (default: same-origin only)
+      --diagnostics          enable source diagnostics panel in the dashboard UI
+  -h, --help                 help for dashboard
+      --host string          bind address for the dashboard server (default "127.0.0.1")
+      --namespace string     Kubernetes namespace (empty = all namespaces)
+      --port int             port for the dashboard server (default 3000)
 ```
 
 The dashboard is the exploration and observability layer of the Pacto system. It visualizes the same contracts the CLI manages and the operator verifies — making dependency graphs, version history, interfaces, configuration schemas, and diffs accessible in one place.
