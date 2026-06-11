@@ -955,23 +955,10 @@ func (s *Server) getDiff(ctx context.Context, input *diffInput) (*getDiffOutput,
 		// Classify so user-level conditions (no bundle data, bad ref, auth, not
 		// found) are not reported as 500 — matching resolveRef and the way
 		// version listing degrades gracefully for the same services.
-		var authErr *oci.AuthenticationError
-		var notFoundErr *oci.ArtifactNotFoundError
-		var invalidRefErr *oci.InvalidRefError
-		var invalidBundleErr *oci.InvalidBundleError
-		var noMatchErr *oci.NoMatchingVersionError
-		switch {
-		case strings.Contains(err.Error(), "diff requires contract bundle data"):
+		if strings.Contains(err.Error(), "diff requires contract bundle data") {
 			return nil, huma.Error422UnprocessableEntity(err.Error())
-		case errors.As(err, &invalidRefErr), errors.As(err, &noMatchErr), errors.As(err, &invalidBundleErr):
-			return nil, huma.Error422UnprocessableEntity(err.Error())
-		case errors.As(err, &authErr):
-			return nil, huma.Error403Forbidden(err.Error())
-		case errors.As(err, &notFoundErr):
-			return nil, huma.Error404NotFound(err.Error())
-		default:
-			return nil, huma.Error502BadGateway(err.Error())
 		}
+		return nil, ociHTTPError(err)
 	}
 	return &getDiffOutput{Body: result}, nil
 }
@@ -1071,29 +1058,31 @@ func (s *Server) debugServices(ctx context.Context, _ *struct{}) (*debugServices
 	return out, nil
 }
 
+// ociHTTPError maps an OCI resolution error to the appropriate Huma HTTP error
+// so user-level conditions (bad ref, no matching version, invalid bundle, auth,
+// not found) are not reported as 500s. Shared by getDiff and resolveRef.
+func ociHTTPError(err error) error {
+	var authErr *oci.AuthenticationError
+	var notFoundErr *oci.ArtifactNotFoundError
+	var invalidRefErr *oci.InvalidRefError
+	var invalidBundleErr *oci.InvalidBundleError
+	var noMatchErr *oci.NoMatchingVersionError
+	switch {
+	case errors.As(err, &invalidRefErr), errors.As(err, &noMatchErr), errors.As(err, &invalidBundleErr):
+		return huma.Error422UnprocessableEntity(err.Error())
+	case errors.As(err, &authErr):
+		return huma.Error403Forbidden(err.Error())
+	case errors.As(err, &notFoundErr):
+		return huma.Error404NotFound(err.Error())
+	default:
+		return huma.Error502BadGateway(err.Error())
+	}
+}
+
 func (s *Server) resolveRef(ctx context.Context, input *resolveRefInput) (*resolveRefOutput, error) {
 	bundle, err := s.resolver.ResolveConstrained(ctx, input.Body.Ref, input.Body.Compatibility, oci.RemoteAllowed)
 	if err != nil {
-		var authErr *oci.AuthenticationError
-		var notFoundErr *oci.ArtifactNotFoundError
-		var invalidRefErr *oci.InvalidRefError
-		var invalidBundleErr *oci.InvalidBundleError
-		var noMatchErr *oci.NoMatchingVersionError
-
-		switch {
-		case errors.As(err, &invalidRefErr):
-			return nil, huma.Error422UnprocessableEntity(err.Error())
-		case errors.As(err, &noMatchErr):
-			return nil, huma.Error422UnprocessableEntity(err.Error())
-		case errors.As(err, &authErr):
-			return nil, huma.Error403Forbidden(err.Error())
-		case errors.As(err, &notFoundErr):
-			return nil, huma.Error404NotFound(err.Error())
-		case errors.As(err, &invalidBundleErr):
-			return nil, huma.Error422UnprocessableEntity(err.Error())
-		default:
-			return nil, huma.Error502BadGateway(err.Error())
-		}
+		return nil, ociHTTPError(err)
 	}
 
 	details := ServiceDetailsFromBundle(bundle, "oci")
