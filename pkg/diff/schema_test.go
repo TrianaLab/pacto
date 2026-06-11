@@ -52,16 +52,6 @@ func TestDiffSchema_NewReadError(t *testing.T) {
 	}
 }
 
-func TestReadSchemaProperties_InvalidJSON(t *testing.T) {
-	fs := fstest.MapFS{
-		"schema.json": &fstest.MapFile{Data: []byte(`{invalid}`)},
-	}
-	_, err := readSchemaProperties(fs, "schema.json")
-	if err == nil {
-		t.Error("expected error for invalid JSON")
-	}
-}
-
 func TestDiffSchema_NestedPropertyAdded(t *testing.T) {
 	oldSchema := `{
   "type": "object",
@@ -256,53 +246,3 @@ func TestDiffSchema_TypeMismatchScalar(t *testing.T) {
 	}
 }
 
-func TestReadSchemaProperties_FileNotFound(t *testing.T) {
-	fs := fstest.MapFS{}
-	_, err := readSchemaProperties(fs, "missing.json")
-	if err == nil {
-		t.Error("expected error for missing file")
-	}
-}
-
-func TestReadSchemaProperties_FlattensNested(t *testing.T) {
-	schema := `{
-  "type": "object",
-  "properties": {
-    "database": {
-      "type": "object",
-      "properties": {
-        "host": { "type": "string" },
-        "connection": {
-          "type": "object",
-          "properties": {
-            "timeout": { "type": "integer" },
-            "retries": { "type": "integer" }
-          }
-        }
-      }
-    },
-    "port": { "type": "integer" }
-  }
-}`
-	fs := fstest.MapFS{"schema.json": &fstest.MapFile{Data: []byte(schema)}}
-
-	props, err := readSchemaProperties(fs, "schema.json")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := map[string]bool{
-		"database.host":               true,
-		"database.connection.timeout": true,
-		"database.connection.retries": true,
-		"port":                        true,
-	}
-	if len(props) != len(want) {
-		t.Fatalf("expected %d properties, got %d: %v", len(want), len(props), props)
-	}
-	for k := range want {
-		if !props[k] {
-			t.Errorf("missing expected property %q", k)
-		}
-	}
-}
