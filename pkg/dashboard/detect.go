@@ -167,6 +167,13 @@ func (r *DetectResult) detectLocal(dir string) {
 		if !entry.IsDir() {
 			continue
 		}
+		// Skip hidden / vendor directories so a stray pacto.yaml (e.g. under
+		// ~/.Trash) cannot root the local source at a large directory like $HOME,
+		// whose recursive scan would block ListServices indefinitely. Mirrors the
+		// rules used by the recursive walk (skipScanDir).
+		if skipScanDir(entry.Name()) {
+			continue
+		}
 		if _, err := os.Stat(filepath.Join(dir, entry.Name(), contractFile)); err == nil {
 			info.Enabled = true
 			info.Reason = "pacto.yaml found in subdirectory " + entry.Name()

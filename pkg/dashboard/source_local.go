@@ -30,6 +30,16 @@ func localBundleDirs(root string) []string {
 	return dirs
 }
 
+// skipScanDir reports whether a directory name must be excluded from local
+// bundle discovery. Hidden directories (e.g. .git, .Trash, .cache) and dependency
+// vendoring directories are never project bundle roots, and descending into them
+// from a large root (such as $HOME) makes discovery walk an enormous tree. Both
+// the recursive walk (collectBundleDirs) and source detection (detectLocal) use
+// this so a pacto.yaml under such a directory neither activates nor is scanned.
+func skipScanDir(name string) bool {
+	return strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor"
+}
+
 func collectBundleDirs(dir string, depth int, out *[]string) {
 	if depth > maxLocalScanDepth {
 		return
@@ -45,11 +55,10 @@ func collectBundleDirs(dir string, depth int, out *[]string) {
 		if !e.IsDir() {
 			continue
 		}
-		name := e.Name()
-		if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+		if skipScanDir(e.Name()) {
 			continue
 		}
-		collectBundleDirs(filepath.Join(dir, name), depth+1, out)
+		collectBundleDirs(filepath.Join(dir, e.Name()), depth+1, out)
 	}
 }
 
