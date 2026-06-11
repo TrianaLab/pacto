@@ -150,6 +150,34 @@ func TestDetectLocal_SubdirPactoYAML(t *testing.T) {
 	}
 }
 
+func TestDetectLocal_IgnoresHiddenAndVendorSubdirs(t *testing.T) {
+	// A pacto.yaml inside a hidden / node_modules / vendor immediate subdir must
+	// NOT activate the local source. Otherwise running `pacto dashboard` from a
+	// large root (e.g. $HOME, where ~/.Trash may contain a pacto.yaml) roots the
+	// local source at that directory and LocalSource.ListServices recursively
+	// walks the entire tree, blocking /api/services indefinitely. detection must
+	// use the same skip rules as the recursive walk (collectBundleDirs).
+	for _, sub := range []string{".Trash", ".git", "node_modules", "vendor"} {
+		t.Run(sub, func(t *testing.T) {
+			root := t.TempDir()
+			writeLocalPactoYAML(t, filepath.Join(root, sub), "svc", "1.0.0")
+
+			result := &DetectResult{Diagnostics: &SourceDiagnostics{}}
+			result.detectLocal(root)
+
+			if result.Local != nil {
+				t.Fatalf("expected local source NOT detected from %q subdir", sub)
+			}
+			if len(result.Sources) != 1 {
+				t.Fatalf("expected 1 source info, got %d", len(result.Sources))
+			}
+			if result.Sources[0].Enabled {
+				t.Errorf("expected local source disabled for %q subdir", sub)
+			}
+		})
+	}
+}
+
 func TestDetectLocal_NoPactoYAML(t *testing.T) {
 	root := t.TempDir()
 
