@@ -15,38 +15,25 @@ import (
 // The rawYAML parameter is the original YAML bytes for JSON Schema validation.
 // The bundleFS parameter provides access to bundle files for cross-field validation.
 func Validate(c *contract.Contract, rawYAML []byte, bundleFS fs.FS) ValidationResult {
-	// Layer 1: Structural validation via JSON Schema.
-	result := ValidateStructuralRaw(rawYAML)
-	if !result.IsValid() {
-		return result
-	}
-
-	// Layer 2: Cross-field validation.
-	crossFieldResult := ValidateCrossField(c, bundleFS)
-	result.Merge(crossFieldResult)
-	if !result.IsValid() {
-		return result
-	}
-
-	// Layer 3: Semantic validation.
-	semanticResult := ValidateSemantic(c)
-	result.Merge(semanticResult)
-
-	// Layer 4: Policy enforcement.
-	policies, policyResResult := ResolvePoliciesFromBundle(c, bundleFS)
-	result.Merge(policyResResult)
-	if result.IsValid() {
-		enforcementResult := EnforcePolicies(rawYAML, policies)
-		result.Merge(enforcementResult)
-	}
-
-	return result
+	return runLayers(c, rawYAML, bundleFS, func() ([]ResolvedPolicy, ValidationResult) {
+		return ResolvePoliciesFromBundle(c, bundleFS)
+	})
 }
 
 // ValidateWithResolver runs all four validation layers, using the provided
 // BundleResolver for recursive ref-based policy resolution. If resolver is nil,
 // any ref-based policies produce a hard POLICY_REF_UNRESOLVED error (fail closed).
 func ValidateWithResolver(ctx context.Context, c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolver BundleResolver) ValidationResult {
+	return runLayers(c, rawYAML, bundleFS, func() ([]ResolvedPolicy, ValidationResult) {
+		return ResolvePoliciesWithResolver(ctx, c, bundleFS, resolver)
+	})
+}
+
+// runLayers runs the four-layer validation pipeline, short-circuiting on
+// structural and cross-field failures. Layer 4 policy resolution is delegated to
+// resolvePolicies, which is the only step that differs between the local-only
+// Validate and the resolver-based ValidateWithResolver.
+func runLayers(c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolvePolicies func() ([]ResolvedPolicy, ValidationResult)) ValidationResult {
 	// Layer 1: Structural validation via JSON Schema.
 	result := ValidateStructuralRaw(rawYAML)
 	if !result.IsValid() {
@@ -54,22 +41,19 @@ func ValidateWithResolver(ctx context.Context, c *contract.Contract, rawYAML []b
 	}
 
 	// Layer 2: Cross-field validation.
-	crossFieldResult := ValidateCrossField(c, bundleFS)
-	result.Merge(crossFieldResult)
+	result.Merge(ValidateCrossField(c, bundleFS))
 	if !result.IsValid() {
 		return result
 	}
 
 	// Layer 3: Semantic validation.
-	semanticResult := ValidateSemantic(c)
-	result.Merge(semanticResult)
+	result.Merge(ValidateSemantic(c))
 
-	// Layer 4: Policy enforcement with recursive resolution.
-	policies, policyResult := ResolvePoliciesWithResolver(ctx, c, bundleFS, resolver)
+	// Layer 4: Policy resolution + enforcement.
+	policies, policyResult := resolvePolicies()
 	result.Merge(policyResult)
 	if result.IsValid() {
-		enforcementResult := EnforcePolicies(rawYAML, policies)
-		result.Merge(enforcementResult)
+		result.Merge(EnforcePolicies(rawYAML, policies))
 	}
 
 	return result

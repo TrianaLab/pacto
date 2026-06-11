@@ -162,14 +162,7 @@ func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
 
 	if hasSBOM {
 		_, _ = fmt.Fprintf(w, "### SBOM Changes\n\n")
-		_, _ = fmt.Fprintln(w, "| Package | Type | Field | Old | New |")
-		_, _ = fmt.Fprintln(w, "|---|---|---|---|---|")
-		for _, c := range result.SBOMDiff.Changes {
-			_, _ = fmt.Fprintf(w, "| `%s` | %s | %s | %s | %s |\n",
-				c.Package, c.Type, c.Field,
-				formatMDValue(nonEmpty(c.OldValue)), formatMDValue(nonEmpty(c.NewValue)))
-		}
-		_, _ = fmt.Fprintln(w)
+		printSBOMChangeRows(w, result.SBOMDiff.Changes)
 	}
 
 	return nil
@@ -359,9 +352,14 @@ func hasAnyDepSBOM(deps []app.DependencyDiff) bool {
 
 func printSBOMMarkdownTable(w io.Writer, name string, result *sbom.Result) {
 	_, _ = fmt.Fprintf(w, "#### SBOM Changes: %s\n\n", name)
+	printSBOMChangeRows(w, result.Changes)
+}
+
+// printSBOMChangeRows renders the shared SBOM markdown table (header + rows).
+func printSBOMChangeRows(w io.Writer, changes []sbom.Change) {
 	_, _ = fmt.Fprintln(w, "| Package | Type | Field | Old | New |")
 	_, _ = fmt.Fprintln(w, "|---|---|---|---|---|")
-	for _, c := range result.Changes {
+	for _, c := range changes {
 		_, _ = fmt.Fprintf(w, "| `%s` | %s | %s | %s | %s |\n",
 			c.Package, c.Type, c.Field,
 			formatMDValue(nonEmpty(c.OldValue)), formatMDValue(nonEmpty(c.NewValue)))

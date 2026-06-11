@@ -11,6 +11,9 @@ import (
 	"github.com/trianalab/pacto/pkg/oci"
 )
 
+// userHomeDir is a package-level variable so tests can override os.UserHomeDir.
+var userHomeDir = os.UserHomeDir
+
 // DetectOptions configures source auto-detection.
 type DetectOptions struct {
 	Dir       string          // working directory for local detection
@@ -306,18 +309,14 @@ func (r *DetectResult) detectCache(cacheDir string) {
 	diag := &r.Diagnostics.Cache
 
 	if cacheDir == "" {
-		// Determine default OCI cache directory.
+		// Determine the default OCI cache directory using the same resolver as
+		// the OCI client, so diagnostics report the path the cache actually uses.
 		home, err := userHomeDir()
 		if err != nil {
 			diag.Error = err.Error()
 			return
 		}
-		xdg := os.Getenv("XDG_CACHE_HOME")
-		if xdg != "" {
-			cacheDir = filepath.Join(xdg, "pacto", "oci")
-		} else {
-			cacheDir = filepath.Join(home, ".cache", "pacto", "oci")
-		}
+		cacheDir = oci.CacheDirFor(home)
 	}
 	diag.CacheDir = cacheDir
 
@@ -423,16 +422,4 @@ func RedetectK8s(ctx context.Context, result *DetectResult, namespace string) {
 // the kubeconfig file. Returns an empty string if the context cannot be determined.
 func CurrentKubeContext() string {
 	return currentKubeContextFunc()
-}
-
-// splitNonEmpty splits a string by newlines and returns non-empty trimmed lines.
-func splitNonEmpty(s string) []string {
-	var result []string
-	for _, line := range strings.Split(s, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
 }

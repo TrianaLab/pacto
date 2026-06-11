@@ -104,7 +104,16 @@ func ResolvePoliciesFromBundle(c *contract.Contract, bundleFS fs.FS) ([]Resolved
 				policies = append(policies, *rp)
 			}
 		}
-		// Ref-based policies require an external resolver — skipped here.
+		// Ref-based policies require an external resolver. Surface this explicitly
+		// so local validation does not silently report success while leaving a
+		// referenced policy unenforced.
+		if pol.Ref != "" {
+			result.AddWarning(
+				fmt.Sprintf("policies[%d].ref", i),
+				"POLICY_REF_NOT_ENFORCED",
+				fmt.Sprintf("ref-based policy %q is not enforced by local validation; run validate with a resolver to enforce it", pol.Ref),
+			)
+		}
 	}
 
 	return policies, result

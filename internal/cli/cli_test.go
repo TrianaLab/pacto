@@ -2,11 +2,15 @@ package cli_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +20,28 @@ import (
 	"github.com/trianalab/pacto/internal/testutil"
 	"github.com/trianalab/pacto/internal/update"
 )
+
+// platformAsset returns the release asset name for the current platform, matching
+// the updater's naming (prefix_<os>_<arch>[.exe]).
+func platformAsset(prefix string) string {
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+	return fmt.Sprintf("%s_%s_%s%s", prefix, runtime.GOOS, runtime.GOARCH, ext)
+}
+
+// updateChecksums renders a sha256sum-format checksums.txt body covering the
+// given assets, all with the SHA-256 of content.
+func updateChecksums(content string, assets ...string) string {
+	sum := sha256.Sum256([]byte(content))
+	h := hex.EncodeToString(sum[:])
+	var b strings.Builder
+	for _, a := range assets {
+		fmt.Fprintf(&b, "%s  %s\n", h, a)
+	}
+	return b.String()
+}
 
 func TestInitCreatesProjectStructure(t *testing.T) {
 	orig, _ := os.Getwd()
@@ -157,6 +183,30 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestVersionCommand_Formats(t *testing.T) {
+	for _, tc := range []struct {
+		format string
+		want   string
+	}{
+		{"json", `"version": "1.2.3"`},
+		{"markdown", "| Pacto | 1.2.3 |"},
+	} {
+		t.Run(tc.format, func(t *testing.T) {
+			svc := app.NewService(nil, nil)
+			root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "1.2.3", GitCommit: "abc", BuildDate: "today"})
+			root.SetArgs([]string{"version", "--output-format", tc.format})
+			var out bytes.Buffer
+			root.SetOut(&out)
+			if err := root.Execute(); err != nil {
+				t.Fatalf("version %s failed: %v", tc.format, err)
+			}
+			if !strings.Contains(out.String(), tc.want) {
+				t.Errorf("expected %q in output, got %q", tc.want, out.String())
+			}
+		})
+	}
+}
+
 func TestValidateJSONOutput(t *testing.T) {
 	orig, _ := os.Getwd()
 	dir := t.TempDir()
@@ -258,6 +308,8 @@ func TestUpdateCommand_Success(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/TrianaLab/pacto/releases/tags/v2.0.0":
 			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v2.0.0"})
+		case "/TrianaLab/pacto/releases/download/v2.0.0/checksums.txt":
+			_, _ = w.Write([]byte(updateChecksums("new-binary", platformAsset("pacto"))))
 		default:
 			_, _ = w.Write([]byte("new-binary"))
 		}
@@ -305,6 +357,10 @@ func TestUpdateCommand_WithPlugins(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v2.0.0"})
 		case "/repos/TrianaLab/pacto-plugins/releases/latest":
 			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v1.0.0"})
+		case "/TrianaLab/pacto/releases/download/v2.0.0/checksums.txt":
+			_, _ = w.Write([]byte(updateChecksums("new-binary", platformAsset("pacto"))))
+		case "/TrianaLab/pacto-plugins/releases/download/v1.0.0/checksums.txt":
+			_, _ = w.Write([]byte(updateChecksums("new-binary", platformAsset("pacto-plugin-foo"))))
 		default:
 			_, _ = w.Write([]byte("new-binary"))
 		}
@@ -358,6 +414,8 @@ func TestUpdateCommand_PluginFailureIsWarning(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v2.0.0"})
 		case "/repos/TrianaLab/pacto-plugins/releases/latest":
 			w.WriteHeader(http.StatusInternalServerError)
+		case "/TrianaLab/pacto/releases/download/v2.0.0/checksums.txt":
+			_, _ = w.Write([]byte(updateChecksums("new-binary", platformAsset("pacto"))))
 		default:
 			_, _ = w.Write([]byte("new-binary"))
 		}

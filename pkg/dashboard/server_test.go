@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -589,28 +590,53 @@ func TestServerGetSources_WithOCIDiscovering(t *testing.T) {
 	}
 }
 
-func TestCORSMiddleware_Options(t *testing.T) {
-	source := &mockSource{}
-	base := startTestServer(t, source)
+func TestCORSMiddleware(t *testing.T) {
+	const allowed = "http://app.example"
+	run := func(corsOrigin, method, origin string) *http.Response {
+		s := &Server{}
+		s.SetCORSOrigin(corsOrigin)
+		h := s.corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		r := httptest.NewRequest(method, "http://dash.local/api/x", nil)
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec.Result()
+	}
 
-	req, err := http.NewRequest(http.MethodOptions, base+"/api/services", nil)
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name       string
+		corsOrigin string
+		method     string
+		origin     string
+		wantStatus int
+		wantACAO   string
+	}{
+		{"default options no origin", "", http.MethodOptions, "", http.StatusNoContent, ""},
+		{"default get no acao", "", http.MethodGet, "", http.StatusOK, ""},
+		{"default post no origin allowed", "", http.MethodPost, "", http.StatusOK, ""},
+		{"default post same-origin allowed", "", http.MethodPost, "http://dash.local", http.StatusOK, ""},
+		{"default post cross-origin forbidden", "", http.MethodPost, "http://evil.com", http.StatusForbidden, ""},
+		{"default post bad-origin forbidden", "", http.MethodPost, string([]byte{0x7f}), http.StatusForbidden, ""},
+		{"allowed origin get echoes acao", allowed, http.MethodGet, allowed, http.StatusOK, allowed},
+		{"allowed origin options echoes acao", allowed, http.MethodOptions, allowed, http.StatusNoContent, allowed},
+		{"allowed origin post allowed", allowed, http.MethodPost, allowed, http.StatusOK, allowed},
+		{"allowed config other origin no acao", allowed, http.MethodGet, "http://other", http.StatusOK, ""},
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d", resp.StatusCode)
-	}
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
-		t.Errorf("expected CORS origin '*', got %q", got)
-	}
-	if got := resp.Header.Get("Access-Control-Allow-Methods"); got != "GET, POST, OPTIONS" {
-		t.Errorf("expected CORS methods 'GET, POST, OPTIONS', got %q", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := run(tt.corsOrigin, tt.method, tt.origin)
+			defer resp.Body.Close() //nolint:errcheck
+			if resp.StatusCode != tt.wantStatus {
+				t.Errorf("status: got %d, want %d", resp.StatusCode, tt.wantStatus)
+			}
+			if got := resp.Header.Get("Access-Control-Allow-Origin"); got != tt.wantACAO {
+				t.Errorf("ACAO: got %q, want %q", got, tt.wantACAO)
+			}
+		})
 	}
 }
 
@@ -927,23 +953,6 @@ func TestEmbeddedUI(t *testing.T) {
 	_ = f.Close()
 }
 
-func TestCORSMiddleware_GetRequest(t *testing.T) {
-	source := &mockSource{
-		services: []Service{{Name: "svc", Version: "1.0.0"}},
-	}
-	base := startTestServer(t, source)
-
-	resp, err := http.Get(base + "/api/services")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
-		t.Errorf("expected CORS origin '*' on GET, got %q", got)
-	}
-}
-
 // errorSource is a DataSource that returns errors for specific operations.
 type errorSource struct {
 	services   []Service
@@ -1156,6 +1165,9 @@ func TestGetCachedIndex_ListServicesError_WithStaleCache(t *testing.T) {
 	if len(cached.services) != 1 {
 		t.Fatalf("expected 1 service, got %d", len(cached.services))
 	}
+	// Wait for the background version-enrichment goroutine to finish before
+	// swapping srv.source below, so the swap does not race the goroutine's read.
+	srv.WaitForVersionEnrich()
 
 	// Force cache to be stale and switch to an erroring source.
 	srv.indexCache.builtAt = time.Now().Add(-20 * time.Second)
@@ -1897,7 +1909,7 @@ func TestServerSetLazyEnrich(t *testing.T) {
 	if !called {
 		t.Error("expected lazy enrich callback to be called")
 	}
-	if !srv.enrichDone {
+	if !srv.enrichDone.Load() {
 		t.Error("expected enrichDone=true after successful enrichment")
 	}
 
@@ -1924,7 +1936,7 @@ func TestServerSetLazyEnrich_Failure(t *testing.T) {
 	if callCount != 1 {
 		t.Errorf("expected 1 call, got %d", callCount)
 	}
-	if srv.enrichDone {
+	if srv.enrichDone.Load() {
 		t.Error("expected enrichDone=false after failed enrichment")
 	}
 

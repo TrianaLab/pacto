@@ -145,31 +145,47 @@ func imageToBundle(img v1.Image) (*contract.Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract layer: %w", err)
 	}
+	return bundleFromFS(fsys)
+}
 
-	// Read raw YAML bytes and parse the contract from the extracted FS.
+// bundleFromFS reads and parses pacto.yaml from an extracted bundle filesystem
+// into a Bundle. Shared by imageToBundle and the on-disk cache loader.
+func bundleFromFS(fsys fs.FS) (*contract.Bundle, error) {
 	rawYAML, err := fs.ReadFile(fsys, "pacto.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("bundle missing pacto.yaml: %w", err)
 	}
-
 	c, err := contract.Parse(bytes.NewReader(rawYAML))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse contract from bundle: %w", err)
 	}
-
 	return &contract.Bundle{Contract: c, RawYAML: rawYAML, FS: fsys}, nil
 }
 
 const (
 	maxFileSize  = 10 << 20 // 10 MB per file
 	maxTotalSize = 50 << 20 // 50 MB total
+	maxEntries   = 10000    // max number of tar entries (bounds many-tiny-files bombs)
 )
+
+// hasDotDotComponent reports whether any path component is "..", i.e. a real
+// traversal. Unlike a substring check it does not reject legitimate names that
+// merely contain ".." (e.g. "my..file.yaml").
+func hasDotDotComponent(name string) bool {
+	for _, part := range strings.Split(name, "/") {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
+}
 
 // extractTar reads a tar stream and returns an in-memory FS.
 func extractTar(r io.Reader) (fs.FS, error) {
 	memFS := fstest.MapFS{}
 	tr := tar.NewReader(r)
 	var totalSize int64
+	var entries int
 
 	for {
 		header, err := tr.Next()
@@ -180,17 +196,27 @@ func extractTar(r io.Reader) (fs.FS, error) {
 			return nil, fmt.Errorf("failed to read tar entry: %w", err)
 		}
 
+		entries++
+		if entries > maxEntries {
+			return nil, fmt.Errorf("tar has too many entries (>%d)", maxEntries)
+		}
+
 		name := filepath.ToSlash(strings.TrimPrefix(header.Name, "./"))
 		if name == "" || name == "." {
 			continue
 		}
-		if strings.Contains(name, "..") {
+		if hasDotDotComponent(name) {
 			return nil, fmt.Errorf("invalid path in tar: %s", header.Name)
 		}
 
 		if header.Typeflag == tar.TypeDir {
 			memFS[name] = &fstest.MapFile{Mode: fs.ModeDir | 0755}
 			continue
+		}
+		// Reject symlinks/hardlinks/devices and other non-regular entries
+		// rather than silently storing them as empty files.
+		if header.Typeflag != tar.TypeReg {
+			return nil, fmt.Errorf("unsupported tar entry type %q for %s", string(header.Typeflag), name)
 		}
 
 		data, err := io.ReadAll(io.LimitReader(tr, maxFileSize+1))

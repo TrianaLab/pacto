@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,12 @@ type Server struct {
 	diagnostics *SourceDiagnostics
 	listenAddr  string // optional: server URL for OpenAPI spec
 	version     string // optional: Pacto version to expose via /health
+	corsOrigin  string // optional: explicit cross-origin allowed to call the API (startup-only)
+
+	// cfgMu guards the optional wiring fields that can be set AFTER startup from
+	// request goroutines via lazy OCI enrichment (wireOCIEnrichment) or
+	// RefreshCacheSources: ociSource, cacheSource, memCache, sourceInfo.
+	cfgMu sync.RWMutex
 
 	// Cached service index for scan-heavy endpoints (dependents, cross-refs, graph).
 	indexMu    sync.Mutex
@@ -40,7 +47,7 @@ type Server struct {
 	// Lazy OCI enrichment: retries discovery when OCI was not available at startup.
 	lazyEnrich    func(ctx context.Context) bool
 	enrichMu      sync.Mutex
-	enrichDone    bool
+	enrichDone    atomic.Bool // read on the hot path without enrichMu
 	enrichLastTry time.Time
 
 	// K8s re-detection: allows swapping the k8s client when kubeconfig changes.
@@ -110,8 +117,37 @@ func (s *Server) SetResolver(r *oci.Resolver) {
 // SetCacheSource registers the CacheSource so the server can trigger a rescan
 // after new bundles are cached (via resolve or fetch-all-versions).
 func (s *Server) SetCacheSource(cs *CacheSource, memCache Cache) {
+	s.cfgMu.Lock()
 	s.cacheSource = cs
 	s.memCache = memCache
+	s.cfgMu.Unlock()
+}
+
+// getCacheSource / getMemCache / getOCISource / getSourceInfo read the
+// post-startup-mutable wiring fields under cfgMu so they never race with a
+// concurrent lazy-enrichment write.
+func (s *Server) getCacheSource() *CacheSource {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cacheSource
+}
+
+func (s *Server) getMemCache() Cache {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.memCache
+}
+
+func (s *Server) getOCISource() *OCISource {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.ociSource
+}
+
+func (s *Server) getSourceInfo() []SourceInfo {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.sourceInfo
 }
 
 // SetCacheDir stores the OCI cache directory path so the server can create
@@ -123,16 +159,19 @@ func (s *Server) SetCacheDir(dir string) {
 
 // SetOCISource registers the OCISource so the server can report discovery state.
 func (s *Server) SetOCISource(src *OCISource) {
+	s.cfgMu.Lock()
 	s.ociSource = src
+	s.cfgMu.Unlock()
 }
 
 // unresolvedReasonFn returns a reason-lookup function for the graph builder.
 // Returns nil when no OCI source is configured (graph uses no reason info).
 func (s *Server) unresolvedReasonFn() unresolvedReasonFunc {
-	if s.ociSource == nil {
+	oci := s.getOCISource()
+	if oci == nil {
 		return nil
 	}
-	return s.ociSource.UnresolvedReason
+	return oci.UnresolvedReason
 }
 
 // SetLazyEnrich registers a callback that attempts OCI enrichment from K8s.
@@ -162,7 +201,9 @@ func (s *Server) UpdateSourceInfo(info []SourceInfo) {
 			deduped = append(deduped, si)
 		}
 	}
+	s.cfgMu.Lock()
 	s.sourceInfo = deduped
+	s.cfgMu.Unlock()
 }
 
 // enrichCooldown is the minimum interval between lazy enrichment attempts.
@@ -197,8 +238,8 @@ func (s *Server) redetectK8sIfNeeded(ctx context.Context) {
 	if s.resolved != nil {
 		s.resolved.SetRuntimeSource(newSource)
 	}
-	if s.memCache != nil {
-		s.memCache.InvalidateAll()
+	if mc := s.getMemCache(); mc != nil {
+		mc.InvalidateAll()
 	}
 	s.indexMu.Lock()
 	s.indexCache = nil
@@ -208,12 +249,12 @@ func (s *Server) redetectK8sIfNeeded(ctx context.Context) {
 // ensureOCIEnriched attempts lazy OCI enrichment if it was not available at startup.
 // Safe for concurrent calls: guarded by enrichMu with a cooldown between attempts.
 func (s *Server) ensureOCIEnriched(ctx context.Context) {
-	if s.lazyEnrich == nil || s.enrichDone {
+	if s.lazyEnrich == nil || s.enrichDone.Load() {
 		return
 	}
 	s.enrichMu.Lock()
 	defer s.enrichMu.Unlock()
-	if s.enrichDone {
+	if s.enrichDone.Load() {
 		return
 	}
 	if time.Since(s.enrichLastTry) < enrichCooldown {
@@ -222,7 +263,7 @@ func (s *Server) ensureOCIEnriched(ctx context.Context) {
 	s.enrichLastTry = time.Now()
 	slog.Info("lazy OCI enrichment: attempting discovery from K8s")
 	if s.lazyEnrich(ctx) {
-		s.enrichDone = true
+		s.enrichDone.Store(true)
 		slog.Info("lazy OCI enrichment: succeeded, OCI source now active")
 	} else {
 		slog.Debug("lazy OCI enrichment: not yet available, will retry on next request")
@@ -260,7 +301,14 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	// Static UI — served on the raw mux, not through Huma.
 	mux.Handle("/", http.FileServer(http.FS(s.ui)))
 
-	srv := &http.Server{Handler: corsMiddleware(mux)}
+	srv := &http.Server{
+		Handler:           s.corsMiddleware(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// WriteTimeout is intentionally unset: the static handler streams the
+		// multi-MB embedded UI bundle, which can be slow on throttled links.
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -269,7 +317,15 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 
 	select {
 	case <-ctx.Done():
-		return srv.Close()
+		// Stop the detached OCI background discovery loop so it does not
+		// outlive the server.
+		if oci := s.getOCISource(); oci != nil {
+			oci.Close()
+		}
+		// Graceful shutdown: drain in-flight requests with a bounded timeout.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
 	case err := <-errCh:
 		return err
 	}
@@ -486,35 +542,35 @@ type ServiceNameInput struct {
 }
 
 type listServicesOutput struct {
-	Body []ServiceListEntry `json:"body" doc:"List of enriched services"`
+	Body []ServiceListEntry `doc:"List of enriched services"`
 }
 
 type getServiceOutput struct {
-	Body *ServiceDetails `json:"body" doc:"Service details"`
+	Body *ServiceDetails `doc:"Service details"`
 }
 
 type getVersionsOutput struct {
-	Body []Version `json:"body" doc:"Version history"`
+	Body []Version `doc:"Version history"`
 }
 
 type getServiceSourcesOutput struct {
-	Body *AggregatedService `json:"body" doc:"Per-source breakdown and merged view"`
+	Body *AggregatedService `doc:"Per-source breakdown and merged view"`
 }
 
 type getGlobalGraphOutput struct {
-	Body *GlobalGraph `json:"body" doc:"Global dependency graph"`
+	Body *GlobalGraph `doc:"Global dependency graph"`
 }
 
 type getServiceGraphOutput struct {
-	Body *DependencyGraph `json:"body" doc:"Service dependency graph"`
+	Body *DependencyGraph `doc:"Service dependency graph"`
 }
 
 type getDependentsOutput struct {
-	Body []DependentInfo `json:"body" doc:"Services that depend on this service"`
+	Body []DependentInfo `doc:"Services that depend on this service"`
 }
 
 type getCrossRefsOutput struct {
-	Body *CrossReferences `json:"body" doc:"Config/policy cross-references"`
+	Body *CrossReferences `doc:"Config/policy cross-references"`
 }
 
 type diffInput struct {
@@ -525,7 +581,7 @@ type diffInput struct {
 }
 
 type getDiffOutput struct {
-	Body *DiffResult `json:"body" doc:"Classified diff between two versions"`
+	Body *DiffResult `doc:"Classified diff between two versions"`
 }
 
 type getSourcesOutput struct {
@@ -551,7 +607,7 @@ type resolveRefInput struct {
 }
 
 type resolveRefOutput struct {
-	Body *ServiceDetails `json:"body" doc:"Resolved service details"`
+	Body *ServiceDetails `doc:"Resolved service details"`
 }
 
 type listRemoteVersionsInput struct {
@@ -597,6 +653,13 @@ func (s *Server) SetVersion(v string) {
 	s.version = v
 }
 
+// SetCORSOrigin allows an explicit cross-origin client to call the API. When
+// empty (the default) the API is same-origin only and cross-origin mutating
+// requests are rejected. Must be called before Serve.
+func (s *Server) SetCORSOrigin(origin string) {
+	s.corsOrigin = origin
+}
+
 func (s *Server) health(_ context.Context, _ *struct{}) (*healthOutput, error) {
 	out := &healthOutput{}
 	out.Body.Status = "ok"
@@ -606,7 +669,7 @@ func (s *Server) health(_ context.Context, _ *struct{}) (*healthOutput, error) {
 
 func (s *Server) metrics(ctx context.Context, _ *struct{}) (*metricsOutput, error) {
 	out := &metricsOutput{}
-	out.Body.SourceCount = len(s.sourceInfo)
+	out.Body.SourceCount = len(s.getSourceInfo())
 	if s.source != nil {
 		services, err := s.source.ListServices(ctx)
 		if err == nil {
@@ -892,23 +955,10 @@ func (s *Server) getDiff(ctx context.Context, input *diffInput) (*getDiffOutput,
 		// Classify so user-level conditions (no bundle data, bad ref, auth, not
 		// found) are not reported as 500 — matching resolveRef and the way
 		// version listing degrades gracefully for the same services.
-		var authErr *oci.AuthenticationError
-		var notFoundErr *oci.ArtifactNotFoundError
-		var invalidRefErr *oci.InvalidRefError
-		var invalidBundleErr *oci.InvalidBundleError
-		var noMatchErr *oci.NoMatchingVersionError
-		switch {
-		case strings.Contains(err.Error(), "diff requires contract bundle data"):
+		if strings.Contains(err.Error(), "diff requires contract bundle data") {
 			return nil, huma.Error422UnprocessableEntity(err.Error())
-		case errors.As(err, &invalidRefErr), errors.As(err, &noMatchErr), errors.As(err, &invalidBundleErr):
-			return nil, huma.Error422UnprocessableEntity(err.Error())
-		case errors.As(err, &authErr):
-			return nil, huma.Error403Forbidden(err.Error())
-		case errors.As(err, &notFoundErr):
-			return nil, huma.Error404NotFound(err.Error())
-		default:
-			return nil, huma.Error502BadGateway(err.Error())
 		}
+		return nil, ociHTTPError(err)
 	}
 	return &getDiffOutput{Body: result}, nil
 }
@@ -929,8 +979,8 @@ func (s *Server) refresh(ctx context.Context, _ *struct{}) (*refreshOutput, erro
 	}
 
 	// Invalidate all caches.
-	if s.memCache != nil {
-		s.memCache.InvalidateAll()
+	if mc := s.getMemCache(); mc != nil {
+		mc.InvalidateAll()
 	}
 	s.indexMu.Lock()
 	s.indexCache = nil
@@ -943,16 +993,16 @@ func (s *Server) refresh(ctx context.Context, _ *struct{}) (*refreshOutput, erro
 
 func (s *Server) getSources(_ context.Context, _ *struct{}) (*getSourcesOutput, error) {
 	out := &getSourcesOutput{}
-	out.Body.Sources = s.sourceInfo
-	if s.ociSource != nil {
-		out.Body.Discovering = s.ociSource.Discovering()
+	out.Body.Sources = s.getSourceInfo()
+	if oci := s.getOCISource(); oci != nil {
+		out.Body.Discovering = oci.Discovering()
 	}
 	return out, nil
 }
 
 func (s *Server) debugSources(ctx context.Context, _ *struct{}) (*debugSourcesOutput, error) {
 	out := &debugSourcesOutput{}
-	out.Body.Sources = s.sourceInfo
+	out.Body.Sources = s.getSourceInfo()
 	out.Body.Diagnostics = s.diagnostics
 
 	if s.source != nil {
@@ -1008,29 +1058,31 @@ func (s *Server) debugServices(ctx context.Context, _ *struct{}) (*debugServices
 	return out, nil
 }
 
+// ociHTTPError maps an OCI resolution error to the appropriate Huma HTTP error
+// so user-level conditions (bad ref, no matching version, invalid bundle, auth,
+// not found) are not reported as 500s. Shared by getDiff and resolveRef.
+func ociHTTPError(err error) error {
+	var authErr *oci.AuthenticationError
+	var notFoundErr *oci.ArtifactNotFoundError
+	var invalidRefErr *oci.InvalidRefError
+	var invalidBundleErr *oci.InvalidBundleError
+	var noMatchErr *oci.NoMatchingVersionError
+	switch {
+	case errors.As(err, &invalidRefErr), errors.As(err, &noMatchErr), errors.As(err, &invalidBundleErr):
+		return huma.Error422UnprocessableEntity(err.Error())
+	case errors.As(err, &authErr):
+		return huma.Error403Forbidden(err.Error())
+	case errors.As(err, &notFoundErr):
+		return huma.Error404NotFound(err.Error())
+	default:
+		return huma.Error502BadGateway(err.Error())
+	}
+}
+
 func (s *Server) resolveRef(ctx context.Context, input *resolveRefInput) (*resolveRefOutput, error) {
 	bundle, err := s.resolver.ResolveConstrained(ctx, input.Body.Ref, input.Body.Compatibility, oci.RemoteAllowed)
 	if err != nil {
-		var authErr *oci.AuthenticationError
-		var notFoundErr *oci.ArtifactNotFoundError
-		var invalidRefErr *oci.InvalidRefError
-		var invalidBundleErr *oci.InvalidBundleError
-		var noMatchErr *oci.NoMatchingVersionError
-
-		switch {
-		case errors.As(err, &invalidRefErr):
-			return nil, huma.Error422UnprocessableEntity(err.Error())
-		case errors.As(err, &noMatchErr):
-			return nil, huma.Error422UnprocessableEntity(err.Error())
-		case errors.As(err, &authErr):
-			return nil, huma.Error403Forbidden(err.Error())
-		case errors.As(err, &notFoundErr):
-			return nil, huma.Error404NotFound(err.Error())
-		case errors.As(err, &invalidBundleErr):
-			return nil, huma.Error422UnprocessableEntity(err.Error())
-		default:
-			return nil, huma.Error502BadGateway(err.Error())
-		}
+		return nil, ociHTTPError(err)
 	}
 
 	details := ServiceDetailsFromBundle(bundle, "oci")
@@ -1191,25 +1243,30 @@ func appendIncomingRef(refs []CrossReference, d *ServiceDetails, targetName, ref
 // known, it creates one on-the-fly and wires it into the OCI source's
 // internal cache (never as a separate public source).
 func (s *Server) RefreshCacheSources() {
-	if s.cacheSource == nil && s.cacheDir != "" {
+	cacheSource := s.getCacheSource()
+	ociSource := s.getOCISource()
+	if cacheSource == nil && s.cacheDir != "" {
 		cs := NewCacheSource(s.cacheDir)
 		if cs.ServiceCount() > 0 {
+			cacheSource = cs
+			s.cfgMu.Lock()
 			s.cacheSource = cs
+			s.cfgMu.Unlock()
 			// Wire into OCI's internal cache for enrichment, not as a public source.
-			if s.ociSource != nil {
-				s.ociSource.SetCache(cs)
+			if ociSource != nil {
+				ociSource.SetCache(cs)
 			}
 		}
 	}
-	if s.cacheSource != nil {
-		s.cacheSource.Rescan()
+	if cacheSource != nil {
+		cacheSource.Rescan()
 	}
 	// Also tell the OCI source to rescan its internal cache view.
-	if s.ociSource != nil {
-		s.ociSource.RescanCache()
+	if ociSource != nil {
+		ociSource.RescanCache()
 	}
-	if s.memCache != nil {
-		s.memCache.InvalidateAll()
+	if mc := s.getMemCache(); mc != nil {
+		mc.InvalidateAll()
 	}
 	s.indexMu.Lock()
 	s.indexCache = nil
@@ -1262,15 +1319,53 @@ func (s *Server) WaitForVersionEnrich() {
 	s.versionWg.Wait()
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+// corsMiddleware handles CORS and protects mutating endpoints from
+// browser-driven cross-origin (CSRF/SSRF) requests. The dashboard UI is served
+// same-origin, so by default no Access-Control-Allow-Origin is emitted and
+// cross-origin mutating requests are rejected. An explicit cross-origin client
+// can be allowed via SetCORSOrigin.
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		origin := r.Header.Get("Origin")
+		if s.corsOrigin != "" && origin == s.corsOrigin {
+			w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		// Reject cross-origin mutating requests (the SSRF/CSRF surface on
+		// /api/resolve, /api/versions, /api/refresh). Same-origin requests and
+		// non-browser clients (no Origin header) are allowed.
+		if isMutatingMethod(r.Method) && !s.originAllowed(r) {
+			http.Error(w, "cross-origin request forbidden", http.StatusForbidden)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// originAllowed reports whether r may perform a mutating request: true for
+// same-origin requests, the explicitly allowed cross-origin, or clients that
+// send no Origin header (e.g. curl, the CLI).
+func (s *Server) originAllowed(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	if s.corsOrigin != "" && origin == s.corsOrigin {
+		return true
+	}
+	u, err := url.Parse(origin)
+	return err == nil && u.Host == r.Host
+}
+
+func isMutatingMethod(m string) bool {
+	switch m {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	}
+	return false
 }

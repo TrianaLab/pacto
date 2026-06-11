@@ -6,6 +6,9 @@ import (
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
+// hex64 is a syntactically valid 64-char lowercase hex sha256 digest body.
+const hex64 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 func TestParseOCIReference(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -25,18 +28,28 @@ func TestParseOCIReference(t *testing.T) {
 		},
 		{
 			name:       "digest only",
-			input:      "ghcr.io/acme/service-pacto@sha256:abc123",
+			input:      "ghcr.io/acme/service-pacto@sha256:" + hex64,
 			wantReg:    "ghcr.io",
 			wantRepo:   "acme/service-pacto",
-			wantDigest: "sha256:abc123",
+			wantDigest: "sha256:" + hex64,
 		},
 		{
 			name:       "tag and digest",
-			input:      "ghcr.io/acme/service-pacto:1.0.0@sha256:abc123",
+			input:      "ghcr.io/acme/service-pacto:1.0.0@sha256:" + hex64,
 			wantReg:    "ghcr.io",
 			wantRepo:   "acme/service-pacto",
 			wantTag:    "1.0.0",
-			wantDigest: "sha256:abc123",
+			wantDigest: "sha256:" + hex64,
+		},
+		{
+			name:    "malformed digest (too short)",
+			input:   "ghcr.io/acme/service-pacto@sha256:abc123",
+			wantErr: true,
+		},
+		{
+			name:    "malformed tag (space)",
+			input:   "ghcr.io/acme/service-pacto:bad tag",
+			wantErr: true,
 		},
 		{
 			name:    "empty",

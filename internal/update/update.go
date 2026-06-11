@@ -1,6 +1,8 @@
 package update
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +25,7 @@ var (
 	runtimeGOARCH = runtime.GOARCH
 	osChmod       = os.Chmod
 	osRename      = os.Rename
+	osRemove      = os.Remove
 )
 
 // Update downloads and installs the specified version of pacto.
@@ -46,8 +49,15 @@ func Update(currentVersion, targetVersion string) (*UpdateResult, error) {
 		return nil, err
 	}
 
-	// Download and replace the binary
-	if err := downloadAndReplace(buildDownloadURL(targetVersion)); err != nil {
+	// Fetch the published checksums so the downloaded binary can be verified
+	// before it replaces the running executable (supply-chain integrity).
+	expected, err := expectedChecksum(checksumsURL("TrianaLab/pacto", targetVersion), binaryAssetName())
+	if err != nil {
+		return nil, err
+	}
+
+	// Download, verify, and replace the binary.
+	if err := downloadAndReplace(buildDownloadURL(targetVersion), expected); err != nil {
 		return nil, err
 	}
 
@@ -60,8 +70,9 @@ func Update(currentVersion, targetVersion string) (*UpdateResult, error) {
 	}, nil
 }
 
-// downloadAndReplace downloads the binary and atomically replaces the current executable.
-func downloadAndReplace(downloadURL string) error {
+// downloadAndReplace downloads the binary, verifies it against expectedSHA256,
+// and atomically replaces the current executable.
+func downloadAndReplace(downloadURL, expectedSHA256 string) error {
 	execPath, err := osExecutable()
 	if err != nil {
 		return fmt.Errorf("failed to determine executable path: %w", err)
@@ -71,11 +82,14 @@ func downloadAndReplace(downloadURL string) error {
 		return fmt.Errorf("failed to resolve executable path: %w", err)
 	}
 
-	return downloadAndInstall(downloadURL, execPath)
+	return downloadAndInstall(downloadURL, execPath, expectedSHA256)
 }
 
-// downloadAndInstall downloads a binary and atomically replaces the file at targetPath.
-func downloadAndInstall(downloadURL, targetPath string) error {
+// downloadAndInstall downloads a binary, verifies its SHA-256 against
+// expectedSHA256, and atomically replaces the file at targetPath. The integrity
+// check happens BEFORE the file is made executable or swapped in, so a
+// corrupted, truncated, or tampered download is never installed.
+func downloadAndInstall(downloadURL, targetPath, expectedSHA256 string) error {
 	// Download to temp file in the same directory (ensures same filesystem for atomic rename)
 	tmpFile, err := os.CreateTemp(filepath.Dir(targetPath), "pacto-update-*")
 	if err != nil {
@@ -92,15 +106,118 @@ func downloadAndInstall(downloadURL, targetPath string) error {
 	}
 	_ = tmpFile.Close()
 
+	if err := verifyChecksum(tmpPath, expectedSHA256); err != nil {
+		return err
+	}
+
 	if err := osChmod(tmpPath, 0755); err != nil {
 		return fmt.Errorf("failed to set executable permission: %w", err)
 	}
 
-	if err := osRename(tmpPath, targetPath); err != nil {
-		return fmt.Errorf("failed to replace binary: %w", err)
-	}
+	return installFile(tmpPath, targetPath)
+}
 
+// installFile renames tmpPath onto targetPath. On Windows a running executable
+// cannot be overwritten directly, so it falls back to moving the current file
+// aside first and restoring it if the swap fails.
+func installFile(tmpPath, targetPath string) error {
+	if err := osRename(tmpPath, targetPath); err != nil {
+		if runtimeGOOS != "windows" {
+			return fmt.Errorf("failed to replace binary: %w", err)
+		}
+		old := targetPath + ".old"
+		_ = osRemove(old)
+		if rerr := osRename(targetPath, old); rerr != nil {
+			return fmt.Errorf("failed to move current executable aside: %w", rerr)
+		}
+		if rerr := osRename(tmpPath, targetPath); rerr != nil {
+			_ = osRename(old, targetPath) // best-effort restore
+			return fmt.Errorf("failed to replace binary: %w", rerr)
+		}
+		_ = osRemove(old)
+	}
 	return nil
+}
+
+// verifyChecksum computes the SHA-256 of the file at path and compares it
+// (case-insensitively) against expectedHex.
+func verifyChecksum(path, expectedHex string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read downloaded file: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	got := hex.EncodeToString(sum[:])
+	if !strings.EqualFold(got, expectedHex) {
+		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedHex, got)
+	}
+	return nil
+}
+
+// binaryAssetName returns the release asset filename for the current platform,
+// matching the names produced by the release workflow (pacto_<os>_<arch>[.exe]).
+func binaryAssetName() string {
+	ext := ""
+	if runtimeGOOS == "windows" {
+		ext = ".exe"
+	}
+	return fmt.Sprintf("pacto_%s_%s%s", runtimeGOOS, runtimeGOARCH, ext)
+}
+
+// checksumsURL returns the URL of the checksums.txt asset for a release.
+func checksumsURL(repo, tag string) string {
+	return fmt.Sprintf("%s/%s/releases/download/%s/checksums.txt", githubDownloadURL, repo, tag)
+}
+
+// expectedChecksum fetches the release checksums and returns the expected
+// SHA-256 for assetName, failing closed if it is absent.
+func expectedChecksum(url, assetName string) (string, error) {
+	sums, err := fetchChecksums(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch release checksums: %w", err)
+	}
+	expected, ok := sums[assetName]
+	if !ok {
+		return "", fmt.Errorf("no checksum published for %s", assetName)
+	}
+	return expected, nil
+}
+
+// fetchChecksums downloads and parses a sha256sum-format checksums file into a
+// map of asset name -> hex digest.
+func fetchChecksums(url string) (map[string]string, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("checksums download failed with status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	return parseChecksums(string(body)), nil
+}
+
+// parseChecksums parses sha256sum output ("<hex>  <name>", name optionally
+// prefixed with '*' for binary mode) into a map of name -> hex digest.
+func parseChecksums(s string) map[string]string {
+	sums := make(map[string]string)
+	for _, line := range strings.Split(s, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			name := strings.TrimPrefix(fields[len(fields)-1], "*")
+			sums[name] = fields[0]
+		}
+	}
+	return sums
 }
 
 // validateRelease checks that a release with the given tag exists on GitHub.
@@ -130,24 +247,22 @@ func validateRelease(tag string) error {
 
 // buildDownloadURL constructs the download URL for the platform binary.
 func buildDownloadURL(tag string) string {
-	ext := ""
-	if runtimeGOOS == "windows" {
-		ext = ".exe"
-	}
 	return fmt.Sprintf(
-		"%s/TrianaLab/pacto/releases/download/%s/pacto_%s_%s%s",
-		githubDownloadURL, tag, runtimeGOOS, runtimeGOARCH, ext,
+		"%s/TrianaLab/pacto/releases/download/%s/%s",
+		githubDownloadURL, tag, binaryAssetName(),
 	)
 }
 
-// downloadBinary downloads the binary from the given URL into the writer.
+// downloadBinary downloads the binary from the given URL into the writer using
+// the long-timeout download client (not the short API client), and verifies the
+// number of bytes received against Content-Length to detect truncation.
 func downloadBinary(downloadURL string, w io.Writer) error {
 	req, err := http.NewRequest("GET", downloadURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create download request: %w", err)
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := downloadClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to download binary: %w", err)
 	}
@@ -157,8 +272,12 @@ func downloadBinary(downloadURL string, w io.Writer) error {
 		return fmt.Errorf("download failed with status %d", resp.StatusCode)
 	}
 
-	if _, err := io.Copy(w, resp.Body); err != nil {
+	n, err := io.Copy(w, resp.Body)
+	if err != nil {
 		return fmt.Errorf("failed to write binary: %w", err)
+	}
+	if resp.ContentLength >= 0 && n != resp.ContentLength {
+		return fmt.Errorf("incomplete download: got %d bytes, expected %d", n, resp.ContentLength)
 	}
 	return nil
 }

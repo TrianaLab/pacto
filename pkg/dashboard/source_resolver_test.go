@@ -951,6 +951,29 @@ func TestResolvedSource_HasSource(t *testing.T) {
 	}
 }
 
+// TestResolvedSource_GetService_DeepCopiesDependencies verifies that mutating
+// the Dependencies slice of a returned ServiceDetails (as getCachedIndex does
+// when resolving dependency names) does not corrupt the source's shared cached
+// object. Without the deep copy in GetService this leaks across requests.
+func TestResolvedSource_GetService_DeepCopiesDependencies(t *testing.T) {
+	shared := &ServiceDetails{
+		Service:      Service{Name: "svc", Version: "1.0.0", Source: "local"},
+		Dependencies: []DependencyInfo{{Name: "dep", Ref: "oci://ghcr.io/org/dep"}},
+	}
+	local := &stubSource{details: map[string]*ServiceDetails{"svc": shared}}
+	resolved := BuildResolvedSource(map[string]DataSource{"local": local})
+
+	got, err := resolved.GetService(context.Background(), "svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got.Dependencies[0].Name = "rewritten"
+
+	if shared.Dependencies[0].Name != "dep" {
+		t.Errorf("GetService leaked a mutation into the shared source object: got %q, want %q", shared.Dependencies[0].Name, "dep")
+	}
+}
+
 func TestResolvedSource_AddContractSource(t *testing.T) {
 	local := &stubSource{
 		services: []Service{{Name: "svc", Version: "1.0.0", Source: "local"}},

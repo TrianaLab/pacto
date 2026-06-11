@@ -468,6 +468,9 @@ func TestOCISource_FindRepo_CachedRepoMap(t *testing.T) {
 // waitForDiscovery triggers ListServices and waits for background discovery to finish.
 func waitForDiscovery(t *testing.T, src *OCISource) []Service {
 	t.Helper()
+	// Stop the detached background discovery loop when the test ends so it does
+	// not outlive the test and log after completion (race detector).
+	t.Cleanup(src.Close)
 	ctx := context.Background()
 	// First call triggers shallow scan + background discovery.
 	_, err := src.ListServices(ctx)
@@ -998,8 +1001,25 @@ func TestOCISource_RescanCache(t *testing.T) {
 	src.RescanCache() // should not panic
 }
 
+func TestOCISource_Close(t *testing.T) {
+	// Close before discovery ever started must be a safe no-op.
+	NewOCISource(newMockBundleStore(), nil).Close()
+
+	// Close after discovery started stops the loop and is idempotent.
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/svc", "1.0.0", "svc", "1.0.0")
+	src := NewOCISource(store, []string{"ghcr.io/org/svc"})
+	if _, err := src.ListServices(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	<-src.done
+	src.Close()
+	src.Close() // second call is a no-op
+}
+
 func waitForDiscoveryDone(t *testing.T, src *OCISource) {
 	t.Helper()
+	t.Cleanup(src.Close)
 	<-src.done
 }
 
@@ -1014,6 +1034,9 @@ func TestOCISource_BackgroundLoop_Rediscovery(t *testing.T) {
 
 	var calls int32
 	src := NewOCISource(store, []string{"ghcr.io/org/svc"})
+	// Stop the loop before the t.Cleanup above restores ociRediscoverInterval
+	// (Cleanup is LIFO), so the loop never reads the global while it is rewritten.
+	t.Cleanup(src.Close)
 	src.SetOnDiscover(func() { atomic.AddInt32(&calls, 1) })
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1244,6 +1267,8 @@ func TestOCISource_RepoProvider(t *testing.T) {
 	store.addBundle("ghcr.io/org/dynamic", "1.0.0", "dynamic-svc", "1.0.0")
 
 	src := NewOCISource(store, nil) // no initial repos
+	// Stop the loop before the t.Cleanup above restores ociRediscoverInterval.
+	t.Cleanup(src.Close)
 	src.SetRepoProvider(func(_ context.Context) []string {
 		return []string{"ghcr.io/org/dynamic"}
 	})

@@ -8,8 +8,10 @@ import (
 )
 
 // Parse deserializes a pacto.yaml from the given reader into a Contract.
-// It handles syntactic correctness only (field types, required top-level structure).
-// Semantic validation is a separate concern handled by the validation engine.
+// It enforces syntactic correctness (field types, unknown-field rejection) and a
+// few required top-level fields (pactoVersion, service.name, service.version),
+// and applies one normalization: the scaling.replicas shorthand sets min=max.
+// Deeper semantic validation is a separate concern handled by the validation engine.
 func Parse(r io.Reader) (*Contract, error) {
 	var c Contract
 	decoder := yaml.NewDecoder(r)

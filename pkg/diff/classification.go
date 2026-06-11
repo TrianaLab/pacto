@@ -126,10 +126,6 @@ var rules = map[classificationKey]Classification{
 	{"openapi.responses", Added}:    NonBreaking,
 	{"openapi.responses", Removed}:  Breaking,
 	{"openapi.responses", Modified}: PotentialBreaking,
-
-	// JSON Schema properties
-	{"schema.properties", Added}:   NonBreaking,
-	{"schema.properties", Removed}: Breaking,
 }
 
 // classify returns the classification for a given path and change type.

@@ -27,11 +27,13 @@ type OCISource struct {
 	repos []string // OCI repository references to scan
 
 	mu          sync.RWMutex
-	repoMap     map[string]string // service name -> repo
-	failedRepos map[string]string // repo -> failure reason (auth_failed, no_semver_tags, not_found, pull_failed)
-	services    []Service         // discovered so far
-	started     bool              // background discovery launched
-	done        chan struct{}     // closed when background discovery completes
+	repoMap     map[string]string  // service name -> repo
+	failedRepos map[string]string  // repo -> failure reason (auth_failed, no_semver_tags, not_found, pull_failed)
+	services    []Service          // discovered so far
+	started     bool               // background discovery launched
+	done        chan struct{}      // closed when the first discovery cycle completes
+	stopped     chan struct{}      // closed when the background loop has fully exited
+	cancel      context.CancelFunc // cancels the background loop; set when discovery starts
 
 	onDiscover func() // called when a new service is discovered (cache invalidation)
 
@@ -51,7 +53,7 @@ type OCISource struct {
 // NewOCISource creates a data source backed by OCI registries.
 // repos is a list of OCI repository references (e.g., "ghcr.io/org/service").
 func NewOCISource(store oci.BundleStore, repos []string) *OCISource {
-	return &OCISource{store: store, repos: repos, repoMap: make(map[string]string), failedRepos: make(map[string]string), done: make(chan struct{})}
+	return &OCISource{store: store, repos: repos, repoMap: make(map[string]string), failedRepos: make(map[string]string), done: make(chan struct{}), stopped: make(chan struct{})}
 }
 
 // SetOnDiscover sets a callback invoked each time a new service is discovered
@@ -105,15 +107,16 @@ func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 	s.mu.Lock()
 	if !s.started {
 		s.started = true
-		s.mu.Unlock()
 		// Kick off discovery entirely in the background so the first
 		// ListServices call returns immediately (empty list). The UI
 		// shows "Discovering services…" via Discovering() until the
-		// initial scan completes. shallowScan + backgroundLoop run
-		// with a detached context so they aren't cancelled by the
-		// triggering HTTP request's lifecycle.
+		// initial scan completes. shallowScan + backgroundLoop run with a
+		// context detached from the triggering HTTP request, but owned by
+		// the source so Close() can stop the loop on server shutdown.
+		bgCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		s.cancel = cancel
+		s.mu.Unlock()
 		go func() {
-			bgCtx := context.WithoutCancel(ctx)
 			s.shallowScan(bgCtx)
 			s.backgroundLoop(bgCtx)
 		}()
@@ -144,6 +147,7 @@ func (s *OCISource) shallowScan(ctx context.Context) {
 // s.done (ending the "discovering" state for the UI). Subsequent cycles
 // re-run periodically to pick up new services, dependencies, and versions.
 func (s *OCISource) backgroundLoop(ctx context.Context) {
+	defer close(s.stopped) // signal the loop has fully exited (used by Close)
 	s.discoverAndPrefetch(ctx)
 	close(s.done) // signal initial discovery complete
 
@@ -154,6 +158,23 @@ func (s *OCISource) backgroundLoop(ctx context.Context) {
 		case <-time.After(ociRediscoverInterval):
 			s.discoverAndPrefetch(ctx)
 		}
+	}
+}
+
+// Close stops the background discovery loop and waits for it to exit. It is
+// safe to call multiple times and safe to call when discovery never started
+// (e.g. ListServices was never invoked). Wiring this into the server shutdown
+// path ensures the detached discovery goroutine does not outlive the server.
+func (s *OCISource) Close() {
+	s.mu.Lock()
+	cancel := s.cancel
+	started := s.started
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if started {
+		<-s.stopped
 	}
 }
 

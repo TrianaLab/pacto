@@ -200,37 +200,3 @@ func mergedKeys(a, b map[string]any) []string {
 	sort.Strings(keys)
 	return keys
 }
-
-// readSchemaProperties reads a JSON Schema and extracts property keys,
-// recursively flattening nested objects using dot notation (e.g. "postgres.host").
-func readSchemaProperties(fsys fs.FS, path string) (map[string]bool, error) {
-	data, err := fs.ReadFile(fsys, path)
-	if err != nil {
-		return nil, err
-	}
-
-	var schema struct {
-		Properties map[string]json.RawMessage `json:"properties"`
-	}
-	if err := json.Unmarshal(data, &schema); err != nil {
-		return nil, err
-	}
-
-	props := make(map[string]bool)
-	flattenRawProps("", schema.Properties, props)
-	return props, nil
-}
-
-func flattenRawProps(prefix string, properties map[string]json.RawMessage, out map[string]bool) {
-	for name, raw := range properties {
-		fullName := prefix + name
-		var node struct {
-			Properties map[string]json.RawMessage `json:"properties"`
-		}
-		if json.Unmarshal(raw, &node) == nil && len(node.Properties) > 0 {
-			flattenRawProps(fullName+".", node.Properties, out)
-		} else {
-			out[fullName] = true
-		}
-	}
-}

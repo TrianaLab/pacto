@@ -30,13 +30,6 @@ func WithNameOptions(opts ...name.Option) ClientOption {
 	}
 }
 
-// WithRemoteOptions adds remote.Option values used for all remote operations.
-func WithRemoteOptions(opts ...remote.Option) ClientOption {
-	return func(c *Client) {
-		c.remoteOpts = append(c.remoteOpts, opts...)
-	}
-}
-
 // Function variables for testing.
 var (
 	buildImageFn  = bundleToImage
@@ -45,9 +38,8 @@ var (
 
 // Client implements BundleStore using go-containerregistry.
 type Client struct {
-	keychain   authn.Keychain
-	nameOpts   []name.Option
-	remoteOpts []remote.Option
+	keychain authn.Keychain
+	nameOpts []name.Option
 }
 
 // NewClient creates a new OCI client with the given keychain.
@@ -61,7 +53,7 @@ func NewClient(keychain authn.Keychain, opts ...ClientOption) *Client {
 
 // remoteOptions builds the remote.Option slice for all OCI operations.
 func (c *Client) remoteOptions(ctx context.Context) []remote.Option {
-	return append([]remote.Option{remote.WithAuthFromKeychain(c.keychain), remote.WithContext(ctx)}, c.remoteOpts...)
+	return []remote.Option{remote.WithAuthFromKeychain(c.keychain), remote.WithContext(ctx)}
 }
 
 // parseRef parses an OCI reference string with the client's name options.

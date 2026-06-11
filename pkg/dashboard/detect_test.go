@@ -9,47 +9,6 @@ import (
 	"testing"
 )
 
-func TestSplitNonEmpty_Empty(t *testing.T) {
-	result := splitNonEmpty("")
-	if len(result) != 0 {
-		t.Errorf("expected 0 lines, got %d", len(result))
-	}
-}
-
-func TestSplitNonEmpty_SingleLine(t *testing.T) {
-	result := splitNonEmpty("hello")
-	if len(result) != 1 {
-		t.Fatalf("expected 1 line, got %d", len(result))
-	}
-	if result[0] != "hello" {
-		t.Errorf("expected 'hello', got %q", result[0])
-	}
-}
-
-func TestSplitNonEmpty_MultipleLinesWithBlanks(t *testing.T) {
-	input := "line1\n\n  line2  \n\n\nline3\n"
-	result := splitNonEmpty(input)
-	if len(result) != 3 {
-		t.Fatalf("expected 3 lines, got %d: %v", len(result), result)
-	}
-	if result[0] != "line1" {
-		t.Errorf("expected 'line1', got %q", result[0])
-	}
-	if result[1] != "line2" {
-		t.Errorf("expected 'line2', got %q", result[1])
-	}
-	if result[2] != "line3" {
-		t.Errorf("expected 'line3', got %q", result[2])
-	}
-}
-
-func TestSplitNonEmpty_WhitespaceOnly(t *testing.T) {
-	result := splitNonEmpty("  \n  \n  ")
-	if len(result) != 0 {
-		t.Errorf("expected 0 lines, got %d", len(result))
-	}
-}
-
 func TestDetectResult_ActiveSources_Empty(t *testing.T) {
 	r := &DetectResult{}
 	sources := r.ActiveSources()

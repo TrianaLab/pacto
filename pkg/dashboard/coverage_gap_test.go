@@ -3,6 +3,7 @@ package dashboard
 import (
 	"archive/tar"
 	"bytes"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -103,20 +104,20 @@ service:
 }
 
 func TestDetectCache_HomeError(t *testing.T) {
-	// When cacheDir is empty and HOME is not set, detectCache should handle the error.
-	t.Setenv("HOME", "")
-	t.Setenv("XDG_CACHE_HOME", "")
+	// Force the home-dir lookup to fail so the error path is exercised
+	// deterministically (relying on an unset HOME is platform-dependent).
+	orig := userHomeDir
+	userHomeDir = func() (string, error) { return "", fmt.Errorf("no home dir") }
+	t.Cleanup(func() { userHomeDir = orig })
 
 	result := &DetectResult{Diagnostics: &SourceDiagnostics{}}
 	result.detectCache("")
 
-	// On macOS, UserHomeDir may still succeed via /etc/passwd.
-	// If it fails, we expect the error path.
-	// Cache is internal — no SourceInfo entry, just diagnostics.
-	if result.Diagnostics.Cache.Error != "" {
-		if result.Cache != nil {
-			t.Error("expected nil cache when home dir fails")
-		}
+	if result.Diagnostics.Cache.Error == "" {
+		t.Error("expected a diagnostics error when the home dir cannot be determined")
+	}
+	if result.Cache != nil {
+		t.Error("expected nil cache when home dir fails")
 	}
 }
 

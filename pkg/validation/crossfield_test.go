@@ -202,15 +202,15 @@ func TestValidateDependencyRefs_TagNotDigestWarning(t *testing.T) {
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
-	if len(result.Warnings) == 0 {
-		t.Error("expected TAG_NOT_DIGEST warning")
+	if !hasWarningCode(result, "TAG_NOT_DIGEST") {
+		t.Errorf("expected TAG_NOT_DIGEST warning, got %+v", result.Warnings)
 	}
 }
 
 func TestValidateDependencyRefs_EmptyCompatibility(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: ""},
+		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: ""},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -222,7 +222,7 @@ func TestValidateDependencyRefs_EmptyCompatibility(t *testing.T) {
 func TestValidateDependencyRefs_InvalidCompatibility(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: "not-a-range"},
+		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "not-a-range"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -234,7 +234,7 @@ func TestValidateDependencyRefs_InvalidCompatibility(t *testing.T) {
 func TestValidateDependencyRefs_Valid(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: "^1.0.0"},
+		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -273,8 +273,8 @@ func TestValidateInterfacePorts_EventWithPort(t *testing.T) {
 	})
 	var result ValidationResult
 	validateInterfacePorts(c, &result)
-	if len(result.Warnings) == 0 {
-		t.Error("expected PORT_IGNORED warning for event interface with port")
+	if !hasWarningCode(result, "PORT_IGNORED") {
+		t.Errorf("expected PORT_IGNORED warning for event interface with port, got %+v", result.Warnings)
 	}
 }
 
@@ -313,8 +313,8 @@ func TestValidateHealthInterface_GRPCWithPath(t *testing.T) {
 	c.Runtime.Health = &contract.Health{Interface: "grpc", Path: "/health"}
 	var result ValidationResult
 	validateHealthInterface(c, &result)
-	if len(result.Warnings) == 0 {
-		t.Error("expected HEALTH_PATH_IGNORED warning for gRPC interface with path")
+	if !hasWarningCode(result, "HEALTH_PATH_IGNORED") {
+		t.Errorf("expected HEALTH_PATH_IGNORED warning for gRPC interface with path, got %+v", result.Warnings)
 	}
 }
 
@@ -370,8 +370,8 @@ func TestValidateMetricsInterface_GRPCWithPath(t *testing.T) {
 	c.Runtime.Metrics = &contract.Metrics{Interface: "grpc", Path: "/metrics"}
 	var result ValidationResult
 	validateMetricsInterface(c, &result)
-	if len(result.Warnings) == 0 {
-		t.Error("expected METRICS_PATH_IGNORED warning for gRPC interface with path")
+	if !hasWarningCode(result, "METRICS_PATH_IGNORED") {
+		t.Errorf("expected METRICS_PATH_IGNORED warning for gRPC interface with path, got %+v", result.Warnings)
 	}
 }
 
@@ -431,8 +431,8 @@ func TestValidateUpgradeStrategyConsistency_OrderedStateless(t *testing.T) {
 	c.Runtime.State.Type = "stateless"
 	var result ValidationResult
 	validateUpgradeStrategyConsistency(c, &result)
-	if len(result.Warnings) == 0 {
-		t.Error("expected warning for ordered upgrade strategy with stateless service")
+	if !hasWarningCode(result, "UPGRADE_STRATEGY_STATE_MISMATCH") {
+		t.Errorf("expected UPGRADE_STRATEGY_STATE_MISMATCH warning, got %+v", result.Warnings)
 	}
 }
 
@@ -1487,6 +1487,15 @@ func readinessContract(checks ...contract.ReadinessCheck) *contract.Contract {
 func readinessHasCode(result ValidationResult, code string) bool {
 	for _, e := range result.Errors {
 		if e.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func hasWarningCode(result ValidationResult, code string) bool {
+	for _, w := range result.Warnings {
+		if w.Code == code {
 			return true
 		}
 	}

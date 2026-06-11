@@ -584,6 +584,64 @@ func TestExtractTar_PathTraversal(t *testing.T) {
 	}
 }
 
+func TestExtractTar_RejectsSymlink(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "link",
+		Typeflag: tar.TypeSymlink,
+		Linkname: "/etc/passwd",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err := extractTar(&buf)
+	if err == nil || !strings.Contains(err.Error(), "unsupported tar entry type") {
+		t.Fatalf("expected unsupported-entry error, got %v", err)
+	}
+}
+
+func TestExtractTar_TooManyEntries(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for i := 0; i <= maxEntries; i++ {
+		if err := tw.WriteHeader(&tar.Header{Name: fmt.Sprintf("f%d", i), Typeflag: tar.TypeReg, Size: 0}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err := extractTar(&buf)
+	if err == nil || !strings.Contains(err.Error(), "too many entries") {
+		t.Fatalf("expected too-many-entries error, got %v", err)
+	}
+}
+
+func TestExtractTar_DotDotInFilenameAllowed(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	content := []byte("ok")
+	if err := tw.WriteHeader(&tar.Header{Name: "my..file.yaml", Typeflag: tar.TypeReg, Size: int64(len(content)), Mode: 0644}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fsys, err := extractTar(&buf)
+	if err != nil {
+		t.Fatalf("legitimate name containing '..' should be accepted, got %v", err)
+	}
+	if data, err := fs.ReadFile(fsys, "my..file.yaml"); err != nil || string(data) != "ok" {
+		t.Fatalf("expected file extracted, got %q err=%v", data, err)
+	}
+}
+
 func TestExtractTar_CorruptedInput(t *testing.T) {
 	// Feed corrupted data that isn't a valid tar stream. The first call to
 	// tr.Next() will return an unexpected header error.

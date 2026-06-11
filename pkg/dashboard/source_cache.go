@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing/fstest"
 
 	"github.com/trianalab/pacto/pkg/contract"
@@ -34,6 +35,10 @@ import (
 type CacheSource struct {
 	cacheDir string // e.g. ~/.cache/pacto/oci
 
+	// mu guards services. Rescan swaps the map copy-on-write under the write
+	// lock; readers take a snapshot under the read lock. The published map is
+	// never mutated in place, so callers may iterate the snapshot lock-free.
+	mu sync.RWMutex
 	// Populated at scan time.
 	services map[string]*cachedService // keyed by service name
 }
@@ -54,18 +59,17 @@ type cachedVersion struct {
 // If the directory doesn't exist or contains no bundles, it returns a source
 // that reports zero services.
 func NewCacheSource(cacheDir string) *CacheSource {
-	s := &CacheSource{
-		cacheDir: cacheDir,
-		services: make(map[string]*cachedService),
-	}
-	s.scan()
+	s := &CacheSource{cacheDir: cacheDir}
+	s.services = s.buildIndex()
 	return s
 }
 
-// scan walks the cache directory and indexes all discovered bundles.
-func (s *CacheSource) scan() {
+// buildIndex walks the cache directory and returns a fresh service index.
+// It never touches s.services, so it is safe to call without holding the lock.
+func (s *CacheSource) buildIndex() map[string]*cachedService {
+	services := make(map[string]*cachedService)
 	if _, err := os.Stat(s.cacheDir); os.IsNotExist(err) {
-		return
+		return services
 	}
 
 	_ = filepath.Walk(s.cacheDir, func(path string, info os.FileInfo, err error) error {
@@ -97,10 +101,10 @@ func (s *CacheSource) scan() {
 
 		name := bundle.Contract.Service.Name
 
-		svc, ok := s.services[name]
+		svc, ok := services[name]
 		if !ok {
 			svc = &cachedService{name: name}
-			s.services[name] = svc
+			services[name] = svc
 		}
 
 		svc.versions = append(svc.versions, cachedVersion{
@@ -112,25 +116,40 @@ func (s *CacheSource) scan() {
 
 		return nil
 	})
+
+	return services
 }
 
 // Rescan re-walks the cache directory and updates the in-memory index.
 // This must be called after new bundles are cached (e.g. after resolve or
 // fetch-all-versions) so they become visible as first-class cached artifacts.
+// The freshly built index is swapped in under the write lock so concurrent
+// readers never observe a partially populated map.
 func (s *CacheSource) Rescan() {
-	s.services = make(map[string]*cachedService)
-	s.scan()
+	idx := s.buildIndex()
+	s.mu.Lock()
+	s.services = idx
+	s.mu.Unlock()
+}
+
+// snapshot returns the current service index under the read lock. The returned
+// map is immutable (Rescan swaps a new map in rather than mutating), so callers
+// may iterate it without holding the lock.
+func (s *CacheSource) snapshot() map[string]*cachedService {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.services
 }
 
 // ServiceCount returns the number of discovered services.
 func (s *CacheSource) ServiceCount() int {
-	return len(s.services)
+	return len(s.snapshot())
 }
 
 // VersionCount returns the total number of cached bundle versions.
 func (s *CacheSource) VersionCount() int {
 	total := 0
-	for _, svc := range s.services {
+	for _, svc := range s.snapshot() {
 		total += len(svc.versions)
 	}
 	return total
@@ -138,7 +157,7 @@ func (s *CacheSource) VersionCount() int {
 
 func (s *CacheSource) ListServices(_ context.Context) ([]Service, error) {
 	var services []Service
-	for _, svc := range s.services {
+	for _, svc := range s.snapshot() {
 		latest := svc.latestVersion()
 		if latest == nil {
 			continue
@@ -155,7 +174,7 @@ func (s *CacheSource) ListServices(_ context.Context) ([]Service, error) {
 }
 
 func (s *CacheSource) GetService(_ context.Context, name string) (*ServiceDetails, error) {
-	svc, ok := s.services[name]
+	svc, ok := s.snapshot()[name]
 	if !ok {
 		return nil, fmt.Errorf("service %q not found in OCI cache", name)
 	}
@@ -167,7 +186,7 @@ func (s *CacheSource) GetService(_ context.Context, name string) (*ServiceDetail
 }
 
 func (s *CacheSource) GetVersions(_ context.Context, name string) ([]Version, error) {
-	svc, ok := s.services[name]
+	svc, ok := s.snapshot()[name]
 	if !ok {
 		return nil, fmt.Errorf("service %q not found in OCI cache", name)
 	}
@@ -204,7 +223,8 @@ func (s *CacheSource) GetVersions(_ context.Context, name string) ([]Version, er
 }
 
 func (s *CacheSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) {
-	svcA, ok := s.services[a.Name]
+	idx := s.snapshot()
+	svcA, ok := idx[a.Name]
 	if !ok {
 		return nil, fmt.Errorf("service %q not found in OCI cache", a.Name)
 	}
@@ -213,7 +233,7 @@ func (s *CacheSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) 
 		return nil, fmt.Errorf("version %q of %q not found in OCI cache", a.Version, a.Name)
 	}
 
-	svcB, ok := s.services[b.Name]
+	svcB, ok := idx[b.Name]
 	if !ok {
 		return nil, fmt.Errorf("service %q not found in OCI cache", b.Name)
 	}
@@ -286,13 +306,26 @@ func loadBundleTarGz(path string) (*contract.Bundle, error) {
 const (
 	maxBundleFileSize  = 10 << 20 // 10 MB per file
 	maxBundleTotalSize = 50 << 20 // 50 MB total
+	maxBundleEntries   = 10000    // max number of tar entries
 )
+
+// dotDotComponent reports whether any path component is "..", i.e. a real
+// traversal (as opposed to a name that merely contains "..").
+func dotDotComponent(name string) bool {
+	for _, part := range strings.Split(name, "/") {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
+}
 
 // extractTar reads a tar stream and returns an in-memory FS.
 func extractTar(r io.Reader) (fs.FS, error) {
 	memFS := fstest.MapFS{}
 	tr := tar.NewReader(r)
 	var totalSize int64
+	var entries int
 
 	for {
 		header, err := tr.Next()
@@ -303,17 +336,25 @@ func extractTar(r io.Reader) (fs.FS, error) {
 			return nil, fmt.Errorf("reading tar entry: %w", err)
 		}
 
+		entries++
+		if entries > maxBundleEntries {
+			return nil, fmt.Errorf("tar has too many entries (>%d)", maxBundleEntries)
+		}
+
 		name := filepath.ToSlash(strings.TrimPrefix(header.Name, "./"))
 		if name == "" || name == "." {
 			continue
 		}
-		if strings.Contains(name, "..") {
+		if dotDotComponent(name) {
 			return nil, fmt.Errorf("invalid path in tar: %s", header.Name)
 		}
 
 		if header.Typeflag == tar.TypeDir {
 			memFS[name] = &fstest.MapFile{Mode: fs.ModeDir | 0755}
 			continue
+		}
+		if header.Typeflag != tar.TypeReg {
+			return nil, fmt.Errorf("unsupported tar entry type %q for %s", string(header.Typeflag), name)
 		}
 
 		data, err := io.ReadAll(io.LimitReader(tr, maxBundleFileSize+1))

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -59,6 +60,28 @@ const silentErrorPluginSrc = `package main
 import "os"
 
 func main() { os.Exit(1) }
+`
+
+const slowPluginSrc = `package main
+
+import "time"
+
+func main() { time.Sleep(10 * time.Second) }
+`
+
+const floodPluginSrc = `package main
+
+import "os"
+
+func main() {
+	chunk := make([]byte, 4096)
+	for i := range chunk {
+		chunk[i] = 'x'
+	}
+	for i := 0; i < 64; i++ {
+		_, _ = os.Stdout.Write(chunk)
+	}
+}
 `
 
 // buildTestPlugin compiles a small Go source file into a binary in dir.
@@ -191,6 +214,38 @@ func TestSubprocessRunner_Run_Success(t *testing.T) {
 	}
 	if resp.Files[0].Content != "hello" {
 		t.Fatalf("expected content 'hello', got %q", resp.Files[0].Content)
+	}
+}
+
+func TestSubprocessRunner_Run_Timeout(t *testing.T) {
+	dir := t.TempDir()
+	buildTestPlugin(t, dir, "slow", slowPluginSrc)
+	t.Setenv("PATH", dir)
+
+	old := pluginTimeout
+	pluginTimeout = 50 * time.Millisecond
+	defer func() { pluginTimeout = old }()
+
+	runner := &SubprocessRunner{}
+	_, err := runner.Run(context.Background(), "slow", GenerateRequest{ProtocolVersion: ProtocolVersion})
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+}
+
+func TestSubprocessRunner_Run_OutputTooLarge(t *testing.T) {
+	dir := t.TempDir()
+	buildTestPlugin(t, dir, "flood", floodPluginSrc)
+	t.Setenv("PATH", dir)
+
+	old := maxPluginOutput
+	maxPluginOutput = 1024 // plugin writes 256 KB
+	defer func() { maxPluginOutput = old }()
+
+	runner := &SubprocessRunner{}
+	_, err := runner.Run(context.Background(), "flood", GenerateRequest{ProtocolVersion: ProtocolVersion})
+	if err == nil || !strings.Contains(err.Error(), "output exceeded") {
+		t.Fatalf("expected output-exceeded error, got %v", err)
 	}
 }
 

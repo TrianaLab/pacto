@@ -147,6 +147,13 @@ If the plugin encounters an error, it should:
 
 Pacto captures stderr and presents it to the user.
 
+### Execution limits
+
+Pacto bounds plugin execution defensively: a plugin is killed if it runs longer
+than 60 seconds, and its stdout is capped at 64 MB (output beyond the cap is an
+error). Keep plugins fast and bounded; long-running work should be split or
+streamed differently.
+
 ---
 
 ## Example: Minimal plugin in Bash

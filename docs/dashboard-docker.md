@@ -54,7 +54,7 @@ make docker-run
 | `PACTO_REGISTRY_PASSWORD` | Registry authentication password | `""` |
 | `PACTO_REGISTRY_TOKEN` | Registry authentication token | `""` |
 
-All `PACTO_DASHBOARD_*` variables map to the corresponding `--host`, `--port`, `--namespace`, and `--diagnostics` CLI flags. OCI repositories can be passed as `oci://` positional arguments on the CLI; in the container, use the comma-separated `PACTO_DASHBOARD_REPO` env var instead.
+All `PACTO_DASHBOARD_*` variables map to the corresponding `--host`, `--port`, `--namespace`, `--diagnostics`, and `--cors-origin` CLI flags. OCI repositories can be passed as `oci://` positional arguments on the CLI; in the container, use the comma-separated `PACTO_DASHBOARD_REPO` env var instead.
 
 > **Note:** `PACTO_CACHE_DIR` is an **environment variable only** — there is no `--cache-dir` flag. When it is unset, the dashboard resolves the cache directory from the bundle store's `CacheDir()` (defaulting to `~/.cache/pacto/oci`).
 
@@ -113,6 +113,26 @@ docker run -p 3000:3000 \
 | `GET /docs` | Interactive API documentation. |
 
 The image includes a Docker `HEALTHCHECK` that polls `/health` every 10 seconds.
+
+## Security
+
+The dashboard is a read-mostly observability UI, but a few endpoints mutate
+local state (`POST /api/resolve`, `POST /api/versions`, `POST /api/refresh`
+pull and cache OCI artifacts). The server applies these protections:
+
+- **Same-origin only by default.** No `Access-Control-Allow-Origin` header is
+  emitted, and cross-origin *mutating* requests are rejected with `403`. This
+  prevents a malicious web page in the operator's browser from driving the
+  dashboard (CSRF/SSRF). The bundled UI is served same-origin and is unaffected.
+- **Explicit cross-origin opt-in.** Pass `--cors-origin https://your-app` (or
+  `PACTO_DASHBOARD_CORS_ORIGIN`) to allow one trusted cross-origin client.
+- **HTTP timeouts** (`ReadHeaderTimeout`, `ReadTimeout`, `IdleTimeout`) guard
+  against slow-client (Slowloris) exhaustion, and shutdown is graceful.
+
+The server binds to `127.0.0.1` by default. Setting `--host 0.0.0.0` (as the
+container image does) exposes the dashboard — including the unauthenticated
+mutating endpoints — to the network, so run it only on a trusted network or
+behind an authenticating proxy.
 
 ## Kubernetes Deployment
 

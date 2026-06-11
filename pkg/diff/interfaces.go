@@ -54,105 +54,94 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 
 // diffConfiguration compares configuration slices by name and delegates to JSON Schema diff.
 func diffConfiguration(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
+	return diffRefSources("configurations",
+		configRefSources(old.Configurations), configRefSources(new.Configurations), oldFS, newFS)
+}
+
+// refSource is the common shape of a configuration or policy source (a name with
+// an optional schema and/or ref), used by the shared diff routine.
+type refSource struct {
+	name, schema, ref string
+}
+
+func configRefSources(cfgs []contract.ConfigurationSource) []refSource {
+	out := make([]refSource, len(cfgs))
+	for i, c := range cfgs {
+		out[i] = refSource{name: c.Name, schema: c.Schema, ref: c.Ref}
+	}
+	return out
+}
+
+func policyRefSources(pols []contract.PolicySource) []refSource {
+	out := make([]refSource, len(pols))
+	for i, p := range pols {
+		out[i] = refSource{name: p.Name, schema: p.Schema, ref: p.Ref}
+	}
+	return out
+}
+
+// diffRefSources diffs two sets of named schema/ref sources (configurations or
+// policies) by name, including local schema-file content diffs. field is the
+// change-path prefix ("configurations" or "policies").
+func diffRefSources(field string, old, new []refSource, oldFS, newFS fs.FS) []Change {
 	var changes []Change
+	oldByName := indexRefSources(old)
+	newByName := indexRefSources(new)
 
-	oldByName := indexConfigurations(old.Configurations)
-	newByName := indexConfigurations(new.Configurations)
-
-	for name, oldCfg := range oldByName {
-		newCfg, exists := newByName[name]
+	for name, o := range oldByName {
+		n, exists := newByName[name]
 		if !exists {
-			changes = append(changes, newChange("configurations", Removed, configSummary(&oldCfg), nil))
+			changes = append(changes, newChange(field, Removed, refSourceSummary(o), nil))
 			continue
 		}
-
-		if oldCfg.Schema != newCfg.Schema {
-			changes = append(changes, newChange("configurations.schema", Modified, name+": "+oldCfg.Schema, name+": "+newCfg.Schema))
+		if o.schema != n.schema {
+			changes = append(changes, newChange(field+".schema", Modified, name+": "+o.schema, name+": "+n.schema))
 		}
-		if oldCfg.Ref != newCfg.Ref {
+		if o.ref != n.ref {
 			ct := Modified
-			if oldCfg.Ref == "" {
+			if o.ref == "" {
 				ct = Added
-			} else if newCfg.Ref == "" {
+			} else if n.ref == "" {
 				ct = Removed
 			}
-			changes = append(changes, newChange("configurations.ref", ct, name+": "+oldCfg.Ref, name+": "+newCfg.Ref))
+			changes = append(changes, newChange(field+".ref", ct, name+": "+o.ref, name+": "+n.ref))
 		}
-
 		// Diff schema file contents when both reference local schemas.
-		if oldCfg.Schema != "" && newCfg.Schema != "" {
-			changes = append(changes, diffSchema(oldCfg.Schema, newCfg.Schema, oldFS, newFS)...)
+		if o.schema != "" && n.schema != "" {
+			changes = append(changes, diffSchema(o.schema, n.schema, oldFS, newFS)...)
 		}
 	}
 
-	for name, newCfg := range newByName {
+	for name, n := range newByName {
 		if _, exists := oldByName[name]; !exists {
-			changes = append(changes, newChange("configurations", Added, nil, configSummary(&newCfg)))
+			changes = append(changes, newChange(field, Added, nil, refSourceSummary(n)))
 		}
 	}
-
 	return changes
 }
 
-func configSummary(cfg *contract.ConfigurationSource) string {
-	if cfg == nil {
-		return ""
+func refSourceSummary(s refSource) string {
+	if s.ref != "" {
+		return s.name + ": " + s.ref
 	}
-	if cfg.Ref != "" {
-		return cfg.Name + ": " + cfg.Ref
+	if s.schema != "" {
+		return s.name + ": " + s.schema
 	}
-	if cfg.Schema != "" {
-		return cfg.Name + ": " + cfg.Schema
-	}
-	return cfg.Name
+	return s.name
 }
 
-func indexConfigurations(cfgs []contract.ConfigurationSource) map[string]contract.ConfigurationSource {
-	m := make(map[string]contract.ConfigurationSource, len(cfgs))
-	for _, c := range cfgs {
-		m[c.Name] = c
+func indexRefSources(sources []refSource) map[string]refSource {
+	m := make(map[string]refSource, len(sources))
+	for _, s := range sources {
+		m[s.name] = s
 	}
 	return m
 }
 
 // diffPolicy compares policies arrays by name.
 func diffPolicy(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
-	var changes []Change
-
-	oldByName := indexPolicies(old.Policies)
-	newByName := indexPolicies(new.Policies)
-
-	for name, oldPol := range oldByName {
-		newPol, exists := newByName[name]
-		if !exists {
-			changes = append(changes, newChange("policies", Removed, policySummary(&oldPol), nil))
-			continue
-		}
-
-		if oldPol.Schema != newPol.Schema {
-			changes = append(changes, newChange("policies.schema", Modified, name+": "+oldPol.Schema, name+": "+newPol.Schema))
-		}
-		if oldPol.Ref != newPol.Ref {
-			ct := Modified
-			if oldPol.Ref == "" {
-				ct = Added
-			} else if newPol.Ref == "" {
-				ct = Removed
-			}
-			changes = append(changes, newChange("policies.ref", ct, name+": "+oldPol.Ref, name+": "+newPol.Ref))
-		}
-
-		// Diff schema file contents when both policies reference local schemas.
-		if oldPol.Schema != "" && newPol.Schema != "" {
-			changes = append(changes, diffSchema(oldPol.Schema, newPol.Schema, oldFS, newFS)...)
-		}
-	}
-
-	for name, newPol := range newByName {
-		if _, exists := oldByName[name]; !exists {
-			changes = append(changes, newChange("policies", Added, nil, policySummary(&newPol)))
-		}
-	}
+	changes := diffRefSources("policies",
+		policyRefSources(old.Policies), policyRefSources(new.Policies), oldFS, newFS)
 
 	// Auto-detect: compare policy/schema.json when bundles ship it but
 	// the contract has no policies field (policy-provider bundles).
@@ -187,24 +176,6 @@ func diffPolicySchemaFile(oldFS, newFS fs.FS) []Change {
 func fileExists(fsys fs.FS, path string) bool {
 	_, err := fs.Stat(fsys, path)
 	return err == nil
-}
-
-func policySummary(p *contract.PolicySource) string {
-	if p.Ref != "" {
-		return p.Name + ": " + p.Ref
-	}
-	if p.Schema != "" {
-		return p.Name + ": " + p.Schema
-	}
-	return p.Name
-}
-
-func indexPolicies(policies []contract.PolicySource) map[string]contract.PolicySource {
-	m := make(map[string]contract.PolicySource, len(policies))
-	for _, p := range policies {
-		m[p.Name] = p
-	}
-	return m
 }
 
 func indexInterfaces(ifaces []contract.Interface) map[string]contract.Interface {

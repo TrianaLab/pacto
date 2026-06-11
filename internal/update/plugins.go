@@ -33,6 +33,13 @@ func UpdatePlugins() ([]PluginUpdateResult, error) {
 		return nil, fmt.Errorf("failed to fetch latest plugins version: %w", err)
 	}
 
+	// Fetch the published checksums once so every plugin binary can be verified
+	// before it is installed.
+	sums, err := fetchChecksums(checksumsURL(pluginsRepo, tag))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch plugin checksums: %w", err)
+	}
+
 	var results []PluginUpdateResult
 	for _, name := range plugins {
 		url := buildPluginDownloadURL(tag, name)
@@ -40,8 +47,13 @@ func UpdatePlugins() ([]PluginUpdateResult, error) {
 		if runtimeGOOS == "windows" {
 			ext = ".exe"
 		}
+		asset := fmt.Sprintf("%s_%s_%s%s", name, runtimeGOOS, runtimeGOARCH, ext)
+		expected, ok := sums[asset]
+		if !ok {
+			return results, fmt.Errorf("no checksum published for plugin %s", name)
+		}
 		targetPath := filepath.Join(execDir, name+ext)
-		if err := downloadAndInstall(url, targetPath); err != nil {
+		if err := downloadAndInstall(url, targetPath, expected); err != nil {
 			return results, fmt.Errorf("failed to update plugin %s: %w", name, err)
 		}
 		results = append(results, PluginUpdateResult{Name: name, Version: tag})

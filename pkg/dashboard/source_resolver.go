@@ -281,8 +281,12 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 	// Step 3: Build result.
 	var result *ServiceDetails
 	if contractDetails != nil {
-		// Start with contract as base.
+		// Start with contract as base. This is a shallow struct copy, so any
+		// slice the caller mutates in place (getCachedIndex rewrites
+		// Dependencies[i].Name) must be cloned to avoid corrupting the shared
+		// backing array of the source's cached object.
 		base := *contractDetails
+		base.Dependencies = append([]DependencyInfo(nil), contractDetails.Dependencies...)
 		result = &base
 		result.Source = contractSource
 
