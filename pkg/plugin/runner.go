@@ -20,11 +20,6 @@ var (
 	maxPluginOutput = 64 << 20 // 64 MB
 )
 
-// Runner executes a plugin by name with the given request.
-type Runner interface {
-	Run(ctx context.Context, name string, req GenerateRequest) (*GenerateResponse, error)
-}
-
 // SubprocessRunner discovers and executes plugin binaries via stdin/stdout JSON.
 type SubprocessRunner struct{}
 

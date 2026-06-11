@@ -365,18 +365,6 @@ func TestValidationInfoFromResult_WithErrors(t *testing.T) {
 	}
 }
 
-func TestValidateBundle_NilRawYAML(t *testing.T) {
-	b := &contract.Bundle{
-		Contract: &contract.Contract{
-			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		},
-	}
-	result := validateBundle(b)
-	if result != nil {
-		t.Error("expected nil for bundle with no RawYAML")
-	}
-}
-
 func TestServiceDetailsFromBundle_InterfaceNilPort(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
@@ -675,25 +663,6 @@ func TestExtractSchemaProperties_PropertiesNotMapValue(t *testing.T) {
 	values := extractSchemaProperties(fsys, "schema.json")
 	if len(values) != 0 {
 		t.Errorf("expected 0 values when properties is an array, got %d", len(values))
-	}
-}
-
-func TestValidateBundle_WithRawYAML(t *testing.T) {
-	yamlContent := `pactoVersion: "1.0"
-service:
-  name: svc
-  version: 1.0.0
-`
-	b := &contract.Bundle{
-		Contract: &contract.Contract{
-			PactoVersion: "1.0",
-			Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		},
-		RawYAML: []byte(yamlContent),
-	}
-	result := validateBundle(b)
-	if result == nil {
-		t.Fatal("expected non-nil validation result")
 	}
 }
 

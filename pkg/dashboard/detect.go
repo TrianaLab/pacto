@@ -11,6 +11,9 @@ import (
 	"github.com/trianalab/pacto/pkg/oci"
 )
 
+// userHomeDir is a package-level variable so tests can override os.UserHomeDir.
+var userHomeDir = os.UserHomeDir
+
 // DetectOptions configures source auto-detection.
 type DetectOptions struct {
 	Dir       string          // working directory for local detection
@@ -423,16 +426,4 @@ func RedetectK8s(ctx context.Context, result *DetectResult, namespace string) {
 // the kubeconfig file. Returns an empty string if the context cannot be determined.
 func CurrentKubeContext() string {
 	return currentKubeContextFunc()
-}
-
-// splitNonEmpty splits a string by newlines and returns non-empty trimmed lines.
-func splitNonEmpty(s string) []string {
-	var result []string
-	for _, line := range strings.Split(s, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
 }

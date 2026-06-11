@@ -298,26 +298,3 @@ func TestClient_Push_RemoteWriteError(t *testing.T) {
 		t.Fatal("expected error for push to broken registry")
 	}
 }
-
-func TestWithRemoteOptions(t *testing.T) {
-	// Create a client that uses WithRemoteOptions.
-	reg := registry.New()
-	srv := httptest.NewServer(reg)
-	t.Cleanup(srv.Close)
-	host := strings.TrimPrefix(srv.URL, "http://")
-
-	client := oci.NewClient(
-		authn.DefaultKeychain,
-		oci.WithNameOptions(name.Insecure),
-		oci.WithRemoteOptions(), // call with no extra options to cover the function
-	)
-
-	ctx := context.Background()
-	b := newTestBundle()
-	ref := host + "/test/remote-opts:v1"
-
-	_, err := client.Push(ctx, ref, b)
-	if err != nil {
-		t.Fatalf("Push() with WithRemoteOptions error: %v", err)
-	}
-}

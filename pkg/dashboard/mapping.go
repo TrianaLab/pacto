@@ -484,15 +484,6 @@ func mapGraphNode(n *graph.Node) *GraphNode {
 	return gn
 }
 
-// validateBundle runs full validation on a bundle and returns dashboard-model results.
-func validateBundle(bundle *contract.Bundle) *ValidationInfo {
-	if bundle.RawYAML == nil {
-		return nil
-	}
-	r := validation.Validate(bundle.Contract, bundle.RawYAML, bundle.FS)
-	return validationInfoFromResult(r)
-}
-
 // parseContentAsValues tries to parse raw file content as YAML/JSON key-value pairs.
 func parseContentAsValues(data []byte, path string) []ConfigValue {
 	// Reuse the OpenAPI spec parser's unmarshal logic: JSON for .json, YAML otherwise.
