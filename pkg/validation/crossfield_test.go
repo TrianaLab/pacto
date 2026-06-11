@@ -234,7 +234,7 @@ func TestValidateDependencyRefs_InvalidCompatibility(t *testing.T) {
 func TestValidateDependencyRefs_Valid(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: "^1.0.0"},
+		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
