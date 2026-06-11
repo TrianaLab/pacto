@@ -379,6 +379,11 @@ func (s *K8sSource) GetVersions(ctx context.Context, name string) ([]Version, er
 	return versions, nil
 }
 
+// GetDiff is intentionally unsupported for the k8s source: it observes only the
+// single currently-deployed revision per service, so there is no version history
+// to diff. The diff endpoint uses the OCI/local sources (which carry history)
+// instead; this returns an error so an unsupported call surfaces explicitly
+// rather than as an empty diff.
 func (s *K8sSource) GetDiff(_ context.Context, _, _ Ref) (*DiffResult, error) {
 	return nil, fmt.Errorf("diff not yet supported for k8s source; use OCI or local source")
 }
