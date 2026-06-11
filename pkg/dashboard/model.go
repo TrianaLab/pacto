@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -539,7 +538,7 @@ func plural(n int) string {
 func joinInts(vals []int) string {
 	s := make([]string, len(vals))
 	for i, v := range vals {
-		s[i] = fmt.Sprintf("%d", v)
+		s[i] = strconv.Itoa(v)
 	}
 	return strings.Join(s, ", ")
 }
