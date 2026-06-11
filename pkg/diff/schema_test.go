@@ -245,4 +245,3 @@ func TestDiffSchema_TypeMismatchScalar(t *testing.T) {
 		t.Errorf("expected Modified for type mismatch, got %s", changes[0].Type)
 	}
 }
-
