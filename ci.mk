@@ -4,12 +4,12 @@
 
 BUNDLE_DIR := pactos/pacto-dashboard
 
-.PHONY: ci ci-static ci-test ci-ui ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
+.PHONY: ci ci-static ci-test ci-ui ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
 ci: ci-static ci-test e2e gen-bundle
 
-ci-static: ci-fmt ci-vet ci-cyclo ci-lint ci-docs
+ci-static: ci-fmt ci-vet ci-cyclo ci-lint ci-docs ci-ui-drift
 
 ci-test: ci-ui
 	@echo "==> Running unit tests with race detector and coverage..."
@@ -47,6 +47,11 @@ ci-docs:
 	@echo "==> Checking CLI docs are up to date..."
 	@$(MAKE) gen-cli-docs
 	@git diff --exit-code docs/cli-reference.md || (echo "CLI docs are out of date. Run 'make gen-cli-docs' and commit." && exit 1)
+
+ci-ui-drift:
+	@echo "==> Checking committed dashboard UI build is up to date..."
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npm run build
+	@git diff --exit-code pkg/dashboard/ui/ || (echo "Committed pkg/dashboard/ui/ is out of date. Run 'npm run build' in pkg/dashboard/frontend and commit." && exit 1)
 
 # ── Bundle generation targets ────────────────────────────────────────
 # The OpenAPI spec is generated via the pacto-plugin-openapi-infer plugin
