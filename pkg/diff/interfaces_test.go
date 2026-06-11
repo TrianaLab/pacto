@@ -337,30 +337,22 @@ func TestDiffConfiguration_NoChanges(t *testing.T) {
 	}
 }
 
-func TestConfigSummary_Nil(t *testing.T) {
-	if got := configSummary(nil); got != "" {
-		t.Errorf("expected empty, got %q", got)
+func TestRefSourceSummary(t *testing.T) {
+	tests := []struct {
+		name string
+		in   refSource
+		want string
+	}{
+		{"ref takes precedence", refSource{name: "app", ref: "oci://example.com/config:1.0", schema: "x.json"}, "app: oci://example.com/config:1.0"},
+		{"schema when no ref", refSource{name: "app", schema: "config/app.json"}, "app: config/app.json"},
+		{"name only", refSource{name: "app"}, "app"},
 	}
-}
-
-func TestConfigSummary_Ref(t *testing.T) {
-	cfg := &contract.ConfigurationSource{Name: "app", Ref: "oci://example.com/config:1.0"}
-	if got := configSummary(cfg); got != "app: oci://example.com/config:1.0" {
-		t.Errorf("expected 'app: oci://...', got %q", got)
-	}
-}
-
-func TestConfigSummary_Schema(t *testing.T) {
-	cfg := &contract.ConfigurationSource{Name: "app", Schema: "config/app.json"}
-	if got := configSummary(cfg); got != "app: config/app.json" {
-		t.Errorf("expected 'app: config/app.json', got %q", got)
-	}
-}
-
-func TestConfigSummary_NameOnly(t *testing.T) {
-	cfg := &contract.ConfigurationSource{Name: "app"}
-	if got := configSummary(cfg); got != "app" {
-		t.Errorf("expected 'app', got %q", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := refSourceSummary(tt.in); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -629,26 +621,5 @@ func TestDiffPolicy_MultipleByName(t *testing.T) {
 	}
 	if !foundAdded {
 		t.Error("expected policies Added change for 'security'")
-	}
-}
-
-func TestPolicySummary_WithRef(t *testing.T) {
-	p := &contract.PolicySource{Name: "org", Ref: "oci://example.com/policy:1.0"}
-	if got := policySummary(p); got != "org: oci://example.com/policy:1.0" {
-		t.Errorf("expected 'org: oci://...', got %q", got)
-	}
-}
-
-func TestPolicySummary_WithSchema(t *testing.T) {
-	p := &contract.PolicySource{Name: "org", Schema: "policy/schema.json"}
-	if got := policySummary(p); got != "org: policy/schema.json" {
-		t.Errorf("expected 'org: policy/schema.json', got %q", got)
-	}
-}
-
-func TestPolicySummary_NameOnly(t *testing.T) {
-	p := &contract.PolicySource{Name: "org"}
-	if got := policySummary(p); got != "org" {
-		t.Errorf("expected 'org', got %q", got)
 	}
 }
