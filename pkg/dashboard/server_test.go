@@ -1156,6 +1156,9 @@ func TestGetCachedIndex_ListServicesError_WithStaleCache(t *testing.T) {
 	if len(cached.services) != 1 {
 		t.Fatalf("expected 1 service, got %d", len(cached.services))
 	}
+	// Wait for the background version-enrichment goroutine to finish before
+	// swapping srv.source below, so the swap does not race the goroutine's read.
+	srv.WaitForVersionEnrich()
 
 	// Force cache to be stale and switch to an erroring source.
 	srv.indexCache.builtAt = time.Now().Add(-20 * time.Second)
@@ -1897,7 +1900,7 @@ func TestServerSetLazyEnrich(t *testing.T) {
 	if !called {
 		t.Error("expected lazy enrich callback to be called")
 	}
-	if !srv.enrichDone {
+	if !srv.enrichDone.Load() {
 		t.Error("expected enrichDone=true after successful enrichment")
 	}
 
@@ -1924,7 +1927,7 @@ func TestServerSetLazyEnrich_Failure(t *testing.T) {
 	if callCount != 1 {
 		t.Errorf("expected 1 call, got %d", callCount)
 	}
-	if srv.enrichDone {
+	if srv.enrichDone.Load() {
 		t.Error("expected enrichDone=false after failed enrichment")
 	}
 

@@ -9,8 +9,51 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
+
+// TestCacheSource_ConcurrentRescanAndReads exercises Rescan() (which swaps the
+// services map) concurrently with every reader. It must be race-clean: without
+// the RWMutex guarding s.services this fails under `go test -race`.
+func TestCacheSource_ConcurrentRescanAndReads(t *testing.T) {
+	root := t.TempDir()
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 1.0.0
+`)
+	src := NewCacheSource(root)
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_, _ = src.ListServices(context.Background())
+					_, _ = src.GetService(context.Background(), "api")
+					_, _ = src.GetVersions(context.Background(), "api")
+					_, _ = src.GetDiff(context.Background(), Ref{Name: "api", Version: "1.0.0"}, Ref{Name: "api", Version: "1.0.0"})
+					_ = src.ServiceCount()
+					_ = src.VersionCount()
+				}
+			}
+		}()
+	}
+	for i := 0; i < 50; i++ {
+		src.Rescan()
+	}
+	close(stop)
+	wg.Wait()
+}
 
 func writeBundleTarGzFile(t *testing.T, path string, pactoYAML string) {
 	t.Helper()

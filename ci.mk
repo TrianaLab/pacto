@@ -12,8 +12,8 @@ ci: ci-static ci-test e2e gen-bundle
 ci-static: ci-fmt ci-vet ci-cyclo ci-lint ci-docs
 
 ci-test: ci-ui
-	@echo "==> Running unit tests with coverage..."
-	@go test $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle) -coverprofile=coverage.out
+	@echo "==> Running unit tests with race detector and coverage..."
+	@go test -race $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle) -coverprofile=coverage.out
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
 	if [ "$$total" != "100.0%" ]; then \
 		echo "FAIL: total coverage is $$total, expected 100.0%"; \

@@ -33,6 +33,11 @@ type Server struct {
 	listenAddr  string // optional: server URL for OpenAPI spec
 	version     string // optional: Pacto version to expose via /health
 
+	// cfgMu guards the optional wiring fields that can be set AFTER startup from
+	// request goroutines via lazy OCI enrichment (wireOCIEnrichment) or
+	// RefreshCacheSources: ociSource, cacheSource, memCache, sourceInfo.
+	cfgMu sync.RWMutex
+
 	// Cached service index for scan-heavy endpoints (dependents, cross-refs, graph).
 	indexMu    sync.Mutex
 	indexCache *serviceIndexCache
@@ -40,7 +45,7 @@ type Server struct {
 	// Lazy OCI enrichment: retries discovery when OCI was not available at startup.
 	lazyEnrich    func(ctx context.Context) bool
 	enrichMu      sync.Mutex
-	enrichDone    bool
+	enrichDone    atomic.Bool // read on the hot path without enrichMu
 	enrichLastTry time.Time
 
 	// K8s re-detection: allows swapping the k8s client when kubeconfig changes.
@@ -110,8 +115,37 @@ func (s *Server) SetResolver(r *oci.Resolver) {
 // SetCacheSource registers the CacheSource so the server can trigger a rescan
 // after new bundles are cached (via resolve or fetch-all-versions).
 func (s *Server) SetCacheSource(cs *CacheSource, memCache Cache) {
+	s.cfgMu.Lock()
 	s.cacheSource = cs
 	s.memCache = memCache
+	s.cfgMu.Unlock()
+}
+
+// getCacheSource / getMemCache / getOCISource / getSourceInfo read the
+// post-startup-mutable wiring fields under cfgMu so they never race with a
+// concurrent lazy-enrichment write.
+func (s *Server) getCacheSource() *CacheSource {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cacheSource
+}
+
+func (s *Server) getMemCache() Cache {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.memCache
+}
+
+func (s *Server) getOCISource() *OCISource {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.ociSource
+}
+
+func (s *Server) getSourceInfo() []SourceInfo {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.sourceInfo
 }
 
 // SetCacheDir stores the OCI cache directory path so the server can create
@@ -123,16 +157,19 @@ func (s *Server) SetCacheDir(dir string) {
 
 // SetOCISource registers the OCISource so the server can report discovery state.
 func (s *Server) SetOCISource(src *OCISource) {
+	s.cfgMu.Lock()
 	s.ociSource = src
+	s.cfgMu.Unlock()
 }
 
 // unresolvedReasonFn returns a reason-lookup function for the graph builder.
 // Returns nil when no OCI source is configured (graph uses no reason info).
 func (s *Server) unresolvedReasonFn() unresolvedReasonFunc {
-	if s.ociSource == nil {
+	oci := s.getOCISource()
+	if oci == nil {
 		return nil
 	}
-	return s.ociSource.UnresolvedReason
+	return oci.UnresolvedReason
 }
 
 // SetLazyEnrich registers a callback that attempts OCI enrichment from K8s.
@@ -162,7 +199,9 @@ func (s *Server) UpdateSourceInfo(info []SourceInfo) {
 			deduped = append(deduped, si)
 		}
 	}
+	s.cfgMu.Lock()
 	s.sourceInfo = deduped
+	s.cfgMu.Unlock()
 }
 
 // enrichCooldown is the minimum interval between lazy enrichment attempts.
@@ -197,8 +236,8 @@ func (s *Server) redetectK8sIfNeeded(ctx context.Context) {
 	if s.resolved != nil {
 		s.resolved.SetRuntimeSource(newSource)
 	}
-	if s.memCache != nil {
-		s.memCache.InvalidateAll()
+	if mc := s.getMemCache(); mc != nil {
+		mc.InvalidateAll()
 	}
 	s.indexMu.Lock()
 	s.indexCache = nil
@@ -208,12 +247,12 @@ func (s *Server) redetectK8sIfNeeded(ctx context.Context) {
 // ensureOCIEnriched attempts lazy OCI enrichment if it was not available at startup.
 // Safe for concurrent calls: guarded by enrichMu with a cooldown between attempts.
 func (s *Server) ensureOCIEnriched(ctx context.Context) {
-	if s.lazyEnrich == nil || s.enrichDone {
+	if s.lazyEnrich == nil || s.enrichDone.Load() {
 		return
 	}
 	s.enrichMu.Lock()
 	defer s.enrichMu.Unlock()
-	if s.enrichDone {
+	if s.enrichDone.Load() {
 		return
 	}
 	if time.Since(s.enrichLastTry) < enrichCooldown {
@@ -222,7 +261,7 @@ func (s *Server) ensureOCIEnriched(ctx context.Context) {
 	s.enrichLastTry = time.Now()
 	slog.Info("lazy OCI enrichment: attempting discovery from K8s")
 	if s.lazyEnrich(ctx) {
-		s.enrichDone = true
+		s.enrichDone.Store(true)
 		slog.Info("lazy OCI enrichment: succeeded, OCI source now active")
 	} else {
 		slog.Debug("lazy OCI enrichment: not yet available, will retry on next request")
@@ -269,6 +308,11 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 
 	select {
 	case <-ctx.Done():
+		// Stop the detached OCI background discovery loop so it does not
+		// outlive the server.
+		if oci := s.getOCISource(); oci != nil {
+			oci.Close()
+		}
 		return srv.Close()
 	case err := <-errCh:
 		return err
@@ -606,7 +650,7 @@ func (s *Server) health(_ context.Context, _ *struct{}) (*healthOutput, error) {
 
 func (s *Server) metrics(ctx context.Context, _ *struct{}) (*metricsOutput, error) {
 	out := &metricsOutput{}
-	out.Body.SourceCount = len(s.sourceInfo)
+	out.Body.SourceCount = len(s.getSourceInfo())
 	if s.source != nil {
 		services, err := s.source.ListServices(ctx)
 		if err == nil {
@@ -929,8 +973,8 @@ func (s *Server) refresh(ctx context.Context, _ *struct{}) (*refreshOutput, erro
 	}
 
 	// Invalidate all caches.
-	if s.memCache != nil {
-		s.memCache.InvalidateAll()
+	if mc := s.getMemCache(); mc != nil {
+		mc.InvalidateAll()
 	}
 	s.indexMu.Lock()
 	s.indexCache = nil
@@ -943,16 +987,16 @@ func (s *Server) refresh(ctx context.Context, _ *struct{}) (*refreshOutput, erro
 
 func (s *Server) getSources(_ context.Context, _ *struct{}) (*getSourcesOutput, error) {
 	out := &getSourcesOutput{}
-	out.Body.Sources = s.sourceInfo
-	if s.ociSource != nil {
-		out.Body.Discovering = s.ociSource.Discovering()
+	out.Body.Sources = s.getSourceInfo()
+	if oci := s.getOCISource(); oci != nil {
+		out.Body.Discovering = oci.Discovering()
 	}
 	return out, nil
 }
 
 func (s *Server) debugSources(ctx context.Context, _ *struct{}) (*debugSourcesOutput, error) {
 	out := &debugSourcesOutput{}
-	out.Body.Sources = s.sourceInfo
+	out.Body.Sources = s.getSourceInfo()
 	out.Body.Diagnostics = s.diagnostics
 
 	if s.source != nil {
@@ -1191,25 +1235,30 @@ func appendIncomingRef(refs []CrossReference, d *ServiceDetails, targetName, ref
 // known, it creates one on-the-fly and wires it into the OCI source's
 // internal cache (never as a separate public source).
 func (s *Server) RefreshCacheSources() {
-	if s.cacheSource == nil && s.cacheDir != "" {
+	cacheSource := s.getCacheSource()
+	ociSource := s.getOCISource()
+	if cacheSource == nil && s.cacheDir != "" {
 		cs := NewCacheSource(s.cacheDir)
 		if cs.ServiceCount() > 0 {
+			cacheSource = cs
+			s.cfgMu.Lock()
 			s.cacheSource = cs
+			s.cfgMu.Unlock()
 			// Wire into OCI's internal cache for enrichment, not as a public source.
-			if s.ociSource != nil {
-				s.ociSource.SetCache(cs)
+			if ociSource != nil {
+				ociSource.SetCache(cs)
 			}
 		}
 	}
-	if s.cacheSource != nil {
-		s.cacheSource.Rescan()
+	if cacheSource != nil {
+		cacheSource.Rescan()
 	}
 	// Also tell the OCI source to rescan its internal cache view.
-	if s.ociSource != nil {
-		s.ociSource.RescanCache()
+	if ociSource != nil {
+		ociSource.RescanCache()
 	}
-	if s.memCache != nil {
-		s.memCache.InvalidateAll()
+	if mc := s.getMemCache(); mc != nil {
+		mc.InvalidateAll()
 	}
 	s.indexMu.Lock()
 	s.indexCache = nil
