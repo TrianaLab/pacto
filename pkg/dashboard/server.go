@@ -542,35 +542,35 @@ type ServiceNameInput struct {
 }
 
 type listServicesOutput struct {
-	Body []ServiceListEntry `json:"body" doc:"List of enriched services"`
+	Body []ServiceListEntry `doc:"List of enriched services"`
 }
 
 type getServiceOutput struct {
-	Body *ServiceDetails `json:"body" doc:"Service details"`
+	Body *ServiceDetails `doc:"Service details"`
 }
 
 type getVersionsOutput struct {
-	Body []Version `json:"body" doc:"Version history"`
+	Body []Version `doc:"Version history"`
 }
 
 type getServiceSourcesOutput struct {
-	Body *AggregatedService `json:"body" doc:"Per-source breakdown and merged view"`
+	Body *AggregatedService `doc:"Per-source breakdown and merged view"`
 }
 
 type getGlobalGraphOutput struct {
-	Body *GlobalGraph `json:"body" doc:"Global dependency graph"`
+	Body *GlobalGraph `doc:"Global dependency graph"`
 }
 
 type getServiceGraphOutput struct {
-	Body *DependencyGraph `json:"body" doc:"Service dependency graph"`
+	Body *DependencyGraph `doc:"Service dependency graph"`
 }
 
 type getDependentsOutput struct {
-	Body []DependentInfo `json:"body" doc:"Services that depend on this service"`
+	Body []DependentInfo `doc:"Services that depend on this service"`
 }
 
 type getCrossRefsOutput struct {
-	Body *CrossReferences `json:"body" doc:"Config/policy cross-references"`
+	Body *CrossReferences `doc:"Config/policy cross-references"`
 }
 
 type diffInput struct {
@@ -581,7 +581,7 @@ type diffInput struct {
 }
 
 type getDiffOutput struct {
-	Body *DiffResult `json:"body" doc:"Classified diff between two versions"`
+	Body *DiffResult `doc:"Classified diff between two versions"`
 }
 
 type getSourcesOutput struct {
@@ -607,7 +607,7 @@ type resolveRefInput struct {
 }
 
 type resolveRefOutput struct {
-	Body *ServiceDetails `json:"body" doc:"Resolved service details"`
+	Body *ServiceDetails `doc:"Resolved service details"`
 }
 
 type listRemoteVersionsInput struct {
