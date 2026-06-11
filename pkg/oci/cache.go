@@ -1,10 +1,8 @@
 package oci
 
 import (
-	"bytes"
 	"compress/gzip"
 	"context"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -177,18 +175,7 @@ func (c *CachedStore) loadFromCache(path string) (*contract.Bundle, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	rawYAML, err := fs.ReadFile(fsys, "pacto.yaml")
-	if err != nil {
-		return nil, err
-	}
-
-	ct, err := contract.Parse(bytes.NewReader(rawYAML))
-	if err != nil {
-		return nil, err
-	}
-
-	return &contract.Bundle{Contract: ct, RawYAML: rawYAML, FS: fsys}, nil
+	return bundleFromFS(fsys)
 }
 
 func (c *CachedStore) saveToCache(path string, bundle *contract.Bundle) error {

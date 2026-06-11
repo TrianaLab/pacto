@@ -145,18 +145,20 @@ func imageToBundle(img v1.Image) (*contract.Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract layer: %w", err)
 	}
+	return bundleFromFS(fsys)
+}
 
-	// Read raw YAML bytes and parse the contract from the extracted FS.
+// bundleFromFS reads and parses pacto.yaml from an extracted bundle filesystem
+// into a Bundle. Shared by imageToBundle and the on-disk cache loader.
+func bundleFromFS(fsys fs.FS) (*contract.Bundle, error) {
 	rawYAML, err := fs.ReadFile(fsys, "pacto.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("bundle missing pacto.yaml: %w", err)
 	}
-
 	c, err := contract.Parse(bytes.NewReader(rawYAML))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse contract from bundle: %w", err)
 	}
-
 	return &contract.Bundle{Contract: c, RawYAML: rawYAML, FS: fsys}, nil
 }
 
