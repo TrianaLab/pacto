@@ -192,9 +192,6 @@ Services are grouped by name across sources and merged using priority rules:
 			if detectResult.OCI != nil {
 				detectResult.OCI.SetOnDiscover(server.RefreshCacheSources)
 			}
-			// Always store the cache directory so fetch-all-versions can
-			// create a CacheSource on-the-fly (even with --no-cache).
-			server.SetCacheDir(cacheDir)
 
 			// Lazy OCI enrichment: if startup retries didn't find OCI repos,
 			// register a callback so the server can retry on first API request.

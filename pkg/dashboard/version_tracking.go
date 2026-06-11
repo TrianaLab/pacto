@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/trianalab/pacto/pkg/oci"
 )
 
 // Version policy constants describe how a service tracks its contract version.
@@ -70,16 +71,14 @@ func classifyVersionPolicy(resolvedRef string) string {
 // extractTag returns the tag portion of an OCI ref, or empty string if none.
 // Handles "registry/repo:tag" and "registry/repo" (no tag).
 func extractTag(ref string) string {
-	// Strip digest if present.
+	// Strip digest if present, then reuse the shared tag-detection logic.
 	if idx := strings.Index(ref, "@"); idx >= 0 {
 		ref = ref[:idx]
 	}
-	lastSlash := strings.LastIndex(ref, "/")
-	lastColon := strings.LastIndex(ref, ":")
-	if lastColon > lastSlash {
-		return ref[lastColon+1:]
+	if !oci.HasExplicitTag(ref) {
+		return ""
 	}
-	return ""
+	return ref[strings.LastIndex(ref, ":")+1:]
 }
 
 // computeLatestAvailable returns the highest semver version from a version list.

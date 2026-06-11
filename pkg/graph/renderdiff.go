@@ -39,17 +39,21 @@ func renderDiffChildren(b *strings.Builder, children []DiffNode, prefix string) 
 	}
 }
 
+// diffLabelWidth is the left-aligned column width for service names in the diff
+// tree, sized so the version transition that follows lines up across rows.
+const diffLabelWidth = 14
+
 func formatDiffLabel(n DiffNode) string {
 	if n.Change == nil {
 		return n.Name
 	}
 	switch n.Change.ChangeType {
 	case VersionChanged:
-		return fmt.Sprintf("%-14s%s → %s", n.Name, n.Change.OldVersion, n.Change.NewVersion)
+		return fmt.Sprintf("%-*s%s → %s", diffLabelWidth, n.Name, n.Change.OldVersion, n.Change.NewVersion)
 	case AddedNode:
-		return fmt.Sprintf("%-14s+%s", n.Name, n.Change.NewVersion)
+		return fmt.Sprintf("%-*s+%s", diffLabelWidth, n.Name, n.Change.NewVersion)
 	case RemovedNode:
-		return fmt.Sprintf("%-14s-%s", n.Name, n.Change.OldVersion)
+		return fmt.Sprintf("%-*s-%s", diffLabelWidth, n.Name, n.Change.OldVersion)
 	default:
 		return n.Name
 	}
