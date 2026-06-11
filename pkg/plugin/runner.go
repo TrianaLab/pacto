@@ -10,6 +10,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+)
+
+// Plugin execution limits, overridable in tests. They bound a buggy or hostile
+// plugin: pluginTimeout caps wall-clock, maxPluginOutput caps buffered stdout.
+var (
+	pluginTimeout   = 60 * time.Second
+	maxPluginOutput = 64 << 20 // 64 MB
 )
 
 // Runner executes a plugin by name with the given request.
@@ -19,6 +27,28 @@ type Runner interface {
 
 // SubprocessRunner discovers and executes plugin binaries via stdin/stdout JSON.
 type SubprocessRunner struct{}
+
+// cappedBuffer buffers up to limit bytes and then discards the rest, recording
+// that truncation happened. It never blocks the child process.
+type cappedBuffer struct {
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if remaining := c.limit - c.buf.Len(); remaining > 0 {
+		if len(p) > remaining {
+			c.buf.Write(p[:remaining])
+			c.truncated = true
+		} else {
+			c.buf.Write(p)
+		}
+	} else if len(p) > 0 {
+		c.truncated = true
+	}
+	return len(p), nil
+}
 
 // Run finds the plugin binary, spawns it, writes the request JSON to stdin,
 // and reads the response JSON from stdout.
@@ -36,14 +66,24 @@ func (r *SubprocessRunner) Run(ctx context.Context, name string, req GenerateReq
 	}
 
 	slog.Debug("executing plugin", "plugin", name)
+	ctx, cancel := context.WithTimeout(ctx, pluginTimeout)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, binary)
 	cmd.Stdin = bytes.NewReader(input)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	stdout := &cappedBuffer{limit: maxPluginOutput}
+	var stderr bytes.Buffer
+	cmd.Stdout = stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	err = cmd.Run()
+	if stdout.truncated {
+		return nil, fmt.Errorf("plugin %s: output exceeded %d bytes", name, maxPluginOutput)
+	}
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("plugin %s: timed out after %s", name, pluginTimeout)
+		}
 		if errMsg := strings.TrimSpace(stderr.String()); errMsg != "" {
 			return nil, fmt.Errorf("plugin %s: %s", name, errMsg)
 		}
@@ -51,7 +91,7 @@ func (r *SubprocessRunner) Run(ctx context.Context, name string, req GenerateReq
 	}
 
 	var resp GenerateResponse
-	if err := json.Unmarshal(stdout.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(stdout.buf.Bytes(), &resp); err != nil {
 		return nil, fmt.Errorf("plugin %s returned invalid output: %w", name, err)
 	}
 

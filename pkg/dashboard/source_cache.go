@@ -306,13 +306,26 @@ func loadBundleTarGz(path string) (*contract.Bundle, error) {
 const (
 	maxBundleFileSize  = 10 << 20 // 10 MB per file
 	maxBundleTotalSize = 50 << 20 // 50 MB total
+	maxBundleEntries   = 10000    // max number of tar entries
 )
+
+// dotDotComponent reports whether any path component is "..", i.e. a real
+// traversal (as opposed to a name that merely contains "..").
+func dotDotComponent(name string) bool {
+	for _, part := range strings.Split(name, "/") {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
+}
 
 // extractTar reads a tar stream and returns an in-memory FS.
 func extractTar(r io.Reader) (fs.FS, error) {
 	memFS := fstest.MapFS{}
 	tr := tar.NewReader(r)
 	var totalSize int64
+	var entries int
 
 	for {
 		header, err := tr.Next()
@@ -323,17 +336,25 @@ func extractTar(r io.Reader) (fs.FS, error) {
 			return nil, fmt.Errorf("reading tar entry: %w", err)
 		}
 
+		entries++
+		if entries > maxBundleEntries {
+			return nil, fmt.Errorf("tar has too many entries (>%d)", maxBundleEntries)
+		}
+
 		name := filepath.ToSlash(strings.TrimPrefix(header.Name, "./"))
 		if name == "" || name == "." {
 			continue
 		}
-		if strings.Contains(name, "..") {
+		if dotDotComponent(name) {
 			return nil, fmt.Errorf("invalid path in tar: %s", header.Name)
 		}
 
 		if header.Typeflag == tar.TypeDir {
 			memFS[name] = &fstest.MapFile{Mode: fs.ModeDir | 0755}
 			continue
+		}
+		if header.Typeflag != tar.TypeReg {
+			return nil, fmt.Errorf("unsupported tar entry type %q for %s", string(header.Typeflag), name)
 		}
 
 		data, err := io.ReadAll(io.LimitReader(tr, maxBundleFileSize+1))
