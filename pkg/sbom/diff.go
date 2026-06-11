@@ -1,5 +1,7 @@
 package sbom
 
+import "sort"
+
 // ChangeType describes how an SBOM package changed.
 type ChangeType string
 
@@ -117,7 +119,23 @@ func Diff(old, new *Document) *Result {
 		}
 	}
 
+	// Changes are collected from map iteration above, so sort for a stable,
+	// reproducible order in rendered/serialized output.
+	sortChanges(result.Changes)
 	return result
+}
+
+// sortChanges orders changes deterministically by package, then field, then type.
+func sortChanges(changes []Change) {
+	sort.Slice(changes, func(i, j int) bool {
+		if changes[i].Package != changes[j].Package {
+			return changes[i].Package < changes[j].Package
+		}
+		if changes[i].Field != changes[j].Field {
+			return changes[i].Field < changes[j].Field
+		}
+		return changes[i].Type < changes[j].Type
+	})
 }
 
 func indexPackages(pkgs []Package) map[string]Package {

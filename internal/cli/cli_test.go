@@ -183,6 +183,30 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestVersionCommand_Formats(t *testing.T) {
+	for _, tc := range []struct {
+		format string
+		want   string
+	}{
+		{"json", `"version": "1.2.3"`},
+		{"markdown", "| Pacto | 1.2.3 |"},
+	} {
+		t.Run(tc.format, func(t *testing.T) {
+			svc := app.NewService(nil, nil)
+			root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "1.2.3", GitCommit: "abc", BuildDate: "today"})
+			root.SetArgs([]string{"version", "--output-format", tc.format})
+			var out bytes.Buffer
+			root.SetOut(&out)
+			if err := root.Execute(); err != nil {
+				t.Fatalf("version %s failed: %v", tc.format, err)
+			}
+			if !strings.Contains(out.String(), tc.want) {
+				t.Errorf("expected %q in output, got %q", tc.want, out.String())
+			}
+		})
+	}
+}
+
 func TestValidateJSONOutput(t *testing.T) {
 	orig, _ := os.Getwd()
 	dir := t.TempDir()

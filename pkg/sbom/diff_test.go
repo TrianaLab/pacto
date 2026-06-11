@@ -4,6 +4,30 @@ import (
 	"testing"
 )
 
+func TestSortChanges(t *testing.T) {
+	changes := []Change{
+		{Package: "b", Field: "version", Type: PackageModified},
+		{Package: "a", Field: "version", Type: PackageModified},
+		{Package: "a", Field: "license", Type: PackageModified},
+		{Package: "a", Field: "package", Type: PackageRemoved},
+		{Package: "a", Field: "package", Type: PackageAdded}, // same pkg+field, differs by type
+	}
+	sortChanges(changes)
+
+	want := []Change{
+		{Package: "a", Field: "license", Type: PackageModified},
+		{Package: "a", Field: "package", Type: PackageAdded},
+		{Package: "a", Field: "package", Type: PackageRemoved},
+		{Package: "a", Field: "version", Type: PackageModified},
+		{Package: "b", Field: "version", Type: PackageModified},
+	}
+	for i := range want {
+		if changes[i] != want[i] {
+			t.Errorf("position %d: got %+v, want %+v", i, changes[i], want[i])
+		}
+	}
+}
+
 func TestDiff_BothNil(t *testing.T) {
 	result := Diff(nil, nil)
 	if result != nil {
