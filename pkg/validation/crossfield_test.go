@@ -210,7 +210,7 @@ func TestValidateDependencyRefs_TagNotDigestWarning(t *testing.T) {
 func TestValidateDependencyRefs_EmptyCompatibility(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: ""},
+		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: ""},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
@@ -222,7 +222,7 @@ func TestValidateDependencyRefs_EmptyCompatibility(t *testing.T) {
 func TestValidateDependencyRefs_InvalidCompatibility(t *testing.T) {
 	c := validContract()
 	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc@sha256:abc123", Compatibility: "not-a-range"},
+		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "not-a-range"},
 	}
 	var result ValidationResult
 	validateDependencyRefs(c, &result)
