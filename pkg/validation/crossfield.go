@@ -212,97 +212,52 @@ func validateHealthInterface(c *contract.Contract, result *ValidationResult) {
 	if c.Runtime == nil || c.Runtime.Health == nil {
 		return
 	}
-	healthIface := c.Runtime.Health.Interface
-
-	var found *contract.Interface
-	for i := range c.Interfaces {
-		if c.Interfaces[i].Name == healthIface {
-			found = &c.Interfaces[i]
-			break
-		}
-	}
-
-	if found == nil {
-		result.AddError(
-			"runtime.health.interface",
-			"HEALTH_INTERFACE_NOT_FOUND",
-			fmt.Sprintf("health interface %q does not match any declared interface", healthIface),
-		)
-		return
-	}
-
-	if found.Type == contract.InterfaceTypeEvent {
-		result.AddError(
-			"runtime.health.interface",
-			"HEALTH_INTERFACE_INVALID",
-			fmt.Sprintf("health interface %q is an event interface; health checks require http or grpc", healthIface),
-		)
-		return
-	}
-
-	if found.Type == contract.InterfaceTypeHTTP && c.Runtime.Health.Path == "" {
-		result.AddError(
-			"runtime.health.path",
-			"HEALTH_PATH_REQUIRED",
-			"health check path is required when the health interface type is http",
-		)
-	}
-
-	if found.Type == contract.InterfaceTypeGRPC && c.Runtime.Health.Path != "" {
-		result.AddWarning(
-			"runtime.health.path",
-			"HEALTH_PATH_IGNORED",
-			"health check path is not used for grpc interfaces; gRPC uses the standard health protocol",
-		)
-	}
+	validateProbeInterface(c, result, "health", c.Runtime.Health.Interface, c.Runtime.Health.Path)
 }
 
 func validateMetricsInterface(c *contract.Contract, result *ValidationResult) {
 	if c.Runtime == nil || c.Runtime.Metrics == nil {
 		return
 	}
-	metricsIface := c.Runtime.Metrics.Interface
+	validateProbeInterface(c, result, "metrics", c.Runtime.Metrics.Interface, c.Runtime.Metrics.Path)
+}
+
+// validateProbeInterface validates a runtime probe (health or metrics) interface
+// reference: it must name a declared http/grpc interface, http probes require a
+// path, and grpc probes must not set one. kind drives the field path, error
+// codes, and messages so health and metrics share one implementation.
+func validateProbeInterface(c *contract.Contract, result *ValidationResult, kind, iface, path string) {
+	field := "runtime." + kind
+	code := strings.ToUpper(kind)
 
 	var found *contract.Interface
 	for i := range c.Interfaces {
-		if c.Interfaces[i].Name == metricsIface {
+		if c.Interfaces[i].Name == iface {
 			found = &c.Interfaces[i]
 			break
 		}
 	}
 
 	if found == nil {
-		result.AddError(
-			"runtime.metrics.interface",
-			"METRICS_INTERFACE_NOT_FOUND",
-			fmt.Sprintf("metrics interface %q does not match any declared interface", metricsIface),
-		)
+		result.AddError(field+".interface", code+"_INTERFACE_NOT_FOUND",
+			fmt.Sprintf("%s interface %q does not match any declared interface", kind, iface))
 		return
 	}
 
 	if found.Type == contract.InterfaceTypeEvent {
-		result.AddError(
-			"runtime.metrics.interface",
-			"METRICS_INTERFACE_INVALID",
-			fmt.Sprintf("metrics interface %q is an event interface; metrics require http or grpc", metricsIface),
-		)
+		result.AddError(field+".interface", code+"_INTERFACE_INVALID",
+			fmt.Sprintf("%s interface %q is an event interface; %s checks require http or grpc", kind, iface, kind))
 		return
 	}
 
-	if found.Type == contract.InterfaceTypeHTTP && c.Runtime.Metrics.Path == "" {
-		result.AddError(
-			"runtime.metrics.path",
-			"METRICS_PATH_REQUIRED",
-			"metrics path is required when the metrics interface type is http",
-		)
+	if found.Type == contract.InterfaceTypeHTTP && path == "" {
+		result.AddError(field+".path", code+"_PATH_REQUIRED",
+			fmt.Sprintf("%s path is required when the %s interface type is http", kind, kind))
 	}
 
-	if found.Type == contract.InterfaceTypeGRPC && c.Runtime.Metrics.Path != "" {
-		result.AddWarning(
-			"runtime.metrics.path",
-			"METRICS_PATH_IGNORED",
-			"metrics path is not used for grpc interfaces",
-		)
+	if found.Type == contract.InterfaceTypeGRPC && path != "" {
+		result.AddWarning(field+".path", code+"_PATH_IGNORED",
+			fmt.Sprintf("%s path is not used for grpc interfaces", kind))
 	}
 }
 
