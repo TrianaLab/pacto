@@ -35,7 +35,10 @@ const cacheFileName = "update-check.json"
 
 // Testability hooks.
 var (
-	httpClient        = &http.Client{Timeout: 5 * time.Second}
+	httpClient = &http.Client{Timeout: 5 * time.Second}
+	// downloadClient is used for binary/plugin downloads, which can be many MB
+	// and must not share the short API timeout.
+	downloadClient    = &http.Client{Timeout: 5 * time.Minute}
 	timeNow           = time.Now
 	githubAPIBaseURL  = "https://api.github.com"
 	githubDownloadURL = "https://github.com"
@@ -139,9 +142,10 @@ func WriteCacheAfterUpdate(latestVersion string) {
 // SetTestOverrides overrides package-level settings for external test packages.
 // Returns a cleanup function that restores the originals.
 func SetTestOverrides(client *http.Client, apiBaseURL, downloadBaseURL string, execFn func() (string, error)) func() {
-	origClient, origAPI, origDownload, origExec := httpClient, githubAPIBaseURL, githubDownloadURL, osExecutable
+	origClient, origDownloadClient, origAPI, origDownload, origExec := httpClient, downloadClient, githubAPIBaseURL, githubDownloadURL, osExecutable
 	if client != nil {
 		httpClient = client
+		downloadClient = client
 	}
 	if apiBaseURL != "" {
 		githubAPIBaseURL = apiBaseURL
@@ -153,7 +157,7 @@ func SetTestOverrides(client *http.Client, apiBaseURL, downloadBaseURL string, e
 		osExecutable = execFn
 	}
 	return func() {
-		httpClient, githubAPIBaseURL, githubDownloadURL, osExecutable = origClient, origAPI, origDownload, origExec
+		httpClient, downloadClient, githubAPIBaseURL, githubDownloadURL, osExecutable = origClient, origDownloadClient, origAPI, origDownload, origExec
 	}
 }
 

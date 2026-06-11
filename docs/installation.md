@@ -48,7 +48,7 @@ pacto update
 pacto update v1.2.0
 ```
 
-This downloads the new binary and replaces the current one. No additional tools required.
+This downloads the new binary, **verifies its SHA-256 against the `checksums.txt` published with the release**, and only then replaces the current one. If the download is corrupted, truncated, or tampered with, the update is aborted and the existing binary is left untouched. No additional tools required.
 
 !!! note
     If you installed via `go install`, use `go install github.com/trianalab/pacto/cmd/pacto@latest` to update instead.

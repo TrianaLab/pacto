@@ -3,10 +3,12 @@ package update
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -179,6 +181,8 @@ func TestUpdatePlugins_Success(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/TrianaLab/pacto-plugins/releases/latest":
 			_ = json.NewEncoder(w).Encode(githubRelease{TagName: "v1.0.0"})
+		case "/TrianaLab/pacto-plugins/releases/download/v1.0.0/checksums.txt":
+			writePluginChecksums(w, "pacto-plugin-foo", "new-plugin-binary")
 		default:
 			_, _ = w.Write([]byte("new-plugin-binary"))
 		}
@@ -284,6 +288,8 @@ func TestUpdatePlugins_DownloadError(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/TrianaLab/pacto-plugins/releases/latest":
 			_ = json.NewEncoder(w).Encode(githubRelease{TagName: "v1.0.0"})
+		case "/TrianaLab/pacto-plugins/releases/download/v1.0.0/checksums.txt":
+			writePluginChecksums(w, "pacto-plugin-foo", "new-plugin-binary")
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
 		}
@@ -311,6 +317,85 @@ func TestUpdatePlugins_DownloadError(t *testing.T) {
 	}
 }
 
+func TestUpdatePlugins_ChecksumsFetchError(t *testing.T) {
+	setupTestEnv(t)
+
+	execDir := t.TempDir()
+	execPath := filepath.Join(execDir, "pacto")
+	if err := os.WriteFile(execPath, []byte("bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(execDir, "pacto-plugin-foo"), []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/TrianaLab/pacto-plugins/releases/latest":
+			_ = json.NewEncoder(w).Encode(githubRelease{TagName: "v1.0.0"})
+		default:
+			// checksums.txt (and anything else) errors.
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(server.Close)
+	overrideGitHubAPI(t, server)
+
+	origDownload := githubDownloadURL
+	githubDownloadURL = server.URL
+	defer func() { githubDownloadURL = origDownload }()
+
+	origExec := osExecutable
+	osExecutable = func() (string, error) { return execPath, nil }
+	defer func() { osExecutable = origExec }()
+
+	if _, err := UpdatePlugins(); err == nil || !strings.Contains(err.Error(), "failed to fetch plugin checksums") {
+		t.Fatalf("expected checksums fetch error, got %v", err)
+	}
+}
+
+func TestUpdatePlugins_MissingChecksum(t *testing.T) {
+	setupTestEnv(t)
+
+	execDir := t.TempDir()
+	execPath := filepath.Join(execDir, "pacto")
+	if err := os.WriteFile(execPath, []byte("bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(execDir, "pacto-plugin-foo"), []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/TrianaLab/pacto-plugins/releases/latest":
+			_ = json.NewEncoder(w).Encode(githubRelease{TagName: "v1.0.0"})
+		case "/TrianaLab/pacto-plugins/releases/download/v1.0.0/checksums.txt":
+			// Checksums published, but not for our plugin.
+			_, _ = io.WriteString(w, "abc  some-other-plugin_linux_amd64\n")
+		default:
+			_, _ = w.Write([]byte("new-plugin-binary"))
+		}
+	}))
+	t.Cleanup(server.Close)
+	overrideGitHubAPI(t, server)
+
+	origDownload := githubDownloadURL
+	githubDownloadURL = server.URL
+	defer func() { githubDownloadURL = origDownload }()
+
+	origExec := osExecutable
+	osExecutable = func() (string, error) { return execPath, nil }
+	defer func() { osExecutable = origExec }()
+
+	if _, err := UpdatePlugins(); err == nil || !strings.Contains(err.Error(), "no checksum published for plugin") {
+		t.Fatalf("expected missing-checksum error, got %v", err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(execDir, "pacto-plugin-foo")); string(data) != "old" {
+		t.Errorf("expected plugin unchanged, got %q", data)
+	}
+}
+
 func TestUpdatePlugins_WindowsExt(t *testing.T) {
 	setupTestEnv(t)
 
@@ -331,6 +416,8 @@ func TestUpdatePlugins_WindowsExt(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/TrianaLab/pacto-plugins/releases/latest":
 			_ = json.NewEncoder(w).Encode(githubRelease{TagName: "v1.0.0"})
+		case "/TrianaLab/pacto-plugins/releases/download/v1.0.0/checksums.txt":
+			writePluginChecksums(w, "pacto-plugin-foo", "new-plugin")
 		default:
 			_, _ = w.Write([]byte("new-plugin"))
 		}

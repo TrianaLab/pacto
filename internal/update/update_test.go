@@ -2,8 +2,11 @@ package update
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +20,28 @@ import (
 type errWriter struct{}
 
 func (*errWriter) Write([]byte) (int, error) { return 0, fmt.Errorf("write error") }
+
+// sha256hex returns the hex-encoded SHA-256 of s, matching the checksums.txt
+// format the updater verifies against.
+func sha256hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+// writeChecksums writes a sha256sum-format line for the current platform binary
+// asset to w (used by the test release servers).
+func writeChecksums(w io.Writer, content string) {
+	_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex(content), binaryAssetName())
+}
+
+// writePluginChecksums writes a sha256sum-format line for a plugin asset.
+func writePluginChecksums(w io.Writer, name, content string) {
+	ext := ""
+	if runtimeGOOS == "windows" {
+		ext = ".exe"
+	}
+	_, _ = fmt.Fprintf(w, "%s  %s_%s_%s%s\n", sha256hex(content), name, runtimeGOOS, runtimeGOARCH, ext)
+}
 
 func TestBuildDownloadURL(t *testing.T) {
 	tests := []struct {
@@ -136,6 +161,8 @@ func TestUpdate_LatestVersion(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(githubRelease{TagName: "v2.0.0"})
 		case "/repos/TrianaLab/pacto/releases/tags/v2.0.0":
 			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v2.0.0"})
+		case "/TrianaLab/pacto/releases/download/v2.0.0/checksums.txt":
+			writeChecksums(w, "#!/bin/sh\necho updated")
 		default:
 			// Binary download
 			_, _ = w.Write([]byte("#!/bin/sh\necho updated"))
@@ -194,6 +221,8 @@ func TestUpdate_SpecificVersion(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/TrianaLab/pacto/releases/tags/v1.5.0":
 			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v1.5.0"})
+		case "/TrianaLab/pacto/releases/download/v1.5.0/checksums.txt":
+			writeChecksums(w, "new-binary")
 		default:
 			_, _ = w.Write([]byte("new-binary"))
 		}
@@ -299,7 +328,7 @@ func TestDownloadAndReplace_ExecutableError(t *testing.T) {
 	osExecutable = func() (string, error) { return "", fmt.Errorf("executable error") }
 	defer func() { osExecutable = origExec }()
 
-	err := downloadAndReplace("http://example.com/binary")
+	err := downloadAndReplace("http://example.com/binary", "")
 	if err == nil {
 		t.Fatal("expected error from osExecutable")
 	}
@@ -313,7 +342,7 @@ func TestDownloadAndReplace_EvalSymlinksError(t *testing.T) {
 	osExecutable = func() (string, error) { return "/nonexistent/path/pacto", nil }
 	defer func() { osExecutable = origExec }()
 
-	err := downloadAndReplace("http://example.com/binary")
+	err := downloadAndReplace("http://example.com/binary", "")
 	if err == nil {
 		t.Fatal("expected error from EvalSymlinks")
 	}
@@ -337,7 +366,7 @@ func TestDownloadAndReplace_CreateTempError(t *testing.T) {
 	osExecutable = func() (string, error) { return execPath, nil }
 	defer func() { osExecutable = origExec }()
 
-	err := downloadAndReplace("http://example.com/binary")
+	err := downloadAndReplace("http://example.com/binary", "")
 	if err == nil {
 		t.Fatal("expected error from CreateTemp in read-only directory")
 	}
@@ -366,7 +395,7 @@ func TestDownloadAndReplace_ChmodError(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	err := downloadAndReplace(server.URL + "/binary")
+	err := downloadAndReplace(server.URL+"/binary", sha256hex("new-binary"))
 	if err == nil {
 		t.Fatal("expected error from chmod")
 	}
@@ -395,7 +424,7 @@ func TestDownloadAndReplace_RenameError(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	err := downloadAndReplace(server.URL + "/binary")
+	err := downloadAndReplace(server.URL+"/binary", sha256hex("new-binary"))
 	if err == nil {
 		t.Fatal("expected error from rename")
 	}
@@ -441,9 +470,9 @@ func TestDownloadBinary_InvalidURL(t *testing.T) {
 }
 
 func TestDownloadBinary_TransportError(t *testing.T) {
-	origClient := httpClient
-	httpClient = &http.Client{Transport: &errorTransport{}}
-	defer func() { httpClient = origClient }()
+	origClient := downloadClient
+	downloadClient = &http.Client{Transport: &errorTransport{}}
+	defer func() { downloadClient = origClient }()
 
 	var buf bytes.Buffer
 	err := downloadBinary("http://example.com/binary", &buf)
@@ -453,6 +482,230 @@ func TestDownloadBinary_TransportError(t *testing.T) {
 	if !strings.Contains(err.Error(), "failed to download binary") {
 		t.Errorf("unexpected error: %v", err)
 	}
+}
+
+// shortBodyTransport returns a response whose Content-Length is larger than the
+// body actually delivered, simulating a truncated download.
+type shortBodyTransport struct{}
+
+func (*shortBodyTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode:    http.StatusOK,
+		Body:          io.NopCloser(strings.NewReader("short")),
+		ContentLength: 100,
+		Header:        make(http.Header),
+	}, nil
+}
+
+func TestDownloadBinary_ContentLengthMismatch(t *testing.T) {
+	origClient := downloadClient
+	downloadClient = &http.Client{Transport: &shortBodyTransport{}}
+	defer func() { downloadClient = origClient }()
+
+	var buf bytes.Buffer
+	err := downloadBinary("http://example.com/binary", &buf)
+	if err == nil || !strings.Contains(err.Error(), "incomplete download") {
+		t.Fatalf("expected incomplete download error, got %v", err)
+	}
+}
+
+func TestParseChecksums(t *testing.T) {
+	in := "abc123  pacto_linux_amd64\n" + // standard two-space form
+		"def456 *pacto_windows_amd64.exe\n" + // binary-mode '*' prefix
+		"\n" + // blank line ignored
+		"garbage\n" // single field ignored
+	got := parseChecksums(in)
+	if got["pacto_linux_amd64"] != "abc123" {
+		t.Errorf("linux: got %q", got["pacto_linux_amd64"])
+	}
+	if got["pacto_windows_amd64.exe"] != "def456" {
+		t.Errorf("windows (*) prefix not stripped: got %q", got["pacto_windows_amd64.exe"])
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(got))
+	}
+}
+
+func TestVerifyChecksum(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bin")
+	if err := os.WriteFile(path, []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := verifyChecksum(path, sha256hex("hello")); err != nil {
+		t.Errorf("expected match, got %v", err)
+	}
+	if err := verifyChecksum(path, "deadbeef"); err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Errorf("expected mismatch error, got %v", err)
+	}
+	if err := verifyChecksum(filepath.Join(dir, "nope"), "x"); err == nil || !strings.Contains(err.Error(), "failed to read downloaded file") {
+		t.Errorf("expected read error, got %v", err)
+	}
+}
+
+func TestFetchChecksums(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, "abc  pacto_linux_amd64\n")
+		}))
+		t.Cleanup(server.Close)
+		sums, err := fetchChecksums(server.URL + "/checksums.txt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sums["pacto_linux_amd64"] != "abc" {
+			t.Errorf("got %v", sums)
+		}
+	})
+
+	t.Run("http error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		t.Cleanup(server.Close)
+		if _, err := fetchChecksums(server.URL + "/checksums.txt"); err == nil {
+			t.Fatal("expected error for 404")
+		}
+	})
+
+	t.Run("invalid url", func(t *testing.T) {
+		if _, err := fetchChecksums(string([]byte{0x7f})); err == nil {
+			t.Fatal("expected error for invalid url")
+		}
+	})
+
+	t.Run("transport error", func(t *testing.T) {
+		orig := httpClient
+		httpClient = &http.Client{Transport: &errorTransport{}}
+		defer func() { httpClient = orig }()
+		if _, err := fetchChecksums("http://example.com/checksums.txt"); err == nil {
+			t.Fatal("expected transport error")
+		}
+	})
+
+	t.Run("body read error", func(t *testing.T) {
+		orig := httpClient
+		httpClient = &http.Client{Transport: &errorBodyTransport{}}
+		defer func() { httpClient = orig }()
+		if _, err := fetchChecksums("http://example.com/checksums.txt"); err == nil {
+			t.Fatal("expected body read error")
+		}
+	})
+}
+
+func TestExpectedChecksum_MissingAsset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "abc  some-other-asset\n")
+	}))
+	t.Cleanup(server.Close)
+	if _, err := expectedChecksum(server.URL+"/checksums.txt", "pacto_linux_amd64"); err == nil ||
+		!strings.Contains(err.Error(), "no checksum published") {
+		t.Fatalf("expected missing-asset error, got %v", err)
+	}
+}
+
+func TestExpectedChecksum_FetchError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	if _, err := expectedChecksum(server.URL+"/checksums.txt", "x"); err == nil ||
+		!strings.Contains(err.Error(), "failed to fetch release checksums") {
+		t.Fatalf("expected fetch error, got %v", err)
+	}
+}
+
+func TestUpdate_ChecksumMismatch(t *testing.T) {
+	setupTestEnv(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/TrianaLab/pacto/releases/tags/v2.0.0":
+			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v2.0.0"})
+		case strings.HasSuffix(r.URL.Path, "checksums.txt"):
+			// Publish a checksum that does NOT match the served binary.
+			_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex("the-real-binary"), binaryAssetName())
+		default:
+			_, _ = w.Write([]byte("a-tampered-binary"))
+		}
+	}))
+	t.Cleanup(server.Close)
+	overrideGitHubAPI(t, server)
+
+	origDownload := githubDownloadURL
+	githubDownloadURL = server.URL
+	defer func() { githubDownloadURL = origDownload }()
+
+	execDir := t.TempDir()
+	execPath := filepath.Join(execDir, "pacto")
+	if err := os.WriteFile(execPath, []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	origExec := osExecutable
+	osExecutable = func() (string, error) { return execPath, nil }
+	defer func() { osExecutable = origExec }()
+
+	_, err := Update("v1.0.0", "v2.0.0")
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("expected checksum mismatch error, got %v", err)
+	}
+	// The running binary must be untouched.
+	if data, _ := os.ReadFile(execPath); string(data) != "old" {
+		t.Errorf("expected binary unchanged on checksum mismatch, got %q", data)
+	}
+}
+
+func TestInstallFile_WindowsFallback(t *testing.T) {
+	origGOOS, origRename, origRemove := runtimeGOOS, osRename, osRemove
+	t.Cleanup(func() { runtimeGOOS, osRename, osRemove = origGOOS, origRename, origRemove })
+	runtimeGOOS = "windows"
+	osRemove = func(string) error { return nil }
+
+	t.Run("fallback succeeds", func(t *testing.T) {
+		var calls int
+		osRename = func(_, _ string) error {
+			calls++
+			if calls == 1 {
+				return fmt.Errorf("in use") // direct rename fails
+			}
+			return nil // move-aside + final rename succeed
+		}
+		if err := installFile("tmp", "target"); err != nil {
+			t.Fatalf("expected fallback success, got %v", err)
+		}
+	})
+
+	t.Run("move-aside fails", func(t *testing.T) {
+		var calls int
+		osRename = func(_, _ string) error {
+			calls++
+			return fmt.Errorf("fail %d", calls) // every rename fails
+		}
+		if err := installFile("tmp", "target"); err == nil ||
+			!strings.Contains(err.Error(), "failed to move current executable aside") {
+			t.Fatalf("expected move-aside error, got %v", err)
+		}
+	})
+
+	t.Run("final rename fails and restores", func(t *testing.T) {
+		var calls int
+		osRename = func(_, _ string) error {
+			calls++
+			switch calls {
+			case 1:
+				return fmt.Errorf("in use") // direct rename fails
+			case 2:
+				return nil // move-aside succeeds
+			default:
+				return fmt.Errorf("swap failed") // final rename + restore
+			}
+		}
+		if err := installFile("tmp", "target"); err == nil ||
+			!strings.Contains(err.Error(), "failed to replace binary") {
+			t.Fatalf("expected replace error, got %v", err)
+		}
+	})
 }
 
 func TestDownloadBinary_WriterError(t *testing.T) {
