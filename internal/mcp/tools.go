@@ -25,12 +25,12 @@ func createTool() *mcpsdk.Tool {
 			"version":                      {Type: "string", Description: "Service version (defaults to '0.1.0')"},
 			"owner":                        {Type: "string", Description: "Owner identifier (e.g. 'team/platform')"},
 			"interfaces":                   {Type: "string", Description: "JSON array of interfaces: [{name, type, port?, visibility?}]"},
-			"dependencies":                 {Type: "string", Description: "JSON array of dependencies: [{ref, required?, compatibility?}]"},
-			"workload":                     {Type: "string", Description: "Workload type: service, job, or scheduled"},
+			"dependencies":                 {Type: "string", Description: "JSON array of dependencies: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted)"},
+			"workload":                     {Type: "string", Description: "Workload type", Enum: []string{"service", "job", "scheduled"}},
 			"stores_data":                  {Type: "boolean", Description: "Whether the service stores data (drives state model)"},
 			"data_survives_restart":        {Type: "boolean", Description: "Whether data must survive pod restarts"},
 			"data_shared_across_instances": {Type: "boolean", Description: "Whether data is shared across instances"},
-			"data_loss_impact":             {Type: "string", Description: "Impact of data loss: low, medium, or high"},
+			"data_loss_impact":             {Type: "string", Description: "Impact of data loss", Enum: []string{"low", "medium", "high"}},
 			"config_properties":            {Type: "string", Description: "JSON array of config properties: [{name, type?, required?}]"},
 			"replicas":                     {Type: "integer", Description: "Exact replica count"},
 			"min_replicas":                 {Type: "integer", Description: "Minimum replicas for auto-scaling"},
@@ -110,13 +110,13 @@ func editTool() *mcpsdk.Tool {
 			"owner":                        {Type: "string", Description: "New owner identifier"},
 			"add_interfaces":               {Type: "string", Description: "JSON array of interfaces to add: [{name, type, port?, visibility?}]"},
 			"remove_interfaces":            {Type: "string", Description: "JSON array of interface names to remove: [\"name1\", \"name2\"]"},
-			"add_dependencies":             {Type: "string", Description: "JSON array of dependencies to add: [{ref, required?, compatibility?}]"},
+			"add_dependencies":             {Type: "string", Description: "JSON array of dependencies to add: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted)"},
 			"remove_dependencies":          {Type: "string", Description: "JSON array of dependency refs to remove: [\"ref1\", \"ref2\"]"},
-			"workload":                     {Type: "string", Description: "New workload type: service, job, or scheduled"},
+			"workload":                     {Type: "string", Description: "New workload type", Enum: []string{"service", "job", "scheduled"}},
 			"stores_data":                  {Type: "boolean", Description: "Whether the service stores data"},
 			"data_survives_restart":        {Type: "boolean", Description: "Whether data must survive pod restarts"},
 			"data_shared_across_instances": {Type: "boolean", Description: "Whether data is shared across instances"},
-			"data_loss_impact":             {Type: "string", Description: "Impact of data loss: low, medium, or high"},
+			"data_loss_impact":             {Type: "string", Description: "Impact of data loss", Enum: []string{"low", "medium", "high"}},
 			"add_config_properties":        {Type: "string", Description: "JSON array of config properties to add: [{name, type?, required?}]"},
 			"replicas":                     {Type: "integer", Description: "Exact replica count"},
 			"min_replicas":                 {Type: "integer", Description: "Minimum replicas for auto-scaling"},
@@ -271,15 +271,20 @@ func schemaHandler() mcpsdk.ToolHandler {
 type property struct {
 	Type        string
 	Description string
+	Enum        []string // optional: closed set of allowed string values
 }
 
 func inputSchema(props map[string]property, required []string) map[string]any {
 	propMap := make(map[string]any, len(props))
 	for name, p := range props {
-		propMap[name] = map[string]any{
+		entry := map[string]any{
 			"type":        p.Type,
 			"description": p.Description,
 		}
+		if len(p.Enum) > 0 {
+			entry["enum"] = p.Enum
+		}
+		propMap[name] = entry
 	}
 	schema := map[string]any{
 		"type":       "object",

@@ -495,6 +495,25 @@ func TestEdit_AddInterface(t *testing.T) {
 	}
 }
 
+func TestEdit_ScaffoldError(t *testing.T) {
+	dir := testutil.WriteTestBundle(t)
+	oldMkdir := osMkdirAll
+	defer func() { osMkdirAll = oldMkdir }()
+	osMkdirAll = func(path string, perm os.FileMode) error {
+		if strings.Contains(path, "interfaces") {
+			return fmt.Errorf("mkdir denied")
+		}
+		return oldMkdir(path, perm)
+	}
+	_, err := Edit(EditInput{
+		Path:          dir,
+		AddInterfaces: []InterfaceInput{{Name: "newhttp", Type: "http", Port: intPtr(8080)}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "failed to create") {
+		t.Fatalf("expected scaffold error from Edit, got %v", err)
+	}
+}
+
 func TestEdit_RemoveInterface(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	// First add an extra interface, then remove it
@@ -790,10 +809,10 @@ func TestDefaultVersion(t *testing.T) {
 }
 
 func TestDefaultCompatibility(t *testing.T) {
-	if c := defaultCompatibility("", "redis"); c != "^1.0.0" {
+	if c := defaultCompatibility(""); c != "^1.0.0" {
 		t.Errorf("expected ^1.0.0, got %q", c)
 	}
-	if c := defaultCompatibility("~2.0.0", "pg"); c != "~2.0.0" {
+	if c := defaultCompatibility("~2.0.0"); c != "~2.0.0" {
 		t.Errorf("expected ~2.0.0, got %q", c)
 	}
 }
@@ -1180,10 +1199,12 @@ func TestScaffoldNewInterfaceFiles(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
 
-	scaffoldNewInterfaceFiles(dir, []InterfaceInput{
+	if err := scaffoldNewInterfaceFiles(dir, []InterfaceInput{
 		{Name: "grpc-api", Type: "grpc"},
 		{Name: "events", Type: "event"}, // should be skipped
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	// gRPC file should be created
 	if _, err := os.Stat(filepath.Join(dir, "interfaces", "grpc-api.yaml")); err != nil {
@@ -1201,14 +1222,62 @@ func TestScaffoldNewInterfaceFiles_ExistingFile(t *testing.T) {
 	_ = os.MkdirAll(ifaceDir, 0755)
 	_ = os.WriteFile(filepath.Join(ifaceDir, "api.yaml"), []byte("existing"), 0644)
 
-	scaffoldNewInterfaceFiles(dir, []InterfaceInput{
+	if err := scaffoldNewInterfaceFiles(dir, []InterfaceInput{
 		{Name: "api", Type: "http"},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Should not overwrite
 	data, _ := os.ReadFile(filepath.Join(ifaceDir, "api.yaml"))
 	if string(data) != "existing" {
 		t.Error("should not overwrite existing file")
+	}
+}
+
+func TestDependencyName(t *testing.T) {
+	tests := []struct {
+		name string
+		dep  DependencyInput
+		want string
+	}{
+		{"explicit name", DependencyInput{Name: "db", Ref: "oci://ghcr.io/org/postgres:1.0.0"}, "db"},
+		{"oci ref with tag", DependencyInput{Ref: "oci://ghcr.io/org/postgres:1.0.0"}, "postgres"},
+		{"oci ref with digest", DependencyInput{Ref: "oci://ghcr.io/org/redis@sha256:abc"}, "redis"},
+		{"oci ref no tag", DependencyInput{Ref: "oci://ghcr.io/org/cache"}, "cache"},
+		{"plain name with tag", DependencyInput{Ref: "rabbitmq:3"}, "rabbitmq"},
+		{"plain name", DependencyInput{Ref: "nats"}, "nats"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := dependencyName(tt.dep); got != tt.want {
+				t.Errorf("dependencyName(%+v) = %q, want %q", tt.dep, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestScaffoldNewInterfaceFiles_MkdirError(t *testing.T) {
+	oldMkdir := osMkdirAll
+	defer func() { osMkdirAll = oldMkdir }()
+	osMkdirAll = func(string, os.FileMode) error { return fmt.Errorf("mkdir denied") }
+
+	err := scaffoldNewInterfaceFiles(t.TempDir(), []InterfaceInput{{Name: "api", Type: "http"}})
+	if err == nil || !strings.Contains(err.Error(), "failed to create") {
+		t.Fatalf("expected mkdir error, got %v", err)
+	}
+}
+
+func TestScaffoldNewInterfaceFiles_WriteError(t *testing.T) {
+	oldWrite := osWriteFile
+	defer func() { osWriteFile = oldWrite }()
+	osWriteFile = func(string, []byte, os.FileMode) error { return fmt.Errorf("disk full") }
+
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
+	err := scaffoldNewInterfaceFiles(dir, []InterfaceInput{{Name: "api", Type: "http"}})
+	if err == nil || !strings.Contains(err.Error(), "failed to write") {
+		t.Fatalf("expected write error, got %v", err)
 	}
 }
 
@@ -1839,13 +1908,6 @@ runtime:
 	}
 	if !found {
 		t.Error("expected health suggestion")
-	}
-}
-
-func TestDefaultCompatibility_OCI(t *testing.T) {
-	c := defaultCompatibility("", "oci://ghcr.io/org/svc:1.0.0")
-	if c != "^1.0.0" {
-		t.Errorf("expected ^1.0.0, got %q", c)
 	}
 }
 

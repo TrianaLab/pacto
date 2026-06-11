@@ -427,13 +427,32 @@ func interfaceContractPath(iface InterfaceInput) string {
 	return fmt.Sprintf("interfaces/%s.yaml", iface.Name)
 }
 
+// dependencyName returns the dependency's explicit name, or derives one from
+// the ref (last path segment, without the oci:// scheme, tag, or digest) when
+// omitted — so an agent that supplies only a ref still produces a contract that
+// passes structural validation (which requires dependencies[].name).
+func dependencyName(dep DependencyInput) string {
+	if dep.Name != "" {
+		return dep.Name
+	}
+	ref := strings.TrimPrefix(dep.Ref, "oci://")
+	if at := strings.IndexByte(ref, '@'); at >= 0 {
+		ref = ref[:at]
+	}
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		ref = ref[:colon]
+	}
+	return ref[strings.LastIndex(ref, "/")+1:]
+}
+
 func buildDependenciesList(inputs []DependencyInput) []interface{} {
 	var result []interface{}
 	for _, dep := range inputs {
 		entry := map[string]interface{}{
-			"name":          dep.Name,
+			"name":          dependencyName(dep),
 			"ref":           dep.Ref,
-			"compatibility": defaultCompatibility(dep.Compatibility, dep.Ref),
+			"compatibility": defaultCompatibility(dep.Compatibility),
 		}
 		if dep.Required {
 			entry["required"] = true
@@ -534,7 +553,9 @@ func Edit(input EditInput) (*EditResult, error) {
 	}
 
 	// Scaffold any new interface contract files
-	scaffoldNewInterfaceFiles(dir, input.AddInterfaces)
+	if err := scaffoldNewInterfaceFiles(dir, input.AddInterfaces); err != nil {
+		return nil, err
+	}
 
 	return &EditResult{
 		Path:    pactoPath,
@@ -693,9 +714,9 @@ func addDependencies(m map[string]interface{}, inputs []DependencyInput) []strin
 	deps, _ := m["dependencies"].([]interface{})
 	for _, dep := range inputs {
 		entry := map[string]interface{}{
-			"name":          dep.Name,
+			"name":          dependencyName(dep),
 			"ref":           dep.Ref,
-			"compatibility": defaultCompatibility(dep.Compatibility, dep.Ref),
+			"compatibility": defaultCompatibility(dep.Compatibility),
 		}
 		if dep.Required {
 			entry["required"] = true
@@ -1102,21 +1123,26 @@ func writeBundle(dir string, yamlBytes []byte, input CreateInput) (int, error) {
 	return fileCount, nil
 }
 
-func scaffoldNewInterfaceFiles(dir string, interfaces []InterfaceInput) {
+func scaffoldNewInterfaceFiles(dir string, interfaces []InterfaceInput) error {
 	for _, iface := range interfaces {
 		if iface.Type != contract.InterfaceTypeHTTP && iface.Type != contract.InterfaceTypeGRPC {
 			continue
 		}
 		ifaceDir := filepath.Join(dir, "interfaces")
-		_ = osMkdirAll(ifaceDir, 0755)
+		if err := osMkdirAll(ifaceDir, 0755); err != nil {
+			return fmt.Errorf("failed to create %s: %w", ifaceDir, err)
+		}
 		ifacePath := filepath.Join(ifaceDir, iface.Name+".yaml")
 		// Only write if file doesn't exist
 		if _, err := osStat(ifacePath); err == nil {
 			continue
 		}
 		stub := scaffoldInterfaceStub("service", iface)
-		_ = atomicWriteFile(ifacePath, stub, 0644)
+		if err := atomicWriteFile(ifacePath, stub, 0644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", ifacePath, err)
+		}
 	}
+	return nil
 }
 
 func scaffoldInterfaceStub(serviceName string, iface InterfaceInput) []byte {
@@ -1418,13 +1444,9 @@ func defaultVersion(v string) string {
 	return v
 }
 
-func defaultCompatibility(compat, ref string) string {
+func defaultCompatibility(compat string) string {
 	if compat != "" {
 		return compat
-	}
-	// OCI refs get semver range, local refs get exact
-	if strings.Contains(ref, "oci://") || strings.Contains(ref, "/") {
-		return "^1.0.0"
 	}
 	return "^1.0.0"
 }
