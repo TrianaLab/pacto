@@ -67,15 +67,24 @@ func (c *CachedStore) CacheDir() string {
 }
 
 func pactoCacheDir() (string, error) {
-	cacheDir := os.Getenv("XDG_CACHE_HOME")
-	if cacheDir == "" {
-		home, err := userHomeDirFn()
-		if err != nil {
-			return "", err
-		}
-		cacheDir = filepath.Join(home, ".cache")
+	if os.Getenv("XDG_CACHE_HOME") != "" {
+		return CacheDirFor(""), nil
 	}
-	return filepath.Join(cacheDir, "pacto", "oci"), nil
+	home, err := userHomeDirFn()
+	if err != nil {
+		return "", err
+	}
+	return CacheDirFor(home), nil
+}
+
+// CacheDirFor returns the on-disk OCI cache directory for the given home
+// directory, honoring XDG_CACHE_HOME. Exported so other components (e.g. the
+// dashboard diagnostics) resolve the exact same path.
+func CacheDirFor(home string) string {
+	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
+		return filepath.Join(xdg, "pacto", "oci")
+	}
+	return filepath.Join(home, ".cache", "pacto", "oci")
 }
 
 func (c *CachedStore) Push(ctx context.Context, ref string, bundle *contract.Bundle) (string, error) {
