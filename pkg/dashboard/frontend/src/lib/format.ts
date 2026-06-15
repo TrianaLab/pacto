@@ -492,6 +492,44 @@ export function readinessCheckTypes(services: WithReadiness[]): string[] {
   return Array.from(types).sort();
 }
 
+// ── Fleet overview ──
+
+/** Headline fleet metrics for the landing-page overview. */
+export interface FleetSummary {
+  total: number;
+  assessed: number; // compliant + warning + nonCompliant (excludes reference/unknown)
+  compliant: number;
+  warning: number;
+  nonCompliant: number;
+  reference: number;
+  unknown: number;
+  needsAttention: number; // warning + nonCompliant
+  compliancePercent: number; // compliant / assessed * 100; -1 if nothing assessed
+  highImpact: number; // services with blast radius >= HIGH_IMPACT_THRESHOLD
+}
+
+/** Roll up the whole service list into the few signals that matter at a glance. */
+export function summarizeFleet(services: Array<Record<string, unknown>>): FleetSummary {
+  const s: FleetSummary = {
+    total: services.length, assessed: 0, compliant: 0, warning: 0, nonCompliant: 0,
+    reference: 0, unknown: 0, needsAttention: 0, compliancePercent: -1, highImpact: 0,
+  };
+  for (const svc of services) {
+    switch (svc.contractStatus) {
+      case 'Compliant': s.compliant++; break;
+      case 'Warning': s.warning++; break;
+      case 'NonCompliant': s.nonCompliant++; break;
+      case 'Reference': s.reference++; break;
+      default: s.unknown++; break;
+    }
+    if (((svc.blastRadius as number) || 0) >= HIGH_IMPACT_THRESHOLD) s.highImpact++;
+  }
+  s.assessed = s.compliant + s.warning + s.nonCompliant;
+  s.needsAttention = s.warning + s.nonCompliant;
+  if (s.assessed > 0) s.compliancePercent = Math.round((s.compliant / s.assessed) * 100);
+  return s;
+}
+
 // ── Tooltip positioning ──
 
 export interface TooltipPosition {

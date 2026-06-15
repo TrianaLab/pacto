@@ -1,9 +1,13 @@
 <script>
-  import { serviceUrl, ownerUrl } from '../lib/router.ts';
-  import { statusClass, complianceStatusClass, sourceTooltip, ownerDisplay, ownerKey, filterServices } from '../lib/format.ts';
+  import { serviceUrl, ownerUrl, readinessUrl } from '../lib/router.ts';
+  import { statusClass, complianceStatusClass, complianceClass, sourceTooltip, ownerDisplay, ownerKey, filterServices, summarizeFleet, summarizeReadiness } from '../lib/format.ts';
   import StatsBar from '../StatsBar.svelte';
 
   let { services = [], sourcesInfo = [], discovering = false, initialLoading = false } = $props();
+
+  // Fleet-wide headline metrics for the at-a-glance overview.
+  let fleet = $derived(summarizeFleet(services));
+  let rdy = $derived(summarizeReadiness(services));
 
   let enabledSources = $derived(sourcesInfo.filter((s) => s.enabled));
   let disabledSources = $derived(sourcesInfo.filter((s) => !s.enabled));
@@ -51,8 +55,48 @@
 </script>
 
 <div class="list-header">
-  <h1>Services</h1>
+  <h1>Services {#if services.length > 0}<span class="tab-count">{services.length}</span>{/if}</h1>
 </div>
+
+<!-- Fleet overview: the few signals that matter at a glance -->
+{#if services.length > 0}
+  <div class="fleet-overview fade-in-up">
+    <div class="metric-tile">
+      <span class="metric-head">Compliant</span>
+      {#if fleet.compliancePercent >= 0}
+        <span class="metric-value {complianceClass(fleet.compliancePercent)}">{fleet.compliancePercent}<span class="metric-unit">%</span></span>
+      {:else}
+        <span class="metric-value text-dim">—</span>
+      {/if}
+      <span class="metric-sub">{fleet.compliant} of {fleet.assessed} assessed</span>
+    </div>
+
+    <div class="metric-tile" class:tile-alert={fleet.needsAttention > 0} class:tile-clear={fleet.needsAttention === 0}>
+      <span class="metric-head">Needs attention</span>
+      <span class="metric-value">{fleet.needsAttention}</span>
+      <span class="metric-sub">
+        {#if fleet.needsAttention === 0}all clear{:else}{fleet.nonCompliant} error{fleet.nonCompliant !== 1 ? 's' : ''} · {fleet.warning} warning{fleet.warning !== 1 ? 's' : ''}{/if}
+      </span>
+    </div>
+
+    <a class="metric-tile metric-link" href={readinessUrl()} data-tip="Operational readiness overview">
+      <span class="metric-head">Readiness</span>
+      {#if rdy.configured > 0}
+        <span class="metric-value {complianceClass(rdy.avgScore)}">{rdy.avgScore}</span>
+        <span class="metric-sub">{rdy.ready} of {rdy.configured} ready</span>
+      {:else}
+        <span class="metric-value text-dim">—</span>
+        <span class="metric-sub">not configured</span>
+      {/if}
+    </a>
+
+    <a class="metric-tile metric-link" class:tile-warn={fleet.highImpact > 0} href="#/graph" data-tip="Services whose failure impacts 3 or more others">
+      <span class="metric-head">High impact</span>
+      <span class="metric-value">{fleet.highImpact}</span>
+      <span class="metric-sub">blast radius ≥ 3</span>
+    </a>
+  </div>
+{/if}
 
 <!-- Stats bar -->
 <StatsBar {services} bind:statusFilter bind:sourceFilter bind:nameFilter />
@@ -79,7 +123,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
       <div class="graph-cta-text">
         <span class="graph-cta-title">Service Readiness</span>
-        <span class="graph-cta-desc">Operational readiness scores, checks, and gaps</span>
+        <span class="graph-cta-desc">Operational readiness scores, checks and gaps</span>
       </div>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0; opacity:0.5"><path d="M9 18l6-6-6-6"/></svg>
     </a>
@@ -225,7 +269,46 @@
 {/if}
 
 <style>
-  .list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-5); }
+  .list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-4); }
+
+  /* ── Fleet overview ── */
+  .fleet-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-4);
+  }
+  .metric-tile {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: var(--sp-4);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-sm);
+    background: var(--c-surface);
+    text-decoration: none; color: inherit;
+    transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
+  }
+  .metric-link { cursor: pointer; }
+  .metric-link:hover {
+    border-color: var(--c-accent); box-shadow: var(--shadow-md);
+    text-decoration: none; transform: translateY(-1px);
+  }
+  .metric-head {
+    font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--c-text-3);
+  }
+  .metric-value { font-size: 2rem; font-weight: 700; line-height: 1.1; color: var(--c-text); }
+  .metric-value.score-ok { color: var(--c-ok); }
+  .metric-value.score-warn { color: var(--c-warn); }
+  .metric-value.score-err { color: var(--c-err); }
+  .metric-value.text-dim { color: var(--c-text-3); }
+  .metric-unit { font-size: 1rem; font-weight: 600; color: var(--c-text-3); margin-left: 1px; }
+  .metric-sub { font-size: var(--text-xs); color: var(--c-text-3); }
+
+  /* The actionable signal: green when clear, red when work is pending. */
+  .tile-clear .metric-value { color: var(--c-ok); }
+  .tile-alert { border-color: var(--c-err-border); background: var(--c-err-bg); }
+  .tile-alert .metric-value { color: var(--c-err); }
+  .tile-warn .metric-value { color: var(--c-warn); }
   .cta-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-5); flex-wrap: wrap; }
   .cta-row .graph-cta { margin-bottom: 0; flex: 1; min-width: 220px; }
   .graph-cta {

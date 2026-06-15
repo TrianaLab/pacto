@@ -34,6 +34,7 @@ import {
   summarizeReadiness,
   isUrlEvidence,
   readinessCheckTypes,
+  summarizeFleet,
 } from './format.ts';
 
 describe('statusClass', () => {
@@ -842,5 +843,43 @@ describe('readinessCheckTypes', () => {
   });
   it('returns [] when no service declares readiness', () => {
     expect(readinessCheckTypes([{}, { readiness: null }])).toEqual([]);
+  });
+});
+
+describe('summarizeFleet', () => {
+  it('handles an empty list', () => {
+    const s = summarizeFleet([]);
+    expect(s.total).toBe(0);
+    expect(s.assessed).toBe(0);
+    expect(s.compliancePercent).toBe(-1);
+    expect(s.needsAttention).toBe(0);
+    expect(s.highImpact).toBe(0);
+  });
+  it('counts statuses, attention, compliance % over assessed, and high impact', () => {
+    const services = [
+      { contractStatus: 'Compliant', blastRadius: 5 },
+      { contractStatus: 'Compliant', blastRadius: 1 },
+      { contractStatus: 'Warning', blastRadius: 3 },
+      { contractStatus: 'NonCompliant', blastRadius: 0 },
+      { contractStatus: 'Reference' },
+      { contractStatus: 'Unknown' },
+    ];
+    const s = summarizeFleet(services);
+    expect(s.total).toBe(6);
+    expect(s.compliant).toBe(2);
+    expect(s.warning).toBe(1);
+    expect(s.nonCompliant).toBe(1);
+    expect(s.reference).toBe(1);
+    expect(s.unknown).toBe(1);
+    expect(s.assessed).toBe(4); // compliant + warning + nonCompliant
+    expect(s.needsAttention).toBe(2); // warning + nonCompliant
+    expect(s.compliancePercent).toBe(50); // 2/4
+    expect(s.highImpact).toBe(2); // blast >= 3
+  });
+  it('returns compliancePercent -1 when nothing is assessed (reference/unknown only)', () => {
+    const s = summarizeFleet([{ contractStatus: 'Reference' }, { contractStatus: 'Unknown' }]);
+    expect(s.assessed).toBe(0);
+    expect(s.compliancePercent).toBe(-1);
+    expect(s.needsAttention).toBe(0);
   });
 });
