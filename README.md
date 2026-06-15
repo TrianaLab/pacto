@@ -143,21 +143,13 @@ Only `pactoVersion` and `service` are required — everything else is opt-in, so
 - **Breaking change detection** — deep OpenAPI diffing plus dependency-graph diff with full blast radius; non-zero exit gates CI
 - **Dependency graph resolution** — recursive transitive resolution from OCI registries, siblings fetched in parallel
 - **Readiness contracts** — declare operational readiness evidence (URLs, docs, tickets, reports) with weights and expiry dates; Pacto can derive readiness scores and flag expired or invalid evidence
-- **OCI distribution** — push/pull to GHCR, ECR, ACR, Docker Hub, and Harbor with local caching; signable with cosign or Notary; no new infrastructure
+- **OCI distribution** — push/pull to GHCR, ECR, ACR, Docker Hub, and Harbor with local caching; signable with cosign or Notary; no custom registry required
 - **Runtime verification** — the Kubernetes operator tracks every contract version and checks ports, replicas, and health against running workloads
 - **Plugin-based generation** — out-of-process plugins produce deployment artifacts from contracts
 - **AI integration** — `pacto mcp` exposes contract operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and Copilot
 - **SBOM diffing** — SPDX / CycloneDX package-level change detection
 
 See the [documentation](https://trianalab.github.io/pacto) for details on each.
-
----
-
-## Who is this for?
-
-- **Application developers** — describe your service once; validation catches misconfigurations before CI, and breaking changes are detected automatically across versions.
-- **Platform engineers** — consume contracts to generate manifests, enforce policies, and visualize dependency graphs, with a live view of every service in the dashboard.
-- **DevOps / infrastructure teams** — distribute contracts through existing OCI registries; the operator tracks what's deployed and whether it matches its contract.
 
 ---
 
@@ -171,6 +163,14 @@ Use Pacto when you need to:
 - Track whether deployed workloads still match their declared contract
 - Build dependency graphs without scraping dashboards or Helm values
 - Surface readiness gaps before production changes
+
+---
+
+## Who is this for?
+
+- **Application developers** — describe your service once; validation catches misconfigurations before CI, and breaking changes are detected automatically across versions.
+- **Platform engineers** — consume contracts to generate manifests, enforce policies, and visualize dependency graphs, with a live view of every service in the dashboard.
+- **DevOps / infrastructure teams** — distribute contracts through existing OCI registries; the operator tracks what's deployed and whether it matches its contract.
 
 ---
 
