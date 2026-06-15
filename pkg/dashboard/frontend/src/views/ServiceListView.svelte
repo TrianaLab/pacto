@@ -61,7 +61,7 @@
 <!-- Fleet overview: the few signals that matter at a glance -->
 {#if services.length > 0}
   <div class="fleet-overview fade-in-up">
-    <div class="metric-tile">
+    <div class="metric-tile" data-tip="Share of assessed services that pass all contract checks">
       <span class="metric-head">Compliant</span>
       {#if fleet.compliancePercent >= 0}
         <span class="metric-value {complianceClass(fleet.compliancePercent)}">{fleet.compliancePercent}<span class="metric-unit">%</span></span>
@@ -71,7 +71,7 @@
       <span class="metric-sub">{fleet.compliant} of {fleet.assessed} assessed</span>
     </div>
 
-    <div class="metric-tile" class:tile-alert={fleet.needsAttention > 0} class:tile-clear={fleet.needsAttention === 0}>
+    <div class="metric-tile" class:tile-alert={fleet.needsAttention > 0} class:tile-clear={fleet.needsAttention === 0} data-tip="Services with warnings or validation errors">
       <span class="metric-head">Needs attention</span>
       <span class="metric-value">{fleet.needsAttention}</span>
       <span class="metric-sub">
@@ -79,10 +79,10 @@
       </span>
     </div>
 
-    <a class="metric-tile metric-link" href={readinessUrl()} data-tip="Operational readiness overview">
+    <a class="metric-tile metric-link" href={readinessUrl()} data-tip="Average readiness score (0–100%) across services that declare readiness">
       <span class="metric-head">Readiness</span>
       {#if rdy.configured > 0}
-        <span class="metric-value {complianceClass(rdy.avgScore)}">{rdy.avgScore}</span>
+        <span class="metric-value {complianceClass(rdy.avgScore)}">{rdy.avgScore}<span class="metric-unit">%</span></span>
         <span class="metric-sub">{rdy.ready} of {rdy.configured} ready</span>
       {:else}
         <span class="metric-value text-dim">—</span>
@@ -253,7 +253,7 @@
                   {svc.blastRadius}
                 </span>
               {:else}
-                <span class="text-dim">0</span>
+                <span class="blast-badge blast-zero" data-tip="No services impacted if this one fails">0</span>
               {/if}
             </td>
             <td>
@@ -277,6 +277,10 @@
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     gap: var(--sp-3);
     margin-bottom: var(--sp-4);
+    /* Own stacking context above the following stats bar so tile tooltips,
+       which overflow downward, are never painted behind it. */
+    position: relative;
+    z-index: 2;
   }
   .metric-tile {
     display: flex; flex-direction: column; gap: 3px;
@@ -372,6 +376,7 @@
   .blast-low { background: var(--c-warn-bg); color: var(--c-warn); }
   .blast-med { background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid color-mix(in srgb, var(--c-warn) 25%, transparent); }
   .blast-high { background: var(--c-err-bg); color: var(--c-err); border: 1px solid color-mix(in srgb, var(--c-err) 25%, transparent); }
+  .blast-zero { background: var(--c-neutral-bg); color: var(--c-text-3); }
 
   .blast-pill {
     font-size: var(--text-xs); font-weight: 500;

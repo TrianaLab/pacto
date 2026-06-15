@@ -152,41 +152,41 @@
 {:else}
   <!-- Global summary -->
   <div class="summary-cards fade-in-up">
-    <div class="summary-card">
+    <div class="summary-card" data-tip="Total services in view">
       <span class="summary-count">{summary.total}</span>
       <span class="summary-label">Services</span>
     </div>
-    <div class="summary-card card-ok">
+    <div class="summary-card card-ok" data-tip="Services that meet the readiness gate (score ≥ minScore)">
       <span class="summary-count">{summary.ready}</span>
       <span class="summary-label">Ready</span>
     </div>
-    <div class="summary-card card-warn">
+    <div class="summary-card card-warn" data-tip="Below the gate but score ≥ 50%">
       <span class="summary-count">{summary.partial}</span>
       <span class="summary-label">Partial</span>
     </div>
-    <div class="summary-card card-err">
+    <div class="summary-card card-err" data-tip="Readiness score below 50%">
       <span class="summary-count">{summary.notReady}</span>
       <span class="summary-label">Not Ready</span>
     </div>
     {#if summary.notConfigured > 0}
-      <div class="summary-card card-neutral">
+      <div class="summary-card card-neutral" data-tip="No readiness block declared in the contract">
         <span class="summary-count">{summary.notConfigured}</span>
         <span class="summary-label">Not configured</span>
       </div>
     {/if}
-    <div class="summary-card">
+    <div class="summary-card" data-tip="Average readiness score across services that declare readiness">
       {#if summary.avgScore >= 0}
-        <span class="summary-count score {complianceClass(summary.avgScore)}">{summary.avgScore}</span>
+        <span class="summary-count score {complianceClass(summary.avgScore)}">{summary.avgScore}<span class="summary-unit">%</span></span>
       {:else}
         <span class="summary-count text-dim">—</span>
       {/if}
       <span class="summary-label">Avg score</span>
     </div>
-    <div class="summary-card">
+    <div class="summary-card" data-tip="Checks whose evidence expiry date has passed">
       <span class="summary-count" class:text-err={summary.totalExpired > 0}>{summary.totalExpired}</span>
       <span class="summary-label">Expired checks</span>
     </div>
-    <div class="summary-card">
+    <div class="summary-card" data-tip="Checks with an unparseable expiry date">
       <span class="summary-count" class:text-warn={summary.totalInvalid > 0}>{summary.totalInvalid}</span>
       <span class="summary-label">Invalid checks</span>
     </div>
@@ -265,8 +265,8 @@
           <tr>
             <th><button type="button" class="col-sort" onclick={() => setSort('name')}>Service{sortIcon('name')}</button></th>
             <th><button type="button" class="col-sort" onclick={() => setSort('owner')}>Owner{sortIcon('owner')}</button></th>
-            <th><button type="button" class="col-sort" data-tip="Derived readiness score (0–100)" onclick={() => setSort('score')}>Score{sortIcon('score')}</button></th>
-            <th>Status</th>
+            <th><button type="button" class="col-sort" data-tip="Derived readiness score (0–100%)" onclick={() => setSort('score')}>Score{sortIcon('score')}</button></th>
+            <th data-tip="Ready = gate met · Partial = score ≥ 50% · Not Ready = score < 50% · Not configured = no readiness block">Status</th>
             <th data-tip="Current checks / total declared checks">Checks</th>
             <th data-tip="Checks whose evidence has expired"><button type="button" class="col-sort" onclick={() => setSort('expired')}>Expired{sortIcon('expired')}</button></th>
             <th data-tip="Checks with an unparseable expiry date"><button type="button" class="col-sort" onclick={() => setSort('invalid')}>Invalid{sortIcon('invalid')}</button></th>
@@ -288,7 +288,7 @@
               </td>
               <td>
                 {#if row.score >= 0}
-                  <span class="score {complianceClass(row.score)}">{row.score}</span>
+                  <span class="score {complianceClass(row.score)}">{row.score}<span class="score-unit">%</span></span>
                 {:else}
                   <span class="text-dim">—</span>
                 {/if}
@@ -383,6 +383,8 @@
     min-width: 80px;
   }
   .summary-count { font-size: 1.25rem; font-weight: 700; }
+  .summary-unit { font-size: var(--text-sm); font-weight: 500; color: var(--c-text-3); margin-left: 1px; }
+  .score-unit { font-size: 0.8em; font-weight: 500; color: var(--c-text-3); margin-left: 1px; }
   .summary-label { font-size: var(--text-xs); color: var(--c-text-3); margin-top: 2px; }
   .card-ok { border-color: var(--c-ok-border); }
   .card-ok .summary-count { color: var(--c-ok); }

@@ -210,7 +210,7 @@
                 {#if row.totalBlast > 0}
                   <span class="blast-badge" class:blast-low={row.totalBlast < 3} class:blast-med={row.totalBlast >= 3 && row.totalBlast < 5} class:blast-high={row.totalBlast >= 5}>{row.totalBlast}</span>
                 {:else}
-                  <span class="text-dim">0</span>
+                  <span class="blast-badge blast-zero">0</span>
                 {/if}
               </td>
             </tr>
@@ -246,7 +246,7 @@
                               {#if (svc.blastRadius || 0) > 0}
                                 <span class="blast-badge" class:blast-low={svc.blastRadius < 3} class:blast-med={svc.blastRadius >= 3 && svc.blastRadius < 5} class:blast-high={svc.blastRadius >= 5}>{svc.blastRadius}</span>
                               {:else}
-                                <span class="text-dim">0</span>
+                                <span class="blast-badge blast-zero">0</span>
                               {/if}
                             </td>
                             <td>
@@ -358,6 +358,7 @@
   .blast-low { background: var(--c-warn-bg); color: var(--c-warn); }
   .blast-med { background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid color-mix(in srgb, var(--c-warn) 25%, transparent); }
   .blast-high { background: var(--c-err-bg); color: var(--c-err); border: 1px solid color-mix(in srgb, var(--c-err) 25%, transparent); }
+  .blast-zero { background: var(--c-neutral-bg); color: var(--c-text-3); }
 
   /* ── Expandable rows ── */
   .expand-icon {
