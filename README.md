@@ -27,7 +27,7 @@ Pacto (/ˈpak.to/ — Spanish for *pact*) is not a replacement for OpenAPI, Helm
 | **Dashboard** | Explore services, dependency graphs, versions, diffs, readiness, insights | Anytime — local or deployed |
 | **[Operator](https://github.com/TrianaLab/pacto-operator)** | Track contracts in-cluster, link to workloads, verify runtime consistency | Continuously in Kubernetes |
 
-No sidecars, no new infrastructure: the CLI uses your existing OCI registry, the operator watches CRDs, the dashboard reads from all sources.
+No sidecars and no central control plane required: the CLI uses your existing OCI registry, the operator watches CRDs, and the dashboard reads from all sources.
 
 ---
 
@@ -40,10 +40,10 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 # Author and publish a contract
 pacto init                                   # scaffold a pacto.yaml
 pacto validate .                             # 4-layer validation
-pacto push oci://ghcr.io/acme/svc-pacto      # publish to your OCI registry
+pacto push oci://ghcr.io/acme/svc-pacto      # tag inferred from service.version
 
 # Catch breaking changes in CI
-pacto diff oci://ghcr.io/acme/svc:1.0 svc:2.0
+pacto diff oci://ghcr.io/acme/svc:1.0 oci://ghcr.io/acme/svc:2.0
 
 # Explore everything in a browser
 pacto dashboard                              # auto-detects local, OCI, and K8s sources
@@ -142,7 +142,7 @@ Only `pactoVersion` and `service` are required — everything else is opt-in, so
 - **4-layer validation** — structural (JSON Schema), cross-field, semantic, and policy enforcement
 - **Breaking change detection** — deep OpenAPI diffing plus dependency-graph diff with full blast radius; non-zero exit gates CI
 - **Dependency graph resolution** — recursive transitive resolution from OCI registries, siblings fetched in parallel
-- **Readiness contracts** — declare operational readiness evidence (URLs, docs, tickets, reports) with weights and expiry dates; Pacto derives a readiness score and flags expired or invalid evidence
+- **Readiness contracts** — declare operational readiness evidence (URLs, docs, tickets, reports) with weights and expiry dates; Pacto can derive readiness scores and flag expired or invalid evidence
 - **OCI distribution** — push/pull to GHCR, ECR, ACR, Docker Hub, and Harbor with local caching; signable with cosign or Notary; no new infrastructure
 - **Runtime verification** — the Kubernetes operator tracks every contract version and checks ports, replicas, and health against running workloads
 - **Plugin-based generation** — out-of-process plugins produce deployment artifacts from contracts
@@ -158,6 +158,19 @@ See the [documentation](https://trianalab.github.io/pacto) for details on each.
 - **Application developers** — describe your service once; validation catches misconfigurations before CI, and breaking changes are detected automatically across versions.
 - **Platform engineers** — consume contracts to generate manifests, enforce policies, and visualize dependency graphs, with a live view of every service in the dashboard.
 - **DevOps / infrastructure teams** — distribute contracts through existing OCI registries; the operator tracks what's deployed and whether it matches its contract.
+
+---
+
+## When should I use Pacto?
+
+Use Pacto when you need to:
+
+- Know who owns each service and what it depends on
+- Catch operational breaking changes before merge
+- Compare contract versions across releases
+- Track whether deployed workloads still match their declared contract
+- Build dependency graphs without scraping dashboards or Helm values
+- Surface readiness gaps before production changes
 
 ---
 
