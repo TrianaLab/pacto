@@ -16,7 +16,7 @@ The system has three pieces that work together:
 | Component | Role | When it runs |
 |-----------|------|--------------|
 | **CLI** | Author, validate, diff, publish contracts | Design-time and CI |
-| **Dashboard** | Explore services, dependency graphs, versions, diffs, insights | Anytime — local or deployed |
+| **Dashboard** | Explore services, dependency graphs, versions, diffs, readiness, insights | Anytime — local or deployed |
 | **[Operator](https://github.com/TrianaLab/pacto-operator)** | Track contracts in-cluster, link to workloads, verify runtime consistency | Continuously in Kubernetes |
 
 No sidecars. No new infrastructure. The CLI uses your existing OCI registry. The operator watches CRDs. The dashboard reads from all sources.
@@ -107,6 +107,7 @@ What it shows:
 
 - **Dependency graph** — interactive visualization of service relationships, with recursive resolution
 - **Ownership views** — aggregated compliance and blast radius per owner, with drill-down to individual services and owner-filtered graphs
+- **Readiness overview** — aggregated operational readiness across services: scores, status and check gaps (expired or invalid), with per-service drill-down
 - **Version history** — all published versions from OCI, with the ability to fetch and cache every version
 - **Diffs between versions** — classified changes (breaking, non-breaking) between any two versions
 - **Service details** — interfaces, configuration schemas, policy references, readiness, documentation
@@ -181,7 +182,7 @@ Only `pactoVersion` and `service` are required — everything else is opt-in, so
 - **Dependency graph resolution** — recursive transitive resolution from OCI registries with parallel fetching
 - **OCI distribution** — push/pull to GHCR, ECR, ACR, Docker Hub, Harbor with local caching
 - **Plugin-based generation** — out-of-process plugins produce deployment artifacts from contracts
-- **Dashboard** — multi-source exploration UI with dependency graphs, version history, diffs, and runtime compliance
+- **Dashboard** — multi-source exploration UI with dependency graphs, version history, diffs, readiness and runtime compliance
 - **Kubernetes Operator** — runtime contract tracking, workload linking, and alignment verification
 - **AI integration** — `pacto mcp` exposes contract operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and Copilot
 - **SBOM diffing** — SPDX / CycloneDX package-level change detection
