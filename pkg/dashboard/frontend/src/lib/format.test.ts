@@ -28,6 +28,13 @@ import {
   countHighImpact,
   filterServices,
   paginate,
+  readinessBucket,
+  readinessBucketLabel,
+  readinessBucketClass,
+  summarizeReadiness,
+  isUrlEvidence,
+  readinessCheckTypes,
+  summarizeFleet,
 } from './format.ts';
 
 describe('statusClass', () => {
@@ -719,5 +726,160 @@ describe('paginate', () => {
     expect(r.items).toHaveLength(23);
     expect(r.totalPages).toBe(1);
     expect(r.perPage).toBe(23);
+  });
+});
+
+// ── Readiness ──
+
+const rdy = (over: Record<string, unknown> = {}) => ({
+  readiness: {
+    score: 100, minScore: 100, passing: true, totalWeight: 10, currentWeight: 10,
+    currentCount: 1, expiredCount: 0, invalidCount: 0, checks: [], ...over,
+  },
+});
+
+describe('readinessBucket', () => {
+  it('returns unknown when no readiness block is declared', () => {
+    expect(readinessBucket({})).toBe('unknown');
+    expect(readinessBucket({ readiness: null })).toBe('unknown');
+  });
+  it('returns ready when the gate passes (regardless of score band)', () => {
+    expect(readinessBucket(rdy({ passing: true, score: 60 }))).toBe('ready');
+  });
+  it('returns partial when not passing but score >= 50', () => {
+    expect(readinessBucket(rdy({ passing: false, score: 50 }))).toBe('partial');
+    expect(readinessBucket(rdy({ passing: false, score: 89 }))).toBe('partial');
+  });
+  it('returns not-ready when not passing and score < 50', () => {
+    expect(readinessBucket(rdy({ passing: false, score: 49 }))).toBe('not-ready');
+    expect(readinessBucket(rdy({ passing: false, score: 0 }))).toBe('not-ready');
+  });
+});
+
+describe('readinessBucketLabel', () => {
+  it('maps each bucket to a human label', () => {
+    expect(readinessBucketLabel('ready')).toBe('Ready');
+    expect(readinessBucketLabel('partial')).toBe('Partial');
+    expect(readinessBucketLabel('not-ready')).toBe('Not Ready');
+    expect(readinessBucketLabel('unknown')).toBe('Not configured');
+  });
+});
+
+describe('readinessBucketClass', () => {
+  it('reuses the shared status palette', () => {
+    expect(readinessBucketClass('ready')).toBe('badge-ok');
+    expect(readinessBucketClass('partial')).toBe('badge-warn');
+    expect(readinessBucketClass('not-ready')).toBe('badge-err');
+    expect(readinessBucketClass('unknown')).toBe('badge-neutral');
+  });
+});
+
+describe('summarizeReadiness', () => {
+  it('handles an empty service list', () => {
+    const s = summarizeReadiness([]);
+    expect(s.total).toBe(0);
+    expect(s.configured).toBe(0);
+    expect(s.avgScore).toBe(-1);
+  });
+  it('counts services with no readiness as not configured and excludes them from avg', () => {
+    const s = summarizeReadiness([{}, { readiness: null }]);
+    expect(s.total).toBe(2);
+    expect(s.notConfigured).toBe(2);
+    expect(s.configured).toBe(0);
+    expect(s.avgScore).toBe(-1);
+  });
+  it('buckets, sums check counts, and averages score over configured only', () => {
+    const services = [
+      rdy({ passing: true, score: 100, currentCount: 2, expiredCount: 0, invalidCount: 0, checks: [{}, {}] }),
+      rdy({ passing: false, score: 60, currentCount: 1, expiredCount: 1, invalidCount: 0, checks: [{}, {}] }),
+      rdy({ passing: false, score: 20, currentCount: 0, expiredCount: 1, invalidCount: 1, checks: [{}, {}] }),
+      {}, // not configured
+    ];
+    const s = summarizeReadiness(services);
+    expect(s.total).toBe(4);
+    expect(s.ready).toBe(1);
+    expect(s.partial).toBe(1);
+    expect(s.notReady).toBe(1);
+    expect(s.notConfigured).toBe(1);
+    expect(s.configured).toBe(3);
+    expect(s.avgScore).toBe(60); // round((100+60+20)/3)
+    expect(s.totalCurrent).toBe(3);
+    expect(s.totalChecks).toBe(6);
+    expect(s.totalExpired).toBe(2);
+    expect(s.totalInvalid).toBe(1);
+  });
+  it('tolerates missing optional count fields', () => {
+    const s = summarizeReadiness([{ readiness: { score: 100, passing: true, checks: [{}] } } as never]);
+    expect(s.configured).toBe(1);
+    expect(s.totalCurrent).toBe(0);
+    expect(s.totalChecks).toBe(1);
+    expect(s.totalInvalid).toBe(0);
+  });
+});
+
+describe('isUrlEvidence', () => {
+  it('recognizes http(s) URLs', () => {
+    expect(isUrlEvidence('https://grafana.example.com/d/x')).toBe(true);
+    expect(isUrlEvidence('http://example.com')).toBe(true);
+    expect(isUrlEvidence('HTTPS://EXAMPLE.COM')).toBe(true);
+  });
+  it('rejects non-URL evidence and empties', () => {
+    expect(isUrlEvidence('docs/runbooks/x.md')).toBe(false);
+    expect(isUrlEvidence('SEC-1842')).toBe(false);
+    expect(isUrlEvidence('')).toBe(false);
+    expect(isUrlEvidence(null)).toBe(false);
+    expect(isUrlEvidence(undefined)).toBe(false);
+  });
+});
+
+describe('readinessCheckTypes', () => {
+  it('returns sorted unique evidence types present across services', () => {
+    const services = [
+      rdy({ checks: [{ type: 'url' }, { type: 'document' }] }),
+      rdy({ checks: [{ type: 'url' }, { type: 'ticket' }] }),
+      {},
+    ];
+    expect(readinessCheckTypes(services)).toEqual(['document', 'ticket', 'url']);
+  });
+  it('returns [] when no service declares readiness', () => {
+    expect(readinessCheckTypes([{}, { readiness: null }])).toEqual([]);
+  });
+});
+
+describe('summarizeFleet', () => {
+  it('handles an empty list', () => {
+    const s = summarizeFleet([]);
+    expect(s.total).toBe(0);
+    expect(s.assessed).toBe(0);
+    expect(s.compliancePercent).toBe(-1);
+    expect(s.needsAttention).toBe(0);
+    expect(s.highImpact).toBe(0);
+  });
+  it('counts statuses, attention, compliance % over assessed, and high impact', () => {
+    const services = [
+      { contractStatus: 'Compliant', blastRadius: 5 },
+      { contractStatus: 'Compliant', blastRadius: 1 },
+      { contractStatus: 'Warning', blastRadius: 3 },
+      { contractStatus: 'NonCompliant', blastRadius: 0 },
+      { contractStatus: 'Reference' },
+      { contractStatus: 'Unknown' },
+    ];
+    const s = summarizeFleet(services);
+    expect(s.total).toBe(6);
+    expect(s.compliant).toBe(2);
+    expect(s.warning).toBe(1);
+    expect(s.nonCompliant).toBe(1);
+    expect(s.reference).toBe(1);
+    expect(s.unknown).toBe(1);
+    expect(s.assessed).toBe(4); // compliant + warning + nonCompliant
+    expect(s.needsAttention).toBe(2); // warning + nonCompliant
+    expect(s.compliancePercent).toBe(50); // 2/4
+    expect(s.highImpact).toBe(2); // blast >= 3
+  });
+  it('returns compliancePercent -1 when nothing is assessed (reference/unknown only)', () => {
+    const s = summarizeFleet([{ contractStatus: 'Reference' }, { contractStatus: 'Unknown' }]);
+    expect(s.assessed).toBe(0);
+    expect(s.compliancePercent).toBe(-1);
+    expect(s.needsAttention).toBe(0);
   });
 });

@@ -166,7 +166,7 @@
   .doc-toggle:hover { text-decoration: underline; }
   .doc-chevron { display: inline-block; transition: transform 200ms ease; }
   .doc-chevron.open { transform: rotate(90deg); }
-  .doc-expand-row td { padding: 0 !important; }
+  .doc-expand-row > td { padding: 0 !important; }
   .doc-expand {
     padding: var(--sp-3) var(--sp-4);
     background: var(--c-surface-inset);

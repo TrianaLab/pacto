@@ -370,6 +370,166 @@ export function aggregateByOwner(services: Array<Record<string, unknown>>): Owne
   return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
 }
 
+// ── Readiness ──
+
+/** A single derived readiness check, as carried by the API. */
+export interface ReadinessCheck {
+  id: string;
+  type: string;
+  status: string; // Current | Expired | Invalid
+  evidence?: string;
+  weight: number;
+  expires: string;
+  description?: string;
+  daysRemaining?: number | null;
+  docPath?: string;
+}
+
+/** Derived readiness assessment for one service, as carried by the API. */
+export interface ReadinessInfo {
+  score: number;
+  minScore: number;
+  passing: boolean;
+  totalWeight: number;
+  currentWeight: number;
+  currentCount: number;
+  expiredCount: number;
+  invalidCount?: number;
+  checks: ReadinessCheck[];
+}
+
+type WithReadiness = { readiness?: ReadinessInfo | null };
+
+export type ReadinessBucket = 'ready' | 'partial' | 'not-ready' | 'unknown';
+
+/**
+ * Bucket a service's overall readiness. The contract's gate (`passing`,
+ * i.e. score >= minScore) is the primary signal; score bands break the rest.
+ * `unknown` means no readiness block is declared (not configured) — never an error.
+ */
+export function readinessBucket(svc: WithReadiness): ReadinessBucket {
+  const r = svc?.readiness;
+  if (!r) return 'unknown';
+  if (r.passing) return 'ready';
+  if (r.score >= 50) return 'partial';
+  return 'not-ready';
+}
+
+const READINESS_BUCKET_LABELS: Record<ReadinessBucket, string> = {
+  ready: 'Ready',
+  partial: 'Partial',
+  'not-ready': 'Not Ready',
+  unknown: 'Not configured',
+};
+
+export function readinessBucketLabel(b: ReadinessBucket): string {
+  return READINESS_BUCKET_LABELS[b] || 'Not configured';
+}
+
+/** Badge class for a readiness bucket — reuses the shared status palette. */
+export function readinessBucketClass(b: ReadinessBucket): string {
+  if (b === 'ready') return 'badge-ok';
+  if (b === 'partial') return 'badge-warn';
+  if (b === 'not-ready') return 'badge-err';
+  return 'badge-neutral';
+}
+
+/** Global rollup of readiness across all services for the overview summary. */
+export interface ReadinessSummary {
+  total: number; // all services
+  ready: number;
+  partial: number;
+  notReady: number;
+  notConfigured: number;
+  configured: number; // total - notConfigured
+  avgScore: number; // mean score over configured services; -1 if none configured
+  totalCurrent: number; // sum of currentCount across configured
+  totalChecks: number; // sum of all declared checks across configured
+  totalExpired: number;
+  totalInvalid: number;
+}
+
+/** Aggregate readiness across services. Services without a readiness block are
+ *  counted as "not configured" and excluded from the average score. */
+export function summarizeReadiness(services: WithReadiness[]): ReadinessSummary {
+  const s: ReadinessSummary = {
+    total: services.length, ready: 0, partial: 0, notReady: 0, notConfigured: 0,
+    configured: 0, avgScore: -1, totalCurrent: 0, totalChecks: 0, totalExpired: 0, totalInvalid: 0,
+  };
+  let scoreSum = 0;
+  for (const svc of services) {
+    const b = readinessBucket(svc);
+    if (b === 'unknown') { s.notConfigured++; continue; }
+    if (b === 'ready') s.ready++;
+    else if (b === 'partial') s.partial++;
+    else s.notReady++;
+    const r = svc.readiness!;
+    s.configured++;
+    scoreSum += r.score || 0;
+    s.totalCurrent += r.currentCount || 0;
+    s.totalChecks += r.checks?.length ?? 0;
+    s.totalExpired += r.expiredCount || 0;
+    s.totalInvalid += r.invalidCount || 0;
+  }
+  if (s.configured > 0) s.avgScore = Math.round(scoreSum / s.configured);
+  return s;
+}
+
+/** Whether a readiness check's evidence string is a clickable web URL. */
+export function isUrlEvidence(evidence: string | null | undefined): boolean {
+  if (!evidence) return false;
+  return /^https?:\/\//i.test(evidence);
+}
+
+/** Sorted unique evidence-kind types present across all declared checks. */
+export function readinessCheckTypes(services: WithReadiness[]): string[] {
+  const types = new Set<string>();
+  for (const svc of services) {
+    for (const c of svc.readiness?.checks ?? []) {
+      if (c.type) types.add(c.type);
+    }
+  }
+  return Array.from(types).sort();
+}
+
+// ── Fleet overview ──
+
+/** Headline fleet metrics for the landing-page overview. */
+export interface FleetSummary {
+  total: number;
+  assessed: number; // compliant + warning + nonCompliant (excludes reference/unknown)
+  compliant: number;
+  warning: number;
+  nonCompliant: number;
+  reference: number;
+  unknown: number;
+  needsAttention: number; // warning + nonCompliant
+  compliancePercent: number; // compliant / assessed * 100; -1 if nothing assessed
+  highImpact: number; // services with blast radius >= HIGH_IMPACT_THRESHOLD
+}
+
+/** Roll up the whole service list into the few signals that matter at a glance. */
+export function summarizeFleet(services: Array<Record<string, unknown>>): FleetSummary {
+  const s: FleetSummary = {
+    total: services.length, assessed: 0, compliant: 0, warning: 0, nonCompliant: 0,
+    reference: 0, unknown: 0, needsAttention: 0, compliancePercent: -1, highImpact: 0,
+  };
+  for (const svc of services) {
+    switch (svc.contractStatus) {
+      case 'Compliant': s.compliant++; break;
+      case 'Warning': s.warning++; break;
+      case 'NonCompliant': s.nonCompliant++; break;
+      case 'Reference': s.reference++; break;
+      default: s.unknown++; break;
+    }
+    if (((svc.blastRadius as number) || 0) >= HIGH_IMPACT_THRESHOLD) s.highImpact++;
+  }
+  s.assessed = s.compliant + s.warning + s.nonCompliant;
+  s.needsAttention = s.warning + s.nonCompliant;
+  if (s.assessed > 0) s.compliancePercent = Math.round((s.compliant / s.assessed) * 100);
+  return s;
+}
+
 // ── Tooltip positioning ──
 
 export interface TooltipPosition {

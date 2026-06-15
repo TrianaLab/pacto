@@ -9,6 +9,7 @@
   import DiffView from './views/DiffView.svelte';
   import OwnersView from './views/OwnersView.svelte';
   import OwnerDetailView from './views/OwnerDetailView.svelte';
+  import ReadinessView from './views/ReadinessView.svelte';
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -35,7 +36,7 @@
         await api.refresh().catch(() => {});
       }
 
-      const needsServices = route.view === 'list' || route.view === 'graph' || route.view === 'diff' || route.view === 'owners' || route.view === 'owner-detail';
+      const needsServices = route.view === 'list' || route.view === 'graph' || route.view === 'diff' || route.view === 'owners' || route.view === 'owner-detail' || route.view === 'readiness';
 
       const [svcList, srcData, health] = await Promise.all([
         needsServices ? api.services() : Promise.resolve(null),
@@ -126,6 +127,8 @@
     />
   {:else if route.view === 'graph'}
     <GraphPageView {services} {sourcesInfo} />
+  {:else if route.view === 'readiness'}
+    <ReadinessView {services} {initialLoading} />
   {:else if route.view === 'owners'}
     <OwnersView {services} {initialLoading} />
   {:else if route.view === 'owner-detail'}

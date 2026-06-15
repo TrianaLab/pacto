@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseHash, serviceUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl } from './router.ts';
+import { parseHash, serviceUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl, readinessUrl } from './router.ts';
 
 describe('parseHash', () => {
   it('returns list view for empty hash', () => {
@@ -37,6 +37,10 @@ describe('parseHash', () => {
 
   it('parses graph route', () => {
     expect(parseHash('#/graph')).toEqual({ view: 'graph', params: {} });
+  });
+
+  it('parses readiness route', () => {
+    expect(parseHash('#/readiness')).toEqual({ view: 'readiness', params: {} });
   });
 
   it('parses legacy diff route without query params', () => {
@@ -154,6 +158,12 @@ describe('parseHash — owner routes', () => {
 describe('ownersUrl', () => {
   it('returns owners URL', () => {
     expect(ownersUrl()).toBe('#/owners');
+  });
+});
+
+describe('readinessUrl', () => {
+  it('returns readiness URL', () => {
+    expect(readinessUrl()).toBe('#/readiness');
   });
 });
 

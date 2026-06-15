@@ -14,7 +14,7 @@ Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs t
 Pacto is a **runtime contract system** made of three complementary pieces:
 
 - **CLI** — author, validate, diff, explain, and publish contracts
-- **Dashboard** — explore contracts, dependency graphs, versions, and diffs visually
+- **Dashboard** — explore contracts, dependency graphs, versions, readiness and diffs visually
 - **Kubernetes Operator** — verify that live runtime remains faithful to the contract
 
 No runtime agents. No sidecars. No new infrastructure. The CLI runs at build time and CI time. The dashboard and operator extend the same contracts into exploration and runtime verification — without duplicating logic or adding moving parts.
@@ -193,7 +193,7 @@ Only `pacto.yaml` is required. All other directories are optional — include th
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
 - **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
-- **Contract exploration dashboard** — `pacto dashboard` launches a web UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, and diffs across local, OCI, and Kubernetes sources
+- **Contract exploration dashboard** — `pacto dashboard` launches a web UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, readiness and diffs across local, OCI, and Kubernetes sources
 - **Runtime fidelity verification** — the optional [Kubernetes Operator](operator.md) continuously checks that deployed services match their contracts — port alignment, workload existence, health endpoint reachability, and more
 - **AI assistant integration** — `pacto mcp` exposes all contract operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and GitHub Copilot
 

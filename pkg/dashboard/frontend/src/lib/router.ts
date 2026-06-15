@@ -1,7 +1,7 @@
 /** Minimal hash router — returns a reactive route object. */
 
 export interface Route {
-  view: 'list' | 'detail' | 'diff' | 'graph' | 'owners' | 'owner-detail';
+  view: 'list' | 'detail' | 'diff' | 'graph' | 'owners' | 'owner-detail' | 'readiness';
   params: Record<string, string>;
 }
 
@@ -45,6 +45,9 @@ export function parseHash(hash: string | null | undefined): Route {
   // #/graph
   if (raw === 'graph') return { view: 'graph', params: {} };
 
+  // #/readiness
+  if (raw === 'readiness') return { view: 'readiness', params: {} };
+
   // #/owners/:id
   const ownerMatch = raw.match(/^owners\/(.+)$/);
   if (ownerMatch) return { view: 'owner-detail', params: { owner: decodeURIComponent(ownerMatch[1]) } };
@@ -60,6 +63,7 @@ export function navigate(view: string, params: Record<string, string> = {}): voi
   if (view === 'detail' && params.name) hash = `#/services/${encodeURIComponent(params.name)}`;
   else if (view === 'diff' && params.name) hash = `#/services/${encodeURIComponent(params.name)}/diff`;
   else if (view === 'graph') hash = '#/graph';
+  else if (view === 'readiness') hash = '#/readiness';
   else if (view === 'owners') hash = '#/owners';
   else if (view === 'owner-detail' && params.owner) hash = `#/owners/${encodeURIComponent(params.owner)}`;
   location.hash = hash;
@@ -80,6 +84,10 @@ export function diffUrl(name: string, from?: string, to?: string): string {
 
 export function ownersUrl(): string {
   return '#/owners';
+}
+
+export function readinessUrl(): string {
+  return '#/readiness';
 }
 
 export function ownerUrl(key: string): string {
