@@ -370,7 +370,10 @@
 
   .row-expanded { background: var(--c-surface-hover); }
 
-  .expand-row td {
+  /* Only the direct wrapper cell collapses its padding — using a descendant
+     selector here would leak `padding: 0` into the nested expand-table's cells,
+     making their rows tight and letting the hover accent bar overlap the text. */
+  .expand-row > td {
     padding: 0 !important;
     border-top: none !important;
   }

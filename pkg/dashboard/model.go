@@ -559,4 +559,10 @@ type ServiceListEntry struct {
 	ComplianceWarns  int              `json:"complianceWarnings"`
 	TopInsight       string           `json:"topInsight,omitempty"`
 	UpdateAvailable  bool             `json:"updateAvailable,omitempty"`
+	// Readiness is the derived operational readiness assessment, carried on the
+	// list entry so the aggregated readiness overview can summarize, sort, and
+	// filter every service from a single /api/services call (mirroring how the
+	// owners view aggregates client-side). Nil when the service declares no
+	// readiness block. It is a separate dimension from contract compliance.
+	Readiness *ReadinessInfo `json:"readiness,omitempty"`
 }

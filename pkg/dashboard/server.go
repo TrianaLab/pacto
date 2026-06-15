@@ -717,6 +717,7 @@ func (s *Server) listServices(ctx context.Context, _ *struct{}) (*listServicesOu
 				}
 			}
 			entry.UpdateAvailable = d.UpdateAvailable
+			entry.Readiness = d.Readiness
 		}
 		enriched[i] = entry
 	}

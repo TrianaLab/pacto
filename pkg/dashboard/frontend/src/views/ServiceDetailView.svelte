@@ -565,17 +565,13 @@
   }
 
   .section-nav {
-    display: flex; gap: var(--sp-1);
+    display: flex; flex-wrap: wrap; gap: var(--sp-1); row-gap: 2px;
     margin-bottom: var(--sp-5);
     padding: var(--sp-2) 0;
     border-bottom: 1px solid var(--c-border);
     position: sticky; top: var(--navbar-h); z-index: 50;
     background: var(--c-bg);
-    overflow-x: auto;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
   }
-  .section-nav::-webkit-scrollbar { display: none; }
   .section-nav-item {
     padding: var(--sp-2) var(--sp-3);
     border: none; background: none;
@@ -618,7 +614,9 @@
 
   .btn-active { background: var(--c-accent); color: white; }
 
-  .diff-expand-row td {
+  /* Child combinator so `padding: 0` applies only to the wrapper cell, not the
+     nested DiffChangesTable's cells (a descendant selector made those rows tight). */
+  .diff-expand-row > td {
     padding: 0 !important;
     border-top: none !important;
   }

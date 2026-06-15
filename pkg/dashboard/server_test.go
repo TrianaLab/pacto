@@ -654,6 +654,15 @@ func fetchEnrichedEntries(t *testing.T) []ServiceListEntry {
 				Score:   &score80,
 				Summary: &ComplianceCounts{Total: 5, Passed: 4, Failed: 1, Errors: 0, Warnings: 1},
 			},
+			Readiness: &ReadinessInfo{
+				Score: 67, MinScore: 100, Passing: false,
+				TotalWeight: 30, CurrentWeight: 20,
+				CurrentCount: 2, ExpiredCount: 1,
+				Checks: []ReadinessCheckInfo{
+					{ID: "dashboard", Type: "url", Status: "Current", Weight: 20, Expires: "2026-12-31"},
+					{ID: "runbook", Type: "document", Status: "Expired", Weight: 10, Expires: "2025-01-01"},
+				},
+			},
 		},
 		"svc-b": {
 			Service: Service{Name: "svc-b", Version: "2.0.0", ContractStatus: StatusCompliant, Source: "local"},
@@ -701,10 +710,28 @@ func TestServerListServices_Enriched(t *testing.T) {
 	if svcA.TopInsight != "something wrong" {
 		t.Errorf("expected topInsight, got %q", svcA.TopInsight)
 	}
+	// Readiness is carried on the list entry so the overview can aggregate from
+	// a single /api/services call.
+	if svcA.Readiness == nil {
+		t.Fatalf("expected svc-a to carry readiness on the list entry")
+	}
+	if svcA.Readiness.Score != 67 {
+		t.Errorf("expected readiness score 67, got %d", svcA.Readiness.Score)
+	}
+	if svcA.Readiness.ExpiredCount != 1 {
+		t.Errorf("expected 1 expired readiness check, got %d", svcA.Readiness.ExpiredCount)
+	}
+	if len(svcA.Readiness.Checks) != 2 {
+		t.Errorf("expected 2 readiness checks carried through, got %d", len(svcA.Readiness.Checks))
+	}
 	// svc-b is a dependency of svc-a with required=true, so svc-b has blast radius of 1
 	svcB := findEntry(t, entries, "svc-b")
 	if svcB.BlastRadius != 1 {
 		t.Errorf("expected blastRadius=1 for svc-b, got %d", svcB.BlastRadius)
+	}
+	// svc-b declares no readiness, so the field is omitted (nil).
+	if svcB.Readiness != nil {
+		t.Errorf("expected svc-b to carry no readiness, got %+v", svcB.Readiness)
 	}
 }
 
