@@ -7,6 +7,8 @@ on:
       - 'docs/**'
       - 'mkdocs.yml'
       - 'examples/demo/**'
+      # The demo embeds the dashboard UI + engine, so redeploy when they change.
+      - 'pkg/dashboard/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
