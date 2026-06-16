@@ -1,0 +1,64 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Frontend",
+    "version": "1.0.0",
+    "description": "Customer-facing web application"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "home",
+        "summary": "Home page",
+        "responses": {
+          "200": { "description": "HTML page" }
+        }
+      }
+    },
+    "/products": {
+      "get": {
+        "operationId": "listProducts",
+        "summary": "Product catalog page",
+        "responses": {
+          "200": { "description": "HTML page" }
+        }
+      }
+    },
+    "/cart": {
+      "get": {
+        "operationId": "viewCart",
+        "summary": "Shopping cart page",
+        "responses": {
+          "200": { "description": "HTML page" }
+        }
+      }
+    },
+    "/checkout": {
+      "get": {
+        "operationId": "checkout",
+        "summary": "Checkout page",
+        "responses": {
+          "200": { "description": "HTML page" }
+        }
+      }
+    },
+    "/orders": {
+      "get": {
+        "operationId": "orderHistory",
+        "summary": "Order history page",
+        "responses": {
+          "200": { "description": "HTML page" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Health check",
+        "responses": {
+          "200": { "description": "Service healthy" }
+        }
+      }
+    }
+  }
+}

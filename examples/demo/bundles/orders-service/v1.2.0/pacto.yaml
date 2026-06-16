@@ -1,0 +1,112 @@
+pactoVersion: "1.1"
+
+service:
+  name: orders-service
+  version: 1.2.0
+  owner:
+    team: commerce-team
+    dri: fatima.ahmed
+    contacts:
+      - type: email
+        value: commerce-team@acme.com
+        purpose: escalation
+      - type: chat
+        value: "#commerce-team"
+        purpose: support
+      - type: oncall
+        value: commerce-oncall
+        purpose: oncall
+  image:
+    ref: ghcr.io/trianalab/pacto-demo/orders-service
+
+interfaces:
+  - name: http
+    type: http
+    port: 8082
+    visibility: internal
+    contract: interfaces/openapi.json
+  - name: events
+    type: event
+    visibility: internal
+    contract: interfaces/events.json
+
+configurations:
+  - name: platform
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  - name: app
+    schema: configuration/schema.json
+    values:
+      OTEL_SERVICE_NAME: orders-service
+      DATABASE_URL: postgresql://postgres:5432/orders
+      PAYMENTS_SERVICE_URL: http://payments-service:8083
+      ENABLE_ORDER_TRACKING: true
+
+policies:
+  - name: http-security
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+
+dependencies:
+  - name: postgresql
+    ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
+    required: true
+    compatibility: "^16.0.0"
+  - name: payments-service
+    ref: oci://ghcr.io/trianalab/pacto-demo/payments-service
+    required: true
+    compatibility: "^1.0.0"
+  - name: notification-worker
+    ref: oci://ghcr.io/trianalab/pacto-demo/notification-worker
+    required: true
+    compatibility: "^1.0.0"
+
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: high
+  lifecycle:
+    upgradeStrategy: rolling
+    gracefulShutdownSeconds: 30
+
+scaling:
+  min: 2
+  max: 5
+
+metadata:
+  tier: domain
+  category: orders
+  criticality: high
+  summary: Order management service with tracking, fulfillment, and structured ownership metadata
+  language: go
+  repo: github.com/trianalab/pacto-demo/orders-service
+  tags:
+    - orders
+    - commerce
+    - fulfillment
+    - tracking
+    - events
+
+readiness:
+  minScore: 80
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.acme.com/d/orders-service
+      weight: 40
+      expires: "2099-12-31"
+      description: Production Grafana dashboard
+    - id: runbook
+      type: document
+      evidence: docs/runbooks/orders-service.md
+      weight: 30
+      expires: "2099-12-31"
+      description: On-call runbook
+    - id: security-review
+      type: ticket
+      evidence: SEC-2099
+      weight: 30
+      expires: "2099-12-31"
+      description: Annual security review

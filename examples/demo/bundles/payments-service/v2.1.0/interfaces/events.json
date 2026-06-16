@@ -1,0 +1,87 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Payments Service Events",
+    "version": "2.0.0"
+  },
+  "channels": {
+    "payment.intent.created": {
+      "publish": {
+        "operationId": "paymentIntentCreated",
+        "summary": "Payment intent has been created",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "payment_intent_id": { "type": "string" },
+              "amount": { "type": "integer" },
+              "currency": { "type": "string" },
+              "customer_id": { "type": "string" },
+              "risk_score": { "type": "number" },
+              "created_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["payment_intent_id", "amount", "currency", "customer_id"]
+          }
+        }
+      }
+    },
+    "payment.intent.succeeded": {
+      "publish": {
+        "operationId": "paymentIntentSucceeded",
+        "summary": "Payment intent has been confirmed and succeeded",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "payment_intent_id": { "type": "string" },
+              "amount": { "type": "integer" },
+              "currency": { "type": "string" },
+              "customer_id": { "type": "string" },
+              "succeeded_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["payment_intent_id", "amount", "currency", "customer_id"]
+          }
+        }
+      }
+    },
+    "payment.intent.failed": {
+      "publish": {
+        "operationId": "paymentIntentFailed",
+        "summary": "Payment intent has failed",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "payment_intent_id": { "type": "string" },
+              "amount": { "type": "integer" },
+              "currency": { "type": "string" },
+              "error_code": { "type": "string" },
+              "error_message": { "type": "string" },
+              "failed_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["payment_intent_id", "amount", "currency", "error_code"]
+          }
+        }
+      }
+    },
+    "payment.refunded": {
+      "publish": {
+        "operationId": "paymentRefunded",
+        "summary": "Payment has been refunded",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "payment_intent_id": { "type": "string" },
+              "refund_id": { "type": "string" },
+              "amount": { "type": "integer" },
+              "reason": { "type": "string" },
+              "refunded_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["payment_intent_id", "refund_id", "amount"]
+          }
+        }
+      }
+    }
+  }
+}

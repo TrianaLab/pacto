@@ -1,0 +1,78 @@
+# Pacto dashboard — WebAssembly demo
+
+A static, browser-only build of `pacto dashboard`. The Pacto engine and a curated
+set of demo contracts are compiled to WebAssembly and baked in, so the whole
+dashboard — fleet, dependency graph, version history, version diff, readiness —
+runs client-side with no backend and no live registry.
+
+**Live site:** https://trianalab.github.io/pacto/demo/
+
+## How it works
+
+```
+index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base=/pacto/demo/
+   ├─ wasm_exec.js              Go's wasm runtime glue
+   └─ boot.js                   loads app.wasm; routes /api,/health,/metrics into wasm
+                                     │
+   app fetch('/api/services') ──────┘  (a fetch shim intercepts only those paths)
+                                     ▼
+                                app.wasm: httptest → Pacto's Huma handlers
+                                     │
+                                EmbedSource  (dashboard.DataSource over //go:embed bundles)
+```
+
+- `source_embed.go` — indexes the embedded bundles and implements `dashboard.DataSource`.
+- `main_wasm.go` — builds the dashboard's Huma API in memory and exposes `__pactoServe`.
+- `boot.js` — loads the wasm engine and shims `fetch` for `/api`, `/health`, `/metrics`.
+
+The graph, dependents and cross-reference views derive from each contract's
+declared dependencies (every referenced service is embedded), so no OCI resolver
+is needed.
+
+## Build
+
+Requirements: Go 1.26+, Node 22+, make.
+
+```bash
+make build                 # builds dist/ at base /pacto/demo/
+make build BASE=/          # build at site root for local preview
+make smoke                 # exercise the built wasm engine in Node
+make serve                 # preview at http://localhost:8088/pacto/demo/
+```
+
+`make build` rebuilds the dashboard UI from `../../pkg/dashboard/frontend` into a
+scratch dir and copies it into `dist/`; it never modifies the committed
+`pkg/dashboard/ui` (which the real `pacto dashboard` server uses).
+
+## Explore the contracts on the CLI (offline)
+
+These work on the local bundles with no registry. Build the CLI first with
+`make build` at the repo root.
+
+```bash
+# A breaking change: payments-service v1.2.0 -> v2.0.0 (drops /charges).
+make breaking-change
+
+# A non-breaking evolution: v1.0.0 -> v1.1.0.
+make evolution
+
+# Inspect any contract.
+make explain REF=bundles/payments-service/v2.1.0
+```
+
+Full contract validation (`pacto validate`) and live graph resolution
+(`pacto graph`) resolve refs over the network and require the contracts to be
+published to a registry; this demo publishes nothing, so use the live dashboard
+above for the dependency graph.
+
+## Size
+
+`app.wasm` is ≈52 MB raw / ~9.6 MB gzipped: it links Kubernetes and OCI client
+init code that the demo never calls, which dead-code elimination can't drop.
+Acceptable for a cached static asset.
+
+## Don't use sudo
+
+This build never needs root. A single `sudo make` leaves root-owned artifacts
+that wedge later non-sudo builds; the Makefile's preflight detects this and
+prints a one-time fix.

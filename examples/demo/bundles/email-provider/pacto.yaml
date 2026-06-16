@@ -1,0 +1,34 @@
+pactoVersion: "1.0"
+
+service:
+  name: email-provider
+  version: 1.0.0
+  owner:
+    team: external/sendgrid
+    contacts:
+      - type: url
+        value: https://support.sendgrid.com
+        purpose: support
+      - type: url
+        value: https://status.sendgrid.com
+        purpose: oncall
+
+interfaces:
+  - name: http
+    type: http
+    port: 443
+    visibility: public
+    contract: interfaces/openapi.json
+
+metadata:
+  tier: external
+  category: notifications
+  criticality: medium
+  summary: External email delivery provider (SendGrid)
+  serviceType: external
+  protocol: https
+  tags:
+    - email
+    - notifications
+    - external
+    - sendgrid

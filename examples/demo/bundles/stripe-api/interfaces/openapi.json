@@ -1,0 +1,49 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Stripe API (subset)",
+    "version": "2024.01.01",
+    "description": "External Stripe payment processing API"
+  },
+  "paths": {
+    "/v1/payment_intents": {
+      "post": {
+        "operationId": "createPaymentIntent",
+        "summary": "Create a payment intent",
+        "responses": {
+          "200": { "description": "Payment intent created" }
+        }
+      }
+    },
+    "/v1/payment_intents/{id}": {
+      "get": {
+        "operationId": "getPaymentIntent",
+        "summary": "Retrieve a payment intent",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Payment intent details" }
+        }
+      }
+    },
+    "/v1/refunds": {
+      "post": {
+        "operationId": "createRefund",
+        "summary": "Create a refund",
+        "responses": {
+          "200": { "description": "Refund created" }
+        }
+      }
+    },
+    "/v1/webhooks": {
+      "post": {
+        "operationId": "receiveWebhook",
+        "summary": "Receive webhook events from Stripe",
+        "responses": {
+          "200": { "description": "Webhook received" }
+        }
+      }
+    }
+  }
+}

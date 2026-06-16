@@ -1,0 +1,103 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "API Gateway",
+    "version": "1.1.0"
+  },
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "login",
+        "summary": "Authenticate user",
+        "responses": {
+          "200": { "description": "Authentication successful" },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "operationId": "refreshToken",
+        "summary": "Refresh access token",
+        "responses": {
+          "200": { "description": "Token refreshed" },
+          "401": { "description": "Invalid refresh token" }
+        }
+      }
+    },
+    "/api/v1/orders": {
+      "get": {
+        "operationId": "listOrders",
+        "summary": "List orders",
+        "responses": {
+          "200": { "description": "List of orders" }
+        }
+      },
+      "post": {
+        "operationId": "createOrder",
+        "summary": "Create a new order",
+        "responses": {
+          "201": { "description": "Order created" },
+          "400": { "description": "Invalid request" }
+        }
+      }
+    },
+    "/api/v1/orders/{id}": {
+      "get": {
+        "operationId": "getOrder",
+        "summary": "Get order details",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Order details" },
+          "404": { "description": "Order not found" }
+        }
+      }
+    },
+    "/api/v1/orders/{id}/tracking": {
+      "get": {
+        "operationId": "getOrderTracking",
+        "summary": "Get order tracking status",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Tracking information" },
+          "404": { "description": "Order not found" }
+        }
+      }
+    },
+    "/api/v1/payments/charges": {
+      "post": {
+        "operationId": "createCharge",
+        "summary": "Create a payment charge",
+        "responses": {
+          "201": { "description": "Charge created" },
+          "402": { "description": "Payment failed" }
+        }
+      }
+    },
+    "/ws/orders/{id}/updates": {
+      "get": {
+        "operationId": "orderUpdatesWebSocket",
+        "summary": "WebSocket for real-time order updates",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "101": { "description": "WebSocket upgrade" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Gateway health check",
+        "responses": {
+          "200": { "description": "Service healthy" }
+        }
+      }
+    }
+  }
+}

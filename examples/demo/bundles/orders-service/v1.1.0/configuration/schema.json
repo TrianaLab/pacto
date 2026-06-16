@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Orders Service Config",
+  "type": "object",
+  "properties": {
+    "LOG_LEVEL": {
+      "type": "string",
+      "enum": [
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ],
+      "default": "info"
+    },
+    "LOG_FORMAT": {
+      "type": "string",
+      "enum": [
+        "json",
+        "text"
+      ],
+      "default": "json"
+    },
+    "OTEL_EXPORTER_ENDPOINT": {
+      "type": "string",
+      "format": "uri"
+    },
+    "OTEL_SERVICE_NAME": {
+      "type": "string"
+    },
+    "METRICS_PORT": {
+      "type": "integer",
+      "default": 9090
+    },
+    "HEALTH_CHECK_INTERVAL_SECONDS": {
+      "type": "integer",
+      "default": 10
+    },
+    "DATABASE_URL": {
+      "type": "string",
+      "format": "uri"
+    },
+    "PAYMENTS_SERVICE_URL": {
+      "type": "string",
+      "format": "uri"
+    },
+    "ENABLE_ORDER_TRACKING": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "DATABASE_URL",
+    "PAYMENTS_SERVICE_URL",
+    "ENABLE_ORDER_TRACKING"
+  ]
+}

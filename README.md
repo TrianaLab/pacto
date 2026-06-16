@@ -13,7 +13,7 @@ A service's operational behavior — interfaces, dependencies, runtime semantics
 
 Pacto (/ˈpak.to/ — Spanish for *pact*) is not a replacement for OpenAPI, Helm, Terraform, Backstage, or Kubernetes. It adds the operational contract layer between them.
 
-**[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)** · **[Demo](https://github.com/TrianaLab/pacto-demo)**
+**[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)** · **[Live demo](https://trianalab.github.io/pacto/demo/)**
 
 > **Why Pacto exists** — [MANIFEST.md](MANIFEST.md)
 

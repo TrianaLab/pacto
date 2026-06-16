@@ -1,0 +1,83 @@
+pactoVersion: "1.0"
+
+service:
+  name: auth-service
+  version: 1.0.0
+  owner:
+    team: identity-team
+    dri: erik.nilsson
+    contacts:
+      - type: email
+        value: identity-team@acme.com
+        purpose: escalation
+      - type: chat
+        value: "#identity-team"
+        purpose: support
+      - type: oncall
+        value: identity-team-oncall
+        purpose: oncall
+  image:
+    ref: ghcr.io/trianalab/pacto-demo/auth-service
+
+interfaces:
+  - name: http
+    type: http
+    port: 8081
+    visibility: internal
+  - name: grpc
+    type: grpc
+    port: 9091
+    visibility: internal
+    contract: interfaces/auth.proto
+
+configurations:
+  - name: platform
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  - name: app
+    schema: configuration/schema.json
+    values:
+      OTEL_SERVICE_NAME: auth-service
+      JWT_ISSUER: https://auth.platform.internal
+      JWT_EXPIRY_SECONDS: 3600
+      SESSION_STORE: redis
+      BCRYPT_COST: 12
+
+policies:
+  - name: http-security
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+
+dependencies:
+  - name: redis
+    ref: oci://ghcr.io/trianalab/pacto-demo/redis
+    required: true
+    compatibility: "^7.0.0"
+
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: high
+  lifecycle:
+    upgradeStrategy: rolling
+    gracefulShutdownSeconds: 30
+
+scaling:
+  min: 2
+  max: 4
+
+metadata:
+  tier: domain
+  category: identity
+  criticality: high
+  summary: Authentication and authorization service managing JWT tokens and sessions
+  language: go
+  repo: github.com/trianalab/pacto-demo/auth-service
+  tags:
+    - authentication
+    - authorization
+    - jwt
+    - sessions
+    - identity

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Platform HTTP Policy",
+  "description": "Enforces platform standards: structured ownership, metadata classification, and runtime declaration",
+  "type": "object",
+  "properties": {
+    "service": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            {
+              "type": "object",
+              "properties": {
+                "team": { "type": "string", "minLength": 1 }
+              },
+              "required": ["team"]
+            }
+          ]
+        }
+      },
+      "required": ["owner"]
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["tier", "criticality"]
+    },
+    "runtime": {
+      "type": "object"
+    }
+  },
+  "required": ["service", "metadata", "runtime"]
+}

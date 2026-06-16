@@ -1,0 +1,47 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Payments Service Events",
+    "version": "1.0.0"
+  },
+  "channels": {
+    "payment.completed": {
+      "publish": {
+        "operationId": "paymentCompleted",
+        "summary": "Payment has been successfully processed",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "charge_id": { "type": "string" },
+              "amount": { "type": "integer" },
+              "currency": { "type": "string" },
+              "customer_id": { "type": "string" },
+              "completed_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["charge_id", "amount", "currency", "customer_id"]
+          }
+        }
+      }
+    },
+    "payment.refunded": {
+      "publish": {
+        "operationId": "paymentRefunded",
+        "summary": "Payment has been refunded",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "charge_id": { "type": "string" },
+              "refund_id": { "type": "string" },
+              "amount": { "type": "integer" },
+              "reason": { "type": "string" },
+              "refunded_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["charge_id", "refund_id", "amount"]
+          }
+        }
+      }
+    }
+  }
+}

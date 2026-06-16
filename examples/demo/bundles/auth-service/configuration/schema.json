@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Auth Service Config",
+  "type": "object",
+  "properties": {
+    "LOG_LEVEL": {
+      "type": "string",
+      "enum": [
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ],
+      "default": "info"
+    },
+    "LOG_FORMAT": {
+      "type": "string",
+      "enum": [
+        "json",
+        "text"
+      ],
+      "default": "json"
+    },
+    "OTEL_EXPORTER_ENDPOINT": {
+      "type": "string",
+      "format": "uri"
+    },
+    "OTEL_SERVICE_NAME": {
+      "type": "string"
+    },
+    "METRICS_PORT": {
+      "type": "integer",
+      "default": 9090
+    },
+    "HEALTH_CHECK_INTERVAL_SECONDS": {
+      "type": "integer",
+      "default": 10
+    },
+    "JWT_ISSUER": {
+      "type": "string",
+      "format": "uri"
+    },
+    "JWT_EXPIRY_SECONDS": {
+      "type": "integer"
+    },
+    "SESSION_STORE": {
+      "type": "string"
+    },
+    "BCRYPT_COST": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "JWT_ISSUER",
+    "JWT_EXPIRY_SECONDS",
+    "SESSION_STORE",
+    "BCRYPT_COST"
+  ]
+}

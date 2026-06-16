@@ -1,0 +1,34 @@
+pactoVersion: "1.0"
+
+service:
+  name: platform-worker-config
+  version: 1.0.0
+  owner:
+    team: platform-foundations
+    dri: alice.johnson
+    contacts:
+      - type: email
+        value: platform-foundations@acme.com
+        purpose: escalation
+      - type: chat
+        value: "#platform-foundations"
+        purpose: support
+      - type: oncall
+        value: platform-foundations-oncall
+        purpose: oncall
+
+configurations:
+  - name: default
+    schema: configuration/schema.json
+
+metadata:
+  tier: platform
+  category: configuration
+  criticality: medium
+  summary: Shared configuration schema for background workers and scheduled jobs
+  repo: github.com/trianalab/pacto-demo/platform-worker-config
+  tags:
+    - configuration
+    - shared
+    - workers
+    - scheduled

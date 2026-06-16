@@ -1,0 +1,49 @@
+pactoVersion: "1.0"
+
+service:
+  name: redis
+  version: 7.2.0
+  owner:
+    team: infra-data
+    dri: carlos.silva
+    contacts:
+      - type: email
+        value: infra-data@acme.com
+        purpose: escalation
+      - type: chat
+        value: "#infra-data"
+        purpose: support
+      - type: oncall
+        value: infra-data-oncall
+        purpose: oncall
+  image:
+    ref: docker.io/library/redis:7
+
+runtime:
+  workload: service
+  state:
+    type: stateful
+    persistence:
+      scope: shared
+      durability: persistent
+    dataCriticality: medium
+  lifecycle:
+    upgradeStrategy: ordered
+    gracefulShutdownSeconds: 60
+
+scaling:
+  replicas: 1
+
+metadata:
+  tier: infra
+  category: storage
+  criticality: high
+  summary: In-memory data store for caching, sessions, and rate limiting
+  serviceType: infrastructure
+  protocol: redis
+  repo: github.com/trianalab/pacto-demo/redis
+  tags:
+    - cache
+    - sessions
+    - rate-limiting
+    - infrastructure

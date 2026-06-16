@@ -1,0 +1,129 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Payments Service API",
+    "version": "1.2.0"
+  },
+  "paths": {
+    "/charges": {
+      "post": {
+        "operationId": "createCharge",
+        "summary": "Create a new charge (with optional fraud check)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "amount": { "type": "integer", "description": "Amount in cents" },
+                  "currency": { "type": "string" },
+                  "customer_id": { "type": "string" },
+                  "payment_method": { "type": "string" },
+                  "description": { "type": "string" }
+                },
+                "required": ["amount", "currency", "customer_id", "payment_method"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Charge created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "charge_id": { "type": "string" },
+                    "amount": { "type": "integer" },
+                    "currency": { "type": "string" },
+                    "status": { "type": "string" },
+                    "risk_score": { "type": "number", "description": "Fraud risk score (0-1), present when fraud check is enabled" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid request" },
+          "402": { "description": "Payment failed" }
+        }
+      }
+    },
+    "/charges/{id}": {
+      "get": {
+        "operationId": "getCharge",
+        "summary": "Retrieve a charge by ID",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Charge details" },
+          "404": { "description": "Charge not found" }
+        }
+      }
+    },
+    "/refunds": {
+      "post": {
+        "operationId": "createRefund",
+        "summary": "Create a refund for a charge",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "charge_id": { "type": "string" },
+                  "amount": { "type": "integer" },
+                  "reason": { "type": "string", "enum": ["duplicate", "fraudulent", "requested_by_customer"] }
+                },
+                "required": ["charge_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Refund created" },
+          "400": { "description": "Invalid request" },
+          "404": { "description": "Charge not found" }
+        }
+      }
+    },
+    "/webhooks/stripe": {
+      "post": {
+        "operationId": "handleStripeWebhook",
+        "summary": "Handle incoming Stripe webhook events",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string" },
+                  "type": { "type": "string" },
+                  "data": { "type": "object" }
+                },
+                "required": ["id", "type", "data"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Webhook processed" },
+          "400": { "description": "Invalid webhook signature" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Health check",
+        "responses": {
+          "200": { "description": "Service healthy" }
+        }
+      }
+    }
+  }
+}

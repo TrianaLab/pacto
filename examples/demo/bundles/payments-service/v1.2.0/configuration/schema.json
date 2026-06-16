@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Payments Service Config",
+  "type": "object",
+  "properties": {
+    "LOG_LEVEL": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error"],
+      "default": "info"
+    },
+    "STRIPE_API_KEY": {
+      "type": "string",
+      "description": "Stripe API secret key for payment processing"
+    },
+    "PAYMENTS_DB_URL": {
+      "type": "string",
+      "format": "uri",
+      "description": "PostgreSQL connection string for payments database"
+    },
+    "ENABLE_REFUNDS": {
+      "type": "boolean",
+      "default": true,
+      "description": "Feature flag to enable/disable refund processing"
+    },
+    "WEBHOOK_SECRET": {
+      "type": "string",
+      "description": "Stripe webhook signing secret for signature verification"
+    },
+    "FRAUD_CHECK_ENABLED": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable fraud detection checks before processing payments"
+    }
+  },
+  "required": ["STRIPE_API_KEY", "PAYMENTS_DB_URL"]
+}
