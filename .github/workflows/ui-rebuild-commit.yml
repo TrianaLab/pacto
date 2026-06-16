@@ -1,0 +1,79 @@
+name: Rebuild dashboard UI (commit)
+
+# Privileged half of the UI auto-rebuild. Triggered when "Rebuild dashboard UI"
+# finishes, it downloads the rebuilt-ui artifact and commits it back to the
+# Dependabot PR branch.
+#
+# Security: this never runs PR-provided code. It only handles a trusted artifact
+# (the rebuilt UI tar) and uses plain git to fetch the branch tip, replace
+# pkg/dashboard/ui, and push. There is no `actions/checkout` of the PR head and
+# no build/test step, so the "untrusted checkout in a privileged context" sink
+# does not exist here.
+
+on:
+  workflow_run:
+    workflows: ["Rebuild dashboard UI"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  commit:
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the rebuilt UI artifact
+        id: dl
+        uses: actions/download-artifact@v8
+        with:
+          name: rebuilt-ui
+          path: _ui_artifact
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Resolve the PR branch
+        id: pr
+        if: steps.dl.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          num=$(cat _ui_artifact/pr-number)
+          head_repo=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${num}" --jq '.head.repo.full_name')
+          head_ref=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${num}" --jq '.head.ref')
+          # Same-repo (Dependabot) branches only — never push to a fork.
+          if [ "$head_repo" != "$GITHUB_REPOSITORY" ]; then
+            echo "PR head is a fork ($head_repo); skipping."
+            exit 0
+          fi
+          echo "ref=$head_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Commit the rebuilt UI to the PR branch
+        if: steps.pr.outputs.ref != ''
+        env:
+          # GITHUB_TOKEN commits the fix but its push does NOT re-trigger CI —
+          # re-run the checks once, or set a UI_REBUILD_TOKEN PAT (contents:write)
+          # for full automation.
+          GH_TOKEN: ${{ secrets.UI_REBUILD_TOKEN || secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ steps.pr.outputs.ref }}
+        run: |
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # Fetch only the branch tip as data; we run none of its code.
+          git init -q repo
+          cd repo
+          git remote add origin "$remote"
+          git -c protocol.version=2 fetch -q --depth=1 origin "$HEAD_REF"
+          git checkout -q FETCH_HEAD
+          rm -rf pkg/dashboard/ui
+          tar -C pkg/dashboard -xf ../_ui_artifact/ui.tar
+          if [ -z "$(git status --porcelain pkg/dashboard/ui)" ]; then
+            echo "Branch already has the rebuilt UI; nothing to push."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pkg/dashboard/ui
+          git commit -q -m "chore(deps): rebuild dashboard UI after frontend bump"
+          git push -q origin "HEAD:${HEAD_REF}"
+          echo "Pushed rebuilt UI to ${HEAD_REF}."

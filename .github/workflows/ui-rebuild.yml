@@ -1,77 +1,64 @@
-name: Rebuild dashboard UI (Dependabot)
+name: Rebuild dashboard UI
 
-# Dependabot bumps frontend dependencies (pkg/dashboard/frontend) but cannot
-# rebuild the committed pkg/dashboard/ui bundle, so the ci-ui-drift gate fails on
-# every frontend bump and the UI has to be rebuilt by hand. This workflow does
-# that automatically: on a Dependabot PR that touches the frontend, it rebuilds
-# the UI and commits the result back to the PR branch.
+# Dependabot bumps pkg/dashboard/frontend deps but cannot rebuild the committed
+# pkg/dashboard/ui bundle, so the ci-ui-drift gate fails on every frontend bump
+# and the UI has to be rebuilt by hand. This rebuilds it automatically.
 #
-# The committed UI is deliberately kept in git (it is //go:embed-ed into the
-# binary, so `go install`, the Docker image and the release build all ship a
-# working dashboard without needing Node). This workflow keeps that committed
-# build in sync — it does not remove it.
+# The committed UI is deliberately kept in git (it is //go:embed-ed, so
+# `go install`, the Docker image and the release build ship a working dashboard
+# without Node). This keeps that committed build in sync — it does not remove it.
 #
-# pull_request_target is required so the job has a write-capable token:
-# Dependabot-triggered `pull_request`/`push` runs only get a read-only token and
-# cannot push back. The job is restricted to Dependabot and never exposes a token
-# to the dependency build step (see the security notes inline).
+# Security: this is the UNPRIVILEGED half. It runs on `pull_request`, so building
+# the PR's (untrusted) frontend with the bumped deps happens with a read-only
+# token and no secrets — nothing to steal. It only uploads the rebuilt UI as an
+# artifact; the privileged commit-back is done by ui-rebuild-commit.yml, which
+# runs no PR code. This avoids "checkout of untrusted code in a privileged
+# context".
 
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+  pull_request:
     paths:
       - 'pkg/dashboard/frontend/**'
 
 permissions:
-  contents: write
-
-# One rebuild per PR; let an in-flight rebuild finish before starting another.
-concurrency:
-  group: ui-rebuild-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  contents: read
 
 jobs:
-  rebuild-ui:
-    # Only Dependabot's own PRs. This guards the pull_request_target +
-    # checkout-PR-head pattern so we never build arbitrary contributor/fork code.
+  build:
+    # Only Dependabot's frontend bumps need this; humans rebuild + commit the UI
+    # themselves and ci-ui-drift catches them.
     if: ${{ github.actor == 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Check out the PR branch
-        uses: actions/checkout@v6.0.3
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          # Do NOT persist the token in .git/config: the dependency build step
-          # below runs PR-controlled code, which must never have push access.
-          persist-credentials: false
+      - uses: actions/checkout@v6.0.3
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      # No secrets are present in this step's environment, so even a malicious
-      # bumped dependency cannot exfiltrate a token. `make ui-build` is the same
-      # build ci-ui-drift runs (single source of truth in ci.mk); it uses
-      # --ignore-scripts so only the project's own vite build runs.
       - name: Rebuild the dashboard UI
         run: make ui-build
 
-      - name: Commit and push the rebuilt UI if it changed
+      - name: Package the rebuilt UI if it drifted
+        id: drift
         env:
-          # GITHUB_TOKEN works out of the box (it commits the fix), but a push
-          # made with it does NOT re-trigger CI — re-run the failed checks once,
-          # or set a UI_REBUILD_TOKEN PAT (contents:write) for full automation.
-          GH_TOKEN: ${{ secrets.UI_REBUILD_TOKEN || secrets.GITHUB_TOKEN }}
-          # Via env (not inline ${{…}}) so a crafted branch name can't inject shell.
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           if [ -z "$(git status --porcelain pkg/dashboard/ui)" ]; then
             echo "Committed UI already matches the rebuild; nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pkg/dashboard/ui
-          git commit -m "chore(deps): rebuild dashboard UI after frontend bump"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            "HEAD:${HEAD_REF}"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          mkdir -p _ui_artifact
+          # Tar the whole tree so deletions/renames apply cleanly on the other side.
+          tar -C pkg/dashboard -cf _ui_artifact/ui.tar ui
+          printf '%s\n' "$PR_NUMBER" > _ui_artifact/pr-number
+
+      - name: Upload the rebuilt UI
+        if: steps.drift.outputs.changed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: rebuilt-ui
+          path: _ui_artifact/
+          retention-days: 1
