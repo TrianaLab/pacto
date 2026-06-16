@@ -4,7 +4,7 @@
 [Get Started](quickstart.md){ .md-button .md-button--primary }
 [Specification](contract-reference.md){ .md-button }
 [Examples](examples/index.md){ .md-button }
-[Demo](https://github.com/TrianaLab/pacto-demo){ .md-button }
+[Demo](examples/dashboard-demo.md){ .md-button }
 
 ---
 ## What is Pacto?

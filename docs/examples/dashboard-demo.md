@@ -4,7 +4,7 @@ The Pacto dashboard runs entirely in your browser as a static WebAssembly build 
 the Pacto engine and a curated set of demo contracts are compiled to WASM and
 served with no backend.
 
-**[Open the live dashboard demo →](/pacto/demo/)**
+<a href="../../demo/" class="md-button md-button--primary">Open the live dashboard demo →</a>
 
 It showcases the full UI against a realistic fleet:
 
