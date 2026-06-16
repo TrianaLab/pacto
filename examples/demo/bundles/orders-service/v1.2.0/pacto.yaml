@@ -1,4 +1,4 @@
-pactoVersion: "1.0"
+pactoVersion: "1.1"
 
 service:
   name: orders-service
@@ -88,3 +88,25 @@ metadata:
     - fulfillment
     - tracking
     - events
+
+readiness:
+  minScore: 80
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.acme.com/d/orders-service
+      weight: 40
+      expires: "2099-12-31"
+      description: Production Grafana dashboard
+    - id: runbook
+      type: document
+      evidence: docs/runbooks/orders-service.md
+      weight: 30
+      expires: "2099-12-31"
+      description: On-call runbook
+    - id: security-review
+      type: ticket
+      evidence: SEC-2099
+      weight: 30
+      expires: "2099-12-31"
+      description: Annual security review
