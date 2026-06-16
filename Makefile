@@ -13,7 +13,10 @@ endif
 
 IMAGE := ghcr.io/trianalab/pacto-dashboard
 
-.PHONY: build test e2e coverage lint clean docs docs-build gen-cli-docs docker-build docker-run
+.PHONY: build test e2e coverage lint clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run
+
+# Local docs preview includes the in-browser WASM dashboard demo at /demo/.
+DOCS_DEMO := docs/demo
 
 build:
 	rm -f "$(GOBIN)/pacto"
@@ -38,12 +41,24 @@ gen-cli-docs:
 	go run ./cmd/gendocs/
 
 # Documentation (MkDocs Material). Install via `brew install mkdocs-material`
-# or `pip install -r docs/requirements.txt`.
-docs:
+# or `pip install -r docs/requirements.txt`. Both targets first build the
+# in-browser WASM demo into docs/demo/ so the local preview exposes it, mirroring
+# the deployed site. mkdocs honors site_url, so it serves under /pacto/ locally
+# and the demo lives at /pacto/demo/ both locally and in production.
+docs: $(DOCS_DEMO)/app.wasm
 	mkdocs serve
 
-docs-build:
+docs-build: $(DOCS_DEMO)/app.wasm
 	mkdocs build
+
+# Build the WASM dashboard demo into docs/demo/ (gitignored) at the same base as
+# production (/pacto/demo/) so `mkdocs serve`/`build` serve it correctly. Only
+# rebuilt when missing; force a refresh with `make demo-preview-clean`.
+$(DOCS_DEMO)/app.wasm:
+	$(MAKE) -C examples/demo build BASE=/pacto/demo/ DIST=$(CURDIR)/$(DOCS_DEMO)
+
+demo-preview-clean:
+	rm -rf $(DOCS_DEMO)
 
 docker-build:
 	docker build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) --build-arg BUILD_DATE=$(BUILD_DATE) -t $(IMAGE):$(VERSION) .

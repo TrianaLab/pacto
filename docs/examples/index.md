@@ -1,7 +1,7 @@
 # Example Contracts
 This section provides ready-to-use Pacto contracts for common infrastructure services. Use these as references when writing your own contracts or as dependencies in your service contracts.
 
-For a complete working demo repository, see [pacto-demo](https://github.com/TrianaLab/pacto-demo).
+For a complete, runnable demo, see the [live dashboard demo](dashboard-demo.md) — its source and curated contract set live in [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo).
 
 ---
 

@@ -124,9 +124,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download all artifacts
+      - name: Download release binaries
         uses: actions/download-artifact@v8
         with:
+          # Only the platform binaries — NOT the docker digest-* / *.dockerbuild
+          # artifacts, which include 0-byte files the release asset API rejects.
+          pattern: pacto_*
           path: dist
           merge-multiple: true
 

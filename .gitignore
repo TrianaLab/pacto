@@ -16,6 +16,9 @@ coverage.html
 # MkDocs build output
 /site/
 
+# Local docs preview build of the WASM demo (CI builds it into site/demo)
+/docs/demo/
+
 # TODO
 TODO.md
 
