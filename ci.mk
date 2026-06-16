@@ -4,7 +4,7 @@
 
 BUNDLE_DIR := pactos/pacto-dashboard
 
-.PHONY: ci ci-static ci-test ci-ui ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
+.PHONY: ci ci-static ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
 ci: ci-static ci-test e2e gen-bundle
@@ -50,10 +50,15 @@ ci-docs:
 	@$(MAKE) gen-cli-docs
 	@git diff --exit-code docs/cli-reference.md || (echo "CLI docs are out of date. Run 'make gen-cli-docs' and commit." && exit 1)
 
-ci-ui-drift:
-	@echo "==> Checking committed dashboard UI build is up to date..."
+# Rebuild the committed dashboard UI from frontend source. Single source of truth
+# for the build incantation — reused by ci-ui-drift and the ui-rebuild workflow.
+ui-build:
+	@echo "==> Building dashboard UI..."
 	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npm run build
-	@git diff --exit-code pkg/dashboard/ui/ || (echo "Committed pkg/dashboard/ui/ is out of date. Run 'npm run build' in pkg/dashboard/frontend and commit." && exit 1)
+
+ci-ui-drift: ui-build
+	@echo "==> Checking committed dashboard UI build is up to date..."
+	@git diff --exit-code pkg/dashboard/ui/ || (echo "Committed pkg/dashboard/ui/ is out of date. Run 'make ui-build' and commit." && exit 1)
 
 # ── Bundle generation targets ────────────────────────────────────────
 # The OpenAPI spec is generated via the pacto-plugin-openapi-infer plugin

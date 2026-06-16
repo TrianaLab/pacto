@@ -50,10 +50,11 @@ jobs:
           node-version: '22'
 
       # No secrets are present in this step's environment, so even a malicious
-      # bumped dependency cannot exfiltrate a token. --ignore-scripts skips
-      # package lifecycle scripts; only the project's own vite build runs.
+      # bumped dependency cannot exfiltrate a token. `make ui-build` is the same
+      # build ci-ui-drift runs (single source of truth in ci.mk); it uses
+      # --ignore-scripts so only the project's own vite build runs.
       - name: Rebuild the dashboard UI
-        run: cd pkg/dashboard/frontend && npm ci --ignore-scripts && npm run build
+        run: make ui-build
 
       - name: Commit and push the rebuilt UI if it changed
         env:
