@@ -1,0 +1,112 @@
+# Pacto dashboard — WebAssembly demo build.
+#
+# Produces a fully static site in $(DIST): the Pacto engine compiled to wasm, the
+# dashboard UI rebuilt for the target base path, and the glue that routes the
+# UI's API calls into wasm. No backend, no live OCI.
+#
+#   make build                 # build at the default base (/pacto/demo/)
+#   make build BASE=/          # build at site root (local preview)
+#   make serve                 # preview at the project base path
+#
+# Bundles live in ./bundles and are embedded directly (no copy step). The UI is
+# built from this repo's frontend source into a scratch dir and copied into
+# $(DIST) — the committed pkg/dashboard/ui build is never touched.
+
+BASE        ?= /pacto/demo/
+DIST        ?= dist
+GOROOT      := $(shell go env GOROOT)
+SERVE_PORT  ?= 8088
+FRONTEND    := $(abspath ../../pkg/dashboard/frontend)
+UI_BUILD    := $(abspath .ui-build)
+
+.PHONY: build preflight ui wasm wasmexec inject serve test smoke clean diff breaking-change evolution explain
+
+build: preflight ui wasm wasmexec inject
+	@echo "==> Built '$(DIST)' (base $(BASE))"
+
+## Fail fast with clear guidance if a previous `sudo make` left root-owned
+## artifacts a normal-user build can't overwrite. This build never needs root.
+preflight:
+	@bad=$$(find $(DIST) $(UI_BUILD) -user root 2>/dev/null | head -1); \
+	if [ -n "$$bad" ]; then \
+	  echo "ERROR: root-owned build artifacts found (from a previous 'sudo make')."; \
+	  echo "       This build does NOT need root. Remove them once with:"; \
+	  echo "         sudo rm -rf examples/demo/dist examples/demo/.ui-build"; \
+	  echo "       then re-run 'make build' WITHOUT sudo."; \
+	  exit 1; \
+	fi
+
+## Rebuild the dashboard UI from this repo's frontend source with the correct
+## base path, into a scratch dir, then copy into $(DIST). NEVER writes to
+## pkg/dashboard/ui (the committed base-/ build used by the real server).
+ui:
+	@rm -rf $(DIST) $(UI_BUILD) && mkdir -p $(DIST)
+	cd $(FRONTEND) && npm ci --no-audit --no-fund && npx vite build --base=$(BASE) --emptyOutDir --outDir $(UI_BUILD)
+	@cp -r $(UI_BUILD)/. $(DIST)/
+	@echo "==> Built UI (base $(BASE))"
+
+## Compile the engine to wasm. Bundles are embedded via //go:embed bundles.
+wasm:
+	@mkdir -p $(DIST)
+	GOOS=js GOARCH=wasm go build -ldflags="-s -w" -o $(DIST)/app.wasm .
+	@echo "==> Built $(DIST)/app.wasm ($$(du -h $(DIST)/app.wasm | cut -f1))"
+
+## Copy Go's wasm runtime glue (Go 1.24+ lib/wasm location).
+wasmexec:
+	@mkdir -p $(DIST)
+	@cp "$(GOROOT)/lib/wasm/wasm_exec.js" $(DIST)/wasm_exec.js
+	@echo "==> Copied wasm_exec.js"
+
+## Inject the wasm loader before the app's module script, add the SPA 404
+## fallback, and stamp the build. Idempotent: skips if already done.
+inject:
+	@cp boot.js $(DIST)/boot.js
+	@grep -q 'boot.js' $(DIST)/index.html || awk -v base="$(BASE)" '\
+	  /<script type="module"/ && !done { \
+	    print "  <script src=\"" base "wasm_exec.js\"></script>"; \
+	    print "  <script src=\"" base "boot.js\"></script>"; \
+	    done=1 \
+	  } { print }' $(DIST)/index.html > $(DIST)/index.html.tmp && mv -f $(DIST)/index.html.tmp $(DIST)/index.html
+	@cp $(DIST)/index.html $(DIST)/404.html
+	@printf '{"base":"%s"}\n' "$(BASE)" > $(DIST)/version.json
+	@echo "==> Injected loader, 404.html, version.json"
+
+## Run the EmbedSource host tests.
+test:
+	go test ./...
+
+## Exercise the built wasm engine end-to-end in Node (needs `make build` first).
+smoke:
+	node smoke.mjs
+
+## Preview locally under the same base path the site is deployed at.
+serve:
+	@rm -rf .serve && mkdir -p ".serve$(BASE)" && cp -r $(DIST)/. ".serve$(BASE)"
+	@echo "==> Open http://localhost:$(SERVE_PORT)$(BASE)"
+	@cd .serve && python3 -m http.server $(SERVE_PORT)
+
+## -- Offline CLI demo narrative (local bundles, no live OCI) ---------------
+## These use the locally built `pacto` (run `make build` at the repo root first).
+## `pacto validate` and `pacto graph` are intentionally omitted: they resolve
+## refs over the network and the demo publishes nothing. See the live dashboard
+## for the graph view.
+
+## Compare two contract versions: make diff OLD=<path> NEW=<path>
+diff:
+	@pacto diff $(OLD) $(NEW)
+
+## Show the payments-service breaking change (v1.2.0 -> v2.0.0).
+breaking-change:
+	@pacto diff bundles/payments-service/v1.2.0 bundles/payments-service/v2.0.0 --output-format markdown || true
+
+## Show a non-breaking evolution (v1.0.0 -> v1.1.0).
+evolution:
+	@pacto diff bundles/payments-service/v1.0.0 bundles/payments-service/v1.1.0 --output-format markdown || true
+
+## Print a human-readable summary of a contract: make explain REF=<path>
+explain:
+	@pacto explain $(REF)
+
+clean:
+	@rm -rf $(DIST) .serve $(UI_BUILD)
+	@echo "==> Cleaned"
