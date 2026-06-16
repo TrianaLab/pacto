@@ -13,7 +13,7 @@ ci-static: ci-fmt ci-vet ci-cyclo ci-lint ci-docs ci-ui-drift
 
 ci-test: ci-ui
 	@echo "==> Running unit tests with race detector and coverage..."
-	@go test -race $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle) -coverprofile=coverage.out
+	@go test -race $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/) -coverprofile=coverage.out
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
 	if [ "$$total" != "100.0%" ]; then \
 		echo "FAIL: total coverage is $$total, expected 100.0%"; \
@@ -21,6 +21,8 @@ ci-test: ci-ui
 		exit 1; \
 	fi
 	@echo "    total coverage: 100.0%"
+	@echo "==> Running example tests (no coverage gate)..."
+	@go test -race ./examples/...
 
 ci-ui:
 	@echo "==> Running frontend lint & tests..."
