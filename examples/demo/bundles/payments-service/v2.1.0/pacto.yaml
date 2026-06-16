@@ -1,4 +1,4 @@
-pactoVersion: "1.0"
+pactoVersion: "1.1"
 
 service:
   name: payments-service
@@ -90,3 +90,31 @@ metadata:
     - fraud-detection
     - webhooks
     - ownership
+
+readiness:
+  minScore: 80
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.acme.com/d/payments-service
+      weight: 25
+      expires: "2099-12-31"
+      description: Production Grafana dashboard
+    - id: runbook
+      type: document
+      evidence: docs/runbooks/payments-service.md
+      weight: 20
+      expires: "2099-12-31"
+      description: On-call runbook for payment incidents
+    - id: security-review
+      type: ticket
+      evidence: SEC-2087
+      weight: 25
+      expires: "2099-12-31"
+      description: Annual security review
+    - id: ai-evals
+      type: report
+      evidence: https://evals.acme.com/payments-service
+      weight: 30
+      expires: "2025-06-30"
+      description: LLM safety evaluation suite (stale — needs refresh)
