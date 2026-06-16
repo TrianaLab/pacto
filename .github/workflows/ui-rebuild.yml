@@ -1,0 +1,76 @@
+name: Rebuild dashboard UI (Dependabot)
+
+# Dependabot bumps frontend dependencies (pkg/dashboard/frontend) but cannot
+# rebuild the committed pkg/dashboard/ui bundle, so the ci-ui-drift gate fails on
+# every frontend bump and the UI has to be rebuilt by hand. This workflow does
+# that automatically: on a Dependabot PR that touches the frontend, it rebuilds
+# the UI and commits the result back to the PR branch.
+#
+# The committed UI is deliberately kept in git (it is //go:embed-ed into the
+# binary, so `go install`, the Docker image and the release build all ship a
+# working dashboard without needing Node). This workflow keeps that committed
+# build in sync — it does not remove it.
+#
+# pull_request_target is required so the job has a write-capable token:
+# Dependabot-triggered `pull_request`/`push` runs only get a read-only token and
+# cannot push back. The job is restricted to Dependabot and never exposes a token
+# to the dependency build step (see the security notes inline).
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'pkg/dashboard/frontend/**'
+
+permissions:
+  contents: write
+
+# One rebuild per PR; let an in-flight rebuild finish before starting another.
+concurrency:
+  group: ui-rebuild-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  rebuild-ui:
+    # Only Dependabot's own PRs. This guards the pull_request_target +
+    # checkout-PR-head pattern so we never build arbitrary contributor/fork code.
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the PR branch
+        uses: actions/checkout@v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          # Do NOT persist the token in .git/config: the dependency build step
+          # below runs PR-controlled code, which must never have push access.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # No secrets are present in this step's environment, so even a malicious
+      # bumped dependency cannot exfiltrate a token. --ignore-scripts skips
+      # package lifecycle scripts; only the project's own vite build runs.
+      - name: Rebuild the dashboard UI
+        run: cd pkg/dashboard/frontend && npm ci --ignore-scripts && npm run build
+
+      - name: Commit and push the rebuilt UI if it changed
+        env:
+          # GITHUB_TOKEN works out of the box (it commits the fix), but a push
+          # made with it does NOT re-trigger CI — re-run the failed checks once,
+          # or set a UI_REBUILD_TOKEN PAT (contents:write) for full automation.
+          GH_TOKEN: ${{ secrets.UI_REBUILD_TOKEN || secrets.GITHUB_TOKEN }}
+          # Via env (not inline ${{…}}) so a crafted branch name can't inject shell.
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if [ -z "$(git status --porcelain pkg/dashboard/ui)" ]; then
+            echo "Committed UI already matches the rebuild; nothing to do."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pkg/dashboard/ui
+          git commit -m "chore(deps): rebuild dashboard UI after frontend bump"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:${HEAD_REF}"
