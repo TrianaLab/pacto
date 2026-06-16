@@ -1,0 +1,64 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Notification Worker Events",
+    "version": "1.0.0",
+    "description": "Events consumed and produced by the notification worker"
+  },
+  "channels": {
+    "notification.email.requested": {
+      "subscribe": {
+        "operationId": "onEmailRequested",
+        "summary": "Email notification request received",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "notification_id": { "type": "string" },
+              "to": { "type": "string", "format": "email" },
+              "template": { "type": "string" },
+              "variables": { "type": "object" },
+              "priority": { "type": "string", "enum": ["low", "normal", "high"] }
+            },
+            "required": ["notification_id", "to", "template"]
+          }
+        }
+      }
+    },
+    "notification.sent": {
+      "publish": {
+        "operationId": "notificationSent",
+        "summary": "Notification successfully delivered",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "notification_id": { "type": "string" },
+              "channel": { "type": "string" },
+              "delivered_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["notification_id", "channel", "delivered_at"]
+          }
+        }
+      }
+    },
+    "notification.failed": {
+      "publish": {
+        "operationId": "notificationFailed",
+        "summary": "Notification delivery failed",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "notification_id": { "type": "string" },
+              "error": { "type": "string" },
+              "retry_count": { "type": "integer" },
+              "will_retry": { "type": "boolean" }
+            },
+            "required": ["notification_id", "error"]
+          }
+        }
+      }
+    }
+  }
+}

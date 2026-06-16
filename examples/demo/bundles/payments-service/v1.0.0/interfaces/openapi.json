@@ -1,0 +1,87 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Payments Service API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/charges": {
+      "post": {
+        "operationId": "createCharge",
+        "summary": "Create a new charge",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "amount": { "type": "integer", "description": "Amount in cents" },
+                  "currency": { "type": "string" },
+                  "customer_id": { "type": "string" },
+                  "payment_method": { "type": "string" },
+                  "description": { "type": "string" }
+                },
+                "required": ["amount", "currency", "customer_id", "payment_method"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Charge created successfully" },
+          "400": { "description": "Invalid request" },
+          "402": { "description": "Payment failed" }
+        }
+      }
+    },
+    "/charges/{id}": {
+      "get": {
+        "operationId": "getCharge",
+        "summary": "Retrieve a charge by ID",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Charge details" },
+          "404": { "description": "Charge not found" }
+        }
+      }
+    },
+    "/refunds": {
+      "post": {
+        "operationId": "createRefund",
+        "summary": "Create a refund for a charge",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "charge_id": { "type": "string" },
+                  "amount": { "type": "integer", "description": "Refund amount in cents (partial refund if less than charge)" },
+                  "reason": { "type": "string", "enum": ["duplicate", "fraudulent", "requested_by_customer"] }
+                },
+                "required": ["charge_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Refund created" },
+          "400": { "description": "Invalid request" },
+          "404": { "description": "Charge not found" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Health check",
+        "responses": {
+          "200": { "description": "Service healthy" }
+        }
+      }
+    }
+  }
+}

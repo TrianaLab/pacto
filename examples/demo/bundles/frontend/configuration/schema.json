@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Frontend Config",
+  "type": "object",
+  "properties": {
+    "LOG_LEVEL": {
+      "type": "string",
+      "enum": [
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ],
+      "default": "info"
+    },
+    "LOG_FORMAT": {
+      "type": "string",
+      "enum": [
+        "json",
+        "text"
+      ],
+      "default": "json"
+    },
+    "OTEL_EXPORTER_ENDPOINT": {
+      "type": "string",
+      "format": "uri"
+    },
+    "OTEL_SERVICE_NAME": {
+      "type": "string"
+    },
+    "METRICS_PORT": {
+      "type": "integer",
+      "default": 9090
+    },
+    "HEALTH_CHECK_INTERVAL_SECONDS": {
+      "type": "integer",
+      "default": 10
+    },
+    "API_GATEWAY_URL": {
+      "type": "string",
+      "format": "uri"
+    },
+    "NEXT_PUBLIC_APP_NAME": {
+      "type": "string"
+    },
+    "NODE_ENV": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "API_GATEWAY_URL",
+    "NEXT_PUBLIC_APP_NAME",
+    "NODE_ENV"
+  ]
+}

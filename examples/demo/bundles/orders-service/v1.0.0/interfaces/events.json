@@ -1,0 +1,61 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Orders Service Events",
+    "version": "1.0.0"
+  },
+  "channels": {
+    "order.created": {
+      "publish": {
+        "operationId": "orderCreated",
+        "summary": "New order has been created",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "order_id": { "type": "string" },
+              "customer_id": { "type": "string" },
+              "total_amount": { "type": "number" },
+              "currency": { "type": "string" },
+              "created_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["order_id", "customer_id", "total_amount", "currency"]
+          }
+        }
+      }
+    },
+    "order.completed": {
+      "publish": {
+        "operationId": "orderCompleted",
+        "summary": "Order has been fulfilled",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "order_id": { "type": "string" },
+              "completed_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["order_id", "completed_at"]
+          }
+        }
+      }
+    },
+    "order.cancelled": {
+      "publish": {
+        "operationId": "orderCancelled",
+        "summary": "Order has been cancelled",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "order_id": { "type": "string" },
+              "reason": { "type": "string" },
+              "cancelled_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["order_id", "cancelled_at"]
+          }
+        }
+      }
+    }
+  }
+}

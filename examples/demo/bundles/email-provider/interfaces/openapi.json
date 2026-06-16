@@ -1,0 +1,28 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Email Provider API (SendGrid subset)",
+    "version": "1.0.0",
+    "description": "External email delivery API"
+  },
+  "paths": {
+    "/v3/mail/send": {
+      "post": {
+        "operationId": "sendEmail",
+        "summary": "Send a transactional email",
+        "responses": {
+          "202": { "description": "Email accepted for delivery" }
+        }
+      }
+    },
+    "/v3/mail/batch": {
+      "post": {
+        "operationId": "sendBatchEmail",
+        "summary": "Send batch emails",
+        "responses": {
+          "202": { "description": "Batch accepted for delivery" }
+        }
+      }
+    }
+  }
+}

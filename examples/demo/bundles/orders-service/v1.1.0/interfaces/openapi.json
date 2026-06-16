@@ -1,0 +1,116 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Orders Service API",
+    "version": "1.1.0"
+  },
+  "paths": {
+    "/orders": {
+      "post": {
+        "operationId": "createOrder",
+        "summary": "Create a new order",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "customer_id": { "type": "string" },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "product_id": { "type": "string" },
+                        "quantity": { "type": "integer" },
+                        "unit_price": { "type": "number" }
+                      },
+                      "required": ["product_id", "quantity", "unit_price"]
+                    }
+                  },
+                  "currency": { "type": "string" },
+                  "shipping_address": {
+                    "type": "object",
+                    "properties": {
+                      "line1": { "type": "string" },
+                      "city": { "type": "string" },
+                      "country": { "type": "string" },
+                      "postal_code": { "type": "string" }
+                    }
+                  }
+                },
+                "required": ["customer_id", "items", "currency"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Order created" },
+          "400": { "description": "Invalid request" }
+        }
+      },
+      "get": {
+        "operationId": "listOrders",
+        "summary": "List orders with pagination",
+        "parameters": [
+          { "name": "customer_id", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "List of orders" }
+        }
+      }
+    },
+    "/orders/{id}": {
+      "get": {
+        "operationId": "getOrder",
+        "summary": "Get order by ID",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Order details" },
+          "404": { "description": "Order not found" }
+        }
+      }
+    },
+    "/orders/{id}/cancel": {
+      "post": {
+        "operationId": "cancelOrder",
+        "summary": "Cancel an order",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Order cancelled" },
+          "409": { "description": "Order cannot be cancelled" }
+        }
+      }
+    },
+    "/orders/{id}/tracking": {
+      "get": {
+        "operationId": "getOrderTracking",
+        "summary": "Get order tracking status",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Tracking information" },
+          "404": { "description": "Order not found" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Health check endpoint",
+        "responses": {
+          "200": { "description": "Service healthy" }
+        }
+      }
+    }
+  }
+}

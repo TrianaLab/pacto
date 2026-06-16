@@ -1,0 +1,75 @@
+pactoVersion: "1.0"
+
+service:
+  name: payments-service
+  version: 1.1.0
+  owner: team/payments
+  image:
+    ref: ghcr.io/trianalab/pacto-demo/payments-service:1.1.0
+
+interfaces:
+  - name: http
+    type: http
+    port: 8083
+    visibility: internal
+    contract: interfaces/openapi.json
+  - name: events
+    type: event
+    visibility: internal
+    contract: interfaces/events.json
+
+configurations:
+  - name: platform
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  - name: app
+    schema: configuration/schema.json
+    values:
+      LOG_LEVEL: info
+      STRIPE_API_KEY: "${STRIPE_API_KEY}"
+      PAYMENTS_DB_URL: postgresql://postgres:5432/payments
+      ENABLE_REFUNDS: true
+      WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET}"
+
+policies:
+  - name: http-security
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+
+dependencies:
+  - name: postgresql
+    ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
+    required: true
+    compatibility: "^16.0.0"
+  - name: stripe-api
+    ref: oci://ghcr.io/trianalab/pacto-demo/stripe-api
+    required: true
+    compatibility: "^2024.01.01"
+
+runtime:
+  workload: service
+  state:
+    type: stateful
+    persistence:
+      scope: shared
+      durability: persistent
+    dataCriticality: high
+  lifecycle:
+    upgradeStrategy: rolling
+    gracefulShutdownSeconds: 30
+
+scaling:
+  min: 2
+  max: 4
+
+metadata:
+  tier: domain
+  category: payments
+  criticality: high
+  summary: Payment processing with Stripe webhook support and failure tracking
+  language: go
+  repo: github.com/trianalab/pacto-demo/payments-service
+  tags:
+    - payments
+    - stripe
+    - webhooks
+    - charges
+    - refunds

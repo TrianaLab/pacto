@@ -1,0 +1,76 @@
+pactoVersion: "1.0"
+
+service:
+  name: orders-service
+  version: 1.0.0
+  owner: team/commerce
+  image:
+    ref: ghcr.io/trianalab/pacto-demo/orders-service
+
+interfaces:
+  - name: http
+    type: http
+    port: 8082
+    visibility: internal
+    contract: interfaces/openapi.json
+  - name: events
+    type: event
+    visibility: internal
+    contract: interfaces/events.json
+
+configurations:
+  - name: platform
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  - name: app
+    schema: configuration/schema.json
+    values:
+      OTEL_SERVICE_NAME: orders-service
+      DATABASE_URL: postgresql://postgres:5432/orders
+      PAYMENTS_SERVICE_URL: http://payments-service:8083
+
+policies:
+  - name: http-security
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+
+dependencies:
+  - name: postgresql
+    ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
+    required: true
+    compatibility: "^16.0.0"
+  - name: payments-service
+    ref: oci://ghcr.io/trianalab/pacto-demo/payments-service
+    required: true
+    compatibility: "^1.0.0"
+  - name: notification-worker
+    ref: oci://ghcr.io/trianalab/pacto-demo/notification-worker
+    required: false
+    compatibility: "^1.0.0"
+
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: high
+  lifecycle:
+    upgradeStrategy: rolling
+    gracefulShutdownSeconds: 30
+
+scaling:
+  min: 2
+  max: 5
+
+metadata:
+  tier: domain
+  category: orders
+  criticality: high
+  summary: Order management service handling order lifecycle and fulfillment
+  language: go
+  repo: github.com/trianalab/pacto-demo/orders-service
+  tags:
+    - orders
+    - commerce
+    - fulfillment
+    - events

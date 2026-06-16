@@ -1,0 +1,74 @@
+pactoVersion: "1.0"
+
+service:
+  name: frontend
+  version: 1.0.0
+  owner:
+    team: frontend-team
+    dri: diana.chen
+    contacts:
+      - type: email
+        value: frontend-team@acme.com
+        purpose: escalation
+      - type: chat
+        value: "#frontend-team"
+        purpose: support
+  image:
+    ref: ghcr.io/trianalab/pacto-demo/frontend
+
+interfaces:
+  - name: http
+    type: http
+    port: 3000
+    visibility: public
+    contract: interfaces/openapi.json
+
+configurations:
+  - name: platform
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  - name: app
+    schema: configuration/schema.json
+    values:
+      OTEL_SERVICE_NAME: frontend
+      API_GATEWAY_URL: http://api-gateway:8080
+      NEXT_PUBLIC_APP_NAME: "Commerce Platform"
+      NODE_ENV: production
+
+policies:
+  - name: http-security
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+
+dependencies:
+  - name: api-gateway
+    ref: oci://ghcr.io/trianalab/pacto-demo/api-gateway
+    required: true
+    compatibility: "^1.0.0"
+
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  lifecycle:
+    upgradeStrategy: rolling
+    gracefulShutdownSeconds: 15
+
+scaling:
+  min: 2
+  max: 6
+
+metadata:
+  tier: edge
+  category: frontend
+  criticality: high
+  summary: Customer-facing web application for the e-commerce platform
+  language: typescript
+  repo: github.com/trianalab/pacto-demo/frontend
+  tags:
+    - frontend
+    - nextjs
+    - web
+    - public

@@ -1,0 +1,7 @@
+# Generated build artifacts
+/dist/
+/.serve/
+/.ui-build/
+
+# Host build binary (named after the package dir)
+/demo

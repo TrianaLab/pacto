@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Fraud Service Config",
+  "type": "object",
+  "properties": {
+    "LOG_LEVEL": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error"],
+      "default": "info"
+    },
+    "RISK_THRESHOLD": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.7,
+      "description": "Transactions scoring above this threshold are flagged as fraudulent"
+    },
+    "MODEL_VERSION": {
+      "type": "string",
+      "description": "Version of the fraud detection ML model"
+    },
+    "REDIS_URL": {
+      "type": "string",
+      "format": "uri",
+      "description": "Redis connection URL for feature caching"
+    }
+  },
+  "required": ["LOG_LEVEL", "RISK_THRESHOLD", "MODEL_VERSION", "REDIS_URL"]
+}

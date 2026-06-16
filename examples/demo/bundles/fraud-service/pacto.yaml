@@ -1,0 +1,76 @@
+pactoVersion: "1.0"
+
+service:
+  name: fraud-service
+  version: 1.0.0
+  owner:
+    team: payments-team
+    dri: priya.sharma
+    contacts:
+      - type: email
+        value: payments-team@acme.com
+        purpose: escalation
+      - type: chat
+        value: "#payments-team"
+        purpose: support
+      - type: oncall
+        value: payments-oncall
+        purpose: oncall
+  image:
+    ref: ghcr.io/trianalab/pacto-demo/fraud-service
+
+interfaces:
+  - name: http
+    type: http
+    port: 8084
+    visibility: internal
+
+configurations:
+  - name: platform
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  - name: app
+    schema: configuration/schema.json
+    values:
+      LOG_LEVEL: info
+      RISK_THRESHOLD: 0.7
+      MODEL_VERSION: v2.3.1
+      REDIS_URL: redis://redis:6379/2
+
+policies:
+  - name: http-security
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+
+dependencies:
+  - name: redis
+    ref: oci://ghcr.io/trianalab/pacto-demo/redis
+    required: true
+    compatibility: "^7.0.0"
+
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  lifecycle:
+    upgradeStrategy: rolling
+    gracefulShutdownSeconds: 30
+
+scaling:
+  min: 2
+  max: 4
+
+metadata:
+  tier: domain
+  category: payments
+  criticality: high
+  summary: Real-time fraud detection service using ML-based risk scoring
+  language: go
+  repo: github.com/trianalab/pacto-demo/fraud-service
+  tags:
+    - fraud-detection
+    - risk-scoring
+    - ml
+    - payments

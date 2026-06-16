@@ -1,0 +1,75 @@
+pactoVersion: "1.0"
+
+service:
+  name: api-gateway
+  version: 1.0.0
+  owner: team/platform
+  image:
+    ref: ghcr.io/trianalab/pacto-demo/api-gateway
+
+interfaces:
+  - name: http
+    type: http
+    port: 8080
+    visibility: public
+    contract: interfaces/openapi.json
+
+configurations:
+  - name: platform
+    ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  - name: app
+    schema: configuration/schema.json
+    values:
+      OTEL_SERVICE_NAME: api-gateway
+      AUTH_SERVICE_URL: auth-service:50051
+      ORDERS_SERVICE_URL: http://orders-service:8082
+      PAYMENTS_SERVICE_URL: http://payments-service:8083
+      REQUEST_TIMEOUT_SECONDS: 30
+
+policies:
+  - name: gateway-routing
+    schema: policy/schema.json
+
+dependencies:
+  - name: auth-service
+    ref: oci://ghcr.io/trianalab/pacto-demo/auth-service
+    required: true
+    compatibility: "^1.0.0"
+  - name: orders-service
+    ref: oci://ghcr.io/trianalab/pacto-demo/orders-service
+    required: true
+    compatibility: "^1.0.0"
+  - name: payments-service
+    ref: oci://ghcr.io/trianalab/pacto-demo/payments-service
+    required: true
+    compatibility: "^1.0.0"
+
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  lifecycle:
+    upgradeStrategy: rolling
+    gracefulShutdownSeconds: 30
+
+scaling:
+  min: 2
+  max: 5
+
+metadata:
+  tier: edge
+  category: gateway
+  criticality: high
+  summary: Central API gateway routing requests to domain services with auth enforcement
+  language: go
+  repo: github.com/trianalab/pacto-demo/api-gateway
+  tags:
+    - gateway
+    - routing
+    - authentication
+    - rate-limiting
+    - public
