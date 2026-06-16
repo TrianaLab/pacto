@@ -1,0 +1,64 @@
+name: Rebuild dashboard UI
+
+# Dependabot bumps pkg/dashboard/frontend deps but cannot rebuild the committed
+# pkg/dashboard/ui bundle, so the ci-ui-drift gate fails on every frontend bump
+# and the UI has to be rebuilt by hand. This rebuilds it automatically.
+#
+# The committed UI is deliberately kept in git (it is //go:embed-ed, so
+# `go install`, the Docker image and the release build ship a working dashboard
+# without Node). This keeps that committed build in sync — it does not remove it.
+#
+# Security: this is the UNPRIVILEGED half. It runs on `pull_request`, so building
+# the PR's (untrusted) frontend with the bumped deps happens with a read-only
+# token and no secrets — nothing to steal. It only uploads the rebuilt UI as an
+# artifact; the privileged commit-back is done by ui-rebuild-commit.yml, which
+# runs no PR code. This avoids "checkout of untrusted code in a privileged
+# context".
+
+on:
+  pull_request:
+    paths:
+      - 'pkg/dashboard/frontend/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Only Dependabot's frontend bumps need this; humans rebuild + commit the UI
+    # themselves and ci-ui-drift catches them.
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Rebuild the dashboard UI
+        run: make ui-build
+
+      - name: Package the rebuilt UI if it drifted
+        id: drift
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "$(git status --porcelain pkg/dashboard/ui)" ]; then
+            echo "Committed UI already matches the rebuild; nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          mkdir -p _ui_artifact
+          # Tar the whole tree so deletions/renames apply cleanly on the other side.
+          tar -C pkg/dashboard -cf _ui_artifact/ui.tar ui
+          printf '%s\n' "$PR_NUMBER" > _ui_artifact/pr-number
+
+      - name: Upload the rebuilt UI
+        if: steps.drift.outputs.changed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: rebuilt-ui
+          path: _ui_artifact/
+          retention-days: 1
