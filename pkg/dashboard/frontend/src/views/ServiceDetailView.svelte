@@ -86,7 +86,9 @@
     diffResult = null;
     diffError = null;
     try {
-      diffResult = await api.diff(name, fromVersion, name, currentVersion);
+      // Compare against the version currently being viewed (the baseline), so
+      // from a historical view you can diff it against any other row.
+      diffResult = await api.diff(name, fromVersion, name, detail.version);
     } catch (e) {
       diffError = e.message;
     }
@@ -115,6 +117,9 @@
       : (detail?.version || '')
   );
   let isHistorical = $derived(!!version && !!currentVersion && version !== currentVersion);
+  // Label for the version-history compare buttons: the baseline is whatever
+  // version is being viewed ("current" when that's the deployed one).
+  let baselineLabel = $derived(detail?.version && detail.version !== currentVersion ? detail.version : 'current');
   let insights = $derived(detail?.insights || []);
   let sources = $derived.by(() => {
     const s = detail?.sources || [];
@@ -498,7 +503,7 @@
       <div class="section-title">Version History <span class="tab-count">{versions.length}</span></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th data-tip="Semver version tag">Version</th><th data-tip="Change impact vs previous version">Classification</th><th data-tip="Where this version was found">Source</th><th data-tip="When this version was published">Created</th><th data-tip="Compare this version against current">Compare</th></tr></thead>
+          <thead><tr><th data-tip="Semver version tag">Version</th><th data-tip="Change impact vs previous version">Classification</th><th data-tip="Where this version was found">Source</th><th data-tip="When this version was published">Created</th><th data-tip="Compare this version against the one you're viewing">Compare</th></tr></thead>
           <tbody>
             {#each pagedVersions.items as ver}
               <tr class:version-current={ver.version === detail.version}>
@@ -517,12 +522,12 @@
                 <td>{#if ver.source}<span class="source-dot source-dot-{ver.source}" data-tip={sourceTooltip(ver.source)}></span> <span class="text-3" style="font-size:var(--text-xs)">{ver.source}</span>{:else}—{/if}</td>
                 <td class="text-2">{ver.createdAt ? new Date(ver.createdAt).toLocaleDateString() : '—'}</td>
                 <td>
-                  {#if ver.version !== currentVersion}
+                  {#if ver.version !== detail.version}
                     <button type="button" class="btn btn-sm" class:btn-active={diffExpandedVer === ver.version} onclick={() => compareVersion(ver.version)}>
-                      {diffExpandedVer === ver.version ? 'Close' : 'vs current'}
+                      {diffExpandedVer === ver.version ? 'Close' : `vs ${baselineLabel}`}
                     </button>
                   {:else}
-                    <span class="badge badge-neutral">current</span>
+                    <span class="text-3">—</span>
                   {/if}
                 </td>
               </tr>
@@ -530,7 +535,7 @@
                 <tr class="diff-expand-row">
                   <td colspan="5">
                     {#if diffLoading}
-                      <div class="diff-inline-loading"><div class="spinner"></div> Comparing {ver.version} → {currentVersion}…</div>
+                      <div class="diff-inline-loading"><div class="spinner"></div> Comparing {ver.version} → {detail.version}…</div>
                     {:else if diffError}
                       <div class="insight insight-critical">{diffError}</div>
                     {:else if diffResult}
@@ -538,7 +543,7 @@
                         <div class="diff-inline-header">
                           <span class="badge {classificationClass(diffResult.classification)}">{diffResult.classification.replace(/_/g, ' ')}</span>
                           <span class="text-2">{diffResult.changes?.length || 0} change{(diffResult.changes?.length ?? 0) !== 1 ? 's' : ''}</span>
-                          <span class="text-3">{ver.version} → {currentVersion}</span>
+                          <span class="text-3">{ver.version} → {detail.version}</span>
                         </div>
                         <DiffChangesTable changes={diffResult.changes || []} compact />
                       </div>
