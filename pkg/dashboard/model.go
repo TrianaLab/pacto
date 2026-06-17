@@ -271,6 +271,11 @@ type ConfigurationInfo struct {
 	ValueKeys  []string      `json:"valueKeys,omitempty"`
 	SecretKeys []string      `json:"secretKeys,omitempty"`
 	Values     []ConfigValue `json:"values,omitempty"`
+	// ValuesAreCurrent is set when a remote ref's values were resolved from the
+	// referenced service's CURRENT version (because the ref is not version-pinned,
+	// or the pinned version was unavailable) while displaying a historical version.
+	// The UI labels such values "(current)" to flag the temporal mismatch.
+	ValuesAreCurrent bool `json:"valuesAreCurrent,omitempty"`
 }
 
 // DependencyInfo describes a declared dependency.
@@ -313,6 +318,11 @@ type PolicyInfo struct {
 	Description string        `json:"description,omitempty"`
 	Content     string        `json:"content,omitempty"`
 	Values      []ConfigValue `json:"values,omitempty"`
+	// ValuesAreCurrent is set when a remote ref's values were resolved from the
+	// referenced service's CURRENT version (unpinned ref, or pinned version
+	// unavailable) while displaying a historical version. The UI labels such
+	// values "(current)" to flag the temporal mismatch.
+	ValuesAreCurrent bool `json:"valuesAreCurrent,omitempty"`
 }
 
 // ValidationInfo holds validation results.

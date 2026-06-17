@@ -37,6 +37,9 @@
             {/if}
           </div>
           {#if pol.ref}
+            {#if pol.valuesAreCurrent}
+              <span class="current-badge" data-tip="Values shown are from the referenced service's current version — this ref is not version-pinned">current</span>
+            {/if}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <a href={serviceUrl(refServiceName(pol.ref))} class="ref-link" onclick={(e) => e.stopPropagation()}>
               {pol.ref} →
@@ -118,6 +121,12 @@
     flex-shrink: 0;
   }
   .ref-link:hover { text-decoration: underline; }
+  .current-badge {
+    font-size: var(--text-xs); font-weight: 500;
+    padding: 1px 6px; border-radius: var(--radius-xs);
+    background: var(--c-neutral-bg); color: var(--c-text-3);
+    flex-shrink: 0;
+  }
   .detail-card-desc {
     font-size: var(--text-sm);
     color: var(--c-text-2);

@@ -57,6 +57,57 @@ export function nodeLabel(node: { id: string; serviceName?: string; version?: st
   return { name, version: node.version || '' };
 }
 
+interface VersionDetail {
+  name: string;
+  contractStatus?: string;
+  version?: string;
+  dependencies?: Array<{ name?: string; ref?: string; required?: boolean }>;
+}
+interface FleetEntry {
+  name: string;
+  contractStatus?: string;
+  version?: string;
+}
+
+/**
+ * Build a flat graph for a single service AT a specific version, from that
+ * version's declared dependencies. Used by the service detail view when a
+ * historical version is selected, so the embedded graph reflects that version's
+ * direct deps (e.g. a dep added in a later version) rather than the current
+ * global topology. Dependency nodes are colored/labeled from the current fleet
+ * (`services`) when known, else shown as external. Transitive deps, dependents
+ * and blast-radius are intentionally omitted — they can't be reconstructed for a
+ * past version.
+ */
+export function buildVersionSubgraph(detail: VersionDetail, services: FleetEntry[], version: string): GraphData {
+  const byName = new Map((services || []).map((s) => [s.name, s]));
+  const root: GraphNode = {
+    id: detail.name,
+    serviceName: detail.name,
+    status: detail.contractStatus || 'Unknown',
+    version: version || detail.version || '',
+    edges: [],
+  };
+  const nodes: GraphNode[] = [root];
+  const seen = new Set<string>([detail.name]);
+  for (const dep of detail.dependencies || []) {
+    const depName = dep.name;
+    if (!depName || depName === detail.name) continue;
+    root.edges!.push({ targetId: depName, required: dep.required, type: 'dependency' });
+    if (seen.has(depName)) continue;
+    seen.add(depName);
+    const svc = byName.get(depName);
+    nodes.push({
+      id: depName,
+      serviceName: depName,
+      status: svc?.contractStatus || 'external',
+      version: svc?.version || '',
+      edges: [],
+    });
+  }
+  return { nodes };
+}
+
 interface SimLink {
   source: string | GraphNode;
   target: string | GraphNode;

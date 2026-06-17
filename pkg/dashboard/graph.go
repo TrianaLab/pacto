@@ -278,6 +278,24 @@ func extractServiceNameFromRef(ref string) string {
 	return name
 }
 
+// extractVersionFromRef returns the version/tag pinned in a dependency ref, or
+// "" when the ref is not version-pinned. It mirrors extractServiceNameFromRef but
+// keeps the tag instead of stripping it. Digest-pinned refs (@sha256:...) report
+// "" because they cannot be pulled as a semver tag.
+func extractVersionFromRef(ref string) string {
+	loc := depgraph.ParseDependencyRef(ref).Location
+	parts := strings.Split(loc, "/")
+	name := parts[len(parts)-1]
+	// Drop any digest first; we only report tag versions.
+	if idx := strings.Index(name, "@"); idx > 0 {
+		name = name[:idx]
+	}
+	if idx := strings.Index(name, ":"); idx > 0 {
+		return name[idx+1:]
+	}
+	return ""
+}
+
 // depRefMatchesName checks if a dependency ref refers to a service name,
 // using an alias map to resolve OCI repo names to contract service names.
 func depRefMatchesName(ref, name string, aliases map[string]string) bool {

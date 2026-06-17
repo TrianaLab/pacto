@@ -4,6 +4,7 @@
   import { navigate, serviceUrl, serviceVersionUrl, diffUrl, ownerUrl } from '../lib/router.ts';
   import { statusClass, complianceClass, classificationClass, sourceTooltip, versionPolicyLabel, versionPolicyClass, ownerDisplay, ownerKey, ownerIsStructured, referencedDocPaths, paginate } from '../lib/format.ts';
   import { compareDiffUrl } from '../lib/router.ts';
+  import { buildVersionSubgraph } from '../lib/graph.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
 
   import OverviewSection from '../sections/OverviewSection.svelte';
@@ -174,7 +175,14 @@
   async function loadGraph() {
     if (graphLoaded) return;
     graphLoaded = true;
-    graphData = await api.graph().catch(() => null);
+    if (version) {
+      // Historical view: build the graph from THIS version's declared deps so it
+      // reflects the selected version (e.g. a dep added later) instead of the
+      // current global topology.
+      graphData = buildVersionSubgraph(detail, services, version);
+    } else {
+      graphData = await api.graph().catch(() => null);
+    }
   }
 
   // Trigger graph load when dependencies section is opened
@@ -276,15 +284,6 @@
   <header class="detail-header fade-in-up">
     <div class="detail-title-row">
       <h1>{detail.name}</h1>
-      {#if versions?.length > 1}
-        <select class="version-select" aria-label="Select version"
-          value={detail.version}
-          onchange={(e) => goToVersion(e.currentTarget.value)}>
-          {#each versions as v}
-            <option value={v.version}>{v.version}{v.isCurrent ? ' (current)' : ''}</option>
-          {/each}
-        </select>
-      {/if}
       {#if detail.runtimeEvaluated}
         <span class="badge badge-{statusClass(detail.contractStatus)}"><span class="badge-dot"></span>{detail.contractStatus}</span>
       {:else}
@@ -344,7 +343,16 @@
       {#if detail.namespace}<span class="text-2">ns: {detail.namespace}</span>{/if}
       {#if detail.resolvedRef || detail.imageRef}<code class="detail-ref text-3">{detail.resolvedRef || detail.imageRef}</code>{/if}
       {#if versions?.length > 1}
-        <a href={diffUrl(name)} class="btn btn-sm btn-compare">Compare versions</a>
+        <div class="version-actions">
+          <select class="btn btn-sm version-select" aria-label="Select version"
+            value={detail.version}
+            onchange={(e) => goToVersion(e.currentTarget.value)}>
+            {#each versions as v}
+              <option value={v.version}>{v.version}{v.isCurrent ? ' (current)' : ''}</option>
+            {/each}
+          </select>
+          <a href={diffUrl(name)} class="btn btn-sm btn-compare">Compare versions</a>
+        </div>
       {/if}
     </div>
   </header>
@@ -422,7 +430,7 @@
   {#if hasDependencyData}
     <DependenciesSection
       id="section-dependencies"
-      {name} {services} {graphData} {dependents} {crossRefs}
+      {name} {services} {graphData} {dependents} {crossRefs} {isHistorical}
       dependencies={detail.dependencies || []}
       source={sectionState('dependencies').source}
       bind:open={openSections.dependencies}
@@ -587,12 +595,16 @@
     flex-wrap: wrap; font-size: var(--text-sm);
   }
 
-  .version-select {
-    font: inherit; font-size: var(--text-sm);
-    padding: 4px 8px; border-radius: var(--radius-xs);
-    border: 1px solid var(--c-border); background: var(--c-surface);
-    color: var(--c-text); cursor: pointer;
+  /* Version selector + Compare button grouped at the right of the meta row. */
+  .version-actions {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
   }
+  /* Native <select> carries the .btn .btn-sm classes so it matches the adjacent
+     Compare button; this just restores the pointer cursor. */
+  .version-select { cursor: pointer; }
   .version-banner {
     padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-5);
     border-radius: var(--radius-sm);
@@ -728,8 +740,6 @@
   .blast-warn { background: var(--c-warn-bg); color: var(--c-warn); }
   .blast-high { background: var(--c-err-bg); color: var(--c-err); }
 
-  .btn-compare { margin-left: auto; }
-
   /* ─── Mobile ─── */
   @media (max-width: 768px) {
     .detail-title-row { gap: var(--sp-2); }
@@ -738,6 +748,7 @@
     .probes-grid { flex-direction: column; }
     .probe { flex-wrap: wrap; }
     .diff-inline-header { flex-wrap: wrap; }
-    .btn-compare { margin-left: 0; width: 100%; justify-content: center; }
+    .version-actions { margin-left: 0; width: 100%; }
+    .version-actions > * { flex: 1; justify-content: center; }
   }
 </style>

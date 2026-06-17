@@ -39,6 +39,9 @@
             {/if}
           </div>
           {#if config.ref}
+            {#if config.valuesAreCurrent}
+              <span class="current-badge" data-tip="Values shown are from the referenced service's current version — this ref is not version-pinned">current</span>
+            {/if}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <a href={serviceUrl(refServiceName(config.ref))} class="ref-link" onclick={(e) => e.stopPropagation()}>
               {config.ref} →
@@ -137,6 +140,12 @@
     color: var(--c-accent);
     text-decoration: none;
     white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .current-badge {
+    font-size: var(--text-xs); font-weight: 500;
+    padding: 1px 6px; border-radius: var(--radius-xs);
+    background: var(--c-neutral-bg); color: var(--c-text-3);
     flex-shrink: 0;
   }
   .ref-link:hover { text-decoration: underline; }

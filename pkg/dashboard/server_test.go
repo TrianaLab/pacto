@@ -2993,6 +2993,102 @@ func TestEnrichPolicyRefs_SkipsLocalPolicies(t *testing.T) {
 	}
 }
 
+func TestExtractVersionFromRef(t *testing.T) {
+	cases := []struct{ ref, want string }{
+		{"oci://ghcr.io/org/foo:1.2.0", "1.2.0"},
+		{"oci://ghcr.io/org/foo", ""},
+		{"ghcr.io/org/foo@sha256:abcdef", ""},
+		{"file://./local/foo", ""},
+		{"foo", ""},
+	}
+	for _, c := range cases {
+		if got := extractVersionFromRef(c.ref); got != c.want {
+			t.Errorf("extractVersionFromRef(%q) = %q, want %q", c.ref, got, c.want)
+		}
+	}
+}
+
+func TestResolveRefTarget(t *testing.T) {
+	pinned := &ServiceDetails{Service: Service{Name: "foo", Version: "1.2.0"}}
+	current := &ServiceDetails{Service: Service{Name: "foo", Version: "9.9.9"}}
+	srv := NewServer(&mockSource{details: map[string]*ServiceDetails{"foo": pinned}}, nil)
+	index := map[string]*ServiceDetails{"foo": current, "bar": current}
+	ctx := context.Background()
+
+	// Pinned + available in source -> exact version, not flagged current.
+	if tgt, fromCur := srv.resolveRefTarget(ctx, "oci://reg/foo:1.2.0", index, nil); tgt != pinned || fromCur {
+		t.Errorf("pinned+available: got (%v, %v), want (pinned, false)", tgt, fromCur)
+	}
+	// Pinned + unavailable in source -> fall back to current index, flagged.
+	if tgt, fromCur := srv.resolveRefTarget(ctx, "oci://reg/bar:1.2.0", index, nil); tgt != current || !fromCur {
+		t.Errorf("pinned+unavailable: got (%v, %v), want (current, true)", tgt, fromCur)
+	}
+	// Unpinned -> current index, flagged.
+	if tgt, fromCur := srv.resolveRefTarget(ctx, "oci://reg/foo", index, nil); tgt != current || !fromCur {
+		t.Errorf("unpinned: got (%v, %v), want (current, true)", tgt, fromCur)
+	}
+}
+
+func TestEnrichConfigRefsVersioned(t *testing.T) {
+	pinnedTarget := &ServiceDetails{
+		Service:        Service{Name: "shared-config"},
+		Configurations: []ConfigurationInfo{{HasSchema: true, Values: []ConfigValue{{Key: "host", Value: "pinned", Type: "string"}}}},
+	}
+	currentTarget := &ServiceDetails{
+		Service:        Service{Name: "shared-config"},
+		Configurations: []ConfigurationInfo{{HasSchema: true, Values: []ConfigValue{{Key: "host", Value: "current", Type: "string"}}}},
+	}
+	srv := NewServer(&mockSource{details: map[string]*ServiceDetails{"shared-config": pinnedTarget}}, nil)
+	index := map[string]*ServiceDetails{"shared-config": currentTarget}
+	ctx := context.Background()
+
+	// Pinned ref -> resolves to the pinned version, not flagged current.
+	pinned := &ServiceDetails{Configurations: []ConfigurationInfo{{Ref: "oci://reg/shared-config:1.0.0"}}}
+	srv.enrichConfigRefsVersioned(ctx, pinned, index, nil)
+	if len(pinned.Configurations[0].Values) != 1 || pinned.Configurations[0].Values[0].Value != "pinned" {
+		t.Fatalf("expected pinned values, got %+v", pinned.Configurations[0].Values)
+	}
+	if pinned.Configurations[0].ValuesAreCurrent {
+		t.Error("pinned ref should not be flagged ValuesAreCurrent")
+	}
+
+	// Unpinned ref -> falls back to current, flagged.
+	unpinned := &ServiceDetails{Configurations: []ConfigurationInfo{{Ref: "oci://reg/shared-config"}}}
+	srv.enrichConfigRefsVersioned(ctx, unpinned, index, nil)
+	if len(unpinned.Configurations[0].Values) != 1 || unpinned.Configurations[0].Values[0].Value != "current" {
+		t.Fatalf("expected current values, got %+v", unpinned.Configurations[0].Values)
+	}
+	if !unpinned.Configurations[0].ValuesAreCurrent {
+		t.Error("unpinned ref should be flagged ValuesAreCurrent")
+	}
+}
+
+func TestEnrichPolicyRefsVersioned(t *testing.T) {
+	pinnedTarget := &ServiceDetails{
+		Service:  Service{Name: "shared-policy"},
+		Policies: []PolicyInfo{{HasSchema: true, Title: "Pinned", Values: []ConfigValue{{Key: "k", Type: "object"}}}},
+	}
+	currentTarget := &ServiceDetails{
+		Service:  Service{Name: "shared-policy"},
+		Policies: []PolicyInfo{{HasSchema: true, Title: "Current", Values: []ConfigValue{{Key: "k", Type: "object"}}}},
+	}
+	srv := NewServer(&mockSource{details: map[string]*ServiceDetails{"shared-policy": pinnedTarget}}, nil)
+	index := map[string]*ServiceDetails{"shared-policy": currentTarget}
+	ctx := context.Background()
+
+	pinned := &ServiceDetails{Policies: []PolicyInfo{{Ref: "oci://reg/shared-policy:2.0.0"}}}
+	srv.enrichPolicyRefsVersioned(ctx, pinned, index, nil)
+	if pinned.Policies[0].Title != "Pinned" || pinned.Policies[0].ValuesAreCurrent {
+		t.Errorf("expected pinned policy not flagged, got title=%q current=%v", pinned.Policies[0].Title, pinned.Policies[0].ValuesAreCurrent)
+	}
+
+	unpinned := &ServiceDetails{Policies: []PolicyInfo{{Ref: "oci://reg/shared-policy"}}}
+	srv.enrichPolicyRefsVersioned(ctx, unpinned, index, nil)
+	if unpinned.Policies[0].Title != "Current" || !unpinned.Policies[0].ValuesAreCurrent {
+		t.Errorf("expected current policy flagged, got title=%q current=%v", unpinned.Policies[0].Title, unpinned.Policies[0].ValuesAreCurrent)
+	}
+}
+
 func TestResolveServiceByName_Direct(t *testing.T) {
 	svc := &ServiceDetails{}
 	svc.Name = "svc"
