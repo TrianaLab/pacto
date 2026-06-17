@@ -1,0 +1,8 @@
+# The dashboard UI under pkg/dashboard/ui is a generated Vite build output. It is
+# committed (not gitignored) because it is //go:embed-ed into the binary so
+# `go install`, the Docker image and releases ship a working dashboard without
+# Node. Mark it generated so GitHub collapses it in diffs and code-quality /
+# scanning tools skip the minified vendor bundles (e.g. spurious "semicolon
+# insertion" findings on minified mermaid chunks). It is rebuilt by `make
+# ui-build` and gated by `ci-ui-drift`, so it is never hand-edited.
+pkg/dashboard/ui/** linguist-generated=true
