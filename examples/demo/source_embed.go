@@ -198,6 +198,14 @@ func (s *EmbedSource) GetDiff(_ context.Context, a, b dashboard.Ref) (*dashboard
 	return dashboard.ComputeDiff(refA, refB, entryA.bundle, entryB.bundle), nil
 }
 
+func (s *EmbedSource) GetServiceVersion(_ context.Context, ref dashboard.Ref) (*dashboard.ServiceDetails, error) {
+	entry, _, err := s.resolveRef(ref)
+	if err != nil {
+		return nil, fmt.Errorf("loading %q version %q: %w", ref.Name, ref.Version, err)
+	}
+	return dashboard.ServiceDetailsFromBundle(entry.bundle, embedSourceName), nil
+}
+
 // resolveRef finds the bundle for a ref, defaulting an empty version to latest,
 // and returns the concrete ref (with the resolved version filled in).
 func (s *EmbedSource) resolveRef(r dashboard.Ref) (*versionEntry, dashboard.Ref, error) {

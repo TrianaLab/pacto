@@ -501,6 +501,31 @@ func (r *ResolvedSource) GetDiff(ctx context.Context, from, to Ref) (*DiffResult
 	return nil, fmt.Errorf("diff requires contract bundle data (not available for %q)", from.Name)
 }
 
+func (r *ResolvedSource) GetServiceVersion(ctx context.Context, ref Ref) (*ServiceDetails, error) {
+	_, _, all := r.sources()
+
+	// Route to an explicit source hint when given.
+	if ref.Source != "" {
+		if ds, ok := all[ref.Source]; ok {
+			return ds.GetServiceVersion(ctx, ref)
+		}
+	}
+
+	// Try contract sources in order: oci (versioned bundles), then local, then cache.
+	for _, sourceType := range []string{"oci", "local", "cache"} {
+		ds, ok := all[sourceType]
+		if !ok {
+			continue
+		}
+		details, err := ds.GetServiceVersion(ctx, ref)
+		if err == nil && details != nil {
+			return details, nil
+		}
+	}
+
+	return nil, fmt.Errorf("version %q of service %q not found in any contract source", ref.Version, ref.Name)
+}
+
 // GetAggregated returns the per-source breakdown for the debug/sources endpoint.
 func (r *ResolvedSource) GetAggregated(ctx context.Context, name string) (*AggregatedService, error) {
 	contract, runtime, _ := r.sources()

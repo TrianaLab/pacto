@@ -35,6 +35,13 @@ func (m *mockSource) GetService(_ context.Context, name string) (*ServiceDetails
 	return nil, context.Canceled
 }
 
+func (m *mockSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDetails, error) {
+	if d, ok := m.details[ref.Name]; ok {
+		return d, nil
+	}
+	return nil, fmt.Errorf("not found: %s", ref.Name)
+}
+
 func (m *mockSource) GetVersions(_ context.Context, name string) ([]Version, error) {
 	if m.versionsErr != nil {
 		if err, ok := m.versionsErr[name]; ok {
@@ -1002,6 +1009,13 @@ func (e *errorSource) GetService(_ context.Context, name string) (*ServiceDetail
 		return d, nil
 	}
 	return nil, fmt.Errorf("not found: %s", name)
+}
+
+func (e *errorSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDetails, error) {
+	if d, ok := e.details[ref.Name]; ok {
+		return d, nil
+	}
+	return nil, fmt.Errorf("not found: %s", ref.Name)
 }
 
 func (e *errorSource) GetVersions(_ context.Context, name string) ([]Version, error) {

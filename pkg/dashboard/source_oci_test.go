@@ -1257,6 +1257,16 @@ func (s *stubDataSource) GetDiff(_ context.Context, _, _ Ref) (*DiffResult, erro
 	return nil, nil
 }
 
+func (s *stubDataSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDetails, error) {
+	if s.detailErr != nil {
+		return nil, s.detailErr
+	}
+	if s.details != nil {
+		return s.details[ref.Name], nil
+	}
+	return nil, nil
+}
+
 func TestOCISource_RepoProvider(t *testing.T) {
 	old := ociRediscoverInterval
 	ociRediscoverInterval = 10 * time.Millisecond

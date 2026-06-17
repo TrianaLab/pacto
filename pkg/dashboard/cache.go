@@ -137,3 +137,18 @@ func (c *CachedDataSource) GetDiff(ctx context.Context, a, b Ref) (*DiffResult, 
 	c.cache.Set(key, result, c.ttl)
 	return result, nil
 }
+
+func (c *CachedDataSource) GetServiceVersion(ctx context.Context, ref Ref) (*ServiceDetails, error) {
+	key := c.prefix + "serviceversion:" + ref.Name + "@" + ref.Version
+	if v, ok := c.cache.Get(key); ok {
+		if sv, ok := v.(*ServiceDetails); ok {
+			return sv, nil
+		}
+	}
+	result, err := c.source.GetServiceVersion(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	c.cache.Set(key, result, c.ttl)
+	return result, nil
+}
