@@ -1,7 +1,7 @@
 <script>
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { navigate, serviceUrl, diffUrl, ownerUrl } from '../lib/router.ts';
+  import { navigate, serviceUrl, serviceVersionUrl, diffUrl, ownerUrl } from '../lib/router.ts';
   import { statusClass, complianceClass, classificationClass, sourceTooltip, versionPolicyLabel, versionPolicyClass, ownerDisplay, ownerKey, ownerIsStructured, referencedDocPaths, paginate } from '../lib/format.ts';
   import { compareDiffUrl } from '../lib/router.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
@@ -19,7 +19,7 @@
   import RuntimeDiffSection from '../sections/RuntimeDiffSection.svelte';
   import ObservedRuntimeSection from '../sections/ObservedRuntimeSection.svelte';
 
-  let { name, services = [], refreshTick = 0, onServiceResolved } = $props();
+  let { name, version = null, services = [], refreshTick = 0, onServiceResolved } = $props();
 
   let loading = $state(true);
   let error = $state(null);
@@ -85,11 +85,16 @@
     diffResult = null;
     diffError = null;
     try {
-      diffResult = await api.diff(name, fromVersion, name, detail.version);
+      diffResult = await api.diff(name, fromVersion, name, currentVersion);
     } catch (e) {
       diffError = e.message;
     }
     diffLoading = false;
+  }
+
+  function goToVersion(v) {
+    if (!v || v === currentVersion) navigate('detail', { name });
+    else navigate('detail', { name, version: v });
   }
 
   // Section open states
@@ -101,6 +106,14 @@
 
   // Derived view model
   let blastRadius = $derived(services.find(s => s.name === name)?.blastRadius || 0);
+  // When viewing a specific version, "current" comes from the versions list
+  // (isCurrent) or the fleet services prop; otherwise it is just what we show.
+  let currentVersion = $derived(
+    version
+      ? (versions.find(v => v.isCurrent)?.version || services.find(s => s.name === name)?.version || '')
+      : (detail?.version || '')
+  );
+  let isHistorical = $derived(!!version && !!currentVersion && version !== currentVersion);
   let insights = $derived(detail?.insights || []);
   let sources = $derived.by(() => {
     const s = detail?.sources || [];
@@ -121,7 +134,7 @@
     error = null;
     resolveError = null;
     try {
-      detail = await api.service(name);
+      detail = version ? await api.serviceAtVersion(name, version) : await api.service(name);
       loading = false;
 
       versionsError = false;
@@ -201,7 +214,7 @@
       // failed fetch so we can skip the overwrite.)
       const FAILED = Symbol('failed');
       const [svc, vers, deps, refs] = await Promise.all([
-        api.service(name),
+        version ? api.serviceAtVersion(name, version) : api.service(name),
         api.versions(name).catch(() => FAILED),
         api.dependents(name).catch(() => FAILED),
         api.crossRefs(name).catch(() => FAILED),
@@ -251,10 +264,27 @@
     <span>{detail.name}</span>
   </nav>
 
+  {#if isHistorical}
+    <div class="version-banner">
+      Viewing version <strong>{version}</strong> — not the current version (<strong>{currentVersion}</strong>).
+      <a href={serviceUrl(name)}>Back to current</a>
+      <a href={compareDiffUrl({ fromName: name, fromVer: version, toName: name, toVer: currentVersion })}>Compare with current</a>
+    </div>
+  {/if}
+
   <!-- Header -->
   <header class="detail-header fade-in-up">
     <div class="detail-title-row">
       <h1>{detail.name}</h1>
+      {#if versions?.length > 1}
+        <select class="version-select" aria-label="Select version"
+          value={detail.version}
+          onchange={(e) => goToVersion(e.currentTarget.value)}>
+          {#each versions as v}
+            <option value={v.version}>{v.version}{v.isCurrent ? ' (current)' : ''}</option>
+          {/each}
+        </select>
+      {/if}
       {#if detail.runtimeEvaluated}
         <span class="badge badge-{statusClass(detail.contractStatus)}"><span class="badge-dot"></span>{detail.contractStatus}</span>
       {:else}
@@ -464,7 +494,10 @@
           <tbody>
             {#each pagedVersions.items as ver}
               <tr class:version-current={ver.isCurrent}>
-                <td><code>{ver.version}</code>{#if ver.isCurrent}<span class="badge badge-neutral" style="margin-left:6px;font-size:10px">current</span>{/if}</td>
+                <td>
+                  <a href={ver.isCurrent ? serviceUrl(name) : serviceVersionUrl(name, ver.version)}><code>{ver.version}</code></a>
+                  {#if ver.isCurrent}<span class="badge badge-neutral" style="margin-left:6px;font-size:10px">current</span>{/if}
+                </td>
                 <td>
                   {#if ver.classification === 'BREAKING'}<span class="badge badge-err">Breaking</span>
                   {:else if ver.classification === 'POTENTIAL_BREAKING'}<span class="badge badge-warn">Potential breaking</span>
@@ -475,7 +508,7 @@
                 <td>{#if ver.source}<span class="source-dot source-dot-{ver.source}" data-tip={sourceTooltip(ver.source)}></span> <span class="text-3" style="font-size:var(--text-xs)">{ver.source}</span>{:else}—{/if}</td>
                 <td class="text-2">{ver.createdAt ? new Date(ver.createdAt).toLocaleDateString() : '—'}</td>
                 <td>
-                  {#if ver.version !== detail.version}
+                  {#if ver.version !== currentVersion}
                     <button type="button" class="btn btn-sm" class:btn-active={diffExpandedVer === ver.version} onclick={() => compareVersion(ver.version)}>
                       {diffExpandedVer === ver.version ? 'Close' : 'vs current'}
                     </button>
@@ -488,7 +521,7 @@
                 <tr class="diff-expand-row">
                   <td colspan="5">
                     {#if diffLoading}
-                      <div class="diff-inline-loading"><div class="spinner"></div> Comparing {ver.version} → {detail.version}…</div>
+                      <div class="diff-inline-loading"><div class="spinner"></div> Comparing {ver.version} → {currentVersion}…</div>
                     {:else if diffError}
                       <div class="insight insight-critical">{diffError}</div>
                     {:else if diffResult}
@@ -496,7 +529,7 @@
                         <div class="diff-inline-header">
                           <span class="badge {classificationClass(diffResult.classification)}">{diffResult.classification.replace(/_/g, ' ')}</span>
                           <span class="text-2">{diffResult.changes?.length || 0} change{(diffResult.changes?.length ?? 0) !== 1 ? 's' : ''}</span>
-                          <span class="text-3">{ver.version} → {detail.version}</span>
+                          <span class="text-3">{ver.version} → {currentVersion}</span>
                         </div>
                         <DiffChangesTable changes={diffResult.changes || []} compact />
                       </div>
@@ -553,6 +586,21 @@
     display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3);
     flex-wrap: wrap; font-size: var(--text-sm);
   }
+
+  .version-select {
+    font: inherit; font-size: var(--text-sm);
+    padding: 4px 8px; border-radius: var(--radius-xs);
+    border: 1px solid var(--c-border); background: var(--c-surface);
+    color: var(--c-text); cursor: pointer;
+  }
+  .version-banner {
+    padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-5);
+    border-radius: var(--radius-sm);
+    background: var(--c-warn-bg); border: 1px solid var(--c-warn);
+    color: var(--c-text-2); font-size: var(--text-sm);
+    display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+  }
+  .version-banner a { color: var(--c-accent); }
 
   .ref-banner {
     padding: var(--sp-3) var(--sp-4);
