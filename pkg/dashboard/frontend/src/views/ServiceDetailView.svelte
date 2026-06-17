@@ -501,10 +501,11 @@
           <thead><tr><th data-tip="Semver version tag">Version</th><th data-tip="Change impact vs previous version">Classification</th><th data-tip="Where this version was found">Source</th><th data-tip="When this version was published">Created</th><th data-tip="Compare this version against current">Compare</th></tr></thead>
           <tbody>
             {#each pagedVersions.items as ver}
-              <tr class:version-current={ver.isCurrent}>
+              <tr class:version-current={ver.version === detail.version}>
                 <td>
                   <a href={ver.isCurrent ? serviceUrl(name) : serviceVersionUrl(name, ver.version)}><code>{ver.version}</code></a>
                   {#if ver.isCurrent}<span class="badge badge-neutral" style="margin-left:6px;font-size:10px">current</span>{/if}
+                  {#if ver.version === detail.version && !ver.isCurrent}<span class="badge badge-viewing" style="margin-left:6px;font-size:10px">viewing</span>{/if}
                 </td>
                 <td>
                   {#if ver.classification === 'BREAKING'}<span class="badge badge-err">Breaking</span>
@@ -714,6 +715,10 @@
 
   .version-current {
     background: var(--c-surface-hover);
+  }
+  .badge-viewing {
+    background: var(--c-accent-bg);
+    color: var(--c-accent);
   }
 
   .pager {
