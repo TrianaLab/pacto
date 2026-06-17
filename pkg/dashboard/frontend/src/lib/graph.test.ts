@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractSubgraph } from './graph.ts';
+import { extractSubgraph, nodeLabel } from './graph.ts';
 
 const sampleGraph = {
   nodes: [
@@ -66,5 +66,45 @@ describe('extractSubgraph', () => {
     const sub = extractSubgraph(small, 'x');
     expect(sub).not.toBeNull();
     expect(sub!.nodes).toHaveLength(2);
+  });
+});
+
+describe('nodeLabel', () => {
+  it('returns name and version when present', () => {
+    expect(nodeLabel({ id: 'a', serviceName: 'payments', version: '1.2.3' })).toEqual({
+      name: 'payments',
+      version: '1.2.3',
+    });
+  });
+
+  it('returns empty version when absent', () => {
+    expect(nodeLabel({ id: 'a', serviceName: 'payments' })).toEqual({
+      name: 'payments',
+      version: '',
+    });
+  });
+
+  it('falls back to id when serviceName missing', () => {
+    expect(nodeLabel({ id: 'ext-svc' })).toEqual({ name: 'ext-svc', version: '' });
+  });
+
+  it('truncates long names to 18 chars with ellipsis', () => {
+    const { name } = nodeLabel({ id: 'x', serviceName: 'a-really-long-service-name', version: '1.0.0' });
+    expect(name).toBe('a-really-long-ser…');
+    expect(name.length).toBe(18);
+  });
+});
+
+describe('extractSubgraph — version passthrough', () => {
+  it('preserves the version field on returned nodes', () => {
+    const g = {
+      nodes: [
+        { id: 'a', serviceName: 'svc-a', status: 'Compliant', version: '1.0.0', edges: [{ targetId: 'b' }] },
+        { id: 'b', serviceName: 'svc-b', status: 'Compliant', version: '2.0.0', edges: [] },
+      ],
+    };
+    const sub = extractSubgraph(g, 'a');
+    expect(sub!.nodes.find((n) => n.id === 'a')!.version).toBe('1.0.0');
+    expect(sub!.nodes.find((n) => n.id === 'b')!.version).toBe('2.0.0');
   });
 });

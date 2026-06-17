@@ -36,6 +36,7 @@ export interface GraphNode {
   id: string;
   serviceName: string;
   status: string;
+  version?: string;
   reason?: string;    // why unresolved: non_oci_ref, auth_failed, no_semver_tags, not_found, discovering
   edges?: GraphEdge[];
   // D3 simulation adds these at runtime
@@ -47,6 +48,13 @@ export interface GraphNode {
 
 export interface GraphData {
   nodes: GraphNode[];
+}
+
+/** Computes the displayed label lines for a node: truncated name + version. */
+export function nodeLabel(node: { id: string; serviceName?: string; version?: string }): { name: string; version: string } {
+  const raw = node.serviceName || node.id;
+  const name = raw.length > 18 ? raw.slice(0, 17) + '…' : raw;
+  return { name, version: node.version || '' };
 }
 
 interface SimLink {
@@ -272,26 +280,37 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
     }
   });
 
-  // Label
+  // Label — name on top, version (when present) on a dimmer second line.
   nodeEls.append('text')
-    .attr('x', -NODE_W / 2 + 26).attr('y', 1)
+    .attr('x', -NODE_W / 2 + 26)
+    .attr('y', (d) => (nodeLabel(d).version ? -4 : 1))
     .attr('dominant-baseline', 'middle')
     .attr('fill', 'var(--c-text)')
     .attr('font-size', '13px')
     .attr('font-weight', '500')
-    .text((d) => {
-      const name = d.serviceName || d.id;
-      return name.length > 18 ? name.slice(0, 17) + '…' : name;
-    });
+    .text((d) => nodeLabel(d).name);
 
-  // Native SVG tooltip — reason-aware for external nodes
+  nodeEls.each(function (d: GraphNode) {
+    const { version } = nodeLabel(d);
+    if (!version) return;
+    d3.select(this).append('text')
+      .attr('x', -NODE_W / 2 + 26)
+      .attr('y', 12)
+      .attr('dominant-baseline', 'middle')
+      .attr('fill', 'var(--c-text-3)')
+      .attr('font-size', '11px')
+      .text(version);
+  });
+
+  // Native SVG tooltip — reason-aware for external nodes, version-aware otherwise.
   nodeEls.append('title')
     .text((d) => {
       const name = d.serviceName || d.id;
       if (d.status === 'external') {
         return `${name} — ${reasonTooltip(d.reason)}`;
       }
-      return `${name} — ${d.status || 'Unknown'}`;
+      const v = d.version ? ` ${d.version}` : '';
+      return `${name}${v} — ${d.status || 'Unknown'}`;
     });
 
   // focusNodes: IDs of nodes that should stay emphasized (owner view)
