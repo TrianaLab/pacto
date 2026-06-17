@@ -12,6 +12,7 @@ import (
 
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/graph"
+	"github.com/trianalab/pacto/pkg/ignore"
 	"github.com/trianalab/pacto/pkg/oci"
 	"github.com/trianalab/pacto/pkg/override"
 	"github.com/trianalab/pacto/pkg/validation"
@@ -63,10 +64,16 @@ func loadLocalBundle(dir string) (*contract.Bundle, error) {
 		return nil, fmt.Errorf("failed to parse %s: %w", filePath, err)
 	}
 
+	dirFS := os.DirFS(bundleDir)
+	matcher, err := ignore.Load(dirFS)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", ignore.IgnoreFileName, err)
+	}
+
 	return &contract.Bundle{
 		Contract: c,
 		RawYAML:  rawYAML,
-		FS:       os.DirFS(bundleDir),
+		FS:       ignore.FS(dirFS, matcher),
 	}, nil
 }
 
