@@ -6,6 +6,8 @@
 package ignore
 
 import (
+	"errors"
+	"io/fs"
 	"path"
 	"strings"
 )
@@ -111,4 +113,59 @@ func matchSegs(pat, name []string) bool {
 		return false
 	}
 	return matchSegs(pat[1:], name[1:])
+}
+
+// Load reads .pactoignore from the root of fsys (if present) and returns a
+// Matcher combining DefaultPatterns with the file's lines.
+func Load(fsys fs.FS) (*Matcher, error) {
+	data, err := fs.ReadFile(fsys, IgnoreFileName)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return New(nil), nil
+		}
+		return nil, err
+	}
+	var lines []string
+	for _, l := range strings.Split(string(data), "\n") {
+		lines = append(lines, strings.TrimRight(l, "\r"))
+	}
+	return New(lines), nil
+}
+
+// FS wraps base so ignored paths are hidden from Open and ReadDir.
+func FS(base fs.FS, m *Matcher) fs.FS { return &filteredFS{base: base, m: m} }
+
+type filteredFS struct {
+	base fs.FS
+	m    *Matcher
+}
+
+func (f *filteredFS) Open(name string) (fs.File, error) {
+	if name != "." {
+		if info, err := fs.Stat(f.base, name); err == nil {
+			if f.m.Ignored(name, info.IsDir()) {
+				return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+			}
+		}
+	}
+	return f.base.Open(name)
+}
+
+func (f *filteredFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(f.base, name)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]fs.DirEntry, 0, len(entries))
+	for _, e := range entries {
+		p := e.Name()
+		if name != "." {
+			p = path.Join(name, e.Name())
+		}
+		if f.m.Ignored(p, e.IsDir()) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
