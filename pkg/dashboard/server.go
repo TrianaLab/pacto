@@ -390,6 +390,15 @@ func (s *Server) RegisterOperations(api huma.API) {
 	}, s.getVersions)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "get-service-version",
+		Method:      http.MethodGet,
+		Path:        "/api/services/{name}/versions/{version}",
+		Summary:     "Get service details at a version",
+		Description: "Returns full details for a specific version of a service.",
+		Tags:        []string{"Services"},
+	}, s.getServiceVersion)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "get-service-sources",
 		Method:      http.MethodGet,
 		Path:        "/api/services/{name}/sources",
@@ -551,6 +560,15 @@ type getServiceOutput struct {
 
 type getVersionsOutput struct {
 	Body []Version `doc:"Version history"`
+}
+
+type serviceVersionInput struct {
+	Name    string `path:"name" maxLength:"255" example:"order-service" doc:"Service name"`
+	Version string `path:"version" maxLength:"255" example:"1.2.0" doc:"Service version tag"`
+}
+
+type getServiceVersionOutput struct {
+	Body *ServiceDetails `doc:"Service details at a specific version"`
 }
 
 type getServiceSourcesOutput struct {
@@ -850,6 +868,24 @@ func (s *Server) getVersions(ctx context.Context, input *ServiceNameInput) (*get
 	}
 
 	return &getVersionsOutput{Body: versions}, nil
+}
+
+func (s *Server) getServiceVersion(ctx context.Context, input *serviceVersionInput) (*getServiceVersionOutput, error) {
+	s.ensureOCIEnriched(ctx)
+	details, err := s.source.GetServiceVersion(ctx, Ref{Name: input.Name, Version: input.Version})
+	if err != nil {
+		return nil, huma.Error404NotFound(err.Error())
+	}
+	// The route's version is authoritative for display, regardless of what the
+	// bundle declares.
+	details.Version = input.Version
+	details.GenerateInsights()
+	// Single plain sources don't populate SectionMeta; compute it so every
+	// section self-explains (matching getService).
+	if details.SectionMeta == nil {
+		computeSectionMeta(details, details.Source, details.RuntimeEvaluated)
+	}
+	return &getServiceVersionOutput{Body: details}, nil
 }
 
 func (s *Server) getServiceSources(ctx context.Context, input *ServiceNameInput) (*getServiceSourcesOutput, error) {

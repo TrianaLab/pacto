@@ -3030,3 +3030,46 @@ func TestResolveServiceByName_NotFound(t *testing.T) {
 		t.Error("expected nil for unknown service")
 	}
 }
+
+func TestServerGetServiceVersion_OK(t *testing.T) {
+	source := &mockSource{
+		services: []Service{{Name: "svc", Version: "2.0.0"}},
+		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Version: "2.0.0"}}},
+	}
+	base := startTestServer(t, source)
+
+	resp, err := http.Get(base + "/api/services/svc/versions/1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var details ServiceDetails
+	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
+		t.Fatal(err)
+	}
+	if details.Name != "svc" {
+		t.Errorf("expected name 'svc', got %q", details.Name)
+	}
+	if details.Version != "1.0.0" {
+		t.Errorf("expected version normalized to requested '1.0.0', got %q", details.Version)
+	}
+}
+
+func TestServerGetServiceVersion_NotFound(t *testing.T) {
+	source := &mockSource{}
+	base := startTestServer(t, source)
+
+	resp, err := http.Get(base + "/api/services/missing/versions/1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
