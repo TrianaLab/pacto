@@ -26,6 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6.0.3
+        # Full history + tags so the demo build's `git describe` resolves the
+        # real Pacto version to bake into the dashboard (shown in the navbar).
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'

@@ -25,6 +25,11 @@ var embeddedBundles embed.FS
 // `pacto dashboard` server serves), driven per request from JavaScript.
 var handler http.Handler
 
+// version is the Pacto version this demo was built from. Injected at build time
+// via -ldflags "-X main.version=..." (see the Makefile) and surfaced through
+// /health so the dashboard navbar shows it, exactly like the real server.
+var version = "dev"
+
 func main() {
 	root, err := fs.Sub(embeddedBundles, "bundles")
 	if err != nil {
@@ -38,6 +43,7 @@ func main() {
 	// nil UI fs and nil resolver: the static host serves the UI, and the graph
 	// resolves from the embedded contracts' declared dependencies — no OCI.
 	srv := dashboard.NewServer(src, nil)
+	srv.SetVersion(version) // surfaced via /health → shown in the navbar
 	mux := http.NewServeMux()
 	api := humago.New(mux, dashboard.APIConfig())
 	srv.RegisterOperations(api)

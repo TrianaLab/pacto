@@ -18,6 +18,11 @@ GOROOT      := $(shell go env GOROOT)
 SERVE_PORT  ?= 8088
 FRONTEND    := $(abspath ../../pkg/dashboard/frontend)
 UI_BUILD    := $(abspath .ui-build)
+# Pacto version this demo is built from — the latest release tag, surfaced in the
+# dashboard navbar via -ldflags into the wasm. Uses --abbrev=0 for a clean
+# "vX.Y.Z" label. Needs tags available (CI must checkout with fetch-depth: 0);
+# falls back to a short SHA, then "dev", when no tags are present.
+VERSION     ?= $(shell git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev)
 
 .PHONY: build preflight ui wasm wasmexec inject serve test smoke clean diff breaking-change evolution explain
 
@@ -46,10 +51,11 @@ ui:
 	@echo "==> Built UI (base $(BASE))"
 
 ## Compile the engine to wasm. Bundles are embedded via //go:embed bundles.
+## The Pacto version is baked in so /health (and thus the navbar) reports it.
 wasm:
 	@mkdir -p $(DIST)
-	GOOS=js GOARCH=wasm go build -ldflags="-s -w" -o $(DIST)/app.wasm .
-	@echo "==> Built $(DIST)/app.wasm ($$(du -h $(DIST)/app.wasm | cut -f1))"
+	GOOS=js GOARCH=wasm go build -ldflags="-s -w -X main.version=$(VERSION)" -o $(DIST)/app.wasm .
+	@echo "==> Built $(DIST)/app.wasm ($$(du -h $(DIST)/app.wasm | cut -f1), version $(VERSION))"
 
 ## Copy Go's wasm runtime glue (Go 1.24+ lib/wasm location).
 wasmexec:
@@ -58,18 +64,23 @@ wasmexec:
 	@echo "==> Copied wasm_exec.js"
 
 ## Inject the wasm loader before the app's module script, add the SPA 404
-## fallback, and stamp the build. Idempotent: skips if already done.
+## fallback, and stamp the build. The engine assets (app.wasm, boot.js,
+## wasm_exec.js) have stable names, so without a cache-bust query a browser would
+## serve a stale cached engine against a freshly-hashed UI after a redeploy (new
+## UI calling an old wasm). A content token derived from the built wasm busts all
+## three together, so a new engine is picked up immediately. Idempotent.
 inject:
-	@cp boot.js $(DIST)/boot.js
-	@grep -q 'boot.js' $(DIST)/index.html || awk -v base="$(BASE)" '\
-	  /<script type="module"/ && !done { \
-	    print "  <script src=\"" base "wasm_exec.js\"></script>"; \
-	    print "  <script src=\"" base "boot.js\"></script>"; \
-	    done=1 \
-	  } { print }' $(DIST)/index.html > $(DIST)/index.html.tmp && mv -f $(DIST)/index.html.tmp $(DIST)/index.html
-	@cp $(DIST)/index.html $(DIST)/404.html
-	@printf '{"base":"%s"}\n' "$(BASE)" > $(DIST)/version.json
-	@echo "==> Injected loader, 404.html, version.json"
+	@bust=$$(git hash-object $(DIST)/app.wasm | cut -c1-12); \
+	  sed "s|\"app.wasm\"|\"app.wasm?v=$$bust\"|" boot.js > $(DIST)/boot.js; \
+	  grep -q 'boot.js' $(DIST)/index.html || awk -v base="$(BASE)" -v bust="$$bust" '\
+	    /<script type="module"/ && !done { \
+	      print "  <script src=\"" base "wasm_exec.js?v=" bust "\"></script>"; \
+	      print "  <script src=\"" base "boot.js?v=" bust "\"></script>"; \
+	      done=1 \
+	    } { print }' $(DIST)/index.html > $(DIST)/index.html.tmp && mv -f $(DIST)/index.html.tmp $(DIST)/index.html; \
+	  cp $(DIST)/index.html $(DIST)/404.html; \
+	  printf '{"base":"%s","version":"%s","build":"%s"}\n' "$(BASE)" "$(VERSION)" "$$bust" > $(DIST)/version.json
+	@echo "==> Injected loader (version $(VERSION)), 404.html, cache-busted engine, version.json"
 
 ## Run the EmbedSource host tests.
 test:
