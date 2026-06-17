@@ -6,7 +6,7 @@
 
   let {
     name, dependencies = [], dependents = [], crossRefs = null,
-    graphData = null, services = [],
+    graphData = null, services = [], isHistorical = false,
     open = $bindable(true), id = '', source = '',
   } = $props();
 
@@ -62,7 +62,7 @@
 
     {#if dependents?.length > 0}
       <div class="subsection">
-        <h3>Depended on by</h3>
+        <h3>Depended on by {#if isHistorical}<span class="current-badge" data-tip="Reflects the current dependency graph, not the selected historical version">current</span>{/if}</h3>
         <div class="table-wrap">
           <table>
             <thead><tr><th data-tip="Service that depends on this one">Service</th><th data-tip="Contract compliance status">Status</th><th data-tip="Is this a required dependency?">Required</th></tr></thead>
@@ -82,7 +82,7 @@
 
     {#if crossRefs?.references?.length > 0}
       <div class="subsection">
-        <h3>References</h3>
+        <h3>References {#if isHistorical}<span class="current-badge" data-tip="Reflects current cross-references, not the selected historical version">current</span>{/if}</h3>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
@@ -102,7 +102,7 @@
 
     {#if crossRefs?.referencedBy?.length > 0}
       <div class="subsection">
-        <h3>Referenced by</h3>
+        <h3>Referenced by {#if isHistorical}<span class="current-badge" data-tip="Reflects current cross-references, not the selected historical version">current</span>{/if}</h3>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
@@ -125,6 +125,12 @@
 <style>
   .subsection { margin-top: var(--sp-4); }
   .subsection h3 { margin-bottom: var(--sp-2); }
+  .current-badge {
+    font-size: var(--text-xs); font-weight: 500;
+    padding: 1px 6px; border-radius: var(--radius-xs);
+    background: var(--c-neutral-bg); color: var(--c-text-3);
+    vertical-align: middle;
+  }
   .dep-graph-box {
     border: 1px solid var(--c-border);
     border-radius: var(--radius-sm);

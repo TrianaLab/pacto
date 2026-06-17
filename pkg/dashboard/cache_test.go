@@ -169,6 +169,9 @@ func (e *errorStubSource) GetVersions(_ context.Context, _ string) ([]Version, e
 func (e *errorStubSource) GetDiff(_ context.Context, _, _ Ref) (*DiffResult, error) {
 	return nil, fmt.Errorf("diff error")
 }
+func (e *errorStubSource) GetServiceVersion(_ context.Context, _ Ref) (*ServiceDetails, error) {
+	return nil, fmt.Errorf("get version error")
+}
 
 func TestCachedDataSource_ListServices_Error(t *testing.T) {
 	cached := NewCachedDataSource(&errorStubSource{}, NewMemoryCache(), time.Minute, "err:")
@@ -236,5 +239,40 @@ func TestCachedDataSource_PrefixIsolation(t *testing.T) {
 	}
 	if svcs2[0].Name != "from-source2" {
 		t.Errorf("cache collision: expected 'from-source2', got %q", svcs2[0].Name)
+	}
+}
+
+func TestCachedDataSource_GetServiceVersion(t *testing.T) {
+	inner := &stubSource{
+		details: map[string]*ServiceDetails{
+			"svc": {Service: Service{Name: "svc", Version: "1.0.0"}},
+		},
+	}
+	cached := NewCachedDataSource(inner, NewMemoryCache(), time.Minute, "test:")
+	ctx := context.Background()
+
+	details, err := cached.GetServiceVersion(ctx, Ref{Name: "svc", Version: "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Name != "svc" {
+		t.Errorf("expected name 'svc', got %q", details.Name)
+	}
+
+	// Second call hits cache.
+	details, err = cached.GetServiceVersion(ctx, Ref{Name: "svc", Version: "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Name != "svc" {
+		t.Errorf("expected name 'svc' from cache, got %q", details.Name)
+	}
+}
+
+func TestCachedDataSource_GetServiceVersion_Error(t *testing.T) {
+	cached := NewCachedDataSource(&errorStubSource{}, NewMemoryCache(), time.Minute, "err:")
+	_, err := cached.GetServiceVersion(context.Background(), Ref{Name: "svc", Version: "1.0.0"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }

@@ -37,6 +37,13 @@ func (s *stubSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) {
 	return &DiffResult{From: a, To: b, Classification: "NON_BREAKING"}, nil
 }
 
+func (s *stubSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDetails, error) {
+	if d, ok := s.details[ref.Name]; ok {
+		return d, nil
+	}
+	return nil, fmt.Errorf("not found")
+}
+
 // failingSource is a DataSource that always returns errors.
 type failingSource struct {
 	err error
@@ -55,6 +62,10 @@ func (f *failingSource) GetVersions(_ context.Context, _ string) ([]Version, err
 }
 
 func (f *failingSource) GetDiff(_ context.Context, _, _ Ref) (*DiffResult, error) {
+	return nil, f.err
+}
+
+func (f *failingSource) GetServiceVersion(_ context.Context, _ Ref) (*ServiceDetails, error) {
 	return nil, f.err
 }
 
@@ -1147,5 +1158,47 @@ func TestEnrichWithRuntime_SlicesAndMetadata(t *testing.T) {
 	}
 	if contract.LastReconciledAt != "2025-01-01T00:00:00Z" {
 		t.Error("expected last reconciled at")
+	}
+}
+
+func TestResolvedSource_GetServiceVersion_RoutesToOCI(t *testing.T) {
+	oci := &stubSource{
+		details: map[string]*ServiceDetails{
+			"svc": {Service: Service{Name: "svc", Version: "1.0.0"}},
+		},
+	}
+	resolved := BuildResolvedSource(map[string]DataSource{"oci": oci})
+
+	details, err := resolved.GetServiceVersion(context.Background(), Ref{Name: "svc", Version: "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Name != "svc" {
+		t.Errorf("expected name 'svc', got %q", details.Name)
+	}
+}
+
+func TestResolvedSource_GetServiceVersion_WithSourceHint(t *testing.T) {
+	local := &stubSource{
+		details: map[string]*ServiceDetails{
+			"svc": {Service: Service{Name: "svc", Version: "1.0.0"}},
+		},
+	}
+	resolved := BuildResolvedSource(map[string]DataSource{"local": local})
+
+	details, err := resolved.GetServiceVersion(context.Background(), Ref{Name: "svc", Version: "1.0.0", Source: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Name != "svc" {
+		t.Errorf("expected name 'svc', got %q", details.Name)
+	}
+}
+
+func TestResolvedSource_GetServiceVersion_NoSourceAvailable(t *testing.T) {
+	resolved := BuildResolvedSource(map[string]DataSource{})
+	_, err := resolved.GetServiceVersion(context.Background(), Ref{Name: "svc", Version: "1.0.0"})
+	if err == nil {
+		t.Fatal("expected error when no source available")
 	}
 }

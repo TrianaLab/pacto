@@ -1044,6 +1044,18 @@ func TestK8s_GetDiff_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestK8s_GetServiceVersion_ReturnsError(t *testing.T) {
+	client := &mockK8sClient{}
+	src := NewK8sSource(client, "default", "pactos")
+	_, err := src.GetServiceVersion(context.Background(), Ref{Name: "a", Version: "1"})
+	if err == nil {
+		t.Fatal("expected error from GetServiceVersion")
+	}
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ListServices
 // ---------------------------------------------------------------------------

@@ -137,6 +137,18 @@ func (s *LocalSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) 
 	return ComputeDiff(a, b, bundleA, bundleB), nil
 }
 
+func (s *LocalSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDetails, error) {
+	bundle, err := s.findBundle(ref.Name)
+	if err != nil {
+		return nil, err
+	}
+	if bundle.Contract.Service.Version != ref.Version {
+		return nil, fmt.Errorf("version %q of %q not found in local source (on-disk version is %q)",
+			ref.Version, ref.Name, bundle.Contract.Service.Version)
+	}
+	return ServiceDetailsFromBundle(bundle, "local"), nil
+}
+
 func (s *LocalSource) findBundle(name string) (*contract.Bundle, error) {
 	for _, dir := range localBundleDirs(s.root) {
 		bundle, err := loadLocalBundle(dir)

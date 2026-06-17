@@ -390,6 +390,15 @@ func (s *Server) RegisterOperations(api huma.API) {
 	}, s.getVersions)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "get-service-version",
+		Method:      http.MethodGet,
+		Path:        "/api/services/{name}/versions/{version}",
+		Summary:     "Get service details at a version",
+		Description: "Returns full details for a specific version of a service.",
+		Tags:        []string{"Services"},
+	}, s.getServiceVersion)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "get-service-sources",
 		Method:      http.MethodGet,
 		Path:        "/api/services/{name}/sources",
@@ -551,6 +560,15 @@ type getServiceOutput struct {
 
 type getVersionsOutput struct {
 	Body []Version `doc:"Version history"`
+}
+
+type serviceVersionInput struct {
+	Name    string `path:"name" maxLength:"255" example:"order-service" doc:"Service name"`
+	Version string `path:"version" maxLength:"255" example:"1.2.0" doc:"Service version tag"`
+}
+
+type getServiceVersionOutput struct {
+	Body *ServiceDetails `doc:"Service details at a specific version"`
 }
 
 type getServiceSourcesOutput struct {
@@ -765,15 +783,32 @@ func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getS
 	return &getServiceOutput{Body: details}, nil
 }
 
-// enrichConfigRefs resolves remote configuration references by looking up the
-// referenced service in the index and copying its configuration values.
+// enrichConfigRefs resolves remote configuration references against the CURRENT
+// index (used by the current-version view).
 func enrichConfigRefs(details *ServiceDetails, index map[string]*ServiceDetails, aliases map[string]string) {
+	enrichConfigRefsWith(details, func(ref string) (*ServiceDetails, bool) {
+		return resolveServiceByName(extractServiceNameFromRef(ref), index, aliases), false
+	})
+}
+
+// enrichConfigRefsVersioned is the historical-view variant: it resolves each ref
+// to the exact version it pins (when pinned and available), falling back to the
+// current index and flagging the values so the UI can label them "(current)".
+func (s *Server) enrichConfigRefsVersioned(ctx context.Context, details *ServiceDetails, index map[string]*ServiceDetails, aliases map[string]string) {
+	enrichConfigRefsWith(details, func(ref string) (*ServiceDetails, bool) {
+		return s.resolveRefTarget(ctx, ref, index, aliases)
+	})
+}
+
+// enrichConfigRefsWith fills in remote config ref values using the supplied
+// resolver, which returns the referenced service's details and whether they came
+// from the current (rather than the ref-pinned) version.
+func enrichConfigRefsWith(details *ServiceDetails, resolve func(ref string) (*ServiceDetails, bool)) {
 	for i, cfg := range details.Configurations {
 		if cfg.Ref == "" || len(cfg.Values) > 0 {
 			continue
 		}
-		refName := extractServiceNameFromRef(cfg.Ref)
-		target := resolveServiceByName(refName, index, aliases)
+		target, fromCurrent := resolve(cfg.Ref)
 		if target == nil || len(target.Configurations) == 0 {
 			continue
 		}
@@ -781,21 +816,37 @@ func enrichConfigRefs(details *ServiceDetails, index map[string]*ServiceDetails,
 			if len(tc.Values) > 0 {
 				details.Configurations[i].Values = tc.Values
 				details.Configurations[i].HasSchema = true
+				details.Configurations[i].ValuesAreCurrent = fromCurrent
 				break
 			}
 		}
 	}
 }
 
-// enrichPolicyRefs resolves remote policy references by looking up the
-// referenced service in the index and copying its policy values/content.
+// enrichPolicyRefs resolves remote policy references against the CURRENT index
+// (used by the current-version view).
 func enrichPolicyRefs(details *ServiceDetails, index map[string]*ServiceDetails, aliases map[string]string) {
+	enrichPolicyRefsWith(details, func(ref string) (*ServiceDetails, bool) {
+		return resolveServiceByName(extractServiceNameFromRef(ref), index, aliases), false
+	})
+}
+
+// enrichPolicyRefsVersioned is the historical-view variant (see
+// enrichConfigRefsVersioned).
+func (s *Server) enrichPolicyRefsVersioned(ctx context.Context, details *ServiceDetails, index map[string]*ServiceDetails, aliases map[string]string) {
+	enrichPolicyRefsWith(details, func(ref string) (*ServiceDetails, bool) {
+		return s.resolveRefTarget(ctx, ref, index, aliases)
+	})
+}
+
+// enrichPolicyRefsWith fills in remote policy ref values/metadata using the
+// supplied resolver.
+func enrichPolicyRefsWith(details *ServiceDetails, resolve func(ref string) (*ServiceDetails, bool)) {
 	for i, pol := range details.Policies {
 		if pol.Ref == "" || len(pol.Values) > 0 {
 			continue
 		}
-		refName := extractServiceNameFromRef(pol.Ref)
-		target := resolveServiceByName(refName, index, aliases)
+		target, fromCurrent := resolve(pol.Ref)
 		if target == nil || len(target.Policies) == 0 {
 			continue
 		}
@@ -804,6 +855,7 @@ func enrichPolicyRefs(details *ServiceDetails, index map[string]*ServiceDetails,
 			if len(tp.Values) > 0 {
 				details.Policies[i].Values = tp.Values
 				details.Policies[i].HasSchema = true
+				details.Policies[i].ValuesAreCurrent = fromCurrent
 				if tp.Title != "" {
 					details.Policies[i].Title = tp.Title
 				}
@@ -814,6 +866,20 @@ func enrichPolicyRefs(details *ServiceDetails, index map[string]*ServiceDetails,
 			}
 		}
 	}
+}
+
+// resolveRefTarget resolves a config/policy ref to the referenced service's
+// details. When the ref pins a version the source can provide, it returns that
+// exact version (fromCurrent=false). Otherwise it falls back to the current index
+// (fromCurrent=true) so the UI can flag the values as current.
+func (s *Server) resolveRefTarget(ctx context.Context, ref string, index map[string]*ServiceDetails, aliases map[string]string) (target *ServiceDetails, fromCurrent bool) {
+	refName := extractServiceNameFromRef(ref)
+	if refVersion := extractVersionFromRef(ref); refVersion != "" {
+		if d, err := s.source.GetServiceVersion(ctx, Ref{Name: refName, Version: refVersion}); err == nil && d != nil {
+			return d, false
+		}
+	}
+	return resolveServiceByName(refName, index, aliases), true
 }
 
 // resolveServiceByName looks up a service by extracted ref name, trying
@@ -850,6 +916,32 @@ func (s *Server) getVersions(ctx context.Context, input *ServiceNameInput) (*get
 	}
 
 	return &getVersionsOutput{Body: versions}, nil
+}
+
+func (s *Server) getServiceVersion(ctx context.Context, input *serviceVersionInput) (*getServiceVersionOutput, error) {
+	s.ensureOCIEnriched(ctx)
+	details, err := s.source.GetServiceVersion(ctx, Ref{Name: input.Name, Version: input.Version})
+	if err != nil {
+		return nil, huma.Error404NotFound(err.Error())
+	}
+	// The route's version is authoritative for display, regardless of what the
+	// bundle declares.
+	details.Version = input.Version
+	details.GenerateInsights()
+	// Single plain sources don't populate SectionMeta; compute it so every
+	// section self-explains (matching getService).
+	if details.SectionMeta == nil {
+		computeSectionMeta(details, details.Source, details.RuntimeEvaluated)
+	}
+
+	// Resolve remote config/policy refs to the version each ref pins (falling
+	// back to the current index, flagged for the UI). Mirrors getService's
+	// enrichment but version-aware, so a historical view shows ref values too.
+	cached := s.getCachedIndex(ctx)
+	s.enrichConfigRefsVersioned(ctx, details, cached.index, cached.aliases)
+	s.enrichPolicyRefsVersioned(ctx, details, cached.index, cached.aliases)
+
+	return &getServiceVersionOutput{Body: details}, nil
 }
 
 func (s *Server) getServiceSources(ctx context.Context, input *ServiceNameInput) (*getServiceSourcesOutput, error) {

@@ -7,6 +7,7 @@ import "context"
 type DataSource interface {
 	ListServices(ctx context.Context) ([]Service, error)
 	GetService(ctx context.Context, name string) (*ServiceDetails, error)
+	GetServiceVersion(ctx context.Context, ref Ref) (*ServiceDetails, error)
 	GetVersions(ctx context.Context, name string) ([]Version, error)
 	GetDiff(ctx context.Context, a, b Ref) (*DiffResult, error)
 }

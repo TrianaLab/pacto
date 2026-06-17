@@ -38,6 +38,18 @@ export function parseHash(hash: string | null | undefined): Route {
     return { view: 'diff', params };
   }
 
+  // #/services/:name/versions/:version (full detail of a specific version)
+  const versionMatch = raw.match(/^services\/(.+?)\/versions\/(.+)$/);
+  if (versionMatch) {
+    return {
+      view: 'detail',
+      params: {
+        name: decodeURIComponent(versionMatch[1]),
+        version: decodeURIComponent(versionMatch[2]),
+      },
+    };
+  }
+
   // #/services/:name
   const svcMatch = raw.match(/^services\/(.+)$/);
   if (svcMatch) return { view: 'detail', params: { name: decodeURIComponent(svcMatch[1]) } };
@@ -60,7 +72,11 @@ export function parseHash(hash: string | null | undefined): Route {
 
 export function navigate(view: string, params: Record<string, string> = {}): void {
   let hash = '#/';
-  if (view === 'detail' && params.name) hash = `#/services/${encodeURIComponent(params.name)}`;
+  if (view === 'detail' && params.name) {
+    hash = params.version
+      ? `#/services/${encodeURIComponent(params.name)}/versions/${encodeURIComponent(params.version)}`
+      : `#/services/${encodeURIComponent(params.name)}`;
+  }
   else if (view === 'diff' && params.name) hash = `#/services/${encodeURIComponent(params.name)}/diff`;
   else if (view === 'graph') hash = '#/graph';
   else if (view === 'readiness') hash = '#/readiness';
@@ -71,6 +87,10 @@ export function navigate(view: string, params: Record<string, string> = {}): voi
 
 export function serviceUrl(name: string): string {
   return `#/services/${encodeURIComponent(name)}`;
+}
+
+export function serviceVersionUrl(name: string, version: string): string {
+  return `#/services/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}`;
 }
 
 export function diffUrl(name: string, from?: string, to?: string): string {

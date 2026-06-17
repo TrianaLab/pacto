@@ -412,6 +412,14 @@ func (s *OCISource) GetDiff(ctx context.Context, a, b Ref) (*DiffResult, error) 
 	return ComputeDiff(a, b, bundleA, bundleB), nil
 }
 
+func (s *OCISource) GetServiceVersion(ctx context.Context, ref Ref) (*ServiceDetails, error) {
+	bundle, err := s.pullRef(ctx, ref)
+	if err != nil {
+		return nil, fmt.Errorf("pulling %v: %w", ref, err)
+	}
+	return ServiceDetailsFromBundle(bundle, "oci"), nil
+}
+
 func (s *OCISource) pullRef(ctx context.Context, ref Ref) (*contract.Bundle, error) {
 	repo, err := s.findRepo(ctx, ref.Name)
 	if err != nil {

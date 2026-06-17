@@ -33,6 +33,8 @@ export const api = {
   sources: () => get('/api/sources'),
   services: () => get('/api/services'),
   service: (name: string) => get(`/api/services/${encodeURIComponent(name)}`),
+  serviceAtVersion: (name: string, version: string) =>
+    get(`/api/services/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}`),
   versions: (name: string) => get(`/api/services/${encodeURIComponent(name)}/versions`),
   serviceSources: (name: string) => get(`/api/services/${encodeURIComponent(name)}/sources`),
   dependents: (name: string) => get(`/api/services/${encodeURIComponent(name)}/dependents`),

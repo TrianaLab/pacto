@@ -143,3 +143,14 @@ func TestReadinessShowcase(t *testing.T) {
 		t.Errorf("orders-service 1.2.0 readiness should PASS, got %+v", ord.Readiness)
 	}
 }
+
+func TestEmbedSource_GetServiceVersion(t *testing.T) {
+	src := bundlesFS(t)
+	details, err := src.GetServiceVersion(context.Background(), dashboard.Ref{Name: "payments-service", Version: "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details == nil {
+		t.Fatal("expected non-nil details")
+	}
+}

@@ -388,6 +388,13 @@ func (s *K8sSource) GetDiff(_ context.Context, _, _ Ref) (*DiffResult, error) {
 	return nil, fmt.Errorf("diff not yet supported for k8s source; use OCI or local source")
 }
 
+// GetServiceVersion is unsupported for the k8s source: it observes only the
+// single currently-deployed revision per service, so there is no version
+// history to fetch. Per-version detail comes from the OCI/local sources.
+func (s *K8sSource) GetServiceVersion(_ context.Context, _ Ref) (*ServiceDetails, error) {
+	return nil, fmt.Errorf("per-version detail not supported for k8s source; use OCI or local source")
+}
+
 // pactoRevisionResource represents the minimal structure of a PactoRevision CRD.
 type pactoRevisionResource struct {
 	Metadata struct {

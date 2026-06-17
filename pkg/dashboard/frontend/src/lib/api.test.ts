@@ -56,6 +56,17 @@ describe('api.service', () => {
   });
 });
 
+describe('api.serviceAtVersion', () => {
+  it('builds the versioned detail URL and encodes parts', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ name: 'my service', version: '1.0.0' }));
+    await api.serviceAtVersion('my service', '1.0.0+build');
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/services/my%20service/versions/1.0.0%2Bbuild',
+      expect.any(Object)
+    );
+  });
+});
+
 describe('api.diff', () => {
   it('builds correct query string', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ changes: [] }));

@@ -245,6 +245,18 @@ func (s *CacheSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) 
 	return ComputeDiff(a, b, bundleA.bundle, bundleB.bundle), nil
 }
 
+func (s *CacheSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDetails, error) {
+	svc, ok := s.snapshot()[ref.Name]
+	if !ok {
+		return nil, fmt.Errorf("service %q not found in OCI cache", ref.Name)
+	}
+	cv := svc.findVersion(ref.Version)
+	if cv == nil {
+		return nil, fmt.Errorf("version %q of %q not found in OCI cache", ref.Version, ref.Name)
+	}
+	return ServiceDetailsFromBundle(cv.bundle, "oci"), nil
+}
+
 func (svc *cachedService) latestVersion() *cachedVersion {
 	sorted := svc.sortedVersions()
 	if len(sorted) == 0 {

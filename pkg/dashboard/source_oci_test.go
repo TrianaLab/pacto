@@ -1257,6 +1257,16 @@ func (s *stubDataSource) GetDiff(_ context.Context, _, _ Ref) (*DiffResult, erro
 	return nil, nil
 }
 
+func (s *stubDataSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDetails, error) {
+	if s.detailErr != nil {
+		return nil, s.detailErr
+	}
+	if s.details != nil {
+		return s.details[ref.Name], nil
+	}
+	return nil, nil
+}
+
 func TestOCISource_RepoProvider(t *testing.T) {
 	old := ociRediscoverInterval
 	ociRediscoverInterval = 10 * time.Millisecond
@@ -1363,5 +1373,38 @@ func TestDiscoverOCIReposFromSource_GetServiceError(t *testing.T) {
 	}
 	if len(repos) != 0 {
 		t.Errorf("expected 0 repos when GetService fails, got %d", len(repos))
+	}
+}
+
+func TestOCISource_GetServiceVersion(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+	store.addBundle("ghcr.io/org/api", "2.0.0", "api", "2.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	details, err := src.GetServiceVersion(ctx, Ref{Name: "api", Version: "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details == nil {
+		t.Fatal("expected non-nil details")
+	}
+	if details.Name != "api" {
+		t.Errorf("expected name 'api', got %q", details.Name)
+	}
+}
+
+func TestOCISource_GetServiceVersion_PullError(t *testing.T) {
+	store := newMockBundleStore()
+	store.addBundle("ghcr.io/org/api", "1.0.0", "api", "1.0.0")
+
+	src := NewOCISource(store, []string{"ghcr.io/org/api"})
+	ctx := context.Background()
+
+	_, err := src.GetServiceVersion(ctx, Ref{Name: "api", Version: "9.9.9"})
+	if err == nil {
+		t.Fatal("expected error pulling nonexistent version")
 	}
 }

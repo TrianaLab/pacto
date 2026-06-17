@@ -451,3 +451,37 @@ func TestLocalSource_InvalidContractSkipped(t *testing.T) {
 		t.Error("expected 'good' service; invalid contract should be skipped, not fatal")
 	}
 }
+
+func TestLocalSource_GetServiceVersion(t *testing.T) {
+	root := t.TempDir()
+	writeLocalPactoYAML(t, filepath.Join(root, "api"), "api", "3.2.1")
+
+	src := NewLocalSource(root)
+	details, err := src.GetServiceVersion(context.Background(), Ref{Name: "api", Version: "3.2.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Name != "api" {
+		t.Errorf("expected name 'api', got %q", details.Name)
+	}
+}
+
+func TestLocalSource_GetServiceVersion_VersionMismatch(t *testing.T) {
+	root := t.TempDir()
+	writeLocalPactoYAML(t, filepath.Join(root, "api"), "api", "3.2.1")
+
+	src := NewLocalSource(root)
+	_, err := src.GetServiceVersion(context.Background(), Ref{Name: "api", Version: "1.0.0"})
+	if err == nil {
+		t.Fatal("expected error for version not on disk")
+	}
+}
+
+func TestLocalSource_GetServiceVersion_NotFound(t *testing.T) {
+	root := t.TempDir()
+	src := NewLocalSource(root)
+	_, err := src.GetServiceVersion(context.Background(), Ref{Name: "missing", Version: "1.0.0"})
+	if err == nil {
+		t.Fatal("expected error for missing service")
+	}
+}

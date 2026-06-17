@@ -986,3 +986,57 @@ func TestExtractTar_SkipsDotEntry(t *testing.T) {
 		t.Errorf("unexpected content: %q", string(content))
 	}
 }
+
+func TestCacheSource_GetServiceVersion(t *testing.T) {
+	root := t.TempDir()
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 1.0.0
+`)
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 2.0.0
+`)
+
+	src := NewCacheSource(root)
+	ctx := context.Background()
+
+	details, err := src.GetServiceVersion(ctx, Ref{Name: "api", Version: "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Name != "api" {
+		t.Errorf("expected name 'api', got %q", details.Name)
+	}
+}
+
+func TestCacheSource_GetServiceVersion_ServiceNotFound(t *testing.T) {
+	root := t.TempDir()
+	src := NewCacheSource(root)
+	_, err := src.GetServiceVersion(context.Background(), Ref{Name: "missing", Version: "1.0.0"})
+	if err == nil {
+		t.Fatal("expected error for missing service")
+	}
+}
+
+func TestCacheSource_GetServiceVersion_VersionNotFound(t *testing.T) {
+	root := t.TempDir()
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 1.0.0
+`)
+	src := NewCacheSource(root)
+	_, err := src.GetServiceVersion(context.Background(), Ref{Name: "api", Version: "9.9.9"})
+	if err == nil {
+		t.Fatal("expected error for missing version")
+	}
+}

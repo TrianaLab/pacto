@@ -36,6 +36,7 @@ export interface GraphNode {
   id: string;
   serviceName: string;
   status: string;
+  version?: string;
   reason?: string;    // why unresolved: non_oci_ref, auth_failed, no_semver_tags, not_found, discovering
   edges?: GraphEdge[];
   // D3 simulation adds these at runtime
@@ -47,6 +48,64 @@ export interface GraphNode {
 
 export interface GraphData {
   nodes: GraphNode[];
+}
+
+/** Computes the displayed label lines for a node: truncated name + version. */
+export function nodeLabel(node: { id: string; serviceName?: string; version?: string }): { name: string; version: string } {
+  const raw = node.serviceName || node.id;
+  const name = raw.length > 18 ? raw.slice(0, 17) + '…' : raw;
+  return { name, version: node.version || '' };
+}
+
+interface VersionDetail {
+  name: string;
+  contractStatus?: string;
+  version?: string;
+  dependencies?: Array<{ name?: string; ref?: string; required?: boolean }>;
+}
+interface FleetEntry {
+  name: string;
+  contractStatus?: string;
+  version?: string;
+}
+
+/**
+ * Build a flat graph for a single service AT a specific version, from that
+ * version's declared dependencies. Used by the service detail view when a
+ * historical version is selected, so the embedded graph reflects that version's
+ * direct deps (e.g. a dep added in a later version) rather than the current
+ * global topology. Dependency nodes are colored/labeled from the current fleet
+ * (`services`) when known, else shown as external. Transitive deps, dependents
+ * and blast-radius are intentionally omitted — they can't be reconstructed for a
+ * past version.
+ */
+export function buildVersionSubgraph(detail: VersionDetail, services: FleetEntry[], version: string): GraphData {
+  const byName = new Map((services || []).map((s) => [s.name, s]));
+  const root: GraphNode = {
+    id: detail.name,
+    serviceName: detail.name,
+    status: detail.contractStatus || 'Unknown',
+    version: version || detail.version || '',
+    edges: [],
+  };
+  const nodes: GraphNode[] = [root];
+  const seen = new Set<string>([detail.name]);
+  for (const dep of detail.dependencies || []) {
+    const depName = dep.name;
+    if (!depName || depName === detail.name) continue;
+    root.edges!.push({ targetId: depName, required: dep.required, type: 'dependency' });
+    if (seen.has(depName)) continue;
+    seen.add(depName);
+    const svc = byName.get(depName);
+    nodes.push({
+      id: depName,
+      serviceName: depName,
+      status: svc?.contractStatus || 'external',
+      version: svc?.version || '',
+      edges: [],
+    });
+  }
+  return { nodes };
 }
 
 interface SimLink {
@@ -272,26 +331,37 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
     }
   });
 
-  // Label
+  // Label — name on top, version (when present) on a dimmer second line.
   nodeEls.append('text')
-    .attr('x', -NODE_W / 2 + 26).attr('y', 1)
+    .attr('x', -NODE_W / 2 + 26)
+    .attr('y', (d) => (nodeLabel(d).version ? -4 : 1))
     .attr('dominant-baseline', 'middle')
     .attr('fill', 'var(--c-text)')
     .attr('font-size', '13px')
     .attr('font-weight', '500')
-    .text((d) => {
-      const name = d.serviceName || d.id;
-      return name.length > 18 ? name.slice(0, 17) + '…' : name;
-    });
+    .text((d) => nodeLabel(d).name);
 
-  // Native SVG tooltip — reason-aware for external nodes
+  nodeEls.each(function (d: GraphNode) {
+    const { version } = nodeLabel(d);
+    if (!version) return;
+    d3.select(this).append('text')
+      .attr('x', -NODE_W / 2 + 26)
+      .attr('y', 12)
+      .attr('dominant-baseline', 'middle')
+      .attr('fill', 'var(--c-text-3)')
+      .attr('font-size', '11px')
+      .text(version);
+  });
+
+  // Native SVG tooltip — reason-aware for external nodes, version-aware otherwise.
   nodeEls.append('title')
     .text((d) => {
       const name = d.serviceName || d.id;
       if (d.status === 'external') {
         return `${name} — ${reasonTooltip(d.reason)}`;
       }
-      return `${name} — ${d.status || 'Unknown'}`;
+      const v = d.version ? ` ${d.version}` : '';
+      return `${name}${v} — ${d.status || 'Unknown'}`;
     });
 
   // focusNodes: IDs of nodes that should stay emphasized (owner view)

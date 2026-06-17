@@ -1,9 +1,10 @@
 <script>
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { navigate, serviceUrl, diffUrl, ownerUrl } from '../lib/router.ts';
+  import { navigate, serviceUrl, serviceVersionUrl, diffUrl, ownerUrl } from '../lib/router.ts';
   import { statusClass, complianceClass, classificationClass, sourceTooltip, versionPolicyLabel, versionPolicyClass, ownerDisplay, ownerKey, ownerIsStructured, referencedDocPaths, paginate } from '../lib/format.ts';
   import { compareDiffUrl } from '../lib/router.ts';
+  import { buildVersionSubgraph } from '../lib/graph.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
 
   import OverviewSection from '../sections/OverviewSection.svelte';
@@ -19,7 +20,7 @@
   import RuntimeDiffSection from '../sections/RuntimeDiffSection.svelte';
   import ObservedRuntimeSection from '../sections/ObservedRuntimeSection.svelte';
 
-  let { name, services = [], refreshTick = 0, onServiceResolved } = $props();
+  let { name, version = null, services = [], refreshTick = 0, onServiceResolved } = $props();
 
   let loading = $state(true);
   let error = $state(null);
@@ -85,11 +86,18 @@
     diffResult = null;
     diffError = null;
     try {
+      // Compare against the version currently being viewed (the baseline), so
+      // from a historical view you can diff it against any other row.
       diffResult = await api.diff(name, fromVersion, name, detail.version);
     } catch (e) {
       diffError = e.message;
     }
     diffLoading = false;
+  }
+
+  function goToVersion(v) {
+    if (!v || v === currentVersion) navigate('detail', { name });
+    else navigate('detail', { name, version: v });
   }
 
   // Section open states
@@ -101,6 +109,17 @@
 
   // Derived view model
   let blastRadius = $derived(services.find(s => s.name === name)?.blastRadius || 0);
+  // When viewing a specific version, "current" comes from the versions list
+  // (isCurrent) or the fleet services prop; otherwise it is just what we show.
+  let currentVersion = $derived(
+    version
+      ? (versions.find(v => v.isCurrent)?.version || services.find(s => s.name === name)?.version || '')
+      : (detail?.version || '')
+  );
+  let isHistorical = $derived(!!version && !!currentVersion && version !== currentVersion);
+  // Label for the version-history compare buttons: the baseline is whatever
+  // version is being viewed ("current" when that's the deployed one).
+  let baselineLabel = $derived(detail?.version && detail.version !== currentVersion ? detail.version : 'current');
   let insights = $derived(detail?.insights || []);
   let sources = $derived.by(() => {
     const s = detail?.sources || [];
@@ -121,7 +140,7 @@
     error = null;
     resolveError = null;
     try {
-      detail = await api.service(name);
+      detail = version ? await api.serviceAtVersion(name, version) : await api.service(name);
       loading = false;
 
       versionsError = false;
@@ -161,7 +180,14 @@
   async function loadGraph() {
     if (graphLoaded) return;
     graphLoaded = true;
-    graphData = await api.graph().catch(() => null);
+    if (version) {
+      // Historical view: build the graph from THIS version's declared deps so it
+      // reflects the selected version (e.g. a dep added later) instead of the
+      // current global topology.
+      graphData = buildVersionSubgraph(detail, services, version);
+    } else {
+      graphData = await api.graph().catch(() => null);
+    }
   }
 
   // Trigger graph load when dependencies section is opened
@@ -201,7 +227,7 @@
       // failed fetch so we can skip the overwrite.)
       const FAILED = Symbol('failed');
       const [svc, vers, deps, refs] = await Promise.all([
-        api.service(name),
+        version ? api.serviceAtVersion(name, version) : api.service(name),
         api.versions(name).catch(() => FAILED),
         api.dependents(name).catch(() => FAILED),
         api.crossRefs(name).catch(() => FAILED),
@@ -250,6 +276,14 @@
     <span class="sep">/</span>
     <span>{detail.name}</span>
   </nav>
+
+  {#if isHistorical}
+    <div class="version-banner">
+      Viewing version <strong>{version}</strong> — not the current version (<strong>{currentVersion}</strong>).
+      <a href={serviceUrl(name)}>Back to current</a>
+      <a href={compareDiffUrl({ fromName: name, fromVer: version, toName: name, toVer: currentVersion })}>Compare with current</a>
+    </div>
+  {/if}
 
   <!-- Header -->
   <header class="detail-header fade-in-up">
@@ -314,7 +348,16 @@
       {#if detail.namespace}<span class="text-2">ns: {detail.namespace}</span>{/if}
       {#if detail.resolvedRef || detail.imageRef}<code class="detail-ref text-3">{detail.resolvedRef || detail.imageRef}</code>{/if}
       {#if versions?.length > 1}
-        <a href={diffUrl(name)} class="btn btn-sm btn-compare">Compare versions</a>
+        <div class="version-actions">
+          <select class="btn btn-sm version-select" aria-label="Select version"
+            value={detail.version}
+            onchange={(e) => goToVersion(e.currentTarget.value)}>
+            {#each versions as v}
+              <option value={v.version}>{v.version}{v.isCurrent ? ' (current)' : ''}</option>
+            {/each}
+          </select>
+          <a href={diffUrl(name)} class="btn btn-sm btn-compare">Compare versions</a>
+        </div>
       {/if}
     </div>
   </header>
@@ -392,7 +435,7 @@
   {#if hasDependencyData}
     <DependenciesSection
       id="section-dependencies"
-      {name} {services} {graphData} {dependents} {crossRefs}
+      {name} {services} {graphData} {dependents} {crossRefs} {isHistorical}
       dependencies={detail.dependencies || []}
       source={sectionState('dependencies').source}
       bind:open={openSections.dependencies}
@@ -460,11 +503,15 @@
       <div class="section-title">Version History <span class="tab-count">{versions.length}</span></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th data-tip="Semver version tag">Version</th><th data-tip="Change impact vs previous version">Classification</th><th data-tip="Where this version was found">Source</th><th data-tip="When this version was published">Created</th><th data-tip="Compare this version against current">Compare</th></tr></thead>
+          <thead><tr><th data-tip="Semver version tag">Version</th><th data-tip="Change impact vs previous version">Classification</th><th data-tip="Where this version was found">Source</th><th data-tip="When this version was published">Created</th><th data-tip="Compare this version against the one you're viewing">Compare</th></tr></thead>
           <tbody>
             {#each pagedVersions.items as ver}
-              <tr class:version-current={ver.isCurrent}>
-                <td><code>{ver.version}</code>{#if ver.isCurrent}<span class="badge badge-neutral" style="margin-left:6px;font-size:10px">current</span>{/if}</td>
+              <tr class:version-current={ver.version === detail.version}>
+                <td>
+                  <a href={ver.isCurrent ? serviceUrl(name) : serviceVersionUrl(name, ver.version)}><code>{ver.version}</code></a>
+                  {#if ver.isCurrent}<span class="badge badge-neutral" style="margin-left:6px;font-size:10px">current</span>{/if}
+                  {#if ver.version === detail.version && !ver.isCurrent}<span class="badge badge-viewing" style="margin-left:6px;font-size:10px">viewing</span>{/if}
+                </td>
                 <td>
                   {#if ver.classification === 'BREAKING'}<span class="badge badge-err">Breaking</span>
                   {:else if ver.classification === 'POTENTIAL_BREAKING'}<span class="badge badge-warn">Potential breaking</span>
@@ -477,10 +524,10 @@
                 <td>
                   {#if ver.version !== detail.version}
                     <button type="button" class="btn btn-sm" class:btn-active={diffExpandedVer === ver.version} onclick={() => compareVersion(ver.version)}>
-                      {diffExpandedVer === ver.version ? 'Close' : 'vs current'}
+                      {diffExpandedVer === ver.version ? 'Close' : `vs ${baselineLabel}`}
                     </button>
                   {:else}
-                    <span class="badge badge-neutral">current</span>
+                    <span class="text-3">—</span>
                   {/if}
                 </td>
               </tr>
@@ -553,6 +600,25 @@
     display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3);
     flex-wrap: wrap; font-size: var(--text-sm);
   }
+
+  /* Version selector + Compare button grouped at the right of the meta row. */
+  .version-actions {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+  /* Native <select> carries the .btn .btn-sm classes so it matches the adjacent
+     Compare button; this just restores the pointer cursor. */
+  .version-select { cursor: pointer; }
+  .version-banner {
+    padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-5);
+    border-radius: var(--radius-sm);
+    background: var(--c-warn-bg); border: 1px solid var(--c-warn);
+    color: var(--c-text-2); font-size: var(--text-sm);
+    display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+  }
+  .version-banner a { color: var(--c-accent); }
 
   .ref-banner {
     padding: var(--sp-3) var(--sp-4);
@@ -655,6 +721,10 @@
   .version-current {
     background: var(--c-surface-hover);
   }
+  .badge-viewing {
+    background: var(--c-accent-bg);
+    color: var(--c-accent);
+  }
 
   .pager {
     display: flex; align-items: center; justify-content: flex-end; gap: 12px;
@@ -680,8 +750,6 @@
   .blast-warn { background: var(--c-warn-bg); color: var(--c-warn); }
   .blast-high { background: var(--c-err-bg); color: var(--c-err); }
 
-  .btn-compare { margin-left: auto; }
-
   /* ─── Mobile ─── */
   @media (max-width: 768px) {
     .detail-title-row { gap: var(--sp-2); }
@@ -690,6 +758,7 @@
     .probes-grid { flex-direction: column; }
     .probe { flex-wrap: wrap; }
     .diff-inline-header { flex-wrap: wrap; }
-    .btn-compare { margin-left: 0; width: 100%; justify-content: center; }
+    .version-actions { margin-left: 0; width: 100%; }
+    .version-actions > * { flex: 1; justify-content: center; }
   }
 </style>

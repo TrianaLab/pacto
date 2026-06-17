@@ -113,8 +113,8 @@
 
 <main class="container">
   {#if route.view === 'detail'}
-    {#key route.params.name}
-      <ServiceDetailView name={route.params.name} {services} {refreshTick} onServiceResolved={loadGlobal} />
+    {#key route.params.name + '@@' + (route.params.version || '')}
+      <ServiceDetailView name={route.params.name} version={route.params.version || null} {services} {refreshTick} onServiceResolved={loadGlobal} />
     {/key}
   {:else if route.view === 'diff'}
     <DiffView
