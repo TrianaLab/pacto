@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseHash, serviceUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl, readinessUrl } from './router.ts';
+import { parseHash, serviceUrl, serviceVersionUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl, readinessUrl } from './router.ts';
 
 describe('parseHash', () => {
   it('returns list view for empty hash', () => {
@@ -32,6 +32,27 @@ describe('parseHash', () => {
     expect(parseHash('#/services/org/repo')).toEqual({
       view: 'detail',
       params: { name: 'org/repo' },
+    });
+  });
+
+  it('parses versioned detail route', () => {
+    expect(parseHash('#/services/my-svc/versions/1.2.0')).toEqual({
+      view: 'detail',
+      params: { name: 'my-svc', version: '1.2.0' },
+    });
+  });
+
+  it('decodes encoded version detail parts', () => {
+    expect(parseHash('#/services/my%20svc/versions/1.0.0%2Bb')).toEqual({
+      view: 'detail',
+      params: { name: 'my svc', version: '1.0.0+b' },
+    });
+  });
+
+  it('still parses plain detail route without version', () => {
+    expect(parseHash('#/services/my-svc')).toEqual({
+      view: 'detail',
+      params: { name: 'my-svc' },
     });
   });
 
@@ -100,6 +121,16 @@ describe('serviceUrl', () => {
 
   it('encodes special characters', () => {
     expect(serviceUrl('my service')).toBe('#/services/my%20service');
+  });
+});
+
+describe('serviceVersionUrl', () => {
+  it('builds versioned detail URL', () => {
+    expect(serviceVersionUrl('my-svc', '1.2.0')).toBe('#/services/my-svc/versions/1.2.0');
+  });
+
+  it('encodes special characters', () => {
+    expect(serviceVersionUrl('my svc', '1.0.0+b')).toBe('#/services/my%20svc/versions/1.0.0%2Bb');
   });
 });
 
