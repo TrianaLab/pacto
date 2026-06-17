@@ -85,20 +85,11 @@ func (m *Matcher) Ignored(slashPath string, isDir bool) bool {
 		if r.dirOnly && !isDir {
 			continue
 		}
-		if matchRule(r, nameSegs) {
+		if matchSegs(r.segs, nameSegs) {
 			ignored = !r.negate
 		}
 	}
 	return ignored
-}
-
-func matchRule(r rule, nameSegs []string) bool {
-	if r.anchored {
-		// Anchored patterns must match from the root exactly
-		return matchSegs(r.segs, nameSegs)
-	}
-	// Non-anchored patterns can match at any depth (already handled by ** prefix in parseRule)
-	return matchSegs(r.segs, nameSegs)
 }
 
 func matchSegs(pat, name []string) bool {
