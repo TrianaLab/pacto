@@ -112,6 +112,52 @@ func enrichDrift(index map[string]*ServiceDetails) {
 	}
 }
 
+// enrichDetailDriftFromIndex carries the dependency drift (and lock pins) already
+// computed for the index onto a freshly fetched ServiceDetails, so the service-
+// DETAIL view agrees with the graph and dependents views — which both read from the
+// index. The detail path returns a fresh GetService result whose dependencies never
+// pass through enrichDrift, so without this they would always render without a drift
+// badge. Matching is by the dependency Ref (stable across both: the index only
+// rewrites the resolved Name, never the Ref), falling back to the Name for refless
+// declarations. Backward compatible: an index entry with empty drift / lock pins
+// leaves the detail dependency untouched (no badge), and a service absent from the
+// index is a no-op.
+func enrichDetailDriftFromIndex(details *ServiceDetails, index map[string]*ServiceDetails) {
+	if details == nil {
+		return
+	}
+	indexed := index[details.Name]
+	if indexed == nil {
+		return
+	}
+	byRef := make(map[string]*DependencyInfo, len(indexed.Dependencies))
+	byName := make(map[string]*DependencyInfo, len(indexed.Dependencies))
+	for i := range indexed.Dependencies {
+		src := &indexed.Dependencies[i]
+		if src.Ref != "" {
+			byRef[src.Ref] = src
+		}
+		byName[src.Name] = src
+	}
+	for i := range details.Dependencies {
+		dep := &details.Dependencies[i]
+		src, ok := byRef[dep.Ref]
+		if !ok || dep.Ref == "" {
+			src, ok = byName[dep.Name]
+		}
+		if !ok {
+			continue
+		}
+		dep.DriftStatus = src.DriftStatus
+		if dep.LockedDigest == "" {
+			dep.LockedDigest = src.LockedDigest
+		}
+		if dep.LockedVersion == "" {
+			dep.LockedVersion = src.LockedVersion
+		}
+	}
+}
+
 // runtimeDigest extracts the running content digest of a service from its operator
 // status: ResolvedRef first (e.g. "repo@sha256:..."), then CurrentRevision. Returns
 // "" when neither carries a digest.

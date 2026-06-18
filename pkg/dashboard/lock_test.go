@@ -388,6 +388,168 @@ func TestEnrichDrift_NilDetails(t *testing.T) {
 	}
 }
 
+// cloningSource returns a fresh deep copy of each ServiceDetails on every read so
+// the cached index and a detail fetch are guaranteed to be distinct objects. This
+// proves the detail-view drift comes from enrichDetailDriftFromIndex and not from a
+// shared pointer that enrichDrift already mutated while building the index.
+type cloningSource struct {
+	services []Service
+	details  map[string]*ServiceDetails
+}
+
+func cloneDetails(d *ServiceDetails) *ServiceDetails {
+	if d == nil {
+		return nil
+	}
+	c := *d
+	c.Dependencies = append([]DependencyInfo(nil), d.Dependencies...)
+	return &c
+}
+
+func (c *cloningSource) ListServices(context.Context) ([]Service, error) {
+	return append([]Service(nil), c.services...), nil
+}
+
+func (c *cloningSource) GetService(_ context.Context, name string) (*ServiceDetails, error) {
+	if d, ok := c.details[name]; ok {
+		return cloneDetails(d), nil
+	}
+	return nil, context.Canceled
+}
+
+func (c *cloningSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDetails, error) {
+	if d, ok := c.details[ref.Name]; ok {
+		return cloneDetails(d), nil
+	}
+	return nil, context.Canceled
+}
+
+func (c *cloningSource) GetVersions(context.Context, string) ([]Version, error) {
+	return []Version{{Version: "1.0.0"}}, nil
+}
+
+func (c *cloningSource) GetDiff(context.Context, Ref, Ref) (*DiffResult, error) {
+	return nil, context.Canceled
+}
+
+// TestGetService_DependencyDriftReachesDetail proves Finding 2: the service-DETAIL
+// response (getService), not only the index/graph, carries dependency DriftStatus.
+// "api" locks "billing" to a digest that differs from billing's runtime digest
+// (→ drift) and "audit" to one that matches (→ locked); the freshly-fetched detail
+// must surface both. A dependency with no lock stays empty (no badge).
+func TestGetService_DependencyDriftReachesDetail(t *testing.T) {
+	source := &cloningSource{
+		services: []Service{
+			{Name: "api", Source: "local"},
+			{Name: "billing", Source: "k8s"},
+			{Name: "audit", Source: "k8s"},
+			{Name: "free", Source: "k8s"},
+		},
+		details: map[string]*ServiceDetails{
+			"api": {
+				Service: Service{Name: "api", Version: "1.0.0", Source: "local"},
+				Dependencies: []DependencyInfo{
+					{Name: "billing", Ref: "ghcr.io/org/billing-pacto", LockedDigest: "sha256:locked", LockedVersion: "1.2.3"},
+					{Name: "audit", Ref: "ghcr.io/org/audit-pacto", LockedDigest: "sha256:match", LockedVersion: "2.0.0"},
+					{Name: "free", Ref: "ghcr.io/org/free-pacto"}, // no lock → no drift assertion
+				},
+			},
+			"billing": {Service: Service{Name: "billing"}, ResolvedRef: "ghcr.io/org/billing@sha256:other"},
+			"audit":   {Service: Service{Name: "audit"}, ResolvedRef: "ghcr.io/org/audit@sha256:match"},
+			"free":    {Service: Service{Name: "free"}},
+		},
+	}
+
+	srv := NewServer(source, nil)
+	out, err := srv.getService(context.Background(), &ServiceNameInput{Name: "api"})
+	if err != nil {
+		t.Fatalf("getService: %v", err)
+	}
+	deps := out.Body.Dependencies
+	if len(deps) != 3 {
+		t.Fatalf("expected 3 dependencies, got %d", len(deps))
+	}
+	if deps[0].DriftStatus != driftDrift {
+		t.Errorf("billing detail drift = %q, want %q", deps[0].DriftStatus, driftDrift)
+	}
+	if deps[1].DriftStatus != driftLocked {
+		t.Errorf("audit detail drift = %q, want %q", deps[1].DriftStatus, driftLocked)
+	}
+	if deps[2].DriftStatus != "" {
+		t.Errorf("free detail drift = %q, want empty (no lock)", deps[2].DriftStatus)
+	}
+
+	// Lock pins must also be present on the detail (carried even if the source
+	// itself didn't apply them).
+	if deps[0].LockedDigest != "sha256:locked" || deps[0].LockedVersion != "1.2.3" {
+		t.Errorf("billing lock pins missing on detail: %+v", deps[0])
+	}
+
+	// The historical view must agree with the graph too.
+	vout, err := srv.getServiceVersion(context.Background(), &serviceVersionInput{Name: "api", Version: "1.0.0"})
+	if err != nil {
+		t.Fatalf("getServiceVersion: %v", err)
+	}
+	if vout.Body.Dependencies[0].DriftStatus != driftDrift {
+		t.Errorf("billing version-detail drift = %q, want %q", vout.Body.Dependencies[0].DriftStatus, driftDrift)
+	}
+}
+
+func TestEnrichDetailDriftFromIndex_EdgeCases(t *testing.T) {
+	// nil details is a no-op (no panic).
+	enrichDetailDriftFromIndex(nil, map[string]*ServiceDetails{})
+
+	index := map[string]*ServiceDetails{
+		"api": {
+			Service: Service{Name: "api"},
+			Dependencies: []DependencyInfo{
+				{Name: "billing", Ref: "ghcr.io/org/billing-pacto", DriftStatus: driftDrift, LockedDigest: "sha256:l", LockedVersion: "1.0.0"},
+				{Name: "audit", DriftStatus: driftLocked}, // refless: matched by name
+			},
+		},
+	}
+
+	// Service absent from the index → untouched.
+	absent := &ServiceDetails{Service: Service{Name: "ghost"}, Dependencies: []DependencyInfo{{Name: "x", DriftStatus: ""}}}
+	enrichDetailDriftFromIndex(absent, index)
+	if absent.Dependencies[0].DriftStatus != "" {
+		t.Errorf("absent service drift = %q, want empty", absent.Dependencies[0].DriftStatus)
+	}
+
+	// Ref match, name-fallback match, and an unmatched dependency in one detail.
+	detail := &ServiceDetails{
+		Service: Service{Name: "api"},
+		Dependencies: []DependencyInfo{
+			{Name: "billing-renamed", Ref: "ghcr.io/org/billing-pacto"}, // matched by ref despite different name
+			{Name: "audit"}, // refless → matched by name
+			{Name: "unknown-dep", Ref: "ghcr.io/org/unknown-pacto"}, // no match → untouched
+		},
+	}
+	enrichDetailDriftFromIndex(detail, index)
+	if detail.Dependencies[0].DriftStatus != driftDrift {
+		t.Errorf("ref-matched drift = %q, want drift", detail.Dependencies[0].DriftStatus)
+	}
+	if detail.Dependencies[0].LockedDigest != "sha256:l" || detail.Dependencies[0].LockedVersion != "1.0.0" {
+		t.Errorf("ref-matched lock pins not carried: %+v", detail.Dependencies[0])
+	}
+	if detail.Dependencies[1].DriftStatus != driftLocked {
+		t.Errorf("name-matched drift = %q, want locked", detail.Dependencies[1].DriftStatus)
+	}
+	if detail.Dependencies[2].DriftStatus != "" {
+		t.Errorf("unmatched drift = %q, want empty", detail.Dependencies[2].DriftStatus)
+	}
+
+	// Existing lock pins on the detail are preserved (not overwritten by the index).
+	preset := &ServiceDetails{
+		Service:      Service{Name: "api"},
+		Dependencies: []DependencyInfo{{Name: "billing", Ref: "ghcr.io/org/billing-pacto", LockedDigest: "sha256:preset", LockedVersion: "9.9.9"}},
+	}
+	enrichDetailDriftFromIndex(preset, index)
+	if preset.Dependencies[0].LockedDigest != "sha256:preset" || preset.Dependencies[0].LockedVersion != "9.9.9" {
+		t.Errorf("preset lock pins overwritten: %+v", preset.Dependencies[0])
+	}
+}
+
 func TestBuildGlobalGraph_CarriesLockPins(t *testing.T) {
 	services := []Service{{Name: "api", Source: "local"}}
 	index := map[string]*ServiceDetails{

@@ -776,6 +776,10 @@ func (s *Server) getService(ctx context.Context, input *ServiceNameInput) (*getS
 		details.VersionPolicy = classifyVersionPolicy(details.ResolvedRef)
 	}
 
+	// Carry dependency drift (computed once for the index) onto this fresh detail
+	// so the detail table agrees with the graph and dependents views.
+	enrichDetailDriftFromIndex(details, cached.index)
+
 	// Enrich remote refs with values from the referenced service.
 	enrichConfigRefs(details, cached.index, cached.aliases)
 	enrichPolicyRefs(details, cached.index, cached.aliases)
@@ -938,6 +942,9 @@ func (s *Server) getServiceVersion(ctx context.Context, input *serviceVersionInp
 	// back to the current index, flagged for the UI). Mirrors getService's
 	// enrichment but version-aware, so a historical view shows ref values too.
 	cached := s.getCachedIndex(ctx)
+	// Carry dependency drift (index-computed) onto the historical detail too, so the
+	// drift badge is consistent with the current graph regardless of selected version.
+	enrichDetailDriftFromIndex(details, cached.index)
 	s.enrichConfigRefsVersioned(ctx, details, cached.index, cached.aliases)
 	s.enrichPolicyRefsVersioned(ctx, details, cached.index, cached.aliases)
 

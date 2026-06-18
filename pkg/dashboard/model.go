@@ -283,7 +283,6 @@ type ConfigurationInfo struct {
 	// Lock pins, populated from pacto.lock references (kind=config) when present.
 	LockedDigest  string `json:"lockedDigest,omitempty"`
 	LockedVersion string `json:"lockedVersion,omitempty"`
-	DriftStatus   string `json:"driftStatus,omitempty"`
 }
 
 // DependencyInfo describes a declared dependency.
@@ -374,7 +373,6 @@ type PolicyInfo struct {
 	// Lock pins, populated from pacto.lock references (kind=policy) when present.
 	LockedDigest  string `json:"lockedDigest,omitempty"`
 	LockedVersion string `json:"lockedVersion,omitempty"`
-	DriftStatus   string `json:"driftStatus,omitempty"`
 }
 
 // ValidationInfo holds validation results.

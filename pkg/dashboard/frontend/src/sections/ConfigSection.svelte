@@ -1,7 +1,7 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import { serviceUrl } from '../lib/router.ts';
-  import { shortDigest, driftBadgeClass, driftBadgeLabel } from '../lib/format.ts';
+  import { shortDigest } from '../lib/format.ts';
 
   let { configs = [], open = $bindable(false), id = '', source = '' } = $props();
 
@@ -42,9 +42,6 @@
           {#if config.ref}
             {#if config.lockedDigest}
               <span class="lock-badge" data-tip={`Locked to ${config.lockedDigest}`}>🔒 @{shortDigest(config.lockedDigest)}</span>
-            {/if}
-            {#if config.driftStatus === 'drift'}
-              <span class="badge {driftBadgeClass('drift')}" data-tip="Resolved reference differs from locked version">{driftBadgeLabel('drift')}</span>
             {/if}
             {#if config.valuesAreCurrent}
               <span class="current-badge" data-tip="Values shown are from the referenced service's current version — this ref is not version-pinned">current</span>
