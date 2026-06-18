@@ -561,20 +561,15 @@ func TestLockDependencyShippingOwnLockIsIgnored(t *testing.T) {
 	t.Parallel()
 	reg := newTestRegistry(t)
 
-	// dep-X bundle ships its OWN pacto.lock. The default .pactoignore drops
-	// pacto.lock; re-include it via `!pacto.lock` so it travels in the artifact.
-	// NOTE: a shipped lock is enforced at push time (push runs verifyLockIfPresent),
-	// so the lock must be VALID for dep-x — we generate it with `pacto lock`. The
-	// point of the scenario is still proven below: the root resolves dep-x's digest
-	// independently and never consults dep-x's shipped lock.
+	// dep-X bundle ships its OWN pacto.lock. Locks are embedded in pushed bundles
+	// by default, so we just generate a valid lock (push runs verifyLockIfPresent).
+	// The point of the scenario: the root resolves dep-x's digest independently and
+	// never consults dep-x's shipped lock.
 	xDir := writeDepBundle(t, "dep-x", "1.0.0", "", "")
-	if err := os.WriteFile(filepath.Join(xDir, ".pactoignore"), []byte("!pacto.lock\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := runCommand(t, reg, "lock", xDir); err != nil {
 		t.Fatalf("lock dep-x: %v", err)
 	}
-	// Confirm dep-x really did ship a lock (re-include via !pacto.lock worked).
+	// Confirm the lock was generated.
 	if _, err := os.Stat(filepath.Join(xDir, lock.FileName)); err != nil {
 		t.Fatalf("expected dep-x to ship a pacto.lock: %v", err)
 	}
@@ -736,6 +731,57 @@ runtime:
 	}
 	if _, ok := after.Dependency("remove-a"); !ok {
 		t.Errorf("expected remove-a to remain after reconcile, got %+v", after.Dependencies)
+	}
+}
+
+// TestLockEmbeddedInPushedBundle proves pacto.lock is embedded in the pushed
+// bundle and survives the OCI round-trip. A bundle with pacto.yaml, an interface
+// file and a valid pacto.lock is pushed to the registry, then pulled to a fresh
+// directory. The pulled tree must contain all three files: pacto.yaml, the
+// interface and the lock.
+func TestLockEmbeddedInPushedBundle(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// Create a bundle dir with a minimal contract, an interface file and a lock.
+	dir := filepath.Join(t.TempDir(), "lock-embed")
+	contractYAML := depServiceContract("lock-embed", "1.0.0", "", "")
+	writeBundleDir(t, dir, contractYAML, map[string]string{
+		"api.proto": fmt.Sprintf(protoTemplate, "lock-embed", "LockEmbed"),
+	})
+
+	// Generate a valid pacto.lock for this bundle (empty dependencies, but valid).
+	lockContent := `lockVersion: 1
+pacto:
+  version: 1.4.0
+root:
+  name: lock-embed
+  version: 1.0.0
+dependencies: []
+references: []
+`
+	if err := os.WriteFile(filepath.Join(dir, "pacto.lock"), []byte(lockContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Push the bundle to the registry.
+	ref := "oci://" + reg.host + "/lock-embed:1.0.0"
+	if _, err := runCommand(t, reg, "push", ref, "-p", dir); err != nil {
+		t.Fatalf("push failed: %v", err)
+	}
+
+	// Pull to a fresh directory.
+	pullDir := filepath.Join(t.TempDir(), "lock-embed-pulled")
+	if _, err := runCommand(t, reg, "pull", ref, "-o", pullDir); err != nil {
+		t.Fatalf("pull failed: %v", err)
+	}
+
+	// Assert all three files survived the round-trip.
+	for _, file := range []string{"pacto.yaml", "interfaces/api.proto", "pacto.lock"} {
+		path := filepath.Join(pullDir, filepath.FromSlash(file))
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected %s in pulled tree: %v", file, err)
+		}
 	}
 }
 

@@ -30,10 +30,11 @@ These patterns are always applied, even when no `.pactoignore` file exists:
 
 - `.git/`
 - `.pactoignore`
-- `pacto.lock`
 - `.DS_Store`
 
 You do not need to list these in your `.pactoignore` — they are excluded automatically.
+
+**Note:** `pacto.lock` is **not** in the default ignore list. When a lockfile is present, it ships inside the bundle by default so the dashboard can surface pinned digests and drift for OCI-sourced and Kubernetes-sourced services. If you do not want the lock in your pushed bundle, add an explicit `pacto.lock` line to `.pactoignore`.
 
 ---
 

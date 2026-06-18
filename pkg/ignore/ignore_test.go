@@ -12,7 +12,8 @@ func TestMatcherIgnored(t *testing.T) {
 	}{
 		{"default git dir", nil, ".git", true, true},
 		{"default ds_store at depth", nil, "docs/.DS_Store", false, true},
-		{"default lock", nil, "pacto.lock", false, true},
+		{"lock shipped by default", nil, "pacto.lock", false, false},
+		{"lock still ignorable when opted out", []string{"pacto.lock"}, "pacto.lock", false, true},
 		{"default ignore file", nil, ".pactoignore", false, true},
 		{"pacto.yaml never ignored", []string{"*.yaml"}, "pacto.yaml", false, false},
 		{"basename glob any depth", []string{"*.tmp"}, "build/x.tmp", false, true},

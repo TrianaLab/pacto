@@ -1,11 +1,14 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
+	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/lock"
 )
 
@@ -50,13 +53,12 @@ func writeLockFile(t *testing.T, dir, content string) {
 	}
 }
 
-func TestReadLock_Present(t *testing.T) {
-	dir := t.TempDir()
-	writeLockFile(t, dir, sampleLockYAML)
+func TestLockFromFS_Present(t *testing.T) {
+	fsys := fstest.MapFS{lock.FileName: {Data: []byte(sampleLockYAML)}}
 
-	l, err := readLock(dir)
+	l, err := lockFromFS(fsys)
 	if err != nil {
-		t.Fatalf("readLock: %v", err)
+		t.Fatalf("lockFromFS: %v", err)
 	}
 	if l == nil {
 		t.Fatal("expected non-nil lock")
@@ -69,9 +71,8 @@ func TestReadLock_Present(t *testing.T) {
 	}
 }
 
-func TestReadLock_Absent(t *testing.T) {
-	dir := t.TempDir()
-	l, err := readLock(dir)
+func TestLockFromFS_Absent(t *testing.T) {
+	l, err := lockFromFS(fstest.MapFS{})
 	if err != nil {
 		t.Fatalf("expected nil error for absent lock, got %v", err)
 	}
@@ -80,25 +81,103 @@ func TestReadLock_Absent(t *testing.T) {
 	}
 }
 
-func TestReadLock_ParseError(t *testing.T) {
-	dir := t.TempDir()
+func TestLockFromFS_NilFS(t *testing.T) {
+	l, err := lockFromFS(nil)
+	if err != nil {
+		t.Fatalf("expected nil error for nil FS, got %v", err)
+	}
+	if l != nil {
+		t.Fatalf("expected nil lock for nil FS, got %+v", l)
+	}
+}
+
+func TestLockFromFS_ParseError(t *testing.T) {
 	// Valid YAML but wrong lockVersion → lock.Parse returns an error.
-	writeLockFile(t, dir, "lockVersion: 99\nroot:\n  name: x\n")
-	_, err := readLock(dir)
+	fsys := fstest.MapFS{lock.FileName: {Data: []byte("lockVersion: 99\nroot:\n  name: x\n")}}
+	_, err := lockFromFS(fsys)
 	if err == nil {
 		t.Fatal("expected error for unsupported lockVersion")
 	}
 }
 
-func TestReadLock_ReadError(t *testing.T) {
-	dir := t.TempDir()
-	// Make pacto.lock a directory so os.ReadFile fails with a non-ErrNotExist error.
-	if err := os.MkdirAll(filepath.Join(dir, lock.FileName), 0o755); err != nil {
+func TestLockFromFS_ReadError(t *testing.T) {
+	// A non-ErrNotExist read error (here: pacto.lock is a directory) is surfaced.
+	fsys := fstest.MapFS{lock.FileName + "/nested": {Data: []byte("x")}}
+	_, err := lockFromFS(fsys)
+	if err == nil {
+		t.Fatal("expected error when pacto.lock is not a regular file")
+	}
+}
+
+// TestServiceDetailsFromBundle_EmbeddedLock proves the uniform lock read: an
+// OCI/cache-style bundle whose in-memory FS carries pacto.lock has its pins
+// surfaced (Lock + dependency LockedDigest) by ServiceDetailsFromBundle, exactly
+// like a local on-disk bundle. This is what lights up drift for non-local sources.
+func TestServiceDetailsFromBundle_EmbeddedLock(t *testing.T) {
+	c, err := contract.Parse(bytes.NewReader([]byte(`pactoVersion: "1.0"
+service:
+  name: api
+  version: 1.0.0
+dependencies:
+  - name: billing
+    ref: ghcr.io/org/billing-pacto
+    required: true
+`)))
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, err := readLock(dir)
-	if err == nil {
-		t.Fatal("expected error when pacto.lock is unreadable")
+	fsys := fstest.MapFS{lock.FileName: {Data: []byte(sampleLockYAML)}}
+	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c, FS: fsys}, "oci")
+
+	if details.Lock == nil || !details.Lock.Present {
+		t.Fatal("expected embedded lock to be applied for an OCI/cache bundle")
+	}
+	if len(details.Dependencies) != 1 {
+		t.Fatalf("expected 1 dependency, got %d", len(details.Dependencies))
+	}
+	if details.Dependencies[0].LockedDigest != "sha256:dep111" {
+		t.Errorf("billing locked digest = %q, want sha256:dep111", details.Dependencies[0].LockedDigest)
+	}
+}
+
+// TestServiceDetailsFromBundle_NoEmbeddedLock proves an FS without pacto.lock
+// leaves Lock nil (unchanged behavior).
+func TestServiceDetailsFromBundle_NoEmbeddedLock(t *testing.T) {
+	c, err := contract.Parse(bytes.NewReader([]byte("pactoVersion: \"1.0\"\nservice:\n  name: api\n  version: 1.0.0\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c, FS: fstest.MapFS{}}, "oci")
+	if details.Lock != nil {
+		t.Errorf("expected nil Lock without an embedded lockfile, got %+v", details.Lock)
+	}
+}
+
+// TestServiceDetailsFromBundle_NilFSNoPanic proves a bundle with a nil FS does
+// not panic and surfaces no lock.
+func TestServiceDetailsFromBundle_NilFSNoPanic(t *testing.T) {
+	c, err := contract.Parse(bytes.NewReader([]byte("pactoVersion: \"1.0\"\nservice:\n  name: api\n  version: 1.0.0\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "oci")
+	if details.Lock != nil {
+		t.Errorf("expected nil Lock for nil FS, got %+v", details.Lock)
+	}
+}
+
+// TestServiceDetailsFromBundle_MalformedEmbeddedLockIgnored proves a malformed
+// embedded lock is best-effort: it is ignored (nil Lock) rather than dropping the
+// whole service from the dashboard.
+func TestServiceDetailsFromBundle_MalformedEmbeddedLockIgnored(t *testing.T) {
+	c, err := contract.Parse(bytes.NewReader([]byte("pactoVersion: \"1.0\"\nservice:\n  name: api\n  version: 1.0.0\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fsys := fstest.MapFS{lock.FileName: {Data: []byte("lockVersion: 99\nroot:\n  name: api\n")}}
+	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c, FS: fsys}, "oci")
+	if details.Lock != nil {
+		t.Errorf("expected nil Lock for malformed embedded lock, got %+v", details.Lock)
 	}
 }
 
@@ -647,29 +726,36 @@ func TestBuildGraph_CarriesLockPins(t *testing.T) {
 	}
 }
 
-func TestLocalSource_GetService_ParseLockError(t *testing.T) {
+func TestLocalSource_GetService_MalformedLockIgnored(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "api")
 	writeLocalPactoYAML(t, dir, "api", "1.0.0")
-	// Unsupported lockVersion → readLock returns an error; GetService must surface it.
+	// A malformed lock (unsupported lockVersion) is best-effort: it is treated as
+	// absent so a bad embedded lock never breaks the dashboard for that service.
 	writeLockFile(t, dir, "lockVersion: 99\nroot:\n  name: api\n")
 
 	src := NewLocalSource(root)
-	_, err := src.GetService(context.Background(), "api")
-	if err == nil {
-		t.Fatal("expected error for invalid lockfile")
+	details, err := src.GetService(context.Background(), "api")
+	if err != nil {
+		t.Fatalf("expected no error for malformed lockfile, got %v", err)
+	}
+	if details.Lock != nil {
+		t.Errorf("expected nil Lock for malformed lockfile, got %+v", details.Lock)
 	}
 }
 
-func TestLocalSource_GetServiceVersion_ParseLockError(t *testing.T) {
+func TestLocalSource_GetServiceVersion_MalformedLockIgnored(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "api")
 	writeLocalPactoYAML(t, dir, "api", "1.0.0")
 	writeLockFile(t, dir, "lockVersion: 99\nroot:\n  name: api\n")
 
 	src := NewLocalSource(root)
-	_, err := src.GetServiceVersion(context.Background(), Ref{Name: "api", Version: "1.0.0"})
-	if err == nil {
-		t.Fatal("expected error for invalid lockfile on versioned read")
+	details, err := src.GetServiceVersion(context.Background(), Ref{Name: "api", Version: "1.0.0"})
+	if err != nil {
+		t.Fatalf("expected no error for malformed lockfile on versioned read, got %v", err)
+	}
+	if details.Lock != nil {
+		t.Errorf("expected nil Lock for malformed lockfile, got %+v", details.Lock)
 	}
 }

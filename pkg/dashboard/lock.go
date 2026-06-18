@@ -3,8 +3,6 @@ package dashboard
 import (
 	"errors"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/trianalab/pacto/pkg/lock"
@@ -18,12 +16,16 @@ const (
 	driftUnknown  = "unknown"  // locked, but no runtime digest available to compare
 )
 
-// readLock reads pacto.lock from the bundle directory on disk. The lockfile is
-// default-ignored, so it is absent from the ignore-filtered Bundle.FS and must be
-// read directly. Returns (nil, nil) when the file does not exist (a lockfile is
+// lockFromFS reads pacto.lock from a bundle FS. Since pacto.lock now ships inside
+// the bundle (no longer default-ignored), it is present in every source's bundle
+// FS — local, OCI and cache — so this single reader covers them all. Returns
+// (nil, nil) when the FS is nil or the lockfile is absent (a lockfile is
 // optional); a parse/schema error is returned so callers surface it.
-func readLock(dir string) (*lock.Lock, error) {
-	data, err := os.ReadFile(filepath.Join(dir, lock.FileName))
+func lockFromFS(fsys fs.FS) (*lock.Lock, error) {
+	if fsys == nil {
+		return nil, nil
+	}
+	data, err := fs.ReadFile(fsys, lock.FileName)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil

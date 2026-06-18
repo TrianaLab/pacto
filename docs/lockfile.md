@@ -1,8 +1,10 @@
 # Lockfile
 
-Pacto lockfiles enable reproducible dependency resolution and supply-chain pinning for contract bundles. Like `go.sum` and `Chart.lock`, `pacto.lock` captures the exact resolved state of your contract's dependency closure and reference closure, committed to git and enforced by the CLI.
+Pacto lockfiles enable reproducible dependency resolution and supply-chain pinning for contract bundles. Like `go.sum` and `Chart.lock`, `pacto.lock` captures the exact resolved state of your contract's dependency closure and reference closure, committed to git, shipped inside the pushed bundle and enforced by the CLI.
 
 When a `pacto.lock` file is present, Pacto verifies that every resolved dependency and every config/policy reference matches the digest pinned in the lock. Any mismatch is a hard error — you cannot validate, graph, diff or push a bundle whose lock has drifted.
+
+The lockfile is **embedded in the pushed bundle** when `pacto push` runs, so the dashboard can surface pinned digests and drift for services sourced from OCI registries or Kubernetes clusters (not just local directories). Shipping the lock remains opt-in: if no `pacto.lock` exists next to `pacto.yaml`, nothing extra is included in the bundle.
 
 ---
 
@@ -143,7 +145,6 @@ The `references[]` section records config and policy refs with their `kind`, `so
 ## Non-goals
 
 - **The operator does not gate on the lock.** The lockfile is a CLI-side reproducibility guarantee. The Kubernetes operator resolves contracts independently from CRD specs and does not consult the lockfile.
-- **The lock is not embedded in the pushed bundle.** When you `pacto push`, the lock stays in your git repo. It is not packaged into the OCI artifact. This keeps bundles clean of development-time artifacts.
 
 ---
 

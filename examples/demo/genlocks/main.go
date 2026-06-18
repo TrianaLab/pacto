@@ -1,5 +1,5 @@
-// Command genlocks generates committed pacto.lock + .pactoignore files for the
-// dependency-bearing demo bundles, OFFLINE and DETERMINISTICALLY.
+// Command genlocks generates committed pacto.lock files for the dependency-bearing
+// demo bundles, OFFLINE and DETERMINISTICALLY.
 //
 // Why offline: the demo's refs point at oci://ghcr.io/trianalab/pacto-demo/<svc>,
 // which does not resolve without a live registry, and an ephemeral throwaway host
@@ -20,7 +20,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -80,7 +79,7 @@ func run() error {
 			if err != nil {
 				return fmt.Errorf("%s@%s: %w", name, ver, err)
 			}
-			if err := writeLockFiles(sv.dir, l); err != nil {
+			if err := writeLock(sv.dir, l); err != nil {
 				return err
 			}
 			written = append(written, sv.dir)
@@ -89,7 +88,7 @@ func run() error {
 
 	sort.Strings(written)
 	for _, d := range written {
-		fmt.Println("wrote", filepath.Join(d, lock.FileName), "+", filepath.Join(d, ignore.IgnoreFileName))
+		fmt.Println("wrote", filepath.Join(d, lock.FileName))
 	}
 	fmt.Printf("genlocks: wrote %d lock(s)\n", len(written))
 	return nil
@@ -132,15 +131,15 @@ func buildIndex(root string) (index, error) {
 	return idx, nil
 }
 
-// hashBundle returns the deterministic content hash of the bundle at dir, over the
-// DEFAULT ignore set only — it deliberately does NOT honor the bundle's own
-// .pactoignore. The default set excludes pacto.lock and .pactoignore, so the hash
-// is over the pristine bundle content and is unaffected by the lock files this tool
-// writes. Honoring a bundle's .pactoignore (which re-includes pacto.lock) would
-// fold the lock back into its own hash and break regeneration determinism.
+// hashBundle returns the deterministic content hash of the bundle at dir over its
+// pristine content. pacto.lock now ships by default (it is no longer in the
+// DefaultPatterns ignore set), so the hash must EXPLICITLY exclude pacto.lock —
+// otherwise the lock this tool writes would fold back into its own hash and break
+// regeneration determinism. The bundle's own .pactoignore is deliberately not
+// honored (we pass an explicit pattern, not ignore.Load).
 func hashBundle(dir string) (string, error) {
 	dirFS := os.DirFS(dir)
-	return lock.HashFS(ignore.FS(dirFS, ignore.New(nil)))
+	return lock.HashFS(ignore.FS(dirFS, ignore.New([]string{lock.FileName})))
 }
 
 // depBearing reports whether a contract declares any dependency or any config/
@@ -317,54 +316,13 @@ func serviceName(ref string) string {
 	return name
 }
 
-// writeLockFiles writes pacto.lock (deterministically marshaled) and a
-// .pactoignore that re-includes it (!pacto.lock) into dir, so the committed lock
-// travels with the bundle when it is packed/embedded.
-func writeLockFiles(dir string, l *lock.Lock) error {
+// writeLock writes pacto.lock (deterministically marshaled) into dir. The lock now
+// ships inside the bundle by default (no .pactoignore re-include needed), so the
+// committed lock travels with the bundle when it is packed or embedded.
+func writeLock(dir string, l *lock.Lock) error {
 	data, err := l.Marshal()
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, lock.FileName), data, 0o644); err != nil {
-		return err
-	}
-	return ensurePactoignore(filepath.Join(dir, ignore.IgnoreFileName))
-}
-
-// ignoreHeader documents why the demo re-includes pacto.lock in its bundles.
-const ignoreHeader = `# Re-include the committed lockfile in packed/embedded bundles.
-# pacto.lock is default-ignored; the demo ships it so the dashboard can show pins.
-`
-
-// ensurePactoignore writes a .pactoignore whose effective rules un-ignore
-// pacto.lock. If a .pactoignore already exists without an "!pacto.lock" rule, the
-// rule is appended; otherwise the canonical file is written. The result is stable
-// across runs.
-func ensurePactoignore(path string) error {
-	existing, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	if hasUnignoreRule(string(existing)) {
-		return nil
-	}
-	if len(existing) == 0 {
-		return os.WriteFile(path, []byte(ignoreHeader+"!pacto.lock\n"), 0o644)
-	}
-	content := string(existing)
-	if !strings.HasSuffix(content, "\n") {
-		content += "\n"
-	}
-	content += "!pacto.lock\n"
-	return os.WriteFile(path, []byte(content), 0o644)
-}
-
-// hasUnignoreRule reports whether content already re-includes pacto.lock.
-func hasUnignoreRule(content string) bool {
-	for _, line := range strings.Split(content, "\n") {
-		if strings.TrimSpace(line) == "!pacto.lock" {
-			return true
-		}
-	}
-	return false
+	return os.WriteFile(filepath.Join(dir, lock.FileName), data, 0o644)
 }
