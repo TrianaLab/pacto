@@ -165,7 +165,7 @@ func applyLockFromDir(details *ServiceDetails, dir string) error {
 	if err != nil {
 		return err
 	}
-	applyLock(details, l)
+	ApplyLock(details, l)
 	return nil
 }
 

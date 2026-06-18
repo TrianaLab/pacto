@@ -1,0 +1,26 @@
+lockVersion: 1
+pacto:
+    version: 0.0.0
+root:
+    name: notification-worker
+    version: 1.0.0
+dependencies:
+    - name: email-provider
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto-demo/email-provider
+      constraint: ^1.0.0
+      version: 1.0.0
+      digest: sha256:c2446512223e61040b74fea013e07ae642c70fa23b9fa25c264c3f03483dc3aa
+references:
+    - kind: config
+      name: platform
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto-demo/platform-worker-config
+      version: 1.0.0
+      digest: sha256:54fde23f0b2f1c4edafbb871aa2a1cd055662b7b11559e600df402c532dc68a5
+    - kind: policy
+      name: http-security
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+      version: 1.0.0
+      digest: sha256:98f6d2eb51a14f8053a5af015caaf175efcdfe07b0718f09a0755c163c13fd9b

@@ -33,11 +33,15 @@ func readLock(dir string) (*lock.Lock, error) {
 	return lock.Parse(data)
 }
 
-// applyLock maps a parsed lock onto a ServiceDetails: it sets svc.Lock and pins
+// ApplyLock maps a parsed lock onto a ServiceDetails: it sets svc.Lock and pins
 // LockedDigest/LockedVersion on each matching dependency (by name), configuration
 // reference (kind=config, by name) and policy reference (kind=policy, by name).
 // A nil lock leaves svc untouched (backward compatible).
-func applyLock(svc *ServiceDetails, l *lock.Lock) {
+//
+// It is exported so out-of-package sources (e.g. the WASM demo's EmbedSource,
+// which reads an embedded pacto.lock rather than one on disk) can surface lock
+// pins through the same code path the on-disk LocalSource uses.
+func ApplyLock(svc *ServiceDetails, l *lock.Lock) {
 	if l == nil {
 		return
 	}

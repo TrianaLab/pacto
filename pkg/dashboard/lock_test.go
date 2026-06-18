@@ -143,6 +143,31 @@ func TestDigestPart(t *testing.T) {
 	}
 }
 
+func TestApplyLock_Exported(t *testing.T) {
+	// ApplyLock is the exported hook other packages (the WASM demo's EmbedSource)
+	// use to surface lock pins without an on-disk lockfile. It must behave exactly
+	// like the internal path: set Lock and pin matching dependency entries.
+	l, err := lock.Parse([]byte(sampleLockYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &ServiceDetails{Dependencies: []DependencyInfo{{Name: "billing"}}}
+	ApplyLock(svc, l)
+	if svc.Lock == nil || !svc.Lock.Present {
+		t.Fatal("expected Lock present after ApplyLock")
+	}
+	if svc.Dependencies[0].LockedDigest != "sha256:dep111" {
+		t.Errorf("billing locked digest = %q, want sha256:dep111", svc.Dependencies[0].LockedDigest)
+	}
+
+	// A nil lock is a no-op (backward compatible).
+	clean := &ServiceDetails{Dependencies: []DependencyInfo{{Name: "x"}}}
+	ApplyLock(clean, nil)
+	if clean.Lock != nil {
+		t.Error("expected nil Lock when lock is nil")
+	}
+}
+
 func TestApplyLock_PopulatesAllSections(t *testing.T) {
 	l, err := lock.Parse([]byte(sampleLockYAML))
 	if err != nil {
@@ -162,7 +187,7 @@ func TestApplyLock_PopulatesAllSections(t *testing.T) {
 			{Name: "other"},
 		},
 	}
-	applyLock(svc, l)
+	ApplyLock(svc, l)
 
 	if svc.Lock == nil {
 		t.Fatal("expected svc.Lock to be set")
@@ -213,7 +238,7 @@ func TestApplyLock_PopulatesAllSections(t *testing.T) {
 
 func TestApplyLock_NilLock(t *testing.T) {
 	svc := &ServiceDetails{Dependencies: []DependencyInfo{{Name: "x"}}}
-	applyLock(svc, nil)
+	ApplyLock(svc, nil)
 	if svc.Lock != nil {
 		t.Error("expected nil Lock when lock is nil")
 	}
@@ -228,7 +253,7 @@ func TestApplyLock_RootDigestFromContentHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := &ServiceDetails{}
-	applyLock(svc, l)
+	ApplyLock(svc, l)
 	if svc.Lock == nil {
 		t.Fatal("expected Lock set")
 	}
@@ -321,7 +346,7 @@ func TestEnrichDrift(t *testing.T) {
 				{Name: "shipping", LockedDigest: "sha256:locked"}, // target runtime differs → drift
 				{Name: "audit", LockedDigest: "sha256:noruntime"}, // target has no runtime digest → unknown
 				{Name: "ghost", LockedDigest: "sha256:gone"},      // target missing from index → unknown
-				{Name: "unpinned"},                                // no locked digest → untouched
+				{Name: "unpinned"}, // no locked digest → untouched
 			},
 		},
 		"billing":  {Service: Service{Name: "billing"}, ResolvedRef: "ghcr.io/org/billing@sha256:match"},

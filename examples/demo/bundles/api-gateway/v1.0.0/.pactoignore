@@ -1,0 +1,3 @@
+# Re-include the committed lockfile in packed/embedded bundles.
+# pacto.lock is default-ignored; the demo ships it so the dashboard can show pins.
+!pacto.lock

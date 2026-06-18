@@ -1,0 +1,26 @@
+lockVersion: 1
+pacto:
+    version: 0.0.0
+root:
+    name: auth-service
+    version: 1.0.0
+dependencies:
+    - name: redis
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto-demo/redis
+      constraint: ^7.0.0
+      version: 7.2.0
+      digest: sha256:7d9247cb5e7a72866075cea3e571f7115911e8116d957d93132c6cd3c69b3e69
+references:
+    - kind: config
+      name: platform
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+      version: 1.0.0
+      digest: sha256:f8031ee52466073f28daefaa53af7e8ec948492d72fb0561a328a0af28cceaed
+    - kind: policy
+      name: http-security
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+      version: 1.0.0
+      digest: sha256:98f6d2eb51a14f8053a5af015caaf175efcdfe07b0718f09a0755c163c13fd9b

@@ -24,7 +24,7 @@ UI_BUILD    := $(abspath .ui-build)
 # falls back to a short SHA, then "dev", when no tags are present.
 VERSION     ?= $(shell git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: build preflight ui wasm wasmexec inject serve test smoke clean diff breaking-change evolution explain
+.PHONY: build preflight ui wasm wasmexec inject serve test smoke clean diff breaking-change evolution explain demo-locks
 
 build: preflight ui wasm wasmexec inject
 	@echo "==> Built '$(DIST)' (base $(BASE))"
@@ -81,6 +81,15 @@ inject:
 	  cp $(DIST)/index.html $(DIST)/404.html; \
 	  printf '{"base":"%s","version":"%s","build":"%s"}\n' "$(BASE)" "$(VERSION)" "$$bust" > $(DIST)/version.json
 	@echo "==> Injected loader (version $(VERSION)), 404.html, cache-busted engine, version.json"
+
+## Regenerate the committed pacto.lock + .pactoignore for the dep-bearing demo
+## bundles, OFFLINE and DETERMINISTICALLY (no live registry). Re-running this is
+## byte-identical, so the committed demo data stays stable. Run after changing a
+## demo bundle's content or its dependency/reference set, then commit the result.
+## See README ("Demo lockfiles") for the content-hash pin caveat.
+demo-locks:
+	go run ./genlocks
+	@echo "==> Regenerated demo lockfiles (commit the changes)"
 
 ## Run the EmbedSource host tests.
 test:
