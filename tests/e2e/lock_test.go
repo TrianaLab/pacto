@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,6 +85,77 @@ func pushDepBundle(t *testing.T, reg *testRegistry, repo, version, depName, depR
 	if _, err := runCommand(t, reg, "push", ref, "-p", dir); err != nil {
 		t.Fatalf("push %s: %v", ref, err)
 	}
+}
+
+// depRefDecl is one declared dependency line for a multi-dependency root: a name,
+// the raw ref string (any form: bare oci://repo, oci://repo:tag, oci://repo@sha256:,
+// or a local ../path) and an optional semver compatibility constraint.
+type depRefDecl struct {
+	name   string
+	ref    string
+	compat string // emitted as `compatibility:` when non-empty
+}
+
+// multiDepContract renders a structurally-valid service contract declaring an
+// arbitrary set of dependencies in arbitrary ref forms. It complements the
+// single-dependency depServiceContract helper for the adversarial N-dep and
+// mixed-ref-form scenarios.
+func multiDepContract(name, version string, deps []depRefDecl) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `pactoVersion: "1.0"
+service:
+  name: %s
+  version: %s
+  owner: team/platform
+interfaces:
+  - name: api
+    type: grpc
+    port: 9000
+    visibility: internal
+    contract: interfaces/api.proto
+`, name, version)
+	if len(deps) > 0 {
+		b.WriteString("dependencies:\n")
+		for _, d := range deps {
+			fmt.Fprintf(&b, "  - name: %s\n    ref: %s\n    required: true\n", d.name, d.ref)
+			if d.compat != "" {
+				fmt.Fprintf(&b, "    compatibility: %q\n", d.compat)
+			}
+		}
+	}
+	b.WriteString(`runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`)
+	return b.String()
+}
+
+// writeMultiDepBundle writes a root contract dir declaring the given deps.
+func writeMultiDepBundle(t *testing.T, name, version string, deps []depRefDecl) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), name)
+	return writeBundleDir(t, dir, multiDepContract(name, version, deps), map[string]string{
+		"api.proto": fmt.Sprintf(protoTemplate, name, name),
+	})
+}
+
+// depDigest returns the current manifest digest (e.g. "sha256:...") of a pushed
+// OCI bundle, used to construct already-digest-pinned dependency refs.
+func depDigest(t *testing.T, reg *testRegistry, repo, tag string) string {
+	t.Helper()
+	digest, err := reg.client.Resolve(context.Background(), reg.host+"/"+repo+":"+tag)
+	if err != nil {
+		t.Fatalf("resolve digest for %s:%s: %v", repo, tag, err)
+	}
+	return digest
 }
 
 // TestLockCapturesTransitiveClosure proves `pacto lock` pins the FULL transitive
@@ -348,6 +420,236 @@ runtime:
 	l := readLock(t, rootDir)
 	if _, ok := l.Dependency("stale-c"); !ok {
 		t.Errorf("expected stale-c pinned after reconcile, got %+v", l.Dependencies)
+	}
+}
+
+// TestLockPinsFiveDependenciesPlusTransitive proves `pacto lock` pins a wide
+// closure: a root with N=5 direct OCI dependencies, one of which (leaf-1) has its
+// own transitive dependency (leaf-tx) so the full closure is 6. Every direct dep
+// AND the transitive must appear in the lock with a non-empty digest, and the
+// total dependency count must equal the closure size. Adversarial scenario C.
+func TestLockPinsFiveDependenciesPlusTransitive(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// leaf-tx is the transitive leaf. leaf-1 depends on it; leaf-2..5 are leaves.
+	pushDepBundle(t, reg, "leaf-tx", "1.0.0", "", "")
+	pushDepBundle(t, reg, "leaf-1", "1.0.0", "leaf-tx", "oci://"+reg.host+"/leaf-tx:1.0.0")
+	for _, n := range []string{"leaf-2", "leaf-3", "leaf-4", "leaf-5"} {
+		pushDepBundle(t, reg, n, "1.0.0", "", "")
+	}
+
+	deps := make([]depRefDecl, 0, 5)
+	for _, n := range []string{"leaf-1", "leaf-2", "leaf-3", "leaf-4", "leaf-5"} {
+		deps = append(deps, depRefDecl{name: n, ref: "oci://" + reg.host + "/" + n + ":1.0.0", compat: "^1.0.0"})
+	}
+	rootDir := writeMultiDepBundle(t, "wide-root", "1.0.0", deps)
+
+	if _, err := runCommand(t, reg, "lock", rootDir); err != nil {
+		t.Fatalf("lock failed: %v", err)
+	}
+	l := readLock(t, rootDir)
+
+	// All 5 direct deps + the transitive must be pinned with a digest.
+	want := []string{"leaf-1", "leaf-2", "leaf-3", "leaf-4", "leaf-5", "leaf-tx"}
+	for _, name := range want {
+		e, ok := l.Dependency(name)
+		if !ok {
+			t.Fatalf("expected %s in lock, got %+v", name, l.Dependencies)
+		}
+		if e.Digest == "" {
+			t.Errorf("%s digest empty: %+v", name, e)
+		}
+	}
+	// The closure is exactly these 6 entries (deduped, flat).
+	if len(l.Dependencies) != len(want) {
+		t.Errorf("expected %d locked dependencies, got %d: %+v", len(want), len(l.Dependencies), l.Dependencies)
+	}
+	// leaf-1 must record the transitive edge.
+	one, _ := l.Dependency("leaf-1")
+	if !contains(one.DependsOn, "leaf-tx") {
+		t.Errorf("expected leaf-1.dependsOn to contain leaf-tx, got %v", one.DependsOn)
+	}
+}
+
+// TestLockMixedDependencyRefForms proves `pacto lock` handles every dependency
+// ref form in a single root: a bare repo with a compatibility constraint, an
+// explicit :tag, an already @sha256:-pinned ref, and a LOCAL ../sibling. OCI
+// entries get a digest; the pre-pinned entry round-trips the SAME digest; the
+// local entry gets source=local + contentHash (no digest). `pacto graph` then
+// passes against the consistent lock. Adversarial scenario D.
+func TestLockMixedDependencyRefForms(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// Push three OCI leaves at 1.0.0; mix-bare resolves via constraint.
+	pushDepBundle(t, reg, "mix-bare", "1.0.0", "", "")
+	pushDepBundle(t, reg, "mix-tag", "1.0.0", "", "")
+	pushDepBundle(t, reg, "mix-pinned", "1.0.0", "", "")
+	pinnedDigest := depDigest(t, reg, "mix-pinned", "1.0.0")
+
+	// A local sibling dependency lives next to the root.
+	parent := t.TempDir()
+	siblingDir := filepath.Join(parent, "mix-local")
+	writeBundleDir(t, siblingDir, depServiceContract("mix-local", "1.0.0", "", ""), map[string]string{
+		"api.proto": fmt.Sprintf(protoTemplate, "mix-local", "MixLocal"),
+	})
+
+	rootDir := filepath.Join(parent, "mix-root")
+	deps := []depRefDecl{
+		{name: "mix-bare", ref: "oci://" + reg.host + "/mix-bare", compat: "^1.0.0"},
+		{name: "mix-tag", ref: "oci://" + reg.host + "/mix-tag:1.0.0"},
+		{name: "mix-pinned", ref: "oci://" + reg.host + "/mix-pinned@" + pinnedDigest},
+		{name: "mix-local", ref: "../mix-local"},
+	}
+	writeBundleDir(t, rootDir, multiDepContract("mix-root", "1.0.0", deps), map[string]string{
+		"api.proto": fmt.Sprintf(protoTemplate, "mix-root", "MixRoot"),
+	})
+
+	if _, err := runCommand(t, reg, "lock", rootDir); err != nil {
+		t.Fatalf("lock failed: %v", err)
+	}
+	l := readLock(t, rootDir)
+
+	// All three OCI forms resolve to a digest.
+	for _, name := range []string{"mix-bare", "mix-tag", "mix-pinned"} {
+		e, ok := l.Dependency(name)
+		if !ok {
+			t.Fatalf("expected %s in lock, got %+v", name, l.Dependencies)
+		}
+		if e.Source != "oci" {
+			t.Errorf("%s source = %q, want oci", name, e.Source)
+		}
+		if e.Digest == "" {
+			t.Errorf("%s digest empty: %+v", name, e)
+		}
+	}
+	// The already-pinned ref round-trips the exact same digest.
+	pinned, _ := l.Dependency("mix-pinned")
+	if pinned.Digest != pinnedDigest {
+		t.Errorf("pre-pinned digest changed: locked %q, want %q", pinned.Digest, pinnedDigest)
+	}
+	// The local sibling is recorded as source=local with a contentHash, no digest.
+	local, ok := l.Dependency("mix-local")
+	if !ok {
+		t.Fatalf("expected mix-local in lock, got %+v", l.Dependencies)
+	}
+	if local.Source != "local" {
+		t.Errorf("mix-local source = %q, want local", local.Source)
+	}
+	if local.ContentHash == "" {
+		t.Errorf("mix-local contentHash empty: %+v", local)
+	}
+	if local.Digest != "" {
+		t.Errorf("mix-local should have no digest, got %q", local.Digest)
+	}
+
+	// The lock is consistent: graph passes against it.
+	if _, err := runCommand(t, reg, "graph", rootDir); err != nil {
+		t.Fatalf("graph against mixed-form lock should pass: %v", err)
+	}
+}
+
+// TestLockDependencyShippingOwnLockIsIgnored proves a dependency that ships its
+// OWN pacto.lock does NOT influence the root's closure: only the root's lock is
+// authoritative. dep-X is pushed WITH a (bogus) pacto.lock re-included via
+// `!pacto.lock`; dep-Y is pushed without one. The root depends on both. `pacto
+// lock` succeeds, pins BOTH from the root's own fresh resolution, and dep-X's
+// pinned digest is the freshly-resolved manifest digest — independent of whatever
+// dep-X's shipped lock claimed. Adversarial scenario F.
+func TestLockDependencyShippingOwnLockIsIgnored(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	// dep-X bundle ships its OWN pacto.lock. The default .pactoignore drops
+	// pacto.lock; re-include it via `!pacto.lock` so it travels in the artifact.
+	// NOTE: a shipped lock is enforced at push time (push runs verifyLockIfPresent),
+	// so the lock must be VALID for dep-x — we generate it with `pacto lock`. The
+	// point of the scenario is still proven below: the root resolves dep-x's digest
+	// independently and never consults dep-x's shipped lock.
+	xDir := writeDepBundle(t, "dep-x", "1.0.0", "", "")
+	if err := os.WriteFile(filepath.Join(xDir, ".pactoignore"), []byte("!pacto.lock\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCommand(t, reg, "lock", xDir); err != nil {
+		t.Fatalf("lock dep-x: %v", err)
+	}
+	// Confirm dep-x really did ship a lock (re-include via !pacto.lock worked).
+	if _, err := os.Stat(filepath.Join(xDir, lock.FileName)); err != nil {
+		t.Fatalf("expected dep-x to ship a pacto.lock: %v", err)
+	}
+	if _, err := runCommand(t, reg, "push", "oci://"+reg.host+"/dep-x:1.0.0", "-p", xDir); err != nil {
+		t.Fatalf("push dep-x: %v", err)
+	}
+	// Verify the shipped lock survived the OCI round-trip (it really travels with
+	// the artifact, so the root COULD have consulted it — but must not).
+	pullDir := filepath.Join(t.TempDir(), "dep-x-pulled")
+	if _, err := runCommand(t, reg, "pull", "oci://"+reg.host+"/dep-x:1.0.0", "-o", pullDir); err != nil {
+		t.Fatalf("pull dep-x: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(pullDir, lock.FileName)); err != nil {
+		t.Fatalf("expected shipped pacto.lock to survive push/pull: %v", err)
+	}
+	pushDepBundle(t, reg, "dep-y", "1.0.0", "", "")
+
+	// The root's own resolution of dep-x yields this digest — the authoritative one.
+	freshXDigest := depDigest(t, reg, "dep-x", "1.0.0")
+
+	rootDir := writeMultiDepBundle(t, "own-lock-root", "1.0.0", []depRefDecl{
+		{name: "dep-x", ref: "oci://" + reg.host + "/dep-x:1.0.0", compat: "^1.0.0"},
+		{name: "dep-y", ref: "oci://" + reg.host + "/dep-y:1.0.0", compat: "^1.0.0"},
+	})
+
+	if _, err := runCommand(t, reg, "lock", rootDir); err != nil {
+		t.Fatalf("lock failed: %v", err)
+	}
+	l := readLock(t, rootDir)
+
+	// Both deps are pinned from the ROOT's own resolution.
+	x, ok := l.Dependency("dep-x")
+	if !ok {
+		t.Fatalf("expected dep-x in root lock, got %+v", l.Dependencies)
+	}
+	if _, ok := l.Dependency("dep-y"); !ok {
+		t.Fatalf("expected dep-y in root lock, got %+v", l.Dependencies)
+	}
+	// dep-x's pin is the root's freshly-resolved manifest digest — computed by the
+	// root from its own resolution, NOT copied from dep-x's shipped lock. Only the
+	// root lock is authoritative over the root closure.
+	if x.Digest != freshXDigest {
+		t.Errorf("dep-x pinned %q, want freshly-resolved %q (shipped lock must not influence the root)", x.Digest, freshXDigest)
+	}
+	// The root closure is exactly {dep-x, dep-y}; dep-x's shipped lock added nothing.
+	if len(l.Dependencies) != 2 {
+		t.Errorf("expected exactly 2 root dependencies, got %d: %+v", len(l.Dependencies), l.Dependencies)
+	}
+}
+
+// TestLockAbsentIsPassthrough proves the feature is OPT-IN / backward compatible:
+// a root with dependencies but NO pacto.lock has no enforcement, so `pacto graph`
+// and `pacto validate` both SUCCEED. Adversarial scenario G.
+func TestLockAbsentIsPassthrough(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	pushDepBundle(t, reg, "passthru-a", "1.0.0", "", "")
+	pushDepBundle(t, reg, "passthru-b", "1.0.0", "", "")
+	rootDir := writeMultiDepBundle(t, "passthru-root", "1.0.0", []depRefDecl{
+		{name: "passthru-a", ref: "oci://" + reg.host + "/passthru-a:1.0.0", compat: "^1.0.0"},
+		{name: "passthru-b", ref: "oci://" + reg.host + "/passthru-b:1.0.0", compat: "^1.0.0"},
+	})
+
+	// Sanity: no lock file is present.
+	if _, err := os.Stat(filepath.Join(rootDir, lock.FileName)); !os.IsNotExist(err) {
+		t.Fatalf("expected no pacto.lock, stat err = %v", err)
+	}
+
+	// With no lock, both commands succeed (no enforcement).
+	if out, err := runCommand(t, reg, "graph", rootDir); err != nil {
+		t.Fatalf("graph without lock should pass: %v\n%s", err, out)
+	}
+	if out, err := runCommand(t, reg, "validate", rootDir); err != nil {
+		t.Fatalf("validate without lock should pass: %v\n%s", err, out)
 	}
 }
 

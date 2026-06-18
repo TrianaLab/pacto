@@ -97,6 +97,81 @@ func TestPactoignoreExcludesFromPack(t *testing.T) {
 	}
 }
 
+// TestPactoignoreCannotDropPactoYAML proves the `alwaysKeep` guard: pacto.yaml is
+// NEVER ignorable. Even when .pactoignore explicitly lists `pacto.yaml` AND the
+// catch-all `*.yaml`, `pacto pack` still packages pacto.yaml. This is by design —
+// erroring on the listing would break legitimate `*.yaml` ignores of OTHER files,
+// so the ignore is a protected no-op for pacto.yaml only. Adversarial scenario A.
+func TestPactoignoreCannotDropPactoYAML(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "protect-svc")
+	if err := os.MkdirAll(filepath.Join(dir, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Contract uses a .proto interface so the catch-all `*.yaml` ignore would
+	// otherwise have nothing legitimate to protect except pacto.yaml itself.
+	contractYAML := depServiceContract("protect-svc", "1.0.0", "", "")
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "interfaces", "api.proto"),
+		[]byte(fmt.Sprintf(protoTemplate, "protect", "Protect")), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// The adversarial .pactoignore: try to drop pacto.yaml directly and via glob.
+	if err := os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte("pacto.yaml\n*.yaml\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	archive := filepath.Join(t.TempDir(), "protect-svc.tar.gz")
+	out, err := runCommand(t, nil, "pack", dir, "-o", archive)
+	if err != nil {
+		t.Fatalf("pack failed: %v\noutput: %s", err, out)
+	}
+
+	// pacto.yaml MUST survive the ignore — it is never ignorable (alwaysKeep guard).
+	verifyArchiveContains(t, archive, "pacto.yaml")
+}
+
+// TestPactoignoreIgnoringReferencedFileFails proves the real failure case: when
+// .pactoignore excludes a file the CONTRACT references (the interface file), the
+// file is missing from the filtered FS, so `pacto validate` reports FILE_NOT_FOUND
+// (and exits non-zero) and `pacto pack` fails too. You cannot ship a bundle whose
+// referenced files were ignored. Adversarial scenario B.
+func TestPactoignoreIgnoringReferencedFileFails(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "ignore-ref-svc")
+	if err := os.MkdirAll(filepath.Join(dir, "interfaces"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// ignoreContract references interfaces/openapi.yaml.
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(ignoreContract), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "interfaces", "openapi.yaml"),
+		[]byte(fmt.Sprintf(openapiTemplate, "ignore-svc", "1.0.0")), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Ignore the EXACT referenced interface file.
+	if err := os.WriteFile(filepath.Join(dir, ".pactoignore"),
+		[]byte("interfaces/openapi.yaml\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// validate must fail and report the missing referenced file.
+	out, err := runCommand(t, nil, "validate", dir)
+	if err == nil {
+		t.Fatalf("expected validate to fail when referenced file is ignored, got success:\n%s", out)
+	}
+	assertContains(t, out, "FILE_NOT_FOUND")
+
+	// pack must also fail (cannot package a bundle missing a referenced file).
+	archive := filepath.Join(t.TempDir(), "ignore-ref-svc.tar.gz")
+	if _, perr := runCommand(t, nil, "pack", dir, "-o", archive); perr == nil {
+		t.Fatal("expected pack to fail when referenced file is ignored, got success")
+	}
+}
+
 // TestPactoignoreSurvivesPushPull proves the filter applies through the real OCI
 // round-trip: after push then pull to a fresh dir, the pulled tree keeps
 // pacto.yaml + the interface file but omits the ignored files. This proves the
