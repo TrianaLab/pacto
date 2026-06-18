@@ -1,6 +1,7 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import { serviceUrl } from '../lib/router.ts';
+  import { shortDigest, driftBadgeClass, driftBadgeLabel } from '../lib/format.ts';
 
   let { configs = [], open = $bindable(false), id = '', source = '' } = $props();
 
@@ -39,6 +40,12 @@
             {/if}
           </div>
           {#if config.ref}
+            {#if config.lockedDigest}
+              <span class="lock-badge" data-tip={`Locked to ${config.lockedDigest}`}>🔒 @{shortDigest(config.lockedDigest)}</span>
+            {/if}
+            {#if config.driftStatus === 'drift'}
+              <span class="badge {driftBadgeClass('drift')}" data-tip="Resolved reference differs from locked version">{driftBadgeLabel('drift')}</span>
+            {/if}
             {#if config.valuesAreCurrent}
               <span class="current-badge" data-tip="Values shown are from the referenced service's current version — this ref is not version-pinned">current</span>
             {/if}
@@ -146,6 +153,12 @@
     font-size: var(--text-xs); font-weight: 500;
     padding: 1px 6px; border-radius: var(--radius-xs);
     background: var(--c-neutral-bg); color: var(--c-text-3);
+    flex-shrink: 0;
+  }
+  .lock-badge {
+    font-size: var(--text-xs); font-weight: 500;
+    padding: 1px 6px; border-radius: var(--radius-xs);
+    background: var(--c-ok-bg); color: var(--c-ok);
     flex-shrink: 0;
   }
   .ref-link:hover { text-decoration: underline; }
