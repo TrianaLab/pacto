@@ -14,4 +14,10 @@ export default defineConfig({
       '/metrics': 'http://localhost:8080',
     },
   },
+  test: {
+    environment: 'jsdom',
+  },
+  resolve: {
+    conditions: ['browser'],
+  },
 });
