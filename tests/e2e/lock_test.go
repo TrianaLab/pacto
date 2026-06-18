@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/pkg/lock"
@@ -190,6 +191,18 @@ func TestLockCapturesReferenceJumps(t *testing.T) {
 	}
 	if p.Digest == "" || p.Version == "" {
 		t.Errorf("policy-p reference missing digest/version: %+v", p)
+	}
+
+	// The lock's References list is flat (no edge tracking). We prove the reference
+	// JUMP by elimination: the root declares only policy-p; policy-q is referenced
+	// solely by policy-p, so policy-q appearing in the lock means buildReferenceClosure
+	// walked p -> q.
+	rootYAML, err := os.ReadFile(filepath.Join(rootDir, "pacto.yaml"))
+	if err != nil {
+		t.Fatalf("read root pacto.yaml: %v", err)
+	}
+	if strings.Contains(string(rootYAML), "policy-q") {
+		t.Fatal("root must not reference policy-q directly; the test would not prove the jump")
 	}
 
 	// Transitive reference jump: policy-q must also be pinned. The closure is

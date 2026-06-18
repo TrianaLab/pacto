@@ -190,10 +190,11 @@ func verifyArchiveContains(t *testing.T, archivePath, expectedFile string) {
 // a file named unexpectedFile. Mirrors verifyArchiveContains for ignored paths.
 func assertArchiveExcludes(t *testing.T, archivePath, unexpectedFile string) {
 	t.Helper()
-	for _, name := range archiveEntries(t, archivePath) {
+	entries := archiveEntries(t, archivePath)
+	for _, name := range entries {
 		if name == unexpectedFile {
 			t.Errorf("expected %s to be EXCLUDED from archive %s, entries: %v",
-				unexpectedFile, archivePath, archiveEntries(t, archivePath))
+				unexpectedFile, archivePath, entries)
 			return
 		}
 	}
