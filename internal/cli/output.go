@@ -367,6 +367,17 @@ func printSBOMChangeRows(w io.Writer, changes []sbom.Change) {
 	_, _ = fmt.Fprintln(w)
 }
 
+func printLockResult(cmd *cobra.Command, r *app.LockResult, format string) error {
+	return formatResult(cmd, format, r, func() error {
+		if r.UpToDate {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "pacto.lock is up to date (%d dependencies, %d references)\n", r.Dependencies, r.References)
+			return nil
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s (%d dependencies, %d references)\n", r.Path, r.Dependencies, r.References)
+		return nil
+	}, nil)
+}
+
 func printJSON(cmd *cobra.Command, v any) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
