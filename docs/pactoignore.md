@@ -14,7 +14,7 @@ The `.pactoignore` file lets you exclude files and directories from contract bun
 | Blank lines | Ignored |
 | `*` | Match any number of characters except `/` |
 | `?` | Match a single character except `/` |
-| `[abc]` | Character class — match `a`, `b`, or `c` |
+| `[abc]` | Character class — match `a`, `b` or `c` |
 | `**` | Match zero or more directories |
 | `/` at start | Anchor to the contract root |
 | `/` at end | Match directories only |
@@ -45,7 +45,7 @@ You do not need to list these in your `.pactoignore` — they are excluded autom
 
 ## Referenced file validation
 
-Ignoring a file that is referenced by the contract makes `pacto validate`, `pacto pack`, and `pacto push` fail. You cannot ship a bundle missing a file it declares.
+Ignoring a file that is referenced by the contract makes `pacto validate`, `pacto pack` and `pacto push` fail. You cannot ship a bundle missing a file it declares.
 
 For example, if your contract references `interfaces/openapi.yaml` and your `.pactoignore` contains:
 
@@ -55,7 +55,7 @@ interfaces/openapi.yaml
 
 Then `pacto pack` and `pacto push` will exit with an error stating that the referenced file is missing.
 
-The same rule applies to `configurations[].schema`, `policies[].schema`, and any other file path declared in `pacto.yaml`.
+The same rule applies to `configurations[].schema`, `policies[].schema` and any other file path declared in `pacto.yaml`.
 
 ---
 
@@ -85,7 +85,7 @@ data/*.bin
 
 This pattern:
 
-1. Excludes all `dist/`, `build/`, and `.log` files
+1. Excludes all `dist/`, `build/` and `.log` files
 2. Excludes editor directories and swap files
 3. Excludes `tmp/` and `.tmp` files
 4. Excludes `.bin` files in the `data/` directory, except `data/config.bin` (negation)
