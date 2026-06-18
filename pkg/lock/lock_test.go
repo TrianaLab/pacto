@@ -45,6 +45,62 @@ func TestMarshalDeterministicAndSorted(t *testing.T) {
 	}
 }
 
+// TestReferencesSortDeterministicOnRefTiebreak proves the (Kind, Name, Ref, Path)
+// total order: two references sharing Kind+Name but differing by Ref keep a stable,
+// byte-identical order across repeated Marshal calls. Keying only on (Kind, Name)
+// left these reorderable under sort.Slice (unstable), breaking the relock guarantee.
+func TestReferencesSortDeterministicOnRefTiebreak(t *testing.T) {
+	mk := func() *Lock {
+		return &Lock{
+			LockVersion: CurrentLockVersion,
+			Pacto:       PactoInfo{Version: "1.4.0"},
+			Root:        RootInfo{Name: "test", Version: "1.0.0"},
+			References: []Reference{
+				{Kind: "policy", Name: "sec", Source: "oci", Ref: "oci://r/sec-b", Digest: "sha256:b"},
+				{Kind: "policy", Name: "sec", Source: "oci", Ref: "oci://r/sec-a", Digest: "sha256:a"},
+			},
+		}
+	}
+	data, err := mk().Marshal()
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	out := string(data)
+	// Ref tiebreak: sec-a sorts before sec-b regardless of input order.
+	if strings.Index(out, "sec-a") > strings.Index(out, "sec-b") {
+		t.Errorf("references not sorted by ref tiebreak:\n%s", out)
+	}
+	// Re-marshal is byte-identical across runs.
+	for i := 0; i < 5; i++ {
+		data2, err := mk().Marshal()
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		if string(data2) != out {
+			t.Fatalf("marshal not deterministic on ref tiebreak (iter %d)", i)
+		}
+	}
+
+	// Final Path tiebreak: same Kind+Name+Ref, differing only by local Path.
+	pl := &Lock{
+		LockVersion: CurrentLockVersion,
+		Pacto:       PactoInfo{Version: "1.4.0"},
+		Root:        RootInfo{Name: "test", Version: "1.0.0"},
+		References: []Reference{
+			{Kind: "config", Name: "cfg", Source: "local", Path: "../z-cfg"},
+			{Kind: "config", Name: "cfg", Source: "local", Path: "../a-cfg"},
+		},
+	}
+	pData, err := pl.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	pOut := string(pData)
+	if strings.Index(pOut, "a-cfg") > strings.Index(pOut, "z-cfg") {
+		t.Errorf("references not sorted by path tiebreak:\n%s", pOut)
+	}
+}
+
 func TestParseRoundTrip(t *testing.T) {
 	data, _ := sample().Marshal()
 	got, err := Parse(data)

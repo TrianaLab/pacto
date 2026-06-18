@@ -62,6 +62,34 @@ func TestLoadAndFS(t *testing.T) {
 	}
 }
 
+// TestFSIgnoredAncestorAgrees proves Open/Stat of a file inside a dir-only
+// ignored directory agree with ReadDir's subtree skipping: a `build/` rule hides
+// build/openapi.yaml even though the file itself is not a directory. Before the
+// ancestor-aware fix, Open/Stat reported the file PRESENT (dir-only rules skip
+// files) while ReadDir dropped the whole subtree — so a referenced file inside an
+// ignored dir would silently ship missing.
+func TestFSIgnoredAncestorAgrees(t *testing.T) {
+	base := fstest.MapFS{
+		"pacto.yaml":         {Data: []byte("x")},
+		".pactoignore":       {Data: []byte("build/\n")},
+		"build/openapi.yaml": {Data: []byte("x")},
+	}
+	m, err := Load(base)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	ffs := FS(base, m)
+
+	// Open of a file under a `build/`-ignored directory returns fs.ErrNotExist.
+	if _, err := ffs.Open("build/openapi.yaml"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Open(build/openapi.yaml) err = %v, want fs.ErrNotExist", err)
+	}
+	// fs.Stat agrees: the file inside the ignored dir is not visible.
+	if _, err := fs.Stat(ffs, "build/openapi.yaml"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Stat(build/openapi.yaml) err = %v, want fs.ErrNotExist", err)
+	}
+}
+
 func TestLoadNoIgnoreFile(t *testing.T) {
 	base := fstest.MapFS{"pacto.yaml": {Data: []byte("x")}, "x.tmp": {Data: []byte("x")}}
 	m, err := Load(base)

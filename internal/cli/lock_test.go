@@ -35,7 +35,9 @@ func TestLockCommandWritesFile(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.2.0"}, nil },
 		ResolveFn:  func(_ context.Context, _ string) (string, error) { return "sha256:v1", nil },
-		PullFn:     func(_ context.Context, _ string) (*contract.Bundle, error) { return &contract.Bundle{Contract: auth}, nil },
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			return &contract.Bundle{Contract: auth}, nil
+		},
 	}
 	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
@@ -74,7 +76,9 @@ func TestLockCommandCheckFailsOnDrift(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.2.0"}, nil },
 		ResolveFn:  func(_ context.Context, _ string) (string, error) { return "sha256:v1", nil },
-		PullFn:     func(_ context.Context, _ string) (*contract.Bundle, error) { return &contract.Bundle{Contract: auth}, nil },
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			return &contract.Bundle{Contract: auth}, nil
+		},
 	}
 	svc := app.NewService(store, nil)
 
@@ -122,7 +126,9 @@ func TestLockCommandUpdateRepins(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.2.0", "1.3.0"}, nil },
 		ResolveFn:  func(_ context.Context, _ string) (string, error) { return "sha256:v1", nil },
-		PullFn:     func(_ context.Context, _ string) (*contract.Bundle, error) { return &contract.Bundle{Contract: auth}, nil },
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			return &contract.Bundle{Contract: auth}, nil
+		},
 	}
 	svc := app.NewService(store, nil)
 
@@ -182,7 +188,7 @@ func TestLockCommandJSON(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("lock json: %v", err)
 	}
-	if !strings.Contains(out.String(), `"Path"`) {
+	if !strings.Contains(out.String(), `"path"`) {
 		t.Errorf("expected JSON output, got %q", out.String())
 	}
 }

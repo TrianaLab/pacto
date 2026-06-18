@@ -17,48 +17,48 @@ const CurrentLockVersion = 1
 
 // Lock is the root document of pacto.lock.
 type Lock struct {
-	LockVersion  int         `yaml:"lockVersion"`
-	Pacto        PactoInfo   `yaml:"pacto"`
-	Root         RootInfo    `yaml:"root"`
-	Dependencies []Entry     `yaml:"dependencies,omitempty"`
-	References   []Reference `yaml:"references,omitempty"`
+	LockVersion  int         `yaml:"lockVersion" json:"lockVersion"`
+	Pacto        PactoInfo   `yaml:"pacto" json:"pacto"`
+	Root         RootInfo    `yaml:"root" json:"root"`
+	Dependencies []Entry     `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+	References   []Reference `yaml:"references,omitempty" json:"references,omitempty"`
 }
 
 // PactoInfo records the CLI version that produced the lock.
 type PactoInfo struct {
-	Version string `yaml:"version"`
+	Version string `yaml:"version" json:"version"`
 }
 
 // RootInfo identifies the contract the lock belongs to.
 type RootInfo struct {
-	Name    string `yaml:"name"`
-	Version string `yaml:"version"`
+	Name    string `yaml:"name" json:"name"`
+	Version string `yaml:"version" json:"version"`
 }
 
 // Entry is one resolved dependency in the closure.
 type Entry struct {
-	Name        string   `yaml:"name"`
-	Source      string   `yaml:"source"` // "oci" or "local"
-	Ref         string   `yaml:"ref,omitempty"`
-	Path        string   `yaml:"path,omitempty"`
-	Constraint  string   `yaml:"constraint,omitempty"`
-	Version     string   `yaml:"version,omitempty"`
-	Digest      string   `yaml:"digest,omitempty"`
-	ContentHash string   `yaml:"contentHash,omitempty"`
-	DependsOn   []string `yaml:"dependsOn,omitempty"`
+	Name        string   `yaml:"name" json:"name"`
+	Source      string   `yaml:"source" json:"source"` // "oci" or "local"
+	Ref         string   `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Path        string   `yaml:"path,omitempty" json:"path,omitempty"`
+	Constraint  string   `yaml:"constraint,omitempty" json:"constraint,omitempty"`
+	Version     string   `yaml:"version,omitempty" json:"version,omitempty"`
+	Digest      string   `yaml:"digest,omitempty" json:"digest,omitempty"`
+	ContentHash string   `yaml:"contentHash,omitempty" json:"contentHash,omitempty"`
+	DependsOn   []string `yaml:"dependsOn,omitempty" json:"dependsOn,omitempty"`
 }
 
 // Reference is one resolved config/policy reference.
 type Reference struct {
-	Kind        string `yaml:"kind"` // "config" or "policy"
-	Name        string `yaml:"name"`
-	Source      string `yaml:"source"`
-	Ref         string `yaml:"ref,omitempty"`
-	Path        string `yaml:"path,omitempty"`
-	Constraint  string `yaml:"constraint,omitempty"`
-	Version     string `yaml:"version,omitempty"`
-	Digest      string `yaml:"digest,omitempty"`
-	ContentHash string `yaml:"contentHash,omitempty"`
+	Kind        string `yaml:"kind" json:"kind"` // "config" or "policy"
+	Name        string `yaml:"name" json:"name"`
+	Source      string `yaml:"source" json:"source"`
+	Ref         string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Path        string `yaml:"path,omitempty" json:"path,omitempty"`
+	Constraint  string `yaml:"constraint,omitempty" json:"constraint,omitempty"`
+	Version     string `yaml:"version,omitempty" json:"version,omitempty"`
+	Digest      string `yaml:"digest,omitempty" json:"digest,omitempty"`
+	ContentHash string `yaml:"contentHash,omitempty" json:"contentHash,omitempty"`
 }
 
 // Marshal serializes the lock deterministically (sorted entries, sorted edges).
@@ -74,10 +74,17 @@ func (l *Lock) Marshal() ([]byte, error) {
 		out.Dependencies[i].DependsOn = d
 	}
 	sort.Slice(out.References, func(i, j int) bool {
-		if out.References[i].Kind != out.References[j].Kind {
-			return out.References[i].Kind < out.References[j].Kind
+		a, b := out.References[i], out.References[j]
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
 		}
-		return out.References[i].Name < out.References[j].Name
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		if a.Ref != b.Ref {
+			return a.Ref < b.Ref
+		}
+		return a.Path < b.Path
 	})
 	return yaml.Marshal(&out)
 }

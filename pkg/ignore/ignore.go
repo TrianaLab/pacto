@@ -140,10 +140,25 @@ type filteredFS struct {
 	m    *Matcher
 }
 
+// ignored reports whether name is filtered out, considering ancestor directories
+// so a file inside an ignored directory is itself ignored (Open/Stat must agree
+// with ReadDir's subtree skipping).
+func (f *filteredFS) ignored(name string, isDir bool) bool {
+	if f.m.Ignored(name, isDir) {
+		return true
+	}
+	for dir := path.Dir(name); dir != "." && dir != "/"; dir = path.Dir(dir) {
+		if f.m.Ignored(dir, true) {
+			return true
+		}
+	}
+	return false
+}
+
 func (f *filteredFS) Open(name string) (fs.File, error) {
 	if name != "." {
 		if info, err := fs.Stat(f.base, name); err == nil {
-			if f.m.Ignored(name, info.IsDir()) {
+			if f.ignored(name, info.IsDir()) {
 				return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 			}
 		}
@@ -162,7 +177,7 @@ func (f *filteredFS) ReadDir(name string) ([]fs.DirEntry, error) {
 		if name != "." {
 			p = path.Join(name, e.Name())
 		}
-		if f.m.Ignored(p, e.IsDir()) {
+		if f.ignored(p, e.IsDir()) {
 			continue
 		}
 		out = append(out, e)

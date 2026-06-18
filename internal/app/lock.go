@@ -24,12 +24,12 @@ type LockOptions struct {
 
 // LockResult reports the outcome of a lock operation.
 type LockResult struct {
-	Path         string
-	Lock         *lock.Lock
-	Written      bool
-	UpToDate     bool
-	Dependencies int
-	References    int
+	Path         string     `json:"path"`
+	Lock         *lock.Lock `json:"lock,omitempty"`
+	Written      bool       `json:"written,omitempty"`
+	UpToDate     bool       `json:"upToDate,omitempty"`
+	Dependencies int        `json:"dependencies"`
+	References   int        `json:"references"`
 }
 
 // marshalLockFn serializes a lock to bytes; overridable in tests to exercise the
