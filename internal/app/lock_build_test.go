@@ -697,6 +697,29 @@ func TestBuildReferenceClosureLocalTransitive(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	assertRef := func(byName map[string]lock.Reference, name, wantVersion string) {
+		t.Helper()
+		r, ok := byName[name]
+		if !ok {
+			t.Fatalf("%s reference missing: %+v", name, byName)
+		}
+		if r.Source != "local" {
+			t.Errorf("%s source: got %q, want local", name, r.Source)
+		}
+		if r.ContentHash == "" {
+			t.Errorf("%s ContentHash empty", name)
+		}
+		if r.Digest != "" {
+			t.Errorf("%s Digest: got %q, want empty", name, r.Digest)
+		}
+		if r.Version != wantVersion {
+			t.Errorf("%s Version: got %q, want %q", name, r.Version, wantVersion)
+		}
+		if r.Kind != "policy" {
+			t.Errorf("%s Kind: got %q, want policy", name, r.Kind)
+		}
+	}
+
 	// q: a leaf policy bundle.
 	writeBundleYAML(filepath.Join(rootDir, "q"), "pactoVersion: \"1.0\"\nservice:\n  name: q\n  version: \"3.1.0\"\n")
 	// p: a policy bundle that references q via a path relative to p's own dir.
@@ -720,20 +743,8 @@ func TestBuildReferenceClosureLocalTransitive(t *testing.T) {
 	for _, r := range refs {
 		byName[r.Name] = r
 	}
-	p, ok := byName["from-root"]
-	if !ok {
-		t.Fatalf("p reference missing: %+v", refs)
-	}
-	if p.Source != "local" || p.ContentHash == "" || p.Digest != "" || p.Version != "2.0.0" || p.Kind != "policy" {
-		t.Errorf("p pinned wrong: %+v", p)
-	}
-	q, ok := byName["from-p"]
-	if !ok {
-		t.Fatalf("transitive q reference missing: %+v", refs)
-	}
-	if q.Source != "local" || q.ContentHash == "" || q.Digest != "" || q.Version != "3.1.0" || q.Kind != "policy" {
-		t.Errorf("q pinned wrong: %+v", q)
-	}
+	assertRef(byName, "from-root", "2.0.0")
+	assertRef(byName, "from-p", "3.1.0")
 }
 
 func TestSetBuildVersion(t *testing.T) {

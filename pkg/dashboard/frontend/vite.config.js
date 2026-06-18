@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [svelte()],
   build: {
     outDir: '../ui',
@@ -17,7 +17,5 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
   },
-  resolve: {
-    conditions: ['browser'],
-  },
-});
+  ...(mode === 'test' ? { resolve: { conditions: ['browser'] } } : {}),
+}));
