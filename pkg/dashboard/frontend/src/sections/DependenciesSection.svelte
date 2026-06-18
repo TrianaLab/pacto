@@ -1,7 +1,7 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import GraphCanvas from '../GraphCanvas.svelte';
-  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass } from '../lib/format.ts';
+  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, shortDigest, driftBadgeClass, driftBadgeLabel } from '../lib/format.ts';
   import { navigate, serviceUrl } from '../lib/router.ts';
 
   let {
@@ -37,7 +37,7 @@
         <h3>Depends on</h3>
         <div class="table-wrap">
           <table>
-            <thead><tr><th data-tip="Dependency service name">Service</th><th data-tip="OCI or version reference">Ref</th><th data-tip="Is this dependency required?">Required</th><th data-tip="Version compatibility constraint">Compatibility</th></tr></thead>
+            <thead><tr><th data-tip="Dependency service name">Service</th><th data-tip="OCI or version reference">Ref</th><th data-tip="Is this dependency required?">Required</th><th data-tip="Version compatibility constraint">Compatibility</th><th data-tip="Pinned version and digest from pacto.lock">Pinned</th></tr></thead>
             <tbody>
               {#each dependencies as dep}
                 {@const reason = svcExists(dep.name) ? undefined : depReason(dep.name)}
@@ -52,6 +52,24 @@
                   <td><code class="text-3">{dep.ref}</code></td>
                   <td>{dep.required ? 'Yes' : 'No'}</td>
                   <td>{dep.compatibility || '—'}</td>
+                  <td>
+                    {#if dep.lockedVersion || dep.lockedDigest}
+                      <div class="lock-cell">
+                        <span class="lock-glyph" data-tip="Pinned by pacto.lock">📌</span>
+                        {#if dep.lockedVersion}
+                          <code class="text-3">{dep.lockedVersion}</code>
+                        {/if}
+                        {#if dep.lockedDigest}
+                          <code class="text-3" data-tip={dep.lockedDigest}>@{shortDigest(dep.lockedDigest)}</code>
+                        {/if}
+                        {#if dep.driftStatus === 'drift'}
+                          <span class="badge {driftBadgeClass('drift')}" data-tip="Resolved version differs from locked version">{driftBadgeLabel('drift')}</span>
+                        {/if}
+                      </div>
+                    {:else}
+                      —
+                    {/if}
+                  </td>
                 </tr>
               {/each}
             </tbody>
@@ -139,4 +157,14 @@
   }
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); }
+  .lock-cell {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    flex-wrap: wrap;
+  }
+  .lock-glyph {
+    font-size: var(--text-xs);
+    flex-shrink: 0;
+  }
 </style>

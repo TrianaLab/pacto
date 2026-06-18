@@ -86,6 +86,135 @@ func TestNewKeychain_Default(t *testing.T) {
 	}
 }
 
+func TestNewKeychain_ReturnsPactoKeychain(t *testing.T) {
+	kc := oci.NewKeychain(oci.CredentialOptions{})
+	if _, ok := kc.(*oci.PactoKeychain); !ok {
+		t.Errorf("NewKeychain() = %T, want *oci.PactoKeychain", kc)
+	}
+}
+
+func TestPactoKeychain_Candidates_EnvToken(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	kc := oci.NewKeychain(oci.CredentialOptions{Token: "tok"}).(*oci.PactoKeychain)
+	reg, _ := name.NewRegistry("example.com", name.Insecure)
+
+	cands, err := kc.Candidates(reg)
+	if err != nil {
+		t.Fatalf("Candidates() error: %v", err)
+	}
+	if len(cands) != 1 {
+		t.Fatalf("len(Candidates) = %d, want 1, got %v", len(cands), candNames(cands))
+	}
+	if cands[0].Name != "env token" {
+		t.Errorf("Candidates[0].Name = %q, want %q", cands[0].Name, "env token")
+	}
+}
+
+func TestPactoKeychain_Candidates_EnvUserPass(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	kc := oci.NewKeychain(oci.CredentialOptions{Username: "u", Password: "p"}).(*oci.PactoKeychain)
+	reg, _ := name.NewRegistry("example.com", name.Insecure)
+
+	cands, err := kc.Candidates(reg)
+	if err != nil {
+		t.Fatalf("Candidates() error: %v", err)
+	}
+	if len(cands) != 1 || cands[0].Name != "env user/pass" {
+		t.Errorf("Candidates = %v, want one [env user/pass]", candNames(cands))
+	}
+}
+
+func TestPactoKeychain_Candidates_OrderingAndNames(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	// Write a pacto login entry AND env token so we get two named candidates in order.
+	pactoDir := filepath.Join(dir, ".config", "pacto")
+	if err := os.MkdirAll(pactoDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte("u:p"))
+	cfg := map[string]any{"auths": map[string]any{"example.com": map[string]any{"auth": encoded}}}
+	data, _ := json.Marshal(cfg)
+	if err := os.WriteFile(filepath.Join(pactoDir, "config.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	kc := oci.NewKeychain(oci.CredentialOptions{Token: "tok"}).(*oci.PactoKeychain)
+	reg, _ := name.NewRegistry("example.com", name.Insecure)
+
+	cands, err := kc.Candidates(reg)
+	if err != nil {
+		t.Fatalf("Candidates() error: %v", err)
+	}
+	got := candNames(cands)
+	want := []string{"env token", "pacto login"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("Candidates order = %v, want %v", got, want)
+	}
+}
+
+func TestPactoKeychain_Candidates_NoneNonAnon(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	kc := oci.NewKeychain(oci.CredentialOptions{}).(*oci.PactoKeychain)
+	reg, _ := name.NewRegistry("unknown.example.com", name.Insecure)
+
+	cands, err := kc.Candidates(reg)
+	if err != nil {
+		t.Fatalf("Candidates() error: %v", err)
+	}
+	if len(cands) != 0 {
+		t.Errorf("len(Candidates) = %d, want 0, got %v", len(cands), candNames(cands))
+	}
+}
+
+func TestPactoKeychain_Resolve_FirstNonAnon(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	// pacto login present; token also present → Resolve returns the FIRST (env token).
+	pactoDir := filepath.Join(dir, ".config", "pacto")
+	if err := os.MkdirAll(pactoDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte("u:p"))
+	cfg := map[string]any{"auths": map[string]any{"example.com": map[string]any{"auth": encoded}}}
+	data, _ := json.Marshal(cfg)
+	if err := os.WriteFile(filepath.Join(pactoDir, "config.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	kc := oci.NewKeychain(oci.CredentialOptions{Token: "tok"})
+	reg, _ := name.NewRegistry("example.com", name.Insecure)
+	auth, err := kc.Resolve(reg)
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	authCfg, _ := auth.Authorization()
+	if authCfg.RegistryToken != "tok" {
+		t.Errorf("Resolve() returned %+v, want env token first", authCfg)
+	}
+}
+
+func candNames(cands []oci.CredSource) []string {
+	names := make([]string, len(cands))
+	for i, c := range cands {
+		names[i] = c.Name
+	}
+	return names
+}
+
 func TestPactoConfigPath_Default(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)

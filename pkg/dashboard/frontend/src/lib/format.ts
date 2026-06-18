@@ -150,6 +150,31 @@ export function versionPolicyClass(policy: string | undefined): string {
   return '';
 }
 
+// ── Lock and drift helpers ──
+
+/** Strip sha256: prefix and truncate to first n hex chars for compact digest display. */
+export function shortDigest(digest: string | null | undefined, n: number = 8): string {
+  if (!digest) return '';
+  const hex = digest.replace(/^sha256:/, '');
+  return hex.slice(0, n);
+}
+
+/** Badge class for drift status (locked, drift, unlocked, unknown). */
+export function driftBadgeClass(status: string | null | undefined): string {
+  if (status === 'locked') return 'badge-ok';
+  if (status === 'drift') return 'badge-warn';
+  if (status === 'unlocked') return 'badge-neutral';
+  return 'badge-neutral'; // unknown or absent
+}
+
+/** Human label for drift status badge. */
+export function driftBadgeLabel(status: string | null | undefined): string {
+  if (status === 'locked') return 'Locked';
+  if (status === 'drift') return 'Drift';
+  if (status === 'unlocked') return 'Unlocked';
+  return '';
+}
+
 // ── Stats helpers ──
 
 const HIGH_IMPACT_THRESHOLD = 3;

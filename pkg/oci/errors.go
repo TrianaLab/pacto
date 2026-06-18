@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 )
@@ -22,15 +23,35 @@ func (e *RegistryUnreachableError) Unwrap() error { return e.Err }
 
 // AuthenticationError indicates credential rejection (401/403).
 type AuthenticationError struct {
-	Ref string
-	Err error
+	Ref      string
+	Err      error
+	Tried    []string
+	Rejected []string
 }
 
 func (e *AuthenticationError) Error() string {
-	return fmt.Sprintf("authentication failed for %s: %v — run `pacto login` or check PACTO_REGISTRY_TOKEN", e.Ref, e.Err)
+	var b strings.Builder
+	fmt.Fprintf(&b, "authentication failed for %s", e.Ref)
+	if len(e.Rejected) > 0 {
+		fmt.Fprintf(&b, " (rejected: %s)", strings.Join(e.Rejected, ", "))
+	}
+	if len(e.Tried) > 0 {
+		fmt.Fprintf(&b, " (tried: %s)", strings.Join(e.Tried, ", "))
+	}
+	fmt.Fprintf(&b, ": %v — run `pacto login`, `pacto logout <registry>`, switch your `gh` account, or set PACTO_REGISTRY_TOKEN", e.Err)
+	return b.String()
 }
 
 func (e *AuthenticationError) Unwrap() error { return e.Err }
+
+// isAuthError reports whether err is a transport error with a 401 or 403 status.
+func isAuthError(err error) bool {
+	var transportErr *transport.Error
+	if !errors.As(err, &transportErr) {
+		return false
+	}
+	return transportErr.StatusCode == http.StatusUnauthorized || transportErr.StatusCode == http.StatusForbidden
+}
 
 // ArtifactNotFoundError indicates the reference does not exist (404).
 type ArtifactNotFoundError struct {

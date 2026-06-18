@@ -636,7 +636,12 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 
 	// Dependencies
 	for _, d := range r.Status.Dependencies {
-		svc.Dependencies = append(svc.Dependencies, DependencyInfo(d))
+		svc.Dependencies = append(svc.Dependencies, DependencyInfo{
+			Name:          d.Name,
+			Ref:           d.Ref,
+			Required:      d.Required,
+			Compatibility: d.Compatibility,
+		})
 	}
 
 	// Runtime

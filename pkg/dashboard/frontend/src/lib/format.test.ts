@@ -35,6 +35,9 @@ import {
   isUrlEvidence,
   readinessCheckTypes,
   summarizeFleet,
+  shortDigest,
+  driftBadgeClass,
+  driftBadgeLabel,
 } from './format.ts';
 
 describe('statusClass', () => {
@@ -882,4 +885,45 @@ describe('summarizeFleet', () => {
     expect(s.compliancePercent).toBe(-1);
     expect(s.needsAttention).toBe(0);
   });
+});
+
+// ── Lock and drift helpers ──
+
+describe('shortDigest', () => {
+  it('strips sha256: prefix and truncates to 8 chars by default', () => {
+    expect(shortDigest('sha256:abcdef1234567890')).toBe('abcdef12');
+  });
+  it('accepts custom truncation length', () => {
+    expect(shortDigest('sha256:abcdef1234567890', 4)).toBe('abcd');
+    expect(shortDigest('sha256:abcdef1234567890', 16)).toBe('abcdef1234567890');
+  });
+  it('handles digest without sha256: prefix', () => {
+    expect(shortDigest('abcdef1234567890')).toBe('abcdef12');
+  });
+  it('returns empty string for null', () => expect(shortDigest(null)).toBe(''));
+  it('returns empty string for undefined', () => expect(shortDigest(undefined)).toBe(''));
+  it('returns empty string for empty string', () => expect(shortDigest('')).toBe(''));
+  it('truncates shorter digest gracefully', () => {
+    expect(shortDigest('sha256:abc', 8)).toBe('abc');
+  });
+});
+
+describe('driftBadgeClass', () => {
+  it('maps locked to badge-ok', () => expect(driftBadgeClass('locked')).toBe('badge-ok'));
+  it('maps drift to badge-warn', () => expect(driftBadgeClass('drift')).toBe('badge-warn'));
+  it('maps unlocked to badge-neutral', () => expect(driftBadgeClass('unlocked')).toBe('badge-neutral'));
+  it('maps unknown to badge-neutral', () => expect(driftBadgeClass('unknown')).toBe('badge-neutral'));
+  it('returns badge-neutral for null', () => expect(driftBadgeClass(null)).toBe('badge-neutral'));
+  it('returns badge-neutral for undefined', () => expect(driftBadgeClass(undefined)).toBe('badge-neutral'));
+  it('returns badge-neutral for empty string', () => expect(driftBadgeClass('')).toBe('badge-neutral'));
+});
+
+describe('driftBadgeLabel', () => {
+  it('maps locked to Locked', () => expect(driftBadgeLabel('locked')).toBe('Locked'));
+  it('maps drift to Drift', () => expect(driftBadgeLabel('drift')).toBe('Drift'));
+  it('maps unlocked to Unlocked', () => expect(driftBadgeLabel('unlocked')).toBe('Unlocked'));
+  it('returns empty for unknown', () => expect(driftBadgeLabel('unknown')).toBe(''));
+  it('returns empty for null', () => expect(driftBadgeLabel(null)).toBe(''));
+  it('returns empty for undefined', () => expect(driftBadgeLabel(undefined)).toBe(''));
+  it('returns empty for empty string', () => expect(driftBadgeLabel('')).toBe(''));
 });

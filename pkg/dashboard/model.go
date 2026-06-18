@@ -153,6 +153,10 @@ type ServiceDetails struct {
 
 	Validation *ValidationInfo `json:"validation,omitempty"`
 
+	// Lock surfaces the committed pacto.lock pins. Nil when no lockfile is present
+	// (or for sources that cannot read it from disk, e.g. OCI/cache/k8s).
+	Lock *LockInfo `json:"lock,omitempty"`
+
 	// Compliance is the computed compliance assessment.
 	Compliance *ComplianceInfo `json:"compliance,omitempty"`
 
@@ -276,6 +280,9 @@ type ConfigurationInfo struct {
 	// or the pinned version was unavailable) while displaying a historical version.
 	// The UI labels such values "(current)" to flag the temporal mismatch.
 	ValuesAreCurrent bool `json:"valuesAreCurrent,omitempty"`
+	// Lock pins, populated from pacto.lock references (kind=config) when present.
+	LockedDigest  string `json:"lockedDigest,omitempty"`
+	LockedVersion string `json:"lockedVersion,omitempty"`
 }
 
 // DependencyInfo describes a declared dependency.
@@ -284,6 +291,47 @@ type DependencyInfo struct {
 	Ref           string `json:"ref"`
 	Required      bool   `json:"required"`
 	Compatibility string `json:"compatibility,omitempty"`
+	// Lock pins, populated from pacto.lock when present (local source only).
+	LockedDigest  string `json:"lockedDigest,omitempty"`
+	LockedVersion string `json:"lockedVersion,omitempty"`
+	// DriftStatus compares the locked digest against the dependency target's
+	// runtime digest: "locked", "drift", "unlocked", "unknown". Empty when not computed.
+	DriftStatus string `json:"driftStatus,omitempty"`
+}
+
+// LockInfo surfaces pacto.lock content for the service detail view. It is set
+// only by sources that can read the committed lockfile from disk (local).
+type LockInfo struct {
+	Present      bool          `json:"present"`
+	RootDigest   string        `json:"rootDigest,omitempty"`
+	Dependencies []LockDepInfo `json:"dependencies,omitempty"`
+	References   []LockRefInfo `json:"references,omitempty"`
+}
+
+// LockDepInfo is one resolved dependency entry from pacto.lock.
+type LockDepInfo struct {
+	Name        string `json:"name"`
+	Source      string `json:"source,omitempty"`
+	Ref         string `json:"ref,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Constraint  string `json:"constraint,omitempty"`
+	Version     string `json:"version,omitempty"`
+	Digest      string `json:"digest,omitempty"`
+	ContentHash string `json:"contentHash,omitempty"`
+}
+
+// LockRefInfo is one resolved config/policy reference from pacto.lock.
+// Config/policy references carry no compatibility constraint (unlike
+// dependencies), so there is no Constraint field.
+type LockRefInfo struct {
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	Source      string `json:"source,omitempty"`
+	Ref         string `json:"ref,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Version     string `json:"version,omitempty"`
+	Digest      string `json:"digest,omitempty"`
+	ContentHash string `json:"contentHash,omitempty"`
 }
 
 // RuntimeInfo describes runtime behavior.
@@ -323,6 +371,9 @@ type PolicyInfo struct {
 	// unavailable) while displaying a historical version. The UI labels such
 	// values "(current)" to flag the temporal mismatch.
 	ValuesAreCurrent bool `json:"valuesAreCurrent,omitempty"`
+	// Lock pins, populated from pacto.lock references (kind=policy) when present.
+	LockedDigest  string `json:"lockedDigest,omitempty"`
+	LockedVersion string `json:"lockedVersion,omitempty"`
 }
 
 // ValidationInfo holds validation results.
@@ -447,6 +498,10 @@ type GraphEdge struct {
 	Error         string     `json:"error,omitempty"`
 	Shared        bool       `json:"shared,omitempty"`
 	Node          *GraphNode `json:"node,omitempty"`
+	// Lock pins from pacto.lock, carried on the edge for the dependency tree view.
+	LockedDigest  string `json:"lockedDigest,omitempty"`
+	LockedVersion string `json:"lockedVersion,omitempty"`
+	DriftStatus   string `json:"driftStatus,omitempty"`
 }
 
 // Condition represents a reconciliation condition (mirroring operator CRD status.conditions).

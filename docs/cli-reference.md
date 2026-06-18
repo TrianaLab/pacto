@@ -380,6 +380,36 @@ Scaffolds a bundle with a valid `pacto.yaml`, a placeholder OpenAPI spec, and a 
 
 ---
 
+## `pacto lock`
+
+Resolves the full transitive dependency and reference closure and writes a committed pacto.lock pinning each to its OCI digest. With --check, verifies the existing lock without writing.
+
+```
+pacto lock [dir] [flags]
+```
+
+**Examples:**
+
+```
+  pacto lock
+  pacto lock --update
+  pacto lock --update-name auth
+  pacto lock --check
+```
+
+**Flags:**
+
+```
+      --check                     verify pacto.lock is up to date without writing (non-zero exit on drift)
+  -h, --help                      help for lock
+      --set stringArray           set a contract value (e.g. --set service.version=2.0.0)
+      --update                    re-resolve dependencies to the newest version within their constraint
+      --update-name stringArray   only update the named dependency (repeatable; implies --update)
+  -f, --values stringArray        values file to merge into the contract (can be repeated; last wins)
+```
+
+---
+
 ## `pacto login`
 
 Stores credentials for an OCI registry in ~/.config/pacto/config.json.
@@ -427,6 +457,28 @@ gh auth refresh --scopes write:packages
 After this, `pacto push oci://ghcr.io/...` will work without any additional login step.
 
 If `gh` is not installed or not authenticated, pacto silently falls back to the next credential source in the chain.
+
+---
+
+## `pacto logout`
+
+Removes credentials for an OCI registry from ~/.config/pacto/config.json.
+
+```
+pacto logout <registry> [flags]
+```
+
+**Examples:**
+
+```
+  pacto logout ghcr.io
+```
+
+**Flags:**
+
+```
+  -h, --help   help for logout
+```
 
 ---
 

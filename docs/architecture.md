@@ -40,10 +40,12 @@ graph TD
     OCI --> CONTRACT
     PLUG --> CONTRACT
     UPDATE -.-> OCI
+    APP --> LOCK[pkg/lock<br/>Lockfile Model]
+    APP --> IGN[pkg/ignore<br/>Bundle Ignore]
 
     classDef pkg fill:#e0f0ff,stroke:#4a90d9
     classDef internal fill:#fff3e0,stroke:#e6a23c
-    class CONTRACT,VAL,DIFF,GRAPH,PLUG,DOC,SBOM,OVER,DASH,OCI pkg
+    class CONTRACT,VAL,DIFF,GRAPH,PLUG,DOC,SBOM,OVER,DASH,OCI,LOCK,IGN pkg
     class APP,CLI,LOG,MCP,MAIN,UPDATE internal
 ```
 
@@ -150,6 +152,28 @@ Out-of-process plugin execution via JSON stdin/stdout. Discovers plugin binaries
 ### `pkg/dashboard` -- Dashboard server
 
 The exploration and observability layer of the Pacto system. See [Dashboard architecture](#dashboard-architecture) below for a detailed design description.
+
+### `pkg/lock` -- Lockfile builder and verifier
+
+Deterministic lockfile model for dependency and reference closure tracking. Pure, dependency-light package (stdlib + `gopkg.in/yaml.v3` only).
+
+- `Lock` -- root model with `Root`, `Dependencies[]`, `References[]`
+- `Marshal()` -- stable-sorted, byte-identical deterministic serialization so re-marshaling an unchanged closure produces identical output
+- `HashFS()` -- content hashing for local bundles (sha256 over sorted file list with length-prefixed paths and data)
+- Typed errors: `DriftError` (OCI digest mismatch), `LocalDriftError` (local content changed), `StaleError` (pacto.yaml and pacto.lock disagree), `ConflictError` (conflicting version requirements), `UnresolvedError` (resolution failure), `MissingError` (lock required but absent)
+
+Closure building (transitive dependencies and transitive config/policy references) lives in `internal/app`. Verification is wired into validate, graph, diff and push commands with go.sum-style hard-fail semantics.
+
+### `pkg/ignore` -- Bundle ignore matcher
+
+Gitignore-style pattern matching for `.pactoignore` filtering. Determines which files are excluded from bundle packaging.
+
+- `DefaultPatterns` -- `.git/`, `.pactoignore`, `pacto.lock`, `.DS_Store`
+- `alwaysKeep` guard -- ensures `pacto.yaml` is never ignorable regardless of user patterns
+- `Matcher.Ignored()` -- ancestor-aware filtering (files inside ignored directories are themselves ignored)
+- `FS()` -- filtering `fs.FS` wrapper applied at bundle load so pack, push and validation see one consistent file set
+
+Supports gitignore syntax: comments (`#`), negation (`!`), directory-only (`/`), anchoring (`^/`), globs (`*`, `?`, `[]`) and double-star (`**`) for cross-segment matching. Last matching rule wins.
 
 ### `internal/app` -- Application services
 

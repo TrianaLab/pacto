@@ -144,8 +144,8 @@ func assertNotContains(t *testing.T, output, unexpected string) {
 	}
 }
 
-// verifyArchiveContains checks that a tar.gz file at archivePath contains a file named expectedFile.
-func verifyArchiveContains(t *testing.T, archivePath, expectedFile string) {
+// archiveEntries returns the list of file names contained in a tar.gz archive.
+func archiveEntries(t *testing.T, archivePath string) []string {
 	t.Helper()
 
 	f, err := os.Open(archivePath)
@@ -158,8 +158,9 @@ func verifyArchiveContains(t *testing.T, archivePath, expectedFile string) {
 	if err != nil {
 		t.Fatalf("failed to create gzip reader: %v", err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
+	var names []string
 	tr := tar.NewReader(gr)
 	for {
 		hdr, err := tr.Next()
@@ -169,9 +170,32 @@ func verifyArchiveContains(t *testing.T, archivePath, expectedFile string) {
 		if err != nil {
 			t.Fatalf("error reading tar: %v", err)
 		}
-		if hdr.Name == expectedFile {
+		names = append(names, hdr.Name)
+	}
+	return names
+}
+
+// verifyArchiveContains checks that a tar.gz file at archivePath contains a file named expectedFile.
+func verifyArchiveContains(t *testing.T, archivePath, expectedFile string) {
+	t.Helper()
+	for _, name := range archiveEntries(t, archivePath) {
+		if name == expectedFile {
 			return
 		}
 	}
 	t.Errorf("expected %s in archive %s", expectedFile, archivePath)
+}
+
+// assertArchiveExcludes checks that a tar.gz file at archivePath does NOT contain
+// a file named unexpectedFile. Mirrors verifyArchiveContains for ignored paths.
+func assertArchiveExcludes(t *testing.T, archivePath, unexpectedFile string) {
+	t.Helper()
+	entries := archiveEntries(t, archivePath)
+	for _, name := range entries {
+		if name == unexpectedFile {
+			t.Errorf("expected %s to be EXCLUDED from archive %s, entries: %v",
+				unexpectedFile, archivePath, entries)
+			return
+		}
+	}
 }

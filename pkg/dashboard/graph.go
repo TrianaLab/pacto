@@ -48,6 +48,10 @@ type GraphEdgeData struct {
 	Compatibility string `json:"compatibility,omitempty"`
 	Resolved      bool   `json:"resolved"`
 	Type          string `json:"type"` // "dependency" or "reference"
+	// Lock pins from pacto.lock, carried on dependency edges when a lockfile is present.
+	LockedDigest  string `json:"lockedDigest,omitempty"`
+	LockedVersion string `json:"lockedVersion,omitempty"`
+	DriftStatus   string `json:"driftStatus,omitempty"`
 }
 
 // GlobalGraph is the full graph of all services and their dependency edges.
@@ -140,6 +144,9 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 					Compatibility: dep.Compatibility,
 					Resolved:      resolved,
 					Type:          depgraph.EdgeDependency,
+					LockedDigest:  dep.LockedDigest,
+					LockedVersion: dep.LockedVersion,
+					DriftStatus:   dep.DriftStatus,
 				})
 
 				// Add unresolved dependency targets as external nodes.
@@ -239,6 +246,9 @@ func buildGraphNode(svc *ServiceDetails, index map[string]*ServiceDetails, alias
 			Ref:           dep.Ref,
 			Required:      dep.Required,
 			Compatibility: dep.Compatibility,
+			LockedDigest:  dep.LockedDigest,
+			LockedVersion: dep.LockedVersion,
+			DriftStatus:   dep.DriftStatus,
 		}
 
 		depName := resolveServiceName(extractServiceNameFromRef(dep.Ref), index, aliases)

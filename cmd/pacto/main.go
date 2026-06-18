@@ -33,6 +33,7 @@ func run() error {
 	store := oci.NewCachedStore(oci.NewClient(keychain))
 
 	svc := app.NewService(store, &plugin.SubprocessRunner{})
+	app.SetBuildVersion(version)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{
 		Version:   version,
 		GitCommit: gitCommit,

@@ -15,6 +15,7 @@ import (
 
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/dashboard"
+	"github.com/trianalab/pacto/pkg/lock"
 	"github.com/trianalab/pacto/pkg/semver"
 	"github.com/trianalab/pacto/pkg/validation"
 )
@@ -29,7 +30,8 @@ const embedSourceName = "local"
 // versionEntry is one parsed contract version held in memory.
 type versionEntry struct {
 	bundle *contract.Bundle
-	hash   string // sha256 of the raw YAML, used as the version's contract hash
+	hash   string     // sha256 of the raw YAML, used as the version's contract hash
+	lock   *lock.Lock // parsed pacto.lock from the bundle dir, nil when absent
 }
 
 // EmbedSource implements dashboard.DataSource over an embedded filesystem of
@@ -76,9 +78,19 @@ func NewEmbedSource(fsys fs.FS) (*EmbedSource, error) {
 		if s.byName[name] == nil {
 			s.byName[name] = make(map[string]*versionEntry)
 		}
+		// Read an embedded pacto.lock sitting alongside pacto.yaml. The lockfile is
+		// default-ignored by .pactoignore, but //go:embed bypasses that filter, so a
+		// committed lock IS present in the embedded FS and read directly from fsys
+		// (the bundle's ignore-filtered sub-FS would hide it). A malformed lock is
+		// skipped so one bad file never breaks the demo.
+		l, err := readEmbeddedLock(fsys, path.Dir(p))
+		if err != nil {
+			l = nil
+		}
 		s.byName[name][ver] = &versionEntry{
 			bundle: &contract.Bundle{Contract: c, RawYAML: raw, FS: sub},
 			hash:   hex.EncodeToString(h[:]),
+			lock:   l,
 		}
 		return nil
 	})
@@ -91,6 +103,17 @@ func NewEmbedSource(fsys fs.FS) (*EmbedSource, error) {
 	}
 	sort.Strings(s.names)
 	return s, nil
+}
+
+// readEmbeddedLock reads pacto.lock from dir inside fsys. Returns (nil, nil) when
+// the file is absent (a lock is optional). Mirrors dashboard.readLock, but reads
+// from the embedded FS rather than the OS filesystem.
+func readEmbeddedLock(fsys fs.FS, dir string) (*lock.Lock, error) {
+	raw, err := fs.ReadFile(fsys, path.Join(dir, lock.FileName))
+	if err != nil {
+		return nil, nil // absent (or unreadable) → no lock
+	}
+	return lock.Parse(raw)
 }
 
 // versionsDesc returns a service's versions sorted latest-first.
@@ -139,13 +162,24 @@ func (s *EmbedSource) ListServices(_ context.Context) ([]dashboard.Service, erro
 	return services, nil
 }
 
-// GetService returns full details for a service's latest version.
+// GetService returns full details for a service's latest version, with any
+// embedded pacto.lock pins applied so the demo dashboard shows resolved digests.
 func (s *EmbedSource) GetService(_ context.Context, name string) (*dashboard.ServiceDetails, error) {
 	entry, _, err := s.latestEntry(name)
 	if err != nil {
 		return nil, err
 	}
-	return dashboard.ServiceDetailsFromBundle(entry.bundle, embedSourceName), nil
+	return s.detailsWithLock(entry), nil
+}
+
+// detailsWithLock builds ServiceDetails for an entry and applies its lock (if any)
+// through the exported dashboard hook, so the demo surfaces pins via the same code
+// path the on-disk LocalSource uses. The demo has no k8s runtime, so DriftStatus
+// stays empty (pins are shown, no drift assertion) — which is correct offline.
+func (s *EmbedSource) detailsWithLock(entry *versionEntry) *dashboard.ServiceDetails {
+	details := dashboard.ServiceDetailsFromBundle(entry.bundle, embedSourceName)
+	dashboard.ApplyLock(details, entry.lock)
+	return details
 }
 
 // GetVersions returns every indexed version for a service, latest first, each
@@ -203,7 +237,7 @@ func (s *EmbedSource) GetServiceVersion(_ context.Context, ref dashboard.Ref) (*
 	if err != nil {
 		return nil, fmt.Errorf("loading %q version %q: %w", ref.Name, ref.Version, err)
 	}
-	return dashboard.ServiceDetailsFromBundle(entry.bundle, embedSourceName), nil
+	return s.detailsWithLock(entry), nil
 }
 
 // resolveRef finds the bundle for a ref, defaulting an empty version to latest,

@@ -1,0 +1,46 @@
+lockVersion: 1
+pacto:
+    version: 0.0.0
+root:
+    name: payments-service
+    version: 1.2.0
+dependencies:
+    - name: fraud-service
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto-demo/fraud-service
+      constraint: ^1.0.0
+      version: 1.0.0
+      digest: sha256:3e73d6d2fd63b730d77f241d3e0f07d8e1edce837124b34f0e7b49b5c66985cf
+      dependsOn:
+        - redis
+    - name: postgresql
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
+      constraint: ^16.0.0
+      version: 16.0.0
+      digest: sha256:f98a940bcb3344e73476605c003aaf6782f86b61e5beaf98bc7012f2959d340c
+    - name: redis
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto-demo/redis
+      constraint: ^7.0.0
+      version: 7.2.0
+      digest: sha256:7d9247cb5e7a72866075cea3e571f7115911e8116d957d93132c6cd3c69b3e69
+    - name: stripe-api
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto-demo/stripe-api
+      constraint: ^2024.01.01
+      version: 2024.01.01
+      digest: sha256:2da44e525052f640faa5e06909bcd3f5a3055a118bf9ef1a56f3d67f7003d3b4
+references:
+    - kind: config
+      name: platform
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+      version: 1.0.0
+      digest: sha256:f8031ee52466073f28daefaa53af7e8ec948492d72fb0561a328a0af28cceaed
+    - kind: policy
+      name: http-security
+      source: oci
+      ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+      version: 1.0.0
+      digest: sha256:98f6d2eb51a14f8053a5af015caaf175efcdfe07b0718f09a0755c163c13fd9b

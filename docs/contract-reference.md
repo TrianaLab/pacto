@@ -363,6 +363,9 @@ This enables centralized configuration management — a platform team publishes 
 !!! warning
     Local configuration references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local configuration refs — all refs must use `oci://` before publishing.
 
+!!! tip
+    Configuration references are pinned in `pacto.lock` alongside dependencies. The full transitive reference closure (N-hop config/policy jumps) is resolved and verified. See [Lockfile](lockfile.md).
+
 #### Secret references
 
 Secrets should never be stored as literal values in a contract. Instead, use a reference convention that the platform resolves at deployment time. The contract declares *what* the service needs; the platform decides *how* to provide it.
@@ -531,6 +534,9 @@ When a consumer references a policy contract, Pacto uses conditional resolution:
 !!! info
     `pacto push` resolves and enforces all remote `policies[].ref` entries before publishing. If the contract violates any referenced policy schema, the push is rejected. This ensures non-compliant contracts are never published to the registry.
 
+!!! tip
+    Policy references are pinned in `pacto.lock` alongside dependencies and config references. The full transitive reference closure is resolved and verified. See [Lockfile](lockfile.md).
+
 #### Bundle structure with policy
 
 ```
@@ -595,6 +601,9 @@ Pacto uses [Masterminds/semver](https://github.com/Masterminds/semver#checking-v
 
 !!! tip
     If your service depends on a cloud-managed resource (e.g. GCP Cloud SQL, AWS SNS, Azure Service Bus), create a lightweight Pacto contract representing that resource and reference it as a dependency. This makes cloud dependencies explicit and version-tracked alongside your service contracts.
+
+!!! tip
+    Use `pacto lock` to pin the full transitive dependency closure to exact digests. When a `pacto.lock` file is present, every resolved dependency must match the pinned digest or the command fails. See [Lockfile](lockfile.md) for details.
 
 ---
 

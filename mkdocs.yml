@@ -119,6 +119,8 @@ nav:
   - Reference:
       - Contract reference: contract-reference.md
       - CLI reference: cli-reference.md
+      - Lockfile: lockfile.md
+      - Packaging ignore: pactoignore.md
   - Integrations:
       - Dashboard container: dashboard-docker.md
       - GitHub Actions: github-actions.md

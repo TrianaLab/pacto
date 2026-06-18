@@ -5,12 +5,96 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/override"
 )
+
+func TestLoadLocalBundleAppliesPactoignore(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		full := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("pacto.yaml", "pactoVersion: \"1.0\"\nservice:\n  name: s\n  version: \"1.0.0\"\n")
+	write(".pactoignore", "*.secret\nbuild/\n")
+	write("keep.txt", "ok")
+	write("token.secret", "nope")
+	write("build/artifact.bin", "nope")
+
+	b, err := loadLocalBundle(dir)
+	if err != nil {
+		t.Fatalf("loadLocalBundle: %v", err)
+	}
+
+	// Collect files visible via walk to verify filtering.
+	got := map[string]bool{}
+	walkErr := fs.WalkDir(b.FS, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			got[p] = true
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatalf("walk: %v", walkErr)
+	}
+
+	// Check expected files are kept.
+	for _, kept := range []string{"pacto.yaml", "keep.txt"} {
+		if !got[kept] {
+			t.Errorf("%s should be kept", kept)
+		}
+	}
+
+	// Check ignored files are excluded.
+	for _, ignored := range []string{"token.secret", "build/artifact.bin", ".pactoignore"} {
+		if got[ignored] {
+			t.Errorf("%s should be filtered out", ignored)
+		}
+	}
+}
+
+func TestLoadLocalBundleIgnoreLoadError(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		full := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("pacto.yaml", "pactoVersion: \"1.0\"\nservice:\n  name: s\n  version: \"1.0.0\"\n")
+	write(".pactoignore", "*.tmp\n")
+
+	// Make .pactoignore unreadable to trigger ignore.Load error.
+	ignorePath := filepath.Join(dir, ".pactoignore")
+	if err := os.Chmod(ignorePath, 0o000); err != nil {
+		t.Skipf("cannot chmod .pactoignore (filesystem does not support permissions): %v", err)
+	}
+	defer func() { _ = os.Chmod(ignorePath, 0o644) }() // cleanup
+
+	_, err := loadLocalBundle(dir)
+	if err == nil {
+		t.Fatal("expected loadLocalBundle to fail when .pactoignore is unreadable")
+	}
+	// Error should mention .pactoignore
+	if !strings.Contains(err.Error(), ".pactoignore") {
+		t.Errorf("error should mention .pactoignore: %v", err)
+	}
+}
 
 func TestDefaultPath_Empty(t *testing.T) {
 	if got := defaultPath(""); got != "." {

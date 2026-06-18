@@ -167,3 +167,44 @@ func TestReadiness_MinScore(t *testing.T) {
 		t.Errorf("expected minScore 80, got %v", r.MinScore)
 	}
 }
+
+// TestContract_ReferenceRefs asserts the order (policies first, then configs),
+// the empty-Ref skip (inline schemas excluded) and the kind/name/ref mapping —
+// the single source of truth both lock builders consume.
+func TestContract_ReferenceRefs(t *testing.T) {
+	c := &Contract{
+		Configurations: []ConfigurationSource{
+			{Name: "cfg-ref", Ref: "oci://r/cfg"},
+			{Name: "cfg-inline", Schema: "config/schema.json"}, // no Ref -> skipped
+		},
+		Policies: []PolicySource{
+			{Name: "pol-ref", Ref: "oci://r/pol"},
+			{Name: "pol-inline", Schema: "policy/schema.json"}, // no Ref -> skipped
+		},
+	}
+	got := c.ReferenceRefs()
+	want := []ReferenceRef{
+		{Kind: ReferenceKindPolicy, Name: "pol-ref", Ref: "oci://r/pol"},
+		{Kind: ReferenceKindConfig, Name: "cfg-ref", Ref: "oci://r/cfg"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d refs, got %d: %+v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("ref[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+// TestContract_ReferenceRefs_Empty covers a contract with no ref-bearing
+// configs/policies (nil result).
+func TestContract_ReferenceRefs_Empty(t *testing.T) {
+	c := &Contract{
+		Configurations: []ConfigurationSource{{Name: "cfg", Schema: "config/schema.json"}},
+		Policies:       []PolicySource{{Name: "pol", Schema: "policy/schema.json"}},
+	}
+	if got := c.ReferenceRefs(); got != nil {
+		t.Errorf("expected nil refs for inline-only contract, got %+v", got)
+	}
+}

@@ -29,6 +29,32 @@ The graph, dependents and cross-reference views derive from each contract's
 declared dependencies (every referenced service is embedded), so no OCI resolver
 is needed.
 
+## Demo lockfiles
+
+The dependency-bearing demo bundles ship a committed `pacto.lock` (plus a
+`.pactoignore` that re-includes it with `!pacto.lock`), so the demo dashboard
+shows resolved dependency/reference pins offline. `pacto.lock` is default-ignored
+when packing a bundle; `.pactoignore` opts it back in so the lock travels with the
+embedded bundle. Only dep-bearing bundles get a lock — leaf bundles (postgresql,
+redis, stripe-api, email-provider, platform-*) carry none.
+
+Regenerate with:
+
+```bash
+make demo-locks            # runs ./genlocks, then commit the result
+```
+
+`genlocks` is OFFLINE and DETERMINISTIC: the demo's `oci://ghcr.io/...` refs don't
+resolve without a live registry, so it resolves the closure BY SERVICE NAME within
+`./bundles` (every referenced service is present). The lockfile `digest` is a
+**content-derived pin for the offline demo, not a live registry digest**: it is
+the `lock.HashFS` content hash of the target bundle (computed over the default
+ignore set, so the lock files never feed their own hash). Re-running `make
+demo-locks` is byte-identical, so the committed demo data stays stable. The
+original declared `oci://` ref is preserved verbatim in each entry's `ref`. There
+is no k8s runtime in the demo, so no drift is asserted — pins are shown without a
+drift status, which is correct offline.
+
 ## Build
 
 Requirements: Go 1.26+, Node 22+, make.

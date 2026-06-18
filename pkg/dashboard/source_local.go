@@ -104,15 +104,19 @@ func (s *LocalSource) ListServices(_ context.Context) ([]Service, error) {
 }
 
 func (s *LocalSource) GetService(_ context.Context, name string) (*ServiceDetails, error) {
-	bundle, err := s.findBundle(name)
+	bundle, dir, err := s.findBundle(name)
 	if err != nil {
 		return nil, err
 	}
-	return ServiceDetailsFromBundle(bundle, "local"), nil
+	details := ServiceDetailsFromBundle(bundle, "local")
+	if err := applyLockFromDir(details, dir); err != nil {
+		return nil, err
+	}
+	return details, nil
 }
 
 func (s *LocalSource) GetVersions(_ context.Context, name string) ([]Version, error) {
-	bundle, err := s.findBundle(name)
+	bundle, _, err := s.findBundle(name)
 	if err != nil {
 		return nil, err
 	}
@@ -126,11 +130,11 @@ func (s *LocalSource) GetVersions(_ context.Context, name string) ([]Version, er
 }
 
 func (s *LocalSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) {
-	bundleA, err := s.findBundle(a.Name)
+	bundleA, _, err := s.findBundle(a.Name)
 	if err != nil {
 		return nil, fmt.Errorf("loading %q: %w", a.Name, err)
 	}
-	bundleB, err := s.findBundle(b.Name)
+	bundleB, _, err := s.findBundle(b.Name)
 	if err != nil {
 		return nil, fmt.Errorf("loading %q: %w", b.Name, err)
 	}
@@ -138,7 +142,7 @@ func (s *LocalSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) 
 }
 
 func (s *LocalSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDetails, error) {
-	bundle, err := s.findBundle(ref.Name)
+	bundle, dir, err := s.findBundle(ref.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -146,20 +150,36 @@ func (s *LocalSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDet
 		return nil, fmt.Errorf("version %q of %q not found in local source (on-disk version is %q)",
 			ref.Version, ref.Name, bundle.Contract.Service.Version)
 	}
-	return ServiceDetailsFromBundle(bundle, "local"), nil
+	details := ServiceDetailsFromBundle(bundle, "local")
+	if err := applyLockFromDir(details, dir); err != nil {
+		return nil, err
+	}
+	return details, nil
 }
 
-func (s *LocalSource) findBundle(name string) (*contract.Bundle, error) {
+// applyLockFromDir reads pacto.lock from dir (if present) and maps its pins onto
+// details. A missing lockfile is a no-op (backward compatible); a malformed one
+// is surfaced as an error.
+func applyLockFromDir(details *ServiceDetails, dir string) error {
+	l, err := readLock(dir)
+	if err != nil {
+		return err
+	}
+	ApplyLock(details, l)
+	return nil
+}
+
+func (s *LocalSource) findBundle(name string) (*contract.Bundle, string, error) {
 	for _, dir := range localBundleDirs(s.root) {
 		bundle, err := loadLocalBundle(dir)
 		if err != nil {
 			continue
 		}
 		if bundle.Contract.Service.Name == name {
-			return bundle, nil
+			return bundle, dir, nil
 		}
 	}
-	return nil, fmt.Errorf("service %q not found in %s", name, s.root)
+	return nil, "", fmt.Errorf("service %q not found in %s", name, s.root)
 }
 
 func loadLocalBundle(dir string) (*contract.Bundle, error) {

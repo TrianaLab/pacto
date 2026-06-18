@@ -258,7 +258,7 @@ func TestLocalSource_ImplementsDataSource(t *testing.T) {
 func TestLocalSource_FindBundle_ReadDirError(t *testing.T) {
 	// Use a non-existent root so that ReadDir fails.
 	src := NewLocalSource("/nonexistent/path/that/does/not/exist")
-	_, err := src.findBundle("any-service")
+	_, _, err := src.findBundle("any-service")
 	if err == nil {
 		t.Fatal("expected error when root directory does not exist")
 	}

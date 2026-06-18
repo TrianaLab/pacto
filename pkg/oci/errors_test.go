@@ -48,6 +48,49 @@ func TestAuthenticationError(t *testing.T) {
 	}
 }
 
+func TestAuthenticationError_WithSources(t *testing.T) {
+	cause := fmt.Errorf("forbidden")
+	tests := []struct {
+		name        string
+		err         *AuthenticationError
+		wantContain []string
+		wantOmit    []string
+	}{
+		{
+			name:        "tried and rejected",
+			err:         &AuthenticationError{Ref: "reg.io/img:v1", Err: cause, Tried: []string{"pacto login", "gh"}, Rejected: []string{"pacto login", "gh"}},
+			wantContain: []string{"rejected: pacto login, gh", "tried: pacto login, gh", "pacto logout <registry>"},
+		},
+		{
+			name:        "rejected only",
+			err:         &AuthenticationError{Ref: "reg.io/img:v1", Err: cause, Rejected: []string{"pacto login"}},
+			wantContain: []string{"rejected: pacto login"},
+			wantOmit:    []string{"tried:"},
+		},
+		{
+			name:        "tried only",
+			err:         &AuthenticationError{Ref: "reg.io/img:v1", Err: cause, Tried: []string{"anonymous"}},
+			wantContain: []string{"tried: anonymous"},
+			wantOmit:    []string{"rejected:"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := tt.err.Error()
+			for _, want := range tt.wantContain {
+				if !strings.Contains(msg, want) {
+					t.Errorf("Error() = %q, want to contain %q", msg, want)
+				}
+			}
+			for _, omit := range tt.wantOmit {
+				if strings.Contains(msg, omit) {
+					t.Errorf("Error() = %q, should not contain %q", msg, omit)
+				}
+			}
+		})
+	}
+}
+
 func TestArtifactNotFoundError(t *testing.T) {
 	cause := fmt.Errorf("not found")
 	err := &ArtifactNotFoundError{Ref: "example.com/repo:v1", Err: cause}

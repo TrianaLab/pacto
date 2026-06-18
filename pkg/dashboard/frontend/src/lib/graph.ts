@@ -30,6 +30,9 @@ export interface GraphEdge {
   targetId: string;
   required?: boolean;
   type?: string;
+  lockedDigest?: string;
+  lockedVersion?: string;
+  driftStatus?: string;
 }
 
 export interface GraphNode {
@@ -113,6 +116,9 @@ interface SimLink {
   target: string | GraphNode;
   required?: boolean;
   type: string;
+  lockedDigest?: string;
+  lockedVersion?: string;
+  driftStatus?: string;
 }
 
 export interface GraphControls {
@@ -145,6 +151,9 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
           target: edge.targetId,
           required: edge.required,
           type: edge.type || 'dependency',
+          lockedDigest: edge.lockedDigest,
+          lockedVersion: edge.lockedVersion,
+          driftStatus: edge.driftStatus,
         });
       }
     }
@@ -233,14 +242,22 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
   const linkEls = linkG.selectAll('line')
     .data(links)
     .join('line')
-    .attr('stroke', (d) => d.type === 'reference' ? 'var(--c-accent)' : 'var(--c-text-3)')
-    .attr('stroke-width', (d) => d.required ? 2 : 1)
+    .attr('stroke', (d) => {
+      if (d.driftStatus === 'drift') return 'var(--c-warn)';
+      if (d.type === 'reference') return 'var(--c-accent)';
+      return 'var(--c-text-3)';
+    })
+    .attr('stroke-width', (d) => {
+      if (d.lockedDigest) return d.required ? 2.5 : 1.5;
+      return d.required ? 2 : 1;
+    })
     .attr('stroke-dasharray', (d) => {
       if (d.type === 'reference') return '6,3';
+      if (d.driftStatus === 'drift') return '8,4';
       return d.required ? 'none' : '4,3';
     })
     .attr('marker-end', (d) => d.type === 'reference' ? 'url(#arrow-ref)' : 'url(#arrow)')
-    .attr('opacity', 0.6);
+    .attr('opacity', (d) => d.driftStatus === 'drift' ? 0.8 : 0.6);
 
   // Nodes — track drag movement to distinguish click from drag
   const nodeG = g.append('g').attr('class', 'nodes');

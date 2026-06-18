@@ -75,6 +75,10 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 		return nil, err
 	}
 
+	if err := s.verifyLockIfPresent(ctx, path, &contract.Bundle{Contract: c, FS: bundleFS}); err != nil {
+		return nil, err
+	}
+
 	ref := parsed.Location
 	if !hasTagOrDigest(ref) {
 		ref = ref + ":" + c.Service.Version
