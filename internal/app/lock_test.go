@@ -33,7 +33,9 @@ func authStore(digest string) *testutil.MockBundleStore {
 	return &testutil.MockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.2.0"}, nil },
 		ResolveFn:  func(_ context.Context, _ string) (string, error) { return digest, nil },
-		PullFn:     func(_ context.Context, _ string) (*contract.Bundle, error) { return &contract.Bundle{Contract: auth}, nil },
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			return &contract.Bundle{Contract: auth}, nil
+		},
 	}
 }
 

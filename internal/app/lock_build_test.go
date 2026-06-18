@@ -585,7 +585,9 @@ func TestBuildReferenceClosureLocalInsideOCIErrors(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.0.0"}, nil },
 		ResolveFn:  func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
-		PullFn:     func(_ context.Context, _ string) (*contract.Bundle, error) { return &contract.Bundle{Contract: pContract}, nil },
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			return &contract.Bundle{Contract: pContract}, nil
+		},
 	}
 	s := NewService(store, nil)
 	root := policyRefContract("root", "0.1.0", "oci://r/p")
@@ -640,7 +642,9 @@ func TestBuildReferenceClosureResolveError(t *testing.T) {
 func TestBuildReferenceClosurePullError(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
-		PullFn:    func(_ context.Context, _ string) (*contract.Bundle, error) { return nil, fmt.Errorf("registry unreachable") },
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			return nil, fmt.Errorf("registry unreachable")
+		},
 	}
 	s := NewService(store, nil)
 	root := policyRefContract("root", "0.1.0", "oci://r/p:1.0.0")
