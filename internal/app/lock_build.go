@@ -74,7 +74,11 @@ func referenceBaseDir(ref string) string {
 	if isOCIRef(ref) {
 		return ""
 	}
-	return ref
+	base := ref
+	if abs, err := filepath.Abs(ref); err == nil {
+		base = abs
+	}
+	return base
 }
 
 // refDecl is one declared config/policy reference: its kind, declared name and
