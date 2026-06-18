@@ -15,11 +15,13 @@ import (
 // IgnoreFileName is the name of the per-bundle ignore file.
 const IgnoreFileName = ".pactoignore"
 
-// DefaultPatterns are always ignored when building a bundle.
+// DefaultPatterns are always ignored when building a bundle. pacto.lock is NOT
+// among them: a committed lockfile ships inside the bundle by default so the
+// dashboard can surface its pins and drift for every source (local, OCI, cache).
+// Shipping stays opt-in — with no lock on disk nothing extra is included.
 var DefaultPatterns = []string{
 	".git/",
 	".pactoignore",
-	"pacto.lock",
 	".DS_Store",
 }
 

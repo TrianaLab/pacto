@@ -85,6 +85,14 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 	// Compute compliance for non-k8s sources (no conditions available).
 	svc.Compliance = ComputeCompliance(svc.ContractStatus, svc.Conditions)
 
+	// Apply the embedded lockfile (pacto.lock) when the bundle FS carries one.
+	// Since the lock now ships inside the bundle for every source (local, OCI,
+	// cache), this single read surfaces pins and lights up dependency drift
+	// cluster-wide. A nil FS or absent/malformed lock leaves svc untouched.
+	if l, err := lockFromFS(bundle.FS); err == nil {
+		ApplyLock(svc, l)
+	}
+
 	return svc
 }
 
