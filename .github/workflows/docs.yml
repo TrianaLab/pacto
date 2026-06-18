@@ -10,6 +10,12 @@ on:
       # The demo embeds the dashboard UI + engine, so redeploy when they change.
       - 'pkg/dashboard/**'
       - '.github/workflows/docs.yml'
+  # Redeploy on every published release. The demo bakes in the Pacto version via
+  # `git describe` at build time; the release tag is created moments AFTER the
+  # merge-to-main push that triggered the path-filtered build above, so that
+  # build still saw the previous tag. This re-runs once the new tag exists.
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
