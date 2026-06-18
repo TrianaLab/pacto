@@ -172,6 +172,69 @@ func TestPactoignoreIgnoringReferencedFileFails(t *testing.T) {
 	}
 }
 
+// TestPactoignoreIgnoredDirHidesReferencedFile proves directory-level ignore
+// patterns (e.g., `api/`) correctly hide files in that directory even when the
+// contract references them. This exercises the ancestor filtering fix: any file
+// whose parent directory is ignored is also treated as ignored, so validate and
+// pack fail with FILE_NOT_FOUND. Scenario C: directory pattern ignoring a file.
+func TestPactoignoreIgnoredDirHidesReferencedFile(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "ignore-dir-svc")
+	if err := os.MkdirAll(filepath.Join(dir, "api"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Contract references api/openapi.yaml.
+	contractYAML := `pactoVersion: "1.0"
+service:
+  name: ignore-dir-svc
+  version: 1.0.0
+  owner: team/platform
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: api/openapi.yaml
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "api", "openapi.yaml"),
+		[]byte(fmt.Sprintf(openapiTemplate, "ignore-dir-svc", "1.0.0")), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Ignore the DIRECTORY containing the referenced interface file.
+	if err := os.WriteFile(filepath.Join(dir, ".pactoignore"),
+		[]byte("api/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// validate must fail and report the missing referenced file.
+	out, err := runCommand(t, nil, "validate", dir)
+	if err == nil {
+		t.Fatalf("expected validate to fail when referenced file's directory is ignored, got success:\n%s", out)
+	}
+	assertContains(t, out, "FILE_NOT_FOUND")
+
+	// pack must also fail (cannot package a bundle missing a referenced file).
+	archive := filepath.Join(t.TempDir(), "ignore-dir-svc.tar.gz")
+	if _, perr := runCommand(t, nil, "pack", dir, "-o", archive); perr == nil {
+		t.Fatal("expected pack to fail when referenced file's directory is ignored, got success")
+	}
+}
+
 // TestPactoignoreSurvivesPushPull proves the filter applies through the real OCI
 // round-trip: after push then pull to a fresh dir, the pulled tree keeps
 // pacto.yaml + the interface file but omits the ignored files. This proves the
