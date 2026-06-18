@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"path/filepath"
 
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/graph"
@@ -11,9 +12,9 @@ import (
 // buildLock resolves the full dependency + reference closure for a contract and
 // records it as a deterministic lock. Dependencies are resolved transitively
 // (via the graph) and each gets a pinned digest (OCI) or content hash (local).
-// References (config/policy) are DIRECT-ONLY: the resolver attaches reference
-// edges to the root node without recursing into them (see
-// graph.ExtractReferenceEdges), so they are handled separately here.
+// References (config/policy) are pinned TRANSITIVELY via buildReferenceClosure:
+// a referenced bundle may itself reference further configs/policies, all of
+// which are pinned (deduplicated by declared ref, which terminates cycles).
 //
 // buildLock fails closed: a graph conflict yields *lock.ConflictError, and any
 // required edge that failed to resolve (non-empty Error, nil Node) or any digest
@@ -54,20 +55,123 @@ func (s *Service) buildLock(ctx context.Context, ref string, bundle *contract.Bu
 		return nil, buildErr
 	}
 
-	// References are direct-only and carry no resolved Node; build them from the
-	// root's reference edges, deriving kind from the contract's config/policy lists.
-	for _, e := range res.Root.Dependencies {
-		if e.Type != graph.EdgeReference {
-			continue
-		}
-		r, err := s.referenceFromEdge(ctx, bundle.Contract, e)
-		if err != nil {
-			return nil, err
-		}
-		l.References = append(l.References, r)
+	// References are pinned transitively: a referenced config/policy bundle may
+	// itself reference further configs/policies, all of which must be pinned.
+	refs, err := s.buildReferenceClosure(ctx, bundle.Contract, referenceBaseDir(ref))
+	if err != nil {
+		return nil, err
 	}
+	l.References = refs
 
 	return l, nil
+}
+
+// referenceBaseDir returns the directory against which the root contract's
+// local references are resolved. OCI roots have no filesystem base (""); local
+// roots resolve relative to their own directory (the supplied ref). The base is
+// only joined onto relative local refs, so a relative root path stays valid.
+func referenceBaseDir(ref string) string {
+	if isOCIRef(ref) {
+		return ""
+	}
+	return ref
+}
+
+// refDecl is one declared config/policy reference: its kind, declared name and
+// the raw ref string from the declaring contract.
+type refDecl struct{ kind, name, ref string }
+
+// referenceDecls returns the contract's declared config/policy references in
+// declaration order (policies first, then configurations), skipping empty refs.
+func referenceDecls(c *contract.Contract) []refDecl {
+	var out []refDecl
+	for _, p := range c.Policies {
+		if p.Ref != "" {
+			out = append(out, refDecl{kind: "policy", name: p.Name, ref: p.Ref})
+		}
+	}
+	for _, cfg := range c.Configurations {
+		if cfg.Ref != "" {
+			out = append(out, refDecl{kind: "config", name: cfg.Name, ref: cfg.Ref})
+		}
+	}
+	return out
+}
+
+// buildReferenceClosure pins the full transitive config/policy reference closure.
+// Deduplicated by declared ref string, which also terminates cycles.
+func (s *Service) buildReferenceClosure(ctx context.Context, root *contract.Contract, baseDir string) ([]lock.Reference, error) {
+	seen := map[string]bool{}
+	var out []lock.Reference
+	var walk func(c *contract.Contract, dir string) error
+	walk = func(c *contract.Contract, dir string) error {
+		for _, d := range referenceDecls(c) {
+			if seen[d.ref] {
+				continue
+			}
+			seen[d.ref] = true
+			entry, child, childDir, err := s.resolveReference(ctx, d, dir)
+			if err != nil {
+				return err
+			}
+			out = append(out, entry)
+			if child != nil {
+				if err := walk(child, childDir); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := walk(root, baseDir); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// resolveReference pins one reference and returns the referenced bundle's
+// contract (for recursion) and its base dir ("" for OCI). Any resolve/pull/
+// hash/load failure yields *lock.UnresolvedError (fail closed).
+func (s *Service) resolveReference(ctx context.Context, d refDecl, dir string) (lock.Reference, *contract.Contract, string, error) {
+	r := lock.Reference{Kind: d.kind, Name: d.name}
+	parsed := graph.ParseDependencyRef(d.ref)
+
+	if parsed.IsLocal() {
+		if dir == "" {
+			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.ref, Reason: "local reference inside an OCI bundle cannot be resolved"}
+		}
+		path := parsed.Location
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(dir, path)
+		}
+		b, err := loadLocalBundle(path)
+		if err != nil {
+			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.ref, Reason: err.Error()}
+		}
+		h, err := lock.HashFS(b.FS)
+		if err != nil {
+			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.ref, Reason: err.Error()}
+		}
+		r.Source = "local"
+		r.Path = parsed.Location
+		r.ContentHash = h
+		r.Version = b.Contract.Service.Version
+		return r, b.Contract, path, nil
+	}
+
+	resolvedRef, digest, err := resolveDigest(ctx, s.BundleStore, parsed.Location, "")
+	if err != nil {
+		return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.ref, Reason: err.Error()}
+	}
+	b, err := s.BundleStore.Pull(ctx, resolvedRef)
+	if err != nil {
+		return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.ref, Reason: err.Error()}
+	}
+	r.Source = "oci"
+	r.Ref = d.ref
+	r.Digest = digest
+	r.Version = b.Contract.Service.Version
+	return r, b.Contract, "", nil
 }
 
 // entryFromEdge builds a dependency lock entry from a resolved graph node,
@@ -103,58 +207,6 @@ func (s *Service) entryFromEdge(ctx context.Context, e graph.Edge, n *graph.Node
 	}
 	entry.Digest = digest
 	return entry, nil
-}
-
-// referenceFromEdge builds a config/policy reference lock entry. The graph does
-// not distinguish config from policy on reference edges (they carry only the
-// ref), so the kind and name are derived by matching the ref against the
-// contract's Policies (→ "policy") then Configurations (→ "config").
-func (s *Service) referenceFromEdge(ctx context.Context, c *contract.Contract, e graph.Edge) (lock.Reference, error) {
-	kind, name := referenceKindAndName(c, e.Ref)
-	r := lock.Reference{Kind: kind, Name: name}
-
-	parsed := graph.ParseDependencyRef(e.Ref)
-	if parsed.IsLocal() {
-		r.Source = "local"
-		r.Path = parsed.Location
-		bundle, err := loadLocalBundle(parsed.Location)
-		if err != nil {
-			return lock.Reference{}, &lock.UnresolvedError{Ref: e.Ref, Reason: err.Error()}
-		}
-		h, err := lock.HashFS(bundle.FS)
-		if err != nil {
-			return lock.Reference{}, &lock.UnresolvedError{Ref: e.Ref, Reason: err.Error()}
-		}
-		r.ContentHash = h
-		return r, nil
-	}
-
-	r.Source = "oci"
-	r.Ref = e.Ref
-	_, digest, err := resolveDigest(ctx, s.BundleStore, parsed.Location, "")
-	if err != nil {
-		return lock.Reference{}, &lock.UnresolvedError{Ref: e.Ref, Reason: err.Error()}
-	}
-	r.Digest = digest
-	return r, nil
-}
-
-// referenceKindAndName resolves a reference edge's ref to its kind and declared
-// name. Policies take precedence over configurations when a ref appears in both.
-// Defaults to ("config", "") for refs not found in either list (defensive; the
-// resolver only emits edges for declared refs).
-func referenceKindAndName(c *contract.Contract, ref string) (string, string) {
-	for _, p := range c.Policies {
-		if p.Ref == ref {
-			return "policy", p.Name
-		}
-	}
-	for _, cfg := range c.Configurations {
-		if cfg.Ref == ref {
-			return "config", cfg.Name
-		}
-	}
-	return "config", ""
 }
 
 // firstFailedEdge returns the first edge in the graph (depth-first) whose

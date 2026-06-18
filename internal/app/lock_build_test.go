@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/internal/testutil"
@@ -145,10 +146,17 @@ func TestBuildLockLocalDep(t *testing.T) {
 	}
 }
 
-// TestBuildLockReferences covers config AND policy reference entries.
+// TestBuildLockReferences covers config AND policy reference entries. The
+// referenced bundles are fetched (transitive closure), so Version is populated.
 func TestBuildLockReferences(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
+		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+			if strings.Contains(ref, "/cfg") {
+				return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "cfg", Version: "1.0.0"}}}, nil
+			}
+			return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "sec", Version: "2.0.0"}}}, nil
+		},
 	}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
@@ -171,14 +179,14 @@ func TestBuildLockReferences(t *testing.T) {
 	if !ok {
 		t.Fatalf("config ref cfg missing: %+v", l.References)
 	}
-	if cfg.Source != "oci" || cfg.Ref != "oci://ghcr.io/acme/cfg:1.0.0" || cfg.Digest == "" {
+	if cfg.Source != "oci" || cfg.Ref != "oci://ghcr.io/acme/cfg:1.0.0" || cfg.Digest == "" || cfg.Version != "1.0.0" {
 		t.Errorf("config ref wrong: %+v", cfg)
 	}
 	pol, ok := l.Reference("policy", "sec")
 	if !ok {
 		t.Fatalf("policy ref sec missing: %+v", l.References)
 	}
-	if pol.Source != "oci" || pol.Ref != "oci://ghcr.io/acme/sec:2.0.0" || pol.Digest == "" {
+	if pol.Source != "oci" || pol.Ref != "oci://ghcr.io/acme/sec:2.0.0" || pol.Digest == "" || pol.Version != "2.0.0" {
 		t.Errorf("policy ref wrong: %+v", pol)
 	}
 }
@@ -202,7 +210,7 @@ func TestBuildLockLocalReference(t *testing.T) {
 	if !ok {
 		t.Fatalf("local config ref missing: %+v", l.References)
 	}
-	if ref.Source != "local" || ref.Path != dir || ref.ContentHash == "" {
+	if ref.Source != "local" || ref.Path != dir || ref.ContentHash == "" || ref.Version != "1.0.0" {
 		t.Errorf("local ref wrong: %+v", ref)
 	}
 }
@@ -501,35 +509,172 @@ func TestBuildLockLocalReferenceHashError(t *testing.T) {
 	}
 }
 
-func TestReferenceKindAndName(t *testing.T) {
-	c := &contract.Contract{
-		Configurations: []contract.ConfigurationSource{{Name: "cfg", Ref: "oci://r/cfg"}},
-		Policies: []contract.PolicySource{
-			{Name: "sec", Ref: "oci://r/sec"},
-			// Ref shared with a config: policy must win (precedence).
-			{Name: "shared-pol", Ref: "oci://r/shared"},
+// policyRefContract returns a contract named n declaring the given policy refs.
+func policyRefContract(name, version string, policyRefs ...string) *contract.Contract {
+	c := &contract.Contract{Service: contract.ServiceIdentity{Name: name, Version: version}}
+	for _, r := range policyRefs {
+		c.Policies = append(c.Policies, contract.PolicySource{Name: name + "-pol", Ref: r})
+	}
+	return c
+}
+
+// TestBuildReferenceClosureTransitive covers the transitive OCI jump
+// root -> P -> Q: Q is pinned with both version and digest.
+func TestBuildReferenceClosureTransitive(t *testing.T) {
+	pContract := policyRefContract("p", "1.0.0", "oci://r/q")
+	qContract := policyRefContract("q", "2.0.0")
+	store := &testutil.MockBundleStore{
+		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.0.0", "2.0.0"}, nil },
+		ResolveFn:  func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
+		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+			if strings.Contains(ref, "/p") {
+				return &contract.Bundle{Contract: pContract}, nil
+			}
+			return &contract.Bundle{Contract: qContract}, nil
 		},
 	}
-	c.Configurations = append(c.Configurations, contract.ConfigurationSource{Name: "shared-cfg", Ref: "oci://r/shared"})
-
-	tests := []struct {
-		name     string
-		ref      string
-		wantKind string
-		wantName string
-	}{
-		{"config", "oci://r/cfg", "config", "cfg"},
-		{"policy", "oci://r/sec", "policy", "sec"},
-		{"policy precedence over config", "oci://r/shared", "policy", "shared-pol"},
-		{"unknown ref defaults to config", "oci://r/unknown", "config", ""},
+	s := NewService(store, nil)
+	root := policyRefContract("root", "0.1.0", "oci://r/p")
+	refs, err := s.buildReferenceClosure(context.Background(), root, "")
+	if err != nil {
+		t.Fatalf("buildReferenceClosure: %v", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotKind, gotName := referenceKindAndName(c, tt.ref)
-			if gotKind != tt.wantKind || gotName != tt.wantName {
-				t.Errorf("referenceKindAndName(%q) = (%q,%q), want (%q,%q)", tt.ref, gotKind, gotName, tt.wantKind, tt.wantName)
+	if len(refs) != 2 {
+		t.Fatalf("want 2 references (p, q), got %d: %+v", len(refs), refs)
+	}
+	byRef := map[string]lock.Reference{}
+	for _, r := range refs {
+		byRef[r.Ref] = r
+	}
+	q := byRef["oci://r/q"]
+	if q.Version != "2.0.0" || q.Digest == "" || q.Kind != "policy" {
+		t.Errorf("transitive Q not pinned correctly: %+v", q)
+	}
+}
+
+// TestBuildReferenceClosureCycle covers a P<->Q cycle: dedupe by declared ref
+// string terminates the walk, each pinned exactly once.
+func TestBuildReferenceClosureCycle(t *testing.T) {
+	pContract := policyRefContract("p", "1.0.0", "oci://r/q")
+	qContract := policyRefContract("q", "1.0.0", "oci://r/p")
+	store := &testutil.MockBundleStore{
+		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.0.0"}, nil },
+		ResolveFn:  func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
+		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+			if strings.Contains(ref, "/p") {
+				return &contract.Bundle{Contract: pContract}, nil
 			}
-		})
+			return &contract.Bundle{Contract: qContract}, nil
+		},
+	}
+	s := NewService(store, nil)
+	root := policyRefContract("root", "0.1.0", "oci://r/p")
+	refs, err := s.buildReferenceClosure(context.Background(), root, "")
+	if err != nil {
+		t.Fatalf("cycle should terminate: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("want p and q once each, got %d", len(refs))
+	}
+}
+
+// TestBuildReferenceClosureLocalInsideOCIErrors covers a local ref reached
+// inside an OCI-fetched bundle (baseDir == "") -> *lock.UnresolvedError.
+func TestBuildReferenceClosureLocalInsideOCIErrors(t *testing.T) {
+	pContract := policyRefContract("p", "1.0.0", "../local-policy")
+	store := &testutil.MockBundleStore{
+		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.0.0"}, nil },
+		ResolveFn:  func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
+		PullFn:     func(_ context.Context, _ string) (*contract.Bundle, error) { return &contract.Bundle{Contract: pContract}, nil },
+	}
+	s := NewService(store, nil)
+	root := policyRefContract("root", "0.1.0", "oci://r/p")
+	_, err := s.buildReferenceClosure(context.Background(), root, "")
+	var ue *lock.UnresolvedError
+	if !errors.As(err, &ue) {
+		t.Fatalf("want *lock.UnresolvedError for local ref inside OCI bundle, got %v", err)
+	}
+}
+
+// TestBuildReferenceClosureLocalAtRoot covers a local ref at the root: the
+// declaring bundle dir is a real temp dir and ContentHash + Version are set.
+func TestBuildReferenceClosureLocalAtRoot(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	parent := filepath.Dir(bundleDir)
+	store := &testutil.MockBundleStore{}
+	s := NewService(store, nil)
+	root := &contract.Contract{
+		Service:        contract.ServiceIdentity{Name: "root", Version: "0.1.0"},
+		Configurations: []contract.ConfigurationSource{{Name: "localcfg", Ref: "bundle"}},
+	}
+	refs, err := s.buildReferenceClosure(context.Background(), root, parent)
+	if err != nil {
+		t.Fatalf("buildReferenceClosure: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("want 1 local reference, got %d: %+v", len(refs), refs)
+	}
+	r := refs[0]
+	if r.Source != "local" || r.ContentHash == "" || r.Version != "1.0.0" || r.Path != "bundle" || r.Kind != "config" {
+		t.Errorf("local ref at root wrong: %+v", r)
+	}
+}
+
+// TestBuildReferenceClosureResolveError covers an OCI resolve failure ->
+// *lock.UnresolvedError (fail closed).
+func TestBuildReferenceClosureResolveError(t *testing.T) {
+	store := &testutil.MockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) { return "", fmt.Errorf("manifest not found") },
+	}
+	s := NewService(store, nil)
+	root := policyRefContract("root", "0.1.0", "oci://r/p:1.0.0")
+	_, err := s.buildReferenceClosure(context.Background(), root, "")
+	var ue *lock.UnresolvedError
+	if !errors.As(err, &ue) {
+		t.Fatalf("want *lock.UnresolvedError for OCI resolve error, got %v", err)
+	}
+}
+
+// TestBuildReferenceClosurePullError covers an OCI pull failure (digest
+// resolves but Pull fails) -> *lock.UnresolvedError.
+func TestBuildReferenceClosurePullError(t *testing.T) {
+	store := &testutil.MockBundleStore{
+		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
+		PullFn:    func(_ context.Context, _ string) (*contract.Bundle, error) { return nil, fmt.Errorf("registry unreachable") },
+	}
+	s := NewService(store, nil)
+	root := policyRefContract("root", "0.1.0", "oci://r/p:1.0.0")
+	_, err := s.buildReferenceClosure(context.Background(), root, "")
+	var ue *lock.UnresolvedError
+	if !errors.As(err, &ue) {
+		t.Fatalf("want *lock.UnresolvedError for OCI pull error, got %v", err)
+	}
+}
+
+// TestBuildLockOCIRootReferenceBaseDir covers buildLock with an OCI root ref:
+// referenceBaseDir returns "" so the closure resolves the root's OCI references
+// with no filesystem base.
+func TestBuildLockOCIRootReferenceBaseDir(t *testing.T) {
+	store := &testutil.MockBundleStore{
+		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "sec", Version: "2.0.0"}}}, nil
+		},
+	}
+	s := NewService(store, nil)
+	root := &contract.Bundle{Contract: &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Policies: []contract.PolicySource{
+			{Name: "sec", Ref: "oci://ghcr.io/acme/sec:2.0.0"},
+		},
+	}}
+	l, err := s.buildLock(context.Background(), "oci://ghcr.io/acme/root:1.0.0", root)
+	if err != nil {
+		t.Fatalf("buildLock: %v", err)
+	}
+	pol, ok := l.Reference("policy", "sec")
+	if !ok || pol.Version != "2.0.0" || pol.Digest == "" {
+		t.Errorf("policy ref wrong: %+v", pol)
 	}
 }
 
