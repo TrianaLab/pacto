@@ -460,6 +460,28 @@ If `gh` is not installed or not authenticated, pacto silently falls back to the 
 
 ---
 
+## `pacto logout`
+
+Removes credentials for an OCI registry from ~/.config/pacto/config.json.
+
+```
+pacto logout <registry> [flags]
+```
+
+**Examples:**
+
+```
+  pacto logout ghcr.io
+```
+
+**Flags:**
+
+```
+  -h, --help   help for logout
+```
+
+---
+
 ## `pacto mcp`
 
 Starts a Model Context Protocol (MCP) server exposing Pacto tools for AI agents. Supports stdio (default) and HTTP transports.

@@ -53,25 +53,74 @@ func PactoConfigPath() (string, error) {
 	return filepath.Join(dir, "config.json"), nil
 }
 
+// CredSource is a named credential source resolved for a registry.
+type CredSource struct {
+	Name          string
+	Authenticator authn.Authenticator
+}
+
+// namedKeychain pairs a keychain with a human-readable source name.
+type namedKeychain struct {
+	name string
+	kc   authn.Keychain
+}
+
+// PactoKeychain resolves credentials across ordered named sources and supports
+// falling through to the next source when the registry rejects the current one.
+type PactoKeychain struct {
+	sources []namedKeychain
+}
+
+// Resolve returns the first non-anonymous authenticator, preserving back-compat
+// with go-containerregistry's remote.WithAuthFromKeychain callers.
+func (k *PactoKeychain) Resolve(target authn.Resource) (authn.Authenticator, error) {
+	for _, src := range k.sources {
+		auth, err := src.kc.Resolve(target)
+		if err != nil {
+			return nil, err
+		}
+		if auth != authn.Anonymous {
+			return auth, nil
+		}
+	}
+	return authn.Anonymous, nil
+}
+
+// Candidates returns all non-anonymous credential sources for the target,
+// in priority order, each tagged with its source name.
+func (k *PactoKeychain) Candidates(target authn.Resource) ([]CredSource, error) {
+	var cands []CredSource
+	for _, src := range k.sources {
+		auth, err := src.kc.Resolve(target)
+		if err != nil {
+			return nil, err
+		}
+		if auth != authn.Anonymous {
+			cands = append(cands, CredSource{Name: src.name, Authenticator: auth})
+		}
+	}
+	return cands, nil
+}
+
 // NewKeychain builds a keychain that tries, in order:
 // 1. Explicit credentials (flags/env vars)
 // 2. Pacto config (~/.config/pacto/config.json)
 // 3. gh CLI token (for GitHub registries)
 // 4. Docker config, credential helpers, and cloud auto-detection
 func NewKeychain(opts CredentialOptions) authn.Keychain {
-	keychains := make([]authn.Keychain, 0, 4)
+	sources := make([]namedKeychain, 0, 4)
 
 	if opts.Token != "" {
-		keychains = append(keychains, staticKeychain{auth: &authn.AuthConfig{RegistryToken: opts.Token}})
+		sources = append(sources, namedKeychain{name: "env token", kc: staticKeychain{auth: &authn.AuthConfig{RegistryToken: opts.Token}}})
 	} else if opts.Username != "" && opts.Password != "" {
-		keychains = append(keychains, staticKeychain{auth: &authn.AuthConfig{Username: opts.Username, Password: opts.Password}})
+		sources = append(sources, namedKeychain{name: "env user/pass", kc: staticKeychain{auth: &authn.AuthConfig{Username: opts.Username, Password: opts.Password}}})
 	}
 
-	keychains = append(keychains, &pactoConfigKeychain{})
-	keychains = append(keychains, &ghKeychain{execCommandFn: exec.Command})
-	keychains = append(keychains, authn.DefaultKeychain)
+	sources = append(sources, namedKeychain{name: "pacto login", kc: &pactoConfigKeychain{}})
+	sources = append(sources, namedKeychain{name: "gh", kc: &ghKeychain{execCommandFn: exec.Command}})
+	sources = append(sources, namedKeychain{name: "docker", kc: authn.DefaultKeychain})
 
-	return authn.NewMultiKeychain(keychains...)
+	return &PactoKeychain{sources: sources}
 }
 
 // staticKeychain returns the same credentials for any registry.

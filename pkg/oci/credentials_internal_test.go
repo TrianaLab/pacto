@@ -1,6 +1,7 @@
 package oci
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,29 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 )
+
+// errKeychain always returns an error from Resolve.
+type errKeychain struct{}
+
+func (errKeychain) Resolve(authn.Resource) (authn.Authenticator, error) {
+	return nil, fmt.Errorf("resolve boom")
+}
+
+func TestPactoKeychain_Resolve_PropagatesError(t *testing.T) {
+	kc := &PactoKeychain{sources: []namedKeychain{{name: "boom", kc: errKeychain{}}}}
+	reg, _ := name.NewRegistry("example.com", name.Insecure)
+	if _, err := kc.Resolve(reg); err == nil {
+		t.Error("expected error from Resolve when a source errors")
+	}
+}
+
+func TestPactoKeychain_Candidates_PropagatesError(t *testing.T) {
+	kc := &PactoKeychain{sources: []namedKeychain{{name: "boom", kc: errKeychain{}}}}
+	reg, _ := name.NewRegistry("example.com", name.Insecure)
+	if _, err := kc.Candidates(reg); err == nil {
+		t.Error("expected error from Candidates when a source errors")
+	}
+}
 
 func TestGhKeychain_TokenAvailable(t *testing.T) {
 	dir := t.TempDir()

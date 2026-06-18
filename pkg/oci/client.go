@@ -56,6 +56,56 @@ func (c *Client) remoteOptions(ctx context.Context) []remote.Option {
 	return []remote.Option{remote.WithAuthFromKeychain(c.keychain), remote.WithContext(ctx)}
 }
 
+// candidateProvider is implemented by keychains that can enumerate all
+// credential sources for a registry so the Client can fall through on rejection.
+type candidateProvider interface {
+	Candidates(authn.Resource) ([]CredSource, error)
+}
+
+// wrapIfErr wraps a non-nil remote error into a domain error, passing nil through.
+func wrapIfErr(ref string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return wrapRemoteError(ref, err)
+}
+
+// doWithAuth runs op against each credential source in priority order, falling
+// through to the next source when the registry returns 401/403. The first source
+// that succeeds wins. Non-auth errors are returned immediately (wrapped). If all
+// sources are rejected, a source-named AuthenticationError is returned.
+func (c *Client) doWithAuth(ctx context.Context, res authn.Resource, ref string, op func(opts []remote.Option) error) error {
+	cp, ok := c.keychain.(candidateProvider)
+	if !ok {
+		return wrapIfErr(ref, op(c.remoteOptions(ctx)))
+	}
+
+	cands, err := cp.Candidates(res)
+	if err != nil {
+		return wrapIfErr(ref, op(c.remoteOptions(ctx)))
+	}
+	if len(cands) == 0 {
+		cands = []CredSource{{Name: "anonymous", Authenticator: authn.Anonymous}}
+	}
+
+	var tried, rejected []string
+	var lastErr error
+	for _, cand := range cands {
+		tried = append(tried, cand.Name)
+		err := op([]remote.Option{remote.WithAuth(cand.Authenticator), remote.WithContext(ctx)})
+		switch {
+		case err == nil:
+			return nil
+		case isAuthError(err):
+			rejected = append(rejected, cand.Name)
+			lastErr = err
+		default:
+			return wrapRemoteError(ref, err)
+		}
+	}
+	return &AuthenticationError{Ref: ref, Err: lastErr, Tried: tried, Rejected: rejected}
+}
+
 // parseRef parses an OCI reference string with the client's name options.
 func (c *Client) parseRef(ref string) (name.Reference, error) {
 	r, err := name.ParseReference(ref, c.nameOpts...)
@@ -80,8 +130,10 @@ func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) 
 	}
 
 	slog.Debug("writing image to registry", "ref", ref)
-	if err := remote.Write(r, img, c.remoteOptions(ctx)...); err != nil {
-		return "", wrapRemoteError(ref, err)
+	if err := c.doWithAuth(ctx, r.Context(), ref, func(opts []remote.Option) error {
+		return remote.Write(r, img, opts...)
+	}); err != nil {
+		return "", err
 	}
 
 	digest, err := imageDigestFn(img)
@@ -101,9 +153,13 @@ func (c *Client) Pull(ctx context.Context, ref string) (*contract.Bundle, error)
 	}
 
 	slog.Debug("fetching image from registry", "ref", ref)
-	img, err := remote.Image(r, c.remoteOptions(ctx)...)
-	if err != nil {
-		return nil, wrapRemoteError(ref, err)
+	var img v1.Image
+	if err := c.doWithAuth(ctx, r.Context(), ref, func(opts []remote.Option) error {
+		var opErr error
+		img, opErr = remote.Image(r, opts...)
+		return opErr
+	}); err != nil {
+		return nil, err
 	}
 
 	slog.Debug("extracting bundle from image", "ref", ref)
@@ -123,9 +179,13 @@ func (c *Client) Resolve(ctx context.Context, ref string) (string, error) {
 	}
 
 	slog.Debug("resolving digest", "ref", ref)
-	desc, err := remote.Head(r, c.remoteOptions(ctx)...)
-	if err != nil {
-		return "", wrapRemoteError(ref, err)
+	var desc *v1.Descriptor
+	if err := c.doWithAuth(ctx, r.Context(), ref, func(opts []remote.Option) error {
+		var opErr error
+		desc, opErr = remote.Head(r, opts...)
+		return opErr
+	}); err != nil {
+		return "", err
 	}
 
 	slog.Debug("resolved digest", "ref", ref, "digest", desc.Digest.String())
@@ -140,9 +200,13 @@ func (c *Client) ListTags(ctx context.Context, repo string) ([]string, error) {
 	}
 
 	slog.Debug("listing tags", "repo", repo)
-	tags, err := remote.List(r, c.remoteOptions(ctx)...)
-	if err != nil {
-		return nil, wrapRemoteError(repo, err)
+	var tags []string
+	if err := c.doWithAuth(ctx, r, repo, func(opts []remote.Option) error {
+		var opErr error
+		tags, opErr = remote.List(r, opts...)
+		return opErr
+	}); err != nil {
+		return nil, err
 	}
 
 	slog.Debug("tags listed", "repo", repo, "count", len(tags))
