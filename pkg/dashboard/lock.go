@@ -57,7 +57,7 @@ func ApplyLock(svc *ServiceDetails, l *lock.Lock) {
 	for _, r := range l.References {
 		info.References = append(info.References, LockRefInfo{
 			Kind: r.Kind, Name: r.Name, Source: r.Source, Ref: r.Ref, Path: r.Path,
-			Constraint: r.Constraint, Version: r.Version, Digest: r.Digest, ContentHash: r.ContentHash,
+			Version: r.Version, Digest: r.Digest, ContentHash: r.ContentHash,
 		})
 	}
 	svc.Lock = info

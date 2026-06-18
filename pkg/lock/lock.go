@@ -48,14 +48,15 @@ type Entry struct {
 	DependsOn   []string `yaml:"dependsOn,omitempty" json:"dependsOn,omitempty"`
 }
 
-// Reference is one resolved config/policy reference.
+// Reference is one resolved config/policy reference. Config/policy sources carry
+// no compatibility constraint (unlike dependencies), so a reference has no
+// Constraint field.
 type Reference struct {
 	Kind        string `yaml:"kind" json:"kind"` // "config" or "policy"
 	Name        string `yaml:"name" json:"name"`
 	Source      string `yaml:"source" json:"source"`
 	Ref         string `yaml:"ref,omitempty" json:"ref,omitempty"`
 	Path        string `yaml:"path,omitempty" json:"path,omitempty"`
-	Constraint  string `yaml:"constraint,omitempty" json:"constraint,omitempty"`
 	Version     string `yaml:"version,omitempty" json:"version,omitempty"`
 	Digest      string `yaml:"digest,omitempty" json:"digest,omitempty"`
 	ContentHash string `yaml:"contentHash,omitempty" json:"contentHash,omitempty"`

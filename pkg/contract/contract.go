@@ -133,6 +133,39 @@ type Dependency struct {
 	Compatibility string `yaml:"compatibility" json:"compatibility"`
 }
 
+// Reference kinds for ReferenceRef.Kind.
+const (
+	ReferenceKindPolicy = "policy"
+	ReferenceKindConfig = "config"
+)
+
+// ReferenceRef is one declared config/policy reference: its kind ("policy" or
+// "config"), declared name and the raw ref string from the declaring contract.
+type ReferenceRef struct {
+	Kind string
+	Name string
+	Ref  string
+}
+
+// ReferenceRefs returns the contract's declared config/policy references in a
+// stable order (policies first, then configurations), skipping entries that
+// declare an inline schema rather than a ref (empty Ref). Both the lockfile
+// builder and the demo lock generator resolve exactly this set.
+func (c *Contract) ReferenceRefs() []ReferenceRef {
+	var out []ReferenceRef
+	for _, p := range c.Policies {
+		if p.Ref != "" {
+			out = append(out, ReferenceRef{Kind: ReferenceKindPolicy, Name: p.Name, Ref: p.Ref})
+		}
+	}
+	for _, cfg := range c.Configurations {
+		if cfg.Ref != "" {
+			out = append(out, ReferenceRef{Kind: ReferenceKindConfig, Name: cfg.Name, Ref: cfg.Ref})
+		}
+	}
+	return out
+}
+
 // Runtime describes how the service behaves at runtime.
 type Runtime struct {
 	Workload  string     `yaml:"workload" json:"workload"`

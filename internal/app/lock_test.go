@@ -208,9 +208,25 @@ func TestLockCheckMissing(t *testing.T) {
 	}
 }
 
+// lockState snapshots the on-disk pacto.lock: (exists, bytes). A missing file is
+// (false, nil). Used to prove a failed marshal/write leaves no partial lock.
+func lockState(t *testing.T, dir string) (bool, []byte) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "pacto.lock"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		t.Fatalf("stat lock: %v", err)
+	}
+	return true, data
+}
+
 func TestLockMarshalError(t *testing.T) {
-	// Force writeFileFn to fail so the write-error path is covered.
+	// Force writeFileFn to fail so the write-error path is covered. A failed write
+	// must not leave a partial/corrupt lock on disk.
 	dir := writeRoot(t)
+	beforeExists, before := lockState(t, dir)
 	old := writeFileFn
 	writeFileFn = func(_ string, _ []byte, _ os.FileMode) error { return errors.New("disk full") }
 	defer func() { writeFileFn = old }()
@@ -219,10 +235,16 @@ func TestLockMarshalError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "disk full") {
 		t.Fatalf("expected write error, got %v", err)
 	}
+	afterExists, after := lockState(t, dir)
+	if afterExists != beforeExists || string(after) != string(before) {
+		t.Fatalf("failed write left a lock: before(exists=%v,%dB) after(exists=%v,%dB)",
+			beforeExists, len(before), afterExists, len(after))
+	}
 }
 
 func TestLockMarshalFails(t *testing.T) {
 	dir := writeRoot(t)
+	beforeExists, before := lockState(t, dir)
 	old := marshalLockFn
 	marshalLockFn = func(_ *lock.Lock) ([]byte, error) { return nil, errors.New("marshal boom") }
 	defer func() { marshalLockFn = old }()
@@ -230,6 +252,12 @@ func TestLockMarshalFails(t *testing.T) {
 	_, err := s.Lock(context.Background(), LockOptions{Path: dir})
 	if err == nil || !strings.Contains(err.Error(), "marshal boom") {
 		t.Fatalf("expected marshal error, got %v", err)
+	}
+	// A failed marshal must never reach the writer, so no lock is written.
+	afterExists, after := lockState(t, dir)
+	if afterExists != beforeExists || string(after) != string(before) {
+		t.Fatalf("failed marshal left a lock: before(exists=%v,%dB) after(exists=%v,%dB)",
+			beforeExists, len(before), afterExists, len(after))
 	}
 }
 

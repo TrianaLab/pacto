@@ -104,6 +104,12 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 }
 
 // bundleResolverAdapter adapts *Service to the validation.BundleResolver interface.
+//
+// Lock verification is root-level only: verifyLockIfPresent (called above) rebuilds
+// and compares the root's full transitive dependency + reference closure against
+// pacto.lock. Transitive references resolved here for policy validation are part of
+// that already-verified closure, so this adapter deliberately does NOT re-verify a
+// lock per resolved reference.
 type bundleResolverAdapter struct {
 	svc *Service
 }

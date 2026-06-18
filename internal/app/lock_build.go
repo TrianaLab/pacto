@@ -81,27 +81,6 @@ func referenceBaseDir(ref string) string {
 	return base
 }
 
-// refDecl is one declared config/policy reference: its kind, declared name and
-// the raw ref string from the declaring contract.
-type refDecl struct{ kind, name, ref string }
-
-// referenceDecls returns the contract's declared config/policy references in
-// declaration order (policies first, then configurations), skipping empty refs.
-func referenceDecls(c *contract.Contract) []refDecl {
-	var out []refDecl
-	for _, p := range c.Policies {
-		if p.Ref != "" {
-			out = append(out, refDecl{kind: "policy", name: p.Name, ref: p.Ref})
-		}
-	}
-	for _, cfg := range c.Configurations {
-		if cfg.Ref != "" {
-			out = append(out, refDecl{kind: "config", name: cfg.Name, ref: cfg.Ref})
-		}
-	}
-	return out
-}
-
 // buildReferenceClosure pins the full transitive config/policy reference closure.
 // Deduplicated by declared ref string, which also terminates cycles.
 func (s *Service) buildReferenceClosure(ctx context.Context, root *contract.Contract, baseDir string) ([]lock.Reference, error) {
@@ -109,11 +88,11 @@ func (s *Service) buildReferenceClosure(ctx context.Context, root *contract.Cont
 	var out []lock.Reference
 	var walk func(c *contract.Contract, dir string) error
 	walk = func(c *contract.Contract, dir string) error {
-		for _, d := range referenceDecls(c) {
-			if seen[d.ref] {
+		for _, d := range c.ReferenceRefs() {
+			if seen[d.Ref] {
 				continue
 			}
-			seen[d.ref] = true
+			seen[d.Ref] = true
 			entry, child, childDir, err := s.resolveReference(ctx, d, dir)
 			if err != nil {
 				return err
@@ -136,13 +115,13 @@ func (s *Service) buildReferenceClosure(ctx context.Context, root *contract.Cont
 // resolveReference pins one reference and returns the referenced bundle's
 // contract (for recursion) and its base dir ("" for OCI). Any resolve/pull/
 // hash/load failure yields *lock.UnresolvedError (fail closed).
-func (s *Service) resolveReference(ctx context.Context, d refDecl, dir string) (lock.Reference, *contract.Contract, string, error) {
-	r := lock.Reference{Kind: d.kind, Name: d.name}
-	parsed := graph.ParseDependencyRef(d.ref)
+func (s *Service) resolveReference(ctx context.Context, d contract.ReferenceRef, dir string) (lock.Reference, *contract.Contract, string, error) {
+	r := lock.Reference{Kind: d.Kind, Name: d.Name}
+	parsed := graph.ParseDependencyRef(d.Ref)
 
 	if parsed.IsLocal() {
 		if dir == "" {
-			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.ref, Reason: "local reference inside an OCI bundle cannot be resolved"}
+			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: "local reference inside an OCI bundle cannot be resolved"}
 		}
 		path := parsed.Location
 		if !filepath.IsAbs(path) {
@@ -150,11 +129,11 @@ func (s *Service) resolveReference(ctx context.Context, d refDecl, dir string) (
 		}
 		b, err := loadLocalBundle(path)
 		if err != nil {
-			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.ref, Reason: err.Error()}
+			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 		}
 		h, err := lock.HashFS(b.FS)
 		if err != nil {
-			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.ref, Reason: err.Error()}
+			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 		}
 		r.Source = "local"
 		r.Path = parsed.Location
@@ -165,14 +144,14 @@ func (s *Service) resolveReference(ctx context.Context, d refDecl, dir string) (
 
 	resolvedRef, digest, err := resolveDigest(ctx, s.BundleStore, parsed.Location, "")
 	if err != nil {
-		return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.ref, Reason: err.Error()}
+		return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 	}
 	b, err := s.BundleStore.Pull(ctx, resolvedRef)
 	if err != nil {
-		return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.ref, Reason: err.Error()}
+		return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 	}
 	r.Source = "oci"
-	r.Ref = d.ref
+	r.Ref = d.Ref
 	r.Digest = digest
 	r.Version = b.Contract.Service.Version
 	return r, b.Contract, "", nil

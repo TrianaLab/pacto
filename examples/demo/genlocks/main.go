@@ -163,8 +163,17 @@ func depBearing(c *contract.Contract) bool {
 }
 
 // buildLock resolves the transitive dependency closure and the transitive
-// config/policy reference closure for sv, pinning each to the deterministic
-// content hash of the target bundle (resolved by service name within the demo).
+// config/policy reference closure for sv.
+//
+// Two demo-specific deviations from the real builder in internal/app:
+//
+//	(a) Pins are content-derived hashes (lock.HashFS over the bundle FS) suitable
+//	    for offline e2e, NOT live OCI manifest digests — the demo never contacts a
+//	    registry. The `digest` field carries this content hash by design.
+//	(b) The closure walk mirrors internal/app's walkClosure / buildReferenceClosure
+//	    (policies first, then configs, deduped by ref/name, cycle-terminating) but
+//	    resolves every edge OFFLINE by service name within ./bundles instead of
+//	    pulling from a registry.
 func buildLock(idx index, sv *svcVersion) (*lock.Lock, error) {
 	l := &lock.Lock{
 		LockVersion: lock.CurrentLockVersion,
@@ -245,20 +254,20 @@ func referenceClosure(idx index, root *contract.Contract) ([]lock.Reference, err
 	var out []lock.Reference
 	var walk func(c *contract.Contract) error
 	walk = func(c *contract.Contract) error {
-		for _, d := range referenceDecls(c) {
-			if seen[d.ref] {
+		for _, d := range c.ReferenceRefs() {
+			if seen[d.Ref] {
 				continue
 			}
-			seen[d.ref] = true
-			target, err := latest(idx, serviceName(d.ref))
+			seen[d.Ref] = true
+			target, err := latest(idx, serviceName(d.Ref))
 			if err != nil {
-				return fmt.Errorf("%s reference %q: %w", d.kind, d.name, err)
+				return fmt.Errorf("%s reference %q: %w", d.Kind, d.Name, err)
 			}
 			out = append(out, lock.Reference{
-				Kind:    d.kind,
-				Name:    d.name,
+				Kind:    d.Kind,
+				Name:    d.Name,
 				Source:  "oci",
-				Ref:     d.ref,
+				Ref:     d.Ref,
 				Version: target.contract.Service.Version,
 				Digest:  target.hash,
 			})
@@ -272,25 +281,6 @@ func referenceClosure(idx index, root *contract.Contract) ([]lock.Reference, err
 		return nil, err
 	}
 	return out, nil
-}
-
-type refDecl struct{ kind, name, ref string }
-
-// referenceDecls returns a contract's declared config/policy references (policies
-// first, then configurations), skipping inline schemas. Mirrors the real builder.
-func referenceDecls(c *contract.Contract) []refDecl {
-	var out []refDecl
-	for _, p := range c.Policies {
-		if p.Ref != "" {
-			out = append(out, refDecl{kind: "policy", name: p.Name, ref: p.Ref})
-		}
-	}
-	for _, cfg := range c.Configurations {
-		if cfg.Ref != "" {
-			out = append(out, refDecl{kind: "config", name: cfg.Name, ref: cfg.Ref})
-		}
-	}
-	return out
 }
 
 // latest returns the highest-semver indexed version of a service.

@@ -236,6 +236,54 @@ func TestApplyLock_PopulatesAllSections(t *testing.T) {
 	}
 }
 
+// TestApplyLock_PartialFields locks the behavior for dependency entries with
+// partially-populated pins: empty Digest + set Version, set Digest + empty
+// Version, and both empty. ApplyLock must copy whatever is present onto the
+// matching DependencyInfo without panicking.
+func TestApplyLock_PartialFields(t *testing.T) {
+	l := &lock.Lock{
+		LockVersion: lock.CurrentLockVersion,
+		Dependencies: []lock.Entry{
+			{Name: "ver-only", Source: "oci", Version: "1.2.3"},      // (a) empty digest, set version
+			{Name: "digest-only", Source: "oci", Digest: "sha256:d"}, // (b) set digest, empty version
+			{Name: "both-empty", Source: "local", ContentHash: "h"},  // (c) both empty
+		},
+	}
+	svc := &ServiceDetails{Dependencies: []DependencyInfo{
+		{Name: "ver-only"},
+		{Name: "digest-only"},
+		{Name: "both-empty"},
+	}}
+	ApplyLock(svc, l)
+
+	if svc.Dependencies[0].LockedVersion != "1.2.3" || svc.Dependencies[0].LockedDigest != "" {
+		t.Errorf("ver-only: %+v", svc.Dependencies[0])
+	}
+	if svc.Dependencies[1].LockedDigest != "sha256:d" || svc.Dependencies[1].LockedVersion != "" {
+		t.Errorf("digest-only: %+v", svc.Dependencies[1])
+	}
+	if svc.Dependencies[2].LockedDigest != "" || svc.Dependencies[2].LockedVersion != "" {
+		t.Errorf("both-empty: %+v", svc.Dependencies[2])
+	}
+}
+
+// TestEnrichDrift_MissingLockedFields locks the behavior that a dependency with
+// no LockedDigest is left with an empty DriftStatus (no "drift"/"locked"
+// assertion) even when the target carries a runtime digest.
+func TestEnrichDrift_MissingLockedFields(t *testing.T) {
+	index := map[string]*ServiceDetails{
+		"api": {
+			Service:      Service{Name: "api"},
+			Dependencies: []DependencyInfo{{Name: "billing"}}, // no LockedDigest
+		},
+		"billing": {Service: Service{Name: "billing"}, ResolvedRef: "ghcr.io/org/billing@sha256:run"},
+	}
+	enrichDrift(index)
+	if got := index["api"].Dependencies[0].DriftStatus; got != "" {
+		t.Errorf("expected empty DriftStatus for unlocked dep, got %q", got)
+	}
+}
+
 func TestApplyLock_NilLock(t *testing.T) {
 	svc := &ServiceDetails{Dependencies: []DependencyInfo{{Name: "x"}}}
 	ApplyLock(svc, nil)

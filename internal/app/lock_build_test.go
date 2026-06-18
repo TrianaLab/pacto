@@ -682,6 +682,60 @@ func TestBuildLockOCIRootReferenceBaseDir(t *testing.T) {
 	}
 }
 
+// TestBuildReferenceClosureLocalTransitive covers a transitive LOCAL reference
+// closure: root -> p (local) -> q (local, reached via a relative path from p's
+// own directory). Both p and q must be pinned with a ContentHash (no digest) and
+// the correct Version read from each referenced bundle's contract.
+func TestBuildReferenceClosureLocalTransitive(t *testing.T) {
+	rootDir := t.TempDir()
+	writeBundleYAML := func(dir, yaml string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// q: a leaf policy bundle.
+	writeBundleYAML(filepath.Join(rootDir, "q"), "pactoVersion: \"1.0\"\nservice:\n  name: q\n  version: \"3.1.0\"\n")
+	// p: a policy bundle that references q via a path relative to p's own dir.
+	writeBundleYAML(filepath.Join(rootDir, "p"),
+		"pactoVersion: \"1.0\"\nservice:\n  name: p\n  version: \"2.0.0\"\npolicies:\n  - name: from-p\n    ref: ../q\n")
+
+	s := NewService(&testutil.MockBundleStore{}, nil)
+	// root references p locally; baseDir is rootDir so "p" resolves to rootDir/p.
+	root := &contract.Contract{
+		Service:  contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Policies: []contract.PolicySource{{Name: "from-root", Ref: "p"}},
+	}
+	refs, err := s.buildReferenceClosure(context.Background(), root, rootDir)
+	if err != nil {
+		t.Fatalf("buildReferenceClosure: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("want 2 references (p, q), got %d: %+v", len(refs), refs)
+	}
+	byName := map[string]lock.Reference{}
+	for _, r := range refs {
+		byName[r.Name] = r
+	}
+	p, ok := byName["from-root"]
+	if !ok {
+		t.Fatalf("p reference missing: %+v", refs)
+	}
+	if p.Source != "local" || p.ContentHash == "" || p.Digest != "" || p.Version != "2.0.0" || p.Kind != "policy" {
+		t.Errorf("p pinned wrong: %+v", p)
+	}
+	q, ok := byName["from-p"]
+	if !ok {
+		t.Fatalf("transitive q reference missing: %+v", refs)
+	}
+	if q.Source != "local" || q.ContentHash == "" || q.Digest != "" || q.Version != "3.1.0" || q.Kind != "policy" {
+		t.Errorf("q pinned wrong: %+v", q)
+	}
+}
+
 func TestSetBuildVersion(t *testing.T) {
 	orig := BuildVersion
 	t.Cleanup(func() { BuildVersion = orig })

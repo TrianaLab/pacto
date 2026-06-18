@@ -321,13 +321,14 @@ type LockDepInfo struct {
 }
 
 // LockRefInfo is one resolved config/policy reference from pacto.lock.
+// Config/policy references carry no compatibility constraint (unlike
+// dependencies), so there is no Constraint field.
 type LockRefInfo struct {
 	Kind        string `json:"kind"`
 	Name        string `json:"name"`
 	Source      string `json:"source,omitempty"`
 	Ref         string `json:"ref,omitempty"`
 	Path        string `json:"path,omitempty"`
-	Constraint  string `json:"constraint,omitempty"`
 	Version     string `json:"version,omitempty"`
 	Digest      string `json:"digest,omitempty"`
 	ContentHash string `json:"contentHash,omitempty"`
