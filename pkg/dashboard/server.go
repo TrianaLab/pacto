@@ -1252,6 +1252,12 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 		}
 	}
 
+	// Drift: compare each locked dependency digest against the dependency target's
+	// runtime digest (carried on the target ServiceDetails from k8s/runtime). The
+	// dep name is already resolved to the target service name above. Done before
+	// the graph is built so dependency edges carry the drift status too.
+	enrichDrift(index)
+
 	// Fast version policy classification (no I/O, just heuristics).
 	for _, d := range index {
 		if d.VersionPolicy == "" {
