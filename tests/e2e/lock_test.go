@@ -653,6 +653,92 @@ func TestLockAbsentIsPassthrough(t *testing.T) {
 	}
 }
 
+// TestLockStaleWhenDependencyRemoved proves removing a dependency from
+// pacto.yaml without re-locking makes the lock stale and hard-fails with
+// LOCK_STALE. Set up a root with TWO already-pushed OCI dependencies, lock
+// both, then REMOVE one dependency from the contract without relocking. graph
+// must fail, then `pacto lock` reconciles and subsequent graph passes.
+func TestLockStaleWhenDependencyRemoved(t *testing.T) {
+	t.Parallel()
+	reg := newTestRegistry(t)
+
+	pushDepBundle(t, reg, "remove-a", "1.0.0", "", "")
+	pushDepBundle(t, reg, "remove-b", "1.0.0", "", "")
+
+	// Root depends on both remove-a and remove-b; lock it.
+	rootDir := writeMultiDepBundle(t, "remove-root", "1.0.0", []depRefDecl{
+		{name: "remove-a", ref: "oci://" + reg.host + "/remove-a:1.0.0", compat: "^1.0.0"},
+		{name: "remove-b", ref: "oci://" + reg.host + "/remove-b:1.0.0", compat: "^1.0.0"},
+	})
+	if _, err := runCommand(t, reg, "lock", rootDir); err != nil {
+		t.Fatalf("initial lock failed: %v", err)
+	}
+
+	// Verify both deps are in the lock.
+	before := readLock(t, rootDir)
+	if _, ok := before.Dependency("remove-a"); !ok {
+		t.Fatalf("expected remove-a in lock, got %+v", before.Dependencies)
+	}
+	if _, ok := before.Dependency("remove-b"); !ok {
+		t.Fatalf("expected remove-b in lock, got %+v", before.Dependencies)
+	}
+
+	// REMOVE remove-b from pacto.yaml, leaving only remove-a. The lock is now stale.
+	oneDep := fmt.Sprintf(`pactoVersion: "1.0"
+service:
+  name: remove-root
+  version: 1.0.0
+  owner: team/platform
+interfaces:
+  - name: api
+    type: grpc
+    port: 9000
+    visibility: internal
+    contract: interfaces/api.proto
+dependencies:
+  - name: remove-a
+    ref: oci://%s/remove-a:1.0.0
+    required: true
+    compatibility: "^1.0.0"
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`, reg.host)
+	if err := os.WriteFile(filepath.Join(rootDir, "pacto.yaml"), []byte(oneDep), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// graph must hard-fail on stale lock (lock has remove-b, contract does not).
+	out, err := runCommand(t, reg, "graph", rootDir)
+	if err == nil {
+		t.Fatalf("expected graph to hard-fail on stale lock, got success:\n%s", out)
+	}
+	assertContains(t, out+err.Error(), "LOCK_STALE")
+
+	// Re-locking reconciles; graph then passes and remove-b is gone.
+	if _, err := runCommand(t, reg, "lock", rootDir); err != nil {
+		t.Fatalf("reconciling lock failed: %v", err)
+	}
+	if _, err := runCommand(t, reg, "graph", rootDir); err != nil {
+		t.Fatalf("graph after reconcile should pass: %v", err)
+	}
+	after := readLock(t, rootDir)
+	if _, ok := after.Dependency("remove-b"); ok {
+		t.Errorf("expected remove-b to be absent after reconcile, got %+v", after.Dependencies)
+	}
+	if _, ok := after.Dependency("remove-a"); !ok {
+		t.Errorf("expected remove-a to remain after reconcile, got %+v", after.Dependencies)
+	}
+}
+
 // contains reports whether s is in xs.
 func contains(xs []string, s string) bool {
 	for _, x := range xs {

@@ -267,3 +267,128 @@ func TestPactoignoreSurvivesPushPull(t *testing.T) {
 		}
 	}
 }
+
+// TestPactoignoreIgnoredNestedDirHidesReferencedFile proves ancestor filtering
+// works at depth > 1: a contract references deeply/nested/dir/openapi.yaml, the
+// file exists there, and .pactoignore contains `deeply/` (a top-level dir pattern).
+// Both validate and pack must fail because the referenced file is excluded.
+func TestPactoignoreIgnoredNestedDirHidesReferencedFile(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "ignore-nested-svc")
+	if err := os.MkdirAll(filepath.Join(dir, "deeply", "nested", "dir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Contract references deeply/nested/dir/openapi.yaml.
+	contractYAML := `pactoVersion: "1.0"
+service:
+  name: ignore-nested-svc
+  version: 1.0.0
+  owner: team/platform
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: deeply/nested/dir/openapi.yaml
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "deeply", "nested", "dir", "openapi.yaml"),
+		[]byte(fmt.Sprintf(openapiTemplate, "ignore-nested-svc", "1.0.0")), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Ignore the TOP-LEVEL directory containing the deeply nested file.
+	if err := os.WriteFile(filepath.Join(dir, ".pactoignore"),
+		[]byte("deeply/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// validate must fail and report the missing referenced file.
+	out, err := runCommand(t, nil, "validate", dir)
+	if err == nil {
+		t.Fatalf("expected validate to fail when referenced file's ancestor directory is ignored, got success:\n%s", out)
+	}
+	assertContains(t, out, "FILE_NOT_FOUND")
+
+	// pack must also fail (cannot package a bundle missing a referenced file).
+	archive := filepath.Join(t.TempDir(), "ignore-nested-svc.tar.gz")
+	if _, perr := runCommand(t, nil, "pack", dir, "-o", archive); perr == nil {
+		t.Fatal("expected pack to fail when referenced file's ancestor directory is ignored, got success")
+	}
+}
+
+// TestPactoignoreAnchoredDirPatternDoesNotMatchSubdir proves an anchored
+// directory pattern (/build/) does NOT match a same-named nested directory
+// (sub/build/). A contract references sub/build/api.yaml, and .pactoignore
+// contains `/build/` (anchored to root). The referenced file is KEPT, so
+// validate passes and pack succeeds with the file in the archive.
+func TestPactoignoreAnchoredDirPatternDoesNotMatchSubdir(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "anchored-svc")
+	if err := os.MkdirAll(filepath.Join(dir, "sub", "build"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Contract references sub/build/api.yaml.
+	contractYAML := `pactoVersion: "1.0"
+service:
+  name: anchored-svc
+  version: 1.0.0
+  owner: team/platform
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+    contract: sub/build/api.yaml
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sub", "build", "api.yaml"),
+		[]byte(fmt.Sprintf(openapiTemplate, "anchored-svc", "1.0.0")), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Anchored pattern: /build/ matches only <root>/build/, not sub/build/.
+	if err := os.WriteFile(filepath.Join(dir, ".pactoignore"),
+		[]byte("/build/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// validate must pass (the referenced file is kept).
+	out, err := runCommand(t, nil, "validate", dir)
+	if err != nil {
+		t.Fatalf("expected validate to pass when anchored pattern does not match subdir, got error: %v\n%s", err, out)
+	}
+
+	// pack must succeed and the referenced file must be in the archive.
+	archive := filepath.Join(t.TempDir(), "anchored-svc.tar.gz")
+	if _, err := runCommand(t, nil, "pack", dir, "-o", archive); err != nil {
+		t.Fatalf("pack failed: %v", err)
+	}
+	verifyArchiveContains(t, archive, "sub/build/api.yaml")
+}
