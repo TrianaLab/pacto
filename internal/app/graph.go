@@ -33,6 +33,10 @@ func (s *Service) Graph(ctx context.Context, opts GraphOptions) (*GraphResult, e
 		return nil, err
 	}
 
+	if err := s.verifyLockIfPresent(ctx, ref, bundle); err != nil {
+		return nil, err
+	}
+
 	slog.Debug("resolving dependency graph", "name", bundle.Contract.Service.Name)
 	fetcher := s.newDepFetcher(ref)
 	result := graph.ResolveWithOptions(ctx, bundle.Contract, fetcher, graph.ResolveOptions{

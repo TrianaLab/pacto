@@ -47,6 +47,16 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		}, nil
 	}
 
+	if lerr := s.verifyLockIfPresent(ctx, ref, bundle); lerr != nil {
+		return &ValidateResult{
+			Path:  ref,
+			Valid: false,
+			Errors: []contract.ValidationError{
+				{Path: "", Code: lockCode(lerr), Message: lerr.Error()},
+			},
+		}, nil
+	}
+
 	// Determine raw YAML for structural validation.
 	var rawYAML []byte
 	if bundle.RawYAML != nil {

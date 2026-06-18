@@ -49,11 +49,17 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 	if err != nil {
 		return nil, fmt.Errorf("old contract: %w", err)
 	}
+	if err := s.verifyLockIfPresent(ctx, opts.OldPath, oldBundle); err != nil {
+		return nil, err
+	}
 
 	slog.Debug("resolving new contract", "path", opts.NewPath)
 	newBundle, err := s.resolveBundleWithOverrides(ctx, opts.NewPath, opts.NewOverrides)
 	if err != nil {
 		return nil, fmt.Errorf("new contract: %w", err)
+	}
+	if err := s.verifyLockIfPresent(ctx, opts.NewPath, newBundle); err != nil {
+		return nil, err
 	}
 
 	slog.Debug("comparing contracts")
