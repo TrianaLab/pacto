@@ -142,6 +142,8 @@ Only `pactoVersion` and `service` are required — everything else is opt-in, so
 - **4-layer validation** — structural (JSON Schema), cross-field, semantic, and policy enforcement
 - **Breaking change detection** — deep OpenAPI diffing plus dependency-graph diff with full blast radius; non-zero exit gates CI
 - **Dependency graph resolution** — recursive transitive resolution from OCI registries, siblings fetched in parallel
+- **Lockfiles** — reproducible dependency resolution and supply-chain pinning via `pacto.lock`
+- **Packaging ignore** — gitignore-style `.pactoignore` to exclude files from bundles
 - **Readiness contracts** — declare operational readiness evidence (URLs, docs, tickets, reports) with weights and expiry dates; Pacto can derive readiness scores and flag expired or invalid evidence
 - **OCI distribution** — push/pull to GHCR, ECR, ACR, Docker Hub, and Harbor with local caching; signable with cosign or Notary; no custom registry required
 - **Runtime verification** — the Kubernetes operator tracks every contract version and checks ports, replicas, and health against running workloads

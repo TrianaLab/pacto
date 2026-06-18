@@ -380,6 +380,60 @@ Scaffolds a bundle with a valid `pacto.yaml`, a placeholder OpenAPI spec, and a 
 
 ---
 
+## `pacto lock`
+
+Creates or refreshes the `pacto.lock` file, which pins the full transitive dependency and reference closures to exact OCI digests (or content hashes for local refs). When a lockfile is present, `validate`, `graph`, `diff`, and `push` verify that every resolved ref matches the pinned digest. Any mismatch is a hard error.
+
+```
+pacto lock [dir] [flags]
+```
+
+**Examples:**
+
+```
+  # Create or refresh the lockfile
+  pacto lock
+
+  # Operate on a specific directory
+  pacto lock ./my-service
+
+  # Re-resolve everything (ignore existing pins)
+  pacto lock --update
+
+  # Bump only a specific dependency or reference
+  pacto lock --update --update-name auth-service
+
+  # Verify the lockfile without modifying it
+  pacto lock --check
+```
+
+**Flags:**
+
+```
+  -h, --help                 help for lock
+      --check                verify the lockfile is up-to-date without modifying it (CI gate)
+      --update               re-resolve the entire closure from scratch (ignore existing pins)
+      --update-name string   re-resolve only the named dependency or reference (requires --update)
+  -o, --output string        output format (text, json, markdown)
+      --output-format string output format (text, json, markdown) (alias for -o)
+  -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
+      --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
+```
+
+The lockfile captures:
+
+- Full transitive **dependency closure** (every `dependencies[].ref`, recursively)
+- Full transitive **reference closure** (every `configurations[].ref` and `policies[].ref`, recursively)
+- OCI refs are pinned by digest; local refs are pinned by content hash
+
+When a lockfile is present, `pacto validate`, `pacto graph`, `pacto diff`, and `pacto push` verify it before proceeding. Digest mismatches produce hard errors: `LOCK_DIGEST_MISMATCH`, `LOCK_STALE`, `LOCK_LOCAL_DRIFT`, `LOCK_CONFLICT`, `LOCK_UNRESOLVED`, `LOCK_MISSING`.
+
+Because `pacto push` enforces the lock, you cannot publish a bundle whose lock is stale.
+
+See [Lockfile](lockfile.md) for the full reference.
+
+---
+
 ## `pacto login`
 
 Stores credentials for an OCI registry in ~/.config/pacto/config.json.
