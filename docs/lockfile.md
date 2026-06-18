@@ -2,7 +2,7 @@
 
 Pacto lockfiles enable reproducible dependency resolution and supply-chain pinning for contract bundles. Like `go.sum` and `Chart.lock`, `pacto.lock` captures the exact resolved state of your contract's dependency closure and reference closure, committed to git and enforced by the CLI.
 
-When a `pacto.lock` file is present, Pacto verifies that every resolved dependency and every config/policy reference matches the digest pinned in the lock. Any mismatch is a hard error — you cannot validate, graph, diff, or push a bundle whose lock has drifted.
+When a `pacto.lock` file is present, Pacto verifies that every resolved dependency and every config/policy reference matches the digest pinned in the lock. Any mismatch is a hard error — you cannot validate, graph, diff or push a bundle whose lock has drifted.
 
 ---
 
@@ -14,7 +14,7 @@ A `pacto.lock` file records:
 - **Full transitive reference closure** — every config/policy reference declared in `configurations[].ref` and `policies[].ref`, recursively resolved (reference jumps), pinned by OCI digest.
 - **Local dependencies and references** — file-based deps and refs pinned by their content hash (`sha256:...`) so local changes invalidate the lock.
 
-The lock does not capture configuration values (`configurations[].values`), runtime metadata, or scaling parameters. It only pins the structural dependencies and references that form the contract's external boundary.
+The lock does not capture configuration values (`configurations[].values`), runtime metadata or scaling parameters. It only pins the structural dependencies and references that form the contract's external boundary.
 
 ---
 
@@ -91,36 +91,52 @@ Because `pacto push` enforces the lock, **you cannot publish a bundle whose lock
 ## Example `pacto.lock`
 
 ```yaml
+lockVersion: 1
+pacto:
+  version: 1.4.0
+root:
+  name: payments-api
+  version: 2.1.0
 dependencies:
   - name: auth-service
-    ref: oci://ghcr.io/acme/auth-pacto:2.3.0
-    resolvedDigest: sha256:abc123def456...
-    dependsOn: []
-
-  - name: user-store
-    ref: oci://ghcr.io/acme/user-store-pacto:1.0.0
-    resolvedDigest: sha256:789abc012def...
+    source: oci
+    ref: oci://ghcr.io/acme/auth-service-pacto
+    constraint: ^2.0.0
+    version: 2.5.1
+    digest: sha256:abc123...
     dependsOn:
-      - auth-service
-
-  - name: notifications
-    ref: oci://ghcr.io/acme/notifications-pacto:1.5.2
-    resolvedDigest: sha256:deadbeef1234...
-    dependsOn: []
-
+      - crypto-lib
+  - name: crypto-lib
+    source: oci
+    ref: oci://ghcr.io/acme/crypto-pacto
+    constraint: ~1.2.0
+    version: 1.2.0
+    digest: sha256:def456...
+  - name: shared-lib
+    source: local
+    path: ../shared-lib
+    contentHash: sha256:789abc...
 references:
-  - name: platform-config
-    ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
-    resolvedDigest: sha256:feedface5678...
-
-  - name: platform-policy
-    ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
-    resolvedDigest: sha256:cafebabe9abc...
+  - kind: policy
+    name: org-security
+    source: oci
+    ref: oci://ghcr.io/acme/org-security-policy
+    constraint: ^1.0.0
+    version: 1.3.0
+    digest: sha256:fff111...
+  - kind: config
+    name: shared-config
+    source: oci
+    ref: oci://ghcr.io/acme/shared-config
+    version: 2.0.0
+    digest: sha256:222eee...
 ```
 
-Each `dependencies[]` entry records the full ref (tag or digest) as written in the contract plus the resolved digest. The `dependsOn` field captures the dependency chain so Pacto can rebuild the full graph structure from the lock without re-resolving upstream refs.
+The lockfile starts with `lockVersion` (schema version), `pacto.version` (the CLI version that wrote the lock) and `root` (the contract's name and version).
 
-The `references[]` section records config and policy refs with their resolved digests. Local file-based refs appear here with a `sha256:` content hash instead of an OCI digest.
+Each `dependencies[]` entry records the `source` (oci or local), the full ref or path as written in the contract, the constraint and resolved version and the digest (for OCI) or contentHash (for local). The `dependsOn` field captures the dependency chain so Pacto can rebuild the full graph structure from the lock without re-resolving upstream refs.
+
+The `references[]` section records config and policy refs with their `kind`, `source` and digest. Local file-based refs appear here with a contentHash instead of an OCI digest.
 
 ---
 
