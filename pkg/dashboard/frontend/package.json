@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "d3": "^7.9.0",
-    "dompurify": "^3.4.10",
+    "dompurify": "^3.4.11",
     "marked": "^18.0.5",
     "mermaid": "^11.15.0"
   }
