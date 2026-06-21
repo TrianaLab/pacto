@@ -19,7 +19,7 @@ func TestServiceFromContract(t *testing.T) {
 		Service: contract.ServiceIdentity{
 			Name:    "my-service",
 			Version: "1.2.3",
-			Owner:   contract.NewOwnerFromString("team-a"),
+			Owner:   contract.Owner{Team: "team-a"},
 		},
 	}
 
@@ -925,19 +925,16 @@ func TestServiceFromContract_StructuredOwner(t *testing.T) {
 		Service: contract.ServiceIdentity{
 			Name:    "my-service",
 			Version: "1.0.0",
-			Owner:   contract.NewOwnerFromInfo(contract.OwnerInfo{Team: "foundations", DRI: "alice"}),
+			Owner:   contract.Owner{Team: "foundations", DRI: "alice"},
 		},
 	}
 
 	svc := ServiceFromContract(c, "oci")
-	if !svc.Owner.IsStructured() {
-		t.Error("expected structured owner")
+	if svc.Owner.Team != "foundations" {
+		t.Errorf("expected team 'foundations', got %q", svc.Owner.Team)
 	}
-	if svc.Owner.Team() != "foundations" {
-		t.Errorf("expected team 'foundations', got %q", svc.Owner.Team())
-	}
-	if svc.Owner.DRI() != "alice" {
-		t.Errorf("expected dri 'alice', got %q", svc.Owner.DRI())
+	if svc.Owner.DRI != "alice" {
+		t.Errorf("expected dri 'alice', got %q", svc.Owner.DRI)
 	}
 	if svc.Owner.DisplayString() != "foundations" {
 		t.Errorf("expected display 'foundations', got %q", svc.Owner.DisplayString())

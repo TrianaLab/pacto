@@ -3,7 +3,8 @@ pactoVersion: "1.1"
 service:
   name: payment-api
   version: 1.4.0
-  owner: payments-team
+  owner:
+    team: payments-team
 
 interfaces:
   - name: http

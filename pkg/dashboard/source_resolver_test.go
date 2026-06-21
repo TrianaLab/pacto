@@ -477,7 +477,7 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 	k8s := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service:        Service{Name: "svc", Version: "1.0.0", Owner: contract.NewOwnerFromString("k8s-team"), ContractStatus: StatusCompliant, Source: "k8s"},
+				Service:        Service{Name: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "k8s-team"}, ContractStatus: StatusCompliant, Source: "k8s"},
 				Interfaces:     []InterfaceInfo{{Name: "api", Type: "http"}},
 				Configurations: []ConfigurationInfo{{HasSchema: true, Ref: "oci://config"}},
 				Dependencies:   []DependencyInfo{{Ref: "oci://auth:1.0.0", Required: true}},
@@ -488,7 +488,7 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 	local := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service:        Service{Name: "svc", Version: "1.1.0-dev", Owner: contract.NewOwnerFromString("local-team"), ContractStatus: StatusNonCompliant, Source: "local"},
+				Service:        Service{Name: "svc", Version: "1.1.0-dev", Owner: contract.Owner{Team: "local-team"}, ContractStatus: StatusNonCompliant, Source: "local"},
 				Interfaces:     []InterfaceInfo{{Name: "api", Type: "http", Endpoints: []InterfaceEndpoint{{Method: "GET", Path: "/v2"}}}},
 				Configurations: []ConfigurationInfo{{HasSchema: true, Schema: "config.json", Values: []ConfigValue{{Key: "port", Value: "8080"}}}},
 				Dependencies:   []DependencyInfo{{Ref: "oci://auth:2.0.0", Required: true}},
@@ -588,7 +588,7 @@ func TestResolvedSource_K8sPinnedVersionOverridesOCILatest(t *testing.T) {
 		},
 		details: map[string]*ServiceDetails{
 			"payments": {
-				Service:       Service{Name: "payments", Version: "1.2.0", Owner: contract.NewOwnerFromString("billing"), ContractStatus: StatusCompliant, Source: "k8s"},
+				Service:       Service{Name: "payments", Version: "1.2.0", Owner: contract.Owner{Team: "billing"}, ContractStatus: StatusCompliant, Source: "k8s"},
 				ResolvedRef:   "ghcr.io/org/payments:1.2.0",
 				VersionPolicy: VersionPolicyPinnedTag,
 			},
@@ -600,7 +600,7 @@ func TestResolvedSource_K8sPinnedVersionOverridesOCILatest(t *testing.T) {
 		},
 		details: map[string]*ServiceDetails{
 			"payments": {
-				Service:    Service{Name: "payments", Version: "2.0.0", Owner: contract.NewOwnerFromString("billing"), Source: "oci"},
+				Service:    Service{Name: "payments", Version: "2.0.0", Owner: contract.Owner{Team: "billing"}, Source: "oci"},
 				Interfaces: []InterfaceInfo{{Name: "api", Type: "http"}},
 			},
 		},
@@ -773,10 +773,10 @@ func TestResolvedSource_ListServices_K8sOnlySource(t *testing.T) {
 func TestResolvedSource_ListServices_K8sOwnerOverride(t *testing.T) {
 	// When k8s provides an owner, it should override the contract source's owner.
 	k8s := &stubSource{
-		services: []Service{{Name: "svc", Version: "1.0.0", Owner: contract.NewOwnerFromString("platform-team"), ContractStatus: StatusCompliant, Source: "k8s"}},
+		services: []Service{{Name: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "platform-team"}, ContractStatus: StatusCompliant, Source: "k8s"}},
 	}
 	oci := &stubSource{
-		services: []Service{{Name: "svc", Version: "1.0.0", Owner: contract.NewOwnerFromString("dev-team"), Source: "oci"}},
+		services: []Service{{Name: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "dev-team"}, Source: "oci"}},
 	}
 	resolved := BuildResolvedSource(map[string]DataSource{"k8s": k8s, "oci": oci})
 
@@ -882,7 +882,7 @@ func newFullRuntime() *ServiceDetails {
 
 func TestEnrichWithRuntime_StructFields(t *testing.T) {
 	svcDetails := &ServiceDetails{
-		Service: Service{Name: "svc", Version: "1.0.0", Owner: contract.NewOwnerFromString("team-a")},
+		Service: Service{Name: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "team-a"}},
 	}
 	enrichWithRuntime(svcDetails, newFullRuntime())
 

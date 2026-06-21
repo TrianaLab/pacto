@@ -24,7 +24,8 @@ const defaultContract = `pactoVersion: "1.0"
 service:
   name: %s
   version: 0.1.0
-  owner: team/my-team
+  owner:
+    team: team/my-team
   image:
     ref: ghcr.io/my-org/%s:0.1.0
     private: false

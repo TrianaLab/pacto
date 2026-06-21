@@ -19,7 +19,8 @@ func writeReadinessBundle(t *testing.T) string {
 service:
   name: payment-api
   version: "1.4.0"
-  owner: payments-team
+  owner:
+    team: payments-team
 interfaces:
   - name: api
     type: http

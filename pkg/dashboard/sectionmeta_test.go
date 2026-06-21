@@ -83,8 +83,8 @@ func TestComputeSectionMeta_BundleOnly_NoRuntime(t *testing.T) {
 }
 
 func TestMarkRuntimeOverrides(t *testing.T) {
-	base := &ServiceDetails{Service: Service{Version: "1.0.0", Owner: contract.NewOwnerFromString("team-a")}}
-	rt := &ServiceDetails{Service: Service{Version: "2.0.0", Owner: contract.NewOwnerFromString("team-b")}}
+	base := &ServiceDetails{Service: Service{Version: "1.0.0", Owner: contract.Owner{Team: "team-a"}}}
+	rt := &ServiceDetails{Service: Service{Version: "2.0.0", Owner: contract.Owner{Team: "team-b"}}}
 	res := &ServiceDetails{SectionMeta: map[string]SectionInfo{}}
 	markRuntimeOverrides(res, base, rt)
 	if res.SectionMeta["version"].OverriddenBy != "k8s" {
@@ -96,7 +96,7 @@ func TestMarkRuntimeOverrides(t *testing.T) {
 
 	// No override when values match.
 	same := &ServiceDetails{SectionMeta: map[string]SectionInfo{}}
-	markRuntimeOverrides(same, base, &ServiceDetails{Service: Service{Version: "1.0.0", Owner: contract.NewOwnerFromString("team-a")}})
+	markRuntimeOverrides(same, base, &ServiceDetails{Service: Service{Version: "1.0.0", Owner: contract.Owner{Team: "team-a"}}})
 	if _, ok := same.SectionMeta["version"]; ok {
 		t.Error("did not expect version override when versions match")
 	}

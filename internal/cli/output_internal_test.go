@@ -348,7 +348,7 @@ func TestPrintExplainResult_Full(t *testing.T) {
 	result := &app.ExplainResult{
 		Name:         "svc",
 		Version:      "1.0.0",
-		Owner:        contract.NewOwnerFromString("team/platform"),
+		Owner:        contract.Owner{Team: "team/platform"},
 		PactoVersion: "1.0",
 		Runtime: app.ExplainRuntime{
 			WorkloadType:    "service",

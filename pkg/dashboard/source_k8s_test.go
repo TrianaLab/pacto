@@ -46,7 +46,7 @@ func TestK8s_serviceFromK8sStatus_WithContract(t *testing.T) {
 	r.Status.Contract = &k8sContractInfo{
 		ServiceName: "api-gateway",
 		Version:     "2.0.0",
-		Owner:       contract.NewOwnerFromString("platform-team"),
+		Owner:       contract.Owner{Team: "platform-team"},
 	}
 
 	svc := serviceFromK8sStatus(r)
@@ -69,19 +69,16 @@ func TestK8s_serviceFromK8sStatus_StructuredOwner(t *testing.T) {
 	r.Status.Contract = &k8sContractInfo{
 		ServiceName: "api-gateway",
 		Version:     "2.0.0",
-		Owner:       contract.NewOwnerFromInfo(contract.OwnerInfo{Team: "foundations", DRI: "alice"}),
+		Owner:       contract.Owner{Team: "foundations", DRI: "alice"},
 	}
 
 	svc := serviceFromK8sStatus(r)
 
-	if !svc.Owner.IsStructured() {
-		t.Fatal("expected structured owner")
-	}
 	if svc.Owner.DisplayString() != "foundations" {
 		t.Errorf("expected owner display 'foundations', got %q", svc.Owner.DisplayString())
 	}
-	if svc.Owner.DRI() != "alice" {
-		t.Errorf("expected dri 'alice', got %q", svc.Owner.DRI())
+	if svc.Owner.DRI != "alice" {
+		t.Errorf("expected dri 'alice', got %q", svc.Owner.DRI)
 	}
 }
 
@@ -112,16 +109,13 @@ func TestK8s_serviceFromK8sStatus_StructuredOwnerFromJSON(t *testing.T) {
 
 	svc := serviceFromK8sStatus(r)
 
-	if !svc.Owner.IsStructured() {
-		t.Fatal("expected structured owner from JSON")
-	}
 	if svc.Owner.DisplayString() != "payments" {
 		t.Errorf("expected display 'payments', got %q", svc.Owner.DisplayString())
 	}
-	if svc.Owner.DRI() != "bob.smith" {
-		t.Errorf("expected dri 'bob.smith', got %q", svc.Owner.DRI())
+	if svc.Owner.DRI != "bob.smith" {
+		t.Errorf("expected dri 'bob.smith', got %q", svc.Owner.DRI)
 	}
-	contacts := svc.Owner.Contacts()
+	contacts := svc.Owner.Contacts
 	if len(contacts) != 2 {
 		t.Fatalf("expected 2 contacts, got %d", len(contacts))
 	}
@@ -134,7 +128,7 @@ func TestK8s_serviceFromK8sStatus_StructuredOwnerFromJSON(t *testing.T) {
 }
 
 func TestK8s_serviceFromK8sStatus_LegacyStringOwnerFromJSON(t *testing.T) {
-	// Confirm backward compatibility: string owner from JSON still works.
+	// String owner format is no longer supported - expect unmarshal to fail.
 	payload := `{
 		"metadata": {"name": "svc"},
 		"status": {
@@ -147,17 +141,9 @@ func TestK8s_serviceFromK8sStatus_LegacyStringOwnerFromJSON(t *testing.T) {
 		}
 	}`
 	var r pactoResource
-	if err := json.Unmarshal([]byte(payload), &r); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
-	}
-
-	svc := serviceFromK8sStatus(r)
-
-	if svc.Owner.IsStructured() {
-		t.Error("expected legacy string owner, got structured")
-	}
-	if svc.Owner.DisplayString() != "team/platform" {
-		t.Errorf("expected 'team/platform', got %q", svc.Owner.DisplayString())
+	err := json.Unmarshal([]byte(payload), &r)
+	if err == nil {
+		t.Fatal("expected unmarshal to fail for string owner, but it succeeded")
 	}
 }
 
@@ -231,14 +217,11 @@ func TestK8s_serviceDetailsFromK8sStatus_StructuredOwnerPreserved(t *testing.T) 
 
 	details := serviceDetailsFromK8sStatus(&r)
 
-	if !details.Owner.IsStructured() {
-		t.Fatal("expected structured owner in details")
-	}
 	if details.Owner.DisplayString() != "finops" {
 		t.Errorf("expected 'finops', got %q", details.Owner.DisplayString())
 	}
-	if details.Owner.DRI() != "carol" {
-		t.Errorf("expected dri 'carol', got %q", details.Owner.DRI())
+	if details.Owner.DRI != "carol" {
+		t.Errorf("expected dri 'carol', got %q", details.Owner.DRI)
 	}
 
 	// Verify JSON marshaling preserves structure.
@@ -554,7 +537,7 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	r.Status.ContractStatus = "Compliant"
 	r.Status.ContractVersion = "1.2.3"
 	r.Status.LastReconciledAt = time.Now().Add(-5 * time.Minute).Format(time.RFC3339)
-	r.Status.Contract = &k8sContractInfo{ServiceName: "billing", Version: "1.0.0", Owner: contract.NewOwnerFromString("payments"), ImageRef: "ghcr.io/org/billing:1.2.3", ResolvedRef: "sha256:abc"}
+	r.Status.Contract = &k8sContractInfo{ServiceName: "billing", Version: "1.0.0", Owner: contract.Owner{Team: "payments"}, ImageRef: "ghcr.io/org/billing:1.2.3", ResolvedRef: "sha256:abc"}
 	r.Status.Metadata = map[string]string{"team": "platform", "env": "prod"}
 	r.Status.Interfaces = flexSlice[k8sInterface]{{Name: "http", Type: "http", Port: &port, Visibility: "public", HasContractFile: true}}
 	r.Status.Configurations = flexSlice[k8sConfig]{{Name: "default", HasSchema: true, Ref: "config-ref", ValueKeys: []string{"key1"}, SecretKeys: []string{"secret1"}}}
