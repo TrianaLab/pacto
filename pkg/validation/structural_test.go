@@ -127,23 +127,24 @@ func TestValidateStructuralRaw_InvalidYAML(t *testing.T) {
 	}
 }
 
-func TestValidateStructuralRaw_V11Readiness_Valid(t *testing.T) {
-	yaml := []byte(`pactoVersion: "1.1"
+func TestValidateStructuralRaw_V12Readiness_Valid(t *testing.T) {
+	yaml := []byte(`pactoVersion: "1.2"
 service:
   name: payment-api
   version: "1.4.0"
 readiness:
+  expires: "2026-12-31"
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://grafana.company.com/payment-api
       weight: 20
-      expires: "2026-12-31"
       description: Main production dashboard
 `)
 	result := ValidateStructuralRaw(yaml)
 	if !result.IsValid() {
-		t.Errorf("expected valid 1.1 readiness contract, got errors: %v", result.Errors)
+		t.Errorf("expected valid 1.2 readiness contract, got errors: %v", result.Errors)
 	}
 }
 
@@ -217,18 +218,19 @@ func TestValidateStructural_NonMapData_Unsupported(t *testing.T) {
 	}
 }
 
-func TestValidateStructuralRaw_V11_BadReadinessWeight(t *testing.T) {
-	yaml := []byte(`pactoVersion: "1.1"
+func TestValidateStructuralRaw_V12_BadReadinessWeight(t *testing.T) {
+	yaml := []byte(`pactoVersion: "1.2"
 service:
   name: payment-api
   version: "1.4.0"
 readiness:
+  expires: "2026-12-31"
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://x
       weight: 200
-      expires: "2026-12-31"
 `)
 	result := ValidateStructuralRaw(yaml)
 	if result.IsValid() {
@@ -236,8 +238,8 @@ readiness:
 	}
 }
 
-func TestValidateStructuralRaw_V11_ReadinessMissingChecks(t *testing.T) {
-	yaml := []byte(`pactoVersion: "1.1"
+func TestValidateStructuralRaw_V12_ReadinessMissingChecks(t *testing.T) {
+	yaml := []byte(`pactoVersion: "1.2"
 service:
   name: svc
   version: "1.0.0"
@@ -248,12 +250,13 @@ readiness: {}
 	}
 }
 
-func TestValidateStructuralRaw_V11_ReadinessEmptyChecks(t *testing.T) {
-	yaml := []byte(`pactoVersion: "1.1"
+func TestValidateStructuralRaw_V12_ReadinessEmptyChecks(t *testing.T) {
+	yaml := []byte(`pactoVersion: "1.2"
 service:
   name: svc
   version: "1.0.0"
 readiness:
+  expires: "2026-12-31"
   checks: []
 `)
 	if r := ValidateStructuralRaw(yaml); r.IsValid() {
@@ -261,110 +264,116 @@ readiness:
 	}
 }
 
-func TestValidateStructuralRaw_V11_ReadinessMissingID(t *testing.T) {
-	yaml := []byte(`pactoVersion: "1.1"
+func TestValidateStructuralRaw_V12_ReadinessMissingID(t *testing.T) {
+	yaml := []byte(`pactoVersion: "1.2"
 service:
   name: svc
   version: "1.0.0"
 readiness:
+  expires: "2026-12-31"
   checks:
     - type: url
+      status: done
       evidence: https://x
       weight: 20
-      expires: "2026-12-31"
 `)
 	if r := ValidateStructuralRaw(yaml); r.IsValid() {
 		t.Error("expected missing id to be rejected")
 	}
 }
 
-func TestValidateStructuralRaw_V11_ReadinessInvalidType(t *testing.T) {
-	yaml := []byte(`pactoVersion: "1.1"
+func TestValidateStructuralRaw_V12_ReadinessInvalidType(t *testing.T) {
+	yaml := []byte(`pactoVersion: "1.2"
 service:
   name: svc
   version: "1.0.0"
 readiness:
+  expires: "2026-12-31"
   checks:
     - id: dashboard
       type: dashboard
+      status: done
       evidence: https://x
       weight: 20
-      expires: "2026-12-31"
 `)
 	if r := ValidateStructuralRaw(yaml); r.IsValid() {
 		t.Error("expected invalid evidence type to be rejected")
 	}
 }
 
-func TestValidateStructuralRaw_V11_MinScoreValid(t *testing.T) {
-	yaml := []byte(`pactoVersion: "1.1"
+func TestValidateStructuralRaw_V12_MinScoreValid(t *testing.T) {
+	yaml := []byte(`pactoVersion: "1.2"
 service:
   name: svc
   version: "1.0.0"
 readiness:
   minScore: 80
+  expires: "2026-12-31"
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://x
       weight: 50
-      expires: "2026-12-31"
 `)
 	if r := ValidateStructuralRaw(yaml); !r.IsValid() {
 		t.Errorf("expected minScore 80 to be valid, got %v", r.Errors)
 	}
 }
 
-func TestValidateStructuralRaw_V11_MinScoreOutOfRange(t *testing.T) {
-	yaml := []byte(`pactoVersion: "1.1"
+func TestValidateStructuralRaw_V12_MinScoreOutOfRange(t *testing.T) {
+	yaml := []byte(`pactoVersion: "1.2"
 service:
   name: svc
   version: "1.0.0"
 readiness:
   minScore: 150
+  expires: "2026-12-31"
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://x
       weight: 50
-      expires: "2026-12-31"
 `)
 	if r := ValidateStructuralRaw(yaml); r.IsValid() {
 		t.Error("expected minScore 150 to be rejected (max 100)")
 	}
 }
 
-func TestValidateStructuralRaw_V11_ReadinessTypeOtherAccepted(t *testing.T) {
-	yaml := []byte(`pactoVersion: "1.1"
+func TestValidateStructuralRaw_V12_ReadinessTypeOtherAccepted(t *testing.T) {
+	yaml := []byte(`pactoVersion: "1.2"
 service:
   name: svc
   version: "1.0.0"
 readiness:
+  expires: "2026-12-31"
   checks:
     - id: incident-channel
       type: other
+      status: done
       evidence: "#payments-incidents"
       weight: 10
-      expires: "2026-12-31"
 `)
 	if r := ValidateStructuralRaw(yaml); !r.IsValid() {
 		t.Errorf("expected type: other to be accepted, got %v", r.Errors)
 	}
 }
 
-func TestValidateStructuralRaw_V11_ReadinessUnknownCheckFieldRejected(t *testing.T) {
-	yaml := []byte(`pactoVersion: "1.1"
+func TestValidateStructuralRaw_V12_ReadinessUnknownCheckFieldRejected(t *testing.T) {
+	yaml := []byte(`pactoVersion: "1.2"
 service:
   name: svc
   version: "1.0.0"
 readiness:
+  expires: "2026-12-31"
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://x
       weight: 20
-      expires: "2026-12-31"
-      status: current
+      unknownField: bad
 `)
 	if r := ValidateStructuralRaw(yaml); r.IsValid() {
 		t.Error("expected unknown readiness check field to be rejected (additionalProperties)")
@@ -425,5 +434,38 @@ func minimalContract(version string) map[string]any {
 			"name":    "test-svc",
 			"version": "1.0.0",
 		},
+	}
+}
+
+func TestStructural_V12ReadinessAccepted(t *testing.T) {
+	doc := minimalContract("1.2")
+	doc["readiness"] = map[string]any{
+		"minScore": 80, "expires": "2026-12-31", "partialCredit": 0.5,
+		"history": []any{map[string]any{"date": "2026-06-21", "version": "2.1.0", "author": "ed", "description": "init"}},
+		"checks":  []any{map[string]any{"id": "sec", "type": "ticket", "category": "security", "status": "done", "evidence": "SEC-1", "weight": 30}},
+	}
+	if res := ValidateStructural(doc); !res.IsValid() {
+		t.Fatalf("v1.2 readiness should validate: %+v", res)
+	}
+}
+
+func TestStructural_V12RejectsBadEnumsAndRanges(t *testing.T) {
+	base := func() map[string]any {
+		return map[string]any{"id": "x", "type": "url", "status": "done", "evidence": "e", "weight": 10}
+	}
+	cases := []func(map[string]any){
+		func(c map[string]any) { c["status"] = "wip" },
+		func(c map[string]any) { c["category"] = "bogus" },
+		func(c map[string]any) { c["weight"] = 101 },
+	}
+	for i, mutate := range cases {
+		doc := minimalContract("1.2")
+		c := base()
+		mutate(c)
+		doc["readiness"] = map[string]any{"expires": "2026-12-31", "checks": []any{c}}
+		res := ValidateStructural(doc)
+		if res.IsValid() {
+			t.Fatalf("case %d should be rejected", i)
+		}
 	}
 }
