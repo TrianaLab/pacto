@@ -3,12 +3,13 @@
 A Pacto contract for Redis — a stateful in-memory data store with persistent durability.
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: redis
   version: 7.4.0
-  owner: infra/caching
+  owner:
+    team: caching
   image:
     ref: docker.io/library/redis:7.4
     private: false

@@ -3,7 +3,7 @@
 A Pacto contract for a scheduled batch job — a stateless worker that runs on a cron schedule.
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: report-generator

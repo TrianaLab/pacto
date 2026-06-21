@@ -1,11 +1,12 @@
-# Contract Reference (v1.1)
-A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface — interfaces, dependencies, runtime behavior, configuration, scaling, and readiness. This page covers every section, field, validation rule, and change classification rule.
+# Contract Reference (v1.2)
+A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface — interfaces, dependencies, runtime behavior, configuration, scaling and readiness. This page covers every section, field, validation rule and change classification rule.
 
 ---
 
 The canonical JSON Schemas are available per version:
-[`schema/pacto-v1.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.0.schema.json)
-and [`schema/pacto-v1.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.1.schema.json).
+[`schema/pacto-v1.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.0.schema.json),
+[`schema/pacto-v1.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.1.schema.json) and
+[`schema/pacto-v1.2.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.2.schema.json).
 The schema is selected by the contract's [`pactoVersion`](#pactoversion).
 
 ---
@@ -91,12 +92,14 @@ Use any standard SBOM generator. Recommended tools:
 ## Full example
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: payments-api
   version: 2.1.0
-  owner: team/payments
+  owner:
+    team: payments
+    dri: alice
   image:
     ref: ghcr.io/acme/payments-api:2.1.0
     private: true
@@ -195,10 +198,10 @@ This is useful for lightweight dependency declarations, shared libraries, or con
 
 ### `pactoVersion`
 
-The contract specification version. Supported values are `"1.0"` and `"1.1"`.
+The contract specification version. Supported values are `"1.0"`, `"1.1"` and `"1.2"`.
 
 ```yaml
-pactoVersion: "1.1"
+pactoVersion: "1.2"
 ```
 
 Each version is validated against its own JSON Schema, selected by the declared
@@ -206,11 +209,12 @@ Each version is validated against its own JSON Schema, selected by the declared
 
 | Version | Adds |
 |---------|------|
-| `1.0`   | The base contract (service, interfaces, configurations, policies, dependencies, runtime, scaling, metadata). |
-| `1.1`   | The optional [`readiness`](#readiness) section. Everything from `1.0` remains valid. |
+| `1.0`   | The base contract (service, interfaces, configurations, policies, dependencies, runtime, scaling, metadata). Object-only `owner` (string form removed). |
+| `1.1`   | The optional [`readiness`](#readiness) section (v1.1 shape — per-check `expires`, `currentCount`). Object-only `owner` inherited from `1.0`. Everything from `1.0` remains valid. |
+| `1.2`   | Redesigned [`readiness`](#readiness) — per-check `status` + `category`, assessment-level `expires`, `partialCredit`, `history[]`. Object-only `owner` inherited from `1.0`. Everything from `1.0` and `1.1` (excluding old `readiness` shape) remains valid. |
 
 Existing `1.0` contracts continue to validate unchanged. The `readiness` section
-is only accepted under `pactoVersion: "1.1"`; declaring it under `1.0` is rejected.
+is only accepted under `pactoVersion: "1.2"`; declaring it under `1.0` or `1.1` is rejected.
 
 ---
 
@@ -222,7 +226,7 @@ Identifies the service.
 |-------|------|----------|-------------|
 | `name` | string | Yes | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` |
 | `version` | string | Yes | Valid semver (e.g., `2.1.0`) |
-| `owner` | string \| [OwnerInfo](#ownerinfo) | No | |
+| `owner` | [OwnerInfo](#ownerinfo) | No | Object only (string form removed) |
 | `image` | [Image](#image) | No | |
 | `chart` | [Chart](#chart) | No | |
 
@@ -266,11 +270,7 @@ Structured ownership metadata. All fields are optional but at least one must be 
 **Examples:**
 
 ```yaml
-# Legacy string form (still supported)
-service:
-  owner: team/payments
-
-# Structured form
+# Structured form (object only — string form removed)
 service:
   owner:
     team: foundations
@@ -281,16 +281,20 @@ service:
         purpose: ownership
       - type: chat
         value: "#foundations"
+
+# Minimal object form (at least one field required)
+service:
+  owner:
+    team: payments
 ```
 
 **Dashboard integration:**
 
 The dashboard uses a canonical owner key for aggregation and navigation:
-1. If structured owner has `team` → uses `team`
-2. If legacy string → uses that string
-3. If structured owner has `dri` (no team) → uses `dri`
+1. If owner has `team` → uses `team`
+2. If owner has `dri` (no team) → uses `dri`
 
-This key is used consistently across the owners aggregation view (`#/owners`), owner detail view (`#/owners/:key`), service list filtering, and dependency graph highlighting.
+This key is used consistently across the owners aggregation view (`#/owners`), owner detail view (`#/owners/:key`), service list filtering and dependency graph highlighting.
 
 The owners aggregation view (`#/owners`) includes a stacked horizontal bar chart showing the compliance breakdown per owner — Compliant (green), Warning (yellow), Non-Compliant (red), and Reference (gray). The chart is sorted by number of services descending. Clicking any bar navigates to the owner detail view. Hovering shows a tooltip with the full breakdown and compliance percentage.
 
@@ -773,86 +777,115 @@ and `max` changes.
 
 ### `readiness`
 
-Optional. **Requires `pactoVersion: "1.1"`.** Declares operational readiness
-evidence for the service in a provider-neutral way. Each check points at evidence
-(a dashboard, runbook, ticket, report, etc.). Pacto stores the pointer verbatim
-and **does not verify the target** — there are no integrations with Grafana, Jira,
-Datadog, AWS, GCP, etc. Policies decide which checks must exist and what shape they
-must have; the base schema only enforces the generic shape.
+Optional. **Requires `pactoVersion: "1.2"`.** Declares operational readiness
+state for the service in a provider-neutral way. Each check has a completion status,
+optional category and weight. The assessment includes an expiry date and scoring
+configuration. Pacto computes a readiness score from check statuses and weights.
 
 ```yaml
 readiness:
-  minScore: 80          # gate: the derived score must be >= this (omitted ⇒ 100)
+  expires: 2027-06-30    # assessment-level expiry (YYYY-MM-DD)
+  minScore: 80           # gate: the derived score must be >= this (omitted ⇒ 100)
+  partialCredit: 0.5     # weight multiplier for partial checks (omitted ⇒ 0.5)
+  
   checks:
     - id: dashboard
-      type: url
-      evidence: https://grafana.company.com/payment-api
+      status: done
+      category: observability
       weight: 20
-      expires: 2026-12-31
       description: Main production dashboard
 
     - id: runbook
-      type: document
-      evidence: docs/runbooks/payment-api.md
+      status: partial
+      category: documentation
       weight: 15
-      expires: 2026-09-30
+      description: Incident runbook exists but missing escalation procedures
 
     - id: security-review
-      type: ticket
-      evidence: SEC-1842
+      status: not-done
+      category: security
       weight: 25
-      expires: 2026-11-15
+      description: Security assessment pending
+
+    - id: legacy-cleanup
+      status: deferred
+      category: code-quality
+      weight: 10
+      description: Post-launch cleanup task
+
+  history:
+    - date: 2026-12-15
+      version: 1.0.0
+      author: alice
+      description: Initial readiness assessment
 ```
 
-`readiness.checks` is required when `readiness` is present and must contain at
-least one check. `readiness.minScore` is optional (the [gate](#readiness-score-and-gate)).
+`readiness.expires`, `readiness.checks[]` and per-check `status` are required when `readiness`
+is present. `readiness.minScore`, `readiness.partialCredit` and `readiness.history[]` are optional.
 
 **`readiness` fields:**
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `minScore` | integer | No | Gate threshold on the same 0–100 scale as the score. Omitted ⇒ `100` (all weighted evidence must be current). Enforced by `pacto validate --readiness` and the operator. |
+| `expires` | string | Yes | Assessment-level expiry as a strict `YYYY-MM-DD` date. If the current date is past this date, ALL checks earn 0 weight regardless of status. Parsing is exact round-trip: zero-padded fields required and the value must re-serialize unchanged, so `2026-1-1`, RFC 3339 timestamps and impossible dates (e.g. `2026-02-30`) are rejected. |
+| `minScore` | integer | No | Gate threshold on the same 0–100 scale as the score. Omitted ⇒ `100` (full compliance required). Enforced by `pacto validate --readiness` and the operator. |
+| `partialCredit` | number | No | Multiplier for `partial` status checks (0.0–1.0). Omitted ⇒ `0.5` (half credit). |
 | `checks` | [Check](#readiness-check-fields)[] | Yes | At least one check. |
+| `history` | [HistoryEntry](#readiness-history-entry)[] | No | Audit trail of readiness assessment changes. |
 
 **Check fields:**
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `id` | string | Yes | Stable readiness requirement id. Pattern: `^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`. Unique within the contract. Policies usually target this field. |
-| `type` | string | Yes | Enum: `url`, `document`, `ticket`, `report`, `artifact`, `identifier`, `other`. Classifies the evidence pointer, not the requirement. |
-| `evidence` | string | Yes | Non-blank pointer to the evidence (1–2048 chars). |
-| `weight` | integer | Yes | Contribution to the readiness score. Range `0`–`100`. |
-| `expires` | string | Yes | Freshness boundary as a strict `YYYY-MM-DD` date. The check is current through the end of this date. Parsing is exact round-trip: zero-padded fields are required and the value must re-serialize unchanged, so `2026-1-1`, RFC 3339 timestamps, and impossible dates (e.g. `2026-02-30`) are rejected — such a check evaluates to `Invalid` (and counts against the score). |
+| `status` | string | Yes | Enum: `done`, `partial`, `not-done`, `deferred`. Completion state for the check. |
+| `category` | string | No | Enum: `architecture`, `testing`, `code-quality`, `observability`, `security`, `documentation`, `infrastructure`, `ci-cd`, `deployment`, `resilience`, `backup-recovery`, `incident-response`, `compliance`, `other`. Categorizes the requirement type. |
+| `weight` | integer | Yes | Contribution to the readiness score. Range `1`–`100`. |
 | `description` | string | No | Optional human-readable explanation (non-blank when present). |
 
+**History entry:**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `date` | string | Yes | Date of the change as `YYYY-MM-DD`. |
+| `version` | string | No | Contract version at the time of the change. |
+| `author` | string | No | Person or system that made the change. |
+| `description` | string | Yes | Description of what changed. |
+
 The service owner is declared at the contract level, so readiness checks carry no
-per-check owner. Derived freshness and the readiness score are **not** stored in
-the contract — they are computed by tooling (`pacto explain`, the dashboard, and
-the operator) from `expires` and the current time. Each check derives one of
-three statuses: `Current` (expiry today or later), `Expired` (expiry in the
-past), or `Invalid` (`expires` is not a strict `YYYY-MM-DD` date). Only `Current`
-checks contribute to `currentWeight`; both `Expired` and `Invalid` count against
-the score.
+per-check owner. The readiness score is **not** stored in the contract — it is
+computed by tooling (`pacto explain`, the dashboard and the operator) from check
+statuses, weights, the assessment expiry and the current time.
 
 #### Readiness score and gate
 
 ```text
-score   = round(currentWeight / totalWeight * 100)
+If assessment is expired (today > readiness.expires):
+  score = 0
+
+Otherwise:
+  earnedWeight = sum of earned weights for all in-scope checks
+    - deferred checks: excluded from both numerator and denominator
+    - done: full weight
+    - partial: round(weight × partialCredit)
+    - not-done: 0
+  
+  totalWeight = sum of weights for all in-scope checks (excluding deferred)
+  score = round(earnedWeight / totalWeight × 100)
+
 passing = score >= minScore          # minScore defaults to 100
 ```
 
-`currentWeight` is the sum of the weights of non-expired checks; `totalWeight` is
-the sum of all declared weights. The raw percentage is rounded to the nearest
-integer, with halves rounded away from zero (Go's `math.Round`). When
-`totalWeight` is `0`, the score is `0` (the division is skipped, so a contract
-whose checks all declare `weight: 0` scores `0`, not a divide-by-zero). A check
-is current while the current date (UTC) is on or before its `expires` date.
+**Worked example.** Using the four checks from the example above (weights `20`, `15`, `25`, `10`):
+- `legacy-cleanup` has `status: deferred` → excluded from both numerator and denominator
+- In-scope weights: `20 + 15 + 25 = 60` (total)
+- `dashboard` (`done`, weight `20`) → earns `20`
+- `runbook` (`partial`, weight `15`) → earns `round(15 × 0.5) = 8`
+- `security-review` (`not-done`, weight `25`) → earns `0`
+- Earned weight: `20 + 8 + 0 = 28`
+- Score: `round(28 / 60 × 100) = round(46.7) = 47`
 
-**Worked example.** Using the three checks above (`weight` `20`, `15`, `25`;
-`totalWeight = 60`): if the `security-review` check (weight `25`) has expired and
-the other two are current, `currentWeight = 35` and
-`score = round(35 / 60 × 100) = round(58.3) = 58`. If only `dashboard` (weight
-`20`) is still current, `score = round(20 / 60 × 100) = round(33.3) = 33`.
+If the assessment is expired (current date past `readiness.expires`), the score is `0` regardless of individual check statuses.
 
 **Weights are relative.** Only the *ratio* of weights matters — the score
 normalizes by `totalWeight`, so a `weight` of `20` reads as "20%" only when the
@@ -860,27 +893,30 @@ weights sum to 100. They can sum to anything; making them sum to 100 just makes
 each read as a percentage directly. `pacto explain` and the dashboard show each
 check's normalized contribution so you never have to do the math.
 
+**Deferred checks** are excluded entirely from scoring. Use `status: deferred` for
+post-launch cleanup tasks or requirements that don't apply to the current service stage.
+
 **The gate (`minScore`)** turns the score from informational into actionable. It
-is a *staleness budget*: with `minScore: 80` you tolerate 20% of weighted evidence
-going stale; a check whose normalized weight exceeds that budget is effectively
-mandatory. The gate is evaluated by tooling, not baked into contract validity:
+is a readiness threshold: with `minScore: 80` you require 80% weighted completion;
+checks below that threshold fail the gate. The gate is evaluated by tooling, not
+baked into contract validity:
 
 - `pacto explain` shows `Gate: PASS/FAIL (score N / minScore M)`.
 - `pacto validate --readiness` (off by default) **fails** when `score < minScore`.
-  It is opt-in because it reads `expires` against the current time — making it
-  time-dependent — which would otherwise make plain `validate` non-deterministic.
+  It is opt-in because it depends on the current time — making it time-dependent —
+  which would otherwise make plain `validate` non-deterministic.
 - The operator sets `status.readiness.passing` and the `ReadinessSatisfied`
   condition from the same rule.
 
 Because `minScore` is an authored literal, a [policy](#policies) can still enforce
 it org-wide (e.g. require `readiness.minScore >= 80`) — presence rules stay in
-policies, the freshness bar lives here.
+policies, the threshold bar lives here.
 
 #### Enforcing readiness with policies
 
 The base schema never requires a specific check. Organizational standards are
 expressed as [policies](#policies) using standard JSON Schema. For example, to
-require a `dashboard` check that is a `url` with `weight >= 20`:
+require a `dashboard` check with `status: done`, `category: observability` and `weight >= 20`:
 
 ```json
 {
@@ -895,10 +931,11 @@ require a `dashboard` check that is a `url` with `weight >= 20`:
           "type": "array",
           "contains": {
             "type": "object",
-            "required": ["id", "type", "weight"],
+            "required": ["id", "status", "category", "weight"],
             "properties": {
               "id": { "const": "dashboard" },
-              "type": { "const": "url" },
+              "status": { "const": "done" },
+              "category": { "const": "observability" },
               "weight": { "minimum": 20 }
             }
           }
@@ -1394,19 +1431,32 @@ Schema files referenced by `configurations[].schema`, `policies[].schema`, or th
 | `schema.required` | Added / Removed | **BREAKING** |
 | `schema.*` (any other path) | Added / Removed / Modified | POTENTIAL_BREAKING |
 
-### Not currently compared
+### Readiness
 
-Two declared sections are **not yet** inspected by `pacto diff`, so changes to
-them produce no diff entries and never affect the breaking/non-breaking verdict:
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `readiness.expires` | Added / Modified / Removed | NON_BREAKING |
+| `readiness.minScore` | Added / Modified / Removed | NON_BREAKING |
+| `readiness.partialCredit` | Added / Modified / Removed | NON_BREAKING |
+| `readiness.checks[]` | Added | NON_BREAKING |
+| `readiness.checks[]` | Removed | NON_BREAKING |
+| `readiness.checks[].status` | Modified | NON_BREAKING |
+| `readiness.checks[].category` | Added / Modified / Removed | NON_BREAKING |
+| `readiness.checks[].weight` | Modified | NON_BREAKING |
+| `readiness.checks[].description` | Added / Modified / Removed | NON_BREAKING |
+| `readiness.history[]` | Added / Modified / Removed | NON_BREAKING |
+
+All readiness changes are classified as `NON_BREAKING` — readiness tracks operational
+maturity and does not affect runtime compatibility.
+
+### Not currently compared
 
 | Section | Status |
 |---------|--------|
-| `readiness` | Not diffed. Adding, removing, or editing readiness checks, weights, or `minScore` between two versions yields no change entry. Readiness is surfaced live by `pacto explain`, the dashboard, and the operator, but it is not part of version-to-version diffing. |
 | `metadata` | Not diffed. Free-form `metadata` keys are carried through to documentation and the dashboard but are ignored by the diff engine. |
 
-If you rely on readiness or metadata changes being flagged in CI, gate on them
-separately (for example with a policy or a custom check) until diff coverage is
-added.
+If you rely on metadata changes being flagged in CI, gate on them separately
+(for example with a policy or a custom check).
 
 ### SBOM
 

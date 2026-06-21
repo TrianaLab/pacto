@@ -3,7 +3,7 @@
 A Pacto contract for NGINX — a stateless reverse proxy and web server.
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: nginx

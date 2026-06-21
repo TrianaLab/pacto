@@ -3,12 +3,13 @@
 A Pacto contract for an event-driven service — a stateless consumer that processes messages from a message broker and exposes an HTTP health endpoint.
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: order-processor
   version: 1.4.0
-  owner: team/orders
+  owner:
+    team: orders
   image:
     ref: ghcr.io/acme/order-processor:1.4.0
     private: true

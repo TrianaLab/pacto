@@ -43,7 +43,7 @@ pactoVersion: "1.0"
 service:
   name: my-service-root
   version: 1.2.0
-  owner: team/example
+  owner:\n    team: example
   chart:
     ref: oci://ghcr.io/example/charts/my-service
     version: 1.2.0
@@ -74,7 +74,7 @@ pactoVersion: "1.0"
 service:
   name: my-service-api
   version: 1.2.0
-  owner: team/example
+  owner:\n    team: example
 
 runtime:
   workload: service
