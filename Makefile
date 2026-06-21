@@ -52,9 +52,14 @@ docs-build: $(DOCS_DEMO)/app.wasm
 	mkdocs build
 
 # Build the WASM dashboard demo into docs/demo/ (gitignored) at the same base as
-# production (/pacto/demo/) so `mkdocs serve`/`build` serve it correctly. Only
-# rebuilt when missing; force a refresh with `make demo-preview-clean`.
-$(DOCS_DEMO)/app.wasm:
+# production (/pacto/demo/) so `mkdocs serve`/`build` serve it correctly. Rebuilt
+# when missing OR when any demo source changes (dashboard frontend, demo bundles,
+# demo Go/boot glue) so `make docs` always reflects the current source. Force a
+# full refresh with `make demo-preview-clean`.
+DEMO_SOURCES := $(shell find pkg/dashboard/frontend/src examples/demo/bundles -type f 2>/dev/null) \
+	$(wildcard examples/demo/*.go) examples/demo/boot.js examples/demo/Makefile \
+	pkg/dashboard/frontend/package.json pkg/dashboard/frontend/package-lock.json
+$(DOCS_DEMO)/app.wasm: $(DEMO_SOURCES)
 	$(MAKE) -C examples/demo build BASE=/pacto/demo/ DIST=$(CURDIR)/$(DOCS_DEMO)
 
 demo-preview-clean:
