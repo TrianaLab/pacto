@@ -663,11 +663,12 @@ func fetchEnrichedEntries(t *testing.T) []ServiceListEntry {
 			},
 			Readiness: &ReadinessInfo{
 				Score: 67, MinScore: 100, Passing: false,
-				TotalWeight: 30, CurrentWeight: 20,
-				CurrentCount: 2, ExpiredCount: 1,
+				TotalWeight: 30, EarnedWeight: 20, PartialCredit: 0.5,
+				Expires: "2026-12-31", Expired: false,
+				DoneCount: 1, PartialCount: 1, NotDoneCount: 0, DeferredCount: 0,
 				Checks: []ReadinessCheckInfo{
-					{ID: "dashboard", Type: "url", Status: "Current", Weight: 20, Expires: "2026-12-31"},
-					{ID: "runbook", Type: "document", Status: "Expired", Weight: 10, Expires: "2025-01-01"},
+					{ID: "dashboard", Type: "url", Status: "done", Weight: 20, EarnedWeight: 20},
+					{ID: "runbook", Type: "document", Status: "partial", Weight: 20, EarnedWeight: 10},
 				},
 			},
 		},
@@ -725,8 +726,8 @@ func TestServerListServices_Enriched(t *testing.T) {
 	if svcA.Readiness.Score != 67 {
 		t.Errorf("expected readiness score 67, got %d", svcA.Readiness.Score)
 	}
-	if svcA.Readiness.ExpiredCount != 1 {
-		t.Errorf("expected 1 expired readiness check, got %d", svcA.Readiness.ExpiredCount)
+	if svcA.Readiness.PartialCount != 1 {
+		t.Errorf("expected 1 partial readiness check, got %d", svcA.Readiness.PartialCount)
 	}
 	if len(svcA.Readiness.Checks) != 2 {
 		t.Errorf("expected 2 readiness checks carried through, got %d", len(svcA.Readiness.Checks))

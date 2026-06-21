@@ -3,7 +3,8 @@ pactoVersion: "1.0"
 service:
   name: pacto-dashboard
   version: 0.0.0 # overridden at CI time via --set service.version=$TAG
-  owner: trianalab/pacto
+  owner:
+    team: trianalab/pacto
 
 interfaces:
   - name: http-api

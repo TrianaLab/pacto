@@ -14,7 +14,8 @@ const overrideBaseContract = `pactoVersion: "1.0"
 service:
   name: override-svc
   version: "1.0.0"
-  owner: team/platform
+  owner:
+    team: platform
 interfaces:
   - name: api
     type: http
@@ -298,10 +299,12 @@ func TestOverrideDiff(t *testing.T) {
 		tmpDir := t.TempDir()
 
 		oldVals := writeValuesFile(t, tmpDir, "old.yaml", `service:
-  owner: team/old
+  owner:
+    team: old
 `)
 		newVals := writeValuesFile(t, tmpDir, "new.yaml", `service:
-  owner: team/new
+  owner:
+    team: new
 `)
 
 		output, err := runCommand(t, nil, "diff", bundlePath, bundlePath,

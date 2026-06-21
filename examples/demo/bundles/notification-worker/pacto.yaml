@@ -1,4 +1,4 @@
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: notification-worker
@@ -72,3 +72,44 @@ metadata:
     - worker
     - events
     - scheduled
+
+readiness:
+  minScore: 70
+  expires: "2026-12-31"
+  partialCredit: 0.5
+  checks:
+    - id: worker-dashboard
+      type: url
+      category: observability
+      status: not-done
+      evidence: https://grafana.acme.com/d/notification-worker
+      weight: 30
+      description: Dashboard for notification worker metrics (not created yet)
+    - id: retry-logic
+      type: ticket
+      category: resilience
+      status: not-done
+      evidence: ENG-1543
+      weight: 35
+      description: Implement exponential backoff for failed notifications
+    - id: runbook
+      type: document
+      category: documentation
+      status: not-done
+      evidence: docs/runbooks/notification-worker.md
+      weight: 25
+      description: On-call runbook (not written)
+    - id: dlq-handling
+      type: ticket
+      category: infrastructure
+      status: partial
+      evidence: ENG-1598
+      weight: 30
+      description: Dead letter queue for failed notifications (partially implemented)
+    - id: perf-test
+      type: report
+      category: testing
+      status: not-done
+      evidence: TBD
+      weight: 20
+      description: Performance testing under sustained load

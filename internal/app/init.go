@@ -19,12 +19,18 @@ type InitResult struct {
 	Path string
 }
 
-const defaultContract = `pactoVersion: "1.0"
+const defaultContract = `pactoVersion: "1.2"
 
 service:
   name: %s
   version: 0.1.0
-  owner: team/my-team
+  owner:
+    team: my-team
+    dri: my.handle
+    contacts:
+      - type: email
+        value: my-team@example.com
+        purpose: ownership
   image:
     ref: ghcr.io/my-org/%s:0.1.0
     private: false
@@ -48,23 +54,19 @@ configurations:
 
 runtime:
   workload: service
-
   state:
     type: stateless
     persistence:
       scope: local
       durability: ephemeral
     dataCriticality: low
-
   lifecycle:
     upgradeStrategy: rolling
     gracefulShutdownSeconds: 30
-
   health:
     interface: api
     path: /health
     initialDelaySeconds: 5
-
   metrics:
     interface: api
     path: /metrics
@@ -72,6 +74,29 @@ runtime:
 scaling:
   min: 1
   max: 3
+
+readiness:
+  minScore: 80
+  expires: 2099-12-31
+  partialCredit: 0.5
+  history:
+    - date: 2099-01-01
+      version: 0.1.0
+      author: my.handle
+      description: Initial readiness assessment
+  checks:
+    - id: runbook
+      type: document
+      category: documentation
+      status: not-done
+      evidence: docs/runbook.md
+      weight: 40
+    - id: security-review
+      type: ticket
+      category: security
+      status: not-done
+      evidence: SEC-0000
+      weight: 60
 
 metadata:
   team: my-team

@@ -46,7 +46,7 @@ func TestK8s_serviceFromK8sStatus_WithContract(t *testing.T) {
 	r.Status.Contract = &k8sContractInfo{
 		ServiceName: "api-gateway",
 		Version:     "2.0.0",
-		Owner:       contract.NewOwnerFromString("platform-team"),
+		Owner:       contract.Owner{Team: "platform-team"},
 	}
 
 	svc := serviceFromK8sStatus(r)
@@ -69,19 +69,16 @@ func TestK8s_serviceFromK8sStatus_StructuredOwner(t *testing.T) {
 	r.Status.Contract = &k8sContractInfo{
 		ServiceName: "api-gateway",
 		Version:     "2.0.0",
-		Owner:       contract.NewOwnerFromInfo(contract.OwnerInfo{Team: "foundations", DRI: "alice"}),
+		Owner:       contract.Owner{Team: "foundations", DRI: "alice"},
 	}
 
 	svc := serviceFromK8sStatus(r)
 
-	if !svc.Owner.IsStructured() {
-		t.Fatal("expected structured owner")
-	}
 	if svc.Owner.DisplayString() != "foundations" {
 		t.Errorf("expected owner display 'foundations', got %q", svc.Owner.DisplayString())
 	}
-	if svc.Owner.DRI() != "alice" {
-		t.Errorf("expected dri 'alice', got %q", svc.Owner.DRI())
+	if svc.Owner.DRI != "alice" {
+		t.Errorf("expected dri 'alice', got %q", svc.Owner.DRI)
 	}
 }
 
@@ -112,16 +109,13 @@ func TestK8s_serviceFromK8sStatus_StructuredOwnerFromJSON(t *testing.T) {
 
 	svc := serviceFromK8sStatus(r)
 
-	if !svc.Owner.IsStructured() {
-		t.Fatal("expected structured owner from JSON")
-	}
 	if svc.Owner.DisplayString() != "payments" {
 		t.Errorf("expected display 'payments', got %q", svc.Owner.DisplayString())
 	}
-	if svc.Owner.DRI() != "bob.smith" {
-		t.Errorf("expected dri 'bob.smith', got %q", svc.Owner.DRI())
+	if svc.Owner.DRI != "bob.smith" {
+		t.Errorf("expected dri 'bob.smith', got %q", svc.Owner.DRI)
 	}
-	contacts := svc.Owner.Contacts()
+	contacts := svc.Owner.Contacts
 	if len(contacts) != 2 {
 		t.Fatalf("expected 2 contacts, got %d", len(contacts))
 	}
@@ -134,7 +128,7 @@ func TestK8s_serviceFromK8sStatus_StructuredOwnerFromJSON(t *testing.T) {
 }
 
 func TestK8s_serviceFromK8sStatus_LegacyStringOwnerFromJSON(t *testing.T) {
-	// Confirm backward compatibility: string owner from JSON still works.
+	// String owner format is no longer supported - expect unmarshal to fail.
 	payload := `{
 		"metadata": {"name": "svc"},
 		"status": {
@@ -147,17 +141,9 @@ func TestK8s_serviceFromK8sStatus_LegacyStringOwnerFromJSON(t *testing.T) {
 		}
 	}`
 	var r pactoResource
-	if err := json.Unmarshal([]byte(payload), &r); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
-	}
-
-	svc := serviceFromK8sStatus(r)
-
-	if svc.Owner.IsStructured() {
-		t.Error("expected legacy string owner, got structured")
-	}
-	if svc.Owner.DisplayString() != "team/platform" {
-		t.Errorf("expected 'team/platform', got %q", svc.Owner.DisplayString())
+	err := json.Unmarshal([]byte(payload), &r)
+	if err == nil {
+		t.Fatal("expected unmarshal to fail for string owner, but it succeeded")
 	}
 }
 
@@ -231,14 +217,11 @@ func TestK8s_serviceDetailsFromK8sStatus_StructuredOwnerPreserved(t *testing.T) 
 
 	details := serviceDetailsFromK8sStatus(&r)
 
-	if !details.Owner.IsStructured() {
-		t.Fatal("expected structured owner in details")
-	}
 	if details.Owner.DisplayString() != "finops" {
 		t.Errorf("expected 'finops', got %q", details.Owner.DisplayString())
 	}
-	if details.Owner.DRI() != "carol" {
-		t.Errorf("expected dri 'carol', got %q", details.Owner.DRI())
+	if details.Owner.DRI != "carol" {
+		t.Errorf("expected dri 'carol', got %q", details.Owner.DRI)
 	}
 
 	// Verify JSON marshaling preserves structure.
@@ -315,23 +298,41 @@ func assertDetailsReadiness(t *testing.T, d *ServiceDetails) {
 	if d.Readiness == nil {
 		t.Fatal("expected readiness")
 	}
-	if d.Readiness.Score != 60 || d.Readiness.TotalWeight != 100 || d.Readiness.CurrentWeight != 60 {
-		t.Errorf("readiness summary mismatch: %+v", d.Readiness)
+	r := d.Readiness
+	type check struct {
+		label string
+		got   any
+		want  any
 	}
-	if d.Readiness.MinScore != 80 || d.Readiness.Passing {
-		t.Errorf("expected minScore 80 and not passing, got minScore=%d passing=%v", d.Readiness.MinScore, d.Readiness.Passing)
+	checks := []check{
+		{"score", r.Score, 71},
+		{"totalWeight", r.TotalWeight, 85},
+		{"earnedWeight", r.EarnedWeight, 60},
+		{"minScore", r.MinScore, 80},
+		{"passing", r.Passing, false},
+		{"expires", r.Expires, "2026-12-31"},
+		{"expired", r.Expired, false},
+		{"doneCount", r.DoneCount, 1},
+		{"notDoneCount", r.NotDoneCount, 1},
+		{"deferredCount", r.DeferredCount, 1},
+		{"checks length", len(r.Checks), 3},
 	}
-	if d.Readiness.ExpiredCount != 1 || d.Readiness.InvalidCount != 1 {
-		t.Errorf("readiness counts mismatch: %+v", d.Readiness)
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s: got %v, want %v", c.label, c.got, c.want)
+		}
 	}
-	if len(d.Readiness.Checks) != 3 {
-		t.Fatalf("expected 3 readiness checks, got %d", len(d.Readiness.Checks))
+	if r.DaysRemaining == nil {
+		t.Error("expected daysRemaining to be non-nil")
 	}
-	if d.Readiness.Checks[0].Status != "Current" || d.Readiness.Checks[0].DaysRemaining == nil {
-		t.Errorf("expected first check Current with daysRemaining, got %+v", d.Readiness.Checks[0])
+	if len(r.Checks) > 0 && (r.Checks[0].Status != "done" || r.Checks[0].Category != "observability" || r.Checks[0].EarnedWeight != 60) {
+		t.Errorf("expected first check done observability earned 60, got %+v", r.Checks[0])
 	}
-	if d.Readiness.Checks[1].Status != "Expired" || d.Readiness.Checks[1].DaysRemaining != nil {
-		t.Errorf("expected second check Expired without daysRemaining, got %+v", d.Readiness.Checks[1])
+	if len(r.Checks) > 2 && (r.Checks[2].Status != "deferred" || !r.Checks[2].Excluded) {
+		t.Errorf("expected third check deferred and excluded, got %+v", r.Checks[2])
+	}
+	if len(r.Revisions) != 1 || r.Revisions[0].Author != "ed" {
+		t.Errorf("expected mapped revision, got %+v", r.Revisions)
 	}
 }
 
@@ -554,7 +555,7 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	r.Status.ContractStatus = "Compliant"
 	r.Status.ContractVersion = "1.2.3"
 	r.Status.LastReconciledAt = time.Now().Add(-5 * time.Minute).Format(time.RFC3339)
-	r.Status.Contract = &k8sContractInfo{ServiceName: "billing", Version: "1.0.0", Owner: contract.NewOwnerFromString("payments"), ImageRef: "ghcr.io/org/billing:1.2.3", ResolvedRef: "sha256:abc"}
+	r.Status.Contract = &k8sContractInfo{ServiceName: "billing", Version: "1.0.0", Owner: contract.Owner{Team: "payments"}, ImageRef: "ghcr.io/org/billing:1.2.3", ResolvedRef: "sha256:abc"}
 	r.Status.Metadata = map[string]string{"team": "platform", "env": "prod"}
 	r.Status.Interfaces = flexSlice[k8sInterface]{{Name: "http", Type: "http", Port: &port, Visibility: "public", HasContractFile: true}}
 	r.Status.Configurations = flexSlice[k8sConfig]{{Name: "default", HasSchema: true, Ref: "config-ref", ValueKeys: []string{"key1"}, SecretKeys: []string{"secret1"}}}
@@ -564,11 +565,16 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	r.Status.Scaling = &k8sScaling{Replicas: &replicas, Min: &minR, Max: &maxR}
 	days := int32(206)
 	r.Status.Readiness = &k8sReadiness{
-		Score: 60, MinScore: 80, Passing: false, TotalWeight: 100, CurrentWeight: 60, CurrentCount: 1, ExpiredCount: 1,
+		Score: 71, MinScore: 80, Passing: false, TotalWeight: 85, EarnedWeight: 60, PartialCredit: 0.5,
+		Expires: "2026-12-31", Expired: false, DaysRemaining: &days,
+		DoneCount: 1, PartialCount: 0, NotDoneCount: 1, DeferredCount: 1,
+		Revisions: flexSlice[k8sReadinessRevision]{
+			{Date: "2026-06-21", Version: "2.1.0", Author: "ed", Description: "initial"},
+		},
 		Checks: flexSlice[k8sReadinessCheck]{
-			{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 60, Expires: "2026-12-31", Status: "Current", DaysRemaining: &days},
-			{ID: "security-review", Type: "ticket", Evidence: "SEC-1", Weight: 25, Expires: "2026-01-15", Status: "Expired"},
-			{ID: "bad", Type: "url", Evidence: "https://y", Weight: 15, Expires: "not-a-date", Status: "Invalid"},
+			{ID: "dashboard", Type: "url", Category: "observability", Status: "done", Evidence: "https://x", Weight: 60, EarnedWeight: 60},
+			{ID: "security-review", Type: "ticket", Status: "not-done", Evidence: "SEC-1", Weight: 25, EarnedWeight: 0},
+			{ID: "dr-plan", Type: "document", Status: "deferred", Evidence: "docs/dr.md", Weight: 15, EarnedWeight: 0, Excluded: true},
 		},
 	}
 	r.Status.Validation = &k8sValidation{Valid: false, Errors: []k8sIssue{{Code: "E001", Path: "/service/name", Message: "name is required"}}, Warnings: []k8sIssue{{Code: "W001", Path: "/runtime", Message: "deprecated field"}}}

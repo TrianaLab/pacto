@@ -1,4 +1,4 @@
-pactoVersion: "1.1"
+pactoVersion: "1.2"
 
 service:
   name: orders-service
@@ -91,22 +91,32 @@ metadata:
 
 readiness:
   minScore: 80
+  expires: "2099-12-31"
+  partialCredit: 0.5
+  history:
+    - date: "2026-03-10"
+      version: 1.2.0
+      author: fatima.ahmed
+      description: Added order tracking, structured ownership metadata and readiness assessment
   checks:
     - id: dashboard
       type: url
+      category: observability
+      status: done
       evidence: https://grafana.acme.com/d/orders-service
       weight: 40
-      expires: "2099-12-31"
       description: Production Grafana dashboard
     - id: runbook
       type: document
+      category: documentation
+      status: done
       evidence: docs/runbooks/orders-service.md
       weight: 30
-      expires: "2099-12-31"
       description: On-call runbook
     - id: security-review
       type: ticket
+      category: security
+      status: done
       evidence: SEC-2099
       weight: 30
-      expires: "2099-12-31"
       description: Annual security review

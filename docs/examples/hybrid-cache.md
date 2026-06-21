@@ -3,12 +3,13 @@
 A Pacto contract for a service with hybrid state — an API that caches data locally for performance but can rebuild its cache from an upstream source. Loss of local state degrades performance but does not break the service.
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: product-catalog
   version: 2.0.1
-  owner: team/catalog
+  owner:
+    team: catalog
   image:
     ref: ghcr.io/acme/product-catalog:2.0.1
     private: true

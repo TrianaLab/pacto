@@ -3,7 +3,8 @@ pactoVersion: "1.0"
 service:
   name: payments-api
   version: 2.1.0
-  owner: team/payments
+  owner:
+    team: team/payments
   image:
     ref: ghcr.io/acme/payments-api:2.1.0
     private: true

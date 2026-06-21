@@ -46,7 +46,8 @@ dependencies:
 service:
   name: %s
   version: %s
-  owner: team/platform
+  owner:
+    team: platform
 interfaces:
   - name: api
     type: grpc
@@ -106,7 +107,8 @@ func multiDepContract(name, version string, deps []depRefDecl) string {
 service:
   name: %s
   version: %s
-  owner: team/platform
+  owner:
+    team: platform
 interfaces:
   - name: api
     type: grpc
@@ -372,7 +374,8 @@ func TestLockStaleWhenDependencyAdded(t *testing.T) {
 service:
   name: stale-root
   version: 1.0.0
-  owner: team/platform
+  owner:
+    team: platform
 interfaces:
   - name: api
     type: grpc
@@ -683,7 +686,8 @@ func TestLockStaleWhenDependencyRemoved(t *testing.T) {
 service:
   name: remove-root
   version: 1.0.0
-  owner: team/platform
+  owner:
+    team: platform
 interfaces:
   - name: api
     type: grpc

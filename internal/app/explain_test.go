@@ -10,16 +10,17 @@ import (
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
-// writeReadinessBundle writes a pactoVersion 1.1 bundle with a readiness section
+// writeReadinessBundle writes a pactoVersion 1.2 bundle with a readiness section
 // (one current check, one expired check) and returns its directory.
 func writeReadinessBundle(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	content := []byte(`pactoVersion: "1.1"
+	content := []byte(`pactoVersion: "1.2"
 service:
   name: payment-api
   version: "1.4.0"
-  owner: payments-team
+  owner:
+    team: payments-team
 interfaces:
   - name: api
     type: http
@@ -36,18 +37,24 @@ runtime:
     interface: api
     path: /health
 readiness:
+  expires: "2026-01-15"
+  history:
+    - date: "2026-06-21"
+      version: "2.1.0"
+      author: ed
+      description: initial assessment
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://grafana.company.com/payment-api
       weight: 60
-      expires: "2026-12-31"
       description: Main production dashboard
     - id: security-review
       type: ticket
+      status: done
       evidence: SEC-1842
       weight: 40
-      expires: "2026-01-15"
 `)
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
 		t.Fatal(err)
@@ -75,32 +82,35 @@ func TestExplain_WithReadiness(t *testing.T) {
 		t.Fatal("expected readiness summary to be present")
 	}
 	r := result.Readiness
-	if r.TotalWeight != 100 {
-		t.Errorf("expected total weight 100, got %d", r.TotalWeight)
+	type field struct {
+		label string
+		got   any
+		want  any
 	}
-	if r.CurrentWeight != 60 {
-		t.Errorf("expected current weight 60, got %d", r.CurrentWeight)
+	fields := []field{
+		{"totalWeight", r.TotalWeight, 100},
+		{"expired", r.Expired, true},
+		{"earnedWeight", r.EarnedWeight, 0},
+		{"score", r.Score, 0},
+		{"minScore", r.MinScore, 100},
+		{"passing", r.Passing, false},
+		{"doneCount", r.DoneCount, 2},
+		{"notDoneCount", r.NotDoneCount, 0},
+		{"checks length", len(r.Checks), 2},
 	}
-	if r.Score != 60 {
-		t.Errorf("expected score 60, got %d", r.Score)
+	for _, f := range fields {
+		if f.got != f.want {
+			t.Errorf("%s: got %v, want %v", f.label, f.got, f.want)
+		}
 	}
-	if r.MinScore != 100 {
-		t.Errorf("expected default minScore 100, got %d", r.MinScore)
-	}
-	if r.Passing {
-		t.Error("expected gate not passing (score 60 < minScore 100)")
-	}
-	if r.ExpiredCount != 1 || r.CurrentCount != 1 {
-		t.Errorf("unexpected counts: current=%d expired=%d", r.CurrentCount, r.ExpiredCount)
-	}
-	if len(r.Checks) != 2 {
-		t.Fatalf("expected 2 checks, got %d", len(r.Checks))
-	}
-	if r.Checks[0].ID != "dashboard" || r.Checks[0].Status != "Current" {
+	if len(r.Checks) > 0 && (r.Checks[0].ID != "dashboard" || r.Checks[0].Status != "done") {
 		t.Errorf("unexpected first check: %+v", r.Checks[0])
 	}
-	if r.Checks[1].Status != "Expired" {
-		t.Errorf("expected second check Expired, got %s", r.Checks[1].Status)
+	if len(r.Checks) > 1 && r.Checks[1].Status != "done" {
+		t.Errorf("expected second check done, got %s", r.Checks[1].Status)
+	}
+	if len(r.Revisions) != 1 || r.Revisions[0].Author != "ed" || r.Revisions[0].Version != "2.1.0" {
+		t.Errorf("expected mapped revision history, got %+v", r.Revisions)
 	}
 }
 

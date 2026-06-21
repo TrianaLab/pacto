@@ -101,11 +101,13 @@ var commandNotes = map[string]string{
 		"See the [readiness reference](contract-reference.md#readiness) for the score and gate semantics.\n\n" +
 		"**Exit code:** Non-zero if validation fails.",
 
-	"explain": "**Readiness output.** When the contract declares a `readiness` section (requires `pactoVersion: \"1.1\"`), `explain` adds a Readiness block: " +
-		"the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), the **Current** and **Total Weight**, " +
-		"the **Current / Expired** check counts (and **Invalid** when any check has an unparseable `expires`), and a per-check table " +
-		"(id, type, status, weight with normalized %, expiry). `--output-format json` includes the same data plus `currentCount`, " +
-		"`expiredCount`, and `invalidCount` fields. Readiness status is time-dependent — it is derived from each check's `expires` against the current date.",
+	"explain": "**Readiness output.** When the contract declares a `readiness` section (requires `pactoVersion: \"1.2\"`), `explain` adds a Readiness block: " +
+		"the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, " +
+		"the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state), and a per-check table " +
+		"showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight, and `evidence`. " +
+		"The Readiness block also includes a revision-history table when `history[]` is present. " +
+		"`--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount`, and `expired` (boolean). " +
+		"Readiness status is time-dependent — the score is 0 when the current date is past the assessment-level `expires`.",
 
 	"pack": `The contract is validated before packing. If validation fails, no archive is created.`,
 

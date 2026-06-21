@@ -1,8 +1,9 @@
 // Package readiness derives operational readiness state from a contract's
 // declared readiness section. It is a pure, provider-neutral library shared by
-// the Pacto CLI and the Pacto operator: given the declared checks and a point in
-// time it computes per-check status, weight totals, and an overall score. It does
-// not verify that the referenced evidence actually exists.
+// the Pacto CLI and the Pacto operator: given the declared checks (each carrying
+// its own completion status) and a point in time it computes per-check earned
+// weight, weight totals, and an overall score. It does not verify that the
+// referenced evidence actually exists.
 package readiness
 
 import (
@@ -12,110 +13,123 @@ import (
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
-// dateLayout is the strict YYYY-MM-DD layout used for readiness expiry dates.
-const dateLayout = "2006-01-02"
-
-// Status is the derived state of a single readiness check.
-type Status string
-
 const (
-	// StatusCurrent means the evidence has not yet expired.
-	StatusCurrent Status = "Current"
-	// StatusExpired means the expires date has passed.
-	StatusExpired Status = "Expired"
-	// StatusInvalid means the expires date could not be parsed.
-	StatusInvalid Status = "Invalid"
+	// DefaultMinScore is the gate threshold used when a contract declares
+	// readiness but omits minScore: every weighted check must be done.
+	DefaultMinScore = 100
+	// DefaultPartialCredit is the fraction of weight a "partial" check earns
+	// when the contract omits partialCredit.
+	DefaultPartialCredit = 0.5
+	// dateLayout is the strict YYYY-MM-DD layout used for the assessment expiry.
+	dateLayout = "2006-01-02"
 )
 
-// CheckResult is the derived state of one declared readiness check. It echoes the
-// declared fields and adds the computed Status and, for current checks, the number
-// of whole days remaining until the evidence expires.
-type CheckResult struct {
-	ID            string
-	Type          string
-	Evidence      string
-	Weight        int
-	Expires       string
-	Description   string
-	Status        Status
-	DaysRemaining *int
-}
-
-// Result is the derived readiness assessment of a contract. Score is the
-// percentage of declared weight that is currently satisfied (0 when no weight is
-// declared, avoiding division by zero).
+// Result is the derived readiness assessment.
 type Result struct {
 	Score         int
 	TotalWeight   int
-	CurrentWeight int
-	CurrentCount  int
-	ExpiredCount  int
-	InvalidCount  int
-	// MinScore is the effective gate threshold (the declared readiness.minScore,
-	// or DefaultMinScore when omitted).
-	MinScore int
-	// Passing reports whether the gate is met (Score >= MinScore).
-	Passing bool
-	Checks  []CheckResult
+	EarnedWeight  int
+	MinScore      int
+	PartialCredit float64
+	Expires       string
+	Expired       bool
+	DaysRemaining *int
+	DoneCount     int
+	PartialCount  int
+	NotDoneCount  int
+	DeferredCount int
+	Passing       bool
+	Checks        []CheckResult
 }
 
-// DefaultMinScore is the gate threshold used when a contract declares readiness
-// but omits minScore: every weighted check must be current.
-const DefaultMinScore = 100
+// CheckResult is the derived state of one declared check.
+type CheckResult struct {
+	ID           string
+	Type         string
+	Category     string
+	Status       string
+	Evidence     string
+	Description  string
+	Weight       int
+	EarnedWeight int
+	Excluded     bool
+}
 
-// Evaluate derives readiness state from the declared readiness section as of now.
-// It returns nil when no readiness is declared (a nil section or no checks), so
-// callers can treat "no readiness" as an absent result. Evidence is considered
-// current through the end of its expires date; the day boundary is computed in
-// UTC so the result is independent of the caller's timezone.
+// Evaluate derives the readiness Result at time now. Returns nil when no
+// readiness (or no checks) is declared. Deferred checks are excluded from both
+// the numerator and denominator. Done checks earn their full weight; partial
+// checks earn round(weight*partialCredit); not-done (and any unknown status)
+// earn nothing. When the assessment is expired every in-scope check earns zero.
 func Evaluate(r *contract.Readiness, now time.Time) *Result {
 	if r == nil || len(r.Checks) == 0 {
 		return nil
 	}
+	minScore := DefaultMinScore
+	if r.MinScore != nil {
+		minScore = *r.MinScore
+	}
+	credit := DefaultPartialCredit
+	if r.PartialCredit != nil {
+		credit = *r.PartialCredit
+	}
 
-	nowUTC := now.UTC()
-	today := time.Date(nowUTC.Year(), nowUTC.Month(), nowUTC.Day(), 0, 0, 0, 0, time.UTC)
+	res := &Result{MinScore: minScore, PartialCredit: credit, Expires: r.Expires}
+	res.Expired, res.DaysRemaining = expiryState(r.Expires, now)
 
-	res := &Result{Checks: make([]CheckResult, 0, len(r.Checks))}
-	for _, check := range r.Checks {
+	for _, c := range r.Checks {
 		cr := CheckResult{
-			ID:          check.ID,
-			Type:        check.Type,
-			Evidence:    check.Evidence,
-			Weight:      check.Weight,
-			Expires:     check.Expires,
-			Description: check.Description,
+			ID: c.ID, Type: c.Type, Category: c.Category, Status: c.Status,
+			Evidence: c.Evidence, Description: c.Description, Weight: c.Weight,
 		}
-		res.TotalWeight += check.Weight
-
-		exp, err := time.Parse(dateLayout, check.Expires)
-		switch {
-		case err != nil || exp.Format(dateLayout) != check.Expires:
-			cr.Status = StatusInvalid
-			res.InvalidCount++
-		case !today.After(exp):
-			cr.Status = StatusCurrent
-			res.CurrentCount++
-			res.CurrentWeight += check.Weight
-			days := int(exp.Sub(today).Hours()) / 24
-			cr.DaysRemaining = &days
-		default:
-			cr.Status = StatusExpired
-			res.ExpiredCount++
+		switch c.Status {
+		case contract.StatusDeferred:
+			cr.Excluded = true
+			res.DeferredCount++
+			res.Checks = append(res.Checks, cr)
+			continue
+		case contract.StatusDone:
+			res.DoneCount++
+		case contract.StatusPartial:
+			res.PartialCount++
+		default: // not-done (and any unknown, treated as no credit)
+			res.NotDoneCount++
 		}
-
+		res.TotalWeight += c.Weight
+		if !res.Expired {
+			switch c.Status {
+			case contract.StatusDone:
+				cr.EarnedWeight = c.Weight
+			case contract.StatusPartial:
+				cr.EarnedWeight = int(math.Round(float64(c.Weight) * credit))
+			}
+		}
+		res.EarnedWeight += cr.EarnedWeight
 		res.Checks = append(res.Checks, cr)
 	}
 
 	if res.TotalWeight > 0 {
-		res.Score = int(math.Round(float64(res.CurrentWeight) / float64(res.TotalWeight) * 100))
+		res.Score = int(math.Round(float64(res.EarnedWeight) / float64(res.TotalWeight) * 100))
 	}
-
-	res.MinScore = DefaultMinScore
-	if r.MinScore != nil {
-		res.MinScore = *r.MinScore
-	}
-	res.Passing = res.Score >= res.MinScore
-
+	res.Passing = !res.Expired && res.Score >= minScore
 	return res
+}
+
+// expiryState reports whether the assessment is expired and the whole days
+// remaining (nil when expired or unparseable). Expiry is inclusive through the
+// end of the expires day in UTC. An unparseable date fails closed (expired).
+func expiryState(expires string, now time.Time) (bool, *int) {
+	parsed, err := time.ParseInLocation(dateLayout, expires, time.UTC)
+	if err != nil || parsed.Format(dateLayout) != expires {
+		return true, nil
+	}
+	endOfDay := parsed.Add(24*time.Hour - time.Nanosecond)
+	if now.UTC().After(endOfDay) {
+		return true, nil
+	}
+	// The assessment is not expired, so now is at or before the end of the
+	// expires day; therefore today (the date part of now in UTC) is never after
+	// the parsed day and the whole-days difference is always >= 0.
+	today := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	days := int(parsed.Sub(today).Hours() / 24)
+	return false, &days
 }

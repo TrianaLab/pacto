@@ -3,12 +3,13 @@
 A Pacto contract for NGINX — a stateless reverse proxy and web server.
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: nginx
   version: 1.27.3
-  owner: infra/networking
+  owner:
+    team: networking
   image:
     ref: docker.io/library/nginx:1.27.3
     private: false

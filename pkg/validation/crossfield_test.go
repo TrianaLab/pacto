@@ -1479,8 +1479,8 @@ func TestValidateConfigValues_MultiConfigsExternalRef(t *testing.T) {
 
 func readinessContract(checks ...contract.ReadinessCheck) *contract.Contract {
 	c := validContract()
-	c.PactoVersion = "1.1"
-	c.Readiness = &contract.Readiness{Checks: checks}
+	c.PactoVersion = "1.2"
+	c.Readiness = &contract.Readiness{Expires: "2099-12-31", Checks: checks}
 	return c
 }
 
@@ -1513,9 +1513,12 @@ func TestValidateReadiness_NoReadiness(t *testing.T) {
 
 func TestValidateReadiness_Valid(t *testing.T) {
 	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 60, Expires: "2026-12-31", Description: "Main dashboard"},
-		contract.ReadinessCheck{ID: "runbook", Type: "document", Evidence: "docs/rb.md", Weight: 40, Expires: "2026-09-30"},
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 60, Description: "Main dashboard"},
+		contract.ReadinessCheck{ID: "runbook", Type: "document", Status: "partial", Evidence: "docs/rb.md", Weight: 40},
 	)
+	c.Readiness.History = []contract.ReadinessRevision{
+		{Date: "2026-06-21", Version: "2.1.0", Author: "ed", Description: "initial"},
+	}
 	var result ValidationResult
 	validateReadiness(c, &result)
 	if !result.IsValid() {
@@ -1525,8 +1528,8 @@ func TestValidateReadiness_Valid(t *testing.T) {
 
 func TestValidateReadiness_DuplicateID(t *testing.T) {
 	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 50, Expires: "2026-12-31"},
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://y", Weight: 50, Expires: "2026-12-31"},
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 50},
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://y", Weight: 50},
 	)
 	var result ValidationResult
 	validateReadiness(c, &result)
@@ -1537,7 +1540,7 @@ func TestValidateReadiness_DuplicateID(t *testing.T) {
 
 func TestValidateReadiness_BlankEvidence(t *testing.T) {
 	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "   ", Weight: 50, Expires: "2026-12-31"},
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "   ", Weight: 50},
 	)
 	var result ValidationResult
 	validateReadiness(c, &result)
@@ -1548,7 +1551,7 @@ func TestValidateReadiness_BlankEvidence(t *testing.T) {
 
 func TestValidateReadiness_BlankDescription(t *testing.T) {
 	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 50, Expires: "2026-12-31", Description: "   "},
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 50, Description: "   "},
 	)
 	var result ValidationResult
 	validateReadiness(c, &result)
@@ -1559,7 +1562,7 @@ func TestValidateReadiness_BlankDescription(t *testing.T) {
 
 func TestValidateReadiness_EmptyDescriptionOK(t *testing.T) {
 	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 50, Expires: "2026-12-31", Description: ""},
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 50, Description: ""},
 	)
 	var result ValidationResult
 	validateReadiness(c, &result)
@@ -1570,8 +1573,9 @@ func TestValidateReadiness_EmptyDescriptionOK(t *testing.T) {
 
 func TestValidateReadiness_InvalidExpires(t *testing.T) {
 	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 50, Expires: "not-a-date"},
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 50},
 	)
+	c.Readiness.Expires = "not-a-date"
 	var result ValidationResult
 	validateReadiness(c, &result)
 	if !readinessHasCode(result, "INVALID_READINESS_EXPIRES") {
@@ -1581,13 +1585,59 @@ func TestValidateReadiness_InvalidExpires(t *testing.T) {
 
 func TestValidateReadiness_NonCanonicalExpires(t *testing.T) {
 	// time.Parse is lenient about zero-padding; the strict round-trip check
-	// must reject a non-canonical date like "2026-1-1".
+	// must reject a non-canonical assessment date like "2026-1-1".
 	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 50, Expires: "2026-1-1"},
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 50},
 	)
+	c.Readiness.Expires = "2026-1-1"
 	var result ValidationResult
 	validateReadiness(c, &result)
 	if !readinessHasCode(result, "INVALID_READINESS_EXPIRES") {
 		t.Errorf("expected INVALID_READINESS_EXPIRES for non-canonical date, got %v", result.Errors)
+	}
+}
+
+func TestValidateReadiness_InvalidRevision(t *testing.T) {
+	c := readinessContract(
+		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 50},
+	)
+	c.Readiness.History = []contract.ReadinessRevision{
+		{Date: "nope", Version: "", Author: "", Description: ""},
+	}
+	var result ValidationResult
+	validateReadiness(c, &result)
+	if !readinessHasCode(result, "INVALID_READINESS_REVISION") {
+		t.Errorf("expected INVALID_READINESS_REVISION, got %v", result.Errors)
+	}
+	// All four revision fields are bad, so there should be four revision errors.
+	count := 0
+	for _, e := range result.Errors {
+		if e.Code == "INVALID_READINESS_REVISION" {
+			count++
+		}
+	}
+	if count != 4 {
+		t.Errorf("expected 4 INVALID_READINESS_REVISION errors (date/version/author/description), got %d: %v", count, result.Errors)
+	}
+}
+
+func TestValidateReadiness_AllRules(t *testing.T) {
+	c := &contract.Contract{PactoVersion: "1.2", Readiness: &contract.Readiness{
+		Expires: "2026-13-40",
+		History: []contract.ReadinessRevision{{Date: "nope", Version: "", Author: "", Description: ""}},
+		Checks: []contract.ReadinessCheck{
+			{ID: "dup", Type: "url", Status: "done", Evidence: " ", Weight: 10},
+			{ID: "dup", Type: "url", Status: "done", Evidence: "e", Weight: 10, Description: "  "},
+		},
+	}}
+	var result ValidationResult
+	validateReadiness(c, &result)
+	for _, code := range []string{
+		"INVALID_READINESS_EXPIRES", "INVALID_READINESS_REVISION",
+		"DUPLICATE_READINESS_ID", "EMPTY_READINESS_EVIDENCE", "EMPTY_READINESS_DESCRIPTION",
+	} {
+		if !readinessHasCode(result, code) {
+			t.Fatalf("missing %s in %+v", code, result.Errors)
+		}
 	}
 }

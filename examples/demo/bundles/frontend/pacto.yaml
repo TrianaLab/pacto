@@ -1,4 +1,4 @@
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: frontend
@@ -72,3 +72,51 @@ metadata:
     - nextjs
     - web
     - public
+
+readiness:
+  minScore: 80
+  expires: "2027-01-31"
+  partialCredit: 0.5
+  checks:
+    - id: perf-budget
+      type: report
+      category: testing
+      status: done
+      evidence: https://lighthouse.acme.com/frontend-perf-2026-05
+      weight: 30
+      description: Performance budget compliance (Core Web Vitals)
+    - id: a11y-audit
+      type: report
+      category: compliance
+      status: done
+      evidence: https://axe.acme.com/frontend-a11y-2026-06
+      weight: 35
+      description: Accessibility audit (WCAG 2.1 AA compliance)
+    - id: e2e-tests
+      type: report
+      category: testing
+      status: done
+      evidence: https://playwright.acme.com/frontend-e2e
+      weight: 25
+      description: End-to-end test suite for critical user flows
+    - id: security-headers
+      type: ticket
+      category: security
+      status: deferred
+      evidence: SEC-2201
+      weight: 20
+      description: Security headers review (deferred to next sprint)
+    - id: seo-audit
+      type: report
+      category: documentation
+      status: deferred
+      evidence: TBD
+      weight: 15
+      description: SEO best practices audit (deferred pending redesign)
+    - id: monitoring-rum
+      type: url
+      category: observability
+      status: done
+      evidence: https://datadog.acme.com/rum/frontend
+      weight: 25
+      description: Real user monitoring for frontend performance

@@ -1,4 +1,4 @@
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: auth-service
@@ -81,3 +81,60 @@ metadata:
     - jwt
     - sessions
     - identity
+
+readiness:
+  minScore: 85
+  expires: "2027-06-30"
+  partialCredit: 0.5
+  history:
+    - date: "2026-05-20"
+      version: 1.0.0
+      author: erik.nilsson
+      description: Initial readiness assessment for identity service
+    - date: "2026-06-10"
+      version: 1.0.0
+      author: erik.nilsson
+      description: Added incident response and compliance checks
+  checks:
+    - id: observability-dashboard
+      type: url
+      category: observability
+      status: done
+      evidence: https://grafana.acme.com/d/auth-service
+      weight: 30
+      description: Grafana dashboard for auth service metrics
+    - id: security-review
+      type: ticket
+      category: security
+      status: done
+      evidence: SEC-2156
+      weight: 40
+      description: Annual security audit for JWT and session management
+    - id: runbook
+      type: document
+      category: documentation
+      status: done
+      evidence: docs/runbooks/auth-service.md
+      weight: 20
+      description: On-call runbook for identity incidents
+    - id: load-test
+      type: report
+      category: testing
+      status: done
+      evidence: https://k6.acme.com/auth-service-load-2026-05
+      weight: 30
+      description: Peak load testing for authentication flows
+    - id: dr-plan
+      type: document
+      category: incident-response
+      status: done
+      evidence: docs/dr/auth-service-recovery.md
+      weight: 25
+      description: Disaster recovery plan for identity service
+    - id: compliance-sox
+      type: ticket
+      category: compliance
+      status: done
+      evidence: COMP-891
+      weight: 25
+      description: SOX compliance audit for authentication controls

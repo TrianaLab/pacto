@@ -55,8 +55,8 @@ pacto pull oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```bash
 $ pacto explain oci://ghcr.io/acme/payments-api-pacto:2.1.0
 Service: payments-api@2.1.0
-Owner: team/payments
-Pacto Version: 1.0
+Owner: payments (team)
+Pacto Version: 1.2
 
 Runtime:
   Workload: service
@@ -193,11 +193,12 @@ The `policies` section lets platform teams enforce **minimum requirements on con
 
 ```yaml
 # platform-policy/pacto.yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 service:
   name: platform-policy
   version: 1.0.0
-  owner: team/platform
+  owner:
+    team: platform
 policies:
   - name: platform-policy
     schema: policy/schema.json

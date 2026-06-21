@@ -1,39 +1,23 @@
 <script>
-  import { serviceUrl, ownerUrl, readinessUrl } from '../lib/router.ts';
-  import { statusClass, complianceStatusClass, complianceClass, sourceTooltip, ownerDisplay, ownerKey, filterServices, summarizeFleet, summarizeReadiness } from '../lib/format.ts';
-  import StatsBar from '../StatsBar.svelte';
+  import { serviceUrl } from '../lib/router.ts';
+  import { getFilters } from '../lib/filters.svelte.ts';
+  import { applyFilters } from '../lib/filters.ts';
+  import FilterBar from '../components/FilterBar.svelte';
+  import SummaryBar from '../components/SummaryBar.svelte';
+  import ServicesTable from '../components/ServicesTable.svelte';
 
   let { services = [], sourcesInfo = [], discovering = false, initialLoading = false } = $props();
-
-  // Fleet-wide headline metrics for the at-a-glance overview.
-  let fleet = $derived(summarizeFleet(services));
-  let rdy = $derived(summarizeReadiness(services));
 
   let enabledSources = $derived(sourcesInfo.filter((s) => s.enabled));
   let disabledSources = $derived(sourcesInfo.filter((s) => !s.enabled));
 
-  let nameFilter = $state('');
-  let statusFilter = $state('all');
-  let sourceFilter = $state('all');
-  let sortBy = $state('name');
-  let sortAsc = $state(true);
-
   const STATUS_LABELS = { Compliant: 'Compliant', Warning: 'Warning', NonCompliant: 'Non-Compliant', Unknown: 'Unknown', Reference: 'Reference' };
   function statusLabel(s) { return STATUS_LABELS[s] || s; }
 
-  // Filter + sort
-  let filtered = $derived.by(() => {
-    let list = filterServices(services, { nameFilter, sourceFilter, statusFilter });
-    const dir = sortAsc ? 1 : -1;
-    list = [...list].sort((a, b) => {
-      if (sortBy === 'name') return a.name.localeCompare(b.name) * dir;
-      if (sortBy === 'status') return (a.contractStatus || '').localeCompare(b.contractStatus || '') * dir;
-      if (sortBy === 'compliance') return ((a.complianceScore ?? -1) - (b.complianceScore ?? -1)) * dir;
-      if (sortBy === 'blast') return ((a.blastRadius || 0) - (b.blastRadius || 0)) * dir;
-      return 0;
-    });
-    return list;
-  });
+  // The visible set is driven entirely by the shared filter store, so the summary
+  // (computed from `filtered`) and the table stay in sync with the URL.
+  const filters = $derived(getFilters());
+  let filtered = $derived(applyFilters(services, filters));
 
   // Needs attention: non-compliant/warning services, sorted by blast radius descending
   let needsAttention = $derived(
@@ -42,64 +26,17 @@
       .sort((a, b) => (b.blastRadius || 0) - (a.blastRadius || 0))
       .slice(0, 5)
   );
-
-  function toggleSort(col) {
-    if (sortBy === col) sortAsc = !sortAsc;
-    else { sortBy = col; sortAsc = true; }
-  }
-
-  function sortIcon(col) {
-    if (sortBy !== col) return '';
-    return sortAsc ? ' ↑' : ' ↓';
-  }
 </script>
 
 <div class="list-header">
   <h1>Services {#if services.length > 0}<span class="tab-count">{services.length}</span>{/if}</h1>
 </div>
 
-<!-- Fleet overview: the few signals that matter at a glance -->
+<!-- Shared filter + summary: the summary reacts to the active filters. -->
 {#if services.length > 0}
-  <div class="fleet-overview fade-in-up">
-    <div class="metric-tile" data-tip="Share of assessed services that pass all contract checks">
-      <span class="metric-head">Compliant</span>
-      {#if fleet.compliancePercent >= 0}
-        <span class="metric-value {complianceClass(fleet.compliancePercent)}">{fleet.compliancePercent}<span class="metric-unit">%</span></span>
-      {:else}
-        <span class="metric-value text-dim">—</span>
-      {/if}
-      <span class="metric-sub">{fleet.compliant} of {fleet.assessed} assessed</span>
-    </div>
-
-    <div class="metric-tile" class:tile-alert={fleet.needsAttention > 0} class:tile-clear={fleet.needsAttention === 0} data-tip="Services with warnings or validation errors">
-      <span class="metric-head">Needs attention</span>
-      <span class="metric-value">{fleet.needsAttention}</span>
-      <span class="metric-sub">
-        {#if fleet.needsAttention === 0}all clear{:else}{fleet.nonCompliant} error{fleet.nonCompliant !== 1 ? 's' : ''} · {fleet.warning} warning{fleet.warning !== 1 ? 's' : ''}{/if}
-      </span>
-    </div>
-
-    <a class="metric-tile metric-link" href={readinessUrl()} data-tip="Average readiness score (0–100%) across services that declare readiness">
-      <span class="metric-head">Readiness</span>
-      {#if rdy.configured > 0}
-        <span class="metric-value {complianceClass(rdy.avgScore)}">{rdy.avgScore}<span class="metric-unit">%</span></span>
-        <span class="metric-sub">{rdy.ready} of {rdy.configured} ready</span>
-      {:else}
-        <span class="metric-value text-dim">—</span>
-        <span class="metric-sub">not configured</span>
-      {/if}
-    </a>
-
-    <a class="metric-tile metric-link" class:tile-warn={fleet.highImpact > 0} href="#/graph" data-tip="Services whose failure impacts 3 or more others">
-      <span class="metric-head">High impact</span>
-      <span class="metric-value">{fleet.highImpact}</span>
-      <span class="metric-sub">blast radius ≥ 3</span>
-    </a>
-  </div>
+  <FilterBar {services} />
+  <SummaryBar services={filtered} />
 {/if}
-
-<!-- Stats bar -->
-<StatsBar {services} bind:statusFilter bind:sourceFilter bind:nameFilter />
 
 {#if services.length > 0}
   <div class="cta-row">
@@ -129,8 +66,6 @@
     </a>
   </div>
 {/if}
-
-
 
 <!-- Needs attention -->
 {#if needsAttention.length > 0}
@@ -194,11 +129,6 @@
       {/if}
     {/if}
   </div>
-{:else if filtered.length === 0}
-  <div class="state-box">
-    <h3>No matching services</h3>
-    <p>Try a different search or filter.</p>
-  </div>
 {:else}
   {#if discovering}
     <div class="discovering-banner">
@@ -207,112 +137,13 @@
     </div>
   {/if}
   <div class="table-wrap fade-in-up">
-    <table>
-      <thead>
-        <tr>
-          <th><button type="button" class="col-sort" data-tip="Service contract name" onclick={() => toggleSort('name')}>Name{sortIcon('name')}</button></th>
-          <th data-tip="Current contract version">Version</th>
-          <th><button type="button" class="col-sort" data-tip="Contract compliance status" onclick={() => toggleSort('status')}>Contract Status{sortIcon('status')}</button></th>
-          <th><button type="button" class="col-sort" data-tip="Contract compliance score (0–100%)" onclick={() => toggleSort('compliance')}>Compliance{sortIcon('compliance')}</button></th>
-          <th data-tip="Validation checks passed / total">Checks</th>
-          <th><button type="button" class="col-sort" data-tip="Number of services impacted if this one fails" onclick={() => toggleSort('blast')}>Blast{sortIcon('blast')}</button></th>
-          <th data-tip="Data source: k8s, oci, or local">Source</th>
-        </tr>
-      </thead>
-      <tbody>
-        {#each filtered as svc}
-          <tr class="clickable" onclick={() => location.hash = serviceUrl(svc.name)}>
-            <td>
-              <a href={serviceUrl(svc.name)} class="svc-name">{svc.name}</a>
-              {#if ownerDisplay(svc.owner)}<a href={ownerUrl(ownerKey(svc.owner))} class="svc-owner" onclick={(e) => e.stopPropagation()}>{ownerDisplay(svc.owner)}</a>{/if}
-            </td>
-            <td>
-              <span class="pill">{svc.version || '—'}</span>
-              {#if svc.updateAvailable}<span class="update-dot" data-tip="Newer version available"></span>{/if}
-            </td>
-            <td><span class="badge badge-{statusClass(svc.contractStatus)}"><span class="badge-dot"></span>{statusLabel(svc.contractStatus)}</span></td>
-            <td>
-              {#if svc.complianceScore != null}
-                <span class="score {complianceStatusClass(svc.complianceStatus)}">{svc.complianceScore}%</span>
-              {:else}
-                <span class="text-dim">—</span>
-              {/if}
-            </td>
-            <td>
-              {#if svc.checksTotal > 0}
-                <span class:text-ok={svc.checksFailed === 0} class:text-err={svc.checksFailed > 0}>
-                  {svc.checksPassed}/{svc.checksTotal}
-                </span>
-              {:else}
-                <span class="text-dim">—</span>
-              {/if}
-            </td>
-            <td>
-              {#if svc.blastRadius > 0}
-                <span class="blast-badge" class:blast-low={svc.blastRadius < 3} class:blast-med={svc.blastRadius >= 3 && svc.blastRadius < 5} class:blast-high={svc.blastRadius >= 5} data-tip="{svc.blastRadius} service{svc.blastRadius !== 1 ? 's' : ''} impacted if this one fails">
-                  {svc.blastRadius}
-                </span>
-              {:else}
-                <span class="blast-badge blast-zero" data-tip="No services impacted if this one fails">0</span>
-              {/if}
-            </td>
-            <td>
-              {#each (svc.sources || [svc.source]) as src}
-                <span class="source-dot source-dot-{src}" data-tip={sourceTooltip(src)} data-tip-align="right"></span>
-              {/each}
-            </td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
+    <ServicesTable services={filtered} />
   </div>
 {/if}
 
 <style>
   .list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-4); }
 
-  /* ── Fleet overview ── */
-  .fleet-overview {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-    gap: var(--sp-3);
-    margin-bottom: var(--sp-4);
-    /* Own stacking context above the following stats bar so tile tooltips,
-       which overflow downward, are never painted behind it. */
-    position: relative;
-    z-index: 2;
-  }
-  .metric-tile {
-    display: flex; flex-direction: column; gap: 3px;
-    padding: var(--sp-4);
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface);
-    text-decoration: none; color: inherit;
-    transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
-  }
-  .metric-link { cursor: pointer; }
-  .metric-link:hover {
-    border-color: var(--c-accent); box-shadow: var(--shadow-md);
-    text-decoration: none; transform: translateY(-1px);
-  }
-  .metric-head {
-    font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--c-text-3);
-  }
-  .metric-value { font-size: 2rem; font-weight: 700; line-height: 1.1; color: var(--c-text); }
-  .metric-value.score-ok { color: var(--c-ok); }
-  .metric-value.score-warn { color: var(--c-warn); }
-  .metric-value.score-err { color: var(--c-err); }
-  .metric-value.text-dim { color: var(--c-text-3); }
-  .metric-unit { font-size: 1rem; font-weight: 600; color: var(--c-text-3); margin-left: 1px; }
-  .metric-sub { font-size: var(--text-xs); color: var(--c-text-3); }
-
-  /* The actionable signal: green when clear, red when work is pending. */
-  .tile-clear .metric-value { color: var(--c-ok); }
-  .tile-alert { border-color: var(--c-err-border); background: var(--c-err-bg); }
-  .tile-alert .metric-value { color: var(--c-err); }
-  .tile-warn .metric-value { color: var(--c-warn); }
   .cta-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-5); flex-wrap: wrap; }
   .cta-row .graph-cta { margin-bottom: 0; flex: 1; min-width: 220px; }
   .graph-cta {
@@ -349,35 +180,6 @@
   .alert-name { font-weight: 600; }
   .alert-reason { color: var(--c-text-2); }
 
-  .svc-name { font-weight: 600; text-decoration: none; }
-  .svc-name:hover { text-decoration: underline; }
-  .svc-owner { color: var(--c-text-3); font-size: var(--text-xs); margin-left: 6px; text-decoration: none; }
-  .svc-owner:hover { color: var(--c-text-2); text-decoration: underline; }
-
-  .col-sort {
-    background: none; border: none; padding: 0; font: inherit;
-    font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--c-text-3); cursor: pointer;
-    white-space: nowrap;
-  }
-  .col-sort:hover { color: var(--c-text); }
-
-  .text-dim { color: var(--c-text-3); }
-  .text-ok { color: var(--c-ok); }
-  .text-err { color: var(--c-err); }
-  .text-warn { color: var(--c-warn); }
-
-  .blast-badge {
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 26px; height: 22px; padding: 0 7px;
-    border-radius: var(--radius-xs);
-    font-size: var(--text-xs); font-weight: 600;
-  }
-  .blast-low { background: var(--c-warn-bg); color: var(--c-warn); }
-  .blast-med { background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid color-mix(in srgb, var(--c-warn) 25%, transparent); }
-  .blast-high { background: var(--c-err-bg); color: var(--c-err); border: 1px solid color-mix(in srgb, var(--c-err) 25%, transparent); }
-  .blast-zero { background: var(--c-neutral-bg); color: var(--c-text-3); }
-
   .blast-pill {
     font-size: var(--text-xs); font-weight: 500;
     padding: 2px 8px; border-radius: var(--radius-xs);
@@ -411,16 +213,9 @@
     color: var(--c-accent); font-size: var(--text-sm); font-weight: 500;
   }
 
-  .update-dot {
-    display: inline-block; width: 7px; height: 7px;
-    border-radius: 50%; background: var(--c-accent);
-    margin-left: 4px; vertical-align: middle;
-  }
-
   /* ─── Mobile ─── */
   @media (max-width: 768px) {
     .alert-item { flex-wrap: wrap; }
     .alert-reason { width: 100%; font-size: var(--text-xs); margin-top: 2px; }
-    .svc-owner { display: block; margin-left: 0; margin-top: 2px; }
   }
 </style>

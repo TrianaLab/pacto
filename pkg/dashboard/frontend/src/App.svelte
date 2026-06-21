@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { parseHash } from './lib/router.ts';
+  import { syncFromHash } from './lib/filters.svelte.ts';
   import { api } from './lib/api.ts';
   import Navbar from './Navbar.svelte';
   import ServiceListView from './views/ServiceListView.svelte';
@@ -27,6 +28,9 @@
 
   function onHashChange() {
     route = parseHash(location.hash);
+    // Reflect external hash changes (back/forward, shared links) into the shared
+    // filter store so the views' filtered set stays in sync with the URL.
+    syncFromHash();
   }
 
   async function loadGlobal(forceRefresh = false) {

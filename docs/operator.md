@@ -97,22 +97,22 @@ found" result.
 
 ## Readiness status
 
-In addition to runtime compliance, the operator evaluates a contract's declared **readiness** — a `pactoVersion: "1.1"` feature (see the [Contract Reference](contract-reference.md#readiness)). Readiness is a **separate dimension** from contract compliance: an expired readiness check never changes `ContractStatus`.
+In addition to runtime compliance, the operator evaluates a contract's declared **readiness** — a `pactoVersion: "1.2"` feature (see the [Contract Reference](contract-reference.md#readiness)). Readiness is a **separate dimension** from contract compliance: a low readiness score never changes `ContractStatus`.
 
-When a contract declares `readiness.checks`, the operator computes a derived assessment from the declared `weight`/`expires`/`minScore` values and the current time, and writes it to `status.readiness`:
+When a contract declares `readiness`, the operator computes a derived assessment from the declared check statuses, weights, `expires`, `minScore` and `partialCredit` values against the current time, and writes it to `status.readiness`:
 
-- `score`, `minScore`, `passing`, `totalWeight`, `currentWeight`, `currentCount`, `expiredCount`
-- per check: derived `status` (`Current` / `Expired` / `Invalid`) and `daysRemaining`
+- `score`, `minScore`, `passing`, `totalWeight`, `earnedWeight`, `assessmentExpired`
+- per check: effective weight earned based on status
 
 It also sets a single aggregate condition, **`ReadinessSatisfied`** (the gate: `score >= minScore`, where `minScore` defaults to 100):
 
 | Status | Reason | Meaning |
 |--------|--------|---------|
 | `True`  | `Satisfied`     | the readiness score meets `minScore` |
-| `False` | `BelowMinScore` | the score is below `minScore` (e.g. checks expired) |
-| `False` | `Invalid`       | a check has an unparseable expiry date |
+| `False` | `BelowMinScore` | the score is below `minScore` (e.g. assessment expired or too many not-done checks) |
+| `False` | `Invalid`       | the assessment `expires` date is unparseable |
 
-On gate transitions the operator emits events sparingly: a `Warning` / `ReadinessGateUnmet` when the gate first drops, and a `Normal` / `ReadinessRecovered` when it is met again. Readiness is a separate dimension — it never changes `ContractStatus`. Contracts that declare no readiness get neither `status.readiness` nor the condition.
+On gate transitions the operator emits events sparingly: a `Warning` / `ReadinessGateUnmet` when the gate first drops and a `Normal` / `ReadinessRecovered` when it is met again. Readiness is a separate dimension — it never changes `ContractStatus`. Contracts that declare no readiness get neither `status.readiness` nor the condition.
 
 ---
 

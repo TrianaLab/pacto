@@ -29,20 +29,6 @@ export function referencedDocPaths(
   return readiness.checks.filter((c) => !!c.docPath).map((c) => c.docPath as string);
 }
 
-export function readinessStatusClass(status: string | undefined): string {
-  if (status === 'Current') return 'badge-ok';
-  if (status === 'Expired') return 'badge-err';
-  if (status === 'Invalid') return 'badge-warn';
-  return 'badge-neutral';
-}
-
-/** Human label for the whole-days-remaining value of a current readiness check. */
-export function readinessDaysLabel(status: string | undefined, days: number | null | undefined): string {
-  if (status !== 'Current' || days == null) return '—';
-  if (days === 0) return 'today';
-  if (days === 1) return '1 day';
-  return `${days} days`;
-}
 
 export function methodClass(method: string | null | undefined): string {
   const m = method?.toUpperCase();
@@ -232,55 +218,45 @@ export function paginate<T>(items: T[], page: number, perPage: number): Paginate
 
 // ── Owner helpers ──
 
-/** Extract a display string from the owner field (string or structured object). */
+/** Extract a display string from the owner object. */
 export function ownerDisplay(owner: unknown): string {
-  if (!owner) return '';
-  if (typeof owner === 'string') return owner;
-  if (typeof owner === 'object') {
-    const o = owner as Record<string, unknown>;
-    if (o.team) return String(o.team);
-    if (o.dri) return String(o.dri);
-    return '';
-  }
+  if (!owner || typeof owner !== 'object') return '';
+  const o = owner as Record<string, unknown>;
+  if (o.team) return String(o.team);
+  if (o.dri) return String(o.dri);
   return '';
 }
 
 /**
  * Canonical owner key used for grouping, aggregation, and navigation.
- * Normalization: structured.team > legacy string > structured.dri > empty.
+ * Normalization: structured.team > structured.dri > empty.
  * This is the single source of truth — reuse everywhere.
  */
 export const ownerKey = ownerDisplay;
 
-/** Extract the team from an owner (string or structured). */
+/** Extract the team from an owner object. */
 export function ownerTeam(owner: unknown): string {
-  if (!owner) return '';
-  if (typeof owner === 'string') return owner;
-  if (typeof owner === 'object') return String((owner as Record<string, unknown>).team || '');
-  return '';
+  if (!owner || typeof owner !== 'object') return '';
+  return String((owner as Record<string, unknown>).team || '');
 }
 
-/** Check whether an owner value matches a search query (case-insensitive). */
+/** Check whether an owner object matches a search query (case-insensitive). */
 export function ownerMatchesFilter(owner: unknown, query: string): boolean {
-  if (!owner) return false;
+  if (!owner || typeof owner !== 'object') return false;
   const q = query.toLowerCase();
-  if (typeof owner === 'string') return owner.toLowerCase().includes(q);
-  if (typeof owner === 'object') {
-    const o = owner as Record<string, unknown>;
-    if (String(o.team || '').toLowerCase().includes(q)) return true;
-    if (String(o.dri || '').toLowerCase().includes(q)) return true;
-    const contacts = o.contacts as Array<Record<string, unknown>> | undefined;
-    if (contacts) {
-      for (const c of contacts) {
-        if (String(c.value || '').toLowerCase().includes(q)) return true;
-      }
+  const o = owner as Record<string, unknown>;
+  if (String(o.team || '').toLowerCase().includes(q)) return true;
+  if (String(o.dri || '').toLowerCase().includes(q)) return true;
+  const contacts = o.contacts as Array<Record<string, unknown>> | undefined;
+  if (contacts) {
+    for (const c of contacts) {
+      if (String(c.value || '').toLowerCase().includes(q)) return true;
     }
-    return false;
   }
   return false;
 }
 
-/** Check if owner is a structured object (not a plain string). */
+/** Check if owner is a structured object. Always returns true if owner is present. */
 export function ownerIsStructured(owner: unknown): boolean {
   return owner != null && typeof owner === 'object';
 }
@@ -307,7 +283,6 @@ export interface OwnerDetail {
  * Extract a consistent OwnerDetail from the services sharing an owner key.
  * Merges contacts from all services (deduped by type+value).
  * Flags DRI inconsistency when services disagree.
- * For legacy string owners, returns the string as team.
  */
 export function extractOwnerDetail(ownerKeyStr: string, services: Array<Record<string, unknown>>): OwnerDetail {
   const detail: OwnerDetail = { key: ownerKeyStr, team: '', dri: '', contacts: [], isStructured: false, driConflict: false, allDris: [] };
@@ -318,10 +293,7 @@ export function extractOwnerDetail(ownerKeyStr: string, services: Array<Record<s
 
   for (const svc of services) {
     const o = svc.owner;
-    if (!o || typeof o !== 'object') {
-      if (typeof o === 'string' && !detail.team) detail.team = o;
-      continue;
-    }
+    if (!o || typeof o !== 'object') continue;
     detail.isStructured = true;
     const obj = o as Record<string, unknown>;
     if (!detail.team && obj.team) detail.team = String(obj.team);
@@ -347,8 +319,6 @@ export function extractOwnerDetail(ownerKeyStr: string, services: Array<Record<s
   }
   detail.contacts = mergedContacts;
 
-  if (!detail.team && !detail.isStructured) detail.team = ownerKeyStr;
-
   return detail;
 }
 
@@ -368,45 +338,30 @@ export interface OwnerAggregation {
 
 /** Aggregate services by canonical owner key. */
 export function aggregateByOwner(services: Array<Record<string, unknown>>): OwnerAggregation[] {
-  const map = new Map<string, OwnerAggregation>();
-  const scores = new Map<string, number[]>();
-  for (const svc of services) {
-    const key = ownerKey(svc.owner) || '(unowned)';
-    let agg = map.get(key);
-    if (!agg) {
-      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, totalBlast: 0, compliancePercent: 0 };
-      map.set(key, agg);
-      scores.set(key, []);
-    }
-    agg.services++;
-    const status = svc.contractStatus as string;
-    if (status === 'Compliant') agg.compliant++;
-    else if (status === 'Warning') agg.warning++;
-    else if (status === 'NonCompliant') agg.nonCompliant++;
-    else if (status === 'Reference') agg.reference++;
-    else agg.unknown++;
-    agg.totalBlast += (svc.blastRadius as number) || 0;
-    if (svc.complianceScore != null) scores.get(key)!.push(svc.complianceScore as number);
-  }
-  for (const [key, agg] of map) {
-    const s = scores.get(key)!;
-    agg.compliancePercent = s.length > 0 ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : -1;
-  }
-  return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
+  return summarize(services).byOwner;
 }
 
 // ── Readiness ──
+
+/** Readiness check revision history entry. */
+export interface ReadinessRevision {
+  date: string;
+  version: string;
+  author: string;
+  description: string;
+}
 
 /** A single derived readiness check, as carried by the API. */
 export interface ReadinessCheck {
   id: string;
   type: string;
-  status: string; // Current | Expired | Invalid
+  category?: string;
+  status: string; // done | partial | not-done | deferred
   evidence?: string;
-  weight: number;
-  expires: string;
   description?: string;
-  daysRemaining?: number | null;
+  weight: number;
+  earnedWeight: number;
+  excluded: boolean;
   docPath?: string;
 }
 
@@ -414,12 +369,18 @@ export interface ReadinessCheck {
 export interface ReadinessInfo {
   score: number;
   minScore: number;
-  passing: boolean;
   totalWeight: number;
-  currentWeight: number;
-  currentCount: number;
-  expiredCount: number;
-  invalidCount?: number;
+  earnedWeight: number;
+  partialCredit: number;
+  passing: boolean;
+  expires: string;
+  expired: boolean;
+  daysRemaining?: number | null;
+  doneCount: number;
+  partialCount: number;
+  notDoneCount: number;
+  deferredCount: number;
+  revisions?: ReadinessRevision[];
   checks: ReadinessCheck[];
 }
 
@@ -468,42 +429,64 @@ export interface ReadinessSummary {
   notConfigured: number;
   configured: number; // total - notConfigured
   avgScore: number; // mean score over configured services; -1 if none configured
-  totalCurrent: number; // sum of currentCount across configured
-  totalChecks: number; // sum of all declared checks across configured
-  totalExpired: number;
-  totalInvalid: number;
+  expiredAssessments: number; // count of services where expired=true
+  totalDone: number; // sum of doneCount across configured
+  totalPartial: number; // sum of partialCount across configured
+  totalNotDone: number; // sum of notDoneCount across configured
+  totalDeferred: number; // sum of deferredCount across configured
 }
 
 /** Aggregate readiness across services. Services without a readiness block are
  *  counted as "not configured" and excluded from the average score. */
 export function summarizeReadiness(services: WithReadiness[]): ReadinessSummary {
-  const s: ReadinessSummary = {
-    total: services.length, ready: 0, partial: 0, notReady: 0, notConfigured: 0,
-    configured: 0, avgScore: -1, totalCurrent: 0, totalChecks: 0, totalExpired: 0, totalInvalid: 0,
-  };
-  let scoreSum = 0;
-  for (const svc of services) {
-    const b = readinessBucket(svc);
-    if (b === 'unknown') { s.notConfigured++; continue; }
-    if (b === 'ready') s.ready++;
-    else if (b === 'partial') s.partial++;
-    else s.notReady++;
-    const r = svc.readiness!;
-    s.configured++;
-    scoreSum += r.score || 0;
-    s.totalCurrent += r.currentCount || 0;
-    s.totalChecks += r.checks?.length ?? 0;
-    s.totalExpired += r.expiredCount || 0;
-    s.totalInvalid += r.invalidCount || 0;
-  }
-  if (s.configured > 0) s.avgScore = Math.round(scoreSum / s.configured);
-  return s;
+  return summarize(services).readiness;
 }
 
 /** Whether a readiness check's evidence string is a clickable web URL. */
 export function isUrlEvidence(evidence: string | null | undefined): boolean {
   if (!evidence) return false;
   return /^https?:\/\//i.test(evidence);
+}
+
+// ── Per-check declared status (done | partial | not-done | deferred) ──
+
+const CHECK_STATUS_LABELS: Record<string, string> = {
+  done: 'Done',
+  partial: 'Partial',
+  'not-done': 'Not done',
+  deferred: 'Deferred',
+};
+
+/** Human label for a readiness check's declared status. */
+export function checkStatusLabel(status: string | undefined): string {
+  if (!status) return '—';
+  return CHECK_STATUS_LABELS[status] || status;
+}
+
+/** Badge class for a readiness check's declared status — reuses the shared palette. */
+export function checkStatusClass(status: string | undefined): string {
+  if (status === 'done') return 'badge-ok';
+  if (status === 'partial') return 'badge-warn';
+  if (status === 'not-done') return 'badge-err';
+  if (status === 'deferred') return 'badge-neutral';
+  return 'badge-neutral';
+}
+
+/**
+ * Countdown copy for a readiness assessment's overall expiry.
+ * `expired` wins; otherwise renders the whole-days-remaining value.
+ * Returns '' when there is nothing to show (no expiry declared).
+ */
+export function assessmentCountdownLabel(
+  expired: boolean | undefined,
+  days: number | null | undefined,
+): string {
+  if (expired) return 'Expired';
+  if (days == null) return '';
+  if (days < 0) return 'Expired';
+  if (days === 0) return 'expires today';
+  if (days === 1) return 'expires in 1 day';
+  return `expires in ${days} days`;
 }
 
 /** Sorted unique evidence-kind types present across all declared checks. */
@@ -535,24 +518,160 @@ export interface FleetSummary {
 
 /** Roll up the whole service list into the few signals that matter at a glance. */
 export function summarizeFleet(services: Array<Record<string, unknown>>): FleetSummary {
-  const s: FleetSummary = {
+  const metrics = summarize(services);
+  return {
+    total: metrics.total,
+    assessed: metrics.assessed,
+    compliant: metrics.compliant,
+    warning: metrics.warning,
+    nonCompliant: metrics.nonCompliant,
+    reference: metrics.reference,
+    unknown: metrics.unknown,
+    needsAttention: metrics.needsAttention,
+    compliancePercent: metrics.compliancePercent,
+    highImpact: metrics.highImpact,
+  };
+}
+
+/** Category breakdown for readiness checks. */
+export interface CategoryBreakdown {
+  category: string;
+  checks: number;
+  done: number;
+  partial: number;
+  notDone: number;
+  deferred: number;
+}
+
+/** Unified metrics from a service list — single source of truth. */
+export interface Metrics {
+  total: number;
+  assessed: number;
+  compliant: number;
+  warning: number;
+  nonCompliant: number;
+  reference: number;
+  unknown: number;
+  needsAttention: number;
+  compliancePercent: number;
+  highImpact: number;
+  readiness: ReadinessSummary;
+  byOwner: OwnerAggregation[];
+  byCategory: CategoryBreakdown[];
+}
+
+/**
+ * Unified metrics computation — single-pass aggregation producing all KPIs + breakdowns.
+ * This is the single source of truth; legacy summarizers delegate to this.
+ */
+export function summarize(services: Array<Record<string, unknown>>): Metrics {
+  const m: Metrics = {
     total: services.length, assessed: 0, compliant: 0, warning: 0, nonCompliant: 0,
     reference: 0, unknown: 0, needsAttention: 0, compliancePercent: -1, highImpact: 0,
+    readiness: {
+      total: services.length, ready: 0, partial: 0, notReady: 0, notConfigured: 0,
+      configured: 0, avgScore: -1, expiredAssessments: 0,
+      totalDone: 0, totalPartial: 0, totalNotDone: 0, totalDeferred: 0,
+    },
+    byOwner: [],
+    byCategory: [],
   };
+
+  // Owner aggregation state
+  const ownerMap = new Map<string, OwnerAggregation>();
+  const ownerScores = new Map<string, number[]>();
+
+  // Category aggregation state
+  const categoryMap = new Map<string, CategoryBreakdown>();
+
+  let readinessScoreSum = 0;
+
   for (const svc of services) {
+    // Contract status
     switch (svc.contractStatus) {
-      case 'Compliant': s.compliant++; break;
-      case 'Warning': s.warning++; break;
-      case 'NonCompliant': s.nonCompliant++; break;
-      case 'Reference': s.reference++; break;
-      default: s.unknown++; break;
+      case 'Compliant': m.compliant++; break;
+      case 'Warning': m.warning++; break;
+      case 'NonCompliant': m.nonCompliant++; break;
+      case 'Reference': m.reference++; break;
+      default: m.unknown++; break;
     }
-    if (((svc.blastRadius as number) || 0) >= HIGH_IMPACT_THRESHOLD) s.highImpact++;
+
+    // High impact
+    if (((svc.blastRadius as number) || 0) >= HIGH_IMPACT_THRESHOLD) m.highImpact++;
+
+    // Owner aggregation
+    const key = ownerKey(svc.owner) || '(unowned)';
+    let agg = ownerMap.get(key);
+    if (!agg) {
+      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, totalBlast: 0, compliancePercent: 0 };
+      ownerMap.set(key, agg);
+      ownerScores.set(key, []);
+    }
+    agg.services++;
+    const status = svc.contractStatus as string;
+    if (status === 'Compliant') agg.compliant++;
+    else if (status === 'Warning') agg.warning++;
+    else if (status === 'NonCompliant') agg.nonCompliant++;
+    else if (status === 'Reference') agg.reference++;
+    else agg.unknown++;
+    agg.totalBlast += (svc.blastRadius as number) || 0;
+    if (svc.complianceScore != null) ownerScores.get(key)!.push(svc.complianceScore as number);
+
+    // Readiness aggregation
+    const r = (svc as WithReadiness).readiness;
+    const bucket = readinessBucket(svc as WithReadiness);
+    if (bucket === 'unknown') {
+      m.readiness.notConfigured++;
+    } else {
+      if (bucket === 'ready') m.readiness.ready++;
+      else if (bucket === 'partial') m.readiness.partial++;
+      else m.readiness.notReady++;
+      m.readiness.configured++;
+      readinessScoreSum += r!.score || 0;
+      if (r!.expired) m.readiness.expiredAssessments++;
+      m.readiness.totalDone += r!.doneCount || 0;
+      m.readiness.totalPartial += r!.partialCount || 0;
+      m.readiness.totalNotDone += r!.notDoneCount || 0;
+      m.readiness.totalDeferred += r!.deferredCount || 0;
+
+      // Category aggregation
+      for (const check of r!.checks || []) {
+        const cat = check.category || 'other';
+        let catAgg = categoryMap.get(cat);
+        if (!catAgg) {
+          catAgg = { category: cat, checks: 0, done: 0, partial: 0, notDone: 0, deferred: 0 };
+          categoryMap.set(cat, catAgg);
+        }
+        catAgg.checks++;
+        if (check.status === 'done') catAgg.done++;
+        else if (check.status === 'partial') catAgg.partial++;
+        else if (check.status === 'not-done') catAgg.notDone++;
+        else if (check.status === 'deferred') catAgg.deferred++;
+      }
+    }
   }
-  s.assessed = s.compliant + s.warning + s.nonCompliant;
-  s.needsAttention = s.warning + s.nonCompliant;
-  if (s.assessed > 0) s.compliancePercent = Math.round((s.compliant / s.assessed) * 100);
-  return s;
+
+  // Finalize contract metrics
+  m.assessed = m.compliant + m.warning + m.nonCompliant;
+  m.needsAttention = m.warning + m.nonCompliant;
+  if (m.assessed > 0) m.compliancePercent = Math.round((m.compliant / m.assessed) * 100);
+
+  // Finalize owner aggregation
+  for (const [key, agg] of ownerMap) {
+    const s = ownerScores.get(key)!;
+    agg.compliancePercent = s.length > 0 ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : -1;
+  }
+  m.byOwner = Array.from(ownerMap.values()).sort((a, b) => a.key.localeCompare(b.key));
+
+  // Finalize readiness metrics
+  if (m.readiness.configured > 0) {
+    m.readiness.avgScore = Math.round(readinessScoreSum / m.readiness.configured);
+  }
+
+  // Finalize category aggregation
+  m.byCategory = Array.from(categoryMap.values()).sort((a, b) => a.category.localeCompare(b.category));
+
+  return m;
 }
 
 // ── Tooltip positioning ──

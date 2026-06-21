@@ -19,7 +19,7 @@ func TestServiceFromContract(t *testing.T) {
 		Service: contract.ServiceIdentity{
 			Name:    "my-service",
 			Version: "1.2.3",
-			Owner:   contract.NewOwnerFromString("team-a"),
+			Owner:   contract.Owner{Team: "team-a"},
 		},
 	}
 
@@ -925,19 +925,16 @@ func TestServiceFromContract_StructuredOwner(t *testing.T) {
 		Service: contract.ServiceIdentity{
 			Name:    "my-service",
 			Version: "1.0.0",
-			Owner:   contract.NewOwnerFromInfo(contract.OwnerInfo{Team: "foundations", DRI: "alice"}),
+			Owner:   contract.Owner{Team: "foundations", DRI: "alice"},
 		},
 	}
 
 	svc := ServiceFromContract(c, "oci")
-	if !svc.Owner.IsStructured() {
-		t.Error("expected structured owner")
+	if svc.Owner.Team != "foundations" {
+		t.Errorf("expected team 'foundations', got %q", svc.Owner.Team)
 	}
-	if svc.Owner.Team() != "foundations" {
-		t.Errorf("expected team 'foundations', got %q", svc.Owner.Team())
-	}
-	if svc.Owner.DRI() != "alice" {
-		t.Errorf("expected dri 'alice', got %q", svc.Owner.DRI())
+	if svc.Owner.DRI != "alice" {
+		t.Errorf("expected dri 'alice', got %q", svc.Owner.DRI)
 	}
 	if svc.Owner.DisplayString() != "foundations" {
 		t.Errorf("expected display 'foundations', got %q", svc.Owner.DisplayString())
@@ -1033,41 +1030,56 @@ func TestReadinessFromContract_Nil(t *testing.T) {
 func TestServiceDetailsFromBundle_Readiness(t *testing.T) {
 	pinDashboardTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
 	c := &contract.Contract{
-		PactoVersion: "1.1",
+		PactoVersion: "1.2",
 		Service:      contract.ServiceIdentity{Name: "payment-api", Version: "1.4.0"},
-		Readiness: &contract.Readiness{Checks: []contract.ReadinessCheck{
-			{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 60, Expires: "2026-12-31", Description: "Main"},
-			{ID: "security-review", Type: "ticket", Evidence: "SEC-1", Weight: 40, Expires: "2026-01-15"},
-		}},
+		Readiness: &contract.Readiness{
+			Expires: "2099-12-31",
+			Checks: []contract.ReadinessCheck{
+				{ID: "dashboard", Type: "url", Category: "observability", Status: "done", Evidence: "https://x", Weight: 60, Description: "Main"},
+				{ID: "security-review", Type: "ticket", Status: "not-done", Evidence: "SEC-1", Weight: 40},
+			},
+			History: []contract.ReadinessRevision{
+				{Date: "2026-06-21", Version: "2.1.0", Author: "ed", Description: "initial"},
+			},
+		},
 	}
 	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
 	if details.Readiness == nil {
 		t.Fatal("expected readiness info to be present")
 	}
 	r := details.Readiness
-	if r.Score != 60 || r.TotalWeight != 100 || r.CurrentWeight != 60 {
-		t.Errorf("unexpected readiness summary: %+v", r)
+	type field struct {
+		label string
+		got   any
+		want  any
 	}
-	if r.MinScore != 100 || r.Passing {
-		t.Errorf("expected default minScore 100 and not passing, got minScore=%d passing=%v", r.MinScore, r.Passing)
+	fields := []field{
+		{"score", r.Score, 60},
+		{"totalWeight", r.TotalWeight, 100},
+		{"earnedWeight", r.EarnedWeight, 60},
+		{"expires", r.Expires, "2099-12-31"},
+		{"expired", r.Expired, false},
+		{"minScore", r.MinScore, 100},
+		{"passing", r.Passing, false},
+		{"doneCount", r.DoneCount, 1},
+		{"notDoneCount", r.NotDoneCount, 1},
+		{"partialCount", r.PartialCount, 0},
+		{"deferredCount", r.DeferredCount, 0},
+		{"checks length", len(r.Checks), 2},
 	}
-	if r.ExpiredCount != 1 || r.CurrentCount != 1 {
-		t.Errorf("unexpected counts: current=%d expired=%d", r.CurrentCount, r.ExpiredCount)
+	for _, f := range fields {
+		if f.got != f.want {
+			t.Errorf("%s: got %v, want %v", f.label, f.got, f.want)
+		}
 	}
-	if len(r.Checks) != 2 {
-		t.Fatalf("expected 2 checks, got %d", len(r.Checks))
+	if len(r.Checks) > 0 && (r.Checks[0].Status != "done" || r.Checks[0].Category != "observability" || r.Checks[0].EarnedWeight != 60) {
+		t.Errorf("unexpected first check: %+v", r.Checks[0])
 	}
-	if r.Checks[0].Status != "Current" {
-		t.Errorf("expected first check Current, got %s", r.Checks[0].Status)
+	if len(r.Checks) > 1 && (r.Checks[1].Status != "not-done" || r.Checks[1].EarnedWeight != 0) {
+		t.Errorf("unexpected second check: %+v", r.Checks[1])
 	}
-	if r.Checks[0].DaysRemaining == nil {
-		t.Error("expected DaysRemaining for current check")
-	}
-	if r.Checks[1].Status != "Expired" {
-		t.Errorf("expected second check Expired, got %s", r.Checks[1].Status)
-	}
-	if r.Checks[1].DaysRemaining != nil {
-		t.Error("expected nil DaysRemaining for expired check")
+	if len(r.Revisions) != 1 || r.Revisions[0].Author != "ed" {
+		t.Errorf("expected mapped revision history, got %+v", r.Revisions)
 	}
 }
 
@@ -1169,12 +1181,15 @@ func TestDocsFromContract_UnreadableFileSkipped(t *testing.T) {
 func TestServiceDetailsFromBundle_ReadinessDocPath(t *testing.T) {
 	pinDashboardTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
 	c := &contract.Contract{
-		PactoVersion: "1.1",
+		PactoVersion: "1.2",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Readiness: &contract.Readiness{Checks: []contract.ReadinessCheck{
-			{ID: "runbook", Type: "document", Evidence: "docs/runbooks/deploy.md", Weight: 50, Expires: "2099-12-31"},
-			{ID: "dashboard", Type: "url", Evidence: "https://grafana/x", Weight: 50, Expires: "2099-12-31"},
-		}},
+		Readiness: &contract.Readiness{
+			Expires: "2099-12-31",
+			Checks: []contract.ReadinessCheck{
+				{ID: "runbook", Type: "document", Status: "done", Evidence: "docs/runbooks/deploy.md", Weight: 50},
+				{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://grafana/x", Weight: 50},
+			},
+		},
 	}
 	fsys := fstest.MapFS{"docs/runbooks/deploy.md": &fstest.MapFile{Data: []byte("# Deploy")}}
 	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c, FS: fsys}, "local")

@@ -1,0 +1,576 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pacto.trianalab.com/schema/v1.2",
+  "title": "Pacto Service Contract v1.2",
+  "type": "object",
+  "required": ["pactoVersion", "service"],
+  "additionalProperties": false,
+
+  "properties": {
+    "pactoVersion": {
+      "type": "string",
+      "enum": ["1.2"],
+      "description": "The version of the Pacto contract specification this file conforms to."
+    },
+
+    "service": {
+      "type": "object",
+      "description": "Identifies the service: its name, version, owner, optional container image, and optional Helm chart reference.",
+      "required": ["name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+          "description": "A unique, DNS-compatible identifier for the service (lowercase alphanumeric and hyphens)."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The current version of the service, typically following semantic versioning."
+        },
+        "owner": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "Structured ownership metadata in a provider-neutral format.",
+          "properties": {
+            "team": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[a-zA-Z0-9._/-]+$",
+              "description": "The canonical team that owns the service."
+            },
+            "dri": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[a-zA-Z0-9._@/-]+$",
+              "description": "The directly responsible individual for this service."
+            },
+            "contacts": {
+              "type": "array",
+              "minItems": 1,
+              "description": "Provider-neutral ownership and escalation contact points.",
+              "items": {
+                "type": "object",
+                "required": ["type", "value"],
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["email", "url", "group", "oncall", "chat", "other"],
+                    "description": "The kind of contact point."
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The contact value, such as an email address, URL, or group identifier."
+                  },
+                  "purpose": {
+                    "type": "string",
+                    "enum": ["ownership", "support", "escalation", "oncall", "notifications"],
+                    "description": "The intended operational purpose of this contact point."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "image": {
+          "type": "object",
+          "description": "Container image details for deploying the service.",
+          "required": ["ref"],
+          "additionalProperties": false,
+          "properties": {
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The full container image reference (e.g. ghcr.io/org/image:tag)."
+            },
+            "private": {
+              "type": "boolean",
+              "description": "Whether the image is stored in a private registry requiring authentication."
+            }
+          }
+        },
+        "chart": {
+          "type": "object",
+          "description": "Helm chart details for deploying the service. Accepts local paths or OCI references (OCI references are only allowed when pushing).",
+          "required": ["ref", "version"],
+          "additionalProperties": false,
+          "properties": {
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A reference to the Helm chart. Can be a local path (e.g. ./charts/my-chart) or an OCI reference (e.g. oci://ghcr.io/org/chart)."
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The version of the Helm chart."
+            }
+          }
+        }
+      }
+    },
+
+    "interfaces": {
+      "type": "array",
+      "description": "The network interfaces the service exposes. Each interface declares how external or internal consumers can communicate with the service.",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A unique name for this interface within the service."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["http", "grpc", "event"],
+            "description": "The communication protocol used by this interface.",
+            "x-enum-descriptions": {
+              "http": "serves HTTP/REST traffic and requires a port",
+              "grpc": "serves gRPC traffic and requires both a port and a protobuf contract",
+              "event": "produces or consumes asynchronous messages and requires an event contract"
+            }
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "The TCP port the interface listens on (required for http and grpc types)."
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "internal"],
+            "default": "internal",
+            "description": "Controls who can reach this interface.",
+            "x-enum-descriptions": {
+              "public": "accessible from outside the cluster or network boundary",
+              "internal": "only accessible within the cluster or internal network"
+            }
+          },
+          "contract": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path to the interface contract file (OpenAPI spec for http, protobuf for grpc, event schema for event)."
+          }
+        },
+
+        "allOf": [
+          {
+            "if": { "properties": { "type": { "const": "http" } } },
+            "then": { "required": ["port"] }
+          },
+          {
+            "if": { "properties": { "type": { "const": "grpc" } } },
+            "then": { "required": ["port", "contract"] }
+          },
+          {
+            "if": { "properties": { "type": { "const": "event" } } },
+            "then": { "required": ["contract"] }
+          }
+        ]
+      }
+    },
+
+    "configurations": {
+      "type": "array",
+      "description": "Named configuration sources. Each entry is an independent named scope with no implicit merge semantics.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A unique name for this configuration scope."
+          },
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path to a JSON Schema file describing configuration properties (within the bundle)."
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "description": "OCI or local reference to another Pacto contract whose bundle contains the configuration schema."
+          },
+          "values": {
+            "type": "object",
+            "description": "Configuration values to be validated against the configuration schema. Only allowed with schema."
+          }
+        },
+        "oneOf": [
+          {
+            "required": ["schema"],
+            "not": { "required": ["ref"] }
+          },
+          {
+            "required": ["ref"],
+            "not": { "anyOf": [{ "required": ["schema"] }, { "required": ["values"] }] }
+          }
+        ]
+      }
+    },
+
+    "policies": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Policy constraints for the contract. Each entry defines or references a JSON Schema that validates the contract itself, enabling platform teams to enforce organizational standards. Multiple policies apply with strict AND semantics.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A unique name for this policy within the contract."
+          },
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path to a JSON Schema file within the bundle that defines policy constraints (convention: policy/schema.json)."
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "description": "OCI or local reference to another Pacto contract whose bundle contains the policy schema at the fixed path policy/schema.json."
+          }
+        },
+        "oneOf": [
+          { "required": ["schema"], "not": { "required": ["ref"] } },
+          { "required": ["ref"], "not": { "required": ["schema"] } }
+        ]
+      }
+    },
+
+    "dependencies": {
+      "type": "array",
+      "description": "Other services this service depends on. Each dependency references another service's published Pacto contract.",
+      "items": {
+        "type": "object",
+        "required": ["name", "ref", "compatibility"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A unique name for this dependency within the contract (typically the service name)."
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "description": "An OCI reference to the dependency's published Pacto contract (e.g. ghcr.io/org/service-pacto@sha256:...)."
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether this dependency is mandatory. If true, the service cannot function without it; if false, the service degrades gracefully when it is unavailable."
+          },
+          "compatibility": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A semver range expressing which versions of the dependency this service is compatible with (e.g. ^2.0.0, ~1.3.0)."
+          }
+        }
+      }
+    },
+
+    "runtime": {
+      "type": "object",
+      "description": "Describes how the service behaves at runtime: its workload pattern, state management, lifecycle policies, and health checks.",
+      "required": ["workload", "state"],
+      "additionalProperties": false,
+
+      "properties": {
+
+        "workload": {
+          "type": "string",
+          "enum": ["service", "job", "scheduled"],
+          "description": "The execution pattern of the workload.",
+          "x-enum-descriptions": {
+            "service": "a long-running process that serves requests continuously",
+            "job": "a one-shot task that runs to completion and then exits",
+            "scheduled": "a task that runs on a recurring schedule (e.g. cron)"
+          }
+        },
+
+        "state": {
+          "type": "object",
+          "description": "Declares how the service manages state, including whether it retains data, how that data is persisted, and how critical the data is.",
+          "required": ["type", "persistence", "dataCriticality"],
+          "additionalProperties": false,
+
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["stateless", "stateful", "hybrid"],
+              "description": "Whether the service needs data from a previous request to handle the current one. A pure API proxy is stateless, an in-memory cache that can be rebuilt is stateless, but an API that stores user sessions in memory is hybrid.",
+              "x-enum-descriptions": {
+                "stateless": "does not retain data between requests; any instance can handle any request (e.g. an API proxy or a service whose in-memory data can be fully rebuilt from external sources)",
+                "stateful": "retains data between requests and requires stable storage or affinity (e.g. a database, a message broker, or a service with on-disk state)",
+                "hybrid": "handles requests statelessly but keeps selective in-memory or local state that enriches behaviour (e.g. an API with a local cache, in-memory session store, or background-refreshed data)"
+              }
+            },
+
+            "persistence": {
+              "type": "object",
+              "description": "Describes the scope and durability of the service's persisted data.",
+              "required": ["scope", "durability"],
+              "additionalProperties": false,
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "enum": ["local", "shared"],
+                  "description": "Whether data is confined to a single instance or shared across instances. In-memory state is always local; a database or shared cache is shared.",
+                  "x-enum-descriptions": {
+                    "local": "data is confined to a single instance and not shared across replicas (e.g. in-memory caches, local files, embedded databases)",
+                    "shared": "data is shared across all instances via a common store (e.g. a database, Redis, or shared filesystem)"
+                  }
+                },
+                "durability": {
+                  "type": "string",
+                  "enum": ["ephemeral", "persistent"],
+                  "description": "Whether the data survives process restarts. In-memory data is ephemeral by definition; data written to disk or an external store is persistent.",
+                  "x-enum-descriptions": {
+                    "ephemeral": "data can be lost on restart without impact; used for in-memory caches, temp files, or reconstructible state",
+                    "persistent": "data must survive restarts and be durably stored (e.g. on disk, in a database, or in an external store)"
+                  }
+                }
+              }
+            },
+
+            "dataCriticality": {
+              "type": "string",
+              "enum": ["low", "medium", "high"],
+              "description": "The business impact of losing this service's data.",
+              "x-enum-descriptions": {
+                "low": "loss of data has minimal business impact; can be regenerated or is non-essential",
+                "medium": "loss of data has moderate business impact and may require manual recovery",
+                "high": "loss of data has severe business impact and must be prevented (e.g. financial records)"
+              }
+            }
+          },
+
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "type": { "const": "stateless" }
+                }
+              },
+              "then": {
+                "properties": {
+                  "persistence": {
+                    "properties": {
+                      "durability": { "const": "ephemeral" }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+
+        "lifecycle": {
+          "type": "object",
+          "description": "Optional lifecycle policies controlling how the service is upgraded and shut down.",
+          "additionalProperties": false,
+          "properties": {
+            "upgradeStrategy": {
+              "type": "string",
+              "enum": ["rolling", "recreate", "ordered"],
+              "description": "The strategy used when deploying a new version of the service.",
+              "x-enum-descriptions": {
+                "rolling": "new instances are brought up incrementally while old ones are drained, ensuring zero downtime",
+                "recreate": "all existing instances are terminated before new ones are started; causes brief downtime",
+                "ordered": "instances are updated one at a time in a fixed order, useful for stateful workloads with leader election"
+              }
+            },
+            "gracefulShutdownSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The number of seconds the platform waits for the service to finish in-flight requests before forcefully terminating it."
+            }
+          }
+        },
+
+        "health": {
+          "type": "object",
+          "description": "Configures how the platform checks whether the service is healthy and ready to receive traffic.",
+          "required": ["interface"],
+          "additionalProperties": false,
+          "properties": {
+            "interface": {
+              "type": "string",
+              "description": "The name of the interface that serves the health check endpoint."
+            },
+            "path": {
+              "type": "string",
+              "description": "The HTTP path for the health check (e.g. /health or /readyz)."
+            },
+            "initialDelaySeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The number of seconds to wait after the container starts before sending the first health check probe."
+            }
+          }
+        },
+
+        "metrics": {
+          "type": "object",
+          "description": "Configures where the platform scrapes metrics from the service (e.g. Prometheus endpoint).",
+          "required": ["interface"],
+          "additionalProperties": false,
+          "properties": {
+            "interface": {
+              "type": "string",
+              "description": "The name of the interface that serves the metrics endpoint."
+            },
+            "path": {
+              "type": "string",
+              "description": "The HTTP path for the metrics endpoint (e.g. /metrics)."
+            }
+          }
+        }
+      }
+    },
+
+    "scaling": {
+      "type": "object",
+      "description": "Defines replica count as either an exact number or a min/max range.",
+      "additionalProperties": false,
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "An exact, fixed number of replicas. Mutually exclusive with min/max."
+        },
+        "min": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The minimum number of replicas that must always be running."
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The maximum number of replicas the platform is allowed to scale up to."
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["replicas"],
+          "not": { "anyOf": [{ "required": ["min"] }, { "required": ["max"] }] }
+        },
+        {
+          "required": ["min", "max"],
+          "not": { "required": ["replicas"] }
+        }
+      ]
+    },
+
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expires", "checks"],
+      "description": "Operational readiness assessment (pactoVersion 1.2+).",
+      "properties": {
+        "minScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Gate threshold; the derived score must be at least this (default 100)."
+        },
+        "expires": {
+          "type": "string",
+          "format": "date",
+          "description": "Assessment-level expiry (YYYY-MM-DD). When passed, all in-scope checks are expired."
+        },
+        "partialCredit": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Fraction of weight a 'partial' check earns (default 0.5)."
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["date", "version", "author", "description"],
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "author": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "type", "status", "evidence", "weight"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["url", "document", "ticket", "report", "artifact", "identifier", "other"]
+              },
+              "category": {
+                "type": "string",
+                "enum": ["architecture", "testing", "code-quality", "observability", "security", "documentation", "infrastructure", "ci-cd", "deployment", "resilience", "backup-recovery", "incident-response", "compliance", "other"]
+              },
+              "status": {
+                "type": "string",
+                "enum": ["done", "partial", "not-done", "deferred"]
+              },
+              "evidence": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "weight": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "metadata": {
+      "type": "object",
+      "description": "A free-form object for attaching custom key-value metadata to the service contract."
+    }
+  }
+}

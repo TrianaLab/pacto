@@ -2,6 +2,8 @@ package contract
 
 import (
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestConfigurationSource_Fields(t *testing.T) {
@@ -80,13 +82,48 @@ func TestDependency_NameField(t *testing.T) {
 	}
 }
 
+func TestReadiness_ParseV12Shape(t *testing.T) {
+	src := []byte(`
+minScore: 80
+expires: 2026-12-31
+partialCredit: 0.5
+history:
+  - date: 2026-06-21
+    version: 2.1.0
+    author: ed
+    description: initial
+checks:
+  - id: sec
+    type: ticket
+    category: security
+    status: done
+    evidence: SEC-1
+    weight: 30
+`)
+	var r Readiness
+	if err := yaml.Unmarshal(src, &r); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if r.Expires != "2026-12-31" || r.PartialCredit == nil || *r.PartialCredit != 0.5 {
+		t.Fatalf("bad top-level: %+v", r)
+	}
+	if len(r.History) != 1 || r.History[0].Author != "ed" {
+		t.Fatalf("bad history: %+v", r.History)
+	}
+	c := r.Checks[0]
+	if c.Status != StatusDone || c.Category != CategorySecurity || c.Type != "ticket" {
+		t.Fatalf("bad check: %+v", c)
+	}
+}
+
 func TestReadinessCheck_Fields(t *testing.T) {
 	rc := ReadinessCheck{
 		ID:          "dashboard",
 		Type:        EvidenceTypeURL,
+		Category:    CategoryObservability,
+		Status:      StatusDone,
 		Evidence:    "https://grafana.company.com/payment-api",
 		Weight:      20,
-		Expires:     "2026-12-31",
 		Description: "Main production dashboard",
 	}
 	if rc.ID != "dashboard" {
@@ -95,17 +132,51 @@ func TestReadinessCheck_Fields(t *testing.T) {
 	if rc.Type != "url" {
 		t.Errorf("expected type url, got %s", rc.Type)
 	}
+	if rc.Category != "observability" {
+		t.Errorf("expected category observability, got %s", rc.Category)
+	}
+	if rc.Status != "done" {
+		t.Errorf("expected status done, got %s", rc.Status)
+	}
 	if rc.Evidence != "https://grafana.company.com/payment-api" {
 		t.Errorf("expected evidence, got %s", rc.Evidence)
 	}
 	if rc.Weight != 20 {
 		t.Errorf("expected weight 20, got %d", rc.Weight)
 	}
-	if rc.Expires != "2026-12-31" {
-		t.Errorf("expected expires 2026-12-31, got %s", rc.Expires)
-	}
 	if rc.Description != "Main production dashboard" {
 		t.Errorf("expected description, got %s", rc.Description)
+	}
+}
+
+func TestReadinessStatusConstants(t *testing.T) {
+	want := []string{"done", "partial", "not-done", "deferred"}
+	got := []string{StatusDone, StatusPartial, StatusNotDone, StatusDeferred}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("status %d: expected %s, got %s", i, want[i], got[i])
+		}
+	}
+}
+
+func TestReadinessCategoryConstants(t *testing.T) {
+	want := []string{
+		"architecture", "testing", "code-quality", "observability", "security",
+		"documentation", "infrastructure", "ci-cd", "deployment", "resilience",
+		"backup-recovery", "incident-response", "compliance", "other",
+	}
+	got := []string{
+		CategoryArchitecture, CategoryTesting, CategoryCodeQuality, CategoryObservability, CategorySecurity,
+		CategoryDocumentation, CategoryInfrastructure, CategoryCICD, CategoryDeployment, CategoryResilience,
+		CategoryBackupRecovery, CategoryIncidentResponse, CategoryCompliance, CategoryOther,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d categories, got %d", len(want), len(got))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("category %d: expected %s, got %s", i, want[i], got[i])
+		}
 	}
 }
 
@@ -133,9 +204,10 @@ func TestEvidenceTypeConstants(t *testing.T) {
 func TestContract_Readiness(t *testing.T) {
 	c := &Contract{
 		Readiness: &Readiness{
+			Expires: "2026-12-31",
 			Checks: []ReadinessCheck{
-				{ID: "dashboard", Type: EvidenceTypeURL, Evidence: "https://x", Weight: 60, Expires: "2026-12-31"},
-				{ID: "runbook", Type: EvidenceTypeDocument, Evidence: "docs/rb.md", Weight: 40, Expires: "2026-09-30"},
+				{ID: "dashboard", Type: EvidenceTypeURL, Status: StatusDone, Evidence: "https://x", Weight: 60},
+				{ID: "runbook", Type: EvidenceTypeDocument, Status: StatusDone, Evidence: "docs/rb.md", Weight: 40},
 			},
 		},
 	}
@@ -161,7 +233,8 @@ func TestReadiness_MinScore(t *testing.T) {
 	min := 80
 	r := &Readiness{
 		MinScore: &min,
-		Checks:   []ReadinessCheck{{ID: "dashboard", Type: EvidenceTypeURL, Evidence: "https://x", Weight: 100, Expires: "2026-12-31"}},
+		Expires:  "2026-12-31",
+		Checks:   []ReadinessCheck{{ID: "dashboard", Type: EvidenceTypeURL, Status: StatusDone, Evidence: "https://x", Weight: 100}},
 	}
 	if r.MinScore == nil || *r.MinScore != 80 {
 		t.Errorf("expected minScore 80, got %v", r.MinScore)

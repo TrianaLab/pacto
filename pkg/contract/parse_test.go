@@ -276,27 +276,40 @@ func TestParse_ValidReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if c.PactoVersion != "1.1" {
-		t.Errorf("expected pactoVersion 1.1, got %s", c.PactoVersion)
+	if c.PactoVersion != "1.2" {
+		t.Errorf("expected pactoVersion 1.2, got %s", c.PactoVersion)
 	}
 	if c.Readiness == nil {
 		t.Fatal("expected readiness to be present")
+	}
+	if c.Readiness.Expires != "2099-12-31" {
+		t.Errorf("unexpected assessment expires: %s", c.Readiness.Expires)
 	}
 	if len(c.Readiness.Checks) != 3 {
 		t.Fatalf("expected 3 readiness checks, got %d", len(c.Readiness.Checks))
 	}
 	first := c.Readiness.Checks[0]
-	if first.ID != "dashboard" || first.Type != "url" || first.Weight != 20 {
-		t.Errorf("unexpected first check: %+v", first)
+	type field struct {
+		label string
+		got   any
+		want  any
 	}
-	if first.Evidence != "https://grafana.company.com/payment-api" {
-		t.Errorf("unexpected evidence: %s", first.Evidence)
+	firstFields := []field{
+		{"first.ID", first.ID, "dashboard"},
+		{"first.Type", first.Type, "url"},
+		{"first.Weight", first.Weight, 20},
+		{"first.Category", first.Category, "observability"},
+		{"first.Status", first.Status, contract.StatusDone},
+		{"first.Evidence", first.Evidence, "https://grafana.company.com/payment-api"},
+		{"first.Description", first.Description, "Main production dashboard"},
 	}
-	if first.Expires != "2026-12-31" {
-		t.Errorf("unexpected expires: %s", first.Expires)
+	for _, f := range firstFields {
+		if f.got != f.want {
+			t.Errorf("%s: got %v, want %v", f.label, f.got, f.want)
+		}
 	}
-	if first.Description != "Main production dashboard" {
-		t.Errorf("unexpected description: %s", first.Description)
+	if c.Readiness.Checks[1].Status != contract.StatusPartial {
+		t.Errorf("expected partial status on second check, got %s", c.Readiness.Checks[1].Status)
 	}
 	if c.Readiness.Checks[2].Description != "" {
 		t.Errorf("expected empty description on third check, got %s", c.Readiness.Checks[2].Description)
@@ -305,18 +318,19 @@ func TestParse_ValidReadiness(t *testing.T) {
 
 func TestParse_ReadinessUnknownFieldRejected(t *testing.T) {
 	r := strings.NewReader(`
-pactoVersion: "1.1"
+pactoVersion: "1.2"
 service:
   name: my-svc
   version: "1.0.0"
 readiness:
+  expires: 2026-12-31
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://x
       weight: 20
-      expires: 2026-12-31
-      status: current
+      bogusField: nope
 `)
 	_, err := contract.Parse(r)
 	if err == nil {

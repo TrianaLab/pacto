@@ -3,12 +3,13 @@
 A Pacto contract for PostgreSQL — a stateful, persistent relational database with high data criticality.
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: postgresql
   version: 16.4.0
-  owner: infra/databases
+  owner:
+    team: databases
   image:
     ref: docker.io/library/postgres:16.4
     private: false

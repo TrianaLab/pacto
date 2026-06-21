@@ -96,12 +96,14 @@ Run it locally, or deploy the [container image](https://trianalab.github.io/pact
 ## What a contract captures
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: payments-api
   version: 2.1.0
-  owner: team/payments
+  owner:
+    team: payments
+    dri: alice
 
 interfaces:
   - name: rest-api
@@ -132,7 +134,7 @@ scaling:
   max: 10
 ```
 
-Only `pactoVersion` and `service` are required — everything else is opt-in, so a contract can be as minimal or as detailed as your service needs. `pacto init` scaffolds a `1.0` contract; use `1.1` when you want the optional `readiness` section (everything from `1.0` stays valid under `1.1`).
+Only `pactoVersion` and `service` are required — everything else is opt-in, so a contract can be as minimal or as detailed as your service needs. `pacto init` scaffolds a `1.2` contract; use `1.0` or `1.1` for contracts without readiness (object-only `owner` is enforced across all versions).
 
 ---
 

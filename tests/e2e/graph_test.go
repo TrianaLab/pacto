@@ -166,7 +166,8 @@ func TestGraphWithDependencies(t *testing.T) {
 service:
   name: conflict-app
   version: 1.0.0
-  owner: team/platform
+  owner:
+    team: platform
 
 interfaces:
   - name: api

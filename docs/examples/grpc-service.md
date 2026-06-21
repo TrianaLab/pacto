@@ -3,12 +3,13 @@
 A Pacto contract for a gRPC microservice — a user service exposing a Protocol Buffer API with internal visibility.
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: user-service
   version: 3.2.0
-  owner: team/identity
+  owner:
+    team: identity
   image:
     ref: ghcr.io/acme/user-service:3.2.0
     private: true

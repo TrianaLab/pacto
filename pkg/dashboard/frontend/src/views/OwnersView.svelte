@@ -1,15 +1,21 @@
 <script>
   import { ownerUrl, serviceUrl } from '../lib/router.ts';
   import { aggregateByOwner, complianceClass, statusClass, ownerKey, sourceTooltip, complianceStatusClass } from '../lib/format.ts';
+  import { getFilters, setFilter } from '../lib/filters.svelte.ts';
   import OwnerBarChart from '../OwnerBarChart.svelte';
+  import SummaryBar from '../components/SummaryBar.svelte';
 
   let { services = [], initialLoading = false } = $props();
 
   let sortBy = $state('services');
   let sortAsc = $state(false);
-  let nameFilter = $state('');
   let statusFilter = $state('all'); // all | warnings | non-compliant | compliant
   let expandedOwner = $state(null);
+
+  // The owner name search uses the shared store's `search` key, so a query carries
+  // over from the services list and into shareable links.
+  const filters = $derived(getFilters());
+  let nameFilter = $derived(filters.search);
 
   // Services belonging to the expanded owner
   let expandedServices = $derived.by(() => {
@@ -96,6 +102,11 @@
   <span class="tab-count">{allOwners.length}</span>
 </div>
 
+<!-- Overall fleet metrics (computed across all services, not just owners). -->
+{#if services.length > 0}
+  <SummaryBar {services} />
+{/if}
+
 {#if allOwners.length === 0}
   <div class="state-box">
     {#if initialLoading}
@@ -149,7 +160,7 @@
 
     <div class="filter-search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      <input type="text" placeholder="Filter owners…" bind:value={nameFilter} aria-label="Filter by owner name" />
+      <input type="text" placeholder="Filter owners…" value={nameFilter} oninput={(e) => setFilter('search', e.currentTarget.value)} aria-label="Filter by owner name" />
     </div>
   </div>
 
@@ -333,7 +344,20 @@
   .filter-search input::placeholder { color: var(--c-text-3); }
 
   /* ── Table ── */
-  .owner-name { font-weight: 600; text-decoration: none; }
+  table { width: 100%; }
+  th, td { white-space: nowrap; }
+  th:first-child, td:first-child { white-space: normal; }
+
+  .owner-name {
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-block;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
   .owner-name:hover { text-decoration: underline; }
 
   .col-sort {
@@ -393,14 +417,18 @@
   .expand-table th {
     font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--c-text-3);
-    padding: var(--sp-2) var(--sp-3);
+    padding: var(--sp-2) var(--sp-2);
     text-align: left; border-bottom: 1px solid var(--c-border);
+    white-space: nowrap;
   }
+  .expand-table th:first-child { white-space: normal; }
   .expand-table td {
-    padding: var(--sp-3) var(--sp-3);
+    padding: var(--sp-2) var(--sp-2);
     font-size: var(--text-sm);
     border-bottom: 1px solid var(--c-border);
+    white-space: nowrap;
   }
+  .expand-table td:first-child { white-space: normal; }
   .expand-table tbody tr:last-child td { border-bottom: none; }
   .expand-table a { font-weight: 600; text-decoration: none; }
   .expand-table a:hover { text-decoration: underline; }

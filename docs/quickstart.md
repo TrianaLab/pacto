@@ -42,31 +42,43 @@ Validation runs four layers: structural (JSON Schema), cross-field (references a
 Edit `my-service/pacto.yaml` to match your service. A minimal contract only requires `pactoVersion` and `service`:
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: my-service
   version: 1.0.0
-  owner: team/backend
+  owner:
+    team: backend
 ```
 
-Add sections as needed — interfaces, runtime semantics, dependencies, configuration, policy, scaling. See the [Contract Reference](contract-reference.md) for every available field.
+Add sections as needed — interfaces, runtime semantics, dependencies, configuration, policy, scaling, readiness. See the [Contract Reference](contract-reference.md) for every available field.
 
-## 5. Add readiness (optional, v1.1+)
+## 5. Add readiness (optional, v1.2)
 
-The `readiness` section declares operational evidence for the service. It requires `pactoVersion: "1.1"` — declaring it under `1.0` is rejected at validation. Bump the version and add at least one check:
+The `readiness` section declares operational readiness state for the service. It requires `pactoVersion: "1.2"` — declaring it under `1.0` or `1.1` is rejected at validation. Add at least one check with a status:
 
 ```yaml
-pactoVersion: "1.1"
+pactoVersion: "1.2"
 
 readiness:
+  expires: 2027-06-30
   minScore: 80
   checks:
     - id: dashboard
       type: url
-      evidence: https://grafana.company.com/my-service
+      status: done
+      category: observability
       weight: 20
-      expires: 2026-12-31
+      evidence: https://grafana.example.com/d/service-dashboard
+      description: Grafana dashboard exists
+    
+    - id: runbook
+      type: document
+      status: partial
+      category: documentation
+      weight: 15
+      evidence: docs/runbook.md
+      description: Basic runbook exists
 ```
 
 Then run the opt-in readiness gate:
@@ -75,7 +87,7 @@ Then run the opt-in readiness gate:
 $ pacto validate my-service --readiness
 ```
 
-The gate compares each check's `expires` against the run time, so its result changes as evidence goes stale — that's why plain `pacto validate` does not enforce it. See [Contract Reference](contract-reference.md#readiness) for the full scoring and gate semantics.
+The gate derives a score from check statuses and weights, comparing it against `minScore`. The result is time-dependent (expired assessments score 0), so plain `pacto validate` does not enforce it. See [Contract Reference](contract-reference.md#readiness) for the full scoring and gate semantics.
 
 ## 6. Pack and push
 
@@ -103,8 +115,8 @@ $ pacto pull oci://ghcr.io/your-org/my-service-pacto:1.0.0
 # Human-readable summary
 $ pacto explain my-service
 Service: my-service@1.0.0
-Owner: team/backend
-Pacto Version: 1.0
+Owner: backend (team)
+Pacto Version: 1.2
 
 Runtime:
   Workload: service

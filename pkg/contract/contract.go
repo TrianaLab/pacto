@@ -15,32 +15,79 @@ type Contract struct {
 }
 
 // Readiness declares operational readiness evidence for the service.
-// It is an optional, provider-neutral section introduced in pactoVersion 1.1.
-// Each check points at evidence (a dashboard, runbook, ticket, report, etc.)
-// without Pacto verifying the target content.
+// It is an optional, provider-neutral section introduced in pactoVersion 1.2.
+// Each check declares its completion status (done/partial/not-done/deferred)
+// and points at evidence (a dashboard, runbook, ticket, report, etc.) without
+// Pacto verifying the target content. The whole assessment expires on a single
+// date; once expired, every in-scope check earns zero weight.
 type Readiness struct {
 	// MinScore is the gate: the derived readiness score must be >= this value for
 	// the contract to be considered ready. It is on the same 0..100 scale as the
-	// score. Omitted means 100 (every weighted check must be current); set lower to
-	// tolerate staleness. Enforced by `pacto validate --readiness` and the operator.
-	MinScore *int             `yaml:"minScore,omitempty" json:"minScore,omitempty"`
-	Checks   []ReadinessCheck `yaml:"checks,omitempty" json:"checks,omitempty"`
+	// score. Omitted means 100 (every weighted check must be done); set lower to
+	// tolerate partial completion. Enforced by `pacto validate --readiness` and
+	// the operator.
+	MinScore *int `yaml:"minScore,omitempty" json:"minScore,omitempty"`
+	// Expires is the single assessment-level freshness boundary (YYYY-MM-DD).
+	// After this date every in-scope check earns zero weight and the gate fails.
+	Expires string `yaml:"expires" json:"expires"`
+	// PartialCredit is the fraction of a check's weight earned when its status is
+	// "partial". Omitted means 0.5.
+	PartialCredit *float64 `yaml:"partialCredit,omitempty" json:"partialCredit,omitempty"`
+	// History records the revision log of the readiness assessment.
+	History []ReadinessRevision `yaml:"history,omitempty" json:"history,omitempty"`
+	Checks  []ReadinessCheck    `yaml:"checks,omitempty" json:"checks,omitempty"`
+}
+
+// ReadinessRevision is a single entry in the readiness revision history.
+type ReadinessRevision struct {
+	Date        string `yaml:"date" json:"date"`
+	Version     string `yaml:"version" json:"version"`
+	Author      string `yaml:"author" json:"author"`
+	Description string `yaml:"description" json:"description"`
 }
 
 // ReadinessCheck is a single declared readiness requirement.
 // ID identifies the organizational requirement (e.g. dashboard, runbook),
-// Type classifies the evidence pointer, Evidence is the pointer itself,
-// Weight contributes to the readiness score, and Expires bounds freshness.
-// The service owner is declared at the contract level, so readiness checks
-// deliberately carry no per-check owner.
+// Type classifies the evidence pointer, Category groups the check into a
+// software domain, Status declares its completion state, Evidence is the
+// pointer itself, and Weight contributes to the readiness score. The service
+// owner is declared at the contract level, so readiness checks deliberately
+// carry no per-check owner.
 type ReadinessCheck struct {
 	ID          string `yaml:"id" json:"id"`
 	Type        string `yaml:"type" json:"type"`
+	Category    string `yaml:"category,omitempty" json:"category,omitempty"`
+	Status      string `yaml:"status" json:"status"`
 	Evidence    string `yaml:"evidence" json:"evidence"`
 	Weight      int    `yaml:"weight" json:"weight"`
-	Expires     string `yaml:"expires" json:"expires"`
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
+
+// Declared per-check completion status.
+const (
+	StatusDone     = "done"
+	StatusPartial  = "partial"
+	StatusNotDone  = "not-done"
+	StatusDeferred = "deferred"
+)
+
+// Readiness check software-domain categories.
+const (
+	CategoryArchitecture     = "architecture"
+	CategoryTesting          = "testing"
+	CategoryCodeQuality      = "code-quality"
+	CategoryObservability    = "observability"
+	CategorySecurity         = "security"
+	CategoryDocumentation    = "documentation"
+	CategoryInfrastructure   = "infrastructure"
+	CategoryCICD             = "ci-cd"
+	CategoryDeployment       = "deployment"
+	CategoryResilience       = "resilience"
+	CategoryBackupRecovery   = "backup-recovery"
+	CategoryIncidentResponse = "incident-response"
+	CategoryCompliance       = "compliance"
+	CategoryOther            = "other"
+)
 
 // Evidence type constants for ReadinessCheck.Type. These classify the kind of
 // evidence pointer, not the organizational requirement (which is the ID).

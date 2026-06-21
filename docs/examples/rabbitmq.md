@@ -3,12 +3,13 @@
 A Pacto contract for RabbitMQ — a stateful message broker with persistent durability and multiple protocol interfaces.
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: rabbitmq
   version: 3.13.7
-  owner: infra/messaging
+  owner:
+    team: messaging
   image:
     ref: docker.io/library/rabbitmq:3.13-management
     private: false

@@ -3,12 +3,13 @@
 A Pacto contract for a scheduled batch job — a stateless worker that runs on a cron schedule.
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: report-generator
   version: 1.2.0
-  owner: team/analytics
+  owner:
+    team: analytics
   image:
     ref: ghcr.io/acme/report-generator:1.2.0
     private: true

@@ -359,7 +359,7 @@ func buildCreateMap(input CreateInput) map[string]interface{} {
 
 	svc := m["service"].(map[string]interface{})
 	if input.Owner != "" {
-		svc["owner"] = input.Owner
+		svc["owner"] = map[string]interface{}{"team": input.Owner}
 	}
 
 	if len(input.Interfaces) > 0 {
@@ -582,7 +582,7 @@ func applyEdits(m map[string]interface{}, input EditInput) []string {
 		changes = append(changes, fmt.Sprintf("set version to %s", *input.Version))
 	}
 	if input.Owner != nil {
-		svc["owner"] = *input.Owner
+		svc["owner"] = map[string]interface{}{"team": *input.Owner}
 		changes = append(changes, fmt.Sprintf("set owner to %q", *input.Owner))
 	}
 

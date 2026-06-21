@@ -53,19 +53,48 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 }
 
 // validateReadiness enforces the readiness rules that JSON Schema cannot express:
-// readiness check IDs must be unique, evidence and (when present) description must
-// not be whitespace-only, and expires must be a strict canonical YYYY-MM-DD date.
-// Shape rules (id pattern, type enum, weight range, evidence length) are enforced
-// by the structural schema and are deliberately not duplicated here.
+// the assessment-level expires (and each revision date) must be a strict
+// canonical YYYY-MM-DD date, revision version/author/description must not be
+// blank, readiness check IDs must be unique, and evidence and (when present)
+// description must not be whitespace-only. Shape rules (id pattern, type/status
+// enum, weight range, evidence length) are enforced by the structural schema and
+// are deliberately not duplicated here.
 func validateReadiness(c *contract.Contract, result *ValidationResult) {
 	if c.Readiness == nil {
 		return
 	}
+	r := c.Readiness
+
+	if !isCanonicalDate(r.Expires) {
+		result.AddError(
+			"readiness.expires",
+			"INVALID_READINESS_EXPIRES",
+			fmt.Sprintf("expires %q must be a valid YYYY-MM-DD date", r.Expires),
+		)
+	}
+
+	for i, rev := range r.History {
+		base := fmt.Sprintf("readiness.history[%d]", i)
+		if !isCanonicalDate(rev.Date) {
+			result.AddError(base+".date", "INVALID_READINESS_REVISION", "revision date must be YYYY-MM-DD")
+		}
+		if strings.TrimSpace(rev.Version) == "" {
+			result.AddError(base+".version", "INVALID_READINESS_REVISION", "revision version must not be blank")
+		}
+		if strings.TrimSpace(rev.Author) == "" {
+			result.AddError(base+".author", "INVALID_READINESS_REVISION", "revision author must not be blank")
+		}
+		if strings.TrimSpace(rev.Description) == "" {
+			result.AddError(base+".description", "INVALID_READINESS_REVISION", "revision description must not be blank")
+		}
+	}
+
 	seen := make(map[string]int)
-	for i, check := range c.Readiness.Checks {
+	for i, check := range r.Checks {
+		base := fmt.Sprintf("readiness.checks[%d]", i)
 		if prev, exists := seen[check.ID]; exists {
 			result.AddError(
-				fmt.Sprintf("readiness.checks[%d].id", i),
+				base+".id",
 				"DUPLICATE_READINESS_ID",
 				fmt.Sprintf("readiness check id %q is already declared at readiness.checks[%d]", check.ID, prev),
 			)
@@ -74,7 +103,7 @@ func validateReadiness(c *contract.Contract, result *ValidationResult) {
 
 		if strings.TrimSpace(check.Evidence) == "" {
 			result.AddError(
-				fmt.Sprintf("readiness.checks[%d].evidence", i),
+				base+".evidence",
 				"EMPTY_READINESS_EVIDENCE",
 				fmt.Sprintf("readiness check %q has blank evidence", check.ID),
 			)
@@ -82,20 +111,19 @@ func validateReadiness(c *contract.Contract, result *ValidationResult) {
 
 		if check.Description != "" && strings.TrimSpace(check.Description) == "" {
 			result.AddError(
-				fmt.Sprintf("readiness.checks[%d].description", i),
+				base+".description",
 				"EMPTY_READINESS_DESCRIPTION",
 				fmt.Sprintf("readiness check %q has a blank description", check.ID),
 			)
 		}
-
-		if t, err := time.Parse(readinessDateLayout, check.Expires); err != nil || t.Format(readinessDateLayout) != check.Expires {
-			result.AddError(
-				fmt.Sprintf("readiness.checks[%d].expires", i),
-				"INVALID_READINESS_EXPIRES",
-				fmt.Sprintf("readiness check %q expires %q is not a valid YYYY-MM-DD date", check.ID, check.Expires),
-			)
-		}
 	}
+}
+
+// isCanonicalDate reports whether s is a valid date in the strict canonical
+// YYYY-MM-DD layout (rejecting non-canonical inputs like "2026-1-1").
+func isCanonicalDate(s string) bool {
+	t, err := time.Parse(readinessDateLayout, s)
+	return err == nil && t.Format(readinessDateLayout) == s
 }
 
 func validateSemver(version, field, code string, result *ValidationResult) {

@@ -43,7 +43,8 @@ pactoVersion: "1.0"
 service:
   name: my-service-root
   version: 1.2.0
-  owner: team/example
+  owner:
+    team: example
   chart:
     ref: oci://ghcr.io/example/charts/my-service
     version: 1.2.0
@@ -74,7 +75,8 @@ pactoVersion: "1.0"
 service:
   name: my-service-api
   version: 1.2.0
-  owner: team/example
+  owner:
+    team: example
 
 runtime:
   workload: service
@@ -124,7 +126,8 @@ pactoVersion: "1.0"
 service:
   name: postgres
   version: 17.0.0
-  owner: team/platform
+  owner:
+    team: platform
 
 metadata:
   labels:
@@ -241,7 +244,8 @@ pactoVersion: "1.0"
 service:
   name: platform-service
   version: 2.0.0
-  owner: team/platform
+  owner:
+    team: platform
 
 policies:
   - name: platform-policy

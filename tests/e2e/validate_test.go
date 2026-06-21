@@ -11,110 +11,98 @@ import (
 func TestValidateCommand(t *testing.T) {
 	t.Parallel()
 
-	t.Run("local valid", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		inDir(t, dir)
+	tests := []struct {
+		name    string
+		setup   func(*testing.T) (reg *testRegistry, args []string)
+		wantErr bool
+		wantOut string
+	}{
+		{
+			name: "local valid",
+			setup: func(t *testing.T) (*testRegistry, []string) {
+				dir := t.TempDir()
+				inDir(t, dir)
+				if _, err := runCommand(t, nil, "init", "valid-svc"); err != nil {
+					t.Fatalf("init failed: %v", err)
+				}
+				return nil, []string{"validate", filepath.Join(dir, "valid-svc")}
+			},
+			wantOut: "is valid",
+		},
+		{
+			name: "local invalid",
+			setup: func(t *testing.T) (*testRegistry, []string) {
+				dir := t.TempDir()
+				if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(brokenContract), 0644); err != nil {
+					t.Fatal(err)
+				}
+				return nil, []string{"validate", dir}
+			},
+			wantErr: true,
+			wantOut: "HEALTH_INTERFACE_NOT_FOUND",
+		},
+		{
+			name: "json output",
+			setup: func(t *testing.T) (*testRegistry, []string) {
+				dir := t.TempDir()
+				inDir(t, dir)
+				if _, err := runCommand(t, nil, "init", "json-validate"); err != nil {
+					t.Fatalf("init failed: %v", err)
+				}
+				return nil, []string{"--output-format", "json", "validate", filepath.Join(dir, "json-validate")}
+			},
+			wantOut: `"Valid": true`,
+		},
+		{
+			name: "markdown output",
+			setup: func(t *testing.T) (*testRegistry, []string) {
+				return nil, []string{"--output-format", "markdown", "validate", writePostgresBundle(t)}
+			},
+			wantOut: "valid",
+		},
+		{
+			name: "OCI reference validation",
+			setup: func(t *testing.T) (*testRegistry, []string) {
+				reg := newTestRegistry(t)
+				postgresPath := writePostgresBundle(t)
+				if _, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath); err != nil {
+					t.Fatalf("push failed: %v", err)
+				}
+				return reg, []string{"validate", "oci://" + reg.host + "/postgres-pacto:1.0.0"}
+			},
+			wantOut: "is valid",
+		},
+		{
+			name: "verbose flag accepted",
+			setup: func(t *testing.T) (*testRegistry, []string) {
+				return nil, []string{"--verbose", "validate", writePostgresBundle(t)}
+			},
+		},
+		{
+			name: "missing directory error",
+			setup: func(t *testing.T) (*testRegistry, []string) {
+				return nil, []string{"validate", "/nonexistent/path/to/contract"}
+			},
+			wantErr: true,
+		},
+	}
 
-		_, err := runCommand(t, nil, "init", "valid-svc")
-		if err != nil {
-			t.Fatalf("init failed: %v", err)
-		}
-
-		svcDir := filepath.Join(dir, "valid-svc")
-		output, err := runCommand(t, nil, "validate", svcDir)
-		if err != nil {
-			t.Fatalf("validate failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "is valid")
-	})
-
-	t.Run("local invalid", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(brokenContract), 0644); err != nil {
-			t.Fatal(err)
-		}
-
-		output, err := runCommand(t, nil, "validate", dir)
-		if err == nil {
-			t.Fatal("expected validate to fail on broken contract")
-		}
-		assertContains(t, output, "HEALTH_INTERFACE_NOT_FOUND")
-	})
-
-	t.Run("json output", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		inDir(t, dir)
-
-		_, err := runCommand(t, nil, "init", "json-validate")
-		if err != nil {
-			t.Fatalf("init failed: %v", err)
-		}
-
-		svcDir := filepath.Join(dir, "json-validate")
-		output, err := runCommand(t, nil, "--output-format", "json", "validate", svcDir)
-		if err != nil {
-			t.Fatalf("validate json failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, `"Valid": true`)
-	})
-
-	t.Run("markdown output", func(t *testing.T) {
-		t.Parallel()
-		postgresPath := writePostgresBundle(t)
-
-		output, err := runCommand(t, nil, "--output-format", "markdown", "validate", postgresPath)
-		if err != nil {
-			t.Fatalf("validate markdown failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "valid")
-	})
-
-	t.Run("OCI reference validation", func(t *testing.T) {
-		t.Parallel()
-		reg := newTestRegistry(t)
-
-		postgresPath := writePostgresBundle(t)
-		_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/postgres-pacto:1.0.0", "-p", postgresPath)
-		if err != nil {
-			t.Fatalf("push failed: %v", err)
-		}
-
-		output, err := runCommand(t, reg, "validate", "oci://"+reg.host+"/postgres-pacto:1.0.0")
-		if err != nil {
-			t.Fatalf("validate via OCI failed: %v\noutput: %s", err, output)
-		}
-		assertContains(t, output, "is valid")
-	})
-
-	t.Run("verbose flag accepted", func(t *testing.T) {
-		t.Parallel()
-		postgresPath := writePostgresBundle(t)
-
-		_, err := runCommand(t, nil, "--verbose", "validate", postgresPath)
-		if err != nil {
-			t.Fatalf("validate --verbose failed: %v", err)
-		}
-	})
-
-	t.Run("missing directory error", func(t *testing.T) {
-		t.Parallel()
-		_, err := runCommand(t, nil, "validate", "/nonexistent/path/to/contract")
-		if err == nil {
-			t.Fatal("expected validate to fail for missing directory")
-		}
-	})
-
-	t.Run("no pacto.yaml error", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		_, err := runCommand(t, nil, "validate", dir)
-		if err == nil {
-			t.Fatal("expected validate to fail for directory without pacto.yaml")
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			reg, args := tt.setup(t)
+			output, err := runCommand(t, reg, args...)
+			if tt.wantErr && err == nil {
+				t.Fatalf("expected error, got none. output: %s", output)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+			}
+			if tt.wantOut != "" {
+				assertContains(t, output, tt.wantOut)
+			}
+		})
+	}
 
 	t.Run("help flag", func(t *testing.T) {
 		t.Parallel()
@@ -129,13 +117,52 @@ func TestValidateCommand(t *testing.T) {
 	t.Run("structured owner valid", func(t *testing.T) {
 		t.Parallel()
 		bundlePath := writeStructuredOwnerBundle(t)
-
 		output, err := runCommand(t, nil, "validate", bundlePath)
 		if err != nil {
 			t.Fatalf("validate failed for structured owner: %v\noutput: %s", err, output)
 		}
 	})
 
+	t.Run("scalar owner rejected", func(t *testing.T) {
+		t.Parallel()
+		dir := filepath.Join(t.TempDir(), "scalar-owner-svc")
+		yaml := `pactoVersion: "1.0"
+service:
+  name: scalar-owner-svc
+  version: 1.0.0
+  owner: team/platform
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+		path := writeBundleDir(t, dir, yaml, nil)
+		output, err := runCommand(t, nil, "validate", path)
+		if err == nil {
+			t.Fatalf("expected validation to fail for scalar owner, got:\n%s", output)
+		}
+	})
+
+	t.Run("no pacto.yaml error", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		_, err := runCommand(t, nil, "validate", dir)
+		if err == nil {
+			t.Fatal("expected validate to fail for directory without pacto.yaml")
+		}
+	})
 }
 
 func TestValidateFileContent(t *testing.T) {

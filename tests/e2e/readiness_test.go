@@ -8,14 +8,15 @@ import (
 	"testing"
 )
 
-// readinessContractYAML is a pactoVersion 1.1 contract with one current
-// (far-future) and one expired (far-past) readiness check, so derived status is
-// deterministic regardless of when the suite runs.
-const readinessContractYAML = `pactoVersion: "1.1"
+// readinessContractYAML is a pactoVersion 1.2 contract with v1.2 readiness:
+// per-check status (done/not-done), top-level expires (far-future = current),
+// category, minScore, partialCredit. Deterministic regardless of when suite runs.
+const readinessContractYAML = `pactoVersion: "1.2"
 service:
   name: readiness-svc
   version: 1.0.0
-  owner: team/readiness
+  owner:
+    team: readiness
 interfaces:
   - name: api
     type: http
@@ -33,18 +34,29 @@ runtime:
     interface: api
     path: /health
 readiness:
+  expires: "2099-12-31"
+  minScore: 80
+  partialCredit: 0.5
   checks:
     - id: dashboard
       type: url
       evidence: https://grafana.example.com/d/readiness-svc
       weight: 60
-      expires: "2099-12-31"
+      status: done
+      category: observability
       description: Main production dashboard
     - id: security-review
       type: ticket
       evidence: SEC-1842
       weight: 40
-      expires: "2000-01-15"
+      status: not-done
+      category: security
+      description: Security review ticket
+  history:
+    - version: "1"
+      date: "2024-01-01"
+      author: platform-team
+      description: Initial readiness assessment
 `
 
 func writeReadinessBundle(t *testing.T) string {
@@ -63,18 +75,19 @@ func TestReadinessExplain(t *testing.T) {
 		if err != nil {
 			t.Fatalf("explain failed: %v\n%s", err, out)
 		}
-		assertContains(t, out, "Pacto Version: 1.1")
+		assertContains(t, out, "Pacto Version: 1.2")
 		assertContains(t, out, "Readiness:")
-		assertContains(t, out, "Score: 60")
-		// No minScore declared → default 100 → gate fails (score 60 < 100).
-		assertContains(t, out, "Gate: FAIL (score 60 / minScore 100)")
-		assertContains(t, out, "Current Weight: 60")
+		// Score = 60 (done) + 0 (not-done, no partial) = 60. minScore 80 → gate fails.
+		assertContains(t, out, "Gate: FAIL (score 60 / minScore 80)")
+		assertContains(t, out, "Earned Weight: 60")
 		assertContains(t, out, "Total Weight: 100")
-		assertContains(t, out, "Expired Checks: 1")
+		assertContains(t, out, "Expires: 2099-12-31")
+		assertContains(t, out, "Status: 1 done, 0 partial, 1 not-done, 0 deferred")
 		assertContains(t, out, "dashboard")
-		assertContains(t, out, "current")
+		assertContains(t, out, "observability")
 		assertContains(t, out, "security-review")
-		assertContains(t, out, "expired")
+		assertContains(t, out, "security")
+		assertContains(t, out, "Revision History:")
 	})
 
 	t.Run("json output includes readiness", func(t *testing.T) {
@@ -86,14 +99,17 @@ func TestReadinessExplain(t *testing.T) {
 		}
 		var result struct {
 			Readiness *struct {
-				Score        int  `json:"score"`
-				MinScore     int  `json:"minScore"`
-				Passing      bool `json:"passing"`
-				TotalWeight  int  `json:"totalWeight"`
-				ExpiredCount int  `json:"expiredCount"`
+				Score        int    `json:"score"`
+				MinScore     int    `json:"minScore"`
+				Passing      bool   `json:"passing"`
+				TotalWeight  int    `json:"totalWeight"`
+				DoneCount    int    `json:"doneCount"`
+				NotDoneCount int    `json:"notDoneCount"`
+				Expires      string `json:"expires"`
 				Checks       []struct {
-					ID     string `json:"id"`
-					Status string `json:"status"`
+					ID       string `json:"id"`
+					Status   string `json:"status"`
+					Category string `json:"category"`
 				} `json:"checks"`
 			} `json:"readiness"`
 		}
@@ -103,14 +119,17 @@ func TestReadinessExplain(t *testing.T) {
 		if result.Readiness == nil {
 			t.Fatalf("expected readiness in JSON, got:\n%s", out)
 		}
-		if result.Readiness.Score != 60 || result.Readiness.TotalWeight != 100 || result.Readiness.ExpiredCount != 1 {
+		if result.Readiness.Score != 60 || result.Readiness.TotalWeight != 100 || result.Readiness.DoneCount != 1 || result.Readiness.NotDoneCount != 1 {
 			t.Errorf("unexpected readiness summary: %+v", result.Readiness)
 		}
-		if result.Readiness.MinScore != 100 || result.Readiness.Passing {
-			t.Errorf("expected default minScore 100 and not passing, got minScore=%d passing=%v", result.Readiness.MinScore, result.Readiness.Passing)
+		if result.Readiness.MinScore != 80 || result.Readiness.Passing {
+			t.Errorf("expected minScore 80 and not passing, got minScore=%d passing=%v", result.Readiness.MinScore, result.Readiness.Passing)
 		}
-		if len(result.Readiness.Checks) != 2 || result.Readiness.Checks[0].Status != "Current" || result.Readiness.Checks[1].Status != "Expired" {
+		if len(result.Readiness.Checks) != 2 || result.Readiness.Checks[0].Status != "done" || result.Readiness.Checks[1].Status != "not-done" {
 			t.Errorf("unexpected readiness checks: %+v", result.Readiness.Checks)
+		}
+		if result.Readiness.Expires != "2099-12-31" {
+			t.Errorf("expected expires 2099-12-31, got %s", result.Readiness.Expires)
 		}
 	})
 }
@@ -118,9 +137,9 @@ func TestReadinessExplain(t *testing.T) {
 func TestReadinessValidateGate(t *testing.T) {
 	t.Parallel()
 
-	t.Run("--readiness fails on a stale contract", func(t *testing.T) {
+	t.Run("--readiness fails when score below minScore", func(t *testing.T) {
 		t.Parallel()
-		path := writeReadinessBundle(t) // security-review expired (2000-01-15), no minScore → 100
+		path := writeReadinessBundle(t) // score 60 < minScore 80 → gate fails
 		out, err := runCommand(t, nil, "validate", "--readiness", path)
 		if err == nil {
 			t.Fatalf("expected --readiness to fail, got:\n%s", out)
@@ -137,6 +156,61 @@ func TestReadinessValidateGate(t *testing.T) {
 		}
 		assertContains(t, out, "is valid")
 	})
+
+	t.Run("--readiness fails when assessment expired", func(t *testing.T) {
+		t.Parallel()
+		dir := filepath.Join(t.TempDir(), "expired-assessment")
+		yaml := `pactoVersion: "1.2"
+service:
+  name: expired-svc
+  version: 1.0.0
+readiness:
+  expires: "2020-01-01"
+  minScore: 50
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.example.com/d/expired-svc
+      weight: 100
+      status: done
+`
+		path := writeBundleDir(t, dir, yaml, nil)
+		out, err := runCommand(t, nil, "validate", "--readiness", path)
+		if err == nil {
+			t.Fatalf("expected --readiness to fail on expired assessment, got:\n%s", out)
+		}
+		assertContains(t, out, "READINESS_GATE_UNMET")
+	})
+
+	t.Run("--readiness passes when score meets minScore and current", func(t *testing.T) {
+		t.Parallel()
+		dir := filepath.Join(t.TempDir(), "passing-gate")
+		yaml := `pactoVersion: "1.2"
+service:
+  name: passing-svc
+  version: 1.0.0
+readiness:
+  expires: "2099-12-31"
+  minScore: 60
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.example.com/d/passing-svc
+      weight: 60
+      status: done
+    - id: security-review
+      type: ticket
+      evidence: SEC-999
+      weight: 40
+      status: deferred
+`
+		path := writeBundleDir(t, dir, yaml, nil)
+		out, err := runCommand(t, nil, "validate", "--readiness", path)
+		if err != nil {
+			t.Fatalf("expected --readiness to pass, got: %v\n%s", err, out)
+		}
+		assertContains(t, out, "is valid")
+	})
 }
 
 func TestReadinessDoc(t *testing.T) {
@@ -147,8 +221,10 @@ func TestReadinessDoc(t *testing.T) {
 		t.Fatalf("doc failed: %v\n%s", err, out)
 	}
 	assertContains(t, out, "Readiness")
-	assertContains(t, out, "| ID | Type | Evidence | Weight | Expires | Description |")
-	assertContains(t, out, "| `dashboard` | `url` |")
+	assertContains(t, out, "Assessment expires: `2099-12-31`")
+	assertContains(t, out, "| ID | Type | Category | Status | Evidence | Weight | Description |")
+	assertContains(t, out, "| `dashboard` | `url` | `observability` | `done` |")
+	assertContains(t, out, "Revision History")
 }
 
 // TestReadinessOCIRoundtrip pushes a pactoVersion 1.1 readiness contract to the
@@ -177,14 +253,17 @@ func TestReadinessOCIRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("explain on pulled bundle failed: %v\n%s", err, out)
 	}
-	assertContains(t, out, "Pacto Version: 1.1")
+	assertContains(t, out, "Pacto Version: 1.2")
 	assertContains(t, out, "Readiness:")
-	assertContains(t, out, "Score: 60")
-	assertContains(t, out, "Current Weight: 60")
+	assertContains(t, out, "Gate: FAIL (score 60 / minScore 80)")
+	assertContains(t, out, "Earned Weight: 60")
 	assertContains(t, out, "Total Weight: 100")
-	assertContains(t, out, "Expired Checks: 1")
+	assertContains(t, out, "Expires: 2099-12-31")
+	assertContains(t, out, "Status: 1 done, 0 partial, 1 not-done, 0 deferred")
 	assertContains(t, out, "dashboard")
 	assertContains(t, out, "security-review")
+	assertContains(t, out, "observability")
+	assertContains(t, out, "security")
 
 	// The roundtripped bundle must be byte-equivalent at the contract level:
 	// diffing the local source against the pulled copy reports no changes.
@@ -211,22 +290,23 @@ func TestReadinessValidate(t *testing.T) {
 	t.Run("duplicate readiness id rejected", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "dup-id")
-		yaml := `pactoVersion: "1.1"
+		yaml := `pactoVersion: "1.2"
 service:
   name: dup-svc
   version: 1.0.0
 readiness:
+  expires: "2099-12-31"
   checks:
     - id: dashboard
       type: url
       evidence: https://x
       weight: 50
-      expires: "2099-12-31"
+      status: done
     - id: dashboard
       type: url
       evidence: https://y
       weight: 50
-      expires: "2099-12-31"
+      status: done
 `
 		path := writeBundleDir(t, dir, yaml, nil)
 		out, _ := runCommand(t, nil, "validate", path)
@@ -237,17 +317,18 @@ readiness:
 	t.Run("invalid expires date rejected", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "bad-date")
-		yaml := `pactoVersion: "1.1"
+		yaml := `pactoVersion: "1.2"
 service:
   name: bad-date-svc
   version: 1.0.0
 readiness:
+  expires: not-a-date
   checks:
     - id: dashboard
       type: url
       evidence: https://x
       weight: 50
-      expires: not-a-date
+      status: done
 `
 		path := writeBundleDir(t, dir, yaml, nil)
 		out, _ := runCommand(t, nil, "validate", path)
@@ -262,12 +343,13 @@ service:
   name: v10-svc
   version: 1.0.0
 readiness:
+  expires: "2099-12-31"
   checks:
     - id: dashboard
       type: url
       evidence: https://x
       weight: 50
-      expires: "2099-12-31"
+      status: done
 `
 		path := writeBundleDir(t, dir, yaml, nil)
 		out, err := runCommand(t, nil, "validate", path)
@@ -323,7 +405,7 @@ func TestReadinessPolicyEnforcement(t *testing.T) {
 	t.Run("contract satisfying readiness policy is valid", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "policy-ok")
-		yaml := `pactoVersion: "1.1"
+		yaml := `pactoVersion: "1.2"
 service:
   name: policy-ok-svc
   version: 1.0.0
@@ -331,12 +413,13 @@ policies:
   - name: readiness
     schema: policy/schema.json
 readiness:
+  expires: "2099-12-31"
   checks:
     - id: dashboard
       type: url
       evidence: https://x
       weight: 30
-      expires: "2099-12-31"
+      status: done
 `
 		path := writeBundleDirWithPolicy(t, dir, yaml, readinessPolicy)
 		out, err := runCommand(t, nil, "validate", path)
@@ -350,7 +433,7 @@ readiness:
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "policy-bad")
 		// Dashboard present but weight 10 (< 20) → violates the policy.
-		yaml := `pactoVersion: "1.1"
+		yaml := `pactoVersion: "1.2"
 service:
   name: policy-bad-svc
   version: 1.0.0
@@ -358,12 +441,13 @@ policies:
   - name: readiness
     schema: policy/schema.json
 readiness:
+  expires: "2099-12-31"
   checks:
     - id: dashboard
       type: url
       evidence: https://x
       weight: 10
-      expires: "2099-12-31"
+      status: done
 `
 		path := writeBundleDirWithPolicy(t, dir, yaml, readinessPolicy)
 		out, _ := runCommand(t, nil, "validate", path)
