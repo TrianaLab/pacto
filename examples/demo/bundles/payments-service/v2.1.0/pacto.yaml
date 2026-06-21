@@ -1,4 +1,4 @@
-pactoVersion: "1.1"
+pactoVersion: "1.2"
 
 service:
   name: payments-service
@@ -93,28 +93,39 @@ metadata:
 
 readiness:
   minScore: 80
+  expires: "2099-12-31"
+  partialCredit: 0.5
+  history:
+    - date: "2026-02-15"
+      version: 2.1.0
+      author: james.wilson
+      description: Added structured ownership metadata and fraud detection readiness tracking
   checks:
     - id: dashboard
       type: url
+      category: observability
+      status: done
       evidence: https://grafana.acme.com/d/payments-service
-      weight: 25
-      expires: "2099-12-31"
+      weight: 30
       description: Production Grafana dashboard
     - id: runbook
       type: document
+      category: documentation
+      status: done
       evidence: docs/runbooks/payments-service.md
       weight: 20
-      expires: "2099-12-31"
       description: On-call runbook for payment incidents
     - id: security-review
       type: ticket
+      category: security
+      status: done
       evidence: SEC-2087
-      weight: 25
-      expires: "2099-12-31"
+      weight: 20
       description: Annual security review
     - id: ai-evals
       type: report
+      category: testing
+      status: not-done
       evidence: https://evals.acme.com/payments-service
       weight: 30
-      expires: "2025-06-30"
       description: LLM safety evaluation suite (stale — needs refresh)

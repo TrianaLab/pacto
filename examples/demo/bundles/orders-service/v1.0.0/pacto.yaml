@@ -3,7 +3,8 @@ pactoVersion: "1.0"
 service:
   name: orders-service
   version: 1.0.0
-  owner: team/commerce
+  owner:
+    team: team/commerce
   image:
     ref: ghcr.io/trianalab/pacto-demo/orders-service
 
