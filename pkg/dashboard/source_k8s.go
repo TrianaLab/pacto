@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/readiness"
 	"github.com/trianalab/pacto/pkg/semver"
 )
 
@@ -182,26 +181,43 @@ type k8sScaling struct {
 }
 
 // k8sReadiness mirrors the operator's status.readiness (derived readiness).
+// It tracks the redesigned readiness model: a single assessment expiry, partial
+// credit, the four declared-status counts, and earned weight.
 type k8sReadiness struct {
-	Score         int32                        `json:"score,omitempty"`
-	MinScore      int32                        `json:"minScore,omitempty"`
-	Passing       bool                         `json:"passing,omitempty"`
-	TotalWeight   int32                        `json:"totalWeight,omitempty"`
-	CurrentWeight int32                        `json:"currentWeight,omitempty"`
-	CurrentCount  int32                        `json:"currentCount,omitempty"`
-	ExpiredCount  int32                        `json:"expiredCount,omitempty"`
-	Checks        flexSlice[k8sReadinessCheck] `json:"checks,omitempty"`
+	Score         int32                           `json:"score,omitempty"`
+	MinScore      int32                           `json:"minScore,omitempty"`
+	TotalWeight   int32                           `json:"totalWeight,omitempty"`
+	EarnedWeight  int32                           `json:"earnedWeight,omitempty"`
+	PartialCredit float64                         `json:"partialCredit,omitempty"`
+	Passing       bool                            `json:"passing,omitempty"`
+	Expires       string                          `json:"expires,omitempty"`
+	Expired       bool                            `json:"expired,omitempty"`
+	DaysRemaining *int32                          `json:"daysRemaining,omitempty"`
+	DoneCount     int32                           `json:"doneCount,omitempty"`
+	PartialCount  int32                           `json:"partialCount,omitempty"`
+	NotDoneCount  int32                           `json:"notDoneCount,omitempty"`
+	DeferredCount int32                           `json:"deferredCount,omitempty"`
+	Revisions     flexSlice[k8sReadinessRevision] `json:"revisions,omitempty"`
+	Checks        flexSlice[k8sReadinessCheck]    `json:"checks,omitempty"`
 }
 
 type k8sReadinessCheck struct {
-	ID            string `json:"id"`
-	Type          string `json:"type"`
-	Evidence      string `json:"evidence,omitempty"`
-	Weight        int32  `json:"weight"`
-	Expires       string `json:"expires"`
-	Description   string `json:"description,omitempty"`
-	Status        string `json:"status"`
-	DaysRemaining *int32 `json:"daysRemaining,omitempty"`
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	Category     string `json:"category,omitempty"`
+	Status       string `json:"status"`
+	Evidence     string `json:"evidence,omitempty"`
+	Description  string `json:"description,omitempty"`
+	Weight       int32  `json:"weight"`
+	EarnedWeight int32  `json:"earnedWeight"`
+	Excluded     bool   `json:"excluded,omitempty"`
+}
+
+type k8sReadinessRevision struct {
+	Date        string `json:"date"`
+	Version     string `json:"version"`
+	Author      string `json:"author"`
+	Description string `json:"description"`
 }
 
 type k8sResources struct {
@@ -525,8 +541,9 @@ func serviceFromK8sStatus(r pactoResource) Service {
 }
 
 // readinessFromK8s maps the operator's derived readiness status into the
-// dashboard ReadinessInfo DTO. It returns nil when the operator reported no
-// readiness (contract declares none).
+// dashboard ReadinessInfo DTO. It mirrors the same shape readinessFromContract
+// produces. It returns nil when the operator reported no readiness (contract
+// declares none).
 func readinessFromK8s(r *k8sReadiness) *ReadinessInfo {
 	if r == nil {
 		return nil
@@ -534,30 +551,41 @@ func readinessFromK8s(r *k8sReadiness) *ReadinessInfo {
 	info := &ReadinessInfo{
 		Score:         int(r.Score),
 		MinScore:      int(r.MinScore),
-		Passing:       r.Passing,
 		TotalWeight:   int(r.TotalWeight),
-		CurrentWeight: int(r.CurrentWeight),
-		CurrentCount:  int(r.CurrentCount),
-		ExpiredCount:  int(r.ExpiredCount),
+		EarnedWeight:  int(r.EarnedWeight),
+		PartialCredit: r.PartialCredit,
+		Passing:       r.Passing,
+		Expires:       r.Expires,
+		Expired:       r.Expired,
+		DoneCount:     int(r.DoneCount),
+		PartialCount:  int(r.PartialCount),
+		NotDoneCount:  int(r.NotDoneCount),
+		DeferredCount: int(r.DeferredCount),
+	}
+	if r.DaysRemaining != nil {
+		d := int(*r.DaysRemaining)
+		info.DaysRemaining = &d
 	}
 	for _, c := range r.Checks {
-		check := ReadinessCheckInfo{
-			ID:          c.ID,
-			Type:        c.Type,
-			Status:      c.Status,
-			Evidence:    c.Evidence,
-			Weight:      int(c.Weight),
-			Expires:     c.Expires,
-			Description: c.Description,
-		}
-		if c.DaysRemaining != nil {
-			d := int(*c.DaysRemaining)
-			check.DaysRemaining = &d
-		}
-		if c.Status == string(readiness.StatusInvalid) {
-			info.InvalidCount++
-		}
-		info.Checks = append(info.Checks, check)
+		info.Checks = append(info.Checks, ReadinessCheckInfo{
+			ID:           c.ID,
+			Type:         c.Type,
+			Category:     c.Category,
+			Status:       c.Status,
+			Evidence:     c.Evidence,
+			Description:  c.Description,
+			Weight:       int(c.Weight),
+			EarnedWeight: int(c.EarnedWeight),
+			Excluded:     c.Excluded,
+		})
+	}
+	for _, rev := range r.Revisions {
+		info.Revisions = append(info.Revisions, ReadinessRevisionInfo{
+			Date:        rev.Date,
+			Version:     rev.Version,
+			Author:      rev.Author,
+			Description: rev.Description,
+		})
 	}
 	return info
 }

@@ -109,28 +109,43 @@ func readinessFromContract(c *contract.Contract, docPaths map[string]bool) *Read
 	info := &ReadinessInfo{
 		Score:         eval.Score,
 		MinScore:      eval.MinScore,
-		Passing:       eval.Passing,
 		TotalWeight:   eval.TotalWeight,
-		CurrentWeight: eval.CurrentWeight,
-		CurrentCount:  eval.CurrentCount,
-		ExpiredCount:  eval.ExpiredCount,
-		InvalidCount:  eval.InvalidCount,
+		EarnedWeight:  eval.EarnedWeight,
+		PartialCredit: eval.PartialCredit,
+		Passing:       eval.Passing,
+		Expires:       eval.Expires,
+		Expired:       eval.Expired,
+		DaysRemaining: eval.DaysRemaining,
+		DoneCount:     eval.DoneCount,
+		PartialCount:  eval.PartialCount,
+		NotDoneCount:  eval.NotDoneCount,
+		DeferredCount: eval.DeferredCount,
 	}
 	for _, ch := range eval.Checks {
 		ci := ReadinessCheckInfo{
-			ID:            ch.ID,
-			Type:          ch.Type,
-			Status:        string(ch.Status),
-			Evidence:      ch.Evidence,
-			Weight:        ch.Weight,
-			Expires:       ch.Expires,
-			Description:   ch.Description,
-			DaysRemaining: ch.DaysRemaining,
+			ID:           ch.ID,
+			Type:         ch.Type,
+			Category:     ch.Category,
+			Status:       ch.Status,
+			Evidence:     ch.Evidence,
+			Description:  ch.Description,
+			Weight:       ch.Weight,
+			EarnedWeight: ch.EarnedWeight,
+			Excluded:     ch.Excluded,
 		}
 		if docPaths[ch.Evidence] {
 			ci.DocPath = ch.Evidence
 		}
 		info.Checks = append(info.Checks, ci)
+	}
+	// Revision history is authored, not derived: copy it straight from the contract.
+	for _, rev := range c.Readiness.History {
+		info.Revisions = append(info.Revisions, ReadinessRevisionInfo{
+			Date:        rev.Date,
+			Version:     rev.Version,
+			Author:      rev.Author,
+			Description: rev.Description,
+		})
 	}
 	return info
 }

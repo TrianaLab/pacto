@@ -61,30 +61,46 @@ type ComplianceCounts struct {
 
 // ReadinessInfo is the derived readiness assessment surfaced in the dashboard.
 type ReadinessInfo struct {
-	Score         int                  `json:"score"`
-	MinScore      int                  `json:"minScore"`
-	Passing       bool                 `json:"passing"`
-	TotalWeight   int                  `json:"totalWeight"`
-	CurrentWeight int                  `json:"currentWeight"`
-	CurrentCount  int                  `json:"currentCount"`
-	ExpiredCount  int                  `json:"expiredCount"`
-	InvalidCount  int                  `json:"invalidCount,omitempty"`
-	Checks        []ReadinessCheckInfo `json:"checks"`
+	Score         int     `json:"score"`
+	MinScore      int     `json:"minScore"`
+	TotalWeight   int     `json:"totalWeight"`
+	EarnedWeight  int     `json:"earnedWeight"`
+	PartialCredit float64 `json:"partialCredit"`
+	Passing       bool    `json:"passing"`
+	Expires       string  `json:"expires"`
+	Expired       bool    `json:"expired"`
+	DaysRemaining *int    `json:"daysRemaining,omitempty"`
+	// Status counts use NO omitempty — 0 is a valid value.
+	DoneCount     int                     `json:"doneCount"`
+	PartialCount  int                     `json:"partialCount"`
+	NotDoneCount  int                     `json:"notDoneCount"`
+	DeferredCount int                     `json:"deferredCount"`
+	Revisions     []ReadinessRevisionInfo `json:"revisions,omitempty"`
+	Checks        []ReadinessCheckInfo    `json:"checks"`
 }
 
 // ReadinessCheckInfo is a single derived readiness check for the dashboard.
 type ReadinessCheckInfo struct {
-	ID            string `json:"id"`
-	Type          string `json:"type"`
-	Status        string `json:"status"` // Current | Expired | Invalid
-	Evidence      string `json:"evidence,omitempty"`
-	Weight        int    `json:"weight"`
-	Expires       string `json:"expires"`
-	Description   string `json:"description,omitempty"`
-	DaysRemaining *int   `json:"daysRemaining,omitempty"`
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	Category     string `json:"category,omitempty"`
+	Status       string `json:"status"` // done | partial | not-done | deferred
+	Evidence     string `json:"evidence,omitempty"`
+	Description  string `json:"description,omitempty"`
+	Weight       int    `json:"weight"`
+	EarnedWeight int    `json:"earnedWeight"`
+	Excluded     bool   `json:"excluded"`
 	// DocPath is set when Evidence resolves to an in-bundle document (an entry in
 	// ServiceDetails.Docs), so the UI can render it inline. Empty for external evidence.
 	DocPath string `json:"docPath,omitempty"`
+}
+
+// ReadinessRevisionInfo is a single readiness revision-history entry.
+type ReadinessRevisionInfo struct {
+	Date        string `json:"date"`
+	Version     string `json:"version"`
+	Author      string `json:"author"`
+	Description string `json:"description"`
 }
 
 // DocInfo is one in-bundle Markdown document (docs/**/*.md) surfaced in the dashboard.

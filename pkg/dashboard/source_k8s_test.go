@@ -298,23 +298,29 @@ func assertDetailsReadiness(t *testing.T, d *ServiceDetails) {
 	if d.Readiness == nil {
 		t.Fatal("expected readiness")
 	}
-	if d.Readiness.Score != 60 || d.Readiness.TotalWeight != 100 || d.Readiness.CurrentWeight != 60 {
+	if d.Readiness.Score != 71 || d.Readiness.TotalWeight != 85 || d.Readiness.EarnedWeight != 60 {
 		t.Errorf("readiness summary mismatch: %+v", d.Readiness)
 	}
 	if d.Readiness.MinScore != 80 || d.Readiness.Passing {
 		t.Errorf("expected minScore 80 and not passing, got minScore=%d passing=%v", d.Readiness.MinScore, d.Readiness.Passing)
 	}
-	if d.Readiness.ExpiredCount != 1 || d.Readiness.InvalidCount != 1 {
+	if d.Readiness.Expires != "2026-12-31" || d.Readiness.Expired || d.Readiness.DaysRemaining == nil {
+		t.Errorf("expected far expiry not expired with daysRemaining, got %+v", d.Readiness)
+	}
+	if d.Readiness.DoneCount != 1 || d.Readiness.NotDoneCount != 1 || d.Readiness.DeferredCount != 1 {
 		t.Errorf("readiness counts mismatch: %+v", d.Readiness)
 	}
 	if len(d.Readiness.Checks) != 3 {
 		t.Fatalf("expected 3 readiness checks, got %d", len(d.Readiness.Checks))
 	}
-	if d.Readiness.Checks[0].Status != "Current" || d.Readiness.Checks[0].DaysRemaining == nil {
-		t.Errorf("expected first check Current with daysRemaining, got %+v", d.Readiness.Checks[0])
+	if d.Readiness.Checks[0].Status != "done" || d.Readiness.Checks[0].Category != "observability" || d.Readiness.Checks[0].EarnedWeight != 60 {
+		t.Errorf("expected first check done observability earned 60, got %+v", d.Readiness.Checks[0])
 	}
-	if d.Readiness.Checks[1].Status != "Expired" || d.Readiness.Checks[1].DaysRemaining != nil {
-		t.Errorf("expected second check Expired without daysRemaining, got %+v", d.Readiness.Checks[1])
+	if d.Readiness.Checks[2].Status != "deferred" || !d.Readiness.Checks[2].Excluded {
+		t.Errorf("expected third check deferred and excluded, got %+v", d.Readiness.Checks[2])
+	}
+	if len(d.Readiness.Revisions) != 1 || d.Readiness.Revisions[0].Author != "ed" {
+		t.Errorf("expected mapped revision, got %+v", d.Readiness.Revisions)
 	}
 }
 
@@ -547,11 +553,16 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	r.Status.Scaling = &k8sScaling{Replicas: &replicas, Min: &minR, Max: &maxR}
 	days := int32(206)
 	r.Status.Readiness = &k8sReadiness{
-		Score: 60, MinScore: 80, Passing: false, TotalWeight: 100, CurrentWeight: 60, CurrentCount: 1, ExpiredCount: 1,
+		Score: 71, MinScore: 80, Passing: false, TotalWeight: 85, EarnedWeight: 60, PartialCredit: 0.5,
+		Expires: "2026-12-31", Expired: false, DaysRemaining: &days,
+		DoneCount: 1, PartialCount: 0, NotDoneCount: 1, DeferredCount: 1,
+		Revisions: flexSlice[k8sReadinessRevision]{
+			{Date: "2026-06-21", Version: "2.1.0", Author: "ed", Description: "initial"},
+		},
 		Checks: flexSlice[k8sReadinessCheck]{
-			{ID: "dashboard", Type: "url", Evidence: "https://x", Weight: 60, Expires: "2026-12-31", Status: "Current", DaysRemaining: &days},
-			{ID: "security-review", Type: "ticket", Evidence: "SEC-1", Weight: 25, Expires: "2026-01-15", Status: "Expired"},
-			{ID: "bad", Type: "url", Evidence: "https://y", Weight: 15, Expires: "not-a-date", Status: "Invalid"},
+			{ID: "dashboard", Type: "url", Category: "observability", Status: "done", Evidence: "https://x", Weight: 60, EarnedWeight: 60},
+			{ID: "security-review", Type: "ticket", Status: "not-done", Evidence: "SEC-1", Weight: 25, EarnedWeight: 0},
+			{ID: "dr-plan", Type: "document", Status: "deferred", Evidence: "docs/dr.md", Weight: 15, EarnedWeight: 0, Excluded: true},
 		},
 	}
 	r.Status.Validation = &k8sValidation{Valid: false, Errors: []k8sIssue{{Code: "E001", Path: "/service/name", Message: "name is required"}}, Warnings: []k8sIssue{{Code: "W001", Path: "/runtime", Message: "deprecated field"}}}
