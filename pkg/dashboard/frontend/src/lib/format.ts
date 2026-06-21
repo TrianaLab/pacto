@@ -462,6 +462,47 @@ export function isUrlEvidence(evidence: string | null | undefined): boolean {
   return /^https?:\/\//i.test(evidence);
 }
 
+// ── Per-check declared status (done | partial | not-done | deferred) ──
+
+const CHECK_STATUS_LABELS: Record<string, string> = {
+  done: 'Done',
+  partial: 'Partial',
+  'not-done': 'Not done',
+  deferred: 'Deferred',
+};
+
+/** Human label for a readiness check's declared status. */
+export function checkStatusLabel(status: string | undefined): string {
+  if (!status) return '—';
+  return CHECK_STATUS_LABELS[status] || status;
+}
+
+/** Badge class for a readiness check's declared status — reuses the shared palette. */
+export function checkStatusClass(status: string | undefined): string {
+  if (status === 'done') return 'badge-ok';
+  if (status === 'partial') return 'badge-warn';
+  if (status === 'not-done') return 'badge-err';
+  if (status === 'deferred') return 'badge-neutral';
+  return 'badge-neutral';
+}
+
+/**
+ * Countdown copy for a readiness assessment's overall expiry.
+ * `expired` wins; otherwise renders the whole-days-remaining value.
+ * Returns '' when there is nothing to show (no expiry declared).
+ */
+export function assessmentCountdownLabel(
+  expired: boolean | undefined,
+  days: number | null | undefined,
+): string {
+  if (expired) return 'Expired';
+  if (days == null) return '';
+  if (days < 0) return 'Expired';
+  if (days === 0) return 'expires today';
+  if (days === 1) return 'expires in 1 day';
+  return `expires in ${days} days`;
+}
+
 /** Sorted unique evidence-kind types present across all declared checks. */
 export function readinessCheckTypes(services: WithReadiness[]): string[] {
   const types = new Set<string>();

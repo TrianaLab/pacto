@@ -15,6 +15,20 @@ export function getFilters(): FilterState {
   return filters;
 }
 
+/**
+ * Re-read the filter state from the current URL hash. Call this on `hashchange`
+ * so external hash changes (browser back/forward, shared links, manual edits)
+ * are reflected into the store. Mutates the existing reactive object in place so
+ * every reader updates — does NOT write back to the hash (the hash is the source).
+ */
+export function syncFromHash(): void {
+  if (typeof window === 'undefined') return;
+  const next = readFiltersFromHash(location.hash);
+  for (const key of Object.keys(filters) as (keyof FilterState)[]) {
+    filters[key] = next[key];
+  }
+}
+
 /** Set a single filter key and sync to URL. */
 export function setFilter<K extends keyof FilterState>(key: K, value: string): void {
   filters[key] = value;

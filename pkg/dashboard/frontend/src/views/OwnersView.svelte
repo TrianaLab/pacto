@@ -1,15 +1,21 @@
 <script>
   import { ownerUrl, serviceUrl } from '../lib/router.ts';
   import { aggregateByOwner, complianceClass, statusClass, ownerKey, sourceTooltip, complianceStatusClass } from '../lib/format.ts';
+  import { getFilters, setFilter } from '../lib/filters.svelte.ts';
   import OwnerBarChart from '../OwnerBarChart.svelte';
+  import SummaryBar from '../components/SummaryBar.svelte';
 
   let { services = [], initialLoading = false } = $props();
 
   let sortBy = $state('services');
   let sortAsc = $state(false);
-  let nameFilter = $state('');
   let statusFilter = $state('all'); // all | warnings | non-compliant | compliant
   let expandedOwner = $state(null);
+
+  // The owner name search uses the shared store's `search` key, so a query carries
+  // over from the services list and into shareable links.
+  const filters = $derived(getFilters());
+  let nameFilter = $derived(filters.search);
 
   // Services belonging to the expanded owner
   let expandedServices = $derived.by(() => {
@@ -96,6 +102,11 @@
   <span class="tab-count">{allOwners.length}</span>
 </div>
 
+<!-- Overall fleet metrics (computed across all services, not just owners). -->
+{#if services.length > 0}
+  <SummaryBar {services} />
+{/if}
+
 {#if allOwners.length === 0}
   <div class="state-box">
     {#if initialLoading}
@@ -149,7 +160,7 @@
 
     <div class="filter-search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      <input type="text" placeholder="Filter owners…" bind:value={nameFilter} aria-label="Filter by owner name" />
+      <input type="text" placeholder="Filter owners…" value={nameFilter} oninput={(e) => setFilter('search', e.currentTarget.value)} aria-label="Filter by owner name" />
     </div>
   </div>
 
