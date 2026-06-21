@@ -1,4 +1,4 @@
-pactoVersion: "1.1"
+pactoVersion: "1.2"
 
 service:
   name: payment-api
@@ -24,22 +24,24 @@ runtime:
     path: /health
 
 readiness:
+  expires: 2099-12-31
   checks:
     - id: dashboard
       type: url
+      category: observability
+      status: done
       evidence: https://grafana.company.com/payment-api
       weight: 20
-      expires: 2026-12-31
       description: Main production dashboard
 
     - id: runbook
       type: document
+      status: partial
       evidence: docs/runbooks/payment-api.md
       weight: 15
-      expires: 2026-09-30
 
     - id: security-review
       type: ticket
+      status: done
       evidence: SEC-1842
       weight: 25
-      expires: 2026-11-15
