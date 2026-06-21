@@ -8,7 +8,8 @@ pactoVersion: "1.2"
 service:
   name: user-service
   version: 3.2.0
-  owner:\n    team: identity
+  owner:
+    team: identity
   image:
     ref: ghcr.io/acme/user-service:3.2.0
     private: true
