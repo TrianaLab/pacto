@@ -140,6 +140,36 @@ func TestInit_WriteFileErrors(t *testing.T) {
 	}
 }
 
+func assertScaffoldOwner(t *testing.T, o contract.Owner) {
+	t.Helper()
+	if o.IsEmpty() {
+		t.Fatal("expected object owner to be present")
+	}
+	if o.Team == "" {
+		t.Error("expected owner.team to be non-empty")
+	}
+	if o.DRI == "" {
+		t.Error("expected owner.dri to be non-empty")
+	}
+	if len(o.Contacts) == 0 {
+		t.Error("expected owner.contacts to be non-empty")
+	}
+}
+
+func assertScaffoldReadiness(t *testing.T, r *contract.Readiness) {
+	t.Helper()
+	if r == nil {
+		t.Fatal("expected readiness to be present")
+	}
+	minScoreOK := r.MinScore != nil && *r.MinScore > 0
+	expiresOK := r.Expires != ""
+	historyOK := len(r.History) > 0
+	checksOK := len(r.Checks) > 0
+	if !minScoreOK || !expiresOK || !historyOK || !checksOK {
+		t.Errorf("readiness incomplete: minScore>0=%v expires=%v history=%v checks=%v", minScoreOK, expiresOK, historyOK, checksOK)
+	}
+}
+
 func TestInit_ScaffoldValidates(t *testing.T) {
 	orig, _ := os.Getwd()
 	dir := t.TempDir()
@@ -159,51 +189,19 @@ func TestInit_ScaffoldValidates(t *testing.T) {
 		t.Fatalf("failed to read scaffolded pacto.yaml: %v", err)
 	}
 
-	// Parse the scaffolded contract
 	c, err := contract.Parse(strings.NewReader(string(content)))
 	if err != nil {
 		t.Fatalf("failed to parse scaffolded contract: %v", err)
 	}
 
-	// Assert pactoVersion 1.2
 	if c.PactoVersion != "1.2" {
 		t.Errorf("expected pactoVersion 1.2, got %s", c.PactoVersion)
 	}
 
-	// Assert object owner present (Owner is a struct, not pointer)
-	if c.Service.Owner.IsEmpty() {
-		t.Fatal("expected object owner to be present")
-	}
-	if c.Service.Owner.Team == "" {
-		t.Error("expected owner.team to be non-empty")
-	}
-	if c.Service.Owner.DRI == "" {
-		t.Error("expected owner.dri to be non-empty")
-	}
-	if len(c.Service.Owner.Contacts) == 0 {
-		t.Error("expected owner.contacts to be non-empty")
-	}
+	assertScaffoldOwner(t, c.Service.Owner)
+	assertScaffoldReadiness(t, c.Readiness)
 
-	// Assert readiness present (Readiness is at Contract level)
-	if c.Readiness == nil {
-		t.Fatal("expected readiness to be present")
-	}
-	if c.Readiness.MinScore == nil || *c.Readiness.MinScore == 0 {
-		t.Error("expected readiness.minScore > 0")
-	}
-	if c.Readiness.Expires == "" {
-		t.Error("expected readiness.expires to be non-empty")
-	}
-	if len(c.Readiness.History) == 0 {
-		t.Error("expected readiness.history to be non-empty")
-	}
-	if len(c.Readiness.Checks) == 0 {
-		t.Error("expected readiness.checks to be non-empty")
-	}
-
-	// Validate structurally (raw validation, no FS needed)
-	validationResult := validation.ValidateStructuralRaw(content)
-	if !validationResult.IsValid() {
+	if validationResult := validation.ValidateStructuralRaw(content); !validationResult.IsValid() {
 		t.Errorf("scaffolded contract failed validation: %v", validationResult.Errors)
 	}
 }

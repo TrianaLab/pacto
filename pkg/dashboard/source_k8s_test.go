@@ -298,29 +298,41 @@ func assertDetailsReadiness(t *testing.T, d *ServiceDetails) {
 	if d.Readiness == nil {
 		t.Fatal("expected readiness")
 	}
-	if d.Readiness.Score != 71 || d.Readiness.TotalWeight != 85 || d.Readiness.EarnedWeight != 60 {
-		t.Errorf("readiness summary mismatch: %+v", d.Readiness)
+	r := d.Readiness
+	type check struct {
+		label string
+		got   any
+		want  any
 	}
-	if d.Readiness.MinScore != 80 || d.Readiness.Passing {
-		t.Errorf("expected minScore 80 and not passing, got minScore=%d passing=%v", d.Readiness.MinScore, d.Readiness.Passing)
+	checks := []check{
+		{"score", r.Score, 71},
+		{"totalWeight", r.TotalWeight, 85},
+		{"earnedWeight", r.EarnedWeight, 60},
+		{"minScore", r.MinScore, 80},
+		{"passing", r.Passing, false},
+		{"expires", r.Expires, "2026-12-31"},
+		{"expired", r.Expired, false},
+		{"doneCount", r.DoneCount, 1},
+		{"notDoneCount", r.NotDoneCount, 1},
+		{"deferredCount", r.DeferredCount, 1},
+		{"checks length", len(r.Checks), 3},
 	}
-	if d.Readiness.Expires != "2026-12-31" || d.Readiness.Expired || d.Readiness.DaysRemaining == nil {
-		t.Errorf("expected far expiry not expired with daysRemaining, got %+v", d.Readiness)
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s: got %v, want %v", c.label, c.got, c.want)
+		}
 	}
-	if d.Readiness.DoneCount != 1 || d.Readiness.NotDoneCount != 1 || d.Readiness.DeferredCount != 1 {
-		t.Errorf("readiness counts mismatch: %+v", d.Readiness)
+	if r.DaysRemaining == nil {
+		t.Error("expected daysRemaining to be non-nil")
 	}
-	if len(d.Readiness.Checks) != 3 {
-		t.Fatalf("expected 3 readiness checks, got %d", len(d.Readiness.Checks))
+	if len(r.Checks) > 0 && (r.Checks[0].Status != "done" || r.Checks[0].Category != "observability" || r.Checks[0].EarnedWeight != 60) {
+		t.Errorf("expected first check done observability earned 60, got %+v", r.Checks[0])
 	}
-	if d.Readiness.Checks[0].Status != "done" || d.Readiness.Checks[0].Category != "observability" || d.Readiness.Checks[0].EarnedWeight != 60 {
-		t.Errorf("expected first check done observability earned 60, got %+v", d.Readiness.Checks[0])
+	if len(r.Checks) > 2 && (r.Checks[2].Status != "deferred" || !r.Checks[2].Excluded) {
+		t.Errorf("expected third check deferred and excluded, got %+v", r.Checks[2])
 	}
-	if d.Readiness.Checks[2].Status != "deferred" || !d.Readiness.Checks[2].Excluded {
-		t.Errorf("expected third check deferred and excluded, got %+v", d.Readiness.Checks[2])
-	}
-	if len(d.Readiness.Revisions) != 1 || d.Readiness.Revisions[0].Author != "ed" {
-		t.Errorf("expected mapped revision, got %+v", d.Readiness.Revisions)
+	if len(r.Revisions) != 1 || r.Revisions[0].Author != "ed" {
+		t.Errorf("expected mapped revision, got %+v", r.Revisions)
 	}
 }
 

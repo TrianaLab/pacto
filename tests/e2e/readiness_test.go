@@ -99,14 +99,14 @@ func TestReadinessExplain(t *testing.T) {
 		}
 		var result struct {
 			Readiness *struct {
-				Score       int    `json:"score"`
-				MinScore    int    `json:"minScore"`
-				Passing     bool   `json:"passing"`
-				TotalWeight int    `json:"totalWeight"`
-				DoneCount   int    `json:"doneCount"`
-				NotDoneCount int   `json:"notDoneCount"`
-				Expires     string `json:"expires"`
-				Checks      []struct {
+				Score        int    `json:"score"`
+				MinScore     int    `json:"minScore"`
+				Passing      bool   `json:"passing"`
+				TotalWeight  int    `json:"totalWeight"`
+				DoneCount    int    `json:"doneCount"`
+				NotDoneCount int    `json:"notDoneCount"`
+				Expires      string `json:"expires"`
+				Checks       []struct {
 					ID       string `json:"id"`
 					Status   string `json:"status"`
 					Category string `json:"category"`

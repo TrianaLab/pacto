@@ -580,12 +580,7 @@ func readinessFromK8s(r *k8sReadiness) *ReadinessInfo {
 		})
 	}
 	for _, rev := range r.Revisions {
-		info.Revisions = append(info.Revisions, ReadinessRevisionInfo{
-			Date:        rev.Date,
-			Version:     rev.Version,
-			Author:      rev.Author,
-			Description: rev.Description,
-		})
+		info.Revisions = append(info.Revisions, ReadinessRevisionInfo(rev))
 	}
 	return info
 }

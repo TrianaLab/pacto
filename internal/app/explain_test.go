@@ -82,36 +82,31 @@ func TestExplain_WithReadiness(t *testing.T) {
 		t.Fatal("expected readiness summary to be present")
 	}
 	r := result.Readiness
-	if r.TotalWeight != 100 {
-		t.Errorf("expected total weight 100, got %d", r.TotalWeight)
+	type field struct {
+		label string
+		got   any
+		want  any
 	}
-	// Pinned to 2026-06-08, after the assessment expires (2026-01-15), so the
-	// whole assessment is expired: every in-scope check earns zero.
-	if !r.Expired {
-		t.Error("expected assessment to be expired")
+	fields := []field{
+		{"totalWeight", r.TotalWeight, 100},
+		{"expired", r.Expired, true},
+		{"earnedWeight", r.EarnedWeight, 0},
+		{"score", r.Score, 0},
+		{"minScore", r.MinScore, 100},
+		{"passing", r.Passing, false},
+		{"doneCount", r.DoneCount, 2},
+		{"notDoneCount", r.NotDoneCount, 0},
+		{"checks length", len(r.Checks), 2},
 	}
-	if r.EarnedWeight != 0 {
-		t.Errorf("expected earned weight 0 when expired, got %d", r.EarnedWeight)
+	for _, f := range fields {
+		if f.got != f.want {
+			t.Errorf("%s: got %v, want %v", f.label, f.got, f.want)
+		}
 	}
-	if r.Score != 0 {
-		t.Errorf("expected score 0 when expired, got %d", r.Score)
-	}
-	if r.MinScore != 100 {
-		t.Errorf("expected default minScore 100, got %d", r.MinScore)
-	}
-	if r.Passing {
-		t.Error("expected gate not passing (expired)")
-	}
-	if r.DoneCount != 2 || r.NotDoneCount != 0 {
-		t.Errorf("unexpected counts: done=%d not-done=%d", r.DoneCount, r.NotDoneCount)
-	}
-	if len(r.Checks) != 2 {
-		t.Fatalf("expected 2 checks, got %d", len(r.Checks))
-	}
-	if r.Checks[0].ID != "dashboard" || r.Checks[0].Status != "done" {
+	if len(r.Checks) > 0 && (r.Checks[0].ID != "dashboard" || r.Checks[0].Status != "done") {
 		t.Errorf("unexpected first check: %+v", r.Checks[0])
 	}
-	if r.Checks[1].Status != "done" {
+	if len(r.Checks) > 1 && r.Checks[1].Status != "done" {
 		t.Errorf("expected second check done, got %s", r.Checks[1].Status)
 	}
 	if len(r.Revisions) != 1 || r.Revisions[0].Author != "ed" || r.Revisions[0].Version != "2.1.0" {

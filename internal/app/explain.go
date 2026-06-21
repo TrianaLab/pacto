@@ -36,21 +36,21 @@ type ExplainResult struct {
 
 // ExplainReadiness is a derived readiness summary for the explain output.
 type ExplainReadiness struct {
-	Score         int                          `json:"score"`
-	MinScore      int                          `json:"minScore"`
-	Passing       bool                         `json:"passing"`
-	TotalWeight   int                          `json:"totalWeight"`
-	EarnedWeight  int                          `json:"earnedWeight"`
-	PartialCredit float64                      `json:"partialCredit"`
-	Expires       string                       `json:"expires"`
-	Expired       bool                         `json:"expired"`
-	DaysRemaining *int                         `json:"daysRemaining,omitempty"`
-	DoneCount     int                          `json:"doneCount"`
-	PartialCount  int                          `json:"partialCount"`
-	NotDoneCount  int                          `json:"notDoneCount"`
-	DeferredCount int                          `json:"deferredCount"`
-	Revisions     []ExplainReadinessRevision   `json:"revisions,omitempty"`
-	Checks        []ExplainReadinessCheck      `json:"checks"`
+	Score         int                        `json:"score"`
+	MinScore      int                        `json:"minScore"`
+	Passing       bool                       `json:"passing"`
+	TotalWeight   int                        `json:"totalWeight"`
+	EarnedWeight  int                        `json:"earnedWeight"`
+	PartialCredit float64                    `json:"partialCredit"`
+	Expires       string                     `json:"expires"`
+	Expired       bool                       `json:"expired"`
+	DaysRemaining *int                       `json:"daysRemaining,omitempty"`
+	DoneCount     int                        `json:"doneCount"`
+	PartialCount  int                        `json:"partialCount"`
+	NotDoneCount  int                        `json:"notDoneCount"`
+	DeferredCount int                        `json:"deferredCount"`
+	Revisions     []ExplainReadinessRevision `json:"revisions,omitempty"`
+	Checks        []ExplainReadinessCheck    `json:"checks"`
 }
 
 // ExplainReadinessCheck is a single derived readiness check for the explain output.

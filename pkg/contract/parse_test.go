@@ -289,20 +289,24 @@ func TestParse_ValidReadiness(t *testing.T) {
 		t.Fatalf("expected 3 readiness checks, got %d", len(c.Readiness.Checks))
 	}
 	first := c.Readiness.Checks[0]
-	if first.ID != "dashboard" || first.Type != "url" || first.Weight != 20 {
-		t.Errorf("unexpected first check: %+v", first)
+	type field struct {
+		label string
+		got   any
+		want  any
 	}
-	if first.Category != "observability" {
-		t.Errorf("unexpected category: %s", first.Category)
+	firstFields := []field{
+		{"first.ID", first.ID, "dashboard"},
+		{"first.Type", first.Type, "url"},
+		{"first.Weight", first.Weight, 20},
+		{"first.Category", first.Category, "observability"},
+		{"first.Status", first.Status, contract.StatusDone},
+		{"first.Evidence", first.Evidence, "https://grafana.company.com/payment-api"},
+		{"first.Description", first.Description, "Main production dashboard"},
 	}
-	if first.Status != contract.StatusDone {
-		t.Errorf("unexpected status: %s", first.Status)
-	}
-	if first.Evidence != "https://grafana.company.com/payment-api" {
-		t.Errorf("unexpected evidence: %s", first.Evidence)
-	}
-	if first.Description != "Main production dashboard" {
-		t.Errorf("unexpected description: %s", first.Description)
+	for _, f := range firstFields {
+		if f.got != f.want {
+			t.Errorf("%s: got %v, want %v", f.label, f.got, f.want)
+		}
 	}
 	if c.Readiness.Checks[1].Status != contract.StatusPartial {
 		t.Errorf("expected partial status on second check, got %s", c.Readiness.Checks[1].Status)

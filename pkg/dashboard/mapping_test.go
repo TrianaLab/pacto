@@ -1048,25 +1048,34 @@ func TestServiceDetailsFromBundle_Readiness(t *testing.T) {
 		t.Fatal("expected readiness info to be present")
 	}
 	r := details.Readiness
-	if r.Score != 60 || r.TotalWeight != 100 || r.EarnedWeight != 60 {
-		t.Errorf("unexpected readiness summary: %+v", r)
+	type field struct {
+		label string
+		got   any
+		want  any
 	}
-	if r.Expires != "2099-12-31" || r.Expired {
-		t.Errorf("expected not expired with far-future expiry, got expires=%s expired=%v", r.Expires, r.Expired)
+	fields := []field{
+		{"score", r.Score, 60},
+		{"totalWeight", r.TotalWeight, 100},
+		{"earnedWeight", r.EarnedWeight, 60},
+		{"expires", r.Expires, "2099-12-31"},
+		{"expired", r.Expired, false},
+		{"minScore", r.MinScore, 100},
+		{"passing", r.Passing, false},
+		{"doneCount", r.DoneCount, 1},
+		{"notDoneCount", r.NotDoneCount, 1},
+		{"partialCount", r.PartialCount, 0},
+		{"deferredCount", r.DeferredCount, 0},
+		{"checks length", len(r.Checks), 2},
 	}
-	if r.MinScore != 100 || r.Passing {
-		t.Errorf("expected default minScore 100 and not passing, got minScore=%d passing=%v", r.MinScore, r.Passing)
+	for _, f := range fields {
+		if f.got != f.want {
+			t.Errorf("%s: got %v, want %v", f.label, f.got, f.want)
+		}
 	}
-	if r.DoneCount != 1 || r.NotDoneCount != 1 || r.PartialCount != 0 || r.DeferredCount != 0 {
-		t.Errorf("unexpected counts: %+v", r)
-	}
-	if len(r.Checks) != 2 {
-		t.Fatalf("expected 2 checks, got %d", len(r.Checks))
-	}
-	if r.Checks[0].Status != "done" || r.Checks[0].Category != "observability" || r.Checks[0].EarnedWeight != 60 {
+	if len(r.Checks) > 0 && (r.Checks[0].Status != "done" || r.Checks[0].Category != "observability" || r.Checks[0].EarnedWeight != 60) {
 		t.Errorf("unexpected first check: %+v", r.Checks[0])
 	}
-	if r.Checks[1].Status != "not-done" || r.Checks[1].EarnedWeight != 0 {
+	if len(r.Checks) > 1 && (r.Checks[1].Status != "not-done" || r.Checks[1].EarnedWeight != 0) {
 		t.Errorf("unexpected second check: %+v", r.Checks[1])
 	}
 	if len(r.Revisions) != 1 || r.Revisions[0].Author != "ed" {
