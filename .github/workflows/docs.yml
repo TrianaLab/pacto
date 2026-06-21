@@ -31,7 +31,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.0.3
+      - uses: actions/checkout@v7.0.0
         # Full history + tags so the demo build's `git describe` resolves the
         # real Pacto version to bake into the dashboard (shown in the navbar).
         with:
