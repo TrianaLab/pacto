@@ -23,8 +23,12 @@
     const counts = new Map();
     for (const svc of services) {
       const checks = svc.readiness?.checks || [];
+      const categories = new Set();
       for (const c of checks) {
         const cat = c.category || 'other';
+        categories.add(cat);
+      }
+      for (const cat of categories) {
         counts.set(cat, (counts.get(cat) || 0) + 1);
       }
     }
