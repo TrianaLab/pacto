@@ -38,6 +38,11 @@ runtime:
     path: /health
 readiness:
   expires: "2026-01-15"
+  history:
+    - date: "2026-06-21"
+      version: "2.1.0"
+      author: ed
+      description: initial assessment
   checks:
     - id: dashboard
       type: url
@@ -108,6 +113,9 @@ func TestExplain_WithReadiness(t *testing.T) {
 	}
 	if r.Checks[1].Status != "done" {
 		t.Errorf("expected second check done, got %s", r.Checks[1].Status)
+	}
+	if len(r.Revisions) != 1 || r.Revisions[0].Author != "ed" || r.Revisions[0].Version != "2.1.0" {
+		t.Errorf("expected mapped revision history, got %+v", r.Revisions)
 	}
 }
 
