@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -58,6 +59,12 @@ func Apply(base []byte, overrides Overrides) ([]byte, error) {
 			return nil, fmt.Errorf("failed to set %q: %w", key, err)
 		}
 	}
+
+	// Normalize time.Time values back to date strings before marshaling.
+	// yaml.Unmarshal resolves bare date scalars (2099-12-31) to time.Time,
+	// and yaml.Marshal formats them as RFC3339 (2099-12-31T00:00:00Z).
+	// Contract readiness dates are strict YYYY-MM-DD strings, so we normalize.
+	normalizeTimestamps(baseMap)
 
 	return yaml.Marshal(baseMap)
 }
@@ -185,4 +192,31 @@ func parseValue(s string) interface{} {
 		return b
 	}
 	return s
+}
+
+// normalizeTimestamps recursively walks a data structure and converts time.Time
+// values to date strings (YYYY-MM-DD) if they represent a bare date (midnight UTC
+// with zero sub-second), or to RFC3339 strings otherwise.
+// This prevents yaml.Marshal from formatting bare dates as RFC3339 timestamps.
+func normalizeTimestamps(v interface{}) interface{} {
+	switch val := v.(type) {
+	case time.Time:
+		// Check if this is a bare date (midnight UTC, no sub-second precision).
+		if val.Hour() == 0 && val.Minute() == 0 && val.Second() == 0 && val.Nanosecond() == 0 && val.Location() == time.UTC {
+			return val.Format("2006-01-02")
+		}
+		return val.Format(time.RFC3339)
+	case map[string]interface{}:
+		for k, mv := range val {
+			val[k] = normalizeTimestamps(mv)
+		}
+		return val
+	case []interface{}:
+		for i, elem := range val {
+			val[i] = normalizeTimestamps(elem)
+		}
+		return val
+	default:
+		return v
+	}
 }
