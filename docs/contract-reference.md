@@ -1027,7 +1027,8 @@ Validates semantic references and consistency:
 | `readiness.checks[].id` are unique within the contract | `DUPLICATE_READINESS_ID` |
 | `readiness.checks[].evidence` is not blank/whitespace | `EMPTY_READINESS_EVIDENCE` |
 | `readiness.checks[].description` (when present) is not blank | `EMPTY_READINESS_DESCRIPTION` |
-| `readiness.checks[].expires` is a strict `YYYY-MM-DD` date | `INVALID_READINESS_EXPIRES` |
+| `readiness.expires` is a strict `YYYY-MM-DD` date | `INVALID_READINESS_EXPIRES` |
+| `readiness.history[].{date,version,author,description}` are valid/non-blank | `INVALID_READINESS_REVISION` |
 | `configurations[].schema` file is not valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
 | `configurations[].values` don't match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
 | `policies` entry has neither `schema` nor `ref` | `POLICY_EMPTY` |
