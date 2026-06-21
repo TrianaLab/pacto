@@ -195,6 +195,11 @@
 
   .graph-wrap { position: relative; }
 
+  /* Ensure ServicesTable fits in owner detail view */
+  .table-wrap :global(table) { width: 100%; }
+  .table-wrap :global(th), .table-wrap :global(td) { white-space: nowrap; }
+  .table-wrap :global(th:first-child), .table-wrap :global(td:first-child) { white-space: normal; }
+
   .skeleton-table { width: 100%; max-width: 600px; }
   .skeleton-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-3); }
   .skeleton-row .skeleton-line { height: 18px; border-radius: var(--radius-xs); }

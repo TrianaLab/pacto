@@ -58,42 +58,6 @@
     {/if}
   </button>
 
-  <!-- Ready count -->
-  <button
-    type="button"
-    class="metric-tile"
-    data-tip="Services that meet the readiness gate (score ≥ minScore)"
-    onclick={() => toggleFilter('readinessStatus', 'ready')}
-  >
-    <span class="metric-head">Ready</span>
-    <span class="metric-value {readinessBucketClass('ready')}">{metrics.readiness.ready}</span>
-    <span class="metric-sub">services</span>
-  </button>
-
-  <!-- Partial readiness count -->
-  <button
-    type="button"
-    class="metric-tile"
-    data-tip="Below the gate but score ≥ 50%"
-    onclick={() => toggleFilter('readinessStatus', 'partial')}
-  >
-    <span class="metric-head">Partial</span>
-    <span class="metric-value {readinessBucketClass('partial')}">{metrics.readiness.partial}</span>
-    <span class="metric-sub">services</span>
-  </button>
-
-  <!-- Not ready count -->
-  <button
-    type="button"
-    class="metric-tile"
-    data-tip="Readiness score below 50%"
-    onclick={() => toggleFilter('readinessStatus', 'not-ready')}
-  >
-    <span class="metric-head">Not Ready</span>
-    <span class="metric-value {readinessBucketClass('not-ready')}">{metrics.readiness.notReady}</span>
-    <span class="metric-sub">services</span>
-  </button>
-
   <!-- High impact -->
   <button
     type="button"

@@ -1,4 +1,4 @@
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: api-gateway
@@ -86,3 +86,44 @@ metadata:
     - websockets
     - authentication
     - public
+
+readiness:
+  minScore: 75
+  expires: "2025-01-01"
+  partialCredit: 0.5
+  checks:
+    - id: gateway-dashboard
+      type: url
+      category: observability
+      status: done
+      evidence: https://grafana.acme.com/d/api-gateway
+      weight: 30
+      description: API gateway metrics dashboard
+    - id: rate-limiting
+      type: ticket
+      category: infrastructure
+      status: done
+      evidence: ENG-1234
+      weight: 25
+      description: Rate limiting implementation
+    - id: security-review
+      type: ticket
+      category: security
+      status: done
+      evidence: SEC-2045
+      weight: 40
+      description: Security review for gateway routing and authentication
+    - id: load-test
+      type: report
+      category: testing
+      status: done
+      evidence: https://k6.acme.com/api-gateway-load-2024-12
+      weight: 35
+      description: Load testing for peak traffic scenarios (stale report)
+    - id: runbook
+      type: document
+      category: documentation
+      status: done
+      evidence: docs/runbooks/api-gateway.md
+      weight: 20
+      description: On-call runbook for gateway incidents

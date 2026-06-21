@@ -344,7 +344,20 @@
   .filter-search input::placeholder { color: var(--c-text-3); }
 
   /* ── Table ── */
-  .owner-name { font-weight: 600; text-decoration: none; }
+  table { width: 100%; }
+  th, td { white-space: nowrap; }
+  th:first-child, td:first-child { white-space: normal; }
+
+  .owner-name {
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-block;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
   .owner-name:hover { text-decoration: underline; }
 
   .col-sort {
@@ -404,14 +417,18 @@
   .expand-table th {
     font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--c-text-3);
-    padding: var(--sp-2) var(--sp-3);
+    padding: var(--sp-2) var(--sp-2);
     text-align: left; border-bottom: 1px solid var(--c-border);
+    white-space: nowrap;
   }
+  .expand-table th:first-child { white-space: normal; }
   .expand-table td {
-    padding: var(--sp-3) var(--sp-3);
+    padding: var(--sp-2) var(--sp-2);
     font-size: var(--text-sm);
     border-bottom: 1px solid var(--c-border);
+    white-space: nowrap;
   }
+  .expand-table td:first-child { white-space: normal; }
   .expand-table tbody tr:last-child td { border-bottom: none; }
   .expand-table a { font-weight: 600; text-decoration: none; }
   .expand-table a:hover { text-decoration: underline; }

@@ -97,18 +97,6 @@
             <td>
               {#if svc.readiness}
                 <span class="score {complianceClass(svc.readiness.score)}">{svc.readiness.score}<span class="score-unit">%</span></span>
-                <button
-                  type="button"
-                  class="badge-btn"
-                  onclick={(e) => {
-                    e.stopPropagation();
-                    setFilter('readinessStatus', readinessBucket(svc));
-                  }}
-                >
-                  <span class="badge {readinessBucketClass(readinessBucket(svc))}">
-                    <span class="badge-dot"></span>{readinessBucketLabel(readinessBucket(svc))}
-                  </span>
-                </button>
               {:else}
                 <span class="text-dim">—</span>
               {/if}
@@ -160,9 +148,26 @@
     overflow-x: auto;
   }
 
+  table {
+    width: 100%;
+  }
+
+  th, td {
+    white-space: nowrap;
+  }
+
+  th:first-child, td:first-child {
+    white-space: normal;
+  }
+
   .svc-name {
     font-weight: 600;
     text-decoration: none;
+    display: block;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .svc-name:hover {

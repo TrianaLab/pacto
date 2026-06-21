@@ -70,7 +70,7 @@ describe('ServicesTable — columns and click-to-filter', () => {
     unmount(component);
   });
 
-  it('renders readiness score and bucket', () => {
+  it('renders readiness score', () => {
     const component = mount(ServicesTable, {
       target,
       props: {
@@ -91,7 +91,6 @@ describe('ServicesTable — columns and click-to-filter', () => {
     const text = target.textContent || '';
     expect(text).toContain('85');
     expect(text).toContain('%');
-    expect(text).toContain('Ready'); // bucket label
 
     unmount(component);
   });

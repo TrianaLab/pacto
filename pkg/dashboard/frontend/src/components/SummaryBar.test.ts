@@ -67,7 +67,7 @@ describe('SummaryBar — metrics and click-to-filter', () => {
     unmount(component);
   });
 
-  it('renders readiness card with avg score', () => {
+  it('renders readiness card with avg score and ready count', () => {
     const component = mount(SummaryBar, {
       target,
       props: {
@@ -86,6 +86,8 @@ describe('SummaryBar — metrics and click-to-filter', () => {
     // avg = (100 + 60 + 80) / 3 = 80
     expect(readinessTile?.textContent).toContain('80');
     expect(readinessTile?.textContent).toContain('%');
+    // 2 of 3 ready (scores >= minScore)
+    expect(readinessTile?.textContent).toContain('2 of 3 ready');
 
     unmount(component);
   });

@@ -1,4 +1,4 @@
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: fraud-service
@@ -74,3 +74,51 @@ metadata:
     - risk-scoring
     - ml
     - payments
+
+readiness:
+  minScore: 75
+  expires: "2027-03-15"
+  partialCredit: 0.5
+  checks:
+    - id: ml-dashboard
+      type: url
+      category: observability
+      status: done
+      evidence: https://grafana.acme.com/d/fraud-ml-metrics
+      weight: 25
+      description: ML model performance metrics dashboard
+    - id: model-eval
+      type: report
+      category: testing
+      status: partial
+      evidence: https://mlflow.acme.com/fraud-model-v2.3.1
+      weight: 30
+      description: Model evaluation report (pending retraining)
+    - id: security-review
+      type: ticket
+      category: security
+      status: done
+      evidence: SEC-2102
+      weight: 35
+      description: Security review for fraud detection system
+    - id: runbook
+      type: document
+      category: documentation
+      status: partial
+      evidence: docs/runbooks/fraud-service.md
+      weight: 20
+      description: On-call runbook (missing model rollback procedure)
+    - id: chaos-testing
+      type: report
+      category: resilience
+      status: done
+      evidence: https://chaos.acme.com/fraud-service-2026-04
+      weight: 25
+      description: Chaos engineering tests for ML service resilience
+    - id: backup-restore
+      type: document
+      category: backup-recovery
+      status: partial
+      evidence: docs/ops/fraud-backup.md
+      weight: 15
+      description: Backup and restore for model artifacts (partial coverage)
