@@ -7,11 +7,11 @@ BUNDLE_DIR := pactos/pacto-dashboard
 .PHONY: ci ci-static ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
-ci: ci-static ci-test e2e gen-bundle
+ci: ci-static ci-ui ci-test e2e gen-bundle
 
 ci-static: ci-fmt ci-vet ci-cyclo ci-lint ci-docs ci-ui-drift
 
-ci-test: ci-ui
+ci-test:
 	@echo "==> Running unit tests with race detector and coverage..."
 	@go test -race $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/) -coverprofile=coverage.out
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
@@ -26,7 +26,7 @@ ci-test: ci-ui
 
 ci-ui:
 	@echo "==> Running frontend lint & tests..."
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npm run lint && npm test
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts --prefer-offline --fetch-retries=5 --fetch-retry-factor=2 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 && npm run lint && npm test
 
 ci-fmt:
 	@echo "==> Checking formatting..."
@@ -54,7 +54,7 @@ ci-docs:
 # for the build incantation — reused by ci-ui-drift and the ui-rebuild workflow.
 ui-build:
 	@echo "==> Building dashboard UI..."
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npm run build
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts --prefer-offline --fetch-retries=5 --fetch-retry-factor=2 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 && npm run build
 
 ci-ui-drift: ui-build
 	@echo "==> Checking committed dashboard UI build is up to date..."
