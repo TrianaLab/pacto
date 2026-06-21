@@ -35,6 +35,7 @@ import {
   isUrlEvidence,
   readinessCheckTypes,
   summarizeFleet,
+  summarize,
   shortDigest,
   driftBadgeClass,
   driftBadgeLabel,
@@ -200,7 +201,7 @@ describe('isReasonActionable', () => {
 describe('ownerDisplay', () => {
   it('returns empty for null', () => expect(ownerDisplay(null)).toBe(''));
   it('returns empty for undefined', () => expect(ownerDisplay(undefined)).toBe(''));
-  it('returns string as-is', () => expect(ownerDisplay('team/payments')).toBe('team/payments'));
+  it('returns empty for string (object-only now)', () => expect(ownerDisplay('team/payments')).toBe(''));
   it('returns team from structured', () => expect(ownerDisplay({ team: 'foundations' })).toBe('foundations'));
   it('returns dri when no team', () => expect(ownerDisplay({ dri: 'alice' })).toBe('alice'));
   it('returns empty for empty object', () => expect(ownerDisplay({})).toBe(''));
@@ -212,20 +213,19 @@ describe('ownerKey', () => {
 });
 
 describe('ownerTeam', () => {
-  it('returns string owner as team', () => expect(ownerTeam('team/x')).toBe('team/x'));
+  it('returns empty for string (object-only now)', () => expect(ownerTeam('team/x')).toBe(''));
   it('returns team from structured', () => expect(ownerTeam({ team: 'a' })).toBe('a'));
   it('returns empty for null', () => expect(ownerTeam(null)).toBe(''));
 });
 
 describe('ownerMatchesFilter', () => {
-  it('matches string owner', () => expect(ownerMatchesFilter('team/payments', 'pay')).toBe(true));
-  it('no match string owner', () => expect(ownerMatchesFilter('team/payments', 'xyz')).toBe(false));
+  it('returns false for string (object-only now)', () => expect(ownerMatchesFilter('team/payments', 'pay')).toBe(false));
   it('matches structured team', () => expect(ownerMatchesFilter({ team: 'foundations' }, 'found')).toBe(true));
   it('matches structured dri', () => expect(ownerMatchesFilter({ dri: 'alice' }, 'ali')).toBe(true));
   it('matches structured contacts', () => {
     expect(ownerMatchesFilter({ contacts: [{ value: 'alice@acme.com' }] }, 'acme')).toBe(true);
   });
-  it('case-insensitive', () => expect(ownerMatchesFilter('TEAM', 'team')).toBe(true));
+  it('case-insensitive', () => expect(ownerMatchesFilter({ team: 'TEAM' }, 'team')).toBe(true));
   it('returns false for null', () => expect(ownerMatchesFilter(null, 'x')).toBe(false));
 });
 
@@ -233,13 +233,14 @@ describe('ownerIsStructured', () => {
   it('returns false for null', () => expect(ownerIsStructured(null)).toBe(false));
   it('returns false for string', () => expect(ownerIsStructured('str')).toBe(false));
   it('returns true for object', () => expect(ownerIsStructured({ team: 'x' })).toBe(true));
+  it('returns true for empty object', () => expect(ownerIsStructured({})).toBe(true));
 });
 
 describe('aggregateByOwner', () => {
   const services = [
-    { name: 'a', owner: 'team-a', contractStatus: 'Compliant', blastRadius: 2, complianceScore: 100 },
-    { name: 'b', owner: 'team-a', contractStatus: 'Warning', blastRadius: 1, complianceScore: 60 },
-    { name: 'c', owner: 'team-b', contractStatus: 'NonCompliant', blastRadius: 3, complianceScore: 20 },
+    { name: 'a', owner: { team: 'team-a' }, contractStatus: 'Compliant', blastRadius: 2, complianceScore: 100 },
+    { name: 'b', owner: { team: 'team-a' }, contractStatus: 'Warning', blastRadius: 1, complianceScore: 60 },
+    { name: 'c', owner: { team: 'team-b' }, contractStatus: 'NonCompliant', blastRadius: 3, complianceScore: 20 },
     { name: 'd', owner: { team: 'team-a' }, contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
     { name: 'e', owner: null, contractStatus: 'Reference', blastRadius: 0 },
     { name: 'f', owner: { dri: 'alice' }, contractStatus: 'Compliant', blastRadius: 1, complianceScore: 100 },
@@ -302,8 +303,8 @@ describe('aggregateByOwner', () => {
 
   it('handles owner with only compliant services', () => {
     const svc = [
-      { name: 'x', owner: 'clean-team', contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
-      { name: 'y', owner: 'clean-team', contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
+      { name: 'x', owner: { team: 'clean-team' }, contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
+      { name: 'y', owner: { team: 'clean-team' }, contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
     ];
     const result = aggregateByOwner(svc);
     const team = result.find((r) => r.key === 'clean-team')!;
@@ -316,10 +317,10 @@ describe('aggregateByOwner', () => {
 
   it('handles owner with mixed statuses', () => {
     const svc = [
-      { name: 'a', owner: 'mixed', contractStatus: 'Compliant', blastRadius: 0 },
-      { name: 'b', owner: 'mixed', contractStatus: 'Warning', blastRadius: 0 },
-      { name: 'c', owner: 'mixed', contractStatus: 'NonCompliant', blastRadius: 0 },
-      { name: 'd', owner: 'mixed', contractStatus: 'Reference', blastRadius: 0 },
+      { name: 'a', owner: { team: 'mixed' }, contractStatus: 'Compliant', blastRadius: 0 },
+      { name: 'b', owner: { team: 'mixed' }, contractStatus: 'Warning', blastRadius: 0 },
+      { name: 'c', owner: { team: 'mixed' }, contractStatus: 'NonCompliant', blastRadius: 0 },
+      { name: 'd', owner: { team: 'mixed' }, contractStatus: 'Reference', blastRadius: 0 },
     ];
     const result = aggregateByOwner(svc);
     const team = result.find((r) => r.key === 'mixed')!;
@@ -332,7 +333,7 @@ describe('aggregateByOwner', () => {
 
   it('handles owner with only reference services', () => {
     const svc = [
-      { name: 'r1', owner: 'ref-only', contractStatus: 'Reference', blastRadius: 0 },
+      { name: 'r1', owner: { team: 'ref-only' }, contractStatus: 'Reference', blastRadius: 0 },
     ];
     const result = aggregateByOwner(svc);
     const team = result.find((r) => r.key === 'ref-only')!;
@@ -392,11 +393,9 @@ describe('extractOwnerDetail', () => {
     expect(detail.contacts[0].purpose).toBe('oncall');
   });
 
-  it('handles legacy string owner', () => {
-    const detail = extractOwnerDetail('team/payments', [
-      { name: 'a', owner: 'team/payments' },
-    ]);
-    expect(detail.team).toBe('team/payments');
+  it('handles empty services', () => {
+    const detail = extractOwnerDetail('team/payments', []);
+    expect(detail.team).toBe('');
     expect(detail.isStructured).toBe(false);
     expect(detail.driConflict).toBe(false);
     expect(detail.allDris).toEqual([]);
@@ -457,9 +456,9 @@ describe('extractOwnerDetail', () => {
     expect(detail.contacts).toHaveLength(2);
   });
 
-  it('returns key as team for empty services', () => {
+  it('returns empty for empty services (no fallback to key)', () => {
     const detail = extractOwnerDetail('team-x', []);
-    expect(detail.team).toBe('team-x');
+    expect(detail.team).toBe('');
     expect(detail.isStructured).toBe(false);
     expect(detail.driConflict).toBe(false);
   });
@@ -507,11 +506,11 @@ describe('computeTooltipPosition', () => {
 
 describe('aggregateByOwner — sorting/filtering support', () => {
   const services = [
-    { name: 'a', owner: 'team-a', contractStatus: 'Compliant', blastRadius: 5, complianceScore: 100 },
-    { name: 'b', owner: 'team-a', contractStatus: 'Warning', blastRadius: 3, complianceScore: 50 },
-    { name: 'c', owner: 'team-b', contractStatus: 'NonCompliant', blastRadius: 10, complianceScore: 0 },
-    { name: 'd', owner: 'team-c', contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
-    { name: 'e', owner: 'team-c', contractStatus: 'Compliant', blastRadius: 1, complianceScore: 100 },
+    { name: 'a', owner: { team: 'team-a' }, contractStatus: 'Compliant', blastRadius: 5, complianceScore: 100 },
+    { name: 'b', owner: { team: 'team-a' }, contractStatus: 'Warning', blastRadius: 3, complianceScore: 50 },
+    { name: 'c', owner: { team: 'team-b' }, contractStatus: 'NonCompliant', blastRadius: 10, complianceScore: 0 },
+    { name: 'd', owner: { team: 'team-c' }, contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
+    { name: 'e', owner: { team: 'team-c' }, contractStatus: 'Compliant', blastRadius: 1, complianceScore: 100 },
   ];
 
   it('supports sort by services (descending)', () => {
@@ -613,9 +612,9 @@ describe('countHighImpact', () => {
 
 describe('filterServices', () => {
   const services = [
-    { name: 'api-gateway', owner: 'team-a', contractStatus: 'Compliant', sources: ['k8s'], blastRadius: 5 },
-    { name: 'auth-service', owner: 'team-a', contractStatus: 'Warning', sources: ['k8s', 'oci'], blastRadius: 3 },
-    { name: 'payment-svc', owner: 'team-b', contractStatus: 'NonCompliant', sources: ['oci'], blastRadius: 1 },
+    { name: 'api-gateway', owner: { team: 'team-a' }, contractStatus: 'Compliant', sources: ['k8s'], blastRadius: 5 },
+    { name: 'auth-service', owner: { team: 'team-a' }, contractStatus: 'Warning', sources: ['k8s', 'oci'], blastRadius: 3 },
+    { name: 'payment-svc', owner: { team: 'team-b' }, contractStatus: 'NonCompliant', sources: ['oci'], blastRadius: 1 },
     { name: 'user-db', owner: { team: 'team-b' }, contractStatus: 'Compliant', sources: ['local'], blastRadius: 0 },
   ];
 
@@ -635,7 +634,7 @@ describe('filterServices', () => {
 
   it('filters by owner name match', () => {
     const result = filterServices(services, { nameFilter: 'team-b' });
-    expect(result).toHaveLength(2); // payment-svc + user-db (structured owner)
+    expect(result).toHaveLength(2); // payment-svc + user-db
   });
 
   it('filters by status', () => {
@@ -736,8 +735,9 @@ describe('paginate', () => {
 
 const rdy = (over: Record<string, unknown> = {}) => ({
   readiness: {
-    score: 100, minScore: 100, passing: true, totalWeight: 10, currentWeight: 10,
-    currentCount: 1, expiredCount: 0, invalidCount: 0, checks: [], ...over,
+    score: 100, minScore: 100, passing: true, totalWeight: 10, earnedWeight: 10,
+    partialCredit: 0, expires: '2099-12-31', expired: false, daysRemaining: 9999,
+    doneCount: 1, partialCount: 0, notDoneCount: 0, deferredCount: 0, checks: [], ...over,
   },
 });
 
@@ -793,9 +793,9 @@ describe('summarizeReadiness', () => {
   });
   it('buckets, sums check counts, and averages score over configured only', () => {
     const services = [
-      rdy({ passing: true, score: 100, currentCount: 2, expiredCount: 0, invalidCount: 0, checks: [{}, {}] }),
-      rdy({ passing: false, score: 60, currentCount: 1, expiredCount: 1, invalidCount: 0, checks: [{}, {}] }),
-      rdy({ passing: false, score: 20, currentCount: 0, expiredCount: 1, invalidCount: 1, checks: [{}, {}] }),
+      rdy({ passing: true, score: 100, doneCount: 2, partialCount: 0, notDoneCount: 0, deferredCount: 0, expired: false, checks: [{}, {}] }),
+      rdy({ passing: false, score: 60, doneCount: 1, partialCount: 1, notDoneCount: 0, deferredCount: 0, expired: true, checks: [{}, {}] }),
+      rdy({ passing: false, score: 20, doneCount: 0, partialCount: 0, notDoneCount: 1, deferredCount: 1, expired: true, checks: [{}, {}] }),
       {}, // not configured
     ];
     const s = summarizeReadiness(services);
@@ -806,17 +806,19 @@ describe('summarizeReadiness', () => {
     expect(s.notConfigured).toBe(1);
     expect(s.configured).toBe(3);
     expect(s.avgScore).toBe(60); // round((100+60+20)/3)
-    expect(s.totalCurrent).toBe(3);
-    expect(s.totalChecks).toBe(6);
-    expect(s.totalExpired).toBe(2);
-    expect(s.totalInvalid).toBe(1);
+    expect(s.expiredAssessments).toBe(2);
+    expect(s.totalDone).toBe(3);
+    expect(s.totalPartial).toBe(1);
+    expect(s.totalNotDone).toBe(1);
+    expect(s.totalDeferred).toBe(1);
   });
   it('tolerates missing optional count fields', () => {
-    const s = summarizeReadiness([{ readiness: { score: 100, passing: true, checks: [{}] } } as never]);
+    const s = summarizeReadiness([{ readiness: { score: 100, passing: true, checks: [{}], expires: '2099-12-31', expired: false } } as never]);
     expect(s.configured).toBe(1);
-    expect(s.totalCurrent).toBe(0);
-    expect(s.totalChecks).toBe(1);
-    expect(s.totalInvalid).toBe(0);
+    expect(s.totalDone).toBe(0);
+    expect(s.totalPartial).toBe(0);
+    expect(s.totalNotDone).toBe(0);
+    expect(s.totalDeferred).toBe(0);
   });
 });
 
@@ -884,6 +886,114 @@ describe('summarizeFleet', () => {
     expect(s.assessed).toBe(0);
     expect(s.compliancePercent).toBe(-1);
     expect(s.needsAttention).toBe(0);
+  });
+});
+
+describe('summarize', () => {
+  it('handles an empty list', () => {
+    const m = summarize([]);
+    expect(m.total).toBe(0);
+    expect(m.assessed).toBe(0);
+    expect(m.compliancePercent).toBe(-1);
+    expect(m.highImpact).toBe(0);
+    expect(m.readiness.total).toBe(0);
+    expect(m.byOwner).toEqual([]);
+    expect(m.byCategory).toEqual([]);
+  });
+
+  it('computes all KPIs in a single pass', () => {
+    const services = [
+      { name: 'a', owner: { team: 'team-a' }, contractStatus: 'Compliant', blastRadius: 5, complianceScore: 100, readiness: { ...rdy().readiness, passing: true, score: 100, doneCount: 2, partialCount: 0, notDoneCount: 0, deferredCount: 0, expired: false } },
+      { name: 'b', owner: { team: 'team-a' }, contractStatus: 'Warning', blastRadius: 1, complianceScore: 60, readiness: { ...rdy().readiness, passing: false, score: 60, doneCount: 1, partialCount: 1, notDoneCount: 0, deferredCount: 0, expired: true } },
+      { name: 'c', owner: { team: 'team-b' }, contractStatus: 'NonCompliant', blastRadius: 3, complianceScore: 20, readiness: { ...rdy().readiness, passing: false, score: 20, doneCount: 0, partialCount: 0, notDoneCount: 2, deferredCount: 0, expired: false } },
+      { name: 'd', owner: null, contractStatus: 'Reference', blastRadius: 0 }, // no readiness
+    ];
+    const m = summarize(services);
+
+    // Fleet KPIs
+    expect(m.total).toBe(4);
+    expect(m.compliant).toBe(1);
+    expect(m.warning).toBe(1);
+    expect(m.nonCompliant).toBe(1);
+    expect(m.reference).toBe(1);
+    expect(m.assessed).toBe(3);
+    expect(m.needsAttention).toBe(2);
+    expect(m.compliancePercent).toBe(33); // 1/3
+    expect(m.highImpact).toBe(2); // >= 3
+
+    // Readiness
+    expect(m.readiness.total).toBe(4);
+    expect(m.readiness.configured).toBe(3);
+    expect(m.readiness.notConfigured).toBe(1);
+    expect(m.readiness.ready).toBe(1);
+    expect(m.readiness.partial).toBe(1);
+    expect(m.readiness.notReady).toBe(1);
+    expect(m.readiness.avgScore).toBe(60); // (100+60+20)/3
+    expect(m.readiness.expiredAssessments).toBe(1);
+    expect(m.readiness.totalDone).toBe(3);
+    expect(m.readiness.totalPartial).toBe(1);
+    expect(m.readiness.totalNotDone).toBe(2);
+    expect(m.readiness.totalDeferred).toBe(0);
+
+    // Owner aggregation
+    expect(m.byOwner).toHaveLength(3); // team-a, team-b, (unowned)
+    const teamA = m.byOwner.find((o) => o.key === 'team-a')!;
+    expect(teamA.services).toBe(2);
+    expect(teamA.compliant).toBe(1);
+    expect(teamA.warning).toBe(1);
+    expect(teamA.totalBlast).toBe(6);
+    expect(teamA.compliancePercent).toBe(80); // (100+60)/2
+  });
+
+  it('aggregates by category with other bucket', () => {
+    const services = [
+      {
+        name: 'a',
+        owner: { team: 'team-a' },
+        contractStatus: 'Compliant',
+        readiness: {
+          score: 100, minScore: 100, passing: true, totalWeight: 10, earnedWeight: 10,
+          partialCredit: 0, expires: '2099-12-31', expired: false,
+          doneCount: 3, partialCount: 1, notDoneCount: 0, deferredCount: 1,
+          checks: [
+            { id: '1', type: 'url', category: 'security', status: 'done', weight: 1, earnedWeight: 1, excluded: false },
+            { id: '2', type: 'doc', category: 'security', status: 'partial', weight: 1, earnedWeight: 0.5, excluded: false },
+            { id: '3', type: 'url', category: 'performance', status: 'done', weight: 1, earnedWeight: 1, excluded: false },
+            { id: '4', type: 'doc', status: 'done', weight: 1, earnedWeight: 1, excluded: false }, // no category → other
+            { id: '5', type: 'url', status: 'deferred', weight: 0, earnedWeight: 0, excluded: true }, // no category → other
+          ],
+        },
+      },
+    ];
+    const m = summarize(services);
+    expect(m.byCategory).toHaveLength(3); // security, performance, other
+    const security = m.byCategory.find((c) => c.category === 'security')!;
+    expect(security.checks).toBe(2);
+    expect(security.done).toBe(1);
+    expect(security.partial).toBe(1);
+    expect(security.notDone).toBe(0);
+    expect(security.deferred).toBe(0);
+
+    const performance = m.byCategory.find((c) => c.category === 'performance')!;
+    expect(performance.checks).toBe(1);
+    expect(performance.done).toBe(1);
+
+    const other = m.byCategory.find((c) => c.category === 'other')!;
+    expect(other.checks).toBe(2);
+    expect(other.done).toBe(1);
+    expect(other.deferred).toBe(1);
+  });
+
+  it('produces sorted byOwner and byCategory', () => {
+    const services = [
+      { name: 'a', owner: { team: 'zebra' }, contractStatus: 'Compliant', readiness: { ...rdy().readiness, checks: [{ id: '1', type: 'url', category: 'zzz', status: 'done', weight: 1, earnedWeight: 1, excluded: false }] } },
+      { name: 'b', owner: { team: 'alpha' }, contractStatus: 'Compliant', readiness: { ...rdy().readiness, checks: [{ id: '2', type: 'url', category: 'aaa', status: 'done', weight: 1, earnedWeight: 1, excluded: false }] } },
+    ];
+    const m = summarize(services);
+    expect(m.byOwner[0].key).toBe('alpha');
+    expect(m.byOwner[1].key).toBe('zebra');
+    expect(m.byCategory[0].category).toBe('aaa');
+    expect(m.byCategory[1].category).toBe('zzz');
   });
 });
 
