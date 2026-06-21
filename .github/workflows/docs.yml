@@ -46,7 +46,7 @@ jobs:
       # Build the in-browser (WebAssembly) dashboard demo and fold it into the
       # same Pages artifact at /pacto/demo/ (two Pages deploys in one repo
       # conflict; one upload below publishes both docs and demo).
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
       - uses: actions/setup-node@v6
