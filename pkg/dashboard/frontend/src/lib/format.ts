@@ -352,31 +352,7 @@ export interface OwnerAggregation {
 
 /** Aggregate services by canonical owner key. */
 export function aggregateByOwner(services: Array<Record<string, unknown>>): OwnerAggregation[] {
-  const map = new Map<string, OwnerAggregation>();
-  const scores = new Map<string, number[]>();
-  for (const svc of services) {
-    const key = ownerKey(svc.owner) || '(unowned)';
-    let agg = map.get(key);
-    if (!agg) {
-      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, totalBlast: 0, compliancePercent: 0 };
-      map.set(key, agg);
-      scores.set(key, []);
-    }
-    agg.services++;
-    const status = svc.contractStatus as string;
-    if (status === 'Compliant') agg.compliant++;
-    else if (status === 'Warning') agg.warning++;
-    else if (status === 'NonCompliant') agg.nonCompliant++;
-    else if (status === 'Reference') agg.reference++;
-    else agg.unknown++;
-    agg.totalBlast += (svc.blastRadius as number) || 0;
-    if (svc.complianceScore != null) scores.get(key)!.push(svc.complianceScore as number);
-  }
-  for (const [key, agg] of map) {
-    const s = scores.get(key)!;
-    agg.compliancePercent = s.length > 0 ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : -1;
-  }
-  return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
+  return summarize(services).byOwner;
 }
 
 // ── Readiness ──
@@ -477,29 +453,7 @@ export interface ReadinessSummary {
 /** Aggregate readiness across services. Services without a readiness block are
  *  counted as "not configured" and excluded from the average score. */
 export function summarizeReadiness(services: WithReadiness[]): ReadinessSummary {
-  const s: ReadinessSummary = {
-    total: services.length, ready: 0, partial: 0, notReady: 0, notConfigured: 0,
-    configured: 0, avgScore: -1, expiredAssessments: 0,
-    totalDone: 0, totalPartial: 0, totalNotDone: 0, totalDeferred: 0,
-  };
-  let scoreSum = 0;
-  for (const svc of services) {
-    const b = readinessBucket(svc);
-    if (b === 'unknown') { s.notConfigured++; continue; }
-    if (b === 'ready') s.ready++;
-    else if (b === 'partial') s.partial++;
-    else s.notReady++;
-    const r = svc.readiness!;
-    s.configured++;
-    scoreSum += r.score || 0;
-    if (r.expired) s.expiredAssessments++;
-    s.totalDone += r.doneCount || 0;
-    s.totalPartial += r.partialCount || 0;
-    s.totalNotDone += r.notDoneCount || 0;
-    s.totalDeferred += r.deferredCount || 0;
-  }
-  if (s.configured > 0) s.avgScore = Math.round(scoreSum / s.configured);
-  return s;
+  return summarize(services).readiness;
 }
 
 /** Whether a readiness check's evidence string is a clickable web URL. */
