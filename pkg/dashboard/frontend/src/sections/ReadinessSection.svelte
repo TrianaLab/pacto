@@ -2,13 +2,16 @@
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import MarkdownView from '../MarkdownView.svelte';
   import DocModal from '../DocModal.svelte';
-  import { readinessStatusClass, readinessDaysLabel, complianceClass } from '../lib/format.ts';
+  import RevisionHistory from './RevisionHistory.svelte';
+  import { complianceClass, checkStatusClass, checkStatusLabel, assessmentCountdownLabel } from '../lib/format.ts';
 
   let { readiness = null, docs = [], open = $bindable(false), id = '', source = '' } = $props();
 
   let hasContent = $derived(!!readiness && (readiness.checks?.length ?? 0) > 0);
   let expanded = $state({});
   let modalDoc = $state(null);
+
+  let countdown = $derived(readiness ? assessmentCountdownLabel(readiness.expired, readiness.daysRemaining) : '');
 
   function toggle(i) {
     expanded = { ...expanded, [i]: !expanded[i] };
@@ -39,21 +42,27 @@
           </span>
         </div>
         <div class="metric">
-          <span class="metric-label">Current weight</span>
-          <span class="metric-value">{readiness.currentWeight} / {readiness.totalWeight}</span>
+          <span class="metric-label">Earned weight</span>
+          <span class="metric-value">{readiness.earnedWeight} / {readiness.totalWeight}</span>
         </div>
-        <div class="metric">
-          <span class="metric-label">Current</span>
-          <span class="metric-value">{readiness.currentCount}</span>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Expired</span>
-          <span class="metric-value">{readiness.expiredCount}</span>
-        </div>
-        {#if readiness.invalidCount}
+        {#if readiness.partialCredit > 0}
           <div class="metric">
-            <span class="metric-label">Invalid</span>
-            <span class="metric-value">{readiness.invalidCount}</span>
+            <span class="metric-label">Partial credit</span>
+            <span class="metric-value">{readiness.partialCredit}</span>
+          </div>
+        {/if}
+        {#if readiness.expires}
+          <div class="metric">
+            <span class="metric-label">Expires</span>
+            <span class="metric-value" class:gate-fail={readiness.expired}>
+              <code>{readiness.expires}</code>
+              {#if countdown}<span class="countdown" class:countdown-expired={readiness.expired}>{countdown}</span>{/if}
+            </span>
+          </div>
+        {:else if readiness.expired}
+          <div class="metric">
+            <span class="metric-label">Assessment</span>
+            <span class="metric-value gate-fail">Expired</span>
           </div>
         {/if}
       </div>
@@ -65,10 +74,10 @@
           <tr>
             <th>Check</th>
             <th>Type</th>
+            <th>Category</th>
             <th>Status</th>
             <th>Weight</th>
-            <th>Expires</th>
-            <th>Remaining</th>
+            <th>Earned</th>
             <th>Evidence</th>
           </tr>
         </thead>
@@ -80,17 +89,19 @@
                 {#if c.description}<div class="check-desc">{c.description}</div>{/if}
               </td>
               <td><span class="pill">{c.type}</span></td>
-              <td><span class="badge {readinessStatusClass(c.status)}">{c.status}</span></td>
+              <td>{#if c.category}<span class="pill pill-cat">{c.category}</span>{:else}<span class="text-3">—</span>{/if}</td>
+              <td><span class="badge {checkStatusClass(c.status)}">{checkStatusLabel(c.status)}</span></td>
               <td>{c.weight} <span class="text-3">({pct(c.weight)}%)</span></td>
-              <td><code>{c.expires}</code></td>
-              <td class="text-2">{readinessDaysLabel(c.status, c.daysRemaining)}</td>
+              <td class="text-2">{c.earnedWeight}</td>
               <td class="evidence-cell">
                 {#if c.docPath && docFor(c.docPath)}
                   <button type="button" class="doc-toggle" class:open={expanded[i]} onclick={() => toggle(i)}>
                     <span class="doc-chevron" class:open={expanded[i]}>▸</span> view
                   </button>
-                {:else}
+                {:else if c.evidence}
                   <code>{c.evidence}</code>
+                {:else}
+                  <span class="text-3">—</span>
                 {/if}
               </td>
             </tr>
@@ -114,6 +125,8 @@
         </tbody>
       </table>
     </div>
+
+    <RevisionHistory revisions={readiness.revisions || []} />
   </CollapsibleSection>
   <DocModal doc={modalDoc} onClose={() => { modalDoc = null; }} />
 {/if}
@@ -140,11 +153,14 @@
   .metric { display: flex; flex-direction: column; gap: 2px; }
   .metric-label { font-size: var(--text-xs); color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.03em; }
   .metric-value { font-size: var(--text-sm); font-weight: 600; color: var(--c-text); }
+  .countdown { font-weight: 500; color: var(--c-text-3); margin-left: 6px; }
+  .countdown-expired { color: var(--c-err); }
 
   .readiness-table { font-size: var(--text-sm); width: 100%; }
   .readiness-table th { font-size: var(--text-xs); }
   .check-id { font-weight: 600; }
   .check-desc { font-size: var(--text-xs); color: var(--c-text-3); margin-top: 2px; }
+  .pill-cat { background: var(--c-neutral-bg); color: var(--c-text-2); }
   .evidence-cell code { font-size: var(--text-xs); color: var(--c-text-2); word-break: break-all; }
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); font-size: var(--text-xs); }

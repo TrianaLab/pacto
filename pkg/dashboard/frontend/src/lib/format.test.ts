@@ -34,6 +34,9 @@ import {
   summarizeReadiness,
   isUrlEvidence,
   readinessCheckTypes,
+  checkStatusLabel,
+  checkStatusClass,
+  assessmentCountdownLabel,
   summarizeFleet,
   summarize,
   shortDigest,
@@ -110,6 +113,42 @@ describe('readinessDaysLabel', () => {
   it('returns today for 0 days', () => expect(readinessDaysLabel('Current', 0)).toBe('today'));
   it('returns singular for 1 day', () => expect(readinessDaysLabel('Current', 1)).toBe('1 day'));
   it('returns plural for many days', () => expect(readinessDaysLabel('Current', 42)).toBe('42 days'));
+});
+
+describe('checkStatusLabel', () => {
+  it('maps each declared status to a human label', () => {
+    expect(checkStatusLabel('done')).toBe('Done');
+    expect(checkStatusLabel('partial')).toBe('Partial');
+    expect(checkStatusLabel('not-done')).toBe('Not done');
+    expect(checkStatusLabel('deferred')).toBe('Deferred');
+  });
+  it('falls back to the raw value for unknown statuses', () => expect(checkStatusLabel('weird')).toBe('weird'));
+  it('returns a dash for undefined', () => expect(checkStatusLabel(undefined)).toBe('—'));
+});
+
+describe('checkStatusClass', () => {
+  it('reuses the shared status palette', () => {
+    expect(checkStatusClass('done')).toBe('badge-ok');
+    expect(checkStatusClass('partial')).toBe('badge-warn');
+    expect(checkStatusClass('not-done')).toBe('badge-err');
+    expect(checkStatusClass('deferred')).toBe('badge-neutral');
+  });
+  it('defaults to neutral for unknown/undefined', () => {
+    expect(checkStatusClass('weird')).toBe('badge-neutral');
+    expect(checkStatusClass(undefined)).toBe('badge-neutral');
+  });
+});
+
+describe('assessmentCountdownLabel', () => {
+  it('reports Expired when the assessment is expired', () => {
+    expect(assessmentCountdownLabel(true, 5)).toBe('Expired');
+    expect(assessmentCountdownLabel(true, null)).toBe('Expired');
+  });
+  it('reports Expired when days are negative', () => expect(assessmentCountdownLabel(false, -1)).toBe('Expired'));
+  it('returns empty when no expiry is declared', () => expect(assessmentCountdownLabel(false, null)).toBe(''));
+  it('reports today for 0 days', () => expect(assessmentCountdownLabel(false, 0)).toBe('expires today'));
+  it('reports singular for 1 day', () => expect(assessmentCountdownLabel(false, 1)).toBe('expires in 1 day'));
+  it('reports plural for many days', () => expect(assessmentCountdownLabel(false, 30)).toBe('expires in 30 days'));
 });
 
 describe('classificationClass', () => {
