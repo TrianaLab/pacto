@@ -39,6 +39,11 @@ func TestOwner_Equal(t *testing.T) {
 	if a.Equal(Owner{Team: "t"}) {
 		t.Fatal("different contacts should not be equal")
 	}
+	// Same length contacts but different values
+	c := Owner{Team: "t", DRI: "d", Contacts: []OwnerContact{{Type: "email", Value: "y"}}}
+	if a.Equal(c) {
+		t.Fatal("owners with same length but different contact values should not be equal")
+	}
 }
 
 func TestOwner_MatchesFilter(t *testing.T) {
