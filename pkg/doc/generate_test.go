@@ -1323,16 +1323,22 @@ func TestGenerate_EmptyPropsConfigKeepsTOCInSync(t *testing.T) {
 
 func readinessContract() *contract.Contract {
 	return &contract.Contract{
-		PactoVersion: "1.1",
+		PactoVersion: "1.2",
 		Service:      contract.ServiceIdentity{Name: "payment-api", Version: "1.4.0"},
 		Runtime: &contract.Runtime{
 			Workload: "service",
 			State:    contract.State{Type: "stateless", DataCriticality: "low"},
 		},
-		Readiness: &contract.Readiness{Checks: []contract.ReadinessCheck{
-			{ID: "dashboard", Type: "url", Evidence: "https://grafana.company.com/payment-api", Weight: 20, Expires: "2026-12-31", Description: "Main production dashboard"},
-			{ID: "runbook", Type: "document", Evidence: "docs/runbooks/payment-api.md", Weight: 15, Expires: "2026-09-30"},
-		}},
+		Readiness: &contract.Readiness{
+			Expires: "2026-12-31",
+			Checks: []contract.ReadinessCheck{
+				{ID: "dashboard", Type: "url", Category: "observability", Status: "done", Evidence: "https://grafana.company.com/payment-api", Weight: 20, Description: "Main production dashboard"},
+				{ID: "runbook", Type: "document", Status: "partial", Evidence: "docs/runbooks/payment-api.md", Weight: 15},
+			},
+			History: []contract.ReadinessRevision{
+				{Date: "2026-06-21", Version: "2.1.0", Author: "ed", Description: "Initial readiness assessment"},
+			},
+		},
 	}
 }
 
@@ -1344,9 +1350,13 @@ func TestGenerate_Readiness(t *testing.T) {
 	mustContain := []string{
 		"Readiness](#",
 		". Readiness",
-		"| ID | Type | Evidence | Weight | Expires | Description |",
-		"| `dashboard` | `url` | `https://grafana.company.com/payment-api` | 20 | `2026-12-31` | Main production dashboard |",
-		"| `runbook` | `document` | `docs/runbooks/payment-api.md` | 15 | `2026-09-30` | — |",
+		"Assessment expires: `2026-12-31`",
+		"| ID | Type | Category | Status | Evidence | Weight | Description |",
+		"| `dashboard` | `url` | `observability` | `done` | `https://grafana.company.com/payment-api` | 20 | Main production dashboard |",
+		"| `runbook` | `document` | `—` | `partial` | `docs/runbooks/payment-api.md` | 15 | — |",
+		"**Revision History**",
+		"| Date | Version | Author | Description |",
+		"| `2026-06-21` | `2.1.0` | ed | Initial readiness assessment |",
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(md, want) {
@@ -1359,12 +1369,15 @@ func TestGenerate_ReadinessEscapesBackticksAndPipes(t *testing.T) {
 	// Free-form evidence containing a backtick or pipe must be escaped so it
 	// neither terminates the code span nor splits the table cell.
 	c := &contract.Contract{
-		PactoVersion: "1.1",
+		PactoVersion: "1.2",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		Runtime:      &contract.Runtime{Workload: "service", State: contract.State{Type: "stateless", DataCriticality: "low"}},
-		Readiness: &contract.Readiness{Checks: []contract.ReadinessCheck{
-			{ID: "dash", Type: "url", Evidence: "https://x/q?a=`b`|c", Weight: 10, Expires: "2026-12-31"},
-		}},
+		Readiness: &contract.Readiness{
+			Expires: "2026-12-31",
+			Checks: []contract.ReadinessCheck{
+				{ID: "dash", Type: "url", Status: "done", Evidence: "https://x/q?a=`b`|c", Weight: 10},
+			},
+		},
 	}
 	md, err := Generate(c, fstest.MapFS{}, nil)
 	if err != nil {

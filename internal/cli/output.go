@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/internal/app"
@@ -234,8 +233,8 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 	}, nil)
 }
 
-// printReadiness renders the readiness summary and per-check table for the text
-// output of `pacto explain`.
+// printReadiness renders the readiness summary, per-check table and revision
+// history for the text output of `pacto explain`.
 func printReadiness(w io.Writer, r *app.ExplainReadiness) {
 	gate := "PASS"
 	if !r.Passing {
@@ -244,21 +243,40 @@ func printReadiness(w io.Writer, r *app.ExplainReadiness) {
 	_, _ = fmt.Fprintf(w, "\nReadiness:\n")
 	_, _ = fmt.Fprintf(w, "  Score: %d\n", r.Score)
 	_, _ = fmt.Fprintf(w, "  Gate: %s (score %d / minScore %d)\n", gate, r.Score, r.MinScore)
-	_, _ = fmt.Fprintf(w, "  Current Weight: %d\n", r.CurrentWeight)
+	_, _ = fmt.Fprintf(w, "  Earned Weight: %d\n", r.EarnedWeight)
 	_, _ = fmt.Fprintf(w, "  Total Weight: %d\n", r.TotalWeight)
-	_, _ = fmt.Fprintf(w, "  Current Checks: %d\n", r.CurrentCount)
-	_, _ = fmt.Fprintf(w, "  Expired Checks: %d\n", r.ExpiredCount)
-	if r.InvalidCount > 0 {
-		_, _ = fmt.Fprintf(w, "  Invalid Checks: %d\n", r.InvalidCount)
+	if r.Expired {
+		_, _ = fmt.Fprintf(w, "  Expires: %s (EXPIRED)\n", r.Expires)
+	} else if r.DaysRemaining != nil {
+		_, _ = fmt.Fprintf(w, "  Expires: %s (%d days remaining)\n", r.Expires, *r.DaysRemaining)
+	} else {
+		_, _ = fmt.Fprintf(w, "  Expires: %s\n", r.Expires)
 	}
+	_, _ = fmt.Fprintf(w, "  Status: %d done, %d partial, %d not-done, %d deferred\n",
+		r.DoneCount, r.PartialCount, r.NotDoneCount, r.DeferredCount)
+
 	_, _ = fmt.Fprintf(w, "\n  Checks:\n")
 	for _, ch := range r.Checks {
-		pct := 0
-		if r.TotalWeight > 0 {
-			pct = ch.Weight * 100 / r.TotalWeight
+		category := ch.Category
+		if category == "" {
+			category = "—"
 		}
-		_, _ = fmt.Fprintf(w, "    - %-16s %-9s %-8s weight=%d (%d%%) expires=%s\n",
-			ch.ID, ch.Type, strings.ToLower(ch.Status), ch.Weight, pct, ch.Expires)
+		line := fmt.Sprintf("    - %-16s %-14s %-9s weight=%d earned=%d",
+			ch.ID, category, ch.Status, ch.Weight, ch.EarnedWeight)
+		if ch.Excluded {
+			line += " (excluded)"
+		}
+		if ch.Evidence != "" {
+			line += " evidence=" + ch.Evidence
+		}
+		_, _ = fmt.Fprintln(w, line)
+	}
+
+	if len(r.Revisions) > 0 {
+		_, _ = fmt.Fprintf(w, "\n  Revision History:\n")
+		for _, rev := range r.Revisions {
+			_, _ = fmt.Fprintf(w, "    - %s  v%s  %s: %s\n", rev.Date, rev.Version, rev.Author, rev.Description)
+		}
 	}
 }
 

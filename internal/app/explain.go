@@ -36,25 +36,41 @@ type ExplainResult struct {
 
 // ExplainReadiness is a derived readiness summary for the explain output.
 type ExplainReadiness struct {
-	Score         int                     `json:"score"`
-	MinScore      int                     `json:"minScore"`
-	Passing       bool                    `json:"passing"`
-	TotalWeight   int                     `json:"totalWeight"`
-	CurrentWeight int                     `json:"currentWeight"`
-	CurrentCount  int                     `json:"currentCount"`
-	ExpiredCount  int                     `json:"expiredCount"`
-	InvalidCount  int                     `json:"invalidCount,omitempty"`
-	Checks        []ExplainReadinessCheck `json:"checks"`
+	Score         int                          `json:"score"`
+	MinScore      int                          `json:"minScore"`
+	Passing       bool                         `json:"passing"`
+	TotalWeight   int                          `json:"totalWeight"`
+	EarnedWeight  int                          `json:"earnedWeight"`
+	PartialCredit float64                      `json:"partialCredit"`
+	Expires       string                       `json:"expires"`
+	Expired       bool                         `json:"expired"`
+	DaysRemaining *int                         `json:"daysRemaining,omitempty"`
+	DoneCount     int                          `json:"doneCount"`
+	PartialCount  int                          `json:"partialCount"`
+	NotDoneCount  int                          `json:"notDoneCount"`
+	DeferredCount int                          `json:"deferredCount"`
+	Revisions     []ExplainReadinessRevision   `json:"revisions,omitempty"`
+	Checks        []ExplainReadinessCheck      `json:"checks"`
 }
 
 // ExplainReadinessCheck is a single derived readiness check for the explain output.
 type ExplainReadinessCheck struct {
-	ID       string `json:"id"`
-	Type     string `json:"type"`
-	Status   string `json:"status"`
-	Weight   int    `json:"weight"`
-	Expires  string `json:"expires"`
-	Evidence string `json:"evidence,omitempty"`
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	Category     string `json:"category,omitempty"`
+	Status       string `json:"status"`
+	Weight       int    `json:"weight"`
+	EarnedWeight int    `json:"earnedWeight"`
+	Excluded     bool   `json:"excluded"`
+	Evidence     string `json:"evidence,omitempty"`
+}
+
+// ExplainReadinessRevision is a single readiness revision-history entry.
+type ExplainReadinessRevision struct {
+	Date        string `json:"date"`
+	Version     string `json:"version"`
+	Author      string `json:"author"`
+	Description string `json:"description"`
 }
 
 // ExplainRuntime is a simplified runtime summary.
@@ -138,19 +154,34 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 			MinScore:      eval.MinScore,
 			Passing:       eval.Passing,
 			TotalWeight:   eval.TotalWeight,
-			CurrentWeight: eval.CurrentWeight,
-			CurrentCount:  eval.CurrentCount,
-			ExpiredCount:  eval.ExpiredCount,
-			InvalidCount:  eval.InvalidCount,
+			EarnedWeight:  eval.EarnedWeight,
+			PartialCredit: eval.PartialCredit,
+			Expires:       eval.Expires,
+			Expired:       eval.Expired,
+			DaysRemaining: eval.DaysRemaining,
+			DoneCount:     eval.DoneCount,
+			PartialCount:  eval.PartialCount,
+			NotDoneCount:  eval.NotDoneCount,
+			DeferredCount: eval.DeferredCount,
 		}
 		for _, ch := range eval.Checks {
 			er.Checks = append(er.Checks, ExplainReadinessCheck{
-				ID:       ch.ID,
-				Type:     ch.Type,
-				Status:   string(ch.Status),
-				Weight:   ch.Weight,
-				Expires:  ch.Expires,
-				Evidence: ch.Evidence,
+				ID:           ch.ID,
+				Type:         ch.Type,
+				Category:     ch.Category,
+				Status:       ch.Status,
+				Weight:       ch.Weight,
+				EarnedWeight: ch.EarnedWeight,
+				Excluded:     ch.Excluded,
+				Evidence:     ch.Evidence,
+			})
+		}
+		for _, rev := range c.Readiness.History {
+			er.Revisions = append(er.Revisions, ExplainReadinessRevision{
+				Date:        rev.Date,
+				Version:     rev.Version,
+				Author:      rev.Author,
+				Description: rev.Description,
 			})
 		}
 		result.Readiness = er

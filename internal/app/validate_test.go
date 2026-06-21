@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -49,22 +50,23 @@ func TestValidate_ReadinessValid(t *testing.T) {
 
 func TestValidate_ReadinessDuplicateID(t *testing.T) {
 	dir := t.TempDir()
-	content := []byte(`pactoVersion: "1.1"
+	content := []byte(`pactoVersion: "1.2"
 service:
   name: payment-api
   version: "1.4.0"
 readiness:
+  expires: "2026-12-31"
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://x
       weight: 50
-      expires: "2026-12-31"
     - id: dashboard
       type: url
+      status: done
       evidence: https://y
       weight: 50
-      expires: "2026-12-31"
 `)
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
 		t.Fatal(err)
@@ -107,6 +109,61 @@ func TestValidate_ReadinessGate_FailsWhenStale(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected READINESS_GATE_UNMET, got %v", result.Errors)
+	}
+}
+
+func TestValidate_ReadinessGate_MessageShape(t *testing.T) {
+	dir := t.TempDir()
+	// Scores 50 (one done w=50, one not-done w=30, one deferred w=20 excluded):
+	// earned 50 of total 80 -> 63, below default minScore 100. Far-future expiry
+	// so the failure is "score below gate", and the message lists every count.
+	content := []byte(`pactoVersion: "1.2"
+service:
+  name: payment-api
+  version: "1.4.0"
+readiness:
+  expires: "2099-12-31"
+  checks:
+    - id: dashboard
+      type: url
+      status: done
+      evidence: https://x
+      weight: 50
+    - id: runbook
+      type: document
+      status: not-done
+      evidence: docs/rb.md
+      weight: 30
+    - id: dr-plan
+      type: document
+      status: deferred
+      evidence: docs/dr.md
+      weight: 20
+`)
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(nil, nil)
+	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir, Readiness: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("expected gate to fail (score below minScore)")
+	}
+	var msg string
+	for _, e := range result.Errors {
+		if e.Code == "READINESS_GATE_UNMET" {
+			msg = e.Message
+		}
+	}
+	if msg == "" {
+		t.Fatalf("expected READINESS_GATE_UNMET, got %v", result.Errors)
+	}
+	for _, want := range []string{"score below gate", "done", "partial", "not-done", "deferred"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("expected message to contain %q, got %q", want, msg)
+		}
 	}
 }
 

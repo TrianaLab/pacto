@@ -425,21 +425,31 @@ func TestPrintExplainResult_Minimal(t *testing.T) {
 
 func TestPrintExplainResult_Readiness(t *testing.T) {
 	cmd, buf := testCmd()
+	days := 120
 	result := &app.ExplainResult{
 		Name:         "svc",
 		Version:      "1.0.0",
-		PactoVersion: "1.1",
+		PactoVersion: "1.2",
 		Readiness: &app.ExplainReadiness{
 			Score:         75,
 			MinScore:      70,
 			Passing:       true,
 			TotalWeight:   80,
-			CurrentWeight: 60,
-			ExpiredCount:  1,
-			CurrentCount:  2,
+			EarnedWeight:  60,
+			PartialCredit: 0.5,
+			Expires:       "2026-12-31",
+			Expired:       false,
+			DaysRemaining: &days,
+			DoneCount:     1,
+			PartialCount:  1,
+			NotDoneCount:  0,
+			DeferredCount: 1,
+			Revisions: []app.ExplainReadinessRevision{
+				{Date: "2026-06-21", Version: "2.1.0", Author: "ed", Description: "initial assessment"},
+			},
 			Checks: []app.ExplainReadinessCheck{
-				{ID: "dashboard", Type: "url", Status: "Current", Weight: 20, Expires: "2026-12-31"},
-				{ID: "security-review", Type: "ticket", Status: "Expired", Weight: 60, Expires: "2026-01-15"},
+				{ID: "dashboard", Type: "url", Category: "observability", Status: "done", Weight: 20, EarnedWeight: 20, Evidence: "https://x"},
+				{ID: "dr-plan", Type: "document", Status: "deferred", Weight: 60, EarnedWeight: 0, Excluded: true},
 			},
 		},
 	}
@@ -451,71 +461,48 @@ func TestPrintExplainResult_Readiness(t *testing.T) {
 		"Readiness:",
 		"Score: 75",
 		"Gate: PASS (score 75 / minScore 70)",
-		"Current Weight: 60",
+		"Earned Weight: 60",
 		"Total Weight: 80",
-		"Current Checks: 2",
-		"Expired Checks: 1",
+		"Expires: 2026-12-31 (120 days remaining)",
+		"Status: 1 done, 1 partial, 0 not-done, 1 deferred",
 		"dashboard",
-		"current",
-		"weight=20 (25%) expires=2026-12-31",
-		"security-review",
-		"expired",
+		"observability",
+		"done",
+		"weight=20 earned=20",
+		"evidence=https://x",
+		"dr-plan",
+		"deferred",
+		"(excluded)",
+		"Revision History:",
+		"2026-06-21  v2.1.0  ed: initial assessment",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in readiness output, got %q", want, out)
 		}
 	}
-	// InvalidCount is 0 here; the line is omitted (matches JSON omitempty).
-	if strings.Contains(out, "Invalid Checks:") {
-		t.Errorf("did not expect an Invalid Checks line when InvalidCount==0, got %q", out)
+	// No Current/Invalid wording in the new model.
+	if strings.Contains(out, "Current Checks") || strings.Contains(out, "Invalid Checks") {
+		t.Errorf("did not expect Current/Invalid wording, got %q", out)
 	}
 }
 
-func TestPrintExplainResult_ReadinessInvalidCount(t *testing.T) {
+func TestPrintExplainResult_ReadinessExpired(t *testing.T) {
 	cmd, buf := testCmd()
 	result := &app.ExplainResult{
 		Name:         "svc",
 		Version:      "1.0.0",
-		PactoVersion: "1.1",
+		PactoVersion: "1.2",
 		Readiness: &app.ExplainReadiness{
-			Score:         50,
-			MinScore:      70,
+			Score:         0,
+			MinScore:      100,
 			Passing:       false,
-			TotalWeight:   40,
-			CurrentWeight: 20,
-			CurrentCount:  1,
-			InvalidCount:  1,
+			TotalWeight:   20,
+			EarnedWeight:  0,
+			Expires:       "2026-01-15",
+			Expired:       true,
+			DoneCount:     1,
 			Checks: []app.ExplainReadinessCheck{
-				{ID: "dashboard", Type: "url", Status: "Current", Weight: 20, Expires: "2026-12-31"},
-				{ID: "broken", Type: "url", Status: "Invalid", Weight: 20, Expires: "not-a-date"},
-			},
-		},
-	}
-	if err := printExplainResult(cmd, result, "text"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	out := buf.String()
-	if !strings.Contains(out, "Current Checks: 1") {
-		t.Errorf("expected Current Checks line, got %q", out)
-	}
-	if !strings.Contains(out, "Invalid Checks: 1") {
-		t.Errorf("expected Invalid Checks line when InvalidCount>0, got %q", out)
-	}
-}
-
-func TestPrintExplainResult_ReadinessGateFailZeroWeight(t *testing.T) {
-	cmd, buf := testCmd()
-	result := &app.ExplainResult{
-		Name:         "svc",
-		Version:      "1.0.0",
-		PactoVersion: "1.1",
-		Readiness: &app.ExplainReadiness{
-			Score:       0,
-			MinScore:    100,
-			Passing:     false,
-			TotalWeight: 0,
-			Checks: []app.ExplainReadinessCheck{
-				{ID: "dashboard", Type: "url", Status: "Current", Weight: 0, Expires: "2026-12-31"},
+				{ID: "dashboard", Type: "url", Status: "done", Weight: 20, EarnedWeight: 0},
 			},
 		},
 	}
@@ -526,8 +513,37 @@ func TestPrintExplainResult_ReadinessGateFailZeroWeight(t *testing.T) {
 	if !strings.Contains(out, "Gate: FAIL (score 0 / minScore 100)") {
 		t.Errorf("expected gate FAIL line, got %q", out)
 	}
-	if !strings.Contains(out, "weight=0 (0%)") {
-		t.Errorf("expected zero-weight normalized 0%%, got %q", out)
+	if !strings.Contains(out, "Expires: 2026-01-15 (EXPIRED)") {
+		t.Errorf("expected EXPIRED expiry line, got %q", out)
+	}
+}
+
+func TestPrintExplainResult_ReadinessNoExpiryCountdown(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{
+		Name:         "svc",
+		Version:      "1.0.0",
+		PactoVersion: "1.2",
+		Readiness: &app.ExplainReadiness{
+			Score:       100,
+			MinScore:    100,
+			Passing:     true,
+			TotalWeight: 20,
+			EarnedWeight: 20,
+			Expires:     "2026-12-31",
+			Expired:     false,
+			// DaysRemaining nil (e.g. unparseable upstream) -> bare expiry line.
+			Checks: []app.ExplainReadinessCheck{
+				{ID: "dashboard", Type: "url", Status: "done", Weight: 20, EarnedWeight: 20},
+			},
+		},
+	}
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Expires: 2026-12-31\n") {
+		t.Errorf("expected bare expiry line when no countdown, got %q", out)
 	}
 }
 
@@ -606,11 +622,11 @@ func TestPrintExplainResult_ReadinessJSON(t *testing.T) {
 	result := &app.ExplainResult{
 		Name:         "svc",
 		Version:      "1.0.0",
-		PactoVersion: "1.1",
+		PactoVersion: "1.2",
 		Readiness: &app.ExplainReadiness{
 			Score:       75,
 			TotalWeight: 80,
-			Checks:      []app.ExplainReadinessCheck{{ID: "dashboard", Type: "url", Status: "Current", Weight: 20, Expires: "2026-12-31"}},
+			Checks:      []app.ExplainReadinessCheck{{ID: "dashboard", Type: "url", Status: "done", Weight: 20, EarnedWeight: 20}},
 		},
 	}
 	if err := printExplainResult(cmd, result, "json"); err != nil {

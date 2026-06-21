@@ -678,25 +678,48 @@ func hasReadinessContent(c *contract.Contract) bool {
 }
 
 // writeReadiness renders the declared readiness checks as a table. It shows the
-// authored fields only; derived freshness (current/expired) is a runtime concern
-// surfaced by the operator and dashboard, not by static documentation.
+// authored fields only (status, category, weight); derived freshness/scoring is
+// a runtime concern surfaced by the operator and dashboard, not by static
+// documentation. The assessment-level expiry is shown in a header line and the
+// revision history, when present, follows the table.
 func writeReadiness(b *strings.Builder, c *contract.Contract, num *sectionNumberer) {
 	if !hasReadinessContent(c) {
 		return
 	}
 
 	fmt.Fprintf(b, "## %s. Readiness\n\n", num.Next(1))
-	fmt.Fprintln(b, "| ID | Type | Evidence | Weight | Expires | Description |")
-	fmt.Fprintln(b, "|----|------|----------|-------:|---------|-------------|")
+	if c.Readiness.Expires != "" {
+		fmt.Fprintf(b, "Assessment expires: `%s`\n\n", escapeMarkdownCell(c.Readiness.Expires))
+	}
+	fmt.Fprintln(b, "| ID | Type | Category | Status | Evidence | Weight | Description |")
+	fmt.Fprintln(b, "|----|------|----------|--------|----------|-------:|-------------|")
 	for _, ch := range c.Readiness.Checks {
 		desc := ch.Description
 		if desc == "" {
 			desc = "—"
 		}
-		fmt.Fprintf(b, "| `%s` | `%s` | `%s` | %d | `%s` | %s |\n",
-			escapeMarkdownCell(ch.ID), escapeMarkdownCell(ch.Type), escapeMarkdownCell(ch.Evidence), ch.Weight, escapeMarkdownCell(ch.Expires), desc)
+		category := ch.Category
+		if category == "" {
+			category = "—"
+		}
+		fmt.Fprintf(b, "| `%s` | `%s` | `%s` | `%s` | `%s` | %d | %s |\n",
+			escapeMarkdownCell(ch.ID), escapeMarkdownCell(ch.Type), escapeMarkdownCell(category),
+			escapeMarkdownCell(ch.Status), escapeMarkdownCell(ch.Evidence), ch.Weight, desc)
 	}
 	fmt.Fprintln(b)
+
+	if len(c.Readiness.History) > 0 {
+		fmt.Fprintln(b, "**Revision History**")
+		fmt.Fprintln(b)
+		fmt.Fprintln(b, "| Date | Version | Author | Description |")
+		fmt.Fprintln(b, "|------|---------|--------|-------------|")
+		for _, rev := range c.Readiness.History {
+			fmt.Fprintf(b, "| `%s` | `%s` | %s | %s |\n",
+				escapeMarkdownCell(rev.Date), escapeMarkdownCell(rev.Version),
+				escapeMarkdownCell(rev.Author), rev.Description)
+		}
+		fmt.Fprintln(b)
+	}
 }
 
 func writePolicies(b *strings.Builder, c *contract.Contract, _ fs.FS, num *sectionNumberer) {

@@ -10,12 +10,12 @@ import (
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
-// writeReadinessBundle writes a pactoVersion 1.1 bundle with a readiness section
+// writeReadinessBundle writes a pactoVersion 1.2 bundle with a readiness section
 // (one current check, one expired check) and returns its directory.
 func writeReadinessBundle(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	content := []byte(`pactoVersion: "1.1"
+	content := []byte(`pactoVersion: "1.2"
 service:
   name: payment-api
   version: "1.4.0"
@@ -37,18 +37,19 @@ runtime:
     interface: api
     path: /health
 readiness:
+  expires: "2026-01-15"
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://grafana.company.com/payment-api
       weight: 60
-      expires: "2026-12-31"
       description: Main production dashboard
     - id: security-review
       type: ticket
+      status: done
       evidence: SEC-1842
       weight: 40
-      expires: "2026-01-15"
 `)
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
 		t.Fatal(err)
@@ -79,29 +80,34 @@ func TestExplain_WithReadiness(t *testing.T) {
 	if r.TotalWeight != 100 {
 		t.Errorf("expected total weight 100, got %d", r.TotalWeight)
 	}
-	if r.CurrentWeight != 60 {
-		t.Errorf("expected current weight 60, got %d", r.CurrentWeight)
+	// Pinned to 2026-06-08, after the assessment expires (2026-01-15), so the
+	// whole assessment is expired: every in-scope check earns zero.
+	if !r.Expired {
+		t.Error("expected assessment to be expired")
 	}
-	if r.Score != 60 {
-		t.Errorf("expected score 60, got %d", r.Score)
+	if r.EarnedWeight != 0 {
+		t.Errorf("expected earned weight 0 when expired, got %d", r.EarnedWeight)
+	}
+	if r.Score != 0 {
+		t.Errorf("expected score 0 when expired, got %d", r.Score)
 	}
 	if r.MinScore != 100 {
 		t.Errorf("expected default minScore 100, got %d", r.MinScore)
 	}
 	if r.Passing {
-		t.Error("expected gate not passing (score 60 < minScore 100)")
+		t.Error("expected gate not passing (expired)")
 	}
-	if r.ExpiredCount != 1 || r.CurrentCount != 1 {
-		t.Errorf("unexpected counts: current=%d expired=%d", r.CurrentCount, r.ExpiredCount)
+	if r.DoneCount != 2 || r.NotDoneCount != 0 {
+		t.Errorf("unexpected counts: done=%d not-done=%d", r.DoneCount, r.NotDoneCount)
 	}
 	if len(r.Checks) != 2 {
 		t.Fatalf("expected 2 checks, got %d", len(r.Checks))
 	}
-	if r.Checks[0].ID != "dashboard" || r.Checks[0].Status != "Current" {
+	if r.Checks[0].ID != "dashboard" || r.Checks[0].Status != "done" {
 		t.Errorf("unexpected first check: %+v", r.Checks[0])
 	}
-	if r.Checks[1].Status != "Expired" {
-		t.Errorf("expected second check Expired, got %s", r.Checks[1].Status)
+	if r.Checks[1].Status != "done" {
+		t.Errorf("expected second check done, got %s", r.Checks[1].Status)
 	}
 }
 

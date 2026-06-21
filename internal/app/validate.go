@@ -85,11 +85,15 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	// Opt-in readiness gate. Time-dependent, so only when explicitly requested.
 	if opts.Readiness {
 		if eval := readiness.Evaluate(bundle.Contract.Readiness, timeNow()); eval != nil && !eval.Passing {
+			state := "score below gate"
+			if eval.Expired {
+				state = "assessment expired"
+			}
 			errors = append(errors, contract.ValidationError{
 				Path: "readiness",
 				Code: "READINESS_GATE_UNMET",
-				Message: fmt.Sprintf("readiness score %d is below minScore %d (%d current, %d expired, %d invalid of %d checks)",
-					eval.Score, eval.MinScore, eval.CurrentCount, eval.ExpiredCount, eval.InvalidCount, len(eval.Checks)),
+				Message: fmt.Sprintf("%s: score %d, minScore %d (%d done, %d partial, %d not-done, %d deferred)",
+					state, eval.Score, eval.MinScore, eval.DoneCount, eval.PartialCount, eval.NotDoneCount, eval.DeferredCount),
 			})
 			valid = false
 		}
