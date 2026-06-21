@@ -2,7 +2,7 @@
  * Component render tests for SummaryBar.svelte.
  * Verifies the KPI cards, click-to-filter interactivity, and metrics computation.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mount, unmount } from 'svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import SummaryBar from './SummaryBar.svelte';
