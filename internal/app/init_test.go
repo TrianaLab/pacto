@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/validation"
 )
 
 func TestInit_ReadOnlyDir(t *testing.T) {
@@ -134,5 +137,73 @@ func TestInit_WriteFileErrors(t *testing.T) {
 				t.Errorf("expected error when writing %s fails", failFile)
 			}
 		})
+	}
+}
+
+func TestInit_ScaffoldValidates(t *testing.T) {
+	orig, _ := os.Getwd()
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	svc := NewService(nil, nil)
+	result, err := svc.Init(context.Background(), InitOptions{Name: "my-svc"})
+	if err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	content, err := os.ReadFile(result.Path)
+	if err != nil {
+		t.Fatalf("failed to read scaffolded pacto.yaml: %v", err)
+	}
+
+	// Parse the scaffolded contract
+	c, err := contract.Parse(strings.NewReader(string(content)))
+	if err != nil {
+		t.Fatalf("failed to parse scaffolded contract: %v", err)
+	}
+
+	// Assert pactoVersion 1.2
+	if c.PactoVersion != "1.2" {
+		t.Errorf("expected pactoVersion 1.2, got %s", c.PactoVersion)
+	}
+
+	// Assert object owner present (Owner is a struct, not pointer)
+	if c.Service.Owner.IsEmpty() {
+		t.Fatal("expected object owner to be present")
+	}
+	if c.Service.Owner.Team == "" {
+		t.Error("expected owner.team to be non-empty")
+	}
+	if c.Service.Owner.DRI == "" {
+		t.Error("expected owner.dri to be non-empty")
+	}
+	if len(c.Service.Owner.Contacts) == 0 {
+		t.Error("expected owner.contacts to be non-empty")
+	}
+
+	// Assert readiness present (Readiness is at Contract level)
+	if c.Readiness == nil {
+		t.Fatal("expected readiness to be present")
+	}
+	if c.Readiness.MinScore == nil || *c.Readiness.MinScore == 0 {
+		t.Error("expected readiness.minScore > 0")
+	}
+	if c.Readiness.Expires == "" {
+		t.Error("expected readiness.expires to be non-empty")
+	}
+	if len(c.Readiness.History) == 0 {
+		t.Error("expected readiness.history to be non-empty")
+	}
+	if len(c.Readiness.Checks) == 0 {
+		t.Error("expected readiness.checks to be non-empty")
+	}
+
+	// Validate structurally (raw validation, no FS needed)
+	validationResult := validation.ValidateStructuralRaw(content)
+	if !validationResult.IsValid() {
+		t.Errorf("scaffolded contract failed validation: %v", validationResult.Errors)
 	}
 }
