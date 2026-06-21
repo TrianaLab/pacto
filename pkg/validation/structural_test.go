@@ -391,3 +391,39 @@ func TestConvertYAMLToJSON_NonStringKey(t *testing.T) {
 		t.Errorf("expected key 'name' with value 'string-key-value', got %v", m["name"])
 	}
 }
+
+func TestStructural_StringOwnerRejected_AllVersions(t *testing.T) {
+	for _, v := range []string{"1.0", "1.1", "1.2"} {
+		doc := minimalContract(v)
+		doc["service"].(map[string]any)["owner"] = "team/x"
+		res := ValidateStructural(doc)
+		if res.IsValid() {
+			t.Fatalf("string owner must be rejected under %s", v)
+		}
+	}
+}
+
+func TestStructural_ReadinessRejectedUnder10And11(t *testing.T) {
+	for _, v := range []string{"1.0", "1.1"} {
+		doc := minimalContract(v)
+		doc["readiness"] = map[string]any{
+			"expires": "2026-12-31",
+			"checks":  []any{map[string]any{"id": "a", "type": "url", "status": "done", "evidence": "e", "weight": 10}},
+		}
+		res := ValidateStructural(doc)
+		if res.IsValid() {
+			t.Fatalf("readiness must be rejected under %s", v)
+		}
+	}
+}
+
+// Helper to create a minimal valid contract for a given version
+func minimalContract(version string) map[string]any {
+	return map[string]any{
+		"pactoVersion": version,
+		"service": map[string]any{
+			"name":    "test-svc",
+			"version": "1.0.0",
+		},
+	}
+}

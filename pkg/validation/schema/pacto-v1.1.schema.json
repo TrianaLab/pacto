@@ -30,61 +30,51 @@
           "description": "The current version of the service, typically following semantic versioning."
         },
         "owner": {
-          "description": "Ownership information for the service. Supports a legacy string form for backward compatibility and a structured provider-neutral object form.",
-          "oneOf": [
-            {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "Structured ownership metadata in a provider-neutral format.",
+          "properties": {
+            "team": {
               "type": "string",
               "minLength": 1,
-              "description": "Legacy ownership format. Prefer the structured object form for new contracts."
+              "pattern": "^[a-zA-Z0-9._/-]+$",
+              "description": "The canonical team that owns the service."
             },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "minProperties": 1,
-              "properties": {
-                "team": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "^[a-zA-Z0-9._/-]+$",
-                  "description": "The canonical team that owns the service."
-                },
-                "dri": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "^[a-zA-Z0-9._@/-]+$",
-                  "description": "The directly responsible individual for this service."
-                },
-                "contacts": {
-                  "type": "array",
-                  "minItems": 1,
-                  "description": "Provider-neutral ownership and escalation contact points.",
-                  "items": {
-                    "type": "object",
-                    "required": ["type", "value"],
-                    "additionalProperties": false,
-                    "properties": {
-                      "type": {
-                        "type": "string",
-                        "enum": ["email", "url", "group", "oncall", "chat", "other"],
-                        "description": "The kind of contact point."
-                      },
-                      "value": {
-                        "type": "string",
-                        "minLength": 1,
-                        "description": "The contact value, such as an email address, URL, or group identifier."
-                      },
-                      "purpose": {
-                        "type": "string",
-                        "enum": ["ownership", "support", "escalation", "oncall", "notifications"],
-                        "description": "The intended operational purpose of this contact point."
-                      }
-                    }
+            "dri": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[a-zA-Z0-9._@/-]+$",
+              "description": "The directly responsible individual for this service."
+            },
+            "contacts": {
+              "type": "array",
+              "minItems": 1,
+              "description": "Provider-neutral ownership and escalation contact points.",
+              "items": {
+                "type": "object",
+                "required": ["type", "value"],
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["email", "url", "group", "oncall", "chat", "other"],
+                    "description": "The kind of contact point."
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The contact value, such as an email address, URL, or group identifier."
+                  },
+                  "purpose": {
+                    "type": "string",
+                    "enum": ["ownership", "support", "escalation", "oncall", "notifications"],
+                    "description": "The intended operational purpose of this contact point."
                   }
                 }
-              },
-              "description": "Structured ownership metadata in a provider-neutral format."
+              }
             }
-          ]
+          }
         },
         "image": {
           "type": "object",
@@ -482,75 +472,6 @@
           "not": { "required": ["replicas"] }
         }
       ]
-    },
-
-    "readiness": {
-      "type": "object",
-      "description": "Declares operational readiness evidence for the service in a provider-neutral way. Each check points at evidence (a dashboard, runbook, ticket, report, etc.); Pacto does not verify the target content. Policies enforce which checks must exist and what shape they must have.",
-      "additionalProperties": false,
-      "required": ["checks"],
-      "properties": {
-        "minScore": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 100,
-          "description": "The readiness gate: the derived score (percentage of declared weight that is currently satisfied) must be at least this value. Omitted means 100 (all weighted evidence must be current); lower values tolerate staleness. Enforced by 'pacto validate --readiness' and surfaced by the operator and dashboard."
-        },
-        "checks": {
-          "type": "array",
-          "minItems": 1,
-          "description": "The declared readiness checks. At least one check is required when readiness is present.",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["id", "type", "evidence", "weight", "expires"],
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 1,
-                "pattern": "^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$",
-                "description": "A stable identifier for the organizational readiness requirement (e.g. dashboard, runbook, security-review). Policies usually target this field."
-              },
-              "type": {
-                "type": "string",
-                "enum": ["url", "document", "ticket", "report", "artifact", "identifier", "other"],
-                "description": "Classifies the kind of evidence pointer. Use 'other' for forward compatibility.",
-                "x-enum-descriptions": {
-                  "url": "a hyperlink, such as a dashboard or wiki page",
-                  "document": "a document path or reference within the repository or a document store",
-                  "ticket": "a tracker issue or ticket identifier",
-                  "report": "a generated report artifact (e.g. an evaluation or scan report)",
-                  "artifact": "a build or storage artifact reference",
-                  "identifier": "an opaque identifier such as a channel or resource id",
-                  "other": "any other evidence pointer not covered by the listed types"
-                }
-              },
-              "evidence": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 2048,
-                "description": "The pointer to the evidence (URL, path, ticket id, etc.). Pacto stores this verbatim and does not verify the target."
-              },
-              "weight": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 100,
-                "description": "The contribution of this check to the overall readiness score, from 0 to 100."
-              },
-              "expires": {
-                "type": "string",
-                "format": "date",
-                "description": "The freshness boundary for this evidence, as a YYYY-MM-DD date. The check is considered current through the end of this date."
-              },
-              "description": {
-                "type": "string",
-                "minLength": 1,
-                "description": "Optional human-readable explanation of the check."
-              }
-            }
-          }
-        }
-      }
     },
 
     "metadata": {
