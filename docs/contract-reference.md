@@ -210,10 +210,10 @@ Each version is validated against its own JSON Schema, selected by the declared
 | Version | Adds |
 |---------|------|
 | `1.0`   | The base contract (service, interfaces, configurations, policies, dependencies, runtime, scaling, metadata). Object-only `owner` (string form removed). |
-| `1.1`   | The optional [`readiness`](#readiness) section (v1.1 shape — per-check `expires`, `currentCount`). Object-only `owner` inherited from `1.0`. Everything from `1.0` remains valid. |
-| `1.2`   | Redesigned [`readiness`](#readiness) — per-check `status` + `category`, assessment-level `expires`, `partialCredit`, `history[]`. Object-only `owner` inherited from `1.0`. Everything from `1.0` and `1.1` (excluding old `readiness` shape) remains valid. |
+| `1.1`   | Object-only `owner` inherited from `1.0`. Everything from `1.0` remains valid. No readiness. |
+| `1.2`   | Redesigned [`readiness`](#readiness) — per-check `status` + `category`, assessment-level `expires`, `partialCredit`, `history[]`. Object-only `owner` inherited from `1.0`. Everything from `1.0` and `1.1` remains valid. |
 
-Existing `1.0` contracts continue to validate unchanged. The `readiness` section
+Existing `1.0` and `1.1` contracts continue to validate unchanged. The `readiness` section
 is only accepted under `pactoVersion: "1.2"`; declaring it under `1.0` or `1.1` is rejected.
 
 ---
@@ -489,7 +489,8 @@ pactoVersion: "1.0"
 service:
   name: platform-policy
   version: 1.0.0
-  owner: team/platform
+  owner:
+    team: platform
 policies:
   - name: platform-policy
     schema: policy/schema.json
@@ -790,27 +791,35 @@ readiness:
   
   checks:
     - id: dashboard
+      type: url
       status: done
       category: observability
       weight: 20
+      evidence: https://grafana.example.com/d/service-dashboard
       description: Main production dashboard
 
     - id: runbook
+      type: document
       status: partial
       category: documentation
       weight: 15
+      evidence: docs/runbook.md
       description: Incident runbook exists but missing escalation procedures
 
     - id: security-review
+      type: ticket
       status: not-done
       category: security
       weight: 25
+      evidence: JIRA-1234
       description: Security assessment pending
 
     - id: legacy-cleanup
+      type: ticket
       status: deferred
       category: code-quality
       weight: 10
+      evidence: TECH-5678
       description: Post-launch cleanup task
 
   history:
@@ -838,9 +847,11 @@ is present. `readiness.minScore`, `readiness.partialCredit` and `readiness.histo
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `id` | string | Yes | Stable readiness requirement id. Pattern: `^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`. Unique within the contract. Policies usually target this field. |
+| `type` | string | Yes | Enum: `url`, `document`, `ticket`, `report`, `artifact`, `identifier`, `other`. Evidence type. |
 | `status` | string | Yes | Enum: `done`, `partial`, `not-done`, `deferred`. Completion state for the check. |
 | `category` | string | No | Enum: `architecture`, `testing`, `code-quality`, `observability`, `security`, `documentation`, `infrastructure`, `ci-cd`, `deployment`, `resilience`, `backup-recovery`, `incident-response`, `compliance`, `other`. Categorizes the requirement type. |
 | `weight` | integer | Yes | Contribution to the readiness score. Range `1`–`100`. |
+| `evidence` | string | Yes | Evidence location (URL, file path, ticket ID, etc.). Non-empty. |
 | `description` | string | No | Optional human-readable explanation (non-blank when present). |
 
 **History entry:**

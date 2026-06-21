@@ -8,7 +8,8 @@ pactoVersion: "1.2"
 service:
   name: product-catalog
   version: 2.0.1
-  owner: team/catalog
+  owner:
+    team: catalog
   image:
     ref: ghcr.io/acme/product-catalog:2.0.1
     private: true

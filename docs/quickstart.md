@@ -65,15 +65,19 @@ readiness:
   minScore: 80
   checks:
     - id: dashboard
+      type: url
       status: done
       category: observability
       weight: 20
+      evidence: https://grafana.example.com/d/service-dashboard
       description: Grafana dashboard exists
     
     - id: runbook
+      type: document
       status: partial
       category: documentation
       weight: 15
+      evidence: docs/runbook.md
       description: Basic runbook exists
 ```
 

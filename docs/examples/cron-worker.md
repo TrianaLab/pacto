@@ -8,7 +8,8 @@ pactoVersion: "1.2"
 service:
   name: report-generator
   version: 1.2.0
-  owner: team/analytics
+  owner:
+    team: analytics
   image:
     ref: ghcr.io/acme/report-generator:1.2.0
     private: true

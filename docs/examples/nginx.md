@@ -8,7 +8,8 @@ pactoVersion: "1.2"
 service:
   name: nginx
   version: 1.27.3
-  owner: infra/networking
+  owner:
+    team: networking
   image:
     ref: docker.io/library/nginx:1.27.3
     private: false
