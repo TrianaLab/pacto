@@ -5,8 +5,6 @@ import {
   complianceStatusClass,
   methodClass,
   referencedDocPaths,
-  readinessStatusClass,
-  readinessDaysLabel,
   classificationClass,
   changeTypeClass,
   sourceTooltip,
@@ -97,22 +95,6 @@ describe('referencedDocPaths', () => {
     };
     expect(referencedDocPaths(readiness)).toEqual(['docs/runbook.md', 'docs/overview.md']);
   });
-});
-
-describe('readinessStatusClass', () => {
-  it('maps Current to badge-ok', () => expect(readinessStatusClass('Current')).toBe('badge-ok'));
-  it('maps Expired to badge-err', () => expect(readinessStatusClass('Expired')).toBe('badge-err'));
-  it('maps Invalid to badge-warn', () => expect(readinessStatusClass('Invalid')).toBe('badge-warn'));
-  it('maps unknown to badge-neutral', () => expect(readinessStatusClass('other')).toBe('badge-neutral'));
-  it('handles undefined', () => expect(readinessStatusClass(undefined)).toBe('badge-neutral'));
-});
-
-describe('readinessDaysLabel', () => {
-  it('returns dash for non-current status', () => expect(readinessDaysLabel('Expired', 5)).toBe('—'));
-  it('returns dash when days is null', () => expect(readinessDaysLabel('Current', null)).toBe('—'));
-  it('returns today for 0 days', () => expect(readinessDaysLabel('Current', 0)).toBe('today'));
-  it('returns singular for 1 day', () => expect(readinessDaysLabel('Current', 1)).toBe('1 day'));
-  it('returns plural for many days', () => expect(readinessDaysLabel('Current', 42)).toBe('42 days'));
 });
 
 describe('checkStatusLabel', () => {

@@ -29,20 +29,6 @@ export function referencedDocPaths(
   return readiness.checks.filter((c) => !!c.docPath).map((c) => c.docPath as string);
 }
 
-export function readinessStatusClass(status: string | undefined): string {
-  if (status === 'Current') return 'badge-ok';
-  if (status === 'Expired') return 'badge-err';
-  if (status === 'Invalid') return 'badge-warn';
-  return 'badge-neutral';
-}
-
-/** Human label for the whole-days-remaining value of a current readiness check. */
-export function readinessDaysLabel(status: string | undefined, days: number | null | undefined): string {
-  if (status !== 'Current' || days == null) return '—';
-  if (days === 0) return 'today';
-  if (days === 1) return '1 day';
-  return `${days} days`;
-}
 
 export function methodClass(method: string | null | undefined): string {
   const m = method?.toUpperCase();
