@@ -20,7 +20,7 @@ func TestExplainCommand(t *testing.T) {
 		}
 
 		assertContains(t, output, "Service: postgres-pacto@1.0.0")
-		assertContains(t, output, "Owner: team/data")
+		assertContains(t, output, "Owner: data")
 		assertContains(t, output, "Pacto Version: 1.0")
 		assertContains(t, output, "Workload: service")
 		assertContains(t, output, "State: stateful")

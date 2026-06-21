@@ -472,8 +472,8 @@ func TestDiffOverrides(t *testing.T) {
 		bundlePath := writeOverrideBundle(t)
 		tmpDir := t.TempDir()
 
-		oldVals := writeValuesFile(t, tmpDir, "old.yaml", "service:\n  owner: team/old\n")
-		newVals := writeValuesFile(t, tmpDir, "new.yaml", "service:\n  owner: team/new\n")
+		oldVals := writeValuesFile(t, tmpDir, "old.yaml", "service:\n  owner:\n    team: old\n")
+		newVals := writeValuesFile(t, tmpDir, "new.yaml", "service:\n  owner:\n    team: new\n")
 
 		output, _ := runCommand(t, nil, "diff", bundlePath, bundlePath,
 			"--old-values", oldVals,

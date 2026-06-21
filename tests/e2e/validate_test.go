@@ -136,6 +136,40 @@ func TestValidateCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("scalar owner rejected", func(t *testing.T) {
+		t.Parallel()
+		dir := filepath.Join(t.TempDir(), "scalar-owner-svc")
+		yaml := `pactoVersion: "1.0"
+service:
+  name: scalar-owner-svc
+  version: 1.0.0
+  owner: team/platform
+interfaces:
+  - name: api
+    type: http
+    port: 8080
+    visibility: internal
+runtime:
+  workload: service
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+  health:
+    interface: api
+    path: /health
+`
+		path := writeBundleDir(t, dir, yaml, nil)
+		output, err := runCommand(t, nil, "validate", path)
+		if err == nil {
+			t.Fatalf("expected validation to fail for scalar owner, got:\n%s", output)
+		}
+		assertContains(t, output, "owner")
+		assertNotContains(t, output, "is valid")
+	})
+
 }
 
 func TestValidateFileContent(t *testing.T) {

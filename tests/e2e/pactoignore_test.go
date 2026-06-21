@@ -15,7 +15,8 @@ const ignoreContract = `pactoVersion: "1.0"
 service:
   name: ignore-svc
   version: 1.0.0
-  owner: team/platform
+  owner:
+    team: platform
 interfaces:
   - name: api
     type: http
@@ -189,7 +190,8 @@ func TestPactoignoreIgnoredDirHidesReferencedFile(t *testing.T) {
 service:
   name: ignore-dir-svc
   version: 1.0.0
-  owner: team/platform
+  owner:
+    team: platform
 interfaces:
   - name: api
     type: http
@@ -284,7 +286,8 @@ func TestPactoignoreIgnoredNestedDirHidesReferencedFile(t *testing.T) {
 service:
   name: ignore-nested-svc
   version: 1.0.0
-  owner: team/platform
+  owner:
+    team: platform
 interfaces:
   - name: api
     type: http
@@ -347,7 +350,8 @@ func TestPactoignoreAnchoredDirPatternDoesNotMatchSubdir(t *testing.T) {
 service:
   name: anchored-svc
   version: 1.0.0
-  owner: team/platform
+  owner:
+    team: platform
 interfaces:
   - name: api
     type: http

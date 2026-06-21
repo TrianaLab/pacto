@@ -145,7 +145,8 @@ func myAppContractV1(registryHost string) string {
 service:
   name: my-app
   version: 1.0.0
-  owner: team/platform
+  owner:
+    team: platform
 
 interfaces:
   - name: api
@@ -199,7 +200,8 @@ const postgresContractV1 = `pactoVersion: "1.0"
 service:
   name: postgres-pacto
   version: 1.0.0
-  owner: team/data
+  owner:
+    team: data
 
 interfaces:
   - name: db
@@ -238,7 +240,8 @@ const redisContractV1 = `pactoVersion: "1.0"
 service:
   name: redis-pacto
   version: 1.0.0
-  owner: team/data
+  owner:
+    team: data
 
 interfaces:
   - name: cache
@@ -277,7 +280,8 @@ const redisContractV2 = `pactoVersion: "1.0"
 service:
   name: redis-pacto
   version: 2.0.0
-  owner: team/data
+  owner:
+    team: data
 
 interfaces:
   - name: cache
@@ -339,7 +343,8 @@ func myAppContractV2(registryHost string) string {
 service:
   name: my-app
   version: 2.0.0
-  owner: team/platform
+  owner:
+    team: platform
 
 interfaces:
   - name: api
