@@ -27,10 +27,7 @@ export function renderCategoryStackedBars(
 
   if (!data.length) {
     const msg = d3.select(container).append('div')
-      .style('padding', '1rem')
-      .style('text-align', 'center')
-      .style('color', 'var(--c-text-3)')
-      .style('font-size', 'var(--text-sm)');
+      .attr('class', 'state-box');
     msg.text('No category data');
     return;
   }
@@ -163,10 +160,7 @@ export function renderReadinessDonut(
   const total = data.ready + data.partial + data.notReady + data.notConfigured;
   if (total === 0) {
     const msg = d3.select(container).append('div')
-      .style('padding', '1rem')
-      .style('text-align', 'center')
-      .style('color', 'var(--c-text-3)')
-      .style('font-size', 'var(--text-sm)');
+      .attr('class', 'state-box');
     msg.text('No readiness data');
     return;
   }
@@ -177,24 +171,26 @@ export function renderReadinessDonut(
   const notReadyColor = getComputedStyle(container).getPropertyValue('--c-err').trim();
   const notConfiguredColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
 
-  const width = Math.min(400, container.clientWidth || 300);
+  const donutRadius = 100;
+  const legendWidth = 120;
+  const width = donutRadius * 2 + 40 + legendWidth;
   const height = 300;
-  const radius = Math.min(width, height) / 2 - 40;
 
   const svg = d3.select(container)
     .append('svg')
     .attr('width', '100%')
-    .attr('height', height)
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
     .style('font-family', 'var(--font-sans)');
 
-  const g = svg.append('g').attr('transform', `translate(${width / 2}, ${height / 2})`);
+  const g = svg.append('g').attr('transform', `translate(${donutRadius + 20}, ${height / 2})`);
 
   // Pie layout
   const pieData = [
     { label: 'Ready', value: data.ready, bucket: 'ready', color: readyColor },
     { label: 'Partial', value: data.partial, bucket: 'partial', color: partialColor },
     { label: 'Not Ready', value: data.notReady, bucket: 'not-ready', color: notReadyColor },
-    { label: 'Not configured', value: data.notConfigured, bucket: 'not-configured', color: notConfiguredColor },
+    { label: 'Not configured', value: data.notConfigured, bucket: 'unknown', color: notConfiguredColor },
   ].filter((d) => d.value > 0);
 
   const pie = d3.pie<{ label: string; value: number; bucket: string; color: string }>()
@@ -202,8 +198,8 @@ export function renderReadinessDonut(
     .sort(null);
 
   const arc = d3.arc<d3.PieArcDatum<{ label: string; value: number; bucket: string; color: string }>>()
-    .innerRadius(radius * 0.6)
-    .outerRadius(radius);
+    .innerRadius(donutRadius * 0.6)
+    .outerRadius(donutRadius);
 
   const arcs = g.selectAll('path')
     .data(pie(pieData))
@@ -243,7 +239,7 @@ export function renderReadinessDonut(
 
   // Legend
   const legend = svg.append('g')
-    .attr('transform', `translate(${width + 20}, ${height / 2 - pieData.length * 10})`);
+    .attr('transform', `translate(${donutRadius * 2 + 40}, ${height / 2 - pieData.length * 10})`);
 
   const legendItems = legend.selectAll('g')
     .data(pieData)
@@ -286,10 +282,7 @@ export function renderOwnerBars(
 
   if (!data.length) {
     const msg = d3.select(container).append('div')
-      .style('padding', '1rem')
-      .style('text-align', 'center')
-      .style('color', 'var(--c-text-3)')
-      .style('font-size', 'var(--text-sm)');
+      .attr('class', 'state-box');
     msg.text('No owner data');
     return;
   }
@@ -366,16 +359,28 @@ export function renderOwnerBars(
     .style('fill', 'var(--c-text-3)');
 
   // Value labels on bars: percent + service count
+  // Position inside bar (right-aligned) when bar is wide enough, otherwise outside
+  const minBarWidthForInside = 80; // px threshold
   g.selectAll('text.bar-label')
     .data(topData)
     .join('text')
     .attr('class', 'bar-label')
-    .attr('x', (d) => x(d.compliancePercent >= 0 ? d.compliancePercent : 0) + 8)
+    .attr('x', (d) => {
+      const barWidth = x(d.compliancePercent >= 0 ? d.compliancePercent : 0);
+      return barWidth >= minBarWidthForInside ? barWidth - 8 : barWidth + 8;
+    })
     .attr('y', (d) => (y(d.key) || 0) + y.bandwidth() / 2)
+    .attr('text-anchor', (d) => {
+      const barWidth = x(d.compliancePercent >= 0 ? d.compliancePercent : 0);
+      return barWidth >= minBarWidthForInside ? 'end' : 'start';
+    })
     .attr('dominant-baseline', 'middle')
     .style('font-size', 'var(--text-xs)')
     .style('font-weight', '600')
-    .style('fill', 'var(--c-text)')
+    .style('fill', (d) => {
+      const barWidth = x(d.compliancePercent >= 0 ? d.compliancePercent : 0);
+      return barWidth >= minBarWidthForInside ? 'var(--c-surface)' : 'var(--c-text)';
+    })
     .text((d) => {
       const pct = d.compliancePercent >= 0 ? `${d.compliancePercent}%` : '—';
       return `${pct} (${d.services} service${d.services === 1 ? '' : 's'})`;
