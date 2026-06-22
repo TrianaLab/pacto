@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/schemax"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/schemax"
 )
 
 // ContractStatus represents the contract compliance status of a service.

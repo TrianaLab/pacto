@@ -3,7 +3,7 @@ package dashboard
 import (
 	"strings"
 
-	depgraph "github.com/trianalab/pacto/pkg/graph"
+	depgraph "github.com/trianalab/pacto/v2/pkg/graph"
 )
 
 // DependentInfo describes a service that depends on another service.

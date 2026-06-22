@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/internal/testutil"
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/lock"
-	"github.com/trianalab/pacto/pkg/oci"
+	"github.com/trianalab/pacto/v2/internal/testutil"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/lock"
+	"github.com/trianalab/pacto/v2/pkg/oci"
 )
 
 // writeRoot writes a minimal local root contract declaring one OCI dep and

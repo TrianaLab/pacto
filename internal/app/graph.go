@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/graph"
-	"github.com/trianalab/pacto/pkg/oci"
-	"github.com/trianalab/pacto/pkg/override"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/graph"
+	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v2/pkg/override"
 )
 
 // GraphOptions holds options for the graph command.

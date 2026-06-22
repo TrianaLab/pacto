@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/trianalab/pacto/internal/app"
-	"github.com/trianalab/pacto/internal/update"
+	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/trianalab/pacto/v2/internal/update"
 )
 
 func TestNewRootCommand_PanicRecovery(t *testing.T) {

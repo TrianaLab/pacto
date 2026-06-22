@@ -9,8 +9,8 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/internal/app"
-	pactomcp "github.com/trianalab/pacto/internal/mcp"
+	"github.com/trianalab/pacto/v2/internal/app"
+	pactomcp "github.com/trianalab/pacto/v2/internal/mcp"
 )
 
 func newMCPCommand(svc *app.Service, version string) *cobra.Command {

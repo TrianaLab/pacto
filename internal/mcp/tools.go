@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/pkg/validation"
+	"github.com/trianalab/pacto/v2/pkg/validation"
 )
 
 // --- pacto_create ---

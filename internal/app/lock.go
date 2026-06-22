@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/lock"
-	"github.com/trianalab/pacto/pkg/override"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/lock"
+	"github.com/trianalab/pacto/v2/pkg/override"
 )
 
 // LockOptions configures the lock command.

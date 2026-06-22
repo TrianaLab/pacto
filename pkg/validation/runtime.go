@@ -3,7 +3,7 @@ package validation
 import (
 	"fmt"
 
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 // RuntimeContext represents observed runtime state collected from the

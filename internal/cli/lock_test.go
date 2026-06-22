@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/internal/app"
-	"github.com/trianalab/pacto/internal/cli"
-	"github.com/trianalab/pacto/internal/testutil"
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/trianalab/pacto/v2/internal/cli"
+	"github.com/trianalab/pacto/v2/internal/testutil"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 func TestLockCommandWritesFile(t *testing.T) {

@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/trianalab/pacto/internal/app"
-	"github.com/trianalab/pacto/internal/logger"
-	"github.com/trianalab/pacto/internal/update"
+	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/trianalab/pacto/v2/internal/logger"
+	"github.com/trianalab/pacto/v2/internal/update"
 )
 
 const outputFormatKey = "output-format"
