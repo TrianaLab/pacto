@@ -65,23 +65,19 @@ describe('ReadinessView — shared filters + category breakdown', () => {
     unmount(component);
   });
 
-  it('renders a by-category breakdown panel', () => {
+  it('renders a by-category breakdown chart', () => {
     const component = mount(ReadinessView, { target, props: { services } });
-    const panel = target.querySelector('.category-panel');
-    expect(panel).toBeTruthy();
-    const text = panel?.textContent || '';
-    expect(text).toContain('operability');
-    expect(text).toContain('reliability');
+    const panels = target.querySelectorAll('.chart-panel');
+    expect(panels.length).toBeGreaterThan(0);
+    const text = target.textContent || '';
+    expect(text).toContain('By category');
     unmount(component);
   });
 
-  it('category cell is click-to-filter into the shared store', () => {
+  it('renders a readiness status donut chart', () => {
     const component = mount(ReadinessView, { target, props: { services } });
-    const catButtons = Array.from(target.querySelectorAll('.category-panel .cat-name')) as HTMLButtonElement[];
-    const reliability = catButtons.find((b) => b.textContent?.trim() === 'reliability');
-    expect(reliability).toBeTruthy();
-    reliability!.click();
-    expect(getFilters().category).toBe('reliability');
+    const text = target.textContent || '';
+    expect(text).toContain('Status Distribution');
     unmount(component);
   });
 

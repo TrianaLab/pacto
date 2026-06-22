@@ -1,7 +1,7 @@
 package diff
 
 import (
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 // diffRuntime compares runtime semantics: workload, state, persistence,

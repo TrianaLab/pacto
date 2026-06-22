@@ -8,6 +8,19 @@ export function statusClass(status: string | undefined): string {
   return 'neutral';
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  Compliant: 'Compliant',
+  Warning: 'Warning',
+  NonCompliant: 'Non-Compliant',
+  Unknown: 'Unknown',
+  Reference: 'Reference',
+};
+
+export function statusLabel(status: string | undefined): string {
+  if (!status) return 'Unknown';
+  return STATUS_LABELS[status] || status;
+}
+
 export function complianceClass(score: number): string {
   if (score >= 80) return 'score-ok';
   if (score >= 50) return 'score-warn';
@@ -334,6 +347,11 @@ export interface OwnerAggregation {
   unknown: number;
   totalBlast: number;
   compliancePercent: number;
+  // Per-owner readiness composition (buckets sum to `services`).
+  ready: number;
+  partial: number;
+  notReady: number;
+  notConfigured: number;
 }
 
 /** Aggregate services by canonical owner key. */
@@ -399,6 +417,35 @@ export function readinessBucket(svc: WithReadiness): ReadinessBucket {
   if (r.passing) return 'ready';
   if (r.score >= 50) return 'partial';
   return 'not-ready';
+}
+
+/**
+ * Score-cell class driven by the readiness GATE (passing), not the absolute
+ * score. A service at 70% that clears its minScore should read green; one at 79%
+ * that misses a higher gate should read red — so two similar scores no longer
+ * look identical. Falls back to absolute bands when there is no readiness block.
+ */
+export function readinessGateClass(r: ReadinessInfo | null | undefined): string {
+  if (!r) return '';
+  if (r.passing) return 'score-ok';
+  // Below the gate: amber when it is at least within striking distance,
+  // red when it is far off — but never green, because it does not pass.
+  if (r.score >= 50 && !r.expired) return 'score-warn';
+  return 'score-err';
+}
+
+/**
+ * Explicit gate tooltip, e.g.
+ *   "79% — passing (minScore 75)"
+ *   "70% — below gate (minScore 75)"
+ *   "82% — expired (minScore 75)"
+ * so it is obvious which services clear minScore.
+ */
+export function readinessGateTip(r: ReadinessInfo | null | undefined): string {
+  if (!r) return '';
+  if (r.expired) return `${r.score}% — expired (minScore ${r.minScore})`;
+  const verdict = r.passing ? 'passing' : 'below gate';
+  return `${r.score}% — ${verdict} (minScore ${r.minScore})`;
 }
 
 const READINESS_BUCKET_LABELS: Record<ReadinessBucket, string> = {
@@ -603,7 +650,7 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     const key = ownerKey(svc.owner) || '(unowned)';
     let agg = ownerMap.get(key);
     if (!agg) {
-      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, totalBlast: 0, compliancePercent: 0 };
+      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, totalBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
       ownerMap.set(key, agg);
       ownerScores.set(key, []);
     }
@@ -620,6 +667,13 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     // Readiness aggregation
     const r = (svc as WithReadiness).readiness;
     const bucket = readinessBucket(svc as WithReadiness);
+
+    // Per-owner readiness composition (unknown → notConfigured).
+    if (bucket === 'ready') agg.ready++;
+    else if (bucket === 'partial') agg.partial++;
+    else if (bucket === 'not-ready') agg.notReady++;
+    else agg.notConfigured++;
+
     if (bucket === 'unknown') {
       m.readiness.notConfigured++;
     } else {

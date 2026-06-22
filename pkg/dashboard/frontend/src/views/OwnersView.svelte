@@ -2,8 +2,13 @@
   import { ownerUrl, serviceUrl } from '../lib/router.ts';
   import { aggregateByOwner, complianceClass, statusClass, ownerKey, sourceTooltip, complianceStatusClass } from '../lib/format.ts';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
-  import OwnerBarChart from '../OwnerBarChart.svelte';
+  import OwnersBarChart from '../components/OwnersBarChart.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
+  import StatusBadge from '../components/StatusBadge.svelte';
+  import ComplianceScore from '../components/ComplianceScore.svelte';
+  import SourceDot from '../components/SourceDot.svelte';
+  import SortControls from '../components/SortControls.svelte';
 
   let { services = [], initialLoading = false } = $props();
 
@@ -108,55 +113,36 @@
 {/if}
 
 {#if allOwners.length === 0}
-  <div class="state-box">
-    {#if initialLoading}
-      <div class="skeleton-table fade-in">
-        {#each Array(4) as _}
-          <div class="skeleton-row">
-            <div class="skeleton skeleton-line" style="width:25%"></div>
-            <div class="skeleton skeleton-line" style="width:10%"></div>
-            <div class="skeleton skeleton-line" style="width:15%"></div>
-          </div>
-        {/each}
-      </div>
-      <p style="margin-top:var(--sp-3); color:var(--c-text-3)">Loading owners…</p>
-    {:else}
-      <h3>No ownership data</h3>
-      <p>Services don't have owner fields set. Add <code>owner</code> to your contracts.</p>
-    {/if}
-  </div>
+  <EmptyState
+    title={initialLoading ? undefined : 'No ownership data'}
+    message={initialLoading ? 'Loading owners…' : "Services don't have owner fields set. Add owner to your contracts."}
+    loading={initialLoading}
+  />
 {:else}
   <!-- Controls -->
   <div class="controls-row">
-    <div class="controls-left">
-      <span class="control-label">Sort</span>
-      {#each SORT_OPTIONS as opt}
-        <button type="button" class="sort-chip" class:active={sortBy === opt.value} onclick={() => setSort(opt.value)}>
-          {opt.label}{#if sortBy === opt.value}<span class="sort-arrow">{sortAsc ? '↑' : '↓'}</span>{/if}
-        </button>
-      {/each}
+    <SortControls {sortBy} {sortAsc} options={SORT_OPTIONS} onChange={setSort} />
 
-      <span class="controls-sep"></span>
+    <span class="controls-sep"></span>
 
-      {#if filterCounts.warnings > 0}
-        <button type="button" class="filter-chip" class:active={statusFilter === 'warnings'} onclick={() => toggleFilter('warnings')}>
-          <span class="chip-dot" style="background:var(--c-warn)"></span>
-          Warnings <span class="chip-count">{filterCounts.warnings}</span>
-        </button>
-      {/if}
-      {#if filterCounts.nonCompliant > 0}
-        <button type="button" class="filter-chip" class:active={statusFilter === 'non-compliant'} onclick={() => toggleFilter('non-compliant')}>
-          <span class="chip-dot" style="background:var(--c-err)"></span>
-          Non-Compliant <span class="chip-count">{filterCounts.nonCompliant}</span>
-        </button>
-      {/if}
-      {#if filterCounts.compliant > 0}
-        <button type="button" class="filter-chip" class:active={statusFilter === 'compliant'} onclick={() => toggleFilter('compliant')}>
-          <span class="chip-dot" style="background:var(--c-ok)"></span>
-          Fully Compliant <span class="chip-count">{filterCounts.compliant}</span>
-        </button>
-      {/if}
-    </div>
+    {#if filterCounts.warnings > 0}
+      <button type="button" class="chip" class:active={statusFilter === 'warnings'} onclick={() => toggleFilter('warnings')}>
+        <span class="chip-dot" style="background:var(--c-warn)"></span>
+        Warnings <span class="chip-count">{filterCounts.warnings}</span>
+      </button>
+    {/if}
+    {#if filterCounts.nonCompliant > 0}
+      <button type="button" class="chip" class:active={statusFilter === 'non-compliant'} onclick={() => toggleFilter('non-compliant')}>
+        <span class="chip-dot" style="background:var(--c-err)"></span>
+        Non-Compliant <span class="chip-count">{filterCounts.nonCompliant}</span>
+      </button>
+    {/if}
+    {#if filterCounts.compliant > 0}
+      <button type="button" class="chip" class:active={statusFilter === 'compliant'} onclick={() => toggleFilter('compliant')}>
+        <span class="chip-dot" style="background:var(--c-ok)"></span>
+        Fully Compliant <span class="chip-count">{filterCounts.compliant}</span>
+      </button>
+    {/if}
 
     <div class="filter-search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -165,19 +151,29 @@
   </div>
 
   {#if owners.length === 0}
-    <div class="state-box">
-      <h3>No matching owners</h3>
-      <p>Try a different search or filter.</p>
-    </div>
+    <EmptyState title="No matching owners" message="Try a different search or filter." />
   {:else}
-    <!-- Chart -->
-    {#if owners.length > 1}
-      <OwnerBarChart {owners} {sortBy} />
+    <!-- Owners readiness composition bar chart -->
+    {#if owners.length > 0}
+      <div class="chart-panel fade-in-up">
+        <div class="chart-title">Readiness by owner</div>
+        <OwnersBarChart data={owners} />
+      </div>
     {/if}
 
     <!-- Table -->
     <div class="table-wrap fade-in-up">
-      <table>
+      <table class="owners-list">
+        <colgroup>
+          <col class="ol-owner" />
+          <col class="ol-services" />
+          <col class="ol-compliant" />
+          <col class="ol-warning" />
+          <col class="ol-noncompliant" />
+          <col class="ol-reference" />
+          <col class="ol-percent" />
+          <col class="ol-blast" />
+        </colgroup>
         <thead>
           <tr>
             <th><button type="button" class="col-sort" onclick={() => setSort('key')}>Owner{sortIcon('key')}</button></th>
@@ -211,11 +207,7 @@
                 {#if row.reference > 0}{row.reference}{:else}<span class="text-dim">0</span>{/if}
               </td>
               <td>
-                {#if row.compliancePercent >= 0}
-                  <span class="score {complianceClass(row.compliancePercent)}">{row.compliancePercent}%</span>
-                {:else}
-                  <span class="text-dim">—</span>
-                {/if}
+                <ComplianceScore score={row.compliancePercent} />
               </td>
               <td>
                 {#if row.totalBlast > 0}
@@ -230,6 +222,14 @@
                 <td colspan="8">
                   <div class="expand-panel">
                     <table class="expand-table">
+                      <colgroup>
+                        <col class="oe-service" />
+                        <col class="oe-version" />
+                        <col class="oe-status" />
+                        <col class="oe-compliance" />
+                        <col class="oe-blast" />
+                        <col class="oe-source" />
+                      </colgroup>
                       <thead>
                         <tr>
                           <th>Service</th>
@@ -245,13 +245,9 @@
                           <tr class="clickable" onclick={() => location.hash = serviceUrl(svc.name)}>
                             <td><a href={serviceUrl(svc.name)} onclick={(e) => e.stopPropagation()}>{svc.name}</a></td>
                             <td><span class="pill">{svc.version || '—'}</span></td>
-                            <td><span class="badge badge-{statusClass(svc.contractStatus)}"><span class="badge-dot"></span>{svc.contractStatus}</span></td>
+                            <td><StatusBadge status={svc.contractStatus} /></td>
                             <td>
-                              {#if svc.complianceScore != null}
-                                <span class="score {complianceStatusClass(svc.complianceStatus)}">{svc.complianceScore}%</span>
-                              {:else}
-                                <span class="text-dim">—</span>
-                              {/if}
+                              <ComplianceScore score={svc.complianceScore} status={svc.complianceStatus} />
                             </td>
                             <td>
                               {#if (svc.blastRadius || 0) > 0}
@@ -262,7 +258,7 @@
                             </td>
                             <td>
                               {#each (svc.sources || [svc.source]) as src}
-                                <span class="source-dot source-dot-{src}" data-tip={sourceTooltip(src)} data-tip-align="right"></span>
+                                <SourceDot source={src} align="right" />
                               {/each}
                             </td>
                           </tr>
@@ -286,44 +282,21 @@
     margin-bottom: var(--sp-5); flex-wrap: wrap;
   }
 
+  /* ── Chart panels ── */
+  .chart-panel { margin-bottom: var(--sp-4); }
+  .chart-title {
+    font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--c-text-3); margin-bottom: var(--sp-2);
+  }
+
   /* ── Controls ── */
   .controls-row {
     display: flex; align-items: center; gap: var(--sp-3);
     margin-bottom: var(--sp-4); flex-wrap: wrap;
   }
-  .controls-left {
-    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; flex: 1;
-  }
-
-  .control-label {
-    font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--c-text-3);
-  }
-  .sort-chip {
-    display: inline-flex; align-items: center; gap: 3px;
-    padding: 4px 10px; border-radius: 100px;
-    border: 1px solid var(--c-border); background: var(--c-surface);
-    font: inherit; font-size: var(--text-xs); color: var(--c-text-3);
-    cursor: pointer; transition: all var(--transition);
-    white-space: nowrap; min-height: 30px;
-  }
-  .sort-chip:hover { border-color: var(--c-text-3); color: var(--c-text); }
-  .sort-chip.active { border-color: var(--c-accent); background: var(--c-accent-bg); color: var(--c-accent); font-weight: 600; }
-  .sort-arrow { font-weight: 400; margin-left: 1px; }
   .controls-sep {
     width: 1px; height: 20px; background: var(--c-border); flex-shrink: 0;
   }
-
-  .filter-chip {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 4px 10px; border-radius: 100px;
-    border: 1px solid var(--c-border); background: var(--c-surface);
-    font: inherit; font-size: var(--text-xs); color: var(--c-text-2);
-    cursor: pointer; transition: all var(--transition);
-    white-space: nowrap; min-height: 30px;
-  }
-  .filter-chip:hover { border-color: var(--c-text-3); color: var(--c-text); }
-  .filter-chip.active { border-color: var(--c-accent); background: var(--c-accent-bg); color: var(--c-accent); }
   .chip-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .chip-count { font-weight: 600; }
 
@@ -348,6 +321,22 @@
   th, td { white-space: nowrap; }
   th:first-child, td:first-child { white-space: normal; }
 
+  /* Fixed layout sizes columns from <colgroup>, never from content min-content,
+     so the nowrap cells can't over-grow the table and flash a spurious
+     horizontal scrollbar. Owner is left flexible to absorb %-rounding. Scoped to
+     .owners-list so the nested .expand-table keeps its own widths. */
+  .owners-list { table-layout: fixed; }
+  .owners-list th { white-space: normal; }
+  .owners-list td { overflow: visible; }
+  .ol-owner { width: auto; }
+  .ol-services { width: 11%; }
+  .ol-compliant { width: 11%; }
+  .ol-warning { width: 11%; }
+  .ol-noncompliant { width: 14%; }
+  .ol-reference { width: 11%; }
+  .ol-percent { width: 13%; }
+  .ol-blast { width: 9%; }
+
   .owner-name {
     font-weight: 600;
     text-decoration: none;
@@ -359,14 +348,6 @@
     vertical-align: middle;
   }
   .owner-name:hover { text-decoration: underline; }
-
-  .col-sort {
-    background: none; border: none; padding: 0; font: inherit;
-    font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--c-text-3); cursor: pointer;
-    white-space: nowrap;
-  }
-  .col-sort:hover { color: var(--c-text); }
 
   .text-dim { color: var(--c-text-3); }
   .text-ok { color: var(--c-ok); }
@@ -412,8 +393,15 @@
     animation: slideDown 200ms ease;
   }
   .expand-table {
-    width: 100%; border-collapse: collapse; min-width: 0;
+    width: 100%; border-collapse: collapse; min-width: 0; table-layout: fixed;
   }
+  .oe-service { width: auto; }
+  .oe-version { width: 16%; }
+  .oe-status { width: 18%; }
+  .oe-compliance { width: 16%; }
+  .oe-blast { width: 12%; }
+  .oe-source { width: 12%; }
+  .expand-table td { overflow: visible; }
   .expand-table th {
     font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--c-text-3);
@@ -432,10 +420,6 @@
   .expand-table tbody tr:last-child td { border-bottom: none; }
   .expand-table a { font-weight: 600; text-decoration: none; }
   .expand-table a:hover { text-decoration: underline; }
-
-  .skeleton-table { width: 100%; max-width: 600px; }
-  .skeleton-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-3); }
-  .skeleton-row .skeleton-line { height: 18px; border-radius: var(--radius-xs); }
 
   @media (max-width: 768px) {
     .controls-row { gap: var(--sp-2); }

@@ -5,8 +5,8 @@ import (
 	"io/fs"
 	"log/slog"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/sbom"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/sbom"
 )
 
 // Classification represents the severity of a change.

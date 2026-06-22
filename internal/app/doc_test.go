@@ -10,8 +10,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/graph"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/graph"
 )
 
 func TestDoc_Local(t *testing.T) {

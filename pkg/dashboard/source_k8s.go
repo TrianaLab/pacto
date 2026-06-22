@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/semver"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/semver"
 )
 
 // K8sSource implements DataSource by reading Pacto CRD status from a Kubernetes cluster.

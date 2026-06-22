@@ -16,7 +16,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
-	"github.com/trianalab/pacto/pkg/oci"
+	"github.com/trianalab/pacto/v2/pkg/oci"
 )
 
 // Server serves the dashboard web UI and REST API.

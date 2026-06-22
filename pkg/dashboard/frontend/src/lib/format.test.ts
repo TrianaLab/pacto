@@ -29,6 +29,8 @@ import {
   readinessBucket,
   readinessBucketLabel,
   readinessBucketClass,
+  readinessGateClass,
+  readinessGateTip,
   summarizeReadiness,
   isUrlEvidence,
   readinessCheckTypes,
@@ -320,6 +322,33 @@ describe('aggregateByOwner', () => {
       const segTotal = agg.compliant + agg.warning + agg.nonCompliant + agg.reference + agg.unknown;
       expect(segTotal).toBe(agg.services);
     }
+  });
+
+  it('produces readiness segments that sum to total services', () => {
+    const result = aggregateByOwner(services);
+    for (const agg of result) {
+      const segTotal = agg.ready + agg.partial + agg.notReady + agg.notConfigured;
+      expect(segTotal).toBe(agg.services);
+    }
+  });
+
+  it('counts per-owner readiness buckets (unknown → notConfigured)', () => {
+    const ready = { readiness: { score: 100, passing: true } };
+    const partial = { readiness: { score: 60, passing: false } };
+    const notReady = { readiness: { score: 10, passing: false } };
+    const svc = [
+      { name: 'a', owner: { team: 'team-r' }, contractStatus: 'Compliant', ...ready },
+      { name: 'b', owner: { team: 'team-r' }, contractStatus: 'Warning', ...partial },
+      { name: 'c', owner: { team: 'team-r' }, contractStatus: 'NonCompliant', ...notReady },
+      { name: 'd', owner: { team: 'team-r' }, contractStatus: 'Reference' }, // no readiness → notConfigured
+    ];
+    const result = aggregateByOwner(svc);
+    const team = result.find((r) => r.key === 'team-r')!;
+    expect(team.services).toBe(4);
+    expect(team.ready).toBe(1);
+    expect(team.partial).toBe(1);
+    expect(team.notReady).toBe(1);
+    expect(team.notConfigured).toBe(1);
   });
 
   it('handles owner with only compliant services', () => {
@@ -798,6 +827,52 @@ describe('readinessBucketClass', () => {
   });
 });
 
+describe('readinessGateClass', () => {
+  it('is green when passing the gate, regardless of absolute score', () => {
+    // 70% passing a minScore-70 gate should read green, not amber.
+    expect(readinessGateClass({ score: 70, minScore: 70, passing: true, expired: false } as any)).toBe('score-ok');
+  });
+  it('is NOT green when below the gate even at a high score', () => {
+    // 79% missing an 85 gate must not read green.
+    const cls = readinessGateClass({ score: 79, minScore: 85, passing: false, expired: false } as any);
+    expect(cls).not.toBe('score-ok');
+    expect(cls).toBe('score-warn'); // within striking distance (>= 50)
+  });
+  it('is red when far below the gate', () => {
+    expect(readinessGateClass({ score: 30, minScore: 80, passing: false, expired: false } as any)).toBe('score-err');
+  });
+  it('is red when expired even if the score would otherwise pass', () => {
+    expect(readinessGateClass({ score: 90, minScore: 80, passing: false, expired: true } as any)).toBe('score-err');
+  });
+  it('returns empty for no readiness block', () => {
+    expect(readinessGateClass(null)).toBe('');
+    expect(readinessGateClass(undefined)).toBe('');
+  });
+  it('distinguishes two close scores by their gate (the regression this fixes)', () => {
+    // fraud-service 79% passing minScore 75 vs payments-service 70% below minScore 80.
+    expect(readinessGateClass({ score: 79, minScore: 75, passing: true, expired: false } as any)).toBe('score-ok');
+    expect(readinessGateClass({ score: 70, minScore: 80, passing: false, expired: false } as any)).toBe('score-warn');
+  });
+});
+
+describe('readinessGateTip', () => {
+  it('reads "passing" with the minScore when the gate is met', () => {
+    expect(readinessGateTip({ score: 79, minScore: 75, passing: true, expired: false } as any))
+      .toBe('79% — passing (minScore 75)');
+  });
+  it('reads "below gate" with the minScore when the gate is missed', () => {
+    expect(readinessGateTip({ score: 70, minScore: 80, passing: false, expired: false } as any))
+      .toBe('70% — below gate (minScore 80)');
+  });
+  it('reads "expired" when the assessment has expired', () => {
+    expect(readinessGateTip({ score: 90, minScore: 80, passing: false, expired: true } as any))
+      .toBe('90% — expired (minScore 80)');
+  });
+  it('returns empty for no readiness block', () => {
+    expect(readinessGateTip(null)).toBe('');
+  });
+});
+
 describe('summarizeReadiness', () => {
   it('handles an empty service list', () => {
     const s = summarizeReadiness([]);
@@ -964,6 +1039,16 @@ describe('summarize', () => {
     expect(teamA.warning).toBe(1);
     expect(teamA.totalBlast).toBe(6);
     expect(teamA.compliancePercent).toBe(80); // (100+60)/2
+    // Readiness composition: a passes (ready), b score 60 not passing (partial).
+    expect(teamA.ready).toBe(1);
+    expect(teamA.partial).toBe(1);
+    expect(teamA.notReady).toBe(0);
+    expect(teamA.notConfigured).toBe(0);
+
+    // Unowned d has no readiness block → notConfigured.
+    const unowned = m.byOwner.find((o) => o.key === '(unowned)')!;
+    expect(unowned.notConfigured).toBe(1);
+    expect(unowned.ready).toBe(0);
   });
 
   it('aggregates by category with other bucket', () => {

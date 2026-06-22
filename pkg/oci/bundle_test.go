@@ -22,7 +22,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 type tarErrWriter struct{}

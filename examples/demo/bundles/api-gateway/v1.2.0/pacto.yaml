@@ -5,7 +5,7 @@ service:
   version: 1.2.0
   owner:
     team: platform-foundations
-    dri: bob.martinez
+    dri: alice.johnson
     contacts:
       - type: email
         value: platform-foundations@acme.com

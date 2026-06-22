@@ -5,6 +5,7 @@
   import FilterBar from '../components/FilterBar.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
+  import SourceDot from '../components/SourceDot.svelte';
 
   let { services = [], sourcesInfo = [], discovering = false, initialLoading = false } = $props();
 
@@ -113,7 +114,7 @@
         {#if disabledSources.length > 0}
           <div class="source-reasons">
             {#each disabledSources as src}
-              <span class="source-reason"><span class="source-dot source-dot-{src.type}"></span>{src.type}: {src.reason}</span>
+              <span class="source-reason"><SourceDot source={src.type} />{src.type}: {src.reason}</span>
             {/each}
           </div>
         {/if}
@@ -122,7 +123,7 @@
         {#if enabledSources.length > 0}
           <div class="source-reasons">
             {#each enabledSources as src}
-              <span class="source-reason"><span class="source-dot source-dot-{src.type}"></span>{src.type}: {src.reason}</span>
+              <span class="source-reason"><SourceDot source={src.type} />{src.type}: {src.reason}</span>
             {/each}
           </div>
         {/if}
@@ -136,7 +137,9 @@
       <span>Discovering more services...</span>
     </div>
   {/if}
-  <div class="table-wrap fade-in-up">
+  <!-- ServicesTable provides its own .table-wrap; a second one here nested two
+       overflow contexts and produced a spurious horizontal scrollbar. -->
+  <div class="fade-in-up">
     <ServicesTable services={filtered} />
   </div>
 {/if}

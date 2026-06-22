@@ -2,6 +2,7 @@
   import { getFilters, setFilter, clearFilters } from '../lib/filters.svelte.ts';
   import { filtersActive } from '../lib/filters.ts';
   import { ownerKey, readinessBucket } from '../lib/format.ts';
+  import Select from './Select.svelte';
 
   // The UNFILTERED list for computing facet counts
   let { services = [] } = $props();
@@ -86,67 +87,57 @@
 
   <!-- Owner facet -->
   {#if ownerOptions.length > 0}
-    <label class="filter-select">
-      <span>Owner</span>
-      <select value={filters.owner} onchange={(e) => setFilter('owner', e.target.value)} aria-label="Filter by owner">
-        <option value="">All</option>
-        {#each ownerOptions as o}
-          <option value={o}>{o} ({ownerCounts.get(o)})</option>
-        {/each}
-      </select>
-    </label>
+    <Select
+      label="Owner"
+      value={filters.owner}
+      options={[{ value: '', label: 'All' }, ...ownerOptions.map(o => ({ value: o, label: `${o} (${ownerCounts.get(o)})` }))]}
+      onchange={(e) => setFilter('owner', e.target.value)}
+      ariaLabel="Filter by owner"
+    />
   {/if}
 
   <!-- Category facet -->
   {#if categoryOptions.length > 0}
-    <label class="filter-select">
-      <span>Category</span>
-      <select value={filters.category} onchange={(e) => setFilter('category', e.target.value)} aria-label="Filter by readiness category">
-        <option value="">All</option>
-        {#each categoryOptions as c}
-          <option value={c}>{c} ({categoryCounts.get(c)})</option>
-        {/each}
-      </select>
-    </label>
+    <Select
+      label="Category"
+      value={filters.category}
+      options={[{ value: '', label: 'All' }, ...categoryOptions.map(c => ({ value: c, label: `${c} (${categoryCounts.get(c)})` }))]}
+      onchange={(e) => setFilter('category', e.target.value)}
+      ariaLabel="Filter by readiness category"
+    />
   {/if}
 
   <!-- Readiness status facet -->
   {#if readinessStatusOptions.length > 0}
-    <label class="filter-select">
-      <span>Readiness</span>
-      <select value={filters.readinessStatus} onchange={(e) => setFilter('readinessStatus', e.target.value)} aria-label="Filter by readiness status">
-        <option value="">All</option>
-        {#each readinessStatusOptions as r}
-          <option value={r}>{r} ({readinessStatusCounts.get(r)})</option>
-        {/each}
-      </select>
-    </label>
+    <Select
+      label="Readiness"
+      value={filters.readinessStatus}
+      options={[{ value: '', label: 'All' }, ...readinessStatusOptions.map(r => ({ value: r, label: `${r} (${readinessStatusCounts.get(r)})` }))]}
+      onchange={(e) => setFilter('readinessStatus', e.target.value)}
+      ariaLabel="Filter by readiness status"
+    />
   {/if}
 
   <!-- Contract status facet -->
   {#if contractStatusOptions.length > 0}
-    <label class="filter-select">
-      <span>Contract Status</span>
-      <select value={filters.contractStatus} onchange={(e) => setFilter('contractStatus', e.target.value)} aria-label="Filter by contract status">
-        <option value="">All</option>
-        {#each contractStatusOptions as s}
-          <option value={s}>{s} ({contractStatusCounts.get(s)})</option>
-        {/each}
-      </select>
-    </label>
+    <Select
+      label="Contract Status"
+      value={filters.contractStatus}
+      options={[{ value: '', label: 'All' }, ...contractStatusOptions.map(s => ({ value: s, label: `${s} (${contractStatusCounts.get(s)})` }))]}
+      onchange={(e) => setFilter('contractStatus', e.target.value)}
+      ariaLabel="Filter by contract status"
+    />
   {/if}
 
   <!-- Source facet -->
   {#if sourceOptions.length > 0}
-    <label class="filter-select">
-      <span>Source</span>
-      <select value={filters.source} onchange={(e) => setFilter('source', e.target.value)} aria-label="Filter by data source">
-        <option value="">All</option>
-        {#each sourceOptions as s}
-          <option value={s}>{s} ({sourceCounts.get(s)})</option>
-        {/each}
-      </select>
-    </label>
+    <Select
+      label="Source"
+      value={filters.source}
+      options={[{ value: '', label: 'All' }, ...sourceOptions.map(s => ({ value: s, label: `${s} (${sourceCounts.get(s)})` }))]}
+      onchange={(e) => setFilter('source', e.target.value)}
+      ariaLabel="Filter by data source"
+    />
   {/if}
 
   <!-- Clear all button -->
@@ -202,31 +193,6 @@
 
   .filter-search input::placeholder {
     color: var(--c-text-3);
-  }
-
-  .filter-select {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--text-xs);
-    color: var(--c-text-3);
-  }
-
-  .filter-select select {
-    font: inherit;
-    font-size: var(--text-xs);
-    color: var(--c-text);
-    background: var(--c-surface);
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-xs);
-    padding: 4px 8px;
-    min-height: 30px;
-    cursor: pointer;
-  }
-
-  .filter-select select:focus {
-    outline: none;
-    border-color: var(--c-accent);
   }
 
   .clear-btn {

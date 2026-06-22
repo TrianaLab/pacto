@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 const contractFile = "pacto.yaml"

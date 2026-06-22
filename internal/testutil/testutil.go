@@ -11,8 +11,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/plugin"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/plugin"
 )
 
 // MockBundleStore implements oci.BundleStore for testing.

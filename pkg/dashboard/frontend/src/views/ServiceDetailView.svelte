@@ -2,9 +2,14 @@
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { navigate, serviceUrl, serviceVersionUrl, diffUrl, ownerUrl } from '../lib/router.ts';
-  import { statusClass, complianceClass, classificationClass, sourceTooltip, versionPolicyLabel, versionPolicyClass, ownerDisplay, ownerKey, ownerIsStructured, referencedDocPaths, paginate } from '../lib/format.ts';
+  import { complianceClass, classificationClass, versionPolicyLabel, versionPolicyClass, ownerIsStructured, referencedDocPaths, paginate } from '../lib/format.ts';
+  import StatusBadge from '../components/StatusBadge.svelte';
+  import ComplianceScore from '../components/ComplianceScore.svelte';
+  import OwnerLink from '../components/OwnerLink.svelte';
+  import SourceDot from '../components/SourceDot.svelte';
   import { compareDiffUrl } from '../lib/router.ts';
   import { buildVersionSubgraph } from '../lib/graph.ts';
+  import { formatDate } from '../lib/dateFormat.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
 
   import OverviewSection from '../sections/OverviewSection.svelte';
@@ -290,7 +295,7 @@
     <div class="detail-title-row">
       <h1>{detail.name}</h1>
       {#if detail.runtimeEvaluated}
-        <span class="badge badge-{statusClass(detail.contractStatus)}"><span class="badge-dot"></span>{detail.contractStatus}</span>
+        <StatusBadge status={detail.contractStatus} />
       {:else}
         <span class="badge badge-definition" data-tip="No cluster runtime data for this view — showing the contract definition only (runtime status unknown)">
           <span class="badge-dot"></span>Definition only
@@ -298,7 +303,7 @@
       {/if}
       {#if detail.runtimeEvaluated && detail.compliance}
         {#if detail.compliance.score != null}
-          <span class="score {complianceClass(detail.compliance.score)}">{detail.compliance.score}%</span>
+          <ComplianceScore score={detail.compliance.score} />
         {/if}
         {#if detail.compliance.summary?.errors > 0}
           <span class="badge badge-err">{detail.compliance.summary.errors} error{detail.compliance.summary.errors > 1 ? 's' : ''}</span>
@@ -334,17 +339,15 @@
         {/if}
       {/if}
       {#each sources as src}
-        <span class="source-dot source-dot-{src}" data-tip={sourceTooltip(src)}></span>
+        <SourceDot source={src} />
       {/each}
-      {#if ownerDisplay(detail.owner)}
-        <a href={ownerUrl(ownerKey(detail.owner))} class="text-2 owner-link">owner: {ownerDisplay(detail.owner)}</a>
-        {#if detail.sectionMeta?.owner?.overriddenBy === 'k8s'}
-          <span class="pill pill-override" data-tip="Owner from the cluster — differs from the contract-declared owner">via cluster</span>
-        {/if}
-        {#if ownerIsStructured(detail.owner) && detail.owner.dri}
+      <span class="text-2 owner-link">owner: <OwnerLink owner={detail.owner} /></span>
+      {#if detail.sectionMeta?.owner?.overriddenBy === 'k8s'}
+        <span class="pill pill-override" data-tip="Owner from the cluster — differs from the contract-declared owner">via cluster</span>
+      {/if}
+      {#if ownerIsStructured(detail.owner) && detail.owner.dri}
           <span class="text-3">dri: {detail.owner.dri}</span>
         {/if}
-      {/if}
       {#if detail.namespace}<span class="text-2">ns: {detail.namespace}</span>{/if}
       {#if detail.resolvedRef || detail.imageRef}<code class="detail-ref text-3">{detail.resolvedRef || detail.imageRef}</code>{/if}
       {#if versions?.length > 1}
@@ -502,7 +505,14 @@
     <section class="section" id="section-versions">
       <div class="section-title">Version History <span class="tab-count">{versions.length}</span></div>
       <div class="table-wrap">
-        <table>
+        <table class="version-history">
+          <colgroup>
+            <col class="vh-version" />
+            <col class="vh-class" />
+            <col class="vh-source" />
+            <col class="vh-created" />
+            <col class="vh-compare" />
+          </colgroup>
           <thead><tr><th data-tip="Semver version tag">Version</th><th data-tip="Change impact vs previous version">Classification</th><th data-tip="Where this version was found">Source</th><th data-tip="When this version was published">Created</th><th data-tip="Compare this version against the one you're viewing">Compare</th></tr></thead>
           <tbody>
             {#each pagedVersions.items as ver}
@@ -519,8 +529,8 @@
                   {:else}<span class="text-3">—</span>
                   {/if}
                 </td>
-                <td>{#if ver.source}<span class="source-dot source-dot-{ver.source}" data-tip={sourceTooltip(ver.source)}></span> <span class="text-3" style="font-size:var(--text-xs)">{ver.source}</span>{:else}—{/if}</td>
-                <td class="text-2">{ver.createdAt ? new Date(ver.createdAt).toLocaleDateString() : '—'}</td>
+                <td>{#if ver.source}<SourceDot source={ver.source} /> <span class="text-3" style="font-size:var(--text-xs)">{ver.source}</span>{:else}—{/if}</td>
+                <td class="text-2">{formatDate(ver.createdAt) || '—'}</td>
                 <td>
                   {#if ver.version !== detail.version}
                     <button type="button" class="btn btn-sm" class:btn-active={diffExpandedVer === ver.version} onclick={() => compareVersion(ver.version)}>
@@ -717,6 +727,19 @@
   .btn-update {
     font-size: var(--text-xs); padding: 4px 10px;
   }
+
+  /* Fixed layout so the nowrap cells can't over-grow the table and flash a
+     spurious horizontal scrollbar; Version is left flexible to absorb rounding.
+     The .diff-expand-row's colspan cell is exempt (its content wraps freely). */
+  .version-history { table-layout: fixed; }
+  .version-history th { white-space: normal; }
+  .version-history td { overflow: visible; white-space: nowrap; }
+  .vh-version { width: auto; }
+  .vh-class { width: 22%; }
+  .vh-source { width: 16%; }
+  .vh-created { width: 18%; }
+  .vh-compare { width: 16%; }
+  .version-history .diff-expand-row > td { white-space: normal; overflow: visible; }
 
   .version-current {
     background: var(--c-surface-hover);

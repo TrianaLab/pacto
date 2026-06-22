@@ -9,9 +9,19 @@ html {
   background: var(--c-bg);
   color: var(--c-text);
   transition: background var(--transition), color var(--transition);
+  /* Reserve the vertical scrollbar's gutter at all times so its appearance never
+     narrows the content box — that narrowing is what makes fixed-width tables
+     briefly overflow and flash a spurious horizontal scrollbar. */
+  scrollbar-gutter: stable;
+  /* The page itself never scrolls horizontally. `clip` (not `hidden`) clips the
+     overflow without creating a scroll container, so it never breaks position:
+     sticky and never affects intentional inner scrollers (e.g. .table-wrap on
+     mobile). This absorbs the few px that hover tooltips paint past the last
+     table column at narrow widths, where the content box has no side margin. */
+  overflow-x: clip;
 }
 
-body { min-height: 100vh; overflow-x: hidden; }
+body { min-height: 100vh; overflow-x: clip; }
 
 a { color: var(--c-accent); text-decoration: none; transition: color var(--transition); }
 a:hover { color: var(--c-accent-hover); text-decoration: underline; }

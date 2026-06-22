@@ -1,42 +1,33 @@
 <script>
   import { setFilter } from '../lib/filters.svelte.ts';
-  import { serviceUrl, ownerUrl } from '../lib/router.ts';
-  import {
-    statusClass,
-    complianceClass,
-    complianceStatusClass,
-    sourceTooltip,
-    ownerDisplay,
-    ownerKey,
-    readinessBucket,
-    readinessBucketLabel,
-    readinessBucketClass,
-  } from '../lib/format.ts';
+  import { serviceUrl } from '../lib/router.ts';
+  import { readinessBucket, readinessBucketLabel, readinessBucketClass } from '../lib/format.ts';
+  import StatusBadge from './StatusBadge.svelte';
+  import ComplianceScore from './ComplianceScore.svelte';
+  import ReadinessScore from './ReadinessScore.svelte';
+  import OwnerLink from './OwnerLink.svelte';
+  import SourceDot from './SourceDot.svelte';
+  import EmptyState from './EmptyState.svelte';
 
   // The FILTERED list of services
   let { services = [] } = $props();
-
-  const STATUS_LABELS = {
-    Compliant: 'Compliant',
-    Warning: 'Warning',
-    NonCompliant: 'Non-Compliant',
-    Unknown: 'Unknown',
-    Reference: 'Reference',
-  };
-
-  function statusLabel(s) {
-    return STATUS_LABELS[s] || s;
-  }
 </script>
 
 {#if services.length === 0}
-  <div class="state-box">
-    <h3>No services</h3>
-    <p>No services match the current filters.</p>
-  </div>
+  <EmptyState title="No services" message="No services match the current filters." />
 {:else}
   <div class="table-wrap">
     <table>
+      <colgroup>
+        <col class="col-name" />
+        <col class="col-version" />
+        <col class="col-status" />
+        <col class="col-compliance" />
+        <col class="col-readiness" />
+        <col class="col-blast" />
+        <col class="col-checks" />
+        <col class="col-source" />
+      </colgroup>
       <thead>
         <tr>
           <th data-tip="Service contract name">Name</th>
@@ -54,18 +45,7 @@
           <tr class="clickable" onclick={() => (location.hash = serviceUrl(svc.name))}>
             <td>
               <a href={serviceUrl(svc.name)} class="svc-name">{svc.name}</a>
-              {#if ownerDisplay(svc.owner)}
-                <a
-                  href={ownerUrl(ownerKey(svc.owner))}
-                  class="svc-owner"
-                  onclick={(e) => {
-                    e.stopPropagation();
-                    setFilter('owner', ownerKey(svc.owner));
-                  }}
-                >
-                  {ownerDisplay(svc.owner)}
-                </a>
-              {/if}
+              <span class="svc-owner"><OwnerLink owner={svc.owner} /></span>
             </td>
             <td>
               <span class="pill">{svc.version || '—'}</span>
@@ -82,21 +62,15 @@
                   setFilter('contractStatus', svc.contractStatus);
                 }}
               >
-                <span class="badge badge-{statusClass(svc.contractStatus)}">
-                  <span class="badge-dot"></span>{statusLabel(svc.contractStatus)}
-                </span>
+                <StatusBadge status={svc.contractStatus} />
               </button>
             </td>
             <td>
-              {#if svc.complianceScore != null}
-                <span class="score {complianceStatusClass(svc.complianceStatus)}">{svc.complianceScore}%</span>
-              {:else}
-                <span class="text-dim">—</span>
-              {/if}
+              <ComplianceScore score={svc.complianceScore} status={svc.complianceStatus} />
             </td>
             <td>
               {#if svc.readiness}
-                <span class="score {complianceClass(svc.readiness.score)}">{svc.readiness.score}<span class="score-unit">%</span></span>
+                <ReadinessScore readiness={svc.readiness} />
               {:else}
                 <span class="text-dim">—</span>
               {/if}
@@ -127,7 +101,7 @@
             </td>
             <td>
               {#each svc.sources || [svc.source] as src}
-                <span class="source-dot source-dot-{src}" data-tip={sourceTooltip(src)} data-tip-align="right"></span>
+                <SourceDot source={src} align="right" />
               {/each}
             </td>
           </tr>
@@ -138,22 +112,40 @@
 {/if}
 
 <style>
-  .state-box {
-    padding: var(--sp-5);
-    text-align: center;
-    color: var(--c-text-3);
-  }
+  /* The .table-wrap div deliberately has NO scoped overflow rule: it inherits the
+     global .table-wrap (overflow:visible on desktop, overflow-x:auto only ≤768px).
+     A scoped overflow-x:auto here forced a permanent scroll context on desktop, and
+     since cells are overflow:visible (so tooltips escape), the hover tooltips that
+     paint past the last column turned into a spurious horizontal scrollbar. */
 
-  .table-wrap {
-    overflow-x: auto;
-  }
-
+  /* Fixed layout: column widths come from <colgroup>, not from content's
+     intrinsic min-content. This stops the nowrap columns from over-growing the
+     table past 100% and triggering a spurious horizontal scrollbar. */
   table {
     width: 100%;
+    box-sizing: border-box;
+    table-layout: fixed;
   }
 
-  th, td {
+  /* Name column flexes and truncates; the rest are compact and fixed-ish. */
+  .col-name { width: auto; }
+  .col-version { width: 12%; }
+  .col-status { width: 14%; }
+  .col-compliance { width: 11%; }
+  .col-readiness { width: 11%; }
+  .col-blast { width: 8%; }
+  .col-checks { width: 9%; }
+  .col-source { width: 9%; }
+
+  th {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  td {
     white-space: nowrap;
+    overflow: visible;
   }
 
   th:first-child, td:first-child {
@@ -164,57 +156,18 @@
     font-weight: 600;
     text-decoration: none;
     display: block;
-    max-width: 200px;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
+  .svc-owner {
+    margin-left: 6px;
+  }
+
   .svc-name:hover {
     text-decoration: underline;
-  }
-
-  .svc-owner {
-    color: var(--c-text-3);
-    font-size: var(--text-xs);
-    margin-left: 6px;
-    text-decoration: none;
-  }
-
-  .svc-owner:hover {
-    color: var(--c-text-2);
-    text-decoration: underline;
-  }
-
-  .badge-btn {
-    background: none;
-    border: none;
-    padding: 0;
-    font: inherit;
-    cursor: pointer;
-  }
-
-  .score {
-    font-weight: 600;
-  }
-
-  .score-unit {
-    font-size: 0.8em;
-    font-weight: 500;
-    color: var(--c-text-3);
-    margin-left: 1px;
-  }
-
-  .score.score-ok {
-    color: var(--c-ok);
-  }
-
-  .score.score-warn {
-    color: var(--c-warn);
-  }
-
-  .score.score-err {
-    color: var(--c-err);
   }
 
   .text-dim {

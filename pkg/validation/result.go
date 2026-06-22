@@ -1,6 +1,6 @@
 package validation
 
-import "github.com/trianalab/pacto/pkg/contract"
+import "github.com/trianalab/pacto/v2/pkg/contract"
 
 // ValidationResult aggregates errors and warnings from all validation layers.
 type ValidationResult struct {

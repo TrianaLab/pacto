@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/trianalab/pacto/internal/testutil"
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/internal/testutil"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 func TestGraph_Local(t *testing.T) {

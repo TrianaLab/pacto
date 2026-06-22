@@ -6,6 +6,7 @@
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
   import GraphCanvas from '../GraphCanvas.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
 
   let { owner = '', services = [], initialLoading = false } = $props();
 
@@ -92,28 +93,19 @@
 {#if ownerServices.length > 0}
   <div class="section">
     <div class="section-title">Services <span class="tab-count">{ownerServices.length}</span></div>
-    <div class="table-wrap fade-in-up">
+    <!-- ServicesTable provides its own .table-wrap; wrapping it in a second
+         .table-wrap nested two overflow contexts and was the source of the
+         spurious horizontal scrollbar on the owner-detail view. -->
+    <div class="fade-in-up">
       <ServicesTable services={ownerServices} />
     </div>
   </div>
 {:else}
-  <div class="state-box">
-    {#if initialLoading}
-      <div class="skeleton-table fade-in">
-        {#each Array(3) as _}
-          <div class="skeleton-row">
-            <div class="skeleton skeleton-line" style="width:30%"></div>
-            <div class="skeleton skeleton-line" style="width:15%"></div>
-            <div class="skeleton skeleton-line" style="width:20%"></div>
-          </div>
-        {/each}
-      </div>
-      <p style="margin-top:var(--sp-3); color:var(--c-text-3)">Loading services…</p>
-    {:else}
-      <h3>No services</h3>
-      <p>No services found for owner "{owner}".</p>
-    {/if}
-  </div>
+  <EmptyState
+    loading={initialLoading}
+    title={!initialLoading ? 'No services' : undefined}
+    message={initialLoading ? 'Loading services…' : `No services found for owner "${owner}".`}
+  />
 {/if}
 
 <!-- Owner graph -->
@@ -194,13 +186,4 @@
   .dri-conflict { color: var(--c-warn); }
 
   .graph-wrap { position: relative; }
-
-  /* Ensure ServicesTable fits in owner detail view */
-  .table-wrap :global(table) { width: 100%; }
-  .table-wrap :global(th), .table-wrap :global(td) { white-space: nowrap; }
-  .table-wrap :global(th:first-child), .table-wrap :global(td:first-child) { white-space: normal; }
-
-  .skeleton-table { width: 100%; max-width: 600px; }
-  .skeleton-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-3); }
-  .skeleton-row .skeleton-line { height: 18px; border-radius: var(--radius-xs); }
 </style>

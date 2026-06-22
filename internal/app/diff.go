@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/diff"
-	"github.com/trianalab/pacto/pkg/graph"
-	"github.com/trianalab/pacto/pkg/override"
-	"github.com/trianalab/pacto/pkg/sbom"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/diff"
+	"github.com/trianalab/pacto/v2/pkg/graph"
+	"github.com/trianalab/pacto/v2/pkg/override"
+	"github.com/trianalab/pacto/v2/pkg/sbom"
 )
 
 // DiffOptions holds options for the diff command.

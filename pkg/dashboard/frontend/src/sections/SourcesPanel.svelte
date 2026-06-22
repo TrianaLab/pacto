@@ -1,5 +1,6 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import SourceDot from '../components/SourceDot.svelte';
   import { sourceTooltip } from '../lib/format.ts';
   import { api } from '../lib/api.ts';
 
@@ -57,7 +58,7 @@
     </p>
     {#each data.sources || [] as s}
       <div class="src-row">
-        <span class="source-dot source-dot-{s.sourceType}" data-tip={sourceTooltip(s.sourceType)}></span>
+        <SourceDot source={s.sourceType} />
         <span class="src-type">{s.sourceType}</span>
         <span class="src-summary">{summarize(s.service).join(' · ') || '—'}</span>
       </div>

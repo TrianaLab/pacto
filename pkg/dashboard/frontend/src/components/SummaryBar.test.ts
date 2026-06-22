@@ -86,10 +86,46 @@ describe('SummaryBar — metrics and click-to-filter', () => {
     // avg = (100 + 60 + 80) / 3 = 80
     expect(readinessTile?.textContent).toContain('80');
     expect(readinessTile?.textContent).toContain('%');
-    // 2 of 3 ready (scores >= minScore)
-    expect(readinessTile?.textContent).toContain('2 of 3 ready');
+    // 2 of 3 clear the gate (score >= minScore). Copy is explicit about the gate.
+    expect(readinessTile?.textContent).toContain('2 of 3 pass gate');
 
     unmount(component);
+  });
+
+  it('marks readiness green with a ✓ only when every configured service passes the gate', () => {
+    const allPass = mount(SummaryBar, {
+      target,
+      props: {
+        services: [
+          { name: 'a', readiness: { score: 100, minScore: 80, passing: true } },
+          { name: 'b', readiness: { score: 90, minScore: 80, passing: true } },
+        ],
+      },
+    });
+    let tile = Array.from(target.querySelectorAll('.metric-tile')).find((t) =>
+      t.textContent?.includes('Readiness'),
+    )!;
+    let value = tile.querySelector('.metric-value')!;
+    expect(value.classList.contains('score-ok')).toBe(true);
+    expect(value.querySelector('.gate-check')).toBeTruthy();
+    unmount(allPass);
+
+    const someFail = mount(SummaryBar, {
+      target,
+      props: {
+        services: [
+          { name: 'a', readiness: { score: 100, minScore: 80, passing: true } },
+          { name: 'b', readiness: { score: 40, minScore: 80, passing: false } },
+        ],
+      },
+    });
+    tile = Array.from(target.querySelectorAll('.metric-tile')).find((t) =>
+      t.textContent?.includes('Readiness'),
+    )!;
+    value = tile.querySelector('.metric-value')!;
+    expect(value.classList.contains('score-ok')).toBe(false);
+    expect(value.querySelector('.gate-check')).toBeNull();
+    unmount(someFail);
   });
 
   it('renders high-impact card', () => {

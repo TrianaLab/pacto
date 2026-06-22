@@ -1,11 +1,11 @@
-module github.com/trianalab/pacto
+module github.com/trianalab/pacto/v2
 
 go 1.26.0
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/danielgtaylor/huma/v2 v2.38.0
-	github.com/google/go-containerregistry v0.21.6
+	github.com/google/go-containerregistry v0.21.7
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
@@ -20,7 +20,7 @@ require (
 require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/docker/cli v29.4.3+incompatible // indirect
+	github.com/docker/cli v29.5.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect

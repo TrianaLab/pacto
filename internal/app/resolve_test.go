@@ -9,8 +9,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/override"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/override"
 )
 
 func TestLoadLocalBundleAppliesPactoignore(t *testing.T) {

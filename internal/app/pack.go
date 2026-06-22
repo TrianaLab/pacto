@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/trianalab/pacto/pkg/oci"
-	"github.com/trianalab/pacto/pkg/override"
+	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v2/pkg/override"
 )
 
 // PackOptions holds options for the pack command.

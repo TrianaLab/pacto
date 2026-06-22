@@ -5,7 +5,7 @@ service:
   version: 1.0.0
   owner:
     team: payments-team
-    dri: priya.sharma
+    dri: james.wilson
     contacts:
       - type: email
         value: payments-team@acme.com

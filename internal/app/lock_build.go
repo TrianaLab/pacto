@@ -4,9 +4,9 @@ import (
 	"context"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/graph"
-	"github.com/trianalab/pacto/pkg/lock"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/graph"
+	"github.com/trianalab/pacto/v2/pkg/lock"
 )
 
 // buildLock resolves the full dependency + reference closure for a contract and

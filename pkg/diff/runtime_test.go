@@ -3,7 +3,7 @@ package diff
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 func TestDiffLifecycle_BothNil(t *testing.T) {

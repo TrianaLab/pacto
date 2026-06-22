@@ -3,7 +3,7 @@ package validation
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 func TestYamlToGeneric_InvalidYAML(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/internal/app"
+	"github.com/trianalab/pacto/v2/internal/app"
 )
 
 // NewServer creates a new MCP server with all Pacto tools registered.
