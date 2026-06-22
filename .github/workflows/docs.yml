@@ -10,10 +10,20 @@ on:
       # The demo embeds the dashboard UI + engine, so redeploy when they change.
       - 'pkg/dashboard/**'
       - '.github/workflows/docs.yml'
-  # Redeploy on every published release. The demo bakes in the Pacto version via
-  # `git describe` at build time; the release tag is created moments AFTER the
-  # merge-to-main push that triggered the path-filtered build above, so that
-  # build still saw the previous tag. This re-runs once the new tag exists.
+  # The demo bakes in the Pacto version via `git describe` at build time. The
+  # merge-to-main push above runs ~seconds BEFORE Auto release creates the tag,
+  # so it bakes the PREVIOUS version. We must redeploy once the new tag exists.
+  #
+  # Auto release creates the GitHub release with the default GITHUB_TOKEN, and
+  # GitHub does NOT fire the `release` event for token-created releases (anti-
+  # recursion) — so an `on: release` trigger never runs for our automated tags.
+  # Instead, redeploy when the "Auto release" workflow itself COMPLETES: by then
+  # the tag exists and `git describe` resolves it. `workflow_run` is not subject
+  # to the token restriction.
+  workflow_run:
+    workflows: ["Auto release"]
+    types: [completed]
+  # Still covers releases published manually by a human (those DO fire `release`).
   release:
     types: [published]
   workflow_dispatch:
@@ -30,6 +40,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # On the workflow_run trigger, only deploy when Auto release actually
+    # succeeded (skip cancelled/failed release runs). All other triggers proceed.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v7.0.0
         # Full history + tags so the demo build's `git describe` resolves the
@@ -56,6 +69,23 @@ jobs:
         run: make -C examples/demo build BASE=/pacto/demo/
       - name: Smoke test the wasm engine
         run: make -C examples/demo smoke
+      # Guardrail: on a release-driven deploy the baked navbar version MUST match
+      # the latest published release. If it doesn't (e.g. `git describe` resolved
+      # a stale tag), fail loudly instead of silently shipping the wrong version.
+      # Skipped on plain `push`/`workflow_dispatch`, where the build may
+      # intentionally predate the tag.
+      - name: Guardrail — baked demo version matches the latest release
+        if: ${{ github.event_name == 'workflow_run' || github.event_name == 'release' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          baked="$(jq -r .version examples/demo/dist/version.json)"
+          latest="$(gh release view --json tagName -q .tagName)"
+          echo "baked navbar version: '$baked' · latest release: '$latest'"
+          if [ "${baked#v}" != "${latest#v}" ]; then
+            echo "::error::Demo navbar version '$baked' != latest release '$latest' — stale demo deploy."
+            exit 1
+          fi
       - name: Fold the demo into the docs site
         run: |
           mkdir -p site/demo
