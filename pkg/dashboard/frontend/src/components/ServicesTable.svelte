@@ -112,12 +112,11 @@
 {/if}
 
 <style>
-  /* overflow-x:auto is only a last-resort fallback; the fixed layout below sizes
-     the table to exactly the container width so a scrollbar never appears unless
-     the viewport is genuinely too narrow. */
-  .table-wrap {
-    overflow-x: auto;
-  }
+  /* The .table-wrap div deliberately has NO scoped overflow rule: it inherits the
+     global .table-wrap (overflow:visible on desktop, overflow-x:auto only ≤768px).
+     A scoped overflow-x:auto here forced a permanent scroll context on desktop, and
+     since cells are overflow:visible (so tooltips escape), the hover tooltips that
+     paint past the last column turned into a spurious horizontal scrollbar. */
 
   /* Fixed layout: column widths come from <colgroup>, not from content's
      intrinsic min-content. This stops the nowrap columns from over-growing the

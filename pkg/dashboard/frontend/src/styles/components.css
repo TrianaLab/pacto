@@ -317,8 +317,19 @@ select {
 }
 
 /* ─── Table wrapper ─── */
+/* Desktop: visible so hover tooltips that paint past the last column aren't
+   clipped (the page never h-scrolls — html/body are overflow-x:clip — so this
+   spill is absorbed, not turned into a scrollbar). Narrow viewports: auto so a
+   table genuinely wider than the viewport stays reachable via an inner scrollbar.
+   The media query lives here (after base.css's mobile block) so it wins the
+   cascade for every .table-wrap. */
 .table-wrap {
-  overflow: visible;
+  overflow-x: visible;
+}
+@media (max-width: 768px) {
+  .table-wrap {
+    overflow-x: auto;
+  }
 }
 
 /* ─── Diff change styling ─── */

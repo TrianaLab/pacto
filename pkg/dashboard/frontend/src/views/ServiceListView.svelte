@@ -137,7 +137,9 @@
       <span>Discovering more services...</span>
     </div>
   {/if}
-  <div class="table-wrap fade-in-up">
+  <!-- ServicesTable provides its own .table-wrap; a second one here nested two
+       overflow contexts and produced a spurious horizontal scrollbar. -->
+  <div class="fade-in-up">
     <ServicesTable services={filtered} />
   </div>
 {/if}
