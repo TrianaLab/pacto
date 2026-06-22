@@ -1,15 +1,15 @@
 <script>
   // Revision-history table for a readiness assessment. Renders nothing when there
   // are no revisions, so callers can include it unconditionally.
+  import { formatDate } from '../lib/dateFormat.ts';
+
   let { revisions = [] } = $props();
 
   let hasRevisions = $derived((revisions?.length ?? 0) > 0);
 
   function fmtDate(d) {
-    if (!d) return '—';
-    const t = Date.parse(d);
-    if (Number.isNaN(t)) return d;
-    return new Date(t).toLocaleDateString();
+    const formatted = formatDate(d);
+    return formatted || (d ?? '—');
   }
 </script>
 

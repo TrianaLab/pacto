@@ -4,6 +4,7 @@
   import DocModal from '../DocModal.svelte';
   import RevisionHistory from './RevisionHistory.svelte';
   import { complianceClass, checkStatusClass, checkStatusLabel, assessmentCountdownLabel } from '../lib/format.ts';
+  import { formatDate } from '../lib/dateFormat.ts';
 
   let { readiness = null, docs = [], open = $bindable(false), id = '', source = '' } = $props();
 
@@ -54,8 +55,8 @@
         {#if readiness.expires}
           <div class="metric">
             <span class="metric-label">Expires</span>
-            <span class="metric-value" class:gate-fail={readiness.expired}>
-              <code>{readiness.expires}</code>
+            <span class="metric-value" class:gate-fail={readiness.expired} data-tip={readiness.expires}>
+              {formatDate(readiness.expires) || readiness.expires}
               {#if countdown}<span class="countdown" class:countdown-expired={readiness.expired}>{countdown}</span>{/if}
             </span>
           </div>

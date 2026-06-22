@@ -4,6 +4,50 @@
  */
 import * as d3 from 'd3';
 
+/**
+ * Shared tooltip helper for d3 charts.
+ * Creates/updates a positioned tooltip div that matches the app's [data-tip] style.
+ */
+class ChartTooltip {
+  private el: HTMLDivElement;
+
+  constructor() {
+    this.el = document.createElement('div');
+    this.el.style.cssText = `
+      position: absolute;
+      padding: 6px 14px;
+      background: var(--c-surface-raised);
+      color: var(--c-text);
+      font-size: var(--text-xs);
+      font-weight: 500;
+      white-space: nowrap;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--c-border);
+      box-shadow: var(--shadow-md);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 150ms ease;
+      z-index: 1000;
+    `;
+  }
+
+  show(content: string, x: number, y: number) {
+    this.el.textContent = content;
+    this.el.style.left = `${x}px`;
+    this.el.style.top = `${y}px`;
+    this.el.style.opacity = '1';
+  }
+
+  hide() {
+    this.el.style.opacity = '0';
+  }
+
+  attach(container: HTMLElement) {
+    container.style.position = 'relative';
+    container.appendChild(this.el);
+  }
+}
+
 /** Horizontal stacked bar chart for readiness category breakdown. */
 export interface CategoryBarData {
   category: string;
@@ -71,6 +115,9 @@ export function renderCategoryStackedBars(
   // Bars
   const colorMap: Record<string, string> = { done: doneColor, partial: partialColor, notDone: notDoneColor, deferred: deferredColor };
 
+  const tooltip = new ChartTooltip();
+  tooltip.attach(container);
+
   g.selectAll('g.layer')
     .data(series)
     .join('g')
@@ -84,6 +131,20 @@ export function renderCategoryStackedBars(
     .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0])))
     .attr('height', y.bandwidth())
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
+    .on('mouseenter', function (event, d) {
+      d3.select(this).transition().duration(150).attr('opacity', 0.8);
+      const cat = d.data as CategoryBarData;
+      const total = cat.done + cat.partial + cat.notDone + cat.deferred;
+      const content = `${cat.category} — done ${cat.done} · partial ${cat.partial} · not-done ${cat.notDone} · deferred ${cat.deferred} · total: ${total} checks`;
+      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mousemove', function (event) {
+      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mouseleave', function () {
+      d3.select(this).transition().duration(150).attr('opacity', 1);
+      tooltip.hide();
+    })
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect((d.data as CategoryBarData).category);
     });
@@ -201,6 +262,9 @@ export function renderReadinessDonut(
     .innerRadius(donutRadius * 0.6)
     .outerRadius(donutRadius);
 
+  const tooltip = new ChartTooltip();
+  tooltip.attach(container);
+
   const arcs = g.selectAll('path')
     .data(pie(pieData))
     .join('path')
@@ -209,11 +273,24 @@ export function renderReadinessDonut(
     .attr('stroke', 'var(--c-surface)')
     .attr('stroke-width', 2)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
-    .on('mouseenter', function () {
+    .on('mouseenter', function (event, d) {
       d3.select(this).transition().duration(150).attr('opacity', 0.8);
+      const pct = Math.round((d.data.value / total) * 100);
+      const content = `${d.data.label} — ${d.data.value} (${pct}%)`;
+      const rect = (this as SVGPathElement).getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      tooltip.show(content, rect.left - containerRect.left + rect.width / 2, rect.top - containerRect.top - 10);
+    })
+    .on('mousemove', function (event, d) {
+      const pct = Math.round((d.data.value / total) * 100);
+      const content = `${d.data.label} — ${d.data.value} (${pct}%)`;
+      const rect = (this as SVGPathElement).getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      tooltip.show(content, rect.left - containerRect.left + rect.width / 2, rect.top - containerRect.top - 10);
     })
     .on('mouseleave', function () {
       d3.select(this).transition().duration(150).attr('opacity', 1);
+      tooltip.hide();
     })
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect(d.data.bucket);
@@ -349,6 +426,9 @@ export function renderOwnerBars(
     neutral: neutralColor,
   };
 
+  const tooltip = new ChartTooltip();
+  tooltip.attach(container);
+
   // Bars
   g.selectAll('g.layer')
     .data(series)
@@ -363,6 +443,20 @@ export function renderOwnerBars(
     .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0])))
     .attr('height', y.bandwidth())
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
+    .on('mouseenter', function (event, d) {
+      d3.select(this).transition().duration(150).attr('opacity', 0.8);
+      const owner = topData.find((o) => o.key === (d.data as typeof stackData[0]).key);
+      if (!owner) return;
+      const content = `${owner.key} — ${owner.services} services · compliant ${owner.compliant} · warning ${owner.warning} · non-compliant ${owner.nonCompliant} · reference ${owner.reference}`;
+      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mousemove', function (event) {
+      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mouseleave', function () {
+      d3.select(this).transition().duration(150).attr('opacity', 1);
+      tooltip.hide();
+    })
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect((d.data as typeof stackData[0]).key);
     });

@@ -5,6 +5,7 @@
   import { statusClass, complianceClass, classificationClass, sourceTooltip, versionPolicyLabel, versionPolicyClass, ownerDisplay, ownerKey, ownerIsStructured, referencedDocPaths, paginate } from '../lib/format.ts';
   import { compareDiffUrl } from '../lib/router.ts';
   import { buildVersionSubgraph } from '../lib/graph.ts';
+  import { formatDate } from '../lib/dateFormat.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
 
   import OverviewSection from '../sections/OverviewSection.svelte';
@@ -520,7 +521,7 @@
                   {/if}
                 </td>
                 <td>{#if ver.source}<span class="source-dot source-dot-{ver.source}" data-tip={sourceTooltip(ver.source)}></span> <span class="text-3" style="font-size:var(--text-xs)">{ver.source}</span>{:else}—{/if}</td>
-                <td class="text-2">{ver.createdAt ? new Date(ver.createdAt).toLocaleDateString() : '—'}</td>
+                <td class="text-2">{formatDate(ver.createdAt) || '—'}</td>
                 <td>
                   {#if ver.version !== detail.version}
                     <button type="button" class="btn btn-sm" class:btn-active={diffExpandedVer === ver.version} onclick={() => compareVersion(ver.version)}>

@@ -65,7 +65,7 @@ describe('ReadinessSection — reworked readiness shape', () => {
   it('shows the assessment expiry date and a countdown', () => {
     const component = render();
     const text = target.textContent || '';
-    expect(text).toContain('2026-12-31');
+    expect(text).toContain('Dec 31, 2026');
     expect(text).toContain('expires in 30 days');
     unmount(component);
   });
