@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/plugin"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/plugin"
 )
 
 func TestGenerate_Success(t *testing.T) {

@@ -3,7 +3,7 @@ package diff
 import (
 	"fmt"
 
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 // diffContract compares root-level fields: service identity, scaling, metadata.

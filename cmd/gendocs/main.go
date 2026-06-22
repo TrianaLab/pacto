@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra/doc"
-	"github.com/trianalab/pacto/internal/app"
-	"github.com/trianalab/pacto/internal/cli"
-	"github.com/trianalab/pacto/pkg/oci"
-	"github.com/trianalab/pacto/pkg/plugin"
+	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/trianalab/pacto/v2/internal/cli"
+	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v2/pkg/plugin"
 )
 
 const frontMatter = `# CLI Reference

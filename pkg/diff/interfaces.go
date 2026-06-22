@@ -3,8 +3,8 @@ package diff
 import (
 	"io/fs"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/validation"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/validation"
 )
 
 // diffInterfaces compares interface lists and delegates to OpenAPI diff

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 // CachedStore wraps a BundleStore with in-memory and disk caching. Pulled

@@ -1,7 +1,7 @@
 package validation
 
 import (
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 // ValidateSemantic performs Layer 3 validation: semantic consistency checks

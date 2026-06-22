@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/pkg/oci"
+	"github.com/trianalab/pacto/v2/pkg/oci"
 )
 
 // Package-level function variables for filesystem operations,

@@ -6,10 +6,10 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/internal/app"
-	"github.com/trianalab/pacto/pkg/diff"
-	"github.com/trianalab/pacto/pkg/graph"
-	"github.com/trianalab/pacto/pkg/sbom"
+	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/trianalab/pacto/v2/pkg/diff"
+	"github.com/trianalab/pacto/v2/pkg/graph"
+	"github.com/trianalab/pacto/v2/pkg/sbom"
 )
 
 // formatResult dispatches between JSON, markdown and text output.

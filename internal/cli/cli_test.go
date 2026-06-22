@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/internal/app"
-	"github.com/trianalab/pacto/internal/cli"
-	"github.com/trianalab/pacto/internal/testutil"
-	"github.com/trianalab/pacto/internal/update"
+	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/trianalab/pacto/v2/internal/cli"
+	"github.com/trianalab/pacto/v2/internal/testutil"
+	"github.com/trianalab/pacto/v2/internal/update"
 )
 
 // platformAsset returns the release asset name for the current platform, matching

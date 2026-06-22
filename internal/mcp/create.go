@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/validation"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/validation"
 	"gopkg.in/yaml.v3"
 )
 

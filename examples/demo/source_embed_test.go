@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/pkg/dashboard"
+	"github.com/trianalab/pacto/v2/pkg/dashboard"
 )
 
 // bundlesFS loads the same bundles the wasm binary embeds. Bundles live in

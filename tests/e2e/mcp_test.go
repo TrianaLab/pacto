@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/internal/app"
-	pactomcp "github.com/trianalab/pacto/internal/mcp"
+	"github.com/trianalab/pacto/v2/internal/app"
+	pactomcp "github.com/trianalab/pacto/v2/internal/mcp"
 )
 
 // mcpCallTool sets up an in-memory MCP server+client and calls the named tool.

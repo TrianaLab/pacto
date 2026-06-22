@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/internal/app"
-	"github.com/trianalab/pacto/internal/testutil"
+	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/trianalab/pacto/v2/internal/testutil"
 )
 
 // callTool connects an MCP client to the server and calls the named tool.

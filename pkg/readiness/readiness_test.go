@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 var refNow = time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
