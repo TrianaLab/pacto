@@ -283,7 +283,7 @@ export function renderReadinessDonut(
   const tooltip = new ChartTooltip();
   tooltip.attach(container);
 
-  const arcs = g.selectAll('path')
+  g.selectAll('path')
     .data(pie(pieData))
     .join('path')
     .attr('d', arc)
