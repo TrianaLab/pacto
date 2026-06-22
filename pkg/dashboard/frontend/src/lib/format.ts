@@ -8,6 +8,19 @@ export function statusClass(status: string | undefined): string {
   return 'neutral';
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  Compliant: 'Compliant',
+  Warning: 'Warning',
+  NonCompliant: 'Non-Compliant',
+  Unknown: 'Unknown',
+  Reference: 'Reference',
+};
+
+export function statusLabel(status: string | undefined): string {
+  if (!status) return 'Unknown';
+  return STATUS_LABELS[status] || status;
+}
+
 export function complianceClass(score: number): string {
   if (score >= 80) return 'score-ok';
   if (score >= 50) return 'score-warn';

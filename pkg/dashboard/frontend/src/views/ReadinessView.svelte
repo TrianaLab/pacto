@@ -18,6 +18,9 @@
   import SummaryBar from '../components/SummaryBar.svelte';
   import CategoryBreakdownChart from '../components/CategoryBreakdownChart.svelte';
   import ReadinessDonut from '../components/ReadinessDonut.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
+  import ComplianceScore from '../components/ComplianceScore.svelte';
+  import SortControls from '../components/SortControls.svelte';
 
   let { services = [], initialLoading = false } = $props();
 
@@ -101,23 +104,11 @@
 </div>
 
 {#if services.length === 0}
-  <div class="state-box">
-    {#if initialLoading}
-      <div class="skeleton-table fade-in">
-        {#each Array(4) as _}
-          <div class="skeleton-row">
-            <div class="skeleton skeleton-line" style="width:25%"></div>
-            <div class="skeleton skeleton-line" style="width:10%"></div>
-            <div class="skeleton skeleton-line" style="width:15%"></div>
-          </div>
-        {/each}
-      </div>
-      <p style="margin-top:var(--sp-3); color:var(--c-text-3)">Loading readiness…</p>
-    {:else}
-      <h3>No services</h3>
-      <p>No services were found from the active sources.</p>
-    {/if}
-  </div>
+  <EmptyState
+    title={initialLoading ? undefined : 'No services'}
+    message={initialLoading ? 'Loading readiness…' : 'No services were found from the active sources.'}
+    loading={initialLoading}
+  />
 {:else}
   <!-- Shared filter + summary: both react to the active filters. -->
   <FilterBar {services} />
@@ -149,21 +140,11 @@
 
   <!-- Sort controls -->
   <div class="controls-row">
-    <div class="controls-left">
-      <span class="control-label">Sort</span>
-      {#each SORT_OPTIONS as opt}
-        <button type="button" class="sort-chip" class:active={sortBy === opt.value} onclick={() => setSort(opt.value)}>
-          {opt.label}{#if sortBy === opt.value}<span class="sort-arrow">{sortAsc ? '↑' : '↓'}</span>{/if}
-        </button>
-      {/each}
-    </div>
+    <SortControls {sortBy} {sortAsc} options={SORT_OPTIONS} onChange={setSort} />
   </div>
 
   {#if rows.length === 0}
-    <div class="state-box">
-      <h3>No matching services</h3>
-      <p>Try a different search or filter.</p>
-    </div>
+    <EmptyState title="No matching services" message="Try a different search or filter." />
   {:else}
     <div class="table-wrap fade-in-up">
       <table>
@@ -192,11 +173,7 @@
                 {/if}
               </td>
               <td>
-                {#if row.score >= 0}
-                  <span class="score {complianceClass(row.score)}">{row.score}<span class="score-unit">%</span></span>
-                {:else}
-                  <span class="text-dim">—</span>
-                {/if}
+                <ComplianceScore score={row.score} />
               </td>
               <td>
                 <button type="button" class="badge-btn" onclick={(e) => { e.stopPropagation(); setFilter('readinessStatus', row.bucket); }}>
@@ -319,31 +296,12 @@
     display: flex; align-items: center; gap: var(--sp-3);
     margin-bottom: var(--sp-3); flex-wrap: wrap;
   }
-  .controls-left {
-    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; flex: 1;
-  }
-  .control-label {
-    font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--c-text-3);
-  }
-  .sort-chip {
-    display: inline-flex; align-items: center; gap: 3px;
-    padding: 4px 10px; border-radius: 100px;
-    border: 1px solid var(--c-border); background: var(--c-surface);
-    font: inherit; font-size: var(--text-xs); color: var(--c-text-3);
-    cursor: pointer; transition: all var(--transition);
-    white-space: nowrap; min-height: 30px;
-  }
-  .sort-chip:hover { border-color: var(--c-text-3); color: var(--c-text); }
-  .sort-chip.active { border-color: var(--c-accent); background: var(--c-accent-bg); color: var(--c-accent); font-weight: 600; }
-  .sort-arrow { font-weight: 400; margin-left: 1px; }
 
   /* ── Table ── */
   table { width: 100%; }
   th, td { white-space: nowrap; }
   th:first-child, td:first-child { white-space: normal; }
 
-  .badge-btn { background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
   .service-name {
     font-weight: 600;
     text-decoration: none;
@@ -355,18 +313,6 @@
     vertical-align: middle;
   }
   .service-name:hover { text-decoration: underline; }
-  .score-unit { font-size: 0.8em; font-weight: 500; color: var(--c-text-3); margin-left: 1px; }
-  .col-sort {
-    background: none; border: none; padding: 0; font: inherit;
-    font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--c-text-3); cursor: pointer; white-space: nowrap;
-  }
-  .col-sort:hover { color: var(--c-text); }
-
-  .score { font-weight: 600; }
-  .score.score-ok { color: var(--c-ok); }
-  .score.score-warn { color: var(--c-warn); }
-  .score.score-err { color: var(--c-err); }
   .text-dim { color: var(--c-text-3); }
   .text-ok { color: var(--c-ok); }
   .text-warn { color: var(--c-warn); }
@@ -419,10 +365,6 @@
   .evidence-cell a, .evidence-cell code { font-size: var(--text-xs); }
   .evidence-cell code { color: var(--c-text-2); }
   .no-checks { font-size: var(--text-sm); color: var(--c-text-3); margin: 0; padding: var(--sp-2) 0; }
-
-  .skeleton-table { width: 100%; max-width: 600px; }
-  .skeleton-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-3); }
-  .skeleton-row .skeleton-line { height: 18px; border-radius: var(--radius-xs); }
 
   @media (max-width: 768px) {
     .controls-row { gap: var(--sp-2); }
