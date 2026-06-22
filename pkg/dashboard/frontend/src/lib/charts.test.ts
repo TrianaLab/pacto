@@ -215,7 +215,7 @@ describe('renderOwnerBars', () => {
     const legendTexts = Array.from(container.querySelectorAll('text')).map((t) => t.textContent);
     expect(legendTexts).toContain('Ready');
     expect(legendTexts).toContain('Partial');
-    expect(legendTexts).toContain('Not ready');
+    expect(legendTexts).toContain('Not Ready');
     expect(legendTexts).toContain('Not configured');
   });
 });

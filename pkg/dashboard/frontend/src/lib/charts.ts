@@ -3,6 +3,7 @@
  * Each render fn takes a container element, data and options, draws an SVG.
  */
 import * as d3 from 'd3';
+import { readinessBucketLabel } from './format';
 
 /**
  * Shared tooltip helper for d3 charts.
@@ -83,13 +84,23 @@ export function renderCategoryStackedBars(
   const deferredColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
 
   const margin = { top: 20, right: 140, bottom: 40, left: 120 };
-  const width = Math.max(400, container.clientWidth || 400);
+
+  // Compute minimum width to include legend at the right.
+  const legendLabels = ['Done', 'Partial', 'Not done', 'Deferred'];
+  const charW = 6.5;
+  const swatch = 12;
+  const swatchGap = 6;
+  const legendItemWidth = Math.max(...legendLabels.map(l => swatch + swatchGap + l.length * charW));
+  const minWidth = margin.left + 200 + margin.right; // 200 for bars, rest for legend
+
+  const width = Math.max(minWidth, container.clientWidth || 400);
   const height = Math.max(220, data.length * 35 + margin.top + margin.bottom);
 
   const svg = d3.select(container)
     .append('svg')
     .attr('width', '100%')
-    .attr('height', height)
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
     .style('font-family', 'var(--font-sans)');
 
   const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
@@ -173,9 +184,9 @@ export function renderCategoryStackedBars(
     .style('font-weight', '500')
     .style('fill', 'var(--c-text-3)');
 
-  // Legend
+  // Legend — positioned within the viewBox so it never clips.
   const legend = svg.append('g')
-    .attr('transform', `translate(${width - margin.right + 20}, ${margin.top})`);
+    .attr('transform', `translate(${innerWidth + margin.left + 20}, ${margin.top})`);
 
   const legendData = [
     { label: 'Done', color: doneColor },
@@ -255,10 +266,10 @@ export function renderReadinessDonut(
 
   // Pie layout
   const pieData = [
-    { label: 'Ready', value: data.ready, bucket: 'ready', color: readyColor },
-    { label: 'Partial', value: data.partial, bucket: 'partial', color: partialColor },
-    { label: 'Not Ready', value: data.notReady, bucket: 'not-ready', color: notReadyColor },
-    { label: 'Not configured', value: data.notConfigured, bucket: 'unknown', color: notConfiguredColor },
+    { label: readinessBucketLabel('ready'), value: data.ready, bucket: 'ready', color: readyColor },
+    { label: readinessBucketLabel('partial'), value: data.partial, bucket: 'partial', color: partialColor },
+    { label: readinessBucketLabel('not-ready'), value: data.notReady, bucket: 'not-ready', color: notReadyColor },
+    { label: readinessBucketLabel('unknown'), value: data.notConfigured, bucket: 'unknown', color: notConfiguredColor },
   ].filter((d) => d.value > 0);
 
   const pie = d3.pie<{ label: string; value: number; bucket: string; color: string }>()
@@ -388,8 +399,23 @@ export function renderOwnerBars(
   // Legend lives BELOW the bars so it is never clipped at the right edge.
   const legendHeight = 28;
   const margin = { top: 16, right: 48, bottom: 40 + legendHeight, left: 120 };
-  // The intrinsic coordinate width: fill the container, fall back to a sane default.
-  const width = Math.max(480, container.clientWidth || 600);
+
+  // Compute minimum width to fit the horizontal legend.
+  const swatch = 12;
+  const swatchGap = 6;
+  const itemGap = 20;
+  const charW = 6.5;
+  const legendLabels = [
+    readinessBucketLabel('ready'),
+    readinessBucketLabel('partial'),
+    readinessBucketLabel('not-ready'),
+    readinessBucketLabel('unknown'),
+  ];
+  const legendWidth = legendLabels.reduce((sum, label) => sum + swatch + swatchGap + label.length * charW + itemGap, 0);
+  const minWidth = Math.max(520, margin.left + legendWidth + margin.right);
+
+  // The intrinsic coordinate width: fill the container, fall back to a sane default, floor at minWidth.
+  const width = Math.max(minWidth, container.clientWidth || 600);
   const height = Math.max(200, topData.length * 40 + margin.top + margin.bottom);
 
   // viewBox + 100% width makes the chart responsive and keeps the legend in frame.
@@ -513,21 +539,16 @@ export function renderOwnerBars(
 
   // Legend — placed below the bars, horizontally, so it always fits the frame.
   const legendData = [
-    { label: 'Ready', color: readyColor },
-    { label: 'Partial', color: partialColor },
-    { label: 'Not ready', color: notReadyColor },
-    { label: 'Not configured', color: notConfiguredColor },
+    { label: readinessBucketLabel('ready'), color: readyColor },
+    { label: readinessBucketLabel('partial'), color: partialColor },
+    { label: readinessBucketLabel('not-ready'), color: notReadyColor },
+    { label: readinessBucketLabel('unknown'), color: notConfiguredColor },
   ];
 
   const legend = svg.append('g')
     .attr('transform', `translate(${margin.left}, ${height - legendHeight + 6})`);
 
   let legendX = 0;
-  const itemGap = 20;
-  const swatch = 12;
-  const swatchGap = 6;
-  // Approx char width at --text-xs for laying out items left-to-right without overlap.
-  const charW = 6.5;
 
   legendData.forEach((d) => {
     const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);

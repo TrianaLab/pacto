@@ -130,14 +130,20 @@
   /* Name column flexes and truncates; the rest are compact and fixed-ish. */
   .col-name { width: auto; }
   .col-version { width: 12%; }
-  .col-status { width: 13%; }
+  .col-status { width: 14%; }
   .col-compliance { width: 11%; }
   .col-readiness { width: 11%; }
   .col-blast { width: 8%; }
   .col-checks { width: 9%; }
   .col-source { width: 9%; }
 
-  th, td {
+  th {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  td {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
