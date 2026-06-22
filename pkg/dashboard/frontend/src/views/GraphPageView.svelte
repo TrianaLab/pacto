@@ -5,6 +5,8 @@
   import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerKey, ownerMatchesFilter } from '../lib/format.ts';
   import GraphCanvas from '../GraphCanvas.svelte';
   import StatsBar from '../StatsBar.svelte';
+  import StatusBadge from '../components/StatusBadge.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
 
   let { services = [], sourcesInfo = [] } = $props();
   let blastByName = $derived(new Map(services.map(s => [s.name, s.blastRadius || 0])));
@@ -65,7 +67,7 @@
     <div class="skeleton" style="width:100%; height:400px; border-radius:var(--radius-sm)"></div>
   </div>
 {:else if !graphData?.nodes?.length}
-  <div class="state-box"><h3>No services to graph</h3><p>Services need dependencies to appear in the graph.</p></div>
+  <EmptyState title="No services to graph" message="Services need dependencies to appear in the graph." />
 {:else}
   <div class="graph-page-canvas fade-in-up">
     <div class="graph-controls">
@@ -132,7 +134,7 @@
                 </td>
                 <td>
                   {#if node.status !== 'external'}
-                    <span class="badge badge-{statusClass(node.status)}"><span class="badge-dot"></span>{node.status}</span>
+                    <StatusBadge status={node.status} />
                   {:else}
                     <span class="badge {reasonBadgeClass(node.reason)}">{reasonLabel(node.reason)}</span>
                   {/if}

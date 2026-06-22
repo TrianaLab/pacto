@@ -1,5 +1,6 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import SourceDot from '../components/SourceDot.svelte';
   import { sourceTooltip } from '../lib/format.ts';
 
   // Renders a stable, self-explaining placeholder for a section that has no
@@ -23,7 +24,7 @@
 
 <CollapsibleSection {title} bind:open {id}>
   <div class="section-state {cls}">
-    {#if meta?.source}<span class="source-dot source-dot-{meta.source}" data-tip={`Provided by ${sourceTooltip(meta.source)}`}></span>{/if}
+    {#if meta?.source}<SourceDot source={meta.source} align="right" />{/if}
     <span class="state-label">{label}</span>
     {#if meta?.reason}<span class="state-reason">{meta.reason}</span>{/if}
     {#if onRetry && state === 'unavailable'}

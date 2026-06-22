@@ -1,6 +1,8 @@
 <script>
   import { navigate, serviceUrl, ownerUrl } from './lib/router.ts';
   import { statusClass, sourceTooltip, ownerMatchesFilter, ownerKey, ownerDisplay, complianceClass } from './lib/format.ts';
+  import StatusBadge from './components/StatusBadge.svelte';
+  import SourceDot from './components/SourceDot.svelte';
 
   let {
     services = [], sourcesInfo = [], version = '', discovering = false,
@@ -165,7 +167,7 @@
               >
                 <span class="search-result-name">{svc.name}</span>
                 {#if svc.version}<span class="search-result-meta">{svc.version}</span>{/if}
-                <span class="badge badge-{statusClass(svc.contractStatus)}"><span class="badge-dot"></span>{svc.contractStatus}</span>
+                <StatusBadge status={svc.contractStatus} />
               </a>
             {/each}
           {/if}
@@ -177,7 +179,7 @@
   <!-- Desktop right section -->
   <div class="navbar-right navbar-right-desktop">
     {#each enabledSources as src}
-      <span class="source-tag" data-tip={sourceTooltip(src.type)} data-tip-align="right"><span class="source-dot source-dot-{src.type}"></span>{src.type}</span>
+      <span class="source-tag" data-tip={sourceTooltip(src.type)} data-tip-align="right"><SourceDot source={src.type} />{src.type}</span>
     {/each}
     {#if discovering}
       <span class="pill" style="font-size:11px">discovering…</span>
@@ -206,7 +208,7 @@
   <div class="mobile-drawer" role="menu">
     <div class="mobile-drawer-section">
       {#each enabledSources as src}
-        <span class="source-tag"><span class="source-dot source-dot-{src.type}"></span>{src.type}</span>
+        <span class="source-tag"><SourceDot source={src.type} />{src.type}</span>
       {/each}
       {#if discovering}
         <span class="pill" style="font-size:11px">discovering…</span>

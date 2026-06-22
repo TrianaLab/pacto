@@ -1,6 +1,7 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import GraphCanvas from '../GraphCanvas.svelte';
+  import StatusBadge from '../components/StatusBadge.svelte';
   import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, shortDigest, driftBadgeClass, driftBadgeLabel } from '../lib/format.ts';
   import { navigate, serviceUrl } from '../lib/router.ts';
 
@@ -88,7 +89,7 @@
               {#each dependents as dep}
                 <tr>
                   <td><a href={serviceUrl(dep.name)}>{dep.name}</a></td>
-                  <td><span class="badge badge-{statusClass(dep.contractStatus)}"><span class="badge-dot"></span>{dep.contractStatus}</span></td>
+                  <td><StatusBadge status={dep.contractStatus} /></td>
                   <td>{dep.required ? 'Yes' : 'No'}</td>
                 </tr>
               {/each}
