@@ -29,6 +29,8 @@ import {
   readinessBucket,
   readinessBucketLabel,
   readinessBucketClass,
+  readinessGateClass,
+  readinessGateTip,
   summarizeReadiness,
   isUrlEvidence,
   readinessCheckTypes,
@@ -822,6 +824,52 @@ describe('readinessBucketClass', () => {
     expect(readinessBucketClass('partial')).toBe('badge-warn');
     expect(readinessBucketClass('not-ready')).toBe('badge-err');
     expect(readinessBucketClass('unknown')).toBe('badge-neutral');
+  });
+});
+
+describe('readinessGateClass', () => {
+  it('is green when passing the gate, regardless of absolute score', () => {
+    // 70% passing a minScore-70 gate should read green, not amber.
+    expect(readinessGateClass({ score: 70, minScore: 70, passing: true, expired: false } as any)).toBe('score-ok');
+  });
+  it('is NOT green when below the gate even at a high score', () => {
+    // 79% missing an 85 gate must not read green.
+    const cls = readinessGateClass({ score: 79, minScore: 85, passing: false, expired: false } as any);
+    expect(cls).not.toBe('score-ok');
+    expect(cls).toBe('score-warn'); // within striking distance (>= 50)
+  });
+  it('is red when far below the gate', () => {
+    expect(readinessGateClass({ score: 30, minScore: 80, passing: false, expired: false } as any)).toBe('score-err');
+  });
+  it('is red when expired even if the score would otherwise pass', () => {
+    expect(readinessGateClass({ score: 90, minScore: 80, passing: false, expired: true } as any)).toBe('score-err');
+  });
+  it('returns empty for no readiness block', () => {
+    expect(readinessGateClass(null)).toBe('');
+    expect(readinessGateClass(undefined)).toBe('');
+  });
+  it('distinguishes two close scores by their gate (the regression this fixes)', () => {
+    // fraud-service 79% passing minScore 75 vs payments-service 70% below minScore 80.
+    expect(readinessGateClass({ score: 79, minScore: 75, passing: true, expired: false } as any)).toBe('score-ok');
+    expect(readinessGateClass({ score: 70, minScore: 80, passing: false, expired: false } as any)).toBe('score-warn');
+  });
+});
+
+describe('readinessGateTip', () => {
+  it('reads "passing" with the minScore when the gate is met', () => {
+    expect(readinessGateTip({ score: 79, minScore: 75, passing: true, expired: false } as any))
+      .toBe('79% — passing (minScore 75)');
+  });
+  it('reads "below gate" with the minScore when the gate is missed', () => {
+    expect(readinessGateTip({ score: 70, minScore: 80, passing: false, expired: false } as any))
+      .toBe('70% — below gate (minScore 80)');
+  });
+  it('reads "expired" when the assessment has expired', () => {
+    expect(readinessGateTip({ score: 90, minScore: 80, passing: false, expired: true } as any))
+      .toBe('90% — expired (minScore 80)');
+  });
+  it('returns empty for no readiness block', () => {
+    expect(readinessGateTip(null)).toBe('');
   });
 });
 

@@ -4,6 +4,7 @@
   import { readinessBucket, readinessBucketLabel, readinessBucketClass } from '../lib/format.ts';
   import StatusBadge from './StatusBadge.svelte';
   import ComplianceScore from './ComplianceScore.svelte';
+  import ReadinessScore from './ReadinessScore.svelte';
   import OwnerLink from './OwnerLink.svelte';
   import SourceDot from './SourceDot.svelte';
   import EmptyState from './EmptyState.svelte';
@@ -69,7 +70,7 @@
             </td>
             <td>
               {#if svc.readiness}
-                <ComplianceScore score={svc.readiness.score} />
+                <ReadinessScore readiness={svc.readiness} />
               {:else}
                 <span class="text-dim">—</span>
               {/if}

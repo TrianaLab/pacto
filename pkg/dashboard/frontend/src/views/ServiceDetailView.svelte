@@ -505,7 +505,14 @@
     <section class="section" id="section-versions">
       <div class="section-title">Version History <span class="tab-count">{versions.length}</span></div>
       <div class="table-wrap">
-        <table>
+        <table class="version-history">
+          <colgroup>
+            <col class="vh-version" />
+            <col class="vh-class" />
+            <col class="vh-source" />
+            <col class="vh-created" />
+            <col class="vh-compare" />
+          </colgroup>
           <thead><tr><th data-tip="Semver version tag">Version</th><th data-tip="Change impact vs previous version">Classification</th><th data-tip="Where this version was found">Source</th><th data-tip="When this version was published">Created</th><th data-tip="Compare this version against the one you're viewing">Compare</th></tr></thead>
           <tbody>
             {#each pagedVersions.items as ver}
@@ -720,6 +727,19 @@
   .btn-update {
     font-size: var(--text-xs); padding: 4px 10px;
   }
+
+  /* Fixed layout so the nowrap cells can't over-grow the table and flash a
+     spurious horizontal scrollbar; Version is left flexible to absorb rounding.
+     The .diff-expand-row's colspan cell is exempt (its content wraps freely). */
+  .version-history { table-layout: fixed; }
+  .version-history th { white-space: normal; }
+  .version-history td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vh-version { width: auto; }
+  .vh-class { width: 22%; }
+  .vh-source { width: 16%; }
+  .vh-created { width: 18%; }
+  .vh-compare { width: 16%; }
+  .version-history .diff-expand-row > td { white-space: normal; overflow: visible; }
 
   .version-current {
     background: var(--c-surface-hover);

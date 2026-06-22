@@ -9,6 +9,10 @@ html {
   background: var(--c-bg);
   color: var(--c-text);
   transition: background var(--transition), color var(--transition);
+  /* Reserve the vertical scrollbar's gutter at all times so its appearance never
+     narrows the content box — that narrowing is what makes fixed-width tables
+     briefly overflow and flash a spurious horizontal scrollbar. */
+  scrollbar-gutter: stable;
 }
 
 body { min-height: 100vh; overflow-x: hidden; }

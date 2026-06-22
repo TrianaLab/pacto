@@ -3,7 +3,7 @@
   import MarkdownView from '../MarkdownView.svelte';
   import DocModal from '../DocModal.svelte';
   import RevisionHistory from './RevisionHistory.svelte';
-  import { complianceClass, checkStatusClass, checkStatusLabel, assessmentCountdownLabel } from '../lib/format.ts';
+  import { readinessGateClass, readinessGateTip, checkStatusClass, checkStatusLabel, assessmentCountdownLabel } from '../lib/format.ts';
   import { formatDate } from '../lib/dateFormat.ts';
 
   let { readiness = null, docs = [], open = $bindable(false), id = '', source = '' } = $props();
@@ -32,8 +32,10 @@
 {#if hasContent}
   <CollapsibleSection title="Readiness" count={readiness.checks.length} bind:open {id} {source}>
     <div class="readiness-summary">
-      <div class="score {complianceClass(readiness.score)}" data-tip="Percentage of declared weight that is currently satisfied">
-        {readiness.score}<span class="score-unit">/100</span>
+      <!-- Score colored by the GATE (passing), not the absolute value, with a ✓
+           when it clears minScore — so passing vs below-gate is obvious. -->
+      <div class="score {readinessGateClass(readiness)}" data-tip={readinessGateTip(readiness)}>
+        {readiness.score}<span class="score-unit">/100</span>{#if readiness.passing && !readiness.expired}<span class="gate-check" aria-label="passes minScore" title="passes minScore">&#10003;</span>{/if}
       </div>
       <div class="readiness-metrics">
         <div class="metric">
@@ -71,6 +73,15 @@
 
     <div class="table-wrap">
       <table class="readiness-table">
+        <colgroup>
+          <col class="rt-check" />
+          <col class="rt-type" />
+          <col class="rt-cat" />
+          <col class="rt-status" />
+          <col class="rt-weight" />
+          <col class="rt-earned" />
+          <col class="rt-evidence" />
+        </colgroup>
         <thead>
           <tr>
             <th>Check</th>
@@ -146,6 +157,7 @@
     line-height: 1;
   }
   .score-unit { font-size: var(--text-sm); font-weight: 500; color: var(--c-text-3); }
+  .gate-check { font-size: 0.7em; font-weight: 700; margin-left: 4px; color: var(--c-ok); vertical-align: super; }
   .readiness-metrics {
     display: flex;
     gap: var(--sp-5);
@@ -157,8 +169,27 @@
   .countdown { font-weight: 500; color: var(--c-text-3); margin-left: 6px; }
   .countdown-expired { color: var(--c-err); }
 
-  .readiness-table { font-size: var(--text-sm); width: 100%; }
-  .readiness-table th { font-size: var(--text-xs); }
+  /* Fixed layout sizes columns from <colgroup>, never from content min-content,
+     so the nowrap data cells can't over-grow the table past 100% and flash a
+     spurious horizontal scrollbar. The Evidence column is left flexible to
+     absorb %-rounding so the table is exactly its container width. */
+  .readiness-table { font-size: var(--text-sm); width: 100%; table-layout: fixed; }
+  .readiness-table th { font-size: var(--text-xs); white-space: normal; }
+  .readiness-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rt-check { width: 22%; }
+  .rt-type { width: 10%; }
+  .rt-cat { width: 12%; }
+  .rt-status { width: 12%; }
+  .rt-weight { width: 12%; }
+  .rt-earned { width: 9%; }
+  .rt-evidence { width: auto; }
+  /* Check + Evidence carry multi-line content; let them wrap rather than clip. */
+  .readiness-table td:first-child,
+  .readiness-table .evidence-cell { white-space: normal; overflow: visible; }
   .check-id { font-weight: 600; }
   .check-desc { font-size: var(--text-xs); color: var(--c-text-3); margin-top: 2px; }
   .pill-cat { background: var(--c-neutral-bg); color: var(--c-text-2); }

@@ -2,7 +2,6 @@
   import { serviceUrl, ownerUrl } from '../lib/router.ts';
   import {
     ownerKey,
-    complianceClass,
     readinessBucket,
     readinessBucketLabel,
     readinessBucketClass,
@@ -19,7 +18,7 @@
   import CategoryBreakdownChart from '../components/CategoryBreakdownChart.svelte';
   import ReadinessDonut from '../components/ReadinessDonut.svelte';
   import EmptyState from '../components/EmptyState.svelte';
-  import ComplianceScore from '../components/ComplianceScore.svelte';
+  import ReadinessScore from '../components/ReadinessScore.svelte';
   import SortControls from '../components/SortControls.svelte';
 
   let { services = [], initialLoading = false } = $props();
@@ -147,7 +146,15 @@
     <EmptyState title="No matching services" message="Try a different search or filter." />
   {:else}
     <div class="table-wrap fade-in-up">
-      <table>
+      <table class="readiness-list">
+        <colgroup>
+          <col class="rl-service" />
+          <col class="rl-owner" />
+          <col class="rl-score" />
+          <col class="rl-status" />
+          <col class="rl-checks" />
+          <col class="rl-expiry" />
+        </colgroup>
         <thead>
           <tr>
             <th><button type="button" class="col-sort" onclick={() => setSort('name')}>Service{sortIcon('name')}</button></th>
@@ -173,7 +180,11 @@
                 {/if}
               </td>
               <td>
-                <ComplianceScore score={row.score} />
+                {#if row.r}
+                  <ReadinessScore readiness={row.r} />
+                {:else}
+                  <span class="text-dim">—</span>
+                {/if}
               </td>
               <td>
                 <button type="button" class="badge-btn" onclick={(e) => { e.stopPropagation(); setFilter('readinessStatus', row.bucket); }}>
@@ -301,6 +312,20 @@
   table { width: 100%; }
   th, td { white-space: nowrap; }
   th:first-child, td:first-child { white-space: normal; }
+
+  /* Fixed layout sizes columns from <colgroup>, not content min-content, so the
+     nowrap cells never over-grow the table and flash a spurious horizontal
+     scrollbar. The Service column is left flexible to absorb %-rounding. Scoped
+     to .readiness-list so the nested .expand-table keeps its own widths. */
+  .readiness-list { table-layout: fixed; }
+  .readiness-list th { white-space: normal; }
+  .readiness-list td { overflow: hidden; text-overflow: ellipsis; }
+  .rl-service { width: auto; }
+  .rl-owner { width: 18%; }
+  .rl-score { width: 11%; }
+  .rl-status { width: 16%; }
+  .rl-checks { width: 11%; }
+  .rl-expiry { width: 16%; }
 
   .service-name {
     font-weight: 600;

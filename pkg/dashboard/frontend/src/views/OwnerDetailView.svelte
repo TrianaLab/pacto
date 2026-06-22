@@ -93,7 +93,10 @@
 {#if ownerServices.length > 0}
   <div class="section">
     <div class="section-title">Services <span class="tab-count">{ownerServices.length}</span></div>
-    <div class="table-wrap fade-in-up">
+    <!-- ServicesTable provides its own .table-wrap; wrapping it in a second
+         .table-wrap nested two overflow contexts and was the source of the
+         spurious horizontal scrollbar on the owner-detail view. -->
+    <div class="fade-in-up">
       <ServicesTable services={ownerServices} />
     </div>
   </div>
@@ -183,9 +186,4 @@
   .dri-conflict { color: var(--c-warn); }
 
   .graph-wrap { position: relative; }
-
-  /* Ensure ServicesTable fits in owner detail view */
-  .table-wrap :global(table) { width: 100%; }
-  .table-wrap :global(th), .table-wrap :global(td) { white-space: nowrap; }
-  .table-wrap :global(th:first-child), .table-wrap :global(td:first-child) { white-space: normal; }
 </style>

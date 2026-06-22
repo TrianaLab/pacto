@@ -95,6 +95,45 @@ describe('ServicesTable — columns and click-to-filter', () => {
     unmount(component);
   });
 
+  it('colors readiness by the gate (green + ✓ + tooltip when passing)', () => {
+    const component = mount(ServicesTable, {
+      target,
+      props: {
+        services: [
+          { name: 'svc-pass', readiness: { score: 79, minScore: 75, passing: true, expired: false, checks: [] } },
+        ],
+      },
+    });
+
+    const score = target.querySelector('.readiness-score')!;
+    expect(score).toBeTruthy();
+    expect(score.classList.contains('score-ok')).toBe(true);
+    expect(score.getAttribute('data-tip')).toBe('79% — passing (minScore 75)');
+    // Explicit gate check mark.
+    expect(score.querySelector('.gate-check')).toBeTruthy();
+
+    unmount(component);
+  });
+
+  it('colors readiness amber + no ✓ when below the gate, even at a similar score', () => {
+    const component = mount(ServicesTable, {
+      target,
+      props: {
+        services: [
+          { name: 'svc-fail', readiness: { score: 70, minScore: 80, passing: false, expired: false, checks: [] } },
+        ],
+      },
+    });
+
+    const score = target.querySelector('.readiness-score')!;
+    expect(score.classList.contains('score-ok')).toBe(false);
+    expect(score.classList.contains('score-warn')).toBe(true);
+    expect(score.getAttribute('data-tip')).toBe('70% — below gate (minScore 80)');
+    expect(score.querySelector('.gate-check')).toBeNull();
+
+    unmount(component);
+  });
+
   it('renders contract status badge', () => {
     const component = mount(ServicesTable, {
       target,

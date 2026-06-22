@@ -398,7 +398,15 @@ export function renderOwnerBars(
 
   // Legend lives BELOW the bars so it is never clipped at the right edge.
   const legendHeight = 28;
-  const margin = { top: 16, right: 48, bottom: 40 + legendHeight, left: 120 };
+
+  // The left margin must fit the WIDEST owner label, else long keys
+  // (e.g. "platform-foundations") clip on the left and lose leading chars.
+  // y-axis labels render at --text-sm (14px); estimate ~7px/char + padding.
+  const labelCharW = 7;
+  const labelPad = 16;
+  const longestLabel = topData.reduce((max, d) => Math.max(max, d.key.length), 0);
+  const marginLeft = Math.max(120, Math.ceil(longestLabel * labelCharW) + labelPad);
+  const margin = { top: 16, right: 48, bottom: 40 + legendHeight, left: marginLeft };
 
   // Compute minimum width to fit the horizontal legend.
   const swatch = 12;

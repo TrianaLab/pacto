@@ -163,7 +163,17 @@
 
     <!-- Table -->
     <div class="table-wrap fade-in-up">
-      <table>
+      <table class="owners-list">
+        <colgroup>
+          <col class="ol-owner" />
+          <col class="ol-services" />
+          <col class="ol-compliant" />
+          <col class="ol-warning" />
+          <col class="ol-noncompliant" />
+          <col class="ol-reference" />
+          <col class="ol-percent" />
+          <col class="ol-blast" />
+        </colgroup>
         <thead>
           <tr>
             <th><button type="button" class="col-sort" onclick={() => setSort('key')}>Owner{sortIcon('key')}</button></th>
@@ -212,6 +222,14 @@
                 <td colspan="8">
                   <div class="expand-panel">
                     <table class="expand-table">
+                      <colgroup>
+                        <col class="oe-service" />
+                        <col class="oe-version" />
+                        <col class="oe-status" />
+                        <col class="oe-compliance" />
+                        <col class="oe-blast" />
+                        <col class="oe-source" />
+                      </colgroup>
                       <thead>
                         <tr>
                           <th>Service</th>
@@ -303,6 +321,22 @@
   th, td { white-space: nowrap; }
   th:first-child, td:first-child { white-space: normal; }
 
+  /* Fixed layout sizes columns from <colgroup>, never from content min-content,
+     so the nowrap cells can't over-grow the table and flash a spurious
+     horizontal scrollbar. Owner is left flexible to absorb %-rounding. Scoped to
+     .owners-list so the nested .expand-table keeps its own widths. */
+  .owners-list { table-layout: fixed; }
+  .owners-list th { white-space: normal; }
+  .owners-list td { overflow: hidden; text-overflow: ellipsis; }
+  .ol-owner { width: auto; }
+  .ol-services { width: 11%; }
+  .ol-compliant { width: 11%; }
+  .ol-warning { width: 11%; }
+  .ol-noncompliant { width: 14%; }
+  .ol-reference { width: 11%; }
+  .ol-percent { width: 13%; }
+  .ol-blast { width: 9%; }
+
   .owner-name {
     font-weight: 600;
     text-decoration: none;
@@ -359,8 +393,15 @@
     animation: slideDown 200ms ease;
   }
   .expand-table {
-    width: 100%; border-collapse: collapse; min-width: 0;
+    width: 100%; border-collapse: collapse; min-width: 0; table-layout: fixed;
   }
+  .oe-service { width: auto; }
+  .oe-version { width: 16%; }
+  .oe-status { width: 18%; }
+  .oe-compliance { width: 16%; }
+  .oe-blast { width: 12%; }
+  .oe-source { width: 12%; }
+  .expand-table td { overflow: hidden; text-overflow: ellipsis; }
   .expand-table th {
     font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--c-text-3);

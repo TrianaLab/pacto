@@ -41,17 +41,23 @@
     </span>
   </button>
 
-  <!-- Readiness avg -->
+  <!-- Readiness avg — colored by the GATE (services passing minScore), not the
+       absolute average, with an explicit ✓ when every configured service passes. -->
   <button
     type="button"
     class="metric-tile"
-    data-tip="Average readiness score (0–100%) across services that declare readiness"
+    data-tip={metrics.readiness.configured > 0
+      ? `${metrics.readiness.ready} of ${metrics.readiness.configured} pass minScore (avg ${metrics.readiness.avgScore}%)`
+      : 'No service declares a readiness gate'}
     onclick={() => toggleFilter('readinessStatus', 'ready')}
   >
     <span class="metric-head">Readiness</span>
     {#if metrics.readiness.configured > 0}
-      <span class="metric-value {complianceClass(metrics.readiness.avgScore)}">{metrics.readiness.avgScore}<span class="metric-unit">%</span></span>
-      <span class="metric-sub">{metrics.readiness.ready} of {metrics.readiness.configured} ready</span>
+      {@const allPass = metrics.readiness.ready === metrics.readiness.configured}
+      <span class="metric-value {allPass ? 'score-ok' : metrics.readiness.ready > 0 ? 'score-warn' : 'score-err'}">
+        {metrics.readiness.avgScore}<span class="metric-unit">%</span>{#if allPass}<span class="gate-check" aria-label="all pass minScore" title="all pass minScore">&#10003;</span>{/if}
+      </span>
+      <span class="metric-sub">{metrics.readiness.ready} of {metrics.readiness.configured} pass gate</span>
     {:else}
       <span class="metric-value text-dim">—</span>
       <span class="metric-sub">not configured</span>
@@ -167,6 +173,14 @@
     font-weight: 600;
     color: var(--c-text-3);
     margin-left: 1px;
+  }
+
+  .gate-check {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-left: 4px;
+    color: var(--c-ok);
+    vertical-align: super;
   }
 
   .metric-sub {

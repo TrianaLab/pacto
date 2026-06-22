@@ -218,4 +218,43 @@ describe('renderOwnerBars', () => {
     expect(legendTexts).toContain('Not Ready');
     expect(legendTexts).toContain('Not configured');
   });
+
+  it('widens the left margin so a long owner label fits without clipping', () => {
+    const container = document.createElement('div');
+    // "platform-foundations" is the longest demo owner key (20 chars).
+    const longKey = 'platform-foundations';
+    const data = [{ key: longKey, services: 4, ready: 2, partial: 1, notReady: 1, notConfigured: 0 }];
+
+    renderOwnerBars(container, data);
+
+    // The first <g> (bars group) is translated by margin.left; it must exceed
+    // the estimated label width so the leading char is never cut off.
+    const barsGroup = container.querySelector('svg > g')!;
+    const transform = barsGroup.getAttribute('transform') || '';
+    const m = transform.match(/translate\(([\d.]+),/);
+    expect(m).not.toBeNull();
+    const marginLeft = parseFloat(m![1]);
+    // 20 chars * 7px + 16px padding = 156px, well above the old fixed 120.
+    expect(marginLeft).toBeGreaterThanOrEqual(longKey.length * 7);
+
+    // The viewBox width must include that wider margin.
+    const viewBox = container.querySelector('svg')!.getAttribute('viewBox') || '';
+    const vbWidth = parseFloat(viewBox.split(' ')[2]);
+    expect(vbWidth).toBeGreaterThan(marginLeft);
+
+    // The label itself is present in full.
+    const labels = Array.from(container.querySelectorAll('text')).map((t) => t.textContent);
+    expect(labels).toContain(longKey);
+  });
+
+  it('keeps a 120px floor for short owner labels', () => {
+    const container = document.createElement('div');
+    const data = [{ key: 'a', services: 4, ready: 2, partial: 1, notReady: 1, notConfigured: 0 }];
+
+    renderOwnerBars(container, data);
+
+    const barsGroup = container.querySelector('svg > g')!;
+    const m = (barsGroup.getAttribute('transform') || '').match(/translate\(([\d.]+),/);
+    expect(parseFloat(m![1])).toBe(120);
+  });
 });

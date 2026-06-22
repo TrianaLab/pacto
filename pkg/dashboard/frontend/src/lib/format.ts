@@ -419,6 +419,35 @@ export function readinessBucket(svc: WithReadiness): ReadinessBucket {
   return 'not-ready';
 }
 
+/**
+ * Score-cell class driven by the readiness GATE (passing), not the absolute
+ * score. A service at 70% that clears its minScore should read green; one at 79%
+ * that misses a higher gate should read red — so two similar scores no longer
+ * look identical. Falls back to absolute bands when there is no readiness block.
+ */
+export function readinessGateClass(r: ReadinessInfo | null | undefined): string {
+  if (!r) return '';
+  if (r.passing) return 'score-ok';
+  // Below the gate: amber when it is at least within striking distance,
+  // red when it is far off — but never green, because it does not pass.
+  if (r.score >= 50 && !r.expired) return 'score-warn';
+  return 'score-err';
+}
+
+/**
+ * Explicit gate tooltip, e.g.
+ *   "79% — passing (minScore 75)"
+ *   "70% — below gate (minScore 75)"
+ *   "82% — expired (minScore 75)"
+ * so it is obvious which services clear minScore.
+ */
+export function readinessGateTip(r: ReadinessInfo | null | undefined): string {
+  if (!r) return '';
+  if (r.expired) return `${r.score}% — expired (minScore ${r.minScore})`;
+  const verdict = r.passing ? 'passing' : 'below gate';
+  return `${r.score}% — ${verdict} (minScore ${r.minScore})`;
+}
+
 const READINESS_BUCKET_LABELS: Record<ReadinessBucket, string> = {
   ready: 'Ready',
   partial: 'Partial',

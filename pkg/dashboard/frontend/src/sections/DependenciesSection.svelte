@@ -37,7 +37,14 @@
       <div class="subsection">
         <h3>Depends on</h3>
         <div class="table-wrap">
-          <table>
+          <table class="deps-table deps-table--depends">
+            <colgroup>
+              <col class="dt-service" />
+              <col class="dt-ref" />
+              <col class="dt-required" />
+              <col class="dt-compat" />
+              <col class="dt-pinned" />
+            </colgroup>
             <thead><tr><th data-tip="Dependency service name">Service</th><th data-tip="OCI or version reference">Ref</th><th data-tip="Is this dependency required?">Required</th><th data-tip="Version compatibility constraint">Compatibility</th><th data-tip="Pinned version and digest from pacto.lock">Pinned</th></tr></thead>
             <tbody>
               {#each dependencies as dep}
@@ -83,7 +90,12 @@
       <div class="subsection">
         <h3>Depended on by {#if isHistorical}<span class="current-badge" data-tip="Reflects the current dependency graph, not the selected historical version">current</span>{/if}</h3>
         <div class="table-wrap">
-          <table>
+          <table class="deps-table deps-table--triple">
+            <colgroup>
+              <col class="dt3-service" />
+              <col class="dt3-status" />
+              <col class="dt3-required" />
+            </colgroup>
             <thead><tr><th data-tip="Service that depends on this one">Service</th><th data-tip="Contract compliance status">Status</th><th data-tip="Is this a required dependency?">Required</th></tr></thead>
             <tbody>
               {#each dependents as dep}
@@ -103,7 +115,12 @@
       <div class="subsection">
         <h3>References {#if isHistorical}<span class="current-badge" data-tip="Reflects current cross-references, not the selected historical version">current</span>{/if}</h3>
         <div class="table-wrap">
-          <table>
+          <table class="deps-table deps-table--triple">
+            <colgroup>
+              <col class="dt3-service" />
+              <col class="dt3-status" />
+              <col class="dt3-required" />
+            </colgroup>
             <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
             <tbody>
               {#each crossRefs.references as ref}
@@ -123,7 +140,12 @@
       <div class="subsection">
         <h3>Referenced by {#if isHistorical}<span class="current-badge" data-tip="Reflects current cross-references, not the selected historical version">current</span>{/if}</h3>
         <div class="table-wrap">
-          <table>
+          <table class="deps-table deps-table--triple">
+            <colgroup>
+              <col class="dt3-service" />
+              <col class="dt3-status" />
+              <col class="dt3-required" />
+            </colgroup>
             <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
             <tbody>
               {#each crossRefs.referencedBy as ref}
@@ -156,6 +178,23 @@
     margin-bottom: var(--sp-4);
     overflow: hidden;
   }
+  /* Fixed layout so the long <code> Ref / Pinned cells can't over-grow the table
+     and flash a spurious horizontal scrollbar. The Service column is left
+     flexible to absorb %-rounding; the Pinned cell wraps (it stacks chips). */
+  .deps-table { table-layout: fixed; }
+  .deps-table th { white-space: normal; }
+  .deps-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dt-service { width: auto; }
+  .dt-ref { width: 26%; }
+  .dt-required { width: 10%; }
+  .dt-compat { width: 16%; }
+  .dt-pinned { width: 22%; }
+  .deps-table--depends td:nth-child(5) { white-space: normal; overflow: visible; }
+  .dt3-service { width: auto; }
+  .dt3-status { width: 24%; }
+  .dt3-required { width: 18%; }
+  .deps-table td code { word-break: break-all; }
+
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); }
   .lock-cell {

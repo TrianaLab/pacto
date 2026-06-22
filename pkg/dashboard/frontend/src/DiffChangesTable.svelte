@@ -21,7 +21,14 @@
   <p class="text-2">No changes detected</p>
 {:else}
   <div class="table-wrap">
-    <table class:diff-table-compact={compact}>
+    <table class="diff-table" class:diff-table-compact={compact}>
+      <colgroup>
+        <col class="dc-path" />
+        <col class="dc-change" />
+        <col class="dc-old" />
+        <col class="dc-new" />
+        <col class="dc-impact" />
+      </colgroup>
       <thead><tr><th data-tip="Field path in the contract">Path</th><th data-tip="Type of change">Change</th><th data-tip="Value in the older version">Old</th><th data-tip="Value in the newer version">New</th><th data-tip="Breaking change classification">Impact</th></tr></thead>
       <tbody>
         {#each changes as change, idx}
@@ -60,6 +67,18 @@
 {/if}
 
 <style>
+  /* Fixed layout so the long <code> path and <pre> value cells can't over-grow
+     the table and flash a spurious horizontal scrollbar. Path is left flexible
+     to absorb %-rounding; Old/New share the remaining room and wrap their pre. */
+  .diff-table { table-layout: fixed; }
+  .diff-table th { white-space: normal; }
+  .dc-path { width: auto; }
+  .dc-change { width: 12%; }
+  .dc-old { width: 28%; }
+  .dc-new { width: 28%; }
+  .dc-impact { width: 16%; }
+  .diff-table td code { word-break: break-all; }
+
   .diff-value {
     font-size: var(--text-xs);
     margin: 0;
