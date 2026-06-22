@@ -2,7 +2,7 @@
   import { ownerUrl, serviceUrl } from '../lib/router.ts';
   import { aggregateByOwner, complianceClass, statusClass, ownerKey, sourceTooltip, complianceStatusClass } from '../lib/format.ts';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
-  import OwnerBarChart from '../OwnerBarChart.svelte';
+  import OwnersBarChart from '../components/OwnersBarChart.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
 
   let { services = [], initialLoading = false } = $props();
@@ -170,9 +170,12 @@
       <p>Try a different search or filter.</p>
     </div>
   {:else}
-    <!-- Chart -->
-    {#if owners.length > 1}
-      <OwnerBarChart {owners} {sortBy} />
+    <!-- Owners compliance bar chart -->
+    {#if owners.length > 0}
+      <div class="chart-panel fade-in-up">
+        <div class="chart-title">Compliance by owner</div>
+        <OwnersBarChart data={owners} />
+      </div>
     {/if}
 
     <!-- Table -->
@@ -284,6 +287,13 @@
   .page-header {
     display: flex; align-items: center; gap: var(--sp-3);
     margin-bottom: var(--sp-5); flex-wrap: wrap;
+  }
+
+  /* ── Chart panels ── */
+  .chart-panel { margin-bottom: var(--sp-4); }
+  .chart-title {
+    font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--c-text-3); margin-bottom: var(--sp-2);
   }
 
   /* ── Controls ── */

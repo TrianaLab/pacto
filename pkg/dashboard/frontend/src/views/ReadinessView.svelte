@@ -16,6 +16,8 @@
   import { applyFilters } from '../lib/filters.ts';
   import FilterBar from '../components/FilterBar.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
+  import CategoryBreakdownChart from '../components/CategoryBreakdownChart.svelte';
+  import ReadinessDonut from '../components/ReadinessDonut.svelte';
 
   let { services = [], initialLoading = false } = $props();
 
@@ -127,40 +129,19 @@
     </p>
   {/if}
 
-  <!-- By-category breakdown: click a category to filter the list. -->
+  <!-- Readiness status distribution donut chart -->
+  {#if summary.configured > 0}
+    <div class="chart-panel fade-in-up">
+      <div class="chart-title">Status Distribution</div>
+      <ReadinessDonut data={{ ready: summary.ready, partial: summary.partial, notReady: summary.notReady, notConfigured: summary.notConfigured }} />
+    </div>
+  {/if}
+
+  <!-- By-category breakdown: stacked bar chart -->
   {#if byCategory.length > 0}
-    <div class="category-panel fade-in-up">
-      <div class="category-title">By category</div>
-      <div class="table-wrap">
-        <table class="category-table">
-          <thead>
-            <tr>
-              <th>Category</th>
-              <th data-tip="Total checks in this category">Checks</th>
-              <th>Done</th>
-              <th>Partial</th>
-              <th>Not done</th>
-              <th>Deferred</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each byCategory as cat}
-              <tr class="clickable" class:row-active={filters.category === cat.category} onclick={() => setFilter('category', cat.category)}>
-                <td>
-                  <button type="button" class="cat-name" onclick={(e) => { e.stopPropagation(); setFilter('category', cat.category); }}>
-                    {cat.category}
-                  </button>
-                </td>
-                <td>{cat.checks}</td>
-                <td>{#if cat.done > 0}<span class="text-ok">{cat.done}</span>{:else}<span class="text-dim">0</span>{/if}</td>
-                <td>{#if cat.partial > 0}<span class="text-warn">{cat.partial}</span>{:else}<span class="text-dim">0</span>{/if}</td>
-                <td>{#if cat.notDone > 0}<span class="text-err">{cat.notDone}</span>{:else}<span class="text-dim">0</span>{/if}</td>
-                <td>{#if cat.deferred > 0}{cat.deferred}{:else}<span class="text-dim">0</span>{/if}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
+    <div class="chart-panel fade-in-up">
+      <div class="chart-title">By category</div>
+      <CategoryBreakdownChart data={byCategory} />
     </div>
   {/if}
 
@@ -313,17 +294,12 @@
     margin: 0 0 var(--sp-4);
   }
 
-  /* ── Category breakdown ── */
-  .category-panel { margin-bottom: var(--sp-4); }
-  .category-title {
+  /* ── Chart panels ── */
+  .chart-panel { margin-bottom: var(--sp-4); }
+  .chart-title {
     font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--c-text-3); margin-bottom: var(--sp-2);
   }
-  .category-table { width: 100%; font-size: var(--text-sm); }
-  .category-table th { font-size: var(--text-xs); white-space: nowrap; }
-  .category-table td { white-space: nowrap; }
-  .category-table td:first-child { white-space: normal; }
-  .category-table .row-active { background: var(--c-accent-bg); }
   .cat-name {
     background: none; border: none; padding: 0; font: inherit; font-weight: 600;
     color: var(--c-accent); cursor: pointer;
