@@ -39,8 +39,8 @@ export function renderCategoryStackedBars(
   const deferredColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
 
   const margin = { top: 20, right: 140, bottom: 40, left: 120 };
-  const width = Math.max(600, container.clientWidth || 600);
-  const height = Math.max(200, data.length * 50 + margin.top + margin.bottom);
+  const width = Math.max(400, container.clientWidth || 400);
+  const height = Math.max(220, data.length * 35 + margin.top + margin.bottom);
 
   const svg = d3.select(container)
     .append('svg')
@@ -171,10 +171,10 @@ export function renderReadinessDonut(
   const notReadyColor = getComputedStyle(container).getPropertyValue('--c-err').trim();
   const notConfiguredColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
 
-  const donutRadius = 100;
+  const donutRadius = 70;
   const legendWidth = 120;
   const width = donutRadius * 2 + 40 + legendWidth;
-  const height = 300;
+  const height = 220;
 
   const svg = d3.select(container)
     .append('svg')
@@ -261,11 +261,15 @@ export function renderReadinessDonut(
     .text((d) => `${d.label} (${d.value})`);
 }
 
-/** Horizontal bar chart for owner compliance breakdown. */
+/** Horizontal stacked bar chart for owner service-status composition. */
 export interface OwnerBarData {
   key: string;
   services: number;
-  compliancePercent: number;
+  compliant: number;
+  warning: number;
+  nonCompliant: number;
+  reference: number;
+  unknown: number;
 }
 
 export interface OwnerBarOptions {
@@ -290,6 +294,12 @@ export function renderOwnerBars(
   // Limit to top 15 owners for readability
   const topData = data.slice(0, 15);
 
+  // Read theme colors from CSS
+  const okColor = getComputedStyle(container).getPropertyValue('--c-ok').trim();
+  const warnColor = getComputedStyle(container).getPropertyValue('--c-warn').trim();
+  const errColor = getComputedStyle(container).getPropertyValue('--c-err').trim();
+  const neutralColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
+
   const margin = { top: 20, right: 80, bottom: 40, left: 120 };
   const width = Math.max(600, container.clientWidth || 600);
   const height = Math.max(200, topData.length * 40 + margin.top + margin.bottom);
@@ -305,38 +315,56 @@ export function renderOwnerBars(
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
 
-  // X scale: 0-100%
-  const x = d3.scaleLinear().domain([0, 100]).range([0, innerWidth]);
+  // Stack keys: compliant, warning, nonCompliant, reference+unknown (neutral)
+  const keys = ['compliant', 'warning', 'nonCompliant', 'neutral'];
+
+  // Transform data: merge reference+unknown into neutral
+  const stackData = topData.map((d) => ({
+    key: d.key,
+    services: d.services,
+    compliant: d.compliant,
+    warning: d.warning,
+    nonCompliant: d.nonCompliant,
+    neutral: d.reference + d.unknown,
+  }));
+
+  const stack = d3.stack<typeof stackData[0]>().keys(keys);
+  const series = stack(stackData);
+
+  // X scale: total services
+  const xMax = d3.max(stackData, (d) => d.services) || 10;
+  const x = d3.scaleLinear().domain([0, xMax]).range([0, innerWidth]);
 
   // Y scale: owner keys
   const y = d3.scaleBand()
-    .domain(topData.map((d) => d.key))
+    .domain(stackData.map((d) => d.key))
     .range([0, innerHeight])
     .padding(0.25);
 
-  // Color scale: percent-based gradient
-  const okColor = getComputedStyle(container).getPropertyValue('--c-ok').trim();
-  const warnColor = getComputedStyle(container).getPropertyValue('--c-warn').trim();
-  const errColor = getComputedStyle(container).getPropertyValue('--c-err').trim();
-
-  function barColor(pct: number): string {
-    if (pct >= 80) return okColor;
-    if (pct >= 50) return warnColor;
-    return errColor;
-  }
+  // Color map
+  const colorMap: Record<string, string> = {
+    compliant: okColor,
+    warning: warnColor,
+    nonCompliant: errColor,
+    neutral: neutralColor,
+  };
 
   // Bars
-  g.selectAll('rect')
-    .data(topData)
+  g.selectAll('g.layer')
+    .data(series)
+    .join('g')
+    .attr('class', 'layer')
+    .attr('fill', (d) => colorMap[d.key])
+    .selectAll('rect')
+    .data((d) => d)
     .join('rect')
-    .attr('x', 0)
-    .attr('y', (d) => y(d.key) || 0)
-    .attr('width', (d) => x(d.compliancePercent >= 0 ? d.compliancePercent : 0))
+    .attr('x', (d) => x(d[0]))
+    .attr('y', (d) => y((d.data as typeof stackData[0]).key) || 0)
+    .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0])))
     .attr('height', y.bandwidth())
-    .attr('fill', (d) => barColor(d.compliancePercent))
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('click', (_, d) => {
-      if (opts.onSelect) opts.onSelect(d.key);
+      if (opts.onSelect) opts.onSelect((d.data as typeof stackData[0]).key);
     });
 
   // Y axis: owner labels
@@ -350,39 +378,54 @@ export function renderOwnerBars(
       if (opts.onSelect) opts.onSelect(String(key));
     });
 
-  // X axis: percent
+  // X axis: service count (integer ticks)
   g.append('g')
     .attr('transform', `translate(0,${innerHeight})`)
-    .call(d3.axisBottom(x).ticks(5).tickFormat((v) => `${v}%`))
+    .call(d3.axisBottom(x).ticks(5).tickFormat(d3.format('d')))
     .selectAll('text')
     .style('font-size', 'var(--text-xs)')
     .style('fill', 'var(--c-text-3)');
 
-  // Value labels on bars: percent + service count
-  // Position inside bar (right-aligned) when bar is wide enough, otherwise outside
-  const minBarWidthForInside = 80; // px threshold
+  // Total service count labels at the end of each bar
   g.selectAll('text.bar-label')
-    .data(topData)
+    .data(stackData)
     .join('text')
     .attr('class', 'bar-label')
-    .attr('x', (d) => {
-      const barWidth = x(d.compliancePercent >= 0 ? d.compliancePercent : 0);
-      return barWidth >= minBarWidthForInside ? barWidth - 8 : barWidth + 8;
-    })
+    .attr('x', (d) => x(d.services) + 6)
     .attr('y', (d) => (y(d.key) || 0) + y.bandwidth() / 2)
-    .attr('text-anchor', (d) => {
-      const barWidth = x(d.compliancePercent >= 0 ? d.compliancePercent : 0);
-      return barWidth >= minBarWidthForInside ? 'end' : 'start';
-    })
+    .attr('text-anchor', 'start')
     .attr('dominant-baseline', 'middle')
     .style('font-size', 'var(--text-xs)')
     .style('font-weight', '600')
-    .style('fill', (d) => {
-      const barWidth = x(d.compliancePercent >= 0 ? d.compliancePercent : 0);
-      return barWidth >= minBarWidthForInside ? 'var(--c-surface)' : 'var(--c-text)';
-    })
-    .text((d) => {
-      const pct = d.compliancePercent >= 0 ? `${d.compliancePercent}%` : '—';
-      return `${pct} (${d.services} service${d.services === 1 ? '' : 's'})`;
-    });
+    .style('fill', 'var(--c-text)')
+    .text((d) => d.services);
+
+  // Legend
+  const legend = svg.append('g')
+    .attr('transform', `translate(${width - margin.right + 20}, ${margin.top})`);
+
+  const legendData = [
+    { label: 'Compliant', color: okColor },
+    { label: 'Warning', color: warnColor },
+    { label: 'Non-Compliant', color: errColor },
+    { label: 'Reference/Unknown', color: neutralColor },
+  ];
+
+  const legendItems = legend.selectAll('g')
+    .data(legendData)
+    .join('g')
+    .attr('transform', (_, i) => `translate(0, ${i * 20})`);
+
+  legendItems.append('rect')
+    .attr('width', 12)
+    .attr('height', 12)
+    .attr('fill', (d) => d.color);
+
+  legendItems.append('text')
+    .attr('x', 18)
+    .attr('y', 6)
+    .attr('dominant-baseline', 'middle')
+    .style('font-size', 'var(--text-xs)')
+    .style('fill', 'var(--c-text)')
+    .text((d) => d.label);
 }

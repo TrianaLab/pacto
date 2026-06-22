@@ -150,6 +150,7 @@
 
   table {
     width: 100%;
+    box-sizing: border-box;
   }
 
   th, td {

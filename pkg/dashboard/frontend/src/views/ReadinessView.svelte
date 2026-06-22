@@ -129,19 +129,21 @@
     </p>
   {/if}
 
-  <!-- Readiness status distribution donut chart -->
-  {#if summary.configured > 0}
-    <div class="chart-panel fade-in-up">
-      <div class="chart-title">Status Distribution</div>
-      <ReadinessDonut data={{ ready: summary.ready, partial: summary.partial, notReady: summary.notReady, notConfigured: summary.notConfigured }} />
-    </div>
-  {/if}
-
-  <!-- By-category breakdown: stacked bar chart -->
-  {#if byCategory.length > 0}
-    <div class="chart-panel fade-in-up">
-      <div class="chart-title">By category</div>
-      <CategoryBreakdownChart data={byCategory} />
+  <!-- Readiness charts: side-by-side in a responsive row -->
+  {#if summary.configured > 0 || byCategory.length > 0}
+    <div class="chart-row fade-in-up">
+      {#if summary.configured > 0}
+        <div class="chart-panel">
+          <div class="chart-title">Status Distribution</div>
+          <ReadinessDonut data={{ ready: summary.ready, partial: summary.partial, notReady: summary.notReady, notConfigured: summary.notConfigured }} />
+        </div>
+      {/if}
+      {#if byCategory.length > 0}
+        <div class="chart-panel">
+          <div class="chart-title">By category</div>
+          <CategoryBreakdownChart data={byCategory} />
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -295,7 +297,13 @@
   }
 
   /* ── Chart panels ── */
-  .chart-panel { margin-bottom: var(--sp-4); }
+  .chart-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: var(--sp-4);
+    margin-bottom: var(--sp-4);
+  }
+  .chart-panel { /* now inside chart-row */ }
   .chart-title {
     font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--c-text-3); margin-bottom: var(--sp-2);

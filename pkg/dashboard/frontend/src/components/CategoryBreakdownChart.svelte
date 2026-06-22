@@ -20,7 +20,6 @@
 <style>
   .chart-container {
     width: 100%;
-    min-height: 200px;
-    margin-bottom: var(--sp-4);
+    min-height: 220px;
   }
 </style>

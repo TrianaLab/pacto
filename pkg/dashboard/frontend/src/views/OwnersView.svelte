@@ -170,10 +170,10 @@
       <p>Try a different search or filter.</p>
     </div>
   {:else}
-    <!-- Owners compliance bar chart -->
+    <!-- Owners service status bar chart -->
     {#if owners.length > 0}
       <div class="chart-panel fade-in-up">
-        <div class="chart-title">Compliance by owner</div>
+        <div class="chart-title">Services by owner</div>
         <OwnersBarChart data={owners} />
       </div>
     {/if}

@@ -85,11 +85,11 @@ describe('renderReadinessDonut', () => {
 });
 
 describe('renderOwnerBars', () => {
-  it('renders horizontal bars for each owner', () => {
+  it('renders stacked bars for each owner', () => {
     const container = document.createElement('div');
     const data = [
-      { key: 'team-a', services: 5, compliancePercent: 80 },
-      { key: 'team-b', services: 3, compliancePercent: 50 },
+      { key: 'team-a', services: 5, compliant: 3, warning: 1, nonCompliant: 1, reference: 0, unknown: 0 },
+      { key: 'team-b', services: 3, compliant: 1, warning: 1, nonCompliant: 0, reference: 1, unknown: 0 },
     ];
 
     renderOwnerBars(container, data);
@@ -97,22 +97,29 @@ describe('renderOwnerBars', () => {
     const svg = container.querySelector('svg');
     expect(svg).not.toBeNull();
 
-    const rects = container.querySelectorAll('rect');
-    expect(rects.length).toBe(2); // one bar per owner
+    const layers = container.querySelectorAll('g.layer');
+    expect(layers.length).toBe(4); // compliant, warning, nonCompliant, neutral
   });
 
   it('limits to top 15 owners', () => {
     const container = document.createElement('div');
     const data = Array.from({ length: 20 }, (_, i) => ({
       key: `owner-${i}`,
-      services: i,
-      compliancePercent: i * 5,
+      services: i + 1,
+      compliant: i,
+      warning: 0,
+      nonCompliant: 1,
+      reference: 0,
+      unknown: 0,
     }));
 
     renderOwnerBars(container, data);
 
-    const rects = container.querySelectorAll('rect');
-    expect(rects.length).toBe(15); // limited to top 15
+    const layers = container.querySelectorAll('g.layer');
+    const rects = container.querySelectorAll('g.layer rect');
+    expect(layers.length).toBe(4); // 4 status segments
+    // Each of the top 15 owners should have up to 4 segments (some may be zero-width)
+    expect(rects.length).toBeGreaterThan(0);
   });
 
   it('renders empty state when no data', () => {
@@ -121,14 +128,26 @@ describe('renderOwnerBars', () => {
     expect(container.textContent).toContain('No owner data');
   });
 
-  it('renders labels with percent and service count', () => {
+  it('renders labels with total service count', () => {
     const container = document.createElement('div');
-    const data = [{ key: 'team-x', services: 7, compliancePercent: 100 }];
+    const data = [{ key: 'team-x', services: 7, compliant: 5, warning: 1, nonCompliant: 1, reference: 0, unknown: 0 }];
 
     renderOwnerBars(container, data);
 
     const labels = Array.from(container.querySelectorAll('text.bar-label')).map((t) => t.textContent);
-    expect(labels.some((l) => l?.includes('100%'))).toBe(true);
-    expect(labels.some((l) => l?.includes('7 services'))).toBe(true);
+    expect(labels.some((l) => l === '7')).toBe(true);
+  });
+
+  it('renders legend with status labels', () => {
+    const container = document.createElement('div');
+    const data = [{ key: 'team-y', services: 4, compliant: 2, warning: 1, nonCompliant: 1, reference: 0, unknown: 0 }];
+
+    renderOwnerBars(container, data);
+
+    const legendTexts = Array.from(container.querySelectorAll('text')).map((t) => t.textContent);
+    expect(legendTexts).toContain('Compliant');
+    expect(legendTexts).toContain('Warning');
+    expect(legendTexts).toContain('Non-Compliant');
+    expect(legendTexts).toContain('Reference/Unknown');
   });
 });
