@@ -149,23 +149,28 @@ export function renderCategoryStackedBars(
       if (opts.onSelect) opts.onSelect((d.data as CategoryBarData).category);
     });
 
-  // Y axis: category labels
-  g.append('g')
-    .call(d3.axisLeft(y).tickSize(0))
-    .selectAll('text')
+  // Y axis: category labels — muted chrome (no domain line, no tick marks).
+  const yAxis = g.append('g').call(d3.axisLeft(y).tickSize(0));
+  yAxis.select('.domain').remove();
+  yAxis.selectAll('.tick line').remove();
+  yAxis.selectAll('text')
     .style('font-size', 'var(--text-sm)')
+    .style('font-weight', '500')
     .style('fill', 'var(--c-text)')
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('click', (_, cat) => {
       if (opts.onSelect) opts.onSelect(String(cat));
     });
 
-  // X axis: count
-  g.append('g')
+  // X axis: count — muted chrome.
+  const xAxis = g.append('g')
     .attr('transform', `translate(0,${innerHeight})`)
-    .call(d3.axisBottom(x).ticks(5).tickFormat(d3.format('d')))
-    .selectAll('text')
+    .call(d3.axisBottom(x).ticks(5).tickFormat(d3.format('d')));
+  xAxis.select('.domain').remove();
+  xAxis.selectAll('.tick line').remove();
+  xAxis.selectAll('text')
     .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
     .style('fill', 'var(--c-text-3)');
 
   // Legend
@@ -187,6 +192,7 @@ export function renderCategoryStackedBars(
   legendItems.append('rect')
     .attr('width', 12)
     .attr('height', 12)
+    .attr('rx', 2)
     .attr('fill', (d) => d.color);
 
   legendItems.append('text')
@@ -194,6 +200,7 @@ export function renderCategoryStackedBars(
     .attr('y', 6)
     .attr('dominant-baseline', 'middle')
     .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
     .style('fill', 'var(--c-text)')
     .text((d) => d.label);
 }
@@ -233,7 +240,7 @@ export function renderReadinessDonut(
   const notConfiguredColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
 
   const donutRadius = 70;
-  const legendWidth = 120;
+  const legendWidth = 150;
   const width = donutRadius * 2 + 40 + legendWidth;
   const height = 220;
 
@@ -301,7 +308,7 @@ export function renderReadinessDonut(
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', 'middle')
     .attr('y', -8)
-    .style('font-size', '2rem')
+    .style('font-size', 'var(--text-xl)')
     .style('font-weight', '600')
     .style('fill', 'var(--c-text)')
     .text(total);
@@ -309,8 +316,9 @@ export function renderReadinessDonut(
   g.append('text')
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', 'middle')
-    .attr('y', 12)
+    .attr('y', 14)
     .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
     .style('fill', 'var(--c-text-3)')
     .text('services');
 
@@ -334,19 +342,19 @@ export function renderReadinessDonut(
     .attr('y', 6)
     .attr('dominant-baseline', 'middle')
     .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
     .style('fill', 'var(--c-text)')
     .text((d) => `${d.label} (${d.value})`);
 }
 
-/** Horizontal stacked bar chart for owner service-status composition. */
+/** Horizontal stacked bar chart for per-owner readiness composition. */
 export interface OwnerBarData {
   key: string;
   services: number;
-  compliant: number;
-  warning: number;
-  nonCompliant: number;
-  reference: number;
-  unknown: number;
+  ready: number;
+  partial: number;
+  notReady: number;
+  notConfigured: number;
 }
 
 export interface OwnerBarOptions {
@@ -371,20 +379,25 @@ export function renderOwnerBars(
   // Limit to top 15 owners for readability
   const topData = data.slice(0, 15);
 
-  // Read theme colors from CSS
-  const okColor = getComputedStyle(container).getPropertyValue('--c-ok').trim();
-  const warnColor = getComputedStyle(container).getPropertyValue('--c-warn').trim();
-  const errColor = getComputedStyle(container).getPropertyValue('--c-err').trim();
-  const neutralColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
+  // Read theme colors from CSS — readiness palette.
+  const readyColor = getComputedStyle(container).getPropertyValue('--c-ok').trim();
+  const partialColor = getComputedStyle(container).getPropertyValue('--c-warn').trim();
+  const notReadyColor = getComputedStyle(container).getPropertyValue('--c-err').trim();
+  const notConfiguredColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
 
-  const margin = { top: 20, right: 80, bottom: 40, left: 120 };
-  const width = Math.max(600, container.clientWidth || 600);
+  // Legend lives BELOW the bars so it is never clipped at the right edge.
+  const legendHeight = 28;
+  const margin = { top: 16, right: 48, bottom: 40 + legendHeight, left: 120 };
+  // The intrinsic coordinate width: fill the container, fall back to a sane default.
+  const width = Math.max(480, container.clientWidth || 600);
   const height = Math.max(200, topData.length * 40 + margin.top + margin.bottom);
 
+  // viewBox + 100% width makes the chart responsive and keeps the legend in frame.
   const svg = d3.select(container)
     .append('svg')
     .attr('width', '100%')
-    .attr('height', height)
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
     .style('font-family', 'var(--font-sans)');
 
   const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
@@ -392,17 +405,16 @@ export function renderOwnerBars(
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
 
-  // Stack keys: compliant, warning, nonCompliant, reference+unknown (neutral)
-  const keys = ['compliant', 'warning', 'nonCompliant', 'neutral'];
+  // Stack keys: readiness composition.
+  const keys = ['ready', 'partial', 'notReady', 'notConfigured'];
 
-  // Transform data: merge reference+unknown into neutral
   const stackData = topData.map((d) => ({
     key: d.key,
     services: d.services,
-    compliant: d.compliant,
-    warning: d.warning,
-    nonCompliant: d.nonCompliant,
-    neutral: d.reference + d.unknown,
+    ready: d.ready,
+    partial: d.partial,
+    notReady: d.notReady,
+    notConfigured: d.notConfigured,
   }));
 
   const stack = d3.stack<typeof stackData[0]>().keys(keys);
@@ -420,10 +432,10 @@ export function renderOwnerBars(
 
   // Color map
   const colorMap: Record<string, string> = {
-    compliant: okColor,
-    warning: warnColor,
-    nonCompliant: errColor,
-    neutral: neutralColor,
+    ready: readyColor,
+    partial: partialColor,
+    notReady: notReadyColor,
+    notConfigured: notConfiguredColor,
   };
 
   const tooltip = new ChartTooltip();
@@ -447,7 +459,7 @@ export function renderOwnerBars(
       d3.select(this).transition().duration(150).attr('opacity', 0.8);
       const owner = topData.find((o) => o.key === (d.data as typeof stackData[0]).key);
       if (!owner) return;
-      const content = `${owner.key} — ${owner.services} services · compliant ${owner.compliant} · warning ${owner.warning} · non-compliant ${owner.nonCompliant} · reference ${owner.reference}`;
+      const content = `${owner.key} — ${owner.services} services · ready ${owner.ready} · partial ${owner.partial} · not ready ${owner.notReady} · not configured ${owner.notConfigured}`;
       tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
     })
     .on('mousemove', function (event) {
@@ -461,23 +473,28 @@ export function renderOwnerBars(
       if (opts.onSelect) opts.onSelect((d.data as typeof stackData[0]).key);
     });
 
-  // Y axis: owner labels
-  g.append('g')
-    .call(d3.axisLeft(y).tickSize(0))
-    .selectAll('text')
+  // Y axis: owner labels — muted chrome (no domain line, no tick marks).
+  const yAxis = g.append('g').call(d3.axisLeft(y).tickSize(0));
+  yAxis.select('.domain').remove();
+  yAxis.selectAll('.tick line').remove();
+  yAxis.selectAll('text')
     .style('font-size', 'var(--text-sm)')
+    .style('font-weight', '500')
     .style('fill', 'var(--c-text)')
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('click', (_, key) => {
       if (opts.onSelect) opts.onSelect(String(key));
     });
 
-  // X axis: service count (integer ticks)
-  g.append('g')
+  // X axis: service count (integer ticks) — muted chrome.
+  const xAxis = g.append('g')
     .attr('transform', `translate(0,${innerHeight})`)
-    .call(d3.axisBottom(x).ticks(5).tickFormat(d3.format('d')))
-    .selectAll('text')
+    .call(d3.axisBottom(x).ticks(5).tickFormat(d3.format('d')));
+  xAxis.select('.domain').remove();
+  xAxis.selectAll('.tick line').remove();
+  xAxis.selectAll('text')
     .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
     .style('fill', 'var(--c-text-3)');
 
   // Total service count labels at the end of each bar
@@ -490,36 +507,43 @@ export function renderOwnerBars(
     .attr('text-anchor', 'start')
     .attr('dominant-baseline', 'middle')
     .style('font-size', 'var(--text-xs)')
-    .style('font-weight', '600')
+    .style('font-weight', '500')
     .style('fill', 'var(--c-text)')
     .text((d) => d.services);
 
-  // Legend
-  const legend = svg.append('g')
-    .attr('transform', `translate(${width - margin.right + 20}, ${margin.top})`);
-
+  // Legend — placed below the bars, horizontally, so it always fits the frame.
   const legendData = [
-    { label: 'Compliant', color: okColor },
-    { label: 'Warning', color: warnColor },
-    { label: 'Non-Compliant', color: errColor },
-    { label: 'Reference/Unknown', color: neutralColor },
+    { label: 'Ready', color: readyColor },
+    { label: 'Partial', color: partialColor },
+    { label: 'Not ready', color: notReadyColor },
+    { label: 'Not configured', color: notConfiguredColor },
   ];
 
-  const legendItems = legend.selectAll('g')
-    .data(legendData)
-    .join('g')
-    .attr('transform', (_, i) => `translate(0, ${i * 20})`);
+  const legend = svg.append('g')
+    .attr('transform', `translate(${margin.left}, ${height - legendHeight + 6})`);
 
-  legendItems.append('rect')
-    .attr('width', 12)
-    .attr('height', 12)
-    .attr('fill', (d) => d.color);
+  let legendX = 0;
+  const itemGap = 20;
+  const swatch = 12;
+  const swatchGap = 6;
+  // Approx char width at --text-xs for laying out items left-to-right without overlap.
+  const charW = 6.5;
 
-  legendItems.append('text')
-    .attr('x', 18)
-    .attr('y', 6)
-    .attr('dominant-baseline', 'middle')
-    .style('font-size', 'var(--text-xs)')
-    .style('fill', 'var(--c-text)')
-    .text((d) => d.label);
+  legendData.forEach((d) => {
+    const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
+    item.append('rect')
+      .attr('width', swatch)
+      .attr('height', swatch)
+      .attr('y', -swatch / 2)
+      .attr('rx', 2)
+      .attr('fill', d.color);
+    item.append('text')
+      .attr('x', swatch + swatchGap)
+      .attr('dominant-baseline', 'middle')
+      .style('font-size', 'var(--text-xs)')
+      .style('font-weight', '500')
+      .style('fill', 'var(--c-text-3)')
+      .text(d.label);
+    legendX += swatch + swatchGap + d.label.length * charW + itemGap;
+  });
 }

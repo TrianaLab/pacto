@@ -153,10 +153,10 @@
   {#if owners.length === 0}
     <EmptyState title="No matching owners" message="Try a different search or filter." />
   {:else}
-    <!-- Owners service status bar chart -->
+    <!-- Owners readiness composition bar chart -->
     {#if owners.length > 0}
       <div class="chart-panel fade-in-up">
-        <div class="chart-title">Services by owner</div>
+        <div class="chart-title">Readiness by owner</div>
         <OwnersBarChart data={owners} />
       </div>
     {/if}

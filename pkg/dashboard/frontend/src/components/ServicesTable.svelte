@@ -17,6 +17,16 @@
 {:else}
   <div class="table-wrap">
     <table>
+      <colgroup>
+        <col class="col-name" />
+        <col class="col-version" />
+        <col class="col-status" />
+        <col class="col-compliance" />
+        <col class="col-readiness" />
+        <col class="col-blast" />
+        <col class="col-checks" />
+        <col class="col-source" />
+      </colgroup>
       <thead>
         <tr>
           <th data-tip="Service contract name">Name</th>
@@ -101,17 +111,36 @@
 {/if}
 
 <style>
+  /* overflow-x:auto is only a last-resort fallback; the fixed layout below sizes
+     the table to exactly the container width so a scrollbar never appears unless
+     the viewport is genuinely too narrow. */
   .table-wrap {
     overflow-x: auto;
   }
 
+  /* Fixed layout: column widths come from <colgroup>, not from content's
+     intrinsic min-content. This stops the nowrap columns from over-growing the
+     table past 100% and triggering a spurious horizontal scrollbar. */
   table {
     width: 100%;
     box-sizing: border-box;
+    table-layout: fixed;
   }
+
+  /* Name column flexes and truncates; the rest are compact and fixed-ish. */
+  .col-name { width: auto; }
+  .col-version { width: 12%; }
+  .col-status { width: 13%; }
+  .col-compliance { width: 11%; }
+  .col-readiness { width: 11%; }
+  .col-blast { width: 8%; }
+  .col-checks { width: 9%; }
+  .col-source { width: 9%; }
 
   th, td {
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   th:first-child, td:first-child {
@@ -122,7 +151,7 @@
     font-weight: 600;
     text-decoration: none;
     display: block;
-    max-width: 200px;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

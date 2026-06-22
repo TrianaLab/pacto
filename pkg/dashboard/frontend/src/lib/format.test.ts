@@ -322,6 +322,33 @@ describe('aggregateByOwner', () => {
     }
   });
 
+  it('produces readiness segments that sum to total services', () => {
+    const result = aggregateByOwner(services);
+    for (const agg of result) {
+      const segTotal = agg.ready + agg.partial + agg.notReady + agg.notConfigured;
+      expect(segTotal).toBe(agg.services);
+    }
+  });
+
+  it('counts per-owner readiness buckets (unknown → notConfigured)', () => {
+    const ready = { readiness: { score: 100, passing: true } };
+    const partial = { readiness: { score: 60, passing: false } };
+    const notReady = { readiness: { score: 10, passing: false } };
+    const svc = [
+      { name: 'a', owner: { team: 'team-r' }, contractStatus: 'Compliant', ...ready },
+      { name: 'b', owner: { team: 'team-r' }, contractStatus: 'Warning', ...partial },
+      { name: 'c', owner: { team: 'team-r' }, contractStatus: 'NonCompliant', ...notReady },
+      { name: 'd', owner: { team: 'team-r' }, contractStatus: 'Reference' }, // no readiness → notConfigured
+    ];
+    const result = aggregateByOwner(svc);
+    const team = result.find((r) => r.key === 'team-r')!;
+    expect(team.services).toBe(4);
+    expect(team.ready).toBe(1);
+    expect(team.partial).toBe(1);
+    expect(team.notReady).toBe(1);
+    expect(team.notConfigured).toBe(1);
+  });
+
   it('handles owner with only compliant services', () => {
     const svc = [
       { name: 'x', owner: { team: 'clean-team' }, contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
@@ -964,6 +991,16 @@ describe('summarize', () => {
     expect(teamA.warning).toBe(1);
     expect(teamA.totalBlast).toBe(6);
     expect(teamA.compliancePercent).toBe(80); // (100+60)/2
+    // Readiness composition: a passes (ready), b score 60 not passing (partial).
+    expect(teamA.ready).toBe(1);
+    expect(teamA.partial).toBe(1);
+    expect(teamA.notReady).toBe(0);
+    expect(teamA.notConfigured).toBe(0);
+
+    // Unowned d has no readiness block → notConfigured.
+    const unowned = m.byOwner.find((o) => o.key === '(unowned)')!;
+    expect(unowned.notConfigured).toBe(1);
+    expect(unowned.ready).toBe(0);
   });
 
   it('aggregates by category with other bucket', () => {

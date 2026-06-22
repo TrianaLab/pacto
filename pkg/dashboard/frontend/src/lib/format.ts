@@ -347,6 +347,11 @@ export interface OwnerAggregation {
   unknown: number;
   totalBlast: number;
   compliancePercent: number;
+  // Per-owner readiness composition (buckets sum to `services`).
+  ready: number;
+  partial: number;
+  notReady: number;
+  notConfigured: number;
 }
 
 /** Aggregate services by canonical owner key. */
@@ -616,7 +621,7 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     const key = ownerKey(svc.owner) || '(unowned)';
     let agg = ownerMap.get(key);
     if (!agg) {
-      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, totalBlast: 0, compliancePercent: 0 };
+      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, totalBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
       ownerMap.set(key, agg);
       ownerScores.set(key, []);
     }
@@ -633,6 +638,13 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     // Readiness aggregation
     const r = (svc as WithReadiness).readiness;
     const bucket = readinessBucket(svc as WithReadiness);
+
+    // Per-owner readiness composition (unknown → notConfigured).
+    if (bucket === 'ready') agg.ready++;
+    else if (bucket === 'partial') agg.partial++;
+    else if (bucket === 'not-ready') agg.notReady++;
+    else agg.notConfigured++;
+
     if (bucket === 'unknown') {
       m.readiness.notConfigured++;
     } else {

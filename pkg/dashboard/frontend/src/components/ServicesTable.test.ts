@@ -177,4 +177,26 @@ describe('ServicesTable — columns and click-to-filter', () => {
 
     unmount(component);
   });
+
+  it('renders a colgroup with one col per column for the fixed layout', () => {
+    const component = mount(ServicesTable, {
+      target,
+      props: {
+        services: [
+          { name: 'svc-a', version: '1.0.0', contractStatus: 'Compliant' },
+        ],
+      },
+    });
+
+    // table-layout:fixed sizes columns from this <colgroup> (one <col> per
+    // column), which is what stops the nowrap columns from over-growing the
+    // table and triggering a spurious horizontal scrollbar.
+    const cols = target.querySelectorAll('table > colgroup > col');
+    expect(cols).toHaveLength(8);
+    // The Name column flexes; the rest are compact fixed-ish widths.
+    expect(target.querySelector('col.col-name')).toBeTruthy();
+    expect(target.querySelector('col.col-source')).toBeTruthy();
+
+    unmount(component);
+  });
 });

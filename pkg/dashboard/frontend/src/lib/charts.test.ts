@@ -38,6 +38,30 @@ describe('renderCategoryStackedBars', () => {
     expect(legendTexts).toContain('Not done');
     expect(legendTexts).toContain('Deferred');
   });
+
+  it('mutes axis chrome (no domain line, no tick marks)', () => {
+    const container = document.createElement('div');
+    const data = [{ category: 'test', done: 1, partial: 1, notDone: 1, deferred: 1 }];
+    renderCategoryStackedBars(container, data);
+
+    expect(container.querySelectorAll('.domain').length).toBe(0);
+    expect(container.querySelectorAll('.tick line').length).toBe(0);
+  });
+
+  it('applies theme typography to axis/label text', () => {
+    const container = document.createElement('div');
+    const data = [{ category: 'test', done: 1, partial: 1, notDone: 1, deferred: 1 }];
+    renderCategoryStackedBars(container, data);
+
+    const svg = container.querySelector('svg')!;
+    expect(svg.style.fontFamily).toBe('var(--font-sans)');
+    const texts = Array.from(container.querySelectorAll('text'));
+    expect(texts.length).toBeGreaterThan(0);
+    // Every text element carries a theme fill token (never a raw d3 default).
+    for (const t of texts) {
+      expect(t.style.fill.startsWith('var(--c-text')).toBe(true);
+    }
+  });
 });
 
 describe('renderReadinessDonut', () => {
@@ -82,14 +106,30 @@ describe('renderReadinessDonut', () => {
     expect(texts).toContain('20'); // 10+5+2+3
     expect(texts).toContain('services');
   });
+
+  it('applies theme typography to all text (no raw d3 defaults)', () => {
+    const container = document.createElement('div');
+    const data = { ready: 10, partial: 5, notReady: 2, notConfigured: 3 };
+
+    renderReadinessDonut(container, data);
+
+    const svg = container.querySelector('svg')!;
+    expect(svg.style.fontFamily).toBe('var(--font-sans)');
+    const texts = Array.from(container.querySelectorAll('text'));
+    for (const t of texts) {
+      expect(t.style.fill.startsWith('var(--c-text')).toBe(true);
+      // No hard-coded px/rem font sizes — use theme tokens.
+      expect(t.style.fontSize.startsWith('var(--text-')).toBe(true);
+    }
+  });
 });
 
 describe('renderOwnerBars', () => {
-  it('renders stacked bars for each owner', () => {
+  it('renders stacked readiness bars for each owner', () => {
     const container = document.createElement('div');
     const data = [
-      { key: 'team-a', services: 5, compliant: 3, warning: 1, nonCompliant: 1, reference: 0, unknown: 0 },
-      { key: 'team-b', services: 3, compliant: 1, warning: 1, nonCompliant: 0, reference: 1, unknown: 0 },
+      { key: 'team-a', services: 5, ready: 3, partial: 1, notReady: 1, notConfigured: 0 },
+      { key: 'team-b', services: 3, ready: 1, partial: 1, notReady: 0, notConfigured: 1 },
     ];
 
     renderOwnerBars(container, data);
@@ -98,7 +138,36 @@ describe('renderOwnerBars', () => {
     expect(svg).not.toBeNull();
 
     const layers = container.querySelectorAll('g.layer');
-    expect(layers.length).toBe(4); // compliant, warning, nonCompliant, neutral
+    expect(layers.length).toBe(4); // ready, partial, notReady, notConfigured
+  });
+
+  it('uses a responsive viewBox so the legend is never clipped', () => {
+    const container = document.createElement('div');
+    const data = [{ key: 'team-a', services: 4, ready: 2, partial: 1, notReady: 1, notConfigured: 0 }];
+
+    renderOwnerBars(container, data);
+
+    const svg = container.querySelector('svg')!;
+    expect(svg.getAttribute('width')).toBe('100%');
+    expect(svg.getAttribute('viewBox')).toBeTruthy();
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
+  });
+
+  it('colors segments with the readiness palette', () => {
+    const container = document.createElement('div');
+    // Provide CSS custom props so getComputedStyle resolves real colors.
+    container.style.setProperty('--c-ok', '#34d399');
+    container.style.setProperty('--c-warn', '#fbbf24');
+    container.style.setProperty('--c-err', '#f87171');
+    container.style.setProperty('--c-text-3', '#64748b');
+    document.body.appendChild(container);
+    const data = [{ key: 'team-a', services: 4, ready: 1, partial: 1, notReady: 1, notConfigured: 1 }];
+
+    renderOwnerBars(container, data);
+
+    const fills = Array.from(container.querySelectorAll('g.layer')).map((g) => g.getAttribute('fill'));
+    expect(fills).toEqual(['#34d399', '#fbbf24', '#f87171', '#64748b']);
+    document.body.removeChild(container);
   });
 
   it('limits to top 15 owners', () => {
@@ -106,18 +175,17 @@ describe('renderOwnerBars', () => {
     const data = Array.from({ length: 20 }, (_, i) => ({
       key: `owner-${i}`,
       services: i + 1,
-      compliant: i,
-      warning: 0,
-      nonCompliant: 1,
-      reference: 0,
-      unknown: 0,
+      ready: i,
+      partial: 0,
+      notReady: 1,
+      notConfigured: 0,
     }));
 
     renderOwnerBars(container, data);
 
     const layers = container.querySelectorAll('g.layer');
     const rects = container.querySelectorAll('g.layer rect');
-    expect(layers.length).toBe(4); // 4 status segments
+    expect(layers.length).toBe(4); // 4 readiness segments
     // Each of the top 15 owners should have up to 4 segments (some may be zero-width)
     expect(rects.length).toBeGreaterThan(0);
   });
@@ -130,7 +198,7 @@ describe('renderOwnerBars', () => {
 
   it('renders labels with total service count', () => {
     const container = document.createElement('div');
-    const data = [{ key: 'team-x', services: 7, compliant: 5, warning: 1, nonCompliant: 1, reference: 0, unknown: 0 }];
+    const data = [{ key: 'team-x', services: 7, ready: 5, partial: 1, notReady: 1, notConfigured: 0 }];
 
     renderOwnerBars(container, data);
 
@@ -138,16 +206,16 @@ describe('renderOwnerBars', () => {
     expect(labels.some((l) => l === '7')).toBe(true);
   });
 
-  it('renders legend with status labels', () => {
+  it('renders legend with readiness labels', () => {
     const container = document.createElement('div');
-    const data = [{ key: 'team-y', services: 4, compliant: 2, warning: 1, nonCompliant: 1, reference: 0, unknown: 0 }];
+    const data = [{ key: 'team-y', services: 4, ready: 2, partial: 1, notReady: 1, notConfigured: 0 }];
 
     renderOwnerBars(container, data);
 
     const legendTexts = Array.from(container.querySelectorAll('text')).map((t) => t.textContent);
-    expect(legendTexts).toContain('Compliant');
-    expect(legendTexts).toContain('Warning');
-    expect(legendTexts).toContain('Non-Compliant');
-    expect(legendTexts).toContain('Reference/Unknown');
+    expect(legendTexts).toContain('Ready');
+    expect(legendTexts).toContain('Partial');
+    expect(legendTexts).toContain('Not ready');
+    expect(legendTexts).toContain('Not configured');
   });
 });
