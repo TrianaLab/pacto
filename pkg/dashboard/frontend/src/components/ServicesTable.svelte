@@ -146,8 +146,7 @@
 
   td {
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
   }
 
   th:first-child, td:first-child {
@@ -164,12 +163,12 @@
     white-space: nowrap;
   }
 
-  .svc-name:hover {
-    text-decoration: underline;
-  }
-
   .svc-owner {
     margin-left: 6px;
+  }
+
+  .svc-name:hover {
+    text-decoration: underline;
   }
 
   .text-dim {

@@ -319,7 +319,7 @@
      to .readiness-list so the nested .expand-table keeps its own widths. */
   .readiness-list { table-layout: fixed; }
   .readiness-list th { white-space: normal; }
-  .readiness-list td { overflow: hidden; text-overflow: ellipsis; }
+  .readiness-list td { overflow: visible; }
   .rl-service { width: auto; }
   .rl-owner { width: 18%; }
   .rl-score { width: 11%; }

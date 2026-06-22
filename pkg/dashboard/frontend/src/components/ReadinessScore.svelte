@@ -15,7 +15,7 @@
 
 {#if showScore}
   <span class="readiness-score {cssClass}" data-tip={tip}>
-    {readiness.score}<span class="score-unit">%</span>{#if passing}<span class="gate-check" aria-label="passes minScore" title="passes minScore">&#10003;</span>{/if}
+    {readiness.score}<span class="score-unit">%</span>{#if passing}<span class="gate-check" aria-label="passes minScore">&#10003;</span>{/if}
   </span>
 {:else}
   <span class="text-dim">—</span>

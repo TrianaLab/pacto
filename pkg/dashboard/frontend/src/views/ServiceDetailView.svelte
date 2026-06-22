@@ -733,7 +733,7 @@
      The .diff-expand-row's colspan cell is exempt (its content wraps freely). */
   .version-history { table-layout: fixed; }
   .version-history th { white-space: normal; }
-  .version-history td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .version-history td { overflow: visible; white-space: nowrap; }
   .vh-version { width: auto; }
   .vh-class { width: 22%; }
   .vh-source { width: 16%; }

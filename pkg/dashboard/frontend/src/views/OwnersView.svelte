@@ -327,7 +327,7 @@
      .owners-list so the nested .expand-table keeps its own widths. */
   .owners-list { table-layout: fixed; }
   .owners-list th { white-space: normal; }
-  .owners-list td { overflow: hidden; text-overflow: ellipsis; }
+  .owners-list td { overflow: visible; }
   .ol-owner { width: auto; }
   .ol-services { width: 11%; }
   .ol-compliant { width: 11%; }
@@ -401,7 +401,7 @@
   .oe-compliance { width: 16%; }
   .oe-blast { width: 12%; }
   .oe-source { width: 12%; }
-  .expand-table td { overflow: hidden; text-overflow: ellipsis; }
+  .expand-table td { overflow: visible; }
   .expand-table th {
     font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--c-text-3);

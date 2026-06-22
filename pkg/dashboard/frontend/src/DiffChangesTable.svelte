@@ -72,6 +72,8 @@
      to absorb %-rounding; Old/New share the remaining room and wrap their pre. */
   .diff-table { table-layout: fixed; }
   .diff-table th { white-space: normal; }
+  .diff-table td { overflow: visible; white-space: nowrap; }
+  .diff-table td:first-child { white-space: normal; }
   .dc-path { width: auto; }
   .dc-change { width: 12%; }
   .dc-old { width: 28%; }

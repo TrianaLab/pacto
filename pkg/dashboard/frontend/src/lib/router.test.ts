@@ -186,6 +186,51 @@ describe('parseHash — owner routes', () => {
   });
 });
 
+describe('parseHash — query strings on non-diff routes', () => {
+  // Regression: clicking a status badge on owner-detail appends a filter query
+  // (#/owners/:id?contractStatus=Compliant). The query must be stripped from the
+  // route id so the owner resolves cleanly; filters are read separately from the hash.
+  it('strips the query string from an owner detail id', () => {
+    expect(parseHash('#/owners/platform-foundations?contractStatus=Compliant')).toEqual({
+      view: 'owner-detail',
+      params: { owner: 'platform-foundations' },
+    });
+  });
+
+  it('strips the query string from a service detail name', () => {
+    expect(parseHash('#/services/my-svc?readinessStatus=ready')).toEqual({
+      view: 'detail',
+      params: { name: 'my-svc' },
+    });
+  });
+
+  it('strips the query string from a versioned detail route', () => {
+    expect(parseHash('#/services/my-svc/versions/1.2.0?source=oci')).toEqual({
+      view: 'detail',
+      params: { name: 'my-svc', version: '1.2.0' },
+    });
+  });
+
+  it('strips the query string from the owners list route', () => {
+    expect(parseHash('#/owners?category=security')).toEqual({ view: 'owners', params: {} });
+  });
+
+  it('strips the query string from the graph route', () => {
+    expect(parseHash('#/graph?owner=team-a')).toEqual({ view: 'graph', params: {} });
+  });
+
+  it('strips the query string from the readiness route', () => {
+    expect(parseHash('#/readiness?contractStatus=Warning')).toEqual({ view: 'readiness', params: {} });
+  });
+
+  it('strips the query string from an encoded owner id', () => {
+    expect(parseHash('#/owners/team%2Fpayments?source=k8s')).toEqual({
+      view: 'owner-detail',
+      params: { owner: 'team/payments' },
+    });
+  });
+});
+
 describe('ownersUrl', () => {
   it('returns owners URL', () => {
     expect(ownersUrl()).toBe('#/owners');

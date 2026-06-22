@@ -38,8 +38,11 @@ export function parseHash(hash: string | null | undefined): Route {
     return { view: 'diff', params };
   }
 
+  // For non-diff routes, strip query string from path before matching
+  const path = raw.split('?')[0];
+
   // #/services/:name/versions/:version (full detail of a specific version)
-  const versionMatch = raw.match(/^services\/(.+?)\/versions\/(.+)$/);
+  const versionMatch = path.match(/^services\/(.+?)\/versions\/(.+)$/);
   if (versionMatch) {
     return {
       view: 'detail',
@@ -51,21 +54,21 @@ export function parseHash(hash: string | null | undefined): Route {
   }
 
   // #/services/:name
-  const svcMatch = raw.match(/^services\/(.+)$/);
+  const svcMatch = path.match(/^services\/(.+)$/);
   if (svcMatch) return { view: 'detail', params: { name: decodeURIComponent(svcMatch[1]) } };
 
   // #/graph
-  if (raw === 'graph') return { view: 'graph', params: {} };
+  if (path === 'graph') return { view: 'graph', params: {} };
 
   // #/readiness
-  if (raw === 'readiness') return { view: 'readiness', params: {} };
+  if (path === 'readiness') return { view: 'readiness', params: {} };
 
   // #/owners/:id
-  const ownerMatch = raw.match(/^owners\/(.+)$/);
+  const ownerMatch = path.match(/^owners\/(.+)$/);
   if (ownerMatch) return { view: 'owner-detail', params: { owner: decodeURIComponent(ownerMatch[1]) } };
 
   // #/owners
-  if (raw === 'owners') return { view: 'owners', params: {} };
+  if (path === 'owners') return { view: 'owners', params: {} };
 
   return { view: 'list', params: {} };
 }

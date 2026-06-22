@@ -183,7 +183,11 @@
      flexible to absorb %-rounding; the Pinned cell wraps (it stacks chips). */
   .deps-table { table-layout: fixed; }
   .deps-table th { white-space: normal; }
-  .deps-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .deps-table td { overflow: visible; white-space: nowrap; }
+  /* The flexible service-name column wraps instead of clipping or spilling: td is
+     overflow:visible (so cell tooltips escape) and fixed layout caps its width, so a
+     long name must wrap rather than overlap the next column. */
+  .deps-table td:first-child { white-space: normal; word-break: break-word; }
   .dt-service { width: auto; }
   .dt-ref { width: 26%; }
   .dt-required { width: 10%; }

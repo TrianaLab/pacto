@@ -176,8 +176,7 @@
   .readiness-table { font-size: var(--text-sm); width: 100%; table-layout: fixed; }
   .readiness-table th { font-size: var(--text-xs); white-space: normal; }
   .readiness-table td {
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
     white-space: nowrap;
   }
   .rt-check { width: 22%; }
