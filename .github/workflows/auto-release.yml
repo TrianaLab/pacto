@@ -5,6 +5,18 @@ on:
     types: [closed]
     branches:
       - main
+  # Manual escape hatch: cut a release by hand when the merged PR title did not
+  # trigger one (e.g. a chore/deps bump that should ship). Runs against main.
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump type for a manual release
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
 
 permissions:
   contents: write
@@ -13,7 +25,7 @@ permissions:
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.version.outputs.tag }}
@@ -22,6 +34,12 @@ jobs:
       - name: Determine version bump
         id: bump
         run: |
+          # Manual run: use the chosen bump directly.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "type=${{ inputs.bump }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           title="${{ github.event.pull_request.title }}"
 
           # Check for breaking change indicator
