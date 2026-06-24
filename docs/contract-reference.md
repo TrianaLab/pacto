@@ -1284,11 +1284,21 @@ Each change is classified as:
 
 | Field | Change | Classification |
 |-------|--------|----------------|
+| `pactoVersion` | Added / Modified / Removed | NON_BREAKING |
 | `service.name` | Modified | **BREAKING** |
 | `service.version` | Modified | NON_BREAKING |
-| `service.owner` | Added / Modified / Removed | NON_BREAKING |
+| `service.owner.team` | Added / Modified / Removed | NON_BREAKING |
+| `service.owner.dri` | Added / Modified / Removed | NON_BREAKING |
+| `service.owner.contacts[]` | Added / Modified / Removed | NON_BREAKING |
 | `service.image` | Added / Modified / Removed | NON_BREAKING |
 | `service.chart` | Added / Modified / Removed | NON_BREAKING |
+
+The owner block is compared field by field, so changing a `dri` or adding a
+contact while the `team` is unchanged surfaces the specific change rather than an
+opaque whole-owner modification. Contacts are keyed by `type:value`; a `purpose`
+change on an existing contact is a modification. The `service.image` comparison
+includes the `private` flag, so toggling image privacy is reported even when the
+`ref` is unchanged.
 
 ### Interfaces
 
@@ -1315,6 +1325,11 @@ Each change is classified as:
 | `configurations[].ref` | Added | NON_BREAKING |
 | `configurations[].ref` | Modified | POTENTIAL_BREAKING |
 | `configurations[].ref` | Removed | **BREAKING** |
+| `configurations[].values.*` | Added / Modified / Removed | NON_BREAKING |
+
+Inline configuration `values` are the provider's own defaults, not part of the
+consumer-facing contract surface, so value changes are diffed key by key (e.g.
+`configurations[app].values.replicas`) and classified `NON_BREAKING`.
 
 ### Policy
 
@@ -1339,7 +1354,7 @@ Each change is classified as:
 | `runtime.lifecycle.upgradeStrategy` | Added | NON_BREAKING |
 | `runtime.lifecycle.upgradeStrategy` | Modified | POTENTIAL_BREAKING |
 | `runtime.lifecycle.upgradeStrategy` | Removed | POTENTIAL_BREAKING |
-| `runtime.lifecycle.gracefulShutdownSeconds` | Modified | NON_BREAKING |
+| `runtime.lifecycle.gracefulShutdownSeconds` | Added / Modified / Removed | NON_BREAKING |
 | `runtime.health.interface` | Added | NON_BREAKING |
 | `runtime.health.interface` | Modified | POTENTIAL_BREAKING |
 | `runtime.health.interface` | Removed | POTENTIAL_BREAKING |
@@ -1376,6 +1391,7 @@ add or remove surfaces as the corresponding per-field changes.
 |-------|--------|----------------|
 | `dependencies` | Added | NON_BREAKING |
 | `dependencies` | Removed | **BREAKING** |
+| `dependencies.ref` | Modified | POTENTIAL_BREAKING |
 | `dependencies.compatibility` | Modified | POTENTIAL_BREAKING |
 | `dependencies.required` | Modified | POTENTIAL_BREAKING |
 
@@ -1447,19 +1463,21 @@ Schema files referenced by `configurations[].schema`, `policies[].schema`, or th
 
 | Field | Change | Classification |
 |-------|--------|----------------|
+| `readiness` | Added / Removed | NON_BREAKING |
 | `readiness.expires` | Added / Modified / Removed | NON_BREAKING |
 | `readiness.minScore` | Added / Modified / Removed | NON_BREAKING |
 | `readiness.partialCredit` | Added / Modified / Removed | NON_BREAKING |
-| `readiness.checks[]` | Added | NON_BREAKING |
-| `readiness.checks[]` | Removed | NON_BREAKING |
-| `readiness.checks[].status` | Modified | NON_BREAKING |
-| `readiness.checks[].category` | Added / Modified / Removed | NON_BREAKING |
-| `readiness.checks[].weight` | Modified | NON_BREAKING |
-| `readiness.checks[].description` | Added / Modified / Removed | NON_BREAKING |
-| `readiness.history[]` | Added / Modified / Removed | NON_BREAKING |
+| `readiness.checks[]` | Added / Modified / Removed | NON_BREAKING |
 
 All readiness changes are classified as `NON_BREAKING` — readiness tracks operational
-maturity and does not affect runtime compatibility.
+maturity and does not affect runtime compatibility. Adding or removing the whole
+`readiness` block surfaces as a single `readiness` change; otherwise the gate
+fields (`expires`, `minScore`, `partialCredit`) are compared individually. Checks
+are keyed by `id`, and a check whose `status`, `weight`, `evidence` or any other
+field changed is reported as a modification of that check (e.g.
+`readiness.checks[dashboard]`). The `readiness.history` revision log is not diffed:
+it is an append-only changelog that changes on every release and would only add
+noise.
 
 ### Not currently compared
 

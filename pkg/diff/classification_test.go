@@ -86,6 +86,41 @@ func TestChangeType_MarshalJSON(t *testing.T) {
 	}
 }
 
+// TestClassify_Completeness locks the classification for every (path, change
+// type) the diff engine can actually emit, so no emitted change silently falls
+// through to the PotentialBreaking default with an unintended severity.
+func TestClassify_Completeness(t *testing.T) {
+	tests := []struct {
+		path string
+		ct   ChangeType
+		want Classification
+	}{
+		// Schema version
+		{"pactoVersion", Modified, NonBreaking},
+
+		// Owner subfields
+		{"service.owner.team", Modified, NonBreaking},
+		{"service.owner.dri", Added, NonBreaking},
+		{"service.owner.contacts", Added, NonBreaking},
+		{"service.owner.contacts[slack:#x]", Added, NonBreaking},
+
+		// Lifecycle gracefulShutdownSeconds — operational, NonBreaking for all.
+		{"runtime.lifecycle.gracefulShutdownSeconds", Added, NonBreaking},
+		{"runtime.lifecycle.gracefulShutdownSeconds", Modified, NonBreaking},
+		{"runtime.lifecycle.gracefulShutdownSeconds", Removed, NonBreaking},
+
+		// Scaling replicas — explicit, not relying on the default.
+		{"scaling.replicas", Modified, PotentialBreaking},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path+"_"+tt.ct.String(), func(t *testing.T) {
+			if got := classify(tt.path, tt.ct); got != tt.want {
+				t.Errorf("classify(%q, %s) = %s, want %s", tt.path, tt.ct, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestClassify_UnknownPath(t *testing.T) {
 	got := classify("unknown.path", Modified)
 	if got != PotentialBreaking {

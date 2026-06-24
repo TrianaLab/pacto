@@ -172,6 +172,41 @@ func TestDiffConfiguration_Removed(t *testing.T) {
 	}
 }
 
+func TestDiffConfiguration_ValuesChanged(t *testing.T) {
+	old := minimalContract()
+	old.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Schema: "config/app.json", Values: map[string]any{"replicas": 1, "tier": "free"}},
+	}
+	new := minimalContract()
+	new.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Schema: "config/app.json", Values: map[string]any{"replicas": 3, "tier": "free"}},
+	}
+	changes := diffConfiguration(old, new, nil, nil)
+	found := false
+	for _, c := range changes {
+		if c.Path == "configurations[app].values.replicas" && c.Type == Modified {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected configurations[app].values.replicas Modified, got %+v", changes)
+	}
+}
+
+func TestDiffConfiguration_ValuesUnchanged(t *testing.T) {
+	old := minimalContract()
+	old.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Schema: "config/app.json", Values: map[string]any{"tier": "free"}},
+	}
+	new := minimalContract()
+	new.Configurations = []contract.ConfigurationSource{
+		{Name: "app", Schema: "config/app.json", Values: map[string]any{"tier": "free"}},
+	}
+	if changes := diffConfiguration(old, new, nil, nil); len(changes) != 0 {
+		t.Errorf("expected 0 changes, got %+v", changes)
+	}
+}
+
 func TestDiffConfiguration_SchemaChanged(t *testing.T) {
 	old := minimalContract()
 	old.Configurations = []contract.ConfigurationSource{

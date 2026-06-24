@@ -10,6 +10,11 @@ import (
 func diffContract(old, new *contract.Contract) []Change {
 	var changes []Change
 
+	// Schema version
+	if old.PactoVersion != new.PactoVersion {
+		changes = append(changes, newChange("pactoVersion", strChangeType(old.PactoVersion, new.PactoVersion), old.PactoVersion, new.PactoVersion))
+	}
+
 	// Service identity
 	if old.Service.Name != new.Service.Name {
 		changes = append(changes, newChange("service.name", Modified, old.Service.Name, new.Service.Name))
@@ -17,15 +22,7 @@ func diffContract(old, new *contract.Contract) []Change {
 	if old.Service.Version != new.Service.Version {
 		changes = append(changes, newChange("service.version", Modified, old.Service.Version, new.Service.Version))
 	}
-	if !old.Service.Owner.Equal(new.Service.Owner) {
-		ct := Modified
-		if old.Service.Owner.IsEmpty() {
-			ct = Added
-		} else if new.Service.Owner.IsEmpty() {
-			ct = Removed
-		}
-		changes = append(changes, newChange("service.owner", ct, old.Service.Owner.DisplayString(), new.Service.Owner.DisplayString()))
-	}
+	changes = append(changes, diffOwner(old.Service.Owner, new.Service.Owner)...)
 
 	// Image
 	oldImg := formatImage(old.Service.Image)
@@ -57,6 +54,67 @@ func diffContract(old, new *contract.Contract) []Change {
 	changes = append(changes, diffScaling(old.Scaling, new.Scaling)...)
 
 	return changes
+}
+
+// diffOwner emits granular per-subfield changes for the ownership block so that,
+// e.g., adding a contact while the team is unchanged surfaces the contact change
+// instead of an opaque "team -> team" modification.
+func diffOwner(old, new contract.Owner) []Change {
+	var changes []Change
+
+	if old.Team != new.Team {
+		changes = append(changes, newChange("service.owner.team", strChangeType(old.Team, new.Team), old.Team, new.Team))
+	}
+	if old.DRI != new.DRI {
+		changes = append(changes, newChange("service.owner.dri", strChangeType(old.DRI, new.DRI), old.DRI, new.DRI))
+	}
+	changes = append(changes, diffContacts(old.Contacts, new.Contacts)...)
+
+	return changes
+}
+
+// diffContacts compares ownership contacts keyed by type+value (a contact's
+// natural identity); a purpose change on an existing contact is a modification.
+func diffContacts(old, new []contract.OwnerContact) []Change {
+	var changes []Change
+	oldByKey := indexContacts(old)
+	newByKey := indexContacts(new)
+
+	for k, o := range oldByKey {
+		n, exists := newByKey[k]
+		if !exists {
+			changes = append(changes, newChange(contactPath(k), Removed, formatContact(o), nil))
+			continue
+		}
+		if o.Purpose != n.Purpose {
+			changes = append(changes, newChange(contactPath(k), Modified, formatContact(o), formatContact(n)))
+		}
+	}
+	for k, n := range newByKey {
+		if _, exists := oldByKey[k]; !exists {
+			changes = append(changes, newChange(contactPath(k), Added, nil, formatContact(n)))
+		}
+	}
+	return changes
+}
+
+func indexContacts(contacts []contract.OwnerContact) map[string]contract.OwnerContact {
+	m := make(map[string]contract.OwnerContact, len(contacts))
+	for _, c := range contacts {
+		m[c.Type+":"+c.Value] = c
+	}
+	return m
+}
+
+func contactPath(key string) string {
+	return "service.owner.contacts[" + key + "]"
+}
+
+func formatContact(c contract.OwnerContact) string {
+	if c.Purpose != "" {
+		return c.Type + ":" + c.Value + " (" + c.Purpose + ")"
+	}
+	return c.Type + ":" + c.Value
 }
 
 func diffScaling(old, new *contract.Scaling) []Change {
@@ -110,6 +168,9 @@ func formatScaling(s *contract.Scaling) string {
 func formatImage(img *contract.Image) string {
 	if img == nil {
 		return ""
+	}
+	if img.Private {
+		return img.Ref + " (private)"
 	}
 	return img.Ref
 }
