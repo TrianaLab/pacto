@@ -59,15 +59,17 @@ func diffConfiguration(old, new *contract.Contract, oldFS, newFS fs.FS) []Change
 }
 
 // refSource is the common shape of a configuration or policy source (a name with
-// an optional schema and/or ref), used by the shared diff routine.
+// an optional schema and/or ref), used by the shared diff routine. values holds a
+// configuration's inline values (nil for policies).
 type refSource struct {
 	name, schema, ref string
+	values            map[string]any
 }
 
 func configRefSources(cfgs []contract.ConfigurationSource) []refSource {
 	out := make([]refSource, len(cfgs))
 	for i, c := range cfgs {
-		out[i] = refSource{name: c.Name, schema: c.Schema, ref: c.Ref}
+		out[i] = refSource{name: c.Name, schema: c.Schema, ref: c.Ref, values: c.Values}
 	}
 	return out
 }
@@ -110,12 +112,25 @@ func diffRefSources(field string, old, new []refSource, oldFS, newFS fs.FS) []Ch
 		if o.schema != "" && n.schema != "" {
 			changes = append(changes, diffSchema(o.schema, n.schema, oldFS, newFS)...)
 		}
+		// Diff inline configuration values (provider defaults; never consumer-facing).
+		changes = append(changes, diffConfigValues(field, name, o.values, n.values)...)
 	}
 
 	for name, n := range newByName {
 		if _, exists := oldByName[name]; !exists {
 			changes = append(changes, newChange(field, Added, nil, refSourceSummary(n)))
 		}
+	}
+	return changes
+}
+
+// diffConfigValues diffs two inline configuration value maps, reusing the JSON
+// structural diff but reclassifying every change as NonBreaking: values are the
+// provider's own defaults, not part of the consumer-facing contract surface.
+func diffConfigValues(field, name string, old, new map[string]any) []Change {
+	changes := diffJSON(field+"["+name+"].values", old, new)
+	for i := range changes {
+		changes[i].Classification = NonBreaking
 	}
 	return changes
 }

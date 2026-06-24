@@ -90,6 +90,7 @@ func Compare(old, new *contract.Contract, oldFS, newFS fs.FS) *Result {
 	changes = append(changes, diffInterfaces(old, new, oldFS, newFS)...)
 	changes = append(changes, diffConfiguration(old, new, oldFS, newFS)...)
 	changes = append(changes, diffPolicy(old, new, oldFS, newFS)...)
+	changes = append(changes, diffReadiness(old.Readiness, new.Readiness)...)
 
 	overall := NonBreaking
 	for i := range changes {

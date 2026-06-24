@@ -2,7 +2,7 @@ package diff
 
 import "regexp"
 
-var indexRe = regexp.MustCompile(`\[\d+\]`)
+var indexRe = regexp.MustCompile(`\[[^\]]*\]`)
 
 // classificationKey maps a field path and change type to a classification.
 type classificationKey struct {
@@ -13,18 +13,45 @@ type classificationKey struct {
 // rules is the deterministic lookup table for change classification.
 // Each entry maps (field path, change type) → classification.
 var rules = map[classificationKey]Classification{
+	// Schema version
+	{"pactoVersion", Modified}: NonBreaking,
+	{"pactoVersion", Added}:    NonBreaking,
+	{"pactoVersion", Removed}:  NonBreaking,
+
 	// Service identity
-	{"service.name", Modified}:    Breaking,
-	{"service.version", Modified}: NonBreaking,
-	{"service.owner", Modified}:   NonBreaking,
-	{"service.owner", Added}:      NonBreaking,
-	{"service.owner", Removed}:    NonBreaking,
-	{"service.image", Modified}:   NonBreaking,
-	{"service.image", Added}:      NonBreaking,
-	{"service.image", Removed}:    NonBreaking,
-	{"service.chart", Modified}:   NonBreaking,
-	{"service.chart", Added}:      NonBreaking,
-	{"service.chart", Removed}:    NonBreaking,
+	{"service.name", Modified}:           Breaking,
+	{"service.version", Modified}:        NonBreaking,
+	{"service.owner.team", Modified}:     NonBreaking,
+	{"service.owner.team", Added}:        NonBreaking,
+	{"service.owner.team", Removed}:      NonBreaking,
+	{"service.owner.dri", Modified}:      NonBreaking,
+	{"service.owner.dri", Added}:         NonBreaking,
+	{"service.owner.dri", Removed}:       NonBreaking,
+	{"service.owner.contacts", Modified}: NonBreaking,
+	{"service.owner.contacts", Added}:    NonBreaking,
+	{"service.owner.contacts", Removed}:  NonBreaking,
+	{"service.image", Modified}:          NonBreaking,
+	{"service.image", Added}:             NonBreaking,
+	{"service.image", Removed}:           NonBreaking,
+	{"service.chart", Modified}:          NonBreaking,
+	{"service.chart", Added}:             NonBreaking,
+	{"service.chart", Removed}:           NonBreaking,
+
+	// Readiness — operational maturity, never consumer-facing.
+	{"readiness", Added}:                  NonBreaking,
+	{"readiness", Removed}:                NonBreaking,
+	{"readiness.minScore", Modified}:      NonBreaking,
+	{"readiness.minScore", Added}:         NonBreaking,
+	{"readiness.minScore", Removed}:       NonBreaking,
+	{"readiness.expires", Modified}:       NonBreaking,
+	{"readiness.expires", Added}:          NonBreaking,
+	{"readiness.expires", Removed}:        NonBreaking,
+	{"readiness.partialCredit", Modified}: NonBreaking,
+	{"readiness.partialCredit", Added}:    NonBreaking,
+	{"readiness.partialCredit", Removed}:  NonBreaking,
+	{"readiness.checks", Added}:           NonBreaking,
+	{"readiness.checks", Removed}:         NonBreaking,
+	{"readiness.checks", Modified}:        NonBreaking,
 
 	// Interfaces
 	{"interfaces", Added}:   NonBreaking,
@@ -70,6 +97,8 @@ var rules = map[classificationKey]Classification{
 	{"runtime.lifecycle.upgradeStrategy", Added}:            NonBreaking,
 	{"runtime.lifecycle.upgradeStrategy", Removed}:          PotentialBreaking,
 	{"runtime.lifecycle.gracefulShutdownSeconds", Modified}: NonBreaking,
+	{"runtime.lifecycle.gracefulShutdownSeconds", Added}:    NonBreaking,
+	{"runtime.lifecycle.gracefulShutdownSeconds", Removed}:  NonBreaking,
 
 	// Runtime — health (adding a health declaration is a new capability;
 	// removing one loses a runtime check, so potentially breaking).
@@ -92,10 +121,11 @@ var rules = map[classificationKey]Classification{
 	{"runtime.metrics.path", Removed}:       PotentialBreaking,
 
 	// Scaling
-	{"scaling.min", Modified}: PotentialBreaking,
-	{"scaling.max", Modified}: NonBreaking,
-	{"scaling", Added}:        NonBreaking,
-	{"scaling", Removed}:      PotentialBreaking,
+	{"scaling.replicas", Modified}: PotentialBreaking,
+	{"scaling.min", Modified}:      PotentialBreaking,
+	{"scaling.max", Modified}:      NonBreaking,
+	{"scaling", Added}:             NonBreaking,
+	{"scaling", Removed}:           PotentialBreaking,
 
 	// Dependencies (name-indexed)
 	{"dependencies", Added}:                  NonBreaking,
@@ -129,8 +159,9 @@ var rules = map[classificationKey]Classification{
 }
 
 // classify returns the classification for a given path and change type.
-// Indexed paths like "configs[0].schema" are normalised to "configs.schema"
-// before lookup. Unknown paths default to PotentialBreaking.
+// Bracketed keys like "configs[0].schema" or "service.owner.contacts[slack:#c]"
+// are normalised to "configs.schema" / "service.owner.contacts" before lookup.
+// Unknown paths default to PotentialBreaking.
 func classify(path string, ct ChangeType) Classification {
 	if c, ok := rules[classificationKey{path, ct}]; ok {
 		return c
