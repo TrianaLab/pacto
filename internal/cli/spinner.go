@@ -71,6 +71,8 @@ func (s *spinner) run(label string) {
 }
 
 // Stop halts the spinner and clears its line. No-op on a no-op spinner.
+// Must be called exactly once per startSpinner: a second call on a live
+// spinner closes an already-closed channel and panics.
 func (s *spinner) Stop() {
 	if s.stop == nil {
 		return
