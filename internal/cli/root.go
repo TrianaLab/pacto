@@ -36,12 +36,14 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 	root.PersistentFlags().String("config", "", "config file path")
 	root.PersistentFlags().String(outputFormatKey, "text", "output format (text, json, markdown)")
 	root.PersistentFlags().Bool("no-cache", false, "disable OCI bundle cache")
+	root.PersistentFlags().Bool("no-anim", false, "disable animations")
 	root.PersistentFlags().BoolP("verbose", "v", false, "enable verbose output")
 
 	// Bind to Viper
 	_ = v.BindPFlag("config", root.PersistentFlags().Lookup("config"))
 	_ = v.BindPFlag(outputFormatKey, root.PersistentFlags().Lookup(outputFormatKey))
 	_ = v.BindPFlag("no-cache", root.PersistentFlags().Lookup("no-cache"))
+	_ = v.BindPFlag("no-anim", root.PersistentFlags().Lookup("no-anim"))
 	_ = v.BindPFlag("verbose", root.PersistentFlags().Lookup("verbose"))
 
 	// Env prefix
@@ -73,6 +75,8 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 				toggler.DisableCache()
 			}
 		}
+
+		animDisabled = v.GetBool("no-anim")
 
 		// Start async update check
 		if info.Version != "dev" && os.Getenv("PACTO_NO_UPDATE_CHECK") != "1" {
