@@ -16,7 +16,6 @@ import (
 
 const outputFormatKey = "output-format"
 
-
 // checkForUpdateFn is the function used to check for updates, overridable in tests.
 var checkForUpdateFn = update.CheckForUpdate
 
