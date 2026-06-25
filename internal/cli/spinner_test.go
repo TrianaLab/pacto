@@ -107,3 +107,68 @@ func TestStartSpinnerNoColorFrame(t *testing.T) {
 		t.Fatalf("expected label, got %q", out)
 	}
 }
+
+func TestGlyphs(t *testing.T) {
+	if checkGlyph(false) != "✓" || crossGlyph(false) != "✗" {
+		t.Fatal("plain glyphs wrong")
+	}
+	if !strings.Contains(checkGlyph(true), "\033[32m") || !strings.Contains(crossGlyph(true), "\033[31m") {
+		t.Fatal("colored glyphs missing ANSI")
+	}
+}
+
+func TestOkGlyph(t *testing.T) {
+	withTTY(t, true)
+	t.Setenv("NO_COLOR", "")
+	if !strings.Contains(okGlyph(&bytes.Buffer{}), "✓") {
+		t.Fatal("TTY okGlyph should have check")
+	}
+	withTTY(t, false)
+	if okGlyph(&bytes.Buffer{}) != "" {
+		t.Fatal("non-TTY okGlyph must be empty")
+	}
+}
+
+func TestCheckLine(t *testing.T) {
+	got := checkLine("Pulled", 1234*time.Millisecond, false)
+	if got != "✓ Pulled in 1.2s" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAnimate(t *testing.T) {
+	withTTY(t, true)
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("PACTO_NO_ANIM", "")
+	animDisabled = false
+	t.Cleanup(func() { animDisabled = false })
+	if !animate(&bytes.Buffer{}) {
+		t.Fatal("should animate on TTY")
+	}
+	animDisabled = true
+	if animate(&bytes.Buffer{}) {
+		t.Fatal("animDisabled must disable")
+	}
+	animDisabled = false
+	t.Setenv("PACTO_NO_ANIM", "1")
+	if animate(&bytes.Buffer{}) {
+		t.Fatal("PACTO_NO_ANIM must disable")
+	}
+}
+
+func TestStopOK(t *testing.T) {
+	withTTY(t, true)
+	t.Setenv("NO_COLOR", "")
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetErr(&buf)
+	sp := startSpinner(cmd, "text", "x")
+	sp.StopOK("Pulled", time.Now().Add(-time.Second))
+	out := buf.String()
+	if !strings.Contains(out, "✓") || !strings.Contains(out, "Pulled in") {
+		t.Fatalf("StopOK line missing: %q", out)
+	}
+	// no-op spinner: no panic, no success line
+	noop := startSpinner(&cobra.Command{}, "json", "x") // non-text -> no-op
+	noop.StopOK("X", time.Now())
+}

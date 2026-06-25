@@ -28,6 +28,47 @@ func useColor(w io.Writer) bool {
 	return os.Getenv("NO_COLOR") == "" && isTerminal(w)
 }
 
+// Animation gate. Set once in PersistentPreRunE; read directly on the help path.
+var animDisabled bool
+
+func animate(w io.Writer) bool {
+	return !animDisabled && os.Getenv("PACTO_NO_ANIM") == "" && useColor(w)
+}
+
+const (
+	glyphCheck = "✓" // U+2713
+	glyphCross = "✗" // U+2717
+)
+
+// checkGlyph returns a green ✓ when color, else a plain ✓. Pure.
+func checkGlyph(color bool) string {
+	if color {
+		return "\033[32m" + glyphCheck + "\033[0m"
+	}
+	return glyphCheck
+}
+
+// crossGlyph returns a red ✗ when color, else a plain ✗. Pure.
+func crossGlyph(color bool) string {
+	if color {
+		return "\033[31m" + glyphCross + "\033[0m"
+	}
+	return glyphCross
+}
+
+// okGlyph returns "✓ " (green when color enabled for w) or "" off-TTY/no-color.
+func okGlyph(w io.Writer) string {
+	if !useColor(w) {
+		return ""
+	}
+	return checkGlyph(true) + " "
+}
+
+// checkLine renders the spinner-success line, e.g. "✓ Pulled in 1.2s". Pure.
+func checkLine(label string, d time.Duration, color bool) string {
+	return fmt.Sprintf("%s %s in %s", checkGlyph(color), label, d.Round(100*time.Millisecond))
+}
+
 type spinner struct {
 	w     io.Writer
 	color bool
@@ -80,6 +121,17 @@ func (s *spinner) Stop() {
 	close(s.stop)
 	<-s.done
 	_, _ = fmt.Fprint(s.w, "\r\033[K")
+}
+
+// StopOK halts the spinner, clears its line, then prints checkLine on success.
+// No-op clear on a no-op spinner; the caller still gets the line printed.
+func (s *spinner) StopOK(label string, start time.Time) {
+	s.Stop() // existing clear of "\r\033[K"
+	w := s.w
+	if w == nil {
+		return
+	}
+	_, _ = fmt.Fprintln(w, checkLine(label, time.Since(start), s.color))
 }
 
 func frameGlyph(i int, color bool) string {
