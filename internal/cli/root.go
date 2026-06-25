@@ -16,6 +16,14 @@ import (
 
 const outputFormatKey = "output-format"
 
+const banner = "\033[36m" +
+	"  ____           _        \n" +
+	" |  _ \\ __ _  __| |_ ___  \n" +
+	" | |_) / _` |/ _| __/ _ \\ \n" +
+	" |  __/ (_| | (_| || (_) |\n" +
+	" |_|   \\__,_|\\__|\\__\\___/ \n" +
+	"\033[0m\n"
+
 // checkForUpdateFn is the function used to check for updates, overridable in tests.
 var checkForUpdateFn = update.CheckForUpdate
 
@@ -124,5 +132,17 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 	root.AddCommand(newMCPCommand(svc, info.Version))
 	root.AddCommand(newDashboardCommand(svc, v, info.Version))
 
+	attachBanner(root)
 	return root
+}
+
+// attachBanner prints the colored logo above the root command's help on a TTY.
+func attachBanner(root *cobra.Command) {
+	def := root.HelpFunc()
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		if !cmd.HasParent() && useColor(cmd.OutOrStdout()) {
+			_, _ = fmt.Fprint(cmd.OutOrStdout(), banner)
+		}
+		def(cmd, args)
+	})
 }
