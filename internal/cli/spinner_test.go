@@ -53,6 +53,20 @@ func TestStartSpinnerNoopWhenNotTTY(t *testing.T) {
 	}
 }
 
+func TestStartSpinnerNoopWhenAnimDisabled(t *testing.T) {
+	withTTY(t, true)
+	animDisabled = true
+	t.Cleanup(func() { animDisabled = false })
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetErr(&buf)
+	sp := startSpinner(cmd, "text", "Pulling")
+	sp.Stop()
+	if buf.Len() != 0 {
+		t.Fatalf("--no-anim should suppress the spinner, got %q", buf.String())
+	}
+}
+
 func TestStartSpinnerAnimatesAndClears(t *testing.T) {
 	withTTY(t, true)
 	t.Setenv("NO_COLOR", "") // ensure color path

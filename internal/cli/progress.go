@@ -8,8 +8,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// progressLabel renders the live count line, e.g. "Resolving deps… 7". Pure.
+// progressLabel renders the live count line, e.g. "Resolving deps 7". Before any
+// dependency has resolved (done == 0) it returns just the base, so a fast/cached
+// resolve that finishes between ticks never flashes a misleading "0". Pure.
 func progressLabel(base string, done int64) string {
+	if done == 0 {
+		return base
+	}
 	return fmt.Sprintf("%s %d", base, done)
 }
 
@@ -21,7 +26,7 @@ func progressLabel(base string, done int64) string {
 func startSpinnerCounted(cmd *cobra.Command, format, base string) (*spinner, *atomic.Int64) {
 	var n atomic.Int64
 	w := cmd.ErrOrStderr()
-	if format != "text" || !isTerminal(w) {
+	if format != "text" || !isTerminal(w) || !animationsEnabled() {
 		return &spinner{}, &n
 	}
 	s := &spinner{

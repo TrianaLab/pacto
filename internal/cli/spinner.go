@@ -31,8 +31,18 @@ func useColor(w io.Writer) bool {
 // Animation gate. Set once in PersistentPreRunE; read directly on the help path.
 var animDisabled bool
 
+// animationsEnabled reports whether motion is allowed at all (--no-anim flag and
+// PACTO_NO_ANIM env both off). It does NOT consider color or TTY — callers add
+// those. This governs the spinner (motion regardless of color); animate adds
+// color on top for color-only reveals.
+func animationsEnabled() bool {
+	return !animDisabled && os.Getenv("PACTO_NO_ANIM") == ""
+}
+
+// animate reports whether a colored animation should play on w: motion enabled
+// AND color enabled (TTY + NO_COLOR unset).
 func animate(w io.Writer) bool {
-	return !animDisabled && os.Getenv("PACTO_NO_ANIM") == "" && useColor(w)
+	return animationsEnabled() && useColor(w)
 }
 
 const (
@@ -81,7 +91,7 @@ type spinner struct {
 // CI logs stay clean.
 func startSpinner(cmd *cobra.Command, format, label string) *spinner {
 	w := cmd.ErrOrStderr()
-	if format != "text" || !isTerminal(w) {
+	if format != "text" || !isTerminal(w) || !animationsEnabled() {
 		return &spinner{}
 	}
 	s := &spinner{
