@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/trianalab/pacto/v2/pkg/contract"
@@ -1044,6 +1045,75 @@ func TestResolve_FetchErrorParallel(t *testing.T) {
 	missingEdge := result.Root.Dependencies[1]
 	if missingEdge.Error == "" {
 		t.Error("expected error for missing ref")
+	}
+}
+
+// TestResolveOnResolvedFiresPerUniqueNode asserts OnResolved fires exactly once
+// per UNIQUE fetched node, not per edge: a diamond (root -> b, root -> c, b -> d,
+// c -> d) has 4 edges to d's subtree but only 3 unique fetched nodes (b, c, d).
+func TestResolveOnResolvedFiresPerUniqueNode(t *testing.T) {
+	fetcher := &mockFetcher{
+		contracts: map[string]*contract.Contract{
+			"oci://registry.io/svc-b:1.0.0": {
+				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Dependencies: []contract.Dependency{
+					{Ref: "oci://registry.io/svc-d:1.0.0", Required: true},
+				},
+			},
+			"oci://registry.io/svc-c:1.0.0": {
+				Service: contract.ServiceIdentity{Name: "svc-c", Version: "1.0.0"},
+				Dependencies: []contract.Dependency{
+					{Ref: "oci://registry.io/svc-d:1.0.0", Required: true},
+				},
+			},
+			"oci://registry.io/svc-d:1.0.0": {
+				Service: contract.ServiceIdentity{Name: "svc-d", Version: "1.0.0"},
+			},
+		},
+	}
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true},
+			{Ref: "oci://registry.io/svc-c:1.0.0", Required: true},
+		},
+	}
+
+	var n int64
+	opts := ResolveOptions{OnResolved: func() { atomic.AddInt64(&n, 1) }}
+	ResolveWithOptions(context.Background(), c, fetcher, opts)
+
+	if got := atomic.LoadInt64(&n); got != 3 {
+		t.Fatalf("expected 3 unique-node fires (b, c, d once), got %d", got)
+	}
+}
+
+// TestResolveOnResolvedNilDoesNotPanic asserts a nil OnResolved resolves
+// identically to a no-callback resolve (default Resolve behaviour preserved).
+func TestResolveOnResolvedNilDoesNotPanic(t *testing.T) {
+	fetcher := &mockFetcher{
+		contracts: map[string]*contract.Contract{
+			"oci://registry.io/svc-b:1.0.0": {
+				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+			},
+		},
+	}
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true},
+		},
+	}
+
+	withNil := ResolveWithOptions(context.Background(), c, fetcher, ResolveOptions{OnResolved: nil})
+	plain := Resolve(context.Background(), c, fetcher)
+
+	if len(withNil.Root.Dependencies) != len(plain.Root.Dependencies) {
+		t.Fatalf("nil OnResolved changed resolution: %d vs %d deps",
+			len(withNil.Root.Dependencies), len(plain.Root.Dependencies))
+	}
+	if withNil.Root.Dependencies[0].Node == nil {
+		t.Fatal("nil OnResolved should still resolve the dependency node")
 	}
 }
 

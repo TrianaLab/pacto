@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -29,6 +30,7 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			force, _ := cmd.Flags().GetBool("force")
 			format := v.GetString(outputFormatKey)
 
+			start := time.Now()
 			sp := startSpinner(cmd, format, "Pushing "+ref)
 			result, err := svc.Push(cmd.Context(), app.PushOptions{
 				Ref:       ref,
@@ -36,14 +38,15 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				Force:     force,
 				Overrides: getOverrides(cmd),
 			})
-			sp.Stop()
 			if err != nil {
+				sp.Stop()
 				if errors.Is(err, app.ErrArtifactAlreadyExists) {
 					_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Warning: %s\n", err)
 					return nil
 				}
 				return err
 			}
+			sp.StopOK("Pushed", start)
 
 			return printPushResult(cmd, result, format)
 		},

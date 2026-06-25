@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"time"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v2/internal/app"
@@ -20,17 +22,20 @@ func newGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			onlyRefs, _ := cmd.Flags().GetBool("only-references")
 			format := v.GetString(outputFormatKey)
 
-			sp := startSpinner(cmd, format, "Resolving graph")
+			start := time.Now()
+			sp, count := startSpinnerCounted(cmd, format, "Resolving graph")
 			result, err := svc.Graph(cmd.Context(), app.GraphOptions{
 				Path:              path,
 				Overrides:         getOverrides(cmd),
 				IncludeReferences: withRefs || onlyRefs,
 				OnlyReferences:    onlyRefs,
+				OnDepResolved:     func() { count.Add(1) },
 			})
-			sp.Stop()
 			if err != nil {
+				sp.Stop()
 				return err
 			}
+			sp.StopOK("Resolved graph", start)
 
 			return printGraphResult(cmd, result, format)
 		},

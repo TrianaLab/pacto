@@ -59,6 +59,11 @@ type Result struct {
 type ResolveOptions struct {
 	IncludeReferences bool // include config/policy reference edges
 	OnlyReferences    bool // show only reference edges (no dependencies)
+	// OnResolved is fired exactly once per UNIQUE fetched node (not per edge:
+	// shared edges and cycles re-traverse and must NOT re-fire). nil = no-op.
+	// It is invoked from multiple goroutines (sibling deps resolve concurrently),
+	// so it MUST be goroutine-safe.
+	OnResolved func()
 }
 
 // resolver holds shared state for a single graph resolution pass.
@@ -251,6 +256,12 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, pat
 	delete(r.pending, dep.Ref)
 	r.mu.Unlock()
 	close(ch)
+
+	// Fire once per unique fetched node (the dedup/commit point above). Shared
+	// edges and cycles return earlier and never reach here, so they never refire.
+	if r.opts.OnResolved != nil {
+		r.opts.OnResolved()
+	}
 
 	childPath := append(append([]string{}, path...), dep.Ref)
 	node.Dependencies = r.resolveChildren(ctx, bundle.Contract.Dependencies, childPath)

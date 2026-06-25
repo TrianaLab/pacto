@@ -271,6 +271,38 @@ func TestGraphCommand_Error(t *testing.T) {
 	}
 }
 
+// TestGraphCommand_ResolvesDependency exercises the per-dependency progress
+// callback (OnDepResolved -> count.Add) by resolving a real OCI dependency.
+func TestGraphCommand_ResolvesDependency(t *testing.T) {
+	dir := t.TempDir()
+	yaml := "pactoVersion: \"1.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	auth := &contract.Contract{
+		PactoVersion: "1.0",
+		Service:      contract.ServiceIdentity{Name: "auth", Version: "1.2.0"},
+	}
+	store := &testutil.MockBundleStore{
+		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.2.0"}, nil },
+		ResolveFn:  func(_ context.Context, _ string) (string, error) { return "sha256:v1", nil },
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			return &contract.Bundle{Contract: auth}, nil
+		},
+	}
+	svc := app.NewService(store, nil)
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
+	root.SetArgs([]string{"graph", dir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("graph failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "auth@1.2.0") {
+		t.Errorf("expected resolved dependency in output, got %q", out.String())
+	}
+}
+
 func TestExplainCommand(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)

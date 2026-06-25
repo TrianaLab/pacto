@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"time"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -23,18 +25,21 @@ func newLockCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			names, _ := cmd.Flags().GetStringArray("update-name")
 			format := v.GetString(outputFormatKey)
 
-			sp := startSpinner(cmd, format, "Resolving lock")
+			start := time.Now()
+			sp, count := startSpinnerCounted(cmd, format, "Resolving lock")
 			result, err := svc.Lock(cmd.Context(), app.LockOptions{
-				Path:        optionalArg(args),
-				Update:      update || len(names) > 0,
-				UpdateNames: names,
-				Check:       check,
-				Overrides:   getOverrides(cmd),
+				Path:          optionalArg(args),
+				Update:        update || len(names) > 0,
+				UpdateNames:   names,
+				Check:         check,
+				Overrides:     getOverrides(cmd),
+				OnDepResolved: func() { count.Add(1) },
 			})
-			sp.Stop()
 			if err != nil {
+				sp.Stop()
 				return err
 			}
+			sp.StopOK("Locked", start)
 			return printLockResult(cmd, result, format)
 		},
 	}

@@ -37,7 +37,7 @@ func TestBuildLockCapturesDigest(t *testing.T) {
 	}
 	s := NewService(store, nil)
 
-	l, err := s.buildLock(context.Background(), "testdata/root", rootBundleWithDep())
+	l, err := s.buildLock(context.Background(), "testdata/root", rootBundleWithDep(), nil)
 	if err != nil {
 		t.Fatalf("buildLock: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestBuildLockDependsOn(t *testing.T) {
 			{Name: "auth", Ref: "oci://ghcr.io/acme/auth:1.0.0", Compatibility: "^1.0.0", Required: true},
 		},
 	}}
-	l, err := s.buildLock(context.Background(), "testdata/root", root)
+	l, err := s.buildLock(context.Background(), "testdata/root", root, nil)
 	if err != nil {
 		t.Fatalf("buildLock: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestBuildLockLocalDep(t *testing.T) {
 			{Name: "local-dep", Ref: dir, Compatibility: "", Required: true},
 		},
 	}}
-	l, err := s.buildLock(context.Background(), ".", root)
+	l, err := s.buildLock(context.Background(), ".", root, nil)
 	if err != nil {
 		t.Fatalf("buildLock: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestBuildLockReferences(t *testing.T) {
 			{Name: "sec", Ref: "oci://ghcr.io/acme/sec:2.0.0"},
 		},
 	}}
-	l, err := s.buildLock(context.Background(), "testdata/root", root)
+	l, err := s.buildLock(context.Background(), "testdata/root", root, nil)
 	if err != nil {
 		t.Fatalf("buildLock: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestBuildLockLocalReference(t *testing.T) {
 			{Name: "localcfg", Ref: dir},
 		},
 	}}
-	l, err := s.buildLock(context.Background(), ".", root)
+	l, err := s.buildLock(context.Background(), ".", root, nil)
 	if err != nil {
 		t.Fatalf("buildLock: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestBuildLockLocalReference(t *testing.T) {
 func TestBuildLockConflict(t *testing.T) {
 	store := conflictStore()
 	s := NewService(store, nil)
-	_, err := s.buildLock(context.Background(), "testdata/root", conflictRootBundle())
+	_, err := s.buildLock(context.Background(), "testdata/root", conflictRootBundle(), nil)
 	var ce *lock.ConflictError
 	if !errors.As(err, &ce) {
 		t.Fatalf("expected *lock.ConflictError, got %v", err)
@@ -284,7 +284,7 @@ func TestBuildLockUnresolvedFailedEdge(t *testing.T) {
 			{Name: "auth", Ref: "oci://ghcr.io/acme/auth:1.0.0", Compatibility: "^1.0.0", Required: true},
 		},
 	}}
-	_, err := s.buildLock(context.Background(), "testdata/root", root)
+	_, err := s.buildLock(context.Background(), "testdata/root", root, nil)
 	var ue *lock.UnresolvedError
 	if !errors.As(err, &ue) {
 		t.Fatalf("expected *lock.UnresolvedError, got %v", err)
@@ -312,7 +312,7 @@ func TestBuildLockUnresolvedDigestError(t *testing.T) {
 			{Name: "auth", Ref: "oci://ghcr.io/acme/auth:1.0.0", Compatibility: "^1.0.0", Required: true},
 		},
 	}}
-	_, err := s.buildLock(context.Background(), "testdata/root", root)
+	_, err := s.buildLock(context.Background(), "testdata/root", root, nil)
 	var ue *lock.UnresolvedError
 	if !errors.As(err, &ue) {
 		t.Fatalf("expected *lock.UnresolvedError, got %v", err)
@@ -334,7 +334,7 @@ func TestBuildLockUnresolvedReferenceDigestError(t *testing.T) {
 			{Name: "sec", Ref: "oci://ghcr.io/acme/sec:2.0.0"},
 		},
 	}}
-	_, err := s.buildLock(context.Background(), "testdata/root", root)
+	_, err := s.buildLock(context.Background(), "testdata/root", root, nil)
 	var ue *lock.UnresolvedError
 	if !errors.As(err, &ue) {
 		t.Fatalf("expected *lock.UnresolvedError, got %v", err)
@@ -353,7 +353,7 @@ func TestBuildLockUnresolvedReferenceLoadError(t *testing.T) {
 			{Name: "missing-local", Ref: "/nonexistent/path/xyz", Compatibility: "", Required: true},
 		},
 	}}
-	_, err := s.buildLock(context.Background(), ".", root)
+	_, err := s.buildLock(context.Background(), ".", root, nil)
 	var ue *lock.UnresolvedError
 	if !errors.As(err, &ue) {
 		t.Fatalf("expected *lock.UnresolvedError, got %v", err)
@@ -383,7 +383,7 @@ func TestBuildLockUnresolvedHashError(t *testing.T) {
 			{Name: "local-dep", Ref: dir, Compatibility: "", Required: true},
 		},
 	}}
-	_, err := s.buildLock(context.Background(), ".", root)
+	_, err := s.buildLock(context.Background(), ".", root, nil)
 	var ue *lock.UnresolvedError
 	if !errors.As(err, &ue) {
 		t.Fatalf("expected *lock.UnresolvedError, got %v", err)
@@ -417,7 +417,7 @@ func TestBuildLockTransitiveFailure(t *testing.T) {
 			{Name: "auth", Ref: "oci://ghcr.io/acme/auth:1.0.0", Compatibility: "^1.0.0", Required: true},
 		},
 	}}
-	_, err := s.buildLock(context.Background(), "testdata/root", root)
+	_, err := s.buildLock(context.Background(), "testdata/root", root, nil)
 	var ue *lock.UnresolvedError
 	if !errors.As(err, &ue) {
 		t.Fatalf("expected *lock.UnresolvedError, got %v", err)
@@ -456,7 +456,7 @@ func TestBuildLockSecondEntryDigestError(t *testing.T) {
 			{Name: "b", Ref: "oci://ghcr.io/acme/b:1.0.0", Compatibility: "^1.0.0", Required: true},
 		},
 	}}
-	_, err := s.buildLock(context.Background(), "testdata/root", root)
+	_, err := s.buildLock(context.Background(), "testdata/root", root, nil)
 	var ue *lock.UnresolvedError
 	if !errors.As(err, &ue) {
 		t.Fatalf("expected *lock.UnresolvedError, got %v", err)
@@ -474,7 +474,7 @@ func TestBuildLockLocalReferenceLoadError(t *testing.T) {
 			{Name: "badcfg", Ref: "/nonexistent/ref/path"},
 		},
 	}}
-	_, err := s.buildLock(context.Background(), ".", root)
+	_, err := s.buildLock(context.Background(), ".", root, nil)
 	var ue *lock.UnresolvedError
 	if !errors.As(err, &ue) {
 		t.Fatalf("expected *lock.UnresolvedError, got %v", err)
@@ -502,7 +502,7 @@ func TestBuildLockLocalReferenceHashError(t *testing.T) {
 			{Name: "localcfg", Ref: dir},
 		},
 	}}
-	_, err := s.buildLock(context.Background(), ".", root)
+	_, err := s.buildLock(context.Background(), ".", root, nil)
 	var ue *lock.UnresolvedError
 	if !errors.As(err, &ue) {
 		t.Fatalf("expected *lock.UnresolvedError, got %v", err)
@@ -672,7 +672,7 @@ func TestBuildLockOCIRootReferenceBaseDir(t *testing.T) {
 			{Name: "sec", Ref: "oci://ghcr.io/acme/sec:2.0.0"},
 		},
 	}}
-	l, err := s.buildLock(context.Background(), "oci://ghcr.io/acme/root:1.0.0", root)
+	l, err := s.buildLock(context.Background(), "oci://ghcr.io/acme/root:1.0.0", root, nil)
 	if err != nil {
 		t.Fatalf("buildLock: %v", err)
 	}

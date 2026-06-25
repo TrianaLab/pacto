@@ -18,6 +18,9 @@ type GraphOptions struct {
 	Overrides         override.Overrides
 	IncludeReferences bool
 	OnlyReferences    bool
+	// OnDepResolved, if non-nil, fires once per unique resolved dependency for
+	// progress reporting. Must be goroutine-safe. nil = no-op.
+	OnDepResolved func()
 }
 
 // GraphResult is the result of the graph command.
@@ -42,6 +45,7 @@ func (s *Service) Graph(ctx context.Context, opts GraphOptions) (*GraphResult, e
 	result := graph.ResolveWithOptions(ctx, bundle.Contract, fetcher, graph.ResolveOptions{
 		IncludeReferences: opts.IncludeReferences,
 		OnlyReferences:    opts.OnlyReferences,
+		OnResolved:        opts.OnDepResolved,
 	})
 	slog.Debug("graph resolution complete", "dependencies", len(result.Root.Dependencies), "cycles", len(result.Cycles), "conflicts", len(result.Conflicts))
 	return result, nil
