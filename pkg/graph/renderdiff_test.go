@@ -237,8 +237,55 @@ func TestHasChanges(t *testing.T) {
 
 func TestFormatDiffLabel_UnknownType(t *testing.T) {
 	n := DiffNode{Name: "x", Change: &GraphChange{ChangeType: "unknown"}}
-	got := formatDiffLabel(n)
+	got := formatDiffLabel(n, DiffColors{})
 	if got != "x" {
 		t.Errorf("expected 'x', got %q", got)
+	}
+}
+
+func TestRenderDiffTreeColoredIdentityMatchesPlain(t *testing.T) {
+	d := &GraphDiff{
+		Root: DiffNode{
+			Name: "root",
+			Children: []DiffNode{
+				{Name: "svc-a", Version: "v1.0.0", Change: &GraphChange{Name: "svc-a", ChangeType: AddedNode, NewVersion: "v1.0.0"}},
+			},
+		},
+		Changes: []GraphChange{{Name: "svc-a", ChangeType: AddedNode, NewVersion: "v1.0.0"}},
+	}
+	if RenderDiffTreeColored(d, DiffColors{}) != RenderDiffTree(d) {
+		t.Fatal("zero DiffColors must equal plain RenderDiffTree")
+	}
+}
+
+func TestRenderDiffTreeColoredAppliesColors(t *testing.T) {
+	wrap := func(tag string) func(string) string {
+		return func(s string) string { return "<" + tag + ">" + s + "</" + tag + ">" }
+	}
+	col := DiffColors{Added: wrap("a"), Removed: wrap("r"), Changed: wrap("c"), Name: wrap("n")}
+	d := &GraphDiff{
+		Root: DiffNode{
+			Name: "root",
+			Children: []DiffNode{
+				{Name: "added", Version: "v1.0.0", Change: &GraphChange{Name: "added", ChangeType: AddedNode, NewVersion: "v1.0.0"}},
+				{Name: "removed", Version: "v1.0.0", Change: &GraphChange{Name: "removed", ChangeType: RemovedNode, OldVersion: "v1.0.0"}},
+				{Name: "changed", Version: "v2.0.0", Change: &GraphChange{Name: "changed", ChangeType: VersionChanged, OldVersion: "v1.0.0", NewVersion: "v2.0.0"}},
+				{Name: "intermediate", Version: "v1.0.0", Children: []DiffNode{
+					{Name: "nested", Version: "v1.0.0", Change: &GraphChange{Name: "nested", ChangeType: AddedNode, NewVersion: "v1.0.0"}},
+				}},
+			},
+		},
+		Changes: []GraphChange{
+			{Name: "added", ChangeType: AddedNode, NewVersion: "v1.0.0"},
+			{Name: "removed", ChangeType: RemovedNode, OldVersion: "v1.0.0"},
+			{Name: "changed", ChangeType: VersionChanged, OldVersion: "v1.0.0", NewVersion: "v2.0.0"},
+			{Name: "nested", ChangeType: AddedNode, NewVersion: "v1.0.0"},
+		},
+	}
+	out := RenderDiffTreeColored(d, col)
+	for _, want := range []string{"<a>", "<r>", "<c>", "<n>"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in:\n%s", want, out)
+		}
 	}
 }
