@@ -169,9 +169,28 @@ func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
 
 func printGraphResult(cmd *cobra.Command, result *app.GraphResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
-		_, _ = fmt.Fprint(cmd.OutOrStdout(), graph.RenderTree(result))
+		w := cmd.OutOrStdout()
+		_, _ = fmt.Fprint(w, graph.RenderTreeColored(result, treeColors(w)))
 		return nil
 	}, nil)
+}
+
+// treeColors returns ANSI colorizers when color is enabled for w, else the
+// zero value (plain output).
+func treeColors(w io.Writer) graph.TreeColors {
+	if !useColor(w) {
+		return graph.TreeColors{}
+	}
+	ansi := func(code string) func(string) string {
+		return func(s string) string { return "\033[" + code + "m" + s + "\033[0m" }
+	}
+	return graph.TreeColors{
+		Name:    ansi("1"),  // bold
+		Version: ansi("36"), // cyan
+		Marker:  ansi("2"),  // dim
+		Error:   ansi("31"), // red
+		Warn:    ansi("33"), // yellow
+	}
 }
 
 func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format string) error {

@@ -1166,3 +1166,32 @@ func TestNonEmpty(t *testing.T) {
 		t.Errorf("expected 'hello', got %v", got)
 	}
 }
+
+func TestPrintGraphResultColored(t *testing.T) {
+	withTTY(t, true)
+	t.Setenv("NO_COLOR", "")
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	result := &graph.Result{Root: &graph.Node{Name: "svc", Version: "1.0.0"}}
+	if err := printGraphResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "\033[") {
+		t.Fatalf("expected ANSI color in TTY output, got %q", buf.String())
+	}
+}
+
+func TestPrintGraphResultPlainWhenNotTTY(t *testing.T) {
+	withTTY(t, false)
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	result := &graph.Result{Root: &graph.Node{Name: "svc", Version: "1.0.0"}}
+	if err := printGraphResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "\033[") {
+		t.Fatalf("expected no ANSI without TTY, got %q", buf.String())
+	}
+}
