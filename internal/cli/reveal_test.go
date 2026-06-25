@@ -10,24 +10,30 @@ import (
 	"github.com/trianalab/pacto/v2/internal/app"
 )
 
-func TestBannerFrameStatic(t *testing.T) {
-	full := bannerFrame(1<<30, true)
+func TestBannerStatic(t *testing.T) {
+	full := bannerStatic(true)
 	if !strings.Contains(full, "\033[36m") || !strings.Contains(full, "service contracts") {
-		t.Fatal("full banner missing parts")
+		t.Fatal("colored full banner missing parts")
 	}
-	if bannerFrame(0, true) == full {
-		t.Fatal("step 0 should be partial")
+	if strings.Contains(bannerStatic(false), "\033[36m") {
+		t.Fatal("plain banner must not contain color codes")
 	}
 }
 
-func TestRevealEmitsFirstAndLast(t *testing.T) {
+func TestRevealBannerCascadeNoDuplication(t *testing.T) {
 	orig := revealStagger
 	revealStagger = time.Millisecond
 	t.Cleanup(func() { revealStagger = orig })
 	var buf bytes.Buffer
-	reveal(&buf, bannerFrame, len(bannerLines(true)), true)
-	if !strings.Contains(buf.String(), "service contracts") {
-		t.Fatal("reveal must end on full frame")
+	revealBanner(&buf, true)
+	// Cascade prints each row exactly once -> output must equal the static banner,
+	// i.e. no cumulative-frame stacking (the bug this guards against).
+	if got := buf.String(); got != bannerStatic(true) {
+		t.Fatalf("revealBanner output must equal bannerStatic (no duplication):\n%q", got)
+	}
+	// And the top row must appear exactly once.
+	if n := strings.Count(buf.String(), "██████╗  █████╗"); n != 1 {
+		t.Fatalf("top banner row should appear once, got %d", n)
 	}
 }
 

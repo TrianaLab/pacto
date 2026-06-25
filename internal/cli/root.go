@@ -140,9 +140,9 @@ func attachBanner(root *cobra.Command) {
 		if !cmd.HasParent() && useColor(out) {
 			na, _ := cmd.Flags().GetBool("no-anim") // PreRun didn't run on --help
 			if !na && os.Getenv("PACTO_NO_ANIM") == "" && isTerminal(out) {
-				reveal(out, bannerFrame, len(bannerLines(true)), true)
+				revealBanner(out, true)
 			} else {
-				_, _ = fmt.Fprint(out, bannerFrame(1<<30, true)) // full static
+				_, _ = fmt.Fprint(out, bannerStatic(true)) // full static
 			}
 		}
 		def(cmd, args)

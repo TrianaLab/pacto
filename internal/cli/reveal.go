@@ -14,8 +14,7 @@ var revealStagger = 60 * time.Millisecond
 
 // bannerLines returns the ANSI Shadow PACTO block + tagline, colored when color.
 // Colored rows are wrapped in "\033[36m"…"\033[0m" (cyan, matching the old banner
-// so the existing banner tests pass). Pure. The static banner is bannerFrame at
-// the final step.
+// so the existing banner tests pass). Pure.
 func bannerLines(color bool) []string {
 	rows := []string{
 		"██████╗  █████╗  ██████╗████████╗ ██████╗",
@@ -33,30 +32,22 @@ func bannerLines(color bool) []string {
 	return append(rows, "  service contracts for cloud-native")
 }
 
-// bannerFrame returns the banner revealed up to `step` lines (color-swept/cascade).
-// step >= len → full static banner. Pure.
-func bannerFrame(step int, color bool) string {
-	lines := bannerLines(color)
-	if step >= len(lines) {
-		return strings.Join(lines, "\n") + "\n"
-	}
-	return strings.Join(lines[:step], "\n") + "\n"
+// bannerStatic returns the full banner, all rows printed at once. Pure.
+func bannerStatic(color bool) string {
+	return strings.Join(bannerLines(color), "\n") + "\n"
 }
 
-// reveal prints frames[0..n] with revealStagger between them, synchronously.
-// First and last frame always emitted so a no-sleep test covers the render path.
-func reveal(w io.Writer, frame func(step int, color bool) string, steps int, color bool) {
-	// Emit first frame
-	_, _ = fmt.Fprint(w, frame(0, color))
-
-	// Emit intermediate frames
-	for i := 1; i < steps; i++ {
-		time.Sleep(revealStagger)
-		_, _ = fmt.Fprint(w, frame(i, color))
+// revealBanner prints the banner one row at a time with revealStagger between
+// rows — a top-to-bottom cascade. Each row is printed exactly once (no cumulative
+// reprinting), so it draws in cleanly and the final result equals bannerStatic.
+// Synchronous: finishes before the help text follows.
+func revealBanner(w io.Writer, color bool) {
+	for i, line := range bannerLines(color) {
+		if i > 0 {
+			time.Sleep(revealStagger)
+		}
+		_, _ = fmt.Fprintln(w, line)
 	}
-
-	// Always emit final frame
-	_, _ = fmt.Fprint(w, frame(steps, color))
 }
 
 // initLines returns the exact 4 current strings, in order. Pure.
