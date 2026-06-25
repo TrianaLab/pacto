@@ -40,10 +40,19 @@ func printInitResult(cmd *cobra.Command, result *app.InitResult, format string) 
 
 func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
+		w := cmd.OutOrStdout()
 		if result.Valid {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s is valid\n", result.Path)
+			if useColor(w) {
+				_, _ = fmt.Fprintf(w, "%s %s is valid\n", checkGlyph(true), result.Path)
+			} else {
+				_, _ = fmt.Fprintf(w, "%s is valid\n", result.Path)
+			}
 		} else {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s is invalid\n", result.Path)
+			if useColor(w) {
+				_, _ = fmt.Fprintf(w, "%s %s is invalid\n", crossGlyph(true), result.Path)
+			} else {
+				_, _ = fmt.Fprintf(w, "%s is invalid\n", result.Path)
+			}
 		}
 
 		for _, e := range result.Errors {
@@ -60,22 +69,25 @@ func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format 
 
 func printPackResult(cmd *cobra.Command, result *app.PackResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Packed %s@%s -> %s\n", result.Name, result.Version, result.Output)
+		w := cmd.OutOrStdout()
+		_, _ = fmt.Fprintf(w, "%sPacked %s@%s -> %s\n", okGlyph(w), result.Name, result.Version, result.Output)
 		return nil
 	}, nil)
 }
 
 func printPushResult(cmd *cobra.Command, result *app.PushResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Pushed %s@%s -> %s\n", result.Name, result.Version, result.Ref)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Digest: %s\n", result.Digest)
+		w := cmd.OutOrStdout()
+		_, _ = fmt.Fprintf(w, "%sPushed %s@%s -> %s\n", okGlyph(w), result.Name, result.Version, result.Ref)
+		_, _ = fmt.Fprintf(w, "Digest: %s\n", result.Digest)
 		return nil
 	}, nil)
 }
 
 func printPullResult(cmd *cobra.Command, result *app.PullResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Pulled %s@%s -> %s/\n", result.Name, result.Version, result.Output)
+		w := cmd.OutOrStdout()
+		_, _ = fmt.Fprintf(w, "%sPulled %s@%s -> %s/\n", okGlyph(w), result.Name, result.Version, result.Output)
 		return nil
 	}, nil)
 }
@@ -83,11 +95,11 @@ func printPullResult(cmd *cobra.Command, result *app.PullResult, format string) 
 func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
-		rendered := graph.RenderDiffTree(result.GraphDiff)
+		rendered := graph.RenderDiffTreeColored(result.GraphDiff, diffColors(w))
 		hasSBOM := result.SBOMDiff != nil && len(result.SBOMDiff.Changes) > 0
 		hasDepSBOM := hasAnyDepSBOM(result.DependencyDiffs)
 
-		_, _ = fmt.Fprintf(w, "Classification: %s\n", result.Classification)
+		_, _ = fmt.Fprintf(w, "Classification: %s\n", colorClassification(w, result.Classification))
 
 		if len(result.Changes) == 0 && len(result.DependencyDiffs) == 0 && rendered == "" && !hasSBOM && !hasDepSBOM {
 			_, _ = fmt.Fprintln(w, "No changes detected.")
@@ -190,6 +202,34 @@ func treeColors(w io.Writer) graph.TreeColors {
 		Marker:  ansi("2"),  // dim
 		Error:   ansi("31"), // red
 		Warn:    ansi("33"), // yellow
+	}
+}
+
+// diffColors returns ANSI colorizers for diff trees when color is enabled for w.
+func diffColors(w io.Writer) graph.DiffColors {
+	if !useColor(w) {
+		return graph.DiffColors{}
+	}
+	ansi := func(code string) func(string) string {
+		return func(s string) string { return "\033[" + code + "m" + s + "\033[0m" }
+	}
+	return graph.DiffColors{Added: ansi("32"), Removed: ansi("31"), Changed: ansi("33")}
+}
+
+// colorClassification colors the diff classification string; passthrough off-TTY.
+func colorClassification(w io.Writer, s string) string {
+	if !useColor(w) {
+		return s
+	}
+	switch s {
+	case "BREAKING":
+		return crossGlyph(true) + " \033[31m" + s + "\033[0m"
+	case "NON_BREAKING":
+		return checkGlyph(true) + " \033[32m" + s + "\033[0m"
+	case "POTENTIAL_BREAKING":
+		return "\033[33m" + s + "\033[0m"
+	default:
+		return s
 	}
 }
 
@@ -406,11 +446,12 @@ func printSBOMChangeRows(w io.Writer, changes []sbom.Change) {
 
 func printLockResult(cmd *cobra.Command, r *app.LockResult, format string) error {
 	return formatResult(cmd, format, r, func() error {
+		w := cmd.OutOrStdout()
 		if r.UpToDate {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "pacto.lock is up to date (%d dependencies, %d references)\n", r.Dependencies, r.References)
+			_, _ = fmt.Fprintf(w, "%spacto.lock is up to date (%d dependencies, %d references)\n", okGlyph(w), r.Dependencies, r.References)
 			return nil
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s (%d dependencies, %d references)\n", r.Path, r.Dependencies, r.References)
+		_, _ = fmt.Fprintf(w, "%swrote %s (%d dependencies, %d references)\n", okGlyph(w), r.Path, r.Dependencies, r.References)
 		return nil
 	}, nil)
 }
