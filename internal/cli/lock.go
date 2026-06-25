@@ -21,7 +21,9 @@ func newLockCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			update, _ := cmd.Flags().GetBool("update")
 			check, _ := cmd.Flags().GetBool("check")
 			names, _ := cmd.Flags().GetStringArray("update-name")
+			format := v.GetString(outputFormatKey)
 
+			sp := startSpinner(cmd, format, "Resolving lock")
 			result, err := svc.Lock(cmd.Context(), app.LockOptions{
 				Path:        optionalArg(args),
 				Update:      update || len(names) > 0,
@@ -29,10 +31,11 @@ func newLockCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				Check:       check,
 				Overrides:   getOverrides(cmd),
 			})
+			sp.Stop()
 			if err != nil {
 				return err
 			}
-			return printLockResult(cmd, result, v.GetString(outputFormatKey))
+			return printLockResult(cmd, result, format)
 		},
 	}
 	cmd.Flags().Bool("update", false, "re-resolve dependencies to the newest version within their constraint")

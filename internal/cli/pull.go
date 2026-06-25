@@ -20,16 +20,18 @@ func newPullCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := args[0]
 			output, _ := cmd.Flags().GetString("output")
+			format := v.GetString(outputFormatKey)
 
+			sp := startSpinner(cmd, format, "Pulling "+ref)
 			result, err := svc.Pull(cmd.Context(), app.PullOptions{
 				Ref:    ref,
 				Output: output,
 			})
+			sp.Stop()
 			if err != nil {
 				return err
 			}
 
-			format := v.GetString(outputFormatKey)
 			return printPullResult(cmd, result, format)
 		},
 	}

@@ -18,18 +18,20 @@ func newGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 
 			withRefs, _ := cmd.Flags().GetBool("with-references")
 			onlyRefs, _ := cmd.Flags().GetBool("only-references")
+			format := v.GetString(outputFormatKey)
 
+			sp := startSpinner(cmd, format, "Resolving graph")
 			result, err := svc.Graph(cmd.Context(), app.GraphOptions{
 				Path:              path,
 				Overrides:         getOverrides(cmd),
 				IncludeReferences: withRefs || onlyRefs,
 				OnlyReferences:    onlyRefs,
 			})
+			sp.Stop()
 			if err != nil {
 				return err
 			}
 
-			format := v.GetString(outputFormatKey)
 			return printGraphResult(cmd, result, format)
 		},
 	}

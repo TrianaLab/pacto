@@ -27,13 +27,16 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			ref := args[0]
 			path, _ := cmd.Flags().GetString("path")
 			force, _ := cmd.Flags().GetBool("force")
+			format := v.GetString(outputFormatKey)
 
+			sp := startSpinner(cmd, format, "Pushing "+ref)
 			result, err := svc.Push(cmd.Context(), app.PushOptions{
 				Ref:       ref,
 				Path:      path,
 				Force:     force,
 				Overrides: getOverrides(cmd),
 			})
+			sp.Stop()
 			if err != nil {
 				if errors.Is(err, app.ErrArtifactAlreadyExists) {
 					_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Warning: %s\n", err)
@@ -42,7 +45,6 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				return err
 			}
 
-			format := v.GetString(outputFormatKey)
 			return printPushResult(cmd, result, format)
 		},
 	}

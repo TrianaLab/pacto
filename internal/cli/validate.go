@@ -31,17 +31,19 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := optionalArg(args)
 			checkReadiness, _ := cmd.Flags().GetBool("readiness")
+			format := v.GetString(outputFormatKey)
 
+			sp := startSpinner(cmd, format, "Validating")
 			result, err := svc.Validate(cmd.Context(), app.ValidateOptions{
 				Path:      path,
 				Overrides: getOverrides(cmd),
 				Readiness: checkReadiness,
 			})
+			sp.Stop()
 			if err != nil {
 				return err
 			}
 
-			format := v.GetString(outputFormatKey)
 			if err := printValidateResult(cmd, result, format); err != nil {
 				return err
 			}
