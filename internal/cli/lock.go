@@ -28,11 +28,15 @@ func newLockCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			start := time.Now()
 			sp, count := startSpinnerCounted(cmd, format, "Resolving lock")
 			result, err := svc.Lock(cmd.Context(), app.LockOptions{
-				Path:          optionalArg(args),
-				Update:        update || len(names) > 0,
-				UpdateNames:   names,
-				Check:         check,
-				Overrides:     getOverrides(cmd),
+				Path:        optionalArg(args),
+				Update:      update || len(names) > 0,
+				UpdateNames: names,
+				Check:       check,
+				Overrides:   getOverrides(cmd),
+				// Counts dependency-node fetches only; reference closure is pinned
+				// separately and intentionally not counted here. Do not wire refs
+				// into this callback — the verify-path resolve already passes nil to
+				// avoid double-counting.
 				OnDepResolved: func() { count.Add(1) },
 			})
 			if err != nil {
