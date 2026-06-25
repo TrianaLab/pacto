@@ -16,13 +16,6 @@ import (
 
 const outputFormatKey = "output-format"
 
-const banner = "\033[36m" +
-	"  ____           _        \n" +
-	" |  _ \\ __ _  __| |_ ___  \n" +
-	" | |_) / _` |/ _| __/ _ \\ \n" +
-	" |  __/ (_| | (_| || (_) |\n" +
-	" |_|   \\__,_|\\__|\\__\\___/ \n" +
-	"\033[0m\n"
 
 // checkForUpdateFn is the function used to check for updates, overridable in tests.
 var checkForUpdateFn = update.CheckForUpdate
@@ -140,8 +133,14 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 func attachBanner(root *cobra.Command) {
 	def := root.HelpFunc()
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
-		if !cmd.HasParent() && useColor(cmd.OutOrStdout()) {
-			_, _ = fmt.Fprint(cmd.OutOrStdout(), banner)
+		out := cmd.OutOrStdout()
+		if !cmd.HasParent() && useColor(out) {
+			na, _ := cmd.Flags().GetBool("no-anim") // PreRun didn't run on --help
+			if !na && os.Getenv("PACTO_NO_ANIM") == "" && isTerminal(out) {
+				reveal(out, bannerFrame, len(bannerLines(true)), true)
+			} else {
+				_, _ = fmt.Fprint(out, bannerFrame(1<<30, true)) // full static
+			}
 		}
 		def(cmd, args)
 	})

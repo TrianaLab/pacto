@@ -30,10 +30,7 @@ func formatResult(cmd *cobra.Command, format string, result any, textFn, markdow
 
 func printInitResult(cmd *cobra.Command, result *app.InitResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Created %s/\n", result.Dir)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", result.Path)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s/interfaces/\n", result.Dir)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s/configuration/\n", result.Dir)
+		revealInit(cmd.OutOrStdout(), initLines(result))
 		return nil
 	}, nil)
 }
