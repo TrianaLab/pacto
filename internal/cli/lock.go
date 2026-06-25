@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"time"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -21,18 +23,28 @@ func newLockCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			update, _ := cmd.Flags().GetBool("update")
 			check, _ := cmd.Flags().GetBool("check")
 			names, _ := cmd.Flags().GetStringArray("update-name")
+			format := v.GetString(outputFormatKey)
 
+			start := time.Now()
+			sp, count := startSpinnerCounted(cmd, format, "Resolving lock")
 			result, err := svc.Lock(cmd.Context(), app.LockOptions{
 				Path:        optionalArg(args),
 				Update:      update || len(names) > 0,
 				UpdateNames: names,
 				Check:       check,
 				Overrides:   getOverrides(cmd),
+				// Counts dependency-node fetches only; reference closure is pinned
+				// separately and intentionally not counted here. Do not wire refs
+				// into this callback — the verify-path resolve already passes nil to
+				// avoid double-counting.
+				OnDepResolved: func() { count.Add(1) },
 			})
 			if err != nil {
+				sp.Stop()
 				return err
 			}
-			return printLockResult(cmd, result, v.GetString(outputFormatKey))
+			sp.StopOK("Locked", start)
+			return printLockResult(cmd, result, format)
 		},
 	}
 	cmd.Flags().Bool("update", false, "re-resolve dependencies to the newest version within their constraint")

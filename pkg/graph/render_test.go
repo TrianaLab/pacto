@@ -220,3 +220,59 @@ func TestShortRef(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderTreeColoredIdentityMatchesPlain(t *testing.T) {
+	r := &Result{
+		Root: &Node{
+			Name:    "svc",
+			Version: "1.0.0",
+			Dependencies: []Edge{
+				{Ref: "reg/dep:1.0.0", Node: &Node{Name: "dep", Version: "1.0.0"}},
+			},
+		},
+	}
+	if RenderTreeColored(r, TreeColors{}) != RenderTree(r) {
+		t.Fatal("zero TreeColors must equal plain RenderTree")
+	}
+}
+
+func TestRenderTreeColoredAppliesColors(t *testing.T) {
+	wrap := func(tag string) func(string) string {
+		return func(s string) string { return "<" + tag + ">" + s + "</" + tag + ">" }
+	}
+	col := TreeColors{
+		Name:    wrap("n"),
+		Version: wrap("v"),
+		Marker:  wrap("m"),
+		Error:   wrap("e"),
+		Warn:    wrap("w"),
+	}
+	// Build a Result exercising: normal dep, local dep, shared dep, ref edge,
+	// error edge, cycles, conflicts.
+	r := &Result{
+		Root: &Node{
+			Name:    "root",
+			Version: "1.0.0",
+			Dependencies: []Edge{
+				{Ref: "reg/a:1.0.0", Node: &Node{Name: "a", Version: "1.0.0"}},
+				{Ref: "../b", Local: true, Node: &Node{Name: "b", Version: "2.0.0", Local: true}},
+				{Ref: "reg/c:3.0.0", Shared: true, Node: &Node{Name: "c", Version: "3.0.0"}},
+				{Ref: "ghcr.io/x/cfg:1.0.0", Type: EdgeReference},
+				{Ref: "ghcr.io/x/broken:1.0.0", Error: "boom"},
+			},
+		},
+		Cycles:    [][]string{{"a", "b", "a"}},
+		Conflicts: []Conflict{{Name: "c", Versions: []string{"c@3.0.0", "c@4.0.0"}}},
+	}
+	out := RenderTreeColored(r, col)
+	for _, want := range []string{
+		"<n>root</n>", "<v>1.0.0</v>", // root name/version
+		"<m>[local]</m>", "<m>[ref]</m>", "<m>(shared)</m>",
+		"<e>(error: boom)</e>",
+		"<w>a -> b -> a</w>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in:\n%s", want, out)
+		}
+	}
+}

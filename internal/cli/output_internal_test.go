@@ -1166,3 +1166,99 @@ func TestNonEmpty(t *testing.T) {
 		t.Errorf("expected 'hello', got %v", got)
 	}
 }
+
+func TestPrintGraphResultColored(t *testing.T) {
+	withTTY(t, true)
+	t.Setenv("NO_COLOR", "")
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	result := &graph.Result{Root: &graph.Node{Name: "svc", Version: "1.0.0"}}
+	if err := printGraphResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "\033[") {
+		t.Fatalf("expected ANSI color in TTY output, got %q", buf.String())
+	}
+}
+
+func TestPrintGraphResultPlainWhenNotTTY(t *testing.T) {
+	withTTY(t, false)
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	result := &graph.Result{Root: &graph.Node{Name: "svc", Version: "1.0.0"}}
+	if err := printGraphResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "\033[") {
+		t.Fatalf("expected no ANSI without TTY, got %q", buf.String())
+	}
+}
+
+func TestColorClassification(t *testing.T) {
+	withTTY(t, true)
+	t.Setenv("NO_COLOR", "")
+	w := &bytes.Buffer{}
+	if !strings.Contains(colorClassification(w, "BREAKING"), "\033[31m") {
+		t.Fatal("BREAKING should be red")
+	}
+	if !strings.Contains(colorClassification(w, "NON_BREAKING"), "\033[32m") {
+		t.Fatal("NON_BREAKING should be green")
+	}
+	if !strings.Contains(colorClassification(w, "POTENTIAL_BREAKING"), "\033[33m") {
+		t.Fatal("POTENTIAL_BREAKING should be yellow")
+	}
+	if colorClassification(w, "WEIRD") != "WEIRD" {
+		t.Fatal("unknown classification should pass through")
+	}
+	withTTY(t, false)
+	if colorClassification(&bytes.Buffer{}, "BREAKING") != "BREAKING" {
+		t.Fatal("off-TTY should be plain")
+	}
+}
+
+func TestPrintValidateResultColored(t *testing.T) {
+	withTTY(t, true)
+	t.Setenv("NO_COLOR", "")
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	_ = printValidateResult(cmd, &app.ValidateResult{Valid: true, Path: "svc"}, "text")
+	if !strings.Contains(buf.String(), "✓") {
+		t.Fatal("valid should show ✓")
+	}
+	buf.Reset()
+	_ = printValidateResult(cmd, &app.ValidateResult{Valid: false, Path: "svc"}, "text")
+	if !strings.Contains(buf.String(), "✗") {
+		t.Fatal("invalid should show ✗")
+	}
+}
+
+func TestPrintPushResultGlyphOffTTY(t *testing.T) {
+	withTTY(t, false)
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	_ = printPushResult(cmd, &app.PushResult{Name: "n", Version: "1.0.0", Ref: "r", Digest: "d"}, "text")
+	if buf.String() != "Pushed n@1.0.0 -> r\nDigest: d\n" {
+		t.Fatalf("off-TTY must be byte-identical: %q", buf.String())
+	}
+}
+
+func TestDiffColors(t *testing.T) {
+	withTTY(t, true)
+	t.Setenv("NO_COLOR", "")
+	col := diffColors(&bytes.Buffer{})
+	if col.Added == nil {
+		t.Fatal("TTY diffColors should populate")
+	}
+	// Actually exercise the closures
+	if !strings.Contains(col.Added("test"), "\033[32m") {
+		t.Fatal("Added should apply green")
+	}
+	withTTY(t, false)
+	if diffColors(&bytes.Buffer{}).Added != nil {
+		t.Fatal("off-TTY diffColors must be zero")
+	}
+}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -21,6 +22,10 @@ func newDiffCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			oldOverrides, newOverrides := getDiffOverrides(cmd)
+			format := v.GetString(outputFormatKey)
+
+			start := time.Now()
+			sp := startSpinner(cmd, format, "Resolving diff")
 			result, err := svc.Diff(cmd.Context(), app.DiffOptions{
 				OldPath:      args[0],
 				NewPath:      args[1],
@@ -28,10 +33,11 @@ func newDiffCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				NewOverrides: newOverrides,
 			})
 			if err != nil {
+				sp.Stop()
 				return err
 			}
+			sp.StopOK("Diffed", start)
 
-			format := v.GetString(outputFormatKey)
 			if err := printDiffResult(cmd, result, format); err != nil {
 				return err
 			}

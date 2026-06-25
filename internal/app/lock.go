@@ -20,6 +20,9 @@ type LockOptions struct {
 	UpdateNames []string
 	Check       bool
 	Overrides   override.Overrides
+	// OnDepResolved, if non-nil, fires once per unique resolved dependency for
+	// progress reporting. Must be goroutine-safe. nil = no-op.
+	OnDepResolved func()
 }
 
 // LockResult reports the outcome of a lock operation.
@@ -58,7 +61,7 @@ func (s *Service) Lock(ctx context.Context, opts LockOptions) (*LockResult, erro
 		return nil, err
 	}
 
-	fresh, err := s.buildLock(ctx, ref, bundle)
+	fresh, err := s.buildLock(ctx, ref, bundle, opts.OnDepResolved)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +214,9 @@ func (s *Service) verifyLockIfPresent(ctx context.Context, ref string, bundle *c
 		}
 		return err
 	}
-	fresh, err := s.buildLock(ctx, ref, bundle)
+	// The verify path re-resolves the closure; pass nil so it never fires the
+	// progress callback (the user-facing resolve owns the count).
+	fresh, err := s.buildLock(ctx, ref, bundle, nil)
 	if err != nil {
 		return err
 	}

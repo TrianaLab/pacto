@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"time"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v2/internal/app"
@@ -20,16 +22,20 @@ func newPullCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := args[0]
 			output, _ := cmd.Flags().GetString("output")
+			format := v.GetString(outputFormatKey)
 
+			start := time.Now()
+			sp := startSpinner(cmd, format, "Pulling "+ref)
 			result, err := svc.Pull(cmd.Context(), app.PullOptions{
 				Ref:    ref,
 				Output: output,
 			})
 			if err != nil {
+				sp.Stop()
 				return err
 			}
+			sp.StopOK("Pulled", start)
 
-			format := v.GetString(outputFormatKey)
 			return printPullResult(cmd, result, format)
 		},
 	}

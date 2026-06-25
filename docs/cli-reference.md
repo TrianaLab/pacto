@@ -11,6 +11,7 @@ All commands support `--output-format json` for programmatic consumption, `--out
 ```
       --config string          config file path
   -h, --help                   help for pacto
+      --no-anim                disable animations
       --no-cache               disable OCI bundle cache
       --output-format string   output format (text, json, markdown) (default "text")
   -v, --verbose                enable verbose output

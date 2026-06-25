@@ -19,9 +19,12 @@ import (
 // buildLock fails closed: a graph conflict yields *lock.ConflictError, and any
 // required edge that failed to resolve (non-empty Error, nil Node) or any digest
 // / content-hash resolution failure yields *lock.UnresolvedError.
-func (s *Service) buildLock(ctx context.Context, ref string, bundle *contract.Bundle) (*lock.Lock, error) {
+//
+// onResolved, if non-nil, fires once per unique fetched dependency node (for
+// progress reporting). The verify path passes nil so it does not double-count.
+func (s *Service) buildLock(ctx context.Context, ref string, bundle *contract.Bundle, onResolved func()) (*lock.Lock, error) {
 	fetcher := s.newDepFetcher(ref)
-	res := graph.ResolveWithOptions(ctx, bundle.Contract, fetcher, graph.ResolveOptions{IncludeReferences: true})
+	res := graph.ResolveWithOptions(ctx, bundle.Contract, fetcher, graph.ResolveOptions{IncludeReferences: true, OnResolved: onResolved})
 
 	if len(res.Conflicts) > 0 {
 		return nil, &lock.ConflictError{Service: res.Conflicts[0].Name}
