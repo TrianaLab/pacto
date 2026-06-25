@@ -20,20 +20,15 @@ func TestBannerStatic(t *testing.T) {
 	}
 }
 
-func TestRevealBannerCascadeNoDuplication(t *testing.T) {
-	orig := revealStagger
-	revealStagger = time.Millisecond
-	t.Cleanup(func() { revealStagger = orig })
-	var buf bytes.Buffer
-	revealBanner(&buf, true)
-	// Cascade prints each row exactly once -> output must equal the static banner,
-	// i.e. no cumulative-frame stacking (the bug this guards against).
-	if got := buf.String(); got != bannerStatic(true) {
-		t.Fatalf("revealBanner output must equal bannerStatic (no duplication):\n%q", got)
-	}
-	// And the top row must appear exactly once.
-	if n := strings.Count(buf.String(), "██████╗  █████╗"); n != 1 {
+func TestBannerStaticNoDuplication(t *testing.T) {
+	// The help banner is static: each row appears exactly once (guards against the
+	// old cumulative-frame stacking bug).
+	out := bannerStatic(true)
+	if n := strings.Count(out, "██████╗  █████╗"); n != 1 {
 		t.Fatalf("top banner row should appear once, got %d", n)
+	}
+	if !strings.Contains(out, "service contracts") {
+		t.Fatal("banner missing tagline")
 	}
 }
 

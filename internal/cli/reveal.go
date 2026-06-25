@@ -33,21 +33,10 @@ func bannerLines(color bool) []string {
 }
 
 // bannerStatic returns the full banner, all rows printed at once. Pure.
+// The help banner is intentionally static (no animation); the cascade reveal is
+// reserved for `pacto init` (revealInit).
 func bannerStatic(color bool) string {
 	return strings.Join(bannerLines(color), "\n") + "\n"
-}
-
-// revealBanner prints the banner one row at a time with revealStagger between
-// rows — a top-to-bottom cascade. Each row is printed exactly once (no cumulative
-// reprinting), so it draws in cleanly and the final result equals bannerStatic.
-// Synchronous: finishes before the help text follows.
-func revealBanner(w io.Writer, color bool) {
-	for i, line := range bannerLines(color) {
-		if i > 0 {
-			time.Sleep(revealStagger)
-		}
-		_, _ = fmt.Fprintln(w, line)
-	}
 }
 
 // initLines returns the exact 4 current strings, in order. Pure.

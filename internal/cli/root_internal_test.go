@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/trianalab/pacto/v2/internal/app"
 	"github.com/trianalab/pacto/v2/internal/update"
@@ -33,10 +32,6 @@ func TestNewRootCommand_PanicRecovery(t *testing.T) {
 func TestBannerOnRootHelpTTY(t *testing.T) {
 	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
-	t.Setenv("PACTO_NO_ANIM", "")
-	orig := revealStagger
-	revealStagger = 1 * time.Millisecond
-	t.Cleanup(func() { revealStagger = orig })
 	root := NewRootCommand(nil, VersionInfo{Version: "dev"})
 	var buf bytes.Buffer
 	root.SetOut(&buf)

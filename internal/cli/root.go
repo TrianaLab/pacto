@@ -138,12 +138,7 @@ func attachBanner(root *cobra.Command) {
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		out := cmd.OutOrStdout()
 		if !cmd.HasParent() && useColor(out) {
-			na, _ := cmd.Flags().GetBool("no-anim") // PreRun didn't run on --help
-			if !na && os.Getenv("PACTO_NO_ANIM") == "" && isTerminal(out) {
-				revealBanner(out, true)
-			} else {
-				_, _ = fmt.Fprint(out, bannerStatic(true)) // full static
-			}
+			_, _ = fmt.Fprint(out, bannerStatic(true)) // static colored banner, no animation
 		}
 		def(cmd, args)
 	})
