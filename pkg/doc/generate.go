@@ -1,3 +1,8 @@
+// Package doc generates Markdown documentation from a Pacto contract and serves
+// it as rendered HTML. The generated docs include a Mermaid architecture
+// diagram, interface and endpoint tables, configuration and policy schemas, the
+// dependency graph, and a readiness summary; the package also parses OpenAPI
+// specs and can serve Swagger UI.
 package doc
 
 import (

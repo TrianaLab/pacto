@@ -1,3 +1,6 @@
+// Package graph builds and traverses a service's dependency graph. It resolves
+// dependencies recursively through a pluggable fetcher (siblings in parallel),
+// detects cycles and version conflicts, and renders or diffs the resolved graph.
 package graph
 
 import (

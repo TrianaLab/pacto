@@ -1,3 +1,8 @@
+// Package diff compares two versioned contracts and classifies each change as
+// non-breaking, potentially breaking, or breaking to downstream consumers. A
+// deterministic rule table drives classification across service identity,
+// interfaces, configuration, policies, dependencies, runtime, and embedded
+// OpenAPI and SBOM artifacts, so the same change always classifies the same way.
 package diff
 
 import (

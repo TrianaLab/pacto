@@ -1,3 +1,8 @@
+// Package contract defines the core data model for Pacto service contracts: the
+// in-memory representation of a pacto.yaml and the types for service identity,
+// interfaces, dependencies, configurations, policies, runtime semantics,
+// scaling, and readiness. It also provides YAML parsing along with OCI-reference
+// and semver-range helpers shared by the CLI, dashboard, and operator.
 package contract
 
 // Contract is the root aggregate — the parsed in-memory representation of a pacto.yaml.

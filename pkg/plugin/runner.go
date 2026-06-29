@@ -1,3 +1,8 @@
+// Package plugin discovers and executes out-of-process Pacto plugins. A plugin
+// is a pacto-plugin-<name> binary that reads a GenerateRequest as JSON on stdin
+// and writes a GenerateResponse as JSON on stdout; the runner handles binary
+// discovery, process lifecycle, and timeout enforcement so plugins can produce
+// deployment artifacts from a contract.
 package plugin
 
 import (

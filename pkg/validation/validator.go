@@ -1,3 +1,7 @@
+// Package validation checks a contract across four layers — structural (JSON
+// Schema), cross-field consistency, semantic rules, and policy enforcement — and
+// reports errors and warnings. It supports local-only policy resolution as well
+// as recursive, ref-based resolution through a pluggable BundleResolver.
 package validation
 
 import (

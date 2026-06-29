@@ -1,3 +1,7 @@
+// Package override merges values into a contract's YAML from CLI flags. It
+// applies value files and --set key=value pairs with strict precedence
+// (base < files < --set), supporting nested and array-indexed paths while
+// preserving the original YAML formatting.
 package override
 
 import (
