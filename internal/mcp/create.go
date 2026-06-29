@@ -52,7 +52,7 @@ type CreateInput struct {
 	Replicas         *int
 	MinReplicas      *int
 	MaxReplicas      *int
-	Metadata         map[string]interface{}
+	Metadata         map[string]any
 
 	DryRun bool
 }
@@ -111,7 +111,7 @@ type EditInput struct {
 	Replicas            *int
 	MinReplicas         *int
 	MaxReplicas         *int
-	SetMetadata         map[string]interface{}
+	SetMetadata         map[string]any
 	RemoveMetadata      []string
 
 	DryRun bool
@@ -211,8 +211,8 @@ type runtimeIntent struct {
 	dataLossImpact            string
 }
 
-func deriveRuntimeMap(intent runtimeIntent) map[string]interface{} {
-	rt := make(map[string]interface{})
+func deriveRuntimeMap(intent runtimeIntent) map[string]any {
+	rt := make(map[string]any)
 
 	workload := intent.workload
 	if workload == "" {
@@ -240,9 +240,9 @@ func deriveRuntimeMap(intent runtimeIntent) map[string]interface{} {
 		dataCrit = intent.dataLossImpact
 	}
 
-	rt["state"] = map[string]interface{}{
+	rt["state"] = map[string]any{
 		"type": stateType,
-		"persistence": map[string]interface{}{
+		"persistence": map[string]any{
 			"scope":      scope,
 			"durability": durability,
 		},
@@ -348,18 +348,18 @@ func applyHintsToCreate(input *CreateInput, h descriptionHints) {
 	}
 }
 
-func buildCreateMap(input CreateInput) map[string]interface{} {
-	m := map[string]interface{}{
+func buildCreateMap(input CreateInput) map[string]any {
+	m := map[string]any{
 		"pactoVersion": "1.0",
-		"service": map[string]interface{}{
+		"service": map[string]any{
 			"name":    input.Name,
 			"version": defaultVersion(input.Version),
 		},
 	}
 
-	svc := m["service"].(map[string]interface{})
+	svc := m["service"].(map[string]any)
 	if input.Owner != "" {
-		svc["owner"] = map[string]interface{}{"team": input.Owner}
+		svc["owner"] = map[string]any{"team": input.Owner}
 	}
 
 	if len(input.Interfaces) > 0 {
@@ -389,8 +389,8 @@ func buildCreateMap(input CreateInput) map[string]interface{} {
 	}
 
 	if len(input.ConfigProperties) > 0 {
-		m["configurations"] = []interface{}{
-			map[string]interface{}{
+		m["configurations"] = []any{
+			map[string]any{
 				"name":   "default",
 				"schema": "configuration/schema.json",
 			},
@@ -404,10 +404,10 @@ func buildCreateMap(input CreateInput) map[string]interface{} {
 	return m
 }
 
-func buildInterfacesList(inputs []InterfaceInput) []interface{} {
-	var result []interface{}
+func buildInterfacesList(inputs []InterfaceInput) []any {
+	var result []any
 	for _, iface := range inputs {
-		entry := map[string]interface{}{
+		entry := map[string]any{
 			"name":     iface.Name,
 			"type":     iface.Type,
 			"contract": interfaceContractPath(iface),
@@ -446,10 +446,10 @@ func dependencyName(dep DependencyInput) string {
 	return ref[strings.LastIndex(ref, "/")+1:]
 }
 
-func buildDependenciesList(inputs []DependencyInput) []interface{} {
-	var result []interface{}
+func buildDependenciesList(inputs []DependencyInput) []any {
+	var result []any
 	for _, dep := range inputs {
-		entry := map[string]interface{}{
+		entry := map[string]any{
 			"name":          dependencyName(dep),
 			"ref":           dep.Ref,
 			"compatibility": defaultCompatibility(dep.Compatibility),
@@ -462,7 +462,7 @@ func buildDependenciesList(inputs []DependencyInput) []interface{} {
 	return result
 }
 
-func wireHealthMetrics(rt map[string]interface{}, interfaces []InterfaceInput) {
+func wireHealthMetrics(rt map[string]any, interfaces []InterfaceInput) {
 	var httpIface string
 	for _, iface := range interfaces {
 		if iface.Type == contract.InterfaceTypeHTTP {
@@ -473,21 +473,21 @@ func wireHealthMetrics(rt map[string]interface{}, interfaces []InterfaceInput) {
 	if httpIface == "" {
 		return
 	}
-	rt["health"] = map[string]interface{}{
+	rt["health"] = map[string]any{
 		"interface": httpIface,
 		"path":      "/health",
 	}
-	rt["metrics"] = map[string]interface{}{
+	rt["metrics"] = map[string]any{
 		"interface": httpIface,
 		"path":      "/metrics",
 	}
 }
 
-func buildScalingMap(replicas, min, max *int) map[string]interface{} {
+func buildScalingMap(replicas, min, max *int) map[string]any {
 	if replicas != nil {
-		return map[string]interface{}{"replicas": *replicas}
+		return map[string]any{"replicas": *replicas}
 	}
-	s := map[string]interface{}{}
+	s := map[string]any{}
 	if min != nil {
 		s["min"] = *min
 	}
@@ -512,7 +512,7 @@ func Edit(input EditInput) (*EditResult, error) {
 		return nil, fmt.Errorf("failed to read %s: %w", pactoPath, err)
 	}
 
-	var m map[string]interface{}
+	var m map[string]any
 	if err := yaml.Unmarshal(rawYAML, &m); err != nil {
 		return nil, fmt.Errorf("failed to parse %s: %w", pactoPath, err)
 	}
@@ -564,12 +564,12 @@ func Edit(input EditInput) (*EditResult, error) {
 	}, nil
 }
 
-func applyEdits(m map[string]interface{}, input EditInput) []string {
+func applyEdits(m map[string]any, input EditInput) []string {
 	var changes []string
 
-	svc, _ := m["service"].(map[string]interface{})
+	svc, _ := m["service"].(map[string]any)
 	if svc == nil {
-		svc = map[string]interface{}{}
+		svc = map[string]any{}
 		m["service"] = svc
 	}
 
@@ -582,7 +582,7 @@ func applyEdits(m map[string]interface{}, input EditInput) []string {
 		changes = append(changes, fmt.Sprintf("set version to %s", *input.Version))
 	}
 	if input.Owner != nil {
-		svc["owner"] = map[string]interface{}{"team": *input.Owner}
+		svc["owner"] = map[string]any{"team": *input.Owner}
 		changes = append(changes, fmt.Sprintf("set owner to %q", *input.Owner))
 	}
 
@@ -631,9 +631,9 @@ func hasScalingEdits(input EditInput) bool {
 	return input.Replicas != nil || input.MinReplicas != nil || input.MaxReplicas != nil
 }
 
-func removeInterfaces(m map[string]interface{}, names []string) []string {
+func removeInterfaces(m map[string]any, names []string) []string {
 	var changes []string
-	ifaces, ok := m["interfaces"].([]interface{})
+	ifaces, ok := m["interfaces"].([]any)
 	if !ok {
 		return nil
 	}
@@ -641,9 +641,9 @@ func removeInterfaces(m map[string]interface{}, names []string) []string {
 	for _, n := range names {
 		removeSet[n] = true
 	}
-	var kept []interface{}
+	var kept []any
 	for _, iface := range ifaces {
-		if ifaceMap, ok := iface.(map[string]interface{}); ok {
+		if ifaceMap, ok := iface.(map[string]any); ok {
 			if name, ok := ifaceMap["name"].(string); ok && removeSet[name] {
 				changes = append(changes, fmt.Sprintf("removed interface %q", name))
 				continue
@@ -659,11 +659,11 @@ func removeInterfaces(m map[string]interface{}, names []string) []string {
 	return changes
 }
 
-func addInterfaces(m map[string]interface{}, inputs []InterfaceInput) []string {
+func addInterfaces(m map[string]any, inputs []InterfaceInput) []string {
 	var changes []string
-	ifaces, _ := m["interfaces"].([]interface{})
+	ifaces, _ := m["interfaces"].([]any)
 	for _, iface := range inputs {
-		entry := map[string]interface{}{
+		entry := map[string]any{
 			"name":     iface.Name,
 			"type":     iface.Type,
 			"contract": interfaceContractPath(iface),
@@ -681,9 +681,9 @@ func addInterfaces(m map[string]interface{}, inputs []InterfaceInput) []string {
 	return changes
 }
 
-func removeDependencies(m map[string]interface{}, refs []string) []string {
+func removeDependencies(m map[string]any, refs []string) []string {
 	var changes []string
-	deps, ok := m["dependencies"].([]interface{})
+	deps, ok := m["dependencies"].([]any)
 	if !ok {
 		return nil
 	}
@@ -691,9 +691,9 @@ func removeDependencies(m map[string]interface{}, refs []string) []string {
 	for _, r := range refs {
 		removeSet[r] = true
 	}
-	var kept []interface{}
+	var kept []any
 	for _, dep := range deps {
-		if depMap, ok := dep.(map[string]interface{}); ok {
+		if depMap, ok := dep.(map[string]any); ok {
 			if ref, ok := depMap["ref"].(string); ok && removeSet[ref] {
 				changes = append(changes, fmt.Sprintf("removed dependency %q", ref))
 				continue
@@ -709,11 +709,11 @@ func removeDependencies(m map[string]interface{}, refs []string) []string {
 	return changes
 }
 
-func addDependencies(m map[string]interface{}, inputs []DependencyInput) []string {
+func addDependencies(m map[string]any, inputs []DependencyInput) []string {
 	var changes []string
-	deps, _ := m["dependencies"].([]interface{})
+	deps, _ := m["dependencies"].([]any)
 	for _, dep := range inputs {
-		entry := map[string]interface{}{
+		entry := map[string]any{
 			"name":          dependencyName(dep),
 			"ref":           dep.Ref,
 			"compatibility": defaultCompatibility(dep.Compatibility),
@@ -734,12 +734,12 @@ func hasRuntimeEdits(input EditInput) bool {
 		input.DataLossImpact != nil
 }
 
-func applyRuntimeEdits(m map[string]interface{}, input EditInput) []string {
+func applyRuntimeEdits(m map[string]any, input EditInput) []string {
 	var changes []string
 
-	rt, ok := m["runtime"].(map[string]interface{})
+	rt, ok := m["runtime"].(map[string]any)
 	if !ok {
-		rt = map[string]interface{}{"workload": contract.WorkloadTypeService}
+		rt = map[string]any{"workload": contract.WorkloadTypeService}
 	}
 
 	if input.Workload != nil {
@@ -766,7 +766,7 @@ func hasStateEdits(input EditInput) bool {
 		input.DataSharedAcrossInstances != nil || input.DataLossImpact != nil
 }
 
-func buildStateIntent(rt map[string]interface{}, input EditInput) runtimeIntent {
+func buildStateIntent(rt map[string]any, input EditInput) runtimeIntent {
 	storesData, dataSurvives, dataShared, dataLossImpact := readCurrentState(rt)
 
 	if input.StoresData != nil {
@@ -790,15 +790,15 @@ func buildStateIntent(rt map[string]interface{}, input EditInput) runtimeIntent 
 	}
 }
 
-func readCurrentState(rt map[string]interface{}) (storesData, dataSurvives, dataShared bool, dataLossImpact string) {
-	state, ok := rt["state"].(map[string]interface{})
+func readCurrentState(rt map[string]any) (storesData, dataSurvives, dataShared bool, dataLossImpact string) {
+	state, ok := rt["state"].(map[string]any)
 	if !ok {
 		return
 	}
 	if t, ok := state["type"].(string); ok && t != contract.StateStateless {
 		storesData = true
 	}
-	if p, ok := state["persistence"].(map[string]interface{}); ok {
+	if p, ok := state["persistence"].(map[string]any); ok {
 		if d, ok := p["durability"].(string); ok && d == contract.DurabilityPersistent {
 			dataSurvives = true
 		}
@@ -812,17 +812,17 @@ func readCurrentState(rt map[string]interface{}) (storesData, dataSurvives, data
 	return
 }
 
-func rewireHealthMetricsIfNeeded(rt, m map[string]interface{}) {
+func rewireHealthMetricsIfNeeded(rt, m map[string]any) {
 	if _, hasHealth := rt["health"]; hasHealth {
 		return
 	}
-	ifaces, ok := m["interfaces"].([]interface{})
+	ifaces, ok := m["interfaces"].([]any)
 	if !ok {
 		return
 	}
 	var ifaceInputs []InterfaceInput
 	for _, iface := range ifaces {
-		if ifaceMap, ok := iface.(map[string]interface{}); ok {
+		if ifaceMap, ok := iface.(map[string]any); ok {
 			// Use safe assertions: a parseable-but-malformed interface (missing
 			// or non-string name/type) must not panic — skip it instead.
 			name, _ := ifaceMap["name"].(string)
@@ -836,23 +836,23 @@ func rewireHealthMetricsIfNeeded(rt, m map[string]interface{}) {
 	wireHealthMetrics(rt, ifaceInputs)
 }
 
-func ensureConfigSection(m map[string]interface{}) {
+func ensureConfigSection(m map[string]any) {
 	if _, ok := m["configurations"]; ok {
 		return
 	}
-	m["configurations"] = []interface{}{
-		map[string]interface{}{
+	m["configurations"] = []any{
+		map[string]any{
 			"name":   "default",
 			"schema": "configuration/schema.json",
 		},
 	}
 }
 
-func applyMetadataEdits(m map[string]interface{}, set map[string]interface{}, remove []string) []string {
+func applyMetadataEdits(m map[string]any, set map[string]any, remove []string) []string {
 	var changes []string
-	meta, ok := m["metadata"].(map[string]interface{})
+	meta, ok := m["metadata"].(map[string]any)
 	if !ok {
-		meta = make(map[string]interface{})
+		meta = make(map[string]any)
 	}
 
 	for k, v := range set {
@@ -937,7 +937,7 @@ var topLevelKeyOrder = []string{
 	"policies", "dependencies", "runtime", "scaling", "metadata",
 }
 
-func marshalContract(m map[string]interface{}) ([]byte, error) {
+func marshalContract(m map[string]any) ([]byte, error) {
 	doc := &yaml.Node{Kind: yaml.DocumentNode}
 	mapping := &yaml.Node{Kind: yaml.MappingNode}
 
@@ -974,7 +974,7 @@ func marshalContract(m map[string]interface{}) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func valueToNode(v interface{}) (*yaml.Node, error) {
+func valueToNode(v any) (*yaml.Node, error) {
 	data, err := yamlMarshalFn(v)
 	if err != nil {
 		return nil, err
@@ -1174,7 +1174,7 @@ paths:
 }
 
 func generateConfigSchema(props []ConfigProperty) []byte {
-	properties := make(map[string]interface{})
+	properties := make(map[string]any)
 	var required []string
 
 	for _, p := range props {
@@ -1182,7 +1182,7 @@ func generateConfigSchema(props []ConfigProperty) []byte {
 		if propType == "" {
 			propType = "string"
 		}
-		properties[p.Name] = map[string]interface{}{
+		properties[p.Name] = map[string]any{
 			"type": propType,
 		}
 		if p.Required {
@@ -1190,7 +1190,7 @@ func generateConfigSchema(props []ConfigProperty) []byte {
 		}
 	}
 
-	schema := map[string]interface{}{
+	schema := map[string]any{
 		"$schema":              "https://json-schema.org/draft/2020-12/schema",
 		"type":                 "object",
 		"properties":           properties,
@@ -1240,7 +1240,7 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 	return s
 }
 
-func summarizeFromMap(m map[string]interface{}) ContractSummary {
+func summarizeFromMap(m map[string]any) ContractSummary {
 	s := ContractSummary{Sections: make(map[string]string)}
 	summarizeService(&s, m)
 	summarizeRuntime(&s, m)
@@ -1250,8 +1250,8 @@ func summarizeFromMap(m map[string]interface{}) ContractSummary {
 	return s
 }
 
-func summarizeService(s *ContractSummary, m map[string]interface{}) {
-	svc, ok := m["service"].(map[string]interface{})
+func summarizeService(s *ContractSummary, m map[string]any) {
+	svc, ok := m["service"].(map[string]any)
 	if !ok {
 		return
 	}
@@ -1259,7 +1259,7 @@ func summarizeService(s *ContractSummary, m map[string]interface{}) {
 	s.Version, _ = svc["version"].(string)
 	if str, ok := svc["owner"].(string); ok {
 		s.Owner = str
-	} else if obj, ok := svc["owner"].(map[string]interface{}); ok {
+	} else if obj, ok := svc["owner"].(map[string]any); ok {
 		if team, _ := obj["team"].(string); team != "" {
 			s.Owner = team
 		} else if dri, _ := obj["dri"].(string); dri != "" {
@@ -1268,24 +1268,24 @@ func summarizeService(s *ContractSummary, m map[string]interface{}) {
 	}
 }
 
-func summarizeRuntime(s *ContractSummary, m map[string]interface{}) {
-	rt, ok := m["runtime"].(map[string]interface{})
+func summarizeRuntime(s *ContractSummary, m map[string]any) {
+	rt, ok := m["runtime"].(map[string]any)
 	if !ok {
 		return
 	}
 	s.Workload, _ = rt["workload"].(string)
-	if state, ok := rt["state"].(map[string]interface{}); ok {
+	if state, ok := rt["state"].(map[string]any); ok {
 		s.StateType, _ = state["type"].(string)
 	}
 }
 
-func summarizeInterfacesFromMap(s *ContractSummary, m map[string]interface{}) {
-	ifaces, ok := m["interfaces"].([]interface{})
+func summarizeInterfacesFromMap(s *ContractSummary, m map[string]any) {
+	ifaces, ok := m["interfaces"].([]any)
 	if !ok {
 		return
 	}
 	for _, iface := range ifaces {
-		if ifaceMap, ok := iface.(map[string]interface{}); ok {
+		if ifaceMap, ok := iface.(map[string]any); ok {
 			name, _ := ifaceMap["name"].(string)
 			typ, _ := ifaceMap["type"].(string)
 			s.Interfaces = append(s.Interfaces, fmt.Sprintf("%s (%s)", name, typ))
@@ -1293,13 +1293,13 @@ func summarizeInterfacesFromMap(s *ContractSummary, m map[string]interface{}) {
 	}
 }
 
-func summarizeDepsFromMap(s *ContractSummary, m map[string]interface{}) {
-	deps, ok := m["dependencies"].([]interface{})
+func summarizeDepsFromMap(s *ContractSummary, m map[string]any) {
+	deps, ok := m["dependencies"].([]any)
 	if !ok {
 		return
 	}
 	for _, dep := range deps {
-		if depMap, ok := dep.(map[string]interface{}); ok {
+		if depMap, ok := dep.(map[string]any); ok {
 			if ref, ok := depMap["ref"].(string); ok {
 				s.Dependencies = append(s.Dependencies, ref)
 			}
@@ -1307,7 +1307,7 @@ func summarizeDepsFromMap(s *ContractSummary, m map[string]interface{}) {
 	}
 }
 
-func summarizeSectionsFromMap(s *ContractSummary, m map[string]interface{}) {
+func summarizeSectionsFromMap(s *ContractSummary, m map[string]any) {
 	for _, key := range []string{"service", "interfaces", "runtime"} {
 		if _, ok := m[key]; ok {
 			s.Sections[key] = "present"

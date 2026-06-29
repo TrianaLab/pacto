@@ -232,7 +232,7 @@ func TestCreate_WithConfig(t *testing.T) {
 func TestCreate_WithMetadata(t *testing.T) {
 	result, err := Create(CreateInput{
 		Name:     "meta-svc",
-		Metadata: map[string]interface{}{"team": "platform", "tier": "critical"},
+		Metadata: map[string]any{"team": "platform", "tier": "critical"},
 		DryRun:   true,
 	})
 	if err != nil {
@@ -357,11 +357,11 @@ func TestCreate_ScheduledInference(t *testing.T) {
 func TestDeriveRuntimeMap(t *testing.T) {
 	t.Run("stateless default", func(t *testing.T) {
 		rt := deriveRuntimeMap(runtimeIntent{})
-		state := rt["state"].(map[string]interface{})
+		state := rt["state"].(map[string]any)
 		if state["type"] != "stateless" {
 			t.Errorf("expected stateless, got %v", state["type"])
 		}
-		p := state["persistence"].(map[string]interface{})
+		p := state["persistence"].(map[string]any)
 		if p["scope"] != "local" {
 			t.Errorf("expected local scope, got %v", p["scope"])
 		}
@@ -377,11 +377,11 @@ func TestDeriveRuntimeMap(t *testing.T) {
 			dataSharedAcrossInstances: true,
 			dataLossImpact:            "high",
 		})
-		state := rt["state"].(map[string]interface{})
+		state := rt["state"].(map[string]any)
 		if state["type"] != "stateful" {
 			t.Errorf("expected stateful, got %v", state["type"])
 		}
-		p := state["persistence"].(map[string]interface{})
+		p := state["persistence"].(map[string]any)
 		if p["scope"] != "shared" {
 			t.Errorf("expected shared, got %v", p["scope"])
 		}
@@ -395,11 +395,11 @@ func TestDeriveRuntimeMap(t *testing.T) {
 
 	t.Run("stores data ephemeral", func(t *testing.T) {
 		rt := deriveRuntimeMap(runtimeIntent{storesData: true})
-		state := rt["state"].(map[string]interface{})
+		state := rt["state"].(map[string]any)
 		if state["type"] != "stateful" {
 			t.Errorf("expected stateful, got %v", state["type"])
 		}
-		p := state["persistence"].(map[string]interface{})
+		p := state["persistence"].(map[string]any)
 		if p["durability"] != "ephemeral" {
 			t.Errorf("expected ephemeral for non-persistent data, got %v", p["durability"])
 		}
@@ -608,7 +608,7 @@ func TestEdit_Metadata(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	result, err := Edit(EditInput{
 		Path:        dir,
-		SetMetadata: map[string]interface{}{"team": "platform"},
+		SetMetadata: map[string]any{"team": "platform"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -623,7 +623,7 @@ func TestEdit_RemoveMetadata(t *testing.T) {
 	// Add then remove
 	_, _ = Edit(EditInput{
 		Path:        dir,
-		SetMetadata: map[string]interface{}{"team": "x"},
+		SetMetadata: map[string]any{"team": "x"},
 	})
 	result, err := Edit(EditInput{
 		Path:           dir,
@@ -760,15 +760,15 @@ runtime:
 // --- YAML marshaling tests ---
 
 func TestMarshalContract_KeyOrder(t *testing.T) {
-	m := map[string]interface{}{
-		"metadata":     map[string]interface{}{"team": "x"},
+	m := map[string]any{
+		"metadata":     map[string]any{"team": "x"},
 		"pactoVersion": "1.0",
-		"service":      map[string]interface{}{"name": "test", "version": "1.0.0"},
-		"runtime": map[string]interface{}{
+		"service":      map[string]any{"name": "test", "version": "1.0.0"},
+		"runtime": map[string]any{
 			"workload": "service",
-			"state": map[string]interface{}{
+			"state": map[string]any{
 				"type":            "stateless",
-				"persistence":     map[string]interface{}{"scope": "local", "durability": "ephemeral"},
+				"persistence":     map[string]any{"scope": "local", "durability": "ephemeral"},
 				"dataCriticality": "low",
 			},
 		},
@@ -963,7 +963,7 @@ func TestCollectDerived(t *testing.T) {
 
 func TestWireHealthMetrics(t *testing.T) {
 	t.Run("with http", func(t *testing.T) {
-		rt := map[string]interface{}{}
+		rt := map[string]any{}
 		wireHealthMetrics(rt, []InterfaceInput{{Name: "api", Type: "http"}})
 		if _, ok := rt["health"]; !ok {
 			t.Error("expected health to be wired")
@@ -974,7 +974,7 @@ func TestWireHealthMetrics(t *testing.T) {
 	})
 
 	t.Run("no http", func(t *testing.T) {
-		rt := map[string]interface{}{}
+		rt := map[string]any{}
 		wireHealthMetrics(rt, []InterfaceInput{{Name: "events", Type: "event"}})
 		if _, ok := rt["health"]; ok {
 			t.Error("expected no health without HTTP")
@@ -982,7 +982,7 @@ func TestWireHealthMetrics(t *testing.T) {
 	})
 
 	t.Run("empty interfaces", func(t *testing.T) {
-		rt := map[string]interface{}{}
+		rt := map[string]any{}
 		wireHealthMetrics(rt, nil)
 		if _, ok := rt["health"]; ok {
 			t.Error("expected no health without interfaces")
@@ -991,26 +991,26 @@ func TestWireHealthMetrics(t *testing.T) {
 }
 
 func TestRemoveInterfaces(t *testing.T) {
-	m := map[string]interface{}{
-		"interfaces": []interface{}{
-			map[string]interface{}{"name": "api", "type": "http"},
-			map[string]interface{}{"name": "events", "type": "event"},
+	m := map[string]any{
+		"interfaces": []any{
+			map[string]any{"name": "api", "type": "http"},
+			map[string]any{"name": "events", "type": "event"},
 		},
 	}
 	changes := removeInterfaces(m, []string{"api"})
 	if len(changes) != 1 {
 		t.Errorf("expected 1 change, got %d", len(changes))
 	}
-	ifaces := m["interfaces"].([]interface{})
+	ifaces := m["interfaces"].([]any)
 	if len(ifaces) != 1 {
 		t.Errorf("expected 1 remaining interface, got %d", len(ifaces))
 	}
 }
 
 func TestRemoveInterfaces_All(t *testing.T) {
-	m := map[string]interface{}{
-		"interfaces": []interface{}{
-			map[string]interface{}{"name": "api", "type": "http"},
+	m := map[string]any{
+		"interfaces": []any{
+			map[string]any{"name": "api", "type": "http"},
 		},
 	}
 	removeInterfaces(m, []string{"api"})
@@ -1020,7 +1020,7 @@ func TestRemoveInterfaces_All(t *testing.T) {
 }
 
 func TestRemoveInterfaces_NoInterfaces(t *testing.T) {
-	m := map[string]interface{}{}
+	m := map[string]any{}
 	changes := removeInterfaces(m, []string{"api"})
 	if len(changes) != 0 {
 		t.Error("expected no changes when no interfaces exist")
@@ -1028,10 +1028,10 @@ func TestRemoveInterfaces_NoInterfaces(t *testing.T) {
 }
 
 func TestRemoveDependencies(t *testing.T) {
-	m := map[string]interface{}{
-		"dependencies": []interface{}{
-			map[string]interface{}{"ref": "postgres"},
-			map[string]interface{}{"ref": "redis"},
+	m := map[string]any{
+		"dependencies": []any{
+			map[string]any{"ref": "postgres"},
+			map[string]any{"ref": "redis"},
 		},
 	}
 	changes := removeDependencies(m, []string{"redis"})
@@ -1041,9 +1041,9 @@ func TestRemoveDependencies(t *testing.T) {
 }
 
 func TestRemoveDependencies_All(t *testing.T) {
-	m := map[string]interface{}{
-		"dependencies": []interface{}{
-			map[string]interface{}{"ref": "postgres"},
+	m := map[string]any{
+		"dependencies": []any{
+			map[string]any{"ref": "postgres"},
 		},
 	}
 	removeDependencies(m, []string{"postgres"})
@@ -1053,7 +1053,7 @@ func TestRemoveDependencies_All(t *testing.T) {
 }
 
 func TestRemoveDependencies_NoDeps(t *testing.T) {
-	m := map[string]interface{}{}
+	m := map[string]any{}
 	changes := removeDependencies(m, []string{"pg"})
 	if len(changes) != 0 {
 		t.Error("expected no changes when no deps exist")
@@ -1062,18 +1062,18 @@ func TestRemoveDependencies_NoDeps(t *testing.T) {
 
 func TestApplyMetadataEdits(t *testing.T) {
 	t.Run("set and remove", func(t *testing.T) {
-		m := map[string]interface{}{
-			"metadata": map[string]interface{}{"old": "value"},
+		m := map[string]any{
+			"metadata": map[string]any{"old": "value"},
 		}
-		changes := applyMetadataEdits(m, map[string]interface{}{"new": "val"}, []string{"old"})
+		changes := applyMetadataEdits(m, map[string]any{"new": "val"}, []string{"old"})
 		if len(changes) != 2 {
 			t.Errorf("expected 2 changes, got %d", len(changes))
 		}
 	})
 
 	t.Run("remove all deletes key", func(t *testing.T) {
-		m := map[string]interface{}{
-			"metadata": map[string]interface{}{"only": "value"},
+		m := map[string]any{
+			"metadata": map[string]any{"only": "value"},
 		}
 		applyMetadataEdits(m, nil, []string{"only"})
 		if _, ok := m["metadata"]; ok {
@@ -1082,8 +1082,8 @@ func TestApplyMetadataEdits(t *testing.T) {
 	})
 
 	t.Run("no existing metadata", func(t *testing.T) {
-		m := map[string]interface{}{}
-		changes := applyMetadataEdits(m, map[string]interface{}{"key": "val"}, nil)
+		m := map[string]any{}
+		changes := applyMetadataEdits(m, map[string]any{"key": "val"}, nil)
 		if len(changes) != 1 {
 			t.Errorf("expected 1 change, got %d", len(changes))
 		}
@@ -1110,7 +1110,7 @@ func TestBuildScalingMap(t *testing.T) {
 
 func TestEnsureConfigSection(t *testing.T) {
 	t.Run("adds when missing", func(t *testing.T) {
-		m := map[string]interface{}{}
+		m := map[string]any{}
 		ensureConfigSection(m)
 		if _, ok := m["configurations"]; !ok {
 			t.Error("expected configurations added")
@@ -1118,12 +1118,12 @@ func TestEnsureConfigSection(t *testing.T) {
 	})
 
 	t.Run("no-op when present", func(t *testing.T) {
-		m := map[string]interface{}{
-			"configurations": []interface{}{map[string]interface{}{"name": "default", "schema": "custom.json"}},
+		m := map[string]any{
+			"configurations": []any{map[string]any{"name": "default", "schema": "custom.json"}},
 		}
 		ensureConfigSection(m)
-		cfgs := m["configurations"].([]interface{})
-		cfg := cfgs[0].(map[string]interface{})
+		cfgs := m["configurations"].([]any)
+		cfg := cfgs[0].(map[string]any)
 		if cfg["schema"] != "custom.json" {
 			t.Error("should not overwrite existing config")
 		}
@@ -1131,16 +1131,16 @@ func TestEnsureConfigSection(t *testing.T) {
 }
 
 func TestSummarizeFromMap(t *testing.T) {
-	m := map[string]interface{}{
+	m := map[string]any{
 		"pactoVersion": "1.0",
-		"service":      map[string]interface{}{"name": "test", "version": "1.0.0", "owner": "team/x"},
-		"interfaces":   []interface{}{map[string]interface{}{"name": "api", "type": "http"}},
-		"dependencies": []interface{}{map[string]interface{}{"ref": "postgres"}},
-		"runtime": map[string]interface{}{
+		"service":      map[string]any{"name": "test", "version": "1.0.0", "owner": "team/x"},
+		"interfaces":   []any{map[string]any{"name": "api", "type": "http"}},
+		"dependencies": []any{map[string]any{"ref": "postgres"}},
+		"runtime": map[string]any{
 			"workload": "service",
-			"state":    map[string]interface{}{"type": "stateless"},
+			"state":    map[string]any{"type": "stateless"},
 		},
-		"metadata": map[string]interface{}{"team": "x"},
+		"metadata": map[string]any{"team": "x"},
 	}
 	s := summarizeFromMap(m)
 	if s.Name != "test" {
@@ -1161,9 +1161,9 @@ func TestSummarizeFromMap(t *testing.T) {
 }
 
 func TestSummarizeFromMapMinimal(t *testing.T) {
-	m := map[string]interface{}{
+	m := map[string]any{
 		"pactoVersion": "1.0",
-		"service":      map[string]interface{}{"name": "test", "version": "1.0.0"},
+		"service":      map[string]any{"name": "test", "version": "1.0.0"},
 	}
 	s := summarizeFromMap(m)
 	if s.Sections["metadata"] != "absent" {
@@ -1177,7 +1177,7 @@ func TestValueToNode(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	_, err = valueToNode(map[string]interface{}{"key": "value"})
+	_, err = valueToNode(map[string]any{"key": "value"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1468,9 +1468,9 @@ func TestValidateYAML_ParseError(t *testing.T) {
 // --- marshalContract error ---
 
 func TestMarshalContract_Valid(t *testing.T) {
-	m := map[string]interface{}{
+	m := map[string]any{
 		"pactoVersion": "1.0",
-		"service":      map[string]interface{}{"name": "test", "version": "1.0.0"},
+		"service":      map[string]any{"name": "test", "version": "1.0.0"},
 	}
 	data, err := marshalContract(m)
 	if err != nil {
@@ -1723,7 +1723,7 @@ func TestEdit_AddInterfaceWithPortAndVisibility(t *testing.T) {
 
 func TestEdit_NilServiceMap(t *testing.T) {
 	// Exercise the svc == nil branch in applyEdits
-	m := map[string]interface{}{
+	m := map[string]any{
 		"pactoVersion": "1.0",
 	}
 	changes := applyEdits(m, EditInput{Name: strPtr("new")})
@@ -1934,7 +1934,7 @@ func TestAssessSections_Full(t *testing.T) {
 		Configurations: []contract.ConfigurationSource{{Name: "default", Schema: "schema.json"}},
 		Dependencies:   []contract.Dependency{{Name: "pg", Ref: "pg", Compatibility: "^1.0.0"}},
 		Scaling:        &contract.Scaling{Min: 1, Max: 3},
-		Metadata:       map[string]interface{}{"team": "x"},
+		Metadata:       map[string]any{"team": "x"},
 		Policies:       []contract.PolicySource{{Name: "local", Schema: "policy/schema.json"}},
 	}
 	s := assessSections(c)
@@ -2041,7 +2041,7 @@ func TestWriteBundle_ConfigError(t *testing.T) {
 }
 
 func TestSummarizeFromMap_Empty(t *testing.T) {
-	s := summarizeFromMap(map[string]interface{}{})
+	s := summarizeFromMap(map[string]any{})
 	if s.Name != "" {
 		t.Error("expected empty name")
 	}
@@ -2049,11 +2049,11 @@ func TestSummarizeFromMap_Empty(t *testing.T) {
 
 func TestSummarizeFromMap_StructuredOwner(t *testing.T) {
 	t.Run("team and dri", func(t *testing.T) {
-		m := map[string]interface{}{
-			"service": map[string]interface{}{
+		m := map[string]any{
+			"service": map[string]any{
 				"name":    "svc",
 				"version": "1.0.0",
-				"owner":   map[string]interface{}{"team": "foundations", "dri": "alice"},
+				"owner":   map[string]any{"team": "foundations", "dri": "alice"},
 			},
 		}
 		s := summarizeFromMap(m)
@@ -2062,11 +2062,11 @@ func TestSummarizeFromMap_StructuredOwner(t *testing.T) {
 		}
 	})
 	t.Run("dri only", func(t *testing.T) {
-		m := map[string]interface{}{
-			"service": map[string]interface{}{
+		m := map[string]any{
+			"service": map[string]any{
 				"name":    "svc",
 				"version": "1.0.0",
-				"owner":   map[string]interface{}{"dri": "bob"},
+				"owner":   map[string]any{"dri": "bob"},
 			},
 		}
 		s := summarizeFromMap(m)
@@ -2075,11 +2075,11 @@ func TestSummarizeFromMap_StructuredOwner(t *testing.T) {
 		}
 	})
 	t.Run("empty structured", func(t *testing.T) {
-		m := map[string]interface{}{
-			"service": map[string]interface{}{
+		m := map[string]any{
+			"service": map[string]any{
 				"name":    "svc",
 				"version": "1.0.0",
-				"owner":   map[string]interface{}{},
+				"owner":   map[string]any{},
 			},
 		}
 		s := summarizeFromMap(m)
@@ -2388,7 +2388,7 @@ func TestCreateHandler_AllPaths(t *testing.T) {
 func TestValueToNode_MarshalError(t *testing.T) {
 	orig := yamlMarshalFn
 	defer func() { yamlMarshalFn = orig }()
-	yamlMarshalFn = func(v interface{}) ([]byte, error) {
+	yamlMarshalFn = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("marshal boom")
 	}
 	_, err := valueToNode("hello")
@@ -2400,7 +2400,7 @@ func TestValueToNode_MarshalError(t *testing.T) {
 func TestValueToNode_UnmarshalError(t *testing.T) {
 	orig := yamlUnmarshalFn
 	defer func() { yamlUnmarshalFn = orig }()
-	yamlUnmarshalFn = func(data []byte, v interface{}) error {
+	yamlUnmarshalFn = func(data []byte, v any) error {
 		return fmt.Errorf("unmarshal boom")
 	}
 	_, err := valueToNode("hello")
@@ -2413,7 +2413,7 @@ func TestValueToNode_EmptyContent(t *testing.T) {
 	orig := yamlUnmarshalFn
 	defer func() { yamlUnmarshalFn = orig }()
 	// Simulate empty/whitespace input yielding a document with no content.
-	yamlUnmarshalFn = func(data []byte, v interface{}) error { return nil }
+	yamlUnmarshalFn = func(data []byte, v any) error { return nil }
 	_, err := valueToNode("hello")
 	if err == nil || !strings.Contains(err.Error(), "no content") {
 		t.Errorf("expected 'no content' error (not a panic), got: %v", err)
@@ -2421,14 +2421,14 @@ func TestValueToNode_EmptyContent(t *testing.T) {
 }
 
 func TestRewireHealthMetricsIfNeeded_MalformedInterface(t *testing.T) {
-	rt := map[string]interface{}{}
+	rt := map[string]any{}
 	// Interfaces with missing/non-string name or type must be skipped, not panic.
-	m := map[string]interface{}{
-		"runtime": map[string]interface{}{},
-		"interfaces": []interface{}{
-			map[string]interface{}{"type": "http"},              // missing name
-			map[string]interface{}{"name": 123, "type": "http"}, // non-string name
-			map[string]interface{}{"name": "ok"},                // missing type
+	m := map[string]any{
+		"runtime": map[string]any{},
+		"interfaces": []any{
+			map[string]any{"type": "http"},              // missing name
+			map[string]any{"name": 123, "type": "http"}, // non-string name
+			map[string]any{"name": "ok"},                // missing type
 		},
 	}
 	// Must not panic.
@@ -2438,10 +2438,10 @@ func TestRewireHealthMetricsIfNeeded_MalformedInterface(t *testing.T) {
 func TestMarshalContract_ValueToNodeError(t *testing.T) {
 	orig := yamlMarshalFn
 	defer func() { yamlMarshalFn = orig }()
-	yamlMarshalFn = func(v interface{}) ([]byte, error) {
+	yamlMarshalFn = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("node error")
 	}
-	m := map[string]interface{}{
+	m := map[string]any{
 		"pactoVersion": "v1",
 	}
 	_, err := marshalContract(m)
@@ -2515,7 +2515,7 @@ runtime:
 func TestCreate_YAMLMarshalError(t *testing.T) {
 	orig := yamlMarshalFn
 	defer func() { yamlMarshalFn = orig }()
-	yamlMarshalFn = func(v interface{}) ([]byte, error) {
+	yamlMarshalFn = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("create marshal fail")
 	}
 	_, err := Create(CreateInput{Name: "test"})
@@ -2528,7 +2528,7 @@ func TestEdit_YAMLMarshalError(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	orig := yamlMarshalFn
 	defer func() { yamlMarshalFn = orig }()
-	yamlMarshalFn = func(v interface{}) ([]byte, error) {
+	yamlMarshalFn = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("edit marshal fail")
 	}
 	_, err := Edit(EditInput{Path: dir, Version: strPtr("2.0.0")})
@@ -2541,11 +2541,11 @@ func TestEdit_YAMLMarshalError(t *testing.T) {
 
 // brokenFS is a filesystem that returns errors for all operations.
 func TestRewireHealthMetricsIfNeeded_NonMapInterface(t *testing.T) {
-	rt := map[string]interface{}{}
-	m := map[string]interface{}{
-		"interfaces": []interface{}{
+	rt := map[string]any{}
+	m := map[string]any{
+		"interfaces": []any{
 			"not-a-map", // triggers the non-map branch in the loop
-			map[string]interface{}{"name": "api", "type": "http"},
+			map[string]any{"name": "api", "type": "http"},
 		},
 	}
 	rewireHealthMetricsIfNeeded(rt, m)
@@ -2555,8 +2555,8 @@ func TestRewireHealthMetricsIfNeeded_NonMapInterface(t *testing.T) {
 }
 
 func TestRewireHealthMetricsIfNeeded_InterfacesNotSlice(t *testing.T) {
-	rt := map[string]interface{}{}
-	m := map[string]interface{}{
+	rt := map[string]any{}
+	m := map[string]any{
 		"interfaces": "not-a-slice", // triggers the !ok return on type assertion
 	}
 	rewireHealthMetricsIfNeeded(rt, m)

@@ -69,7 +69,7 @@ func TestValidateRuntime_ConfigPresent(t *testing.T) {
 		Configurations: []contract.ConfigurationSource{
 			{
 				Name: "default",
-				Values: map[string]interface{}{
+				Values: map[string]any{
 					"DB_HOST": "localhost",
 				},
 			},
@@ -96,7 +96,7 @@ func TestValidateRuntime_ConfigMissing(t *testing.T) {
 		Configurations: []contract.ConfigurationSource{
 			{
 				Name: "default",
-				Values: map[string]interface{}{
+				Values: map[string]any{
 					"DB_HOST": "localhost",
 				},
 			},
@@ -154,7 +154,7 @@ func TestValidateRuntime_ConfigValuesWithEmptyEnvVars(t *testing.T) {
 		Configurations: []contract.ConfigurationSource{
 			{
 				Name: "default",
-				Values: map[string]interface{}{
+				Values: map[string]any{
 					"DB_HOST": "localhost",
 				},
 			},
@@ -177,11 +177,11 @@ func TestValidateRuntime_MultiConfigs(t *testing.T) {
 		Configurations: []contract.ConfigurationSource{
 			{
 				Name:   "app",
-				Values: map[string]interface{}{"APP_PORT": "8080"},
+				Values: map[string]any{"APP_PORT": "8080"},
 			},
 			{
 				Name:   "db",
-				Values: map[string]interface{}{"DB_HOST": "localhost"},
+				Values: map[string]any{"DB_HOST": "localhost"},
 			},
 		},
 	}

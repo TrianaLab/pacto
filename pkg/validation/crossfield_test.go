@@ -533,7 +533,7 @@ func TestValidateConfigValues_NoValues(t *testing.T) {
 func TestValidateConfigValues_ValuesWithoutSchema(t *testing.T) {
 	c := validContract()
 	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Values: map[string]interface{}{"key": "val"}},
+		{Name: "default", Values: map[string]any{"key": "val"}},
 	}
 	var result ValidationResult
 	validateConfigValues(c, nil, &result)
@@ -548,7 +548,7 @@ func TestValidateConfigValues_NilBundleFS(t *testing.T) {
 		{
 			Name:   "default",
 			Schema: "config-schema.json",
-			Values: map[string]interface{}{"key": "val"},
+			Values: map[string]any{"key": "val"},
 		},
 	}
 	var result ValidationResult
@@ -564,7 +564,7 @@ func TestValidateConfigValues_Valid(t *testing.T) {
 		{
 			Name:   "default",
 			Schema: "config-schema.json",
-			Values: map[string]interface{}{"DB_HOST": "localhost"},
+			Values: map[string]any{"DB_HOST": "localhost"},
 		},
 	}
 	bundleFS := fstest.MapFS{
@@ -588,7 +588,7 @@ func TestValidateConfigValues_SchemaFileNotFound(t *testing.T) {
 		{
 			Name:   "default",
 			Schema: "missing-schema.json",
-			Values: map[string]interface{}{"key": "val"},
+			Values: map[string]any{"key": "val"},
 		},
 	}
 	bundleFS := fstest.MapFS{}
@@ -606,7 +606,7 @@ func TestValidateConfigValues_InvalidSchemaJSON(t *testing.T) {
 		{
 			Name:   "default",
 			Schema: "bad-schema.json",
-			Values: map[string]interface{}{"key": "val"},
+			Values: map[string]any{"key": "val"},
 		},
 	}
 	bundleFS := fstest.MapFS{
@@ -627,7 +627,7 @@ func TestValidateConfigValues_InvalidSchemaCompile(t *testing.T) {
 		{
 			Name:   "default",
 			Schema: "bad-compile.json",
-			Values: map[string]interface{}{"key": "val"},
+			Values: map[string]any{"key": "val"},
 		},
 	}
 	// Valid JSON but references a non-existent $ref — should fail compilation.
@@ -654,7 +654,7 @@ func TestValidateConfigValues_InvalidValue(t *testing.T) {
 		{
 			Name:   "default",
 			Schema: "config-schema.json",
-			Values: map[string]interface{}{"DB_PORT": "not-a-number"},
+			Values: map[string]any{"DB_PORT": "not-a-number"},
 		},
 	}
 	bundleFS := fstest.MapFS{
@@ -678,7 +678,7 @@ func TestValidateConfigValues_ExternalRef(t *testing.T) {
 		{
 			Name:   "default",
 			Ref:    "oci://ghcr.io/acme/config-pacto:1.0.0",
-			Values: map[string]interface{}{"key": "val"},
+			Values: map[string]any{"key": "val"},
 		},
 	}
 	var result ValidationResult
@@ -1156,12 +1156,12 @@ func TestValidateConfigValues_MultiConfigs(t *testing.T) {
 		{
 			Name:   "app",
 			Schema: "config/app.json",
-			Values: map[string]interface{}{"PORT": 8080},
+			Values: map[string]any{"PORT": 8080},
 		},
 		{
 			Name:   "db",
 			Schema: "config/db.json",
-			Values: map[string]interface{}{"HOST": "localhost"},
+			Values: map[string]any{"HOST": "localhost"},
 		},
 	}
 	bundleFS := fstest.MapFS{
@@ -1181,7 +1181,7 @@ func TestValidateConfigValues_MultiConfigsInvalid(t *testing.T) {
 		{
 			Name:   "app",
 			Schema: "config/app.json",
-			Values: map[string]interface{}{"PORT": "not-a-number"},
+			Values: map[string]any{"PORT": "not-a-number"},
 		},
 	}
 	bundleFS := fstest.MapFS{
@@ -1336,7 +1336,7 @@ func TestValidateConfigValues_MultiConfigsWithoutSchema(t *testing.T) {
 	c.Configurations = []contract.ConfigurationSource{
 		{
 			Name:   "app",
-			Values: map[string]interface{}{"PORT": 8080},
+			Values: map[string]any{"PORT": 8080},
 		},
 	}
 	var result ValidationResult
@@ -1465,7 +1465,7 @@ func TestValidateConfigValues_MultiConfigsExternalRef(t *testing.T) {
 		{
 			Name:   "app",
 			Ref:    "oci://ghcr.io/acme/config:1.0",
-			Values: map[string]interface{}{"PORT": 8080},
+			Values: map[string]any{"PORT": 8080},
 		},
 	}
 	var result ValidationResult

@@ -35,7 +35,7 @@ func TestExplainCommand(t *testing.T) {
 			t.Fatalf("explain json failed: %v\noutput: %s", err, output)
 		}
 
-		var result map[string]interface{}
+		var result map[string]any
 		if err := json.Unmarshal([]byte(output), &result); err != nil {
 			t.Fatalf("expected valid JSON output, got: %s", output)
 		}
@@ -129,11 +129,11 @@ func TestExplainStructuredOwner(t *testing.T) {
 			t.Fatalf("explain json failed: %v\noutput: %s", err, output)
 		}
 
-		var result map[string]interface{}
+		var result map[string]any
 		if err := json.Unmarshal([]byte(output), &result); err != nil {
 			t.Fatalf("expected valid JSON, got: %s", output)
 		}
-		owner, ok := result["owner"].(map[string]interface{})
+		owner, ok := result["owner"].(map[string]any)
 		if !ok {
 			t.Fatalf("expected owner to be object, got %T: %v", result["owner"], result["owner"])
 		}

@@ -479,7 +479,7 @@ func validateSingleConfigValues(cfg contract.ConfigurationSource, fieldPath stri
 
 	// Round-trip through JSON to normalize types (e.g. YAML int → JSON float64).
 	valuesJSON, _ := json.Marshal(cfg.Values)
-	var valuesGeneric interface{}
+	var valuesGeneric any
 	json.Unmarshal(valuesJSON, &valuesGeneric) //nolint:errcheck // round-trip of valid data
 
 	if err := schema.Validate(valuesGeneric); err != nil {
@@ -494,7 +494,7 @@ func validateSingleConfigValues(cfg contract.ConfigurationSource, fieldPath stri
 // compileConfigSchema parses and compiles a JSON Schema from raw bytes.
 func compileConfigSchema(data []byte) (*jsonschema.Schema, error) {
 	compiler := jsonschema.NewCompiler()
-	var schemaDoc interface{}
+	var schemaDoc any
 	if err := json.Unmarshal(data, &schemaDoc); err != nil {
 		return nil, fmt.Errorf("failed to parse: %w", err)
 	}
@@ -524,7 +524,7 @@ func validateInterfaceFileContent(c *contract.Contract, bundleFS fs.FS, result *
 		if !isYAMLFile(iface.Contract) {
 			continue
 		}
-		var parsed interface{}
+		var parsed any
 		if err := yaml.Unmarshal(data, &parsed); err != nil {
 			result.AddError(
 				fmt.Sprintf("interfaces[%d].contract", i),

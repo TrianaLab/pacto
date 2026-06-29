@@ -85,7 +85,7 @@ func fullContract() *contract.Contract {
 			},
 		},
 		Scaling: &contract.Scaling{Min: 2, Max: 10},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"team": "payments",
 			"tier": "critical",
 		},
@@ -543,7 +543,7 @@ info:
 }
 
 func TestExtractEnumDescriptions_NonObjectValue(t *testing.T) {
-	props := map[string]interface{}{
+	props := map[string]any{
 		"name":    "not an object",
 		"version": 42,
 	}
@@ -1221,7 +1221,7 @@ func TestGenerate_EmptyConfiguration(t *testing.T) {
 	}{
 		{"nil", nil},
 		{"empty slice", []contract.ConfigurationSource{}},
-		{"values only", []contract.ConfigurationSource{{Name: "default", Values: map[string]interface{}{"KEY": "val"}}}},
+		{"values only", []contract.ConfigurationSource{{Name: "default", Values: map[string]any{"KEY": "val"}}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

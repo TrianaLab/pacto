@@ -1,3 +1,6 @@
+// Package graph builds and traverses a service's dependency graph. It resolves
+// dependencies recursively through a pluggable fetcher (siblings in parallel),
+// detects cycles and version conflicts, and renders or diffs the resolved graph.
 package graph
 
 import (
@@ -5,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"slices"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -193,7 +197,7 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, pat
 	}
 
 	r.mu.Lock()
-	if inPath(dep.Ref, path) {
+	if slices.Contains(path, dep.Ref) {
 		cyclePath := append(append([]string{}, path...), dep.Ref)
 		r.cycles = append(r.cycles, cyclePath)
 		r.mu.Unlock()
@@ -277,13 +281,4 @@ func (r *resolver) failEdge(ref string, ch chan struct{}, errMsg string) {
 	delete(r.pending, ref)
 	r.mu.Unlock()
 	close(ch)
-}
-
-func inPath(ref string, path []string) bool {
-	for _, p := range path {
-		if p == ref {
-			return true
-		}
-	}
-	return false
 }

@@ -67,7 +67,7 @@ func TestDiffCommand(t *testing.T) {
 			t.Fatalf("diff json failed: %v\noutput: %s", err, output)
 		}
 
-		var result map[string]interface{}
+		var result map[string]any
 		if err := json.Unmarshal([]byte(output), &result); err != nil {
 			t.Fatalf("expected valid JSON output, got: %s", output)
 		}
@@ -175,12 +175,12 @@ func TestDiffOpenAPIDeep(t *testing.T) {
 		t.Parallel()
 		output, _ := runCommand(t, nil, "--output-format", "json", "diff", v1Path, v2Path)
 
-		var result map[string]interface{}
+		var result map[string]any
 		if err := json.Unmarshal([]byte(output), &result); err != nil {
 			t.Fatalf("expected valid JSON output, got: %s", output)
 		}
 
-		changes, ok := result["changes"].([]interface{})
+		changes, ok := result["changes"].([]any)
 		if !ok || len(changes) == 0 {
 			t.Fatal("expected non-empty changes array")
 		}
@@ -189,7 +189,7 @@ func TestDiffOpenAPIDeep(t *testing.T) {
 		hasResponseChange := false
 		hasParameterChange := false
 		for _, c := range changes {
-			change, ok := c.(map[string]interface{})
+			change, ok := c.(map[string]any)
 			if !ok {
 				continue
 			}
@@ -304,15 +304,15 @@ func TestDiffGraphChanges(t *testing.T) {
 
 		output, _ := runCommand(t, reg, "--output-format", "json", "diff", oldPath, newPath)
 
-		var result map[string]interface{}
+		var result map[string]any
 		if err := json.Unmarshal([]byte(output), &result); err != nil {
 			t.Fatalf("expected valid JSON output, got: %s", output)
 		}
-		gd, ok := result["graphDiff"].(map[string]interface{})
+		gd, ok := result["graphDiff"].(map[string]any)
 		if !ok {
 			t.Fatal("expected graphDiff object in JSON output")
 		}
-		changes, ok := gd["changes"].([]interface{})
+		changes, ok := gd["changes"].([]any)
 		if !ok || len(changes) == 0 {
 			t.Error("expected non-empty changes array in graphDiff")
 		}
@@ -364,15 +364,15 @@ func TestSBOMDiff(t *testing.T) {
 
 		output, _ := runCommand(t, nil, "--output-format", "json", "diff", v1Path, v2Path)
 
-		var result map[string]interface{}
+		var result map[string]any
 		if err := json.Unmarshal([]byte(output), &result); err != nil {
 			t.Fatalf("expected valid JSON output, got: %s", output)
 		}
-		sbomDiff, ok := result["sbomDiff"].(map[string]interface{})
+		sbomDiff, ok := result["sbomDiff"].(map[string]any)
 		if !ok {
 			t.Fatal("expected sbomDiff object in JSON output")
 		}
-		changes, ok := sbomDiff["changes"].([]interface{})
+		changes, ok := sbomDiff["changes"].([]any)
 		if !ok || len(changes) == 0 {
 			t.Error("expected non-empty SBOM changes array")
 		}

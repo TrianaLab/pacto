@@ -1,3 +1,7 @@
+// Package validation checks a contract across four layers — structural (JSON
+// Schema), cross-field consistency, semantic rules, and policy enforcement — and
+// reports errors and warnings. It supports local-only policy resolution as well
+// as recursive, ref-based resolution through a pluggable BundleResolver.
 package validation
 
 import (
@@ -77,8 +81,8 @@ var jsonUnmarshalFn = json.Unmarshal
 // yamlToGeneric converts YAML bytes to a generic interface{} suitable for
 // JSON Schema validation. It goes through JSON to ensure type compatibility
 // with the JSON Schema library.
-func yamlToGeneric(data []byte) (interface{}, error) {
-	var yamlObj interface{}
+func yamlToGeneric(data []byte) (any, error) {
+	var yamlObj any
 	if err := yaml.Unmarshal(data, &yamlObj); err != nil {
 		return nil, err
 	}
@@ -92,7 +96,7 @@ func yamlToGeneric(data []byte) (interface{}, error) {
 		return nil, err
 	}
 
-	var result interface{}
+	var result any
 	if err := jsonUnmarshalFn(jsonBytes, &result); err != nil {
 		return nil, err
 	}
@@ -101,16 +105,16 @@ func yamlToGeneric(data []byte) (interface{}, error) {
 }
 
 // convertYAMLToJSON recursively converts YAML-style maps to JSON-compatible maps.
-func convertYAMLToJSON(v interface{}) interface{} {
+func convertYAMLToJSON(v any) any {
 	switch v := v.(type) {
-	case map[string]interface{}:
-		result := make(map[string]interface{}, len(v))
+	case map[string]any:
+		result := make(map[string]any, len(v))
 		for key, val := range v {
 			result[key] = convertYAMLToJSON(val)
 		}
 		return result
-	case map[interface{}]interface{}:
-		result := make(map[string]interface{}, len(v))
+	case map[any]any:
+		result := make(map[string]any, len(v))
 		for key, val := range v {
 			strKey, ok := key.(string)
 			if !ok {
@@ -119,8 +123,8 @@ func convertYAMLToJSON(v interface{}) interface{} {
 			result[strKey] = convertYAMLToJSON(val)
 		}
 		return result
-	case []interface{}:
-		result := make([]interface{}, len(v))
+	case []any:
+		result := make([]any, len(v))
 		for i, val := range v {
 			result[i] = convertYAMLToJSON(val)
 		}

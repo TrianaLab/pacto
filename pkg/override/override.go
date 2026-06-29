@@ -1,3 +1,7 @@
+// Package override merges values into a contract's YAML from CLI flags. It
+// applies value files and --set key=value pairs with strict precedence
+// (base < files < --set), supporting nested and array-indexed paths while
+// preserving the original YAML formatting.
 package override
 
 import (
@@ -28,12 +32,12 @@ func Apply(base []byte, overrides Overrides) ([]byte, error) {
 		return base, nil
 	}
 
-	var baseMap map[string]interface{}
+	var baseMap map[string]any
 	if err := yaml.Unmarshal(base, &baseMap); err != nil {
 		return nil, fmt.Errorf("failed to parse base YAML: %w", err)
 	}
 	if baseMap == nil {
-		baseMap = make(map[string]interface{})
+		baseMap = make(map[string]any)
 	}
 
 	// Apply value files in order.
@@ -42,7 +46,7 @@ func Apply(base []byte, overrides Overrides) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to read values file %q: %w", f, err)
 		}
-		var vals map[string]interface{}
+		var vals map[string]any
 		if err := yaml.Unmarshal(data, &vals); err != nil {
 			return nil, fmt.Errorf("failed to parse values file %q: %w", f, err)
 		}
@@ -70,7 +74,7 @@ func Apply(base []byte, overrides Overrides) ([]byte, error) {
 }
 
 // deepMerge recursively merges src into dst. Values in src take precedence.
-func deepMerge(dst, src map[string]interface{}) {
+func deepMerge(dst, src map[string]any) {
 	for k, srcVal := range src {
 		dstVal, exists := dst[k]
 		if !exists {
@@ -78,8 +82,8 @@ func deepMerge(dst, src map[string]interface{}) {
 			continue
 		}
 
-		dstMap, dstIsMap := dstVal.(map[string]interface{})
-		srcMap, srcIsMap := srcVal.(map[string]interface{})
+		dstMap, dstIsMap := dstVal.(map[string]any)
+		srcMap, srcIsMap := srcVal.(map[string]any)
 		if dstIsMap && srcIsMap {
 			deepMerge(dstMap, srcMap)
 		} else {
@@ -90,9 +94,9 @@ func deepMerge(dst, src map[string]interface{}) {
 
 // setNestedValue sets a value at a dot-separated key path in a nested map.
 // Supports array indexing with bracket notation (e.g. "interfaces[0].port").
-func setNestedValue(m map[string]interface{}, keyPath string, value interface{}) error {
+func setNestedValue(m map[string]any, keyPath string, value any) error {
 	parts := splitKeyPath(keyPath)
-	current := interface{}(m)
+	current := any(m)
 	for i, part := range parts[:len(parts)-1] {
 		next, err := traversePart(current, part, parts[:i+1])
 		if err != nil {
@@ -106,15 +110,15 @@ func setNestedValue(m map[string]interface{}, keyPath string, value interface{})
 
 // traversePart resolves a single path segment, returning the next node.
 // Creates intermediate maps for non-array key parts that don't exist yet.
-func traversePart(current interface{}, part string, contextPath []string) (interface{}, error) {
-	obj, ok := current.(map[string]interface{})
+func traversePart(current any, part string, contextPath []string) (any, error) {
+	obj, ok := current.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("cannot traverse into non-object at %q", strings.Join(contextPath[:len(contextPath)-1], "."))
 	}
 
 	name, idx, isArray := parseArrayIndex(part)
 	if isArray {
-		arr, ok := obj[name].([]interface{})
+		arr, ok := obj[name].([]any)
 		if !ok {
 			return nil, fmt.Errorf("expected array at %q", strings.Join(contextPath, "."))
 		}
@@ -126,7 +130,7 @@ func traversePart(current interface{}, part string, contextPath []string) (inter
 
 	next, exists := obj[name]
 	if !exists {
-		newMap := make(map[string]interface{})
+		newMap := make(map[string]any)
 		obj[name] = newMap
 		return newMap, nil
 	}
@@ -134,8 +138,8 @@ func traversePart(current interface{}, part string, contextPath []string) (inter
 }
 
 // setAtPart sets a value at the final path segment within the current node.
-func setAtPart(current interface{}, part string, value interface{}) error {
-	obj, ok := current.(map[string]interface{})
+func setAtPart(current any, part string, value any) error {
+	obj, ok := current.(map[string]any)
 	if !ok {
 		return fmt.Errorf("cannot set key in non-object")
 	}
@@ -146,7 +150,7 @@ func setAtPart(current interface{}, part string, value interface{}) error {
 		return nil
 	}
 
-	arr, ok := obj[name].([]interface{})
+	arr, ok := obj[name].([]any)
 	if !ok {
 		return fmt.Errorf("expected array at %q", name)
 	}
@@ -181,7 +185,7 @@ func parseArrayIndex(part string) (name string, index int, isArray bool) {
 
 // parseValue attempts to parse a string value into its most specific type.
 // Order: integer → float → boolean → string.
-func parseValue(s string) interface{} {
+func parseValue(s string) any {
 	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return i
 	}
@@ -198,7 +202,7 @@ func parseValue(s string) interface{} {
 // values to date strings (YYYY-MM-DD) if they represent a bare date (midnight UTC
 // with zero sub-second), or to RFC3339 strings otherwise.
 // This prevents yaml.Marshal from formatting bare dates as RFC3339 timestamps.
-func normalizeTimestamps(v interface{}) interface{} {
+func normalizeTimestamps(v any) any {
 	switch val := v.(type) {
 	case time.Time:
 		// Check if this is a bare date (midnight UTC, no sub-second precision).
@@ -206,12 +210,12 @@ func normalizeTimestamps(v interface{}) interface{} {
 			return val.Format("2006-01-02")
 		}
 		return val.Format(time.RFC3339)
-	case map[string]interface{}:
+	case map[string]any:
 		for k, mv := range val {
 			val[k] = normalizeTimestamps(mv)
 		}
 		return val
-	case []interface{}:
+	case []any:
 		for i, elem := range val {
 			val[i] = normalizeTimestamps(elem)
 		}

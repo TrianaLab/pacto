@@ -170,7 +170,7 @@ func TestServiceDetailsFromBundle_Configuration(t *testing.T) {
 				Name:   "default",
 				Schema: "config.schema.json",
 				Ref:    "shared-config",
-				Values: map[string]interface{}{
+				Values: map[string]any{
 					"port":    float64(8080),
 					"enabled": true,
 				},
@@ -247,7 +247,7 @@ func TestServiceDetailsFromBundle_Policy(t *testing.T) {
 func TestServiceDetailsFromBundle_Metadata(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"team": "platform",
 			"tier": "backend",
 		},
@@ -267,7 +267,7 @@ func TestServiceDetailsFromBundle_Metadata(t *testing.T) {
 func TestServiceDetailsFromBundle_Metadata_NonStringSkipped(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"team":  "platform",
 			"count": 42, // non-string, should be skipped
 		},
@@ -784,7 +784,7 @@ func TestServiceDetailsFromBundle_ConfigurationValuesWithKeys(t *testing.T) {
 		Configurations: []contract.ConfigurationSource{
 			{
 				Name: "default",
-				Values: map[string]interface{}{
+				Values: map[string]any{
 					"port": float64(8080),
 				},
 			},
@@ -962,7 +962,7 @@ func TestServiceDetailsFromBundle_MultiConfig(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		Configurations: []contract.ConfigurationSource{
-			{Name: "app", Schema: "config/app.json", Values: map[string]interface{}{"PORT": float64(8080)}},
+			{Name: "app", Schema: "config/app.json", Values: map[string]any{"PORT": float64(8080)}},
 			{Name: "db", Ref: "oci://ghcr.io/acme/db-config:1.0.0"},
 		},
 	}

@@ -103,6 +103,9 @@ func (s *OCISource) Discovering() bool {
 	}
 }
 
+// ListServices returns the services discovered so far from the OCI registry,
+// kicking off background discovery on first call and returning immediately
+// (initially empty) while it proceeds; results are sorted by name.
 func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 	s.mu.Lock()
 	if !s.started {
@@ -346,6 +349,8 @@ func collectOCIRepos(refs []string) []string {
 	return repos
 }
 
+// GetService returns details for name by pulling its latest-tagged bundle from
+// the OCI registry, or an error if the service repo cannot be resolved.
 func (s *OCISource) GetService(ctx context.Context, name string) (*ServiceDetails, error) {
 	bundle, err := s.findLatestBundle(ctx, name)
 	if err != nil {
@@ -354,6 +359,9 @@ func (s *OCISource) GetService(ctx context.Context, name string) (*ServiceDetail
 	return ServiceDetailsFromBundle(bundle, "oci"), nil
 }
 
+// GetVersions returns the semver tags for name from the OCI registry (latest
+// first), enriched with hash, createdAt, and classification from the internal
+// disk cache when available.
 func (s *OCISource) GetVersions(ctx context.Context, name string) ([]Version, error) {
 	repo, err := s.findRepo(ctx, name)
 	if err != nil {
@@ -400,6 +408,8 @@ func (s *OCISource) GetVersions(ctx context.Context, name string) ([]Version, er
 	return versions, nil
 }
 
+// GetDiff compares two versions by pulling each from the OCI registry, erroring
+// if either ref cannot be pulled.
 func (s *OCISource) GetDiff(ctx context.Context, a, b Ref) (*DiffResult, error) {
 	bundleA, err := s.pullRef(ctx, a)
 	if err != nil {
@@ -412,6 +422,8 @@ func (s *OCISource) GetDiff(ctx context.Context, a, b Ref) (*DiffResult, error) 
 	return ComputeDiff(a, b, bundleA, bundleB), nil
 }
 
+// GetServiceVersion returns details for a specific ref by pulling that exact
+// version's bundle from the OCI registry.
 func (s *OCISource) GetServiceVersion(ctx context.Context, ref Ref) (*ServiceDetails, error) {
 	bundle, err := s.pullRef(ctx, ref)
 	if err != nil {

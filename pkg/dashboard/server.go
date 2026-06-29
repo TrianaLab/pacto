@@ -1,3 +1,8 @@
+// Package dashboard serves the Pacto dashboard: a REST API and web UI that
+// aggregates contract and runtime data from multiple sources — Kubernetes (via
+// the operator), OCI registries, local directories, and on-disk cache — into a
+// single view of a service fleet. It computes compliance and readiness, builds
+// dependency graphs, and diffs contract versions.
 package dashboard
 
 import (

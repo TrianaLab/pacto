@@ -74,6 +74,8 @@ func NewLocalSource(root string) *LocalSource {
 	return &LocalSource{root: root}
 }
 
+// ListServices returns one entry per service discovered by scanning the root
+// directory for pacto.yaml bundles (first match per name wins), sorted by name.
 func (s *LocalSource) ListServices(_ context.Context) ([]Service, error) {
 	if _, err := os.ReadDir(s.root); err != nil {
 		return nil, fmt.Errorf("reading directory %s: %w", s.root, err)
@@ -103,6 +105,8 @@ func (s *LocalSource) ListServices(_ context.Context) ([]Service, error) {
 	return services, nil
 }
 
+// GetService returns details for the named bundle found under the root
+// directory, or an error if no bundle with that service name exists.
 func (s *LocalSource) GetService(_ context.Context, name string) (*ServiceDetails, error) {
 	bundle, err := s.findBundle(name)
 	if err != nil {
@@ -113,6 +117,8 @@ func (s *LocalSource) GetService(_ context.Context, name string) (*ServiceDetail
 	return ServiceDetailsFromBundle(bundle, "local"), nil
 }
 
+// GetVersions returns the single on-disk version of name, since the local
+// source only knows the bundle currently present in the directory.
 func (s *LocalSource) GetVersions(_ context.Context, name string) ([]Version, error) {
 	bundle, err := s.findBundle(name)
 	if err != nil {
@@ -127,6 +133,8 @@ func (s *LocalSource) GetVersions(_ context.Context, name string) ([]Version, er
 	return []Version{v}, nil
 }
 
+// GetDiff compares the on-disk bundles for a and b found under the root
+// directory, erroring if either service is not present locally.
 func (s *LocalSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) {
 	bundleA, err := s.findBundle(a.Name)
 	if err != nil {
@@ -139,6 +147,8 @@ func (s *LocalSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) 
 	return ComputeDiff(a, b, bundleA, bundleB), nil
 }
 
+// GetServiceVersion returns details for the local bundle only when its on-disk
+// version matches ref.Version; otherwise it returns an error.
 func (s *LocalSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDetails, error) {
 	bundle, err := s.findBundle(ref.Name)
 	if err != nil {

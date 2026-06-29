@@ -39,12 +39,12 @@ func TestMustCompileSchema_Panics(t *testing.T) {
 
 func TestValidateStructural_NonValidationError(t *testing.T) {
 	old := schemaValidateFn
-	schemaValidateFn = func(*jsonschema.Schema, interface{}) error { return fmt.Errorf("internal error") }
+	schemaValidateFn = func(*jsonschema.Schema, any) error { return fmt.Errorf("internal error") }
 	defer func() { schemaValidateFn = old }()
 
 	// Use a recognized pactoVersion so selection succeeds and the injected
 	// schema-validate error is reached.
-	result := ValidateStructural(map[string]interface{}{"pactoVersion": "1.0"})
+	result := ValidateStructural(map[string]any{"pactoVersion": "1.0"})
 	if result.IsValid() {
 		t.Error("expected invalid result")
 	}
@@ -74,7 +74,7 @@ func TestCompileSchema_AddResourceError(t *testing.T) {
 
 func TestYamlToGeneric_UnmarshalError(t *testing.T) {
 	old := jsonUnmarshalFn
-	jsonUnmarshalFn = func([]byte, interface{}) error {
+	jsonUnmarshalFn = func([]byte, any) error {
 		return fmt.Errorf("injected unmarshal error")
 	}
 	defer func() { jsonUnmarshalFn = old }()
@@ -199,7 +199,7 @@ service:
 
 func TestValidateStructural_MissingVersion_Unsupported(t *testing.T) {
 	// A generic doc with no pactoVersion at all.
-	result := ValidateStructural(map[string]interface{}{"service": map[string]interface{}{}})
+	result := ValidateStructural(map[string]any{"service": map[string]any{}})
 	if result.IsValid() {
 		t.Fatal("expected missing version to be invalid")
 	}
@@ -209,7 +209,7 @@ func TestValidateStructural_MissingVersion_Unsupported(t *testing.T) {
 }
 
 func TestValidateStructural_NonMapData_Unsupported(t *testing.T) {
-	result := ValidateStructural([]interface{}{"not", "a", "map"})
+	result := ValidateStructural([]any{"not", "a", "map"})
 	if result.IsValid() {
 		t.Fatal("expected non-map data to be invalid")
 	}
@@ -383,13 +383,13 @@ readiness:
 func TestConvertYAMLToJSON_NonStringKey(t *testing.T) {
 	// Simulate a map[interface{}]interface{} with a non-string key,
 	// which can occur in YAML when keys are integers or booleans.
-	input := map[interface{}]interface{}{
+	input := map[any]any{
 		42:     "int-key-value",
 		"name": "string-key-value",
 	}
 
 	result := convertYAMLToJSON(input)
-	m, ok := result.(map[string]interface{})
+	m, ok := result.(map[string]any)
 	if !ok {
 		t.Fatalf("expected map[string]interface{}, got %T", result)
 	}

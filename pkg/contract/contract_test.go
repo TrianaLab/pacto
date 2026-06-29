@@ -10,7 +10,7 @@ func TestConfigurationSource_Fields(t *testing.T) {
 	cs := ConfigurationSource{
 		Name:   "app",
 		Schema: "config/schema.json",
-		Values: map[string]interface{}{"KEY": "val"},
+		Values: map[string]any{"KEY": "val"},
 	}
 	if cs.Name != "app" {
 		t.Errorf("expected name app, got %s", cs.Name)
@@ -37,7 +37,7 @@ func TestContract_Configurations(t *testing.T) {
 	c := &Contract{
 		Configurations: []ConfigurationSource{
 			{Name: "app", Schema: "config/app.json"},
-			{Name: "db", Ref: "oci://example.com/db-config:1.0", Values: map[string]interface{}{"HOST": "localhost"}},
+			{Name: "db", Ref: "oci://example.com/db-config:1.0", Values: map[string]any{"HOST": "localhost"}},
 		},
 	}
 	if len(c.Configurations) != 2 {

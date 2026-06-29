@@ -334,6 +334,8 @@ type k8sInsight struct {
 	Description string `json:"description,omitempty"`
 }
 
+// ListServices returns one entry per Pacto CRD found in the cluster, built from
+// each resource's status, sorted by name.
 func (s *K8sSource) ListServices(ctx context.Context) ([]Service, error) {
 	resources, err := s.listPactos(ctx)
 	if err != nil {
@@ -353,6 +355,8 @@ func (s *K8sSource) ListServices(ctx context.Context) ([]Service, error) {
 	return services, nil
 }
 
+// GetService returns details built from the named Pacto CRD's status in the
+// cluster, or an error if no such resource exists.
 func (s *K8sSource) GetService(ctx context.Context, name string) (*ServiceDetails, error) {
 	r, err := s.getPacto(ctx, name)
 	if err != nil {
@@ -361,6 +365,8 @@ func (s *K8sSource) GetService(ctx context.Context, name string) (*ServiceDetail
 	return serviceDetailsFromK8sStatus(r), nil
 }
 
+// GetVersions returns the version history for name from PactoRevision CRDs in
+// the cluster, sorted descending by semver.
 func (s *K8sSource) GetVersions(ctx context.Context, name string) ([]Version, error) {
 	revisions, err := s.listRevisions(ctx)
 	if err != nil {

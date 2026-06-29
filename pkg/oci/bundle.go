@@ -1,3 +1,8 @@
+// Package oci stores and retrieves Pacto contract bundles in OCI registries. It
+// packs a bundle into an OCI artifact and pushes or pulls it through any
+// registry (GHCR, ECR, ACR, Docker Hub, Harbor), with authentication, on-disk
+// caching, and resolution of untagged or constrained references to a concrete
+// semver version. No custom registry is required.
 package oci
 
 import (

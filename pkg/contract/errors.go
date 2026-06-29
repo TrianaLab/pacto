@@ -9,6 +9,7 @@ type ParseError struct {
 	Err     error // underlying cause, if any
 }
 
+// Error returns a "parse error" message, including the path when set.
 func (e *ParseError) Error() string {
 	if e.Path != "" {
 		return fmt.Sprintf("parse error at %s: %s", e.Path, e.Message)
@@ -16,6 +17,7 @@ func (e *ParseError) Error() string {
 	return fmt.Sprintf("parse error: %s", e.Message)
 }
 
+// Unwrap returns the underlying cause, enabling errors.Is and errors.As.
 func (e *ParseError) Unwrap() error {
 	return e.Err
 }
@@ -27,6 +29,7 @@ type ValidationError struct {
 	Message string
 }
 
+// Error formats the failure as "[CODE] path: message".
 func (e *ValidationError) Error() string {
 	return fmt.Sprintf("[%s] %s: %s", e.Code, e.Path, e.Message)
 }
@@ -38,6 +41,7 @@ type ValidationWarning struct {
 	Message string
 }
 
+// String formats the warning as "[CODE] path: message".
 func (w *ValidationWarning) String() string {
 	return fmt.Sprintf("[%s] %s: %s", w.Code, w.Path, w.Message)
 }

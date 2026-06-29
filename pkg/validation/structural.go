@@ -59,7 +59,7 @@ const schemaResourceURL = "pacto.schema.json"
 func compileSchema(data []byte) (*jsonschema.Schema, error) {
 	c := jsonschema.NewCompiler()
 
-	var schemaDoc interface{}
+	var schemaDoc any
 	if err := json.Unmarshal(data, &schemaDoc); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal schema: %w", err)
 	}
@@ -77,14 +77,14 @@ func compileSchema(data []byte) (*jsonschema.Schema, error) {
 }
 
 // Function variable for testing.
-var schemaValidateFn = func(schema *jsonschema.Schema, data interface{}) error {
+var schemaValidateFn = func(schema *jsonschema.Schema, data any) error {
 	return schema.Validate(data)
 }
 
 // pactoVersionOf extracts the declared pactoVersion from a generic contract doc.
 // It returns an empty string when the doc is not an object or omits the field.
-func pactoVersionOf(data interface{}) string {
-	m, ok := data.(map[string]interface{})
+func pactoVersionOf(data any) string {
+	m, ok := data.(map[string]any)
 	if !ok {
 		return ""
 	}
@@ -97,7 +97,7 @@ func pactoVersionOf(data interface{}) string {
 // matches the declared pactoVersion, and validates against it. An unrecognized
 // or missing pactoVersion is a hard error (fail closed) rather than silently
 // validating against an arbitrary schema.
-func ValidateStructural(data interface{}) ValidationResult {
+func ValidateStructural(data any) ValidationResult {
 	var result ValidationResult
 
 	version := pactoVersionOf(data)

@@ -33,9 +33,9 @@ func TestApply_Empty(t *testing.T) {
 	}
 }
 
-func mustParseYAML(t *testing.T, data []byte) map[string]interface{} {
+func mustParseYAML(t *testing.T, data []byte) map[string]any {
 	t.Helper()
-	var m map[string]interface{}
+	var m map[string]any
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		t.Fatalf("failed to parse YAML: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestApply_SetValue(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	m := mustParseYAML(t, out)
-	svc := m["service"].(map[string]interface{})
+	svc := m["service"].(map[string]any)
 	if svc["version"] != "2.0.0" {
 		t.Errorf("expected version 2.0.0, got %v", svc["version"])
 	}
@@ -62,7 +62,7 @@ func TestApply_SetNewNestedKey(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	m := mustParseYAML(t, out)
-	svc := m["service"].(map[string]interface{})
+	svc := m["service"].(map[string]any)
 	if svc["owner"] != "team-a" {
 		t.Errorf("expected owner team-a, got %v", svc["owner"])
 	}
@@ -81,7 +81,7 @@ func TestApply_ValueFile(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	m := mustParseYAML(t, out)
-	svc := m["service"].(map[string]interface{})
+	svc := m["service"].(map[string]any)
 	if svc["version"] != "3.0.0" {
 		t.Errorf("expected version 3.0.0, got %v", svc["version"])
 	}
@@ -110,7 +110,7 @@ func TestApply_Precedence(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	m := mustParseYAML(t, out)
-	svc := m["service"].(map[string]interface{})
+	svc := m["service"].(map[string]any)
 	if svc["version"] != "3.0.0" {
 		t.Errorf("--set should take precedence, got %v", svc["version"])
 	}
@@ -135,7 +135,7 @@ func TestApply_MultipleValueFiles(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	m := mustParseYAML(t, out)
-	svc := m["service"].(map[string]interface{})
+	svc := m["service"].(map[string]any)
 	if svc["version"] != "3.0.0" {
 		t.Errorf("last file should win, got %v", svc["version"])
 	}
@@ -172,7 +172,7 @@ func TestApply_InvalidValueFile(t *testing.T) {
 func TestParseValue(t *testing.T) {
 	tests := []struct {
 		input    string
-		expected interface{}
+		expected any
 	}{
 		{"42", int64(42)},
 		{"3.14", 3.14},
@@ -190,21 +190,21 @@ func TestParseValue(t *testing.T) {
 }
 
 func TestSetNestedValue_ArrayIndex(t *testing.T) {
-	m := map[string]interface{}{
-		"items": []interface{}{"a", "b", "c"},
+	m := map[string]any{
+		"items": []any{"a", "b", "c"},
 	}
 	if err := setNestedValue(m, "items[1]", "x"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	arr := m["items"].([]interface{})
+	arr := m["items"].([]any)
 	if arr[1] != "x" {
 		t.Errorf("expected items[1]=x, got %v", arr[1])
 	}
 }
 
 func TestSetNestedValue_OutOfBounds(t *testing.T) {
-	m := map[string]interface{}{
-		"items": []interface{}{"a"},
+	m := map[string]any{
+		"items": []any{"a"},
 	}
 	if err := setNestedValue(m, "items[5]", "x"); err == nil {
 		t.Error("expected error for out-of-bounds index")
@@ -212,7 +212,7 @@ func TestSetNestedValue_OutOfBounds(t *testing.T) {
 }
 
 func TestSetNestedValue_TraverseNonObject(t *testing.T) {
-	m := map[string]interface{}{
+	m := map[string]any{
 		"key": "scalar",
 	}
 	if err := setNestedValue(m, "key.nested", "val"); err == nil {
@@ -221,7 +221,7 @@ func TestSetNestedValue_TraverseNonObject(t *testing.T) {
 }
 
 func TestSetNestedValue_TraverseArrayNotFound(t *testing.T) {
-	m := map[string]interface{}{
+	m := map[string]any{
 		"key": "not-an-array",
 	}
 	if err := setNestedValue(m, "key[0].nested", "val"); err == nil {
@@ -230,8 +230,8 @@ func TestSetNestedValue_TraverseArrayNotFound(t *testing.T) {
 }
 
 func TestSetNestedValue_TraverseArrayOutOfBounds(t *testing.T) {
-	m := map[string]interface{}{
-		"items": []interface{}{"a"},
+	m := map[string]any{
+		"items": []any{"a"},
 	}
 	if err := setNestedValue(m, "items[5].nested", "val"); err == nil {
 		t.Error("expected error for out-of-bounds array traversal")
@@ -239,21 +239,21 @@ func TestSetNestedValue_TraverseArrayOutOfBounds(t *testing.T) {
 }
 
 func TestSetNestedValue_SetKeyInNonObject(t *testing.T) {
-	m := map[string]interface{}{
-		"items": []interface{}{"a", "b"},
+	m := map[string]any{
+		"items": []any{"a", "b"},
 	}
 	if err := setNestedValue(m, "items[0]", "x"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	arr := m["items"].([]interface{})
+	arr := m["items"].([]any)
 	if arr[0] != "x" {
 		t.Errorf("expected items[0]=x, got %v", arr[0])
 	}
 }
 
 func TestSetNestedValue_SetArrayOutOfBounds(t *testing.T) {
-	m := map[string]interface{}{
-		"items": []interface{}{"a"},
+	m := map[string]any{
+		"items": []any{"a"},
 	}
 	if err := setNestedValue(m, "items[5]", "x"); err == nil {
 		t.Error("expected error for out-of-bounds set")
@@ -261,7 +261,7 @@ func TestSetNestedValue_SetArrayOutOfBounds(t *testing.T) {
 }
 
 func TestSetNestedValue_SetArrayNotArray(t *testing.T) {
-	m := map[string]interface{}{
+	m := map[string]any{
 		"key": "scalar",
 	}
 	if err := setNestedValue(m, "key[0]", "x"); err == nil {
@@ -270,7 +270,7 @@ func TestSetNestedValue_SetArrayNotArray(t *testing.T) {
 }
 
 func TestSetNestedValue_SingleKey(t *testing.T) {
-	m := map[string]interface{}{}
+	m := map[string]any{}
 	if err := setNestedValue(m, "key", "val"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -280,17 +280,17 @@ func TestSetNestedValue_SingleKey(t *testing.T) {
 }
 
 func TestSetNestedValue_TraverseArrayThenSet(t *testing.T) {
-	m := map[string]interface{}{
-		"items": []interface{}{
-			map[string]interface{}{"name": "a"},
-			map[string]interface{}{"name": "b"},
+	m := map[string]any{
+		"items": []any{
+			map[string]any{"name": "a"},
+			map[string]any{"name": "b"},
 		},
 	}
 	if err := setNestedValue(m, "items[1].name", "updated"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	arr := m["items"].([]interface{})
-	item := arr[1].(map[string]interface{})
+	arr := m["items"].([]any)
+	item := arr[1].(map[string]any)
 	if item["name"] != "updated" {
 		t.Errorf("expected items[1].name=updated, got %v", item["name"])
 	}
@@ -298,8 +298,8 @@ func TestSetNestedValue_TraverseArrayThenSet(t *testing.T) {
 
 func TestSetNestedValue_TraverseIntoNonObjectViaArray(t *testing.T) {
 	// Array element is a scalar, not a map — further traversal should fail.
-	m := map[string]interface{}{
-		"items": []interface{}{"scalar"},
+	m := map[string]any{
+		"items": []any{"scalar"},
 	}
 	// 3 segments: items[0] -> "scalar" (not a map) -> key.sub fails at traversePart
 	if err := setNestedValue(m, "items[0].key.sub", "val"); err == nil {
@@ -317,12 +317,12 @@ func TestApply_SetNestedValueError(t *testing.T) {
 }
 
 func TestSetNestedValue_CreateIntermediateMaps(t *testing.T) {
-	m := map[string]interface{}{}
+	m := map[string]any{}
 	if err := setNestedValue(m, "a.b.c", "val"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	a := m["a"].(map[string]interface{})
-	b := a["b"].(map[string]interface{})
+	a := m["a"].(map[string]any)
+	b := a["b"].(map[string]any)
 	if b["c"] != "val" {
 		t.Errorf("expected a.b.c=val, got %v", b["c"])
 	}
@@ -352,15 +352,15 @@ func TestSplitKeyPath(t *testing.T) {
 }
 
 func TestDeepMerge(t *testing.T) {
-	dst := map[string]interface{}{
-		"a": map[string]interface{}{
+	dst := map[string]any{
+		"a": map[string]any{
 			"x": 1,
 			"y": 2,
 		},
 		"b": "keep",
 	}
-	src := map[string]interface{}{
-		"a": map[string]interface{}{
+	src := map[string]any{
+		"a": map[string]any{
 			"y": 3,
 			"z": 4,
 		},
@@ -368,7 +368,7 @@ func TestDeepMerge(t *testing.T) {
 	}
 	deepMerge(dst, src)
 
-	a := dst["a"].(map[string]interface{})
+	a := dst["a"].(map[string]any)
 	if a["x"] != 1 {
 		t.Errorf("expected a.x=1, got %v", a["x"])
 	}
@@ -473,7 +473,7 @@ func TestApply_PreserveTimestamps(t *testing.T) {
 	// Midnight UTC timestamps may be formatted as bare dates (desired behavior).
 	// This test ensures we don't break real timestamps.
 	m := mustParseYAML(t, out)
-	event := m["event"].(map[string]interface{})
+	event := m["event"].(map[string]any)
 	// Just verify the key exists and is not corrupted.
 	if event["created"] == nil {
 		t.Errorf("created field missing after override")
@@ -513,41 +513,41 @@ func TestNormalizeTimestamps(t *testing.T) {
 	}
 
 	// Map recursion.
-	m := map[string]interface{}{
+	m := map[string]any{
 		"date":      bareDate,
 		"timestamp": timestamp,
-		"nested": map[string]interface{}{
+		"nested": map[string]any{
 			"expires": bareDate,
 		},
 	}
 	result = normalizeTimestamps(m)
-	rm := result.(map[string]interface{})
+	rm := result.(map[string]any)
 	if rm["date"] != "2099-12-31" {
 		t.Errorf("map recursion: expected date=2099-12-31, got %v", rm["date"])
 	}
 	if rm["timestamp"] != "2099-12-31T14:30:00Z" {
 		t.Errorf("map recursion: expected timestamp=RFC3339, got %v", rm["timestamp"])
 	}
-	nested := rm["nested"].(map[string]interface{})
+	nested := rm["nested"].(map[string]any)
 	if nested["expires"] != "2099-12-31" {
 		t.Errorf("map recursion: expected nested expires=2099-12-31, got %v", nested["expires"])
 	}
 
 	// Slice recursion.
-	slice := []interface{}{
+	slice := []any{
 		bareDate,
 		timestamp,
-		map[string]interface{}{"d": bareDate},
+		map[string]any{"d": bareDate},
 	}
 	result = normalizeTimestamps(slice)
-	rs := result.([]interface{})
+	rs := result.([]any)
 	if rs[0] != "2099-12-31" {
 		t.Errorf("slice recursion: expected rs[0]=2099-12-31, got %v", rs[0])
 	}
 	if rs[1] != "2099-12-31T14:30:00Z" {
 		t.Errorf("slice recursion: expected rs[1]=RFC3339, got %v", rs[1])
 	}
-	sliceMap := rs[2].(map[string]interface{})
+	sliceMap := rs[2].(map[string]any)
 	if sliceMap["d"] != "2099-12-31" {
 		t.Errorf("slice recursion: expected sliceMap[d]=2099-12-31, got %v", sliceMap["d"])
 	}

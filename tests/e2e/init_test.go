@@ -51,7 +51,7 @@ func TestInitCommand(t *testing.T) {
 			t.Fatalf("init failed: %v\noutput: %s", err, output)
 		}
 
-		var result map[string]interface{}
+		var result map[string]any
 		if err := json.Unmarshal([]byte(output), &result); err != nil {
 			t.Fatalf("expected valid JSON output, got: %s", output)
 		}

@@ -27,10 +27,12 @@ type InvalidRefError struct {
 	Err error
 }
 
+// Error reports the unparseable reference, prefixed with "invalid OCI reference".
 func (e *InvalidRefError) Error() string {
 	return fmt.Sprintf("invalid OCI reference %q: %v", e.Ref, e.Err)
 }
 
+// Unwrap returns the underlying parse error so errors.Is/As works.
 func (e *InvalidRefError) Unwrap() error { return e.Err }
 
 // InvalidBundleError indicates the pulled artifact is not a valid Pacto bundle.
@@ -39,10 +41,12 @@ type InvalidBundleError struct {
 	Err error
 }
 
+// Error reports that the artifact at the ref is not a valid Pacto bundle.
 func (e *InvalidBundleError) Error() string {
 	return fmt.Sprintf("artifact at %s is not a valid Pacto bundle: %v", e.Ref, e.Err)
 }
 
+// Unwrap returns the underlying validation error so errors.Is/As works.
 func (e *InvalidBundleError) Unwrap() error { return e.Err }
 
 // NoMatchingVersionError indicates no tags satisfy the compatibility constraint.
@@ -52,10 +56,12 @@ type NoMatchingVersionError struct {
 	Err        error
 }
 
+// Error reports that no tags satisfy the constraint, naming the ref and constraint.
 func (e *NoMatchingVersionError) Error() string {
 	return fmt.Sprintf("no versions of %s match constraint %q: %v", e.Ref, e.Constraint, e.Err)
 }
 
+// Unwrap returns the underlying error so errors.Is/As works.
 func (e *NoMatchingVersionError) Unwrap() error { return e.Err }
 
 // Resolver provides lazy, on-demand resolution of Pacto bundles from OCI

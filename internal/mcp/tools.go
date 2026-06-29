@@ -166,7 +166,7 @@ func parseEditScalars(req *mcpsdk.CallToolRequest, input *EditInput) {
 func parseEditJSONFields(req *mcpsdk.CallToolRequest, input *EditInput) error {
 	type jsonField struct {
 		name string
-		dst  interface{}
+		dst  any
 	}
 	fields := []jsonField{
 		{"add_interfaces", &input.AddInterfaces},

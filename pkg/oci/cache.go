@@ -87,14 +87,21 @@ func CacheDirFor(home string) string {
 	return filepath.Join(home, ".cache", "pacto", "oci")
 }
 
+// Push uploads the bundle to the registry via the wrapped store. It does not
+// populate the cache; pushed bundles are only cached when later pulled.
 func (c *CachedStore) Push(ctx context.Context, ref string, bundle *contract.Bundle) (string, error) {
 	return c.inner.Push(ctx, ref, bundle)
 }
 
+// Resolve delegates to the wrapped store to resolve a ref to a digest; it is
+// not cached and always contacts the underlying store.
 func (c *CachedStore) Resolve(ctx context.Context, ref string) (string, error) {
 	return c.inner.Resolve(ctx, ref)
 }
 
+// ListTags returns the tags for repo, serving from the in-memory tags cache on
+// a hit and otherwise querying the wrapped store and caching the result for the
+// process lifetime.
 func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, error) {
 	c.tagsMu.Lock()
 	if cached, ok := c.tagsCache[repo]; ok {
@@ -116,6 +123,9 @@ func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, erro
 	return tags, nil
 }
 
+// Pull returns the bundle for ref, checking the in-memory cache, then the disk
+// cache (skipped when DisableCache is active), then the wrapped store. Registry
+// pulls are stored in memory and persisted to disk for future lookups.
 func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, error) {
 	// 1. In-memory cache (fastest).
 	c.pullMu.Lock()

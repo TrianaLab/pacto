@@ -1,17 +1,22 @@
+// Package contract defines the core data model for Pacto service contracts: the
+// in-memory representation of a pacto.yaml and the types for service identity,
+// interfaces, dependencies, configurations, policies, runtime semantics,
+// scaling, and readiness. It also provides YAML parsing along with OCI-reference
+// and semver-range helpers shared by the CLI, dashboard, and operator.
 package contract
 
 // Contract is the root aggregate — the parsed in-memory representation of a pacto.yaml.
 type Contract struct {
-	PactoVersion   string                 `yaml:"pactoVersion" json:"pactoVersion"`
-	Service        ServiceIdentity        `yaml:"service" json:"service"`
-	Interfaces     []Interface            `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
-	Configurations []ConfigurationSource  `yaml:"configurations,omitempty" json:"configurations,omitempty"`
-	Policies       []PolicySource         `yaml:"policies,omitempty" json:"policies,omitempty"`
-	Dependencies   []Dependency           `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
-	Runtime        *Runtime               `yaml:"runtime,omitempty" json:"runtime,omitempty"`
-	Scaling        *Scaling               `yaml:"scaling,omitempty" json:"scaling,omitempty"`
-	Readiness      *Readiness             `yaml:"readiness,omitempty" json:"readiness,omitempty"`
-	Metadata       map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	PactoVersion   string                `yaml:"pactoVersion" json:"pactoVersion"`
+	Service        ServiceIdentity       `yaml:"service" json:"service"`
+	Interfaces     []Interface           `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
+	Configurations []ConfigurationSource `yaml:"configurations,omitempty" json:"configurations,omitempty"`
+	Policies       []PolicySource        `yaml:"policies,omitempty" json:"policies,omitempty"`
+	Dependencies   []Dependency          `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+	Runtime        *Runtime              `yaml:"runtime,omitempty" json:"runtime,omitempty"`
+	Scaling        *Scaling              `yaml:"scaling,omitempty" json:"scaling,omitempty"`
+	Readiness      *Readiness            `yaml:"readiness,omitempty" json:"readiness,omitempty"`
+	Metadata       map[string]any        `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
 // Readiness declares operational readiness evidence for the service.
@@ -150,10 +155,10 @@ const (
 // Name is required and must be unique within the configurations array.
 // Exactly one of Schema or Ref must be set. Values is only allowed with Schema.
 type ConfigurationSource struct {
-	Name   string                 `yaml:"name" json:"name"`
-	Schema string                 `yaml:"schema,omitempty" json:"schema,omitempty"`
-	Ref    string                 `yaml:"ref,omitempty" json:"ref,omitempty"`
-	Values map[string]interface{} `yaml:"values,omitempty" json:"values,omitempty"`
+	Name   string         `yaml:"name" json:"name"`
+	Schema string         `yaml:"schema,omitempty" json:"schema,omitempty"`
+	Ref    string         `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Values map[string]any `yaml:"values,omitempty" json:"values,omitempty"`
 }
 
 // PolicySource declares a named policy constraint source.

@@ -25,17 +25,17 @@ func TestYamlToGeneric_ValidScalar(t *testing.T) {
 }
 
 func TestConvertYAMLToJSON_MapInterfaceNested(t *testing.T) {
-	input := map[interface{}]interface{}{
-		"nested": map[interface{}]interface{}{
+	input := map[any]any{
+		"nested": map[any]any{
 			"key": "value",
 		},
 	}
 	result := convertYAMLToJSON(input)
-	m, ok := result.(map[string]interface{})
+	m, ok := result.(map[string]any)
 	if !ok {
 		t.Fatal("expected map[string]interface{}")
 	}
-	nested, ok := m["nested"].(map[string]interface{})
+	nested, ok := m["nested"].(map[string]any)
 	if !ok {
 		t.Fatal("expected nested map[string]interface{}")
 	}
@@ -45,16 +45,16 @@ func TestConvertYAMLToJSON_MapInterfaceNested(t *testing.T) {
 }
 
 func TestConvertYAMLToJSON_Slice(t *testing.T) {
-	input := []interface{}{"a", "b", map[interface{}]interface{}{"key": "val"}}
+	input := []any{"a", "b", map[any]any{"key": "val"}}
 	result := convertYAMLToJSON(input)
-	s, ok := result.([]interface{})
+	s, ok := result.([]any)
 	if !ok {
 		t.Fatal("expected []interface{}")
 	}
 	if len(s) != 3 {
 		t.Errorf("expected 3 items, got %d", len(s))
 	}
-	m, ok := s[2].(map[string]interface{})
+	m, ok := s[2].(map[string]any)
 	if !ok {
 		t.Fatal("expected nested map in slice")
 	}
@@ -64,15 +64,15 @@ func TestConvertYAMLToJSON_Slice(t *testing.T) {
 }
 
 func TestConvertYAMLToJSON_MapStringNested(t *testing.T) {
-	input := map[string]interface{}{
-		"a": []interface{}{1, 2},
+	input := map[string]any{
+		"a": []any{1, 2},
 	}
 	result := convertYAMLToJSON(input)
-	m, ok := result.(map[string]interface{})
+	m, ok := result.(map[string]any)
 	if !ok {
 		t.Fatal("expected map[string]interface{}")
 	}
-	s, ok := m["a"].([]interface{})
+	s, ok := m["a"].([]any)
 	if !ok {
 		t.Fatal("expected []interface{}")
 	}
@@ -109,7 +109,7 @@ func TestValidate_InvalidYAMLBytes(t *testing.T) {
 
 func TestValidateStructural_InvalidData(t *testing.T) {
 	// Missing required fields
-	data := map[string]interface{}{
+	data := map[string]any{
 		"pactoVersion": "1.0",
 	}
 	result := ValidateStructural(data)
