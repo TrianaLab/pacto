@@ -155,6 +155,8 @@ func (s *CacheSource) VersionCount() int {
 	return total
 }
 
+// ListServices returns one entry per service found in the on-disk OCI cache,
+// using each service's latest cached version, sorted by name.
 func (s *CacheSource) ListServices(_ context.Context) ([]Service, error) {
 	var services []Service
 	for _, svc := range s.snapshot() {
@@ -173,6 +175,8 @@ func (s *CacheSource) ListServices(_ context.Context) ([]Service, error) {
 	return services, nil
 }
 
+// GetService returns details for the latest cached version of name from the
+// on-disk OCI cache, or an error if it is not cached.
 func (s *CacheSource) GetService(_ context.Context, name string) (*ServiceDetails, error) {
 	svc, ok := s.snapshot()[name]
 	if !ok {
@@ -185,6 +189,8 @@ func (s *CacheSource) GetService(_ context.Context, name string) (*ServiceDetail
 	return ServiceDetailsFromBundle(latest.bundle, "oci"), nil
 }
 
+// GetVersions returns all cached versions of name (latest first) with contract
+// hash, classification, and the on-disk materialization time as createdAt.
 func (s *CacheSource) GetVersions(_ context.Context, name string) ([]Version, error) {
 	svc, ok := s.snapshot()[name]
 	if !ok {
@@ -222,6 +228,8 @@ func (s *CacheSource) GetVersions(_ context.Context, name string) ([]Version, er
 	return versions, nil
 }
 
+// GetDiff compares two versions read from the on-disk OCI cache, erroring if
+// either version is not cached.
 func (s *CacheSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) {
 	idx := s.snapshot()
 	svcA, ok := idx[a.Name]
@@ -245,6 +253,8 @@ func (s *CacheSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) 
 	return ComputeDiff(a, b, bundleA.bundle, bundleB.bundle), nil
 }
 
+// GetServiceVersion returns details for a specific cached version from the
+// on-disk OCI cache, or an error if that version is not cached.
 func (s *CacheSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDetails, error) {
 	svc, ok := s.snapshot()[ref.Name]
 	if !ok {

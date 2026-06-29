@@ -20,7 +20,7 @@ pacto version
 
 ## Via Go
 
-Requires [Go 1.25](https://go.dev/dl/) or later.
+Requires [Go 1.26](https://go.dev/dl/) or later.
 
 ```bash
 go install github.com/trianalab/pacto/v2/cmd/pacto@latest

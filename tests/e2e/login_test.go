@@ -52,17 +52,17 @@ func testLoginConfigWrite(t *testing.T) {
 		t.Fatalf("expected pacto config at %s: %v", configPath, err)
 	}
 
-	var cfg map[string]interface{}
+	var cfg map[string]any
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("invalid pacto config JSON: %v", err)
 	}
 
-	auths, ok := cfg["auths"].(map[string]interface{})
+	auths, ok := cfg["auths"].(map[string]any)
 	if !ok {
 		t.Fatal("expected auths in pacto config")
 	}
 
-	regAuth, ok := auths["registry.example.com"].(map[string]interface{})
+	regAuth, ok := auths["registry.example.com"].(map[string]any)
 	if !ok {
 		t.Fatal("expected registry.example.com in auths")
 	}
@@ -101,9 +101,9 @@ func testLoginConfigMerge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var cfg map[string]interface{}
+	var cfg map[string]any
 	json.Unmarshal(data, &cfg)
-	auths := cfg["auths"].(map[string]interface{})
+	auths := cfg["auths"].(map[string]any)
 
 	if _, ok := auths["registry1.example.com"]; !ok {
 		t.Error("expected registry1.example.com in auths after merge")

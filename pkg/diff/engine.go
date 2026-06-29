@@ -23,10 +23,12 @@ const (
 	Breaking                                // Consumers are definitely affected.
 )
 
+// MarshalJSON serializes the Classification as its String form (e.g. "BREAKING").
 func (c Classification) MarshalJSON() ([]byte, error) {
 	return json.Marshal(c.String())
 }
 
+// String returns the upper-snake-case name: "NON_BREAKING", "POTENTIAL_BREAKING", "BREAKING", or "UNKNOWN".
 func (c Classification) String() string {
 	switch c {
 	case NonBreaking:
@@ -49,10 +51,12 @@ const (
 	Modified
 )
 
+// MarshalJSON serializes the ChangeType as its lowercase String form (e.g. "added").
 func (t ChangeType) MarshalJSON() ([]byte, error) {
 	return json.Marshal(t.String())
 }
 
+// String returns the lowercase name: "added", "removed", "modified", or "unknown".
 func (t ChangeType) String() string {
 	switch t {
 	case Added:
@@ -70,8 +74,8 @@ func (t ChangeType) String() string {
 type Change struct {
 	Path           string         `json:"path"`
 	Type           ChangeType     `json:"type"`
-	OldValue       interface{}    `json:"oldValue,omitempty"`
-	NewValue       interface{}    `json:"newValue,omitempty"`
+	OldValue       any            `json:"oldValue,omitempty"`
+	NewValue       any            `json:"newValue,omitempty"`
 	Classification Classification `json:"classification"`
 	Reason         string         `json:"reason"`
 }

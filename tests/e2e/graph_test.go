@@ -74,7 +74,7 @@ func TestGraphCommand(t *testing.T) {
 			t.Fatalf("graph json failed: %v\noutput: %s", err, output)
 		}
 
-		var result map[string]interface{}
+		var result map[string]any
 		if err := json.Unmarshal([]byte(output), &result); err != nil {
 			t.Fatalf("expected valid JSON output, got: %s", output)
 		}
@@ -229,12 +229,12 @@ scaling:
 			t.Fatalf("graph json failed: %v\noutput: %s", err, output)
 		}
 
-		var result map[string]interface{}
+		var result map[string]any
 		if err := json.Unmarshal([]byte(output), &result); err != nil {
 			t.Fatalf("expected valid JSON output, got: %s", output)
 		}
 
-		root, ok := result["root"].(map[string]interface{})
+		root, ok := result["root"].(map[string]any)
 		if !ok {
 			t.Fatal("expected root object in JSON output")
 		}
@@ -242,7 +242,7 @@ scaling:
 			t.Errorf("expected root name=my-app, got %v", root["name"])
 		}
 
-		deps, ok := root["dependencies"].([]interface{})
+		deps, ok := root["dependencies"].([]any)
 		if !ok || len(deps) == 0 {
 			t.Error("expected non-empty dependencies array in root")
 		}

@@ -78,6 +78,8 @@ func NewCachedDataSource(source DataSource, cache Cache, ttl time.Duration, pref
 	return &CachedDataSource{source: source, cache: cache, ttl: ttl, prefix: prefix}
 }
 
+// ListServices returns the wrapped source's service list, served from cache
+// within the TTL and otherwise fetched and cached.
 func (c *CachedDataSource) ListServices(ctx context.Context) ([]Service, error) {
 	key := c.prefix + "services:list"
 	if v, ok := c.cache.Get(key); ok {
@@ -93,6 +95,8 @@ func (c *CachedDataSource) ListServices(ctx context.Context) ([]Service, error) 
 	return result, nil
 }
 
+// GetService returns the wrapped source's details for name, served from cache
+// within the TTL and otherwise fetched and cached.
 func (c *CachedDataSource) GetService(ctx context.Context, name string) (*ServiceDetails, error) {
 	key := c.prefix + "service:" + name
 	if v, ok := c.cache.Get(key); ok {
@@ -108,6 +112,8 @@ func (c *CachedDataSource) GetService(ctx context.Context, name string) (*Servic
 	return result, nil
 }
 
+// GetVersions returns the wrapped source's version history for name, served
+// from cache within the TTL and otherwise fetched and cached.
 func (c *CachedDataSource) GetVersions(ctx context.Context, name string) ([]Version, error) {
 	key := c.prefix + "versions:" + name
 	if v, ok := c.cache.Get(key); ok {
@@ -123,6 +129,8 @@ func (c *CachedDataSource) GetVersions(ctx context.Context, name string) ([]Vers
 	return result, nil
 }
 
+// GetDiff returns the wrapped source's diff between a and b, served from cache
+// within the TTL and otherwise computed and cached.
 func (c *CachedDataSource) GetDiff(ctx context.Context, a, b Ref) (*DiffResult, error) {
 	key := c.prefix + "diff:" + a.Name + "@" + a.Version + ".." + b.Name + "@" + b.Version
 	if v, ok := c.cache.Get(key); ok {
@@ -138,6 +146,8 @@ func (c *CachedDataSource) GetDiff(ctx context.Context, a, b Ref) (*DiffResult, 
 	return result, nil
 }
 
+// GetServiceVersion returns the wrapped source's details for a specific ref,
+// served from cache within the TTL and otherwise fetched and cached.
 func (c *CachedDataSource) GetServiceVersion(ctx context.Context, ref Ref) (*ServiceDetails, error) {
 	key := c.prefix + "serviceversion:" + ref.Name + "@" + ref.Version
 	if v, ok := c.cache.Get(key); ok {

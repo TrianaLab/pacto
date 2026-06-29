@@ -15,10 +15,13 @@ type RegistryUnreachableError struct {
 	Err error
 }
 
+// Error reports the unreachable registry, prefixing the message with
+// "registry unreachable for <ref>".
 func (e *RegistryUnreachableError) Error() string {
 	return fmt.Sprintf("registry unreachable for %s: %v", e.Ref, e.Err)
 }
 
+// Unwrap returns the underlying network error so errors.Is/As works.
 func (e *RegistryUnreachableError) Unwrap() error { return e.Err }
 
 // AuthenticationError indicates credential rejection (401/403).
@@ -29,6 +32,8 @@ type AuthenticationError struct {
 	Rejected []string
 }
 
+// Error reports the auth failure, prefixed with "authentication failed for
+// <ref>", listing rejected/tried credentials and remediation hints.
 func (e *AuthenticationError) Error() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "authentication failed for %s", e.Ref)
@@ -42,6 +47,7 @@ func (e *AuthenticationError) Error() string {
 	return b.String()
 }
 
+// Unwrap returns the underlying transport error so errors.Is/As works.
 func (e *AuthenticationError) Unwrap() error { return e.Err }
 
 // isAuthError reports whether err is a transport error with a 401 or 403 status.
@@ -59,10 +65,12 @@ type ArtifactNotFoundError struct {
 	Err error
 }
 
+// Error reports the missing artifact, prefixed with "artifact not found:".
 func (e *ArtifactNotFoundError) Error() string {
 	return fmt.Sprintf("artifact not found: %s", e.Ref)
 }
 
+// Unwrap returns the underlying transport error so errors.Is/As works.
 func (e *ArtifactNotFoundError) Unwrap() error { return e.Err }
 
 // wrapRemoteError translates go-containerregistry errors into domain error types.

@@ -22,16 +22,16 @@ type ExplainOptions struct {
 
 // ExplainResult holds the result of the explain command.
 type ExplainResult struct {
-	Name         string                 `json:"name"`
-	Version      string                 `json:"version"`
-	Owner        contract.Owner         `json:"owner,omitempty"`
-	PactoVersion string                 `json:"pactoVersion"`
-	Runtime      ExplainRuntime         `json:"runtime"`
-	Interfaces   []ExplainInterface     `json:"interfaces,omitempty"`
-	Dependencies []ExplainDependency    `json:"dependencies,omitempty"`
-	Scaling      *contract.Scaling      `json:"scaling,omitempty"`
-	Readiness    *ExplainReadiness      `json:"readiness,omitempty"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	Name         string              `json:"name"`
+	Version      string              `json:"version"`
+	Owner        contract.Owner      `json:"owner,omitempty"`
+	PactoVersion string              `json:"pactoVersion"`
+	Runtime      ExplainRuntime      `json:"runtime"`
+	Interfaces   []ExplainInterface  `json:"interfaces,omitempty"`
+	Dependencies []ExplainDependency `json:"dependencies,omitempty"`
+	Scaling      *contract.Scaling   `json:"scaling,omitempty"`
+	Readiness    *ExplainReadiness   `json:"readiness,omitempty"`
+	Metadata     map[string]any      `json:"metadata,omitempty"`
 }
 
 // ExplainReadiness is a derived readiness summary for the explain output.

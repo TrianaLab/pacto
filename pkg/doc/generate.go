@@ -50,20 +50,20 @@ func init() {
 
 func loadSchemaDescriptions(data []byte) map[string]string {
 	dst := make(map[string]string)
-	var root map[string]interface{}
+	var root map[string]any
 	if err := json.Unmarshal(data, &root); err != nil {
 		return dst
 	}
-	props, _ := root["properties"].(map[string]interface{})
+	props, _ := root["properties"].(map[string]any)
 	extractEnumDescriptions(props, "", dst)
 	return dst
 }
 
 // extractEnumDescriptions recursively walks schema properties and collects
 // x-enum-descriptions into the dst map keyed as "path.value".
-func extractEnumDescriptions(props map[string]interface{}, prefix string, dst map[string]string) {
+func extractEnumDescriptions(props map[string]any, prefix string, dst map[string]string) {
 	for key, val := range props {
-		obj, ok := val.(map[string]interface{})
+		obj, ok := val.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -78,7 +78,7 @@ func extractEnumDescriptions(props map[string]interface{}, prefix string, dst ma
 		}
 
 		// Collect x-enum-descriptions
-		if xDescs, ok := obj["x-enum-descriptions"].(map[string]interface{}); ok {
+		if xDescs, ok := obj["x-enum-descriptions"].(map[string]any); ok {
 			for enumVal, enumDesc := range xDescs {
 				if s, ok := enumDesc.(string); ok {
 					dst[path+"."+enumVal] = s
@@ -87,7 +87,7 @@ func extractEnumDescriptions(props map[string]interface{}, prefix string, dst ma
 		}
 
 		// Recurse into nested properties
-		if nested, ok := obj["properties"].(map[string]interface{}); ok {
+		if nested, ok := obj["properties"].(map[string]any); ok {
 			extractEnumDescriptions(nested, path, dst)
 		}
 	}

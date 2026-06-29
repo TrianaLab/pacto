@@ -194,7 +194,7 @@ func TestCreateToolErrors(t *testing.T) {
 	t.Run("create internal error", func(t *testing.T) {
 		orig := yamlMarshalFn
 		defer func() { yamlMarshalFn = orig }()
-		yamlMarshalFn = func(v interface{}) ([]byte, error) {
+		yamlMarshalFn = func(v any) ([]byte, error) {
 			return nil, fmt.Errorf("injected marshal error")
 		}
 		result := callTool(t, svc, "pacto_create", map[string]any{

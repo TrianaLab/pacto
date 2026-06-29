@@ -201,6 +201,8 @@ func mergeServiceEntry(name string, entry *serviceEntry) Service {
 	return merged
 }
 
+// ListServices queries every registered source concurrently and returns one
+// merged entry per service name (k8s runtime over contract sources), sorted by name.
 func (r *ResolvedSource) ListServices(ctx context.Context) ([]Service, error) {
 	_, _, all := r.sources()
 
@@ -250,6 +252,9 @@ func (r *ResolvedSource) ListServices(ctx context.Context) ([]Service, error) {
 	return services, nil
 }
 
+// GetService resolves the single authoritative contract snapshot (highest-priority
+// contract source) and enriches it with k8s runtime data, erroring if name is
+// found in no source.
 func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceDetails, error) {
 	contract, runtime, _ := r.sources()
 
@@ -419,6 +424,8 @@ func enrichRuntimeMetadata(contract *ServiceDetails, runtime *ServiceDetails) {
 // Cache enrichment (hash, classification) is internal to OCISource.
 var resolverVersionSources = []string{"k8s", "oci", "local", "cache"}
 
+// GetVersions merges version history for name across all sources (k8s, oci,
+// local, cache), enriching duplicates by version, sorted descending by semver.
 func (r *ResolvedSource) GetVersions(ctx context.Context, name string) ([]Version, error) {
 	_, _, all := r.sources()
 
@@ -475,6 +482,8 @@ func enrichVersion(dst, src *Version) {
 	}
 }
 
+// GetDiff delegates to the contract bundle sources (the from.Source hint if
+// given, else oci/local/cache in order); k8s is excluded as it has no history.
 func (r *ResolvedSource) GetDiff(ctx context.Context, from, to Ref) (*DiffResult, error) {
 	_, _, all := r.sources()
 
@@ -501,6 +510,8 @@ func (r *ResolvedSource) GetDiff(ctx context.Context, from, to Ref) (*DiffResult
 	return nil, fmt.Errorf("diff requires contract bundle data (not available for %q)", from.Name)
 }
 
+// GetServiceVersion delegates to the contract bundle sources (the ref.Source
+// hint if given, else oci/local/cache in order) for the requested version.
 func (r *ResolvedSource) GetServiceVersion(ctx context.Context, ref Ref) (*ServiceDetails, error) {
 	_, _, all := r.sources()
 
