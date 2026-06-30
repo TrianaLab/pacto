@@ -14,6 +14,19 @@ PLUGINS="pacto-plugin-schema-infer pacto-plugin-openapi-infer"
 HAS_CURL="$(type curl >/dev/null 2>&1 && echo true || echo false)"
 HAS_WGET="$(type wget >/dev/null 2>&1 && echo true || echo false)"
 
+# Authenticate api.github.com calls when a token is available. Anonymous API
+# access is limited to 60 requests/hour per IP and rate-limits on shared CI
+# runners, which surfaces as a spurious "version not found" during tag lookup.
+# With a token the limit is 5000/hour. Download URLs (the release CDN) are not
+# rate-limited and intentionally left unauthenticated.
+GH_API_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+CURL_AUTH=()
+WGET_AUTH=()
+if [ -n "$GH_API_TOKEN" ]; then
+  CURL_AUTH=(-H "Authorization: Bearer $GH_API_TOKEN")
+  WGET_AUTH=(--header="Authorization: Bearer $GH_API_TOKEN")
+fi
+
 initArch() {
   ARCH=$(uname -m)
   case $ARCH in
@@ -55,9 +68,9 @@ verifySupported() {
 checkDesiredVersion() {
   if [ -z "$DESIRED_VERSION" ]; then
     if [ "$HAS_CURL" = "true" ]; then
-      TAG=$(curl -sSL "$API_URL/latest" | grep -E '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+      TAG=$(curl -sSL "${CURL_AUTH[@]}" "$API_URL/latest" | grep -E '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     else
-      TAG=$(wget -qO- "$API_URL/latest" | grep -E '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+      TAG=$(wget "${WGET_AUTH[@]}" -qO- "$API_URL/latest" | grep -E '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     fi
     if [ -z "$TAG" ]; then
       echo "Failed to fetch latest version" >&2
@@ -67,9 +80,9 @@ checkDesiredVersion() {
     TAG="$DESIRED_VERSION"
     status_code=0
     if [ "$HAS_CURL" = "true" ]; then
-      status_code=$(curl -sSL -o /dev/null -w "%{http_code}" "$API_URL/tags/$TAG")
+      status_code=$(curl -sSL "${CURL_AUTH[@]}" -o /dev/null -w "%{http_code}" "$API_URL/tags/$TAG")
     else
-      status_code=$(wget --server-response --spider -q "$API_URL/tags/$TAG" 2>&1 | awk '/HTTP\//{print $2}')
+      status_code=$(wget "${WGET_AUTH[@]}" --server-response --spider -q "$API_URL/tags/$TAG" 2>&1 | awk '/HTTP\//{print $2}')
     fi
     if [ "$status_code" != "200" ]; then
       echo "Version $TAG not found in $REPO releases" >&2
@@ -155,9 +168,9 @@ installFile() {
 
 checkPluginsVersion() {
   if [ "$HAS_CURL" = "true" ]; then
-    PLUGINS_TAG=$(curl -sSL "$PLUGINS_API_URL/latest" | grep -E '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    PLUGINS_TAG=$(curl -sSL "${CURL_AUTH[@]}" "$PLUGINS_API_URL/latest" | grep -E '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
   else
-    PLUGINS_TAG=$(wget -qO- "$PLUGINS_API_URL/latest" | grep -E '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    PLUGINS_TAG=$(wget "${WGET_AUTH[@]}" -qO- "$PLUGINS_API_URL/latest" | grep -E '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
   fi
   if [ -z "$PLUGINS_TAG" ]; then
     echo "Warning: failed to fetch latest plugins version, skipping plugin installation" >&2
