@@ -20,7 +20,7 @@
   function setDepth(d) { depth = Math.max(1, Math.min(6, d)); graphRef?.reset(); }
 
   $effect(() => {
-    if (open) bodyH = Math.max(400, window.innerHeight - 150);
+    if (open) bodyH = Math.max(400, window.innerHeight - 120);
   });
 </script>
 
@@ -62,6 +62,7 @@
           {direction}
           {depth}
           {filterFn}
+          maxFitScale={3}
           height={bodyH}
           onNavigate={(n) => { onClose(); onNavigate?.(n); }}
         />
@@ -79,14 +80,13 @@
     display: flex;
     align-items: stretch;
     justify-content: center;
-    padding: clamp(12px, 4vh, 48px) clamp(12px, 4vw, 64px);
+    padding: 16px;
     animation: fadeIn 120ms ease-out;
   }
   .graph-modal {
     display: flex;
     flex-direction: column;
     width: 100%;
-    max-width: 1400px;
     background: var(--c-surface);
     border: 1px solid var(--c-border);
     border-radius: var(--radius-sm);

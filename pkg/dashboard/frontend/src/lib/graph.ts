@@ -143,9 +143,12 @@ interface RenderOptions {
   hidden?: Map<string, number>;
   /** Called when a "+N" chip is clicked (layered only). */
   onExpand?: (id: string) => void;
+  /** Max zoom the layered auto-fit will scale up to. Higher = larger in roomy
+   * canvases (e.g. full screen). Default 1.5. */
+  maxFitScale?: number;
 }
 
-export function renderGraph(container: HTMLElement, graphData: GraphData, { onNavigate, focusId, filterFn, focusNodes, layout = 'force', hidden, onExpand }: RenderOptions = {}): GraphControls {
+export function renderGraph(container: HTMLElement, graphData: GraphData, { onNavigate, focusId, filterFn, focusNodes, layout = 'force', hidden, onExpand, maxFitScale = 1.5 }: RenderOptions = {}): GraphControls {
   const isLayered = layout === 'layered';
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
   const links: SimLink[] = [];
@@ -661,7 +664,7 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
     const pad = 40;
     minX -= pad; minY -= pad; maxX += pad; maxY += pad;
     const bw = maxX - minX || 1, bh = maxY - minY || 1;
-    const scale = Math.min(width / bw, height / bh, 1.5);
+    const scale = Math.min(width / bw, height / bh, maxFitScale);
     const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
     const transform = d3.zoomIdentity.translate(width / 2 - cx * scale, height / 2 - cy * scale).scale(scale);
     (svg as any).call(zoom.transform, transform);
