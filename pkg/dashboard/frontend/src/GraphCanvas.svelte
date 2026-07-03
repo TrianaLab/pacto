@@ -14,7 +14,10 @@
   let renderVersion = $state(0); // bump to force re-render after expand/reset
 
   function onExpand(id) { expanded.add(id); renderVersion++; }
-  export function resetExpand() { expanded = new Set(); renderVersion++; }
+  // Re-run the layout from scratch: clears manual expansions, re-lays out (dagre
+  // in layered mode) and refits the view. Restores the "original view" after the
+  // user has dragged nodes or expanded subtrees.
+  export function reset() { expanded = new Set(); renderVersion++; }
 
   function init() {
     if (!containerEl || !graphData) return;

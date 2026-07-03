@@ -4,6 +4,7 @@
   import { serviceUrl } from '../lib/router.ts';
   import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerKey, ownerMatchesFilter } from '../lib/format.ts';
   import GraphCanvas from '../GraphCanvas.svelte';
+  import GraphModal from '../GraphModal.svelte';
   import StatsBar from '../StatsBar.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -16,7 +17,9 @@
   let graphRef = $state(null);
   let statusFilter = $state('all');
   let nameFilter = $state('');
-  let graphMode = $state('force');
+  let fullscreen = $state(false);
+
+  let activeFilterFn = $derived((statusFilter === 'all' && !nameFilter) ? undefined : filterFn);
 
   async function loadGraph() {
     loading = true;
@@ -74,18 +77,25 @@
     <div class="graph-controls">
       <button type="button" class="btn btn-sm" onclick={() => graphRef?.zoomIn()} title="Zoom in">+</button>
       <button type="button" class="btn btn-sm" onclick={() => graphRef?.zoomOut()} title="Zoom out">−</button>
-      <button type="button" class="btn btn-sm" onclick={() => graphRef?.resetView()} title="Reset">↻</button>
-      <button type="button" class="btn btn-sm" onclick={() => graphMode = graphMode === 'force' ? 'layered' : 'force'} title="Toggle layout">
-        {graphMode === 'force' ? 'Tree view' : 'Force view'}
+      <button type="button" class="btn btn-sm" onclick={() => graphRef?.reset()} title="Reset view">↻</button>
+      <button type="button" class="btn btn-sm graph-fs-btn" onclick={() => fullscreen = true} title="Full screen" aria-label="Full screen">
+        <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 5V2h3M12 5V2H9M2 9v3h3M12 9v3H9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
     <GraphCanvas
       bind:this={graphRef}
       {graphData}
-      layout={graphMode}
-      filterFn={(statusFilter === 'all' && !nameFilter) ? undefined : filterFn}
+      layout="layered"
+      filterFn={activeFilterFn}
       height={Math.min(window.innerHeight - 200, 600)}
       onNavigate={(name) => location.hash = serviceUrl(name)}
+    />
+    <GraphModal
+      open={fullscreen}
+      {graphData}
+      filterFn={activeFilterFn}
+      onNavigate={(name) => location.hash = serviceUrl(name)}
+      onClose={() => fullscreen = false}
     />
     <div class="graph-legend">
       <span class="legend-item" data-tip="All contract checks pass"><span class="legend-dot" style="background:var(--c-ok)"></span> Compliant</span>
@@ -181,6 +191,8 @@
     position: absolute; top: 12px; right: 12px; z-index: 10;
     display: flex; gap: 6px;
   }
+  .graph-fs-btn { display: inline-flex; align-items: center; justify-content: center; }
+  .graph-fs-btn svg { width: 13px; height: 13px; display: block; }
 
   .graph-legend {
     display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
