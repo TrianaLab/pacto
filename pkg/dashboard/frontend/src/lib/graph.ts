@@ -4,6 +4,7 @@
  */
 import * as d3 from 'd3';
 import { reasonTooltip } from './format.ts';
+import { layeredPositions } from './layout.ts';
 
 const STATUS_COLORS: Record<string, string> = {
   Compliant: '#34d399',
@@ -136,9 +137,16 @@ interface RenderOptions {
   filterFn?: (n: GraphNode) => boolean;
   /** Set of service names to persistently emphasize (e.g. owner's services). Survives hover. */
   focusNodes?: Set<string>;
+  /** 'layered' uses a static dagre hierarchy instead of the force sim. Default 'force'. */
+  layout?: 'force' | 'layered';
+  /** nodeId -> count of hidden direct children; drives the "+N" expand chip (layered only). */
+  hidden?: Map<string, number>;
+  /** Called when a "+N" chip is clicked (layered only). */
+  onExpand?: (id: string) => void;
 }
 
-export function renderGraph(container: HTMLElement, graphData: GraphData, { onNavigate, focusId, filterFn, focusNodes }: RenderOptions = {}): GraphControls {
+export function renderGraph(container: HTMLElement, graphData: GraphData, { onNavigate, focusId, filterFn, focusNodes, layout = 'force', hidden, onExpand }: RenderOptions = {}): GraphControls {
+  const isLayered = layout === 'layered';
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
   const links: SimLink[] = [];
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
@@ -222,8 +230,8 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
   // Prevent zoom's click suppression from blocking node clicks
   svg.on('dblclick.zoom', null);
 
-  // Pin focused node to center so it's always clearly visible
-  if (focusId) {
+  // Pin focused node to center so it's always clearly visible (force mode)
+  if (focusId && !isLayered) {
     const focusNode = nodes.find((n) => n.id === focusId || n.serviceName === focusId);
     if (focusNode) {
       focusNode.fx = width / 2;
@@ -231,11 +239,35 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
     }
   }
 
-  const sim = d3.forceSimulation(nodes as d3.SimulationNodeDatum[])
-    .force('link', d3.forceLink(links as d3.SimulationLinkDatum<d3.SimulationNodeDatum>[]).id((d: any) => d.id).distance(200))
-    .force('charge', d3.forceManyBody().strength(-500))
-    .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collision', d3.forceCollide().radius(NODE_W / 2 + 14));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let sim: any = null;
+  if (isLayered) {
+    // Static hierarchy: dagre positions, then fix each node in place.
+    const pos = layeredPositions(
+      nodes,
+      links.map((l) => ({ source: l.source as string, target: l.target as string })),
+      { direction: 'TB', nodeW: NODE_W, nodeH: NODE_H },
+    );
+    for (const n of nodes) {
+      const p = pos.get(n.id);
+      n.x = p?.x ?? width / 2;
+      n.y = p?.y ?? height / 2;
+      n.fx = n.x;
+      n.fy = n.y;
+    }
+    // forceLink normally swaps string ids for node objects; do it manually so
+    // the shared link/clip code below can read source.x / target.x.
+    for (const l of links) {
+      l.source = nodeMap.get(l.source as string)!;
+      l.target = nodeMap.get(l.target as string)!;
+    }
+  } else {
+    sim = d3.forceSimulation(nodes as d3.SimulationNodeDatum[])
+      .force('link', d3.forceLink(links as d3.SimulationLinkDatum<d3.SimulationNodeDatum>[]).id((d: any) => d.id).distance(200))
+      .force('charge', d3.forceManyBody().strength(-500))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collision', d3.forceCollide().radius(NODE_W / 2 + 14));
+  }
 
   // Links
   const linkG = g.append('g').attr('class', 'links');
@@ -270,16 +302,17 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
     .call(d3.drag<SVGGElement, GraphNode>()
       .on('start', (e, d) => {
         dragMoved = false;
-        if (!e.active) sim.alphaTarget(0.3).restart();
+        if (sim && !e.active) sim.alphaTarget(0.3).restart();
         d.fx = d.x; d.fy = d.y;
       })
       .on('drag', (e, d) => {
         dragMoved = true;
         d.fx = e.x; d.fy = e.y;
+        if (isLayered) { d.x = e.x; d.y = e.y; updatePositions(); }
       })
       .on('end', (e, d) => {
-        if (!e.active) sim.alphaTarget(0);
-        d.fx = null; d.fy = null;
+        if (sim && !e.active) sim.alphaTarget(0);
+        if (!isLayered) { d.fx = null; d.fy = null; }
         // Navigate on click (no drag movement)
         if (!dragMoved && d.status !== 'external' && onNavigate) {
           onNavigate(d.serviceName);
@@ -380,6 +413,30 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
       const v = d.version ? ` ${d.version}` : '';
       return `${name}${v} — ${d.status || 'Unknown'}`;
     });
+
+  // "+N" expand chips (layered mode): a node with hidden children shows a chip
+  // that reveals them on click without navigating.
+  if (isLayered && hidden) {
+    nodeEls.each(function (d: GraphNode) {
+      const count = hidden.get(d.id) || 0;
+      if (count <= 0) return;
+      const chip = d3.select(this).append('g')
+        .attr('class', 'more-chip')
+        .attr('cursor', 'pointer')
+        .attr('transform', `translate(${NODE_W / 2 - 16}, ${NODE_H / 2 - 3})`);
+      chip.append('rect')
+        .attr('x', -15).attr('y', -9).attr('width', 32).attr('height', 18).attr('rx', 9)
+        .attr('fill', 'var(--c-accent, #818cf8)').attr('opacity', 0.92);
+      chip.append('text')
+        .attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
+        .attr('font-size', '10px').attr('font-weight', '600').attr('fill', '#fff')
+        .text(`+${count}`);
+      // stop both mouse and touch from starting the parent node's d3-drag —
+      // otherwise a tap ends as a click-navigate instead of an expand.
+      chip.on('mousedown touchstart', (e) => e.stopPropagation());
+      chip.on('click', (e) => { e.stopPropagation(); onExpand?.(d.id); });
+    });
+  }
 
   // focusNodes: IDs of nodes that should stay emphasized (owner view)
   const focusSet = new Set<string>();
@@ -554,7 +611,7 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
     return { x: tx - nx * scale, y: ty - ny * scale };
   }
 
-  sim.on('tick', () => {
+  function updatePositions() {
     linkEls.each(function (d: any) {
       const clipped = clipToRect(d.source.x, d.source.y, d.target.x, d.target.y, NODE_W / 2, NODE_H / 2);
       d3.select(this)
@@ -562,10 +619,12 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
         .attr('x2', clipped.x).attr('y2', clipped.y);
     });
     nodeEls.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
-  });
+  }
+  if (sim) sim.on('tick', updatePositions);
+  else updatePositions();
 
   // Auto-center on focus nodes once simulation settles
-  if (hasFocus) {
+  if (hasFocus && sim) {
     sim.on('end.focus', () => {
       const focusNodesList = nodes.filter((n) => focusSet.has(n.id));
       if (!focusNodesList.length) return;
@@ -589,9 +648,28 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
     });
   }
 
+  // Fit the layered view to its content once (dagre lays out at arbitrary coords).
+  if (isLayered) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      const x = n.x ?? 0, y = n.y ?? 0;
+      if (x - NODE_W / 2 < minX) minX = x - NODE_W / 2;
+      if (x + NODE_W / 2 > maxX) maxX = x + NODE_W / 2;
+      if (y - NODE_H / 2 < minY) minY = y - NODE_H / 2;
+      if (y + NODE_H / 2 > maxY) maxY = y + NODE_H / 2;
+    }
+    const pad = 40;
+    minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+    const bw = maxX - minX || 1, bh = maxY - minY || 1;
+    const scale = Math.min(width / bw, height / bh, 1.5);
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    const transform = d3.zoomIdentity.translate(width / 2 - cx * scale, height / 2 - cy * scale).scale(scale);
+    (svg as any).call(zoom.transform, transform);
+  }
+
   return {
     nodes,
-    destroy: () => { sim.stop(); container.innerHTML = ''; },
+    destroy: () => { if (sim) sim.stop(); container.innerHTML = ''; },
     zoomIn: () => (svg as any).transition().duration(300).call(zoom.scaleBy, 1.4),
     zoomOut: () => (svg as any).transition().duration(300).call(zoom.scaleBy, 0.7),
     resetView: () => (svg as any).transition().duration(300).call(zoom.transform, d3.zoomIdentity),

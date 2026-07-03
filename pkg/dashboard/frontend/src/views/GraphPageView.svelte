@@ -17,6 +17,8 @@
   let statusFilter = $state('all');
   let nameFilter = $state('');
 
+  let activeFilterFn = $derived((statusFilter === 'all' && !nameFilter) ? undefined : filterFn);
+
   async function loadGraph() {
     loading = true;
     try {
@@ -73,11 +75,13 @@
     <div class="graph-controls">
       <button type="button" class="btn btn-sm" onclick={() => graphRef?.zoomIn()} title="Zoom in">+</button>
       <button type="button" class="btn btn-sm" onclick={() => graphRef?.zoomOut()} title="Zoom out">−</button>
-      <button type="button" class="btn btn-sm" onclick={() => graphRef?.resetView()} title="Reset">↻</button>
+      <button type="button" class="btn btn-sm" onclick={() => graphRef?.reset()} title="Reset view">↻</button>
     </div>
     <GraphCanvas
       bind:this={graphRef}
       {graphData}
+      layout="layered"
+      filterFn={activeFilterFn}
       height={Math.min(window.innerHeight - 200, 600)}
       onNavigate={(name) => location.hash = serviceUrl(name)}
     />

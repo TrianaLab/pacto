@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { extractSubgraph, nodeLabel, buildVersionSubgraph } from './graph.ts';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { extractSubgraph, nodeLabel, buildVersionSubgraph, renderGraph, type GraphData } from './graph.ts';
 
 const sampleGraph = {
   nodes: [
@@ -162,5 +162,62 @@ describe('buildVersionSubgraph', () => {
     const g = buildVersionSubgraph({ name: 'lonely', dependencies: [] }, [], '1.0.0');
     expect(g.nodes).toHaveLength(1);
     expect(g.nodes[0].edges).toEqual([]);
+  });
+});
+
+describe('renderGraph layered mode', () => {
+  const layeredGraph: GraphData = { nodes: [
+    { id: 'root', serviceName: 'root', status: 'Compliant', edges: [{ targetId: 'a' }] },
+    { id: 'a', serviceName: 'a', status: 'Compliant', edges: [] },
+  ] };
+  let el: HTMLElement;
+  beforeEach(() => { el = document.createElement('div'); document.body.appendChild(el); });
+  afterEach(() => { el.remove(); });
+
+  it('renders an svg and pins node positions (no force sim)', () => {
+    const ctrl = renderGraph(el, layeredGraph, { layout: 'layered', focusId: 'root' });
+    expect(el.querySelector('svg')).toBeTruthy();
+    // layered mode assigns fixed positions to every node
+    expect(ctrl.nodes.every((n) => typeof n.fx === 'number')).toBe(true);
+    ctrl.destroy();
+  });
+
+  it('positions edges (sets line coordinates without a running sim)', () => {
+    const ctrl = renderGraph(el, layeredGraph, { layout: 'layered', focusId: 'root' });
+    const line = el.querySelector('line');
+    expect(line).toBeTruthy();
+    // updatePositions runs once in layered mode; endpoints must be real numbers
+    expect(Number.isFinite(parseFloat(line!.getAttribute('x1')!))).toBe(true);
+    expect(Number.isFinite(parseFloat(line!.getAttribute('x2')!))).toBe(true);
+    ctrl.destroy();
+  });
+
+  it('draws a "+N" chip for nodes with hidden children', () => {
+    const ctrl = renderGraph(el, layeredGraph, {
+      layout: 'layered', focusId: 'root', hidden: new Map([['root', 3]]),
+    });
+    const chip = el.querySelector('.more-chip');
+    expect(chip).toBeTruthy();
+    expect(chip?.textContent).toContain('+3');
+    ctrl.destroy();
+  });
+
+  it('calls onExpand when a chip is clicked, without navigating', () => {
+    const expanded: string[] = [];
+    const navigated: string[] = [];
+    const ctrl = renderGraph(el, layeredGraph, {
+      layout: 'layered', focusId: 'root', hidden: new Map([['root', 2]]),
+      onExpand: (id) => expanded.push(id), onNavigate: (n) => navigated.push(n),
+    });
+    (el.querySelector('.more-chip') as SVGGElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(expanded).toEqual(['root']);
+    expect(navigated).toEqual([]);
+    ctrl.destroy();
+  });
+
+  it('force mode (default) draws no chip', () => {
+    const ctrl = renderGraph(el, layeredGraph, {});
+    expect(el.querySelector('.more-chip')).toBeFalsy();
+    ctrl.destroy();
   });
 });
