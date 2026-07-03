@@ -13,6 +13,13 @@
 
   let totalCount = $derived((dependencies?.length || 0) + (dependents?.length || 0));
 
+  let direction = $state('down');
+  let depth = $state(2);
+  let graphRef = $state(null);
+
+  function setDirection(d) { direction = d; graphRef?.resetExpand(); }
+  function setDepth(d) { depth = Math.max(1, Math.min(6, d)); graphRef?.resetExpand(); }
+
   function svcExists(svcName) {
     return services.some((s) => s.name === svcName);
   }
@@ -28,8 +35,30 @@
 {#if dependencies?.length > 0 || dependents?.length > 0 || crossRefs}
   <CollapsibleSection title="Dependencies" count={totalCount} bind:open {id} {source}>
     {#if graphData}
+      <div class="dep-graph-toolbar">
+        <div class="seg" role="group" aria-label="Tree direction">
+          <button type="button" class="seg-btn" class:active={direction === 'down'} onclick={() => setDirection('down')}>Depends on</button>
+          <button type="button" class="seg-btn" class:active={direction === 'up'} onclick={() => setDirection('up')}>Depended on by</button>
+        </div>
+        <div class="depth-ctrl">
+          <span class="depth-label">Depth</span>
+          <button type="button" class="btn btn-sm" aria-label="Less depth" onclick={() => setDepth(depth - 1)}>−</button>
+          <span class="depth-val">{depth}</span>
+          <button type="button" class="btn btn-sm" aria-label="More depth" onclick={() => setDepth(depth + 1)}>+</button>
+        </div>
+        <button type="button" class="btn btn-sm btn-ghost" onclick={() => graphRef?.resetExpand()}>Reset</button>
+      </div>
       <div class="dep-graph-box">
-        <GraphCanvas {graphData} focusId={name} height={300} onNavigate={(n) => navigate('detail', { name: n })} />
+        <GraphCanvas
+          bind:this={graphRef}
+          {graphData}
+          focusId={name}
+          layout="layered"
+          {direction}
+          {depth}
+          height={420}
+          onNavigate={(n) => navigate('detail', { name: n })}
+        />
       </div>
     {/if}
 
@@ -172,6 +201,19 @@
     background: var(--c-neutral-bg); color: var(--c-text-3);
     vertical-align: middle;
   }
+  .dep-graph-toolbar {
+    display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+    margin-bottom: var(--sp-2);
+  }
+  .seg { display: inline-flex; border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; }
+  .seg-btn {
+    padding: 4px 10px; font-size: var(--text-xs); background: var(--c-surface);
+    color: var(--c-text-3); border: 0; cursor: pointer;
+  }
+  .seg-btn.active { background: var(--c-accent); color: #fff; }
+  .depth-ctrl { display: inline-flex; align-items: center; gap: var(--sp-2); }
+  .depth-label { font-size: var(--text-xs); color: var(--c-text-3); }
+  .depth-val { font-size: var(--text-sm); font-weight: 600; min-width: 1ch; text-align: center; }
   .dep-graph-box {
     border: 1px solid var(--c-border);
     border-radius: var(--radius-sm);
