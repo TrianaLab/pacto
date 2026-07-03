@@ -1,7 +1,6 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import GraphCanvas from '../GraphCanvas.svelte';
-  import GraphModal from '../GraphModal.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
   import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, shortDigest, driftBadgeClass, driftBadgeLabel } from '../lib/format.ts';
   import { navigate, serviceUrl } from '../lib/router.ts';
@@ -17,7 +16,6 @@
   let direction = $state('down');
   let depth = $state(2);
   let graphRef = $state(null);
-  let fullscreen = $state(false);
 
   function setDirection(d) { direction = d; graphRef?.reset(); }
   function setDepth(d) { depth = Math.max(1, Math.min(6, d)); graphRef?.reset(); }
@@ -49,9 +47,6 @@
           <button type="button" class="btn btn-sm" aria-label="More depth" disabled={depth >= 6} onclick={() => setDepth(depth + 1)}>+</button>
         </div>
         <button type="button" class="btn btn-sm btn-ghost" onclick={() => graphRef?.reset()}>Reset</button>
-        <button type="button" class="fullscreen-btn" title="Full screen" aria-label="Full screen" onclick={() => fullscreen = true}>
-          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 5V2h3M12 5V2H9M2 9v3h3M12 9v3H9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
       </div>
       <div class="dep-graph-box">
         <GraphCanvas
@@ -65,16 +60,6 @@
           onNavigate={(n) => navigate('detail', { name: n })}
         />
       </div>
-      <GraphModal
-        open={fullscreen}
-        {graphData}
-        focusId={name}
-        bind:direction
-        bind:depth
-        showControls
-        onNavigate={(n) => navigate('detail', { name: n })}
-        onClose={() => fullscreen = false}
-      />
     {/if}
 
     {#if dependencies?.length > 0}
@@ -229,17 +214,6 @@
   .depth-ctrl { display: inline-flex; align-items: center; gap: var(--sp-2); }
   .depth-label { font-size: var(--text-xs); color: var(--c-text-3); }
   .depth-val { font-size: var(--text-sm); font-weight: 600; min-width: 1ch; text-align: center; }
-  .fullscreen-btn {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 26px; height: 26px;
-    background: none;
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-xs);
-    color: var(--c-text-3);
-    cursor: pointer;
-  }
-  .fullscreen-btn:hover { background: var(--c-surface-hover, var(--c-surface-inset)); color: var(--c-text); }
-  .fullscreen-btn svg { width: 14px; height: 14px; }
   .dep-graph-box {
     border: 1px solid var(--c-border);
     border-radius: var(--radius-sm);

@@ -5,7 +5,7 @@
 
   let {
     graphData = null, focusId = null, height = 400, onNavigate, filterFn, focusNodes = null,
-    layout = 'force', direction = 'down', depth = 2, childCap = 12, maxFitScale = 1.5,
+    layout = 'force', direction = 'down', depth = 2, childCap = 12,
   } = $props();
 
   let containerEl = $state(null);
@@ -49,7 +49,6 @@
       layout,
       hidden,
       onExpand,
-      maxFitScale,
     });
   }
 
