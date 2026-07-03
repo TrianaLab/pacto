@@ -60,15 +60,19 @@ export function computeVisible(graphData: GraphData, opts: VisibleOptions): Visi
   // direction-children adjacency:
   //  'down' -> a node's own edge targets (its dependencies/references)
   //  'up'   -> nodes that point at it (its dependents)
-  const childrenOf = new Map<string, string[]>();
-  for (const nn of all) childrenOf.set(nn.id, []);
+  // Deduped by targetId (a node can have both a dependency and a config/policy
+  // reference to the same target) so the cap and "+N" hidden count agree.
+  const childSets = new Map<string, Set<string>>();
+  for (const nn of all) childSets.set(nn.id, new Set());
   for (const nn of all) {
     for (const e of nn.edges || []) {
       if (!nodeMap.has(e.targetId)) continue;
-      if (direction === 'down') childrenOf.get(nn.id)!.push(e.targetId);
-      else childrenOf.get(e.targetId)!.push(nn.id);
+      if (direction === 'down') childSets.get(nn.id)!.add(e.targetId);
+      else childSets.get(e.targetId)!.add(nn.id);
     }
   }
+  const childrenOf = new Map<string, string[]>();
+  for (const [k, v] of childSets) childrenOf.set(k, [...v]);
 
   const visible = new Set<string>([root.id]);
   const depthOf = new Map<string, number>([[root.id, 0]]);

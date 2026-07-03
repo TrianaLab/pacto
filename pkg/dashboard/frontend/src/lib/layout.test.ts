@@ -73,6 +73,30 @@ describe('computeVisible', () => {
     expect(r.hidden.get('r')).toBe(3);
   });
 
+  it('reveals all children (uncapped) for an expanded node past the cap', () => {
+    const wide: GraphData = { nodes: [
+      { id: 'r', serviceName: 'r', status: 'Compliant',
+        edges: Array.from({ length: 15 }, (_, i) => ({ targetId: `c${i}` })) },
+      ...Array.from({ length: 15 }, (_, i) => ({ id: `c${i}`, serviceName: `c${i}`, status: 'Compliant', edges: [] })),
+    ] };
+    const r = computeVisible(wide, opts({ rootId: 'r', depth: 1, childCap: 12, expanded: new Set(['r']) }));
+    expect(r.nodes.filter((x) => x.id.startsWith('c')).length).toBe(15);
+    expect(r.hidden.has('r')).toBe(false);
+  });
+
+  it('dedupes duplicate edges to the same target in the hidden count', () => {
+    // c has both a dependency and a reference edge to the same node d
+    const dup: GraphData = { nodes: [
+      { id: 'root', serviceName: 'root', status: 'Compliant', edges: [{ targetId: 'c' }] },
+      { id: 'c', serviceName: 'c', status: 'Compliant', edges: [
+        { targetId: 'd', type: 'dependency' }, { targetId: 'd', type: 'reference' } ] },
+      { id: 'd', serviceName: 'd', status: 'Compliant', edges: [] },
+    ] };
+    const r = computeVisible(dup, opts({ rootId: 'root', depth: 1 }));
+    // c is a frontier node (depth 1, no descent); d is its one distinct hidden child
+    expect(r.hidden.get('c')).toBe(1);
+  });
+
   it('is cycle-safe', () => {
     const cyc: GraphData = { nodes: [
       { id: 'x', serviceName: 'x', status: 'Compliant', edges: [{ targetId: 'y' }] },

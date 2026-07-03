@@ -431,7 +431,9 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
         .attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
         .attr('font-size', '10px').attr('font-weight', '600').attr('fill', '#fff')
         .text(`+${count}`);
-      chip.on('mousedown', (e) => e.stopPropagation()); // don't start a drag
+      // stop both mouse and touch from starting the parent node's d3-drag —
+      // otherwise a tap ends as a click-navigate instead of an expand.
+      chip.on('mousedown touchstart', (e) => e.stopPropagation());
       chip.on('click', (e) => { e.stopPropagation(); onExpand?.(d.id); });
     });
   }

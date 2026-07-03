@@ -83,6 +83,7 @@
       bind:this={graphRef}
       {graphData}
       layout={graphMode}
+      filterFn={(statusFilter === 'all' && !nameFilter) ? undefined : filterFn}
       height={Math.min(window.innerHeight - 200, 600)}
       onNavigate={(name) => location.hash = serviceUrl(name)}
     />

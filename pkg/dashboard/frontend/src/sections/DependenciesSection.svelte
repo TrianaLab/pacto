@@ -37,14 +37,14 @@
     {#if graphData}
       <div class="dep-graph-toolbar">
         <div class="seg" role="group" aria-label="Tree direction">
-          <button type="button" class="seg-btn" class:active={direction === 'down'} onclick={() => setDirection('down')}>Depends on</button>
-          <button type="button" class="seg-btn" class:active={direction === 'up'} onclick={() => setDirection('up')}>Depended on by</button>
+          <button type="button" class="seg-btn" class:active={direction === 'down'} aria-pressed={direction === 'down'} onclick={() => setDirection('down')}>Depends on</button>
+          <button type="button" class="seg-btn" class:active={direction === 'up'} aria-pressed={direction === 'up'} onclick={() => setDirection('up')}>Depended on by</button>
         </div>
         <div class="depth-ctrl">
           <span class="depth-label">Depth</span>
-          <button type="button" class="btn btn-sm" aria-label="Less depth" onclick={() => setDepth(depth - 1)}>−</button>
-          <span class="depth-val">{depth}</span>
-          <button type="button" class="btn btn-sm" aria-label="More depth" onclick={() => setDepth(depth + 1)}>+</button>
+          <button type="button" class="btn btn-sm" aria-label="Less depth" disabled={depth <= 1} onclick={() => setDepth(depth - 1)}>−</button>
+          <span class="depth-val" aria-live="polite">{depth}</span>
+          <button type="button" class="btn btn-sm" aria-label="More depth" disabled={depth >= 6} onclick={() => setDepth(depth + 1)}>+</button>
         </div>
         <button type="button" class="btn btn-sm btn-ghost" onclick={() => graphRef?.resetExpand()}>Reset</button>
       </div>
