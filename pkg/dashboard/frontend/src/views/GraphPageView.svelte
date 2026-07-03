@@ -16,6 +16,7 @@
   let graphRef = $state(null);
   let statusFilter = $state('all');
   let nameFilter = $state('');
+  let graphMode = $state('force');
 
   async function loadGraph() {
     loading = true;
@@ -74,10 +75,14 @@
       <button type="button" class="btn btn-sm" onclick={() => graphRef?.zoomIn()} title="Zoom in">+</button>
       <button type="button" class="btn btn-sm" onclick={() => graphRef?.zoomOut()} title="Zoom out">−</button>
       <button type="button" class="btn btn-sm" onclick={() => graphRef?.resetView()} title="Reset">↻</button>
+      <button type="button" class="btn btn-sm" onclick={() => graphMode = graphMode === 'force' ? 'layered' : 'force'} title="Toggle layout">
+        {graphMode === 'force' ? 'Tree view' : 'Force view'}
+      </button>
     </div>
     <GraphCanvas
       bind:this={graphRef}
       {graphData}
+      layout={graphMode}
       height={Math.min(window.innerHeight - 200, 600)}
       onNavigate={(name) => location.hash = serviceUrl(name)}
     />
