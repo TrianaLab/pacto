@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"testing/fstest"
 
 	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/dashboard"
 	"github.com/trianalab/pacto/v2/pkg/graph"
 )
 
@@ -26,6 +26,9 @@ func TestDoc_Local(t *testing.T) {
 	}
 	if result.Path != "" {
 		t.Errorf("expected empty path when no output dir, got %s", result.Path)
+	}
+	if result.Details == nil || result.Details.Name != "test-svc" {
+		t.Fatalf("expected populated snapshot, got %+v", result.Details)
 	}
 }
 
@@ -77,7 +80,7 @@ func TestDoc_NotFound(t *testing.T) {
 
 func TestDoc_GenerateError(t *testing.T) {
 	original := generateDoc
-	generateDoc = func(_ *contract.Contract, _ fs.FS, _ *graph.Result) (string, error) {
+	generateDoc = func(_ *dashboard.ServiceDetails, _ *graph.Result) (string, error) {
 		return "", fmt.Errorf("generate failed")
 	}
 	t.Cleanup(func() { generateDoc = original })

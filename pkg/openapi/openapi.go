@@ -1,4 +1,8 @@
-package doc
+// Package openapi parses OpenAPI specs (YAML or JSON) into a flat list of
+// endpoints. It is a dependency-light leaf package so both the documentation
+// generator (pkg/doc) and the dashboard (pkg/dashboard) can consume it without
+// creating an import cycle.
+package openapi
 
 import (
 	"encoding/json"
@@ -17,7 +21,7 @@ type Endpoint struct {
 	Summary string
 }
 
-// httpMethods is the set of valid HTTP methods in standard display order.
+// httpMethodOrder is the set of valid HTTP methods in standard display order.
 var httpMethodOrder = map[string]int{
 	"get":     0,
 	"post":    1,
