@@ -197,9 +197,9 @@ pacto doc [dir | oci://ref] [flags]
 ```
   -h, --help                 help for doc
       --interface string     interface name to display (used with --ui)
-  -o, --output string        output directory for generated Markdown file
+  -o, --output string        output directory for generated Markdown; a NAME.html value writes a static documentation site to a NAME/ directory instead
       --port int             port for the documentation server (used with --serve or --ui) (default 8484)
-      --serve                start a local HTTP server to view documentation in the browser
+      --serve                serve the offline dashboard-grade documentation site over a local HTTP server
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
       --target stringArray   target server URL for try-it-out requests; supports interface=url mapping (used with --ui)
       --ui string            UI type for interactive API explorer (e.g. swagger)

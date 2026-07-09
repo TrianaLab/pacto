@@ -2,34 +2,108 @@ package doc
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestServe(t *testing.T) {
+func staticFiles() map[string][]byte {
+	return map[string][]byte{
+		"index.html":     []byte("<html>ok</html>"),
+		"assets/app.js":  []byte("//js"),
+		"assets/app.css": []byte("/*css*/"),
+		"data.json":      []byte(`{"k":1}`),
+		"icon.svg":       []byte("<svg/>"),
+	}
+}
+
+func TestServeStaticOnListener_ServesIndexAndFiles(t *testing.T) {
+	files := staticFiles()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- ServeStaticOnListener(ctx, files, ln) }()
+	time.Sleep(50 * time.Millisecond)
+
+	cases := []struct {
+		path       string
+		wantStatus int
+		wantBody   string
+		wantCType  string
+	}{
+		{"/", 200, "ok", "text/html; charset=utf-8"},
+		{"/index.html", 200, "ok", "text/html; charset=utf-8"},
+		{"/assets/app.js", 200, "//js", "text/javascript; charset=utf-8"},
+		{"/assets/app.css", 200, "/*css*/", "text/css; charset=utf-8"},
+		{"/data.json", 200, `{"k":1}`, "application/json"},
+		{"/icon.svg", 200, "<svg/>", "image/svg+xml"},
+		{"/missing", 404, "", ""},
+	}
+	for _, c := range cases {
+		resp, err := http.Get("http://" + addr + c.path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", c.path, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != c.wantStatus {
+			t.Errorf("%s: status = %d, want %d", c.path, resp.StatusCode, c.wantStatus)
+		}
+		if c.wantBody != "" && !strings.Contains(string(body), c.wantBody) {
+			t.Errorf("%s: body = %q, want contains %q", c.path, body, c.wantBody)
+		}
+		if c.wantCType != "" && resp.Header.Get("Content-Type") != c.wantCType {
+			t.Errorf("%s: content-type = %q, want %q", c.path, resp.Header.Get("Content-Type"), c.wantCType)
+		}
+	}
+
+	cancel()
+	if err := <-errCh; err != nil {
+		t.Errorf("serve returned error: %v", err)
+	}
+}
+
+func TestServeStaticOnListener_ClosedListener(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	// Close before serving so srv.Serve returns immediately, exercising the
+	// errCh branch of the select.
+	_ = ln.Close()
+
+	if err := ServeStaticOnListener(context.Background(), staticFiles(), ln); err == nil {
+		t.Error("expected error for closed listener")
+	}
+}
+
+func TestServeStatic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	errCh := make(chan error, 1)
-	go func() {
-		errCh <- Serve(ctx, "# Test", "test-title", 0)
-	}()
+	go func() { errCh <- ServeStatic(ctx, staticFiles(), 0) }()
 
-	// Give it a moment to start, then cancel
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 
 	if err := <-errCh; err != nil {
-		t.Errorf("Serve returned error: %v", err)
+		t.Errorf("ServeStatic returned error: %v", err)
 	}
 }
 
-func TestServe_ListenError(t *testing.T) {
-	// Bind to a port, then try to Serve on the same port to trigger listen error.
+func TestServeStatic_ListenError(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -37,118 +111,49 @@ func TestServe_ListenError(t *testing.T) {
 	defer func() { _ = ln.Close() }()
 
 	port := ln.Addr().(*net.TCPAddr).Port
-	err = Serve(context.Background(), "# Test", "test", port)
-	if err == nil {
-		t.Error("expected error when port is already in use")
+	if err := ServeStatic(context.Background(), staticFiles(), port); err == nil {
+		t.Error("expected listen error for in-use port")
 	}
 }
 
-func TestServeOnListener_ClosedListener(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
+func TestWriteStaticExport(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string][]byte{
+		"index.html":    []byte("<html>"),
+		"assets/app.js": []byte("//js"),
 	}
-	// Close the listener before ServeOnListener uses it — this forces
-	// srv.Serve to return immediately with an error, exercising the
-	// errCh branch of the select in ServeOnListener.
-	_ = ln.Close()
-
-	err = ServeOnListener(context.Background(), "# Test", "test", ln)
-	if err == nil {
-		t.Error("expected error for closed listener")
+	if err := WriteStaticExport(files, dir); err != nil {
+		t.Fatalf("WriteStaticExport: %v", err)
 	}
-}
-
-func TestServeOnListener(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	addr := ln.Addr().String()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- ServeOnListener(ctx, "# Hello\nworld", "test-svc", ln)
-	}()
-
-	// Give the server a moment to start serving.
-	time.Sleep(50 * time.Millisecond)
-
-	resp, err := http.Get(fmt.Sprintf("http://%s/", addr))
-	if err != nil {
-		t.Fatalf("GET failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected 200, got %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read body: %v", err)
-	}
-
-	html := string(body)
-
-	if !strings.Contains(html, "<title>test-svc</title>") {
-		t.Error("expected title in HTML")
-	}
-	if !strings.Contains(html, "# Hello") {
-		t.Error("expected markdown content in HTML")
-	}
-	if !strings.Contains(html, "marked.parse") {
-		t.Error("expected marked.js script in HTML")
-	}
-
-	cancel()
-
-	if err := <-errCh; err != nil {
-		t.Errorf("serve returned error: %v", err)
+	for p, want := range files {
+		got, err := os.ReadFile(filepath.Join(dir, p))
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("%s: got %q, want %q", p, got, want)
+		}
 	}
 }
 
-func TestServeOnListener_HTMLEscaping(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
+func TestWriteStaticExport_MkdirError(t *testing.T) {
+	dir := t.TempDir()
+	// Place a file where a parent directory is needed, so MkdirAll fails.
+	if err := os.WriteFile(filepath.Join(dir, "assets"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	addr := ln.Addr().String()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- ServeOnListener(ctx, "<script>alert('xss')</script>", "ti<tle", ln)
-	}()
-
-	time.Sleep(50 * time.Millisecond)
-
-	resp, err := http.Get(fmt.Sprintf("http://%s/", addr))
-	if err != nil {
-		t.Fatalf("GET failed: %v", err)
+	if err := WriteStaticExport(map[string][]byte{"assets/app.js": []byte("//js")}, dir); err == nil {
+		t.Error("expected MkdirAll error")
 	}
-	defer func() { _ = resp.Body.Close() }()
+}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read body: %v", err)
+func TestWriteStaticExport_WriteFileError(t *testing.T) {
+	dir := t.TempDir()
+	// Place a directory where the file is expected, so WriteFile fails.
+	if err := os.MkdirAll(filepath.Join(dir, "index.html"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-
-	html := string(body)
-
-	// Title is injected into real HTML and must be escaped.
-	if strings.Contains(html, "ti<tle") {
-		t.Error("title was not HTML-escaped")
+	if err := WriteStaticExport(map[string][]byte{"index.html": []byte("x")}, dir); err == nil {
+		t.Error("expected WriteFile error")
 	}
-	// Markdown is stored in a textarea; HTML entities are decoded by the
-	// browser via .value, allowing HTML tags like <details> to pass through
-	// to marked.js. This is safe because the server is local-only.
-
-	cancel()
-	<-errCh
 }

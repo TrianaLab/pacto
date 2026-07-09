@@ -12,6 +12,10 @@ import (
 	"github.com/trianalab/pacto/v2/pkg/doc"
 )
 
+// buildStaticExport is a package-level indirection so tests can exercise the
+// otherwise-unreachable export-failure branch (the real embedded UI never fails).
+var buildStaticExport = doc.BuildStaticExport
+
 func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doc [dir | oci://ref]",
@@ -55,9 +59,17 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				return err
 			}
 
+			// -o NAME.html writes a static site directory, not a Markdown file,
+			// so app.Doc must not also drop a stray Markdown file into it.
+			htmlOut := output != "" && strings.HasSuffix(output, ".html")
+			outputDir := output
+			if htmlOut {
+				outputDir = ""
+			}
+
 			result, err := svc.Doc(cmd.Context(), app.DocOptions{
 				Path:      path,
-				OutputDir: output,
+				OutputDir: outputDir,
 				Overrides: getOverrides(cmd),
 			})
 			if err != nil {
@@ -68,11 +80,26 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				return serveUI(cmd, result, ui, iface, port, targets)
 			}
 			if serve {
+				files, err := buildStaticExport(result.Details, result.Graph)
+				if err != nil {
+					return err
+				}
 				ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 				defer stop()
-				addr := fmt.Sprintf("http://127.0.0.1:%d", port)
-				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Serving documentation at %s\nPress Ctrl+C to stop\n", addr)
-				return doc.Serve(ctx, result.Markdown, result.ServiceName, port)
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Serving documentation at http://127.0.0.1:%d\nPress Ctrl+C to stop\n", port)
+				return doc.ServeStatic(ctx, files, port)
+			}
+			if htmlOut {
+				files, err := buildStaticExport(result.Details, result.Graph)
+				if err != nil {
+					return err
+				}
+				dir := strings.TrimSuffix(output, ".html")
+				if err := doc.WriteStaticExport(files, dir); err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Wrote static site to %s/ (serve it: pacto doc %s --serve, or any static server)\n", dir, path)
+				return nil
 			}
 
 			format := v.GetString(outputFormatKey)
@@ -80,8 +107,8 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringP("output", "o", "", "output directory for generated Markdown file")
-	cmd.Flags().Bool("serve", false, "start a local HTTP server to view documentation in the browser")
+	cmd.Flags().StringP("output", "o", "", "output directory for generated Markdown; a NAME.html value writes a static documentation site to a NAME/ directory instead")
+	cmd.Flags().Bool("serve", false, "serve the offline dashboard-grade documentation site over a local HTTP server")
 	cmd.Flags().String("ui", "", "UI type for interactive API explorer (e.g. swagger)")
 	cmd.Flags().String("interface", "", "interface name to display (used with --ui)")
 	cmd.Flags().Int("port", 8484, "port for the documentation server (used with --serve or --ui)")

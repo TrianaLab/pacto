@@ -725,6 +725,58 @@ func TestDocCommand_ServeFlag(t *testing.T) {
 	}
 }
 
+func TestDocCommand_HTMLOutput(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	tmp := t.TempDir()
+	out := filepath.Join(tmp, "site.html")
+
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
+	root.SetArgs([]string{"doc", "-o", out, bundleDir})
+	var buf bytes.Buffer
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("doc -o site.html failed: %v", err)
+	}
+
+	// NAME.html writes a static site to a NAME/ directory (no stray .md file).
+	idx := filepath.Join(tmp, "site", "index.html")
+	data, err := os.ReadFile(idx)
+	if err != nil {
+		t.Fatalf("expected %s to exist: %v", idx, err)
+	}
+	if !strings.Contains(string(data), "__PACTO_STATIC__") {
+		t.Error("index.html missing __PACTO_STATIC__ snapshot")
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "site.md")); err == nil {
+		t.Error("did not expect a stray Markdown file for NAME.html output")
+	}
+}
+
+func TestDocCommand_HTMLOutput_WriteError(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	tmp := t.TempDir()
+	// Block the target directory: a file where WriteStaticExport needs a dir.
+	blocker := filepath.Join(tmp, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(blocker, "site.html") // dir becomes blocker/site → MkdirAll fails
+
+	svc := app.NewService(nil, nil)
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
+	root.SetArgs([]string{"doc", "-o", out, bundleDir})
+	var buf bytes.Buffer
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+
+	if err := root.Execute(); err == nil {
+		t.Error("expected write error when target directory is blocked")
+	}
+}
+
 func TestDocCommand_ServeMutuallyExclusive(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
