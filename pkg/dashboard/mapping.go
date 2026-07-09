@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v2/pkg/doc"
 	"github.com/trianalab/pacto/v2/pkg/graph"
 	"github.com/trianalab/pacto/v2/pkg/readiness"
+	"github.com/trianalab/pacto/v2/pkg/sbom"
 	"github.com/trianalab/pacto/v2/pkg/schemax"
 	"github.com/trianalab/pacto/v2/pkg/validation"
 )
@@ -91,6 +92,10 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 	// cluster-wide. A nil FS or absent/malformed lock leaves svc untouched.
 	if l, err := lockFromFS(bundle.FS); err == nil {
 		ApplyLock(svc, l)
+	}
+
+	if doc, err := sbom.ParseFromFS(bundle.FS); err == nil {
+		svc.SBOM = doc // nil when the bundle has no SBOM; ParseFromFS returns nil,nil then
 	}
 
 	return svc
