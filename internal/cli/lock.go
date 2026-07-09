@@ -29,7 +29,7 @@ func newLockCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			sp, count := startSpinnerCounted(cmd, format, "Resolving lock")
 			result, err := svc.Lock(cmd.Context(), app.LockOptions{
 				Path:        optionalArg(args),
-				Update:      update || len(names) > 0,
+				Update:      update,
 				UpdateNames: names,
 				Check:       check,
 				Overrides:   getOverrides(cmd),
@@ -48,7 +48,7 @@ func newLockCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool("update", false, "re-resolve dependencies to the newest version within their constraint")
-	cmd.Flags().StringArray("update-name", nil, "only update the named dependency (repeatable; implies --update)")
+	cmd.Flags().StringArray("update-name", nil, "re-resolve only the named dependency, preserving all other pins (repeatable)")
 	cmd.Flags().Bool("check", false, "verify pacto.lock is up to date without writing (non-zero exit on drift)")
 	addOverrideFlags(cmd)
 	return cmd
