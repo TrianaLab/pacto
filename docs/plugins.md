@@ -1,7 +1,7 @@
 # Plugin Development
 Pacto uses an out-of-process plugin architecture for artifact generation. A plugin is a standalone executable that receives a contract via JSON on stdin and writes generated file descriptions to stdout.
 
-This means you can turn a Pacto contract into anything — Helm charts, Terraform modules, Kubernetes manifests, monitoring configs — using any language you want.
+A plugin can turn a contract into any artifact — Helm charts, Terraform, Kubernetes manifests — in any language.
 
 ---
 ## Official plugins
@@ -13,6 +13,8 @@ Pacto ships with two official plugins that are automatically installed alongside
 | **pacto-plugin-schema-infer** | Infers a JSON Schema from sample configuration files (JSON, YAML, TOML) for use in Pacto contracts. |
 | **pacto-plugin-openapi-infer** | Auto-detects web frameworks and extracts OpenAPI 3.1 specs from source code. Currently supports FastAPI and Huma. |
 
+Both `*-infer` plugins are the composition on-ramp: they derive the interfaces you already have — a service's HTTP API from its source, its config shape from real config files — instead of asking you to hand-author a schema. Compose what already exists rather than reinvent it.
+
 These plugins are maintained in the [pacto-plugins](https://github.com/TrianaLab/pacto-plugins) repository. Refer to each plugin's README for detailed usage and options:
 
 - [pacto-plugin-schema-infer](https://github.com/TrianaLab/pacto-plugins/tree/main/plugins/pacto-plugin-schema-infer)
@@ -22,13 +24,15 @@ These plugins are maintained in the [pacto-plugins](https://github.com/TrianaLab
 
 ## Why plugins?
 
-Pacto describes *what* a service is. Plugins decide *how* to deploy it. The contract is the input; deployment artifacts are the output. This separation keeps Pacto platform-agnostic while letting each team generate exactly the artifacts their infrastructure needs.
+Pacto describes *what* a service is. Plugins decide *how* to deploy it. The contract is the input; deployment artifacts are the output.
+
+Plugins run in both directions: the `*-infer` plugins run inward (composing interfaces you already have into the contract), while generate plugins run outward (turning the contract into deployment artifacts). One schema describes a single interface; the contract describes how those interfaces relate and change.
 
 The plugin design is:
 
-- **Language-agnostic** — write plugins in Go, Python, Rust, Bash, or anything
+- **Language-agnostic** — write plugins in Go, Python, Rust, Bash or anything
 - **Version-independent** — plugins don't link against Pacto libraries
-- **Sandboxed** — plugins receive a read-only view of the contract
+- **Isolated input** — the plugin gets a serialized, read-only snapshot of the contract on stdin and cannot mutate Pacto's state; Pacto bounds it with a timeout and output cap but does not OS-sandbox the process
 
 ---
 
@@ -41,7 +45,7 @@ sequenceDiagram
     participant Plugin as pacto-plugin-helm
 
     User->>Pacto: pacto generate helm pacto.yaml
-    Pacto->>Pacto: Load and validate contract
+    Pacto->>Pacto: Load and parse contract
     Pacto->>Plugin: Spawn process, write JSON to stdin
     Plugin->>Plugin: Read contract, generate files
     Plugin->>Pacto: Write JSON response to stdout
@@ -50,7 +54,7 @@ sequenceDiagram
 ```
 
 1. The user runs `pacto generate <plugin-name> [path]`
-2. Pacto loads and validates the contract
+2. Pacto loads and parses the contract
 3. Pacto finds the plugin binary (`pacto-plugin-<name>`)
 4. Pacto writes a `GenerateRequest` JSON to the plugin's stdin
 5. The plugin reads the request, generates artifacts, and writes a `GenerateResponse` JSON to stdout
@@ -81,7 +85,7 @@ Pacto writes a JSON object to the plugin's stdin:
 {
   "protocolVersion": "1",
   "contract": {
-    "pactoVersion": "1.0",
+    "pactoVersion": "1.2",
     "service": {
       "name": "my-service",
       "version": "1.0.0"
@@ -102,11 +106,11 @@ Pacto writes a JSON object to the plugin's stdin:
 |-------|------|-------------|
 | `protocolVersion` | string | Always `"1"` for the current protocol |
 | `contract` | object | The full parsed contract (same structure as `pacto.yaml`) |
-| `bundleDir` | string | Absolute path to the bundle directory (read-only) |
+| `bundleDir` | string | Absolute path to the bundle directory. Treat as read-only (for local contracts this is the real bundle directory; Pacto does not enforce read-only). |
 | `outputDir` | string | Absolute path where output files should go |
 | `options` | object | User-provided key-value options (from CLI flags) |
 
-The contract object contains everything from `pacto.yaml` — runtime semantics, interfaces, dependencies, scaling. Your plugin can use any combination of these fields to generate artifacts.
+The contract object mirrors `pacto.yaml` exactly.
 
 ### Response (stdout)
 
@@ -137,7 +141,7 @@ The plugin writes a JSON object to stdout:
 
 #### Path safety
 
-`files[].path` must be a **relative path that stays within the output directory**. Pacto rejects any path that escapes it — absolute paths and paths containing `..` are refused. Always return relative paths scoped to `outputDir`.
+`files[].path` must be a relative path within the output directory. Absolute paths and paths containing `..` are rejected. Always return clean relative paths.
 
 ### Errors
 
@@ -203,82 +207,6 @@ pacto generate readme my-service
 
 ---
 
-## Example: Plugin in Go
-
-```go
-package main
-
-import (
-    "encoding/json"
-    "fmt"
-    "os"
-)
-
-type Contract struct {
-    Service struct {
-        Name    string `json:"name"`
-        Version string `json:"version"`
-    } `json:"service"`
-    Runtime struct {
-        Workload string `json:"workload"`
-        State struct {
-            Type string `json:"type"`
-        } `json:"state"`
-    } `json:"runtime"`
-}
-
-type Request struct {
-    ProtocolVersion string   `json:"protocolVersion"`
-    Contract        Contract `json:"contract"`
-    BundleDir       string   `json:"bundleDir"`
-    OutputDir       string   `json:"outputDir"`
-    Options         map[string]any `json:"options"`
-}
-
-type File struct {
-    Path    string `json:"path"`
-    Content string `json:"content"`
-}
-
-type Response struct {
-    Files   []File `json:"files"`
-    Message string `json:"message,omitempty"`
-}
-
-func main() {
-    var req Request
-    if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
-        fmt.Fprintf(os.Stderr, "failed to read request: %v\n", err)
-        os.Exit(1)
-    }
-
-    content := fmt.Sprintf("# %s v%s\nWorkload: %s\nState: %s\n",
-        req.Contract.Service.Name,
-        req.Contract.Service.Version,
-        req.Contract.Runtime.Workload,
-        req.Contract.Runtime.State.Type,
-    )
-
-    resp := Response{
-        Files: []File{
-            {Path: "README.md", Content: content},
-        },
-        Message: fmt.Sprintf("Generated README for %s", req.Contract.Service.Name),
-    }
-
-    json.NewEncoder(os.Stdout).Encode(resp)
-}
-```
-
-Build and install:
-
-```bash
-go build -o pacto-plugin-readme .
-mv pacto-plugin-readme /usr/local/bin/
-```
-
----
-
 ## Example: Plugin in Python
 
 ```python
@@ -333,8 +261,6 @@ if __name__ == "__main__":
 
 - **Read only from `bundleDir`.** Don't access files outside the bundle.
 - **Write only to stdout.** Don't write files directly; return them in the response. Pacto handles file creation.
-- **Return relative paths within the output dir.** Pacto rejects file paths that escape the output directory (no `..`, no absolute paths).
-- **Use stderr for errors.** Anything on stderr is shown to the user on failure.
-- **Exit non-zero on failure.** Pacto checks the exit code.
+- **Follow the protocol.** Return clean relative paths, write errors to stderr and exit non-zero on failure — see [Path safety](#path-safety) and [Errors](#errors) above for what Pacto enforces.
 - **Be deterministic.** Given the same input, produce the same output.
 - **Handle missing optional fields.** Not all contracts have `runtime`, `configurations`, `dependencies`, `scaling`, etc.

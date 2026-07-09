@@ -69,7 +69,7 @@ metadata:
 ```
 
 !!! note
-    The `amqp` interface uses `type: grpc` as the closest available protocol type for RabbitMQ's AMQP binary protocol. The Pacto schema currently supports `http`, `grpc`, and `event` — there is no dedicated `tcp` type. The `.proto` contract file is illustrative; in practice you may omit the interface or use a custom schema.
+    The `amqp` interface uses `type: grpc` as the closest available protocol type for RabbitMQ's AMQP binary protocol — Pacto has no dedicated `tcp` type (see [interface fields](../contract-reference.md#interfaces) for the supported types). The `.proto` contract file is illustrative; you can omit the interface if you don't publish a protobuf.
 
 ### Key decisions
 

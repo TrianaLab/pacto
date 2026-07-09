@@ -1,6 +1,8 @@
 # Contract Reference (v1.2)
 A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface — interfaces, dependencies, runtime behavior, configuration, scaling and readiness. This page covers every section, field, validation rule and change classification rule.
 
+Each `interfaces`, `configurations` and `policies` entry points at a schema you already have — an OpenAPI spec, a protobuf or event definition, a JSON Schema — so a contract composes the interfaces you already own rather than inventing a new configuration language. On top of that it adds what no single schema can express: ownership, dependencies, compatibility, readiness and how they change over time.
+
 ---
 
 The canonical JSON Schemas are available per version:
@@ -81,11 +83,7 @@ Pacto auto-detects the format by file extension. Place one or more SBOM files di
 
 **Generating an SBOM:**
 
-Use any standard SBOM generator. Recommended tools:
-
-- [Syft](https://github.com/anchore/syft) — `syft . -o spdx-json=sbom/sbom.spdx.json`
-- [Trivy](https://github.com/aquasecurity/trivy) — `trivy fs . --format spdx-json -o sbom/sbom.spdx.json`
-- [cdxgen](https://github.com/CycloneDX/cdxgen) — `cdxgen -o sbom/bom.cdx.json`
+Generate with any standard tool ([Syft](https://github.com/anchore/syft), [Trivy](https://github.com/aquasecurity/trivy), [cdxgen](https://github.com/CycloneDX/cdxgen)) writing SPDX/CycloneDX JSON into `sbom/`.
 
 ---
 
@@ -294,17 +292,13 @@ The dashboard uses a canonical owner key for aggregation and navigation:
 1. If owner has `team` → uses `team`
 2. If owner has `dri` (no team) → uses `dri`
 
-This key is used consistently across the owners aggregation view (`#/owners`), owner detail view (`#/owners/:key`), service list filtering and dependency graph highlighting.
-
-The owners aggregation view (`#/owners`) includes a stacked horizontal bar chart showing the compliance breakdown per owner — Compliant (green), Warning (yellow), Non-Compliant (red), and Reference (gray). The chart is sorted by number of services descending. Clicking any bar navigates to the owner detail view. Hovering shows a tooltip with the full breakdown and compliance percentage.
-
-The owner detail view (`#/owners/:key`) surfaces all available structured ownership metadata — team, DRI, and contacts with their type, value, and purpose — in a clean metadata block. When the owner has a dependency graph, owned services are persistently emphasized with a three-tier visual hierarchy (owned → direct dependencies → rest), auto-centered viewport, and stable highlighting that survives hover interactions.
+This key is used consistently across the owners aggregation view (`#/owners`), owner detail view (`#/owners/:key`), service list filtering and dependency graph highlighting. See [Platform engineers — dashboard](platform-engineers.md) for how the dashboard renders these views.
 
 ---
 
 ### `interfaces`
 
-Declares the service's communication boundaries. Optional — a service with no network interfaces (e.g. a batch job or shared library) may omit this section entirely.
+Declares the service's communication boundaries. Optional — a service with no network interfaces (e.g. a batch job or shared library) may omit this section entirely. The `contract` field points at the interface definition you already publish — an OpenAPI spec, a `.proto` or an event schema — so Pacto references your existing interface rather than redefining it.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -344,7 +338,7 @@ When `schema` is used, the configuration schema is a local file within the bundl
 
 Required configuration keys are derived from the JSON Schema's `required` array.
 
-The optional `values` field provides default configuration values that are validated against the referenced JSON Schema. When using `ref`, values validation is deferred to runtime resolution. This is useful for documenting expected defaults or providing environment-specific overrides via the `--set` and `--values` flags (see [Contract overrides](#contract-overrides)).
+The optional `values` field provides default configuration values that are validated against the local `schema`. A `ref:` entry carries no `values` — the two are mutually exclusive (see above); to attach values, vendor a local `schema:`. Values are useful for documenting expected defaults or providing environment-specific overrides via the `--set` and `--values` flags (see [Contract overrides](#contract-overrides)).
 
 !!! tip
     All files referenced by the contract — including the configuration schema — are packaged into the bundle when you run `pacto push`. The bundle is a self-contained OCI artifact that includes `pacto.yaml`, interface contracts, the configuration schema, and any other files in the contract directory.
@@ -404,7 +398,7 @@ Your configuration JSON Schema should declare secret fields as strings:
 
 ### Configuration Schema Ownership Models
 
-The configurations schema field is an **interface**. It defines a boundary between a service and its environment. The schema itself is always a JSON Schema document — but its *meaning* depends on who defines it.
+The configurations schema field is an **interface**. It defines a boundary between a service and its environment. The schema itself is always a JSON Schema document — but its *meaning* depends on who defines it. Because it is a plain JSON Schema, this is usually a schema you already have rather than one written for Pacto — a service's configuration interface is often its Helm chart's `values.schema.json`, vendored into the bundle (see below). Compose the interface you already have; Pacto is deliberately not another configuration language.
 
 #### Service-Defined Schema
 
@@ -416,11 +410,7 @@ configurations:
     schema: configuration/schema.json
 ```
 
-Characteristics:
-
-- **High portability** — the contract carries its own requirements, deployable on any platform
-- **Service autonomy** — each team defines exactly what their service needs
-- **Common in** open-source projects, small teams, and services that run across multiple environments
+The contract carries its own requirements, so each team defines exactly what its service needs and the bundle deploys on any platform. See [Composition patterns](patterns.md) for when to choose this model.
 
 #### Platform-Defined Schema
 
@@ -444,12 +434,7 @@ configurations:
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
-Characteristics:
-
-- **Standardization** — all services on the platform share a common configuration vocabulary
-- **Strong governance** — the platform team controls what configuration is available and validates it centrally
-- **Platform-as-a-product model** — the schema becomes part of the platform's public interface
-- **Centralized or vendored** — choose between referencing the schema via OCI or vendoring it locally
+All services share a common configuration vocabulary the platform team controls and validates centrally — whether referenced via OCI or vendored locally. See [Platform engineers](platform-engineers.md) and [Composition patterns](patterns.md) for the platform-as-a-product recipe.
 
 !!! info
     In Pacto, the configuration schema is an **interface**. Depending on ownership, it describes either:
@@ -636,7 +621,7 @@ A plain string describing the workload type. Enum: `service`, `job`, `scheduled`
 
 #### `runtime.state`
 
-This is one of Pacto's most distinctive features. Instead of platforms guessing whether a service needs persistent storage, stable network identity, or special upgrade procedures, the contract declares it explicitly.
+Instead of platforms guessing whether a service needs persistent storage, stable network identity or special upgrade procedures, the contract declares it explicitly.
 
 | Field | Type | Required | Enum values |
 |-------|------|----------|-------------|
@@ -654,17 +639,7 @@ This is one of Pacto's most distinctive features. Instead of platforms guessing 
 
 **How platforms interpret state:**
 
-The combination of `state.type`, `persistence.scope`, and `persistence.durability` tells a platform exactly what infrastructure a service needs:
-
-| State | Persistence | Platform reasoning |
-|-------|-------------|--------------------|
-| `stateless` | `local/ephemeral` | No persistent storage needed. Horizontally scalable. Use a Deployment with HPA. |
-| `stateful` | `local/persistent` | Needs stable identity and local durable storage. Use a StatefulSet with PVCs. |
-| `stateful` | `shared/persistent` | Needs durable storage shared across instances. Provision network-attached or shared storage. |
-| `hybrid` | `local/ephemeral` | Tolerates instance loss. Can use a Deployment, but consider warm-up time if caches are large. |
-| `hybrid` | `local/persistent` | Wants persistent local state but survives without it. StatefulSet with PVC, but can fall back to emptyDir if needed. |
-
-These aren't Kubernetes prescriptions — they're platform-agnostic signals. Whether you deploy to Kubernetes, Nomad, ECS, or a custom platform, the reasoning is the same.
+The combination of `state.type`, `persistence.scope` and `persistence.durability` tells a platform exactly what infrastructure a service needs — these are platform-agnostic signals, not Kubernetes prescriptions. See [Platform engineers](platform-engineers.md) for the full contract-field → platform-decision mapping (Deployment/StatefulSet/PVC and the equivalents on Nomad, ECS or a custom platform).
 
 **Data criticality:**
 
@@ -758,11 +733,11 @@ scaling:
   max: 10
 ```
 
-**How the two forms relate.** `replicas` is shorthand: at parse time it is
-normalized to `min = max = replicas`, so downstream tooling (diff, operator,
-dashboard) always works with a `min`/`max` range. This is why the diff table has
-no distinct `scaling.replicas` behavior — a `replicas` change manifests as `min`
-and `max` changes.
+**How the two forms relate.** `replicas` is shorthand: at parse time `min` and
+`max` are also set to `replicas` so state-based tooling (operator, dashboard)
+reads a `min`/`max` range. `pacto diff` still distinguishes the forms: two
+replicas-form contracts report a `scaling.replicas` change; switching between
+forms reports a whole-`scaling` change.
 
 !!! warning
     Scaling must not be applied to `job` workloads.
@@ -839,10 +814,10 @@ is present. `readiness.minScore`, `readiness.partialCredit` and `readiness.histo
 | `expires` | string | Yes | Assessment-level expiry as a strict `YYYY-MM-DD` date. If the current date is past this date, ALL checks earn 0 weight regardless of status. Parsing is exact round-trip: zero-padded fields required and the value must re-serialize unchanged, so `2026-1-1`, RFC 3339 timestamps and impossible dates (e.g. `2026-02-30`) are rejected. |
 | `minScore` | integer | No | Gate threshold on the same 0–100 scale as the score. Omitted ⇒ `100` (full compliance required). Enforced by `pacto validate --readiness` and the operator. |
 | `partialCredit` | number | No | Multiplier for `partial` status checks (0.0–1.0). Omitted ⇒ `0.5` (half credit). |
-| `checks` | [Check](#readiness-check-fields)[] | Yes | At least one check. |
-| `history` | [HistoryEntry](#readiness-history-entry)[] | No | Audit trail of readiness assessment changes. |
+| `checks` | [Check](#check-fields)[] | Yes | At least one check. |
+| `history` | [HistoryEntry](#history-entry)[] | No | Audit trail of readiness assessment changes. |
 
-**Check fields:**
+#### Check fields
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -850,11 +825,11 @@ is present. `readiness.minScore`, `readiness.partialCredit` and `readiness.histo
 | `type` | string | Yes | Enum: `url`, `document`, `ticket`, `report`, `artifact`, `identifier`, `other`. Evidence type. |
 | `status` | string | Yes | Enum: `done`, `partial`, `not-done`, `deferred`. Completion state for the check. |
 | `category` | string | No | Enum: `architecture`, `testing`, `code-quality`, `observability`, `security`, `documentation`, `infrastructure`, `ci-cd`, `deployment`, `resilience`, `backup-recovery`, `incident-response`, `compliance`, `other`. Categorizes the requirement type. |
-| `weight` | integer | Yes | Contribution to the readiness score. Range `1`–`100`. |
+| `weight` | integer | Yes | Contribution to the readiness score. Range `0`–`100`. |
 | `evidence` | string | Yes | Evidence location (URL, file path, ticket ID, etc.). Non-empty. |
 | `description` | string | No | Optional human-readable explanation (non-blank when present). |
 
-**History entry:**
+#### History entry
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -1003,6 +978,9 @@ Validates semantic references and consistency:
 |---|---|
 | `service.version` is valid semver | `INVALID_SEMVER` |
 | Interface names are unique | `DUPLICATE_INTERFACE_NAME` |
+| Configuration names are unique | `DUPLICATE_CONFIGURATION_NAME` |
+| Policy names are unique | `DUPLICATE_POLICY_NAME` |
+| Dependency names are unique | `DUPLICATE_DEPENDENCY_NAME` |
 | `http`/`grpc` interfaces have `port` | `PORT_REQUIRED` |
 | `event` interfaces with `port` set | `PORT_IGNORED` (warning) |
 | `grpc`/`event` interfaces have `contract` | `CONTRACT_REQUIRED` |
@@ -1029,11 +1007,14 @@ Validates semantic references and consistency:
 | `readiness.checks[].description` (when present) is not blank | `EMPTY_READINESS_DESCRIPTION` |
 | `readiness.expires` is a strict `YYYY-MM-DD` date | `INVALID_READINESS_EXPIRES` |
 | `readiness.history[].{date,version,author,description}` are valid/non-blank | `INVALID_READINESS_REVISION` |
+| `configurations[].schema` file is not valid JSON | `INVALID_CONFIG_JSON` |
 | `configurations[].schema` file is not valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
 | `configurations[].values` don't match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
-| `policies` entry has neither `schema` nor `ref` | `POLICY_EMPTY` |
 | `policies[].schema` file does not exist in the bundle | `FILE_NOT_FOUND` |
+| `policies[].schema` file is not valid JSON | `INVALID_POLICY_JSON` |
+| `policies[].schema` file is not valid JSON Schema | `INVALID_POLICY_SCHEMA` |
 | `policies[].ref` is not a valid OCI reference | `INVALID_POLICY_REF` |
+| `interfaces[].contract` (YAML) file is not valid YAML | `INVALID_CONTRACT_FILE` |
 | `scaling.min` <= `scaling.max` | `SCALING_MIN_EXCEEDS_MAX` |
 | Job workloads cannot have scaling | `JOB_SCALING_NOT_ALLOWED` |
 | Stateless + persistent is invalid | `STATELESS_PERSISTENT_CONFLICT` |
@@ -1060,10 +1041,11 @@ Resolves and enforces all declared policies against the contract. Policies are a
 `POLICY_REF_UNRESOLVED` is a **hard error** — validation fails closed when a referenced policy cannot be resolved. This ensures that missing or unreachable policies are never silently skipped.
 
 **When ref-based policies are resolved.** Recursive resolution of
-`policies[].ref` happens only when a resolver is configured. `pacto validate`
-supplies one (it can reach OCI/file refs), so a `ref` policy that cannot be
-fetched fails closed with `POLICY_REF_UNRESOLVED`. Local-only paths that pass no
-resolver — `pacto pack`/`pacto push`, and the **operator** — enforce only the
+`policies[].ref` happens only when a resolver is configured. `pacto validate` and
+`pacto push` both supply one (they can reach OCI/file refs), so a `ref` policy
+that cannot be fetched fails closed with `POLICY_REF_UNRESOLVED` — this is how
+`pacto push` enforces remote policies before publishing. Local-only paths that
+pass no resolver — `pacto pack` and the **operator** — enforce only the
 locally-compiled `schema`-based policies and skip `ref` policies by design (they
 never reach the unresolved error). Cycle detection is per chain: a `ref` is a
 cycle only when it reappears in its own resolution chain (`A → B → A`); two
@@ -1073,7 +1055,7 @@ sibling policies pointing at the same `ref` resolve independently.
 
 ## Contract overrides
 
-Pacto supports a Helm-style override system that lets you modify contract values without editing `pacto.yaml` directly. Overrides are available on all commands that take a contract reference (`validate`, `explain`, `diff`, `doc`, `generate`, `graph`, `pack`, `push`).
+Pacto supports a Helm-style override system that lets you modify contract values without editing `pacto.yaml` directly. Overrides are available on all commands that take a contract reference (`validate`, `explain`, `diff`, `doc`, `generate`, `graph`, `pack`, `push`, `lock`).
 
 ### Override flags
 
@@ -1150,18 +1132,6 @@ pacto diff old-service new-service \
   --new-set service.version=3.0.0
 ```
 
-### Type inference
-
-`--set` values are automatically parsed into their most specific type:
-
-| Input | Parsed as |
-|-------|-----------|
-| `42` | integer |
-| `3.14` | float |
-| `true` / `false` | boolean |
-| `hello` | string |
-| `1.0.0` | string (not a float — contains multiple dots) |
-
 ### Schema validation
 
 All overrides are validated against the Pacto JSON Schema after they are applied. This means invalid enum values, unknown fields, and type mismatches are rejected by every command — not just `validate` and `push`.
@@ -1202,55 +1172,14 @@ scaling:
   replicas: 1
 ```
 
-```yaml
-# values/staging.yaml
-configurations:
-  - name: default
-    values:
-      DB_HOST: staging-db.internal
-      DB_PORT: 5432
-      DB_PASSWORD: secret://vault/payments-staging/db-password
-      LOG_LEVEL: info
-scaling:
-  min: 2
-  max: 4
-```
-
-```yaml
-# values/production.yaml
-configurations:
-  - name: default
-    values:
-      DB_HOST: prod-db.internal
-      DB_PORT: 5432
-      DB_PASSWORD: secret://vault/payments-prod/db-password
-      LOG_LEVEL: warn
-scaling:
-  min: 3
-  max: 10
-```
-
-Validate each environment independently:
+`staging.yaml` and `production.yaml` follow the same shape, differing only in host, secret reference and scaling bounds. Apply one per command with `-f`:
 
 ```bash
 pacto validate my-service -f values/dev.yaml
-pacto validate my-service -f values/staging.yaml
-pacto validate my-service -f values/production.yaml
-```
-
-Compare what changes between environments:
-
-```bash
-pacto diff my-service my-service \
-  --old-values values/staging.yaml \
-  --new-values values/production.yaml
-```
-
-Push a release with production configuration:
-
-```bash
 pacto push my-service --values values/production.yaml --set service.version=2.1.0
 ```
+
+See [Developers — values files](developers.md) for the full per-environment workflow.
 
 ### Configuration values validation
 
@@ -1279,6 +1208,8 @@ Each change is classified as:
 - **`BREAKING`** — a change that will break consumers or platforms relying on the previous contract
 - **`POTENTIAL_BREAKING`** — a change that *may* break consumers depending on how they use the field
 - **`NON_BREAKING`** — a safe change that doesn't affect compatibility
+
+Any change not matched by a specific rule below defaults to **POTENTIAL_BREAKING**.
 
 ### Service identity
 
@@ -1499,5 +1430,3 @@ SBOM changes are reported separately from contract changes. They are **informati
 | Package version modified | A package's version changed |
 | Package license modified | A package's license changed |
 | Package supplier modified | A package's supplier changed |
-
-Unknown changes default to **POTENTIAL_BREAKING**.

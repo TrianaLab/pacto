@@ -26,7 +26,9 @@ Created my-service/
   my-service/configuration/
 ```
 
-This scaffolds a bundle with a valid contract, a placeholder OpenAPI spec, and a configuration JSON Schema. Only `pacto.yaml` is required — the `interfaces/` and `configuration/` directories are optional conveniences that you can remove if your service doesn't need them.
+This scaffolds a bundle with a valid contract, a placeholder OpenAPI spec and a configuration JSON Schema. Only `pacto.yaml` is required — if your service doesn't use them, remove the `interfaces/` and `configuration/` directories along with the `interfaces:`/`configurations:` sections that reference them in `pacto.yaml` (deleting the directories alone breaks validation).
+
+These are standard formats — OpenAPI for interfaces, JSON Schema for configuration — so you can drop in the interface files you already own (for example your Helm chart's `values.schema.json`) instead of authoring new ones. Pacto composes the interfaces you already have rather than inventing a config language.
 
 ## 3. Validate
 
@@ -35,7 +37,7 @@ $ pacto validate my-service
 my-service is valid
 ```
 
-Validation runs four layers: structural (JSON Schema), cross-field (references and consistency), semantic (strategy checks), and policy enforcement. The generated contract passes all four out of the box.
+Validation runs four layers — structural, cross-field, semantic and policy enforcement. See the [Contract Reference](contract-reference.md#validation-layers) for the full rules.
 
 ## 4. Customize your contract
 
@@ -115,7 +117,7 @@ $ pacto pull oci://ghcr.io/your-org/my-service-pacto:1.0.0
 # Human-readable summary
 $ pacto explain my-service
 Service: my-service@1.0.0
-Owner: backend (team)
+Owner: backend
 Pacto Version: 1.2
 
 Runtime:

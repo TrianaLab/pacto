@@ -43,9 +43,9 @@ metadata:
 ### Key decisions
 
 - **`workload: scheduled`** — runs on a cron schedule, not continuously
-- **No `scaling` section** — job workloads don't scale horizontally (enforced by validation)
+- **No `scaling` section** — batch workloads don't scale horizontally. `pacto validate` rejects a `scaling` block on `job` workloads (`JOB_SCALING_NOT_ALLOWED`); on a `scheduled` workload it is allowed but omitted here by convention
 - **No `lifecycle` section** — upgrade strategy doesn't apply to jobs
-- **Schedule in `metadata`** — the cron expression is platform-specific, so it belongs in metadata rather than in the contract's core fields
+- **Schedule in `metadata`** — the cron expression is platform-specific, so it lives in `metadata`, not the contract's core fields
 
 ### Variant: One-shot job
 

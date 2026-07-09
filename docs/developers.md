@@ -1,7 +1,9 @@
 # Pacto for Developers
-You own the service — and you own the contract. Pacto gives you a structured way to declare your service's operational interface alongside your code, so platform engineers, CI systems, and other teams have an accurate, machine-readable description of what your service needs to run.
+You own the service — and you own the contract. Pacto gives you a structured way to declare your service's operational interface alongside your code, so platform engineers, CI systems and other teams have an accurate, machine-readable description of what your service needs to run.
 
-No forms. No tickets. No wiki pages that go stale. One YAML file, validated by tooling, versioned in a registry.
+Under the hood, Pacto composes the interfaces you already have — your OpenAPI spec, your config's JSON Schema — instead of inventing new formats for them. What it adds is the operational contract no single schema owns: ownership, dependencies, compatibility and readiness.
+
+One validated, versioned YAML file instead of stale wiki pages and tickets.
 
 ---
 ## Your workflow
@@ -26,7 +28,7 @@ This scaffolds a contract with sensible defaults. Edit `pacto.yaml` to match you
 
 ### 2. Infer schemas from your code (optional)
 
-If your service has a configuration file, use the `schema-infer` plugin to generate a JSON Schema from it. Use `-o` to write the output directly into your bundle:
+A configuration interface in Pacto is a JSON Schema, and Pacto composes the schema you already have rather than making you redefine it. If your config already ships a JSON Schema — for example your Helm chart's `values.schema.json` — vendor that file into your bundle and point `configurations[].schema` at it. If it doesn't, the `schema-infer` plugin generates one from a config file. Use `-o` to write the output into your bundle:
 
 ```bash
 pacto generate schema-infer my-service --option file=config.yaml -o my-service
@@ -94,7 +96,7 @@ interfaces:
     contract: interfaces/events.yaml
 ```
 
-Include the actual interface files (OpenAPI specs, protobuf definitions, event schemas) in the bundle.
+Include the actual interface files (OpenAPI specs, protobuf definitions, event schemas) in the bundle. Pacto references these definitions as-is — it composes the interface contracts you already publish rather than asking you to describe them a second time.
 
 ### 4. Define your runtime semantics (optional)
 
@@ -116,13 +118,7 @@ runtime:
     path: /health
 ```
 
-**Ask yourself:**
-- Is my service long-running (`service`) or does it run to completion (`job`)?
-- Does it hold local state that survives restarts (`stateful`) or not (`stateless`)?
-- Does it keep optional in-memory state like caches (`hybrid`)?
-- How critical is the data it handles?
-
-The answers determine how platforms provision infrastructure for your service. See [runtime.state](contract-reference.md#runtimestate) in the Contract Reference for the full explanation.
+Choose your `workload` (`service` vs `job`/`scheduled`), `state.type` (`stateless`/`stateful`/`hybrid`) and `dataCriticality`; these determine how platforms provision infrastructure for your service. See [runtime.state](contract-reference.md#runtimestate) in the Contract Reference for the full explanation.
 
 ### 5. Declare dependencies
 
@@ -231,13 +227,13 @@ pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service --force
 
 ## Using contract overrides
 
-Pacto supports Helm-style overrides to modify contract values without editing `pacto.yaml`. This is useful for environment-specific values, CI pipelines, or quick experimentation.
+Pacto supports Helm-style overrides to modify contract values without editing `pacto.yaml`. This is useful for environment-specific values, CI pipelines or quick experimentation.
 
 ```bash
 # Override a value inline
 pacto validate my-service --set service.version=2.0.0
 
-# Use a values file
+# Use a values file (-f is short for --values on most commands)
 pacto validate my-service -f staging-values.yaml
 
 # Combine both (--set takes precedence)
@@ -247,126 +243,30 @@ pacto validate my-service -f staging-values.yaml --set service.version=3.0.0
 pacto validate my-service --set configurations[0].values.DB_HOST=localhost
 ```
 
-Overrides work on all commands that take a contract reference. For `diff`, use `--old-set`/`--old-values` and `--new-set`/`--new-values` to override each contract independently.
+Overrides work on every command that takes a contract reference, with two exceptions: `diff` overrides each side with `--old-values`/`--old-set` and `--new-values`/`--new-set` (it has no `-f` or plain `--values`), and `pacto push` reserves `-f` for `--force`, so spell out `--values` there.
 
-### Override flag shorthands
-
-On most contract-taking commands, `-f` is the shorthand for `--values`. The exception is `pacto push`, where `-f` is `--force` — so on `push` you must spell out `--values`:
-
-```bash
-# Apply a values file when publishing (use --values, not -f, on push)
-pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service \
-  --values prod-values.yaml --set service.version=2.0.0
-
-# -f on push means --force (overwrite an existing artifact), not --values
-pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service -f
-```
-
-| Command | `--values` | `-f` shorthand |
-|---------|-----------|----------------|
-| `validate` | yes | `--values` |
-| `explain` | yes | `--values` |
-| `diff` | per-side (`--old-values`/`--new-values`) | `--values` |
-| `doc` | yes | `--values` |
-| `generate` | yes | `--values` |
-| `graph` | yes | `--values` |
-| `pack` | yes | `--values` |
-| `push` | yes (`--values` only) | **`--force`** |
-
-On `push`, `-f` maps to `--force`, so always use the long `--values` form there to apply overrides.
-
-See the [Contract Reference — Contract overrides](contract-reference.md#contract-overrides) section for full details.
+For the per-command flag list see the [CLI reference](cli-reference.md); for override precedence and syntax see the [Contract Reference — Contract overrides](contract-reference.md#contract-overrides).
 
 ---
 
-## Common patterns
+## Common runtime patterns
 
-### Stateless HTTP API
+The `runtime` block tells the platform what your service *is*, not how to deploy it. Each common shape has a ready-made worked example you can copy:
 
-```yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
-scaling:
-  min: 2
-  max: 10
-```
+| Pattern | `state.type` | Worked example |
+|---------|-------------|----------------|
+| Stateless HTTP API | `stateless` | [nginx](examples/nginx.md) |
+| Stateful service (database, cache) | `stateful` | [postgresql](examples/postgresql.md) |
+| API with local cache | `hybrid` | [hybrid-cache](examples/hybrid-cache.md) |
+| Scheduled job | `stateless` (workload `scheduled`) | [cron-worker](examples/cron-worker.md) |
 
-### Stateful service (database proxy, cache)
+A `hybrid` service handles requests statelessly but keeps a local cache, so the platform can scale it horizontally while allowing for cache warm-up. See [runtime.state](contract-reference.md#runtimestate) for the full field spec.
 
-```yaml
-runtime:
-  workload: service
-  state:
-    type: stateful
-    persistence:
-      scope: local
-      durability: persistent
-    dataCriticality: high
-  lifecycle:
-    upgradeStrategy: ordered
-    gracefulShutdownSeconds: 60
-  health:
-    interface: api
-    path: /health
-scaling:
-  min: 3
-  max: 5
-```
-
-### API with local cache (hybrid)
-
-```yaml
-runtime:
-  workload: service
-  state:
-    type: hybrid
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
-scaling:
-  min: 2
-  max: 8
-```
-
-A `hybrid` service handles requests statelessly but keeps a local cache or session store. The platform knows it can scale horizontally, but might account for cache warm-up time.
-
-### Fixed-replica service
-
-Use `replicas` instead of `min`/`max` when the service should always run an exact number of instances:
+Use `scaling.replicas` instead of `min`/`max` when the service should always run an exact number of instances:
 
 ```yaml
 scaling:
   replicas: 1
-```
-
-### Scheduled job
-
-```yaml
-runtime:
-  workload: scheduled
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
-# No scaling — jobs don't scale horizontally
 ```
 
 ---
@@ -383,46 +283,22 @@ Changes (2):
   [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 1.1.0]
 ```
 
-Integrate `pacto diff` into your CI pipeline to block merges that introduce breaking changes.
-
-!!! tip
-    Using GitHub Actions? Check out the official [Pacto CLI action](github-actions.md).
+Wire `pacto diff` into CI to block merges that introduce breaking changes — see the official [Pacto CLI action](github-actions.md).
 
 ---
 
 ## AI-assisted workflow
 
-If you use an AI assistant that supports [MCP](https://modelcontextprotocol.io) (Claude Code, Cursor, GitHub Copilot), you can connect it to Pacto so it can validate, inspect, and generate contracts on your behalf.
+If you use an AI assistant that supports [MCP](https://modelcontextprotocol.io) (Claude Code, Cursor and GitHub Copilot), connect it to Pacto so it can scaffold, edit and validate contracts inside your conversation. The server exposes exactly four tools:
 
-### Setup
+- **`pacto_create`** — scaffold a new contract from a description
+- **`pacto_edit`** — modify an existing contract
+- **`pacto_check`** — validate a local contract and return a summary plus improvement suggestions
+- **`pacto_schema`** — return the full contract JSON Schema reference
 
-Add Pacto as an MCP server in your project. For Claude Code, create `.mcp.json` in your project root:
+Inspecting a registry contract, resolving dependency graphs and generating Markdown docs are CLI-only (`pacto explain oci://...`, `pacto graph`, `pacto doc`) — they are not MCP tools.
 
-```json
-{
-  "mcpServers": {
-    "pacto": {
-      "command": "pacto",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-For other tools, see the full [MCP Integration](mcp-integration.md) guide.
-
-### What you can do
-
-Once connected, the AI assistant can use Pacto tools directly in your conversation:
-
-- **Validate** — *"Validate my contract in ./my-service"* — catches structural, cross-field, and semantic errors without leaving your editor
-- **Inspect** — *"Show me the full contract for oci://ghcr.io/acme/auth-pacto:2.0.0"* — explore contracts from your registry
-- **Explain** — *"Explain what this service does"* — get a human-readable summary of interfaces, dependencies, and runtime behavior
-- **Generate** — *"Generate a contract for a stateless Go HTTP API called user-service"* — scaffold new contracts from a description
-- **Dependencies** — *"What does my service depend on?"* — resolve and explore the dependency graph
-- **Documentation** — *"Generate docs for this contract"* — produce Markdown documentation without running CLI commands
-
-This is particularly useful when writing a new contract from scratch — describe your service to the assistant and let it generate the initial `pacto.yaml`, then iterate with validation feedback in the same conversation.
+See the [MCP Integration](mcp-integration.md) guide for the `.mcp.json` setup across all clients.
 
 ---
 
@@ -442,7 +318,7 @@ my-service/
     integration.md
 ```
 
-Documentation travels with the contract as part of the OCI artifact, so it is versioned and distributed alongside the contract it describes. It has no effect on validation, diffing, or compatibility checks — changes to `docs/` never produce diff entries or affect classification.
+Documentation ships inside the OCI artifact, versioned and distributed with the contract; it never affects validation or diffing. See the [Contract Reference — `docs/`](contract-reference.md#docs-optional-documentation) for the full behavior.
 
 Good candidates for `docs/`:
 
@@ -466,7 +342,7 @@ my-service/
     sbom.spdx.json
 ```
 
-Pacto supports [SPDX 2.3](https://spdx.dev/) (`.spdx.json`) and [CycloneDX 1.5](https://cyclonedx.org/) (`.cdx.json`) formats. The recommended tool for generating SBOMs is [Syft](https://github.com/anchore/syft):
+Generate one with [Syft](https://github.com/anchore/syft) (or [Trivy](https://github.com/aquasecurity/trivy)/[cdxgen](https://github.com/CycloneDX/cdxgen)):
 
 ```bash
 # Generate an SPDX SBOM
@@ -476,11 +352,7 @@ syft . -o spdx-json=sbom/sbom.spdx.json
 syft . -o cyclonedx-json=sbom/bom.cdx.json
 ```
 
-Other supported generators include [Trivy](https://github.com/aquasecurity/trivy) and [cdxgen](https://github.com/CycloneDX/cdxgen).
-
-The SBOM travels with the contract as part of the OCI artifact. When both the old and new versions of a contract include an SBOM, `pacto diff` reports package-level changes (added, removed, version or license modified). These changes are informational — they never affect the overall breaking/non-breaking classification.
-
-No contract-level field references the SBOM. Pacto discovers it automatically by scanning the `sbom/` directory for recognized file extensions — the same convention-based approach used for `docs/`.
+Pacto discovers the SBOM by scanning `sbom/` for recognized extensions — no contract field references it. For the supported formats (SPDX 2.3, CycloneDX 1.5) and how `pacto diff` reports package-level changes, see the [Contract Reference — `sbom/`](contract-reference.md#sbom-optional-software-bill-of-materials).
 
 ---
 
@@ -489,8 +361,6 @@ No contract-level field references the SBOM. Pacto discovers it automatically by
 - **Version your contract alongside your code.** The `pacto.yaml` lives in your repository.
 - **Pin dependency digests in production.** Tags are mutable; digests are not.
 - **Keep interface contracts up to date.** OpenAPI specs and protobuf definitions in the bundle should match what your service actually serves.
-- **Include documentation in the bundle.** Add a `docs/` directory with runbooks, architecture notes, and integration guides. It ships with the contract but doesn't affect diffing or validation.
-- **Include an SBOM.** Add an SBOM to `sbom/` using Syft, Trivy, or cdxgen. `pacto diff` will report package-level changes between versions.
 - **Use `pacto explain` to review.** It produces a human-readable summary of your contract.
 - **Use `pacto doc` for rich documentation.** It generates Markdown with architecture diagrams and interface tables. Use `--serve` to view it in the browser.
 - **Leverage caching.** OCI bundles are cached locally in `~/.cache/pacto/oci/` and tag listings are cached in memory per command, so repeated `graph`, `doc`, and `diff` commands resolve instantly. Use `--no-cache` to force a fresh pull.

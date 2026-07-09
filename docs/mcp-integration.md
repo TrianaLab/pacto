@@ -4,9 +4,7 @@ Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.
 ---
 ## Why MCP?
 
-[MCP](https://modelcontextprotocol.io) (Model Context Protocol) is an open standard that lets AI tools call external functions through structured tool calls — similar to how a browser calls an API, but designed for LLMs. Instead of pasting CLI output into a chat window, the assistant calls `pacto_create` or `pacto_check` directly and gets structured JSON back.
-
-This matters because Pacto contracts are already machine-readable. MCP turns that into a two-way interaction: the assistant doesn't just *read* contracts — it can create new ones from intent-level descriptions, edit existing ones, and validate them, all within a single conversation.
+[MCP](https://modelcontextprotocol.io) is an open standard that lets AI tools invoke external functions through structured tool calls. With the Pacto MCP server, an assistant calls tools like `pacto_create` or `pacto_check` and gets structured JSON back — creating, editing and validating contracts in a single conversation instead of copy-pasting CLI output.
 
 ---
 
@@ -20,7 +18,7 @@ flowchart LR
     MCP -->|"JSON responses"| AI
 ```
 
-An AI assistant sends MCP tool calls to the `pacto mcp` server. Pacto executes the operation against local contract directories and returns structured JSON results. The assistant works entirely through the tool interface — no direct file access needed.
+The assistant works entirely through the tool interface — Pacto runs each operation against local contract directories and returns JSON.
 
 ---
 
@@ -40,7 +38,7 @@ Creates a new Pacto contract from structured input. The tool infers contract det
 **Key inputs:**
 - `name` (required) — service name
 - `description` — natural-language description (triggers automatic inference of interfaces, dependencies, and runtime)
-- `interfaces` — JSON array of `{name, type, port}` objects
+- `interfaces` — JSON array of `{name, type, port?, visibility?}` objects
 - `stores_data`, `data_survives_restart`, `data_shared_across_instances` — intent-level runtime flags mapped to contract primitives
 - `dry_run` — validate and return the result without writing files
 
@@ -50,10 +48,12 @@ Creates a new Pacto contract from structured input. The tool infers contract det
 
 | Intent | Contract field |
 |--------|---------------|
-| `stores_data=true` + `data_survives_restart=false` | `state.type: ephemeral`, `persistence.durability: ephemeral` |
+| `stores_data=true` + `data_survives_restart=false` | `state.type: stateful`, `persistence.durability: ephemeral`, `dataCriticality: medium` |
 | `stores_data=true` + `data_survives_restart=true` | `state.type: stateful`, `persistence.durability: persistent` |
 | `data_shared_across_instances=true` | `persistence.scope: shared` |
 | `data_loss_impact=high` | `dataCriticality: high` |
+
+The persistence rows take effect only when `stores_data=true` — `stores_data` is what sets `state.type: stateful` and the default `dataCriticality: medium`. With `stores_data=false` the runtime stays stateless, local, ephemeral and low, and `data_shared_across_instances` is ignored.
 
 **Scaling inputs:** `replicas` and `min_replicas`/`max_replicas` are mutually exclusive. If `replicas` is set, the min/max values are silently ignored (current behavior) — set either a fixed replica count or an auto-scaling range, not both.
 
@@ -71,7 +71,7 @@ Modifies an existing contract. Reads the current `pacto.yaml`, applies changes, 
 Scaling inputs follow the same rule as `pacto_create`: `replicas` and `min_replicas`/`max_replicas` are mutually exclusive, and setting `replicas` silently ignores the min/max values (current behavior).
 
 !!! warning
-    When adding a new interface, `pacto_edit` scaffolds a stub for any referenced interface file. Errors while writing those stub files are not currently surfaced, so `pacto_edit` may report success even if a referenced interface file was not written. Verify the generated files after an edit that adds an interface.
+    `pacto_edit` only scaffolds stub files for HTTP and gRPC interfaces. Other interface types (e.g. `event`) are added to `pacto.yaml` with a `contract:` path, but no file is created for them, so `pacto_edit` can report success while a referenced interface file is missing. Create those files yourself after the edit.
 
 ### pacto_check
 
@@ -119,7 +119,7 @@ Add Pacto as an MCP server in your project's `.mcp.json` file:
 }
 ```
 
-Claude Code uses stdio transport — no port configuration needed. Once configured, Claude can create contracts, edit them, and validate changes directly from your conversation.
+Claude Code uses stdio, so no port configuration is needed.
 
 ### Claude Desktop
 
@@ -221,7 +221,7 @@ Once configured, Copilot Chat in agent mode can use Pacto tools. Try asking: *"@
 
 ## HTTP transport
 
-For tools that connect over HTTP rather than stdio, start the server with:
+For tools that connect over HTTP rather than stdio (see [Transports](#transports) for the protocol and defaults), start the server with:
 
 ```bash
 # Default port (8585)
@@ -231,7 +231,7 @@ pacto mcp -t http
 pacto mcp -t http --port 9090
 ```
 
-The server listens on `127.0.0.1` and serves the MCP Streamable HTTP protocol at `/mcp`. Connect your MCP client to `http://127.0.0.1:8585/mcp` (or your chosen port).
+Connect your client to `http://127.0.0.1:8585/mcp` (or your chosen port).
 
 ---
 

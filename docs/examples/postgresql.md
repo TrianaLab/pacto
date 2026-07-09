@@ -62,12 +62,12 @@ metadata:
 ```
 
 !!! note
-    The `sql` interface uses `type: grpc` as the closest available protocol type for PostgreSQL's binary wire protocol. The Pacto schema currently supports `http`, `grpc`, and `event` — there is no dedicated `tcp` type. The `.proto` contract file is illustrative; in practice you may omit the interface or use a custom schema.
+    The `sql` interface uses `type: grpc` as the closest available protocol type for PostgreSQL's binary wire protocol — there is no dedicated `tcp` type (see [Interfaces](../contract-reference.md#interfaces) for the full list of types). The `.proto` contract file is illustrative; in practice you may omit the interface or point `contract` at your own protobuf file (the file must exist in the bundle or `pacto validate` fails with `FILE_NOT_FOUND`).
 
 ### Key decisions
 
-- **`state.type: stateful`** with **`durability: persistent`** — PostgreSQL needs persistent storage that survives pod restarts
-- **`dataCriticality: high`** — data loss is unacceptable; the platform should enable backups and strict disruption budgets
-- **`upgradeStrategy: ordered`** — replicas must be updated one at a time (primary before replicas)
-- **`scaling: replicas 1`** — single-instance; replication is handled externally
-- **`gracefulShutdownSeconds: 60`** — allow time for connections to drain and WAL to flush
+- **`state.type: stateful`** with **`durability: persistent`** — persistent storage survives pod restarts
+- **`dataCriticality: high`** — backups and strict disruption budgets expected
+- **`upgradeStrategy: ordered`** — replicas updated one at a time (primary first)
+- **`scaling: replicas 1`** — single instance; replication handled externally
+- **`gracefulShutdownSeconds: 60`** — time for connections to drain and WAL to flush

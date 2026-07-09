@@ -49,7 +49,7 @@ const footer = `---
 
 | Variable | Description |
 |----------|-------------|
-| ` + "`PACTO_CACHE_DIR`" + ` | Override the OCI bundle cache directory (default: ` + "`~/.cache/pacto/oci`" + `) |
+| ` + "`PACTO_CACHE_DIR`" + ` | Cache directory for the ` + "`pacto dashboard`" + ` bundle scan. The core CLI cache location is controlled by ` + "`XDG_CACHE_HOME`" + ` (see below). |
 | ` + "`PACTO_NO_CACHE`" + ` | Set to ` + "`1`" + ` to disable OCI bundle caching (equivalent to ` + "`--no-cache`" + `) |
 | ` + "`PACTO_NO_UPDATE_CHECK`" + ` | Set to ` + "`1`" + ` to disable automatic update checks |
 | ` + "`PACTO_REGISTRY_USERNAME`" + ` | Registry username for authentication |
@@ -76,15 +76,13 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 
 Pacto follows this credential resolution chain:
 
-1. Explicit CLI flags (` + "`--username`" + `, ` + "`--password`" + `)
-2. Environment variables (` + "`PACTO_REGISTRY_USERNAME`" + `, ` + "`PACTO_REGISTRY_PASSWORD`" + `, ` + "`PACTO_REGISTRY_TOKEN`" + `)
-3. Pacto config (` + "`~/.config/pacto/config.json`" + `, written by ` + "`pacto login`" + `)
-4. GitHub CLI (` + "`gh auth token`" + `, for ` + "`ghcr.io`" + ` and ` + "`docker.pkg.github.com`" + ` only)
-5. Docker config (` + "`~/.docker/config.json`" + `) and credential helpers
-6. Cloud auto-detection (ECR, GCR, ACR)
-7. Anonymous fallback
+1. Environment variables (` + "`PACTO_REGISTRY_TOKEN`" + `, or ` + "`PACTO_REGISTRY_USERNAME`" + ` + ` + "`PACTO_REGISTRY_PASSWORD`" + `)
+2. Pacto config (` + "`~/.config/pacto/config.json`" + `, written by ` + "`pacto login`" + ` — where ` + "`--username`" + ` / ` + "`--password`" + ` are persisted)
+3. GitHub CLI (` + "`gh auth token`" + `, for ` + "`ghcr.io`" + ` and ` + "`docker.pkg.github.com`" + ` only)
+4. Docker config (` + "`~/.docker/config.json`" + `) and credential helpers (including cloud-registry helpers for ECR, GCR and ACR)
+5. Anonymous fallback
 
-For GitHub registries, step 4 means you can skip ` + "`pacto login`" + ` entirely if you have ` + "`gh`" + ` authenticated with the ` + "`write:packages`" + ` scope (see [` + "`pacto login`" + `](#pacto-login) above).
+For GitHub registries, step 3 means you can skip ` + "`pacto login`" + ` entirely if you have ` + "`gh`" + ` authenticated with the ` + "`write:packages`" + ` scope (see [` + "`pacto login`" + `](#pacto-login) above).
 
 No credentials are ever stored in contract files.
 `
@@ -150,69 +148,12 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"The check runs asynchronously and adds no latency. Results are cached for 24 hours in `~/.config/pacto/update-check.json`.\n\n" +
 		"Notifications are suppressed when:\n" +
 		"- Running a dev build\n" +
-		"- Using `--output-format json`\n" +
+		"- Using `--output-format json` or `--output-format markdown` (the notice shows only for text output)\n" +
 		"- The `PACTO_NO_UPDATE_CHECK=1` environment variable is set",
 
-	"dashboard": "The dashboard is the exploration and observability layer of the Pacto system. " +
-		"It visualizes the same contracts the CLI manages and the operator verifies — " +
-		"making dependency graphs, version history, interfaces, configuration schemas, and diffs accessible in one place.\n\n" +
-		"### What the dashboard shows\n\n" +
-		"- **Dependency graphs** — interactive D3 visualization of service relationships, with impact chain highlighting\n" +
-		"- **Version history** — all available versions from OCI, with hash, classification, and timestamps\n" +
-		"- **Interface details** — OpenAPI endpoints, gRPC definitions, event schemas extracted from contract bundles\n" +
-		"- **Configuration schemas** — JSON Schema properties for environment variables and settings\n" +
-		"- **Policy references** — organizational standards enforcement via referenced policy contracts\n" +
-		"- **Diffs between versions** — classified changes (breaking, non-breaking, potential) between any two versions\n" +
-		"- **Runtime compliance** — when Kubernetes is available, live contract status, conditions, endpoint health, and contract-vs-runtime comparison\n\n" +
-		"### Source model\n\n" +
-		"The dashboard exposes up to **four** source types: `local`, `k8s`, `oci`, and `cache`. " +
-		"`cache` is the on-disk materialized-bundle baseline (`~/.cache/pacto/oci/`); it surfaces as a distinct source " +
-		"**only when no live OCI registry is configured** — an offline fallback. When a live OCI registry *is* configured, " +
-		"the cache stays internal to the `oci` source (used to enrich version data) and is not listed separately. " +
-		"So a session shows either `oci` **or** `cache` for the registry-backed baseline, plus `local` and/or `k8s` when available.\n\n" +
-		"### Contract-first resolution\n\n" +
-		"Sources are resolved using a contract-first model. The contract baseline comes from the highest-priority contract " +
-		"source available, in order `local` → `oci` → `cache` — exactly one contract snapshot wins per service. " +
-		"The runtime source (`k8s`) enriches the contract with live cluster state (contract status, conditions, endpoints) " +
-		"but never overrides contract content; config and policy **content** always comes from the declared contract.\n\n" +
-		"### Internal cache / materialization\n\n" +
-		"Materialized bundles on disk (`~/.cache/pacto/oci/`) back the `oci` source's version enrichment " +
-		"(contract hash, classification, timestamps). When bundles are fetched (via \"Fetch all versions\" or lazy dependency resolution), " +
-		"they are cached on disk and the source's internal view is rescanned so the enriched data surfaces immediately. " +
-		"When no live registry is configured, that same on-disk cache is promoted to a first-class `cache` source.\n\n" +
-		"### `--no-cache` semantics\n\n" +
-		"The `--no-cache` flag prevents the dashboard from scanning pre-existing cached bundles at startup (cold-start mode). " +
-		"However, bundles materialized during the current session (via fetch-all-versions, dependency resolution, or OCI pulls) " +
-		"are still cached to disk and reused for enrichment within the same session.\n\n" +
-		"### Version classification\n\n" +
-		"Each version (except the oldest) receives a classification — `NON_BREAKING`, `POTENTIAL_BREAKING`, or `BREAKING` — " +
-		"computed by diffing consecutive bundles. Classification requires materialized bundles: if a version has not been fetched " +
-		"yet, it will have no classification until its bundle is pulled (e.g. via \"Fetch all versions\").\n\n" +
-		"### Kubernetes + OCI hybrid view\n\n" +
-		"When running alongside the Kubernetes operator (no explicit OCI arguments needed), the dashboard automatically discovers OCI repositories from the `resolvedRef` fields in Pacto CRD statuses. " +
-		"This means a K8s-only dashboard deployment gets the full contract experience: version history, interface details, configuration schemas, and diffs — " +
-		"all loaded from OCI and merged with runtime state from the operator.\n\n" +
-		"### Dependency resolution\n\n" +
-		"When OCI repository names differ from contract service names (e.g., repo `my-service-pacto` but contract has `service.name: my-service`), " +
-		"the dashboard automatically builds a ref-alias map from `imageRef` and `chartRef` fields so that dependency links, graph edges, " +
-		"and cross-references resolve correctly.\n\n" +
-		"### Graph visualization\n\n" +
-		"The built-in D3 force-directed graph supports:\n" +
-		"- Drag to reposition nodes (double-click to unpin)\n" +
-		"- Zoom and pan\n" +
-		"- Impact chain highlighting on hover (broken nodes highlight dependents)\n" +
-		"- Dynamic arrow positioning (arrows connect to the closest box edge)\n" +
-		"- Source and status filtering via the legend\n\n" +
-		"### Version selection\n\n" +
-		"The dashboard selects the **current version** of each OCI-backed service as the highest valid semver tag. " +
-		"Non-semver tags (e.g. `latest`, `main`) are excluded from version lists and never selected as the current version.\n\n" +
-		"When you use \"Fetch all versions\" in the version history tab, all available versions are pulled from the OCI registry " +
-		"and cached locally (`~/.cache/pacto/oci/`). These cached versions survive dashboard restarts.\n\n" +
-		"When a remote dependency is lazily resolved (via navigation to an unresolved dependency), the resolved bundle is also " +
-		"cached on disk. Its version history can be browsed and other versions can be loaded.\n\n" +
-		"### Diagnostics mode\n\n" +
-		"Pass `--diagnostics` to enable debug endpoints (`/api/debug/sources` and `/api/debug/services`) " +
-		"that expose raw per-source data for troubleshooting.",
+	"dashboard": "The dashboard is the exploration and observability layer of the Pacto system: it visualizes the same contracts the CLI manages and the operator verifies — dependency graphs, version history, interfaces, configuration schemas, readiness and diffs — merged across `local`, `oci`, `k8s` and offline `cache` sources.\n\n" +
+		"It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached), and `--diagnostics` to expose the `/api/debug/*` endpoints.\n\n" +
+		"For the source model, contract-first merge priority (`local` > `oci` > `cache`) and version-tracking design, see [Architecture](architecture.md). For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).",
 
 	"mcp": "The server exposes the following tools:\n\n" +
 		"| Tool | Description |\n" +
@@ -221,7 +162,7 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"| `pacto_edit` | Edit an existing contract — add/remove interfaces and dependencies, change runtime, update metadata. Supports dry run. |\n" +
 		"| `pacto_check` | Validate a contract and return errors, warnings, and actionable improvement suggestions. |\n" +
 		"| `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |\n\n" +
-		"All tools accept both local directory paths and `oci://` references.\n\n" +
+		"All tools operate on local contract directories (they read and write `pacto.yaml` on disk); `oci://` references are not resolved.\n\n" +
 		"See [MCP Integration](mcp-integration.md) for detailed setup instructions with Claude and other AI tools.",
 }
 

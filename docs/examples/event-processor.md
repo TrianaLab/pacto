@@ -37,7 +37,7 @@ configurations:
 
 dependencies:
   - name: rabbitmq
-    ref: oci://ghcr.io/acme/rabbitmq-pacto@sha256:abc123
+    ref: oci://ghcr.io/acme/rabbitmq-pacto@sha256:0000000000000000000000000000000000000000000000000000000000000000
     required: true
     compatibility: "^3.13.0"
 
@@ -68,7 +68,6 @@ scaling:
   max: 8
 
 metadata:
-  team: orders
   tier: standard
   consumer-group: order-processing
 ```
@@ -76,7 +75,7 @@ metadata:
 ### Key decisions
 
 - **`type: event`** — declares that this service consumes events rather than serving HTTP/gRPC requests
-- **`contract: interfaces/order-events.yaml`** — the event contract (e.g. AsyncAPI or custom schema) is bundled and versioned alongside the service
+- **`contract: interfaces/order-events.yaml`** — the event schema (e.g. AsyncAPI) is bundled and versioned with the service
 - **`dataCriticality: medium`** — event processing failures have moderate impact; dead-letter queues provide a safety net
 - **`gracefulShutdownSeconds: 60`** — allows in-flight messages to complete processing before shutdown
-- **Secret reference** — broker credentials use `secret://` so the platform injects actual credentials at deployment time
+- **Secret reference** — broker credentials use `secret://`, an opaque convention the platform resolves at deployment time (see [Secret references](../contract-reference.md#secret-references))

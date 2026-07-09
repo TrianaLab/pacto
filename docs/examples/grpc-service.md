@@ -21,11 +21,6 @@ interfaces:
     visibility: internal
     contract: interfaces/user-service.proto
 
-  - name: health
-    type: http
-    port: 8080
-    visibility: internal
-
   - name: metrics
     type: http
     port: 9102
@@ -42,7 +37,7 @@ configurations:
 
 dependencies:
   - name: postgres
-    ref: oci://ghcr.io/acme/postgres-pacto@sha256:def456
+    ref: oci://ghcr.io/acme/postgres-pacto@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     required: true
     compatibility: "^16.0.0"
 
@@ -72,13 +67,12 @@ scaling:
   max: 12
 
 metadata:
-  team: identity
   tier: critical
 ```
 
 ### Key decisions
 
-- **`type: grpc` with `contract`** — the `.proto` file is bundled in the OCI artifact, making the API contract portable and versionable
-- **Health on gRPC** — when the health interface is `grpc`, Pacto uses the [gRPC Health Checking Protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md); no `path` is needed
-- **Separate health and metrics** — the gRPC port serves application traffic, while HTTP ports expose health checks and Prometheus metrics independently
+- **`type: grpc` with `contract`** — the `.proto` file is bundled in the OCI artifact, so the API contract travels with the service version
+- **Health on gRPC** — a `grpc` health interface needs no `path`; the service is expected to implement the [gRPC Health Checking Protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md)
+- **Separate metrics port** — the gRPC port serves application traffic while a separate HTTP port exposes Prometheus metrics
 - **`stateless`** — the service itself holds no state; data lives in PostgreSQL

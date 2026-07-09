@@ -1,7 +1,5 @@
 # Pacto for Platform Engineers
-You manage the infrastructure that runs services. Pacto gives you a machine-readable, validated contract for every service — so you can stop guessing and start automating.
-
-Instead of reverse-engineering how to run a service from Helm charts, READMEs, and Slack threads, you pull a contract from an OCI registry and get everything you need: workload type, state model, interfaces, health checks, dependencies, configuration schema, and scaling intent.
+You manage the infrastructure that runs services. Pull a validated, machine-readable contract from an OCI registry and get everything needed to run a service: workload type, state model, interfaces, health checks, dependencies, config schema and scaling intent.
 
 ---
 ## What a contract tells you
@@ -10,11 +8,8 @@ Every question you'd normally have to ask the dev team — or discover in produc
 
 | Contract Field | Platform Decision |
 |---|---|
-| `runtime.workload: service` | Deploy as a long-running process (Deployment/StatefulSet) |
-| `runtime.workload: job` | Deploy as a one-shot task (Job/CronJob) |
-| `runtime.state.type: stateful` | Needs stable identity and storage (StatefulSet + PVC) |
-| `runtime.state.type: stateless` | Horizontally scalable, no persistent storage needed |
-| `runtime.state.persistence.durability: persistent` | Provision durable storage |
+| `runtime.workload` (`service` / `job` / `scheduled`) | Choose the workload kind — see [Workload type](#workload-type) below |
+| `runtime.state.type` + `runtime.state.persistence` | Choose storage + scheduling strategy — see [State model](#state-model) below |
 | `runtime.state.dataCriticality: high` | Enable backups, stricter disruption budgets |
 | `interfaces[].port` | Configure Service, Ingress |
 | `interfaces[].visibility: public` | Create external Ingress or load balancer |
@@ -24,7 +19,7 @@ Every question you'd normally have to ask the dev team — or discover in produc
 | `scaling.min` / `scaling.max` | Configure auto-scaling bounds |
 | `configurations[].schema` / `configurations[].ref` | Validate required configuration, generate config templates. Platform teams can publish a shared schema that services vendor into their bundles or reference via OCI — the schema then expresses what the platform *provides*. See [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models) |
 | `policies[].ref` | Enforce organizational standards — require health endpoints, mandate ports, enforce visibility rules. See [policies](contract-reference.md#policies) |
-| `readiness.checks[]` | Gate promotion and surface operational readiness — declare dashboard, runbook, security-review, SLO, AI-eval evidence with a weight and expiry; derive a freshness score. Enforce required checks via policies. See [readiness](contract-reference.md#readiness) |
+| `readiness.checks[]` | Gate promotion and surface operational readiness — declare dashboard, runbook, security-review, SLO, AI-eval evidence; each check carries a weight; the assessment carries a single expiry date; derive a freshness score. Enforce required checks via policies. See [readiness](contract-reference.md#readiness) |
 | `dependencies[].ref` | Validate dependency graph, check compatibility |
 | `docs/` *(optional)* | Access service documentation, runbooks, integration guides |
 | `sbom/` *(optional)* | Audit third-party packages, track license compliance |
@@ -55,7 +50,7 @@ pacto pull oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```bash
 $ pacto explain oci://ghcr.io/acme/payments-api-pacto:2.1.0
 Service: payments-api@2.1.0
-Owner: payments (team)
+Owner: payments
 Pacto Version: 1.2
 
 Runtime:
@@ -69,7 +64,7 @@ Interfaces (2):
   - grpc-api (grpc, port 9090, internal)
 
 Dependencies (1):
-  - oci://ghcr.io/acme/auth-pacto@sha256:abc123 (^2.0.0, required)
+  - auth: oci://ghcr.io/acme/auth-pacto@sha256:abc123 (^2.0.0, required)
 
 Scaling: 2-10
 ```
@@ -155,11 +150,13 @@ The state model tells you exactly what storage and scheduling strategy a service
 
 ## Configuration and policy
 
-Two features give platform teams direct control over the boundary between developers and infrastructure: **configuration schemas** and **policies**. Both can be centralized via OCI references, making them a cornerstone of the platform-as-a-product model.
+Two features give platform teams direct control over the boundary between developers and infrastructure: **configuration schemas** and **policies**. Both can be centralized via OCI references.
 
 ### Configurations: the interface between dev and platform
 
 The `configurations` section defines **the interface boundary between a service and its environment**. When a platform team publishes a shared configuration schema, it declares *what the platform provides* — database connections, observability endpoints, feature flags, secret paths. When a service author defines one, it declares *what the service requires*.
+
+An interface is a JSON Schema — and you probably already have one. A service's configuration interface is the `values.schema.json` you author for its Helm chart; an infrastructure interface is a hand-authored mirror of a provisioning claim's schema. Pacto composes the schema you already own instead of inventing a new configuration language: vendor that file as a local `schema:` (required whenever you supply values), or resolve a schema-only contract via `ref:`.
 
 There are two approaches:
 
@@ -179,34 +176,13 @@ configurations:
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
-The OCI approach enables centralized configuration management: the platform team publishes one configuration contract, all services reference it, and updates propagate through version bumps — not copy-pasting files.
-
 See [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models) for the full breakdown of service-defined vs. platform-defined schemas.
 
 ### Policy: enforcing contract standards
 
 The `policies` section lets platform teams enforce **minimum requirements on contracts themselves**. A policy is a JSON Schema that validates `pacto.yaml` — requiring health endpoints, mandating specific ports, enforcing visibility rules, or any other organizational standard.
 
-**How it works:**
-
-1. The platform team creates a policy contract containing a JSON Schema at `policy/schema.json`:
-
-```yaml
-# platform-policy/pacto.yaml
-pactoVersion: "1.2"
-service:
-  name: platform-policy
-  version: 1.0.0
-  owner:
-    team: platform
-policies:
-  - name: platform-policy
-    schema: policy/schema.json
-```
-
-2. The platform publishes it: `pacto push oci://ghcr.io/acme/platform-policy-pacto -p platform-policy`
-
-3. Services adopt the policy by referencing it:
+The platform team publishes a policy contract carrying the JSON Schema, and services adopt it by reference:
 
 ```yaml
 policies:
@@ -214,33 +190,12 @@ policies:
     ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
 ```
 
-Example policy schema (`policy/schema.json`) requiring all contracts to have a health check:
+See [The platform-published policy + schema contract](patterns.md#4-the-platform-published-policy-schema-contract) for the authoring and publish recipe.
 
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["runtime"],
-  "properties": {
-    "runtime": {
-      "type": "object",
-      "required": ["health"],
-      "properties": {
-        "health": {
-          "type": "object",
-          "required": ["interface", "path"]
-        }
-      }
-    }
-  }
-}
-```
+!!! warning "Where refs are enforced"
+    Ref-based policies are enforced by `pacto validate` (fail-closed — an unresolvable ref is a hard `POLICY_REF_UNRESOLVED` error). `pacto pack`/`pacto push` and the operator only enforce inline `schema` policies and emit a `POLICY_REF_NOT_ENFORCED` warning for refs.
 
-Policy providers SHOULD declare their schemas explicitly in `policies[]` for full control over schema paths and multi-schema support. The fixed `policy/schema.json` path is a legacy fallback used only when the referenced contract has no `policies[]` entries.
-
-Policy references support recursive resolution — if the referenced contract itself has a `policies[].ref`, Pacto follows the chain with cycle detection.
-
-See [policies](contract-reference.md#policies) in the Contract Reference for the full specification.
+See [Layer 4: Policy enforcement](contract-reference.md#layer-4-policy-enforcement) for the resolution semantics (recursive N-hop, cycle detection, error codes) and [policies](contract-reference.md#policies) for the full specification.
 
 !!! info
     Configuration and policy are complementary:
@@ -248,15 +203,13 @@ See [policies](contract-reference.md#policies) in the Contract Reference for the
     - **Configuration** defines what a service needs (or what the platform provides) — the *data interface*
     - **Policy** enforces how contracts must be structured — the *contract interface*
 
-    Together, they give platform teams a centralized, versioned, machine-validated governance model — without tickets, wikis, or manual review.
+    A single JSON Schema describes one interface in isolation; it can't express how interfaces relate or change over time. That relational layer — ownership, dependencies, compatibility, readiness — is what the contract adds around them.
 
 ---
 
 ## Breaking change detection
 
-`pacto diff` doesn't just compare contract fields — it performs deep OpenAPI diffing (paths, methods, parameters, request bodies, responses) and resolves both dependency trees to show the full blast radius.
-
-Deep diffing applies only to interfaces that reference a contract file (e.g. an OpenAPI spec). Interfaces without a contract file are compared on type, port, and visibility only. Config and policy JSON Schemas are diffed only when both bundles include the local schema files.
+`pacto diff` compares contract fields, deep-diffs referenced interface specs (e.g. OpenAPI) and resolves both dependency trees to show the full blast radius. Gate CI on its exit code — it exits non-zero when the classification is `BREAKING`.
 
 ```bash
 $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
@@ -274,9 +227,7 @@ payments-api
 └─ postgres      -16.0.0
 ```
 
-Every change is classified as `NON_BREAKING`, `POTENTIAL_BREAKING`, or `BREAKING`. See the [Change Classification Rules](contract-reference.md#change-classification-rules) for the full table.
-
-When both bundles include an `sbom/` directory, `pacto diff` also reports SBOM package-level changes (added, removed, version or license modified). These are informational and don't affect the classification or exit code.
+Every change is classified as `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING`; when both bundles include an `sbom/` directory, package-level SBOM changes are reported but stay informational (they don't affect the classification or exit code). See [Change Classification Rules](contract-reference.md#change-classification-rules) for the full table plus the OpenAPI, JSON-Schema and SBOM diff mechanics.
 
 ---
 
@@ -308,49 +259,13 @@ steps:
     run: pacto graph .
 ```
 
-Using GitHub Actions? The same workflow with [pacto-actions](https://github.com/trianalab/pacto-actions):
-
-```yaml
-steps:
-  - uses: trianalab/pacto-actions@v1
-    with:
-      command: setup
-
-  - name: Infer config schema from sample config
-    run: pacto generate schema-infer ./my-service --option file=config.yaml -o ./my-service
-
-  - name: Infer OpenAPI spec from source code
-    run: pacto generate openapi-infer ./my-service -o ./my-service
-
-  - uses: trianalab/pacto-actions@v1
-    with:
-      command: validate
-      path: ./my-service
-
-  - uses: trianalab/pacto-actions@v1
-    with:
-      command: diff
-      old: oci://ghcr.io/my-org/my-service
-      new: ./my-service
-      comment-on-pr: 'true'
-
-  - uses: trianalab/pacto-actions@v1
-    if: github.ref == 'refs/heads/main'
-    with:
-      command: push
-      ref: oci://ghcr.io/my-org/my-service
-      path: ./my-service
-```
-
-See [pacto-actions](https://github.com/trianalab/pacto-actions) for full documentation including multi-service workflows, doc generation, and authentication options.
+Using GitHub Actions? See [GitHub Actions integration](github-actions.md) for the equivalent workflow built on [pacto-actions](https://github.com/trianalab/pacto-actions), including multi-service workflows, doc generation and authentication options.
 
 ---
 
 ## Dashboard
 
-`pacto dashboard` launches the contract exploration dashboard — the same contracts the CLI manages and the operator verifies, visualized as dependency graphs, version history, interface details, configuration schemas, and diffs.
-
-The dashboard is not a separate product with a different model. It is a visualization layer over the same Pacto contracts, designed for:
+`pacto dashboard` launches the contract exploration dashboard — the same contracts the CLI manages and the operator verifies, visualized for:
 
 - Navigating service dependency chains and understanding blast radius
 - Inspecting interfaces (OpenAPI endpoints, gRPC definitions, event schemas)
@@ -358,73 +273,9 @@ The dashboard is not a separate product with a different model. It is a visualiz
 - Exploring configuration schemas and policy references
 - Monitoring runtime compliance alongside contract content
 
-### Sources and auto-detection
+Sources (local, Kubernetes, OCI) are auto-detected at startup and merged per service. The platform-relevant behavior: when running alongside the Kubernetes operator, the dashboard auto-discovers OCI repositories from the `resolvedRef` fields in Pacto CRD statuses, so a K8s deployment gives the full contract experience — version history, interface details, configuration schemas and diffs — without explicit OCI arguments.
 
-Sources are auto-detected at startup:
-
-| Source | Detected when | Provides |
-|--------|--------------|----------|
-| **local** | `pacto.yaml` found in the working directory | In-progress contract changes |
-| **k8s** | Valid kubeconfig found and cluster reachable | Runtime state: contract status, conditions, endpoints, resources |
-| **oci** | `oci://` positional arguments provided, or auto-discovered from K8s `resolvedRef` fields | Full contract bundles, registry versions, and diffs |
-
-Materialized bundles on disk (`~/.cache/pacto/oci`) are used internally by the OCI source to enrich version data (hash, classification, timestamps) without appearing as a separate source.
-
-When running alongside the Kubernetes operator, the dashboard automatically discovers OCI repositories from the `resolvedRef` fields in Pacto CRD statuses. This means a K8s deployment of the dashboard provides the full contract experience — version history, interface details, configuration schemas, and diffs — without explicit OCI arguments.
-
-Pass `--no-cache` to skip pre-existing cached bundles at startup (cold-start mode). Bundles materialized during the current session (via fetch-all-versions, dependency resolution, or OCI pulls) are still cached to disk and reused for enrichment within the same session.
-
-### Merge priority
-
-When a service appears in multiple sources, fields are merged using priority rules:
-
-1. **Kubernetes** — runtime state (contract status, resources, ports, conditions, endpoints)
-2. **Local** — in-progress contract edits
-3. **OCI** — published contract baseline
-
-The merged view is used for the service list and detail pages. Per-source data is available via the `/api/services/{name}/sources` endpoint.
-
-### Status and source filtering
-
-The dashboard provides a layered filter pipeline:
-
-1. **Source filter** — click source pills in the header to show/hide services from specific sources
-2. **Status filter** — click status pills (Compliant, Warning, Non-Compliant, Reference, Unknown) to filter by contract status
-3. **Search** — type in the search bar to filter by name, owner, version, or source
-
-All three filters compose: a service must pass all active filters to appear in both the table and graph views.
-
-### Graph visualization
-
-The built-in D3 force-directed graph shows:
-
-- **Dependency edges** (solid lines) — declared `dependencies[].ref` relationships
-- **Reference edges** (dashed lines) — `configurations[].ref` and `policies[].ref` cross-references
-- **External nodes** — dependencies that don't resolve to any known service
-
-Hover over a node to highlight its impact chain. Click a node to navigate to its detail page.
-
-### Version tracking
-
-The dashboard classifies how each service tracks its contract version:
-
-| Policy | Meaning | Source |
-|--------|---------|--------|
-| **Tracking latest** | Service follows the latest available version (no explicit pin) | Operator `resolutionPolicy=Latest` |
-| **Pinned to tag** | Service is pinned to a specific semver tag | Operator `resolutionPolicy=PinnedTag`, or fallback from semver tag in `resolvedRef` |
-| **Pinned to digest** | Service is pinned to an immutable OCI digest | Operator `resolutionPolicy=PinnedDigest`, or fallback from `@sha256:` in `resolvedRef` |
-
-The **preferred source of truth** is the operator's `status.contract.resolutionPolicy` field, available for Kubernetes-backed services. For non-Kubernetes sources (OCI-only, local) or older operator versions that don't expose `resolutionPolicy`, the dashboard falls back to a conservative heuristic based on `resolvedRef`. The fallback only classifies unambiguous cases (digest refs, explicit semver tags) — ambiguous refs are left unclassified rather than assumed to be tracking.
-
-Note: `"latest"` is not a valid Pacto contract version. The dashboard does not infer "tracking latest" from a `:latest` OCI tag.
-
-The dashboard also compares the current version against the latest available semver tag from OCI and shows an informational indicator when a newer version exists. This is purely informational — **update availability does not affect compliance status**. A service running an older version remains Compliant as long as its contract passes validation.
-
-In the version history table, the currently active version is highlighted so you can see at a glance where you stand relative to the full version timeline. You can click "Compare" to diff the current version against the latest available.
-
-### Diagnostics
-
-Pass `--diagnostics` to enable debug endpoints (`/api/debug/sources`, `/api/debug/services`) that expose raw per-source detection details and service data for troubleshooting.
+See [Dashboard architecture](architecture.md#dashboard-architecture) for the source model, merge priority, graph edges and version-tracking rules, and the [`pacto dashboard` command reference](cli-reference.md#pacto-dashboard) for flags (`--port`, `--namespace`, `--repo`, `--no-cache`, `--diagnostics`) and environment variables.
 
 ---
 
@@ -437,9 +288,5 @@ Pass `--diagnostics` to enable debug endpoints (`/api/debug/sources`, `/api/debu
 - **Use JSON output.** Every command supports `--output-format json` for programmatic consumption.
 - **Use markdown output for PR comments.** `pacto diff --output-format markdown` renders changes as tables with old/new values — pipe it into `gh pr comment` for rich CI feedback.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
-- **Check SBOM changes.** When bundles include SBOMs, `pacto diff` reports package-level changes — useful for tracking dependency drift, license compliance, and supply chain audits across contract versions.
-- **Enforce policies.** Publish a policy contract with a JSON Schema that validates contracts against your organizational standards. Services reference it via `policies[].ref` — see [policies](contract-reference.md#policies) in the Contract Reference.
-- **Centralize configuration schemas.** Publish a configuration contract and have services reference it via `configurations[].ref` instead of vendoring schemas. See [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models).
 - **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface](mcp-integration.md) — useful for ad-hoc inspection, dependency analysis, and contract generation.
 - **Close the loop with the operator.** The [Kubernetes Operator](operator.md) continuously verifies that deployed services match their contracts — port alignment, workload existence, health endpoint reachability, and more. Combined with the dashboard, you get a complete view: contract truth from OCI + runtime truth from the operator.
-- **Use the dashboard for contract observability.** Run `pacto dashboard` to explore contracts, dependency graphs, version history, interface details, and diffs. Deploy the [Dashboard Container](dashboard-docker.md) alongside the operator for a production-ready contract exploration UI.

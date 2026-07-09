@@ -3,7 +3,7 @@
 
 ## Via installer script
 
-The fastest way to install Pacto:
+Install with one command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
@@ -48,19 +48,19 @@ pacto update
 pacto update v1.2.0
 ```
 
-This downloads the new binary, **verifies its SHA-256 against the `checksums.txt` published with the release**, and only then replaces the current one. If the download is corrupted, truncated, or tampered with, the update is aborted and the existing binary is left untouched. No additional tools required.
+This downloads the new binary, **verifies its SHA-256 against the `checksums.txt` published with the release**, and only then replaces the current one. If the download fails verification, the update is aborted and the existing binary is left untouched.
 
 !!! note
     If you installed via `go install`, use `go install github.com/trianalab/pacto/v2/cmd/pacto@latest` to update instead.
 
-Pacto also checks for updates automatically and shows a notification when a newer version is available. To disable this, set `PACTO_NO_UPDATE_CHECK=1` in your environment.
+Pacto also checks for updates automatically and notifies you when a newer version is available. See the [`pacto update` reference](cli-reference.md#pacto-update) for [update notifications](cli-reference.md#update-notifications) and the [`PACTO_NO_UPDATE_CHECK` environment variable](cli-reference.md#environment-variables).
 
 ## Build targets
 
 ```bash
 make build    # Compile the pacto binary with version injection
 make test     # Run all tests
-make lint     # Run go vet
+make lint     # Run gofmt check and go vet
 make clean    # Remove build artifacts
 ```
 

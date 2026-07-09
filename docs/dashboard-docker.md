@@ -1,7 +1,7 @@
 # Dashboard Container
 ---
 
-The Pacto dashboard is published as a container image for production and Kubernetes deployments. It provides the same contract exploration experience as the CLI's `pacto dashboard` command — dependency graphs, version history, interfaces, configuration schemas, and diffs — in a deployable container.
+The Pacto dashboard is published as a container image for production and Kubernetes deployments. It runs the same `pacto dashboard` server in a deployable container.
 
 ## Image
 
@@ -47,6 +47,7 @@ make docker-run
 | `PACTO_DASHBOARD_NAMESPACE` | Kubernetes namespace filter (empty = all) | `""` |
 | `PACTO_DASHBOARD_REPO` | Comma-separated OCI repositories to scan | `""` |
 | `PACTO_DASHBOARD_DIAGNOSTICS` | Enable source diagnostics panel (`true`) | `false` |
+| `PACTO_DASHBOARD_CORS_ORIGIN` | Trusted cross-origin allowed to call the API | `""` (same-origin only) |
 | `PACTO_CACHE_DIR` | OCI bundle cache directory | `/home/pacto/.cache/pacto/oci` |
 | `PACTO_NO_CACHE` | Disable OCI bundle caching (`1`) | `0` |
 | `PACTO_NO_UPDATE_CHECK` | Disable update checks (`1`) | `1` (set in image) |
@@ -60,10 +61,10 @@ All `PACTO_DASHBOARD_*` variables map to the corresponding `--host`, `--port`, `
 
 ## Data Sources
 
-The dashboard auto-detects available data sources at startup:
+The dashboard auto-detects available data sources at startup. See the [source model](architecture.md#source-model) and [resolution model](architecture.md#resolution-model) in architecture.md for how sources merge and prioritize; the container-specific bindings are:
 
-- **oci**: Enabled when `PACTO_DASHBOARD_REPO` is set, or **automatically discovered from K8s `resolvedRef` fields** when the Kubernetes source is active. Scans OCI registries for published contracts — providing full contract bundles, version history, interfaces, and diffs. Materialized bundles on disk (`/home/pacto/.cache/pacto/oci/`) are used internally by the OCI source to enrich version data without appearing as a separate source.
-- **cache**: The on-disk OCI cache (`~/.cache/pacto/oci/`) is **internal to the OCI source** and normally stays hidden. It surfaces as a distinct `cache` source **only** when no live registry is reachable **and** the cache already has entries — an offline baseline of previously pulled bundles. When both a live registry and the cache hold data, **OCI takes priority** and the cache remains internal.
+- **oci**: Enabled when `PACTO_DASHBOARD_REPO` is set, or auto-discovered from K8s `resolvedRef` fields. Provides contract bundles, version history, interfaces and diffs. (On-disk cache at `/home/pacto/.cache/pacto/oci/` is used internally — see [architecture](architecture.md#source-model).)
+- **cache**: The on-disk OCI cache is internal to the OCI source; it surfaces as a distinct `cache` source only as an offline baseline when no registry is configured and the cache has entries.
 - **k8s**: Enabled when a valid kubeconfig is mounted or when running inside a Kubernetes cluster (in-cluster config). Provides runtime state from the [Pacto operator](operator.md).
 - **local**: Enabled when a `pacto.yaml` is found in the working directory (mount via volume).
 
@@ -74,7 +75,7 @@ When deployed alongside the Pacto operator in Kubernetes, the dashboard automati
 **Prerequisites.** Hybrid mode only activates when all of the following hold:
 
 - A mounted kubeconfig **or** in-cluster config so the Kubernetes source is active.
-- The Pacto operator is running and has populated `status.resolvedRef` on the Pacto resources to discover.
+- The Pacto operator is running and has populated `status.contract.resolvedRef` on the Pacto resources to discover.
 - The discovered registries are reachable and (for private repositories) authenticated via `PACTO_REGISTRY_*` credentials.
 
 If any prerequisite is missing — no `resolvedRef`, an unreachable registry, or missing credentials — the dashboard **silently degrades to k8s-only**: it still shows runtime state from the operator, but without the OCI-backed version history, interfaces, schemas, and diffs.
@@ -212,6 +213,4 @@ spec:
 
 ## Build and Release
 
-The dashboard image is built and published automatically when a new Pacto version is released. The `docker` job in the auto-release pipeline (`.github/workflows/auto-release.yml`) builds multi-architecture images (`linux/amd64`, `linux/arm64`) and pushes to `ghcr.io/trianalab/pacto-dashboard` with the matching version tag (without `v` prefix).
-
-The image version always matches the Pacto CLI version. There is no separate versioning scheme for the dashboard container.
+The dashboard image is built and published automatically when a new Pacto version is released. The `docker-build` and `docker-merge` jobs in the auto-release pipeline (`.github/workflows/auto-release.yml`) build per-architecture images (`linux/amd64`, `linux/arm64`) and merge them into a single multi-arch manifest pushed to `ghcr.io/trianalab/pacto-dashboard` with the matching version tag (without `v` prefix).
