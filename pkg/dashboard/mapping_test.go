@@ -297,14 +297,14 @@ func TestServiceDetailsFromBundle_ImageAndChart(t *testing.T) {
 }
 
 func TestGraphFromResult_Nil(t *testing.T) {
-	result := graphFromResult(nil)
+	result := GraphFromResult(nil)
 	if result != nil {
 		t.Error("expected nil for nil input")
 	}
 }
 
 func TestGraphFromResult_NilRoot(t *testing.T) {
-	result := graphFromResult(&graph.Result{Root: nil})
+	result := GraphFromResult(&graph.Result{Root: nil})
 	if result != nil {
 		t.Error("expected nil for nil root")
 	}
@@ -329,7 +329,7 @@ func TestGraphFromResult_Basic(t *testing.T) {
 		},
 	}
 
-	g := graphFromResult(r)
+	g := GraphFromResult(r)
 	if g == nil {
 		t.Fatal("expected non-nil graph")
 	}

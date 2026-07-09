@@ -474,8 +474,8 @@ func DiffResultFromEngine(from, to Ref, r *diff.Result) *DiffResult {
 	return dr
 }
 
-// graphFromResult maps the graph resolver's Result to the dashboard DependencyGraph.
-func graphFromResult(r *graph.Result) *DependencyGraph {
+// GraphFromResult maps the graph resolver's Result to the dashboard DependencyGraph.
+func GraphFromResult(r *graph.Result) *DependencyGraph {
 	if r == nil || r.Root == nil {
 		return nil
 	}
