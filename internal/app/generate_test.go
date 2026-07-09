@@ -327,3 +327,35 @@ func TestGenerate_MkdirTempError(t *testing.T) {
 		t.Error("expected error when MkdirTemp fails")
 	}
 }
+
+// TestGenerate_AbsolutePluginPathRejected proves an absolute plugin file path is
+// refused outright rather than silently re-rooted under the output directory.
+func TestGenerate_AbsolutePluginPathRejected(t *testing.T) {
+	bundleDir := writeTestBundle(t)
+	dir := t.TempDir()
+	outputDir := filepath.Join(dir, "gen-output")
+
+	runner := &mockPluginRunner{
+		RunFn: func(_ context.Context, _ string, _ plugin.GenerateRequest) (*plugin.GenerateResponse, error) {
+			return &plugin.GenerateResponse{
+				Files: []plugin.GeneratedFile{{Path: "/etc/pwned.txt", Content: "pwned"}},
+			}, nil
+		},
+	}
+
+	svc := NewService(nil, runner)
+	_, err := svc.Generate(context.Background(), GenerateOptions{
+		Path:      bundleDir,
+		OutputDir: outputDir,
+		Plugin:    "bad-plugin",
+	})
+	if err == nil {
+		t.Fatal("expected error for absolute plugin path")
+	}
+	if !strings.Contains(err.Error(), "must be relative") {
+		t.Errorf("expected 'must be relative' error, got: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outputDir, "etc", "pwned.txt")); statErr == nil {
+		t.Error("absolute path was re-rooted and written under the output dir")
+	}
+}

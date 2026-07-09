@@ -85,6 +85,9 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 		return nil, fmt.Errorf("failed to resolve output directory: %w", err)
 	}
 	for _, f := range resp.Files {
+		if filepath.IsAbs(f.Path) {
+			return nil, fmt.Errorf("plugin file path %q must be relative", f.Path)
+		}
 		outPath := filepath.Join(absOutput, f.Path)
 		if rel, relErr := filepath.Rel(absOutput, outPath); relErr != nil || strings.HasPrefix(rel, "..") {
 			return nil, fmt.Errorf("plugin file path %q escapes output directory", f.Path)
