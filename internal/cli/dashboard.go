@@ -36,7 +36,7 @@ Each positional argument is a pacto source reference:
 When no arguments are given, sources are auto-detected:
   - local: enabled if pacto.yaml is found in the working directory
   - k8s:   enabled if a valid kubeconfig is found and the cluster is reachable
-  - oci:   auto-discovered from K8s resolvedRefs, or via PACTO_DASHBOARD_REPO env var
+  - oci:   auto-discovered from K8s status.contract.resolvedRef, or via PACTO_DASHBOARD_REPO env var
 
 Materialized bundles on disk (~/.cache/pacto/oci) are used internally by the
 OCI source to enrich version data (hash, classification, timestamps) without
@@ -44,7 +44,7 @@ appearing as a separate source. The --no-cache flag skips pre-existing cache
 at startup but still allows same-session materialization (e.g. fetch-all-versions).
 
 When running alongside the Kubernetes operator, OCI repositories are automatically
-discovered from the resolvedRef fields of Pacto CRD resources. This provides full
+discovered from the status.contract.resolvedRef fields of Pacto CRD resources. This provides full
 contract bundles, version history, interfaces, and diffs — without needing
 explicit OCI arguments. The result is a hybrid view: runtime truth from the
 operator combined with contract truth from OCI.

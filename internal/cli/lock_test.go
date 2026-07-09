@@ -12,6 +12,7 @@ import (
 	"github.com/trianalab/pacto/v2/internal/cli"
 	"github.com/trianalab/pacto/v2/internal/testutil"
 	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/lock"
 )
 
 func TestLockCommandWritesFile(t *testing.T) {
@@ -231,5 +232,68 @@ func TestLockCommandUpToDate(t *testing.T) {
 
 	if !strings.Contains(out.String(), "up to date") {
 		t.Errorf("expected 'up to date' in output, got %q", out.String())
+	}
+}
+
+// TestLockCommandUpdateNameSelective proves `--update-name X` re-resolves only the
+// named dependency and preserves every other pin — it must NOT re-pin the whole
+// closure the way `--update` does.
+func TestLockCommandUpdateNameSelective(t *testing.T) {
+	dir := t.TempDir()
+	yaml := "pactoVersion: \"1.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n  - name: db\n    ref: oci://ghcr.io/acme/db\n    compatibility: ^1.0.0\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	authDigest, dbDigest := "sha256:auth-v1", "sha256:db-v1"
+	store := &testutil.MockBundleStore{
+		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.2.0"}, nil },
+		ResolveFn: func(_ context.Context, ref string) (string, error) {
+			if strings.Contains(ref, "/auth") {
+				return authDigest, nil
+			}
+			return dbDigest, nil
+		},
+		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+			name := "db"
+			if strings.Contains(ref, "/auth") {
+				name = "auth"
+			}
+			return &contract.Bundle{Contract: &contract.Contract{PactoVersion: "1.0", Service: contract.ServiceIdentity{Name: name, Version: "1.2.0"}}}, nil
+		},
+	}
+	svc := app.NewService(store, nil)
+
+	// Initial lock: both deps pinned at v1.
+	root1 := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
+	root1.SetArgs([]string{"lock", dir})
+	root1.SetOut(&bytes.Buffer{})
+	if err := root1.Execute(); err != nil {
+		t.Fatalf("initial lock: %v", err)
+	}
+
+	// Registry drifts: both deps now serve v2.
+	authDigest, dbDigest = "sha256:auth-v2", "sha256:db-v2"
+
+	// Selectively update only auth.
+	root2 := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
+	root2.SetArgs([]string{"lock", "--update-name", "auth", dir})
+	root2.SetOut(&bytes.Buffer{})
+	if err := root2.Execute(); err != nil {
+		t.Fatalf("lock --update-name: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "pacto.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := lock.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := l.Dependency("auth"); !ok || e.Digest != "sha256:auth-v2" {
+		t.Errorf("auth should be repinned to v2, got %+v", e)
+	}
+	if e, ok := l.Dependency("db"); !ok || e.Digest != "sha256:db-v1" {
+		t.Errorf("db pin should be preserved at v1, got %+v", e)
 	}
 }

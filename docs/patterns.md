@@ -3,6 +3,8 @@ Pacto's primitives — bundles, references, configurations, policies, metadata �
 
 Each pattern is independent. Stack what you need; ignore what you don't.
 
+Across every pattern, two things are happening. Pacto composes interfaces you already have — a Helm chart's `values.schema.json`, a provisioning claim's schema — rather than inventing a parallel configuration language: compose, don't replace. And it adds the layer no single schema owns — ownership, dependencies, compatibility and how those interfaces change over time. A JSON Schema describes one interface; Pacto describes the relationships between them.
+
 ---
 ## 1. Root + component contracts (the monorepo pattern)
 
@@ -38,7 +40,7 @@ my-service/
 **Root contract.**
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: my-service-root
@@ -70,7 +72,7 @@ dependencies:
 **Component contract.**
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: my-service-api
@@ -101,7 +103,7 @@ configurations:
     ref: oci://ghcr.io/example/pactos/platform-service:2.0.0
 ```
 
-**Why this works.** A one-component repo using this layout has near-zero overhead but pays for itself the day a second component arrives — adding one is a new bundle directory plus one root-contract dependency, not a repo-wide restructure. The root maps cleanly to a single deployment unit, while each component is independently validated, versioned, and reasoned about. Naming convention (e.g. `-root` suffix) gives downstream tooling a reliable signal to distinguish roots from components in the dependency graph.
+**Why this works.** A one-component repo pays almost nothing for this layout, and adding a second component is one new bundle dir plus one root dependency. The root maps to a single deployment unit; each component is validated and versioned independently. The root is a lean aggregator — it carries only `service`, `chart` and `dependencies[]` (plus any `policies`), deliberately omitting `runtime`, `interfaces` and `configurations`. Your own tooling can distinguish a root from a component by naming convention (e.g. a `-root` suffix) or structurally — `dependencies[]` present, `configurations` absent — since Pacto itself does not key off the name.
 
 **Cross-links:** [`service.chart`](contract-reference.md#chart) · [`dependencies`](contract-reference.md#dependencies)
 
@@ -121,7 +123,7 @@ configurations:
 **Example: a postgres infrastructure contract.**
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: postgres
@@ -141,10 +143,12 @@ policies:
 
 configurations:
   - name: provisioning
-    schema: configuration/schema.json   # derived from the provisioner XRD / module spec
+    schema: configuration/schema.json   # hand-authored mirror of the provisioner's XRD / module spec — Pacto does not derive it
 ```
 
 **The provisioning schema** validates "did the team write a sensible claim?" — instances in range, valid size enum, schedule cron syntax, etc.
+
+Pacto doesn't invent this schema — it's a hand-authored mirror of the provisioner's own interface (a Crossplane XRD, a Terraform module's variables), the team-controllable subset of the claim. Configuring the resource through the contract is configuring the underlying claim; the contract adds what the claim can't express on its own — an owner, a version, a policy and a stable ref other contracts depend on.
 
 ```json
 {
@@ -184,9 +188,11 @@ configurations:
 
 ```yaml
 # pactos/my-service-api/overrides/values.stg.yaml
+# Value-carrying entries use a local (vendored) schema — `ref:` and `values:`
+# are mutually exclusive, so a schema you supply values for must live in the bundle.
 configurations:
   - name: deployment
-    ref: oci://ghcr.io/example/pactos/platform-service:2.0.0
+    schema: configuration/deployment/schema.json
     values:
       replicas: 3
       resources:
@@ -195,7 +201,7 @@ configurations:
           memory: 1Gi
 
   - name: postgres
-    ref: oci://ghcr.io/example/pactos/postgres:17.0.0
+    schema: configuration/postgres/schema.json
     values:
       instances: 2
       size: medium
@@ -204,23 +210,23 @@ configurations:
         schedule: "0 */6 * * *"
 
   - name: secrets
-    ref: oci://ghcr.io/example/pactos/secrets:1.0.0
+    schema: configuration/secrets/schema.json
     values:
       secrets:
         - key: api-key
         - key: openai-token
 ```
 
-`pacto validate -f overrides/values.stg.yaml` validates each entry against its referenced schema. Your deployment tooling reads the same file and produces:
+`pacto validate -f overrides/values.stg.yaml` validates each entry's `values` against its local `schema`. (Values for `ref`-based configs are resolved and validated at deploy/runtime, not at validate time.) Your deployment tooling reads the same file and produces:
 
 - Helm values (`deployment` entry → values nested under the component's chart alias)
 - A Postgres claim (`postgres` entry → fields land in the claim's `spec`)
 - A secret-store claim (`secrets` entry → declared keys provisioned)
 
-**Each value is written once.** No drift between a chart's `values.yaml` and a separate `claims/postgres.yaml`. A reviewer reads one file to see what the component will look like in this environment.
+**Each value is written once** — no drift between a chart's `values.yaml` and a separate `claims/postgres.yaml`.
 
 !!! info
-    Override files use **Helm-style array replacement** for `configurations` — the override's array replaces the contract's array entirely, not merged by name. Each override file must therefore include all configurations it cares about, with their `ref` (or `schema`) and `values`. This is by design: it makes each environment file self-contained and independently validatable.
+    Override files use **Helm-style array replacement** for `configurations` — the override's array replaces the contract's array entirely, not merged by name (see [Contract overrides](contract-reference.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `schema` (and `values`) or a `ref` (schema-only). Inline `values` require a local `schema`; a `ref`-based entry carries neither.
 
 **Cross-links:** [`configurations`](contract-reference.md#configurations) · [Contract overrides](contract-reference.md#contract-overrides) · [Environment-specific values files](contract-reference.md#environment-specific-values-files)
 
@@ -239,7 +245,7 @@ configurations:
 
 ```yaml
 # pactos/platform-service/pacto.yaml
-pactoVersion: "1.0"
+pactoVersion: "1.2"
 
 service:
   name: platform-service
@@ -269,7 +275,7 @@ configurations:
     ref: oci://ghcr.io/example/pactos/platform-service:2.0.0
 ```
 
-**Mix and match.** Teams using the platform's standard chart reference both. Teams that ship their own chart (a third-party Keycloak chart, a custom operator) still reference the policy — contract structure rules are universal — but provide their own configuration schema locally:
+**Mix and match.** Teams using the platform's standard chart reference both. Teams that ship their own chart (a third-party Keycloak chart, a custom operator) still reference the policy — contract structure rules are universal — but vendor their own configuration schema locally. The moment a team needs inline or override `values`, it must vendor the schema: a `ref`-ed config is schema-only (see [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models)).
 
 ```yaml
 policies:
@@ -281,7 +287,7 @@ configurations:
     schema: configuration/values.schema.json   # vendored from their chart
 ```
 
-**One artifact, central control.** The platform team owns one bundle. Services pin to a version. The same JSON Schema validates the contract at CI time *and* the chart values at install time — no duplication, no drift.
+**One bundle, versioned.** The same JSON Schema validates the contract at CI time *and* the chart values at install time.
 
 **Cross-links:** [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models) · [`policies`](contract-reference.md#policies) · [Policy as a contract](platform-engineers.md#policy-enforcing-contract-standards)
 
@@ -300,15 +306,17 @@ configurations:
 | `3.0.0` | + `configurations[]` schema present, SBOM in bundle |
 | `4.0.0` | + `runtime.health` includes liveness *and* readiness, `scaling.min >= 2` for `service` workloads |
 
-A service pinned to `platform-policy:2.0.0` keeps validating against v2's rules until the team is ready to bump. The dashboard can surface "service is N major versions behind the latest policy" without the platform forcing the change.
+A service pinned to `platform-policy:2.0.0` keeps validating against v2's rules until the team is ready to bump — the platform never forces the change.
 
 **Why this works.**
 
 - **Forwards is opt-in, never forced.** Teams migrate when they have time
-- **Backwards is enforced.** A service can never weaken its policy — `pacto diff` flags removing or downgrading a policy ref as a breaking change
+- **Backwards is enforced.** A service can never silently weaken its policy — `pacto diff` flags removing or changing a policy ref as potentially breaking (classification `potentially-breaking`)
 - **The version is the negotiation point.** Conversations about "should we require X?" become "should we publish v4 that requires X, with a six-month adoption window?"
 
-**Coordinate with `pacto diff`.** When a service ref-bumps from `2.0.0` to `3.0.0`, `pacto diff` resolves both versions of the policy and shows what new validations will apply. If the service contract doesn't satisfy the new policy, validation fails *before* merge — the team sees the gap and either fixes it or stays on `2.0.0`.
+**Two dials.** Pinning the policy's major version (above) makes each new bar opt-in and negotiated. Alternatively, a rule layer referenced *transitively* through the platform contract can be left unpinned: republishing that one schema propagates a new rule fleet-wide immediately, with no per-service bump — at the cost of lockfile drift, since every republish changes the resolved digest and forces services to re-lock ([`pacto lock --check`](lockfile.md) fails until they do). Pinned is opt-in and negotiated; floating is instant and unilateral but forces re-locks.
+
+**Coordinate with `pacto validate`.** When a service ref-bumps from `2.0.0` to `3.0.0`, `pacto diff` reports the changed policy ref; `pacto validate` resolves the new policy and fails *before* merge if the contract does not satisfy it — the team sees the gap and either fixes it or stays on `2.0.0`.
 
 **Cross-links:** [`policies`](contract-reference.md#policies) · [Change classification — Policy](contract-reference.md#policy)
 
@@ -331,20 +339,20 @@ pactos/my-service-api/
     └── values.prod.yaml
 ```
 
-**One environment file is fully self-contained** — it lists every configuration the component cares about for that environment:
+Each file is self-contained and follows the same shape as [pattern 3](#3-configurations-as-composable-claims) — it lists every configuration the component cares about for that environment, value-carrying entries using a local `schema:` (a `ref:` entry is schema-only):
 
 ```yaml
 # overrides/values.prod.yaml
 configurations:
   - name: deployment
-    ref: oci://ghcr.io/example/pactos/platform-service:2.0.0
+    schema: configuration/deployment/schema.json
     values:
       replicas: 5
       resources:
         requests: { cpu: 2000m, memory: 2Gi }
 
   - name: postgres
-    ref: oci://ghcr.io/example/pactos/postgres:17.0.0
+    schema: configuration/postgres/schema.json
     values:
       instances: 3
       size: large
@@ -353,21 +361,9 @@ configurations:
         schedule: "0 */4 * * *"
 ```
 
-**Why per-component files.** A single monolithic file per environment would conflate values that are validated against different schemas (one schema per configuration entry). Per-component files mean:
+Each file is validated independently by `pacto validate -f overrides/values.<env>.yaml`, so a change scopes to one component — a typo in staging Postgres can't break an unrelated one, and reviewers see a small diff.
 
-- Each file is independently validated by `pacto validate -f overrides/values.<env>.yaml`
-- A change to staging Postgres for the worker affects exactly one file — no risk of a typo breaking an unrelated component
-- Reviewers see a small, scoped diff per change
-
-**Why files are usually small.** Good chart and contract defaults eliminate most overrides. If dev works with defaults, no `values.dev.yaml` is needed at all. A typical override is 10-20 lines: the values that genuinely differ for this environment.
-
-**Precedence at validate / deploy time:**
-
-```
-contract inline values  →  -f overrides/values.<env>.yaml  →  --set
-```
-
-Use inline values for cross-environment defaults. Use override files for environment-specific values. Reserve `--set` for values your platform tooling controls (image tag, namespace, deploy-time labels).
+**Precedence.** Contract inline `values` → `-f overrides/values.<env>.yaml` → `--set` (wins). Use inline values for cross-environment defaults, override files for environment-specific values and reserve `--set` for values your platform tooling controls (image tag, namespace, deploy-time labels). See [Precedence](contract-reference.md#precedence) for the full chain.
 
 **Cross-links:** [Contract overrides](contract-reference.md#contract-overrides) · [Precedence](contract-reference.md#precedence) · [Environment-specific values files](contract-reference.md#environment-specific-values-files)
 

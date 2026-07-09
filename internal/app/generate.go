@@ -85,18 +85,8 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 		return nil, fmt.Errorf("failed to resolve output directory: %w", err)
 	}
 	for _, f := range resp.Files {
-		outPath := filepath.Join(absOutput, f.Path)
-		if rel, relErr := filepath.Rel(absOutput, outPath); relErr != nil || strings.HasPrefix(rel, "..") {
-			return nil, fmt.Errorf("plugin file path %q escapes output directory", f.Path)
-		}
-		if strings.Contains(f.Path, "..") {
-			return nil, fmt.Errorf("plugin file path %q contains path traversal", f.Path)
-		}
-		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
-			return nil, fmt.Errorf("failed to create directory for %s: %w", f.Path, err)
-		}
-		if err := writeFileFn(outPath, []byte(f.Content), 0644); err != nil {
-			return nil, fmt.Errorf("failed to write %s: %w", f.Path, err)
+		if err := writeGeneratedFile(absOutput, f); err != nil {
+			return nil, err
 		}
 	}
 
@@ -107,6 +97,28 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 		FilesCount: len(resp.Files),
 		Message:    resp.Message,
 	}, nil
+}
+
+// writeGeneratedFile validates a plugin-returned file path and writes it under
+// absOutput. Paths must be relative and must not escape the output directory.
+func writeGeneratedFile(absOutput string, f plugin.GeneratedFile) error {
+	if filepath.IsAbs(f.Path) {
+		return fmt.Errorf("plugin file path %q must be relative", f.Path)
+	}
+	outPath := filepath.Join(absOutput, f.Path)
+	if rel, relErr := filepath.Rel(absOutput, outPath); relErr != nil || strings.HasPrefix(rel, "..") {
+		return fmt.Errorf("plugin file path %q escapes output directory", f.Path)
+	}
+	if strings.Contains(f.Path, "..") {
+		return fmt.Errorf("plugin file path %q contains path traversal", f.Path)
+	}
+	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory for %s: %w", f.Path, err)
+	}
+	if err := writeFileFn(outPath, []byte(f.Content), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", f.Path, err)
+	}
+	return nil
 }
 
 // prepareBundleDir returns a directory path containing the bundle files.

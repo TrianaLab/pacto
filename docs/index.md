@@ -11,19 +11,21 @@
 
 Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs to know about a service — interfaces, runtime behavior, dependencies, configuration, and scaling — in one YAML file that machines can validate and tooling can consume.
 
+Pacto doesn't invent a new configuration language. An interface is a JSON Schema, OpenAPI spec or protobuf definition you already maintain — Pacto composes the interfaces you already have instead of redefining them. On top of that it adds what no single schema can express: how interfaces relate, what they depend on and how they change over time. *JSON Schema describes an interface; Pacto describes the relationships between interfaces and how they change over time.*
+
 Pacto is a **runtime contract system** made of three complementary pieces:
 
 - **CLI** — author, validate, diff, explain, and publish contracts
 - **Dashboard** — explore contracts, dependency graphs, versions, readiness and diffs visually
 - **Kubernetes Operator** — verify that live runtime remains faithful to the contract
 
-No runtime agents. No sidecars. No new infrastructure. The CLI runs at build time and CI time. The dashboard and operator extend the same contracts into exploration and runtime verification — without duplicating logic or adding moving parts.
+No runtime agents. No sidecars. No new infrastructure. The CLI runs at build time and CI time. The dashboard and operator extend the same contracts into exploration and runtime verification.
 
 ---
 
 ## AI-native contracts
 
-Pacto contracts are machine-readable by design. Beyond platforms and CI pipelines, they can be consumed directly by AI assistants through the [Model Context Protocol](https://modelcontextprotocol.io). Running `pacto mcp` starts an MCP server that exposes contract-aware tools — allowing assistants like Claude, Cursor, and GitHub Copilot to validate contracts, inspect dependency graphs, generate new contracts, and explain breaking changes. See the [MCP Integration](mcp-integration.md) guide.
+Pacto contracts are machine-readable by design. Beyond platforms and CI pipelines, they can be consumed directly by AI assistants through the [Model Context Protocol](https://modelcontextprotocol.io). Running `pacto mcp` starts an MCP server that exposes contract-aware tools — allowing assistants like Claude, Cursor, and GitHub Copilot to generate, edit and validate contracts and surface improvement suggestions. See the [MCP Integration](mcp-integration.md) guide.
 
 ---
 
@@ -93,7 +95,7 @@ scaling:
   max: 10
 ```
 
-Every question a platform could ask — *What port? Stateful or stateless? What does it depend on? How should it scale?* — is answered in one file, validated by tooling and versioned in a registry.
+These questions are answered in one file, validated by tooling and versioned in a registry.
 
 Only `pactoVersion` and `service` are required — everything else is opt-in, so a contract can be as minimal or as detailed as your service needs.
 
@@ -140,7 +142,7 @@ Instead of filing tickets, attending meetings, and writing wiki pages, a develop
 5. The Kubernetes operator verifies runtime stays faithful to the contract
 ```
 
-The real value of Pacto appears across the full loop: **author → validate → publish → explore → verify at runtime**. Each piece has a clear responsibility — the CLI manages the contract lifecycle, the dashboard makes contracts observable, and the operator closes the gap between declaration and reality.
+The real value of Pacto appears across the full loop: **author → validate → publish → explore → verify at runtime**.
 
 ---
 
@@ -173,16 +175,7 @@ graph LR
     Bundle -- "pacto push" --> Registry["OCI Registry<br/>GHCR · ECR · ACR<br/>Docker Hub"]
 ```
 
-A bundle is a self-contained directory (or OCI artifact) containing:
-
-- **`pacto.yaml`** — the contract: interfaces, dependencies, runtime semantics, scaling, readiness *(required)*
-- **`interfaces/`** *(optional)* — OpenAPI specs, protobuf definitions, event schemas
-- **`configuration/`** *(optional)* — JSON Schema for environment variables and settings
-- **`policy/`** *(optional)* — JSON Schema that validates the contract itself (organizational standards enforcement)
-- **`docs/`** *(optional)* — service documentation (README, runbooks, architecture notes)
-- **`sbom/`** *(optional)* — Software Bill of Materials in [SPDX](https://spdx.dev/) or [CycloneDX](https://cyclonedx.org/) format. `pacto diff` reports package-level changes when present
-
-Only `pacto.yaml` is required. All other directories are optional — include them when your contract references files in them. Validation enforces that every referenced file exists within the bundle.
+A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required) plus optional `interfaces/`, `configuration/`, `policy/`, `docs/` and `sbom/` directories. These are schemas you already maintain — an OpenAPI spec, a JSON Schema for your config — composed into the bundle rather than rewritten in a Pacto-specific format; `pacto.yaml` adds the relational layer around them (dependencies, compatibility, runtime semantics). Validation enforces that every referenced file exists within the bundle. See the [contract reference](contract-reference.md#bundle-structure) for the full bundle layout.
 
 ---
 
@@ -197,7 +190,7 @@ Only `pacto.yaml` is required. All other directories are optional — include th
 - **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
 - **Contract exploration dashboard** — `pacto dashboard` launches a web UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, readiness and diffs across local, OCI, and Kubernetes sources
 - **Runtime fidelity verification** — the optional [Kubernetes Operator](operator.md) continuously checks that deployed services match their contracts — port alignment, workload existence, health endpoint reachability, and more
-- **AI assistant integration** — `pacto mcp` exposes all contract operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor, and GitHub Copilot
+- **AI assistant integration** — `pacto mcp` exposes contract create, edit, validate and schema operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor and GitHub Copilot
 
 ---
 
@@ -255,11 +248,8 @@ These primitives compose into reusable platform patterns — root + component co
 ## What Pacto is not
 
 - **Not a deployment tool** — it describes *what* to deploy, not *how*
-- **Not a generic policy engine** — policies validate contract structure, not arbitrary infrastructure rules
-- **Not just a Kubernetes linter** — the operator is one part of the system, not the whole product
+- **Not another configuration language** — an interface is a JSON Schema, OpenAPI or protobuf definition you already own; Pacto composes those rather than replacing them
 - **Not a registry** — it uses existing OCI registries (GHCR, ECR, ACR, Docker Hub)
-- **Not a service mesh or runtime agent** — no sidecars, no proxies; the operator watches CRDs, not traffic
-- **Not a replacement for Helm or Terraform** — it complements them as input
 - **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
 
-Pacto is a **runtime contract system**. The CLI manages contracts. The dashboard makes them explorable. The operator verifies them at runtime. Together, they tell platforms, pipelines, and AI agents what a service *is* — and whether it still matches what was declared.
+Pacto is a **runtime contract system** that tells platforms, pipelines and AI agents what a service *is* — and whether it still matches what was declared.

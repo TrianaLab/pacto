@@ -61,13 +61,14 @@ metadata:
 ```
 
 !!! note
-    The `resp` interface uses `type: grpc` as the closest available protocol type for Redis's RESP binary protocol. The Pacto schema currently supports `http`, `grpc`, and `event` — there is no dedicated `tcp` type. The `.proto` contract file is illustrative; in practice you may omit the interface or use a custom schema.
+    The `resp` interface uses `type: grpc` as the closest available protocol type for Redis's RESP binary protocol — Pacto has no dedicated `tcp` type (see [interface fields](../contract-reference.md#interfaces) for the supported types). The `.proto` here is illustrative; omit the whole interface if you have no schema to publish.
 
 ### Key decisions
 
 - **`state.type: stateful`** with **`durability: persistent`** — Redis with AOF/RDB persistence enabled needs durable storage
 - **`dataCriticality: medium`** — data is important but can be rebuilt from source if needed
 - **`upgradeStrategy: ordered`** — prevents data loss during upgrades
+
 ### Variant: Ephemeral cache
 
 For a pure cache without persistence:

@@ -67,8 +67,10 @@ metadata:
 
 ### Key decisions
 
-- **`state.type: stateless`** — NGINX holds no local state; any instance can serve any request
+See the [contract reference](../contract-reference.md#runtime) for what each enum value means; the notes below cover why NGINX picks these.
+
+- **`state.type: stateless`** — any instance can serve any request
 - **`durability: ephemeral`** — no persistent storage needed
-- **`upgradeStrategy: rolling`** — zero-downtime updates with gradual rollout
-- **`scaling: min 2, max 20`** — high availability with auto-scaling for traffic spikes
+- **`upgradeStrategy: rolling`** — stateless replicas update without dropping connections
+- **`scaling: min 2, max 20`** — high availability with headroom for traffic spikes
 - **`visibility: public`** — the HTTP and HTTPS interfaces are externally reachable

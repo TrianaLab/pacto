@@ -38,7 +38,7 @@ configurations:
 
 dependencies:
   - name: inventory
-    ref: oci://ghcr.io/acme/inventory-pacto@sha256:789abc
+    ref: oci://ghcr.io/acme/inventory-pacto@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     required: true
     compatibility: "^1.0.0"
 
@@ -77,17 +77,11 @@ metadata:
 ### Key decisions
 
 - **`state.type: hybrid`** — the service caches product data locally for fast reads, but can reconstruct the cache from the upstream inventory service on restart
-- **`durability: persistent`** — persisting the cache across restarts avoids cold-start latency, but the service functions correctly without it (it just needs time to warm up)
+- **`durability: persistent`** — persisting the cache across restarts avoids cold-start latency, but the service still works without it (it just warms up first)
 - **`dataCriticality: low`** — the cache is reconstructible; losing it has no business impact beyond temporary performance degradation
 - **`upgradeStrategy: rolling`** — rolling updates prevent all instances from cold-starting simultaneously
 - **Secret reference** — the API key for the upstream service uses `secret://` so credentials never appear in the contract
 
 ### When to use `hybrid`
 
-Use `hybrid` when your service:
-
-- Maintains local state that **improves** behavior (caches, pre-computed indexes, session stores)
-- Can **recover** from state loss by rebuilding from an upstream source
-- Would experience **degraded performance** but not **failure** if local state is lost
-
-If state loss would break the service, use `stateful` instead.
+Choose `hybrid` (not `stateless`) when you persist local state across restarts to avoid warm-up but the service still functions after losing it — a purely in-memory cache rebuilt on every start is `stateless`/`ephemeral`. See the [state.type table](../contract-reference.md#runtimestate) in the contract reference for the full `stateless` vs `stateful` vs `hybrid` breakdown.

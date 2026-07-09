@@ -5,7 +5,7 @@ Automate contract validation, breaking-change detection, and publishing in your 
 
 ## Quick start
 
-Add the Pacto CLI action to any workflow step. The action installs the `pacto` binary and makes it available for subsequent steps.
+The action is command-driven: `command: setup` installs the `pacto` binary for later `run:` steps, while `command: validate`, `diff`, `push` or `doc` run those operations natively.
 
 ```yaml
 name: Contract CI
@@ -26,6 +26,8 @@ jobs:
 
       - name: Install Pacto CLI
         uses: TrianaLab/pacto-actions@v1
+        with:
+          command: setup
 
       - name: Validate contract
         run: pacto validate .
@@ -33,28 +35,23 @@ jobs:
 
 ## Common workflows
 
-### Validate on pull request
-
-Catch schema violations and cross-field errors before they reach main:
-
-```yaml
-      - name: Validate contract
-        run: pacto validate .
-```
+The [quick start](#quick-start) already runs `pacto validate .` on every pull request to catch schema and cross-field errors before merge. The workflows below add breaking-change detection and publishing.
 
 ### Detect breaking changes
 
-Compare the PR contract against the published version to block breaking changes:
+Compare the PR contract against the published version and block breaking changes. `pacto diff` takes the old contract first and the new one second, and exits non-zero on a `BREAKING` result (see [change classification rules](contract-reference.md#change-classification-rules)):
 
 ```yaml
       - name: Check for breaking changes
-        run: |
-          pacto diff oci://ghcr.io/acme/my-service-pacto . --output-format json > diff.json
-          if jq -e '.classification == "BREAKING"' diff.json > /dev/null 2>&1; then
-            echo "::error::Breaking contract change detected"
-            exit 1
-          fi
+        uses: TrianaLab/pacto-actions@v1
+        with:
+          command: diff
+          old: oci://ghcr.io/acme/my-service-pacto
+          new: .
+          comment-on-pr: 'true'
 ```
+
+`fail-on-breaking` defaults to `true`, so the step blocks the merge on a breaking change and `comment-on-pr` posts the diff. To gate in a plain `run:` step instead, `pacto diff oci://ghcr.io/acme/my-service-pacto .` exits non-zero on the same result.
 
 ### Publish on release
 
@@ -77,6 +74,8 @@ jobs:
 
       - name: Install Pacto CLI
         uses: TrianaLab/pacto-actions@v1
+        with:
+          command: setup
 
       - name: Log in to GHCR
         run: pacto login ghcr.io --username "${{ github.actor }}" --password "${{ secrets.GITHUB_TOKEN }}"

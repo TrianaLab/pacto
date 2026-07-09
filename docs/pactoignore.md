@@ -32,9 +32,7 @@ These patterns are always applied, even when no `.pactoignore` file exists:
 - `.pactoignore`
 - `.DS_Store`
 
-You do not need to list these in your `.pactoignore` — they are excluded automatically.
-
-**Note:** `pacto.lock` is **not** in the default ignore list. When a lockfile is present, it ships inside the bundle by default so the dashboard can surface pinned digests and drift for OCI-sourced and Kubernetes-sourced services. If you do not want the lock in your pushed bundle, add an explicit `pacto.lock` line to `.pactoignore`.
+**Note:** `pacto.lock` is **not** in the default ignore list. When a lockfile is present it ships inside the bundle by default (see [lockfile.md](lockfile.md)). To keep it out of a pushed bundle, add an explicit `pacto.lock` line to `.pactoignore`.
 
 ---
 
@@ -84,12 +82,7 @@ data/*.bin
 !data/config.bin
 ```
 
-This pattern:
-
-1. Excludes all `dist/`, `build/` and `.log` files
-2. Excludes editor directories and swap files
-3. Excludes `tmp/` and `.tmp` files
-4. Excludes `.bin` files in the `data/` directory, except `data/config.bin` (negation)
+The final `!data/config.bin` re-includes one file that an earlier pattern excluded (negation).
 
 ---
 
@@ -100,62 +93,19 @@ This pattern:
 - **`pacto pack`** — files matching ignore patterns are excluded from the tar.gz archive
 - **`pacto push`** — files matching ignore patterns are excluded from the OCI artifact
 
-Other commands (`validate`, `graph`, `diff`, `doc`, `explain`) do not apply ignore patterns — they operate on the local directory as-is.
+Every command that loads a local bundle reads through the ignore filter, so ignored files are invisible to all of them (this is why ignoring a referenced file also fails `validate`, `graph`, `diff`, `doc` and `explain`). Only `pacto pack` and `pacto push` additionally package the filtered file set into the shipped artifact.
 
 ---
 
-## Typical use cases
+## Pattern examples
 
-- Exclude build artifacts and logs from the bundle
-- Exclude large generated files that are not part of the contract
-- Exclude editor-specific directories (`.vscode/`, `.idea/`)
-- Exclude temporary or cache directories
-- Exclude local development tooling files that should not be distributed
-
----
-
-## Anchoring
-
-A pattern like `/docs/` matches the `docs/` directory at the contract root but not nested directories like `subdir/docs/`.
-
-A pattern without a leading `/` matches anywhere in the tree: `*.log` matches `build.log` and also `output/build.log`.
-
----
-
-## Trailing slash
-
-A trailing `/` means "directories only": `tmp/` matches the directory `tmp/` but not a file named `tmp`.
-
-Without the trailing slash, both the directory and a file of the same name would match.
-
----
-
-## Negation
-
-Use `!` at the start of a pattern to re-include a file that was previously excluded. Last-match-wins, so place negations after the broader exclusion patterns.
-
-Example:
-
-```
-# Exclude all markdown files
-*.md
-
-# Except README.md
-!README.md
-```
-
-This excludes all `.md` files but re-includes `README.md`.
+- `/docs/` — anchored: matches `docs/` at the contract root, not `subdir/docs/`
+- `*.log` — unanchored: matches `build.log` and `output/build.log`
+- `tmp/` — trailing slash matches the directory `tmp/`, not a file named `tmp`
+- `!README.md` after `*.md` — re-includes `README.md`; place negations after the broader exclude
 
 ---
 
 ## Validation and troubleshooting
 
-If you are unsure whether a file will be included in the bundle, run `pacto pack` in verbose mode:
-
-```bash
-pacto pack -v
-```
-
-Pacto logs each file it processes and whether it was included or excluded.
-
-If a referenced file is missing due to an ignore pattern, the error message will identify the exact file and the pattern that excluded it.
+`pacto pack -v` enables debug logging of the high-level pack steps (load/validate, archive, write); there is no per-file include/exclude log. If a referenced file is excluded, validation fails with `FILE_NOT_FOUND` naming the missing file (e.g. `interface contract file "interfaces/openapi.yaml" not found in bundle`) — it does not report which ignore pattern excluded it.

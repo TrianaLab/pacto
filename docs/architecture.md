@@ -2,6 +2,19 @@
 Pacto follows a layered architecture where dependencies flow predominantly in one direction. There are small, deliberate exceptions documented below. This page describes the internal design for contributors and plugin authors.
 
 ---
+
+## Conceptual model
+
+A Pacto contract describes the relationships between a service's interfaces and how they change over time — ownership, dependencies, compatibility, readiness and lifecycle. A single JSON Schema describes one interface in isolation and structurally cannot express how interfaces relate or evolve; that relational and temporal layer is Pacto's differentiator. It is why the core splits into `pkg/graph` (dependencies), `pkg/diff` (compatibility and change over time) and `pkg/validation` (enforcement).
+
+Underneath, Pacto composes the interfaces you already have rather than inventing a configuration language. An interface is a JSON Schema, OpenAPI spec or event schema — a service's config interface is its config JSON Schema, an API interface is its OpenAPI document. Where an interface is already owned by another system, Pacto composes it instead of reinventing it. Composition is the on-ramp; the operational contract is the differentiator.
+
+> This mirrors Brian Grant's 2016 [Cloud Native Application Interfaces](https://kubernetes.io/blog/2016/09/cloud-native-application-interfaces/) split between *interfaces* (configuration schema) and *requirements* (dependencies): composition covers the interfaces half, dependencies and compatibility cover the requirements half.
+
+In one line: **JSON Schema describes an interface; Pacto describes the relationships between interfaces and how they change over time.**
+
+---
+
 ## Dependency graph
 
 ```mermaid
@@ -51,8 +64,6 @@ graph TD
 
 Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator](operator.md).
 
-All core domain logic lives in `pkg/` and is reusable outside the CLI — for example, by the [Kubernetes Operator](operator.md).
-
 ---
 
 ## Layer overview
@@ -73,11 +84,9 @@ Infrastructure adapters live in `internal/` because they depend on external syst
 | `internal/logger` | Global `slog` configuration |
 | `internal/update` | Async GitHub version checking and self-update |
 
-The OCI adapter (`pkg/oci`) is a public package so it can be imported by external consumers (e.g., the Kubernetes operator).
-
 Test infrastructure lives in `internal/testutil`, which provides shared mocks and fixtures (`MockBundleStore`, `MockPluginRunner`, `TestBundle()`) used across test packages.
 
-`pkg/dashboard` is the largest package in the core layer. Unlike the other `pkg/*` packages (which are focused processing libraries), the dashboard is a self-contained application component: HTTP server, multi-source data aggregation, graph visualization, compliance engine, Kubernetes client, and embedded SPA. Its complexity is justified because it must remain reusable outside the CLI binary (the Kubernetes operator embeds the same dashboard server).
+`pkg/dashboard` is the largest core package — a self-contained app component (HTTP server, multi-source aggregation, graph, compliance, K8s client, embedded SPA) that the operator also embeds.
 
 ---
 
@@ -118,6 +127,7 @@ Compares two contracts and classifies every change using a deterministic rule ta
 - `dependency.go` -- dependency list changes
 - `openapi.go` -- deep OpenAPI diff (paths, methods, parameters, request bodies, responses)
 - `schema.go` -- recursive JSON Schema diff (properties, required fields, types, constraints)
+- `readiness.go` -- readiness assessment (all changes NonBreaking, still surfaced)
 
 ### `pkg/sbom` -- SBOM parser and differ
 
@@ -168,7 +178,7 @@ Closure building (transitive dependencies and transitive config/policy reference
 
 Gitignore-style pattern matching for `.pactoignore` filtering. Determines which files are excluded from bundle packaging.
 
-- `DefaultPatterns` -- `.git/`, `.pactoignore`, `pacto.lock`, `.DS_Store`
+- `DefaultPatterns` -- `.git/`, `.pactoignore`, `.DS_Store` (a committed `pacto.lock` is intentionally NOT default-ignored — it ships inside the bundle)
 - `alwaysKeep` guard -- ensures `pacto.yaml` is never ignorable regardless of user patterns
 - `Matcher.Ignored()` -- ancestor-aware filtering (files inside ignored directories are themselves ignored)
 - `FS()` -- filtering `fs.FS` wrapper applied at bundle load so pack, push and validation see one consistent file set
@@ -189,7 +199,7 @@ Cobra command handlers and Viper configuration. **Zero business logic** -- only 
 
 ### `pkg/oci` -- OCI adapter
 
-Wraps `go-containerregistry` to handle OCI registry operations. This is a public package, importable by external consumers such as the Kubernetes operator. Pacto distributes contracts as OCI artifacts -- the same standard behind container images -- so they work with any OCI-compliant registry (GHCR, ECR, ACR, Docker Hub, Harbor) without new infrastructure. Every pushed contract is content-addressed with a digest, making it immutable and verifiable.
+Wraps `go-containerregistry` for OCI registry operations. Public package, imported by the operator. Pushes are content-addressed (immutable digest).
 
 Key components:
 
@@ -197,12 +207,12 @@ Key components:
 - **`Client`** -- implements `BundleStore` using `go-containerregistry`. Translates between `contract.Bundle` and OCI images (tar.gz layer with metadata labels)
 - **`CachedStore`** -- wraps any `BundleStore` with in-memory and disk caching (`~/.cache/pacto/oci/<registry>/<repo>/<tag>/bundle.tar.gz`). Can be disabled at runtime via `--no-cache`
 - **`Resolver`** -- lazy version resolution with semver filtering. `Resolve()` pulls bundles in `LocalOnly` or `RemoteAllowed` mode. `FetchAllVersions()` pulls every semver tag to populate the cache. `FilterSemverTags()` selects valid semver tags sorted descending
-- **Credential chain** -- `NewKeychain()` tries sources in priority order: explicit flags/env vars, pacto config (`~/.config/pacto/config.json`), `gh` CLI token (GitHub registries), Docker config + credential helpers, cloud auto-detection (ECR/GCR/ACR), anonymous fallback
+- **Credential chain** -- `NewKeychain()` resolves credentials by priority order; see [CLI reference → Authentication](cli-reference.md#authentication) for the full chain
 - **Typed errors** -- `AuthenticationError`, `ArtifactNotFoundError`, `RegistryUnreachableError`, `InvalidRefError`, `InvalidBundleError`, `NoMatchingVersionError`
 
 ### `internal/mcp` -- MCP server
 
-Thin adapter layer that exposes Pacto operations as [Model Context Protocol](https://modelcontextprotocol.io) tools. Each MCP tool handler delegates to an `internal/app` service method -- no business logic lives here. The server communicates over stdio and is started via `pacto mcp`. Used by AI tools such as Claude, Cursor, and Copilot.
+Thin adapter layer that exposes Pacto operations as [Model Context Protocol](https://modelcontextprotocol.io) tools. Each MCP tool handler delegates to an `internal/app` service method -- no business logic lives here. The server communicates over stdio (default) or HTTP (`pacto mcp -t http`) and is started via `pacto mcp`. Used by AI tools such as Claude, Cursor and Copilot.
 
 ### `internal/logger` -- Logger setup
 
@@ -229,13 +239,7 @@ The dashboard exposes up to **four source types**:
 | `cache` | Contract baseline from the on-disk materialized cache | `CacheSource` |
 | `k8s` | Runtime enrichment from Kubernetes | `K8sSource` |
 
-`cache` is an **offline fallback**: it surfaces as a distinct source only when no
-live OCI registry is configured. When a live OCI registry *is* configured, the
-on-disk cache stays internal to the `oci` source (used for version enrichment) and
-is **not** listed separately — `ActiveSources()` in `detect.go` exposes the disk
-cache under the `"oci"` key in that case and under the `"cache"` key otherwise. So
-a session shows either `oci` **or** `cache` for the registry-backed baseline, never
-both (see [Internal materialization](#internal-materialization) below).
+`cache` is an **offline fallback**: it surfaces as a distinct source only when no live OCI registry is configured (see [Internal materialization](#internal-materialization) below).
 
 ### Discovery lifecycle
 
@@ -391,14 +395,14 @@ When running alongside the Kubernetes operator, `EnrichFromK8s()` automatically 
 
 The dashboard computes version tracking semantics from two sources:
 
-- **Version policy** (`versionPolicy`): the preferred source is the operator's `status.contract.resolutionPolicy` field (`Latest` → `"tracking"`, `PinnedTag` → `"pinned-tag"`, `PinnedDigest` → `"pinned-digest"`), normalized by `NormalizeResolutionPolicy()`. When unavailable (non-K8s sources, older operators), `ClassifyVersionPolicy()` provides a conservative fallback that only classifies unambiguous cases (digest, explicit semver tag) and returns empty for ambiguous refs.
-- **Latest available** (`latestAvailable`): the highest semver version from the existing version list. Computed by `ComputeLatestAvailable()`.
-- **Update available** (`updateAvailable`): true when `latestAvailable` is a higher semver than the current `version`. Computed by `IsUpdateAvailable()`. This is informational -- it does **not** affect contract compliance status.
-- **Current version marker** (`isCurrent`): set on the `Version` entry matching `ServiceDetails.Version` via `MarkCurrentVersion()`.
+- **Version policy** (`versionPolicy`): the preferred source is the operator's `status.contract.resolutionPolicy` field (`Latest` → `"tracking"`, `PinnedTag` → `"pinned-tag"`, `PinnedDigest` → `"pinned-digest"`), normalized by `normalizeResolutionPolicy()`. When unavailable (non-K8s sources, older operators), `classifyVersionPolicy()` provides a conservative fallback that only classifies unambiguous cases (digest, explicit semver tag) and returns empty for ambiguous refs.
+- **Latest available** (`latestAvailable`): the highest semver version from the existing version list. Computed by `computeLatestAvailable()`.
+- **Update available** (`updateAvailable`): true when `latestAvailable` is a higher semver than the current `version`. Computed by `isUpdateAvailable()`. This is informational -- it does **not** affect contract compliance status.
+- **Current version marker** (`isCurrent`): set on the `Version` entry matching `ServiceDetails.Version` via `markCurrentVersion()`.
 
-Operator-provided `resolutionPolicy` is propagated through the K8s source (`serviceDetailsFromK8sStatus`), carried forward by `enrichWithRuntime()`, and preserved by `enrichVersionTracking()` which only applies the fallback when no policy is already set.
+Operator-provided `resolutionPolicy` is propagated through the K8s source (`serviceDetailsFromK8sStatus`), carried forward by `enrichWithRuntime()`, and preserved by the index/detail enrichment in `server.go`, which applies the fallback only when no policy is already set.
 
-These fields are populated during the service index cache rebuild (`enrichVersionTracking()`) and surfaced through the existing `/api/services` and `/api/services/{name}` endpoints.
+These fields are populated during the service-index cache rebuild in `server.go` and surfaced through the existing `/api/services` and `/api/services/{name}` endpoints.
 
 ---
 
@@ -408,10 +412,11 @@ These fields are populated during the service index cache rebuild (`enrichVersio
 2. **Strict layering** -- CLI → App → Core (`pkg/`) → Domain (`pkg/contract`)
 3. **Observation separated from validation** -- runtime observation (collecting actual state from Kubernetes, CI, etc.) happens outside `pkg/`; validation against observed state happens inside `pkg/validation`
 4. **No global state** -- all instances created in the composition root (`main.go`); the only global is `slog.SetDefault()` configured once at startup
-5. **Interface-based** -- engines depend on interfaces (`DataSource`, `BundleStore`, `ContractFetcher`, `Runner`), not concrete implementations
+5. **Interface-based** -- engines depend on interfaces (`DataSource`, `BundleStore`, `ContractFetcher`, `PluginRunner`), not concrete implementations
 6. **Out-of-process plugins** -- language-agnostic, version-independent
 7. **Embedded schemas** -- JSON Schema compiled into the binary
 8. **Deterministic validation** -- no configurable rules; same input, same result
+9. **Compose, don't replace** -- an interface is a JSON Schema, OpenAPI or event schema that Pacto composes, not a new config language it invents; the contract adds only the relational and temporal layer (ownership, dependencies, compatibility, readiness, lifecycle) that no single interface owns
 
 ---
 
@@ -427,10 +432,9 @@ These rules must be preserved by future changes. Each exists for a specific reas
 | K8s enriches runtime only, never overrides contract content | Contract is the source of truth for interfaces, config, dependencies, version. K8s provides live state (contract status, conditions, endpoints), and config/policy *content* always comes from the declared contract. The computed `Validation` summary is the one runtime-recomputed field, and `SectionMeta` attributes it to `k8s` so provenance stays honest. |
 | Cache is a public source only as an offline fallback | When a live `oci` source is configured the disk cache stays internal to it (exposed under the `"oci"` key). Only when no live registry is configured is the cache promoted to a distinct `cache` source. A session shows `oci` **or** `cache` for the registry baseline, never both — so users are never confused about which is authoritative. |
 | Contract source priority is `local` > `oci` > `cache` | Explicit dev intent beats the registry baseline, which beats the offline disk cache. `cache` only participates when `oci` is absent. |
-| `resolverVersionSources` is `["k8s", "oci", "local", "cache"]` | Version history is merged in this order. With a live registry, `OCISource.GetVersions()` already includes cache enrichment so the trailing `cache` entry is a no-op; without one, `cache` supplies the catalog from disk. |
+| `resolverVersionSources` is `["k8s", "oci", "local", "cache"]` | Version history is merged in this order (see [Version history](#version-history)). |
 | Classification requires materialized bundles | `ClassifyVersions()` diffs consecutive bundles. Without both bundles available, no classification is computed. This is correct behavior, not a bug. |
-| `--no-cache` skips startup scanning, not same-session materialization | Cold-start mode ensures deterministic initial state. `DisableCache()` only skips disk reads — disk writes remain enabled so bundles fetched during the session are persisted and available for enrichment. |
-| `DisableCache()` must never disable disk writes | Same-session materialization (fetch-all-versions, resolve) relies on `CachedStore` writing bundles to disk. `CacheSource` then reads these during `RefreshCacheSources()` to provide hash, createdAt, and classification enrichment. |
+| `--no-cache` skips startup scanning, not same-session materialization | Cold-start mode ensures deterministic initial state. `DisableCache()` skips disk reads but never disk writes, so bundles fetched during the session are persisted for enrichment (see [`--no-cache` semantics](#-no-cache-semantics)). |
 | `internal/app` methods are stateless | Options in, result out. No side effects beyond the operation itself. This makes testing and composition straightforward. |
 | Validation is deterministic | No configurable rule sets. Same contract + same schema = same result, always. |
 | `SectionMeta` is populated on every service-detail path | Both the resolved (multi-source) path and the single-source `getService` path compute `SectionMeta`, so the UI can always distinguish `present` / `empty` / `not_applicable` / `unavailable` and label each section's `source`. |

@@ -27,7 +27,9 @@ A service that exposes HTTP on port 8080, depends on auth-service ^2.0.0, persis
 
 Pacto is that contract.
 
-It is a single file (`pacto.yaml`) that captures what a service *is* operationally. Not how to deploy it. Not how to build it. What it is. The contract is the interface between developers who build services and platforms that run them.
+It is a single file (`pacto.yaml`) that captures what a service *is* operationally. Not how to deploy it. Not how to build it. What it is.
+
+A single schema describes one interface in isolation — it cannot express how interfaces relate, or how they change. That is the contract's job: ownership, dependencies, compatibility, readiness and lifecycle. JSON Schema describes an interface; Pacto describes the relationships between interfaces and how they change over time.
 
 If a platform has to guess whether a service is stateful, the contract is incomplete. If a dependency relationship only exists in someone's head, the contract is incomplete. If a breaking change reaches production undetected, the contract is incomplete.
 
@@ -41,6 +43,8 @@ If a platform has to guess whether a service is stateful, the contract is incomp
 
 **Distributed through existing infrastructure.** Contracts are OCI artifacts. They use the same registries, the same auth, and the same tooling as container images. No new infrastructure.
 
+**Compose, don't reinvent.** The interfaces a service exposes already have schemas — an OpenAPI spec for its API, a JSON Schema for its configuration. Pacto references those schemas instead of inventing a new configuration language. If an interface is already described and owned elsewhere, compose it. Pacto is deliberately not another abstraction to learn.
+
 **Runtime-aware.** If the contract doesn't capture state management, persistence, health checks, scaling bounds, and dependency relationships, it's just another API spec. Runtime semantics are what make it an operational contract.
 
 **Invalid contracts must not propagate.** Every contract passes structural, cross-field, and semantic validation before it can be published. If it's invalid, it doesn't reach the registry. If it introduces a breaking change, CI catches it.
@@ -51,15 +55,13 @@ A standard for describing how a service behaves operationally.
 
 The contract captures interfaces, dependencies, runtime semantics, configuration, scaling, readiness, and policy. It can be validated, diffed, distributed as an OCI artifact, resolved into a dependency graph, verified against running workloads, and explored through a dashboard.
 
-It is the minimum viable description that lets a platform run a service correctly without guessing.
-
 ## What Pacto Is NOT
 
 **Not a deployment tool.** Pacto describes services. It does not deploy, orchestrate, or manage infrastructure. Platforms consume contracts and decide how to act.
 
 **Not a service mesh.** No sidecars, no traffic interception. The operator watches custom resources and compares declared state to running workloads.
 
-**Not a replacement for OpenAPI or Helm.** Pacto references OpenAPI specs as interface contracts and complements deployment tools by providing the operational context they lack.
+**Not a replacement for OpenAPI, JSON Schema or Helm.** Pacto references the schemas that already describe a service's interfaces — its OpenAPI spec, its config JSON Schema — and complements deployment tools by adding the operational context and cross-interface relationships they lack.
 
 **Not a service catalog.** The dashboard visualizes contracts and runtime state. It is not a developer portal. It can feed data into one.
 
