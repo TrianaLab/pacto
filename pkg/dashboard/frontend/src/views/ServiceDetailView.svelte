@@ -267,47 +267,32 @@
     }
   }
 
+  // Top-level effect for IntersectionObserver (scroll tracking)
+  $effect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    if (!detail || availableSections.length === 0) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      let maxRatio = 0;
+      let maxEntry = null;
+      for (const entry of entries) {
+        if (entry.isIntersecting && entry.intersectionRatio > maxRatio) {
+          maxRatio = entry.intersectionRatio;
+          maxEntry = entry;
+        }
+      }
+      if (maxEntry) activeSection = maxEntry.target.id.replace('section-', '');
+    }, { threshold: [0, 0.25, 0.5, 0.75, 1], rootMargin: '-80px 0px -50% 0px' });
+
+    for (const sec of availableSections) {
+      const el = document.getElementById(`section-${sec.id}`);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  });
+
   onMount(() => {
     load();
-
-    // Guard for IntersectionObserver (not available in jsdom/SSR)
-    if (typeof IntersectionObserver !== 'undefined') {
-      const observer = new IntersectionObserver(
-        (entries) => {
-          // Find the first section in view with highest intersection ratio
-          let maxRatio = 0;
-          let maxEntry = null;
-          for (const entry of entries) {
-            if (entry.isIntersecting && entry.intersectionRatio > maxRatio) {
-              maxRatio = entry.intersectionRatio;
-              maxEntry = entry;
-            }
-          }
-          if (maxEntry) {
-            const id = maxEntry.target.id.replace('section-', '');
-            activeSection = id;
-          }
-        },
-        { threshold: [0, 0.25, 0.5, 0.75, 1], rootMargin: '-80px 0px -50% 0px' }
-      );
-
-      // Observe all sections once detail is loaded
-      $effect(() => {
-        if (detail && availableSections.length > 0) {
-          // Wait a tick for DOM to settle
-          setTimeout(() => {
-            availableSections.forEach(sec => {
-              const el = document.getElementById(`section-${sec.id}`);
-              if (el) observer.observe(el);
-            });
-          }, 0);
-        }
-      });
-
-      return () => {
-        observer.disconnect();
-      };
-    }
   });
 </script>
 
