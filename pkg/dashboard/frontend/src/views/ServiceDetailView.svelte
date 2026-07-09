@@ -19,6 +19,7 @@
   import PolicySection from '../sections/PolicySection.svelte';
   import ReadinessSection from '../sections/ReadinessSection.svelte';
   import DocsSection from '../sections/DocsSection.svelte';
+  import SbomSection from '../sections/SbomSection.svelte';
   import SectionState from '../sections/SectionState.svelte';
   import SourcesPanel from '../sections/SourcesPanel.svelte';
   import ValidationSection from '../sections/ValidationSection.svelte';
@@ -47,6 +48,7 @@
     { id: 'policy', label: 'Policies', key: 'policies' },
     { id: 'readiness', label: 'Readiness', key: 'readiness' },
     { id: 'docs', label: 'Documentation', key: 'docs' },
+    { id: 'sbom', label: 'SBOM', key: 'sbom' },
     { id: 'validation', label: 'Validation', key: 'validation' },
     { id: 'runtimeDiff', label: 'Contract vs Runtime', key: 'runtimeDiff' },
     { id: 'observed', label: 'Observed Runtime', key: 'observedRuntime' },
@@ -108,7 +110,7 @@
   // Section open states
   let openSections = $state({
     overview: true, sources: false, interfaces: true, dependencies: true,
-    config: false, policy: false, readiness: false, docs: false, validation: false,
+    config: false, policy: false, readiness: false, docs: false, sbom: false, validation: false,
     runtimeDiff: false, observed: false,
   });
 
@@ -471,6 +473,12 @@
     <DocsSection id="section-docs" docs={detail.docs || []} referencedPaths={referencedDocPaths(detail.readiness)} source={sectionState('docs').source} bind:open={openSections.docs} />
   {:else}
     <SectionState id="section-docs" title="Documentation" meta={sectionState('docs')} bind:open={openSections.docs} />
+  {/if}
+
+  {#if isPresent('sbom')}
+    <SbomSection id="section-sbom" sbom={detail.sbom} source={sectionState('sbom').source} bind:open={openSections.sbom} />
+  {:else}
+    <SectionState id="section-sbom" title="SBOM" meta={sectionState('sbom')} bind:open={openSections.sbom} />
   {/if}
 
   {#if isPresent('validation')}
