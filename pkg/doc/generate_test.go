@@ -786,6 +786,19 @@ func TestCapitalizeFirst(t *testing.T) {
 	}
 }
 
+func TestHeadingAnchor(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"1. Runtime & operations", "1-runtime--operations"},
+		{"Simple Title", "simple-title"},
+		{"Section: With.Dots", "section-withdots"},
+	}
+	for _, tt := range tests {
+		if got := headingAnchor(tt.in); got != tt.want {
+			t.Errorf("headingAnchor(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 // ── TOC helpers (shared with TestGenerate_TOCInSync) ───────────────────
 
 func tocAnchors(md string) []string {

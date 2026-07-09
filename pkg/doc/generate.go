@@ -2,7 +2,7 @@
 // and serves it as rendered HTML. The generated docs include an at-a-glance
 // summary, a runtime & operations table, a Mermaid architecture diagram,
 // interface and endpoint tables, configuration and policy tables, the dependency
-// graph, and readiness, SBOM and lockfile sections. The snapshot
+// graph and readiness, SBOM and lockfile sections. The snapshot
 // (dashboard.ServiceDetails) is the single source of truth already used by the
 // dashboard, so the doc and the UI stay in lock-step.
 package doc
@@ -154,12 +154,13 @@ func writeSnapshotSummary(b *strings.Builder, d *dashboard.ServiceDetails) {
 }
 
 // headingAnchor generates a markdown-compatible anchor from a heading string.
-// It lowercases, replaces spaces with hyphens, and strips colons and dots.
+// It lowercases, replaces spaces with hyphens, and strips colons, dots and ampersands.
 func headingAnchor(s string) string {
 	a := strings.ToLower(s)
 	a = strings.ReplaceAll(a, " ", "-")
 	a = strings.ReplaceAll(a, ":", "")
 	a = strings.ReplaceAll(a, ".", "")
+	a = strings.ReplaceAll(a, "&", "")
 	return a
 }
 
