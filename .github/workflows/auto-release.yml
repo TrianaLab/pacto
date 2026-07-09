@@ -203,7 +203,9 @@ jobs:
           platforms: ${{ matrix.platform }}
           tags: ghcr.io/trianalab/pacto-dashboard:${{ steps.meta.outputs.version }}
           cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          # ignore-error keeps a flaky/unavailable GHA build cache from failing the
+          # release: the image still builds and pushes, only the cache export is skipped.
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }},ignore-error=true
           build-args: |
             VERSION=${{ needs.release.outputs.tag }}
             GIT_COMMIT=${{ github.sha }}
