@@ -1,5 +1,5 @@
 # Build stage — uses Go's native cross-compilation (no QEMU needed)
-FROM --platform=$BUILDPLATFORM golang:1.26.2-alpine3.22 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine3.23 AS build
 
 ARG TARGETARCH
 

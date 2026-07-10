@@ -1,0 +1,183 @@
+name: Security
+
+# Vulnerability scanning: govulncheck (Go source + dependencies, reachability
+# aware) and Trivy (built container image, OS + language CVEs). Runs on PRs and
+# pushes to main, plus a weekly schedule to catch newly disclosed CVEs in
+# unchanged code and base images. The two scan jobs run in parallel (no
+# `needs`); a follow-up `comment` job posts a summary on pull requests.
+#
+# Supply-chain note: aquasecurity/trivy-action and setup-trivy were compromised
+# in March 2026 (tags force-pushed to an infostealer), so we install the Trivy
+# binary directly from a pinned upstream release and use only first-party
+# GitHub actions.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '27 6 * * 1' # weekly, Monday 06:27 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  govulncheck:
+    name: govulncheck (Go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to the Security tab
+      actions: read # required by upload-sarif in some configurations
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-go@v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      # With -format sarif, govulncheck always exits 0 (findings live in the
+      # SARIF), so gating happens in the "Fail on ..." step below.
+      - name: Run govulncheck (SARIF)
+        run: govulncheck -format sarif ./... > govulncheck.sarif
+      - name: Upload SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: govulncheck.sarif
+          category: govulncheck
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: govulncheck-sarif
+          path: govulncheck.sarif
+          if-no-files-found: ignore
+      - name: Fail on reachable vulnerabilities
+        run: |
+          # Only error-level results are reachable vulnerabilities; warning/note
+          # are imported-but-unused and must not fail the build.
+          n=$(jq '[.runs[].results[]? | select(.level == "error")] | length' govulncheck.sarif)
+          echo "govulncheck reachable (error-level) vulnerabilities: $n"
+          [ "$n" -eq 0 ]
+
+  trivy-image:
+    name: Trivy (image)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Build image
+        run: docker build -t local/scan:${{ github.sha }} .
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.72.0/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin v0.72.0
+      # Rolling cache: the unique key always saves a fresh DB, restore-keys
+      # restores the most recent one so Trivy skips the full DB download.
+      - name: Cache Trivy vulnerability DB
+        uses: actions/cache@v5.0.3
+        with:
+          path: ${{ github.workspace }}/.trivy-cache
+          key: trivy-db-${{ github.run_id }}
+          restore-keys: trivy-db-
+      # Trivy writes --output before applying --exit-code, so the SARIF exists
+      # for the always() upload even when the scan fails on findings.
+      - name: Scan image (fail on HIGH/CRITICAL)
+        run: |
+          trivy image \
+            --cache-dir "${{ github.workspace }}/.trivy-cache" \
+            --format sarif --output trivy.sarif \
+            --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code 1 \
+            "local/scan:${{ github.sha }}"
+      - name: Upload SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-image
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-sarif
+          path: trivy.sarif
+          if-no-files-found: ignore
+
+  comment:
+    name: PR security summary
+    needs: [govulncheck, trivy-image]
+    # Runs after both scans (they stay parallel); only on same-repo PRs, since a
+    # fork PR's GITHUB_TOKEN is read-only and cannot comment.
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download SARIF artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: sarif
+      - name: Build summary
+        run: |
+          gv=sarif/govulncheck-sarif/govulncheck.sarif
+          tv=sarif/trivy-sarif/trivy.sarif
+          {
+            echo "<!-- security-scan -->"
+            echo "## 🔒 Security scan"
+            echo
+            if [ -f "$gv" ]; then
+              n=$(jq '[.runs[].results[]? | select(.level == "error")] | length' "$gv")
+              if [ "$n" -eq 0 ]; then
+                echo "- **govulncheck (Go):** ✅ no reachable vulnerabilities"
+              else
+                ids=$(jq -r '[.runs[].results[]? | select(.level == "error") | .ruleId] | unique | join(", ")' "$gv")
+                echo "- **govulncheck (Go):** ❌ $n reachable — $ids"
+              fi
+            else
+              echo "- **govulncheck (Go):** ⚠️ no report produced (job error)"
+            fi
+            if [ -f "$tv" ]; then
+              tn=$(jq '[.runs[].results[]?] | length' "$tv")
+              if [ "$tn" -eq 0 ]; then
+                echo "- **Trivy (image):** ✅ no HIGH/CRITICAL vulnerabilities"
+              else
+                tids=$(jq -r '[.runs[].results[]? | .ruleId] | unique | join(", ")' "$tv")
+                echo "- **Trivy (image):** ❌ $tn HIGH/CRITICAL — $tids"
+              fi
+            else
+              echo "- **Trivy (image):** ⚠️ no report produced (job error)"
+            fi
+            echo
+            echo "_Details: [Security tab](${{ github.server_url }}/${{ github.repository }}/security/code-scanning) · [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})._"
+          } > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upsert PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('comment.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const marker = '<!-- security-scan -->';
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
