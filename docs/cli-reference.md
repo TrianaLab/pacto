@@ -206,13 +206,13 @@ pacto doc [dir | oci://ref] [flags]
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-`--serve`, `--ui`, and `--output` are mutually exclusive.
+Markdown prints to stdout by default. `-o DIR` writes `DIR/<service>.md`. `-o NAME.html` writes a self-contained static documentation site (a directory) that reuses the dashboard UI offline.
 
-Use `--interface` to select a specific OpenAPI interface when multiple are present. Without it, an index page is shown.
+`--serve` serves that static site locally. `--ui swagger` launches an interactive API explorer.
 
-The `--target` flag supports per-interface mapping: `--target api=http://localhost:3000 --target admin=http://localhost:4000`.
+`--serve`, `--ui` and `-o` are mutually exclusive. Use `--interface` to pick one OpenAPI interface with `--ui`. `--target` and `--target iface=url` point try-it-out at a backend.
 
-Sibling dependencies are resolved in parallel. OCI bundles are cached locally in `~/.cache/pacto/oci/` for faster subsequent operations. Use `--no-cache` to bypass the cache.
+Sibling dependencies are resolved in parallel. OCI bundles cache under `~/.cache/pacto/oci/`. `--no-cache` bypasses the cache.
 
 ---
 

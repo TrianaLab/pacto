@@ -153,7 +153,11 @@ Applies value-file and `--set` overrides to raw YAML before parsing. Supports de
 
 ### `pkg/doc` -- Documentation generator
 
-Generates rich Markdown documentation from a contract. Reads OpenAPI specs, event contracts, and JSON Schema configuration to produce a comprehensive service document with architecture diagrams, interface tables, and configuration details. Includes an HTTP server for browser-based viewing.
+Renders the dashboard's single-service `ServiceDetails` snapshot as a Markdown document and as a self-contained static HTML site that reuses the embedded dashboard UI (`dashboard.EmbeddedUI()`) with the snapshot injected as `window.__PACTO_STATIC__`. It no longer re-derives content from the raw contract — the dashboard and the doc read the same model, so they cannot drift. `--serve` serves the static site, and `--ui swagger` serves the API explorer.
+
+### `pkg/openapi` -- OpenAPI parser
+
+A leaf package that parses OpenAPI specs into endpoint lists. Used by both `pkg/dashboard` (interface endpoint tables) and `pkg/doc`. Extracted to break the import cycle when `pkg/doc` began importing `pkg/dashboard`.
 
 ### `pkg/plugin` -- Plugin system
 
@@ -364,6 +368,8 @@ Both graphs use **ref-alias mapping** (`buildRefAliases()`) to resolve OCI repos
 
 Multi-version **conflict detection** (`detectConflicts()` in `pkg/graph`) is a CLI-only concern used during `pacto graph` resolution; the dashboard does not call it, so version conflicts across the aggregated index are not surfaced through the dashboard API. A node can also appear with incomplete edges if its service details failed to load during a concurrent index rebuild; such nodes are rendered from the index alone.
 
+The frontend renders the dependency graph through a single shared `GraphPanel` component (canvas + one toolbar + one legend), reused by the graph page, the service detail dependencies section and the owner detail view. The graph looks and behaves the same everywhere. The per-service view includes an SBOM section sourced from `ServiceDetails.SBOM`.
+
 ### Server and API
 
 The HTTP server is built on [Huma v2](https://huma.rocks/) with typed I/O structs and automatic OpenAPI 3.1 spec generation. Static files (embedded SPA) and CORS are served on the raw `http.ServeMux`; only API operations go through Huma.
@@ -417,6 +423,7 @@ These fields are populated during the service-index cache rebuild in `server.go`
 7. **Embedded schemas** -- JSON Schema compiled into the binary
 8. **Deterministic validation** -- no configurable rules; same input, same result
 9. **Compose, don't replace** -- an interface is a JSON Schema, OpenAPI or event schema that Pacto composes, not a new config language it invents; the contract adds only the relational and temporal layer (ownership, dependencies, compatibility, readiness, lifecycle) that no single interface owns
+10. **Single service-information model** -- `ServiceDetails` (built by `ServiceDetailsFromBundle`) is the single service-information model consumed by the dashboard server, the `pacto doc` Markdown renderer and the static HTML exporter, so they cannot drift
 
 ---
 
