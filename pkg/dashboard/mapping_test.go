@@ -1216,8 +1216,8 @@ func mustParse(t *testing.T, data []byte) *contract.Contract {
 func TestServiceDetailsFromBundle_PopulatesSBOM(t *testing.T) {
 	spdx := `{"spdxVersion":"SPDX-2.3","packages":[{"name":"libfoo","versionInfo":"1.2.3","licenseConcluded":"MIT"}]}`
 	fsys := fstest.MapFS{
-		"pacto.yaml":            &fstest.MapFile{Data: []byte("pactoVersion: \"1.2\"\nservice:\n  name: svc\n  version: 1.0.0\n")},
-		"sbom/sbom.spdx.json":   &fstest.MapFile{Data: []byte(spdx)},
+		"pacto.yaml":          &fstest.MapFile{Data: []byte("pactoVersion: \"1.2\"\nservice:\n  name: svc\n  version: 1.0.0\n")},
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(spdx)},
 	}
 	c, err := contract.Parse(bytes.NewReader(fsys["pacto.yaml"].Data))
 	if err != nil {
