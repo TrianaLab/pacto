@@ -9,7 +9,7 @@
 
 **Pacto is to service operations what OpenAPI is to HTTP APIs.**
 
-A service's operational behavior — interfaces, dependencies, runtime semantics, configuration, scaling and readiness — is scattered across Helm values, wikis and dashboards, and drifts from what's actually running. Pacto captures it once in a validated, versioned contract (`pacto.yaml`), distributes it through your existing OCI registry and verifies it against live workloads. It doesn't replace OpenAPI, Helm, Terraform, Backstage or Kubernetes — it adds the operational contract layer between them, composing the interfaces you already own and adding what no single one does: ownership, dependencies, compatibility and readiness over time.
+A service's operational behavior — interfaces, dependencies, runtime semantics, configuration, scaling and readiness — is scattered across Helm values, wikis and dashboards, and drifts from what's actually running. Pacto captures it once in a validated, versioned contract (`pacto.yaml`), distributes it through your existing OCI registry and lets CI catch breaking changes while the operator catches runtime drift. It doesn't replace OpenAPI, Helm, Terraform, Backstage or Kubernetes — it adds the operational contract layer between them, composing the interfaces you already own and adding what no single one does: ownership, dependencies, compatibility and readiness over time.
 
 **[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)** · **[Live demo](https://trianalab.github.io/pacto/demo/)**
 
