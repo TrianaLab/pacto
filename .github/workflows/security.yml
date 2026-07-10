@@ -1,0 +1,101 @@
+name: Security
+
+# Vulnerability scanning: govulncheck (Go source + dependencies, reachability
+# aware) and Trivy (built container image, OS + language CVEs). Runs on PRs and
+# pushes to main, plus a weekly schedule to catch newly disclosed CVEs in
+# unchanged code and base images. Both jobs run in parallel (no `needs`).
+#
+# Supply-chain note: aquasecurity/trivy-action and setup-trivy were compromised
+# in March 2026 (tags force-pushed to an infostealer), so we install the Trivy
+# binary directly from a pinned upstream release and use only first-party
+# GitHub actions.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '27 6 * * 1' # weekly, Monday 06:27 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  govulncheck:
+    name: govulncheck (Go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to the Security tab
+      actions: read # required by upload-sarif in some configurations
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-go@v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      # With -format sarif, govulncheck always exits 0 (findings live in the
+      # SARIF), so gating happens in the "Fail on ..." step below.
+      - name: Run govulncheck (SARIF)
+        run: govulncheck -format sarif ./... > govulncheck.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: govulncheck.sarif
+          category: govulncheck
+      - name: Fail on reachable vulnerabilities
+        run: |
+          # Only error-level results are reachable vulnerabilities; warning/note
+          # are imported-but-unused and must not fail the build.
+          n=$(jq '[.runs[].results[]? | select(.level == "error")] | length' govulncheck.sarif)
+          echo "govulncheck reachable (error-level) vulnerabilities: $n"
+          [ "$n" -eq 0 ]
+
+  trivy-image:
+    name: Trivy (image)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Build image
+        run: docker build -t local/scan:${{ github.sha }} .
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.72.0/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin v0.72.0
+      # Rolling cache: the unique key always saves a fresh DB, restore-keys
+      # restores the most recent one so Trivy skips the full DB download.
+      - name: Cache Trivy vulnerability DB
+        uses: actions/cache@v5.0.3
+        with:
+          path: ${{ github.workspace }}/.trivy-cache
+          key: trivy-db-${{ github.run_id }}
+          restore-keys: trivy-db-
+      # Trivy writes --output before applying --exit-code, so the SARIF exists
+      # for the always() upload even when the scan fails on findings.
+      - name: Scan image (fail on HIGH/CRITICAL)
+        run: |
+          trivy image \
+            --cache-dir "${{ github.workspace }}/.trivy-cache" \
+            --format sarif --output trivy.sarif \
+            --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code 1 \
+            "local/scan:${{ github.sha }}"
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-image
