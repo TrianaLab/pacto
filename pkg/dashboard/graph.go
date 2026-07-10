@@ -244,11 +244,11 @@ func GlobalGraphFromResult(gr *depgraph.Result, root *ServiceDetails) *GlobalGra
 		}
 		// Dedupe AFTER resolving d so the root's real details win even when a
 		// dependency shares its name.
-		if seen[d.Service.Name] {
+		if seen[d.Name] {
 			return
 		}
-		seen[d.Service.Name] = true
-		index[d.Service.Name] = d
+		seen[d.Name] = true
+		index[d.Name] = d
 		services = append(services, d.Service)
 		for _, e := range n.Dependencies {
 			walk(e.Node, false) // nil Node (unresolved/cycle) is skipped by the guard above
