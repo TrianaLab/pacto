@@ -44,10 +44,9 @@ func TestBuildStaticExport_HappyPath(t *testing.T) {
 			Version: "2.0.0",
 		},
 	}
-	g := &dashboard.DependencyGraph{
-		Root: &dashboard.GraphNode{
-			Name:    "test-service",
-			Version: "2.0.0",
+	g := &dashboard.GlobalGraph{
+		Nodes: []dashboard.GraphNodeData{
+			{ID: "test-service", ServiceName: "test-service", Version: "2.0.0", Status: "Compliant"},
 		},
 	}
 
@@ -84,6 +83,19 @@ func TestBuildStaticExport_HappyPath(t *testing.T) {
 	}
 	if !bytes.Contains(idx, []byte("</head>")) {
 		t.Error("index.html structure corrupted")
+	}
+
+	// The detail view loads its graph via GET /api/graph, whose body is a flat
+	// GlobalGraph ({nodes:[...]}). The static payload must embed g under that
+	// route, and must NOT use the old per-service /graph route the view never calls.
+	if !bytes.Contains(idx, []byte(`"/api/graph"`)) {
+		t.Error("static payload missing /api/graph route")
+	}
+	if !bytes.Contains(idx, []byte(`"nodes"`)) {
+		t.Error("static /api/graph payload missing nodes array")
+	}
+	if bytes.Contains(idx, []byte("/api/services/test-service/graph")) {
+		t.Error("dead /api/services/{name}/graph route should not be embedded")
 	}
 
 	// Verify script is before </head>

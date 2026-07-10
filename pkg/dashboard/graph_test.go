@@ -2,6 +2,9 @@ package dashboard
 
 import (
 	"testing"
+
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	depgraph "github.com/trianalab/pacto/v2/pkg/graph"
 )
 
 func TestExtractServiceNameFromRef_PlainName(t *testing.T) {
@@ -826,5 +829,148 @@ func TestNormalizeContractStatus(t *testing.T) {
 		if got != c.want {
 			t.Errorf("NormalizeContractStatus(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestGlobalGraphFromResult_NilResult(t *testing.T) {
+	g := GlobalGraphFromResult(nil, nil)
+	if g == nil || len(g.Nodes) != 0 {
+		t.Fatalf("expected empty graph for nil result, got %+v", g)
+	}
+}
+
+func TestGlobalGraphFromResult_NilRoot(t *testing.T) {
+	g := GlobalGraphFromResult(&depgraph.Result{Root: nil}, nil)
+	if g == nil || len(g.Nodes) != 0 {
+		t.Fatalf("expected empty graph for nil root, got %+v", g)
+	}
+}
+
+func TestGlobalGraphFromResult_RootOnly(t *testing.T) {
+	root := &ServiceDetails{
+		Service: Service{Name: "root-svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+	}
+	gr := &depgraph.Result{Root: &depgraph.Node{
+		Name:     "root-svc",
+		Version:  "1.0.0",
+		Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "root-svc", Version: "1.0.0"}},
+	}}
+
+	g := GlobalGraphFromResult(gr, root)
+	if len(g.Nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(g.Nodes))
+	}
+	if g.Nodes[0].ID != "root-svc" {
+		t.Errorf("expected root-svc node, got %q", g.Nodes[0].ID)
+	}
+	// The root node must carry the root snapshot's real status.
+	if g.Nodes[0].Status != string(StatusCompliant) {
+		t.Errorf("expected root status %q, got %q", StatusCompliant, g.Nodes[0].Status)
+	}
+}
+
+func TestGlobalGraphFromResult_RootWithDep(t *testing.T) {
+	root := &ServiceDetails{
+		Service:      Service{Name: "root-svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+		Dependencies: []DependencyInfo{{Ref: "dep-svc", Required: true, Compatibility: "^2.0.0"}},
+	}
+	depNode := &depgraph.Node{
+		Name:     "dep-svc",
+		Version:  "2.0.0",
+		Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "dep-svc", Version: "2.0.0"}},
+	}
+	gr := &depgraph.Result{Root: &depgraph.Node{
+		Name:         "root-svc",
+		Version:      "1.0.0",
+		Contract:     &contract.Contract{Service: contract.ServiceIdentity{Name: "root-svc", Version: "1.0.0"}},
+		Dependencies: []depgraph.Edge{{Ref: "dep-svc", Node: depNode}},
+	}}
+
+	g := GlobalGraphFromResult(gr, root)
+	if len(g.Nodes) != 2 {
+		t.Fatalf("expected 2 nodes (root + dep), got %d", len(g.Nodes))
+	}
+
+	var rootNode *GraphNodeData
+	for i := range g.Nodes {
+		if g.Nodes[i].ID == "root-svc" {
+			rootNode = &g.Nodes[i]
+		}
+	}
+	if rootNode == nil {
+		t.Fatal("root-svc node not found")
+	}
+	if rootNode.Status != string(StatusCompliant) {
+		t.Errorf("expected root status %q, got %q", StatusCompliant, rootNode.Status)
+	}
+	if len(rootNode.Edges) != 1 || rootNode.Edges[0].TargetID != "dep-svc" {
+		t.Fatalf("expected root->dep-svc edge, got %+v", rootNode.Edges)
+	}
+	if !rootNode.Edges[0].Resolved {
+		t.Error("expected root->dep edge to be resolved")
+	}
+}
+
+func TestGlobalGraphFromResult_DedupeSharedName(t *testing.T) {
+	// A dependency shares the root's name: the root's real details must win and
+	// the dep must be deduped (dedupe happens AFTER resolving details).
+	root := &ServiceDetails{
+		Service: Service{Name: "svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+	}
+	dupNode := &depgraph.Node{
+		Name:     "svc",
+		Version:  "9.9.9",
+		Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "svc", Version: "9.9.9"}},
+	}
+	gr := &depgraph.Result{Root: &depgraph.Node{
+		Name:         "svc",
+		Version:      "1.0.0",
+		Contract:     &contract.Contract{Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"}},
+		Dependencies: []depgraph.Edge{{Ref: "svc", Node: dupNode}},
+	}}
+
+	g := GlobalGraphFromResult(gr, root)
+	if len(g.Nodes) != 1 {
+		t.Fatalf("expected 1 deduped node, got %d", len(g.Nodes))
+	}
+	// Root's real details win: status Compliant, version 1.0.0 (not the dep's 9.9.9).
+	if g.Nodes[0].Status != string(StatusCompliant) || g.Nodes[0].Version != "1.0.0" {
+		t.Errorf("expected root details to win, got status=%q version=%q", g.Nodes[0].Status, g.Nodes[0].Version)
+	}
+}
+
+func TestGlobalGraphFromResult_NilEdgeNodeAndNoContractDep(t *testing.T) {
+	// One dep edge has a nil Node (unresolved) and must be skipped; another dep
+	// has a Node without a Contract (shared/cycle stub) and gets status Unknown.
+	root := &ServiceDetails{
+		Service:      Service{Name: "root-svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+		Dependencies: []DependencyInfo{{Ref: "stub-dep"}},
+	}
+	stubNode := &depgraph.Node{Name: "stub-dep", Version: "3.0.0"} // no Contract
+	gr := &depgraph.Result{Root: &depgraph.Node{
+		Name:     "root-svc",
+		Version:  "1.0.0",
+		Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "root-svc", Version: "1.0.0"}},
+		Dependencies: []depgraph.Edge{
+			{Ref: "missing", Node: nil},       // skipped by the nil guard
+			{Ref: "stub-dep", Node: stubNode}, // default branch: status Unknown
+		},
+	}}
+
+	g := GlobalGraphFromResult(gr, root)
+	if len(g.Nodes) != 2 {
+		t.Fatalf("expected 2 nodes (root + stub), got %d", len(g.Nodes))
+	}
+	var stub *GraphNodeData
+	for i := range g.Nodes {
+		if g.Nodes[i].ID == "stub-dep" {
+			stub = &g.Nodes[i]
+		}
+	}
+	if stub == nil {
+		t.Fatal("stub-dep node not found")
+	}
+	if stub.Status != string(StatusUnknown) {
+		t.Errorf("expected stub status Unknown, got %q", stub.Status)
 	}
 }

@@ -12,12 +12,12 @@ import (
 // BuildStaticExport returns the embedded dashboard UI tree (path -> bytes) with
 // index.html rewritten to embed the snapshot as window.__PACTO_STATIC__, so the
 // single-service view renders offline with no backend.
-func BuildStaticExport(d *dashboard.ServiceDetails, g *dashboard.DependencyGraph) (map[string][]byte, error) {
+func BuildStaticExport(d *dashboard.ServiceDetails, g *dashboard.GlobalGraph) (map[string][]byte, error) {
 	return buildStaticExport(dashboard.EmbeddedUI(), d, g)
 }
 
 // buildStaticExport is the testable inner function that accepts an injectable fs.FS.
-func buildStaticExport(uiFS fs.FS, d *dashboard.ServiceDetails, g *dashboard.DependencyGraph) (map[string][]byte, error) {
+func buildStaticExport(uiFS fs.FS, d *dashboard.ServiceDetails, g *dashboard.GlobalGraph) (map[string][]byte, error) {
 	out := map[string][]byte{}
 	err := fs.WalkDir(uiFS, ".", func(p string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -44,7 +44,7 @@ func buildStaticExport(uiFS fs.FS, d *dashboard.ServiceDetails, g *dashboard.Dep
 
 	routes := map[string]any{
 		"/api/services/" + d.Name:                 d,
-		"/api/services/" + d.Name + "/graph":      g,
+		"/api/graph":                              g,
 		"/api/services/" + d.Name + "/versions":   []dashboard.Version{{Version: d.Version, IsCurrent: true}},
 		"/api/services/" + d.Name + "/dependents": []any{},
 	}

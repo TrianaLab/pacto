@@ -16,7 +16,7 @@ import (
 // by stubbing the package-level indirection.
 func TestDocCommand_BuildExportError(t *testing.T) {
 	orig := buildStaticExport
-	buildStaticExport = func(_ *dashboard.ServiceDetails, _ *dashboard.DependencyGraph) (map[string][]byte, error) {
+	buildStaticExport = func(_ *dashboard.ServiceDetails, _ *dashboard.GlobalGraph) (map[string][]byte, error) {
 		return nil, errors.New("boom")
 	}
 	t.Cleanup(func() { buildStaticExport = orig })

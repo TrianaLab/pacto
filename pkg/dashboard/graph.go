@@ -3,6 +3,7 @@ package dashboard
 import (
 	"strings"
 
+	"github.com/trianalab/pacto/v2/pkg/contract"
 	depgraph "github.com/trianalab/pacto/v2/pkg/graph"
 )
 
@@ -213,6 +214,48 @@ func unresolvedReason(depRef string, reasonFn unresolvedReasonFunc) string {
 		}
 	}
 	return ""
+}
+
+// GlobalGraphFromResult builds the flat D3 GlobalGraph (as served at /api/graph)
+// from a resolved dependency graph, for the offline single-service doc export.
+// root is the already-built snapshot for gr.Root (carries real status + lock pins);
+// dependency nodes are built from their resolved contracts (status Unknown, since a
+// fetched dependency node carries no RawYAML to validate).
+func GlobalGraphFromResult(gr *depgraph.Result, root *ServiceDetails) *GlobalGraph {
+	if gr == nil || gr.Root == nil {
+		return &GlobalGraph{}
+	}
+	index := map[string]*ServiceDetails{}
+	var services []Service
+	seen := map[string]bool{}
+	var walk func(n *depgraph.Node, isRoot bool)
+	walk = func(n *depgraph.Node, isRoot bool) {
+		if n == nil {
+			return
+		}
+		var d *ServiceDetails
+		switch {
+		case isRoot && root != nil:
+			d = root
+		case n.Contract != nil:
+			d = ServiceDetailsFromBundle(&contract.Bundle{Contract: n.Contract, FS: n.FS}, "local")
+		default:
+			d = &ServiceDetails{Service: Service{Name: n.Name, Version: n.Version, ContractStatus: StatusUnknown}}
+		}
+		// Dedupe AFTER resolving d so the root's real details win even when a
+		// dependency shares its name.
+		if seen[d.Service.Name] {
+			return
+		}
+		seen[d.Service.Name] = true
+		index[d.Service.Name] = d
+		services = append(services, d.Service)
+		for _, e := range n.Dependencies {
+			walk(e.Node, false) // nil Node (unresolved/cycle) is skipped by the guard above
+		}
+	}
+	walk(gr.Root, true)
+	return buildGlobalGraph(services, index, nil)
 }
 
 // buildGraph constructs a DependencyGraph rooted at the given service.

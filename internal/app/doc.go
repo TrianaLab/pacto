@@ -38,8 +38,8 @@ type DocResult struct {
 	// Details is the dashboard snapshot the Markdown was rendered from, and Graph
 	// is the resolved dependency graph. Both feed richer consumers (e.g. the
 	// static HTML export) and are not serialised.
-	Details *dashboard.ServiceDetails  `json:"-"`
-	Graph   *dashboard.DependencyGraph `json:"-"`
+	Details *dashboard.ServiceDetails `json:"-"`
+	Graph   *dashboard.GlobalGraph    `json:"-"`
 }
 
 // Doc generates Markdown documentation from a contract.
@@ -69,7 +69,7 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 		Markdown:    markdown,
 		Bundle:      bundle,
 		Details:     details,
-		Graph:       dashboard.GraphFromResult(gr),
+		Graph:       dashboard.GlobalGraphFromResult(gr, details),
 	}
 
 	if opts.OutputDir != "" {
