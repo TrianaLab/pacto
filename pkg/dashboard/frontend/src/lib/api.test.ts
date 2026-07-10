@@ -132,3 +132,12 @@ describe('204 responses', () => {
     expect(result).toBeNull();
   });
 });
+
+describe('static mode', () => {
+  it('serves embedded data in static mode', async () => {
+    (window as any).__PACTO_STATIC__ = { routes: { '/api/services/svc': { name: 'svc' } }, service: 'svc' };
+    const res = await api.service('svc');
+    expect(res).toEqual({ name: 'svc' });
+    delete (window as any).__PACTO_STATIC__;
+  });
+});

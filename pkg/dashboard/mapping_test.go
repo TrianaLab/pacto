@@ -297,14 +297,14 @@ func TestServiceDetailsFromBundle_ImageAndChart(t *testing.T) {
 }
 
 func TestGraphFromResult_Nil(t *testing.T) {
-	result := graphFromResult(nil)
+	result := GraphFromResult(nil)
 	if result != nil {
 		t.Error("expected nil for nil input")
 	}
 }
 
 func TestGraphFromResult_NilRoot(t *testing.T) {
-	result := graphFromResult(&graph.Result{Root: nil})
+	result := GraphFromResult(&graph.Result{Root: nil})
 	if result != nil {
 		t.Error("expected nil for nil root")
 	}
@@ -329,7 +329,7 @@ func TestGraphFromResult_Basic(t *testing.T) {
 		},
 	}
 
-	g := graphFromResult(r)
+	g := GraphFromResult(r)
 	if g == nil {
 		t.Fatal("expected non-nil graph")
 	}
@@ -1201,5 +1201,45 @@ func TestServiceDetailsFromBundle_ReadinessDocPath(t *testing.T) {
 	}
 	if details.Readiness.Checks[1].DocPath != "" {
 		t.Errorf("expected url check DocPath empty, got %q", details.Readiness.Checks[1].DocPath)
+	}
+}
+
+func mustParse(t *testing.T, data []byte) *contract.Contract {
+	t.Helper()
+	c, err := contract.Parse(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestServiceDetailsFromBundle_PopulatesSBOM(t *testing.T) {
+	spdx := `{"spdxVersion":"SPDX-2.3","packages":[{"name":"libfoo","versionInfo":"1.2.3","licenseConcluded":"MIT"}]}`
+	fsys := fstest.MapFS{
+		"pacto.yaml":          &fstest.MapFile{Data: []byte("pactoVersion: \"1.2\"\nservice:\n  name: svc\n  version: 1.0.0\n")},
+		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(spdx)},
+	}
+	c, err := contract.Parse(bytes.NewReader(fsys["pacto.yaml"].Data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &contract.Bundle{Contract: c, RawYAML: fsys["pacto.yaml"].Data, FS: fsys}
+	d := ServiceDetailsFromBundle(b, "local")
+	if d.SBOM == nil {
+		t.Fatal("expected SBOM populated")
+	}
+	if d.SBOM.Format != "spdx" || len(d.SBOM.Packages) != 1 || d.SBOM.Packages[0].Name != "libfoo" {
+		t.Fatalf("unexpected SBOM: %+v", d.SBOM)
+	}
+}
+
+func TestServiceDetailsFromBundle_NoSBOM(t *testing.T) {
+	fsys := fstest.MapFS{
+		"pacto.yaml": &fstest.MapFile{Data: []byte("pactoVersion: \"1.2\"\nservice:\n  name: svc\n  version: 1.0.0\n")},
+	}
+	b := &contract.Bundle{Contract: mustParse(t, fsys["pacto.yaml"].Data), RawYAML: fsys["pacto.yaml"].Data, FS: fsys}
+	d := ServiceDetailsFromBundle(b, "local")
+	if d.SBOM != nil {
+		t.Fatalf("expected nil SBOM, got %+v", d.SBOM)
 	}
 }

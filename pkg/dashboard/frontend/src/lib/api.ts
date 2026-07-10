@@ -9,6 +9,13 @@ export class ApiError extends Error {
 }
 
 async function request(method: string, path: string, body?: unknown): Promise<unknown> {
+  const staticData = (globalThis as any).__PACTO_STATIC__;
+  if (staticData) {
+    if (path in staticData.routes) return staticData.routes[path];
+    // Unknown paths (health/metrics/sources polling) resolve empty so the offline app stays quiet.
+    return path === '/api/services' ? [] : null;
+  }
+
   const opts: RequestInit = { method, headers: {} };
   if (body !== undefined) {
     (opts.headers as Record<string, string>)['Content-Type'] = 'application/json';

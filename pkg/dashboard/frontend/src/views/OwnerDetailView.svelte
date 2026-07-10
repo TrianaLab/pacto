@@ -5,7 +5,7 @@
   import { ownerKey, extractOwnerDetail } from '../lib/format.ts';
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
-  import GraphCanvas from '../GraphCanvas.svelte';
+  import GraphPanel from '../GraphPanel.svelte';
   import EmptyState from '../components/EmptyState.svelte';
 
   let { owner = '', services = [], initialLoading = false } = $props();
@@ -21,7 +21,7 @@
   // Structured owner detail extracted from services
   let ownerDetail = $derived(extractOwnerDetail(owner, ownerServices));
 
-  // Set of service names for graph focusing (passed to GraphCanvas as focusNodes)
+  // Set of service names for graph focusing (passed to GraphPanel as focusNodes)
   let ownerServiceNames = $derived(new Set(ownerServices.map((s) => s.name)));
 
   onMount(async () => {
@@ -120,11 +120,14 @@
     {:else if graphData?.nodes?.length > 0}
       <p class="text-3" style="font-size:var(--text-xs); margin-bottom:var(--sp-3)">Services owned by {owner} are highlighted; others are dimmed.</p>
       <div class="graph-wrap">
-        <GraphCanvas
+        <GraphPanel
           {graphData}
           focusNodes={ownerServiceNames}
+          layout="force"
           height={Math.min(window.innerHeight - 300, 500)}
           onNavigate={(name) => location.hash = serviceUrl(name)}
+          showZoom
+          showLegend
         />
       </div>
     {:else}

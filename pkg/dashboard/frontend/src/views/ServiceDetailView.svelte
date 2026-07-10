@@ -1,3 +1,23 @@
+<script module>
+  // Module-level export for default section open states (testable).
+  export function defaultOpenSections() {
+    return {
+      overview: true,
+      sources: false,
+      interfaces: true,
+      dependencies: false,
+      config: false,
+      policy: false,
+      readiness: false,
+      docs: false,
+      sbom: false,
+      validation: false,
+      runtimeDiff: false,
+      observed: false,
+    };
+  }
+</script>
+
 <script>
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
@@ -19,6 +39,7 @@
   import PolicySection from '../sections/PolicySection.svelte';
   import ReadinessSection from '../sections/ReadinessSection.svelte';
   import DocsSection from '../sections/DocsSection.svelte';
+  import SbomSection from '../sections/SbomSection.svelte';
   import SectionState from '../sections/SectionState.svelte';
   import SourcesPanel from '../sections/SourcesPanel.svelte';
   import ValidationSection from '../sections/ValidationSection.svelte';
@@ -47,6 +68,7 @@
     { id: 'policy', label: 'Policies', key: 'policies' },
     { id: 'readiness', label: 'Readiness', key: 'readiness' },
     { id: 'docs', label: 'Documentation', key: 'docs' },
+    { id: 'sbom', label: 'SBOM', key: 'sbom' },
     { id: 'validation', label: 'Validation', key: 'validation' },
     { id: 'runtimeDiff', label: 'Contract vs Runtime', key: 'runtimeDiff' },
     { id: 'observed', label: 'Observed Runtime', key: 'observedRuntime' },
@@ -106,11 +128,7 @@
   }
 
   // Section open states
-  let openSections = $state({
-    overview: true, sources: false, interfaces: true, dependencies: true,
-    config: false, policy: false, readiness: false, docs: false, validation: false,
-    runtimeDiff: false, observed: false,
-  });
+  let openSections = $state(defaultOpenSections());
 
   // Derived view model
   let blastRadius = $derived(services.find(s => s.name === name)?.blastRadius || 0);
@@ -224,6 +242,9 @@
     }
   });
 
+  // Active section tracking for sticky TOC rail
+  let activeSection = $state('overview');
+
   async function reload() {
     try {
       // Background refresh (runs every poll tick). A transient failure on a
@@ -246,7 +267,33 @@
     }
   }
 
-  onMount(() => { load(); });
+  // Top-level effect for IntersectionObserver (scroll tracking)
+  $effect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    if (!detail || availableSections.length === 0) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      let maxRatio = 0;
+      let maxEntry = null;
+      for (const entry of entries) {
+        if (entry.isIntersecting && entry.intersectionRatio > maxRatio) {
+          maxRatio = entry.intersectionRatio;
+          maxEntry = entry;
+        }
+      }
+      if (maxEntry) activeSection = maxEntry.target.id.replace('section-', '');
+    }, { threshold: [0, 0.25, 0.5, 0.75, 1], rootMargin: '-80px 0px -50% 0px' });
+
+    for (const sec of availableSections) {
+      const el = document.getElementById(`section-${sec.id}`);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  });
+
+  onMount(() => {
+    load();
+  });
 </script>
 
 {#if resolving}
@@ -372,16 +419,24 @@
     </div>
   {/if}
 
-  <!-- Section nav -->
+  <!-- Sticky TOC rail -->
   {#if availableSections?.length > 2}
-    <nav class="section-nav" aria-label="Sections">
-      {#each availableSections as sec}
-        <button type="button" class="section-nav-item" onclick={() => scrollToSection(sec.id)}>
-          {sec.label}
-        </button>
-      {/each}
-    </nav>
-  {/if}
+    <div class="detail-layout">
+      <nav class="section-toc" aria-label="On this page">
+        <div class="section-toc-title">On this page</div>
+        {#each availableSections as sec}
+          <button
+            type="button"
+            class="section-toc-item"
+            class:active={activeSection === sec.id}
+            aria-current={activeSection === sec.id ? 'true' : undefined}
+            onclick={() => scrollToSection(sec.id)}
+          >
+            {sec.label}
+          </button>
+        {/each}
+      </nav>
+      <div class="detail-content">
 
   <!-- Insights -->
   {#if insights?.length > 0}
@@ -471,6 +526,12 @@
     <DocsSection id="section-docs" docs={detail.docs || []} referencedPaths={referencedDocPaths(detail.readiness)} source={sectionState('docs').source} bind:open={openSections.docs} />
   {:else}
     <SectionState id="section-docs" title="Documentation" meta={sectionState('docs')} bind:open={openSections.docs} />
+  {/if}
+
+  {#if isPresent('sbom')}
+    <SbomSection id="section-sbom" sbom={detail.sbom} source={sectionState('sbom').source} bind:open={openSections.sbom} />
+  {:else}
+    <SectionState id="section-sbom" title="SBOM" meta={sectionState('sbom')} bind:open={openSections.sbom} />
   {/if}
 
   {#if isPresent('validation')}
@@ -580,6 +641,12 @@
     </section>
   {/if}
 
+      </div><!-- .detail-content -->
+    </div><!-- .detail-layout -->
+  {:else}
+    <!-- No TOC needed for services with only 1-2 sections -->
+  {/if}
+
 {/if}
 
 <style>
@@ -640,26 +707,73 @@
     font-size: var(--text-sm);
   }
 
-  .section-nav {
-    display: flex; flex-wrap: wrap; gap: var(--sp-1); row-gap: 2px;
-    margin-bottom: var(--sp-5);
-    padding: var(--sp-2) 0;
-    border-bottom: 1px solid var(--c-border);
-    position: sticky; top: var(--navbar-h); z-index: 50;
-    background: var(--c-bg);
+  .detail-layout {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: var(--sp-6);
+    align-items: start;
   }
-  .section-nav-item {
+
+  .section-toc {
+    position: sticky;
+    top: calc(var(--navbar-h) + var(--sp-4));
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+    padding: var(--sp-3) 0;
+  }
+
+  .section-toc-title {
+    font-size: var(--text-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--c-text-3);
+    margin-bottom: var(--sp-2);
+  }
+
+  .section-toc-item {
+    display: flex;
+    align-items: center;
     padding: var(--sp-2) var(--sp-3);
-    border: none; background: none;
-    font: inherit; font-size: var(--text-xs); font-weight: 500;
-    color: var(--c-text-3); cursor: pointer;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: var(--text-sm);
+    color: var(--c-text-3);
+    cursor: pointer;
     border-radius: var(--radius-xs);
     transition: color var(--transition), background var(--transition);
+    text-align: left;
     white-space: nowrap;
-    min-height: 36px;
-    display: inline-flex; align-items: center;
+    position: relative;
   }
-  .section-nav-item:hover { color: var(--c-text); background: var(--c-surface-hover); }
+
+  .section-toc-item:hover {
+    color: var(--c-text);
+    background: var(--c-surface-hover);
+  }
+
+  .section-toc-item.active {
+    color: var(--c-accent);
+    font-weight: 500;
+  }
+
+  .section-toc-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2px;
+    height: 60%;
+    background: var(--c-accent);
+    border-radius: 2px;
+  }
+
+  .detail-content {
+    min-width: 0;
+  }
 
   .insights-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 
@@ -783,5 +897,26 @@
     .diff-inline-header { flex-wrap: wrap; }
     .version-actions { margin-left: 0; width: 100%; }
     .version-actions > * { flex: 1; justify-content: center; }
+
+    .detail-layout {
+      grid-template-columns: 1fr;
+      gap: var(--sp-4);
+    }
+
+    .section-toc {
+      position: static;
+      flex-direction: row;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--c-border);
+      padding-bottom: var(--sp-3);
+    }
+
+    .section-toc-title {
+      display: none;
+    }
+
+    .section-toc-item.active::before {
+      display: none;
+    }
   }
 </style>

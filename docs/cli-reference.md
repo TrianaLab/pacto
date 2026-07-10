@@ -197,22 +197,22 @@ pacto doc [dir | oci://ref] [flags]
 ```
   -h, --help                 help for doc
       --interface string     interface name to display (used with --ui)
-  -o, --output string        output directory for generated Markdown file
+  -o, --output string        output directory for generated Markdown; a NAME.html value writes a static documentation site to a NAME/ directory instead
       --port int             port for the documentation server (used with --serve or --ui) (default 8484)
-      --serve                start a local HTTP server to view documentation in the browser
+      --serve                serve the offline dashboard-grade documentation site over a local HTTP server
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
       --target stringArray   target server URL for try-it-out requests; supports interface=url mapping (used with --ui)
       --ui string            UI type for interactive API explorer (e.g. swagger)
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-`--serve`, `--ui`, and `--output` are mutually exclusive.
+Markdown prints to stdout by default. `-o DIR` writes `DIR/<service>.md`. `-o NAME.html` writes a self-contained static documentation site (a directory) that reuses the dashboard UI offline.
 
-Use `--interface` to select a specific OpenAPI interface when multiple are present. Without it, an index page is shown.
+`--serve` serves that static site locally. `--ui swagger` launches an interactive API explorer.
 
-The `--target` flag supports per-interface mapping: `--target api=http://localhost:3000 --target admin=http://localhost:4000`.
+`--serve`, `--ui` and `-o` are mutually exclusive. Use `--interface` to pick one OpenAPI interface with `--ui`. `--target` and `--target iface=url` point try-it-out at a backend.
 
-Sibling dependencies are resolved in parallel. OCI bundles are cached locally in `~/.cache/pacto/oci/` for faster subsequent operations. Use `--no-cache` to bypass the cache.
+Sibling dependencies are resolved in parallel. OCI bundles cache under `~/.cache/pacto/oci/`. `--no-cache` bypasses the cache.
 
 ---
 

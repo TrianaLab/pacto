@@ -10,9 +10,10 @@ import (
 
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/diff"
-	"github.com/trianalab/pacto/v2/pkg/doc"
 	"github.com/trianalab/pacto/v2/pkg/graph"
+	"github.com/trianalab/pacto/v2/pkg/openapi"
 	"github.com/trianalab/pacto/v2/pkg/readiness"
+	"github.com/trianalab/pacto/v2/pkg/sbom"
 	"github.com/trianalab/pacto/v2/pkg/schemax"
 	"github.com/trianalab/pacto/v2/pkg/validation"
 )
@@ -91,6 +92,10 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 	// cluster-wide. A nil FS or absent/malformed lock leaves svc untouched.
 	if l, err := lockFromFS(bundle.FS); err == nil {
 		ApplyLock(svc, l)
+	}
+
+	if doc, err := sbom.ParseFromFS(bundle.FS); err == nil {
+		svc.SBOM = doc // nil when the bundle has no SBOM; ParseFromFS returns nil,nil then
 	}
 
 	return svc
@@ -242,7 +247,7 @@ func interfacesFromContract(c *contract.Contract, fsys fs.FS) []InterfaceInfo {
 			ContractFile:    iface.Contract,
 		}
 		if iface.Contract != "" && fsys != nil {
-			endpoints, err := doc.ReadOpenAPIEndpoints(fsys, iface.Contract)
+			endpoints, err := openapi.ReadOpenAPIEndpoints(fsys, iface.Contract)
 			if err == nil && len(endpoints) > 0 {
 				for _, ep := range endpoints {
 					info.Endpoints = append(info.Endpoints, InterfaceEndpoint{
@@ -469,8 +474,8 @@ func DiffResultFromEngine(from, to Ref, r *diff.Result) *DiffResult {
 	return dr
 }
 
-// graphFromResult maps the graph resolver's Result to the dashboard DependencyGraph.
-func graphFromResult(r *graph.Result) *DependencyGraph {
+// GraphFromResult maps the graph resolver's Result to the dashboard DependencyGraph.
+func GraphFromResult(r *graph.Result) *DependencyGraph {
 	if r == nil || r.Root == nil {
 		return nil
 	}
@@ -510,7 +515,7 @@ func mapGraphNode(n *graph.Node) *GraphNode {
 // parseContentAsValues tries to parse raw file content as YAML/JSON key-value pairs.
 func parseContentAsValues(data []byte, path string) []ConfigValue {
 	// Reuse the OpenAPI spec parser's unmarshal logic: JSON for .json, YAML otherwise.
-	spec, err := doc.UnmarshalSpec(data, path)
+	spec, err := openapi.UnmarshalSpec(data, path)
 	if err != nil || len(spec) == 0 {
 		return nil
 	}

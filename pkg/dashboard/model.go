@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/sbom"
 	"github.com/trianalab/pacto/v2/pkg/schemax"
 )
 
@@ -184,6 +185,10 @@ type ServiceDetails struct {
 	// bundle-backed sources (local/OCI/cache); empty for k8s-only services.
 	Docs []DocInfo `json:"docs,omitempty"`
 
+	// SBOM is the parsed software bill of materials from the bundle's sbom/
+	// directory (SPDX or CycloneDX). Nil when the bundle has no SBOM.
+	SBOM *sbom.Document `json:"sbom,omitempty"`
+
 	// ObservedRuntime holds runtime state observed by the operator.
 	ObservedRuntime *ObservedRuntime `json:"observedRuntime,omitempty"`
 
@@ -239,6 +244,7 @@ const (
 	SectionDependencies    = "dependencies"
 	SectionReadiness       = "readiness"
 	SectionDocs            = "docs"
+	SectionSBOM            = "sbom"
 	SectionRuntime         = "runtime"
 	SectionValidation      = "validation"
 	SectionObservedRuntime = "observedRuntime"

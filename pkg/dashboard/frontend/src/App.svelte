@@ -95,7 +95,7 @@
     window.addEventListener('hashchange', onHashChange);
     loadGlobal();
     // Start with fast polling; loadGlobal adjusts interval based on discovery state
-    reloadTimer = setInterval(loadGlobal, POLL_FAST);
+    if (!(globalThis).__PACTO_STATIC__) { reloadTimer = setInterval(loadGlobal, POLL_FAST); }
     return () => {
       window.removeEventListener('hashchange', onHashChange);
       if (reloadTimer) clearInterval(reloadTimer);

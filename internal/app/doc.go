@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/dashboard"
 	"github.com/trianalab/pacto/v2/pkg/doc"
 	"github.com/trianalab/pacto/v2/pkg/graph"
 	"github.com/trianalab/pacto/v2/pkg/override"
@@ -33,6 +34,12 @@ type DocResult struct {
 	// Bundle contains the contract and filesystem needed for features like
 	// the interactive API explorer (--swagger). These are not serialised.
 	Bundle *contract.Bundle `json:"-"`
+
+	// Details is the dashboard snapshot the Markdown was rendered from, and Graph
+	// is the resolved dependency graph. Both feed richer consumers (e.g. the
+	// static HTML export) and are not serialised.
+	Details *dashboard.ServiceDetails `json:"-"`
+	Graph   *dashboard.GlobalGraph    `json:"-"`
 }
 
 // Doc generates Markdown documentation from a contract.
@@ -50,7 +57,9 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 	gr := graph.Resolve(ctx, bundle.Contract, fetcher)
 
 	slog.Debug("generating markdown documentation")
-	markdown, err := generateDoc(bundle.Contract, bundle.FS, gr)
+	details := dashboard.ServiceDetailsFromBundle(bundle, "local")
+	details.GenerateInsights()
+	markdown, err := generateDoc(details, gr)
 	if err != nil {
 		return nil, fmt.Errorf("generating documentation: %w", err)
 	}
@@ -59,6 +68,8 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 		ServiceName: bundle.Contract.Service.Name,
 		Markdown:    markdown,
 		Bundle:      bundle,
+		Details:     details,
+		Graph:       dashboard.GlobalGraphFromResult(gr, details),
 	}
 
 	if opts.OutputDir != "" {

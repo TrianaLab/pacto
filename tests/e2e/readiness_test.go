@@ -221,7 +221,7 @@ func TestReadinessDoc(t *testing.T) {
 		t.Fatalf("doc failed: %v\n%s", err, out)
 	}
 	assertContains(t, out, "Readiness")
-	assertContains(t, out, "Assessment expires: `2099-12-31`")
+	assertContains(t, out, "Score `60/100` · gate `80` · expires `2099-12-31`")
 	assertContains(t, out, "| ID | Type | Category | Status | Evidence | Weight | Description |")
 	assertContains(t, out, "| `dashboard` | `url` | `observability` | `done` |")
 	assertContains(t, out, "Revision History")

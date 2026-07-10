@@ -129,7 +129,7 @@ Reports cycles, version conflicts, and unreachable dependencies.
 
 Sibling dependencies are resolved in parallel. OCI bundles are cached locally in ` + "`~/.cache/pacto/oci/`" + ` for faster subsequent operations. Use ` + "`--no-cache`" + ` to bypass the cache.`,
 
-	"doc": "`--serve`, `--ui`, and `--output` are mutually exclusive.\n\nUse `--interface` to select a specific OpenAPI interface when multiple are present. Without it, an index page is shown.\n\nThe `--target` flag supports per-interface mapping: `--target api=http://localhost:3000 --target admin=http://localhost:4000`.\n\nSibling dependencies are resolved in parallel. OCI bundles are cached locally in `~/.cache/pacto/oci/` for faster subsequent operations. Use `--no-cache` to bypass the cache.",
+	"doc": "Markdown prints to stdout by default. `-o DIR` writes `DIR/<service>.md`. `-o NAME.html` writes a self-contained static documentation site (a directory) that reuses the dashboard UI offline.\n\n`--serve` serves that static site locally. `--ui swagger` launches an interactive API explorer.\n\n`--serve`, `--ui` and `-o` are mutually exclusive. Use `--interface` to pick one OpenAPI interface with `--ui`. `--target` and `--target iface=url` point try-it-out at a backend.\n\nSibling dependencies are resolved in parallel. OCI bundles cache under `~/.cache/pacto/oci/`. `--no-cache` bypasses the cache.",
 
 	"login": "Credentials are stored in `~/.config/pacto/config.json` (or `$XDG_CONFIG_HOME/pacto/config.json`), keeping them separate from Docker's configuration.\n\n" +
 		"### GitHub Container Registry (ghcr.io)\n\n" +

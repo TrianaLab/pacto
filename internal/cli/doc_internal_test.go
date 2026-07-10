@@ -1,8 +1,48 @@
 package cli
 
 import (
+	"errors"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/trianalab/pacto/v2/internal/testutil"
+	"github.com/trianalab/pacto/v2/pkg/dashboard"
 )
+
+// TestDocCommand_BuildExportError exercises the otherwise-unreachable
+// buildStaticExport failure branches in both the --serve and -o NAME.html paths
+// by stubbing the package-level indirection.
+func TestDocCommand_BuildExportError(t *testing.T) {
+	orig := buildStaticExport
+	buildStaticExport = func(_ *dashboard.ServiceDetails, _ *dashboard.GlobalGraph) (map[string][]byte, error) {
+		return nil, errors.New("boom")
+	}
+	t.Cleanup(func() { buildStaticExport = orig })
+
+	for _, tt := range []struct {
+		name string
+		args func(bundleDir string) []string
+	}{
+		{"serve", func(b string) []string { return []string{"doc", "--serve", "--port", "0", b} }},
+		{"html-output", func(b string) []string {
+			return []string{"doc", "-o", filepath.Join(t.TempDir(), "site.html"), b}
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			bundleDir := testutil.WriteTestBundle(t)
+			svc := app.NewService(nil, nil)
+			root := NewRootCommand(svc, VersionInfo{Version: "test"})
+			root.SetArgs(tt.args(bundleDir))
+
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), "boom") {
+				t.Errorf("expected boom error, got %v", err)
+			}
+		})
+	}
+}
 
 func TestValidateDocFlags(t *testing.T) {
 	tests := []struct {
