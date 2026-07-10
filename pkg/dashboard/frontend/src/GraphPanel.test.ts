@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { mount, unmount } from 'svelte';
+// @ts-expect-error — Svelte component has no declaration file
 import GraphPanel from './GraphPanel.svelte';
 
 describe('GraphPanel', () => {

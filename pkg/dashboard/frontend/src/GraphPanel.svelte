@@ -27,6 +27,12 @@
     depth = Math.max(1, Math.min(6, d));
     graphRef?.reset();
   }
+
+  // Push filter changes imperatively — GraphCanvas ignores filterFn prop changes
+  // for re-render (avoids thrashing the D3 layout), so apply it via the instance.
+  $effect(() => {
+    graphRef?.applyFilter(filterFn ?? null);
+  });
 </script>
 
 <div class="graph-panel">

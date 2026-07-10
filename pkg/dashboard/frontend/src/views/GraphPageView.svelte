@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { serviceUrl } from '../lib/router.ts';
   import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerKey, ownerMatchesFilter } from '../lib/format.ts';
-  import GraphCanvas from '../GraphCanvas.svelte';
+  import GraphPanel from '../GraphPanel.svelte';
   import StatsBar from '../StatsBar.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -13,7 +13,6 @@
 
   let graphData = $state(null);
   let loading = $state(true);
-  let graphRef = $state(null);
   let statusFilter = $state('all');
   let nameFilter = $state('');
 
@@ -50,10 +49,6 @@
     return dominated;
   }
 
-  $effect(() => {
-    if (graphRef) graphRef.applyFilter((statusFilter === 'all' && !nameFilter) ? null : filterFn);
-  });
-
   onMount(() => { loadGraph(); });
 </script>
 
@@ -71,35 +66,16 @@
 {:else if !graphData?.nodes?.length}
   <EmptyState title="No services to graph" message="Services need dependencies to appear in the graph." />
 {:else}
-  <div class="graph-page-canvas fade-in-up">
-    <div class="graph-controls">
-      <button type="button" class="btn btn-sm" onclick={() => graphRef?.zoomIn()} title="Zoom in">+</button>
-      <button type="button" class="btn btn-sm" onclick={() => graphRef?.zoomOut()} title="Zoom out">−</button>
-      <button type="button" class="btn btn-sm" onclick={() => graphRef?.reset()} title="Reset view">↻</button>
-    </div>
-    <GraphCanvas
-      bind:this={graphRef}
+  <div class="fade-in-up">
+    <GraphPanel
       {graphData}
       layout="layered"
       filterFn={activeFilterFn}
       height={Math.min(window.innerHeight - 200, 600)}
       onNavigate={(name) => location.hash = serviceUrl(name)}
+      showZoom
+      showLegend
     />
-    <div class="graph-legend">
-      <span class="legend-item" data-tip="All contract checks pass"><span class="legend-dot" style="background:var(--c-ok)"></span> Compliant</span>
-      <span class="legend-item" data-tip="Some contract checks fail (warnings or errors)"><span class="legend-dot" style="background:var(--c-warn)"></span> Warning</span>
-      <span class="legend-item" data-tip="The contract has validation errors"><span class="legend-dot" style="background:var(--c-err)"></span> Non-Compliant</span>
-      <span class="legend-item" data-tip="Contract status could not be determined"><span class="legend-dot" style="background:var(--c-neutral)"></span> Unknown</span>
-      <span class="legend-sep">|</span>
-      <span class="legend-item" data-tip="Non-OCI dependency — not a contract-backed service"><span class="legend-dot" style="background:var(--c-text-3)"></span> External</span>
-      <span class="legend-item" data-tip="Registry authentication failed"><span class="legend-dot" style="background:var(--c-err)"></span> Auth required</span>
-      <span class="legend-item" data-tip="OCI repo found but no valid semver tags, or registry unreachable"><span class="legend-dot" style="background:var(--c-warn)"></span> Not found / No versions</span>
-      <span class="legend-item" data-tip="Background OCI discovery still running"><span class="legend-dot legend-dot-pulse" style="background:var(--c-accent)"></span> Discovering</span>
-      <span class="legend-sep">|</span>
-      <span class="legend-item"><span class="legend-line solid"></span> required</span>
-      <span class="legend-item"><span class="legend-line dashed"></span> optional</span>
-      <span class="legend-item"><span class="legend-line ref"></span> reference</span>
-    </div>
   </div>
 
   <!-- Connections table -->
@@ -174,27 +150,6 @@
   .graph-header {
     display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-5); flex-wrap: wrap;
   }
-  .graph-page-canvas { position: relative; }
-  .graph-controls {
-    position: absolute; top: 12px; right: 12px; z-index: 10;
-    display: flex; gap: 6px;
-  }
-
-  .graph-legend {
-    display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
-    padding: var(--sp-3) var(--sp-3);
-    font-size: var(--text-xs); color: var(--c-text-3);
-  }
-  .legend-item { display: flex; align-items: center; gap: 5px; }
-  .legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-  .legend-dot-pulse { animation: legend-pulse 1.6s ease-in-out infinite; }
-  @keyframes legend-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-  .legend-sep { color: var(--c-border); }
-  .legend-line { display: inline-block; width: 18px; height: 0; }
-  .legend-line.solid { border-top: 2px solid var(--c-text-2); }
-  .legend-line.dashed { border-top: 1px dashed var(--c-text-3); }
-  .legend-line.ref { border-top: 1.5px dashed var(--c-accent); }
-
   .text-dim { color: var(--c-text-3); }
 
   .blast-badge {
@@ -210,10 +165,4 @@
 
   /* Override the global min-width for tables that fit on mobile */
   .table-wrap-fit table { min-width: 0; }
-
-  /* ─── Mobile ─── */
-  @media (max-width: 768px) {
-    .graph-legend { gap: var(--sp-2); font-size: var(--text-xs); }
-    .legend-sep { display: none; }
-  }
 </style>

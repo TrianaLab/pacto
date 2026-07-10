@@ -246,6 +246,30 @@ describe('DependenciesSection — lock and drift rendering', () => {
     document.body.removeChild(target);
   });
 
+  it('renders the GraphPanel toolbar (direction + depth) when graphData is present', () => {
+    const component = mount(DependenciesSection, {
+      target,
+      props: {
+        name: 'root-svc',
+        dependencies: [{ name: 'dep-a', ref: 'oci://ghcr.io/org/dep-a:1.0', required: true }],
+        graphData: {
+          nodes: [
+            { id: 'root-svc', serviceName: 'root-svc', name: 'root-svc', status: 'ok', edges: [] },
+          ],
+        },
+      },
+    });
+
+    // GraphPanel owns the direction/depth toolbar (showDirectionDepth); confirm it renders.
+    expect(target.querySelector('.dep-graph-toolbar')).toBeTruthy();
+    expect(target.querySelector('.graph-controls')).toBeTruthy();
+    expect(target.querySelector('.graph-legend')).toBeTruthy();
+    expect(target.textContent).toContain('Depth');
+
+    unmount(component);
+    document.body.removeChild(target);
+  });
+
   it('renders multiple dependencies with mixed lock states', () => {
     const component = mount(DependenciesSection, {
       target,
