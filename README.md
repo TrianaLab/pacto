@@ -151,9 +151,26 @@ See the [documentation](https://trianalab.github.io/pacto) for when to use Pacto
 
 Pacto sits alongside these tools, not on top of them: it composes the interfaces they already produce — your OpenAPI spec, your config schema — and adds the relational and temporal layer no single one owns. The contract becomes the shared source of truth between your API spec, your deployment tooling and your cluster.
 
+### Against platform-engineering tools
+
+The table above covers the interface tools Pacto composes. It gets compared just as often to the platform-engineering tier — the orchestrators, provisioners and portals that *act on* a service. Pacto is not one of them. Its job is four verbs over a single versioned OCI artifact — **diff** (semantic breaking changes), **graph** (transitive blast radius), **enforce** (recursive policy, fail-closed) and **verify** (the same artifact at design-time via the CLI and at runtime via the operator) — and it makes zero deployment decisions.
+
+| | Versioned artifact | Semantic diff | Dependency graph | Transitive policy | Runtime verify | Orchestrator-agnostic | Deploys? |
+|---|---|---|---|---|---|---|---|
+| **Score** | — | — | — | — | — | ✅ | No |
+| **Crossplane Configuration** | ✅ | — | — | — | — | — | Yes |
+| **KubeVela** / OAM | — | — | Partial | — | — | Partial | Yes |
+| **Radius** | — | — | ✅ | — | — | Partial | Yes |
+| **Kratix** | — | — | — | — | — | Partial | Yes |
+| **Backstage** / Port | — | — | Partial | — | — | ✅ | No |
+| **Kargo** | ✅ | — | — | — | — | ✅ | Yes |
+| **Pacto** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **No** |
+
+✅ first-class · Partial adjacent or limited · — not in scope. A 2026 snapshot, and several of these are complementary rather than competing: a contract can gate a Kargo promotion, feed a Backstage card or front a Crossplane provisioner. The point is the combination — Pacto is the only row that is a versioned, diffable, graph-resolved, policy-enforced and runtime-verified contract that stays orchestrator-agnostic and never deploys.
+
 ### What Pacto is NOT
 
-- Not a deployment tool — it describes services, not how to run them
+- Not a deployment tool — it describes services, not how to run them. It makes zero deployment decisions, which keeps it complementary to deploy engines like KubeVela, Radius and Kratix rather than competing with them
 - Not a service mesh — no sidecars, no traffic interception
 - Not a replacement for OpenAPI or Helm — it complements them
 - Not another configuration language — it composes the schemas you already own instead of inventing one
