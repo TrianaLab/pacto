@@ -48,7 +48,7 @@ jobs:
         run: govulncheck -format sarif ./... > govulncheck.sarif
       - name: Upload SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: govulncheck.sarif
           category: govulncheck
@@ -103,7 +103,7 @@ jobs:
             "local/scan:${{ github.sha }}"
       - name: Upload SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy.sarif
           category: trivy-image
