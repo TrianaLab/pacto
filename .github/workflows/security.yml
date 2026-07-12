@@ -86,7 +86,7 @@ jobs:
       # Rolling cache: the unique key always saves a fresh DB, restore-keys
       # restores the most recent one so Trivy skips the full DB download.
       - name: Cache Trivy vulnerability DB
-        uses: actions/cache@v5.0.3
+        uses: actions/cache@v6.1.0
         with:
           path: ${{ github.workspace }}/.trivy-cache
           key: trivy-db-${{ github.run_id }}
