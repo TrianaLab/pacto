@@ -54,7 +54,7 @@ jobs:
           category: govulncheck
       - name: Upload SARIF artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: govulncheck-sarif
           path: govulncheck.sarif
@@ -109,7 +109,7 @@ jobs:
           category: trivy-image
       - name: Upload SARIF artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-sarif
           path: trivy.sarif
