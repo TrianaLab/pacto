@@ -1,3 +1,229 @@
+/* ===========================================================================
+   Pacto docs theme — typography, indigo accent, dark surfaces, landing hero.
+   Header stays neutral (white in light, near-black in dark; set via the palette
+   in mkdocs.yml). Indigo is the one accent — links, active nav/tabs, buttons,
+   the hero — retinted here so there is a single place to change it.
+   =========================================================================== */
+
+/* Headings use Space Grotesk (body stays Inter, code stays JetBrains Mono).
+   Fetched from Google Fonts here; Material only exposes one text-font slot. */
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap");
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3 {
+  font-family: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+/* Indigo accent — matched to the Pacto dashboard (#6366F1 family). */
+:root {
+  --pacto-indigo: #6366f1;
+  --pacto-indigo-light: #818cf8;
+  --pacto-indigo-deep: #4f46e5;
+}
+
+[data-md-color-scheme="default"] {
+  --md-accent-fg-color: var(--pacto-indigo-deep);
+  --md-typeset-a-color: var(--pacto-indigo);
+}
+
+/* Dark: the header is black and the surfaces near-black, so links and accents
+   step up to the lighter indigo to keep contrast. */
+[data-md-color-scheme="slate"] {
+  --md-accent-fg-color: var(--pacto-indigo-light);
+  --md-typeset-a-color: var(--pacto-indigo-light);
+}
+
+/* Dark mode: Material's slate scheme tints surfaces blue, which reads muddy under
+   the indigo accent. Retint to a neutral near-black so the whole site — hero glow
+   included — sits on one calm surface. */
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: #14151a;
+  --md-default-bg-color--light: hsla(0, 0%, 100%, 0.7);
+  --md-default-bg-color--lighter: hsla(0, 0%, 100%, 0.3);
+  --md-default-bg-color--lightest: hsla(0, 0%, 100%, 0.12);
+  --md-code-bg-color: #0f1014;
+  --md-footer-bg-color: #101116;
+}
+
+/* Neutral header (primary is white/black): its logo is a dark mark, so invert it
+   to white on the near-black dark header. */
+[data-md-color-scheme="slate"] .md-header__button.md-logo img {
+  filter: brightness(0) invert(1);
+}
+
+/* Nav and tabs highlights follow the accent (Material would otherwise tint them
+   with the now-neutral primary). */
+.md-nav__link--active,
+.md-nav__link:hover {
+  color: var(--pacto-indigo);
+}
+.md-tabs__link--active,
+.md-tabs__link:hover {
+  color: var(--pacto-indigo);
+  opacity: 1;
+}
+[data-md-color-scheme="slate"] .md-nav__link--active,
+[data-md-color-scheme="slate"] .md-nav__link:hover,
+[data-md-color-scheme="slate"] .md-tabs__link--active,
+[data-md-color-scheme="slate"] .md-tabs__link:hover {
+  color: var(--pacto-indigo-light);
+}
+
+/* Primary buttons: the neutral primary would make these white/black, so pin them
+   to indigo everywhere (hero and body). */
+.md-typeset .md-button--primary {
+  background-color: var(--pacto-indigo);
+  border-color: var(--pacto-indigo);
+  color: #fff;
+}
+.md-typeset .md-button--primary:hover,
+.md-typeset .md-button--primary:focus {
+  background-color: var(--pacto-indigo-deep);
+  border-color: var(--pacto-indigo-deep);
+  color: #fff;
+}
+
+/* ---- Landing hero (overrides/home.html) -----------------------------------
+   Light & airy: inherits the page background and floats a soft indigo glow
+   behind the wordmark. Elements fade up on load; motion respects
+   prefers-reduced-motion. */
+.pacto-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 5.5rem 1rem 4rem;
+  text-align: center;
+}
+.pacto-hero__glow {
+  position: absolute;
+  top: -9rem;
+  left: 50%;
+  width: 46rem;
+  max-width: 130vw;
+  height: 34rem;
+  transform: translateX(-50%);
+  background: radial-gradient(
+    closest-side,
+    rgba(99, 102, 241, 0.28),
+    rgba(99, 102, 241, 0) 70%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+[data-md-color-scheme="slate"] .pacto-hero__glow {
+  background: radial-gradient(
+    closest-side,
+    rgba(129, 140, 248, 0.22),
+    rgba(129, 140, 248, 0) 70%
+  );
+}
+.pacto-hero__inner {
+  position: relative;
+  z-index: 1;
+  max-width: 46rem;
+  margin: 0 auto;
+}
+.pacto-hero__brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+  animation: pacto-fade-up 0.6s ease both;
+}
+.pacto-hero .pacto-hero__logo {
+  height: 2.25rem;
+  width: auto;
+}
+[data-md-color-scheme="slate"] .pacto-hero .pacto-hero__logo {
+  filter: brightness(0) invert(1);
+}
+.pacto-hero__wordmark {
+  font-family: "Space Grotesk", "Inter", sans-serif;
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--md-default-fg-color);
+}
+.pacto-hero .pacto-hero__eyebrow {
+  margin: 0 0 0.9rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--pacto-indigo);
+  animation: pacto-fade-up 0.6s ease 0.08s both;
+}
+[data-md-color-scheme="slate"] .pacto-hero .pacto-hero__eyebrow {
+  color: var(--pacto-indigo-light);
+}
+.pacto-hero .pacto-hero__title {
+  margin: 0 auto;
+  max-width: 20ch;
+  font-family: "Space Grotesk", "Inter", sans-serif;
+  font-size: clamp(2.4rem, 6vw, 3.6rem);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--md-default-fg-color);
+  animation: pacto-fade-up 0.6s ease 0.16s both;
+}
+.pacto-hero .pacto-hero__tagline {
+  margin: 1.25rem auto 0;
+  max-width: 34rem;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: var(--md-default-fg-color--light);
+  animation: pacto-fade-up 0.6s ease 0.24s both;
+}
+.pacto-hero__actions {
+  margin-top: 2.25rem;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  animation: pacto-fade-up 0.6s ease 0.32s both;
+}
+.pacto-hero .md-button {
+  border-color: var(--md-default-fg-color--lighter);
+  color: var(--md-default-fg-color);
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+.pacto-hero .md-button:hover,
+.pacto-hero .md-button:focus {
+  background-color: var(--pacto-indigo);
+  border-color: var(--pacto-indigo);
+  color: #fff;
+}
+.pacto-hero .md-button--primary,
+.pacto-hero .md-button--primary:hover,
+.pacto-hero .md-button--primary:focus {
+  color: #fff;
+}
+
+@keyframes pacto-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pacto-hero__brand,
+  .pacto-hero .pacto-hero__eyebrow,
+  .pacto-hero .pacto-hero__title,
+  .pacto-hero .pacto-hero__tagline,
+  .pacto-hero__actions {
+    animation: none;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Mermaid diagram contrast fixes for the dark (slate) color scheme.
 

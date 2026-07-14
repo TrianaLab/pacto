@@ -1,12 +1,9 @@
-# Pacto
-**A single YAML contract that describes how a cloud-native service behaves — validated, versioned, and distributed as an OCI artifact.**
-
-[Get Started](quickstart.md){ .md-button .md-button--primary }
-[Specification](contract-reference.md){ .md-button }
-[Examples](examples/index.md){ .md-button }
-[Demo](examples/dashboard-demo.md){ .md-button }
-
 ---
+template: home.html
+hide:
+  - toc
+---
+
 ## What is Pacto?
 
 Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs to know about a service — interfaces, runtime behavior, dependencies, configuration, and scaling — in one YAML file that machines can validate and tooling can consume.

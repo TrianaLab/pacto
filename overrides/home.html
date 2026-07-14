@@ -1,0 +1,29 @@
+{% extends "main.html" %}
+
+<!-- Landing hero. Rendered only for pages with `template: home.html` metadata (docs/index.md).
+     It sits where the tabs render; the page's markdown renders below it as usual. Light &
+     airy: the hero inherits the page background and floats a soft indigo glow behind the
+     wordmark. Copy lives here — edit the headline/tagline/CTAs below. Styles: stylesheets/extra.css. -->
+{% block tabs %}
+  {{ super() }}
+  <section class="pacto-hero md-typeset">
+    <div class="pacto-hero__glow" aria-hidden="true"></div>
+    <div class="pacto-hero__inner">
+      <div class="pacto-hero__brand">
+        <img class="pacto-hero__logo" src="{{ 'assets/images/logo.png' | url }}" alt="" />
+        <span class="pacto-hero__wordmark">pacto</span>
+      </div>
+      <p class="pacto-hero__eyebrow">Open contract standard</p>
+      <h1 class="pacto-hero__title">One contract for every cloud-native service</h1>
+      <p class="pacto-hero__tagline">
+        A single YAML contract that describes how a service behaves —
+        validated, versioned and distributed as an OCI artifact.
+      </p>
+      <div class="pacto-hero__actions">
+        <a href="{{ 'quickstart/' | url }}" class="md-button md-button--primary">Get started</a>
+        <a href="{{ 'contract-reference/' | url }}" class="md-button">Specification</a>
+        <a href="{{ 'examples/dashboard-demo/' | url }}" class="md-button">Live demo</a>
+      </div>
+    </div>
+  </section>
+{% endblock %}
