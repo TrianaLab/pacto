@@ -85,7 +85,7 @@ func TestStartSpinnerAnimatesAndClears(t *testing.T) {
 	if !strings.Contains(out, "Pulling") {
 		t.Fatalf("expected label in output, got %q", out)
 	}
-	if !strings.Contains(out, "\033[36m") {
+	if !strings.Contains(out, ansiIndigo) {
 		t.Fatalf("expected cyan color in output, got %q", out)
 	}
 	if !strings.Contains(out, "\r\033[K") {
@@ -114,7 +114,7 @@ func TestStartSpinnerNoColorFrame(t *testing.T) {
 	sp := startSpinner(cmd, "text", "Pushing")
 	sp.Stop()
 	out := buf.String()
-	if strings.Contains(out, "\033[36m") {
+	if strings.Contains(out, ansiIndigo) {
 		t.Fatalf("expected no color with NO_COLOR set, got %q", out)
 	}
 	if !strings.Contains(out, "Pushing") {

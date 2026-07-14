@@ -37,7 +37,7 @@ func TestBannerOnRootHelpTTY(t *testing.T) {
 	root.SetOut(&buf)
 	root.SetArgs([]string{"--help"})
 	_ = root.Execute()
-	if !strings.Contains(buf.String(), "\033[36m") {
+	if !strings.Contains(buf.String(), ansiIndigo) {
 		t.Fatalf("expected colored banner on root help, got %q", buf.String())
 	}
 }
@@ -76,7 +76,7 @@ func TestNoBannerWhenNotTTY(t *testing.T) {
 	root.SetOut(&buf)
 	root.SetArgs([]string{"--help"})
 	_ = root.Execute()
-	if strings.Contains(buf.String(), "\033[36m") {
+	if strings.Contains(buf.String(), ansiIndigo) {
 		t.Fatalf("expected no banner without TTY, got %q", buf.String())
 	}
 }
@@ -89,7 +89,7 @@ func TestNoBannerOnSubcommandHelp(t *testing.T) {
 	root.SetOut(&buf)
 	root.SetArgs([]string{"version", "--help"})
 	_ = root.Execute()
-	if strings.Contains(buf.String(), "\033[36m") {
+	if strings.Contains(buf.String(), ansiIndigo) {
 		t.Fatalf("banner should only show on root help, got %q", buf.String())
 	}
 }
@@ -103,7 +103,7 @@ func TestBannerStaticWhenAnimDisabled(t *testing.T) {
 	root.SetOut(&buf)
 	root.SetArgs([]string{"--help"})
 	_ = root.Execute()
-	if !strings.Contains(buf.String(), "\033[36m") {
+	if !strings.Contains(buf.String(), ansiIndigo) {
 		t.Fatalf("expected colored banner on root help, got %q", buf.String())
 	}
 	if !strings.Contains(buf.String(), "service contracts") {

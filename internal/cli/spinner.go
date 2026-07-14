@@ -48,6 +48,10 @@ func animate(w io.Writer) bool {
 const (
 	glyphCheck = "✓" // U+2713
 	glyphCross = "✗" // U+2717
+
+	// ansiIndigo is the brand accent (#6366F1) as a truecolor SGR; ansiReset clears it.
+	ansiIndigo = "\033[38;2;99;102;241m"
+	ansiReset  = "\033[0m"
 )
 
 // checkGlyph returns a green ✓ when color, else a plain ✓. Pure.
@@ -147,7 +151,7 @@ func (s *spinner) StopOK(label string, start time.Time) {
 func frameGlyph(i int, color bool) string {
 	g := spinnerFrames[i]
 	if color {
-		return "\033[36m" + g + "\033[0m"
+		return ansiIndigo + g + ansiReset
 	}
 	return g
 }
