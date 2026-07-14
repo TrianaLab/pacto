@@ -222,6 +222,28 @@
   }
 }
 
+/* Logo spin on click — header mark + hero mark, toggled by javascripts/logo-spin.js. */
+.md-header__button.md-logo img,
+.pacto-hero__logo {
+  transform-origin: 50% 50%;
+}
+.pacto-spin {
+  animation: pacto-logo-spin 0.6s ease;
+}
+@keyframes pacto-logo-spin {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pacto-spin {
+    animation: none;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Mermaid diagram contrast fixes for the dark (slate) color scheme.
 
