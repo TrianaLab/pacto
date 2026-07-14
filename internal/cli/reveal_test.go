@@ -12,10 +12,10 @@ import (
 
 func TestBannerStatic(t *testing.T) {
 	full := bannerStatic(true)
-	if !strings.Contains(full, "\033[36m") || !strings.Contains(full, "service contracts") {
+	if !strings.Contains(full, ansiIndigo) || !strings.Contains(full, "service contracts") {
 		t.Fatal("colored full banner missing parts")
 	}
-	if strings.Contains(bannerStatic(false), "\033[36m") {
+	if strings.Contains(bannerStatic(false), ansiIndigo) {
 		t.Fatal("plain banner must not contain color codes")
 	}
 }
@@ -24,7 +24,7 @@ func TestBannerStaticNoDuplication(t *testing.T) {
 	// The help banner is static: each row appears exactly once (guards against the
 	// old cumulative-frame stacking bug).
 	out := bannerStatic(true)
-	if n := strings.Count(out, "██████╗  █████╗"); n != 1 {
+	if n := strings.Count(out, "██████   █████"); n != 1 {
 		t.Fatalf("top banner row should appear once, got %d", n)
 	}
 	if !strings.Contains(out, "service contracts") {
