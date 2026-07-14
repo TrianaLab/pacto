@@ -12,8 +12,8 @@ theme:
   # Landing hero template lives in overrides/home.html; docs/index.md opts in via
   # `template: home.html` metadata. Every other page uses stock Material templates.
   custom_dir: overrides
-  logo: assets/images/logo.png
-  favicon: favicon.ico
+  logo: assets/images/logo.svg
+  favicon: favicon.svg
   font:
     text: Inter
     code: JetBrains Mono

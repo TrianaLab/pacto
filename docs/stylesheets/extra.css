@@ -48,11 +48,8 @@
   --md-footer-bg-color: #101116;
 }
 
-/* Neutral header (primary is white/black): its logo is a dark mark, so invert it
-   to white on the near-black dark header. */
-[data-md-color-scheme="slate"] .md-header__button.md-logo img {
-  filter: brightness(0) invert(1);
-}
+/* The logo is the indigo brackets mark (assets/images/logo.svg); indigo reads on
+   both the white (light) and near-black (dark) header, so no per-scheme swap. */
 
 /* Nav and tabs highlights follow the accent (Material would otherwise tint them
    with the now-neutral primary). */
@@ -134,11 +131,12 @@
   animation: pacto-fade-up 0.6s ease both;
 }
 .pacto-hero .pacto-hero__logo {
-  height: 2.25rem;
+  height: 2.5rem;
   width: auto;
+  color: var(--pacto-indigo);
 }
 [data-md-color-scheme="slate"] .pacto-hero .pacto-hero__logo {
-  filter: brightness(0) invert(1);
+  color: var(--pacto-indigo-light);
 }
 .pacto-hero__wordmark {
   font-family: "Space Grotesk", "Inter", sans-serif;
