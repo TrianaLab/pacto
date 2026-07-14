@@ -12,24 +12,27 @@ import (
 // revealStagger is a var so tests shrink it to ~1ms. ~300ms total / lines.
 var revealStagger = 60 * time.Millisecond
 
-// bannerLines returns the ANSI Shadow PACTO block + tagline, colored when color.
-// Colored rows are wrapped in "\033[36m"…"\033[0m" (cyan, matching the old banner
-// so the existing banner tests pass). Pure.
+// bannerLines returns the solid-block PACTO wordmark plus a tagline led by the
+// brackets mark, colored brand indigo when color (wrapped in ansiIndigo…ansiReset).
+// Pure.
 func bannerLines(color bool) []string {
 	rows := []string{
-		"██████╗  █████╗  ██████╗████████╗ ██████╗",
-		"██╔══██╗██╔══██╗██╔════╝╚══██╔══╝██╔═══██╗",
-		"██████╔╝███████║██║        ██║   ██║   ██║",
-		"██╔═══╝ ██╔══██║██║        ██║   ██║   ██║",
-		"██║     ██║  ██║╚██████╗   ██║   ╚██████╔╝",
-		"╚═╝     ╚═╝  ╚═╝ ╚═════╝   ╚═╝    ╚═════╝",
+		"██████   █████   ██████ ████████  ██████",
+		"██   ██ ██   ██ ██         ██    ██    ██",
+		"██████  ███████ ██         ██    ██    ██",
+		"██      ██   ██ ██         ██    ██    ██",
+		"██      ██   ██  ██████    ██     ██████",
 	}
 	if color {
 		for i, row := range rows {
-			rows[i] = "\033[36m" + row + "\033[0m"
+			rows[i] = ansiIndigo + row + ansiReset
 		}
 	}
-	return append(rows, "  service contracts for cloud-native")
+	mark := "‹•›"
+	if color {
+		mark = ansiIndigo + mark + ansiReset
+	}
+	return append(rows, "  "+mark+" service contracts for cloud-native")
 }
 
 // bannerStatic returns the full banner, all rows printed at once. Pure.

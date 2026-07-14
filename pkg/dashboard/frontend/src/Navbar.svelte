@@ -23,6 +23,15 @@
     }
   }
 
+  // Spin the brand mark on click (also navigates home via the href). Reduced-motion safe.
+  function spinLogo(e) {
+    const el = e.currentTarget.querySelector('.brand-mark');
+    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    el.classList.remove('spin');
+    void el.offsetWidth; // reflow so the animation restarts on every click
+    el.classList.add('spin');
+  }
+
   let matches = $derived.by(() => {
     if (!query) return [];
     const q = query.toLowerCase();
@@ -104,8 +113,8 @@
 
 <nav class="navbar">
   <div class="navbar-left">
-    <a href="#/" class="navbar-brand">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg>
+    <a href="#/" class="navbar-brand" onclick={spinLogo}>
+      <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M10 6 5 12 10 18"/><path d="M14 6 19 12 14 18"/><circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none"/></svg>
       Pacto
       {#if version}<span class="version-tag">{version}</span>{/if}
     </a>
@@ -248,7 +257,10 @@
     color: var(--c-text); text-decoration: none;
   }
   .navbar-brand:hover { text-decoration: none; color: var(--c-text); }
-  .navbar-brand svg { color: var(--c-accent); }
+  .navbar-brand svg { color: var(--c-accent); transform-origin: 50% 50%; }
+  .navbar-brand svg.spin { animation: brand-spin 0.6s ease; }
+  @keyframes brand-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .navbar-brand svg.spin { animation: none; } }
   .version-tag {
     font-size: var(--text-xs); font-weight: 500; color: var(--c-text-3);
     background: var(--c-bg); border: 1px solid var(--c-border);

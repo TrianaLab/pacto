@@ -9,8 +9,11 @@ docs_dir: docs
 
 theme:
   name: material
-  logo: assets/images/logo.png
-  favicon: favicon.ico
+  # Landing hero template lives in overrides/home.html; docs/index.md opts in via
+  # `template: home.html` metadata. Every other page uses stock Material templates.
+  custom_dir: overrides
+  logo: assets/images/logo.svg
+  favicon: favicon.svg
   font:
     text: Inter
     code: JetBrains Mono
@@ -23,15 +26,16 @@ theme:
         name: Switch to light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: cyan
-      accent: cyan
+      # Neutral header + indigo accent; exact indigo hexes set in stylesheets/extra.css.
+      primary: white
+      accent: indigo
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: cyan
-      accent: cyan
+      primary: black
+      accent: indigo
       toggle:
         icon: material/brightness-4
         name: Switch to system preference
@@ -106,6 +110,9 @@ plugins:
 
 extra_css:
   - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/logo-spin.js
 
 nav:
   - Home: index.md
