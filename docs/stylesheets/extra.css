@@ -222,6 +222,37 @@
   }
 }
 
+/* Scroll-driven hero reveal: as the first screen scrolls, the hero dissolves upward
+   while the page content rises into view. Progressive enhancement — only browsers that
+   support scroll-driven animations get it (older browsers keep the static compact hero),
+   and it is disabled under prefers-reduced-motion. GPU-friendly: opacity/transform/filter
+   only. Tunable knobs: hero splash height (min-height) and the scroll distance the
+   dissolve spans (animation-range end). */
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .pacto-hero {
+      /* Give the hero a full-ish first screen so there is scroll distance to reveal over.
+         A sliver of the page below peeks in as a scroll hint. */
+      min-height: 90svh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      animation: pacto-hero-dissolve linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 72vh;
+      will-change: opacity, transform;
+    }
+  }
+}
+@keyframes pacto-hero-dissolve {
+  to {
+    opacity: 0;
+    transform: translateY(-3rem) scale(0.985);
+    filter: blur(3px);
+  }
+}
+
 /* Logo spin on click — header mark + hero mark, toggled by javascripts/logo-spin.js. */
 .md-header__button.md-logo img,
 .pacto-hero__logo {
