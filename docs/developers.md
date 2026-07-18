@@ -1,5 +1,5 @@
 # Pacto for Developers
-You own the service — and you own the contract. Pacto gives you a structured way to declare your service's operational interface alongside your code, so platform engineers, CI systems and other teams have an accurate, machine-readable description of what your service needs to run.
+You own the service — and you own the contract. Pacto gives you a structured way to declare your service's operational contract alongside your code, so platform engineers, CI systems and other teams have an accurate, machine-readable description of what your service needs to run.
 
 Under the hood, Pacto composes the interfaces you already have — your OpenAPI spec, your config's JSON Schema — instead of inventing new formats for them. What it adds is the operational contract no single schema owns: ownership, dependencies, compatibility and readiness.
 
@@ -24,7 +24,7 @@ flowchart LR
 pacto init my-service
 ```
 
-This scaffolds a contract with sensible defaults. Edit `pacto.yaml` to match your service.
+This scaffolds a bundle with a valid contract. Edit `pacto.yaml` to match your service.
 
 ### 2. Infer schemas from your code (optional)
 
@@ -50,7 +50,7 @@ configurations:
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
-See [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models) for details.
+See [Configuration Schema Ownership Models](contract-reference/sections.md#configuration-schema-ownership-models) for details.
 
 If your service exposes an HTTP API using FastAPI or Huma, use the `openapi-infer` plugin to extract an OpenAPI 3.1 spec from your source code:
 
@@ -118,7 +118,7 @@ runtime:
     path: /health
 ```
 
-Choose your `workload` (`service` vs `job`/`scheduled`), `state.type` (`stateless`/`stateful`/`hybrid`) and `dataCriticality`; these determine how platforms provision infrastructure for your service. See [runtime.state](contract-reference.md#runtimestate) in the Contract Reference for the full explanation.
+Choose your `workload` (`service` vs `job`/`scheduled`), `state.type` (`stateless`/`stateful`/`hybrid`) and `dataCriticality`; these determine how platforms provision infrastructure for your service. See [runtime.state](contract-reference/sections.md#runtimestate) in the Contract Reference for the full explanation.
 
 ### 5. Declare dependencies
 
@@ -158,7 +158,7 @@ dependencies:
 
 If your service depends on a cloud-managed resource (e.g. a database or message queue), create a minimal Pacto contract representing it and reference it as a dependency. This keeps cloud dependencies explicit and version-tracked.
 
-Use `pacto graph` to visualize your dependency tree. Pass `--with-references` to also see config/policy reference edges alongside dependencies, or `--only-references` to show only reference edges.
+Use `pacto graph` to visualize your dependency tree. Pass `--with-references` to also see config/policy reference edges alongside dependencies, or `--only-references` to show only reference edges. A reference (a config or policy `ref`) points at a shared configuration or policy contract, as opposed to a dependency, which is a runtime relationship to another service.
 
 ### 6. Adopt a policy (optional)
 
@@ -170,7 +170,7 @@ policies:
     ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
 ```
 
-A policy is a JSON Schema that validates the contract itself — enforcing organizational standards like requiring health endpoints or mandating specific ports. See [policies](contract-reference.md#policies) in the Contract Reference for details.
+A policy is a JSON Schema that validates the contract itself — enforcing organizational standards like requiring health endpoints or mandating specific ports. See [policies](contract-reference/sections.md#policies) in the Contract Reference for details.
 
 ### 7. Reference your Helm chart (optional)
 
@@ -210,12 +210,18 @@ Validation catches errors in four layers:
 3. **Semantic** — strategy consistency warnings
 4. **Policy enforcement** — referenced policies are resolved and enforced
 
+See [Validation layers](contract-reference/validation.md#validation-layers) for the full rules and error codes.
+
+To also enforce the readiness gate — the `readiness:` block `pacto init` scaffolds into your contract — run `pacto validate --readiness`. It fails if the derived readiness score is below `minScore`. Plain `pacto validate` does not enforce it because the gate is time-dependent (check expiry is compared against the run time). See [Contract Reference — readiness](contract-reference/sections.md#readiness).
+
 ### 9. Pack and push
 
 ```bash
 pacto pack my-service
 pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
 ```
+
+Use a [`.pactoignore`](pactoignore.md) file to keep build artifacts and other cruft out of the packed bundle.
 
 If the artifact already exists in the registry, `pacto push` prints a warning and exits without pushing. Use `--force` to overwrite:
 
@@ -245,13 +251,13 @@ pacto validate my-service --set configurations[0].values.DB_HOST=localhost
 
 Overrides work on every command that takes a contract reference, with two exceptions: `diff` overrides each side with `--old-values`/`--old-set` and `--new-values`/`--new-set` (it has no `-f` or plain `--values`), and `pacto push` reserves `-f` for `--force`, so spell out `--values` there.
 
-For the per-command flag list see the [CLI reference](cli-reference.md); for override precedence and syntax see the [Contract Reference — Contract overrides](contract-reference.md#contract-overrides).
+For the per-command flag list see the [CLI reference](cli-reference.md); for override precedence and syntax see the [Contract Reference — Contract overrides](contract-reference/overrides.md#contract-overrides).
 
 ---
 
 ## Common runtime patterns
 
-The `runtime` block tells the platform what your service *is*, not how to deploy it. Each common shape has a ready-made worked example you can copy:
+Each common shape has a ready-made worked example you can copy:
 
 | Pattern | `state.type` | Worked example |
 |---------|-------------|----------------|
@@ -260,7 +266,7 @@ The `runtime` block tells the platform what your service *is*, not how to deploy
 | API with local cache | `hybrid` | [hybrid-cache](examples/hybrid-cache.md) |
 | Scheduled job | `stateless` (workload `scheduled`) | [cron-worker](examples/cron-worker.md) |
 
-A `hybrid` service handles requests statelessly but keeps a local cache, so the platform can scale it horizontally while allowing for cache warm-up. See [runtime.state](contract-reference.md#runtimestate) for the full field spec.
+See [runtime.state](contract-reference/sections.md#runtimestate) for the full field spec.
 
 Use `scaling.replicas` instead of `min`/`max` when the service should always run an exact number of instances:
 
@@ -289,12 +295,14 @@ Wire `pacto diff` into CI to block merges that introduce breaking changes — se
 
 ## AI-assisted workflow
 
-If you use an AI assistant that supports [MCP](https://modelcontextprotocol.io) (Claude Code, Cursor and GitHub Copilot), connect it to Pacto so it can scaffold, edit and validate contracts inside your conversation. The server exposes exactly four tools:
+If you use an AI assistant that supports [MCP](https://modelcontextprotocol.io) (Claude Code, Cursor and GitHub Copilot), connect it to Pacto so it can scaffold, edit and validate contracts inside your conversation. The server always exposes four authoring tools:
 
 - **`pacto_create`** — scaffold a new contract from a description
 - **`pacto_edit`** — modify an existing contract
 - **`pacto_check`** — validate a local contract and return a summary plus improvement suggestions
 - **`pacto_schema`** — return the full contract JSON Schema reference
+
+Point the server at a bundle (`pacto mcp <bundle-ref>`) and it also exposes that bundle's OpenAPI operations as executable tools plus a `pacto_skill` tool for any bundled `skills/*.md` — see [Agent capabilities](mcp-integration.md#agent-capabilities).
 
 Inspecting a registry contract, resolving dependency graphs and generating Markdown docs are CLI-only (`pacto explain oci://...`, `pacto graph`, `pacto doc`) — they are not MCP tools.
 
@@ -318,7 +326,7 @@ my-service/
     integration.md
 ```
 
-Documentation ships inside the OCI artifact, versioned and distributed with the contract; it never affects validation or diffing. See the [Contract Reference — `docs/`](contract-reference.md#docs-optional-documentation) for the full behavior.
+Documentation ships inside the OCI artifact, versioned and distributed with the contract; it never affects validation or diffing. See the [Contract Reference — `docs/`](contract-reference/index.md#docs-optional-documentation) for the full behavior.
 
 Good candidates for `docs/`:
 
@@ -352,14 +360,14 @@ syft . -o spdx-json=sbom/sbom.spdx.json
 syft . -o cyclonedx-json=sbom/bom.cdx.json
 ```
 
-Pacto discovers the SBOM by scanning `sbom/` for recognized extensions — no contract field references it. For the supported formats (SPDX 2.3, CycloneDX 1.5) and how `pacto diff` reports package-level changes, see the [Contract Reference — `sbom/`](contract-reference.md#sbom-optional-software-bill-of-materials).
+Pacto discovers the SBOM by scanning `sbom/` for recognized extensions — no contract field references it. For the supported formats (SPDX 2.3, CycloneDX 1.5) and how `pacto diff` reports package-level changes, see the [Contract Reference — `sbom/`](contract-reference/index.md#sbom-optional-software-bill-of-materials).
 
 ---
 
 ## Tips
 
 - **Version your contract alongside your code.** The `pacto.yaml` lives in your repository.
-- **Pin dependency digests in production.** Tags are mutable; digests are not.
+- **Pin dependency digests in production.** Tags are mutable; digests are not. Run [`pacto lock`](lockfile.md) to pin the full transitive closure to digests in a committed `pacto.lock`.
 - **Keep interface contracts up to date.** OpenAPI specs and protobuf definitions in the bundle should match what your service actually serves.
 - **Use `pacto explain` to review.** It produces a human-readable summary of your contract.
 - **Use `pacto doc` for rich documentation.** It generates Markdown with architecture diagrams and interface tables. Use `--serve` to view it in the browser.

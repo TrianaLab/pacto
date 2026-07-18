@@ -45,7 +45,7 @@ A few checks have deliberately shallow semantics worth calling out:
 
 - **Health and metrics endpoints** are tested for *reachability and basic structure* — the health probe expects a healthy HTTP response, and the metrics probe looks for Prometheus exposition markers (`# HELP` / `# TYPE`). Neither validates the response body against the declared OpenAPI/format.
 - **Port alignment** matches by port **number** between the contract's interface ports and the Kubernetes Service ports.
-- **Scaling** compares observed replica bounds against `scaling.min`/`max`/`replicas`. Because the contract models `min`/`max` as plain integers, an explicit `0` is indistinguishable from "unset" and is treated as unset — so a declared lower bound of `0` is not reported (see the [scaling reference](contract-reference.md#scaling)).
+- **Scaling** compares observed replica bounds against `scaling.min`/`max`/`replicas`. Because the contract models `min`/`max` as plain integers, an explicit `0` is indistinguishable from "unset" and is treated as unset — so a declared lower bound of `0` is not reported (see the [scaling reference](contract-reference/sections.md#scaling)).
 
 Each check produces a structured condition on the CRD status with a type, status, reason, and severity. The operator aggregates these into a contract status:
 
@@ -84,7 +84,7 @@ found" result.
 
 ## Readiness status
 
-In addition to runtime compliance, the operator evaluates a contract's declared **readiness** — a `pactoVersion: "1.2"` feature. Readiness is a **separate dimension** from contract compliance: a low readiness score never changes `ContractStatus`. See the [Contract Reference](contract-reference.md#readiness) for the scoring model (weights, `expires`, `minScore` and `partialCredit` defaults).
+In addition to runtime compliance, the operator evaluates a contract's declared **readiness** — a `pactoVersion: "1.2"` feature. Readiness is a **separate dimension** from contract compliance: a low readiness score never changes `ContractStatus`. See the [Contract Reference](contract-reference/sections.md#readiness) for the scoring model (weights, `expires`, `minScore` and `partialCredit` defaults).
 
 When a contract declares `readiness`, the operator writes the derived assessment to `status.readiness`:
 
@@ -100,6 +100,8 @@ It also sets a single aggregate condition, **`ReadinessSatisfied`** (the gate: `
 | `False` | `Invalid`       | the assessment `expires` date is unparseable |
 
 On gate transitions the operator emits events sparingly: a `Warning` / `ReadinessGateUnmet` when the gate first drops and a `Normal` / `ReadinessRecovered` when it is met again. Contracts that declare no readiness get neither `status.readiness` nor the condition.
+
+The same gate can be enforced at build time: authors run `pacto validate --readiness` (see the [CLI Reference](cli-reference.md)) to fail CI when the score is below `minScore`, while the operator enforces it continuously at runtime.
 
 ---
 
@@ -118,7 +120,7 @@ On gate transitions the operator emits events sparingly: a `Warning` / `Readines
 When `pacto dashboard` detects a Kubernetes cluster with the Pacto CRD installed, it uses the operator's status data as the **k8s** runtime source. This provides:
 
 - Live contract status (Compliant / Warning / NonCompliant / Reference / Unknown)
-- Derived readiness (score, per-check Current/Expired status) as a separate dimension
+- Derived readiness (overall score plus per-check done/partial/not-done/deferred status and earned weight; the whole assessment carries a single expiry) as a separate dimension
 - Reconciliation conditions with timestamps
 - Endpoint health and metrics reachability results
 - Resource existence checks (Service, Workload)
@@ -148,14 +150,14 @@ The dashboard uses these revisions as one input for version history. However, th
 
 The operator is distributed as a Helm chart:
 
-- **Helm chart (GitHub):** [pacto-operator/charts/pacto-operator](https://github.com/TrianaLab/pacto-operator/tree/main/charts/pacto-operator)
+- **Helm chart (GitHub):** [pacto-operator/charts/pacto-operator](https://github.com/trianalab/pacto-operator/tree/main/charts/pacto-operator)
 - **Artifact Hub:** [pacto-operator on Artifact Hub](https://artifacthub.io/packages/helm/pacto-operator/pacto-operator)
 
 ---
 
 ## Learn more
 
-- **CRD API reference:** [api-reference.md](https://github.com/TrianaLab/pacto-operator/blob/main/docs/api-reference.md)
+- **CRD API reference:** [api-reference.md](https://github.com/trianalab/pacto-operator/blob/main/docs/api-reference.md)
 - **Repository:** [pacto-operator on GitHub](https://github.com/trianalab/pacto-operator)
 - **CLI reference:** [CLI Reference](cli-reference.md) — author and validate contracts before deploying
 - **Dashboard:** [Dashboard Container](dashboard-docker.md) — explore contracts alongside runtime state

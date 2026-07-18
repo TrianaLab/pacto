@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/trianalab/pacto/v2/pkg/capability"
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/diff"
 	"github.com/trianalab/pacto/v2/pkg/graph"
@@ -15,6 +16,7 @@ import (
 	"github.com/trianalab/pacto/v2/pkg/readiness"
 	"github.com/trianalab/pacto/v2/pkg/sbom"
 	"github.com/trianalab/pacto/v2/pkg/schemax"
+	"github.com/trianalab/pacto/v2/pkg/skills"
 	"github.com/trianalab/pacto/v2/pkg/validation"
 )
 
@@ -68,6 +70,8 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 	svc.Runtime = runtimeFromContract(c)
 	svc.Scaling = scalingFromContract(c)
 	svc.Policies = policiesFromContract(c, bundle.FS)
+	svc.Capabilities = capabilitiesFromContract(c, bundle.FS)
+	svc.Skills = skillsFromContract(bundle.FS)
 	svc.Docs = docsFromContract(bundle.FS)
 	svc.Readiness = readinessFromContract(c, docPathSet(svc.Docs))
 	svc.Metadata = metadataFromContract(c)
@@ -263,6 +267,75 @@ func interfacesFromContract(c *contract.Contract, fsys fs.FS) []InterfaceInfo {
 			}
 		}
 		out = append(out, info)
+	}
+	return out
+}
+
+// capabilitiesFromContract derives agent-invocable tool descriptors from every
+// http interface's OpenAPI operations. It surfaces all operations (mutating ones
+// flagged); the dashboard only displays them, never invokes. Interface names
+// prefix tool names when more than one http interface exists, matching the MCP
+// runtime. k8s-only services (nil FS) yield nothing.
+func capabilitiesFromContract(c *contract.Contract, fsys fs.FS) []CapabilityTool {
+	if fsys == nil {
+		return nil
+	}
+	httpIfaces := 0
+	for _, iface := range c.Interfaces {
+		if iface.Type == contract.InterfaceTypeHTTP && iface.Contract != "" {
+			httpIfaces++
+		}
+	}
+	var out []CapabilityTool
+	for _, iface := range c.Interfaces {
+		if iface.Type != contract.InterfaceTypeHTTP || iface.Contract == "" {
+			continue
+		}
+		doc, err := openapi.ReadDoc(fsys, iface.Contract)
+		if err != nil {
+			continue
+		}
+		prefix := ""
+		if httpIfaces > 1 {
+			prefix = iface.Name + "_"
+		}
+		for _, tool := range capability.BuildTools(doc, true) {
+			// Fall back to the operation description when there is no summary, so
+			// the dashboard matches the text the MCP tool advertises.
+			summary := tool.Summary
+			if summary == "" {
+				summary = tool.Description
+			}
+			out = append(out, CapabilityTool{
+				Name:     prefix + tool.Name,
+				Method:   tool.Method,
+				Path:     tool.Path,
+				Summary:  summary,
+				Mutating: tool.Mutating,
+			})
+		}
+	}
+	return out
+}
+
+// skillsFromContract reads the bundle's skills/*.md domain-knowledge documents,
+// capping content size and count like docs. skills.List returns validated
+// basenames, so skills.Read cannot fail for them; a zero-value read is harmless.
+func skillsFromContract(fsys fs.FS) []SkillInfo {
+	if fsys == nil {
+		return nil
+	}
+	names, _ := skills.List(fsys)
+	if len(names) > maxDocCount {
+		names = names[:maxDocCount]
+	}
+	out := make([]SkillInfo, 0, len(names))
+	for _, name := range names {
+		content, _ := skills.Read(fsys, name)
+		out = append(out, SkillInfo{Name: name, Content: truncateContent(content)})
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

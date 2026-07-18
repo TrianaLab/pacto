@@ -6,39 +6,98 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v2/internal/app"
 	pactomcp "github.com/trianalab/pacto/v2/internal/mcp"
+	"github.com/trianalab/pacto/v2/pkg/capability"
 )
 
 func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "mcp",
+		Use:   "mcp [bundle-ref]",
 		Short: "Start an MCP server",
-		Long:  "Starts a Model Context Protocol (MCP) server exposing Pacto tools for AI agents. Supports stdio (default) and HTTP transports.",
+		Long: "Starts a Model Context Protocol (MCP) server exposing Pacto tools for AI agents. " +
+			"Supports stdio (default) and HTTP transports.\n\n" +
+			"When a bundle reference (local directory or oci:// ref) is given, the server also " +
+			"exposes one executable tool per OpenAPI operation in the bundle's http interfaces, " +
+			"plus a pacto_skill tool for any skills/*.md domain knowledge. Read-only (GET/HEAD) " +
+			"operations are exposed by default; pass --allow-writes to expose mutating operations.",
 		Example: `  # Start MCP server over stdio (default)
   pacto mcp
 
   # Start MCP server over HTTP
   pacto mcp -t http
 
-  # Start MCP server on a custom port
-  pacto mcp -t http --port 9090`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+  # Expose a bundle's OpenAPI operations as agent tools
+  pacto mcp ./my-service --base-url https://api.example.com
+
+  # Include mutating operations and an auth credential
+  pacto mcp oci://ghcr.io/acme/svc:1.0.0 --base-url https://api.example.com \
+    --auth bearerAuth=$TOKEN --allow-writes`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
 			transport, _ := cmd.Flags().GetString("transport")
 			port, _ := cmd.Flags().GetInt("port")
-			server := pactomcp.NewServer(svc, version)
+			server, err := buildMCPServer(cmd, svc, version, args)
+			if err != nil {
+				return err
+			}
 			return runMCPServer(cmd.Context(), server, transport, port, cmd.ErrOrStderr())
 		},
 	}
 
 	cmd.Flags().StringP("transport", "t", "stdio", "transport type: stdio or http")
 	cmd.Flags().Int("port", 8585, "port for HTTP transport")
+	cmd.Flags().String("base-url", "", "base URL for live invocation (overrides the OpenAPI servers[] URL)")
+	cmd.Flags().StringArray("auth", nil, "credential for a security scheme as name=value (repeatable)")
+	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
 
 	return cmd
+}
+
+// buildMCPServer constructs the MCP server, additionally registering a bundle's
+// capability tools when a bundle reference is supplied.
+func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args []string) (*mcpsdk.Server, error) {
+	if len(args) == 0 {
+		return pactomcp.NewServer(svc, version), nil
+	}
+
+	bundle, err := svc.ResolveBundle(cmd.Context(), args[0])
+	if err != nil {
+		return nil, err
+	}
+	authPairs, _ := cmd.Flags().GetStringArray("auth")
+	creds, err := parseAuthFlags(authPairs)
+	if err != nil {
+		return nil, err
+	}
+	baseURL, _ := cmd.Flags().GetString("base-url")
+	allowWrites, _ := cmd.Flags().GetBool("allow-writes")
+	opts := pactomcp.CapabilityOptions{
+		BaseURL:     baseURL,
+		Creds:       creds,
+		AllowWrites: allowWrites,
+	}
+	return pactomcp.NewCapabilityServer(bundle, opts, version, cmd.ErrOrStderr())
+}
+
+// parseAuthFlags parses repeated name=value credential flags.
+func parseAuthFlags(pairs []string) (capability.Credentials, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	creds := capability.Credentials{}
+	for _, p := range pairs {
+		name, value, ok := strings.Cut(p, "=")
+		if !ok || name == "" {
+			return nil, fmt.Errorf("invalid --auth %q: expected name=value", p)
+		}
+		creds[name] = value
+	}
+	return creds, nil
 }
 
 func runMCPServer(ctx context.Context, server *mcpsdk.Server, transport string, port int, stderr io.Writer) error {

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -50,15 +52,117 @@ func TestMCPCommand_Registered(t *testing.T) {
 	}
 }
 
-func TestMCPCommand_NoArgs(t *testing.T) {
+func TestMCPCommand_TooManyArgs(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	root := NewRootCommand(svc, VersionInfo{Version: "test"})
-	root.SetArgs([]string{"mcp", "extra-arg"})
+	root.SetArgs([]string{"mcp", "a", "b"})
 
 	err := root.Execute()
 	if err == nil {
-		t.Error("expected error for extra arguments")
+		t.Error("expected error for more than one argument")
 	}
+}
+
+func TestMCPCommand_BundleResolveError(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	root := NewRootCommand(svc, VersionInfo{Version: "test"})
+	root.SetArgs([]string{"mcp", "/nonexistent/bundle/xyz"})
+	root.SetErr(&bytes.Buffer{})
+
+	if err := root.Execute(); err == nil {
+		t.Error("expected error resolving a nonexistent bundle")
+	}
+}
+
+func TestParseAuthFlags(t *testing.T) {
+	if creds, err := parseAuthFlags(nil); err != nil || creds != nil {
+		t.Fatalf("empty = %v,%v", creds, err)
+	}
+	creds, err := parseAuthFlags([]string{"bearerAuth=tok", "apiKey=k=with=eq"})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if creds["bearerAuth"] != "tok" || creds["apiKey"] != "k=with=eq" {
+		t.Fatalf("creds = %v", creds)
+	}
+	if _, err := parseAuthFlags([]string{"noequals"}); err == nil {
+		t.Error("expected error for missing =")
+	}
+	if _, err := parseAuthFlags([]string{"=value"}); err == nil {
+		t.Error("expected error for empty name")
+	}
+}
+
+func TestBuildMCPServer_NoArg(t *testing.T) {
+	cmd := newMCPCommand(app.NewService(nil, nil), "v")
+	cmd.SetContext(context.Background())
+	server, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil)
+	if err != nil || server == nil {
+		t.Fatalf("no-arg build = %v,%v", server, err)
+	}
+}
+
+func TestBuildMCPServer_WithBundle(t *testing.T) {
+	dir := writeCapabilityBundle(t)
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v")
+	cmd.SetContext(context.Background())
+	_ = cmd.Flags().Set("base-url", "http://example.com")
+
+	server, err := buildMCPServer(cmd, svc, "v", []string{dir})
+	if err != nil || server == nil {
+		t.Fatalf("with-bundle build = %v,%v", server, err)
+	}
+}
+
+func TestBuildMCPServer_AuthError(t *testing.T) {
+	dir := writeCapabilityBundle(t)
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v")
+	cmd.SetContext(context.Background())
+	_ = cmd.Flags().Set("auth", "bogus")
+
+	if _, err := buildMCPServer(cmd, svc, "v", []string{dir}); err == nil {
+		t.Error("expected auth parse error")
+	}
+}
+
+func TestBuildMCPServer_RegisterError(t *testing.T) {
+	dir := writeCapabilityBundle(t)
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v")
+	cmd.SetContext(context.Background())
+	// no base-url and the spec has no servers → RegisterCapabilities fails
+	if _, err := buildMCPServer(cmd, svc, "v", []string{dir}); err == nil {
+		t.Error("expected register error when no base URL is available")
+	}
+}
+
+// writeCapabilityBundle writes a minimal bundle dir with an http interface and
+// an OpenAPI contract, returning its path.
+func writeCapabilityBundle(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	pactoYAML := `pactoVersion: "1.0"
+service:
+  name: demo
+  version: 1.0.0
+interfaces:
+  - name: http
+    type: http
+    contract: interfaces/openapi.json
+`
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(pactoYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "interfaces"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	spec := `{"paths":{"/ping":{"get":{"operationId":"ping","summary":"ping"}}}}`
+	if err := os.WriteFile(filepath.Join(dir, "interfaces", "openapi.json"), []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func TestMCPCommand_Flags(t *testing.T) {

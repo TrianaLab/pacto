@@ -99,6 +99,12 @@ func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bund
 	return loadLocalBundle(parsed.Location)
 }
 
+// ResolveBundle resolves a bundle reference (local directory or oci:// ref) to
+// its parsed contract and file system. Local refs do not require a BundleStore.
+func (s *Service) ResolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
+	return s.resolveBundle(ctx, ref)
+}
+
 // resolveBundleWithOverrides loads a bundle and applies overrides to it.
 func (s *Service) resolveBundleWithOverrides(ctx context.Context, ref string, overrides override.Overrides) (*contract.Bundle, error) {
 	bundle, err := s.resolveBundle(ctx, ref)

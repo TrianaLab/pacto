@@ -36,7 +36,7 @@ Pacto composes the interfaces you already own into one versioned contract, distr
 flowchart LR
     CLI["CLI · design-time and CI<br/>init · validate · diff · doc · push"] --> R[(OCI registry)]
     R --> DASH["Dashboard · anytime<br/>graph · ownership · SBOM · readiness · docs"]
-    R --> OP["Operator · in-cluster<br/>track · verify runtime drift"]
+    R --> OP["Operator · in-cluster<br/>track · verify runtime fidelity"]
     OP -. runtime state .-> DASH
 ```
 
@@ -97,17 +97,19 @@ Bump a version, move a port, remove an endpoint, drop a config property — `pac
 
 ```console
 $ pacto diff oci://ghcr.io/acme/svc:1.0 oci://ghcr.io/acme/svc:2.0
-NON_BREAKING  service.version               1.0.0 → 2.0.0
-BREAKING      interfaces.port               8081 → 9090
-BREAKING      openapi.paths[/predict]       removed
-BREAKING      schema.properties.model_path  removed
-exit status 1                                # non-zero gates the merge
+Classification: BREAKING
+Changes (4):
+  [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 2.0.0]
+  [BREAKING] interfaces.port (modified): interfaces.port modified [8081 -> 9090]
+  [BREAKING] openapi.paths[/predict] (removed): API path /predict removed [- /predict]
+  [POTENTIAL_BREAKING] schema.properties.model_path (removed): schema.properties.model_path removed [- map[type:string]]
+Error: breaking changes detected             # non-zero exit gates the merge
 ```
 
 Everything a contract enables, from one artifact:
 
-- **Dependency graph** — transitive service relationships and blast radius, recursively resolved
-- **Ownership registry** — every service by team and DRI, with per-owner compliance and readiness
+- **Dependency graph** — transitive service relationships and blast radius (the downstream services a change can affect), recursively resolved
+- **Ownership registry** — every service by team and DRI (directly responsible individual), with per-owner compliance and readiness
 - **SBOM inventory** — SPDX / CycloneDX package inventory and package-level diffs across versions
 - **Operational docs** — `pacto doc` renders Markdown, an offline dashboard-grade HTML site or an interactive Swagger/Scalar API explorer
 - **Readiness scoring** — operational-readiness assessment per service, surfaced in the fleet view
@@ -173,7 +175,7 @@ Full documentation at **[trianalab.github.io/pacto](https://trianalab.github.io/
 | [For Platform Engineers](https://trianalab.github.io/pacto/platform-engineers) | Consume contracts for deployment, policies and graphs |
 | [CLI Reference](https://trianalab.github.io/pacto/cli-reference) | All commands, flags and output formats |
 | [Dashboard](https://trianalab.github.io/pacto/dashboard-docker) | Deploy the dashboard container alongside the operator |
-| [Kubernetes Operator](https://trianalab.github.io/pacto/operator) | Runtime contract tracking and consistency verification |
+| [Kubernetes Operator](https://trianalab.github.io/pacto/operator) | Runtime contract tracking and verification |
 | [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) | Connect AI tools (Claude, Cursor, Copilot) to Pacto via MCP |
 | [Plugin Development](https://trianalab.github.io/pacto/plugins) | Build plugins to generate artifacts from contracts |
 | [Examples](https://trianalab.github.io/pacto/examples) | PostgreSQL, Redis, RabbitMQ, NGINX, gRPC and more |

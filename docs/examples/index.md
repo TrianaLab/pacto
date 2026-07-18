@@ -1,5 +1,5 @@
 # Example Contracts
-This section provides ready-to-use Pacto contracts for common infrastructure services. Use these as references when writing your own contracts, or as dependencies.
+This section provides ready-to-use Pacto contracts for common infrastructure services. Use these as references when writing your own contracts, or as dependencies. New to authoring? Start with the [developer guide](../developers.md).
 
 For a complete, runnable demo, see the [live dashboard demo](dashboard-demo.md) — its source and curated contract set live in [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo).
 
@@ -28,17 +28,17 @@ You can reference these contracts (once published to a registry) as dependencies
 ```yaml
 dependencies:
   - name: postgres
-    ref: oci://ghcr.io/acme/postgres-pacto@sha256:abc123
+    ref: oci://ghcr.io/acme/postgres-pacto@sha256:abc1230000000000000000000000000000000000000000000000000000000000
     required: true
     compatibility: "^16.0.0"
 
   - name: redis
-    ref: oci://ghcr.io/acme/redis-pacto@sha256:def456
+    ref: oci://ghcr.io/acme/redis-pacto@sha256:def4560000000000000000000000000000000000000000000000000000000000
     required: false
     compatibility: "^7.0.0"
 ```
 
-See the [contract reference](../contract-reference.md#dependencies) for the full dependency schema.
+See the [contract reference](../contract-reference/sections.md#dependencies) for the full dependency schema.
 
 Then use `pacto graph` to visualize the full dependency tree:
 

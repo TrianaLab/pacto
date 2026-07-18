@@ -78,4 +78,5 @@ metadata:
 - **`contract: interfaces/order-events.yaml`** — the event schema (e.g. AsyncAPI) is bundled and versioned with the service
 - **`dataCriticality: medium`** — event processing failures have moderate impact; dead-letter queues provide a safety net
 - **`gracefulShutdownSeconds: 60`** — allows in-flight messages to complete processing before shutdown
-- **Secret reference** — broker credentials use `secret://`, an opaque convention the platform resolves at deployment time (see [Secret references](../contract-reference.md#secret-references))
+- **Dependency target** — the `rabbitmq` dependency points to the [RabbitMQ example](rabbitmq.md), which publishes version `3.13.7` and satisfies the `^3.13.0` compatibility range
+- **Secret reference** — broker credentials use `secret://`, an opaque convention the platform resolves at deployment time (see [Secret references](../contract-reference/sections.md#secret-references))

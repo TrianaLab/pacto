@@ -1,8 +1,29 @@
 ---
 template: home.html
-hide:
-  - toc
 ---
+
+```yaml title="pacto.yaml"
+service:
+  name: payments-api
+  version: 2.1.0
+  owner: { team: payments, dri: alice }
+
+interfaces:
+  - name: rest-api
+    type: http
+    port: 8080
+
+dependencies:
+  - ref: oci://ghcr.io/acme/auth
+    compatibility: "^2.0.0"
+
+runtime:
+  state:  { type: stateful }
+  health: { path: /health }
+```
+
+!!! success "One file, checked and shipped"
+    Everything above is validated (structure, cross-references, semantics and policy), versioned with semver, and distributed as an OCI artifact.
 
 ## What is Pacto?
 
@@ -50,82 +71,21 @@ The consequences:
 
 ## The solution: one operational contract
 
-Pacto replaces the six fragmented sources with a single source of truth:
+Pacto replaces those six fragmented sources with the single file shown at the top of this page — interfaces, dependencies, runtime behavior, configuration and scaling — validated by tooling and versioned in a registry. Only `pactoVersion` and `service` are required; every other section is opt-in, so a contract stays as small as the service needs.
 
-```yaml
-pactoVersion: "1.2"
-
-service:
-  name: payments-api
-  version: 2.1.0
-  owner:
-    team: payments
-    dri: alice
-
-interfaces:
-  - name: rest-api
-    type: http
-    port: 8080
-    visibility: public
-    contract: interfaces/openapi.yaml
-
-dependencies:
-  - name: auth
-    ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123
-    required: true
-    compatibility: "^2.0.0"
-
-runtime:
-  workload: service
-  state:
-    type: stateful
-    persistence:
-      scope: local
-      durability: persistent
-    dataCriticality: high
-  health:
-    interface: rest-api
-    path: /health
-
-scaling:
-  min: 2
-  max: 10
-```
-
-These questions are answered in one file, validated by tooling and versioned in a registry.
-
-Only `pactoVersion` and `service` are required — everything else is opt-in, so a contract can be as minimal or as detailed as your service needs.
-
-!!! note
-    The example above uses `pactoVersion: "1.2"`, which `pacto init` creates. The [`readiness`](contract-reference.md#readiness) section requires `pactoVersion: "1.2"` — declaring it under `1.0` or `1.1` is rejected at validation.
-
-**Which version?** Use `1.0` or `1.1` for contracts without readiness; use `1.2` when you need the redesigned [`readiness`](contract-reference.md#readiness) section with status-based scoring. Object-only `owner` is enforced across all versions.
+See the [contract reference](contract-reference/index.md) for every field, including the [`readiness`](contract-reference/sections.md#readiness) section (requires `pactoVersion: "1.2"`).
 
 ---
 
 ## When should I use Pacto?
 
-Pacto helps when operational knowledge about services is scattered, implicit, or outdated. These are the situations where it adds the most value:
+Pacto earns its keep when operational knowledge is scattered, implicit, or outdated:
 
-### You manage many services and can't keep track of what each one needs
-
-Platform teams supporting 10+ services often discover runtime requirements the hard way — in production. Pacto makes every service self-describing: workload type, state model, health checks, scaling, and dependencies are declared up front, not reverse-engineered from Helm charts.
-
-### Runtime assumptions are buried in deployment configs
-
-When a Helm chart says `replicas: 3` and `volumeClaimTemplates: [...]`, it implies a stateful service — but it never says it explicitly. Pacto separates *what the service is* from *how it's deployed*, so platforms can reason about behavior without reading deployment templates.
-
-### Services have undocumented dependencies
-
-A payment service calls auth, which calls user-store, which needs a database. Nobody wrote this down. With Pacto, dependencies are declared in the contract, resolved from OCI registries, and visualized as a graph. When you upgrade auth, `pacto diff` tells you the full blast radius.
-
-### Your CI pipeline can't detect operational breaking changes
-
-Code-level tests pass, but a port number changed, a health endpoint was removed, or a service switched from stateless to stateful. These are operational breaking changes that CI doesn't catch — unless contracts are validated and diffed as part of the pipeline.
-
-### Onboarding a new service takes too long
-
-Instead of filing tickets, attending meetings, and writing wiki pages, a developer runs `pacto init`, fills in the contract, and pushes it. The platform knows everything it needs to provision the service.
+- **You manage many services** and discover their runtime needs in production — Pacto makes every service self-describing up front, not reverse-engineered from Helm charts.
+- **Runtime assumptions live in deployment configs** — Pacto separates *what a service is* from *how it's deployed*.
+- **Dependencies are undocumented** — declare them once; `pacto diff` shows the full blast radius (every service transitively affected) before a change ships.
+- **CI can't catch operational breaking changes** — a changed port or a removed health endpoint is caught when contracts are validated and diffed in the pipeline.
+- **Onboarding is slow** — a developer runs `pacto init`, fills in the contract, and pushes; the platform has everything it needs to provision the service.
 
 ---
 
@@ -133,7 +93,7 @@ Instead of filing tickets, attending meetings, and writing wiki pages, a develop
 
 ```
 1. Developer writes a pacto.yaml alongside their code
-2. pacto validate checks it (structure, cross-references, semantics)
+2. pacto validate checks it (structure, cross-references, semantics, policy)
 3. pacto push ships the contract to an OCI registry as a versioned artifact
 4. pacto dashboard explores contracts, graphs, versions, and diffs visually
 5. The Kubernetes operator verifies runtime stays faithful to the contract
@@ -164,6 +124,7 @@ graph LR
             direction TB
             Docs["docs/<br/>README · runbooks · guides"]
             SBOM["sbom/<br/>SPDX · CycloneDX"]
+            Skills["skills/<br/>agent domain knowledge"]
         end
 
         YAML --> Sections
@@ -172,7 +133,7 @@ graph LR
     Bundle -- "pacto push" --> Registry["OCI Registry<br/>GHCR · ECR · ACR<br/>Docker Hub"]
 ```
 
-A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required) plus optional `interfaces/`, `configuration/`, `policy/`, `docs/` and `sbom/` directories. These are schemas you already maintain — an OpenAPI spec, a JSON Schema for your config — composed into the bundle rather than rewritten in a Pacto-specific format; `pacto.yaml` adds the relational layer around them (dependencies, compatibility, runtime semantics). Validation enforces that every referenced file exists within the bundle. See the [contract reference](contract-reference.md#bundle-structure) for the full bundle layout.
+A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required) plus optional `interfaces/`, `configuration/`, `policy/`, `docs/`, `sbom/` and `skills/` directories. These are schemas you already maintain — an OpenAPI spec, a JSON Schema for your config — composed into the bundle rather than rewritten in a Pacto-specific format; `pacto.yaml` adds the relational layer around them (dependencies, compatibility, runtime semantics). Validation enforces that every referenced file exists within the bundle. See the [contract reference](contract-reference/index.md#bundle-structure) for the full bundle layout.
 
 ---
 
@@ -211,18 +172,7 @@ payments-api
 └─ postgres      -16.0.0
 ```
 
-Version upgrades, added services, removed dependencies — all visible in one command. Use the exit code in CI to gate deployments.
-
-### Visualize the full dependency tree
-
-```bash
-$ pacto graph oci://ghcr.io/acme/api-gateway:2.0.0
-api-gateway@2.0.0
-├─ auth-service@2.3.0
-│  └─ user-store@1.0.0
-└─ payments-api@1.0.0
-   └─ postgres@16.0.0
-```
+Version upgrades, added services, removed dependencies — all visible in one command, with the exit code gating deployments in CI. `pacto graph` renders the full resolved dependency tree the same way.
 
 ---
 
@@ -238,7 +188,7 @@ Consume contracts to generate deployment manifests, enforce policies, detect bre
 
 ### Building a platform on Pacto?
 
-These primitives compose into reusable platform patterns — root + component contracts for monorepos, infrastructure contracts with provisioner metadata, configurations as composable claims, platform-published policy + schema bundles, progressive policy versioning, and per-environment override files. See [Composition Patterns](patterns.md).
+These primitives compose into reusable platform patterns — root + component contracts for monorepos, infrastructure contracts with provisioner metadata, configurations as composable claims, platform-published policy + schema bundles, progressive policy versioning, and per-environment override files. See [Composition Patterns](patterns/index.md).
 
 ---
 
@@ -248,5 +198,7 @@ These primitives compose into reusable platform patterns — root + component co
 - **Not another configuration language** — an interface is a JSON Schema, OpenAPI or protobuf definition you already own; Pacto composes those rather than replacing them
 - **Not a registry** — it uses existing OCI registries (GHCR, ECR, ACR, Docker Hub)
 - **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
+
+See the [Manifesto](manifesto.md) for the full positioning and rationale.
 
 Pacto is a **runtime contract system** that tells platforms, pipelines and AI agents what a service *is* — and whether it still matches what was declared.

@@ -55,7 +55,9 @@ jobs:
           cache: pip
           cache-dependency-path: docs/requirements.txt
       - run: pip install -r docs/requirements.txt
-      - run: mkdocs build
+      # --strict so a broken link/anchor or orphan page fails the deploy rather
+      # than silently shipping. Same gate the PR "Docs check" runs.
+      - run: mkdocs build --strict
       # Build the in-browser (WebAssembly) dashboard demo and fold it into the
       # same Pages artifact at /pacto/demo/ (two Pages deploys in one repo
       # conflict; one upload below publishes both docs and demo).

@@ -10,19 +10,24 @@ import (
 	"github.com/trianalab/pacto/v2/internal/app"
 )
 
-// NewServer creates a new MCP server with all Pacto tools registered.
+// baseInstructions describe the always-present contract-authoring tools.
+const baseInstructions = "Pacto is an operational contract format for cloud-native services. " +
+	"Use pacto_create to generate new contracts from intent-level descriptions. " +
+	"Use pacto_edit to modify existing contracts. Use pacto_check to validate " +
+	"and get actionable improvement suggestions. Call pacto_schema first if you " +
+	"need the full JSON Schema reference."
+
+// NewServer creates a new MCP server with all Pacto authoring tools registered.
 func NewServer(_ *app.Service, version string) *mcpsdk.Server {
+	return newServer(version, baseInstructions)
+}
+
+// newServer builds a server with the given instructions and the authoring tools.
+func newServer(version, instructions string) *mcpsdk.Server {
 	server := mcpsdk.NewServer(
 		&mcpsdk.Implementation{Name: "pacto", Version: version},
-		&mcpsdk.ServerOptions{
-			Instructions: "Pacto is an operational contract format for cloud-native services. " +
-				"Use pacto_create to generate new contracts from intent-level descriptions. " +
-				"Use pacto_edit to modify existing contracts. Use pacto_check to validate " +
-				"and get actionable improvement suggestions. Call pacto_schema first if you " +
-				"need the full JSON Schema reference.",
-		},
+		&mcpsdk.ServerOptions{Instructions: instructions},
 	)
-
 	registerTools(server)
 	return server
 }

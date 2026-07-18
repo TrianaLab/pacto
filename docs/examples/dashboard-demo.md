@@ -5,6 +5,9 @@ of demo contracts are compiled to WebAssembly, with no backend or live registry.
 
 <a href="../../demo/" class="md-button md-button--primary">Open the live dashboard demo →</a>
 
+To run the dashboard against your own services, see
+[Dashboard container](../dashboard-docker.md).
+
 It showcases the full UI against a realistic fleet:
 
 - **Fleet & compliance** — eleven services across edge, domain, infra and

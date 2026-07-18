@@ -2,7 +2,7 @@
 
 Pacto lockfiles enable reproducible dependency resolution and supply-chain pinning for contract bundles. `pacto.lock` captures the exact resolved state of your contract's dependency closure and reference closure, committed to git, shipped inside the pushed bundle and enforced by the CLI. When the lock is present, Pacto verifies that every resolved dependency and every config/policy reference matches its pinned digest; any mismatch is a hard error — you cannot validate, graph, diff or push a bundle whose lock has drifted.
 
-The lockfile is **embedded in the pushed bundle** when `pacto push` runs, so the dashboard can surface pinned digests and drift for services sourced from OCI registries or Kubernetes clusters (not just local directories). Shipping the lock remains opt-in: a contract without a `pacto.lock` next to `pacto.yaml` behaves as before — dependencies and references resolve live and nothing extra is included in the bundle. (To keep an existing lock out of a pushed bundle, see [`.pactoignore`](pactoignore.md).)
+The lockfile **ships inside any bundle produced from a directory that contains `pacto.lock`** — both `pacto pack` and `pacto push` archive it — so the dashboard can surface pinned digests and drift for services sourced from OCI registries or Kubernetes clusters (not just local directories). Shipping the lock remains opt-in: a contract without a `pacto.lock` next to `pacto.yaml` behaves as before — dependencies and references resolve live and nothing extra is included in the bundle. (To keep an existing lock out of a pushed bundle, see [`.pactoignore`](pactoignore.md).)
 
 ---
 
@@ -126,7 +126,7 @@ references:
 
 The lockfile starts with `lockVersion` (schema version), `pacto.version` (the CLI version that wrote the lock) and `root` (the contract's name and version).
 
-Each `dependencies[]` entry records the `source` (oci or local), the full ref or path as written in the contract, the constraint and resolved version and the digest (for OCI) or contentHash (for local). The `dependsOn` field captures the dependency chain so Pacto can rebuild the full graph structure from the lock without re-resolving upstream refs.
+Each `dependencies[]` entry records the `source` (oci or local), the full ref or path as written in the contract, the constraint and resolved version and the digest (for OCI) or contentHash (for local). The lockfile's `constraint` is the dependency's `compatibility` range copied from `pacto.yaml`. The `dependsOn` field captures the dependency chain so Pacto can rebuild the full graph structure from the lock without re-resolving upstream refs.
 
 The `references[]` section records config and policy refs with their `kind`, `source` and digest — references carry no `constraint` (only dependencies do). Local file-based refs appear here with a contentHash instead of an OCI digest.
 

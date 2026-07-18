@@ -69,7 +69,6 @@ scaling:
   max: 6
 
 metadata:
-  team: catalog
   tier: standard
   cache-strategy: write-through
 ```
@@ -84,4 +83,4 @@ metadata:
 
 ### When to use `hybrid`
 
-Choose `hybrid` (not `stateless`) when you persist local state across restarts to avoid warm-up but the service still functions after losing it — a purely in-memory cache rebuilt on every start is `stateless`/`ephemeral`. See the [state.type table](../contract-reference.md#runtimestate) in the contract reference for the full `stateless` vs `stateful` vs `hybrid` breakdown.
+Choose `hybrid` (not `stateless`) when you persist local state across restarts to avoid warm-up but the service still functions after losing it — a purely in-memory cache rebuilt on every start is `stateless`/`ephemeral`. See the [state.type table](../contract-reference/sections.md#runtimestate) in the contract reference for the full `stateless` vs `stateful` vs `hybrid` breakdown.

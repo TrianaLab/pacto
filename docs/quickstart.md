@@ -26,7 +26,7 @@ Created my-service/
   my-service/configuration/
 ```
 
-This scaffolds a bundle with a valid contract, a placeholder OpenAPI spec and a configuration JSON Schema. Only `pacto.yaml` is required — if your service doesn't use them, remove the `interfaces/` and `configuration/` directories along with the `interfaces:`/`configurations:` sections that reference them in `pacto.yaml` (deleting the directories alone breaks validation).
+This scaffolds a bundle with a valid contract, a placeholder OpenAPI spec and a configuration JSON Schema. Only `pacto.yaml` is required — if your service doesn't use them, remove the `interfaces/` and `configuration/` directories along with the `interfaces:`/`configurations:` sections and any fields that reference them (the scaffold's `runtime.health.interface` and `runtime.metrics.interface` both point at the `api` interface) in `pacto.yaml` (deleting the directories alone breaks validation).
 
 These are standard formats — OpenAPI for interfaces, JSON Schema for configuration — so you can drop in the interface files you already own (for example your Helm chart's `values.schema.json`) instead of authoring new ones. Pacto composes the interfaces you already have rather than inventing a config language.
 
@@ -37,7 +37,7 @@ $ pacto validate my-service
 my-service is valid
 ```
 
-Validation runs four layers — structural, cross-field, semantic and policy enforcement. See the [Contract Reference](contract-reference.md#validation-layers) for the full rules.
+Validation runs four layers — structural, cross-field, semantic and policy enforcement. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
 
 ## 4. Customize your contract
 
@@ -53,7 +53,7 @@ service:
     team: backend
 ```
 
-Add sections as needed — interfaces, runtime semantics, dependencies, configuration, policy, scaling, readiness. See the [Contract Reference](contract-reference.md) for every available field.
+Add sections as needed — interfaces, runtime semantics, dependencies, configuration, policy, scaling, readiness. See the [Contract Reference](contract-reference/index.md) for every available field.
 
 ## 5. Add readiness (optional, v1.2)
 
@@ -63,7 +63,7 @@ The `readiness` section declares operational readiness state for the service. It
 pactoVersion: "1.2"
 
 readiness:
-  expires: 2027-06-30
+  expires: 2099-12-31
   minScore: 80
   checks:
     - id: dashboard
@@ -89,7 +89,7 @@ Then run the opt-in readiness gate:
 $ pacto validate my-service --readiness
 ```
 
-The gate derives a score from check statuses and weights, comparing it against `minScore`. The result is time-dependent (expired assessments score 0), so plain `pacto validate` does not enforce it. See [Contract Reference](contract-reference.md#readiness) for the full scoring and gate semantics.
+The gate derives a score from check statuses and weights, comparing it against `minScore`. The result is time-dependent (expired assessments score 0), so plain `pacto validate` does not enforce it. See [Contract Reference](contract-reference/sections.md#readiness) for the full scoring and gate semantics.
 
 ## 6. Pack and push
 
@@ -131,7 +131,7 @@ Interfaces (1):
 
 Scaling: 1-3
 
-# Rich Markdown documentation
+# Serve an interactive documentation site
 $ pacto doc my-service --serve
 Serving documentation at http://127.0.0.1:8484
 ```
@@ -149,7 +149,7 @@ Changes (1):
   [BREAKING] interfaces.port (modified): interfaces.port modified [8080 -> 9090]
 ```
 
-Exit code is non-zero when breaking changes are detected — use this in CI to gate merges. See [For Platform Engineers](platform-engineers.md) for the full CI integration guide.
+Exit code is non-zero when breaking changes are detected — use this in CI to gate merges. See [Detecting breaking changes](developers.md#detecting-breaking-changes) and the official [GitHub Actions](github-actions.md) integration for wiring this into CI.
 
 ---
 
@@ -157,7 +157,7 @@ Exit code is non-zero when breaking changes are detected — use this in CI to g
 
 | Goal | Guide |
 |------|-------|
-| Understand every contract field | [Contract Reference](contract-reference.md) |
+| Understand every contract field | [Contract Reference](contract-reference/index.md) |
 | Write and maintain contracts | [For Developers](developers.md) |
 | Consume contracts for deployment | [For Platform Engineers](platform-engineers.md) |
 | See contracts for real services | [Examples](examples/index.md) (PostgreSQL, Redis, RabbitMQ, NGINX, gRPC, and more) |

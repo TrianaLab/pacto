@@ -62,7 +62,7 @@ metadata:
 ```
 
 !!! note
-    The `sql` interface uses `type: grpc` as the closest available protocol type for PostgreSQL's binary wire protocol — there is no dedicated `tcp` type (see [Interfaces](../contract-reference.md#interfaces) for the full list of types). The `.proto` contract file is illustrative; in practice you may omit the interface or point `contract` at your own protobuf file (the file must exist in the bundle or `pacto validate` fails with `FILE_NOT_FOUND`).
+    The `sql` interface uses `type: grpc` as the closest available protocol type for PostgreSQL's binary wire protocol — there is no dedicated `tcp` type (see [Interfaces](../contract-reference/sections.md#interfaces) for the full list of types). The `.proto` contract file is illustrative; in practice you may omit the interface or point `contract` at your own protobuf file (the file must exist in the bundle or `pacto validate` fails with `FILE_NOT_FOUND`).
 
 ### Key decisions
 

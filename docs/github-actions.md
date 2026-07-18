@@ -39,7 +39,7 @@ The [quick start](#quick-start) already runs `pacto validate .` on every pull re
 
 ### Detect breaking changes
 
-Compare the PR contract against the published version and block breaking changes. `pacto diff` takes the old contract first and the new one second, and exits non-zero on a `BREAKING` result (see [change classification rules](contract-reference.md#change-classification-rules)):
+Compare the PR contract against the published version and block breaking changes. `pacto diff` takes the old contract first and the new one second, and exits non-zero on a `BREAKING` result (see [change classification rules](contract-reference/diff.md#change-classification-rules)):
 
 ```yaml
       - name: Check for breaking changes
@@ -77,11 +77,15 @@ jobs:
         with:
           command: setup
 
-      - name: Log in to GHCR
-        run: pacto login ghcr.io --username "${{ github.actor }}" --password "${{ secrets.GITHUB_TOKEN }}"
-
       - name: Push contract
-        run: pacto push oci://ghcr.io/${{ github.repository }}-pacto -p .
+        uses: TrianaLab/pacto-actions@v1
+        with:
+          command: push
+          ref: oci://ghcr.io/${{ github.repository }}-pacto
+          path: .
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Environment-specific validation

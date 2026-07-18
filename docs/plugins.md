@@ -44,7 +44,7 @@ sequenceDiagram
     participant Pacto as pacto CLI
     participant Plugin as pacto-plugin-helm
 
-    User->>Pacto: pacto generate helm pacto.yaml
+    User->>Pacto: pacto generate helm ./my-service
     Pacto->>Pacto: Load and parse contract
     Pacto->>Plugin: Spawn process, write JSON to stdin
     Plugin->>Plugin: Read contract, generate files
@@ -53,7 +53,7 @@ sequenceDiagram
     Pacto->>User: Generated 3 file(s) using helm
 ```
 
-1. The user runs `pacto generate <plugin-name> [path]`
+1. The user runs [`pacto generate <plugin-name> [dir | oci://ref]`](cli-reference.md#pacto-generate) — see the command reference for flags like `--option key=value` (populates `options`) and `-o/--output`
 2. Pacto loads and parses the contract
 3. Pacto finds the plugin binary (`pacto-plugin-<name>`)
 4. Pacto writes a `GenerateRequest` JSON to the plugin's stdin
@@ -110,7 +110,7 @@ Pacto writes a JSON object to the plugin's stdin:
 | `outputDir` | string | Absolute path where output files should go |
 | `options` | object | User-provided key-value options (from CLI flags) |
 
-The contract object mirrors `pacto.yaml` exactly.
+The contract object mirrors [`pacto.yaml`](contract-reference/index.md) exactly.
 
 ### Response (stdout)
 
@@ -174,8 +174,8 @@ REQUEST=$(cat)
 # Extract fields using jq
 NAME=$(echo "$REQUEST" | jq -r '.contract.service.name')
 VERSION=$(echo "$REQUEST" | jq -r '.contract.service.version')
-WORKLOAD=$(echo "$REQUEST" | jq -r '.contract.runtime.workload')
-STATE=$(echo "$REQUEST" | jq -r '.contract.runtime.state.type')
+WORKLOAD=$(echo "$REQUEST" | jq -r '.contract.runtime.workload // "n/a"')
+STATE=$(echo "$REQUEST" | jq -r '.contract.runtime.state.type // "n/a"')
 
 # Generate a README
 CONTENT="# ${NAME}
