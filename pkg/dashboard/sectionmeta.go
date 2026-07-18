@@ -20,7 +20,7 @@ func computeSectionMeta(d *ServiceDetails, contractSource string, runtimeEvaluat
 		defSource = "k8s"
 	}
 
-	meta := make(map[string]SectionInfo, 14)
+	meta := make(map[string]SectionInfo, 15)
 
 	// Definition sections: present if declared, else genuinely empty.
 	meta[SectionInterfaces] = defSection(len(d.Interfaces) > 0, defSource)
@@ -46,6 +46,16 @@ func computeSectionMeta(d *ServiceDetails, contractSource string, runtimeEvaluat
 		meta[SectionDocs] = SectionInfo{State: SectionEmpty, Source: defSource, Reason: "no docs/*.md packed in this contract bundle"}
 	default:
 		meta[SectionDocs] = SectionInfo{State: SectionUnavailable, Reason: "documentation requires a contract bundle (not available from the cluster)"}
+	}
+
+	// Capabilities (derived agent tools + skills) are bundle-only, like docs.
+	switch {
+	case len(d.Capabilities) > 0 || len(d.Skills) > 0:
+		meta[SectionCapabilities] = SectionInfo{State: SectionPresent, Source: defSource}
+	case hasBundle:
+		meta[SectionCapabilities] = SectionInfo{State: SectionEmpty, Source: defSource, Reason: "no http/OpenAPI interface or skills/*.md in this contract bundle"}
+	default:
+		meta[SectionCapabilities] = SectionInfo{State: SectionUnavailable, Reason: "agent capabilities require a contract bundle (not available from the cluster)"}
 	}
 
 	// Runtime-only sections come from the operator and apply only to deployed

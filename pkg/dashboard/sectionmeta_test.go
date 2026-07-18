@@ -17,9 +17,14 @@ func TestComputeSectionMeta_BundleWithRuntime(t *testing.T) {
 		ObservedRuntime: &ObservedRuntime{},
 		Conditions:      []Condition{{Type: "Ready"}},
 		Docs:            []DocInfo{{Path: "docs/x.md"}},
+		Capabilities:    []CapabilityTool{{Name: "getX", Method: "GET", Path: "/x"}},
 	}
 	d.ContractStatus = StatusCompliant
 	computeSectionMeta(d, "oci", true)
+
+	if s := sectionState(d, SectionCapabilities); s.State != SectionPresent || s.Source != "oci" {
+		t.Errorf("capabilities present from bundle: %+v", s)
+	}
 
 	if s := sectionState(d, SectionInterfaces); s.State != SectionPresent || s.Source != "oci" {
 		t.Errorf("interfaces: %+v", s)
@@ -58,6 +63,10 @@ func TestComputeSectionMeta_Reference(t *testing.T) {
 	if s := sectionState(d, SectionDocs); s.State != SectionUnavailable {
 		t.Errorf("docs unavailable without bundle: %+v", s)
 	}
+	// Capabilities likewise unavailable without a bundle.
+	if s := sectionState(d, SectionCapabilities); s.State != SectionUnavailable || s.Reason == "" {
+		t.Errorf("capabilities unavailable without bundle: %+v", s)
+	}
 }
 
 func TestComputeSectionMeta_BundleOnly_NoRuntime(t *testing.T) {
@@ -73,6 +82,9 @@ func TestComputeSectionMeta_BundleOnly_NoRuntime(t *testing.T) {
 	}
 	if s := sectionState(d, SectionDocs); s.State != SectionEmpty || s.Source != "local" {
 		t.Errorf("docs empty from bundle (no docs packed): %+v", s)
+	}
+	if s := sectionState(d, SectionCapabilities); s.State != SectionEmpty || s.Source != "local" {
+		t.Errorf("capabilities empty from bundle (none declared): %+v", s)
 	}
 	// Runtime sections: not evaluated, non-reference -> unavailable.
 	for _, id := range []string{SectionResources, SectionObservedRuntime, SectionConditions} {

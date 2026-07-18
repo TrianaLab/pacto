@@ -168,6 +168,15 @@ type ServiceDetails struct {
 	Scaling        *ScalingInfo        `json:"scaling,omitempty"`
 	Policies       []PolicyInfo        `json:"policies,omitempty"`
 
+	// Capabilities are agent-invocable tools derived from the http interfaces'
+	// OpenAPI operations. Populated by bundle-backed sources (local/OCI/cache);
+	// empty for k8s-only services (no bundle FS to parse).
+	Capabilities []CapabilityTool `json:"capabilities,omitempty"`
+
+	// Skills are optional domain-knowledge documents (skills/*.md) shipped in the
+	// bundle. Populated by bundle-backed sources; empty for k8s-only services.
+	Skills []SkillInfo `json:"skills,omitempty"`
+
 	Validation *ValidationInfo `json:"validation,omitempty"`
 
 	// Lock surfaces the committed pacto.lock pins. Nil when no lockfile is present
@@ -241,6 +250,7 @@ const (
 	SectionInterfaces      = "interfaces"
 	SectionConfigurations  = "configurations"
 	SectionPolicies        = "policies"
+	SectionCapabilities    = "capabilities"
 	SectionDependencies    = "dependencies"
 	SectionReadiness       = "readiness"
 	SectionDocs            = "docs"
@@ -270,6 +280,23 @@ type InterfaceEndpoint struct {
 	Method  string `json:"method"`
 	Path    string `json:"path"`
 	Summary string `json:"summary,omitempty"`
+}
+
+// CapabilityTool is an agent-invocable operation derived from an OpenAPI
+// operation in an http interface. Mutating has no omitempty: false is a
+// meaningful, displayed value (read-only operations).
+type CapabilityTool struct {
+	Name     string `json:"name"`
+	Method   string `json:"method"`
+	Path     string `json:"path"`
+	Summary  string `json:"summary,omitempty"`
+	Mutating bool   `json:"mutating"`
+}
+
+// SkillInfo is a single bundled domain-knowledge document (skills/*.md).
+type SkillInfo struct {
+	Name    string `json:"name"`
+	Content string `json:"content,omitempty"`
 }
 
 // InterfaceInfo describes a single service interface.
