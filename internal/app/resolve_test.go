@@ -173,6 +173,21 @@ func TestResolveBundle_LocalPath(t *testing.T) {
 	}
 }
 
+func TestResolveBundle_Exported(t *testing.T) {
+	dir := writeTestBundle(t)
+	svc := NewService(nil, nil)
+	bundle, err := svc.ResolveBundle(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bundle.Contract.Service.Name != "test-svc" {
+		t.Errorf("expected test-svc, got %s", bundle.Contract.Service.Name)
+	}
+	if bundle.FS == nil {
+		t.Error("expected bundle FS to be set")
+	}
+}
+
 func TestResolveBundle_LocalPath_NotFound(t *testing.T) {
 	svc := NewService(nil, nil)
 	_, err := svc.resolveBundle(context.Background(), "/nonexistent/dir")
