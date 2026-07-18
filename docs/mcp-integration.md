@@ -1,6 +1,8 @@
 # MCP Integration
 Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that exposes contract operations as tools for AI assistants. This enables AI tools like Claude, Cursor, and GitHub Copilot to create, edit, and validate Pacto contracts directly.
 
+Point the server at a bundle (`pacto mcp <bundle-ref>`) and it goes further: every operation in the bundle's OpenAPI interface becomes an executable agent tool, and any `skills/*.md` domain guides the bundle ships are exposed too — making an existing contract immediately agent-ready without writing per-tool glue. See [Agent capabilities](#agent-capabilities) below.
+
 ---
 ## Why MCP?
 
@@ -86,6 +88,88 @@ Validates a contract and returns structured results including errors, warnings, 
 ### pacto_schema
 
 Returns the Pacto format description and the full JSON Schema for `pacto.yaml`. Useful as a first call so the assistant understands the contract structure before creating or editing.
+
+---
+
+## Agent capabilities
+
+The authoring tools above are always available. When you additionally pass a **bundle reference** — a local directory or an `oci://` reference — Pacto turns that bundle's interfaces into executable agent tools:
+
+```bash
+pacto mcp ./my-service --base-url https://api.example.com
+```
+
+For every operation in each `http` interface's OpenAPI contract, Pacto registers one MCP tool whose input schema is derived from the operation's parameters and request body, and whose handler invokes the live endpoint. The bundle author writes nothing extra — the interface already describes what the tool needs.
+
+```mermaid
+flowchart LR
+    AI["AI Assistant"] -->|"tool call<br/>(getUser, createRefund…)"| MCP["pacto mcp &lt;bundle&gt;"]
+    MCP -->|"reads"| Spec["Bundle OpenAPI<br/>+ skills/*.md"]
+    MCP -->|"HTTP request"| Svc["Live service<br/>(--base-url)"]
+    Svc -->|"status + body"| MCP
+    MCP -->|"JSON response"| AI
+```
+
+### Read-only by default
+
+Only safe read operations (`GET`/`HEAD`) are exposed unless you opt in to mutating ones. This prevents an assistant from creating, updating, or deleting live resources by accident.
+
+```bash
+# expose mutating operations (POST/PUT/PATCH/DELETE) too
+pacto mcp ./my-service --base-url https://api.example.com --allow-writes
+```
+
+Skipped operations are logged to stderr, so nothing is silently dropped.
+
+### Base URL
+
+The live host comes from `--base-url`, falling back to the spec's `servers[0]` URL when the flag is omitted. If neither is available the server refuses to start. When you supply credentials (below), `--base-url` is **required** — Pacto will not send credentials to a host chosen by bundle content.
+
+### Authentication
+
+Credentials are supplied per OpenAPI security scheme with the repeatable `--auth name=value` flag and applied to each request according to the scheme's declaration:
+
+| Scheme type | How the credential is applied |
+|-------------|-------------------------------|
+| `apiKey` | Sent as the declared header or query parameter |
+| `http` `bearer` (and `oauth2` / `openIdConnect`) | `Authorization: Bearer <value>` |
+| `http` `basic` | `Authorization: Basic <value>` (supply pre-encoded `user:pass`) |
+
+```bash
+pacto mcp oci://ghcr.io/acme/svc:1.0.0 \
+  --base-url https://api.example.com \
+  --auth bearerAuth=$TOKEN --allow-writes
+```
+
+Server-issued redirects are **not** followed, so credentials cannot leak to another origin, and every call is bounded by a timeout.
+
+### pacto_skill
+
+Bundles may ship optional domain knowledge as `skills/*.md` — workflows and business rules that an interface alone can't express (for example `skills/refund_customer.md`). These are packaged with the bundle automatically. The `pacto_skill` tool lists them when called with no arguments, and returns a skill's Markdown when given its `name`.
+
+```
+bundle/
+    pacto.yaml
+    interfaces/openapi.json
+    skills/
+        refund_customer.md
+        onboard_customer.md
+```
+
+### Connecting to a bundle
+
+Point any MCP client at a bundle by adding the reference (and flags) to the server args. For Claude Code (`.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "acme-svc": {
+      "command": "pacto",
+      "args": ["mcp", "oci://ghcr.io/acme/svc:1.0.0", "--base-url", "https://api.example.com"]
+    }
+  }
+}
+```
 
 ---
 

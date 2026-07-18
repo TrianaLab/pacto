@@ -289,12 +289,14 @@ Wire `pacto diff` into CI to block merges that introduce breaking changes — se
 
 ## AI-assisted workflow
 
-If you use an AI assistant that supports [MCP](https://modelcontextprotocol.io) (Claude Code, Cursor and GitHub Copilot), connect it to Pacto so it can scaffold, edit and validate contracts inside your conversation. The server exposes exactly four tools:
+If you use an AI assistant that supports [MCP](https://modelcontextprotocol.io) (Claude Code, Cursor and GitHub Copilot), connect it to Pacto so it can scaffold, edit and validate contracts inside your conversation. The server always exposes four authoring tools:
 
 - **`pacto_create`** — scaffold a new contract from a description
 - **`pacto_edit`** — modify an existing contract
 - **`pacto_check`** — validate a local contract and return a summary plus improvement suggestions
 - **`pacto_schema`** — return the full contract JSON Schema reference
+
+Point the server at a bundle (`pacto mcp <bundle-ref>`) and it also exposes that bundle's OpenAPI operations as executable tools plus a `pacto_skill` tool for any bundled `skills/*.md` — see [Agent capabilities](mcp-integration.md#agent-capabilities).
 
 Inspecting a registry contract, resolving dependency graphs and generating Markdown docs are CLI-only (`pacto explain oci://...`, `pacto graph`, `pacto doc`) — they are not MCP tools.
 
