@@ -432,8 +432,10 @@ pacto logout <registry> [flags]
 
 Starts a Model Context Protocol (MCP) server exposing Pacto tools for AI agents. Supports stdio (default) and HTTP transports.
 
+When a bundle reference (local directory or oci:// ref) is given, the server also exposes one executable tool per OpenAPI operation in the bundle's http interfaces, plus a pacto_skill tool for any skills/*.md domain knowledge. Read-only (GET/HEAD) operations are exposed by default; pass --allow-writes to expose mutating operations.
+
 ```
-pacto mcp [flags]
+pacto mcp [bundle-ref] [flags]
 ```
 
 **Examples:**
@@ -445,13 +447,20 @@ pacto mcp [flags]
   # Start MCP server over HTTP
   pacto mcp -t http
 
-  # Start MCP server on a custom port
-  pacto mcp -t http --port 9090
+  # Expose a bundle's OpenAPI operations as agent tools
+  pacto mcp ./my-service --base-url https://api.example.com
+
+  # Include mutating operations and an auth credential
+  pacto mcp oci://ghcr.io/acme/svc:1.0.0 --base-url https://api.example.com \
+    --auth bearerAuth=$TOKEN --allow-writes
 ```
 
 **Flags:**
 
 ```
+      --allow-writes       expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --auth stringArray   credential for a security scheme as name=value (repeatable)
+      --base-url string    base URL for live invocation (overrides the OpenAPI servers[] URL)
   -h, --help               help for mcp
       --port int           port for HTTP transport (default 8585)
   -t, --transport string   transport type: stdio or http (default "stdio")
