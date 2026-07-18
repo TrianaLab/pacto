@@ -175,6 +175,89 @@ Point any MCP client at a bundle by adding the reference (and flags) to the serv
 }
 ```
 
+### End-to-end example: a demo bundle with Claude Code
+
+This repository ships demo bundles you can point Claude at directly. We'll use
+`payments-service`, which declares an OpenAPI interface **and** a
+`refund_customer.md` skill — so it exercises both halves of the feature.
+
+**1. Install Pacto** so the `pacto` binary is on your `PATH`:
+
+```bash
+make build   # or: go install ./cmd/pacto
+```
+
+**2. Start a throwaway backend.** The demo service isn't actually running, so give
+the generated tools something to call. In a real setup `--base-url` points at your
+live service instead.
+
+```bash
+python3 - <<'EOF'
+from http.server import BaseHTTPRequestHandler, HTTPServer
+class H(BaseHTTPRequestHandler):
+    def r(self):
+        self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
+        self.wfile.write(f'{{"ok":true,"path":"{self.path}"}}'.encode())
+    do_GET = do_POST = r
+    def log_message(self, *a): pass
+HTTPServer(("127.0.0.1", 8080), H).serve_forever()
+EOF
+```
+
+**3. Register the bundle with Claude Code** (from the repo root). A refund is a
+`POST`, so pass `--allow-writes` to expose mutating operations:
+
+```bash
+claude mcp add --scope local payments-demo \
+  -- pacto mcp ./examples/demo/bundles/payments-service/v2.1.0 \
+     --base-url http://127.0.0.1:8080 --allow-writes
+```
+
+The server name (`payments-demo`) goes *before* the `--`; everything after it is
+the command Claude runs. (Equivalent `.mcp.json` form: the `command`/`args` shape
+shown above.)
+
+**4. Verify the connection and inspect the tools:**
+
+```bash
+claude mcp list          # payments-demo → ✔ Connected
+```
+
+or, inside a Claude Code session:
+
+```
+/mcp
+```
+
+You'll see one tool per OpenAPI operation (`createRefund`, `getPaymentIntent`,
+`listPaymentIntents`, …) plus `pacto_skill`. Claude also receives the server's
+instructions telling it these tools invoke the live payments service and how to
+use `pacto_skill`.
+
+**5. Just ask, in plain language:**
+
+```
+You:    Refund payment intent pi_123 — it was a duplicate charge.
+
+Claude: [calls pacto_skill to read refund_customer.md]
+        [follows the workflow: confirms the intent is refundable via
+         getPaymentIntent, sets reason="duplicate"]
+        [calls createRefund with {payment_intent_id:"pi_123", reason:"duplicate"}]
+        Done — issued a refund for pi_123 (reason: duplicate).
+```
+
+Claude discovered the *operation* from the OpenAPI contract and the *procedure*
+from the bundled skill — neither was hand-written as an agent tool.
+
+!!! note
+    The model calls these tools under a server-namespaced name, e.g.
+    `mcp__payments-demo__createRefund`. Drop `--allow-writes` and the mutating
+    tools (including `createRefund`) disappear — only the read-only operations
+    (`getPaymentIntent`, `listPaymentIntents`, `healthCheck`) and `pacto_skill`
+    remain.
+
+When you're done: `claude mcp remove payments-demo`.
+
 ---
 
 ## Transports
