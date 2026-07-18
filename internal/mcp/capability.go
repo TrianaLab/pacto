@@ -27,6 +27,11 @@ type CapabilityOptions struct {
 // Mutating operations (POST/PUT/PATCH/DELETE) are only registered when
 // opts.AllowWrites is set.
 func RegisterCapabilities(server *mcpsdk.Server, bundle *contract.Bundle, opts CapabilityOptions, stderr io.Writer) error {
+	// Refuse to send operator credentials to a host chosen by (possibly
+	// untrusted) bundle content: require an explicit --base-url alongside --auth.
+	if len(opts.Creds) > 0 && opts.BaseURL == "" {
+		return fmt.Errorf("--auth requires an explicit --base-url (refusing to send credentials to a bundle-declared server)")
+	}
 	ifaces := httpInterfaces(bundle.Contract)
 	for _, iface := range ifaces {
 		if err := registerInterface(server, bundle.FS, iface, len(ifaces) > 1, opts, stderr); err != nil {

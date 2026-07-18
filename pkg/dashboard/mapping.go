@@ -299,11 +299,17 @@ func capabilitiesFromContract(c *contract.Contract, fsys fs.FS) []CapabilityTool
 			prefix = iface.Name + "_"
 		}
 		for _, tool := range capability.BuildTools(doc, true) {
+			// Fall back to the operation description when there is no summary, so
+			// the dashboard matches the text the MCP tool advertises.
+			summary := tool.Summary
+			if summary == "" {
+				summary = tool.Description
+			}
 			out = append(out, CapabilityTool{
 				Name:     prefix + tool.Name,
 				Method:   tool.Method,
 				Path:     tool.Path,
-				Summary:  tool.Summary,
+				Summary:  summary,
 				Mutating: tool.Mutating,
 			})
 		}

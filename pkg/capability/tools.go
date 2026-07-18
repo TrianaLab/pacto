@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/trianalab/pacto/v2/pkg/openapi"
@@ -24,16 +25,24 @@ var mutatingMethods = map[string]bool{"POST": true, "PUT": true, "PATCH": true, 
 func IsMutating(method string) bool { return mutatingMethods[strings.ToUpper(method)] }
 
 // BuildTools derives one Tool per operation. When allowWrites is false, mutating
-// operations (POST/PUT/PATCH/DELETE) are omitted.
+// operations (POST/PUT/PATCH/DELETE) are omitted. Duplicate tool names (which can
+// arise when operationIds are absent and derived ids collide) are disambiguated
+// with a numeric suffix so no operation is silently dropped.
 func BuildTools(doc *openapi.Doc, allowWrites bool) []Tool {
 	var tools []Tool
+	seen := map[string]int{}
 	for _, op := range doc.Operations {
 		mut := IsMutating(op.Method)
 		if mut && !allowWrites {
 			continue
 		}
+		name := op.ID
+		if n := seen[op.ID]; n > 0 {
+			name = fmt.Sprintf("%s_%d", op.ID, n+1)
+		}
+		seen[op.ID]++
 		tools = append(tools, Tool{
-			Name:        op.ID,
+			Name:        name,
 			Method:      op.Method,
 			Path:        op.Path,
 			Summary:     op.Summary,

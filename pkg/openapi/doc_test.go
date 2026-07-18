@@ -46,12 +46,27 @@ const sampleSpec = `{
   }
 }`
 
-func TestReadDoc(t *testing.T) {
+func mustReadSample(t *testing.T) *Doc {
+	t.Helper()
 	fsys := fstest.MapFS{"interfaces/openapi.json": {Data: []byte(sampleSpec)}}
 	doc, err := ReadDoc(fsys, "interfaces/openapi.json")
 	if err != nil {
 		t.Fatalf("ReadDoc: %v", err)
 	}
+	return doc
+}
+
+func opByID(doc *Doc, id string) Operation {
+	for _, op := range doc.Operations {
+		if op.ID == id {
+			return op
+		}
+	}
+	return Operation{}
+}
+
+func TestReadDocMeta(t *testing.T) {
+	doc := mustReadSample(t)
 	if len(doc.Servers) != 1 || doc.Servers[0] != "https://api.example.com" {
 		t.Fatalf("servers = %v", doc.Servers)
 	}
@@ -62,7 +77,7 @@ func TestReadDoc(t *testing.T) {
 		t.Fatalf("apiKey = %+v", doc.SecuritySchemes["apiKey"])
 	}
 	if _, ok := doc.SecuritySchemes["bogus"]; ok {
-		t.Fatalf("non-map scheme should be skipped")
+		t.Fatal("non-map scheme should be skipped")
 	}
 	if _, ok := doc.Components["Refund"]; !ok {
 		t.Fatalf("components missing Refund: %v", doc.Components)
@@ -70,12 +85,10 @@ func TestReadDoc(t *testing.T) {
 	if len(doc.Security) != 1 { // "not-a-map" entry skipped
 		t.Fatalf("global security = %v", doc.Security)
 	}
+}
 
-	byID := map[string]Operation{}
-	for _, op := range doc.Operations {
-		byID[op.ID] = op
-	}
-	get := byID["getUser"]
+func TestReadDocGetOperation(t *testing.T) {
+	get := opByID(mustReadSample(t), "getUser")
 	if get.Method != "GET" || get.Path != "/users/{id}" || get.Description != "Fetch one user" {
 		t.Fatalf("getUser = %+v", get)
 	}
@@ -85,7 +98,10 @@ func TestReadDoc(t *testing.T) {
 	if get.Parameters[0].In != "path" || !get.Parameters[0].Required || get.Parameters[0].Description != "user id" {
 		t.Fatalf("path param = %+v", get.Parameters[0])
 	}
-	post := byID["post_refunds"] // no operationId → derived
+}
+
+func TestReadDocDerivedPostOperation(t *testing.T) {
+	post := opByID(mustReadSample(t), "post_refunds") // no operationId → derived
 	if post.Method != "POST" || post.RequestBody == nil || !post.RequestBody.Required {
 		t.Fatalf("derived post op = %+v", post)
 	}
@@ -125,6 +141,56 @@ func TestReadDocNoRequestBodyContent(t *testing.T) {
 	rb := doc.Operations[0].RequestBody
 	if rb == nil || rb.Required || rb.Schema != nil {
 		t.Fatalf("request body = %+v", rb)
+	}
+}
+
+func TestReadDocResolvesComponentRefs(t *testing.T) {
+	const spec = `{
+  "components": {
+    "parameters": {"PageSize": {"name": "pageSize", "in": "query", "required": true, "schema": {"type": "integer"}}},
+    "requestBodies": {"CreateUser": {"required": true, "content": {"application/json": {"schema": {"type": "object"}}}}}
+  },
+  "paths": {"/users": {"post": {
+    "operationId": "createUser",
+    "parameters": [{"$ref": "#/components/parameters/PageSize"}, {"$ref": "#/components/parameters/Missing"}],
+    "requestBody": {"$ref": "#/components/requestBodies/CreateUser"}
+  }}}
+}`
+	doc, err := ReadDoc(fstest.MapFS{"o.json": {Data: []byte(spec)}}, "o.json")
+	if err != nil {
+		t.Fatalf("ReadDoc: %v", err)
+	}
+	op := doc.Operations[0]
+	// resolved param carries the real name/in from components.parameters
+	if op.Parameters[0].Name != "pageSize" || op.Parameters[0].In != "query" || !op.Parameters[0].Required {
+		t.Fatalf("resolved param = %+v", op.Parameters[0])
+	}
+	// unresolvable $ref target falls back to the ref map (empty name)
+	if op.Parameters[1].Name != "" {
+		t.Fatalf("missing-target param should be empty, got %+v", op.Parameters[1])
+	}
+	// resolved request body carries the schema + required flag
+	if op.RequestBody == nil || !op.RequestBody.Required || op.RequestBody.Schema == nil {
+		t.Fatalf("resolved request body = %+v", op.RequestBody)
+	}
+}
+
+func TestResolveRef(t *testing.T) {
+	targets := map[string]any{"X": map[string]any{"name": "x"}}
+	// not a ref → unchanged
+	plain := map[string]any{"name": "inline"}
+	if got := resolveRef(plain, targets, "#/components/parameters/"); got["name"] != "inline" {
+		t.Fatalf("non-ref should pass through: %v", got)
+	}
+	// wrong prefix → unchanged
+	wrong := map[string]any{"$ref": "#/components/schemas/X"}
+	if got := resolveRef(wrong, targets, "#/components/parameters/"); got["$ref"] == nil {
+		t.Fatalf("wrong-prefix ref should pass through: %v", got)
+	}
+	// resolvable
+	ref := map[string]any{"$ref": "#/components/parameters/X"}
+	if got := resolveRef(ref, targets, "#/components/parameters/"); got["name"] != "x" {
+		t.Fatalf("expected resolved target, got %v", got)
 	}
 }
 

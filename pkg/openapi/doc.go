@@ -81,6 +81,7 @@ func ReadDoc(fsys fs.FS, path string) (*Doc, error) {
 
 func parseOperations(spec map[string]any) []Operation {
 	paths, _ := spec["paths"].(map[string]any)
+	comps := newComponentSet(spec)
 	keys := make([]string, 0, len(paths))
 	for k := range paths {
 		keys = append(keys, k)
@@ -97,21 +98,35 @@ func parseOperations(spec map[string]any) []Operation {
 			if !ok {
 				continue
 			}
-			ops = append(ops, parseOperation(strings.ToUpper(m), p, raw))
+			ops = append(ops, parseOperation(strings.ToUpper(m), p, raw, comps))
 		}
 	}
 	return ops
 }
 
-func parseOperation(method, path string, raw map[string]any) Operation {
+// componentSet is the reusable-component subtree used to dereference local
+// $refs in operation parameters and request bodies.
+type componentSet struct {
+	parameters    map[string]any
+	requestBodies map[string]any
+}
+
+func newComponentSet(spec map[string]any) componentSet {
+	comps, _ := spec["components"].(map[string]any)
+	params, _ := comps["parameters"].(map[string]any)
+	bodies, _ := comps["requestBodies"].(map[string]any)
+	return componentSet{parameters: params, requestBodies: bodies}
+}
+
+func parseOperation(method, path string, raw map[string]any, comps componentSet) Operation {
 	op := Operation{
 		Method:      method,
 		Path:        path,
 		ID:          asString(raw["operationId"]),
 		Summary:     asString(raw["summary"]),
 		Description: asString(raw["description"]),
-		Parameters:  parseParameters(raw["parameters"]),
-		RequestBody: parseRequestBody(raw["requestBody"]),
+		Parameters:  parseParameters(raw["parameters"], comps),
+		RequestBody: parseRequestBody(raw["requestBody"], comps),
 		Security:    parseSecurityList(raw["security"]),
 	}
 	if op.ID == "" {
@@ -120,7 +135,7 @@ func parseOperation(method, path string, raw map[string]any) Operation {
 	return op
 }
 
-func parseParameters(v any) []Parameter {
+func parseParameters(v any, comps componentSet) []Parameter {
 	list, _ := v.([]any)
 	var params []Parameter
 	for _, e := range list {
@@ -128,6 +143,7 @@ func parseParameters(v any) []Parameter {
 		if !ok {
 			continue
 		}
+		m = resolveRef(m, comps.parameters, "#/components/parameters/")
 		params = append(params, Parameter{
 			Name:        asString(m["name"]),
 			In:          asString(m["in"]),
@@ -139,11 +155,12 @@ func parseParameters(v any) []Parameter {
 	return params
 }
 
-func parseRequestBody(v any) *RequestBody {
+func parseRequestBody(v any, comps componentSet) *RequestBody {
 	m, ok := v.(map[string]any)
 	if !ok {
 		return nil
 	}
+	m = resolveRef(m, comps.requestBodies, "#/components/requestBodies/")
 	rb := &RequestBody{Required: asBool(m["required"])}
 	if content, ok := m["content"].(map[string]any); ok {
 		if j, ok := content["application/json"].(map[string]any); ok {
@@ -151,6 +168,23 @@ func parseRequestBody(v any) *RequestBody {
 		}
 	}
 	return rb
+}
+
+// resolveRef dereferences a single local component $ref (one hop). If m is not a
+// $ref, or the target is missing, m is returned unchanged.
+func resolveRef(m, targets map[string]any, prefix string) map[string]any {
+	ref, ok := m["$ref"].(string)
+	if !ok {
+		return m
+	}
+	name, ok := strings.CutPrefix(ref, prefix)
+	if !ok {
+		return m
+	}
+	if resolved, ok := targets[name].(map[string]any); ok {
+		return resolved
+	}
+	return m
 }
 
 func parseServers(spec map[string]any) []string {

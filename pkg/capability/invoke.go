@@ -8,10 +8,21 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/trianalab/pacto/v2/pkg/openapi"
 )
+
+// defaultClient is used when the caller does not supply one. It deliberately
+// does NOT follow redirects (returning the 3xx to the caller) so that a
+// server-issued redirect cannot leak credentials cross-origin or pivot to an
+// internal host (SSRF), and it bounds every call with a timeout.
+var defaultClient = &http.Client{
+	Timeout:       30 * time.Second,
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
 
 // Credentials maps a security-scheme name to its credential value.
 type Credentials = map[string]string
@@ -28,7 +39,7 @@ type Result struct {
 // transport-level failures return a Go error.
 func Invoke(ctx context.Context, client *http.Client, op openapi.Operation, doc *openapi.Doc, baseURL string, args map[string]any, creds Credentials) (*Result, error) {
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultClient
 	}
 	target := buildURL(baseURL, op, args)
 	body, err := requestBody(op, args)
@@ -163,8 +174,14 @@ func flatHeaders(h http.Header) map[string]string {
 }
 
 func toStr(v any) string {
-	if s, ok := v.(string); ok {
-		return s
+	switch t := v.(type) {
+	case string:
+		return t
+	case float64:
+		// JSON numbers decode to float64; format without exponent notation so
+		// large ints/timestamps become "1700000000", not "1.7e+09".
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	default:
+		return fmt.Sprintf("%v", t)
 	}
-	return fmt.Sprintf("%v", v)
 }

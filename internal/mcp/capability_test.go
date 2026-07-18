@@ -190,6 +190,15 @@ func TestRegisterCapabilities_NoBaseURL(t *testing.T) {
 	}
 }
 
+func TestRegisterCapabilities_CredsRequireBaseURL(t *testing.T) {
+	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(capSpec)}}, httpIface("http", "o.json"))
+	err := RegisterCapabilities(NewServer(nil, "t"), bundle,
+		CapabilityOptions{Creds: map[string]string{"apiKey": "secret"}}, io.Discard)
+	if err == nil {
+		t.Fatal("expected error: --auth without --base-url must be refused")
+	}
+}
+
 func TestCapabilityHandler_InvalidArgsAndInvokeError(t *testing.T) {
 	op := openapi.Operation{Method: "GET", Path: "/x"}
 	h := capabilityHandler(op, &openapi.Doc{}, "http://127.0.0.1:0", CapabilityOptions{})

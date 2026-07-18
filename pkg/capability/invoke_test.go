@@ -184,6 +184,51 @@ func TestInvokeReadError(t *testing.T) {
 	}
 }
 
+func TestInvokeNumericParams(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.Query().Get("since")
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	op := openapi.Operation{Method: "GET", Path: "/users/{id}", Parameters: []openapi.Parameter{
+		{Name: "id", In: "path"},
+		{Name: "since", In: "query"},
+	}}
+	// JSON numbers decode to float64; large values must not become exponent form.
+	_, err := Invoke(context.Background(), srv.Client(), op, nil, srv.URL,
+		map[string]any{"id": float64(1000000), "since": float64(1700000000)}, nil)
+	if err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if gotPath != "/users/1000000" {
+		t.Fatalf("path = %q (want /users/1000000)", gotPath)
+	}
+	if gotQuery != "1700000000" {
+		t.Fatalf("query since = %q (want 1700000000)", gotQuery)
+	}
+}
+
+func TestInvokeDoesNotFollowRedirects(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://evil.example.com/", http.StatusFound)
+	}))
+	defer srv.Close()
+	op := openapi.Operation{Method: "GET", Path: "/x"}
+	// nil client → safe defaultClient, which must NOT follow the redirect.
+	res, err := Invoke(context.Background(), nil, op, nil, srv.URL, nil, nil)
+	if err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected 302 (redirect not followed), got %d", res.StatusCode)
+	}
+	if res.Headers["Location"] != "https://evil.example.com/" {
+		t.Fatalf("expected Location header preserved, got %v", res.Headers)
+	}
+}
+
 func TestInvokeTransportError(t *testing.T) {
 	op := openapi.Operation{Method: "GET", Path: "/x"}
 	_, err := Invoke(context.Background(), http.DefaultClient, op, &openapi.Doc{},

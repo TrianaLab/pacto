@@ -127,6 +127,22 @@ func TestWithDescriptionNonMap(t *testing.T) {
 	}
 }
 
+func TestBuildToolsDedupNames(t *testing.T) {
+	// Two distinct paths with no operationId derive the same id; names must be
+	// disambiguated so neither operation is dropped.
+	doc := &openapi.Doc{Operations: []openapi.Operation{
+		{ID: "get_a_b", Method: "GET", Path: "/a.b"},
+		{ID: "get_a_b", Method: "GET", Path: "/a/b"},
+	}}
+	tools := BuildTools(doc, true)
+	if len(tools) != 2 {
+		t.Fatalf("expected 2 tools, got %d", len(tools))
+	}
+	if tools[0].Name != "get_a_b" || tools[1].Name != "get_a_b_2" {
+		t.Fatalf("names = %q, %q (want get_a_b, get_a_b_2)", tools[0].Name, tools[1].Name)
+	}
+}
+
 func TestIsMutating(t *testing.T) {
 	for _, m := range []string{"POST", "put", "Patch", "DELETE"} {
 		if !IsMutating(m) {

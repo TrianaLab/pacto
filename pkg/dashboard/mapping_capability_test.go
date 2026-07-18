@@ -34,6 +34,17 @@ func TestCapabilitiesFromContract(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesFromContract_DescriptionFallback(t *testing.T) {
+	c := &contract.Contract{Interfaces: []contract.Interface{
+		{Name: "http", Type: contract.InterfaceTypeHTTP, Contract: "o.json"},
+	}}
+	spec := `{"paths":{"/x":{"get":{"operationId":"getX","description":"Only a description"}}}}`
+	tools := capabilitiesFromContract(c, fstest.MapFS{"o.json": {Data: []byte(spec)}})
+	if len(tools) != 1 || tools[0].Summary != "Only a description" {
+		t.Fatalf("expected description used as summary, got %+v", tools)
+	}
+}
+
 func TestCapabilitiesFromContract_MultiInterfacePrefix(t *testing.T) {
 	c := &contract.Contract{Interfaces: []contract.Interface{
 		{Name: "alpha", Type: contract.InterfaceTypeHTTP, Contract: "a.json"},
