@@ -223,15 +223,6 @@
   }
 }
 
-/* Smooth in-page scrolling (back-to-top button, TOC anchors, section links).
-   Material's back-to-top uses a plain scroll with no behavior, so setting this on
-   the scroll root makes it animate. Disabled under reduced-motion. */
-@media (prefers-reduced-motion: no-preference) {
-  html {
-    scroll-behavior: smooth;
-  }
-}
-
 /* Scroll-driven hero reveal: as the first screen scrolls, the hero dissolves upward
    while the page content rises into view. Progressive enhancement — only browsers that
    support scroll-driven animations get it (older browsers keep the static compact hero),
