@@ -61,7 +61,7 @@ metadata:
 ```
 
 !!! note
-    The `resp` interface uses `type: grpc` as the closest available protocol type for Redis's RESP binary protocol — Pacto has no dedicated `tcp` type (see [interface fields](../contract-reference.md#interfaces) for the supported types). The `.proto` here is illustrative; omit the whole interface if you have no schema to publish.
+    The `resp` interface uses `type: grpc` as the closest available protocol type for Redis's RESP binary protocol — Pacto has no dedicated `tcp` type (see [interface fields](../contract-reference/sections.md#interfaces) for the supported types). The `.proto` here is illustrative; omit the whole interface if you have no schema to publish.
 
 ### Key decisions
 

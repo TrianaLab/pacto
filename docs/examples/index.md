@@ -38,7 +38,7 @@ dependencies:
     compatibility: "^7.0.0"
 ```
 
-See the [contract reference](../contract-reference.md#dependencies) for the full dependency schema.
+See the [contract reference](../contract-reference/sections.md#dependencies) for the full dependency schema.
 
 Then use `pacto graph` to visualize the full dependency tree:
 

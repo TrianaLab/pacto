@@ -223,6 +223,12 @@
   }
 }
 
+/* Drop the near-empty footer-meta bar (generator removed, no copyright). The
+   header already links the repo, so the footer is just prev/next navigation. */
+.md-footer-meta {
+  display: none;
+}
+
 /* Scroll-driven hero reveal: as the first screen scrolls, the hero dissolves upward
    while the page content rises into view. Progressive enhancement — only browsers that
    support scroll-driven animations get it (older browsers keep the static compact hero),

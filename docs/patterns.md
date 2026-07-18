@@ -105,7 +105,7 @@ configurations:
 
 **Why this works.** A one-component repo pays almost nothing for this layout, and adding a second component is one new bundle dir plus one root dependency. The root maps to a single deployment unit; each component is validated and versioned independently. The root is a lean aggregator — it carries only `service`, `chart` and `dependencies[]` (plus any `policies`), deliberately omitting `runtime`, `interfaces` and `configurations`. Your own tooling can distinguish a root from a component by naming convention (e.g. a `-root` suffix) or structurally — `dependencies[]` present, `configurations` absent — since Pacto itself does not key off the name.
 
-**Cross-links:** [`service.chart`](contract-reference.md#chart) · [`dependencies`](contract-reference.md#dependencies)
+**Cross-links:** [`service.chart`](contract-reference/sections.md#chart) · [`dependencies`](contract-reference/sections.md#dependencies)
 
 ---
 
@@ -171,7 +171,7 @@ Pacto doesn't invent this schema — it's derived from the provisioning claim's 
 
 **Versioning the contract is versioning the platform interface.** A bump from `postgres:17.0.0` to `postgres:18.0.0` lets services migrate at their own pace by ref-pinning, and the policy can tighten with each major version (see [pattern 5](#5-progressive-policy-versioning)).
 
-**Cross-links:** [`metadata`](contract-reference.md#metadata) · [`policies`](contract-reference.md#policies) · [`configurations`](contract-reference.md#configurations)
+**Cross-links:** [`metadata`](contract-reference/sections.md#metadata) · [`policies`](contract-reference/sections.md#policies) · [`configurations`](contract-reference/sections.md#configurations)
 
 ---
 
@@ -182,7 +182,7 @@ Pacto doesn't invent this schema — it's derived from the provisioning claim's 
 **Primitives.**
 
 - **`configurations` is an array.** Each entry is independently resolved against its own schema (`schema:` local file, or `ref:` another contract)
-- **Override files** ([Contract overrides](contract-reference.md#contract-overrides)) replace the array wholesale per environment
+- **Override files** ([Contract overrides](contract-reference/overrides.md#contract-overrides)) replace the array wholesale per environment
 
 **One file, multiple typed outputs.**
 
@@ -226,9 +226,9 @@ configurations:
 **Each value is written once** — no drift between a chart's `values.yaml` and a separate `claims/postgres.yaml`.
 
 !!! info
-    Override files use **Helm-style array replacement** for `configurations` — the override's array replaces the contract's array entirely, not merged by name (see [Contract overrides](contract-reference.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `schema` (and `values`) or a `ref` (schema-only). Inline `values` require a local `schema`; a `ref`-based entry carries neither.
+    Override files use **Helm-style array replacement** for `configurations` — the override's array replaces the contract's array entirely, not merged by name (see [Contract overrides](contract-reference/overrides.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `schema` (and `values`) or a `ref` (schema-only). Inline `values` require a local `schema`; a `ref`-based entry carries neither.
 
-**Cross-links:** [`configurations`](contract-reference.md#configurations) · [Contract overrides](contract-reference.md#contract-overrides) · [Environment-specific values files](contract-reference.md#environment-specific-values-files)
+**Cross-links:** [`configurations`](contract-reference/sections.md#configurations) · [Contract overrides](contract-reference/overrides.md#contract-overrides) · [Environment-specific values files](contract-reference/overrides.md#environment-specific-values-files)
 
 ---
 
@@ -275,7 +275,7 @@ configurations:
     ref: oci://ghcr.io/example/pactos/platform-service:2.0.0
 ```
 
-**Mix and match.** Teams using the platform's standard chart reference both. Teams that ship their own chart (a third-party Keycloak chart, a custom operator) still reference the policy — contract structure rules are universal — but vendor their own configuration schema locally. The moment a team needs inline or override `values`, it must vendor the schema: a `ref`-ed config is schema-only (see [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models)).
+**Mix and match.** Teams using the platform's standard chart reference both. Teams that ship their own chart (a third-party Keycloak chart, a custom operator) still reference the policy — contract structure rules are universal — but vendor their own configuration schema locally. The moment a team needs inline or override `values`, it must vendor the schema: a `ref`-ed config is schema-only (see [Configuration Schema Ownership Models](contract-reference/sections.md#configuration-schema-ownership-models)).
 
 ```yaml
 policies:
@@ -289,7 +289,7 @@ configurations:
 
 **One bundle, versioned.** The same JSON Schema validates the contract at CI time *and* the chart values at install time.
 
-**Cross-links:** [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models) · [`policies`](contract-reference.md#policies) · [Policy as a contract](platform-engineers.md#policy-enforcing-contract-standards)
+**Cross-links:** [Configuration Schema Ownership Models](contract-reference/sections.md#configuration-schema-ownership-models) · [`policies`](contract-reference/sections.md#policies) · [Policy as a contract](platform-engineers.md#policy-enforcing-contract-standards)
 
 ---
 
@@ -318,7 +318,7 @@ A service pinned to `platform-policy:2.0.0` keeps validating against v2's rules 
 
 **Coordinate with `pacto validate`.** When a service ref-bumps from `2.0.0` to `3.0.0`, `pacto diff` reports the changed policy ref; `pacto validate` resolves the new policy and fails *before* merge if the contract does not satisfy it — the team sees the gap and either fixes it or stays on `2.0.0`.
 
-**Cross-links:** [`policies`](contract-reference.md#policies) · [Change classification — Policy](contract-reference.md#policy)
+**Cross-links:** [`policies`](contract-reference/sections.md#policies) · [Change classification — Policy](contract-reference/diff.md#policy)
 
 ---
 
@@ -326,7 +326,7 @@ A service pinned to `platform-policy:2.0.0` keeps validating against v2's rules 
 
 **Problem.** The same component runs in dev, staging, and production with different replica counts, resource limits, database sizes, and secret sets. You want each environment self-contained, validated against the same schemas, and not maintained alongside Helm `values.yaml` files.
 
-**Primitives.** YAML files per environment, applied with `-f` (see [Contract overrides](contract-reference.md#contract-overrides)). One file per component per environment.
+**Primitives.** YAML files per environment, applied with `-f` (see [Contract overrides](contract-reference/overrides.md#contract-overrides)). One file per component per environment.
 
 **Layout.**
 
@@ -363,9 +363,9 @@ configurations:
 
 Each file is validated independently by `pacto validate -f overrides/values.<env>.yaml`, so a change scopes to one component — a typo in staging Postgres can't break an unrelated one, and reviewers see a small diff.
 
-**Precedence.** Contract inline `values` → `-f overrides/values.<env>.yaml` → `--set` (wins). Use inline values for cross-environment defaults, override files for environment-specific values and reserve `--set` for values your platform tooling controls (image tag, namespace, deploy-time labels). See [Precedence](contract-reference.md#precedence) for the full chain.
+**Precedence.** Contract inline `values` → `-f overrides/values.<env>.yaml` → `--set` (wins). Use inline values for cross-environment defaults, override files for environment-specific values and reserve `--set` for values your platform tooling controls (image tag, namespace, deploy-time labels). See [Precedence](contract-reference/overrides.md#precedence) for the full chain.
 
-**Cross-links:** [Contract overrides](contract-reference.md#contract-overrides) · [Precedence](contract-reference.md#precedence) · [Environment-specific values files](contract-reference.md#environment-specific-values-files)
+**Cross-links:** [Contract overrides](contract-reference/overrides.md#contract-overrides) · [Precedence](contract-reference/overrides.md#precedence) · [Environment-specific values files](contract-reference/overrides.md#environment-specific-values-files)
 
 ---
 

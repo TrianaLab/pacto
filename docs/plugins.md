@@ -110,7 +110,7 @@ Pacto writes a JSON object to the plugin's stdin:
 | `outputDir` | string | Absolute path where output files should go |
 | `options` | object | User-provided key-value options (from CLI flags) |
 
-The contract object mirrors [`pacto.yaml`](contract-reference.md) exactly.
+The contract object mirrors [`pacto.yaml`](contract-reference/index.md) exactly.
 
 ### Response (stdout)
 

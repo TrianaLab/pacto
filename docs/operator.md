@@ -45,7 +45,7 @@ A few checks have deliberately shallow semantics worth calling out:
 
 - **Health and metrics endpoints** are tested for *reachability and basic structure* — the health probe expects a healthy HTTP response, and the metrics probe looks for Prometheus exposition markers (`# HELP` / `# TYPE`). Neither validates the response body against the declared OpenAPI/format.
 - **Port alignment** matches by port **number** between the contract's interface ports and the Kubernetes Service ports.
-- **Scaling** compares observed replica bounds against `scaling.min`/`max`/`replicas`. Because the contract models `min`/`max` as plain integers, an explicit `0` is indistinguishable from "unset" and is treated as unset — so a declared lower bound of `0` is not reported (see the [scaling reference](contract-reference.md#scaling)).
+- **Scaling** compares observed replica bounds against `scaling.min`/`max`/`replicas`. Because the contract models `min`/`max` as plain integers, an explicit `0` is indistinguishable from "unset" and is treated as unset — so a declared lower bound of `0` is not reported (see the [scaling reference](contract-reference/sections.md#scaling)).
 
 Each check produces a structured condition on the CRD status with a type, status, reason, and severity. The operator aggregates these into a contract status:
 
@@ -84,7 +84,7 @@ found" result.
 
 ## Readiness status
 
-In addition to runtime compliance, the operator evaluates a contract's declared **readiness** — a `pactoVersion: "1.2"` feature. Readiness is a **separate dimension** from contract compliance: a low readiness score never changes `ContractStatus`. See the [Contract Reference](contract-reference.md#readiness) for the scoring model (weights, `expires`, `minScore` and `partialCredit` defaults).
+In addition to runtime compliance, the operator evaluates a contract's declared **readiness** — a `pactoVersion: "1.2"` feature. Readiness is a **separate dimension** from contract compliance: a low readiness score never changes `ContractStatus`. See the [Contract Reference](contract-reference/sections.md#readiness) for the scoring model (weights, `expires`, `minScore` and `partialCredit` defaults).
 
 When a contract declares `readiness`, the operator writes the derived assessment to `status.readiness`:
 

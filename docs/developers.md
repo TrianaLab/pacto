@@ -50,7 +50,7 @@ configurations:
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
-See [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models) for details.
+See [Configuration Schema Ownership Models](contract-reference/sections.md#configuration-schema-ownership-models) for details.
 
 If your service exposes an HTTP API using FastAPI or Huma, use the `openapi-infer` plugin to extract an OpenAPI 3.1 spec from your source code:
 
@@ -118,7 +118,7 @@ runtime:
     path: /health
 ```
 
-Choose your `workload` (`service` vs `job`/`scheduled`), `state.type` (`stateless`/`stateful`/`hybrid`) and `dataCriticality`; these determine how platforms provision infrastructure for your service. See [runtime.state](contract-reference.md#runtimestate) in the Contract Reference for the full explanation.
+Choose your `workload` (`service` vs `job`/`scheduled`), `state.type` (`stateless`/`stateful`/`hybrid`) and `dataCriticality`; these determine how platforms provision infrastructure for your service. See [runtime.state](contract-reference/sections.md#runtimestate) in the Contract Reference for the full explanation.
 
 ### 5. Declare dependencies
 
@@ -170,7 +170,7 @@ policies:
     ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
 ```
 
-A policy is a JSON Schema that validates the contract itself — enforcing organizational standards like requiring health endpoints or mandating specific ports. See [policies](contract-reference.md#policies) in the Contract Reference for details.
+A policy is a JSON Schema that validates the contract itself — enforcing organizational standards like requiring health endpoints or mandating specific ports. See [policies](contract-reference/sections.md#policies) in the Contract Reference for details.
 
 ### 7. Reference your Helm chart (optional)
 
@@ -210,9 +210,9 @@ Validation catches errors in four layers:
 3. **Semantic** — strategy consistency warnings
 4. **Policy enforcement** — referenced policies are resolved and enforced
 
-See [Validation layers](contract-reference.md#validation-layers) for the full rules and error codes.
+See [Validation layers](contract-reference/validation.md#validation-layers) for the full rules and error codes.
 
-To also enforce the readiness gate — the `readiness:` block `pacto init` scaffolds into your contract — run `pacto validate --readiness`. It fails if the derived readiness score is below `minScore`. Plain `pacto validate` does not enforce it because the gate is time-dependent (check expiry is compared against the run time). See [Contract Reference — readiness](contract-reference.md#readiness).
+To also enforce the readiness gate — the `readiness:` block `pacto init` scaffolds into your contract — run `pacto validate --readiness`. It fails if the derived readiness score is below `minScore`. Plain `pacto validate` does not enforce it because the gate is time-dependent (check expiry is compared against the run time). See [Contract Reference — readiness](contract-reference/sections.md#readiness).
 
 ### 9. Pack and push
 
@@ -251,7 +251,7 @@ pacto validate my-service --set configurations[0].values.DB_HOST=localhost
 
 Overrides work on every command that takes a contract reference, with two exceptions: `diff` overrides each side with `--old-values`/`--old-set` and `--new-values`/`--new-set` (it has no `-f` or plain `--values`), and `pacto push` reserves `-f` for `--force`, so spell out `--values` there.
 
-For the per-command flag list see the [CLI reference](cli-reference.md); for override precedence and syntax see the [Contract Reference — Contract overrides](contract-reference.md#contract-overrides).
+For the per-command flag list see the [CLI reference](cli-reference.md); for override precedence and syntax see the [Contract Reference — Contract overrides](contract-reference/overrides.md#contract-overrides).
 
 ---
 
@@ -266,7 +266,7 @@ Each common shape has a ready-made worked example you can copy:
 | API with local cache | `hybrid` | [hybrid-cache](examples/hybrid-cache.md) |
 | Scheduled job | `stateless` (workload `scheduled`) | [cron-worker](examples/cron-worker.md) |
 
-See [runtime.state](contract-reference.md#runtimestate) for the full field spec.
+See [runtime.state](contract-reference/sections.md#runtimestate) for the full field spec.
 
 Use `scaling.replicas` instead of `min`/`max` when the service should always run an exact number of instances:
 
@@ -326,7 +326,7 @@ my-service/
     integration.md
 ```
 
-Documentation ships inside the OCI artifact, versioned and distributed with the contract; it never affects validation or diffing. See the [Contract Reference — `docs/`](contract-reference.md#docs-optional-documentation) for the full behavior.
+Documentation ships inside the OCI artifact, versioned and distributed with the contract; it never affects validation or diffing. See the [Contract Reference — `docs/`](contract-reference/index.md#docs-optional-documentation) for the full behavior.
 
 Good candidates for `docs/`:
 
@@ -360,7 +360,7 @@ syft . -o spdx-json=sbom/sbom.spdx.json
 syft . -o cyclonedx-json=sbom/bom.cdx.json
 ```
 
-Pacto discovers the SBOM by scanning `sbom/` for recognized extensions — no contract field references it. For the supported formats (SPDX 2.3, CycloneDX 1.5) and how `pacto diff` reports package-level changes, see the [Contract Reference — `sbom/`](contract-reference.md#sbom-optional-software-bill-of-materials).
+Pacto discovers the SBOM by scanning `sbom/` for recognized extensions — no contract field references it. For the supported formats (SPDX 2.3, CycloneDX 1.5) and how `pacto diff` reports package-level changes, see the [Contract Reference — `sbom/`](contract-reference/index.md#sbom-optional-software-bill-of-materials).
 
 ---
 

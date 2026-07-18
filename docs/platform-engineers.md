@@ -17,9 +17,9 @@ Every question you'd normally have to ask the dev team — or discover in produc
 | `runtime.lifecycle.upgradeStrategy: ordered` | Use ordered pod management |
 | `runtime.lifecycle.gracefulShutdownSeconds` | Set termination grace period |
 | `scaling.min` / `scaling.max` | Configure auto-scaling bounds |
-| `configurations[].schema` / `configurations[].ref` | Validate required configuration, generate config templates. Platform teams can publish a shared schema that services vendor into their bundles or reference via OCI — the schema then expresses what the platform *provides*. See [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models) |
-| `policies[].ref` | Enforce organizational standards — require health endpoints, mandate ports, enforce visibility rules. See [policies](contract-reference.md#policies) |
-| `readiness.checks[]` | Gate promotion and surface operational readiness — declare dashboard, runbook, security-review, SLO, AI-eval evidence; each check carries a weight; the assessment carries a single expiry date; derive a readiness score. Enforce required checks via policies. See [readiness](contract-reference.md#readiness) |
+| `configurations[].schema` / `configurations[].ref` | Validate required configuration, generate config templates. Platform teams can publish a shared schema that services vendor into their bundles or reference via OCI — the schema then expresses what the platform *provides*. See [Configuration Schema Ownership Models](contract-reference/sections.md#configuration-schema-ownership-models) |
+| `policies[].ref` | Enforce organizational standards — require health endpoints, mandate ports, enforce visibility rules. See [policies](contract-reference/sections.md#policies) |
+| `readiness.checks[]` | Gate promotion and surface operational readiness — declare dashboard, runbook, security-review, SLO, AI-eval evidence; each check carries a weight; the assessment carries a single expiry date; derive a readiness score. Enforce required checks via policies. See [readiness](contract-reference/sections.md#readiness) |
 | `dependencies[].ref` | Validate dependency graph, check compatibility |
 | `docs/` *(optional)* | Access service documentation, runbooks, integration guides |
 | `sbom/` *(optional)* | Audit third-party packages, track license compliance |
@@ -178,7 +178,7 @@ configurations:
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
-See [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models) for the full breakdown of service-defined vs. platform-defined schemas.
+See [Configuration Schema Ownership Models](contract-reference/sections.md#configuration-schema-ownership-models) for the full breakdown of service-defined vs. platform-defined schemas.
 
 ### Policy: enforcing contract standards
 
@@ -197,7 +197,7 @@ See [The platform-published policy + schema contract](patterns.md#4-the-platform
 !!! warning "Where refs are enforced"
     Ref-based policies are enforced by `pacto validate` and `pacto push` (fail-closed — an unresolvable ref is a hard `POLICY_REF_UNRESOLVED` error, which is how push blocks non-compliant publishes). `pacto pack` and the operator run local-only validation: they enforce only inline `schema` policies and emit a `POLICY_REF_NOT_ENFORCED` warning for refs.
 
-See [Layer 4: Policy enforcement](contract-reference.md#layer-4-policy-enforcement) for the resolution semantics (recursive N-hop, cycle detection, error codes) and [policies](contract-reference.md#policies) for the full specification.
+See [Layer 4: Policy enforcement](contract-reference/validation.md#layer-4-policy-enforcement) for the resolution semantics (recursive N-hop, cycle detection, error codes) and [policies](contract-reference/sections.md#policies) for the full specification.
 
 !!! info
     Configuration and policy are complementary:
@@ -229,7 +229,7 @@ payments-api
 └─ postgres      -16.0.0
 ```
 
-Every change is classified as `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING`; when both bundles include an `sbom/` directory, package-level SBOM changes are reported but stay informational (they don't affect the classification or exit code). See [Change Classification Rules](contract-reference.md#change-classification-rules) for the full table plus the OpenAPI, JSON-Schema and SBOM diff mechanics.
+Every change is classified as `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING`; when both bundles include an `sbom/` directory, package-level SBOM changes are reported but stay informational (they don't affect the classification or exit code). See [Change Classification Rules](contract-reference/diff.md#change-classification-rules) for the full table plus the OpenAPI, JSON-Schema and SBOM diff mechanics.
 
 ---
 
@@ -259,7 +259,7 @@ steps:
     run: pacto graph .
 ```
 
-`pacto lock --check` acts as a supply-chain reproducibility gate — it fails when a contributor edited dependencies or references without re-running `pacto lock`. See [Lockfile](lockfile.md#pacto-lock--check).
+`pacto lock --check` acts as a supply-chain reproducibility gate — it fails when a contributor edited dependencies or references without re-running `pacto lock`. See [Lockfile](lockfile.md#pacto-lock-check).
 
 Using GitHub Actions? See [GitHub Actions integration](github-actions.md) for the equivalent workflow built on [pacto-actions](https://github.com/trianalab/pacto-actions), including multi-service workflows, doc generation and authentication options.
 

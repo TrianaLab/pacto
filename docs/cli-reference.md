@@ -150,7 +150,7 @@ When both bundles include an `sbom/` directory with recognized SBOM files (`.spd
 
 When dependencies change between the old and new contracts (version upgrades, additions, or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
 
-See [Change Classification](contract-reference.md#change-classification-rules) for the full rules.
+See [Change Classification](contract-reference/diff.md#change-classification-rules) for the full rules.
 
 ---
 
@@ -658,7 +658,7 @@ pacto validate [dir | oci://ref] [flags]
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-The `--readiness` gate is **opt-in** because it is time-dependent: it compares each check's `expires` against the run time, which would make plain `validate` non-deterministic. Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). See the [readiness reference](contract-reference.md#readiness) for the score and gate semantics.
+The `--readiness` gate is **opt-in** because it is time-dependent: it compares each check's `expires` against the run time, which would make plain `validate` non-deterministic. Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). See the [readiness reference](contract-reference/sections.md#readiness) for the score and gate semantics.
 
 **Exit code:** Non-zero if validation fails.
 

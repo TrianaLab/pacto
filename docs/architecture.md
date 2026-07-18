@@ -114,7 +114,7 @@ flowchart LR
     C --> D[Layer 4<br/>Policy<br/>Enforcement]
 ```
 
-Each layer short-circuits -- if it produces errors, subsequent layers are skipped. See [Validation layers](contract-reference.md#validation-layers) for the per-layer rules and error codes.
+Each layer short-circuits -- if it produces errors, subsequent layers are skipped. See [Validation layers](contract-reference/validation.md#validation-layers) for the per-layer rules and error codes.
 
 Also includes **runtime validation** (`ValidateRuntime`) -- a foundational abstraction for comparing a contract's declared state against observed runtime conditions. This is consumed by the [Kubernetes Operator](operator.md) without introducing platform-specific dependencies into the core library.
 

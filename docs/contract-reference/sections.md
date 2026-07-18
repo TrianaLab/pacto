@@ -1,200 +1,6 @@
-# Contract Reference (v1.2)
-A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface — interfaces, dependencies, runtime behavior, configuration, scaling and readiness. This page covers every section, field, validation rule and change classification rule.
+# Contract sections
 
-Each `interfaces`, `configurations` and `policies` entry points at a schema you already have — an OpenAPI spec, a protobuf or event definition, a JSON Schema — so a contract composes the interfaces you already own rather than inventing a new configuration language. On top of that it adds what no single schema can express: ownership, dependencies, compatibility, readiness and how they change over time.
-
----
-
-The canonical JSON Schemas are available per version:
-[`schema/pacto-v1.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.0.schema.json),
-[`schema/pacto-v1.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.1.schema.json) and
-[`schema/pacto-v1.2.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.2.schema.json).
-The schema is selected by the contract's [`pactoVersion`](#pactoversion).
-
----
-
-## Bundle structure
-
-A Pacto bundle is a self-contained directory (or OCI artifact) with the following layout:
-
-```
-/
-├── pacto.yaml
-├── interfaces/              ← optional
-│   ├── openapi.yaml
-│   ├── service.proto
-│   └── events.yaml
-├── configuration/           ← optional
-│   └── schema.json
-├── policy/                  ← optional
-│   └── schema.json
-├── docs/                    ← optional
-│   ├── README.md
-│   ├── architecture.md
-│   ├── runbook.md
-│   └── integration.md
-└── sbom/                    ← optional
-    └── sbom.spdx.json
-```
-
-Only `pacto.yaml` is required. All other directories are optional — include them when your contract references files in them. Validation enforces that every file referenced by `pacto.yaml` exists within the bundle.
-
-When you run `pacto push`, the bundle is packaged as an OCI artifact — versioned, content-addressed, and distributable through any OCI registry. This is how contracts travel between teams, services, and environments.
-
-### `docs/` — Optional documentation
-
-The `docs/` directory is an optional convention for including human-readable documentation alongside the contract. Its contents are treated as **informational metadata** — they travel with the contract but have no effect on contract semantics, validation, or diff classification.
-
-**Key properties:**
-
-- **Optional.** Bundles without `docs/` are fully valid. No existing workflow breaks.
-- **No contract semantics.** Documentation is not part of the contract. It does not influence validation, diffing, or compatibility checks.
-- **Self-contained.** Documentation lives inside the OCI artifact, so it is versioned, distributed, and cached alongside the contract it describes.
-- **Format-flexible.** Markdown is the natural default, but there are no restrictions on file formats inside `docs/`.
-
-**What documentation could include:**
-
-- Service overview — what the service does, its purpose within the platform
-- Architecture notes — internal design, data flow, key dependencies
-- Operational runbooks — incident response, scaling procedures, known failure modes
-- Integration guides — how consumers should interact with the service's interfaces
-
-### `sbom/` — Optional Software Bill of Materials
-
-The `sbom/` directory is an optional convention for including a Software Bill of Materials alongside the contract. Like `docs/`, its contents are treated as **informational metadata** — they travel with the contract but have no effect on contract semantics or validation.
-
-Unlike `docs/`, SBOM files **are included in diff output**. When both the old and new bundles contain an SBOM, `pacto diff` reports package-level changes (added, removed, version, license or supplier modified). These changes are informational only — they never affect the overall diff classification.
-
-**Supported formats:**
-
-| Format | File extension | Spec version |
-|--------|---------------|--------------|
-| [SPDX](https://spdx.dev/) | `.spdx.json` | 2.3 |
-| [CycloneDX](https://cyclonedx.org/) | `.cdx.json` | 1.5 |
-
-Pacto auto-detects the format by file extension. Place one or more SBOM files directly in the `sbom/` directory (subdirectories are not scanned).
-
-**Key properties:**
-
-- **Optional.** Bundles without `sbom/` are fully valid.
-- **Convention-based.** No contract-level field references the SBOM — Pacto discovers it automatically, just like `docs/`.
-- **Informational diffing.** `pacto diff` reports SBOM package changes but they don't affect breaking/non-breaking classification.
-- **Self-contained.** The SBOM lives inside the OCI artifact, versioned and distributed alongside the contract.
-
-**Generating an SBOM:**
-
-Generate with any standard tool ([Syft](https://github.com/anchore/syft), [Trivy](https://github.com/aquasecurity/trivy), [cdxgen](https://github.com/CycloneDX/cdxgen)) writing SPDX/CycloneDX JSON into `sbom/`.
-
----
-
-## Full example
-
-```yaml
-pactoVersion: "1.2"
-
-service:
-  name: payments-api
-  version: 2.1.0
-  owner:
-    team: payments
-    dri: alice
-  image:
-    ref: ghcr.io/acme/payments-api:2.1.0
-    private: true
-  chart:
-    ref: oci://ghcr.io/acme/payments-chart
-    version: 2.1.0
-
-interfaces:
-  - name: rest-api
-    type: http
-    port: 8080
-    visibility: public
-    contract: interfaces/openapi.yaml
-
-  - name: grpc-api
-    type: grpc
-    port: 9090
-    visibility: internal
-    contract: interfaces/service.proto
-
-  - name: order-events
-    type: event
-    visibility: internal
-    contract: interfaces/events.yaml
-
-configurations:
-  - name: default
-    schema: configuration/schema.json
-
-policies:
-  - name: platform-policy
-    ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
-
-dependencies:
-  - name: auth
-    ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123def456
-    required: true
-    compatibility: "^2.0.0"
-
-  - name: notifications
-    ref: oci://ghcr.io/acme/notifications-pacto:1.0.0
-    required: false
-    compatibility: "~1.0.0"
-
-runtime:
-  workload: service
-
-  state:
-    type: stateful
-    persistence:
-      scope: local
-      durability: persistent
-    dataCriticality: high
-
-  lifecycle:
-    upgradeStrategy: ordered
-    gracefulShutdownSeconds: 30
-
-  health:
-    interface: rest-api
-    path: /health
-    initialDelaySeconds: 15
-
-  metrics:
-    interface: rest-api
-    path: /metrics
-
-scaling:
-  min: 2
-  max: 10
-
-metadata:
-  team: payments
-  tier: critical
-```
-
----
-
-## Minimal contract
-
-Only `pactoVersion` and `service` are required. All other sections — `interfaces`, `runtime`, `configurations`, `policies`, `dependencies`, `scaling`, and `metadata` — are optional:
-
-```yaml
-pactoVersion: "1.0"
-
-service:
-  name: my-library
-  version: 1.0.0
-```
-
-This is useful for lightweight dependency declarations, shared libraries, or contracts where runtime semantics are managed externally.
-
----
-
-## Sections
-
-### `pactoVersion`
+## `pactoVersion`
 
 The contract specification version. Supported values are `"1.0"`, `"1.1"` and `"1.2"`.
 
@@ -216,7 +22,7 @@ is only accepted under `pactoVersion: "1.2"`; declaring it under `1.0` or `1.1` 
 
 ---
 
-### `service`
+## `service`
 
 Identifies the service.
 
@@ -228,14 +34,14 @@ Identifies the service.
 | `image` | [Image](#image) | No | |
 | `chart` | [Chart](#chart) | No | |
 
-#### Image
+### Image
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `ref` | string | Yes | Non-empty. Valid OCI image reference |
 | `private` | boolean | No | |
 
-#### Chart
+### Chart
 
 Optional Helm chart reference for deploying the service.
 
@@ -247,7 +53,7 @@ Optional Helm chart reference for deploying the service.
 !!! warning
     Local chart references are only allowed during development. `pacto push` rejects contracts with local chart references — use an OCI reference before publishing.
 
-#### OwnerInfo
+### OwnerInfo
 
 Structured ownership metadata. All fields are optional but at least one must be present.
 
@@ -257,7 +63,7 @@ Structured ownership metadata. All fields are optional but at least one must be 
 | `dri` | string | No | Directly Responsible Individual |
 | `contacts` | [OwnerContact](#ownercontact)[] | No | Contact points |
 
-#### OwnerContact
+### OwnerContact
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -292,11 +98,11 @@ The dashboard uses a canonical owner key for aggregation and navigation:
 1. If owner has `team` → uses `team`
 2. If owner has `dri` (no team) → uses `dri`
 
-This key is used consistently across the owners aggregation view (`#/owners`), owner detail view (`#/owners/:key`), service list filtering and dependency graph highlighting. See [Platform engineers — dashboard](platform-engineers.md) for how the dashboard renders these views.
+This key is used consistently across the owners aggregation view (`#/owners`), owner detail view (`#/owners/:key`), service list filtering and dependency graph highlighting. See [Platform engineers — dashboard](../platform-engineers.md) for how the dashboard renders these views.
 
 ---
 
-### `interfaces`
+## `interfaces`
 
 Declares the service's communication boundaries. Optional — a service with no network interfaces (e.g. a batch job or shared library) may omit this section entirely. The `contract` field points at the interface definition you already publish — an OpenAPI spec, a `.proto` or an event schema — so Pacto references your existing interface rather than redefining it.
 
@@ -308,7 +114,7 @@ Declares the service's communication boundaries. Optional — a service with no 
 | `visibility` | string | No | Enum: `public`, `internal`. Default: `internal` |
 | `contract` | string | Conditional | Non-empty. Required for `grpc` and `event` |
 
-#### Conditional requirements
+### Conditional requirements
 
 | Interface type | Required fields |
 |---|---|
@@ -321,7 +127,7 @@ Declares the service's communication boundaries. Optional — a service with no 
 
 ---
 
-### `configurations`
+## `configurations`
 
 Defines the service's configuration model. Optional — services with no configuration schema may omit this section entirely.
 
@@ -338,12 +144,12 @@ When `schema` is used, the configuration schema is a local file within the bundl
 
 Required configuration keys are derived from the JSON Schema's `required` array.
 
-The optional `values` field provides default configuration values that are validated against the local `schema`. A `ref:` entry carries no `values` — the two are mutually exclusive (see above); to attach values, vendor a local `schema:`. Values are useful for documenting expected defaults or providing environment-specific overrides via the `--set` and `--values` flags (see [Contract overrides](#contract-overrides)).
+The optional `values` field provides default configuration values that are validated against the local `schema`. A `ref:` entry carries no `values` — the two are mutually exclusive (see above); to attach values, vendor a local `schema:`. Values are useful for documenting expected defaults or providing environment-specific overrides via the `--set` and `--values` flags (see [Contract overrides](overrides.md#contract-overrides)).
 
 !!! tip
     All files referenced by the contract — including the configuration schema — are packaged into the bundle when you run `pacto push`. The bundle is a self-contained OCI artifact that includes `pacto.yaml`, interface contracts, the configuration schema, and any other files in the contract directory.
 
-#### External configuration schema reference
+### External configuration schema reference
 
 Instead of vendoring a configuration schema into the bundle, you can reference another Pacto contract that contains it. The referenced contract's bundle must have the schema at the fixed path `configuration/schema.json`:
 
@@ -362,9 +168,9 @@ This enables centralized configuration management — a platform team publishes 
     Local configuration references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local configuration refs — all refs must use `oci://` before publishing.
 
 !!! tip
-    Configuration references are pinned in `pacto.lock` alongside dependencies. The full transitive reference closure (N-hop config/policy jumps) is resolved and verified. See [Lockfile](lockfile.md).
+    Configuration references are pinned in `pacto.lock` alongside dependencies. The full transitive reference closure (N-hop config/policy jumps) is resolved and verified. See [Lockfile](../lockfile.md).
 
-#### Secret references
+### Secret references
 
 Secrets should never be stored as literal values in a contract. Instead, use a reference convention that the platform resolves at deployment time. The contract declares *what* the service needs; the platform decides *how* to provide it.
 
@@ -396,11 +202,11 @@ Your configuration JSON Schema should declare secret fields as strings:
 
 ---
 
-### Configuration Schema Ownership Models
+## Configuration Schema Ownership Models
 
 The configurations schema field is an **interface**. It defines a boundary between a service and its environment. The schema itself is always a JSON Schema document — but its *meaning* depends on who defines it. Because it is a plain JSON Schema, this is usually a schema you already have rather than one written for Pacto — a service's configuration interface is often its Helm chart's `values.schema.json`, vendored into the bundle (see below). Compose the interface you already have; Pacto is deliberately not another configuration language.
 
-#### Service-Defined Schema
+### Service-Defined Schema
 
 When a service defines its own configuration schema, the schema expresses **what the service requires** to run. The service author knows what configuration keys the service reads, what types they expect, and which ones are mandatory.
 
@@ -410,9 +216,9 @@ configurations:
     schema: configuration/schema.json
 ```
 
-The contract carries its own requirements, so each team defines exactly what its service needs and the bundle deploys on any platform. See [Composition patterns](patterns.md) for when to choose this model.
+The contract carries its own requirements, so each team defines exactly what its service needs and the bundle deploys on any platform. See [Composition patterns](../patterns.md) for when to choose this model.
 
-#### Platform-Defined Schema
+### Platform-Defined Schema
 
 When a platform team defines a shared configuration schema, the schema expresses **what the platform provides**. It describes the platform's capabilities — databases, caches, observability endpoints, feature flags — as a structured contract.
 
@@ -434,7 +240,7 @@ configurations:
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
-All services share a common configuration vocabulary the platform team controls and validates centrally — whether referenced via OCI or vendored locally. See [Platform engineers](platform-engineers.md) and [Composition patterns](patterns.md) for the platform-as-a-product recipe.
+All services share a common configuration vocabulary the platform team controls and validates centrally — whether referenced via OCI or vendored locally. See [Platform engineers](../platform-engineers.md) and [Composition patterns](../patterns.md) for the platform-as-a-product recipe.
 
 !!! info
     In Pacto, the configuration schema is an **interface**. Depending on ownership, it describes either:
@@ -444,13 +250,13 @@ All services share a common configuration vocabulary the platform team controls 
 
     The schema format and validation mechanics are identical in both cases. The difference is purely one of ownership and intent.
 
-#### Hybrid Approaches
+### Hybrid Approaches
 
 In practice, organizations may combine both models — a platform-defined base schema that covers shared infrastructure (database connections, observability, secrets) with service-specific extensions for application-level configuration. Pacto does not prescribe a specific pattern; the schema format is identical regardless of where it originates. Since `configurations` is an array, you can have multiple named entries — one referencing a platform schema and another defining a service-specific schema. Note that `schema` and `ref` are mutually exclusive within a single entry — choose one approach per entry.
 
 ---
 
-### `policies`
+## `policies`
 
 Defines or references policy constraints for the contract. Optional — services not subject to a policy may omit this section entirely. A policy is a JSON Schema that validates the contract itself, enabling platform teams to enforce organizational standards (e.g., require health endpoints, mandate specific ports, enforce visibility rules).
 
@@ -464,7 +270,7 @@ When present, each entry must have a `name` and either `schema` or `ref` specifi
 
 **`schema` and `ref` are mutually exclusive** — a contract either defines its own policy inline or references an external one, not both.
 
-#### Policy as a contract author
+### Policy as a contract author
 
 To define a policy, create a JSON Schema that describes constraints on `pacto.yaml` contracts and place it at `policy/schema.json` in the bundle:
 
@@ -503,7 +309,7 @@ Example policy schema (`policy/schema.json`) requiring all contracts to have a h
 }
 ```
 
-#### Policy as a contract consumer
+### Policy as a contract consumer
 
 To adopt a policy, reference the policy contract via OCI:
 
@@ -525,9 +331,9 @@ When a consumer references a policy contract, Pacto uses conditional resolution:
     `pacto push` resolves and enforces all remote `policies[].ref` entries before publishing. If the contract violates any referenced policy schema, the push is rejected. This ensures non-compliant contracts are never published to the registry.
 
 !!! tip
-    Policy references are pinned in `pacto.lock` alongside dependencies and config references. The full transitive reference closure is resolved and verified. See [Lockfile](lockfile.md).
+    Policy references are pinned in `pacto.lock` alongside dependencies and config references. The full transitive reference closure is resolved and verified. See [Lockfile](../lockfile.md).
 
-#### Bundle structure with policy
+### Bundle structure with policy
 
 ```
 /
@@ -543,7 +349,7 @@ When a consumer references a policy contract, Pacto uses conditional resolution:
 
 ---
 
-### `dependencies`
+## `dependencies`
 
 Declares dependencies on other services via their Pacto contracts.
 
@@ -557,7 +363,7 @@ Declares dependencies on other services via their Pacto contracts.
 !!! note
     `required` is informational. Pacto itself does not act on it — it is metadata for downstream consumers (the dashboard uses it to compute blast radius; deployment tooling may use it to gate rollout). Treat it as a declaration of *intent*, not a deployment-time guard.
 
-#### Dependency reference schemes
+### Dependency reference schemes
 
 | Scheme | Example | Description |
 |--------|---------|-------------|
@@ -571,7 +377,7 @@ When an `oci://` reference omits the tag, pacto queries the registry for availab
 !!! note
     Validation rejects OCI references whose tag or digest is malformed. Tags must follow the OCI tag grammar (`[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`), and digests must be well-formed (`sha256:<64 hex>` or `sha512:<128 hex>`). The same check applies to `service.image.ref`, `service.chart.ref`, and config/policy refs.
 
-#### Compatibility constraint examples
+### Compatibility constraint examples
 
 Pacto uses [Masterminds/semver](https://github.com/Masterminds/semver#checking-version-constraints) constraint syntax:
 
@@ -593,11 +399,11 @@ Pacto uses [Masterminds/semver](https://github.com/Masterminds/semver#checking-v
     If your service depends on a cloud-managed resource (e.g. GCP Cloud SQL, AWS SNS, Azure Service Bus), create a lightweight Pacto contract representing that resource and reference it as a dependency. This makes cloud dependencies explicit and version-tracked alongside your service contracts.
 
 !!! tip
-    Use `pacto lock` to pin the full transitive dependency closure to exact digests. When a `pacto.lock` file is present, every resolved dependency must match the pinned digest or the command fails. See [Lockfile](lockfile.md) for details.
+    Use `pacto lock` to pin the full transitive dependency closure to exact digests. When a `pacto.lock` file is present, every resolved dependency must match the pinned digest or the command fails. See [Lockfile](../lockfile.md) for details.
 
 ---
 
-### `runtime`
+## `runtime`
 
 Describes how the service behaves at runtime. This section is what lets platforms make informed deployment decisions without guessing. Optional — a minimal contract (e.g. a lightweight dependency declaration) may omit it entirely.
 
@@ -609,7 +415,7 @@ Describes how the service behaves at runtime. This section is what lets platform
 | `health` | [Health](#runtimehealth) | No |
 | `metrics` | [Metrics](#runtimemetrics) | No |
 
-#### `runtime.workload`
+### `runtime.workload`
 
 A plain string describing the workload type. Enum: `service`, `job`, `scheduled`.
 
@@ -619,7 +425,7 @@ A plain string describing the workload type. Enum: `service`, `job`, `scheduled`
 | `job` | A one-shot task that runs to completion and then exits |
 | `scheduled` | A task that runs on a recurring schedule (e.g. cron) |
 
-#### `runtime.state`
+### `runtime.state`
 
 Instead of platforms guessing whether a service needs persistent storage, stable network identity or special upgrade procedures, the contract declares it explicitly.
 
@@ -639,7 +445,7 @@ Instead of platforms guessing whether a service needs persistent storage, stable
 
 **How platforms interpret state:**
 
-The combination of `state.type`, `persistence.scope` and `persistence.durability` tells a platform exactly what infrastructure a service needs — these are platform-agnostic signals, not Kubernetes prescriptions. See [Platform engineers](platform-engineers.md) for the full contract-field → platform-decision mapping (Deployment/StatefulSet/PVC and the equivalents on Nomad, ECS or a custom platform).
+The combination of `state.type`, `persistence.scope` and `persistence.durability` tells a platform exactly what infrastructure a service needs — these are platform-agnostic signals, not Kubernetes prescriptions. See [Platform engineers](../platform-engineers.md) for the full contract-field → platform-decision mapping (Deployment/StatefulSet/PVC and the equivalents on Nomad, ECS or a custom platform).
 
 **Data criticality:**
 
@@ -649,7 +455,7 @@ The combination of `state.type`, `persistence.scope` and `persistence.durability
 | `medium` | Loss has moderate impact. May require manual recovery. |
 | `high` | Loss has severe business impact. Must be prevented. Implies backups, replication, stricter disruption budgets. |
 
-##### Persistence
+#### Persistence
 
 | Field | Type | Required | Enum values |
 |-------|------|----------|-------------|
@@ -661,7 +467,7 @@ The combination of `state.type`, `persistence.scope` and `persistence.durability
 - **`ephemeral`** — data can be lost on restart without impact. Caches, temp files, reconstructible state.
 - **`persistent`** — data must survive restarts. Requires durable storage.
 
-##### State invariants
+#### State invariants
 
 | Condition | Constraint |
 |---|---|
@@ -670,7 +476,7 @@ The combination of `state.type`, `persistence.scope` and `persistence.durability
 
 These invariants are enforced by both the JSON Schema and cross-field validation. A stateless service with persistent storage is a contradiction — validation catches it.
 
-#### `runtime.lifecycle`
+### `runtime.lifecycle`
 
 Optional. Describes upgrade and shutdown behavior.
 
@@ -679,7 +485,7 @@ Optional. Describes upgrade and shutdown behavior.
 | `upgradeStrategy` | string | No | `rolling`, `recreate`, `ordered` |
 | `gracefulShutdownSeconds` | integer | No | Minimum: 0 |
 
-#### `runtime.health`
+### `runtime.health`
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -687,7 +493,7 @@ Optional. Describes upgrade and shutdown behavior.
 | `path` | string | Conditional | Required when health interface is `http` |
 | `initialDelaySeconds` | integer | No | Minimum: 0 |
 
-#### `runtime.metrics`
+### `runtime.metrics`
 
 Optional. Tells the platform where to scrape metrics from the service (e.g. Prometheus endpoint).
 
@@ -705,11 +511,11 @@ runtime:
 
 ---
 
-### `scaling`
+## `scaling`
 
 Optional. Defines replica count as either an exact number or a min/max range. Uses one of two mutually exclusive forms.
 
-#### Fixed replica count
+### Fixed replica count
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -720,7 +526,7 @@ scaling:
   replicas: 3
 ```
 
-#### Auto-scaling range
+### Auto-scaling range
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -751,7 +557,7 @@ forms reports a whole-`scaling` change.
 
 ---
 
-### `readiness`
+## `readiness`
 
 Optional. **Requires `pactoVersion: "1.2"`.** Declares operational readiness
 state for the service in a provider-neutral way. Each check has a completion status,
@@ -817,7 +623,7 @@ is present. `readiness.minScore`, `readiness.partialCredit` and `readiness.histo
 | `checks` | [Check](#check-fields)[] | Yes | At least one check. |
 | `history` | [HistoryEntry](#history-entry)[] | No | Audit trail of readiness assessment changes. |
 
-#### Check fields
+### Check fields
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -829,7 +635,7 @@ is present. `readiness.minScore`, `readiness.partialCredit` and `readiness.histo
 | `evidence` | string | Yes | Evidence location (URL, file path, ticket ID, etc.). Non-empty. |
 | `description` | string | No | Optional human-readable explanation (non-blank when present). |
 
-#### History entry
+### History entry
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -843,7 +649,7 @@ per-check owner. The readiness score is **not** stored in the contract — it is
 computed by tooling (`pacto explain`, the dashboard and the operator) from check
 statuses, weights, the assessment expiry and the current time.
 
-#### Readiness score and gate
+### Readiness score and gate
 
 ```text
 If assessment is expired (today > readiness.expires):
@@ -898,7 +704,7 @@ Because `minScore` is an authored literal, a [policy](#policies) can still enfor
 it org-wide (e.g. require `readiness.minScore >= 80`) — presence rules stay in
 policies, the threshold bar lives here.
 
-#### Enforcing readiness with policies
+### Enforcing readiness with policies
 
 The base schema never requires a specific check. Organizational standards are
 expressed as [policies](#policies) using standard JSON Schema. For example, to
@@ -939,7 +745,7 @@ engine.
 
 ---
 
-### `metadata`
+## `metadata`
 
 Optional. Free-form key-value pairs for organizational use. Not validated beyond type.
 
@@ -953,478 +759,7 @@ metadata:
 `additionalProperties: false` — no extra fields allowed at any level (except inside `metadata`).
 
 !!! tip
-    `metadata` is a deliberate extension point for tooling. Platform teams use it to attach signals their CI or deployment systems can read off a contract — for example, infrastructure contracts can carry `metadata.labels` like `platform/provisioner: crossplane` to drive provisioning generically. See [Composition Patterns — Infrastructure contracts](patterns.md#2-infrastructure-contracts).
+    `metadata` is a deliberate extension point for tooling. Platform teams use it to attach signals their CI or deployment systems can read off a contract — for example, infrastructure contracts can carry `metadata.labels` like `platform/provisioner: crossplane` to drive provisioning generically. See [Composition Patterns — Infrastructure contracts](../patterns.md#2-infrastructure-contracts).
 
 ---
 
-## Validation layers
-
-Pacto validates contracts through four successive layers. Each layer short-circuits — if it fails, subsequent layers are skipped.
-
-### Layer 1: Structural (JSON Schema)
-
-Validates against the embedded JSON Schema:
-- Field types match
-- Required fields are present
-- Enum values are valid
-- Conditional requirements are met (`http` needs `port`, etc.)
-- State invariants are enforced (`stateless` needs `ephemeral`)
-
-### Layer 2: Cross-field
-
-Validates semantic references and consistency:
-
-| Rule | Code |
-|---|---|
-| `service.version` is valid semver | `INVALID_SEMVER` |
-| Interface names are unique | `DUPLICATE_INTERFACE_NAME` |
-| Configuration names are unique | `DUPLICATE_CONFIGURATION_NAME` |
-| Policy names are unique | `DUPLICATE_POLICY_NAME` |
-| Dependency names are unique | `DUPLICATE_DEPENDENCY_NAME` |
-| `http`/`grpc` interfaces have `port` | `PORT_REQUIRED` |
-| `event` interfaces with `port` set | `PORT_IGNORED` (warning) |
-| `grpc`/`event` interfaces have `contract` | `CONTRACT_REQUIRED` |
-| `health.interface` matches a declared interface | `HEALTH_INTERFACE_NOT_FOUND` |
-| Health interface is not `event` type | `HEALTH_INTERFACE_INVALID` |
-| `health.path` required for `http` health interface | `HEALTH_PATH_REQUIRED` |
-| `health.path` on `grpc` health interface is ignored | `HEALTH_PATH_IGNORED` (warning) |
-| `metrics.interface` matches a declared interface | `METRICS_INTERFACE_NOT_FOUND` |
-| Metrics interface is not `event` type | `METRICS_INTERFACE_INVALID` |
-| `metrics.path` required for `http` metrics interface | `METRICS_PATH_REQUIRED` |
-| `metrics.path` on `grpc` metrics interface is ignored | `METRICS_PATH_IGNORED` (warning) |
-| Referenced files exist in the bundle | `FILE_NOT_FOUND` |
-| OCI dependency refs (`oci://`) are valid OCI references | `INVALID_OCI_REF` |
-| Compatibility ranges are valid semver constraints | `INVALID_COMPATIBILITY` |
-| Compatibility range is empty | `EMPTY_COMPATIBILITY` |
-| OCI dependency uses tag instead of digest | `TAG_NOT_DIGEST` (warning) |
-| `image.ref` is a valid OCI reference | `INVALID_IMAGE_REF` |
-| `chart.ref` (OCI) is a valid OCI reference | `INVALID_CHART_REF` |
-| `chart.version` is valid semver | `INVALID_CHART_VERSION` |
-| `configurations[].ref` is not a valid OCI reference | `INVALID_CONFIG_REF` |
-| `configurations[].values` without a schema | `VALUES_WITHOUT_SCHEMA` |
-| `readiness.checks[].id` are unique within the contract | `DUPLICATE_READINESS_ID` |
-| `readiness.checks[].evidence` is not blank/whitespace | `EMPTY_READINESS_EVIDENCE` |
-| `readiness.checks[].description` (when present) is not blank | `EMPTY_READINESS_DESCRIPTION` |
-| `readiness.expires` is a strict `YYYY-MM-DD` date | `INVALID_READINESS_EXPIRES` |
-| `readiness.history[].{date,version,author,description}` are valid/non-blank | `INVALID_READINESS_REVISION` |
-| `configurations[].schema` file is not valid JSON | `INVALID_CONFIG_JSON` |
-| `configurations[].schema` file is not valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
-| `configurations[].values` don't match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
-| `policies[].schema` file does not exist in the bundle | `FILE_NOT_FOUND` |
-| `policies[].schema` file is not valid JSON | `INVALID_POLICY_JSON` |
-| `policies[].schema` file is not valid JSON Schema | `INVALID_POLICY_SCHEMA` |
-| `policies[].ref` is not a valid OCI reference | `INVALID_POLICY_REF` |
-| `interfaces[].contract` (YAML) file is not valid YAML | `INVALID_CONTRACT_FILE` |
-| `scaling.min` <= `scaling.max` | `SCALING_MIN_EXCEEDS_MAX` |
-| Job workloads cannot have scaling | `JOB_SCALING_NOT_ALLOWED` |
-| Stateless + persistent is invalid | `STATELESS_PERSISTENT_CONFLICT` |
-
-### Layer 3: Semantic
-
-Validates cross-concern consistency:
-
-| Rule | Code | Type |
-|---|---|---|
-| `ordered` upgrade strategy with `stateless` state | `UPGRADE_STRATEGY_STATE_MISMATCH` | Warning |
-
-### Layer 4: Policy enforcement
-
-Resolves and enforces all declared policies against the contract. Policies are applied with strict **AND semantics** — the contract must satisfy every resolved policy. Contradictory policies naturally fail; no precedence or override logic is applied.
-
-| Condition | Code |
-|---|---|
-| `policies[].ref` cannot be resolved (resolver unavailable, network error, bundle not found) | `POLICY_REF_UNRESOLVED` |
-| Cycle detected in recursive policy resolution chain | `POLICY_REF_CYCLE` |
-| Contract violates a policy constraint | `POLICY_VIOLATION` |
-| Contract YAML cannot be parsed for policy validation | `POLICY_ENFORCEMENT_ERROR` |
-
-`POLICY_REF_UNRESOLVED` is a **hard error** — validation fails closed when a referenced policy cannot be resolved. This ensures that missing or unreachable policies are never silently skipped.
-
-**When ref-based policies are resolved.** Recursive resolution of
-`policies[].ref` happens only when a resolver is configured. `pacto validate` and
-`pacto push` both supply one (they can reach OCI/file refs), so a `ref` policy
-that cannot be fetched fails closed with `POLICY_REF_UNRESOLVED` — this is how
-`pacto push` enforces remote policies before publishing. Local-only paths that
-pass no resolver — `pacto pack` and the **operator** — enforce only the
-locally-compiled `schema`-based policies and skip `ref` policies by design (they
-never reach the unresolved error). Cycle detection is per chain: a `ref` is a
-cycle only when it reappears in its own resolution chain (`A → B → A`); two
-sibling policies pointing at the same `ref` resolve independently.
-
----
-
-## Contract overrides
-
-Pacto supports a Helm-style override system that lets you modify contract values without editing `pacto.yaml` directly. Overrides are available on all commands that take a contract reference (`validate`, `explain`, `diff`, `doc`, `generate`, `graph`, `pack`, `push`, `lock`). See the [CLI reference](cli-reference.md) for the complete command and flag listing.
-
-### Override flags
-
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--values <file>` | `-f` | Merge a YAML values file into the contract |
-| `--set <key=value>` | | Set an individual value using dot-notation |
-
-!!! note
-    The `-f` shorthand is not available on `pacto push` because `-f` is already used for `--force`.
-
-### Precedence
-
-Overrides follow the same precedence logic as Helm (lowest to highest):
-
-1. Base `pacto.yaml`
-2. Values files (`-f`), in the order they are specified
-3. `--set` values
-
-Later sources override earlier ones. Multiple `-f` flags are applied in order — the last file wins for any conflicting key.
-
-### `--set` type inference
-
-`--set key=value` infers the value's type from the string, trying in order:
-integer (`int64`) → float (`float64`) → boolean → string. The first parse that
-succeeds wins; anything that matches none stays a string. Consequences worth
-knowing:
-
-- `--set scaling.replicas=3` → integer `3`; `--set ratio=1.5` → float `1.5`.
-- `--set flag=true` → boolean `true` (but `--set flag=1` → integer `1`, not boolean).
-- A multi-dot semver like `--set service.version=1.0.0` has two dots, so it parses
-  as none of the numeric/boolean types and **stays a string** (the desired result).
-  A two-segment value like `1.0` parses as the float `1.0` — quote-sensitive values
-  that must remain strings are better set via a `-f` values file with explicit YAML typing.
-
-### Examples
-
-```bash
-# Override the service version
-pacto validate my-service --set service.version=2.0.0
-
-# Use a values file for environment-specific overrides
-pacto validate my-service -f staging-values.yaml
-
-# Combine both (--set takes precedence over -f)
-pacto validate my-service -f staging-values.yaml --set service.version=3.0.0
-
-# Set configuration values validated against the config schema
-pacto validate my-service --set configurations[0].values.DB_HOST=localhost
-
-# Set array elements using bracket notation
-pacto validate my-service --set interfaces[0].port=9090
-```
-
-### Diff overrides
-
-The `diff` command takes two contract references. To override each independently, use prefixed flags:
-
-| Flag | Description |
-|------|-------------|
-| `--old-values <file>` | Values file for the old (first) contract |
-| `--old-set <key=value>` | Set value for the old contract |
-| `--new-values <file>` | Values file for the new (second) contract |
-| `--new-set <key=value>` | Set value for the new contract |
-
-```bash
-# Override only the new contract
-pacto diff oci://ghcr.io/acme/svc-pacto:1.0.0 my-service --new-set service.version=2.0.0
-
-# Override both contracts
-pacto diff old-service new-service \
-  --old-values old-env.yaml \
-  --new-values new-env.yaml \
-  --new-set service.version=3.0.0
-```
-
-### Schema validation
-
-All overrides are validated against the Pacto JSON Schema after they are applied. This means invalid enum values, unknown fields, and type mismatches are rejected by every command — not just `validate` and `push`.
-
-```bash
-# Rejected: "invalid" is not a valid enum value for runtime.state.type
-pacto explain my-service --set runtime.state.type=invalid
-
-# Rejected: "unknownField" is not defined in the schema
-pacto doc my-service --set service.unknownField=value
-```
-
-### Environment-specific values files
-
-A common pattern is to maintain per-environment values files that override configuration and scaling for each deployment target. The base `pacto.yaml` defines defaults, and each values file layers environment-specific settings on top.
-
-```
-my-service/
-├── pacto.yaml
-├── values/
-│   ├── dev.yaml
-│   ├── staging.yaml
-│   └── production.yaml
-└── configuration/
-    └── schema.json
-```
-
-```yaml
-# values/dev.yaml
-configurations:
-  - name: default
-    values:
-      DB_HOST: localhost
-      DB_PORT: 5432
-      DB_PASSWORD: dev-password
-      LOG_LEVEL: debug
-scaling:
-  replicas: 1
-```
-
-`staging.yaml` and `production.yaml` follow the same shape, differing only in host, secret reference and scaling bounds. Apply one per command with `-f`:
-
-```bash
-pacto validate my-service -f values/dev.yaml
-pacto push oci://ghcr.io/acme/my-service-pacto -p my-service --values values/production.yaml --set service.version=2.1.0
-```
-
-See [Developers — values files](developers.md) for the full per-environment workflow.
-
-### Configuration values validation
-
-Overrides can set `configurations[].values` fields. These values are validated against the JSON Schema referenced by the corresponding `configurations[].schema`. If a value has the wrong type or is not defined in the schema, validation fails.
-
-```yaml
-# pacto.yaml
-configurations:
-  - name: default
-    schema: configuration/schema.json
-```
-
-```bash
-# This will fail if DB_PORT expects an integer but receives a string
-pacto validate my-service --set configurations[0].values.DB_PORT=not-a-number
-```
-
----
-
-## Change classification rules
-
-`pacto diff` classifies every detected change using a deterministic rule table. This is what powers breaking change detection in CI pipelines.
-
-Each change is classified as:
-
-- **`BREAKING`** — a change that will break consumers or platforms relying on the previous contract
-- **`POTENTIAL_BREAKING`** — a change that *may* break consumers depending on how they use the field
-- **`NON_BREAKING`** — a safe change that doesn't affect compatibility
-
-Any change not matched by a specific rule below defaults to **POTENTIAL_BREAKING**.
-
-### Service identity
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `pactoVersion` | Added / Modified / Removed | NON_BREAKING |
-| `service.name` | Modified | **BREAKING** |
-| `service.version` | Modified | NON_BREAKING |
-| `service.owner.team` | Added / Modified / Removed | NON_BREAKING |
-| `service.owner.dri` | Added / Modified / Removed | NON_BREAKING |
-| `service.owner.contacts[]` | Added / Modified / Removed | NON_BREAKING |
-| `service.image` | Added / Modified / Removed | NON_BREAKING |
-| `service.chart` | Added / Modified / Removed | NON_BREAKING |
-
-The owner block is compared field by field, so changing a `dri` or adding a
-contact while the `team` is unchanged surfaces the specific change rather than an
-opaque whole-owner modification. Contacts are keyed by `type:value`; a `purpose`
-change on an existing contact is a modification. The `service.image` comparison
-includes the `private` flag, so toggling image privacy is reported even when the
-`ref` is unchanged.
-
-### Interfaces
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `interfaces` | Added | NON_BREAKING |
-| `interfaces` | Removed | **BREAKING** |
-| `interfaces.type` | Modified | **BREAKING** |
-| `interfaces.port` | Modified | **BREAKING** |
-| `interfaces.port` | Added | POTENTIAL_BREAKING |
-| `interfaces.port` | Removed | **BREAKING** |
-| `interfaces.visibility` | Modified | POTENTIAL_BREAKING |
-| `interfaces.contract` | Modified | POTENTIAL_BREAKING |
-
-### Configurations
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `configurations[]` | Added | NON_BREAKING |
-| `configurations[]` | Removed | **BREAKING** |
-| `configurations[].schema` | Modified | POTENTIAL_BREAKING |
-| `configurations[].ref` | Added | NON_BREAKING |
-| `configurations[].ref` | Modified | POTENTIAL_BREAKING |
-| `configurations[].ref` | Removed | **BREAKING** |
-| `configurations[].values.*` | Added / Modified / Removed | NON_BREAKING |
-
-Inline configuration `values` are the provider's own defaults, not part of the
-consumer-facing contract surface, so value changes are diffed key by key (e.g.
-`configurations[app].values.replicas`) and classified `NON_BREAKING`.
-
-### Policy
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `policies[]` | Added | NON_BREAKING |
-| `policies[]` | Removed | POTENTIAL_BREAKING |
-| `policies[].schema` | Modified | POTENTIAL_BREAKING |
-| `policies[].ref` | Added | NON_BREAKING |
-| `policies[].ref` | Modified | POTENTIAL_BREAKING |
-| `policies[].ref` | Removed | POTENTIAL_BREAKING |
-
-### Runtime
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `runtime.workload` | Modified | **BREAKING** |
-| `runtime.state.type` | Modified | **BREAKING** |
-| `runtime.state.persistence.scope` | Modified | **BREAKING** |
-| `runtime.state.persistence.durability` | Modified | **BREAKING** |
-| `runtime.state.dataCriticality` | Modified | POTENTIAL_BREAKING |
-| `runtime.lifecycle.upgradeStrategy` | Added | NON_BREAKING |
-| `runtime.lifecycle.upgradeStrategy` | Modified | POTENTIAL_BREAKING |
-| `runtime.lifecycle.upgradeStrategy` | Removed | POTENTIAL_BREAKING |
-| `runtime.lifecycle.gracefulShutdownSeconds` | Added / Modified / Removed | NON_BREAKING |
-| `runtime.health.interface` | Added | NON_BREAKING |
-| `runtime.health.interface` | Modified | POTENTIAL_BREAKING |
-| `runtime.health.interface` | Removed | POTENTIAL_BREAKING |
-| `runtime.health.path` | Added | NON_BREAKING |
-| `runtime.health.path` | Modified | POTENTIAL_BREAKING |
-| `runtime.health.path` | Removed | POTENTIAL_BREAKING |
-| `runtime.health.initialDelaySeconds` | Added / Modified / Removed | NON_BREAKING |
-| `runtime.metrics.interface` | Added | NON_BREAKING |
-| `runtime.metrics.interface` | Modified | POTENTIAL_BREAKING |
-| `runtime.metrics.interface` | Removed | POTENTIAL_BREAKING |
-| `runtime.metrics.path` | Added | NON_BREAKING |
-| `runtime.metrics.path` | Modified | POTENTIAL_BREAKING |
-| `runtime.metrics.path` | Removed | POTENTIAL_BREAKING |
-
-Adding a `health` or `metrics` block (or one of its fields) is a new capability
-and classifies as `NON_BREAKING`; removing the `interface`/`path` loses a runtime
-check and classifies as `POTENTIAL_BREAKING`. `initialDelaySeconds` is always
-`NON_BREAKING`. Health and metrics are compared field by field — a whole-block
-add or remove surfaces as the corresponding per-field changes.
-
-### Scaling
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `scaling` | Added | NON_BREAKING |
-| `scaling` | Removed | POTENTIAL_BREAKING |
-| `scaling.replicas` | Modified | POTENTIAL_BREAKING |
-| `scaling.min` | Modified | POTENTIAL_BREAKING |
-| `scaling.max` | Modified | NON_BREAKING |
-
-### Dependencies
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `dependencies` | Added | NON_BREAKING |
-| `dependencies` | Removed | **BREAKING** |
-| `dependencies.ref` | Modified | POTENTIAL_BREAKING |
-| `dependencies.compatibility` | Modified | POTENTIAL_BREAKING |
-| `dependencies.required` | Modified | POTENTIAL_BREAKING |
-
-### OpenAPI
-
-`pacto diff` performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level.
-
-#### Paths
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `openapi.paths` | Added | NON_BREAKING |
-| `openapi.paths` | Removed | **BREAKING** |
-
-#### Methods
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `openapi.methods` | Added | NON_BREAKING |
-| `openapi.methods` | Removed | **BREAKING** |
-
-#### Parameters
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `openapi.parameters` | Added | POTENTIAL_BREAKING |
-| `openapi.parameters` | Removed | **BREAKING** |
-| `openapi.parameters` | Modified | POTENTIAL_BREAKING |
-
-Parameters are identified by `name` + `in` (location: query, path, header, cookie). A parameter renamed or moved to a different location is treated as a removal + addition.
-
-#### Request body
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `openapi.request-body` | Added | POTENTIAL_BREAKING |
-| `openapi.request-body` | Removed | POTENTIAL_BREAKING |
-| `openapi.request-body` | Modified | POTENTIAL_BREAKING |
-
-#### Responses
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `openapi.responses` | Added | NON_BREAKING |
-| `openapi.responses` | Removed | **BREAKING** |
-| `openapi.responses` | Modified | POTENTIAL_BREAKING |
-
-Change paths use a hierarchical format that pinpoints the exact location, for example:
-
-```
-openapi.paths[/users].methods[GET].parameters[filter:query]
-openapi.paths[/users].methods[POST].request-body
-openapi.paths[/users].methods[GET].responses[200]
-```
-
-### JSON Schema (configuration & policy schemas)
-
-Schema files referenced by `configurations[].schema`, `policies[].schema`, or the auto-detected `policy/schema.json` are compared recursively. Every structural difference — properties, types, constraints, defaults, enums, etc. — is detected and classified.
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `schema.properties.*` | Added | POTENTIAL_BREAKING |
-| `schema.properties.*` | Removed | POTENTIAL_BREAKING |
-| `schema.properties.*` | Modified | POTENTIAL_BREAKING |
-| `schema.required` | Added / Removed | **BREAKING** |
-| `schema.*` (any other path) | Added / Removed / Modified | POTENTIAL_BREAKING |
-
-### Readiness
-
-| Field | Change | Classification |
-|-------|--------|----------------|
-| `readiness` | Added / Removed | NON_BREAKING |
-| `readiness.expires` | Added / Modified / Removed | NON_BREAKING |
-| `readiness.minScore` | Added / Modified / Removed | NON_BREAKING |
-| `readiness.partialCredit` | Added / Modified / Removed | NON_BREAKING |
-| `readiness.checks[]` | Added / Modified / Removed | NON_BREAKING |
-
-All readiness changes are classified as `NON_BREAKING` — readiness tracks operational
-maturity and does not affect runtime compatibility. Adding or removing the whole
-`readiness` block surfaces as a single `readiness` change; otherwise the gate
-fields (`expires`, `minScore`, `partialCredit`) are compared individually. Checks
-are keyed by `id`, and a check whose `status`, `weight`, `evidence` or any other
-field changed is reported as a modification of that check (e.g.
-`readiness.checks[dashboard]`). The `readiness.history` revision log is not diffed:
-it is an append-only changelog that changes on every release and would only add
-noise.
-
-### Not currently compared
-
-| Section | Status |
-|---------|--------|
-| `metadata` | Not diffed. Free-form `metadata` keys are carried through to documentation and the dashboard but are ignored by the diff engine. |
-
-If you rely on metadata changes being flagged in CI, gate on them separately
-(for example with a policy or a custom check).
-
-### SBOM
-
-SBOM changes are reported separately from contract changes. They are **informational only** and never affect the overall diff classification.
-
-| Change | Description |
-|--------|-------------|
-| Package added | A new package appears in the SBOM |
-| Package removed | A package no longer appears in the SBOM |
-| Package version modified | A package's version changed |
-| Package license modified | A package's license changed |
-| Package supplier modified | A package's supplier changed |

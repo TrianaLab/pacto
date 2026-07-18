@@ -61,6 +61,21 @@ theme:
     - search.suggest
     - toc.follow
 
+# Internal specs/plans live under docs/superpowers/ (gitignored) — never part of
+# the published site.
+exclude_docs: |
+  superpowers/
+
+# Fail the build (under --strict) on orphan pages and broken cross-references,
+# so no page lingers outside the nav and every link/anchor resolves.
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+
 extra:
   generator: false
   social:
@@ -139,7 +154,12 @@ nav:
       - RabbitMQ: examples/rabbitmq.md
       - Redis: examples/redis.md
   - Reference:
-      - Contract reference: contract-reference.md
+      - Contract reference:
+          - contract-reference/index.md
+          - Contract sections: contract-reference/sections.md
+          - Validation layers: contract-reference/validation.md
+          - Contract overrides: contract-reference/overrides.md
+          - Change classification: contract-reference/diff.md
       - CLI reference: cli-reference.md
       - Lockfile: lockfile.md
       - Packaging ignore: pactoignore.md

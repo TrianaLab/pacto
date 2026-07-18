@@ -67,7 +67,7 @@ metadata:
 
 ### Key decisions
 
-See the [contract reference](../contract-reference.md#runtime) for what each enum value means; the notes below cover why NGINX picks these.
+See the [contract reference](../contract-reference/sections.md#runtime) for what each enum value means; the notes below cover why NGINX picks these.
 
 - **`state.type: stateless`** — any instance can serve any request
 - **`durability: ephemeral`** — no persistent storage needed

@@ -37,7 +37,7 @@ $ pacto validate my-service
 my-service is valid
 ```
 
-Validation runs four layers — structural, cross-field, semantic and policy enforcement. See the [Contract Reference](contract-reference.md#validation-layers) for the full rules.
+Validation runs four layers — structural, cross-field, semantic and policy enforcement. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
 
 ## 4. Customize your contract
 
@@ -53,7 +53,7 @@ service:
     team: backend
 ```
 
-Add sections as needed — interfaces, runtime semantics, dependencies, configuration, policy, scaling, readiness. See the [Contract Reference](contract-reference.md) for every available field.
+Add sections as needed — interfaces, runtime semantics, dependencies, configuration, policy, scaling, readiness. See the [Contract Reference](contract-reference/index.md) for every available field.
 
 ## 5. Add readiness (optional, v1.2)
 
@@ -89,7 +89,7 @@ Then run the opt-in readiness gate:
 $ pacto validate my-service --readiness
 ```
 
-The gate derives a score from check statuses and weights, comparing it against `minScore`. The result is time-dependent (expired assessments score 0), so plain `pacto validate` does not enforce it. See [Contract Reference](contract-reference.md#readiness) for the full scoring and gate semantics.
+The gate derives a score from check statuses and weights, comparing it against `minScore`. The result is time-dependent (expired assessments score 0), so plain `pacto validate` does not enforce it. See [Contract Reference](contract-reference/sections.md#readiness) for the full scoring and gate semantics.
 
 ## 6. Pack and push
 
@@ -157,7 +157,7 @@ Exit code is non-zero when breaking changes are detected — use this in CI to g
 
 | Goal | Guide |
 |------|-------|
-| Understand every contract field | [Contract Reference](contract-reference.md) |
+| Understand every contract field | [Contract Reference](contract-reference/index.md) |
 | Write and maintain contracts | [For Developers](developers.md) |
 | Consume contracts for deployment | [For Platform Engineers](platform-engineers.md) |
 | See contracts for real services | [Examples](examples/index.md) (PostgreSQL, Redis, RabbitMQ, NGINX, gRPC, and more) |
