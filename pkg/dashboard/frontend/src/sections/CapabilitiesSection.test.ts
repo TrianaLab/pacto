@@ -33,7 +33,7 @@ describe('CapabilitiesSection', () => {
     unmount(c);
   });
 
-  it('lists skills and reveals content when expanded', async () => {
+  it('lists skills and renders markdown content when expanded', async () => {
     const c = mount(CapabilitiesSection, {
       target,
       props: {
@@ -44,11 +44,14 @@ describe('CapabilitiesSection', () => {
     });
     expect(target.textContent).toContain('refund.md');
     // collapsed by default → content hidden
-    expect(target.querySelector('.skill-body')).toBeNull();
+    expect(target.querySelector('.markdown-body')).toBeNull();
     const btn = target.querySelector('.detail-card-header') as HTMLButtonElement;
     btn.click();
     await Promise.resolve();
-    expect(target.querySelector('.skill-body')?.textContent).toContain('# Refund flow');
+    // rendered as markdown (heading element), not raw text in a <pre>
+    const md = target.querySelector('.markdown-body');
+    expect(md).not.toBeNull();
+    expect(md?.querySelector('h1')?.textContent).toContain('Refund flow');
     unmount(c);
   });
 

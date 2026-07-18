@@ -1,5 +1,6 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import MarkdownView from '../MarkdownView.svelte';
   import { methodClass } from '../lib/format.ts';
 
   let { capabilities = [], skills = [], open = $bindable(false), id = '', source = '' } = $props();
@@ -50,7 +51,7 @@
             </button>
             {#if expanded[i]}
               <div class="detail-card-body">
-                <pre class="skill-body">{skill.content}</pre>
+                <MarkdownView content={skill.content} />
               </div>
             {/if}
           </div>
@@ -101,10 +102,4 @@
   .pill-skill { background: var(--c-accent-bg); color: var(--c-accent); font-size: var(--text-xs); flex-shrink: 0; }
   .skill-name { font-weight: 600; }
   .detail-card-body { padding: 0 var(--sp-3) var(--sp-3); }
-  .skill-body {
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-size: var(--text-sm);
-    margin: 0;
-  }
 </style>
