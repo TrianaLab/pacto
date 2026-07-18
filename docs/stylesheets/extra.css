@@ -202,6 +202,71 @@
   color: #fff;
 }
 
+/* Hero showcase: the contract artifact, shown at a glance. */
+.pacto-hero__showcase {
+  margin: 2.75rem auto 0;
+  max-width: 40rem;
+  animation: pacto-fade-up 0.6s ease 0.4s both;
+}
+.pacto-hero__card {
+  margin: 0;
+  text-align: left;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.7rem;
+  background: var(--md-default-bg-color);
+  box-shadow: 0 1.5rem 3rem -1.5rem rgba(79, 70, 229, 0.35);
+  overflow: hidden;
+}
+.pacto-hero__card-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  background: var(--md-code-bg-color);
+}
+.pacto-hero__dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--md-default-fg-color--lightest);
+}
+.pacto-hero__card-name {
+  margin-left: 0.4rem;
+  font-family: var(--md-code-font-family, monospace);
+  font-size: 0.75rem;
+  color: var(--md-default-fg-color--light);
+}
+.pacto-hero .pacto-hero__code {
+  margin: 0;
+  padding: 1rem 1.15rem;
+  background: var(--md-code-bg-color);
+  border-radius: 0;
+  overflow-x: auto;
+}
+.pacto-hero .pacto-hero__code code {
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--md-code-fg-color);
+  white-space: pre;
+}
+.pacto-hero__card-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.15rem;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+  font-size: 0.82rem;
+  color: var(--md-default-fg-color--light);
+}
+.pacto-hero__check {
+  color: #16a34a;
+  font-weight: 700;
+}
+[data-md-color-scheme="slate"] .pacto-hero__check {
+  color: #4ade80;
+}
+
 @keyframes pacto-fade-up {
   from {
     opacity: 0;
