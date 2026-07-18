@@ -277,46 +277,63 @@ The HTTP transport serves the [Streamable HTTP](https://modelcontextprotocol.io/
 
 ---
 
-## Claude integration
+## Connect your MCP client
 
-### Claude Code (CLI)
+Every client points the same way — it runs the `pacto` binary over stdio. Pick yours:
 
-Add Pacto as an MCP server in your project's `.mcp.json` file:
+=== "Claude Code"
 
-```json
-{
-  "mcpServers": {
-    "pacto": {
-      "command": "pacto",
-      "args": ["mcp"]
+    Add to your project's `.mcp.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "pacto": { "command": "pacto", "args": ["mcp"] }
+      }
     }
-  }
-}
-```
+    ```
 
-Claude Code uses stdio, so no port configuration is needed.
+=== "Claude Desktop"
 
-### Claude Desktop
+    Add to `claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows):
 
-Add the server to your `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "pacto": {
-      "command": "pacto",
-      "args": ["mcp"]
+    ```json
+    {
+      "mcpServers": {
+        "pacto": { "command": "pacto", "args": ["mcp"] }
+      }
     }
-  }
-}
-```
+    ```
 
-!!! tip
-    The config file is located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows.
+=== "Cursor"
+
+    Add to `.cursor/mcp.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "pacto": { "command": "pacto", "args": ["mcp"] }
+      }
+    }
+    ```
+
+=== "GitHub Copilot"
+
+    Add to `.vscode/mcp.json` (requires VS Code 1.99+ and the Copilot Chat extension):
+
+    ```json
+    {
+      "servers": {
+        "pacto": { "command": "pacto", "args": ["mcp"] }
+      }
+    }
+    ```
+
+To serve a bundle's operations as executable tools, append the bundle reference and flags to `args` — see [Agent capabilities](#agent-capabilities).
 
 ### Example prompts
 
-Once connected, you can interact with contracts conversationally:
+Once connected, you can work with contracts conversationally:
 
 ```
 You:    Create a pacto contract for a stateful Go HTTP API called user-service
@@ -327,70 +344,7 @@ Claude: [creates pacto.yaml with HTTP interface, postgres dependency,
 You:    Check the contract in ./payments-api
 Claude: payments-api is valid. Suggestions: add a health interface,
         consider adding scaling configuration.
-
-You:    Add a gRPC interface called "internal-api" on port 9090
-        to the payments-api contract
-Claude: [edits pacto.yaml, adds gRPC interface, validates result]
-
-You:    What's the Pacto schema format?
-Claude: [returns full JSON Schema and format description]
 ```
-
----
-
-## Cursor
-
-Add Pacto as an MCP server in your Cursor settings (`.cursor/mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "pacto": {
-      "command": "pacto",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
----
-
-## GitHub Copilot
-
-### VS Code
-
-Add Pacto as an MCP server in your VS Code settings (`.vscode/settings.json`):
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "pacto": {
-        "command": "pacto",
-        "args": ["mcp"]
-      }
-    }
-  }
-}
-```
-
-Alternatively, create a `.vscode/mcp.json` file in your project root:
-
-```json
-{
-  "servers": {
-    "pacto": {
-      "command": "pacto",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-Once configured, Copilot Chat in agent mode can use Pacto tools. Try asking: *"@workspace create a pacto contract for my-service"*.
-
-!!! note
-    MCP support in GitHub Copilot requires VS Code 1.99+ and the GitHub Copilot Chat extension.
 
 ---
 
