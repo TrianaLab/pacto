@@ -11,14 +11,3 @@ document.addEventListener("click", function (e) {
   void el.offsetWidth; // reflow so the animation restarts on every click
   el.classList.add("pacto-spin");
 });
-
-// Smooth "back to top" — Material's top button (href="#") otherwise jumps
-// instantly (and can trigger an instant-navigation re-render). Intercept it and
-// animate the scroll instead. Delegated on document so it survives instant nav.
-document.addEventListener("click", function (e) {
-  var top = e.target.closest('[data-md-component="top"]');
-  if (!top) return;
-  e.preventDefault();
-  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
-});
