@@ -1,8 +1,29 @@
 ---
 template: home.html
-hide:
-  - toc
 ---
+
+```yaml title="pacto.yaml"
+service:
+  name: payments-api
+  version: 2.1.0
+  owner: { team: payments, dri: alice }
+
+interfaces:
+  - name: rest-api
+    type: http
+    port: 8080
+
+dependencies:
+  - ref: oci://ghcr.io/acme/auth
+    compatibility: "^2.0.0"
+
+runtime:
+  state:  { type: stateful }
+  health: { path: /health }
+```
+
+!!! success "One file, checked and shipped"
+    Everything above is validated (structure, cross-references, semantics and policy), versioned with semver, and distributed as an OCI artifact.
 
 ## What is Pacto?
 

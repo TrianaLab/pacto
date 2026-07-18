@@ -62,6 +62,7 @@ theme:
     - toc.follow
 
 extra:
+  generator: false
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/TrianaLab/pacto

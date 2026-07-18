@@ -30,37 +30,6 @@
         <a href="{{ 'contract-reference/' | url }}" class="md-button">Specification</a>
         <a href="{{ 'examples/dashboard-demo/' | url }}" class="md-button">Live demo</a>
       </div>
-      <!-- Showcase: the artifact itself, so a first-time visitor sees what Pacto *is* at a glance. -->
-      <div class="pacto-hero__showcase">
-        <figure class="pacto-hero__card">
-          <figcaption class="pacto-hero__card-bar">
-            <span class="pacto-hero__dot"></span>
-            <span class="pacto-hero__dot"></span>
-            <span class="pacto-hero__dot"></span>
-            <span class="pacto-hero__card-name">pacto.yaml</span>
-          </figcaption>
-          <pre class="pacto-hero__code"><code>service:
-  name: payments-api
-  version: 2.1.0
-  owner: { team: payments, dri: alice }
-
-interfaces:
-  - name: rest-api
-    type: http
-    port: 8080
-
-dependencies:
-  - ref: oci://ghcr.io/acme/auth
-    compatibility: "^2.0.0"
-
-runtime:
-  state:  { type: stateful }
-  health: { path: /health }</code></pre>
-          <div class="pacto-hero__card-foot">
-            <span class="pacto-hero__check">✓</span> validated, versioned and distributed as an OCI artifact
-          </div>
-        </figure>
-      </div>
     </div>
   </section>
 {% endblock %}
