@@ -188,7 +188,7 @@ Consume contracts to generate deployment manifests, enforce policies, detect bre
 
 ### Building a platform on Pacto?
 
-These primitives compose into reusable platform patterns — root + component contracts for monorepos, infrastructure contracts with provisioner metadata, configurations as composable claims, platform-published policy + schema bundles, progressive policy versioning, and per-environment override files. See [Composition Patterns](patterns.md).
+These primitives compose into reusable platform patterns — root + component contracts for monorepos, infrastructure contracts with provisioner metadata, configurations as composable claims, platform-published policy + schema bundles, progressive policy versioning, and per-environment override files. See [Composition Patterns](patterns/index.md).
 
 ---
 

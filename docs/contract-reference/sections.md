@@ -216,7 +216,7 @@ configurations:
     schema: configuration/schema.json
 ```
 
-The contract carries its own requirements, so each team defines exactly what its service needs and the bundle deploys on any platform. See [Composition patterns](../patterns.md) for when to choose this model.
+The contract carries its own requirements, so each team defines exactly what its service needs and the bundle deploys on any platform. See [Composition patterns](../patterns/index.md) for when to choose this model.
 
 ### Platform-Defined Schema
 
@@ -240,7 +240,7 @@ configurations:
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
-All services share a common configuration vocabulary the platform team controls and validates centrally — whether referenced via OCI or vendored locally. See [Platform engineers](../platform-engineers.md) and [Composition patterns](../patterns.md) for the platform-as-a-product recipe.
+All services share a common configuration vocabulary the platform team controls and validates centrally — whether referenced via OCI or vendored locally. See [Platform engineers](../platform-engineers.md) and [Composition patterns](../patterns/index.md) for the platform-as-a-product recipe.
 
 !!! info
     In Pacto, the configuration schema is an **interface**. Depending on ownership, it describes either:
@@ -759,7 +759,7 @@ metadata:
 `additionalProperties: false` — no extra fields allowed at any level (except inside `metadata`).
 
 !!! tip
-    `metadata` is a deliberate extension point for tooling. Platform teams use it to attach signals their CI or deployment systems can read off a contract — for example, infrastructure contracts can carry `metadata.labels` like `platform/provisioner: crossplane` to drive provisioning generically. See [Composition Patterns — Infrastructure contracts](../patterns.md#2-infrastructure-contracts).
+    `metadata` is a deliberate extension point for tooling. Platform teams use it to attach signals their CI or deployment systems can read off a contract — for example, infrastructure contracts can carry `metadata.labels` like `platform/provisioner: crossplane` to drive provisioning generically. See [Composition Patterns — Infrastructure contracts](../patterns/infrastructure-contracts.md).
 
 ---
 

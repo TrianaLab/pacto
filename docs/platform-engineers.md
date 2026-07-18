@@ -192,7 +192,7 @@ policies:
     ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
 ```
 
-See [The platform-published policy + schema contract](patterns.md#4-the-platform-published-policy-schema-contract) for the authoring and publish recipe.
+See [The platform-published policy + schema contract](patterns/policy-schema.md) for the authoring and publish recipe.
 
 !!! warning "Where refs are enforced"
     Ref-based policies are enforced by `pacto validate` and `pacto push` (fail-closed — an unresolvable ref is a hard `POLICY_REF_UNRESOLVED` error, which is how push blocks non-compliant publishes). `pacto pack` and the operator run local-only validation: they enforce only inline `schema` policies and emit a `POLICY_REF_NOT_ENFORCED` warning for refs.

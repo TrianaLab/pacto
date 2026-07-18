@@ -138,7 +138,14 @@ nav:
   - Get started:
       - Installation: installation.md
       - Quickstart: quickstart.md
-  - Patterns: patterns.md
+  - Patterns:
+      - patterns/index.md
+      - Root + component contracts: patterns/root-component.md
+      - Infrastructure contracts: patterns/infrastructure-contracts.md
+      - Composable configurations: patterns/composable-configs.md
+      - Policy + schema contract: patterns/policy-schema.md
+      - Progressive policy versioning: patterns/progressive-policy.md
+      - Override files: patterns/override-files.md
   - Guides:
       - For developers: developers.md
       - For platform engineers: platform-engineers.md
