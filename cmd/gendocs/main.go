@@ -97,7 +97,7 @@ var commandNotes = map[string]string{
 
 	"validate": "The `--readiness` gate is **opt-in** because it is time-dependent: it compares each check's `expires` against the run time, which would make plain `validate` non-deterministic. " +
 		"Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). " +
-		"See the [readiness reference](contract-reference.md#readiness) for the score and gate semantics.\n\n" +
+		"See the [readiness reference](contract-reference/sections.md#readiness) for the score and gate semantics.\n\n" +
 		"**Exit code:** Non-zero if validation fails.",
 
 	"explain": "**Readiness output.** When the contract declares a `readiness` section (requires `pactoVersion: \"1.2\"`), `explain` adds a Readiness block: " +
@@ -127,7 +127,7 @@ When both bundles include an ` + "`sbom/`" + ` directory with recognized SBOM fi
 
 When dependencies change between the old and new contracts (version upgrades, additions, or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
 
-See [Change Classification](contract-reference.md#change-classification-rules) for the full rules.`,
+See [Change Classification](contract-reference/diff.md#change-classification-rules) for the full rules.`,
 
 	"graph": `Dependencies resolved from local paths are annotated with ` + "`[local]`" + `. Shared dependencies (referenced by multiple parents) are annotated with ` + "`(shared)`" + `.
 
