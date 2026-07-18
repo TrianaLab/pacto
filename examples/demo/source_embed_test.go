@@ -157,6 +157,33 @@ func TestEmbedSource_GetServiceVersion(t *testing.T) {
 }
 
 // TestEmbedSource_RealBundlesCarryLocks pins the committed demo locks: a
+// TestEmbedSource_SurfacesCapabilitiesAndSkills guards that the demo actually
+// demonstrates the agent-capabilities feature: services with an http/OpenAPI
+// interface expose derived capability tools, and payments-service ships a skill.
+func TestEmbedSource_SurfacesCapabilitiesAndSkills(t *testing.T) {
+	src := bundlesFS(t)
+
+	pay, err := src.GetService(context.Background(), "payments-service")
+	if err != nil {
+		t.Fatalf("GetService(payments-service): %v", err)
+	}
+	if len(pay.Capabilities) == 0 {
+		t.Fatal("payments-service should expose derived capability tools from its OpenAPI")
+	}
+	var refund bool
+	for _, s := range pay.Skills {
+		if s.Name == "refund_customer.md" {
+			refund = true
+			if s.Content == "" {
+				t.Error("refund_customer.md skill content should be populated")
+			}
+		}
+	}
+	if !refund {
+		t.Errorf("payments-service should surface the refund_customer.md skill, got %v", pay.Skills)
+	}
+}
+
 // dep-bearing bundle (payments-service) surfaces its lock with pinned digests,
 // while a leaf bundle (postgresql) has no lock. Guards both the committed lock
 // data and EmbedSource's embedded-lock reading against regressions.
