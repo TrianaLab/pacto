@@ -9,7 +9,7 @@ A Pacto contract describes the relationships between a service's interfaces and 
 
 Underneath, Pacto composes the interfaces you already have rather than inventing a configuration language. An interface is a JSON Schema, OpenAPI spec or event schema — a service's config interface is its config JSON Schema, an API interface is its OpenAPI document. Where an interface is already owned by another system, Pacto composes it instead of reinventing it. Composition is the on-ramp; the operational contract is the differentiator.
 
-> This mirrors Brian Grant's 2016 [Cloud Native Application Interfaces](https://kubernetes.io/blog/2016/09/cloud-native-application-interfaces/) split between *interfaces* (configuration schema) and *requirements* (dependencies): composition covers the interfaces half, dependencies and compatibility cover the requirements half.
+> This mirrors the classic split between *interfaces* (configuration schema) and *requirements* (dependencies): composition covers the interfaces half, dependencies and compatibility cover the requirements half.
 
 In one line: **JSON Schema describes an interface; Pacto describes the relationships between interfaces and how they change over time.**
 
@@ -35,9 +35,10 @@ graph TD
     APP --> PLUG[pkg/plugin<br/>Plugin Runner]
     APP --> DOC[pkg/doc<br/>Doc Generator]
     APP --> OVER[pkg/override<br/>YAML Overrides]
+    APP --> DASH
     CLI --> DASH[pkg/dashboard<br/>Dashboard Server]
     DASH --> CONTRACT
-    DASH --> DOC
+    DOC --> DASH
     DASH --> DIFF
     DASH --> VAL
     DASH --> GRAPH
@@ -96,7 +97,7 @@ Test infrastructure lives in `internal/testutil`, which provides shared mocks an
 
 The root public package. Contains pure Go types and logic with **zero I/O and zero framework dependencies**. Imports nothing from the project.
 
-- `Contract`, `ServiceIdentity`, `Interface`, `Runtime`, `State`, `Configuration`, `Policy`, etc.
+- `Contract`, `ServiceIdentity`, `Interface`, `Runtime`, `State`, `ConfigurationSource`, `PolicySource`, etc.
 - `Parse()` -- YAML deserialization
 - `OCIReference` -- OCI reference parsing
 - `Range` -- Semver constraint evaluation
@@ -113,7 +114,7 @@ flowchart LR
     C --> D[Layer 4<br/>Policy<br/>Enforcement]
 ```
 
-Each layer short-circuits -- if it produces errors, subsequent layers are skipped.
+Each layer short-circuits -- if it produces errors, subsequent layers are skipped. See [Validation layers](contract-reference.md#validation-layers) for the per-layer rules and error codes.
 
 Also includes **runtime validation** (`ValidateRuntime`) -- a foundational abstraction for comparing a contract's declared state against observed runtime conditions. This is consumed by the [Kubernetes Operator](operator.md) without introducing platform-specific dependencies into the core library.
 
@@ -157,7 +158,7 @@ Renders the dashboard's single-service `ServiceDetails` snapshot as a Markdown d
 
 ### `pkg/openapi` -- OpenAPI parser
 
-A leaf package that parses OpenAPI specs into endpoint lists. Used by both `pkg/dashboard` (interface endpoint tables) and `pkg/doc`. Extracted to break the import cycle when `pkg/doc` began importing `pkg/dashboard`.
+A leaf package that parses OpenAPI specs into endpoint lists. Used by `pkg/dashboard` (interface endpoint tables), `pkg/capability` (MCP tool generation) and `internal/mcp`.
 
 ### `pkg/plugin` -- Plugin system
 
@@ -176,7 +177,7 @@ Deterministic lockfile model for dependency and reference closure tracking. Pure
 - `HashFS()` -- content hashing for local bundles (sha256 over sorted file list with length-prefixed paths and data)
 - Typed errors: `DriftError` (OCI digest mismatch), `LocalDriftError` (local content changed), `StaleError` (pacto.yaml and pacto.lock disagree), `ConflictError` (conflicting version requirements), `UnresolvedError` (resolution failure), `MissingError` (lock required but absent)
 
-Closure building (transitive dependencies and transitive config/policy references) lives in `internal/app`. Verification is wired into validate, graph, diff and push commands with go.sum-style hard-fail semantics.
+Closure building (transitive dependencies and transitive config/policy references) lives in `internal/app`. Verification is wired into validate, graph, diff and push commands with go.sum-style hard-fail semantics. See the [Lockfile](lockfile.md) reference for the file format and workflow.
 
 ### `pkg/ignore` -- Bundle ignore matcher
 
@@ -187,14 +188,14 @@ Gitignore-style pattern matching for `.pactoignore` filtering. Determines which 
 - `Matcher.Ignored()` -- ancestor-aware filtering (files inside ignored directories are themselves ignored)
 - `FS()` -- filtering `fs.FS` wrapper applied at bundle load so pack, push and validation see one consistent file set
 
-Supports gitignore syntax: comments (`#`), negation (`!`), directory-only (`/`), anchoring (`^/`), globs (`*`, `?`, `[]`) and double-star (`**`) for cross-segment matching. Last matching rule wins.
+Supports gitignore syntax: comments (`#`), negation (`!`), directory-only (`/`), anchoring (`^/`), globs (`*`, `?`, `[]`) and double-star (`**`) for cross-segment matching. Last matching rule wins. See the [Packaging ignore](pactoignore.md) reference for details.
 
 ### `internal/app` -- Application services
 
 Each CLI command maps to exactly one service method. This layer orchestrates `pkg/*` packages and infrastructure adapters. Methods are stateless: they take an options struct and return a result struct, never printing directly.
 
 - `Init()`, `Validate()`, `Pack()`, `Push()`, `Pull()`
-- `Diff()`, `Graph()`, `Explain()`, `Generate()`, `Doc()`
+- `Diff()`, `Graph()`, `Explain()`, `Generate()`, `Doc()`, `Lock()`
 - Shared helpers: `resolveBundle()`, `resolveBundleWithOverrides()`, `loadAndValidateLocal()`, `loadAndValidateFull()`
 
 ### `internal/cli` -- CLI layer
@@ -216,7 +217,7 @@ Key components:
 
 ### `internal/mcp` -- MCP server
 
-Thin adapter layer that exposes Pacto operations as [Model Context Protocol](https://modelcontextprotocol.io) tools. Each MCP tool handler delegates to an `internal/app` service method -- no business logic lives here. The server communicates over stdio (default) or HTTP (`pacto mcp -t http`) and is started via `pacto mcp`. Used by AI tools such as Claude, Cursor and Copilot.
+Thin adapter layer that exposes Pacto operations as [Model Context Protocol](https://modelcontextprotocol.io) tools. Each MCP tool handler delegates to an `internal/app` service method -- no business logic lives here. The server communicates over stdio (default) or HTTP (`pacto mcp -t http`) and is started via `pacto mcp`. Used by AI tools such as Claude, Cursor and Copilot. See the [MCP integration](mcp-integration.md) guide for setup.
 
 ### `internal/logger` -- Logger setup
 
@@ -230,7 +231,7 @@ Performs async version checking against the GitHub releases API. Started in a ba
 
 ## Dashboard architecture
 
-The dashboard is complex enough to warrant its own design section. It provides a web-based UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, and diffs -- aggregated from multiple data sources.
+The dashboard is complex enough to warrant its own design section. It provides a web-based UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, and diffs -- aggregated from multiple data sources. See the [Dashboard Container](dashboard-docker.md) guide for deployment.
 
 ### Source model
 

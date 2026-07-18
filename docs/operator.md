@@ -101,6 +101,8 @@ It also sets a single aggregate condition, **`ReadinessSatisfied`** (the gate: `
 
 On gate transitions the operator emits events sparingly: a `Warning` / `ReadinessGateUnmet` when the gate first drops and a `Normal` / `ReadinessRecovered` when it is met again. Contracts that declare no readiness get neither `status.readiness` nor the condition.
 
+The same gate can be enforced at build time: authors run `pacto validate --readiness` (see the [CLI Reference](cli-reference.md)) to fail CI when the score is below `minScore`, while the operator enforces it continuously at runtime.
+
 ---
 
 ## What the operator is NOT
@@ -118,7 +120,7 @@ On gate transitions the operator emits events sparingly: a `Warning` / `Readines
 When `pacto dashboard` detects a Kubernetes cluster with the Pacto CRD installed, it uses the operator's status data as the **k8s** runtime source. This provides:
 
 - Live contract status (Compliant / Warning / NonCompliant / Reference / Unknown)
-- Derived readiness (score, per-check Current/Expired status) as a separate dimension
+- Derived readiness (overall score plus per-check done/partial/not-done/deferred status and earned weight; the whole assessment carries a single expiry) as a separate dimension
 - Reconciliation conditions with timestamps
 - Endpoint health and metrics reachability results
 - Resource existence checks (Service, Workload)
@@ -148,14 +150,14 @@ The dashboard uses these revisions as one input for version history. However, th
 
 The operator is distributed as a Helm chart:
 
-- **Helm chart (GitHub):** [pacto-operator/charts/pacto-operator](https://github.com/TrianaLab/pacto-operator/tree/main/charts/pacto-operator)
+- **Helm chart (GitHub):** [pacto-operator/charts/pacto-operator](https://github.com/trianalab/pacto-operator/tree/main/charts/pacto-operator)
 - **Artifact Hub:** [pacto-operator on Artifact Hub](https://artifacthub.io/packages/helm/pacto-operator/pacto-operator)
 
 ---
 
 ## Learn more
 
-- **CRD API reference:** [api-reference.md](https://github.com/TrianaLab/pacto-operator/blob/main/docs/api-reference.md)
+- **CRD API reference:** [api-reference.md](https://github.com/trianalab/pacto-operator/blob/main/docs/api-reference.md)
 - **Repository:** [pacto-operator on GitHub](https://github.com/trianalab/pacto-operator)
 - **CLI reference:** [CLI Reference](cli-reference.md) — author and validate contracts before deploying
 - **Dashboard:** [Dashboard Container](dashboard-docker.md) — explore contracts alongside runtime state

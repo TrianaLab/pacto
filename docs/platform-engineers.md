@@ -19,7 +19,7 @@ Every question you'd normally have to ask the dev team — or discover in produc
 | `scaling.min` / `scaling.max` | Configure auto-scaling bounds |
 | `configurations[].schema` / `configurations[].ref` | Validate required configuration, generate config templates. Platform teams can publish a shared schema that services vendor into their bundles or reference via OCI — the schema then expresses what the platform *provides*. See [Configuration Schema Ownership Models](contract-reference.md#configuration-schema-ownership-models) |
 | `policies[].ref` | Enforce organizational standards — require health endpoints, mandate ports, enforce visibility rules. See [policies](contract-reference.md#policies) |
-| `readiness.checks[]` | Gate promotion and surface operational readiness — declare dashboard, runbook, security-review, SLO, AI-eval evidence; each check carries a weight; the assessment carries a single expiry date; derive a freshness score. Enforce required checks via policies. See [readiness](contract-reference.md#readiness) |
+| `readiness.checks[]` | Gate promotion and surface operational readiness — declare dashboard, runbook, security-review, SLO, AI-eval evidence; each check carries a weight; the assessment carries a single expiry date; derive a readiness score. Enforce required checks via policies. See [readiness](contract-reference.md#readiness) |
 | `dependencies[].ref` | Validate dependency graph, check compatibility |
 | `docs/` *(optional)* | Access service documentation, runbooks, integration guides |
 | `sbom/` *(optional)* | Audit third-party packages, track license compliance |
@@ -44,6 +44,8 @@ flowchart LR
 ```bash
 pacto pull oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```
+
+`explain`, `diff`, `graph` and `generate` accept `oci://` refs directly (resolving through the local cache), so this explicit `pull` is optional — use it only when you want the extracted bundle on disk.
 
 ### 2. Inspect it
 
@@ -127,7 +129,7 @@ This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes m
 
 ### State model
 
-The state model tells you exactly what storage and scheduling strategy a service needs:
+The state model tells you exactly what storage and scheduling strategy a service needs. The `scope/durability` values below (e.g. `local/persistent`) are shorthand for the nested `runtime.state.persistence.scope` + `runtime.state.persistence.durability` fields, matching the `pacto explain` display:
 
 | `runtime.state.type` | `runtime.state.persistence` | Infrastructure |
 |---|---|---|
@@ -156,7 +158,7 @@ Two features give platform teams direct control over the boundary between develo
 
 The `configurations` section defines **the interface boundary between a service and its environment**. When a platform team publishes a shared configuration schema, it declares *what the platform provides* — database connections, observability endpoints, feature flags, secret paths. When a service author defines one, it declares *what the service requires*.
 
-An interface is a JSON Schema — and you probably already have one. A service's configuration interface is the `values.schema.json` you author for its Helm chart; an infrastructure interface is a hand-authored mirror of a provisioning claim's schema. Pacto composes the schema you already own instead of inventing a new configuration language: vendor that file as a local `schema:` (required whenever you supply values), or resolve a schema-only contract via `ref:`.
+An interface is a JSON Schema — and you probably already have one. A service's configuration interface is the `values.schema.json` you author for its Helm chart; an infrastructure interface is a JSON Schema derived from the provisioning claim's OpenAPI schema. Pacto composes the schema you already own instead of inventing a new configuration language: vendor that file as a local `schema:` (required whenever you supply values), or resolve a schema-only contract via `ref:`.
 
 There are two approaches:
 
@@ -193,7 +195,7 @@ policies:
 See [The platform-published policy + schema contract](patterns.md#4-the-platform-published-policy-schema-contract) for the authoring and publish recipe.
 
 !!! warning "Where refs are enforced"
-    Ref-based policies are enforced by `pacto validate` (fail-closed — an unresolvable ref is a hard `POLICY_REF_UNRESOLVED` error). `pacto pack`/`pacto push` and the operator only enforce inline `schema` policies and emit a `POLICY_REF_NOT_ENFORCED` warning for refs.
+    Ref-based policies are enforced by `pacto validate` and `pacto push` (fail-closed — an unresolvable ref is a hard `POLICY_REF_UNRESOLVED` error, which is how push blocks non-compliant publishes). `pacto pack` and the operator run local-only validation: they enforce only inline `schema` policies and emit a `POLICY_REF_NOT_ENFORCED` warning for refs.
 
 See [Layer 4: Policy enforcement](contract-reference.md#layer-4-policy-enforcement) for the resolution semantics (recursive N-hop, cycle detection, error codes) and [policies](contract-reference.md#policies) for the full specification.
 
@@ -209,7 +211,7 @@ See [Layer 4: Policy enforcement](contract-reference.md#layer-4-policy-enforceme
 
 ## Breaking change detection
 
-`pacto diff` compares contract fields, deep-diffs referenced interface specs (e.g. OpenAPI) and resolves both dependency trees to show the full blast radius. Gate CI on its exit code — it exits non-zero when the classification is `BREAKING`.
+`pacto diff` compares contract fields, deep-diffs referenced interface specs (e.g. OpenAPI) and resolves both dependency trees to show the full blast radius — every downstream service a change can affect. Gate CI on its exit code — it exits non-zero when the classification is `BREAKING`.
 
 ```bash
 $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
@@ -237,15 +239,13 @@ Use Pacto in CI pipelines to catch problems before deployment:
 
 ```yaml
 # Example CI pipeline
+# (Schema/OpenAPI inference is a service-authoring step — see developers.md)
 steps:
-  - name: Infer config schema from sample config
-    run: pacto generate schema-infer . --option file=config.yaml -o .
-
-  - name: Infer OpenAPI spec from source code
-    run: pacto generate openapi-infer . -o .
-
   - name: Validate contract
     run: pacto validate .
+
+  - name: Verify the lockfile is up to date
+    run: pacto lock --check
 
   - name: Check for breaking changes
     run: pacto diff oci://ghcr.io/acme/my-service-pacto:latest .
@@ -258,6 +258,8 @@ steps:
   - name: Verify dependency graph
     run: pacto graph .
 ```
+
+`pacto lock --check` acts as a supply-chain reproducibility gate — it fails when a contributor edited dependencies or references without re-running `pacto lock`. See [Lockfile](lockfile.md#pacto-lock--check).
 
 Using GitHub Actions? See [GitHub Actions integration](github-actions.md) for the equivalent workflow built on [pacto-actions](https://github.com/trianalab/pacto-actions), including multi-service workflows, doc generation and authentication options.
 
@@ -275,7 +277,7 @@ Using GitHub Actions? See [GitHub Actions integration](github-actions.md) for th
 
 Sources (local, Kubernetes, OCI) are auto-detected at startup and merged per service. The platform-relevant behavior: when running alongside the Kubernetes operator, the dashboard auto-discovers OCI repositories from the `resolvedRef` fields in Pacto CRD statuses, so a K8s deployment gives the full contract experience — version history, interface details, configuration schemas and diffs — without explicit OCI arguments.
 
-See [Dashboard architecture](architecture.md#dashboard-architecture) for the source model, merge priority, graph edges and version-tracking rules, and the [`pacto dashboard` command reference](cli-reference.md#pacto-dashboard) for flags (`--port`, `--namespace`, `--repo`, `--no-cache`, `--diagnostics`) and environment variables.
+See [Dashboard architecture](architecture.md#dashboard-architecture) for the source model, merge priority, graph edges and version-tracking rules, and the [`pacto dashboard` command reference](cli-reference.md#pacto-dashboard) for flags (`--host`, `--port`, `--namespace`, `--no-cache`, `--diagnostics`, `--cors-origin`) and environment variables. Pass OCI repositories as positional `oci://` arguments or via the `PACTO_DASHBOARD_REPO` env var.
 
 ---
 
@@ -285,7 +287,7 @@ See [Dashboard architecture](architecture.md#dashboard-architecture) for the sou
 - **Use `pacto graph` to understand impact.** Before upgrading a shared service, check what depends on it.
 - **Disable cache in CI.** Use `--no-cache` or `PACTO_NO_CACHE=1` to ensure fresh OCI pulls in pipelines where the cache might be stale. `--no-cache` is a cold-start flag: it skips disk *reads* of pre-existing cached bundles, but bundles fetched during the run are still *written* to disk and reused within the same session.
 - **Trust the state semantics.** If a contract says `stateless` + `ephemeral`, you can safely use a Deployment with no PVC. The validation engine enforces consistency.
-- **Use JSON output.** Every command supports `--output-format json` for programmatic consumption.
+- **Use JSON output.** Every inspection command (explain, diff, graph, validate, generate, doc) supports `--output-format json` for programmatic consumption.
 - **Use markdown output for PR comments.** `pacto diff --output-format markdown` renders changes as tables with old/new values — pipe it into `gh pr comment` for rich CI feedback.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
 - **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface](mcp-integration.md) — useful for ad-hoc inspection, dependency analysis, and contract generation.

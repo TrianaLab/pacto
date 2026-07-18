@@ -77,11 +77,15 @@ jobs:
         with:
           command: setup
 
-      - name: Log in to GHCR
-        run: pacto login ghcr.io --username "${{ github.actor }}" --password "${{ secrets.GITHUB_TOKEN }}"
-
       - name: Push contract
-        run: pacto push oci://ghcr.io/${{ github.repository }}-pacto -p .
+        uses: TrianaLab/pacto-actions@v1
+        with:
+          command: push
+          ref: oci://ghcr.io/${{ github.repository }}-pacto
+          path: .
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Environment-specific validation

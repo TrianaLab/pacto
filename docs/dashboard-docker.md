@@ -1,7 +1,7 @@
 # Dashboard Container
----
+The Pacto dashboard is published as a container image for production and Kubernetes deployments. It runs the same `pacto dashboard` server in a deployable container. See the [platform engineer guide](platform-engineers.md) for how the dashboard fits into operator, compliance and blast-radius workflows.
 
-The Pacto dashboard is published as a container image for production and Kubernetes deployments. It runs the same `pacto dashboard` server in a deployable container.
+---
 
 ## Image
 
@@ -48,7 +48,7 @@ make docker-run
 | `PACTO_DASHBOARD_REPO` | Comma-separated OCI repositories to scan | `""` |
 | `PACTO_DASHBOARD_DIAGNOSTICS` | Enable source diagnostics panel (`true`) | `false` |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | Trusted cross-origin allowed to call the API | `""` (same-origin only) |
-| `PACTO_CACHE_DIR` | OCI bundle cache directory | `/home/pacto/.cache/pacto/oci` |
+| `PACTO_CACHE_DIR` | Directory the dashboard scans for cached OCI bundles (read side) | `/home/pacto/.cache/pacto/oci` |
 | `PACTO_NO_CACHE` | Disable OCI bundle caching (`1`) | `0` |
 | `PACTO_NO_UPDATE_CHECK` | Disable update checks (`1`) | `1` (set in image) |
 | `PACTO_REGISTRY_USERNAME` | Registry authentication username | `""` |
@@ -57,7 +57,7 @@ make docker-run
 
 All `PACTO_DASHBOARD_*` variables map to the corresponding `--host`, `--port`, `--namespace`, `--diagnostics`, and `--cors-origin` CLI flags. OCI repositories can be passed as `oci://` positional arguments on the CLI; in the container, use the comma-separated `PACTO_DASHBOARD_REPO` env var instead.
 
-> **Note:** `PACTO_CACHE_DIR` is an **environment variable only** — there is no `--cache-dir` flag. When it is unset, the dashboard resolves the cache directory from the bundle store's `CacheDir()` (defaulting to `~/.cache/pacto/oci`).
+> **Note:** `PACTO_CACHE_DIR` sets only the directory the dashboard **scans** for cached OCI bundles (read side); it is an **environment variable only** — there is no `--cache-dir` flag. When it is unset, the dashboard resolves this directory from the bundle store's `CacheDir()` (defaulting to `~/.cache/pacto/oci`). The core CLI/OCI cache **write** location is controlled by `XDG_CACHE_HOME` (default `~/.cache/pacto/oci`), not `PACTO_CACHE_DIR` — so to persist the cache, mount a volume at that path (as the [Kubernetes example](#kubernetes-deployment) does) or set `XDG_CACHE_HOME`. The container default works because `HOME=/home/pacto` makes the read and write paths coincide. See the [environment variables](cli-reference.md#environment-variables) in the CLI reference for the full picture.
 
 ## Data Sources
 

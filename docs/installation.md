@@ -10,7 +10,15 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 ```
 
 !!! warning
-    The installer script may request elevated permissions (sudo) to install the binary to `/usr/local/bin`. You can use `--no-sudo` to install without elevated permissions or set `PACTO_INSTALL_DIR` to a custom directory.
+    The installer script may request elevated permissions (sudo) to install the binary to `/usr/local/bin`. To install without elevated permissions, pass `--no-sudo` through to the script, or set `PACTO_INSTALL_DIR` to a custom directory as an environment variable before `bash`:
+
+    ```bash
+    # Install without sudo
+    curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash -s -- --no-sudo
+
+    # Install to a custom directory
+    curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | PACTO_INSTALL_DIR="$HOME/.local/bin" bash
+    ```
 
 Verify the installation:
 
@@ -65,5 +73,7 @@ make clean    # Remove build artifacts
 ```
 
 !!! note
-    Pre-built binaries and package manager support (Homebrew, apt, etc.) are planned for future releases.
+    Package manager support (Homebrew, apt, etc.) is planned for future releases. Pre-built binaries are already published on GitHub Releases and are what the installer script and `pacto update` download.
+
+Next: [Quickstart](quickstart.md).
 

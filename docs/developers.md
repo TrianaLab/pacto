@@ -1,5 +1,5 @@
 # Pacto for Developers
-You own the service — and you own the contract. Pacto gives you a structured way to declare your service's operational interface alongside your code, so platform engineers, CI systems and other teams have an accurate, machine-readable description of what your service needs to run.
+You own the service — and you own the contract. Pacto gives you a structured way to declare your service's operational contract alongside your code, so platform engineers, CI systems and other teams have an accurate, machine-readable description of what your service needs to run.
 
 Under the hood, Pacto composes the interfaces you already have — your OpenAPI spec, your config's JSON Schema — instead of inventing new formats for them. What it adds is the operational contract no single schema owns: ownership, dependencies, compatibility and readiness.
 
@@ -24,7 +24,7 @@ flowchart LR
 pacto init my-service
 ```
 
-This scaffolds a contract with sensible defaults. Edit `pacto.yaml` to match your service.
+This scaffolds a bundle with a valid contract. Edit `pacto.yaml` to match your service.
 
 ### 2. Infer schemas from your code (optional)
 
@@ -158,7 +158,7 @@ dependencies:
 
 If your service depends on a cloud-managed resource (e.g. a database or message queue), create a minimal Pacto contract representing it and reference it as a dependency. This keeps cloud dependencies explicit and version-tracked.
 
-Use `pacto graph` to visualize your dependency tree. Pass `--with-references` to also see config/policy reference edges alongside dependencies, or `--only-references` to show only reference edges.
+Use `pacto graph` to visualize your dependency tree. Pass `--with-references` to also see config/policy reference edges alongside dependencies, or `--only-references` to show only reference edges. A reference (a config or policy `ref`) points at a shared configuration or policy contract, as opposed to a dependency, which is a runtime relationship to another service.
 
 ### 6. Adopt a policy (optional)
 
@@ -210,12 +210,18 @@ Validation catches errors in four layers:
 3. **Semantic** — strategy consistency warnings
 4. **Policy enforcement** — referenced policies are resolved and enforced
 
+See [Validation layers](contract-reference.md#validation-layers) for the full rules and error codes.
+
+To also enforce the readiness gate — the `readiness:` block `pacto init` scaffolds into your contract — run `pacto validate --readiness`. It fails if the derived readiness score is below `minScore`. Plain `pacto validate` does not enforce it because the gate is time-dependent (check expiry is compared against the run time). See [Contract Reference — readiness](contract-reference.md#readiness).
+
 ### 9. Pack and push
 
 ```bash
 pacto pack my-service
 pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
 ```
+
+Use a [`.pactoignore`](pactoignore.md) file to keep build artifacts and other cruft out of the packed bundle.
 
 If the artifact already exists in the registry, `pacto push` prints a warning and exits without pushing. Use `--force` to overwrite:
 
@@ -251,7 +257,7 @@ For the per-command flag list see the [CLI reference](cli-reference.md); for ove
 
 ## Common runtime patterns
 
-The `runtime` block tells the platform what your service *is*, not how to deploy it. Each common shape has a ready-made worked example you can copy:
+Each common shape has a ready-made worked example you can copy:
 
 | Pattern | `state.type` | Worked example |
 |---------|-------------|----------------|
@@ -260,7 +266,7 @@ The `runtime` block tells the platform what your service *is*, not how to deploy
 | API with local cache | `hybrid` | [hybrid-cache](examples/hybrid-cache.md) |
 | Scheduled job | `stateless` (workload `scheduled`) | [cron-worker](examples/cron-worker.md) |
 
-A `hybrid` service handles requests statelessly but keeps a local cache, so the platform can scale it horizontally while allowing for cache warm-up. See [runtime.state](contract-reference.md#runtimestate) for the full field spec.
+See [runtime.state](contract-reference.md#runtimestate) for the full field spec.
 
 Use `scaling.replicas` instead of `min`/`max` when the service should always run an exact number of instances:
 
@@ -361,7 +367,7 @@ Pacto discovers the SBOM by scanning `sbom/` for recognized extensions — no co
 ## Tips
 
 - **Version your contract alongside your code.** The `pacto.yaml` lives in your repository.
-- **Pin dependency digests in production.** Tags are mutable; digests are not.
+- **Pin dependency digests in production.** Tags are mutable; digests are not. Run [`pacto lock`](lockfile.md) to pin the full transitive closure to digests in a committed `pacto.lock`.
 - **Keep interface contracts up to date.** OpenAPI specs and protobuf definitions in the bundle should match what your service actually serves.
 - **Use `pacto explain` to review.** It produces a human-readable summary of your contract.
 - **Use `pacto doc` for rich documentation.** It generates Markdown with architecture diagrams and interface tables. Use `--serve` to view it in the browser.

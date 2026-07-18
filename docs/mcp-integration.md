@@ -39,12 +39,12 @@ Creates a new Pacto contract from structured input. The tool infers contract det
 
 **Key inputs:**
 - `name` (required) — service name
-- `description` — natural-language description (triggers automatic inference of interfaces, dependencies, and runtime)
+- `description` — natural-language description (triggers automatic inference of interfaces and runtime)
 - `interfaces` — JSON array of `{name, type, port?, visibility?}` objects
 - `stores_data`, `data_survives_restart`, `data_shared_across_instances` — intent-level runtime flags mapped to contract primitives
 - `dry_run` — validate and return the result without writing files
 
-**Description inference:** When a description mentions terms like "REST API", "gRPC", "PostgreSQL", or "Kafka", the tool automatically infers interfaces, dependencies, and runtime configuration. Explicit inputs always override inferred values.
+**Description inference:** When a description mentions terms like "REST API" or "gRPC", the tool infers the matching interface; a datastore term like "PostgreSQL" or "Redis" flips the runtime to stateful; and a messaging term like "Kafka" adds an event interface. Dependencies are never inferred — declare them explicitly via the `dependencies` input. Explicit inputs always override inferred values.
 
 **Runtime mapping:** Intent-level flags are deterministically mapped to contract primitives:
 
@@ -55,7 +55,7 @@ Creates a new Pacto contract from structured input. The tool infers contract det
 | `data_shared_across_instances=true` | `persistence.scope: shared` |
 | `data_loss_impact=high` | `dataCriticality: high` |
 
-The persistence rows take effect only when `stores_data=true` — `stores_data` is what sets `state.type: stateful` and the default `dataCriticality: medium`. With `stores_data=false` the runtime stays stateless, local, ephemeral and low, and `data_shared_across_instances` is ignored.
+The persistence rows take effect only when `stores_data=true` — `stores_data` is what sets `state.type: stateful` and the default `dataCriticality: medium`. With `stores_data=false` the state stays stateless, local and ephemeral, and `data_shared_across_instances` is ignored; `data_loss_impact` still sets `dataCriticality` independently of `stores_data`. See [Contract reference](contract-reference.md) for the full runtime and state field definitions.
 
 **Scaling inputs:** `replicas` and `min_replicas`/`max_replicas` are mutually exclusive. If `replicas` is set, the min/max values are silently ignored (current behavior) — set either a fixed replica count or an auto-scaling range, not both.
 
@@ -187,6 +187,8 @@ This repository ships demo bundles you can point Claude at directly. We'll use
 make build   # or: go install ./cmd/pacto
 ```
 
+See [Installation](installation.md) for all methods.
+
 **2. Start a throwaway backend.** The demo service isn't actually running, so give
 the generated tools something to call. In a real setup `--base-url` points at your
 live service instead.
@@ -230,7 +232,9 @@ or, inside a Claude Code session:
 ```
 
 You'll see one tool per OpenAPI operation (`createRefund`, `getPaymentIntent`,
-`listPaymentIntents`, …) plus `pacto_skill`. Claude also receives the server's
+`listPaymentIntents`, …) plus `pacto_skill` and the four authoring tools
+(`pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema`), which are always
+registered. Claude also receives the server's
 instructions telling it these tools invoke the live payments service and how to
 use `pacto_skill`.
 
@@ -267,9 +271,9 @@ Pacto supports two MCP transports:
 | Transport | Flag | Use case |
 |-----------|------|----------|
 | **stdio** (default) | `pacto mcp` | Direct integration with CLI-based AI tools (Claude Code, Cursor) |
-| **HTTP** | `pacto mcp -t http` | Network-accessible server for web-based or remote AI tools |
+| **HTTP** | `pacto mcp -t http` | Local HTTP endpoint for tools that speak HTTP rather than stdio |
 
-The HTTP transport serves the [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) protocol at the `/mcp` endpoint. The port defaults to `8585` and can be changed with `--port`.
+The HTTP transport serves the [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) protocol at the `/mcp` endpoint. The port defaults to `8585` and can be changed with `--port`. The server binds to loopback (`127.0.0.1`) only; remote access requires an explicit tunnel or reverse proxy.
 
 ---
 

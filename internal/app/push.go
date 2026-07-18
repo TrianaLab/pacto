@@ -45,7 +45,7 @@ type PushResult struct {
 	Version string
 }
 
-// Push validates a contract bundle, builds an OCI image, and pushes it to a registry.
+// Push validates a contract bundle, builds an OCI artifact, and pushes it to a registry.
 func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, error) {
 	if err := s.requireBundleStore(); err != nil {
 		return nil, err

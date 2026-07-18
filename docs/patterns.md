@@ -143,12 +143,12 @@ policies:
 
 configurations:
   - name: provisioning
-    schema: configuration/schema.json   # hand-authored mirror of the provisioner's XRD / module spec — Pacto does not derive it
+    schema: configuration/schema.json   # derived from the provisioning claim's OpenAPI schema — the team-controllable subset of fields
 ```
 
 **The provisioning schema** validates "did the team write a sensible claim?" — instances in range, valid size enum, schedule cron syntax, etc.
 
-Pacto doesn't invent this schema — it's a hand-authored mirror of the provisioner's own interface (a Crossplane XRD, a Terraform module's variables), the team-controllable subset of the claim. Configuring the resource through the contract is configuring the underlying claim; the contract adds what the claim can't express on its own — an owner, a version, a policy and a stable ref other contracts depend on.
+Pacto doesn't invent this schema — it's derived from the provisioning claim's own OpenAPI schema (a Crossplane XRD, a Terraform module's variables), the team-controllable subset of the claim. The configuration a team writes through the contract *is* the configuration that feeds the underlying claim — validated once, with no second definition to drift out of sync. The contract adds what the claim can't express on its own — an owner, a version, a policy and a stable ref other contracts depend on.
 
 ```json
 {
@@ -303,15 +303,15 @@ configurations:
 |---------|-----------------|
 | `1.0.0` | `service.owner` declared, `runtime.health` defined |
 | `2.0.0` | + `runtime.workload` declared, `interfaces[]` if exposed |
-| `3.0.0` | + `configurations[]` schema present, SBOM in bundle |
-| `4.0.0` | + `runtime.health` includes liveness *and* readiness, `scaling.min >= 2` for `service` workloads |
+| `3.0.0` | + `configurations[]` schema present, `metadata.labels` required |
+| `4.0.0` | + `runtime.health.path` set, `scaling.min >= 2` for `service` workloads |
 
 A service pinned to `platform-policy:2.0.0` keeps validating against v2's rules until the team is ready to bump — the platform never forces the change.
 
 **Why this works.**
 
 - **Forwards is opt-in, never forced.** Teams migrate when they have time
-- **Backwards is enforced.** A service can never silently weaken its policy — `pacto diff` flags removing or changing a policy ref as potentially breaking (classification `potentially-breaking`)
+- **Backwards is enforced.** A service can never silently weaken its policy — `pacto diff` flags removing or changing a policy ref as potentially breaking (classification `POTENTIAL_BREAKING`)
 - **The version is the negotiation point.** Conversations about "should we require X?" become "should we publish v4 that requires X, with a six-month adoption window?"
 
 **Two dials.** Pinning the policy's major version (above) makes each new bar opt-in and negotiated. Alternatively, a rule layer referenced *transitively* through the platform contract can be left unpinned: republishing that one schema propagates a new rule fleet-wide immediately, with no per-service bump — at the cost of lockfile drift, since every republish changes the resolved digest and forces services to re-lock ([`pacto lock --check`](lockfile.md) fails until they do). Pinned is opt-in and negotiated; floating is instant and unilateral but forces re-locks.
@@ -382,8 +382,8 @@ flowchart TD
     overrides["Pattern 6<br/>Override files as<br/>deployment surface"]
     progressive["Pattern 5<br/>Progressive policy<br/>versioning"]
 
-    plat -->|"refs"| monorepo
-    infra -->|"refs"| composable
+    monorepo -->|"refs"| plat
+    composable -->|"refs"| infra
     monorepo --> composable
     composable --> overrides
     plat -.->|"governs"| progressive

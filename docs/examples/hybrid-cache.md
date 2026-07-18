@@ -69,7 +69,6 @@ scaling:
   max: 6
 
 metadata:
-  team: catalog
   tier: standard
   cache-strategy: write-through
 ```

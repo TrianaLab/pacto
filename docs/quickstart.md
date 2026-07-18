@@ -26,7 +26,7 @@ Created my-service/
   my-service/configuration/
 ```
 
-This scaffolds a bundle with a valid contract, a placeholder OpenAPI spec and a configuration JSON Schema. Only `pacto.yaml` is required — if your service doesn't use them, remove the `interfaces/` and `configuration/` directories along with the `interfaces:`/`configurations:` sections that reference them in `pacto.yaml` (deleting the directories alone breaks validation).
+This scaffolds a bundle with a valid contract, a placeholder OpenAPI spec and a configuration JSON Schema. Only `pacto.yaml` is required — if your service doesn't use them, remove the `interfaces/` and `configuration/` directories along with the `interfaces:`/`configurations:` sections and any fields that reference them (the scaffold's `runtime.health.interface` and `runtime.metrics.interface` both point at the `api` interface) in `pacto.yaml` (deleting the directories alone breaks validation).
 
 These are standard formats — OpenAPI for interfaces, JSON Schema for configuration — so you can drop in the interface files you already own (for example your Helm chart's `values.schema.json`) instead of authoring new ones. Pacto composes the interfaces you already have rather than inventing a config language.
 
@@ -63,7 +63,7 @@ The `readiness` section declares operational readiness state for the service. It
 pactoVersion: "1.2"
 
 readiness:
-  expires: 2027-06-30
+  expires: 2099-12-31
   minScore: 80
   checks:
     - id: dashboard
@@ -131,7 +131,7 @@ Interfaces (1):
 
 Scaling: 1-3
 
-# Rich Markdown documentation
+# Serve an interactive documentation site
 $ pacto doc my-service --serve
 Serving documentation at http://127.0.0.1:8484
 ```
@@ -149,7 +149,7 @@ Changes (1):
   [BREAKING] interfaces.port (modified): interfaces.port modified [8080 -> 9090]
 ```
 
-Exit code is non-zero when breaking changes are detected — use this in CI to gate merges. See [For Platform Engineers](platform-engineers.md) for the full CI integration guide.
+Exit code is non-zero when breaking changes are detected — use this in CI to gate merges. See [Detecting breaking changes](developers.md#detecting-breaking-changes) and the official [GitHub Actions](github-actions.md) integration for wiring this into CI.
 
 ---
 

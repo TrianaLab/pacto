@@ -97,7 +97,7 @@ These questions are answered in one file, validated by tooling and versioned in 
 Only `pactoVersion` and `service` are required — everything else is opt-in, so a contract can be as minimal or as detailed as your service needs.
 
 !!! note
-    The example above uses `pactoVersion: "1.2"`, which `pacto init` creates. The [`readiness`](contract-reference.md#readiness) section requires `pactoVersion: "1.2"` — declaring it under `1.0` or `1.1` is rejected at validation.
+    The example above is a simplified illustration, not verbatim `pacto init` output — it uses `pactoVersion: "1.2"`, the version `pacto init` scaffolds. The [`readiness`](contract-reference.md#readiness) section requires `pactoVersion: "1.2"` — declaring it under `1.0` or `1.1` is rejected at validation.
 
 **Which version?** Use `1.0` or `1.1` for contracts without readiness; use `1.2` when you need the redesigned [`readiness`](contract-reference.md#readiness) section with status-based scoring. Object-only `owner` is enforced across all versions.
 
@@ -117,7 +117,7 @@ When a Helm chart says `replicas: 3` and `volumeClaimTemplates: [...]`, it impli
 
 ### Services have undocumented dependencies
 
-A payment service calls auth, which calls user-store, which needs a database. Nobody wrote this down. With Pacto, dependencies are declared in the contract, resolved from OCI registries, and visualized as a graph. When you upgrade auth, `pacto diff` tells you the full blast radius.
+A payment service calls auth, which calls user-store, which needs a database. Nobody wrote this down. With Pacto, dependencies are declared in the contract, resolved from OCI registries, and visualized as a graph. When you upgrade auth, `pacto diff` tells you the full blast radius — every service transitively affected by the change.
 
 ### Your CI pipeline can't detect operational breaking changes
 
@@ -133,7 +133,7 @@ Instead of filing tickets, attending meetings, and writing wiki pages, a develop
 
 ```
 1. Developer writes a pacto.yaml alongside their code
-2. pacto validate checks it (structure, cross-references, semantics)
+2. pacto validate checks it (structure, cross-references, semantics, policy)
 3. pacto push ships the contract to an OCI registry as a versioned artifact
 4. pacto dashboard explores contracts, graphs, versions, and diffs visually
 5. The Kubernetes operator verifies runtime stays faithful to the contract
@@ -164,6 +164,7 @@ graph LR
             direction TB
             Docs["docs/<br/>README · runbooks · guides"]
             SBOM["sbom/<br/>SPDX · CycloneDX"]
+            Skills["skills/<br/>agent domain knowledge"]
         end
 
         YAML --> Sections
@@ -172,7 +173,7 @@ graph LR
     Bundle -- "pacto push" --> Registry["OCI Registry<br/>GHCR · ECR · ACR<br/>Docker Hub"]
 ```
 
-A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required) plus optional `interfaces/`, `configuration/`, `policy/`, `docs/` and `sbom/` directories. These are schemas you already maintain — an OpenAPI spec, a JSON Schema for your config — composed into the bundle rather than rewritten in a Pacto-specific format; `pacto.yaml` adds the relational layer around them (dependencies, compatibility, runtime semantics). Validation enforces that every referenced file exists within the bundle. See the [contract reference](contract-reference.md#bundle-structure) for the full bundle layout.
+A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required) plus optional `interfaces/`, `configuration/`, `policy/`, `docs/`, `sbom/` and `skills/` directories. These are schemas you already maintain — an OpenAPI spec, a JSON Schema for your config — composed into the bundle rather than rewritten in a Pacto-specific format; `pacto.yaml` adds the relational layer around them (dependencies, compatibility, runtime semantics). Validation enforces that every referenced file exists within the bundle. See the [contract reference](contract-reference.md#bundle-structure) for the full bundle layout.
 
 ---
 

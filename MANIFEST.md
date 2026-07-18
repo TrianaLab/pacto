@@ -43,11 +43,11 @@ If a platform has to guess whether a service is stateful, the contract is incomp
 
 **Distributed through existing infrastructure.** Contracts are OCI artifacts. They use the same registries, the same auth, and the same tooling as container images. No new infrastructure.
 
-**Compose, don't reinvent.** The interfaces a service exposes already have schemas — an OpenAPI spec for its API, a JSON Schema for its configuration. Pacto references those schemas instead of inventing a new configuration language. If an interface is already described and owned elsewhere, compose it. Pacto is deliberately not another abstraction to learn.
+**Compose, don't reinvent.** The interfaces a service exposes already have schemas — an OpenAPI spec for its API, a JSON Schema for its configuration — each owned by the system that already maintains it. Pacto references those schemas instead of inventing a new configuration language: the configuration you declare in a contract *is* the configuration that feeds the system beneath it, validated once, with no second definition to drift out of sync. When an interface is already described and owned elsewhere, compose it rather than mirroring it — a copy is wrong the moment the original changes; a reference is correct by construction. Pacto is deliberately not another abstraction to learn.
 
 **Runtime-aware.** If the contract doesn't capture state management, persistence, health checks, scaling bounds, and dependency relationships, it's just another API spec. Runtime semantics are what make it an operational contract.
 
-**Invalid contracts must not propagate.** Every contract passes structural, cross-field, and semantic validation before it can be published. If it's invalid, it doesn't reach the registry. If it introduces a breaking change, CI catches it.
+**Invalid contracts must not propagate.** Every contract passes structural, cross-field, semantic, and policy validation before it can be published. If it's invalid, it doesn't reach the registry. If it introduces a breaking change, CI catches it.
 
 ## What Pacto Is
 

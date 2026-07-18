@@ -63,7 +63,7 @@ The `docs/` directory is an optional convention for including human-readable doc
 
 The `sbom/` directory is an optional convention for including a Software Bill of Materials alongside the contract. Like `docs/`, its contents are treated as **informational metadata** — they travel with the contract but have no effect on contract semantics or validation.
 
-Unlike `docs/`, SBOM files **are included in diff output**. When both the old and new bundles contain an SBOM, `pacto diff` reports package-level changes (added, removed, version or license modified). These changes are informational only — they never affect the overall diff classification.
+Unlike `docs/`, SBOM files **are included in diff output**. When both the old and new bundles contain an SBOM, `pacto diff` reports package-level changes (added, removed, version, license or supplier modified). These changes are informational only — they never affect the overall diff classification.
 
 **Supported formats:**
 
@@ -760,7 +760,7 @@ configuration. Pacto computes a readiness score from check statuses and weights.
 
 ```yaml
 readiness:
-  expires: 2027-06-30    # assessment-level expiry (YYYY-MM-DD)
+  expires: "2027-06-30"  # assessment-level expiry (YYYY-MM-DD)
   minScore: 80           # gate: the derived score must be >= this (omitted ⇒ 100)
   partialCredit: 0.5     # weight multiplier for partial checks (omitted ⇒ 0.5)
   
@@ -798,7 +798,7 @@ readiness:
       description: Post-launch cleanup task
 
   history:
-    - date: 2026-12-15
+    - date: "2026-12-15"
       version: 1.0.0
       author: alice
       description: Initial readiness assessment
@@ -834,8 +834,8 @@ is present. `readiness.minScore`, `readiness.partialCredit` and `readiness.histo
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `date` | string | Yes | Date of the change as `YYYY-MM-DD`. |
-| `version` | string | No | Contract version at the time of the change. |
-| `author` | string | No | Person or system that made the change. |
+| `version` | string | Yes | Contract version at the time of the change. Non-blank. |
+| `author` | string | Yes | Person or system that made the change. Non-blank. |
 | `description` | string | Yes | Description of what changed. |
 
 The service owner is declared at the contract level, so readiness checks carry no
@@ -1055,7 +1055,7 @@ sibling policies pointing at the same `ref` resolve independently.
 
 ## Contract overrides
 
-Pacto supports a Helm-style override system that lets you modify contract values without editing `pacto.yaml` directly. Overrides are available on all commands that take a contract reference (`validate`, `explain`, `diff`, `doc`, `generate`, `graph`, `pack`, `push`, `lock`).
+Pacto supports a Helm-style override system that lets you modify contract values without editing `pacto.yaml` directly. Overrides are available on all commands that take a contract reference (`validate`, `explain`, `diff`, `doc`, `generate`, `graph`, `pack`, `push`, `lock`). See the [CLI reference](cli-reference.md) for the complete command and flag listing.
 
 ### Override flags
 
@@ -1176,7 +1176,7 @@ scaling:
 
 ```bash
 pacto validate my-service -f values/dev.yaml
-pacto push my-service --values values/production.yaml --set service.version=2.1.0
+pacto push oci://ghcr.io/acme/my-service-pacto -p my-service --values values/production.yaml --set service.version=2.1.0
 ```
 
 See [Developers — values files](developers.md) for the full per-environment workflow.
@@ -1250,9 +1250,7 @@ includes the `private` flag, so toggling image privacy is reported even when the
 |-------|--------|----------------|
 | `configurations[]` | Added | NON_BREAKING |
 | `configurations[]` | Removed | **BREAKING** |
-| `configurations[].schema` | Added | NON_BREAKING |
 | `configurations[].schema` | Modified | POTENTIAL_BREAKING |
-| `configurations[].schema` | Removed | **BREAKING** |
 | `configurations[].ref` | Added | NON_BREAKING |
 | `configurations[].ref` | Modified | POTENTIAL_BREAKING |
 | `configurations[].ref` | Removed | **BREAKING** |

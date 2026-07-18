@@ -52,7 +52,7 @@ For example, if your contract references `interfaces/openapi.yaml` and your `.pa
 interfaces/openapi.yaml
 ```
 
-Then `pacto pack` and `pacto push` will exit with an error stating that the referenced file is missing.
+Then `pacto pack` and `pacto push` will exit with a validation error. To see the message naming the missing file, run `pacto validate` — `pack` and `push` report only `contract validation failed with N error(s)`.
 
 The same rule applies to `configurations[].schema`, `policies[].schema` and any other file path declared in `pacto.yaml`.
 
@@ -93,7 +93,7 @@ The final `!data/config.bin` re-includes one file that an earlier pattern exclud
 - **`pacto pack`** — files matching ignore patterns are excluded from the tar.gz archive
 - **`pacto push`** — files matching ignore patterns are excluded from the OCI artifact
 
-Every command that loads a local bundle reads through the ignore filter, so ignored files are invisible to all of them (this is why ignoring a referenced file also fails `validate`, `graph`, `diff`, `doc` and `explain`). Only `pacto pack` and `pacto push` additionally package the filtered file set into the shipped artifact.
+Every command that loads a local bundle reads through the ignore filter, so ignored files are invisible to all of them. The commands that validate the bundle (`validate`, `pack`, `push`) hard-fail on a missing referenced file, while `graph`, `diff`, `doc` and `explain` simply do not see the file and produce incomplete output. Only `pacto pack` and `pacto push` additionally package the filtered file set into the shipped artifact.
 
 ---
 
@@ -108,4 +108,4 @@ Every command that loads a local bundle reads through the ignore filter, so igno
 
 ## Validation and troubleshooting
 
-`pacto pack -v` enables debug logging of the high-level pack steps (load/validate, archive, write); there is no per-file include/exclude log. If a referenced file is excluded, validation fails with `FILE_NOT_FOUND` naming the missing file (e.g. `interface contract file "interfaces/openapi.yaml" not found in bundle`) — it does not report which ignore pattern excluded it.
+`pacto pack -v` enables debug logging of the high-level pack steps (load/validate, archive, write); there is no per-file include/exclude log. If a referenced file is excluded, `pacto pack` and `pacto push` fail with `contract validation failed with N error(s)` — the specific `FILE_NOT_FOUND` message is not surfaced, even with `-v`. To see the error naming the missing file, run `pacto validate`, which prints `FILE_NOT_FOUND` (e.g. `interface contract file "interfaces/openapi.yaml" not found in bundle`). Neither reports which ignore pattern excluded it.

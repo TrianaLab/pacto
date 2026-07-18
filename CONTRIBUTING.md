@@ -10,7 +10,7 @@ By participating in this project, you agree to treat all contributors with respe
 
 ### Prerequisites
 
-- [Go 1.25+](https://go.dev/dl/)
+- [Go 1.26+](https://go.dev/dl/)
 - [Git](https://git-scm.com/)
 - A terminal with `make` available
 - [golangci-lint](https://golangci-lint.run/welcome/install/) (for linting)
