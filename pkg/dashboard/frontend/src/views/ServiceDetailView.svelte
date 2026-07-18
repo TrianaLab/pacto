@@ -5,6 +5,7 @@
       overview: true,
       sources: false,
       interfaces: true,
+      capabilities: false,
       dependencies: false,
       config: false,
       policy: false,
@@ -34,6 +35,7 @@
 
   import OverviewSection from '../sections/OverviewSection.svelte';
   import InterfacesSection from '../sections/InterfacesSection.svelte';
+  import CapabilitiesSection from '../sections/CapabilitiesSection.svelte';
   import DependenciesSection from '../sections/DependenciesSection.svelte';
   import ConfigSection from '../sections/ConfigSection.svelte';
   import PolicySection from '../sections/PolicySection.svelte';
@@ -63,6 +65,7 @@
   // section reports present / empty / not_applicable / unavailable consistently.
   const DOMAIN_SECTIONS = [
     { id: 'interfaces', label: 'Interfaces', key: 'interfaces' },
+    { id: 'capabilities', label: 'Agent Capabilities', key: 'capabilities' },
     { id: 'dependencies', label: 'Dependencies', key: 'dependencies' },
     { id: 'config', label: 'Configurations', key: 'configurations' },
     { id: 'policy', label: 'Policies', key: 'policies' },
@@ -488,6 +491,12 @@
     <InterfacesSection id="section-interfaces" interfaces={detail.interfaces || []} source={sectionState('interfaces').source} bind:open={openSections.interfaces} />
   {:else}
     <SectionState id="section-interfaces" title="Interfaces" meta={sectionState('interfaces')} bind:open={openSections.interfaces} />
+  {/if}
+
+  {#if isPresent('capabilities')}
+    <CapabilitiesSection id="section-capabilities" capabilities={detail.capabilities || []} skills={detail.skills || []} source={sectionState('capabilities').source} bind:open={openSections.capabilities} />
+  {:else}
+    <SectionState id="section-capabilities" title="Agent Capabilities" meta={sectionState('capabilities')} bind:open={openSections.capabilities} />
   {/if}
 
   {#if hasDependencyData}
