@@ -93,6 +93,8 @@ Returns the Pacto format description and the full JSON Schema for `pacto.yaml`. 
 
 ## Agent capabilities
 
+Interfaces describe how software can be invoked; a **capability** is the agent-facing projection of a published interface — the same OpenAPI contract, rendered as tools an autonomous agent can call, with no per-tool glue written by the bundle author. Skills, described below, layer optional domain knowledge on top of that capability.
+
 The authoring tools above are always available. When you additionally pass a **bundle reference** — a local directory or an `oci://` reference — Pacto turns that bundle's interfaces into executable agent tools:
 
 ```bash

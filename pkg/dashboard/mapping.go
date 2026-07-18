@@ -16,6 +16,7 @@ import (
 	"github.com/trianalab/pacto/v2/pkg/readiness"
 	"github.com/trianalab/pacto/v2/pkg/sbom"
 	"github.com/trianalab/pacto/v2/pkg/schemax"
+	"github.com/trianalab/pacto/v2/pkg/skills"
 	"github.com/trianalab/pacto/v2/pkg/validation"
 )
 
@@ -318,19 +319,19 @@ func capabilitiesFromContract(c *contract.Contract, fsys fs.FS) []CapabilityTool
 }
 
 // skillsFromContract reads the bundle's skills/*.md domain-knowledge documents,
-// capping content size and count like docs. Skills() returns validated
-// basenames, so Skill() cannot fail for them; a zero-value read is harmless.
+// capping content size and count like docs. skills.List returns validated
+// basenames, so skills.Read cannot fail for them; a zero-value read is harmless.
 func skillsFromContract(fsys fs.FS) []SkillInfo {
 	if fsys == nil {
 		return nil
 	}
-	names, _ := capability.Skills(fsys)
+	names, _ := skills.List(fsys)
 	if len(names) > maxDocCount {
 		names = names[:maxDocCount]
 	}
 	out := make([]SkillInfo, 0, len(names))
 	for _, name := range names {
-		content, _ := capability.Skill(fsys, name)
+		content, _ := skills.Read(fsys, name)
 		out = append(out, SkillInfo{Name: name, Content: truncateContent(content)})
 	}
 	if len(out) == 0 {

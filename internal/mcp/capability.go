@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v2/pkg/capability"
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/openapi"
+	"github.com/trianalab/pacto/v2/pkg/skills"
 )
 
 // CapabilityOptions configures capability-tool registration for a bundle.
@@ -170,10 +171,10 @@ func skillHandler(fsys fs.FS) mcpsdk.ToolHandler {
 	return func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 		name := parseInput(req, "name")
 		if name == "" {
-			names, _ := capability.Skills(fsys)
+			names, _ := skills.List(fsys)
 			return jsonResult(names)
 		}
-		content, err := capability.Skill(fsys, name)
+		content, err := skills.Read(fsys, name)
 		if err != nil {
 			return errorResult(err), nil
 		}

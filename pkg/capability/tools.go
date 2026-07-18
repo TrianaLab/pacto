@@ -1,3 +1,8 @@
+// Package capability turns a bundle's OpenAPI interface into executable agent
+// tools: it derives tool descriptors from operations (BuildTools) and invokes
+// the live service (Invoke). It is HTTP/OpenAPI-specific today; when a second
+// interface type is added, the shared shape it reveals should be extracted then
+// rather than guessed now.
 package capability
 
 import (
