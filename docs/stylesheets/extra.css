@@ -243,8 +243,11 @@
   background: var(--md-code-bg-color);
   border-radius: 0;
   overflow-x: auto;
+  text-align: left;
 }
 .pacto-hero .pacto-hero__code code {
+  display: block;
+  text-align: left;
   font-size: 0.82rem;
   line-height: 1.55;
   color: var(--md-code-fg-color);

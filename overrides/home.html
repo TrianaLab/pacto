@@ -45,14 +45,17 @@
   owner: { team: payments, dri: alice }
 
 interfaces:
-  - { name: rest-api, type: http, port: 8080, contract: interfaces/openapi.yaml }
+  - name: rest-api
+    type: http
+    port: 8080
 
 dependencies:
-  - { name: auth, ref: oci://ghcr.io/acme/auth-pacto, compatibility: "^2.0.0" }
+  - ref: oci://ghcr.io/acme/auth
+    compatibility: "^2.0.0"
 
 runtime:
-  state:  { type: stateful, dataCriticality: high }
-  health: { interface: rest-api, path: /health }</code></pre>
+  state:  { type: stateful }
+  health: { path: /health }</code></pre>
           <div class="pacto-hero__card-foot">
             <span class="pacto-hero__check">✓</span> validated, versioned and distributed as an OCI artifact
           </div>

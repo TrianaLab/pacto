@@ -250,4 +250,6 @@ These primitives compose into reusable platform patterns — root + component co
 - **Not a registry** — it uses existing OCI registries (GHCR, ECR, ACR, Docker Hub)
 - **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
 
+See the [Manifesto](manifesto.md) for the full positioning and rationale.
+
 Pacto is a **runtime contract system** that tells platforms, pipelines and AI agents what a service *is* — and whether it still matches what was declared.
