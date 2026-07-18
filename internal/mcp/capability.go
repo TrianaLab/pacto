@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/trianalab/pacto/v2/pkg/capability"
@@ -20,6 +21,37 @@ type CapabilityOptions struct {
 	Creds       capability.Credentials
 	AllowWrites bool
 	HTTPClient  *http.Client
+}
+
+// NewCapabilityServer builds an MCP server that exposes both the authoring tools
+// and the bundle's capability tools + pacto_skill. The server's instructions
+// describe the capability tools so an agent knows they invoke the live service.
+func NewCapabilityServer(bundle *contract.Bundle, opts CapabilityOptions, version string, stderr io.Writer) (*mcpsdk.Server, error) {
+	server := newServer(version, baseInstructions+"\n\n"+capabilityInstructions(bundle, opts))
+	if err := RegisterCapabilities(server, bundle, opts, stderr); err != nil {
+		return nil, err
+	}
+	return server, nil
+}
+
+// capabilityInstructions is the server-level guidance describing how to use the
+// bundle's generated tools. This is the "built-in capability" knowledge shared
+// across all services — it lives in Pacto, not in per-bundle skill files.
+func capabilityInstructions(bundle *contract.Bundle, opts CapabilityOptions) string {
+	name := bundle.Contract.Service.Name
+	var b strings.Builder
+	fmt.Fprintf(&b, "This server also exposes the operations of the %q service as executable tools "+
+		"derived from its OpenAPI interface: call a tool to invoke the live endpoint and read the "+
+		"returned status and body.", name)
+	if opts.AllowWrites {
+		b.WriteString(" Both read and mutating (POST/PUT/PATCH/DELETE) operations are available.")
+	} else {
+		b.WriteString(" Only read-only (GET/HEAD) operations are available; mutating operations are " +
+			"hidden unless the server was started with --allow-writes.")
+	}
+	b.WriteString(" Call pacto_skill with no arguments to list the service's domain skills " +
+		"(workflows and business rules the interface cannot express), or with a skill name to read one.")
+	return b.String()
 }
 
 // RegisterCapabilities registers one executable MCP tool per OpenAPI operation

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -187,6 +188,68 @@ func TestRegisterCapabilities_NoBaseURL(t *testing.T) {
 	err := RegisterCapabilities(NewServer(nil, "t"), bundle, CapabilityOptions{}, io.Discard)
 	if err == nil {
 		t.Fatal("expected error when no base URL and no servers")
+	}
+}
+
+func TestNewCapabilityServer_InstructionsReachClient(t *testing.T) {
+	fsys := fstest.MapFS{
+		"o.json":      {Data: []byte(capSpec)},
+		"skills/x.md": {Data: []byte("x")},
+	}
+	bundle := &contract.Bundle{
+		Contract: &contract.Contract{
+			Service:    contract.ServiceIdentity{Name: "demo-svc"},
+			Interfaces: []contract.Interface{httpIface("http", "o.json")},
+		},
+		FS: fsys,
+	}
+	server, err := NewCapabilityServer(bundle, CapabilityOptions{BaseURL: "http://x"}, "test", io.Discard)
+	if err != nil {
+		t.Fatalf("NewCapabilityServer: %v", err)
+	}
+
+	ctx := context.Background()
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil)
+	t1, t2 := mcpsdk.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, t1, nil); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	session, err := client.Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	instr := session.InitializeResult().Instructions
+	for _, want := range []string{"pacto_create", "demo-svc", "executable tools", "read-only", "pacto_skill"} {
+		if !strings.Contains(instr, want) {
+			t.Errorf("instructions missing %q; got: %s", want, instr)
+		}
+	}
+	// capability tools + skill tool are registered too
+	if !toolNames(t, session)["ping"] {
+		t.Error("expected ping tool registered")
+	}
+}
+
+func TestCapabilityInstructions_AllowWrites(t *testing.T) {
+	bundle := &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "svc"}}, FS: fstest.MapFS{}}
+	ro := capabilityInstructions(bundle, CapabilityOptions{})
+	if !strings.Contains(ro, "Only read-only") {
+		t.Errorf("read-only instructions = %q", ro)
+	}
+	rw := capabilityInstructions(bundle, CapabilityOptions{AllowWrites: true})
+	if !strings.Contains(rw, "mutating") || strings.Contains(rw, "Only read-only") {
+		t.Errorf("allow-writes instructions = %q", rw)
+	}
+}
+
+func TestNewCapabilityServer_Error(t *testing.T) {
+	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(capSpec)}}, httpIface("http", "o.json"))
+	// creds without base URL → RegisterCapabilities error propagates
+	_, err := NewCapabilityServer(bundle, CapabilityOptions{Creds: map[string]string{"k": "v"}}, "t", io.Discard)
+	if err == nil {
+		t.Fatal("expected error from NewCapabilityServer")
 	}
 }
 

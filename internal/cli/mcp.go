@@ -61,9 +61,8 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 // buildMCPServer constructs the MCP server, additionally registering a bundle's
 // capability tools when a bundle reference is supplied.
 func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args []string) (*mcpsdk.Server, error) {
-	server := pactomcp.NewServer(svc, version)
 	if len(args) == 0 {
-		return server, nil
+		return pactomcp.NewServer(svc, version), nil
 	}
 
 	bundle, err := svc.ResolveBundle(cmd.Context(), args[0])
@@ -82,10 +81,7 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 		Creds:       creds,
 		AllowWrites: allowWrites,
 	}
-	if err := pactomcp.RegisterCapabilities(server, bundle, opts, cmd.ErrOrStderr()); err != nil {
-		return nil, err
-	}
-	return server, nil
+	return pactomcp.NewCapabilityServer(bundle, opts, version, cmd.ErrOrStderr())
 }
 
 // parseAuthFlags parses repeated name=value credential flags.
