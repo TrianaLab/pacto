@@ -12,9 +12,13 @@
     showZoom = true,
     showLegend = true,
     showDirectionDepth = false,
+    initialDirection = 'down',
   } = $props();
 
-  let direction = $state('down');
+  // Seed the toolbar direction once from the prop; it is user-controlled state
+  // thereafter, so capturing only the initial value is intended.
+  // svelte-ignore state_referenced_locally
+  let direction = $state(initialDirection);
   let depth = $state(2);
   let graphRef = $state(null);
 

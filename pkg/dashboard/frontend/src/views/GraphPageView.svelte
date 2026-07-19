@@ -15,8 +15,61 @@
   let loading = $state(true);
   let statusFilter = $state('all');
   let nameFilter = $state('');
+  let focusRoot = $state('');
 
-  let activeFilterFn = $derived((statusFilter === 'all' && !nameFilter) ? undefined : filterFn);
+  // A layered dependency graph turns into an unreadable hairball well before it
+  // gets slow — edges cross and ranks grow too wide to trace. Above this many
+  // nodes, render a focused neighborhood (root + N hops, expandable) instead of
+  // the whole fleet. Kept modest so mid-size fleets get the readable view too.
+  const LARGE_GRAPH = 30;
+  let isLarge = $derived((graphData?.nodes?.length || 0) > LARGE_GRAPH);
+
+  // Contract-backed services (not external refs), most-impactful first, for the
+  // focus picker. The default focus is the highest-blast-radius service.
+  let focusableServices = $derived(
+    (graphData?.nodes || [])
+      .filter((n) => n.status !== 'external')
+      .map((n) => n.serviceName)
+      .sort((a, b) => (blastByName.get(b) || 0) - (blastByName.get(a) || 0)),
+  );
+
+  // Default the focus to the most-depended-on service once the graph loads.
+  $effect(() => {
+    if (isLarge && !focusRoot && focusableServices.length) {
+      focusRoot = focusableServices[0];
+    }
+  });
+
+  function serviceMatchesName(name) {
+    if (!nameFilter) return false;
+    const q = nameFilter.toLowerCase();
+    if (name.toLowerCase().includes(q)) return true;
+    const o = ownerByService.get(name);
+    return o ? ownerMatchesFilter(o, q) : false;
+  }
+
+  // In focus mode a searched service may sit outside the current neighborhood, so
+  // it would never render — dimming alone greys the whole view. Instead let the
+  // search re-focus the graph on the first matching service.
+  let nameMatchedFocus = $derived(
+    isLarge && nameFilter ? (focusableServices.find(serviceMatchesName) || '') : '',
+  );
+  let effectiveFocusId = $derived(isLarge ? (nameMatchedFocus || focusRoot) : null);
+
+  // Graph dimming: status always applies. Name dimming only in the full (small)
+  // view — in focus mode the name search re-focuses instead (see above), so
+  // dimming by name there would grey out the whole neighborhood.
+  function graphFilterFn(node) {
+    if (statusFilter !== 'all') {
+      const status = node.status === 'external' ? 'external' : node.status;
+      if (status !== statusFilter) return true;
+    }
+    if (!isLarge && nameFilter && !serviceMatchesName(node.serviceName)) return true;
+    return false;
+  }
+  let activeGraphFilterFn = $derived(
+    (statusFilter === 'all' && (isLarge || !nameFilter)) ? undefined : graphFilterFn,
+  );
 
   async function loadGraph() {
     loading = true;
@@ -32,22 +85,6 @@
     for (const s of services) m.set(s.name, s.owner);
     return m;
   });
-
-  function filterFn(node) {
-    let dominated = false;
-    if (statusFilter !== 'all') {
-      const status = node.status === 'external' ? 'external' : node.status;
-      if (status !== statusFilter) dominated = true;
-    }
-    if (nameFilter) {
-      const q = nameFilter.toLowerCase();
-      const nameMatch = node.serviceName.toLowerCase().includes(q);
-      const svcOwner = ownerByService.get(node.serviceName);
-      const ownerMatch = svcOwner ? ownerMatchesFilter(svcOwner, q) : false;
-      if (!nameMatch && !ownerMatch) dominated = true;
-    }
-    return dominated;
-  }
 
   onMount(() => { loadGraph(); });
 </script>
@@ -66,11 +103,28 @@
 {:else if !graphData?.nodes?.length}
   <EmptyState title="No services to graph" message="Services need dependencies to appear in the graph." />
 {:else}
+  {#if isLarge}
+    <div class="graph-focus-bar">
+      <span class="focus-hint">Large graph — showing what depends on</span>
+      <select bind:value={focusRoot} aria-label="Focus service" disabled={!!nameMatchedFocus}>
+        {#each focusableServices as name}
+          <option value={name}>{name}</option>
+        {/each}
+      </select>
+      <span class="focus-hint">
+        {#if nameMatchedFocus}Focused on search match "{nameMatchedFocus}".{:else}Search to refocus, use depth to widen, or "+N" to expand a branch.{/if}
+      </span>
+    </div>
+  {/if}
+
   <div class="fade-in-up">
     <GraphPanel
       {graphData}
       layout="layered"
-      filterFn={activeFilterFn}
+      focusId={effectiveFocusId}
+      showDirectionDepth={isLarge}
+      initialDirection={isLarge ? 'up' : 'down'}
+      filterFn={activeGraphFilterFn}
       height={Math.min(window.innerHeight - 200, 600)}
       onNavigate={(name) => location.hash = serviceUrl(name)}
       showZoom
@@ -151,6 +205,17 @@
     display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-5); flex-wrap: wrap;
   }
   .text-dim { color: var(--c-text-3); }
+
+  .graph-focus-bar {
+    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    margin-bottom: var(--sp-2); font-size: var(--text-sm);
+  }
+  .focus-hint { color: var(--c-text-3); font-size: var(--text-xs); }
+  .graph-focus-bar select {
+    padding: 4px 8px; border: 1px solid var(--c-border); border-radius: var(--radius-xs);
+    background: var(--c-surface); color: var(--c-text); font-size: var(--text-sm);
+    max-width: 260px;
+  }
 
   .blast-badge {
     display: inline-flex; align-items: center; justify-content: center;

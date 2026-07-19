@@ -707,12 +707,15 @@ func (s *Server) listServices(ctx context.Context, _ *struct{}) (*listServicesOu
 	services := cached.services
 	index := cached.index
 	aliases := cached.aliases
+	// Build the reverse-dependency map once (not per service) so blast radius is
+	// O(V·E) total instead of O(V²·E) — critical with hundreds of services.
+	reverseDeps := buildReverseDeps(index, aliases)
 	enriched := make([]ServiceListEntry, len(services))
 	for i, svc := range services {
 		entry := ServiceListEntry{Service: svc}
 		if d, ok := index[svc.Name]; ok {
 			entry.Namespace = d.Namespace
-			entry.BlastRadius = computeBlastRadius(svc.Name, index, aliases)
+			entry.BlastRadius = blastRadiusFrom(svc.Name, reverseDeps)
 			entry.DependencyCount = len(d.Dependencies)
 			if d.ChecksSummary != nil {
 				entry.ChecksPassed = d.ChecksSummary.Passed

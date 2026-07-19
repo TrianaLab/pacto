@@ -1,6 +1,5 @@
 [![CI](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml/badge.svg)](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml)
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/trianalab/pacto/v2)](https://pkg.go.dev/github.com/trianalab/pacto/v2)
-[![Go Report Card](https://goreportcard.com/badge/github.com/trianalab/pacto/v2)](https://goreportcard.com/report/github.com/trianalab/pacto/v2)
 [![codecov](https://codecov.io/github/TrianaLab/pacto/graph/badge.svg?token=p3AJpP3BbO)](https://codecov.io/github/TrianaLab/pacto)
 [![GitHub Release](https://img.shields.io/github/v/release/TrianaLab/pacto)](https://github.com/TrianaLab/pacto/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)

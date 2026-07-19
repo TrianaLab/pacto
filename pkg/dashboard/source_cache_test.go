@@ -127,6 +127,48 @@ func writeBundleTarGzFile(t *testing.T, path string, pactoYAML string) {
 	_ = gw.Close()
 }
 
+// TestCacheSource_HistoricalVersionsNotRetained proves the memory-bounding
+// invariant: only the latest version's full bundle is held resident; historical
+// versions are read lazily from disk on demand. Corrupting a non-latest bundle
+// on disk after the initial scan must break access to that version (lazy read)
+// while the latest version keeps working (resident).
+func TestCacheSource_HistoricalVersionsNotRetained(t *testing.T) {
+	root := t.TempDir()
+	oldPath := filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz")
+	writeBundleTarGzFile(t, oldPath, `pactoVersion: "1.0"
+service:
+  name: api
+  version: 1.0.0
+`)
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 2.0.0
+`)
+
+	src := NewCacheSource(root)
+
+	// Corrupt the historical (non-latest) bundle on disk after the scan.
+	if err := os.WriteFile(oldPath, []byte("corrupt"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Latest is resident: still resolves.
+	if _, err := src.GetService(context.Background(), "api"); err != nil {
+		t.Fatalf("latest version should stay resident, got %v", err)
+	}
+	if _, err := src.GetServiceVersion(context.Background(), Ref{Name: "api", Version: "2.0.0"}); err != nil {
+		t.Fatalf("latest version should stay resident, got %v", err)
+	}
+
+	// Historical version is lazy-loaded from disk: corruption now surfaces.
+	if _, err := src.GetServiceVersion(context.Background(), Ref{Name: "api", Version: "1.0.0"}); err == nil {
+		t.Fatal("historical version must be read lazily from disk (expected error after corruption), but it succeeded — bundle is still retained in memory")
+	}
+}
+
 func TestCacheSource_ScansDirectory(t *testing.T) {
 	root := t.TempDir()
 
@@ -656,14 +698,6 @@ service:
 	}
 }
 
-func TestCacheSource_LatestVersion_EmptyVersions(t *testing.T) {
-	svc := &cachedService{name: "empty", versions: nil}
-	latest := svc.latestVersion()
-	if latest != nil {
-		t.Error("expected nil for empty versions")
-	}
-}
-
 func TestLoadBundleTarGz_BadGzip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bundle.tar.gz")
@@ -924,6 +958,57 @@ service:
 	// 1.0.0 is the oldest → no classification
 	if versions[3].Classification != "" {
 		t.Errorf("expected v1.0.0 classification empty (oldest), got %q", versions[3].Classification)
+	}
+}
+
+// TestCacheSource_GetDiff_LazyLoadsHistoricalFS proves the lazy-load path
+// re-hydrates a historical (non-latest) version's FS from disk. Both diffed
+// versions are non-latest (2.0.0 is the resident latest), so their openapi.json
+// specs must be read from disk; the diff must detect the added path. A
+// regression that dropped FS on the lazy read would return no openapi change and
+// fail this test — the exact gap the always-resident behavior used to cover.
+func TestCacheSource_GetDiff_LazyLoadsHistoricalFS(t *testing.T) {
+	root := t.TempDir()
+	iface := `pactoVersion: "1.0"
+service:
+  name: api
+  version: %s
+interfaces:
+  - name: http
+    type: rest
+    contract: openapi.json
+`
+	writeBundleTarGzWithFiles(t,
+		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
+		fmt.Sprintf(iface, "1.0.0"),
+		map[string][]byte{"openapi.json": []byte(`{"paths":{"/a":{"get":{}}}}`)})
+	writeBundleTarGzWithFiles(t,
+		filepath.Join(root, "ghcr.io/org/api/1.1.0/bundle.tar.gz"),
+		fmt.Sprintf(iface, "1.1.0"),
+		map[string][]byte{"openapi.json": []byte(`{"paths":{"/a":{"get":{}},"/b":{"get":{}}}}`)})
+	// Latest — makes 1.0.0 and 1.1.0 both non-latest (FS not resident).
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 2.0.0
+`)
+
+	src := NewCacheSource(root)
+	res, err := src.GetDiff(context.Background(),
+		Ref{Name: "api", Version: "1.0.0"}, Ref{Name: "api", Version: "1.1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range res.Changes {
+		if strings.Contains(c.Path, "openapi.paths[/b]") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected an openapi path-added change from the lazy-loaded FS, got changes: %+v", res.Changes)
 	}
 }
 

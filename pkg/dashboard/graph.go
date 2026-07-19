@@ -365,10 +365,12 @@ func depRefMatchesName(ref, name string, aliases map[string]string) bool {
 	return false
 }
 
-// computeBlastRadius computes how many services are transitively affected
-// if the given service breaks (via required dependency chains).
-func computeBlastRadius(name string, index map[string]*ServiceDetails, aliases map[string]string) int {
-	// Build reverse dependency map (who depends on me via required deps).
+// buildReverseDeps builds the reverse required-dependency map (who depends on
+// me via required deps) once, so blast radius can be computed for many services
+// without rescanning the whole index per service. Callers that compute blast
+// radius for every service (e.g. the service list) must build this once and pass
+// it to blastRadiusFrom — otherwise the work is O(V²·E).
+func buildReverseDeps(index map[string]*ServiceDetails, aliases map[string]string) map[string][]string {
 	reverseDeps := make(map[string][]string)
 	for svcName, details := range index {
 		if details == nil {
@@ -381,8 +383,12 @@ func computeBlastRadius(name string, index map[string]*ServiceDetails, aliases m
 			}
 		}
 	}
+	return reverseDeps
+}
 
-	// BFS from the given service.
+// blastRadiusFrom counts how many services are transitively affected if name
+// breaks, walking the prebuilt reverse required-dependency map.
+func blastRadiusFrom(name string, reverseDeps map[string][]string) int {
 	visited := map[string]bool{name: true}
 	queue := []string{name}
 	count := 0
@@ -398,4 +404,12 @@ func computeBlastRadius(name string, index map[string]*ServiceDetails, aliases m
 		}
 	}
 	return count
+}
+
+// computeBlastRadius computes how many services are transitively affected if the
+// given service breaks (via required dependency chains). Convenience wrapper that
+// builds the reverse map for a single lookup; hot paths should build the reverse
+// map once with buildReverseDeps and call blastRadiusFrom per service.
+func computeBlastRadius(name string, index map[string]*ServiceDetails, aliases map[string]string) int {
+	return blastRadiusFrom(name, buildReverseDeps(index, aliases))
 }
