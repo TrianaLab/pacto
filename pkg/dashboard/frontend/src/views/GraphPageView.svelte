@@ -19,10 +19,11 @@
 
   let activeFilterFn = $derived((statusFilter === 'all' && !nameFilter) ? undefined : filterFn);
 
-  // Rendering every node at once does not scale past a few dozen — the layout and
-  // the SVG DOM both balloon. Above this many nodes, render a focused neighborhood
-  // (root + N hops, expandable) instead of the whole fleet.
-  const LARGE_GRAPH = 60;
+  // A layered dependency graph turns into an unreadable hairball well before it
+  // gets slow — edges cross and ranks grow too wide to trace. Above this many
+  // nodes, render a focused neighborhood (root + N hops, expandable) instead of
+  // the whole fleet. Kept modest so mid-size fleets get the readable view too.
+  const LARGE_GRAPH = 30;
   let isLarge = $derived((graphData?.nodes?.length || 0) > LARGE_GRAPH);
 
   // Contract-backed services (not external refs), most-impactful first, for the
