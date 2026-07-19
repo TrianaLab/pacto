@@ -140,25 +140,21 @@ func (s *CacheSource) buildIndex() map[string]*cachedService {
 			contract: bundle.Contract,
 			rawYAML:  bundle.RawYAML,
 		})
-		// ponytail: the full bundle (with FS) is discarded here; only the latest
-		// version's is re-loaded and retained below. Transient peak is one
-		// bundle's FS at a time (Walk is sequential), which GC reclaims — the
-		// resident growth was the OOM, not the transient.
+
+		// Retain the full bundle (with FS) only for the newest version seen so
+		// far, so ListServices/GetService stay fast without holding every version
+		// resident. Historical versions keep just contract+rawYAML above and
+		// lazy-load their FS from disk on demand. Reusing the bundle already
+		// loaded here avoids a second read and the window where a service scans
+		// yet vanishes from the list because a re-read failed. Resident FS peaks
+		// at O(services), not O(services × versions) — that growth was the OOM.
+		if svc.latest == nil || semver.LessDesc(tag, svc.latestTag) {
+			svc.latest = bundle
+			svc.latestTag = tag
+		}
 
 		return nil
 	})
-
-	// Retain only the latest version's full bundle per service (with its FS) so
-	// ListServices/GetService stay fast without holding every version resident.
-	// Every service here has at least one version (a service is created only when
-	// a version is appended), so latestVersion is always non-nil.
-	for _, svc := range services {
-		latest := svc.latestVersion()
-		if b, err := latest.loadBundle(); err == nil {
-			svc.latest = b
-			svc.latestTag = latest.tag
-		}
-	}
 
 	return services
 }
@@ -308,14 +304,6 @@ func (s *CacheSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDet
 		return nil, fmt.Errorf("version %q of %q not found in OCI cache", ref.Version, ref.Name)
 	}
 	return ServiceDetailsFromBundle(b, "oci"), nil
-}
-
-func (svc *cachedService) latestVersion() *cachedVersion {
-	sorted := svc.sortedVersions()
-	if len(sorted) == 0 {
-		return nil
-	}
-	return &sorted[0]
 }
 
 func (svc *cachedService) sortedVersions() []cachedVersion {

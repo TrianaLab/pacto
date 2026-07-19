@@ -118,3 +118,43 @@ func TestCachedStore_PullCacheEvictsBeyondCap(t *testing.T) {
 		t.Fatal("re-store should replace the bundle in place")
 	}
 }
+
+// TestCachedStore_PullCacheEvictsLRUNotFIFO proves eviction respects recency:
+// a read hit promotes the entry so a stale entry is evicted first. A pure FIFO
+// cache (no MoveToFront on the read path) would evict the accessed entry instead
+// and fail this test.
+func TestCachedStore_PullCacheEvictsLRUNotFIFO(t *testing.T) {
+	old := pullCacheMaxEntries
+	pullCacheMaxEntries = 2
+	t.Cleanup(func() { pullCacheMaxEntries = old })
+
+	inner := &stubStore{}
+	c := &CachedStore{
+		inner:     inner,
+		pullCache: map[string]*list.Element{},
+		pullLRU:   list.New(),
+		tagsCache: map[string][]string{},
+	}
+	ctx := context.Background()
+
+	// Insert x, y (cap 2). Then ACCESS x (read hit → MoveToFront), then insert z.
+	// LRU evicts y (least recently used); FIFO would evict x (oldest inserted).
+	for _, ref := range []string{"x", "y"} {
+		if _, err := c.Pull(ctx, ref); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := c.Pull(ctx, "x"); err != nil { // hit — promotes x
+		t.Fatal(err)
+	}
+	if _, err := c.Pull(ctx, "z"); err != nil { // insert — evicts LRU (y)
+		t.Fatal(err)
+	}
+
+	if _, ok := c.pullCache["x"]; !ok {
+		t.Fatal("x was accessed most recently and must survive eviction (LRU); a FIFO cache would have dropped it")
+	}
+	if _, ok := c.pullCache["y"]; ok {
+		t.Fatal("y was least recently used and must be evicted")
+	}
+}

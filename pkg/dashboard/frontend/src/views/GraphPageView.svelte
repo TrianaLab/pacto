@@ -17,8 +17,6 @@
   let nameFilter = $state('');
   let focusRoot = $state('');
 
-  let activeFilterFn = $derived((statusFilter === 'all' && !nameFilter) ? undefined : filterFn);
-
   // A layered dependency graph turns into an unreadable hairball well before it
   // gets slow — edges cross and ranks grow too wide to trace. Above this many
   // nodes, render a focused neighborhood (root + N hops, expandable) instead of
@@ -42,6 +40,37 @@
     }
   });
 
+  function serviceMatchesName(name) {
+    if (!nameFilter) return false;
+    const q = nameFilter.toLowerCase();
+    if (name.toLowerCase().includes(q)) return true;
+    const o = ownerByService.get(name);
+    return o ? ownerMatchesFilter(o, q) : false;
+  }
+
+  // In focus mode a searched service may sit outside the current neighborhood, so
+  // it would never render — dimming alone greys the whole view. Instead let the
+  // search re-focus the graph on the first matching service.
+  let nameMatchedFocus = $derived(
+    isLarge && nameFilter ? (focusableServices.find(serviceMatchesName) || '') : '',
+  );
+  let effectiveFocusId = $derived(isLarge ? (nameMatchedFocus || focusRoot) : null);
+
+  // Graph dimming: status always applies. Name dimming only in the full (small)
+  // view — in focus mode the name search re-focuses instead (see above), so
+  // dimming by name there would grey out the whole neighborhood.
+  function graphFilterFn(node) {
+    if (statusFilter !== 'all') {
+      const status = node.status === 'external' ? 'external' : node.status;
+      if (status !== statusFilter) return true;
+    }
+    if (!isLarge && nameFilter && !serviceMatchesName(node.serviceName)) return true;
+    return false;
+  }
+  let activeGraphFilterFn = $derived(
+    (statusFilter === 'all' && (isLarge || !nameFilter)) ? undefined : graphFilterFn,
+  );
+
   async function loadGraph() {
     loading = true;
     try {
@@ -56,22 +85,6 @@
     for (const s of services) m.set(s.name, s.owner);
     return m;
   });
-
-  function filterFn(node) {
-    let dominated = false;
-    if (statusFilter !== 'all') {
-      const status = node.status === 'external' ? 'external' : node.status;
-      if (status !== statusFilter) dominated = true;
-    }
-    if (nameFilter) {
-      const q = nameFilter.toLowerCase();
-      const nameMatch = node.serviceName.toLowerCase().includes(q);
-      const svcOwner = ownerByService.get(node.serviceName);
-      const ownerMatch = svcOwner ? ownerMatchesFilter(svcOwner, q) : false;
-      if (!nameMatch && !ownerMatch) dominated = true;
-    }
-    return dominated;
-  }
 
   onMount(() => { loadGraph(); });
 </script>
@@ -92,13 +105,15 @@
 {:else}
   {#if isLarge}
     <div class="graph-focus-bar">
-      <span class="focus-hint">Large graph — showing the neighborhood of</span>
-      <select bind:value={focusRoot} aria-label="Focus service">
+      <span class="focus-hint">Large graph — showing what depends on</span>
+      <select bind:value={focusRoot} aria-label="Focus service" disabled={!!nameMatchedFocus}>
         {#each focusableServices as name}
           <option value={name}>{name}</option>
         {/each}
       </select>
-      <span class="focus-hint">Use depth to widen, or "+N" to expand a branch.</span>
+      <span class="focus-hint">
+        {#if nameMatchedFocus}Focused on search match "{nameMatchedFocus}".{:else}Search to refocus, use depth to widen, or "+N" to expand a branch.{/if}
+      </span>
     </div>
   {/if}
 
@@ -106,9 +121,10 @@
     <GraphPanel
       {graphData}
       layout="layered"
-      focusId={isLarge ? focusRoot : null}
+      focusId={effectiveFocusId}
       showDirectionDepth={isLarge}
-      filterFn={activeFilterFn}
+      initialDirection={isLarge ? 'up' : 'down'}
+      filterFn={activeGraphFilterFn}
       height={Math.min(window.innerHeight - 200, 600)}
       onNavigate={(name) => location.hash = serviceUrl(name)}
       showZoom
