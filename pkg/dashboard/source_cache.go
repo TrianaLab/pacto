@@ -44,15 +44,41 @@ type CacheSource struct {
 }
 
 type cachedService struct {
-	name     string
-	versions []cachedVersion
+	name      string
+	versions  []cachedVersion
+	latest    *contract.Bundle // full bundle (with FS) for the latest version, kept resident
+	latestTag string           // tag of the resident latest bundle
 }
 
 type cachedVersion struct {
-	tag    string
-	repo   string // full repo path relative to cacheDir
-	path   string // absolute path to bundle.tar.gz
-	bundle *contract.Bundle
+	tag  string
+	repo string // full repo path relative to cacheDir
+	path string // absolute path to bundle.tar.gz
+	// Lightweight, always resident (pacto.yaml is small):
+	contract *contract.Contract // parsed contract
+	rawYAML  []byte             // raw pacto.yaml, for ContractHash
+	// The full bundle FS (openapi/sbom/schema — the bulk of the bytes) is NOT
+	// retained per version; it is loaded lazily from path on demand. Only the
+	// latest version's full bundle lives resident on cachedService.latest. This
+	// bounds memory to O(services) instead of O(services × versions).
+}
+
+// loadBundle reads the full bundle (with FS) for this version from disk.
+func (v *cachedVersion) loadBundle() (*contract.Bundle, error) {
+	return loadBundleTarGz(v.path)
+}
+
+// bundle returns the full bundle for tag: the resident latest when it matches,
+// otherwise a lazy read from disk.
+func (svc *cachedService) bundle(tag string) (*contract.Bundle, error) {
+	if svc.latest != nil && tag == svc.latestTag {
+		return svc.latest, nil
+	}
+	cv := svc.findVersion(tag)
+	if cv == nil {
+		return nil, fmt.Errorf("version %q not found", tag)
+	}
+	return cv.loadBundle()
 }
 
 // NewCacheSource scans the OCI cache directory for existing bundles.
@@ -108,14 +134,31 @@ func (s *CacheSource) buildIndex() map[string]*cachedService {
 		}
 
 		svc.versions = append(svc.versions, cachedVersion{
-			tag:    tag,
-			repo:   repo,
-			path:   path,
-			bundle: bundle,
+			tag:      tag,
+			repo:     repo,
+			path:     path,
+			contract: bundle.Contract,
+			rawYAML:  bundle.RawYAML,
 		})
+		// ponytail: the full bundle (with FS) is discarded here; only the latest
+		// version's is re-loaded and retained below. Transient peak is one
+		// bundle's FS at a time (Walk is sequential), which GC reclaims — the
+		// resident growth was the OOM, not the transient.
 
 		return nil
 	})
+
+	// Retain only the latest version's full bundle per service (with its FS) so
+	// ListServices/GetService stay fast without holding every version resident.
+	// Every service here has at least one version (a service is created only when
+	// a version is appended), so latestVersion is always non-nil.
+	for _, svc := range services {
+		latest := svc.latestVersion()
+		if b, err := latest.loadBundle(); err == nil {
+			svc.latest = b
+			svc.latestTag = latest.tag
+		}
+	}
 
 	return services
 }
@@ -160,12 +203,11 @@ func (s *CacheSource) VersionCount() int {
 func (s *CacheSource) ListServices(_ context.Context) ([]Service, error) {
 	var services []Service
 	for _, svc := range s.snapshot() {
-		latest := svc.latestVersion()
-		if latest == nil {
+		if svc.latest == nil {
 			continue
 		}
-		service := ServiceFromContract(latest.bundle.Contract, "oci")
-		service.ContractStatus = contractStatusFromBundle(latest.bundle)
+		service := ServiceFromContract(svc.latest.Contract, "oci")
+		service.ContractStatus = contractStatusFromBundle(svc.latest)
 		services = append(services, service)
 	}
 
@@ -182,11 +224,10 @@ func (s *CacheSource) GetService(_ context.Context, name string) (*ServiceDetail
 	if !ok {
 		return nil, fmt.Errorf("service %q not found in OCI cache", name)
 	}
-	latest := svc.latestVersion()
-	if latest == nil {
+	if svc.latest == nil {
 		return nil, fmt.Errorf("no versions found for %q in OCI cache", name)
 	}
-	return ServiceDetailsFromBundle(latest.bundle, "oci"), nil
+	return ServiceDetailsFromBundle(svc.latest, "oci"), nil
 }
 
 // GetVersions returns all cached versions of name (latest first) with contract
@@ -198,10 +239,12 @@ func (s *CacheSource) GetVersions(_ context.Context, name string) ([]Version, er
 	}
 
 	sorted := svc.sortedVersions() // descending: latest first
-	// Build bundle pairs for classification.
+	// Build bundle pairs for classification. The latest is resident; historical
+	// versions are lazy-loaded from disk (nil on read error → pair skipped).
 	pairs := make([]BundlePair, len(sorted))
 	for i, v := range sorted {
-		pairs[i] = BundlePair{Tag: v.tag, Bundle: v.bundle}
+		b, _ := svc.bundle(v.tag)
+		pairs[i] = BundlePair{Tag: v.tag, Bundle: b}
 	}
 	classifications := ClassifyVersions(pairs)
 	var versions []Version
@@ -210,9 +253,9 @@ func (s *CacheSource) GetVersions(_ context.Context, name string) ([]Version, er
 			Version: v.tag,
 			Ref:     v.repo + ":" + v.tag,
 		}
-		// Compute contract hash from raw YAML
-		if v.bundle != nil && len(v.bundle.RawYAML) > 0 {
-			h := sha256.Sum256(v.bundle.RawYAML)
+		// Compute contract hash from raw YAML (always resident, small).
+		if len(v.rawYAML) > 0 {
+			h := sha256.Sum256(v.rawYAML)
 			ver.ContractHash = hex.EncodeToString(h[:])
 		}
 		// Use bundle.tar.gz file modification time as createdAt.
@@ -236,8 +279,8 @@ func (s *CacheSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) 
 	if !ok {
 		return nil, fmt.Errorf("service %q not found in OCI cache", a.Name)
 	}
-	bundleA := svcA.findVersion(a.Version)
-	if bundleA == nil {
+	bundleA, err := svcA.bundle(a.Version)
+	if err != nil {
 		return nil, fmt.Errorf("version %q of %q not found in OCI cache", a.Version, a.Name)
 	}
 
@@ -245,12 +288,12 @@ func (s *CacheSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) 
 	if !ok {
 		return nil, fmt.Errorf("service %q not found in OCI cache", b.Name)
 	}
-	bundleB := svcB.findVersion(b.Version)
-	if bundleB == nil {
+	bundleB, err := svcB.bundle(b.Version)
+	if err != nil {
 		return nil, fmt.Errorf("version %q of %q not found in OCI cache", b.Version, b.Name)
 	}
 
-	return ComputeDiff(a, b, bundleA.bundle, bundleB.bundle), nil
+	return ComputeDiff(a, b, bundleA, bundleB), nil
 }
 
 // GetServiceVersion returns details for a specific cached version from the
@@ -260,11 +303,11 @@ func (s *CacheSource) GetServiceVersion(_ context.Context, ref Ref) (*ServiceDet
 	if !ok {
 		return nil, fmt.Errorf("service %q not found in OCI cache", ref.Name)
 	}
-	cv := svc.findVersion(ref.Version)
-	if cv == nil {
+	b, err := svc.bundle(ref.Version)
+	if err != nil {
 		return nil, fmt.Errorf("version %q of %q not found in OCI cache", ref.Version, ref.Name)
 	}
-	return ServiceDetailsFromBundle(cv.bundle, "oci"), nil
+	return ServiceDetailsFromBundle(b, "oci"), nil
 }
 
 func (svc *cachedService) latestVersion() *cachedVersion {

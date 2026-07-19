@@ -15,8 +15,31 @@
   let loading = $state(true);
   let statusFilter = $state('all');
   let nameFilter = $state('');
+  let focusRoot = $state('');
 
   let activeFilterFn = $derived((statusFilter === 'all' && !nameFilter) ? undefined : filterFn);
+
+  // Rendering every node at once does not scale past a few dozen — the layout and
+  // the SVG DOM both balloon. Above this many nodes, render a focused neighborhood
+  // (root + N hops, expandable) instead of the whole fleet.
+  const LARGE_GRAPH = 60;
+  let isLarge = $derived((graphData?.nodes?.length || 0) > LARGE_GRAPH);
+
+  // Contract-backed services (not external refs), most-impactful first, for the
+  // focus picker. The default focus is the highest-blast-radius service.
+  let focusableServices = $derived(
+    (graphData?.nodes || [])
+      .filter((n) => n.status !== 'external')
+      .map((n) => n.serviceName)
+      .sort((a, b) => (blastByName.get(b) || 0) - (blastByName.get(a) || 0)),
+  );
+
+  // Default the focus to the most-depended-on service once the graph loads.
+  $effect(() => {
+    if (isLarge && !focusRoot && focusableServices.length) {
+      focusRoot = focusableServices[0];
+    }
+  });
 
   async function loadGraph() {
     loading = true;
@@ -66,10 +89,24 @@
 {:else if !graphData?.nodes?.length}
   <EmptyState title="No services to graph" message="Services need dependencies to appear in the graph." />
 {:else}
+  {#if isLarge}
+    <div class="graph-focus-bar">
+      <span class="focus-hint">Large graph — showing the neighborhood of</span>
+      <select bind:value={focusRoot} aria-label="Focus service">
+        {#each focusableServices as name}
+          <option value={name}>{name}</option>
+        {/each}
+      </select>
+      <span class="focus-hint">Use depth to widen, or "+N" to expand a branch.</span>
+    </div>
+  {/if}
+
   <div class="fade-in-up">
     <GraphPanel
       {graphData}
       layout="layered"
+      focusId={isLarge ? focusRoot : null}
+      showDirectionDepth={isLarge}
       filterFn={activeFilterFn}
       height={Math.min(window.innerHeight - 200, 600)}
       onNavigate={(name) => location.hash = serviceUrl(name)}
@@ -151,6 +188,17 @@
     display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-5); flex-wrap: wrap;
   }
   .text-dim { color: var(--c-text-3); }
+
+  .graph-focus-bar {
+    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    margin-bottom: var(--sp-2); font-size: var(--text-sm);
+  }
+  .focus-hint { color: var(--c-text-3); font-size: var(--text-xs); }
+  .graph-focus-bar select {
+    padding: 4px 8px; border: 1px solid var(--c-border); border-radius: var(--radius-xs);
+    background: var(--c-surface); color: var(--c-text); font-size: var(--text-sm);
+    max-width: 260px;
+  }
 
   .blast-badge {
     display: inline-flex; align-items: center; justify-content: center;

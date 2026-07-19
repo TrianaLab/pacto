@@ -2,6 +2,7 @@ package oci
 
 import (
 	"compress/gzip"
+	"container/list"
 	"context"
 	"log/slog"
 	"os"
@@ -11,6 +12,17 @@ import (
 
 	"github.com/trianalab/pacto/v2/pkg/contract"
 )
+
+// pullCacheMaxEntries bounds the in-memory pulled-bundle cache. Long-running
+// callers (the dashboard prefetches every version of every repo on a loop)
+// would otherwise retain every bundle — with its decompressed FS — forever,
+// scaling memory with repo×version count and eventually OOMing. Evicted entries
+// still serve from the disk cache. Package var so tests can shrink it.
+//
+// ponytail: count-based LRU. Entries vary in size (SBOMs dwarf tiny contracts),
+// so this bounds count, not bytes. Switch to a byte-budget LRU if a few huge
+// bundles ever blow the ceiling on their own.
+var pullCacheMaxEntries = 512
 
 // CachedStore wraps a BundleStore with in-memory and disk caching. Pulled
 // bundles are kept in memory (fastest) and persisted to disk under
@@ -24,11 +36,20 @@ type CachedStore struct {
 	// Disk writes remain enabled so same-session pulls are persisted.
 	skipDiskReads bool
 
+	// pullCache is a bounded LRU: map ref -> list element, with pullLRU ordering
+	// entries most-recently-used at the front. Guarded by pullMu.
 	pullMu    sync.Mutex
-	pullCache map[string]*contract.Bundle
+	pullCache map[string]*list.Element
+	pullLRU   *list.List
 
 	tagsMu    sync.Mutex
 	tagsCache map[string][]string
+}
+
+// pullEntry is the value stored in each pullLRU list element.
+type pullEntry struct {
+	ref    string
+	bundle *contract.Bundle
 }
 
 // NewCachedStore creates a BundleStore that caches pulled bundles on disk.
@@ -41,7 +62,8 @@ func NewCachedStore(inner BundleStore) *CachedStore {
 	return &CachedStore{
 		inner:     inner,
 		cacheDir:  dir,
-		pullCache: map[string]*contract.Bundle{},
+		pullCache: map[string]*list.Element{},
+		pullLRU:   list.New(),
 		tagsCache: map[string][]string{},
 	}
 }
@@ -53,7 +75,8 @@ func NewCachedStore(inner BundleStore) *CachedStore {
 func (c *CachedStore) DisableCache() {
 	c.skipDiskReads = true
 	c.pullMu.Lock()
-	c.pullCache = map[string]*contract.Bundle{}
+	c.pullCache = map[string]*list.Element{}
+	c.pullLRU = list.New()
 	c.pullMu.Unlock()
 	c.tagsMu.Lock()
 	c.tagsCache = map[string][]string{}
@@ -129,7 +152,9 @@ func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, erro
 func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, error) {
 	// 1. In-memory cache (fastest).
 	c.pullMu.Lock()
-	if b, ok := c.pullCache[ref]; ok {
+	if el, ok := c.pullCache[ref]; ok {
+		c.pullLRU.MoveToFront(el)
+		b := el.Value.(*pullEntry).bundle
 		c.pullMu.Unlock()
 		slog.Debug("cache hit (memory)", "ref", ref)
 		return b, nil
@@ -163,8 +188,20 @@ func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, e
 
 func (c *CachedStore) storePull(ref string, bundle *contract.Bundle) {
 	c.pullMu.Lock()
-	c.pullCache[ref] = bundle
-	c.pullMu.Unlock()
+	defer c.pullMu.Unlock()
+	if el, ok := c.pullCache[ref]; ok {
+		el.Value.(*pullEntry).bundle = bundle
+		c.pullLRU.MoveToFront(el)
+		return
+	}
+	c.pullCache[ref] = c.pullLRU.PushFront(&pullEntry{ref: ref, bundle: bundle})
+	// Evict least-recently-used entries beyond the cap. Len > cap ≥ 0 guarantees
+	// a non-nil Back() each iteration.
+	for c.pullLRU.Len() > pullCacheMaxEntries {
+		oldest := c.pullLRU.Back()
+		c.pullLRU.Remove(oldest)
+		delete(c.pullCache, oldest.Value.(*pullEntry).ref)
+	}
 }
 
 func (c *CachedStore) cachePath(ref string) string {

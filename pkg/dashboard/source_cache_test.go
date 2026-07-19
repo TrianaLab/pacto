@@ -127,6 +127,48 @@ func writeBundleTarGzFile(t *testing.T, path string, pactoYAML string) {
 	_ = gw.Close()
 }
 
+// TestCacheSource_HistoricalVersionsNotRetained proves the memory-bounding
+// invariant: only the latest version's full bundle is held resident; historical
+// versions are read lazily from disk on demand. Corrupting a non-latest bundle
+// on disk after the initial scan must break access to that version (lazy read)
+// while the latest version keeps working (resident).
+func TestCacheSource_HistoricalVersionsNotRetained(t *testing.T) {
+	root := t.TempDir()
+	oldPath := filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz")
+	writeBundleTarGzFile(t, oldPath, `pactoVersion: "1.0"
+service:
+  name: api
+  version: 1.0.0
+`)
+	writeBundleTarGzFile(t,
+		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
+		`pactoVersion: "1.0"
+service:
+  name: api
+  version: 2.0.0
+`)
+
+	src := NewCacheSource(root)
+
+	// Corrupt the historical (non-latest) bundle on disk after the scan.
+	if err := os.WriteFile(oldPath, []byte("corrupt"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Latest is resident: still resolves.
+	if _, err := src.GetService(context.Background(), "api"); err != nil {
+		t.Fatalf("latest version should stay resident, got %v", err)
+	}
+	if _, err := src.GetServiceVersion(context.Background(), Ref{Name: "api", Version: "2.0.0"}); err != nil {
+		t.Fatalf("latest version should stay resident, got %v", err)
+	}
+
+	// Historical version is lazy-loaded from disk: corruption now surfaces.
+	if _, err := src.GetServiceVersion(context.Background(), Ref{Name: "api", Version: "1.0.0"}); err == nil {
+		t.Fatal("historical version must be read lazily from disk (expected error after corruption), but it succeeded — bundle is still retained in memory")
+	}
+}
+
 func TestCacheSource_ScansDirectory(t *testing.T) {
 	root := t.TempDir()
 
