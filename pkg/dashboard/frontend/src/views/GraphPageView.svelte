@@ -28,11 +28,10 @@
     return srcs ? srcs.includes(sourceFilter) : false;
   }
 
-  // The renderer now floors the layered zoom to a legibility scale (fitTransform
-  // in layout.ts), so a wide, shallow fleet stays readable and pans instead of
-  // collapsing into a thin band — mid-size fleets keep the whole-system overview.
-  // This threshold is only a coarse cap: above it even a floored, pannable view is
-  // unusable, so fall back to a focused neighborhood (root + N hops, expandable).
+  // Cytoscape lays out and fits the whole fleet (dagre + orthogonal edges), so
+  // mid-size fleets render legibly with click-to-focus. This threshold is only a
+  // coarse cap: above it the full mesh is too dense to be useful, so fall back to a
+  // focused neighborhood (root + N hops, widened via the depth control).
   const LARGE_GRAPH = 100;
   let isLarge = $derived((graphData?.nodes?.length || 0) > LARGE_GRAPH);
 

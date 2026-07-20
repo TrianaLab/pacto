@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { extractSubgraph, nodeLabel, buildVersionSubgraph, renderGraph, type GraphData } from './graph.ts';
+import { extractSubgraph, nodeLabel, buildVersionSubgraph, renderGraph, buildElements, cyLayout, type GraphData } from './graph.ts';
 
 const sampleGraph = {
   nodes: [
@@ -165,7 +165,53 @@ describe('buildVersionSubgraph', () => {
   });
 });
 
-describe('renderGraph layered mode', () => {
+describe('buildElements', () => {
+  const g: GraphData = { nodes: [
+    { id: 'root', serviceName: 'root', status: 'Compliant', version: '1.2.0',
+      edges: [{ targetId: 'a', required: true }, { targetId: 'a', type: 'reference' }] },
+    { id: 'a', serviceName: 'a', status: 'Warning', edges: [] },
+    { id: 'x', serviceName: 'x', status: 'external', reason: 'auth_failed', edges: [{ targetId: 'ghost' }] },
+  ] };
+
+  it('emits one element per node and per in-graph edge (drops edges to unknown targets)', () => {
+    const els = buildElements(g);
+    const nodes = els.filter((e) => !e.data.source);
+    const edges = els.filter((e) => e.data.source);
+    expect(nodes).toHaveLength(3);
+    // root→a dependency + root→a reference; the x→ghost edge is dropped (no ghost node)
+    expect(edges).toHaveLength(2);
+  });
+
+  it('keeps a dependency and a reference to the same target as distinct edges', () => {
+    const ids = buildElements(g).filter((e) => e.data.source).map((e) => String(e.data.id));
+    expect(new Set(ids).size).toBe(2);
+    expect(ids.some((id) => id.endsWith(':dependency'))).toBe(true);
+    expect(ids.some((id) => id.endsWith(':reference'))).toBe(true);
+  });
+
+  it('carries label with version, status, external and focus flags', () => {
+    const els = buildElements(g, 'root');
+    const root = els.find((e) => e.data.id === 'root')!;
+    expect(root.data.label).toBe('root\n1.2.0');
+    expect(root.data.isFocus).toBe(1);
+    const x = els.find((e) => e.data.id === 'x')!;
+    expect(x.data.external).toBe(1);
+    expect(x.data.reason).toBe('auth_failed');
+  });
+});
+
+describe('cyLayout', () => {
+  it('uses dagre top-down for the layered view', () => {
+    const l = cyLayout('layered') as { name: string; rankDir: string };
+    expect(l.name).toBe('dagre');
+    expect(l.rankDir).toBe('TB');
+  });
+  it('uses cose for the force view', () => {
+    expect((cyLayout('force') as { name: string }).name).toBe('cose');
+  });
+});
+
+describe('renderGraph (Cytoscape)', () => {
   const layeredGraph: GraphData = { nodes: [
     { id: 'root', serviceName: 'root', status: 'Compliant', edges: [{ targetId: 'a' }] },
     { id: 'a', serviceName: 'a', status: 'Compliant', edges: [] },
@@ -174,77 +220,21 @@ describe('renderGraph layered mode', () => {
   beforeEach(() => { el = document.createElement('div'); document.body.appendChild(el); });
   afterEach(() => { el.remove(); });
 
-  it('renders an svg and pins node positions (no force sim)', () => {
+  it('mounts without throwing and returns the controls API', () => {
     const ctrl = renderGraph(el, layeredGraph, { layout: 'layered', focusId: 'root' });
-    expect(el.querySelector('svg')).toBeTruthy();
-    // layered mode assigns fixed positions to every node
-    expect(ctrl.nodes.every((n) => typeof n.fx === 'number')).toBe(true);
+    expect(typeof ctrl.zoomIn).toBe('function');
+    expect(typeof ctrl.zoomOut).toBe('function');
+    expect(typeof ctrl.resetView).toBe('function');
+    expect(typeof ctrl.applyFilter).toBe('function');
+    expect(ctrl.nodes).toHaveLength(2);
+    // presentational region for a11y; connections table is the text fallback
+    expect(el.getAttribute('role')).toBe('application');
     ctrl.destroy();
   });
 
-  it('positions edges as a curved path (no running sim)', () => {
-    const ctrl = renderGraph(el, layeredGraph, { layout: 'layered', focusId: 'root' });
-    const path = el.querySelector('.links path');
-    expect(path).toBeTruthy();
-    // updatePositions runs once in layered mode; the cubic path data must be set
-    // and contain no NaN coordinates.
-    const d = path!.getAttribute('d') || '';
-    expect(d.startsWith('M')).toBe(true);
-    expect(d).toContain('C');
-    expect(d.includes('NaN')).toBe(false);
-    ctrl.destroy();
-  });
-
-  it('draws a "+N" chip for nodes with hidden children', () => {
-    const ctrl = renderGraph(el, layeredGraph, {
-      layout: 'layered', focusId: 'root', hidden: new Map([['root', 3]]),
-    });
-    const chip = el.querySelector('.more-chip');
-    expect(chip).toBeTruthy();
-    expect(chip?.textContent).toContain('+3');
-    ctrl.destroy();
-  });
-
-  it('calls onExpand when a chip is clicked, without navigating', () => {
-    const expanded: string[] = [];
-    const navigated: string[] = [];
-    const ctrl = renderGraph(el, layeredGraph, {
-      layout: 'layered', focusId: 'root', hidden: new Map([['root', 2]]),
-      onExpand: (id) => expanded.push(id), onNavigate: (n) => navigated.push(n),
-    });
-    (el.querySelector('.more-chip') as SVGGElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(expanded).toEqual(['root']);
-    expect(navigated).toEqual([]);
-    ctrl.destroy();
-  });
-
-  it('force mode (default) draws no chip', () => {
-    const ctrl = renderGraph(el, layeredGraph, {});
-    expect(el.querySelector('.more-chip')).toBeFalsy();
-    ctrl.destroy();
-  });
-
-  it('navigable nodes are focusable controls and open on Enter', () => {
-    const navigated: string[] = [];
-    const ctrl = renderGraph(el, layeredGraph, { layout: 'layered', focusId: 'root', onNavigate: (n) => navigated.push(n) });
-    const node = el.querySelector('.nodes > g[role="button"]') as SVGGElement;
-    expect(node).toBeTruthy();
-    expect(node.getAttribute('tabindex')).toBe('0');
-    node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    expect(navigated.length).toBeGreaterThan(0);
-    ctrl.destroy();
-  });
-
-  it('the "+N" chip is focusable and expands on Enter', () => {
-    const expanded: string[] = [];
-    const ctrl = renderGraph(el, layeredGraph, {
-      layout: 'layered', focusId: 'root', hidden: new Map([['root', 2]]),
-      onExpand: (id) => expanded.push(id),
-    });
-    const chip = el.querySelector('.more-chip') as SVGGElement;
-    expect(chip.getAttribute('tabindex')).toBe('0');
-    chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    expect(expanded).toEqual(['root']);
+  it('applyFilter runs without throwing', () => {
+    const ctrl = renderGraph(el, layeredGraph, { layout: 'layered' });
+    expect(() => { ctrl.applyFilter((n) => n.status === 'Compliant'); ctrl.applyFilter(null); }).not.toThrow();
     ctrl.destroy();
   });
 });

@@ -1,27 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { layeredPositions, computeVisible, fitTransform, LEGIBLE_SCALE_FLOOR, wrapWideRanks } from './layout';
-import type { GraphData, GraphNode } from './graph';
-
-const n = (id: string): GraphNode => ({ id, serviceName: id, status: 'Compliant' });
-
-describe('layeredPositions', () => {
-  it('assigns increasing rank coordinate down a chain (TB)', () => {
-    const nodes = [n('a'), n('b'), n('c')];
-    const links = [{ source: 'a', target: 'b' }, { source: 'b', target: 'c' }];
-    const pos = layeredPositions(nodes, links, { nodeW: 164, nodeH: 42 });
-    expect(pos.get('a')!.y).toBeLessThan(pos.get('b')!.y);
-    expect(pos.get('b')!.y).toBeLessThan(pos.get('c')!.y);
-  });
-
-  it('positions every node and ignores edges to unknown nodes', () => {
-    const nodes = [n('a'), n('b')];
-    const links = [{ source: 'a', target: 'b' }, { source: 'a', target: 'ghost' }];
-    const pos = layeredPositions(nodes, links, { nodeW: 164, nodeH: 42 });
-    expect(pos.size).toBe(2);
-    expect(pos.has('a')).toBe(true);
-    expect(pos.has('b')).toBe(true);
-  });
-});
+import { computeVisible } from './layout';
+import type { GraphData } from './graph';
 
 // root -> a,b ; a -> a1 ; b -> b1
 const graph: GraphData = {
@@ -37,64 +16,6 @@ const graph: GraphData = {
 
 const opts = (o: Partial<Parameters<typeof computeVisible>[1]> = {}) => ({
   rootId: 'root', direction: 'down' as const, depth: 1, expanded: new Set<string>(), childCap: 12, ...o,
-});
-
-describe('wrapWideRanks', () => {
-  const dims = { nodeW: 100, nodeH: 40, nodesep: 0, ranksep: 60 };
-
-  it('folds an over-wide rank into stacked sub-rows', () => {
-    const pos = new Map([
-      ['a', { x: 0, y: 0 }], ['b', { x: 100, y: 0 }], ['c', { x: 200, y: 0 }],
-      ['d', { x: 300, y: 0 }], ['e', { x: 400, y: 0 }],
-    ]);
-    wrapWideRanks(pos, { ...dims, maxWidth: 250 }); // maxCols = floor(250/100) = 2
-    const ys = new Set([...pos.values()].map((p) => p.y));
-    expect(ys.size).toBe(3); // 5 nodes, 2 per row → 3 sub-rows
-  });
-
-  it('pushes lower ranks below the wrapped height', () => {
-    const pos = new Map([
-      ['a', { x: 0, y: 0 }], ['b', { x: 100, y: 0 }], ['c', { x: 200, y: 0 }],
-      ['z', { x: 100, y: 100 }],
-    ]);
-    wrapWideRanks(pos, { ...dims, maxWidth: 150 }); // maxCols = 1 → rank 0 becomes 3 rows
-    const rank0Bottom = Math.max(pos.get('a')!.y, pos.get('b')!.y, pos.get('c')!.y);
-    expect(pos.get('z')!.y).toBeGreaterThan(rank0Bottom);
-  });
-
-  it('leaves the layout untouched when nothing overflows', () => {
-    const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 100, y: 0 }]]);
-    wrapWideRanks(pos, { ...dims, maxWidth: 1000 });
-    expect(pos.get('a')).toEqual({ x: 0, y: 0 });
-    expect(pos.get('b')).toEqual({ x: 100, y: 0 });
-  });
-});
-
-describe('fitTransform', () => {
-  const canvas = { width: 800, height: 600 };
-  const dims = { nodeW: 164, nodeH: 42 };
-
-  it('floors the scale for a wide, shallow extent so labels stay legible', () => {
-    // Two nodes spread far apart horizontally — plain fit-to-width would be tiny.
-    const { scale } = fitTransform([{ x: 0, y: 0 }, { x: 4000, y: 0 }], canvas, dims);
-    expect(scale).toBe(LEGIBLE_SCALE_FLOOR);
-  });
-
-  it('caps the scale so a tiny graph does not balloon', () => {
-    const { scale } = fitTransform([{ x: 0, y: 0 }], canvas, dims);
-    expect(scale).toBe(1.5);
-  });
-
-  it('centers the content bbox in the canvas', () => {
-    const { scale, tx, ty } = fitTransform([{ x: 0, y: 0 }, { x: 100, y: 40 }], canvas, dims);
-    const cx = 50, cy = 20; // bbox center of the two node centers
-    expect(cx * scale + tx).toBeCloseTo(canvas.width / 2);
-    expect(cy * scale + ty).toBeCloseTo(canvas.height / 2);
-  });
-
-  it('returns identity for empty input', () => {
-    expect(fitTransform([], canvas, dims)).toEqual({ scale: 1, tx: 0, ty: 0 });
-  });
 });
 
 describe('computeVisible', () => {
