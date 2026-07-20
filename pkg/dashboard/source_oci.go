@@ -212,6 +212,9 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 	// Collect dependency repos from initial shallow scan.
 	var queue []string
 	for _, svc := range services {
+		if ctx.Err() != nil {
+			return
+		}
 		queue = append(queue, s.depReposForService(ctx, svc.Name)...)
 	}
 
@@ -284,6 +287,9 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 // Returns the service name if successful, empty string otherwise.
 // On failure, records the reason in failedRepos for graph diagnostics.
 func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
+	if ctx.Err() != nil {
+		return ""
+	}
 	tags, err := s.store.ListTags(ctx, repo)
 	if err != nil {
 		logOCIError("OCI ListTags failed", "repo", repo, err)
@@ -337,6 +343,9 @@ func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 // depReposForService returns the OCI repo bases for a service's dependencies
 // and referenced contracts (configuration, policy).
 func (s *OCISource) depReposForService(ctx context.Context, name string) []string {
+	if ctx.Err() != nil {
+		return nil
+	}
 	bundle, err := s.findLatestBundle(ctx, name)
 	if err != nil {
 		return nil

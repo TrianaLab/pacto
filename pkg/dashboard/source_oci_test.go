@@ -865,6 +865,26 @@ func TestOCISource_DiscoverAndPrefetch_BailsWhenCancelled(t *testing.T) {
 	}
 }
 
+// discoverRepo is the store-touching helper every discovery loop funnels through;
+// it must no-op on a cancelled context so shutdown can't spend ~200ms per repo
+// unwinding cancelled registry calls (the real cause of the Ctrl+C hang).
+func TestOCISource_DiscoverRepo_BailsOnCancelledContext(t *testing.T) {
+	base := newMockBundleStore()
+	base.addBundle("ghcr.io/org/svc", "1.0.0", "svc", "1.0.0")
+	store := &countingStore{mockBundleStore: base, listTagsCalls: make(map[string]int), failAfter: 1 << 30}
+
+	src := NewOCISource(store, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if got := src.discoverRepo(ctx, "ghcr.io/org/svc"); got != "" {
+		t.Fatalf("discoverRepo returned %q on cancelled ctx; want empty", got)
+	}
+	if n := store.listTagsCalls["ghcr.io/org/svc"]; n != 0 {
+		t.Fatalf("discoverRepo called ListTags %d times on cancelled ctx; want 0", n)
+	}
+}
+
 func TestOCISource_DepReposForService_FindBundleError(t *testing.T) {
 	store := newMockBundleStore()
 	src := NewOCISource(store, nil)
