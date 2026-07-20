@@ -1,6 +1,6 @@
 site_name: Pacto
 site_description: An open, OCI-distributed contract standard for cloud-native services.
-site_url: https://trianalab.github.io/pacto/
+site_url: https://pacto.run/
 repo_url: https://github.com/TrianaLab/pacto
 repo_name: TrianaLab/pacto
 edit_uri: edit/main/docs/
