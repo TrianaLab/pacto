@@ -130,7 +130,7 @@
         <GraphPanel
           {graphData}
           focusNodes={ownerServiceNames}
-          layout="force"
+          layout="layered"
           height={Math.min(window.innerHeight - 300, 500)}
           onNavigate={(name) => location.hash = serviceUrl(name)}
           showZoom

@@ -12,6 +12,7 @@ import fcose from 'cytoscape-fcose';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 import expandCollapse from 'cytoscape-expand-collapse';
 import { reasonTooltip } from './format.ts';
+import { wrapWideRanks } from './layout.ts';
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
@@ -220,10 +221,11 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
  */
 export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
   if (layout === 'layered') {
-    // LR so the focus sits in the middle with dependents ranking to the LEFT and
-    // dependencies to the RIGHT — direction becomes a spatial axis, not tangled arrows.
+    // Top-down dependency tree: roots on top → services → shared-infra sinks at the
+    // bottom. fit/animate off here — renderGraph wraps over-wide levels first, then
+    // fits, so a fat level doesn't stretch the tree into a band.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return { name: 'dagre', rankDir: 'LR', nodeSep: 22, rankSep: 90, fit: true, padding: 30, animate: true, animationDuration: 400 } as any;
+    return { name: 'dagre', rankDir: 'TB', nodeSep: 24, rankSep: 80, fit: false, animate: false } as any;
   }
   return {
     name: 'fcose',
@@ -311,19 +313,21 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
     {
       selector: 'edge',
       style: {
+        // Layered = the dependency TREE: orthogonal taxi edges flowing top→down with
+        // arrowheads, visible at rest so the structure reads instantly. Force = a
+        // calm scatter where edges stay faint until a node is focused.
         'curve-style': layout === 'layered' ? 'taxi' : 'bezier',
-        'taxi-direction': 'rightward',
-        'taxi-turn': 24,
-        'taxi-turn-min-distance': 6,
-        'control-point-step-size': 24, // separate parallel bezier edges so they don't stack
+        'taxi-direction': 'downward',
+        'taxi-turn': 20,
+        'taxi-turn-min-distance': 5,
+        'control-point-step-size': 24,
         width: 1,
         'line-color': pal.textDim,
         'line-style': (ele: EdgeSingular) => (ele.data('etype') === 'reference' ? 'dashed' : 'solid'),
-        // No arrowheads at rest — a faint, calm connective map; arrows appear only
-        // on the highlighted (directional) edges, so they can't overlap/mislead.
-        'target-arrow-shape': 'none',
-        'arrow-scale': 1,
-        opacity: EDGE_REST,
+        'target-arrow-shape': layout === 'layered' ? 'triangle' : 'none',
+        'target-arrow-color': pal.textDim,
+        'arrow-scale': 0.85,
+        opacity: layout === 'layered' ? 0.35 : EDGE_REST,
         'transition-property': 'opacity, width, line-color',
         'transition-duration': '0.2s',
         'transition-timing-function': 'ease-out',
@@ -535,11 +539,20 @@ export function renderGraph(
   // dagre layout and the async cose layout via layoutstop.
   const lay = cy.layout(cyLayout(layout));
   lay.one('layoutstop', () => {
+    // Layered tree: fold any over-wide level into sub-rows so one big level can't
+    // stretch the tree into a band, then fit the wrapped result.
+    if (layout === 'layered') {
+      const pos = new Map<string, { x: number; y: number }>();
+      cy.nodes().forEach((n) => { pos.set(n.id(), { x: n.position('x'), y: n.position('y') }); });
+      wrapWideRanks(pos, { nodeW: NODE_W, nodeH: NODE_H, nodesep: 24, ranksep: 80, maxWidth: (cy.width() || 1000) - 60 });
+      cy.batch(() => cy.nodes().forEach((n) => { const p = pos.get(n.id()); if (p) n.position(p); }));
+      cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 350, easing: 'ease-out' });
+    }
     // If a focus service is given (e.g. the service-detail page), pin its
-    // directional spotlight on load; otherwise rest as the calm full map.
+    // directional spotlight on load.
     if (focusId) {
       const fn = cy.nodes().filter((n) => n.data('serviceName') === focusId || n.id() === focusId);
-      if (fn.nonempty()) { clickFocusId = fn.first().id(); cy.center(fn); }
+      if (fn.nonempty()) clickFocusId = fn.first().id();
     }
     if (filterFn) applyFilter(filterFn);
     else applyDimming();

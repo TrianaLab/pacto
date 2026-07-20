@@ -33,7 +33,8 @@
         <GraphPanel
           {graphData}
           focusId={name}
-          layout="force"
+          layout="layered"
+          initialDirection="both"
           height={420}
           onNavigate={(n) => navigate('detail', { name: n })}
           showZoom

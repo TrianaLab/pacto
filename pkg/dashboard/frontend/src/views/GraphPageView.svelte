@@ -87,15 +87,15 @@
   <EmptyState title="No services to graph" message="Services need dependencies to appear in the graph." />
 {:else}
   <div class="graph-focus-bar">
-    <span class="focus-hint">The whole fleet at a glance. Hover a service to light up its dependencies (accent →) and dependents / blast radius (amber ←); click to pin, double-click to open.</span>
+    <span class="focus-hint">The whole dependency tree — roots on top, shared infrastructure at the bottom. Hover a service to light up its dependencies (accent →) and dependents / blast radius (amber ←); click to pin, double-click to open.</span>
   </div>
 
   <div class="fade-in-up">
-    <!-- Whole fleet as a calm map (global vision); hover/click a service to reveal
-         its dependencies directionally, so the edge cloud is never all drawn at once. -->
+    <!-- Whole fleet as a top-down dependency tree; over-wide levels wrap into
+         sub-rows so one big tier can't stretch it into a band. -->
     <GraphPanel
       {graphData}
-      layout="force"
+      layout="layered"
       filterFn={activeGraphFilterFn}
       height={Math.min(window.innerHeight - 200, 640)}
       onNavigate={(name) => location.hash = serviceUrl(name)}
