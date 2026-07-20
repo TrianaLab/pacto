@@ -8,9 +8,11 @@
 import cytoscape from 'cytoscape';
 import type { Core, NodeSingular, EdgeSingular, ElementDefinition, LayoutOptions } from 'cytoscape';
 import dagre from 'cytoscape-dagre';
+import fcose from 'cytoscape-fcose';
 import { reasonTooltip } from './format.ts';
 
 cytoscape.use(dagre);
+cytoscape.use(fcose);
 
 const NODE_W = 164;
 const NODE_H = 42;
@@ -172,14 +174,29 @@ export function buildElements(graphData: GraphData, focusId?: string): ElementDe
   return els;
 }
 
-/** dagre for the layered fleet/detail view; cose for the organic owner view. */
+/**
+ * 'layered' → dagre top-down tree (good for a small, clearly-hierarchical
+ * per-service view). 'force' → fCoSE: a compact 2D packing that fills the canvas
+ * at a readable node size instead of collapsing a wide, shallow fleet into a thin
+ * band — shared-infra hubs settle centrally. Used for the fleet + owner views.
+ */
 export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
   if (layout === 'layered') {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return { name: 'dagre', rankDir: 'TB', nodeSep: 45, rankSep: 70, fit: true, padding: 30 } as any;
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { name: 'cose', animate: false, fit: true, padding: 30, nodeRepulsion: 8000, idealEdgeLength: 120 } as any;
+  return {
+    name: 'fcose',
+    animate: false,
+    fit: true,
+    padding: 40,
+    nodeSeparation: 120,
+    idealEdgeLength: 110,
+    nodeRepulsion: 6000,
+    packComponents: true,
+    nodeDimensionsIncludeLabels: true,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
 }
 
 interface Palette {

@@ -135,14 +135,16 @@
   {/if}
 
   <div class="fade-in-up">
+    <!-- Full fleet: compact fCoSE (fills the canvas, readable). Large-fleet focus
+         mode shows a small rooted neighborhood, where a dagre tree reads best. -->
     <GraphPanel
       {graphData}
-      layout="layered"
+      layout={isLarge ? 'layered' : 'force'}
       focusId={effectiveFocusId}
       showDirectionDepth={isLarge}
       initialDirection={isLarge ? 'up' : 'down'}
       filterFn={activeGraphFilterFn}
-      height={Math.min(window.innerHeight - 200, 600)}
+      height={Math.min(window.innerHeight - 200, 640)}
       onNavigate={(name) => location.hash = serviceUrl(name)}
       showZoom
       showLegend

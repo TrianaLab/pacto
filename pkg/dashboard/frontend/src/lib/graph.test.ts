@@ -206,8 +206,8 @@ describe('cyLayout', () => {
     expect(l.name).toBe('dagre');
     expect(l.rankDir).toBe('TB');
   });
-  it('uses cose for the force view', () => {
-    expect((cyLayout('force') as { name: string }).name).toBe('cose');
+  it('uses fcose (compact) for the force view', () => {
+    expect((cyLayout('force') as { name: string }).name).toBe('fcose');
   });
 });
 
