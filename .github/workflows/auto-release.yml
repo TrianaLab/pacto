@@ -114,7 +114,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -157,7 +157,7 @@ jobs:
           sha256sum * > checksums.txt
 
       - name: Publish to GitHub Release
-        uses: softprops/action-gh-release@v3.0.1
+        uses: softprops/action-gh-release@v3.0.2
         with:
           tag_name: ${{ needs.release.outputs.tag }}
           files: dist/*

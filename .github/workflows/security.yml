@@ -37,7 +37,7 @@ jobs:
       actions: read # required by upload-sarif in some configurations
     steps:
       - uses: actions/checkout@v7.0.0
-      - uses: actions/setup-go@v6.5.0
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: Install govulncheck
