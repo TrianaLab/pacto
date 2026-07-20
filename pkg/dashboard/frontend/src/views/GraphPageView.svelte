@@ -144,7 +144,7 @@
     </div>
   {:else}
     <div class="graph-focus-bar">
-      <span class="focus-hint">Grouped by team — click a box to expand it, a service to trace its dependencies, or double-click to open it.</span>
+      <span class="focus-hint">Grouped by team — hover a service to spotlight its dependencies, click to pin it, double-click to open it, or click a team header to fold it.</span>
     </div>
   {/if}
 

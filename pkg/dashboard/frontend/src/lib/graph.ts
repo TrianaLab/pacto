@@ -144,6 +144,12 @@ function groupId(label: string): string {
   return 'group:' + label.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+// Distinct tints for cluster boxes so teams read as visually separate regions.
+const GROUP_COLORS = ['#818cf8', '#34d399', '#f472b6', '#fbbf24', '#60a5fa', '#a78bfa', '#fb923c', '#2dd4bf', '#f87171', '#c084fc'];
+function groupColor(index: number): string {
+  return GROUP_COLORS[index % GROUP_COLORS.length];
+}
+
 /**
  * Build Cytoscape elements from the graph data. Pure (no Cytoscape/DOM), so the
  * node/edge shape is unit-testable. Edge ids include the type because a node can
@@ -153,16 +159,19 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
   const nodes = graphData.nodes || [];
   const ids = new Set(nodes.map((n) => n.id));
   const els: ElementDefinition[] = [];
-  // One compound parent per distinct cluster label present in the graph.
+  // One compound parent per distinct cluster label present in the graph, each
+  // given a stable tint so teams read as separate regions.
   const labelOf = (id: string) => (groups && groups.get(id)) || '';
+  const colorOfGroup = new Map<string, string>();
   if (groups && groups.size) {
     const seen = new Map<string, string>(); // gid -> label
     for (const n of nodes) {
       const label = labelOf(n.id);
       if (label) seen.set(groupId(label), label);
     }
+    [...seen.keys()].sort().forEach((gid, i) => colorOfGroup.set(gid, groupColor(i)));
     for (const [gid, label] of seen) {
-      els.push({ data: { id: gid, label, isGroup: 1 } });
+      els.push({ data: { id: gid, label, isGroup: 1, groupColor: colorOfGroup.get(gid) } });
     }
   }
   for (const n of nodes) {
@@ -209,16 +218,18 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
 export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
   if (layout === 'layered') {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return { name: 'dagre', rankDir: 'TB', nodeSep: 45, rankSep: 70, fit: true, padding: 30 } as any;
+    return { name: 'dagre', rankDir: 'TB', nodeSep: 45, rankSep: 70, fit: true, padding: 30, animate: true, animationDuration: 400 } as any;
   }
   return {
     name: 'fcose',
-    animate: false,
+    animate: 'end',
+    animationDuration: 600,
+    animationEasing: 'ease-out',
     fit: true,
     padding: 40,
-    nodeSeparation: 120,
+    nodeSeparation: 130,
     idealEdgeLength: 110,
-    nodeRepulsion: 6000,
+    nodeRepulsion: 6500,
     packComponents: true,
     nodeDimensionsIncludeLabels: true,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -285,6 +296,11 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
         'text-wrap': 'wrap',
         'text-max-width': `${NODE_W - 18}`,
         'line-height': 1.25,
+        'overlay-opacity': 0,
+        // Smooth fades/emphasis when focus, hover or filter changes.
+        'transition-property': 'opacity, border-width, background-opacity',
+        'transition-duration': '0.22s',
+        'transition-timing-function': 'ease-out',
       },
     },
     {
@@ -302,25 +318,32 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
         'target-arrow-color': (ele: EdgeSingular) => edgeColor(pal, !!ele.data('drift'), ele.data('etype') === 'reference'),
         'arrow-scale': 0.9,
         opacity: EDGE_REST,
+        'transition-property': 'opacity, width, line-color',
+        'transition-duration': '0.2s',
+        'transition-timing-function': 'ease-out',
       },
     },
-    // Compound group boxes (owner clusters): a labelled, translucent container.
+    // Compound group boxes (owner clusters): a labelled, team-tinted region.
     {
       selector: ':parent',
       style: {
         shape: 'round-rectangle',
-        'background-color': pal.textDim,
-        'background-opacity': 0.05,
-        'border-color': pal.border,
-        'border-width': 1,
+        'background-color': 'data(groupColor)',
+        'background-opacity': 0.07,
+        'border-color': 'data(groupColor)',
+        'border-width': 2,
+        'border-opacity': 0.45,
         label: 'data(label)',
-        color: pal.textDim,
-        'font-size': 13,
-        'font-weight': 600,
+        color: 'data(groupColor)',
+        'font-size': 14,
+        'font-weight': 700,
         'text-valign': 'top',
-        'text-halign': 'center',
+        'text-halign': 'left',
+        'text-margin-x': 10,
         'text-margin-y': 6,
-        padding: 18,
+        padding: 22,
+        'transition-property': 'opacity, background-opacity',
+        'transition-duration': '0.22s',
       },
     },
     // Collapsed group node (a whole team folded into one box).
@@ -328,19 +351,21 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
       selector: 'node.cy-expand-collapse-collapsed-node',
       style: {
         shape: 'round-rectangle',
-        'background-color': pal.textDim,
-        'background-opacity': 0.12,
-        'border-color': pal.accent,
-        'border-width': 1.5,
+        'background-color': 'data(groupColor)',
+        'background-opacity': 0.16,
+        'border-color': 'data(groupColor)',
+        'border-width': 2,
         color: pal.text,
-        'font-weight': 600,
-        padding: 10,
+        'font-size': 14,
+        'font-weight': 700,
+        padding: 14,
       },
     },
-    { selector: 'node.pacto-faded', style: { opacity: 0.12 } },
-    { selector: 'edge.pacto-faded', style: { opacity: 0.04 } },
+    { selector: 'node.pacto-faded', style: { opacity: 0.1 } },
+    { selector: 'edge.pacto-faded', style: { opacity: 0.03 } },
     { selector: 'node.pacto-focus', style: { 'border-color': pal.accent, 'border-width': 3 } },
-    { selector: 'edge.pacto-lit', style: { opacity: 0.85, width: 2 } },
+    { selector: 'node.pacto-hot', style: { 'border-width': 3 } },
+    { selector: 'edge.pacto-lit', style: { opacity: 0.95, width: 2.5, 'line-color': pal.accent, 'target-arrow-color': pal.accent } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ] as any;
 }
@@ -382,8 +407,8 @@ export function renderGraph(
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ecApi = (cy as any).expandCollapse({
-        layoutBy: { name: 'fcose', animate: false, fit: true, padding: 40, randomize: false, nodeDimensionsIncludeLabels: true },
-        fisheye: false, animate: false, undoable: false, cueEnabled: true,
+        layoutBy: { name: 'fcose', animate: 'end', animationDuration: 500, fit: true, padding: 40, randomize: false, nodeDimensionsIncludeLabels: true },
+        fisheye: false, animate: true, animationDuration: 400, undoable: false, cueEnabled: true,
       });
     } catch { ecApi = null; }
   }
@@ -405,14 +430,20 @@ export function renderGraph(
     return vis;
   }
 
+  // A node plus its full up/down dependency closure and the group boxes around them.
+  function closureOf(n: cytoscape.NodeSingular): cytoscape.CollectionReturnValue {
+    const c = n.union(n.successors()).union(n.predecessors());
+    return c.union(c.ancestors());
+  }
+
   function applyDimming(): void {
-    cy.elements().removeClass('pacto-faded').removeClass('pacto-lit');
+    cy.elements().removeClass('pacto-faded').removeClass('pacto-lit').removeClass('pacto-hot');
     let keep: cytoscape.CollectionReturnValue | null = null;
     if (clickFocusId) {
       const n = cy.getElementById(clickFocusId);
-      keep = n.union(n.successors()).union(n.predecessors());
-      keep = keep.union(keep.ancestors()); // keep the containing group boxes visible
+      keep = closureOf(n);
       keep.edges().addClass('pacto-lit');
+      n.addClass('pacto-hot');
     } else if (ownerSet) {
       const ids = ownerVisible();
       const kn = cy.nodes().filter((n) => ids.has(n.id()));
@@ -445,21 +476,45 @@ export function renderGraph(
     } else {
       clickFocusId = clickFocusId === id ? null : id; // toggle focus
       applyDimming();
+      // Smoothly move the camera to the focused closure (or back to the whole graph).
+      if (clickFocusId) cy.animate({ fit: { eles: closureOf(n), padding: 70 } }, { duration: 450, easing: 'ease-in-out' });
+      else cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 400, easing: 'ease-in-out' });
     }
     lastTapId = id;
     lastTapAt = now;
   });
   cy.on('tap', (evt) => {
-    if (evt.target === cy) { clickFocusId = null; applyDimming(); }
+    if (evt.target === cy && clickFocusId) {
+      clickFocusId = null;
+      applyDimming();
+      cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 400, easing: 'ease-in-out' });
+    }
+  });
+
+  // Hover: smoothly spotlight a service's dependency closure without committing to
+  // it (click pins it). Skipped while a click-focus or owner emphasis is active.
+  cy.on('mouseover', 'node', (evt) => {
+    container.style.cursor = 'pointer';
+    const n = evt.target as NodeSingular;
+    if (clickFocusId || ownerSet || filterHidden || n.isParent() || n.hasClass('cy-expand-collapse-collapsed-node')) return;
+    const keep = closureOf(n);
+    cy.elements().not(keep).addClass('pacto-faded');
+    keep.edges().addClass('pacto-lit');
+    n.addClass('pacto-hot');
+  });
+  cy.on('mouseout', 'node', () => {
+    container.style.cursor = 'default';
+    if (clickFocusId || ownerSet || filterHidden) return;
+    cy.elements().removeClass('pacto-faded').removeClass('pacto-lit').removeClass('pacto-hot');
   });
 
   // Run layout, then fit + apply the resting emphasis. Works for both the sync
   // dagre layout and the async cose layout via layoutstop.
   const lay = cy.layout(cyLayout(layout));
   lay.one('layoutstop', () => {
-    // Start with every team folded — an at-a-glance overview of a handful of boxes
-    // and the cross-team edges between them; the user expands the ones they want.
-    if (ecApi) { try { ecApi.collapseAll(); } catch { /* headless */ } }
+    // Default to the EXPANDED clustered view — every service visible inside its
+    // team region — which is far richer than a few folded boxes. Tap a box to fold
+    // a team on demand.
     if (filterFn) applyFilter(filterFn);
     else applyDimming();
     if (focusId) {
