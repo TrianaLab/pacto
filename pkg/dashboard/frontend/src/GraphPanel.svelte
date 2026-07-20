@@ -97,9 +97,8 @@
       <span class="legend-item" data-tip="OCI repo found but no valid semver tags, or registry unreachable"><span class="legend-dot" style="background:var(--c-warn)"></span> Not found / No versions</span>
       <span class="legend-item" data-tip="Background OCI discovery still running"><span class="legend-dot legend-dot-pulse" style="background:var(--c-accent)"></span> Discovering</span>
       <span class="legend-sep">|</span>
-      <span class="legend-item"><span class="legend-line solid"></span> required</span>
-      <span class="legend-item"><span class="legend-line dashed"></span> optional</span>
-      <span class="legend-item"><span class="legend-line ref"></span> reference</span>
+      <span class="legend-item" data-tip="On focus: what this service depends on"><span class="legend-line dep"></span> depends on</span>
+      <span class="legend-item" data-tip="On focus: what depends on this service (blast radius)"><span class="legend-line dependent"></span> depended on by</span>
     </div>
   {/if}
 </div>
@@ -211,16 +210,12 @@
     height: 0;
   }
 
-  .legend-line.solid {
-    border-top: 2px solid var(--c-text-2);
+  .legend-line.dep {
+    border-top: 2.5px solid var(--c-accent);
   }
 
-  .legend-line.dashed {
-    border-top: 1px dashed var(--c-text-3);
-  }
-
-  .legend-line.ref {
-    border-top: 1.5px dashed var(--c-accent);
+  .legend-line.dependent {
+    border-top: 2.5px solid var(--c-warn);
   }
 
   @media (max-width: 768px) {

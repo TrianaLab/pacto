@@ -33,12 +33,11 @@
         <GraphPanel
           {graphData}
           focusId={name}
-          layout="layered"
+          layout="force"
           height={420}
           onNavigate={(n) => navigate('detail', { name: n })}
           showZoom
           showLegend
-          showDirectionDepth
         />
       </div>
     {/if}

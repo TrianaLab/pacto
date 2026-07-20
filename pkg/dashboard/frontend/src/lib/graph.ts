@@ -20,9 +20,10 @@ try { cytoscape.use(expandCollapse); } catch { /* already registered */ }
 
 const NODE_W = 164;
 const NODE_H = 42;
-// Resting edge opacity — kept low so a dense fan-in (many services → shared infra)
-// reads as faint texture and the nodes stay legible; focus/hover lifts it.
-const EDGE_REST = 0.4;
+// Resting edge opacity — very faint so the whole fleet reads as a calm map of
+// nodes (global overview) without the edge cloud; focus/hover lights the relevant
+// edges directionally.
+const EDGE_REST = 0.07;
 
 // Status / reason → palette token key, resolved to a concrete color per theme at
 // render time (Cytoscape's canvas can't read CSS custom properties directly).
@@ -314,13 +315,14 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
         'taxi-direction': 'rightward',
         'taxi-turn': 24,
         'taxi-turn-min-distance': 6,
-        width: (ele: EdgeSingular) => (ele.data('required') ? 2 : 1),
-        'line-color': (ele: EdgeSingular) => edgeColor(pal, !!ele.data('drift'), ele.data('etype') === 'reference'),
-        'line-style': (ele: EdgeSingular) =>
-          ele.data('etype') === 'reference' ? 'dashed' : ele.data('required') ? 'solid' : 'dashed',
-        'target-arrow-shape': 'triangle',
-        'target-arrow-color': (ele: EdgeSingular) => edgeColor(pal, !!ele.data('drift'), ele.data('etype') === 'reference'),
-        'arrow-scale': 0.9,
+        'control-point-step-size': 24, // separate parallel bezier edges so they don't stack
+        width: 1,
+        'line-color': pal.textDim,
+        'line-style': (ele: EdgeSingular) => (ele.data('etype') === 'reference' ? 'dashed' : 'solid'),
+        // No arrowheads at rest — a faint, calm connective map; arrows appear only
+        // on the highlighted (directional) edges, so they can't overlap/mislead.
+        'target-arrow-shape': 'none',
+        'arrow-scale': 1,
         opacity: EDGE_REST,
         'transition-property': 'opacity, width, line-color',
         'transition-duration': '0.2s',
@@ -365,11 +367,21 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
         padding: 14,
       },
     },
-    { selector: 'node.pacto-faded', style: { opacity: 0.1 } },
-    { selector: 'edge.pacto-faded', style: { opacity: 0.03 } },
+    { selector: 'node.pacto-faded', style: { opacity: 0.12 } },
+    { selector: 'edge.pacto-faded', style: { opacity: 0.02 } },
     { selector: 'node.pacto-focus', style: { 'border-color': pal.accent, 'border-width': 3 } },
-    { selector: 'node.pacto-hot', style: { 'border-width': 3 } },
-    { selector: 'edge.pacto-lit', style: { opacity: 0.95, width: 2.5, 'line-color': pal.accent, 'target-arrow-color': pal.accent } },
+    { selector: 'node.pacto-hot', style: { 'border-width': 3.5 } },
+    // Directional highlight: a service's DEPENDENCIES (what it needs) light up in
+    // accent with arrows pointing away; its DEPENDENTS (blast radius) light up warm
+    // with arrows pointing in. Only one node's edges show at once → no overlap.
+    {
+      selector: 'edge.pacto-dep',
+      style: { opacity: 0.95, width: 2.5, 'line-color': pal.accent, 'target-arrow-color': pal.accent, 'target-arrow-shape': 'triangle', 'line-style': 'solid', 'z-index': 10 },
+    },
+    {
+      selector: 'edge.pacto-dependent',
+      style: { opacity: 0.9, width: 2.5, 'line-color': pal.warn, 'target-arrow-color': pal.warn, 'target-arrow-shape': 'triangle', 'line-style': 'solid', 'z-index': 10 },
+    },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ] as any;
 }
@@ -440,26 +452,38 @@ export function renderGraph(
     return c.union(c.ancestors());
   }
 
+  const HL = 'pacto-faded pacto-dep pacto-dependent pacto-hot';
+
+  // Directional spotlight — the one interaction used EVERYWHERE (fleet, owner,
+  // service detail) so the graph behaves identically wherever it appears. A
+  // service's DEPENDENCIES light up in accent (arrows out), its DEPENDENTS / blast
+  // radius in warm (arrows in), everything else fades. Only this node's edges show,
+  // so nothing overlaps.
+  function spotlight(n: cytoscape.NodeSingular): void {
+    const succ = n.successors();
+    const pred = n.predecessors();
+    const keep = n.union(succ).union(pred);
+    cy.elements().not(keep.union(keep.ancestors())).addClass('pacto-faded');
+    succ.edges().addClass('pacto-dep');
+    pred.edges().addClass('pacto-dependent');
+    n.addClass('pacto-hot');
+  }
+
+  // Resting emphasis (no hover/pin): owner view dims to the owner's services; the
+  // status/name filter dims non-matches; otherwise the calm full map.
   function applyDimming(): void {
-    cy.elements().removeClass('pacto-faded').removeClass('pacto-lit').removeClass('pacto-hot');
-    let keep: cytoscape.CollectionReturnValue | null = null;
-    if (clickFocusId) {
-      const n = cy.getElementById(clickFocusId);
-      keep = closureOf(n);
-      keep.edges().addClass('pacto-lit');
-      n.addClass('pacto-hot');
-    } else if (ownerSet) {
+    cy.elements().removeClass(HL);
+    if (clickFocusId) { spotlight(cy.getElementById(clickFocusId)); return; }
+    if (ownerSet) {
       const ids = ownerVisible();
       const kn = cy.nodes().filter((n) => ids.has(n.id()));
-      keep = kn.union(kn.connectedEdges()).union(kn.ancestors());
+      const keep = kn.union(kn.connectedEdges()).union(kn.ancestors());
+      cy.elements().not(keep).addClass('pacto-faded');
     } else if (filterHidden) {
-      // Filter dims the MATCHING nodes (inverse of keep).
       const faded = cy.nodes().filter((n) => filterHidden!.has(n.id()));
       faded.addClass('pacto-faded');
       faded.connectedEdges().addClass('pacto-faded');
-      return;
     }
-    if (keep) cy.elements().not(keep).addClass('pacto-faded');
   }
 
   // ── Interactions ─────────────────────────────────────────────────────────
@@ -478,59 +502,47 @@ export function renderGraph(
     lastTapId = id;
     lastTapAt = now;
     if (isDouble) {
-      // double-tap → open the service (external nodes have no page)
+      // double-tap → open the service page (external nodes have none)
       if (!n.data('external') && onNavigate) onNavigate(n.data('serviceName'));
       return;
     }
-    if (onFocus && !n.data('external')) {
-      // focus-first: single-tap re-roots the view on this service.
-      onFocus(n.data('serviceName'));
-      return;
-    }
-    // Fallback (no re-root handler): toggle a spotlight on this node's closure.
+    // Single-tap → PIN this service's directional spotlight and gently center it,
+    // keeping the whole map in view (no hard zoom) so the global picture stays.
     clickFocusId = clickFocusId === id ? null : id;
     applyDimming();
-    if (clickFocusId) cy.animate({ fit: { eles: closureOf(n), padding: 70 } }, { duration: 450, easing: 'ease-in-out' });
-    else cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 400, easing: 'ease-in-out' });
+    if (clickFocusId) cy.animate({ center: { eles: n } }, { duration: 350, easing: 'ease-in-out' });
   });
   cy.on('tap', (evt) => {
-    if (evt.target === cy && clickFocusId) {
-      clickFocusId = null;
-      applyDimming();
-      cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 400, easing: 'ease-in-out' });
-    }
+    if (evt.target === cy && clickFocusId) { clickFocusId = null; applyDimming(); }
   });
 
-  // Hover: smoothly spotlight a service's dependency closure without committing to
-  // it (click pins it). Skipped while a click-focus or owner emphasis is active.
+  // Hover previews the spotlight (click pins it). A pinned focus takes precedence.
   cy.on('mouseover', 'node', (evt) => {
     container.style.cursor = 'pointer';
     const n = evt.target as NodeSingular;
-    if (clickFocusId || ownerSet || filterHidden || n.isParent() || n.hasClass('cy-expand-collapse-collapsed-node')) return;
-    const keep = closureOf(n);
-    cy.elements().not(keep).addClass('pacto-faded');
-    keep.edges().addClass('pacto-lit');
-    n.addClass('pacto-hot');
+    if (clickFocusId || n.isParent() || n.hasClass('cy-expand-collapse-collapsed-node')) return;
+    cy.elements().removeClass(HL);
+    spotlight(n);
   });
   cy.on('mouseout', 'node', () => {
     container.style.cursor = 'default';
-    if (clickFocusId || ownerSet || filterHidden) return;
-    cy.elements().removeClass('pacto-faded').removeClass('pacto-lit').removeClass('pacto-hot');
+    if (clickFocusId) return;
+    cy.elements().removeClass(HL);
+    applyDimming(); // restore the resting owner/filter emphasis
   });
 
   // Run layout, then fit + apply the resting emphasis. Works for both the sync
   // dagre layout and the async cose layout via layoutstop.
   const lay = cy.layout(cyLayout(layout));
   lay.one('layoutstop', () => {
-    // Default to the EXPANDED clustered view — every service visible inside its
-    // team region — which is far richer than a few folded boxes. Tap a box to fold
-    // a team on demand.
-    if (filterFn) applyFilter(filterFn);
-    else applyDimming();
+    // If a focus service is given (e.g. the service-detail page), pin its
+    // directional spotlight on load; otherwise rest as the calm full map.
     if (focusId) {
       const fn = cy.nodes().filter((n) => n.data('serviceName') === focusId || n.id() === focusId);
-      if (fn.nonempty()) cy.center(fn);
+      if (fn.nonempty()) { clickFocusId = fn.first().id(); cy.center(fn); }
     }
+    if (filterFn) applyFilter(filterFn);
+    else applyDimming();
   });
   lay.run();
 
