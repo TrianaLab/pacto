@@ -182,13 +182,16 @@ describe('renderGraph layered mode', () => {
     ctrl.destroy();
   });
 
-  it('positions edges (sets line coordinates without a running sim)', () => {
+  it('positions edges as a curved path (no running sim)', () => {
     const ctrl = renderGraph(el, layeredGraph, { layout: 'layered', focusId: 'root' });
-    const line = el.querySelector('line');
-    expect(line).toBeTruthy();
-    // updatePositions runs once in layered mode; endpoints must be real numbers
-    expect(Number.isFinite(parseFloat(line!.getAttribute('x1')!))).toBe(true);
-    expect(Number.isFinite(parseFloat(line!.getAttribute('x2')!))).toBe(true);
+    const path = el.querySelector('.links path');
+    expect(path).toBeTruthy();
+    // updatePositions runs once in layered mode; the cubic path data must be set
+    // and contain no NaN coordinates.
+    const d = path!.getAttribute('d') || '';
+    expect(d.startsWith('M')).toBe(true);
+    expect(d).toContain('C');
+    expect(d.includes('NaN')).toBe(false);
     ctrl.destroy();
   });
 

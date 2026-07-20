@@ -274,11 +274,13 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
       .force('collision', d3.forceCollide().radius(NODE_W / 2 + 14));
   }
 
-  // Links
+  // Links — curved paths (a vertical cubic) rather than straight lines, so a dense
+  // fan-in to shared infra reads as separated arcs instead of an overlapping mass.
   const linkG = g.append('g').attr('class', 'links');
-  const linkEls = linkG.selectAll('line')
+  const linkEls = linkG.selectAll('path')
     .data(links)
-    .join('line')
+    .join('path')
+    .attr('fill', 'none')
     .attr('stroke', (d) => {
       if (d.driftStatus === 'drift') return 'var(--c-warn)';
       if (d.type === 'reference') return 'var(--c-accent)';
@@ -641,10 +643,12 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
 
   function updatePositions() {
     linkEls.each(function (d: any) {
-      const clipped = clipToRect(d.source.x, d.source.y, d.target.x, d.target.y, NODE_W / 2, NODE_H / 2);
-      d3.select(this)
-        .attr('x1', d.source.x).attr('y1', d.source.y)
-        .attr('x2', clipped.x).attr('y2', clipped.y);
+      const sx = d.source.x, sy = d.source.y;
+      const clipped = clipToRect(sx, sy, d.target.x, d.target.y, NODE_W / 2, NODE_H / 2);
+      // Vertical cubic: control points at the mid-Y pull the arc toward source/target
+      // so edges leave and enter roughly vertically and fan-ins converge cleanly.
+      const my = (sy + clipped.y) / 2;
+      d3.select(this).attr('d', `M${sx},${sy}C${sx},${my} ${clipped.x},${my} ${clipped.x},${clipped.y}`);
     });
     nodeEls.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
   }
