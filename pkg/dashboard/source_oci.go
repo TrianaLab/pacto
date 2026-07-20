@@ -142,6 +142,9 @@ func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 // This is fast — one ListTags + one Pull per repo.
 func (s *OCISource) shallowScan(ctx context.Context) {
 	for _, repo := range s.repos {
+		if ctx.Err() != nil {
+			return
+		}
 		s.discoverRepo(ctx, repo)
 	}
 }
@@ -177,13 +180,23 @@ func (s *OCISource) Close() {
 		cancel()
 	}
 	if started {
-		<-s.stopped
+		// Wait for the loop to exit, but never let a wedged discovery hang server
+		// shutdown — the cancelled context makes the loop bail almost immediately,
+		// and the process is exiting regardless.
+		select {
+		case <-s.stopped:
+		case <-time.After(5 * time.Second):
+			slog.Warn("OCI discovery did not stop within timeout; abandoning")
+		}
 	}
 }
 
 // discoverAndPrefetch recursively discovers OCI dependencies from all known
 // services and prefetches their version history.
 func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
 	visited := make(map[string]bool)
 
 	// Mark already-discovered repos as visited (skip re-pulling).
@@ -210,6 +223,9 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 
 	// BFS: discover dependency repos, collecting new deps as we go.
 	for len(queue) > 0 {
+		if ctx.Err() != nil {
+			return // shutdown: stop draining the queue so Close() returns promptly
+		}
 		repo := queue[0]
 		queue = queue[1:]
 
@@ -236,11 +252,17 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 	s.mu.RUnlock()
 
 	for _, repo := range repos {
+		if ctx.Err() != nil {
+			return
+		}
 		tags, err := s.store.ListTags(ctx, repo)
 		if err != nil {
 			continue
 		}
 		for _, tag := range semver.Filter(tags) {
+			if ctx.Err() != nil {
+				return
+			}
 			ref := repo + ":" + tag
 			if _, err := s.store.Pull(ctx, ref); err != nil {
 				slog.Debug("OCI prefetch version failed", "ref", ref, "error", err)

@@ -26,6 +26,9 @@ const REASON_COLORS: Record<string, string> = {
 
 const NODE_W = 164;
 const NODE_H = 42;
+// Resting edge opacity — kept low so a dense fan-in (many services → shared infra)
+// reads as faint texture and the nodes stay legible; hover/blast lifts edges to 0.8.
+const EDGE_REST = 0.3;
 
 export interface GraphEdge {
   targetId: string;
@@ -291,7 +294,7 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
       return d.required ? 'none' : '4,3';
     })
     .attr('marker-end', (d) => d.type === 'reference' ? 'url(#arrow-ref)' : 'url(#arrow)')
-    .attr('opacity', (d) => d.driftStatus === 'drift' ? 0.8 : 0.6);
+    .attr('opacity', (d) => d.driftStatus === 'drift' ? 0.8 : EDGE_REST);
 
   // Nodes — track drag movement to distinguish click from drag
   const nodeG = g.append('g').attr('class', 'nodes');
@@ -497,7 +500,7 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
 
   /** Compute base link opacity. */
   function baseLinkOpacity(l: SimLink): number {
-    if (!hasFocus) return 0.6;
+    if (!hasFocus) return EDGE_REST;
     const sid = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source;
     const tid = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target;
     if (focusSet.has(sid) || focusSet.has(tid)) return 0.6;
@@ -606,7 +609,7 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
   function applyFilter(fn: ((n: GraphNode) => boolean) | null): void {
     if (!fn) {
       nodeEls.attr('opacity', 1);
-      linkEls.attr('opacity', 0.6);
+      linkEls.attr('opacity', EDGE_REST);
       return;
     }
     const hidden = new Set<string>();
@@ -615,7 +618,7 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
     linkEls.attr('opacity', (d) => {
       const sid = typeof d.source === 'object' ? (d.source as GraphNode).id : d.source;
       const tid = typeof d.target === 'object' ? (d.target as GraphNode).id : d.target;
-      return hidden.has(sid) || hidden.has(tid) ? 0.05 : 0.6;
+      return hidden.has(sid) || hidden.has(tid) ? 0.05 : EDGE_REST;
     });
   }
 

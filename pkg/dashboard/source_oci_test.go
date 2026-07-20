@@ -834,6 +834,37 @@ func TestOCISource_BackgroundDiscover_ListTagsErrorDuringPrefetch(t *testing.T) 
 	}
 }
 
+// A cancelled context must short-circuit discovery so server shutdown (which
+// cancels the background context via Close) can't block on draining the queue.
+func TestOCISource_DiscoverAndPrefetch_BailsWhenCancelled(t *testing.T) {
+	base := newMockBundleStore()
+	base.addBundleWithDeps("ghcr.io/org/root", "1.0.0", "root", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/dep"},
+	})
+	base.addBundle("ghcr.io/org/dep", "2.0.0", "dep", "2.0.0")
+	store := &countingStore{mockBundleStore: base, listTagsCalls: make(map[string]int), failAfter: 1 << 30}
+
+	src := NewOCISource(store, []string{"ghcr.io/org/root"})
+	_ = waitForDiscovery(t, src) // first full discovery populates services + repoMap
+
+	total := func() int {
+		n := 0
+		for _, c := range store.listTagsCalls {
+			n += c
+		}
+		return n
+	}
+	before := total()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	src.discoverAndPrefetch(ctx) // must bail without touching the store
+
+	if after := total(); after != before {
+		t.Fatalf("discoverAndPrefetch made %d store calls after context cancel; expected 0", after-before)
+	}
+}
+
 func TestOCISource_DepReposForService_FindBundleError(t *testing.T) {
 	store := newMockBundleStore()
 	src := NewOCISource(store, nil)
