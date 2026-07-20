@@ -61,10 +61,10 @@ jobs:
       # Build the in-browser (WebAssembly) dashboard demo and fold it into the
       # same Pages artifact at /pacto/demo/ (two Pages deploys in one repo
       # conflict; one upload below publishes both docs and demo).
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Build the WASM dashboard demo
