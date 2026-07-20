@@ -540,29 +540,53 @@ export function renderGraph(
     applyDimming(); // restore the resting owner/filter emphasis (batched, clears HL)
   });
 
-  // Run layout, then fit + apply the resting emphasis. Works for both the sync
-  // dagre layout and the async cose layout via layoutstop.
-  const lay = cy.layout(cyLayout(layout));
-  lay.one('layoutstop', () => {
-    // Layered tree: fold any over-wide level into sub-rows so one big level can't
-    // stretch the tree into a band, then fit the wrapped result.
-    if (layout === 'layered') {
-      const pos = new Map<string, { x: number; y: number }>();
-      cy.nodes().forEach((n) => { pos.set(n.id(), { x: n.position('x'), y: n.position('y') }); });
-      wrapWideRanks(pos, { nodeW: NODE_W, nodeH: NODE_H, nodesep: 24, ranksep: 80, maxWidth: (cy.width() || 1000) - 60 });
-      cy.batch(() => cy.nodes().forEach((n) => { const p = pos.get(n.id()); if (p) n.position(p); }));
+  // Pin the initial focus (service-detail page) before the first layout.
+  if (focusId) {
+    const fn = cy.nodes().filter((n) => n.data('serviceName') === focusId || n.id() === focusId);
+    if (fn.nonempty()) clickFocusId = fn.first().id();
+  }
+
+  function layoutAndFit(): void {
+    const l = cy.layout(cyLayout(layout));
+    l.one('layoutstop', () => {
+      // Layered tree: fold any over-wide level into sub-rows sized to the CURRENT
+      // canvas width, so one big level can't stretch the tree into a band.
+      if (layout === 'layered') {
+        const pos = new Map<string, { x: number; y: number }>();
+        cy.nodes().forEach((n) => { pos.set(n.id(), { x: n.position('x'), y: n.position('y') }); });
+        wrapWideRanks(pos, { nodeW: NODE_W, nodeH: NODE_H, nodesep: 24, ranksep: 80, maxWidth: (cy.width() || 1000) - 60 });
+        cy.batch(() => cy.nodes().forEach((n) => { const p = pos.get(n.id()); if (p) n.position(p); }));
+      }
       cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 250, easing: 'ease-out' });
-    }
-    // If a focus service is given (e.g. the service-detail page), pin its
-    // directional spotlight on load.
-    if (focusId) {
-      const fn = cy.nodes().filter((n) => n.data('serviceName') === focusId || n.id() === focusId);
-      if (fn.nonempty()) clickFocusId = fn.first().id();
-    }
-    if (filterFn) applyFilter(filterFn);
-    else applyDimming();
-  });
-  lay.run();
+      if (filterFn) applyFilter(filterFn);
+      else applyDimming();
+    });
+    l.run();
+  }
+
+  // Lay out only once the container has a real size — cy often initialises before
+  // the container is measured, which produced the "renders wrong until you click"
+  // bug (a click forced cy to re-measure). The observer also re-fits/re-wraps on
+  // later resizes (window, panel), unless a focus is pinned.
+  let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+  let firstLayout = true;
+  let ro: ResizeObserver | undefined;
+  if (typeof ResizeObserver !== 'undefined') {
+    ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width || cy.width();
+      cy.resize();
+      if (firstLayout) { if (w > 0) { firstLayout = false; layoutAndFit(); } return; }
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (clickFocusId) return; // don't disrupt a pinned focus
+        if (layout === 'layered') layoutAndFit();
+        else cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 200 });
+      }, 150);
+    });
+    ro.observe(container);
+  } else {
+    layoutAndFit(); // no ResizeObserver (jsdom tests / very old browsers)
+  }
 
   function applyFilter(fn: ((n: GraphNode) => boolean) | null): void {
     if (!fn) { filterHidden = null; applyDimming(); return; }
@@ -576,7 +600,7 @@ export function renderGraph(
 
   return {
     nodes,
-    destroy: () => cy.destroy(),
+    destroy: () => { ro?.disconnect(); clearTimeout(resizeTimer); cy.destroy(); },
     zoomIn: () => zoomBy(1.4),
     zoomOut: () => zoomBy(0.7),
     resetView: () => { clickFocusId = null; applyDimming(); cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 300 }); },

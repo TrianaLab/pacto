@@ -391,14 +391,20 @@ export function worstStatus(statuses: Iterable<string>): string {
 interface GNode { id: string; serviceName: string; status: string; edges?: Array<{ targetId: string; type?: string }> }
 
 /**
- * A subgraph of the "core" nodes (e.g. one team's services) plus only their
- * RELATED nodes — direct dependencies and direct dependents. Unrelated services
- * (e.g. other teams with no connection) are dropped, so an owner view shows the
- * team and what it actually touches, not the whole fleet.
+ * A subgraph of the "core" nodes (e.g. one team's services) plus their related
+ * nodes — always their direct dependencies, and (optionally) their direct
+ * dependents. Unrelated services are dropped, so an owner view shows the team and
+ * what it touches, not the whole fleet.
+ *
+ * `includeDependents` defaults to false: when a team owns something everyone
+ * depends on (e.g. postgres), pulling in every dependent would drag in the whole
+ * fleet and defeat the point of focusing the team. Deps are always bounded by
+ * what the team's services actually consume.
  */
 export function relatedSubgraph<T extends GNode>(
   graphData: { nodes?: T[] } | null,
   isCore: (node: T) => boolean,
+  { includeDependents = false }: { includeDependents?: boolean } = {},
 ): { nodes: T[] } {
   const nodes = graphData?.nodes || [];
   const core = new Set(nodes.filter(isCore).map((n) => n.id));
@@ -406,7 +412,7 @@ export function relatedSubgraph<T extends GNode>(
   const keep = new Set(core);
   for (const n of nodes) {
     if (core.has(n.id)) for (const e of n.edges || []) keep.add(e.targetId); // deps
-    for (const e of n.edges || []) if (core.has(e.targetId)) keep.add(n.id);  // dependents
+    if (includeDependents) for (const e of n.edges || []) if (core.has(e.targetId)) keep.add(n.id);
   }
   return { nodes: nodes.filter((n) => keep.has(n.id)) };
 }

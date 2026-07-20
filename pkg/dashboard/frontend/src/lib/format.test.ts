@@ -20,6 +20,7 @@ import {
   ownerIsStructured,
   aggregateByOwner,
   aggregateGraphByOwner,
+  relatedSubgraph,
   worstStatus,
   compareScoresUnassessedLast,
   extractOwnerDetail,
@@ -649,6 +650,36 @@ describe('aggregateGraphByOwner', () => {
     const x = aggregateGraphByOwner(graph, ownerOf).nodes.find((n) => n.id === 'team-x')!;
     expect(x.version).toBe('2 services');
     expect(x.status).toBe('Warning'); // worst of a(Compliant), b(Warning)
+  });
+});
+
+describe('relatedSubgraph', () => {
+  // core = {a}; a depends on infra; everyoneElse depends on infra too.
+  const graph = { nodes: [
+    { id: 'a', serviceName: 'a', status: 'Compliant', edges: [{ targetId: 'infra' }] },
+    { id: 'infra', serviceName: 'infra', status: 'Compliant', edges: [] },
+    { id: 'x', serviceName: 'x', status: 'Compliant', edges: [{ targetId: 'infra' }] },
+    { id: 'y', serviceName: 'y', status: 'Compliant', edges: [{ targetId: 'a' }] },
+  ] };
+
+  it('by default keeps core + its dependencies only (not dependents)', () => {
+    // Focusing team that owns infra must NOT drag in x and y just because they use it.
+    const sub = relatedSubgraph(graph, (n) => n.id === 'infra');
+    expect(sub.nodes.map((n) => n.id).sort()).toEqual(['infra']);
+  });
+
+  it('keeps core + deps; a core service pulls in what it depends on', () => {
+    const sub = relatedSubgraph(graph, (n) => n.id === 'a');
+    expect(sub.nodes.map((n) => n.id).sort()).toEqual(['a', 'infra']); // not y (a dependent)
+  });
+
+  it('includes dependents when asked', () => {
+    const sub = relatedSubgraph(graph, (n) => n.id === 'a', { includeDependents: true });
+    expect(sub.nodes.map((n) => n.id).sort()).toEqual(['a', 'infra', 'y']);
+  });
+
+  it('returns empty when nothing is core', () => {
+    expect(relatedSubgraph(graph, () => false).nodes).toEqual([]);
   });
 });
 
