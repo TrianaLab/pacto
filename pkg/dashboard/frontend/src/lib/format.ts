@@ -388,6 +388,29 @@ export function worstStatus(statuses: Iterable<string>): string {
   return worst;
 }
 
+interface GNode { id: string; serviceName: string; status: string; edges?: Array<{ targetId: string; type?: string }> }
+
+/**
+ * A subgraph of the "core" nodes (e.g. one team's services) plus only their
+ * RELATED nodes — direct dependencies and direct dependents. Unrelated services
+ * (e.g. other teams with no connection) are dropped, so an owner view shows the
+ * team and what it actually touches, not the whole fleet.
+ */
+export function relatedSubgraph<T extends GNode>(
+  graphData: { nodes?: T[] } | null,
+  isCore: (node: T) => boolean,
+): { nodes: T[] } {
+  const nodes = graphData?.nodes || [];
+  const core = new Set(nodes.filter(isCore).map((n) => n.id));
+  if (!core.size) return { nodes: [] };
+  const keep = new Set(core);
+  for (const n of nodes) {
+    if (core.has(n.id)) for (const e of n.edges || []) keep.add(e.targetId); // deps
+    for (const e of n.edges || []) if (core.has(e.targetId)) keep.add(n.id);  // dependents
+  }
+  return { nodes: nodes.filter((n) => keep.has(n.id)) };
+}
+
 interface AggNode { id: string; serviceName: string; status: string; version?: string; edges?: Array<{ targetId: string; type?: string; required?: boolean }> }
 
 /**

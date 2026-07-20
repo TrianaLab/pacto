@@ -306,7 +306,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
         'overlay-opacity': 0,
         // Smooth fades/emphasis when focus, hover or filter changes.
         'transition-property': 'opacity, border-width, background-opacity',
-        'transition-duration': '0.22s',
+        'transition-duration': '0.12s',
         'transition-timing-function': 'ease-out',
       },
     },
@@ -329,7 +329,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
         'arrow-scale': 0.85,
         opacity: layout === 'layered' ? 0.35 : EDGE_REST,
         'transition-property': 'opacity, width, line-color',
-        'transition-duration': '0.2s',
+        'transition-duration': '0.12s',
         'transition-timing-function': 'ease-out',
       },
     },
@@ -353,7 +353,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
         'text-margin-y': 6,
         padding: 22,
         'transition-property': 'opacity, background-opacity',
-        'transition-duration': '0.22s',
+        'transition-duration': '0.12s',
       },
     },
     // Collapsed group node (a whole team folded into one box).
@@ -467,27 +467,33 @@ export function renderGraph(
     const succ = n.successors();
     const pred = n.predecessors();
     const keep = n.union(succ).union(pred);
-    cy.elements().not(keep.union(keep.ancestors())).addClass('pacto-faded');
-    succ.edges().addClass('pacto-dep');
-    pred.edges().addClass('pacto-dependent');
-    n.addClass('pacto-hot');
+    // batch → Cytoscape recomputes style once for the whole change, not per class op
+    cy.batch(() => {
+      cy.elements().not(keep.union(keep.ancestors())).addClass('pacto-faded');
+      succ.edges().addClass('pacto-dep');
+      pred.edges().addClass('pacto-dependent');
+      n.addClass('pacto-hot');
+    });
   }
 
   // Resting emphasis (no hover/pin): owner view dims to the owner's services; the
   // status/name filter dims non-matches; otherwise the calm full map.
   function applyDimming(): void {
-    cy.elements().removeClass(HL);
-    if (clickFocusId) { spotlight(cy.getElementById(clickFocusId)); return; }
-    if (ownerSet) {
-      const ids = ownerVisible();
-      const kn = cy.nodes().filter((n) => ids.has(n.id()));
-      const keep = kn.union(kn.connectedEdges()).union(kn.ancestors());
-      cy.elements().not(keep).addClass('pacto-faded');
-    } else if (filterHidden) {
-      const faded = cy.nodes().filter((n) => filterHidden!.has(n.id()));
-      faded.addClass('pacto-faded');
-      faded.connectedEdges().addClass('pacto-faded');
-    }
+    cy.batch(() => {
+      cy.elements().removeClass(HL);
+      if (clickFocusId) { return; }
+      if (ownerSet) {
+        const ids = ownerVisible();
+        const kn = cy.nodes().filter((n) => ids.has(n.id()));
+        const keep = kn.union(kn.connectedEdges()).union(kn.ancestors());
+        cy.elements().not(keep).addClass('pacto-faded');
+      } else if (filterHidden) {
+        const faded = cy.nodes().filter((n) => filterHidden!.has(n.id()));
+        faded.addClass('pacto-faded');
+        faded.connectedEdges().addClass('pacto-faded');
+      }
+    });
+    if (clickFocusId) spotlight(cy.getElementById(clickFocusId));
   }
 
   // ── Interactions ─────────────────────────────────────────────────────────
@@ -514,7 +520,7 @@ export function renderGraph(
     // keeping the whole map in view (no hard zoom) so the global picture stays.
     clickFocusId = clickFocusId === id ? null : id;
     applyDimming();
-    if (clickFocusId) cy.animate({ center: { eles: n } }, { duration: 350, easing: 'ease-in-out' });
+    if (clickFocusId) cy.animate({ center: { eles: n } }, { duration: 250, easing: 'ease-in-out' });
   });
   cy.on('tap', (evt) => {
     if (evt.target === cy && clickFocusId) { clickFocusId = null; applyDimming(); }
@@ -525,14 +531,13 @@ export function renderGraph(
     container.style.cursor = 'pointer';
     const n = evt.target as NodeSingular;
     if (clickFocusId || n.isParent() || n.hasClass('cy-expand-collapse-collapsed-node')) return;
-    cy.elements().removeClass(HL);
+    cy.batch(() => cy.elements().removeClass(HL));
     spotlight(n);
   });
   cy.on('mouseout', 'node', () => {
     container.style.cursor = 'default';
     if (clickFocusId) return;
-    cy.elements().removeClass(HL);
-    applyDimming(); // restore the resting owner/filter emphasis
+    applyDimming(); // restore the resting owner/filter emphasis (batched, clears HL)
   });
 
   // Run layout, then fit + apply the resting emphasis. Works for both the sync
@@ -546,7 +551,7 @@ export function renderGraph(
       cy.nodes().forEach((n) => { pos.set(n.id(), { x: n.position('x'), y: n.position('y') }); });
       wrapWideRanks(pos, { nodeW: NODE_W, nodeH: NODE_H, nodesep: 24, ranksep: 80, maxWidth: (cy.width() || 1000) - 60 });
       cy.batch(() => cy.nodes().forEach((n) => { const p = pos.get(n.id()); if (p) n.position(p); }));
-      cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 350, easing: 'ease-out' });
+      cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 250, easing: 'ease-out' });
     }
     // If a focus service is given (e.g. the service-detail page), pin its
     // directional spotlight on load.

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl, ownersUrl } from '../lib/router.ts';
-  import { ownerKey, extractOwnerDetail } from '../lib/format.ts';
+  import { ownerKey, extractOwnerDetail, relatedSubgraph } from '../lib/format.ts';
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
   import GraphPanel from '../GraphPanel.svelte';
@@ -24,6 +24,12 @@
 
   // Set of service names for graph focusing (passed to GraphPanel as focusNodes)
   let ownerServiceNames = $derived(new Set(ownerServices.map((s) => s.name)));
+
+  // Scope the graph to this owner's services + only their related deps/dependents,
+  // so unrelated other-team services don't clutter the owner view.
+  let ownerGraph = $derived(
+    graphData ? relatedSubgraph(graphData, (n) => ownerServiceNames.has(n.serviceName)) : null,
+  );
 
   async function loadOwnerGraph() {
     graphLoading = true;
@@ -124,11 +130,11 @@
         <div class="skeleton" style="width:100%; height:300px; border-radius:var(--radius-sm)"></div>
         <p class="text-3" style="font-size:var(--text-xs); margin-top:var(--sp-2)">Loading dependency graph…</p>
       </div>
-    {:else if graphData?.nodes?.length > 0}
-      <p class="text-3" style="font-size:var(--text-xs); margin-bottom:var(--sp-3)">Services owned by {owner} are highlighted; others are dimmed.</p>
+    {:else if ownerGraph?.nodes?.length > 0}
+      <p class="text-3" style="font-size:var(--text-xs); margin-bottom:var(--sp-3)">{owner}'s services and the dependencies / dependents they touch. Hover to trace; double-click to open.</p>
       <div class="graph-wrap">
         <GraphPanel
-          {graphData}
+          graphData={ownerGraph}
           focusNodes={ownerServiceNames}
           layout="layered"
           height={Math.min(window.innerHeight - 300, 500)}

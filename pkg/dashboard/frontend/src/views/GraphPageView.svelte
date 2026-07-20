@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl, ownerUrl } from '../lib/router.ts';
-  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerMatchesFilter, ownerKey, aggregateGraphByOwner } from '../lib/format.ts';
+  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerMatchesFilter, ownerKey, aggregateGraphByOwner, relatedSubgraph } from '../lib/format.ts';
   import GraphPanel from '../GraphPanel.svelte';
   import StatsBar from '../StatsBar.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
@@ -74,10 +74,24 @@
     return ownerKey(ownerByService.get(node.serviceName)) || '(unowned)';
   }
 
-  // The graph shown: the full service tree, or the per-owner aggregated tree.
-  let displayGraph = $derived(
-    groupByOwner && graphData ? aggregateGraphByOwner(graphData, ownerLabelOf) : graphData,
+  // The graph shown:
+  //  - not grouped         → full service tree (Focus drills to a service via focusId)
+  //  - grouped, no focus    → per-owner aggregated tree (teams + cross-team edges)
+  //  - grouped, team focus  → that team's SERVICES + their related deps/dependents
+  let displayGraph = $derived.by(() => {
+    if (!graphData) return null;
+    if (groupByOwner && focusSel) return relatedSubgraph(graphData, (n) => ownerLabelOf(n) === focusSel);
+    if (groupByOwner) return aggregateGraphByOwner(graphData, ownerLabelOf);
+    return graphData;
+  });
+  // Emphasize the focused team's own services when drilled in.
+  let graphFocusNodes = $derived(
+    groupByOwner && focusSel
+      ? new Set((graphData?.nodes || []).filter((n) => ownerLabelOf(n) === focusSel).map((n) => n.serviceName))
+      : undefined,
   );
+  // focusId only subsets the full service tree (not the grouped views).
+  let graphFocusId = $derived(!groupByOwner ? (focusSel || undefined) : undefined);
 
   // Focus picker options: teams when aggregated, else services (most-impactful first).
   let focusOptions = $derived(
@@ -125,7 +139,7 @@
       </select>
     </label>
     <span class="focus-hint">
-      {#if groupByOwner}Teams as nodes; edges are cross-team dependencies.{:else}Roots on top, shared infrastructure at the bottom.{/if}
+      {#if groupByOwner && focusSel}{focusSel}'s services and what they touch.{:else if groupByOwner}Teams as nodes; edges are cross-team dependencies — pick a team to see its services.{:else}Roots on top, shared infrastructure at the bottom.{/if}
       Hover to light up dependencies (accent →) and dependents (amber ←); click to pin, double-click to open.
     </span>
   </div>
@@ -136,11 +150,12 @@
     <GraphPanel
       graphData={displayGraph}
       layout="layered"
-      focusId={focusSel || undefined}
+      focusId={graphFocusId}
+      focusNodes={graphFocusNodes}
       initialDirection="both"
       filterFn={activeGraphFilterFn}
       height={Math.min(window.innerHeight - 200, 640)}
-      onNavigate={(name) => location.hash = groupByOwner ? ownerUrl(name) : serviceUrl(name)}
+      onNavigate={(name) => location.hash = (groupByOwner && !focusSel) ? ownerUrl(name) : serviceUrl(name)}
       showZoom
       showLegend
     />
