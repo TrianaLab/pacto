@@ -126,8 +126,6 @@ export interface GraphControls {
 
 interface RenderOptions {
   onNavigate?: (name: string) => void;
-  /** Single-click a node to re-root the focused view on it (focus-first mode). */
-  onFocus?: (name: string) => void;
   focusId?: string;
   filterFn?: (n: GraphNode) => boolean;
   /** Set of service names to persistently emphasize (e.g. owner's services). */
@@ -393,7 +391,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
 export function renderGraph(
   container: HTMLElement,
   graphData: GraphData,
-  { onNavigate, onFocus, focusId, filterFn, focusNodes, layout = 'force', groups }: RenderOptions = {},
+  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups }: RenderOptions = {},
 ): GraphControls {
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
   const hasGroups = !!(groups && groups.size);
@@ -448,12 +446,6 @@ export function renderGraph(
       cy.getElementById(id).neighborhood('node').forEach((n) => { vis.add(n.id()); });
     }
     return vis;
-  }
-
-  // A node plus its full up/down dependency closure and the group boxes around them.
-  function closureOf(n: cytoscape.NodeSingular): cytoscape.CollectionReturnValue {
-    const c = n.union(n.successors()).union(n.predecessors());
-    return c.union(c.ancestors());
   }
 
   const HL = 'pacto-faded pacto-dep pacto-dependent pacto-hot';

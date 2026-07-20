@@ -4,7 +4,7 @@
   import { computeVisible } from './lib/layout.ts';
 
   let {
-    graphData = null, focusId = null, height = 400, onNavigate, onFocus, filterFn, focusNodes = null,
+    graphData = null, focusId = null, height = 400, onNavigate, filterFn, focusNodes = null,
     layout = 'force', direction = 'down', depth = 2, childCap = 12, groups = null,
   } = $props();
 
@@ -54,7 +54,6 @@
     instance = renderGraph(containerEl, data, {
       focusId,
       onNavigate,
-      onFocus,
       filterFn,
       focusNodes: focusNodes || undefined,
       layout,
