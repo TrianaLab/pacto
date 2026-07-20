@@ -43,16 +43,16 @@ gen-cli-docs:
 # Documentation (MkDocs Material). Install via `brew install mkdocs-material`
 # or `pip install -r docs/requirements.txt`. Both targets first build the
 # in-browser WASM demo into docs/demo/ so the local preview exposes it, mirroring
-# the deployed site. mkdocs honors site_url, so it serves under /pacto/ locally
-# and the demo lives at /pacto/demo/ both locally and in production.
+# the deployed site. mkdocs honors site_url, so it serves at root locally
+# and the demo lives at /demo/ both locally and in production.
 docs: $(DOCS_DEMO)/app.wasm
 	mkdocs serve
 
 docs-build: $(DOCS_DEMO)/app.wasm
 	mkdocs build
 
-# Build the WASM dashboard demo into docs/demo/ (gitignored) at the same base as
-# production (/pacto/demo/) so `mkdocs serve`/`build` serve it correctly. Rebuilt
+# Build the WASM dashboard demo into docs/demo/ (gitignored) with a relative
+# asset base, so `mkdocs serve`/`build` serve it correctly at any mount. Rebuilt
 # when missing OR when any demo source changes (dashboard frontend, demo bundles,
 # demo Go/boot glue) so `make docs` always reflects the current source. Force a
 # full refresh with `make demo-preview-clean`.
@@ -60,7 +60,7 @@ DEMO_SOURCES := $(shell find pkg/dashboard/frontend/src examples/demo/bundles -t
 	$(wildcard examples/demo/*.go) examples/demo/boot.js examples/demo/Makefile \
 	pkg/dashboard/frontend/package.json pkg/dashboard/frontend/package-lock.json
 $(DOCS_DEMO)/app.wasm: $(DEMO_SOURCES)
-	$(MAKE) -C examples/demo build BASE=/pacto/demo/ DIST=$(CURDIR)/$(DOCS_DEMO)
+	$(MAKE) -C examples/demo build DIST=$(CURDIR)/$(DOCS_DEMO)
 
 demo-preview-clean:
 	rm -rf $(DOCS_DEMO)

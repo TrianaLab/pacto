@@ -4,15 +4,18 @@
 # dashboard UI rebuilt for the target base path, and the glue that routes the
 # UI's API calls into wasm. No backend, no live OCI.
 #
-#   make build                 # build at the default base (/pacto/demo/)
-#   make build BASE=/          # build at site root (local preview)
-#   make serve                 # preview at the project base path
+# Assets are referenced with a RELATIVE base (./), so the built site works at
+# any mount point (root, /demo/, /pacto/demo/, …) with no domain assumptions.
+# Override BASE only if you need absolute asset URLs for a specific deploy.
+#
+#   make build                 # relative base (works anywhere)
+#   make serve                 # preview locally
 #
 # Bundles live in ./bundles and are embedded directly (no copy step). The UI is
 # built from this repo's frontend source into a scratch dir and copied into
 # $(DIST) — the committed pkg/dashboard/ui build is never touched.
 
-BASE        ?= /pacto/demo/
+BASE        ?= ./
 DIST        ?= dist
 GOROOT      := $(shell go env GOROOT)
 SERVE_PORT  ?= 8088

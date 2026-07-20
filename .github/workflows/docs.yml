@@ -59,7 +59,7 @@ jobs:
       # than silently shipping. Same gate the PR "Docs check" runs.
       - run: mkdocs build --strict
       # Build the in-browser (WebAssembly) dashboard demo and fold it into the
-      # same Pages artifact at /pacto/demo/ (two Pages deploys in one repo
+      # same Pages artifact at /demo/ (two Pages deploys in one repo
       # conflict; one upload below publishes both docs and demo).
       - uses: actions/setup-go@v7
         with:
@@ -68,7 +68,7 @@ jobs:
         with:
           node-version: '22'
       - name: Build the WASM dashboard demo
-        run: make -C examples/demo build BASE=/pacto/demo/
+        run: make -C examples/demo build
       - name: Smoke test the wasm engine
         run: make -C examples/demo smoke
       # Guardrail: on a release-driven deploy the baked navbar version MUST match
