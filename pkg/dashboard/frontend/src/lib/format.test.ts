@@ -19,6 +19,8 @@ import {
   ownerMatchesFilter,
   ownerIsStructured,
   aggregateByOwner,
+  aggregateGraphByOwner,
+  worstStatus,
   compareScoresUnassessedLast,
   extractOwnerDetail,
   computeTooltipPosition,
@@ -613,6 +615,40 @@ describe('aggregateByOwner — sorting/filtering support', () => {
     const filtered = result.filter((o) => o.key.toLowerCase().includes('team-b'));
     expect(filtered).toHaveLength(1);
     expect(filtered[0].key).toBe('team-b');
+  });
+});
+
+describe('worstStatus', () => {
+  it('picks the most severe status present', () => {
+    expect(worstStatus(['Compliant', 'Warning', 'Compliant'])).toBe('Warning');
+    expect(worstStatus(['Compliant', 'NonCompliant', 'Warning'])).toBe('NonCompliant');
+    expect(worstStatus(['Compliant', 'Compliant'])).toBe('Compliant');
+  });
+});
+
+describe('aggregateGraphByOwner', () => {
+  const graph = { nodes: [
+    { id: 'a', serviceName: 'a', status: 'Compliant', edges: [{ targetId: 'b' }, { targetId: 'c' }] },
+    { id: 'b', serviceName: 'b', status: 'Warning', edges: [{ targetId: 'c' }] },
+    { id: 'c', serviceName: 'c', status: 'Compliant', edges: [] },
+  ] };
+  // a,b owned by team-x; c owned by team-y
+  const ownerOf = (n: { id: string }) => (n.id === 'c' ? 'team-y' : 'team-x');
+
+  it('collapses services into one node per owner with cross-owner edges only', () => {
+    const agg = aggregateGraphByOwner(graph, ownerOf);
+    expect(agg.nodes.map((n) => n.id).sort()).toEqual(['team-x', 'team-y']);
+    const x = agg.nodes.find((n) => n.id === 'team-x')!;
+    // a→c and b→c both cross into team-y → a single distinct team-x→team-y edge;
+    // a→b is intra-team and dropped.
+    expect(x.edges!.map((e) => e.targetId)).toEqual(['team-y']);
+    expect(agg.nodes.find((n) => n.id === 'team-y')!.edges).toEqual([]);
+  });
+
+  it('labels a team node with its service count and worst status', () => {
+    const x = aggregateGraphByOwner(graph, ownerOf).nodes.find((n) => n.id === 'team-x')!;
+    expect(x.version).toBe('2 services');
+    expect(x.status).toBe('Warning'); // worst of a(Compliant), b(Warning)
   });
 });
 

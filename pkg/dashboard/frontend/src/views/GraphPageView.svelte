@@ -1,8 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { serviceUrl } from '../lib/router.ts';
-  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerMatchesFilter } from '../lib/format.ts';
+  import { serviceUrl, ownerUrl } from '../lib/router.ts';
+  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerMatchesFilter, ownerKey, aggregateGraphByOwner } from '../lib/format.ts';
   import GraphPanel from '../GraphPanel.svelte';
   import StatsBar from '../StatsBar.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
@@ -17,6 +17,8 @@
   let statusFilter = $state('all');
   let sourceFilter = $state('all');
   let nameFilter = $state('');
+  let groupByOwner = $state(false); // aggregate the tree per owning team
+  let focusSel = $state('');        // focus the tree on one service (or team)
 
   // Graph nodes don't carry source info; map service name → sources from the fleet
   // list so the K8S/OCI pills can actually filter the graph and connections table.
@@ -46,7 +48,7 @@
     return false;
   }
   let activeGraphFilterFn = $derived(
-    (statusFilter === 'all' && sourceFilter === 'all' && !nameFilter) ? undefined : graphFilterFn,
+    (groupByOwner || (statusFilter === 'all' && sourceFilter === 'all' && !nameFilter)) ? undefined : graphFilterFn,
   );
 
   async function loadGraph() {
@@ -66,6 +68,29 @@
     for (const s of services) m.set(s.name, s.owner);
     return m;
   });
+
+  function ownerLabelOf(node) {
+    if (node.status === 'external') return '(external)';
+    return ownerKey(ownerByService.get(node.serviceName)) || '(unowned)';
+  }
+
+  // The graph shown: the full service tree, or the per-owner aggregated tree.
+  let displayGraph = $derived(
+    groupByOwner && graphData ? aggregateGraphByOwner(graphData, ownerLabelOf) : graphData,
+  );
+
+  // Focus picker options: teams when aggregated, else services (most-impactful first).
+  let focusOptions = $derived(
+    groupByOwner
+      ? (displayGraph?.nodes || []).map((n) => n.serviceName).sort()
+      : (graphData?.nodes || [])
+          .filter((n) => n.status !== 'external')
+          .map((n) => n.serviceName)
+          .sort((a, b) => (blastByName.get(b) || 0) - (blastByName.get(a) || 0)),
+  );
+
+  // Switching grouping changes the node set, so a stale focus no longer applies.
+  function toggleGroup() { groupByOwner = !groupByOwner; focusSel = ''; }
 
   onMount(() => { loadGraph(); });
 </script>
@@ -87,18 +112,35 @@
   <EmptyState title="No services to graph" message="Services need dependencies to appear in the graph." />
 {:else}
   <div class="graph-focus-bar">
-    <span class="focus-hint">The whole dependency tree — roots on top, shared infrastructure at the bottom. Hover a service to light up its dependencies (accent →) and dependents / blast radius (amber ←); click to pin, double-click to open.</span>
+    <button type="button" class="seg-toggle" class:active={groupByOwner} onclick={toggleGroup} aria-pressed={groupByOwner}>
+      {groupByOwner ? 'Grouped by owner' : 'Group by owner'}
+    </button>
+    <label class="focus-pick">
+      <span class="focus-hint">Focus</span>
+      <select bind:value={focusSel} aria-label="Focus the graph on">
+        <option value="">{groupByOwner ? 'All teams' : 'Whole fleet'}</option>
+        {#each focusOptions as name}
+          <option value={name}>{name}</option>
+        {/each}
+      </select>
+    </label>
+    <span class="focus-hint">
+      {#if groupByOwner}Teams as nodes; edges are cross-team dependencies.{:else}Roots on top, shared infrastructure at the bottom.{/if}
+      Hover to light up dependencies (accent →) and dependents (amber ←); click to pin, double-click to open.
+    </span>
   </div>
 
   <div class="fade-in-up">
-    <!-- Whole fleet as a top-down dependency tree; over-wide levels wrap into
-         sub-rows so one big tier can't stretch it into a band. -->
+    <!-- Top-down dependency tree; over-wide levels wrap into sub-rows. Group-by-owner
+         aggregates it to a team-level tree; Focus drills to one node's neighborhood. -->
     <GraphPanel
-      {graphData}
+      graphData={displayGraph}
       layout="layered"
+      focusId={focusSel || undefined}
+      initialDirection="both"
       filterFn={activeGraphFilterFn}
       height={Math.min(window.innerHeight - 200, 640)}
-      onNavigate={(name) => location.hash = serviceUrl(name)}
+      onNavigate={(name) => location.hash = groupByOwner ? ownerUrl(name) : serviceUrl(name)}
       showZoom
       showLegend
     />
@@ -184,6 +226,20 @@
     margin-bottom: var(--sp-2); font-size: var(--text-sm);
   }
   .focus-hint { color: var(--c-text-3); font-size: var(--text-xs); }
+  .focus-pick { display: inline-flex; align-items: center; gap: var(--sp-1); }
+  .focus-pick select {
+    padding: 4px 8px; border: 1px solid var(--c-border); border-radius: var(--radius-xs);
+    background: var(--c-surface); color: var(--c-text); font-size: var(--text-sm); max-width: 240px;
+    min-height: var(--touch-min);
+  }
+  .seg-toggle {
+    padding: 5px 12px; border-radius: 100px; cursor: pointer;
+    border: 1px solid var(--c-border); background: var(--c-surface);
+    color: var(--c-text-2); font: inherit; font-size: var(--text-xs); white-space: nowrap;
+    min-height: var(--touch-min);
+  }
+  .seg-toggle:hover { border-color: var(--c-text-3); color: var(--c-text); }
+  .seg-toggle.active { border-color: var(--c-accent); background: var(--c-accent-bg); color: var(--c-accent); }
 
   .blast-badge {
     display: inline-flex; align-items: center; justify-content: center;
