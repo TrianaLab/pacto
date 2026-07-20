@@ -359,6 +359,20 @@ export function aggregateByOwner(services: Array<Record<string, unknown>>): Owne
   return summarize(services).byOwner;
 }
 
+/**
+ * Numeric comparator that always sorts "unassessed" sentinel values (< 0, e.g.
+ * compliancePercent/score of -1) to the END, regardless of sort direction — a
+ * not-yet-assessed row is not the same as a 0% one and must never rank as the
+ * lowest (or highest) real value. `dir` is 1 for ascending, -1 for descending.
+ */
+export function compareScoresUnassessedLast(a: number, b: number, dir: number): number {
+  const au = a < 0, bu = b < 0;
+  if (au && bu) return 0;
+  if (au) return 1;  // a (unassessed) after b
+  if (bu) return -1; // b (unassessed) after a
+  return (a - b) * dir;
+}
+
 // ── Readiness ──
 
 /** Readiness check revision history entry. */
@@ -626,7 +640,6 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
 
   // Owner aggregation state
   const ownerMap = new Map<string, OwnerAggregation>();
-  const ownerScores = new Map<string, number[]>();
 
   // Category aggregation state
   const categoryMap = new Map<string, CategoryBreakdown>();
@@ -652,7 +665,6 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     if (!agg) {
       agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, totalBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
       ownerMap.set(key, agg);
-      ownerScores.set(key, []);
     }
     agg.services++;
     const status = svc.contractStatus as string;
@@ -662,7 +674,6 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     else if (status === 'Reference') agg.reference++;
     else agg.unknown++;
     agg.totalBlast += (svc.blastRadius as number) || 0;
-    if (svc.complianceScore != null) ownerScores.get(key)!.push(svc.complianceScore as number);
 
     // Readiness aggregation
     const r = (svc as WithReadiness).readiness;
@@ -710,10 +721,13 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
   m.needsAttention = m.warning + m.nonCompliant;
   if (m.assessed > 0) m.compliancePercent = Math.round((m.compliant / m.assessed) * 100);
 
-  // Finalize owner aggregation
-  for (const [key, agg] of ownerMap) {
-    const s = ownerScores.get(key)!;
-    agg.compliancePercent = s.length > 0 ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : -1;
+  // Finalize owner aggregation. compliancePercent is the SHARE of assessed
+  // services that are compliant (matches the fleet metric and the "Compliant N"
+  // count on the same row), or -1 when the owner has nothing assessed. It is NOT
+  // a mean of compliance scores — that read differently from the count beside it.
+  for (const agg of ownerMap.values()) {
+    const assessed = agg.compliant + agg.warning + agg.nonCompliant;
+    agg.compliancePercent = assessed > 0 ? Math.round((agg.compliant / assessed) * 100) : -1;
   }
   m.byOwner = Array.from(ownerMap.values()).sort((a, b) => a.key.localeCompare(b.key));
 

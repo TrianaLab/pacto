@@ -1,13 +1,24 @@
 <script>
-  import { navigate, serviceUrl, ownerUrl } from './lib/router.ts';
+  import { navigate, serviceUrl, ownerUrl, graphUrl, ownersUrl, readinessUrl, compareDiffUrl } from './lib/router.ts';
   import { statusClass, sourceTooltip, ownerMatchesFilter, ownerKey, ownerDisplay, complianceClass } from './lib/format.ts';
   import StatusBadge from './components/StatusBadge.svelte';
   import SourceDot from './components/SourceDot.svelte';
 
   let {
-    services = [], sourcesInfo = [], version = '', discovering = false,
+    services = [], sourcesInfo = [], version = '', discovering = false, view = 'list',
     autoReload = false, refreshing = false, onRefresh, onToggleAutoReload, onToggleTheme,
   } = $props();
+
+  // Persistent primary nav. `views` lists the route.view values that light the
+  // item (Services covers a drilled-in service; Owners covers an owner detail).
+  const NAV = [
+    { label: 'Services', href: '#/', views: ['list', 'detail'] },
+    { label: 'Graph', href: graphUrl(), views: ['graph'] },
+    { label: 'Owners', href: ownersUrl(), views: ['owners', 'owner-detail'] },
+    { label: 'Readiness', href: readinessUrl(), views: ['readiness'] },
+    { label: 'Compare', href: compareDiffUrl(), views: ['diff'] },
+  ];
+  const isActive = (item) => item.views.includes(view);
 
   let query = $state('');
   let showResults = $state(false);
@@ -120,6 +131,12 @@
     </a>
   </div>
 
+  <nav class="navbar-nav navbar-nav-desktop" aria-label="Primary">
+    {#each NAV as item}
+      <a href={item.href} class="nav-link" class:active={isActive(item)} aria-current={isActive(item) ? 'page' : undefined}>{item.label}</a>
+    {/each}
+  </nav>
+
   <div class="search-box">
     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     <input
@@ -215,6 +232,11 @@
 <!-- Mobile drawer -->
 {#if mobileMenuOpen}
   <div class="mobile-drawer" role="menu">
+    <nav class="mobile-nav" aria-label="Primary">
+      {#each NAV as item}
+        <a href={item.href} class="mobile-nav-link" class:active={isActive(item)} aria-current={isActive(item) ? 'page' : undefined} onclick={() => mobileMenuOpen = false}>{item.label}</a>
+      {/each}
+    </nav>
     <div class="mobile-drawer-section">
       {#each enabledSources as src}
         <span class="source-tag"><SourceDot source={src.type} />{src.type}</span>
@@ -266,6 +288,18 @@
     background: var(--c-bg); border: 1px solid var(--c-border);
     padding: 2px 8px; border-radius: 100px;
   }
+  .navbar-nav {
+    display: flex; align-items: center; gap: 2px; flex-shrink: 0;
+  }
+  .nav-link {
+    padding: 6px 10px; border-radius: var(--radius-xs);
+    font-size: var(--text-sm); font-weight: 500; color: var(--c-text-3);
+    text-decoration: none; white-space: nowrap;
+    transition: color var(--transition), background var(--transition);
+  }
+  .nav-link:hover { color: var(--c-text); background: var(--c-surface-hover); text-decoration: none; }
+  .nav-link.active { color: var(--c-accent); background: var(--c-accent-bg); }
+
   .search-box {
     position: relative; flex: 1; max-width: 480px;
   }
@@ -384,6 +418,18 @@
     padding: var(--sp-4);
     animation: slideDown 150ms ease-out both;
   }
+  .mobile-nav {
+    display: flex; flex-direction: column; gap: 2px;
+    margin-bottom: var(--sp-3); padding-bottom: var(--sp-3);
+    border-bottom: 1px solid var(--c-border);
+  }
+  .mobile-nav-link {
+    padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-xs);
+    min-height: var(--touch-min); display: flex; align-items: center;
+    font-size: var(--text-sm); font-weight: 500; color: var(--c-text-2); text-decoration: none;
+  }
+  .mobile-nav-link.active { color: var(--c-accent); background: var(--c-accent-bg); }
+
   .mobile-drawer-section {
     display: flex; flex-wrap: wrap; gap: var(--sp-2);
     margin-bottom: var(--sp-3);
@@ -399,6 +445,7 @@
       gap: var(--sp-2);
     }
     .navbar-right-desktop { display: none; }
+    .navbar-nav-desktop { display: none; }
     .hamburger { display: flex; }
     .mobile-drawer { display: block; }
     .search-kbd { display: none; }

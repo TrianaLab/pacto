@@ -35,7 +35,7 @@
       <!-- Score colored by the GATE (passing), not the absolute value, with a ✓
            when it clears minScore — so passing vs below-gate is obvious. -->
       <div class="score {readinessGateClass(readiness)}" data-tip={readinessGateTip(readiness)}>
-        {readiness.score}<span class="score-unit">/100</span>{#if readiness.passing && !readiness.expired}<span class="gate-check" aria-label="passes minScore" title="passes minScore">&#10003;</span>{/if}
+        {readiness.score}<span class="score-unit">%</span>{#if readiness.passing && !readiness.expired}<span class="gate-check" aria-label="passes minScore" title="passes minScore">&#10003;</span>{/if}
       </div>
       <div class="readiness-metrics">
         <div class="metric">

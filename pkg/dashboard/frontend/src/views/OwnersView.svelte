@@ -1,6 +1,6 @@
 <script>
   import { ownerUrl, serviceUrl } from '../lib/router.ts';
-  import { aggregateByOwner, complianceClass, statusClass, ownerKey, sourceTooltip, complianceStatusClass } from '../lib/format.ts';
+  import { aggregateByOwner, complianceClass, statusClass, ownerKey, sourceTooltip, complianceStatusClass, compareScoresUnassessedLast } from '../lib/format.ts';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
   import OwnersBarChart from '../components/OwnersBarChart.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
@@ -52,7 +52,7 @@
     return [...list].sort((a, b) => {
       if (sortBy === 'key') return a.key.localeCompare(b.key) * dir;
       if (sortBy === 'services') return (a.services - b.services) * dir;
-      if (sortBy === 'compliance') return (a.compliancePercent - b.compliancePercent) * dir;
+      if (sortBy === 'compliance') return compareScoresUnassessedLast(a.compliancePercent, b.compliancePercent, dir);
       if (sortBy === 'blast') return (a.totalBlast - b.totalBlast) * dir;
       if (sortBy === 'warning') return (a.warning - b.warning) * dir;
       if (sortBy === 'nonCompliant') return (a.nonCompliant - b.nonCompliant) * dir;
@@ -187,10 +187,13 @@
           </tr>
         </thead>
         <tbody>
-          {#each owners as row}
+          {#each owners as row, i}
             <tr class="clickable" class:row-expanded={expandedOwner === row.key} onclick={() => toggleExpand(row.key)}>
               <td>
-                <span class="expand-icon" class:expanded={expandedOwner === row.key}>›</span>
+                <button type="button" class="expand-icon" class:expanded={expandedOwner === row.key}
+                  aria-expanded={expandedOwner === row.key} aria-controls="owner-detail-{i}"
+                  aria-label="Toggle services for {row.key}"
+                  onclick={(e) => { e.stopPropagation(); toggleExpand(row.key); }}>›</button>
                 <a href={ownerUrl(row.key)} class="owner-name" onclick={(e) => e.stopPropagation()}>{row.key}</a>
               </td>
               <td>{row.services}</td>
@@ -218,7 +221,7 @@
               </td>
             </tr>
             {#if expandedOwner === row.key}
-              <tr class="expand-row">
+              <tr class="expand-row" id="owner-detail-{i}">
                 <td colspan="8">
                   <div class="expand-panel">
                     <table class="expand-table">
@@ -371,6 +374,8 @@
     font-weight: 600; color: var(--c-text-3);
     transition: transform 150ms ease;
     margin-right: 4px;
+    background: none; border: none; padding: 0; cursor: pointer;
+    font-size: inherit; line-height: 1;
   }
   .expand-icon.expanded { transform: rotate(90deg); }
 

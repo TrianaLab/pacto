@@ -29,7 +29,7 @@
         <col class="dc-new" />
         <col class="dc-impact" />
       </colgroup>
-      <thead><tr><th data-tip="Field path in the contract">Path</th><th data-tip="Type of change">Change</th><th data-tip="Value in the older version">Old</th><th data-tip="Value in the newer version">New</th><th data-tip="Breaking change classification">Impact</th></tr></thead>
+      <thead><tr><th data-tip="Field path in the contract">Path</th><th data-tip="Type of change">Change</th><th data-tip="Value in the older version">Old</th><th data-tip="Value in the newer version">New</th><th data-tip="Breaking change classification">Breaking</th></tr></thead>
       <tbody>
         {#each changes as change, idx}
           {@const oldText = formatDiffValue(change.oldValue)}

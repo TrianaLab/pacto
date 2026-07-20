@@ -12,13 +12,62 @@ export interface LayeredOptions {
   nodeH: number;
   nodesep?: number;
   ranksep?: number;
+  /** When set (TB only), fold any rank wider than this into stacked sub-rows so a
+   *  wide, shallow fleet fits at a readable scale instead of a pan-only band. */
+  wrapWidth?: number;
+}
+
+/**
+ * Fold ranks wider than `maxWidth` into centered sub-rows. A tiered fleet (2 roots
+ * → many mid-tier services → few sinks) is otherwise far wider than tall, so it can
+ * only be read by panning; wrapping the fat rank into rows makes the whole shape
+ * fit. Within-rank order (dagre's crossing-minimized x) is preserved so connected
+ * nodes stay near each other; every rank is re-centred on a common axis and lower
+ * ranks are pushed down by the height the wrap added. Mutates `pos`.
+ */
+export function wrapWideRanks(
+  pos: Map<string, { x: number; y: number }>,
+  { nodeW, nodeH, nodesep, ranksep, maxWidth }:
+    { nodeW: number; nodeH: number; nodesep: number; ranksep: number; maxWidth: number },
+): void {
+  const entries = [...pos.entries()];
+  if (!entries.length) return;
+  // Group into ranks by y (dagre gives every node in a rank the same y).
+  const byRank = new Map<number, string[]>();
+  for (const [id, p] of entries) {
+    const key = Math.round(p.y);
+    (byRank.get(key) ?? byRank.set(key, []).get(key)!).push(id);
+  }
+  const rankKeys = [...byRank.keys()].sort((a, b) => a - b);
+  const maxCols = Math.max(1, Math.floor(maxWidth / (nodeW + nodesep)));
+  // Nothing overflows → leave dagre's layout untouched.
+  if (![...byRank.values()].some((r) => r.length > maxCols)) return;
+
+  const xs = entries.map(([, p]) => p.x);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const step = nodeW + nodesep;
+  // Sub-rows of the SAME rank sit closer together (tighter than a full ranksep) so
+  // they read as one tier, not as separate dependency ranks; distinct tiers keep
+  // the full ranksep gap. `top` tracks the centre-y of the current rank's first row.
+  const subRowH = nodeH + ranksep * 0.4;
+  let top = rankKeys[0];
+  for (const key of rankKeys) {
+    const ids = byRank.get(key)!.sort((a, b) => pos.get(a)!.x - pos.get(b)!.x);
+    const rows = Math.ceil(ids.length / maxCols);
+    for (let r = 0; r < rows; r++) {
+      const rowIds = ids.slice(r * maxCols, (r + 1) * maxCols);
+      const startX = cx - ((rowIds.length - 1) * step) / 2;
+      rowIds.forEach((id, i) => pos.set(id, { x: startX + i * step, y: top + r * subRowH }));
+    }
+    top += (rows - 1) * subRowH + nodeH + ranksep;
+  }
 }
 
 /** Compute node center positions with a Sugiyama layered layout (dagre). */
 export function layeredPositions(
   nodes: GraphNode[],
   links: Array<{ source: string; target: string }>,
-  { direction = 'TB', nodeW, nodeH, nodesep = 40, ranksep = 70 }: LayeredOptions,
+  { direction = 'TB', nodeW, nodeH, nodesep = 40, ranksep = 70, wrapWidth }: LayeredOptions,
 ): Map<string, { x: number; y: number }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const g = new (dagre as any).graphlib.Graph();
@@ -34,7 +83,47 @@ export function layeredPositions(
     const gn = g.node(nn.id);
     if (gn) pos.set(nn.id, { x: gn.x, y: gn.y });
   }
+  if (wrapWidth && direction === 'TB') {
+    wrapWideRanks(pos, { nodeW, nodeH, nodesep, ranksep, maxWidth: wrapWidth });
+  }
   return pos;
+}
+
+/**
+ * Legibility floor for the initial graph zoom. A wide, shallow DAG (few roots →
+ * many mid-tier services → few shared sinks) lays out far wider than tall; a
+ * plain fit-to-content then shrinks every node to an illegible band. Flooring the
+ * scale keeps labels readable (~13px * 0.7 ≈ 9px) and lets the graph pan instead.
+ * ponytail: single tunable knob — raise for crisper labels + more panning.
+ */
+export const LEGIBLE_SCALE_FLOOR = 0.7;
+
+/**
+ * Compute a zoom transform that fits `nodes` into `canvas`, clamped between a
+ * legibility floor and a max. Single source of truth for the two initial-fit
+ * sites in the renderer (layered fit + force focus auto-center), so every
+ * dependency graph — fleet, service detail, owner — fits the same way.
+ */
+export function fitTransform(
+  nodes: Array<{ x?: number; y?: number }>,
+  canvas: { width: number; height: number },
+  { nodeW, nodeH, pad = 40, floor = LEGIBLE_SCALE_FLOOR, max = 1.5 }:
+    { nodeW: number; nodeH: number; pad?: number; floor?: number; max?: number },
+): { scale: number; tx: number; ty: number } {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const nn of nodes) {
+    const x = nn.x ?? 0, y = nn.y ?? 0;
+    if (x - nodeW / 2 < minX) minX = x - nodeW / 2;
+    if (x + nodeW / 2 > maxX) maxX = x + nodeW / 2;
+    if (y - nodeH / 2 < minY) minY = y - nodeH / 2;
+    if (y + nodeH / 2 > maxY) maxY = y + nodeH / 2;
+  }
+  if (!Number.isFinite(minX)) return { scale: 1, tx: 0, ty: 0 };
+  minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+  const bw = maxX - minX || 1, bh = maxY - minY || 1;
+  const scale = Math.min(Math.max(Math.min(canvas.width / bw, canvas.height / bh), floor), max);
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  return { scale, tx: canvas.width / 2 - cx * scale, ty: canvas.height / 2 - cy * scale };
 }
 
 export interface VisibleOptions {

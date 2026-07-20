@@ -10,6 +10,7 @@
     checkStatusClass,
     checkStatusLabel,
     assessmentCountdownLabel,
+    compareScoresUnassessedLast,
   } from '../lib/format.ts';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
   import { applyFilters } from '../lib/filters.ts';
@@ -62,7 +63,7 @@
       if (sortBy === 'name') return a.name.localeCompare(b.name) * dir;
       if (sortBy === 'owner') return a.ownerName.localeCompare(b.ownerName) * dir;
       if (sortBy === 'done') return (a.done - b.done) * dir;
-      return (a.score - b.score) * dir; // 'score'
+      return compareScoresUnassessedLast(a.score, b.score, dir); // 'score' (-1 = not configured, always last)
     });
   });
 
@@ -145,6 +146,12 @@
   {#if rows.length === 0}
     <EmptyState title="No matching services" message="Try a different search or filter." />
   {:else}
+    <p class="readiness-legend">
+      <span class="rl-key"><span class="rl-swatch score-ok"></span>Ready = gate met</span>
+      <span class="rl-key"><span class="rl-swatch score-warn"></span>Partial = score ≥ 50%</span>
+      <span class="rl-key"><span class="rl-swatch score-err"></span>Not Ready = score &lt; 50%</span>
+      <span class="rl-key"><span class="rl-swatch score-none"></span>Not configured = no readiness block</span>
+    </p>
     <div class="table-wrap fade-in-up">
       <table class="readiness-list">
         <colgroup>
@@ -166,10 +173,13 @@
           </tr>
         </thead>
         <tbody>
-          {#each rows as row (row.name)}
+          {#each rows as row, i (row.name)}
             <tr class="clickable" class:row-expanded={expandedService === row.name} onclick={() => toggleExpand(row.name)}>
               <td>
-                <span class="expand-icon" class:expanded={expandedService === row.name}>›</span>
+                <button type="button" class="expand-icon" class:expanded={expandedService === row.name}
+                  aria-expanded={expandedService === row.name} aria-controls="readiness-detail-{i}"
+                  aria-label="Toggle checks for {row.name}"
+                  onclick={(e) => { e.stopPropagation(); toggleExpand(row.name); }}>›</button>
                 <a href={serviceUrl(row.name)} class="service-name" onclick={(e) => e.stopPropagation()}>{row.name}</a>
               </td>
               <td>
@@ -207,7 +217,7 @@
               </td>
             </tr>
             {#if expandedService === row.name}
-              <tr class="expand-row">
+              <tr class="expand-row" id="readiness-detail-{i}">
                 <td colspan="6">
                   <div class="expand-panel">
                     {#if row.r && (row.r.checks?.length ?? 0) > 0}
@@ -343,10 +353,24 @@
   .text-warn { color: var(--c-warn); }
   .text-err { color: var(--c-err); }
 
+  .readiness-legend {
+    display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4);
+    margin-bottom: var(--sp-3);
+    font-size: var(--text-xs); color: var(--c-text-3);
+  }
+  .rl-key { display: inline-flex; align-items: center; gap: 6px; }
+  .rl-swatch { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+  .rl-swatch.score-ok { background: var(--c-ok); }
+  .rl-swatch.score-warn { background: var(--c-warn); }
+  .rl-swatch.score-err { background: var(--c-err); }
+  .rl-swatch.score-none { background: var(--c-neutral); }
+
   /* ── Expandable rows ── */
   .expand-icon {
     display: inline-block; width: 14px; font-weight: 600; color: var(--c-text-3);
     transition: transform 150ms ease; margin-right: 4px;
+    background: none; border: none; padding: 0; cursor: pointer;
+    font-size: inherit; line-height: 1;
   }
   .expand-icon.expanded { transform: rotate(90deg); }
   .row-expanded { background: var(--c-surface-hover); }

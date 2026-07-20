@@ -2,13 +2,14 @@
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import GraphPanel from '../GraphPanel.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
-  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, shortDigest, driftBadgeClass, driftBadgeLabel } from '../lib/format.ts';
+  import { reasonLabel, reasonTooltip, reasonBadgeClass, shortDigest, driftBadgeClass, driftBadgeLabel } from '../lib/format.ts';
   import { navigate, serviceUrl } from '../lib/router.ts';
 
   let {
     name, dependencies = [], dependents = [], crossRefs = null,
     graphData = null, services = [], isHistorical = false,
     open = $bindable(true), id = '', source = '',
+    depsError = false, onRetry = null,
   } = $props();
 
   let totalCount = $derived((dependencies?.length || 0) + (dependents?.length || 0));
@@ -95,6 +96,13 @@
       </div>
     {/if}
 
+    {#if depsError}
+      <div class="subsection deps-error" role="alert">
+        <span>⚠ Couldn’t load dependents and references — the "Depended on by" list and blast radius may be incomplete.</span>
+        {#if onRetry}<button type="button" class="deps-retry" onclick={onRetry}>Retry</button>{/if}
+      </div>
+    {/if}
+
     {#if dependents?.length > 0}
       <div class="subsection">
         <h3>Depended on by {#if isHistorical}<span class="current-badge" data-tip="Reflects the current dependency graph, not the selected historical version">current</span>{/if}</h3>
@@ -136,7 +144,7 @@
                 <tr>
                   <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
                   <td><span class="pill">{ref.refType}</span></td>
-                  <td><span class="badge badge-{statusClass(ref.contractStatus)}"><span class="badge-dot"></span>{ref.contractStatus || 'Unknown'}</span></td>
+                  <td><StatusBadge status={ref.contractStatus} /></td>
                 </tr>
               {/each}
             </tbody>
@@ -161,7 +169,7 @@
                 <tr>
                   <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
                   <td><span class="pill">{ref.refType}</span></td>
-                  <td><span class="badge badge-{statusClass(ref.contractStatus)}"><span class="badge-dot"></span>{ref.contractStatus || 'Unknown'}</span></td>
+                  <td><StatusBadge status={ref.contractStatus} /></td>
                 </tr>
               {/each}
             </tbody>
@@ -218,5 +226,16 @@
   .lock-glyph {
     font-size: var(--text-xs);
     flex-shrink: 0;
+  }
+  .deps-error {
+    display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--c-warn); border-radius: var(--radius-sm);
+    background: var(--c-warn-bg); color: var(--c-warn);
+    font-size: var(--text-sm);
+  }
+  .deps-retry {
+    background: none; border: 1px solid currentColor; border-radius: var(--radius-xs);
+    color: inherit; font: inherit; padding: 3px 10px; cursor: pointer;
   }
 </style>

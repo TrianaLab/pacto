@@ -19,6 +19,7 @@ import {
   ownerMatchesFilter,
   ownerIsStructured,
   aggregateByOwner,
+  compareScoresUnassessedLast,
   extractOwnerDetail,
   computeTooltipPosition,
   versionPolicyLabel,
@@ -292,11 +293,11 @@ describe('aggregateByOwner', () => {
     expect(teamA.totalBlast).toBe(3); // 2 + 1 + 0
   });
 
-  it('computes compliance as average of service scores', () => {
+  it('computes compliance as the share of assessed services that are compliant', () => {
     const result = aggregateByOwner(services);
     const teamA = result.find((r) => r.key === 'team-a')!;
-    // avg(100, 60, 100) = 86.67 → 87
-    expect(teamA.compliancePercent).toBe(87);
+    // 2 compliant of 3 assessed (2 Compliant + 1 Warning) → 67
+    expect(teamA.compliancePercent).toBe(67);
   });
 
   it('handles reference-only owner (no compliance scores)', () => {
@@ -580,7 +581,7 @@ describe('aggregateByOwner — sorting/filtering support', () => {
   it('supports sort by compliance % (ascending)', () => {
     const result = aggregateByOwner(services);
     const sorted = [...result].sort((a, b) => a.compliancePercent - b.compliancePercent);
-    // team-b: avg(0)=0%, team-a: avg(100,50)=75%, team-c: avg(100,100)=100%
+    // team-b: 0/1=0%, team-a: 1/2=50%, team-c: 2/2=100% (share of assessed compliant)
     expect(sorted[0].key).toBe('team-b');
     expect(sorted[0].compliancePercent).toBe(0);
   });
@@ -602,7 +603,7 @@ describe('aggregateByOwner — sorting/filtering support', () => {
   it('supports filter: fully compliant (100%)', () => {
     const result = aggregateByOwner(services);
     const filtered = result.filter((o) => o.compliancePercent === 100);
-    // team-c: avg(100,100)=100%
+    // team-c: 2 of 2 assessed compliant → 100%
     expect(filtered).toHaveLength(1);
     expect(filtered[0].key).toBe('team-c');
   });
@@ -612,6 +613,21 @@ describe('aggregateByOwner — sorting/filtering support', () => {
     const filtered = result.filter((o) => o.key.toLowerCase().includes('team-b'));
     expect(filtered).toHaveLength(1);
     expect(filtered[0].key).toBe('team-b');
+  });
+});
+
+describe('compareScoresUnassessedLast', () => {
+  const sortAsc = (xs: number[]) => [...xs].sort((a, b) => compareScoresUnassessedLast(a, b, 1));
+  const sortDesc = (xs: number[]) => [...xs].sort((a, b) => compareScoresUnassessedLast(a, b, -1));
+
+  it('keeps unassessed (-1) last when sorting ascending', () => {
+    expect(sortAsc([50, -1, 0, 100])).toEqual([0, 50, 100, -1]);
+  });
+  it('keeps unassessed (-1) last when sorting descending', () => {
+    expect(sortDesc([50, -1, 0, 100])).toEqual([100, 50, 0, -1]);
+  });
+  it('orders two unassessed values equally', () => {
+    expect(compareScoresUnassessedLast(-1, -1, 1)).toBe(0);
   });
 });
 
@@ -1038,7 +1054,7 @@ describe('summarize', () => {
     expect(teamA.compliant).toBe(1);
     expect(teamA.warning).toBe(1);
     expect(teamA.totalBlast).toBe(6);
-    expect(teamA.compliancePercent).toBe(80); // (100+60)/2
+    expect(teamA.compliancePercent).toBe(50); // 1 compliant of 2 assessed
     // Readiness composition: a passes (ready), b score 60 not passing (partial).
     expect(teamA.ready).toBe(1);
     expect(teamA.partial).toBe(1);

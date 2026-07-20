@@ -13,15 +13,27 @@
 
   let graphData = $state(null);
   let loading = $state(true);
+  let graphError = $state(false);
   let statusFilter = $state('all');
+  let sourceFilter = $state('all');
   let nameFilter = $state('');
   let focusRoot = $state('');
 
-  // A layered dependency graph turns into an unreadable hairball well before it
-  // gets slow — edges cross and ranks grow too wide to trace. Above this many
-  // nodes, render a focused neighborhood (root + N hops, expandable) instead of
-  // the whole fleet. Kept modest so mid-size fleets get the readable view too.
-  const LARGE_GRAPH = 30;
+  // Graph nodes don't carry source info; map service name → sources from the fleet
+  // list so the K8S/OCI pills can actually filter the graph and connections table.
+  let sourceByName = $derived(new Map(services.map((s) => [s.name, s.sources || (s.source ? [s.source] : [])])));
+  function nodeMatchesSource(node) {
+    if (sourceFilter === 'all') return true;
+    const srcs = sourceByName.get(node.serviceName);
+    return srcs ? srcs.includes(sourceFilter) : false;
+  }
+
+  // The renderer now floors the layered zoom to a legibility scale (fitTransform
+  // in layout.ts), so a wide, shallow fleet stays readable and pans instead of
+  // collapsing into a thin band — mid-size fleets keep the whole-system overview.
+  // This threshold is only a coarse cap: above it even a floored, pannable view is
+  // unusable, so fall back to a focused neighborhood (root + N hops, expandable).
+  const LARGE_GRAPH = 100;
   let isLarge = $derived((graphData?.nodes?.length || 0) > LARGE_GRAPH);
 
   // Contract-backed services (not external refs), most-impactful first, for the
@@ -64,18 +76,22 @@
       const status = node.status === 'external' ? 'external' : node.status;
       if (status !== statusFilter) return true;
     }
+    if (!nodeMatchesSource(node)) return true;
     if (!isLarge && nameFilter && !serviceMatchesName(node.serviceName)) return true;
     return false;
   }
   let activeGraphFilterFn = $derived(
-    (statusFilter === 'all' && (isLarge || !nameFilter)) ? undefined : graphFilterFn,
+    (statusFilter === 'all' && sourceFilter === 'all' && (isLarge || !nameFilter)) ? undefined : graphFilterFn,
   );
 
   async function loadGraph() {
     loading = true;
+    graphError = false;
     try {
       graphData = await api.graph();
-    } catch {}
+    } catch {
+      graphError = true;
+    }
     loading = false;
   }
 
@@ -94,12 +110,14 @@
   <h1>Dependency Graph</h1>
 </div>
 
-<StatsBar {services} bind:statusFilter bind:nameFilter />
+<StatsBar {services} bind:statusFilter bind:sourceFilter bind:nameFilter />
 
 {#if loading}
   <div class="fade-in" style="padding:var(--sp-4) 0">
     <div class="skeleton" style="width:100%; height:400px; border-radius:var(--radius-sm)"></div>
   </div>
+{:else if graphError}
+  <EmptyState error onRetry={loadGraph} title="Couldn’t load the graph" message="The dependency graph couldn’t be fetched." />
 {:else if !graphData?.nodes?.length}
   <EmptyState title="No services to graph" message="Services need dependencies to appear in the graph." />
 {:else}
@@ -112,7 +130,7 @@
         {/each}
       </select>
       <span class="focus-hint">
-        {#if nameMatchedFocus}Focused on search match "{nameMatchedFocus}".{:else}Search to refocus, use depth to widen, or "+N" to expand a branch.{/if}
+        {#if nameMatchedFocus}Focused on search match "{nameMatchedFocus}".{:else}Search to refocus, use depth to widen or "+N" to expand a branch.{/if}
       </span>
     </div>
   {/if}
@@ -138,6 +156,7 @@
         const status = n.status === 'external' ? 'external' : n.status;
         if (status !== statusFilter) return false;
       }
+      if (!nodeMatchesSource(n)) return false;
       if (nameFilter) {
         const q = nameFilter.toLowerCase();
         const nameMatch = n.serviceName.toLowerCase().includes(q);

@@ -12,6 +12,7 @@
 
   let graphData = $state(null);
   let graphLoading = $state(true);
+  let graphError = $state(false);
 
   // Services belonging to this owner
   let ownerServices = $derived(
@@ -24,12 +25,18 @@
   // Set of service names for graph focusing (passed to GraphPanel as focusNodes)
   let ownerServiceNames = $derived(new Set(ownerServices.map((s) => s.name)));
 
-  onMount(async () => {
+  async function loadOwnerGraph() {
+    graphLoading = true;
+    graphError = false;
     try {
       graphData = await api.graph();
-    } catch {}
+    } catch {
+      graphError = true;
+    }
     graphLoading = false;
-  });
+  }
+
+  onMount(loadOwnerGraph);
 </script>
 
 <!-- Breadcrumb -->
@@ -130,6 +137,8 @@
           showLegend
         />
       </div>
+    {:else if graphError}
+      <p class="text-3" style="font-size:var(--text-xs)">Couldn’t load the dependency graph. <button type="button" class="link-retry" onclick={loadOwnerGraph}>Retry</button></p>
     {:else}
       <p class="text-3" style="font-size:var(--text-xs)">No dependency data available.</p>
     {/if}
@@ -189,4 +198,9 @@
   .dri-conflict { color: var(--c-warn); }
 
   .graph-wrap { position: relative; }
+
+  .link-retry {
+    background: none; border: none; padding: 0;
+    color: var(--c-accent); font: inherit; cursor: pointer; text-decoration: underline;
+  }
 </style>

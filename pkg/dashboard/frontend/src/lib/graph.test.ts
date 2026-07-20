@@ -220,4 +220,28 @@ describe('renderGraph layered mode', () => {
     expect(el.querySelector('.more-chip')).toBeFalsy();
     ctrl.destroy();
   });
+
+  it('navigable nodes are focusable controls and open on Enter', () => {
+    const navigated: string[] = [];
+    const ctrl = renderGraph(el, layeredGraph, { layout: 'layered', focusId: 'root', onNavigate: (n) => navigated.push(n) });
+    const node = el.querySelector('.nodes > g[role="button"]') as SVGGElement;
+    expect(node).toBeTruthy();
+    expect(node.getAttribute('tabindex')).toBe('0');
+    node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(navigated.length).toBeGreaterThan(0);
+    ctrl.destroy();
+  });
+
+  it('the "+N" chip is focusable and expands on Enter', () => {
+    const expanded: string[] = [];
+    const ctrl = renderGraph(el, layeredGraph, {
+      layout: 'layered', focusId: 'root', hidden: new Map([['root', 2]]),
+      onExpand: (id) => expanded.push(id),
+    });
+    const chip = el.querySelector('.more-chip') as SVGGElement;
+    expect(chip.getAttribute('tabindex')).toBe('0');
+    chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(expanded).toEqual(['root']);
+    ctrl.destroy();
+  });
 });

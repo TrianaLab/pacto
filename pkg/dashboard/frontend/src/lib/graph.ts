@@ -4,14 +4,14 @@
  */
 import * as d3 from 'd3';
 import { reasonTooltip } from './format.ts';
-import { layeredPositions } from './layout.ts';
+import { layeredPositions, fitTransform } from './layout.ts';
 
 const STATUS_COLORS: Record<string, string> = {
   Compliant: '#34d399',
   Warning: '#fbbf24',
   NonCompliant: '#f87171',
   Unknown: '#64748b',
-  Reference: '#64748b',
+  Reference: '#60a5fa', // info blue — distinct from Unknown gray
   external: '#475569',
 };
 
@@ -246,7 +246,9 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
     const pos = layeredPositions(
       nodes,
       links.map((l) => ({ source: l.source as string, target: l.target as string })),
-      { direction: 'TB', nodeW: NODE_W, nodeH: NODE_H },
+      // wrapWidth folds an over-wide rank into sub-rows sized to the canvas, so a
+      // wide, shallow fleet fits at a readable scale instead of a pan-only band.
+      { direction: 'TB', nodeW: NODE_W, nodeH: NODE_H, wrapWidth: width },
     );
     for (const n of nodes) {
       const p = pos.get(n.id);
@@ -319,6 +321,24 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
         }
       })
     );
+
+  // Keyboard access: make navigable nodes real focusable controls so keyboard and
+  // screen-reader users can open a service without a pointer (Enter/Space).
+  nodeEls
+    .attr('tabindex', (d) => (d.status !== 'external' && onNavigate ? 0 : null))
+    .attr('role', (d) => (d.status !== 'external' && onNavigate ? 'button' : null))
+    .attr('aria-label', (d) => {
+      const name = d.serviceName || d.id;
+      if (d.status === 'external') return `${name} — ${reasonTooltip(d.reason)}`;
+      const v = d.version ? ` ${d.version}` : '';
+      return `${name}${v} — ${d.status || 'Unknown'}`;
+    })
+    .on('keydown', (e: KeyboardEvent, d: GraphNode) => {
+      if ((e.key === 'Enter' || e.key === ' ') && d.status !== 'external' && onNavigate) {
+        e.preventDefault();
+        onNavigate(d.serviceName);
+      }
+    });
 
   /** Returns the stroke/dot color for a node, accounting for reason on external nodes. */
   function nodeColor(d: GraphNode): string {
@@ -431,10 +451,15 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
         .attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
         .attr('font-size', '10px').attr('font-weight', '600').attr('fill', '#fff')
         .text(`+${count}`);
+      // A focusable control so keyboard users can reveal hidden children too.
+      chip.attr('tabindex', 0).attr('role', 'button').attr('aria-label', `Show ${count} more`);
       // stop both mouse and touch from starting the parent node's d3-drag —
       // otherwise a tap ends as a click-navigate instead of an expand.
       chip.on('mousedown touchstart', (e) => e.stopPropagation());
       chip.on('click', (e) => { e.stopPropagation(); onExpand?.(d.id); });
+      chip.on('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onExpand?.(d.id); }
+      });
     });
   }
 
@@ -628,21 +653,7 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
     sim.on('end.focus', () => {
       const focusNodesList = nodes.filter((n) => focusSet.has(n.id));
       if (!focusNodesList.length) return;
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const n of focusNodesList) {
-        const x = n.x ?? 0, y = n.y ?? 0;
-        if (x - NODE_W / 2 < minX) minX = x - NODE_W / 2;
-        if (x + NODE_W / 2 > maxX) maxX = x + NODE_W / 2;
-        if (y - NODE_H / 2 < minY) minY = y - NODE_H / 2;
-        if (y + NODE_H / 2 > maxY) maxY = y + NODE_H / 2;
-      }
-      // Add padding
-      const pad = 60;
-      minX -= pad; minY -= pad; maxX += pad; maxY += pad;
-      const bw = maxX - minX, bh = maxY - minY;
-      const scale = Math.min(width / bw, height / bh, 1.5);
-      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-      const tx = width / 2 - cx * scale, ty = height / 2 - cy * scale;
+      const { scale, tx, ty } = fitTransform(focusNodesList, { width, height }, { nodeW: NODE_W, nodeH: NODE_H, pad: 60 });
       const transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
       (svg as any).transition().duration(600).call(zoom.transform, transform);
     });
@@ -650,20 +661,8 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
 
   // Fit the layered view to its content once (dagre lays out at arbitrary coords).
   if (isLayered) {
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const n of nodes) {
-      const x = n.x ?? 0, y = n.y ?? 0;
-      if (x - NODE_W / 2 < minX) minX = x - NODE_W / 2;
-      if (x + NODE_W / 2 > maxX) maxX = x + NODE_W / 2;
-      if (y - NODE_H / 2 < minY) minY = y - NODE_H / 2;
-      if (y + NODE_H / 2 > maxY) maxY = y + NODE_H / 2;
-    }
-    const pad = 40;
-    minX -= pad; minY -= pad; maxX += pad; maxY += pad;
-    const bw = maxX - minX || 1, bh = maxY - minY || 1;
-    const scale = Math.min(width / bw, height / bh, 1.5);
-    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-    const transform = d3.zoomIdentity.translate(width / 2 - cx * scale, height / 2 - cy * scale).scale(scale);
+    const { scale, tx, ty } = fitTransform(nodes, { width, height }, { nodeW: NODE_W, nodeH: NODE_H, pad: 40 });
+    const transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
     (svg as any).call(zoom.transform, transform);
   }
 
@@ -672,7 +671,12 @@ export function renderGraph(container: HTMLElement, graphData: GraphData, { onNa
     destroy: () => { if (sim) sim.stop(); container.innerHTML = ''; },
     zoomIn: () => (svg as any).transition().duration(300).call(zoom.scaleBy, 1.4),
     zoomOut: () => (svg as any).transition().duration(300).call(zoom.scaleBy, 0.7),
-    resetView: () => (svg as any).transition().duration(300).call(zoom.transform, d3.zoomIdentity),
+    // Re-fit the current content (keeps any expanded branches) rather than jumping
+    // to the raw 1:1 identity transform, which left wide graphs off-screen.
+    resetView: () => {
+      const t = fitTransform(nodes, { width, height }, { nodeW: NODE_W, nodeH: NODE_H, pad: isLayered ? 40 : 60 });
+      (svg as any).transition().duration(300).call(zoom.transform, d3.zoomIdentity.translate(t.tx, t.ty).scale(t.scale));
+    },
     applyFilter,
   };
 }

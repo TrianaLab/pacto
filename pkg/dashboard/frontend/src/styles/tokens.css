@@ -12,7 +12,7 @@
   /* Text */
   --c-text: #f1f5f9;
   --c-text-2: #94a3b8;
-  --c-text-3: #64748b;
+  --c-text-3: #818ea3; /* clears AA 4.5:1 on surfaces, still dimmer than text-2 */
 
   /* Borders */
   --c-border: #1e293b;
@@ -84,7 +84,7 @@
   --c-surface-inset: #f1f5f9;
   --c-text: #0f172a;
   --c-text-2: #475569;
-  --c-text-3: #94a3b8;
+  --c-text-3: #5f6d80; /* clears AA 4.5:1 on light surfaces, still dimmer than text-2 */
   --c-border: #e2e8f0;
   --c-border-subtle: rgba(0, 0, 0, 0.04);
   --c-ok: #059669;

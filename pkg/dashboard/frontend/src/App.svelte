@@ -22,6 +22,7 @@
   let refreshing = $state(false);
   let refreshTick = $state(0);
   let initialLoading = $state(true);
+  let loadError = $state(null);
 
   const POLL_FAST = 2000;   // during discovery
   const POLL_NORMAL = 10000;
@@ -42,16 +43,21 @@
 
       const needsServices = route.view === 'list' || route.view === 'graph' || route.view === 'diff' || route.view === 'owners' || route.view === 'owner-detail' || route.view === 'readiness';
 
+      let servicesFailed = false;
       const [svcList, srcData, health] = await Promise.all([
-        needsServices ? api.services() : Promise.resolve(null),
-        api.sources().catch(() => ({ sources: [], discovering: false })),
-        api.health().catch(() => ({})),
+        needsServices ? api.services().catch(() => { servicesFailed = true; return null; }) : Promise.resolve(null),
+        api.sources().catch(() => null),
+        api.health().catch(() => null),
       ]);
-      if (svcList !== null) services = svcList || [];
-      sourcesInfo = srcData.sources || [];
+      // A failed services fetch means the backend is unreachable or erroring — not
+      // that the fleet is genuinely empty. Keep any stale data and flag the error
+      // so views show "can't reach backend" instead of the "no sources" setup screen.
+      loadError = servicesFailed ? 'Can’t reach the Pacto backend.' : null;
+      if (!servicesFailed && svcList !== null) services = svcList || [];
+      if (srcData) sourcesInfo = srcData.sources || [];
       const wasDiscovering = discovering;
-      discovering = srcData.discovering || false;
-      appVersion = health.version || '';
+      discovering = srcData?.discovering || false;
+      appVersion = health?.version || appVersion;
       refreshTick++;
 
       // Adjust polling speed: fast during discovery, normal otherwise
@@ -64,7 +70,8 @@
         }
       }
     } catch {
-      // keep stale data
+      // keep stale data, but surface that the refresh failed
+      loadError = 'Can’t reach the Pacto backend.';
     }
     refreshing = false;
     initialLoading = false;
@@ -106,6 +113,7 @@
 <Navbar
   {services}
   {sourcesInfo}
+  view={route.view}
   version={appVersion}
   {discovering}
   {autoReload}
@@ -114,6 +122,13 @@
   onToggleAutoReload={toggleAutoReload}
   onToggleTheme={toggleTheme}
 />
+
+{#if loadError && services.length > 0}
+  <div class="backend-banner" role="alert">
+    <span>{loadError} Showing the last known data — retrying…</span>
+    <button type="button" class="banner-retry" onclick={() => loadGlobal(true)}>Retry now</button>
+  </div>
+{/if}
 
 <main class="container">
   {#if route.view === 'detail'}
@@ -140,6 +155,22 @@
       <OwnerDetailView owner={route.params.owner} {services} {initialLoading} />
     {/key}
   {:else}
-    <ServiceListView {services} {sourcesInfo} {discovering} {initialLoading} />
+    <ServiceListView {services} {sourcesInfo} {discovering} {initialLoading} {loadError} onRetry={() => loadGlobal(true)} />
   {/if}
 </main>
+
+<style>
+  .backend-banner {
+    display: flex; align-items: center; justify-content: center; gap: var(--sp-3);
+    flex-wrap: wrap;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--c-err-bg); color: var(--c-err);
+    font-size: var(--text-sm); font-weight: 500;
+    border-bottom: 1px solid color-mix(in srgb, var(--c-err) 30%, transparent);
+  }
+  .banner-retry {
+    background: none; border: 1px solid currentColor; border-radius: var(--radius-xs);
+    color: inherit; font: inherit; padding: 3px 10px; cursor: pointer;
+  }
+  .banner-retry:hover { background: color-mix(in srgb, var(--c-err) 12%, transparent); }
+</style>
