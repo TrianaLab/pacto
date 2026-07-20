@@ -9,6 +9,7 @@
     onNavigate,
     filterFn = null,
     layout = 'force',
+    groups = null,
     showZoom = true,
     showLegend = true,
     showDirectionDepth = false,
@@ -71,6 +72,7 @@
       {focusId}
       {focusNodes}
       {layout}
+      {groups}
       {direction}
       {depth}
       {height}

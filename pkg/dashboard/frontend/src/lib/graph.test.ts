@@ -198,6 +198,23 @@ describe('buildElements', () => {
     expect(x.data.external).toBe(1);
     expect(x.data.reason).toBe('auth_failed');
   });
+
+  it('emits compound parent nodes and assigns children when groups are given', () => {
+    const groups = new Map([['root', 'team-a'], ['a', 'team-a'], ['x', 'team-b']]);
+    const els = buildElements(g, undefined, groups);
+    const parents = els.filter((e) => e.data.isGroup);
+    expect(parents.map((p) => p.data.label).sort()).toEqual(['team-a', 'team-b']);
+    const root = els.find((e) => e.data.id === 'root')!;
+    // child points at its group parent; parent ids are DOM-safe
+    expect(root.data.parent).toBe(parents.find((p) => p.data.label === 'team-a')!.data.id);
+    expect(String(root.data.parent).startsWith('group:')).toBe(true);
+  });
+
+  it('leaves nodes ungrouped when no groups are given', () => {
+    const els = buildElements(g);
+    expect(els.some((e) => e.data.isGroup)).toBe(false);
+    expect(els.find((e) => e.data.id === 'root')!.data.parent).toBeUndefined();
+  });
 });
 
 describe('cyLayout', () => {

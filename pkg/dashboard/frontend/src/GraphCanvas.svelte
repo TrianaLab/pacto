@@ -5,7 +5,7 @@
 
   let {
     graphData = null, focusId = null, height = 400, onNavigate, filterFn, focusNodes = null,
-    layout = 'force', direction = 'down', depth = 2, childCap = 12,
+    layout = 'force', direction = 'down', depth = 2, childCap = 12, groups = null,
   } = $props();
 
   let containerEl = $state(null);
@@ -47,6 +47,7 @@
       filterFn,
       focusNodes: focusNodes || undefined,
       layout,
+      groups: groups || undefined,
       hidden,
       onExpand,
     });
@@ -58,7 +59,7 @@
 
   $effect(() => {
     // Re-render on data/layout/tree-shape changes (not callback props).
-    const _ = [graphData, focusId, containerEl, layout, direction, depth, renderVersion];
+    const _ = [graphData, focusId, containerEl, layout, direction, depth, renderVersion, groups];
     if (graphData && containerEl) {
       untrack(() => init());
     }

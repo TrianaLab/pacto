@@ -9,10 +9,14 @@ import cytoscape from 'cytoscape';
 import type { Core, NodeSingular, EdgeSingular, ElementDefinition, LayoutOptions } from 'cytoscape';
 import dagre from 'cytoscape-dagre';
 import fcose from 'cytoscape-fcose';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+import expandCollapse from 'cytoscape-expand-collapse';
 import { reasonTooltip } from './format.ts';
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
+// Registration can throw if already registered (HMR); ignore.
+try { cytoscape.use(expandCollapse); } catch { /* already registered */ }
 
 const NODE_W = 164;
 const NODE_H = 42;
@@ -124,12 +128,20 @@ interface RenderOptions {
   filterFn?: (n: GraphNode) => boolean;
   /** Set of service names to persistently emphasize (e.g. owner's services). */
   focusNodes?: Set<string>;
-  /** 'layered' uses a top-down dagre hierarchy; 'force' uses cose. Default 'force'. */
+  /** 'layered' uses a top-down dagre hierarchy; 'force' uses fCoSE. Default 'force'. */
   layout?: 'force' | 'layered';
+  /** nodeId → cluster label (e.g. owning team). Renders collapsible compound
+   *  group boxes; groups start collapsed for an at-a-glance view. */
+  groups?: Map<string, string>;
   // Accepted for API compatibility; the "+N" expand chip is superseded by
   // click-to-focus, so these are ignored.
   hidden?: Map<string, number>;
   onExpand?: (id: string) => void;
+}
+
+/** Stable, DOM-id-safe element id for a cluster/group parent. */
+function groupId(label: string): string {
+  return 'group:' + label.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 /**
@@ -137,12 +149,25 @@ interface RenderOptions {
  * node/edge shape is unit-testable. Edge ids include the type because a node can
  * have both a dependency and a config/policy reference to the same target.
  */
-export function buildElements(graphData: GraphData, focusId?: string): ElementDefinition[] {
+export function buildElements(graphData: GraphData, focusId?: string, groups?: Map<string, string>): ElementDefinition[] {
   const nodes = graphData.nodes || [];
   const ids = new Set(nodes.map((n) => n.id));
   const els: ElementDefinition[] = [];
+  // One compound parent per distinct cluster label present in the graph.
+  const labelOf = (id: string) => (groups && groups.get(id)) || '';
+  if (groups && groups.size) {
+    const seen = new Map<string, string>(); // gid -> label
+    for (const n of nodes) {
+      const label = labelOf(n.id);
+      if (label) seen.set(groupId(label), label);
+    }
+    for (const [gid, label] of seen) {
+      els.push({ data: { id: gid, label, isGroup: 1 } });
+    }
+  }
   for (const n of nodes) {
     const { name, version } = nodeLabel(n);
+    const label = labelOf(n.id);
     els.push({
       data: {
         id: n.id,
@@ -152,6 +177,7 @@ export function buildElements(graphData: GraphData, focusId?: string): ElementDe
         reason: n.reason || '',
         external: n.status === 'external' ? 1 : 0,
         isFocus: n.serviceName === focusId ? 1 : 0,
+        parent: label ? groupId(label) : undefined,
       },
     });
   }
@@ -278,6 +304,39 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
         opacity: EDGE_REST,
       },
     },
+    // Compound group boxes (owner clusters): a labelled, translucent container.
+    {
+      selector: ':parent',
+      style: {
+        shape: 'round-rectangle',
+        'background-color': pal.textDim,
+        'background-opacity': 0.05,
+        'border-color': pal.border,
+        'border-width': 1,
+        label: 'data(label)',
+        color: pal.textDim,
+        'font-size': 13,
+        'font-weight': 600,
+        'text-valign': 'top',
+        'text-halign': 'center',
+        'text-margin-y': 6,
+        padding: 18,
+      },
+    },
+    // Collapsed group node (a whole team folded into one box).
+    {
+      selector: 'node.cy-expand-collapse-collapsed-node',
+      style: {
+        shape: 'round-rectangle',
+        'background-color': pal.textDim,
+        'background-opacity': 0.12,
+        'border-color': pal.accent,
+        'border-width': 1.5,
+        color: pal.text,
+        'font-weight': 600,
+        padding: 10,
+      },
+    },
     { selector: 'node.pacto-faded', style: { opacity: 0.12 } },
     { selector: 'edge.pacto-faded', style: { opacity: 0.04 } },
     { selector: 'node.pacto-focus', style: { 'border-color': pal.accent, 'border-width': 3 } },
@@ -289,9 +348,10 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
 export function renderGraph(
   container: HTMLElement,
   graphData: GraphData,
-  { onNavigate, focusId, filterFn, focusNodes, layout = 'force' }: RenderOptions = {},
+  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups }: RenderOptions = {},
 ): GraphControls {
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
+  const hasGroups = !!(groups && groups.size);
   container.innerHTML = '';
   // Accessible fallback lives in the connections table; mark the canvas as a
   // presentational application region.
@@ -300,7 +360,7 @@ export function renderGraph(
 
   const pal = resolvePalette(container);
   const baseOpts = {
-    elements: buildElements(graphData, focusId),
+    elements: buildElements(graphData, focusId, groups),
     style: cyStylesheet(pal, layout),
     minZoom: 0.2,
     maxZoom: 3,
@@ -313,6 +373,19 @@ export function renderGraph(
     // No 2D canvas (e.g. the jsdom test env) — build the model headless so the
     // controls API still works and can be unit-tested; the browser always has canvas.
     cy = cytoscape({ headless: true, styleEnabled: true, ...baseOpts });
+  }
+
+  // Collapsible owner boxes (native compound nodes + the expand-collapse extension).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let ecApi: any = null;
+  if (hasGroups) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ecApi = (cy as any).expandCollapse({
+        layoutBy: { name: 'fcose', animate: false, fit: true, padding: 40, randomize: false, nodeDimensionsIncludeLabels: true },
+        fisheye: false, animate: false, undoable: false, cueEnabled: true,
+      });
+    } catch { ecApi = null; }
   }
 
   // ── Dimming state ────────────────────────────────────────────────────────
@@ -338,11 +411,12 @@ export function renderGraph(
     if (clickFocusId) {
       const n = cy.getElementById(clickFocusId);
       keep = n.union(n.successors()).union(n.predecessors());
+      keep = keep.union(keep.ancestors()); // keep the containing group boxes visible
       keep.edges().addClass('pacto-lit');
     } else if (ownerSet) {
       const ids = ownerVisible();
       const kn = cy.nodes().filter((n) => ids.has(n.id()));
-      keep = kn.union(kn.connectedEdges());
+      keep = kn.union(kn.connectedEdges()).union(kn.ancestors());
     } else if (filterHidden) {
       // Filter dims the MATCHING nodes (inverse of keep).
       const faded = cy.nodes().filter((n) => filterHidden!.has(n.id()));
@@ -358,6 +432,11 @@ export function renderGraph(
   let lastTapAt = 0;
   cy.on('tap', 'node', (evt) => {
     const n = evt.target as NodeSingular;
+    // Group boxes: tap a collapsed team to expand it, or an expanded box to fold.
+    if (ecApi) {
+      if (n.hasClass('cy-expand-collapse-collapsed-node')) { ecApi.expand(n); return; }
+      if (n.isParent()) { ecApi.collapse(n); return; }
+    }
     const id = n.id();
     const now = Date.now();
     if (id === lastTapId && now - lastTapAt < 300) {
@@ -374,12 +453,13 @@ export function renderGraph(
     if (evt.target === cy) { clickFocusId = null; applyDimming(); }
   });
 
-  function fit(): void { cy.fit(undefined, 30); }
-
   // Run layout, then fit + apply the resting emphasis. Works for both the sync
   // dagre layout and the async cose layout via layoutstop.
   const lay = cy.layout(cyLayout(layout));
   lay.one('layoutstop', () => {
+    // Start with every team folded — an at-a-glance overview of a handful of boxes
+    // and the cross-team edges between them; the user expands the ones they want.
+    if (ecApi) { try { ecApi.collapseAll(); } catch { /* headless */ } }
     if (filterFn) applyFilter(filterFn);
     else applyDimming();
     if (focusId) {

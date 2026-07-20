@@ -101,6 +101,16 @@
     return m;
   });
 
+  // node id → owning-team label, for the graph's collapsible owner clusters.
+  let ownerGroups = $derived.by(() => {
+    const m = new Map();
+    for (const n of graphData?.nodes || []) {
+      if (n.status === 'external') { m.set(n.id, '(external)'); continue; }
+      m.set(n.id, ownerKey(ownerByService.get(n.serviceName)) || '(unowned)');
+    }
+    return m;
+  });
+
   onMount(() => { loadGraph(); });
 </script>
 
@@ -132,6 +142,10 @@
         {#if nameMatchedFocus}Focused on search match "{nameMatchedFocus}".{:else}Search to refocus, use depth to widen or "+N" to expand a branch.{/if}
       </span>
     </div>
+  {:else}
+    <div class="graph-focus-bar">
+      <span class="focus-hint">Grouped by team — click a box to expand it, a service to trace its dependencies, or double-click to open it.</span>
+    </div>
   {/if}
 
   <div class="fade-in-up">
@@ -140,6 +154,7 @@
     <GraphPanel
       {graphData}
       layout={isLarge ? 'layered' : 'force'}
+      groups={isLarge ? null : ownerGroups}
       focusId={effectiveFocusId}
       showDirectionDepth={isLarge}
       initialDirection={isLarge ? 'up' : 'down'}
