@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl } from '../lib/router.ts';
-  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerKey, ownerMatchesFilter } from '../lib/format.ts';
+  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerMatchesFilter } from '../lib/format.ts';
   import GraphPanel from '../GraphPanel.svelte';
   import StatsBar from '../StatsBar.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
@@ -28,15 +28,20 @@
     return srcs ? srcs.includes(sourceFilter) : false;
   }
 
-  // Cytoscape lays out and fits the whole fleet (dagre + orthogonal edges), so
-  // mid-size fleets render legibly with click-to-focus. This threshold is only a
-  // coarse cap: above it the full mesh is too dense to be useful, so fall back to a
-  // focused neighborhood (root + N hops, widened via the depth control).
-  const LARGE_GRAPH = 100;
-  let isLarge = $derived((graphData?.nodes?.length || 0) > LARGE_GRAPH);
+  // Focus-first: we never render the whole mesh. One service is centered, its
+  // dependencies fan one way and its dependents the other; clicking a neighbor
+  // re-roots. A dense fan-in can't become a hairball because only one node's
+  // neighborhood is ever drawn.
+  let inDegree = $derived.by(() => {
+    const deg = new Map();
+    for (const n of graphData?.nodes || []) deg.set(n.id, 0);
+    for (const n of graphData?.nodes || []) {
+      for (const e of n.edges || []) deg.set(e.targetId, (deg.get(e.targetId) || 0) + 1);
+    }
+    return deg;
+  });
 
-  // Contract-backed services (not external refs), most-impactful first, for the
-  // focus picker. The default focus is the highest-blast-radius service.
+  // Contract-backed services, most-impactful first, for the focus picker.
   let focusableServices = $derived(
     (graphData?.nodes || [])
       .filter((n) => n.status !== 'external')
@@ -44,11 +49,19 @@
       .sort((a, b) => (blastByName.get(b) || 0) - (blastByName.get(a) || 0)),
   );
 
-  // Default the focus to the most-depended-on service once the graph loads.
+  // Default focus = the highest-blast ROOT (nothing depends on it): its downstream
+  // reads as a clean fan. Defaulting to a shared sink (postgres) would paint a
+  // 15-node convergence wall on first load.
+  let defaultRoot = $derived.by(() => {
+    const nodes = (graphData?.nodes || []).filter((n) => n.status !== 'external');
+    const roots = nodes.filter((n) => (inDegree.get(n.id) || 0) === 0);
+    const pool = roots.length ? roots : nodes;
+    pool.sort((a, b) => (blastByName.get(b.serviceName) || 0) - (blastByName.get(a.serviceName) || 0));
+    return pool[0]?.serviceName || '';
+  });
+
   $effect(() => {
-    if (isLarge && !focusRoot && focusableServices.length) {
-      focusRoot = focusableServices[0];
-    }
+    if (!focusRoot && defaultRoot) focusRoot = defaultRoot;
   });
 
   function serviceMatchesName(name) {
@@ -59,13 +72,11 @@
     return o ? ownerMatchesFilter(o, q) : false;
   }
 
-  // In focus mode a searched service may sit outside the current neighborhood, so
-  // it would never render — dimming alone greys the whole view. Instead let the
-  // search re-focus the graph on the first matching service.
+  // A name search re-focuses the graph on the first matching service.
   let nameMatchedFocus = $derived(
-    isLarge && nameFilter ? (focusableServices.find(serviceMatchesName) || '') : '',
+    nameFilter ? (focusableServices.find(serviceMatchesName) || '') : '',
   );
-  let effectiveFocusId = $derived(isLarge ? (nameMatchedFocus || focusRoot) : null);
+  let effectiveFocusId = $derived(nameMatchedFocus || focusRoot);
 
   // Graph dimming: status always applies. Name dimming only in the full (small)
   // view — in focus mode the name search re-focuses instead (see above), so
@@ -76,11 +87,10 @@
       if (status !== statusFilter) return true;
     }
     if (!nodeMatchesSource(node)) return true;
-    if (!isLarge && nameFilter && !serviceMatchesName(node.serviceName)) return true;
     return false;
   }
   let activeGraphFilterFn = $derived(
-    (statusFilter === 'all' && sourceFilter === 'all' && (isLarge || !nameFilter)) ? undefined : graphFilterFn,
+    (statusFilter === 'all' && sourceFilter === 'all') ? undefined : graphFilterFn,
   );
 
   async function loadGraph() {
@@ -98,16 +108,6 @@
   let ownerByService = $derived.by(() => {
     const m = new Map();
     for (const s of services) m.set(s.name, s.owner);
-    return m;
-  });
-
-  // node id → owning-team label, for the graph's collapsible owner clusters.
-  let ownerGroups = $derived.by(() => {
-    const m = new Map();
-    for (const n of graphData?.nodes || []) {
-      if (n.status === 'external') { m.set(n.id, '(external)'); continue; }
-      m.set(n.id, ownerKey(ownerByService.get(n.serviceName)) || '(unowned)');
-    }
     return m;
   });
 
@@ -130,36 +130,30 @@
 {:else if !graphData?.nodes?.length}
   <EmptyState title="No services to graph" message="Services need dependencies to appear in the graph." />
 {:else}
-  {#if isLarge}
-    <div class="graph-focus-bar">
-      <span class="focus-hint">Large graph — showing what depends on</span>
-      <select bind:value={focusRoot} aria-label="Focus service" disabled={!!nameMatchedFocus}>
-        {#each focusableServices as name}
-          <option value={name}>{name}</option>
-        {/each}
-      </select>
-      <span class="focus-hint">
-        {#if nameMatchedFocus}Focused on search match "{nameMatchedFocus}".{:else}Search to refocus, use depth to widen or "+N" to expand a branch.{/if}
-      </span>
-    </div>
-  {:else}
-    <div class="graph-focus-bar">
-      <span class="focus-hint">Grouped by team — hover a service to spotlight its dependencies, click to pin it, double-click to open it, or click a team header to fold it.</span>
-    </div>
-  {/if}
+  <div class="graph-focus-bar">
+    <span class="focus-hint">Focus</span>
+    <select bind:value={focusRoot} aria-label="Focus service" disabled={!!nameMatchedFocus}>
+      {#each focusableServices as name}
+        <option value={name}>{name}</option>
+      {/each}
+    </select>
+    <span class="focus-hint">
+      {#if nameMatchedFocus}Focused on search match "{nameMatchedFocus}".{:else}Dependencies fan right, dependents (blast radius) left. Click a neighbor to re-focus, double-click to open, depth to widen.{/if}
+    </span>
+  </div>
 
   <div class="fade-in-up">
-    <!-- Full fleet: compact fCoSE (fills the canvas, readable). Large-fleet focus
-         mode shows a small rooted neighborhood, where a dagre tree reads best. -->
+    <!-- Focus-first at every size: one service centered, deps right / dependents
+         left (dagre LR), so a dense fan-in never becomes a hairball. -->
     <GraphPanel
       {graphData}
-      layout={isLarge ? 'layered' : 'force'}
-      groups={isLarge ? null : ownerGroups}
+      layout="layered"
       focusId={effectiveFocusId}
-      showDirectionDepth={isLarge}
-      initialDirection={isLarge ? 'up' : 'down'}
+      initialDirection="both"
+      showDirectionDepth={true}
       filterFn={activeGraphFilterFn}
       height={Math.min(window.innerHeight - 200, 640)}
+      onFocus={(name) => { nameFilter = ''; focusRoot = name; }}
       onNavigate={(name) => location.hash = serviceUrl(name)}
       showZoom
       showLegend

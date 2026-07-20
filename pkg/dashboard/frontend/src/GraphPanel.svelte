@@ -7,6 +7,7 @@
     focusNodes = null,
     height = 400,
     onNavigate,
+    onFocus,
     filterFn = null,
     layout = 'force',
     groups = null,
@@ -20,7 +21,7 @@
   // thereafter, so capturing only the initial value is intended.
   // svelte-ignore state_referenced_locally
   let direction = $state(initialDirection);
-  let depth = $state(2);
+  let depth = $state(1);
   let graphRef = $state(null);
 
   function setDirection(d) {
@@ -43,7 +44,8 @@
 <div class="graph-panel">
   {#if showDirectionDepth}
     <div class="dep-graph-toolbar">
-      <div class="seg" role="group" aria-label="Tree direction">
+      <div class="seg" role="group" aria-label="Dependency direction">
+        <button type="button" class="seg-btn" class:active={direction === 'both'} aria-pressed={direction === 'both'} onclick={() => setDirection('both')}>Both</button>
         <button type="button" class="seg-btn" class:active={direction === 'down'} aria-pressed={direction === 'down'} onclick={() => setDirection('down')}>Depends on</button>
         <button type="button" class="seg-btn" class:active={direction === 'up'} aria-pressed={direction === 'up'} onclick={() => setDirection('up')}>Depended on by</button>
       </div>
@@ -77,6 +79,7 @@
       {depth}
       {height}
       {onNavigate}
+      {onFocus}
       {filterFn}
     />
   </div>

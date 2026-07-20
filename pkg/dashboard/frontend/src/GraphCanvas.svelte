@@ -4,7 +4,7 @@
   import { computeVisible } from './lib/layout.ts';
 
   let {
-    graphData = null, focusId = null, height = 400, onNavigate, filterFn, focusNodes = null,
+    graphData = null, focusId = null, height = 400, onNavigate, onFocus, filterFn, focusNodes = null,
     layout = 'force', direction = 'down', depth = 2, childCap = 12, groups = null,
   } = $props();
 
@@ -27,9 +27,19 @@
     let data = null;
     let hidden;
     if (isLayered && focusId) {
-      const r = computeVisible(graphData, { rootId: focusId, direction, depth, expanded, childCap });
-      data = { nodes: r.nodes };
-      hidden = r.hidden;
+      // 'both' unions the down-cone (dependencies) and up-cone (dependents) around
+      // the focus so both questions are answered at once; the toolbar can isolate one.
+      if (direction === 'both') {
+        const down = computeVisible(graphData, { rootId: focusId, direction: 'down', depth, expanded, childCap });
+        const up = computeVisible(graphData, { rootId: focusId, direction: 'up', depth, expanded, childCap });
+        const byId = new Map();
+        for (const n of [...down.nodes, ...up.nodes]) byId.set(n.id, n);
+        data = { nodes: [...byId.values()] };
+      } else {
+        const r = computeVisible(graphData, { rootId: focusId, direction, depth, expanded, childCap });
+        data = { nodes: r.nodes };
+        hidden = r.hidden;
+      }
     } else if (focusId) {
       data = extractSubgraph(graphData, focusId);
     } else {
@@ -44,6 +54,7 @@
     instance = renderGraph(containerEl, data, {
       focusId,
       onNavigate,
+      onFocus,
       filterFn,
       focusNodes: focusNodes || undefined,
       layout,

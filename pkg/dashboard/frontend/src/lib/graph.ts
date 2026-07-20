@@ -124,6 +124,8 @@ export interface GraphControls {
 
 interface RenderOptions {
   onNavigate?: (name: string) => void;
+  /** Single-click a node to re-root the focused view on it (focus-first mode). */
+  onFocus?: (name: string) => void;
   focusId?: string;
   filterFn?: (n: GraphNode) => boolean;
   /** Set of service names to persistently emphasize (e.g. owner's services). */
@@ -217,8 +219,10 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
  */
 export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
   if (layout === 'layered') {
+    // LR so the focus sits in the middle with dependents ranking to the LEFT and
+    // dependencies to the RIGHT — direction becomes a spatial axis, not tangled arrows.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return { name: 'dagre', rankDir: 'TB', nodeSep: 45, rankSep: 70, fit: true, padding: 30, animate: true, animationDuration: 400 } as any;
+    return { name: 'dagre', rankDir: 'LR', nodeSep: 22, rankSep: 90, fit: true, padding: 30, animate: true, animationDuration: 400 } as any;
   }
   return {
     name: 'fcose',
@@ -307,7 +311,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
       selector: 'edge',
       style: {
         'curve-style': layout === 'layered' ? 'taxi' : 'bezier',
-        'taxi-direction': 'downward',
+        'taxi-direction': 'rightward',
         'taxi-turn': 24,
         'taxi-turn-min-distance': 6,
         width: (ele: EdgeSingular) => (ele.data('required') ? 2 : 1),
@@ -373,7 +377,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
 export function renderGraph(
   container: HTMLElement,
   graphData: GraphData,
-  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups }: RenderOptions = {},
+  { onNavigate, onFocus, focusId, filterFn, focusNodes, layout = 'force', groups }: RenderOptions = {},
 ): GraphControls {
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
   const hasGroups = !!(groups && groups.size);
@@ -470,18 +474,24 @@ export function renderGraph(
     }
     const id = n.id();
     const now = Date.now();
-    if (id === lastTapId && now - lastTapAt < 300) {
-      // double-tap → open the service (external nodes have no page)
-      if (!n.data('external') && onNavigate) onNavigate(n.data('serviceName'));
-    } else {
-      clickFocusId = clickFocusId === id ? null : id; // toggle focus
-      applyDimming();
-      // Smoothly move the camera to the focused closure (or back to the whole graph).
-      if (clickFocusId) cy.animate({ fit: { eles: closureOf(n), padding: 70 } }, { duration: 450, easing: 'ease-in-out' });
-      else cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 400, easing: 'ease-in-out' });
-    }
+    const isDouble = id === lastTapId && now - lastTapAt < 300;
     lastTapId = id;
     lastTapAt = now;
+    if (isDouble) {
+      // double-tap → open the service (external nodes have no page)
+      if (!n.data('external') && onNavigate) onNavigate(n.data('serviceName'));
+      return;
+    }
+    if (onFocus && !n.data('external')) {
+      // focus-first: single-tap re-roots the view on this service.
+      onFocus(n.data('serviceName'));
+      return;
+    }
+    // Fallback (no re-root handler): toggle a spotlight on this node's closure.
+    clickFocusId = clickFocusId === id ? null : id;
+    applyDimming();
+    if (clickFocusId) cy.animate({ fit: { eles: closureOf(n), padding: 70 } }, { duration: 450, easing: 'ease-in-out' });
+    else cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 400, easing: 'ease-in-out' });
   });
   cy.on('tap', (evt) => {
     if (evt.target === cy && clickFocusId) {

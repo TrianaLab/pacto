@@ -218,10 +218,10 @@ describe('buildElements', () => {
 });
 
 describe('cyLayout', () => {
-  it('uses dagre top-down for the layered view', () => {
+  it('uses dagre left-to-right for the focus view (deps right, dependents left)', () => {
     const l = cyLayout('layered') as { name: string; rankDir: string };
     expect(l.name).toBe('dagre');
-    expect(l.rankDir).toBe('TB');
+    expect(l.rankDir).toBe('LR');
   });
   it('uses fcose (compact) for the force view', () => {
     expect((cyLayout('force') as { name: string }).name).toBe('fcose');
