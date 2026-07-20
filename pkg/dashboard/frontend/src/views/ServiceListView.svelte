@@ -6,8 +6,9 @@
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
   import SourceDot from '../components/SourceDot.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
 
-  let { services = [], sourcesInfo = [], discovering = false, initialLoading = false } = $props();
+  let { services = [], sourcesInfo = [], discovering = false, initialLoading = false, loadError = null, onRetry = null } = $props();
 
   let enabledSources = $derived(sourcesInfo.filter((s) => s.enabled));
   let disabledSources = $derived(sourcesInfo.filter((s) => !s.enabled));
@@ -20,9 +21,11 @@
   const filters = $derived(getFilters());
   let filtered = $derived(applyFilters(services, filters));
 
-  // Needs attention: non-compliant/warning services, sorted by blast radius descending
+  // Needs attention: non-compliant/warning services, sorted by blast radius
+  // descending. Computed from the filtered set so it agrees with the visible
+  // table (and the summary) when a filter is active.
   let needsAttention = $derived(
-    services
+    filtered
       .filter((s) => s.contractStatus === 'NonCompliant' || s.contractStatus === 'Warning')
       .sort((a, b) => (b.blastRadius || 0) - (a.blastRadius || 0))
       .slice(0, 5)
@@ -30,7 +33,7 @@
 </script>
 
 <div class="list-header">
-  <h1>Services {#if services.length > 0}<span class="tab-count">{services.length}</span>{/if}</h1>
+  <h1>Services {#if services.length > 0}<span class="tab-count">{filtered.length === services.length ? services.length : `${filtered.length} / ${services.length}`}</span>{/if}</h1>
 </div>
 
 <!-- Shared filter + summary: the summary reacts to the active filters. -->
@@ -89,44 +92,39 @@
 {/if}
 
 <!-- Table -->
-{#if services.length === 0}
+{#if services.length === 0 && loadError}
+  <EmptyState
+    error={loadError}
+    onRetry={onRetry}
+    title="Can’t reach the backend"
+    message="The dashboard couldn’t load services. It will keep retrying." />
+{:else if services.length === 0 && (initialLoading || discovering)}
+  <EmptyState loading message={initialLoading ? 'Loading services…' : 'Discovering services…'} />
+{:else if services.length === 0}
   <div class="state-box">
-    {#if initialLoading || discovering}
-      <div class="skeleton-table fade-in">
-        {#each Array(5) as _}
-          <div class="skeleton-row">
-            <div class="skeleton skeleton-line" style="width:30%"></div>
-            <div class="skeleton skeleton-line" style="width:15%"></div>
-            <div class="skeleton skeleton-line" style="width:20%"></div>
-          </div>
-        {/each}
-      </div>
-      <p style="margin-top:var(--sp-3); color:var(--c-text-3)">{initialLoading ? 'Loading services…' : 'Discovering services…'}</p>
+    <h3>No services found</h3>
+    {#if enabledSources.length === 0}
+      <p>No data sources are available. Start with one of these:</p>
+      <ul class="source-hints">
+        <li><strong>Local:</strong> run from a directory containing <code>pacto.yaml</code></li>
+        <li><strong>Kubernetes:</strong> ensure a valid kubeconfig and reachable cluster</li>
+        <li><strong>OCI:</strong> pass an <code>oci://registry/repo</code> argument</li>
+      </ul>
+      {#if disabledSources.length > 0}
+        <div class="source-reasons">
+          {#each disabledSources as src}
+            <span class="source-reason"><SourceDot source={src.type} />{src.type}: {src.reason}</span>
+          {/each}
+        </div>
+      {/if}
     {:else}
-      <h3>No services found</h3>
-      {#if enabledSources.length === 0}
-        <p>No data sources are available. Start with one of these:</p>
-        <ul class="source-hints">
-          <li><strong>Local:</strong> run from a directory containing <code>pacto.yaml</code></li>
-          <li><strong>Kubernetes:</strong> ensure a valid kubeconfig and reachable cluster</li>
-          <li><strong>OCI:</strong> pass an <code>oci://registry/repo</code> argument</li>
-        </ul>
-        {#if disabledSources.length > 0}
-          <div class="source-reasons">
-            {#each disabledSources as src}
-              <span class="source-reason"><SourceDot source={src.type} />{src.type}: {src.reason}</span>
-            {/each}
-          </div>
-        {/if}
-      {:else}
-        <p>Connected sources have no contract data yet.</p>
-        {#if enabledSources.length > 0}
-          <div class="source-reasons">
-            {#each enabledSources as src}
-              <span class="source-reason"><SourceDot source={src.type} />{src.type}: {src.reason}</span>
-            {/each}
-          </div>
-        {/if}
+      <p>Connected sources have no contract data yet.</p>
+      {#if enabledSources.length > 0}
+        <div class="source-reasons">
+          {#each enabledSources as src}
+            <span class="source-reason"><SourceDot source={src.type} />{src.type}: {src.reason}</span>
+          {/each}
+        </div>
       {/if}
     {/if}
   </div>
@@ -191,9 +189,6 @@
   .blast-pill-med { background: var(--c-warn-bg); color: var(--c-warn); }
   .blast-pill-high { background: var(--c-err-bg); color: var(--c-err); }
 
-  .skeleton-table { width: 100%; max-width: 600px; }
-  .skeleton-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-3); }
-  .skeleton-row .skeleton-line { height: 18px; border-radius: var(--radius-xs); }
 
   .source-hints {
     list-style: none; text-align: left; margin-top: var(--sp-2);

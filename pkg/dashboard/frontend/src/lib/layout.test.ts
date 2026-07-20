@@ -1,25 +1,35 @@
 import { describe, it, expect } from 'vitest';
-import { layeredPositions, computeVisible } from './layout';
-import type { GraphData, GraphNode } from './graph';
+import { computeVisible, wrapWideRanks } from './layout';
+import type { GraphData } from './graph';
 
-const n = (id: string): GraphNode => ({ id, serviceName: id, status: 'Compliant' });
+describe('wrapWideRanks', () => {
+  const dims = { nodeW: 100, nodeH: 40, nodesep: 0, ranksep: 60 };
 
-describe('layeredPositions', () => {
-  it('assigns increasing rank coordinate down a chain (TB)', () => {
-    const nodes = [n('a'), n('b'), n('c')];
-    const links = [{ source: 'a', target: 'b' }, { source: 'b', target: 'c' }];
-    const pos = layeredPositions(nodes, links, { nodeW: 164, nodeH: 42 });
-    expect(pos.get('a')!.y).toBeLessThan(pos.get('b')!.y);
-    expect(pos.get('b')!.y).toBeLessThan(pos.get('c')!.y);
+  it('folds an over-wide level into stacked sub-rows', () => {
+    const pos = new Map([
+      ['a', { x: 0, y: 0 }], ['b', { x: 100, y: 0 }], ['c', { x: 200, y: 0 }],
+      ['d', { x: 300, y: 0 }], ['e', { x: 400, y: 0 }],
+    ]);
+    wrapWideRanks(pos, { ...dims, maxWidth: 250 }); // maxCols = floor(250/100) = 2
+    const ys = new Set([...pos.values()].map((p) => p.y));
+    expect(ys.size).toBe(3); // 5 nodes, ≤2 per row → 3 rows
   });
 
-  it('positions every node and ignores edges to unknown nodes', () => {
-    const nodes = [n('a'), n('b')];
-    const links = [{ source: 'a', target: 'b' }, { source: 'a', target: 'ghost' }];
-    const pos = layeredPositions(nodes, links, { nodeW: 164, nodeH: 42 });
-    expect(pos.size).toBe(2);
-    expect(pos.has('a')).toBe(true);
-    expect(pos.has('b')).toBe(true);
+  it('pushes lower levels below the wrapped height', () => {
+    const pos = new Map([
+      ['a', { x: 0, y: 0 }], ['b', { x: 100, y: 0 }], ['c', { x: 200, y: 0 }],
+      ['z', { x: 100, y: 100 }],
+    ]);
+    wrapWideRanks(pos, { ...dims, maxWidth: 150 }); // maxCols = 1 → rank 0 becomes 3 rows
+    const rank0Bottom = Math.max(pos.get('a')!.y, pos.get('b')!.y, pos.get('c')!.y);
+    expect(pos.get('z')!.y).toBeGreaterThan(rank0Bottom);
+  });
+
+  it('leaves the layout untouched when nothing overflows', () => {
+    const pos = new Map([['a', { x: 0, y: 0 }], ['b', { x: 100, y: 0 }]]);
+    wrapWideRanks(pos, { ...dims, maxWidth: 1000 });
+    expect(pos.get('a')).toEqual({ x: 0, y: 0 });
+    expect(pos.get('b')).toEqual({ x: 100, y: 0 });
   });
 });
 

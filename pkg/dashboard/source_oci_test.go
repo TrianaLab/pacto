@@ -834,6 +834,57 @@ func TestOCISource_BackgroundDiscover_ListTagsErrorDuringPrefetch(t *testing.T) 
 	}
 }
 
+// A cancelled context must short-circuit discovery so server shutdown (which
+// cancels the background context via Close) can't block on draining the queue.
+func TestOCISource_DiscoverAndPrefetch_BailsWhenCancelled(t *testing.T) {
+	base := newMockBundleStore()
+	base.addBundleWithDeps("ghcr.io/org/root", "1.0.0", "root", "1.0.0", []contract.Dependency{
+		{Ref: "oci://ghcr.io/org/dep"},
+	})
+	base.addBundle("ghcr.io/org/dep", "2.0.0", "dep", "2.0.0")
+	store := &countingStore{mockBundleStore: base, listTagsCalls: make(map[string]int), failAfter: 1 << 30}
+
+	src := NewOCISource(store, []string{"ghcr.io/org/root"})
+	_ = waitForDiscovery(t, src) // first full discovery populates services + repoMap
+
+	total := func() int {
+		n := 0
+		for _, c := range store.listTagsCalls {
+			n += c
+		}
+		return n
+	}
+	before := total()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	src.discoverAndPrefetch(ctx) // must bail without touching the store
+
+	if after := total(); after != before {
+		t.Fatalf("discoverAndPrefetch made %d store calls after context cancel; expected 0", after-before)
+	}
+}
+
+// discoverRepo is the store-touching helper every discovery loop funnels through;
+// it must no-op on a cancelled context so shutdown can't spend ~200ms per repo
+// unwinding cancelled registry calls (the real cause of the Ctrl+C hang).
+func TestOCISource_DiscoverRepo_BailsOnCancelledContext(t *testing.T) {
+	base := newMockBundleStore()
+	base.addBundle("ghcr.io/org/svc", "1.0.0", "svc", "1.0.0")
+	store := &countingStore{mockBundleStore: base, listTagsCalls: make(map[string]int), failAfter: 1 << 30}
+
+	src := NewOCISource(store, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if got := src.discoverRepo(ctx, "ghcr.io/org/svc"); got != "" {
+		t.Fatalf("discoverRepo returned %q on cancelled ctx; want empty", got)
+	}
+	if n := store.listTagsCalls["ghcr.io/org/svc"]; n != 0 {
+		t.Fatalf("discoverRepo called ListTags %d times on cancelled ctx; want 0", n)
+	}
+}
+
 func TestOCISource_DepReposForService_FindBundleError(t *testing.T) {
 	store := newMockBundleStore()
 	src := NewOCISource(store, nil)

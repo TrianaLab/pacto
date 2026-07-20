@@ -238,4 +238,39 @@ describe('ServicesTable — columns and click-to-filter', () => {
 
     unmount(component);
   });
+
+  const rowNames = () =>
+    [...target.querySelectorAll('tbody tr .svc-name')].map((a) => a.textContent?.trim());
+
+  it('defaults to blast radius descending', () => {
+    const component = mount(ServicesTable, {
+      target,
+      props: {
+        services: [
+          { name: 'low', contractStatus: 'Compliant', blastRadius: 1 },
+          { name: 'high', contractStatus: 'Compliant', blastRadius: 9 },
+          { name: 'mid', contractStatus: 'Compliant', blastRadius: 4 },
+        ],
+      },
+    });
+    expect(rowNames()).toEqual(['high', 'mid', 'low']);
+    unmount(component);
+  });
+
+  it('sorts by name when the Name header is clicked', () => {
+    const component = mount(ServicesTable, {
+      target,
+      props: {
+        services: [
+          { name: 'charlie', contractStatus: 'Compliant', blastRadius: 1 },
+          { name: 'alpha', contractStatus: 'Compliant', blastRadius: 9 },
+          { name: 'bravo', contractStatus: 'Compliant', blastRadius: 4 },
+        ],
+      },
+    });
+    const nameBtn = [...target.querySelectorAll('th .col-sort')].find((b) => b.textContent?.includes('Name')) as HTMLButtonElement;
+    nameBtn.click();
+    expect(rowNames()).toEqual(['alpha', 'bravo', 'charlie']);
+    unmount(component);
+  });
 });

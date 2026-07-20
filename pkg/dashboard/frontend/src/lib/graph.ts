@@ -1,31 +1,39 @@
 /**
- * D3 force-directed graph renderer.
- * Returns { destroy, zoomIn, zoomOut, resetView, applyFilter }.
+ * Dependency graph renderer built on Cytoscape.js (dagre layout + orthogonal
+ * "taxi" edges). Interaction model: click a node to focus its up/down dependency
+ * closure (everything dims but that node's ancestors + descendants); click the
+ * background to clear; double-click to open the service. Returns GraphControls so
+ * GraphCanvas/GraphPanel drive zoom/fit/filter the same as before.
  */
-import * as d3 from 'd3';
+import cytoscape from 'cytoscape';
+import type { Core, NodeSingular, EdgeSingular, ElementDefinition, LayoutOptions } from 'cytoscape';
+import dagre from 'cytoscape-dagre';
+import fcose from 'cytoscape-fcose';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+import expandCollapse from 'cytoscape-expand-collapse';
 import { reasonTooltip } from './format.ts';
-import { layeredPositions } from './layout.ts';
+import { wrapWideRanks } from './layout.ts';
 
-const STATUS_COLORS: Record<string, string> = {
-  Compliant: '#34d399',
-  Warning: '#fbbf24',
-  NonCompliant: '#f87171',
-  Unknown: '#64748b',
-  Reference: '#64748b',
-  external: '#475569',
-};
-
-/** Reason-specific stroke colors for external nodes. */
-const REASON_COLORS: Record<string, string> = {
-  non_oci_ref: '#475569',   // neutral gray — expected
-  auth_failed: '#f87171',   // red — needs action
-  no_semver_tags: '#fbbf24', // yellow — warning
-  not_found: '#fbbf24',     // yellow — warning
-  discovering: '#818cf8',   // accent — transient
-};
+cytoscape.use(dagre);
+cytoscape.use(fcose);
+// Registration can throw if already registered (HMR); ignore.
+try { cytoscape.use(expandCollapse); } catch { /* already registered */ }
 
 const NODE_W = 164;
 const NODE_H = 42;
+// Resting edge opacity — very faint so the whole fleet reads as a calm map of
+// nodes (global overview) without the edge cloud; focus/hover lights the relevant
+// edges directionally.
+const EDGE_REST = 0.07;
+
+// Status / reason → palette token key, resolved to a concrete color per theme at
+// render time (Cytoscape's canvas can't read CSS custom properties directly).
+const STATUS_TO_PAL: Record<string, string> = {
+  Compliant: 'ok', Warning: 'warn', NonCompliant: 'err', Reference: 'info', Unknown: 'neutral',
+};
+const REASON_TO_PAL: Record<string, string> = {
+  non_oci_ref: 'neutral', auth_failed: 'err', no_semver_tags: 'warn', not_found: 'warn', discovering: 'accent',
+};
 
 export interface GraphEdge {
   targetId: string;
@@ -43,11 +51,6 @@ export interface GraphNode {
   version?: string;
   reason?: string;    // why unresolved: non_oci_ref, auth_failed, no_semver_tags, not_found, discovering
   edges?: GraphEdge[];
-  // D3 simulation adds these at runtime
-  x?: number;
-  y?: number;
-  fx?: number | null;
-  fy?: number | null;
 }
 
 export interface GraphData {
@@ -112,16 +115,6 @@ export function buildVersionSubgraph(detail: VersionDetail, services: FleetEntry
   return { nodes };
 }
 
-interface SimLink {
-  source: string | GraphNode;
-  target: string | GraphNode;
-  required?: boolean;
-  type: string;
-  lockedDigest?: string;
-  lockedVersion?: string;
-  driftStatus?: string;
-}
-
 export interface GraphControls {
   nodes: GraphNode[];
   destroy: () => void;
@@ -135,544 +128,474 @@ interface RenderOptions {
   onNavigate?: (name: string) => void;
   focusId?: string;
   filterFn?: (n: GraphNode) => boolean;
-  /** Set of service names to persistently emphasize (e.g. owner's services). Survives hover. */
+  /** Set of service names to persistently emphasize (e.g. owner's services). */
   focusNodes?: Set<string>;
-  /** 'layered' uses a static dagre hierarchy instead of the force sim. Default 'force'. */
+  /** 'layered' uses a top-down dagre hierarchy; 'force' uses fCoSE. Default 'force'. */
   layout?: 'force' | 'layered';
-  /** nodeId -> count of hidden direct children; drives the "+N" expand chip (layered only). */
+  /** nodeId → cluster label (e.g. owning team). Renders collapsible compound
+   *  group boxes; groups start collapsed for an at-a-glance view. */
+  groups?: Map<string, string>;
+  // Accepted for API compatibility; the "+N" expand chip is superseded by
+  // click-to-focus, so these are ignored.
   hidden?: Map<string, number>;
-  /** Called when a "+N" chip is clicked (layered only). */
   onExpand?: (id: string) => void;
 }
 
-export function renderGraph(container: HTMLElement, graphData: GraphData, { onNavigate, focusId, filterFn, focusNodes, layout = 'force', hidden, onExpand }: RenderOptions = {}): GraphControls {
-  const isLayered = layout === 'layered';
+/** Stable, DOM-id-safe element id for a cluster/group parent. */
+function groupId(label: string): string {
+  return 'group:' + label.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+// Distinct tints for cluster boxes so teams read as visually separate regions.
+const GROUP_COLORS = ['#818cf8', '#34d399', '#f472b6', '#fbbf24', '#60a5fa', '#a78bfa', '#fb923c', '#2dd4bf', '#f87171', '#c084fc'];
+function groupColor(index: number): string {
+  return GROUP_COLORS[index % GROUP_COLORS.length];
+}
+
+/**
+ * Build Cytoscape elements from the graph data. Pure (no Cytoscape/DOM), so the
+ * node/edge shape is unit-testable. Edge ids include the type because a node can
+ * have both a dependency and a config/policy reference to the same target.
+ */
+export function buildElements(graphData: GraphData, focusId?: string, groups?: Map<string, string>): ElementDefinition[] {
+  const nodes = graphData.nodes || [];
+  const ids = new Set(nodes.map((n) => n.id));
+  const els: ElementDefinition[] = [];
+  // One compound parent per distinct cluster label present in the graph, each
+  // given a stable tint so teams read as separate regions.
+  const labelOf = (id: string) => (groups && groups.get(id)) || '';
+  const colorOfGroup = new Map<string, string>();
+  if (groups && groups.size) {
+    const seen = new Map<string, string>(); // gid -> label
+    for (const n of nodes) {
+      const label = labelOf(n.id);
+      if (label) seen.set(groupId(label), label);
+    }
+    [...seen.keys()].sort().forEach((gid, i) => colorOfGroup.set(gid, groupColor(i)));
+    for (const [gid, label] of seen) {
+      els.push({ data: { id: gid, label, isGroup: 1, groupColor: colorOfGroup.get(gid) } });
+    }
+  }
+  for (const n of nodes) {
+    const { name, version } = nodeLabel(n);
+    const label = labelOf(n.id);
+    els.push({
+      data: {
+        id: n.id,
+        serviceName: n.serviceName,
+        label: version ? `${name}\n${version}` : name,
+        status: n.status,
+        reason: n.reason || '',
+        external: n.status === 'external' ? 1 : 0,
+        isFocus: n.serviceName === focusId ? 1 : 0,
+        parent: label ? groupId(label) : undefined,
+      },
+    });
+  }
+  for (const n of nodes) {
+    for (const e of n.edges || []) {
+      if (!ids.has(e.targetId)) continue;
+      const etype = e.type || 'dependency';
+      els.push({
+        data: {
+          id: `${n.id}→${e.targetId}:${etype}`,
+          source: n.id,
+          target: e.targetId,
+          etype,
+          required: e.required ? 1 : 0,
+          drift: e.driftStatus === 'drift' ? 1 : 0,
+        },
+      });
+    }
+  }
+  return els;
+}
+
+/**
+ * 'layered' → dagre top-down tree (good for a small, clearly-hierarchical
+ * per-service view). 'force' → fCoSE: a compact 2D packing that fills the canvas
+ * at a readable node size instead of collapsing a wide, shallow fleet into a thin
+ * band — shared-infra hubs settle centrally. Used for the fleet + owner views.
+ */
+export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
+  if (layout === 'layered') {
+    // Top-down dependency tree: roots on top → services → shared-infra sinks at the
+    // bottom. fit/animate off here — renderGraph wraps over-wide levels first, then
+    // fits, so a fat level doesn't stretch the tree into a band.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { name: 'dagre', rankDir: 'TB', nodeSep: 24, rankSep: 80, fit: false, animate: false } as any;
+  }
+  return {
+    name: 'fcose',
+    animate: 'end',
+    animationDuration: 600,
+    animationEasing: 'ease-out',
+    fit: true,
+    padding: 40,
+    nodeSeparation: 130,
+    idealEdgeLength: 110,
+    nodeRepulsion: 6500,
+    packComponents: true,
+    nodeDimensionsIncludeLabels: true,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+}
+
+interface Palette {
+  surface: string; text: string; textDim: string; border: string;
+  ok: string; warn: string; err: string; info: string; neutral: string; accent: string;
+}
+
+function resolvePalette(container: HTMLElement): Palette {
+  const v = (name: string, fallback: string) =>
+    getComputedStyle(container).getPropertyValue(name).trim() || fallback;
+  return {
+    surface: v('--c-surface', '#111827'),
+    text: v('--c-text', '#f1f5f9'),
+    textDim: v('--c-text-3', '#818ea3'),
+    border: v('--c-border', '#1e293b'),
+    ok: v('--c-ok', '#34d399'),
+    warn: v('--c-warn', '#fbbf24'),
+    err: v('--c-err', '#f87171'),
+    info: v('--c-info', '#60a5fa'),
+    neutral: v('--c-neutral', '#64748b'),
+    accent: v('--c-accent', '#818cf8'),
+  };
+}
+
+/** Border/status color for a node, theme-aware and reason-aware for externals. */
+function nodeColor(pal: Palette, status: string, reason: string): string {
+  if (status === 'external') return (pal as any)[REASON_TO_PAL[reason]] || pal.neutral;
+  return (pal as any)[STATUS_TO_PAL[status]] || pal.neutral;
+}
+
+/** Edge/arrow color by kind. */
+function edgeColor(pal: Palette, drift: boolean, reference: boolean): string {
+  if (drift) return pal.warn;
+  if (reference) return pal.accent;
+  return pal.textDim;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
+  return [
+    {
+      selector: 'node',
+      style: {
+        shape: 'round-rectangle',
+        width: NODE_W,
+        height: NODE_H,
+        'background-color': pal.surface,
+        'border-color': (ele: NodeSingular) => nodeColor(pal, ele.data('status'), ele.data('reason')),
+        'border-width': (ele: NodeSingular) => {
+          if (ele.data('isFocus')) return 3;
+          const s = ele.data('status');
+          return s === 'Warning' || s === 'NonCompliant' ? 2.5 : 1.5;
+        },
+        label: 'data(label)',
+        color: pal.text,
+        'font-size': 12,
+        'font-weight': 500,
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'text-wrap': 'wrap',
+        'text-max-width': `${NODE_W - 18}`,
+        'line-height': 1.25,
+        'overlay-opacity': 0,
+        // Smooth fades/emphasis when focus, hover or filter changes.
+        'transition-property': 'opacity, border-width, background-opacity',
+        'transition-duration': '0.12s',
+        'transition-timing-function': 'ease-out',
+      },
+    },
+    {
+      selector: 'edge',
+      style: {
+        // Layered = the dependency TREE: orthogonal taxi edges flowing top→down with
+        // arrowheads, visible at rest so the structure reads instantly. Force = a
+        // calm scatter where edges stay faint until a node is focused.
+        'curve-style': layout === 'layered' ? 'taxi' : 'bezier',
+        'taxi-direction': 'downward',
+        'taxi-turn': 20,
+        'taxi-turn-min-distance': 5,
+        'control-point-step-size': 24,
+        width: 1,
+        'line-color': pal.textDim,
+        'line-style': (ele: EdgeSingular) => (ele.data('etype') === 'reference' ? 'dashed' : 'solid'),
+        'target-arrow-shape': layout === 'layered' ? 'triangle' : 'none',
+        'target-arrow-color': pal.textDim,
+        'arrow-scale': 0.85,
+        opacity: layout === 'layered' ? 0.35 : EDGE_REST,
+        'transition-property': 'opacity, width, line-color',
+        'transition-duration': '0.12s',
+        'transition-timing-function': 'ease-out',
+      },
+    },
+    // Compound group boxes (owner clusters): a labelled, team-tinted region.
+    {
+      selector: ':parent',
+      style: {
+        shape: 'round-rectangle',
+        'background-color': 'data(groupColor)',
+        'background-opacity': 0.07,
+        'border-color': 'data(groupColor)',
+        'border-width': 2,
+        'border-opacity': 0.45,
+        label: 'data(label)',
+        color: 'data(groupColor)',
+        'font-size': 14,
+        'font-weight': 700,
+        'text-valign': 'top',
+        'text-halign': 'left',
+        'text-margin-x': 10,
+        'text-margin-y': 6,
+        padding: 22,
+        'transition-property': 'opacity, background-opacity',
+        'transition-duration': '0.12s',
+      },
+    },
+    // Collapsed group node (a whole team folded into one box).
+    {
+      selector: 'node.cy-expand-collapse-collapsed-node',
+      style: {
+        shape: 'round-rectangle',
+        'background-color': 'data(groupColor)',
+        'background-opacity': 0.16,
+        'border-color': 'data(groupColor)',
+        'border-width': 2,
+        color: pal.text,
+        'font-size': 14,
+        'font-weight': 700,
+        padding: 14,
+      },
+    },
+    { selector: 'node.pacto-faded', style: { opacity: 0.12 } },
+    { selector: 'edge.pacto-faded', style: { opacity: 0.02 } },
+    { selector: 'node.pacto-focus', style: { 'border-color': pal.accent, 'border-width': 3 } },
+    { selector: 'node.pacto-hot', style: { 'border-width': 3.5 } },
+    // Directional highlight: a service's DEPENDENCIES (what it needs) light up in
+    // accent with arrows pointing away; its DEPENDENTS (blast radius) light up warm
+    // with arrows pointing in. Only one node's edges show at once → no overlap.
+    {
+      selector: 'edge.pacto-dep',
+      style: { opacity: 0.95, width: 2.5, 'line-color': pal.accent, 'target-arrow-color': pal.accent, 'target-arrow-shape': 'triangle', 'line-style': 'solid', 'z-index': 10 },
+    },
+    {
+      selector: 'edge.pacto-dependent',
+      style: { opacity: 0.9, width: 2.5, 'line-color': pal.warn, 'target-arrow-color': pal.warn, 'target-arrow-shape': 'triangle', 'line-style': 'solid', 'z-index': 10 },
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ] as any;
+}
+
+export function renderGraph(
+  container: HTMLElement,
+  graphData: GraphData,
+  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups }: RenderOptions = {},
+): GraphControls {
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
-  const links: SimLink[] = [];
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-
-  for (const node of nodes) {
-    for (const edge of node.edges || []) {
-      if (nodeMap.has(edge.targetId)) {
-        links.push({
-          source: node.id,
-          target: edge.targetId,
-          required: edge.required,
-          type: edge.type || 'dependency',
-          lockedDigest: edge.lockedDigest,
-          lockedVersion: edge.lockedVersion,
-          driftStatus: edge.driftStatus,
-        });
-      }
-    }
-  }
-
-  const rect = container.getBoundingClientRect();
-  const width = rect.width || 800;
-  const height = rect.height || 500;
-
-  // Clear
+  const hasGroups = !!(groups && groups.size);
   container.innerHTML = '';
+  // Accessible fallback lives in the connections table; mark the canvas as a
+  // presentational application region.
+  container.setAttribute('role', 'application');
+  container.setAttribute('aria-label', 'Dependency graph (see the connections table for a text version)');
 
-  const svg = d3.select(container)
-    .append('svg')
-    .attr('width', '100%')
-    .attr('height', '100%')
-    .attr('viewBox', `0 0 ${width} ${height}`)
-    .style('font-family', 'var(--font-sans)');
-
-  // Defs for arrow markers
-  const defs = svg.append('defs');
-
-  // Resolve CSS variable to actual color for marker fill (CSS vars don't work inside markers)
-  const markerColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim() || '#94a3b8';
-
-  defs.append('marker')
-    .attr('id', 'arrow')
-    .attr('viewBox', '0 0 10 6')
-    .attr('refX', 10).attr('refY', 3)
-    .attr('markerWidth', 10).attr('markerHeight', 8)
-    .attr('orient', 'auto')
-    .append('path')
-    .attr('d', 'M0,0 L10,3 L0,6 Z')
-    .attr('fill', markerColor);
-
-  defs.append('marker')
-    .attr('id', 'arrow-ref')
-    .attr('viewBox', '0 0 10 6')
-    .attr('refX', 10).attr('refY', 3)
-    .attr('markerWidth', 10).attr('markerHeight', 8)
-    .attr('orient', 'auto')
-    .append('path')
-    .attr('d', 'M0,0 L10,3 L0,6 Z')
-    .attr('fill', 'var(--c-accent, #818cf8)');
-
-  // Glow filter for focused node
-  const focusGlow = defs.append('filter').attr('id', 'focus-glow');
-  focusGlow.append('feDropShadow')
-    .attr('dx', 0).attr('dy', 0)
-    .attr('stdDeviation', 4)
-    .attr('flood-color', 'var(--c-accent, #818cf8)')
-    .attr('flood-opacity', 0.5);
-
-  const g = svg.append('g');
-
-  // D3 zoom registers wheel/touchstart as non-passive because it calls
-  // preventDefault() to stop page scroll while zooming the graph.
-  // The container's `touch-action: none` CSS handles touch on mobile.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const zoom = d3.zoom<SVGSVGElement, unknown>()
-    .scaleExtent([0.2, 4])
-    .on('zoom', (e) => g.attr('transform', e.transform));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (svg as any).call(zoom);
-
-  // Prevent zoom's click suppression from blocking node clicks
-  svg.on('dblclick.zoom', null);
-
-  // Pin focused node to center so it's always clearly visible (force mode)
-  if (focusId && !isLayered) {
-    const focusNode = nodes.find((n) => n.id === focusId || n.serviceName === focusId);
-    if (focusNode) {
-      focusNode.fx = width / 2;
-      focusNode.fy = height / 2;
-    }
+  const pal = resolvePalette(container);
+  const baseOpts = {
+    elements: buildElements(graphData, focusId, groups),
+    style: cyStylesheet(pal, layout),
+    minZoom: 0.2,
+    maxZoom: 3,
+    boxSelectionEnabled: false,
+  };
+  let cy: Core;
+  try {
+    cy = cytoscape({ container, ...baseOpts });
+  } catch {
+    // No 2D canvas (e.g. the jsdom test env) — build the model headless so the
+    // controls API still works and can be unit-tested; the browser always has canvas.
+    cy = cytoscape({ headless: true, styleEnabled: true, ...baseOpts });
   }
 
+  // Collapsible owner boxes (native compound nodes + the expand-collapse extension).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let sim: any = null;
-  if (isLayered) {
-    // Static hierarchy: dagre positions, then fix each node in place.
-    const pos = layeredPositions(
-      nodes,
-      links.map((l) => ({ source: l.source as string, target: l.target as string })),
-      { direction: 'TB', nodeW: NODE_W, nodeH: NODE_H },
-    );
-    for (const n of nodes) {
-      const p = pos.get(n.id);
-      n.x = p?.x ?? width / 2;
-      n.y = p?.y ?? height / 2;
-      n.fx = n.x;
-      n.fy = n.y;
-    }
-    // forceLink normally swaps string ids for node objects; do it manually so
-    // the shared link/clip code below can read source.x / target.x.
-    for (const l of links) {
-      l.source = nodeMap.get(l.source as string)!;
-      l.target = nodeMap.get(l.target as string)!;
-    }
-  } else {
-    sim = d3.forceSimulation(nodes as d3.SimulationNodeDatum[])
-      .force('link', d3.forceLink(links as d3.SimulationLinkDatum<d3.SimulationNodeDatum>[]).id((d: any) => d.id).distance(200))
-      .force('charge', d3.forceManyBody().strength(-500))
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(NODE_W / 2 + 14));
+  let ecApi: any = null;
+  if (hasGroups) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ecApi = (cy as any).expandCollapse({
+        layoutBy: { name: 'fcose', animate: 'end', animationDuration: 500, fit: true, padding: 40, randomize: false, nodeDimensionsIncludeLabels: true },
+        fisheye: false, animate: true, animationDuration: 400, undoable: false, cueEnabled: true,
+      });
+    } catch { ecApi = null; }
   }
 
-  // Links
-  const linkG = g.append('g').attr('class', 'links');
-  const linkEls = linkG.selectAll('line')
-    .data(links)
-    .join('line')
-    .attr('stroke', (d) => {
-      if (d.driftStatus === 'drift') return 'var(--c-warn)';
-      if (d.type === 'reference') return 'var(--c-accent)';
-      return 'var(--c-text-3)';
-    })
-    .attr('stroke-width', (d) => {
-      if (d.lockedDigest) return d.required ? 2.5 : 1.5;
-      return d.required ? 2 : 1;
-    })
-    .attr('stroke-dasharray', (d) => {
-      if (d.type === 'reference') return '6,3';
-      if (d.driftStatus === 'drift') return '8,4';
-      return d.required ? 'none' : '4,3';
-    })
-    .attr('marker-end', (d) => d.type === 'reference' ? 'url(#arrow-ref)' : 'url(#arrow)')
-    .attr('opacity', (d) => d.driftStatus === 'drift' ? 0.8 : 0.6);
+  // ── Dimming state ────────────────────────────────────────────────────────
+  // A node can be dimmed by three independent things; recompute the union so they
+  // compose (click-focus over owner-emphasis over the status/name filter).
+  const ownerSet = focusNodes && focusNodes.size ? focusNodes : null;
+  let clickFocusId: string | null = null;
+  let filterHidden: Set<string> | null = null;
 
-  // Nodes — track drag movement to distinguish click from drag
-  const nodeG = g.append('g').attr('class', 'nodes');
-  let dragMoved = false;
-
-  const nodeEls = nodeG.selectAll<SVGGElement, GraphNode>('g')
-    .data(nodes)
-    .join('g')
-    .attr('cursor', (d) => d.status === 'external' ? 'grab' : 'pointer')
-    .call(d3.drag<SVGGElement, GraphNode>()
-      .on('start', (e, d) => {
-        dragMoved = false;
-        if (sim && !e.active) sim.alphaTarget(0.3).restart();
-        d.fx = d.x; d.fy = d.y;
-      })
-      .on('drag', (e, d) => {
-        dragMoved = true;
-        d.fx = e.x; d.fy = e.y;
-        if (isLayered) { d.x = e.x; d.y = e.y; updatePositions(); }
-      })
-      .on('end', (e, d) => {
-        if (sim && !e.active) sim.alphaTarget(0);
-        if (!isLayered) { d.fx = null; d.fy = null; }
-        // Navigate on click (no drag movement)
-        if (!dragMoved && d.status !== 'external' && onNavigate) {
-          onNavigate(d.serviceName);
-        }
-      })
-    );
-
-  /** Returns the stroke/dot color for a node, accounting for reason on external nodes. */
-  function nodeColor(d: GraphNode): string {
-    if (d.status === 'external' && d.reason && REASON_COLORS[d.reason]) {
-      return REASON_COLORS[d.reason];
+  function ownerVisible(): Set<string> {
+    // Owner's services + their direct neighbors.
+    const vis = new Set<string>();
+    cy.nodes().forEach((n) => { if (ownerSet!.has(n.data('serviceName'))) vis.add(n.id()); });
+    for (const id of [...vis]) {
+      cy.getElementById(id).neighborhood('node').forEach((n) => { vis.add(n.id()); });
     }
-    return STATUS_COLORS[d.status] || STATUS_COLORS.Unknown;
+    return vis;
   }
 
-  // Node rect
-  nodeEls.append('rect')
-    .attr('width', NODE_W).attr('height', NODE_H)
-    .attr('x', -NODE_W / 2).attr('y', -NODE_H / 2)
-    .attr('rx', 6)
-    .attr('fill', 'var(--c-surface)')
-    .attr('stroke', (d) => nodeColor(d))
-    .attr('stroke-width', (d) => d.serviceName === focusId ? 3 : 1.5)
-    .attr('stroke-dasharray', (d) => d.reason === 'discovering' ? '4,3' : null)
-    .attr('filter', (d) => d.serviceName === focusId ? 'url(#focus-glow)' : null);
+  const HL = 'pacto-faded pacto-dep pacto-dependent pacto-hot';
 
-  // Status indicator — icon varies by reason for external nodes
-  nodeEls.each(function (d: GraphNode) {
-    const el = d3.select(this);
-    const cx = -NODE_W / 2 + 14;
-    if (d.status === 'external' && d.reason === 'auth_failed') {
-      // Lock icon (SVG path)
-      el.append('text')
-        .attr('x', cx).attr('y', 1)
-        .attr('text-anchor', 'middle')
-        .attr('dominant-baseline', 'central')
-        .attr('font-size', '12px')
-        .attr('fill', REASON_COLORS.auth_failed)
-        .text('🔒');
-    } else if (d.status === 'external' && d.reason === 'discovering') {
-      // Pulsing dot for discovering state
-      const dot = el.append('circle')
-        .attr('cx', cx).attr('cy', 0).attr('r', 5)
-        .attr('fill', REASON_COLORS.discovering);
-      // Simple CSS-like pulse via repeated transition
-      function pulse() {
-        dot.transition().duration(800).attr('opacity', 0.3)
-          .transition().duration(800).attr('opacity', 1)
-          .on('end', pulse);
-      }
-      pulse();
-    } else if (d.status === 'external' && (d.reason === 'no_semver_tags' || d.reason === 'not_found')) {
-      // Warning triangle
-      el.append('text')
-        .attr('x', cx).attr('y', 1)
-        .attr('text-anchor', 'middle')
-        .attr('dominant-baseline', 'central')
-        .attr('font-size', '12px')
-        .attr('fill', REASON_COLORS[d.reason])
-        .text('⚠');
-    } else {
-      // Default dot
-      el.append('circle')
-        .attr('cx', cx).attr('cy', 0).attr('r', 5)
-        .attr('fill', nodeColor(d));
-    }
-  });
-
-  // Label — name on top, version (when present) on a dimmer second line.
-  nodeEls.append('text')
-    .attr('x', -NODE_W / 2 + 26)
-    .attr('y', (d) => (nodeLabel(d).version ? -4 : 1))
-    .attr('dominant-baseline', 'middle')
-    .attr('fill', 'var(--c-text)')
-    .attr('font-size', '13px')
-    .attr('font-weight', '500')
-    .text((d) => nodeLabel(d).name);
-
-  nodeEls.each(function (d: GraphNode) {
-    const { version } = nodeLabel(d);
-    if (!version) return;
-    d3.select(this).append('text')
-      .attr('x', -NODE_W / 2 + 26)
-      .attr('y', 12)
-      .attr('dominant-baseline', 'middle')
-      .attr('fill', 'var(--c-text-3)')
-      .attr('font-size', '11px')
-      .text(version);
-  });
-
-  // Native SVG tooltip — reason-aware for external nodes, version-aware otherwise.
-  nodeEls.append('title')
-    .text((d) => {
-      const name = d.serviceName || d.id;
-      if (d.status === 'external') {
-        return `${name} — ${reasonTooltip(d.reason)}`;
-      }
-      const v = d.version ? ` ${d.version}` : '';
-      return `${name}${v} — ${d.status || 'Unknown'}`;
-    });
-
-  // "+N" expand chips (layered mode): a node with hidden children shows a chip
-  // that reveals them on click without navigating.
-  if (isLayered && hidden) {
-    nodeEls.each(function (d: GraphNode) {
-      const count = hidden.get(d.id) || 0;
-      if (count <= 0) return;
-      const chip = d3.select(this).append('g')
-        .attr('class', 'more-chip')
-        .attr('cursor', 'pointer')
-        .attr('transform', `translate(${NODE_W / 2 - 16}, ${NODE_H / 2 - 3})`);
-      chip.append('rect')
-        .attr('x', -15).attr('y', -9).attr('width', 32).attr('height', 18).attr('rx', 9)
-        .attr('fill', 'var(--c-accent, #818cf8)').attr('opacity', 0.92);
-      chip.append('text')
-        .attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
-        .attr('font-size', '10px').attr('font-weight', '600').attr('fill', '#fff')
-        .text(`+${count}`);
-      // stop both mouse and touch from starting the parent node's d3-drag —
-      // otherwise a tap ends as a click-navigate instead of an expand.
-      chip.on('mousedown touchstart', (e) => e.stopPropagation());
-      chip.on('click', (e) => { e.stopPropagation(); onExpand?.(d.id); });
+  // Directional spotlight — the one interaction used EVERYWHERE (fleet, owner,
+  // service detail) so the graph behaves identically wherever it appears. A
+  // service's DEPENDENCIES light up in accent (arrows out), its DEPENDENTS / blast
+  // radius in warm (arrows in), everything else fades. Only this node's edges show,
+  // so nothing overlaps.
+  function spotlight(n: cytoscape.NodeSingular): void {
+    const succ = n.successors();
+    const pred = n.predecessors();
+    const keep = n.union(succ).union(pred);
+    // batch → Cytoscape recomputes style once for the whole change, not per class op
+    cy.batch(() => {
+      cy.elements().not(keep.union(keep.ancestors())).addClass('pacto-faded');
+      succ.edges().addClass('pacto-dep');
+      pred.edges().addClass('pacto-dependent');
+      n.addClass('pacto-hot');
     });
   }
 
-  // focusNodes: IDs of nodes that should stay emphasized (owner view)
-  const focusSet = new Set<string>();
-  const focusContextSet = new Set<string>(); // direct neighbors of focus nodes
-  if (focusNodes?.size) {
-    for (const n of nodes) {
-      if (focusNodes.has(n.serviceName)) focusSet.add(n.id);
-    }
-    // Compute direct dependency context of focus nodes
-    for (const l of links) {
-      const sid = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source;
-      const tid = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target;
-      if (focusSet.has(sid) && !focusSet.has(tid)) focusContextSet.add(tid);
-      if (focusSet.has(tid) && !focusSet.has(sid)) focusContextSet.add(sid);
-    }
-  }
-
-  const hasFocus = focusSet.size > 0;
-
-  /** Compute base opacity for a node respecting focusNodes. */
-  function baseOpacity(n: GraphNode): number {
-    if (!hasFocus) return 1;
-    if (focusSet.has(n.id)) return 1;
-    if (focusContextSet.has(n.id)) return 0.45;
-    return 0.12;
-  }
-
-  /** Compute base stroke width for a node. */
-  function baseStrokeWidth(n: GraphNode): number {
-    if (hasFocus && focusSet.has(n.id)) return 2.5;
-    return n.serviceName === focusId ? 2.5 : 1.5;
-  }
-
-  /** Compute base link opacity. */
-  function baseLinkOpacity(l: SimLink): number {
-    if (!hasFocus) return 0.6;
-    const sid = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source;
-    const tid = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target;
-    if (focusSet.has(sid) || focusSet.has(tid)) return 0.6;
-    return 0.05;
-  }
-
-  // Build adjacency (bidirectional) and reverse-dependency map (who depends on X)
-  const adjacency = new Map<string, Set<string>>();
-  const dependedOnBy = new Map<string, Set<string>>(); // targetId -> set of sourceIds that depend on it
-  nodes.forEach((n) => {
-    adjacency.set(n.id, new Set());
-    dependedOnBy.set(n.id, new Set());
-  });
-  links.forEach((l) => {
-    const sid = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source;
-    const tid = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target;
-    adjacency.get(sid)?.add(tid);
-    adjacency.get(tid)?.add(sid);
-    // source depends on target, so target being broken impacts source
-    dependedOnBy.get(tid)?.add(sid);
-  });
-
-  // BFS upstream: find all nodes that depend on `startId` (directly or transitively)
-  function blastRadiusBFS(startId: string): Set<string> {
-    const impacted = new Set<string>();
-    const queue = [startId];
-    while (queue.length) {
-      const id = queue.shift()!;
-      for (const depId of dependedOnBy.get(id) || []) {
-        if (!impacted.has(depId) && depId !== startId) {
-          impacted.add(depId);
-          queue.push(depId);
-        }
+  // Resting emphasis (no hover/pin): owner view dims to the owner's services; the
+  // status/name filter dims non-matches; otherwise the calm full map.
+  function applyDimming(): void {
+    cy.batch(() => {
+      cy.elements().removeClass(HL);
+      if (clickFocusId) { return; }
+      if (ownerSet) {
+        const ids = ownerVisible();
+        const kn = cy.nodes().filter((n) => ids.has(n.id()));
+        const keep = kn.union(kn.connectedEdges()).union(kn.ancestors());
+        cy.elements().not(keep).addClass('pacto-faded');
+      } else if (filterHidden) {
+        const faded = cy.nodes().filter((n) => filterHidden!.has(n.id()));
+        faded.addClass('pacto-faded');
+        faded.connectedEdges().addClass('pacto-faded');
       }
-    }
-    return impacted;
-  }
-
-  // Resolve marker color for blast-radius highlight
-  const blastColor = getComputedStyle(container).getPropertyValue('--c-err').trim() || '#f87171';
-  const warnColor = getComputedStyle(container).getPropertyValue('--c-warn').trim() || '#fbbf24';
-
-  // Apply initial focus emphasis
-  if (hasFocus) {
-    nodeEls.attr('opacity', (n) => baseOpacity(n));
-    nodeEls.select('rect').attr('stroke-width', (n: any) => baseStrokeWidth(n));
-    linkEls.attr('opacity', (l) => baseLinkOpacity(l));
-  }
-
-  nodeEls
-    .on('mouseenter', (_, d) => {
-      const hasIssues = d.status === 'Warning' || d.status === 'NonCompliant';
-      const neighbors = adjacency.get(d.id) || new Set<string>();
-      const impacted = hasIssues ? blastRadiusBFS(d.id) : new Set<string>();
-      const highlight = new Set([d.id, ...neighbors, ...impacted]);
-
-      nodeEls.transition().duration(150)
-        .attr('opacity', (n) => {
-          if (highlight.has(n.id)) return 1;
-          // Preserve focus emphasis during hover
-          if (hasFocus && focusSet.has(n.id)) return 0.5;
-          return 0.12;
-        });
-
-      // Pulse the stroke of impacted nodes to show blast radius
-      if (hasIssues && impacted.size > 0) {
-        const pulseColor = d.status === 'NonCompliant' ? blastColor : warnColor;
-        nodeEls.select('rect')
-          .transition().duration(150)
-          .attr('stroke', (n: any) => {
-            if (impacted.has(n.id)) return pulseColor;
-            return nodeColor(n);
-          })
-          .attr('stroke-width', (n: any) => {
-            if (impacted.has(n.id)) return 2.5;
-            return baseStrokeWidth(n);
-          });
-      }
-
-      linkEls.transition().duration(150)
-        .attr('opacity', (l) => {
-          const sid = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source;
-          const tid = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target;
-          return highlight.has(sid) && highlight.has(tid) ? 0.8 : 0.05;
-        })
-        .attr('stroke-width', (l) => {
-          const sid = typeof l.source === 'object' ? (l.source as GraphNode).id : l.source;
-          const tid = typeof l.target === 'object' ? (l.target as GraphNode).id : l.target;
-          const connected = (sid === d.id || tid === d.id) || (impacted.has(sid) && impacted.has(tid));
-          return connected ? (l.required ? 2.5 : 1.5) : (l.required ? 2 : 1);
-        });
-    })
-    .on('mouseleave', () => {
-      // Restore to base state (respects focusNodes)
-      nodeEls.transition().duration(150).attr('opacity', (n) => baseOpacity(n));
-      nodeEls.select('rect')
-        .transition().duration(150)
-        .attr('stroke', (n: any) => nodeColor(n))
-        .attr('stroke-width', (n: any) => baseStrokeWidth(n));
-      linkEls.transition().duration(150)
-        .attr('opacity', (l) => baseLinkOpacity(l))
-        .attr('stroke-width', (l) => l.required ? 2 : 1);
     });
+    if (clickFocusId) spotlight(cy.getElementById(clickFocusId));
+  }
 
-  // Apply filter if provided
-  function applyFilter(fn: ((n: GraphNode) => boolean) | null): void {
-    if (!fn) {
-      nodeEls.attr('opacity', 1);
-      linkEls.attr('opacity', 0.6);
+  // ── Interactions ─────────────────────────────────────────────────────────
+  let lastTapId = '';
+  let lastTapAt = 0;
+  cy.on('tap', 'node', (evt) => {
+    const n = evt.target as NodeSingular;
+    // Group boxes: tap a collapsed team to expand it, or an expanded box to fold.
+    if (ecApi) {
+      if (n.hasClass('cy-expand-collapse-collapsed-node')) { ecApi.expand(n); return; }
+      if (n.isParent()) { ecApi.collapse(n); return; }
+    }
+    const id = n.id();
+    const now = Date.now();
+    const isDouble = id === lastTapId && now - lastTapAt < 300;
+    lastTapId = id;
+    lastTapAt = now;
+    if (isDouble) {
+      // double-tap → open the service page (external nodes have none)
+      if (!n.data('external') && onNavigate) onNavigate(n.data('serviceName'));
       return;
     }
-    const hidden = new Set<string>();
-    nodes.forEach((n) => { if (fn(n)) hidden.add(n.id); });
-    nodeEls.attr('opacity', (d) => hidden.has(d.id) ? 0.1 : 1);
-    linkEls.attr('opacity', (d) => {
-      const sid = typeof d.source === 'object' ? (d.source as GraphNode).id : d.source;
-      const tid = typeof d.target === 'object' ? (d.target as GraphNode).id : d.target;
-      return hidden.has(sid) || hidden.has(tid) ? 0.05 : 0.6;
-    });
+    // Single-tap → PIN this service's directional spotlight and gently center it,
+    // keeping the whole map in view (no hard zoom) so the global picture stays.
+    clickFocusId = clickFocusId === id ? null : id;
+    applyDimming();
+    if (clickFocusId) cy.animate({ center: { eles: n } }, { duration: 250, easing: 'ease-in-out' });
+  });
+  cy.on('tap', (evt) => {
+    if (evt.target === cy && clickFocusId) { clickFocusId = null; applyDimming(); }
+  });
+
+  // Hover previews the spotlight (click pins it). A pinned focus takes precedence.
+  cy.on('mouseover', 'node', (evt) => {
+    container.style.cursor = 'pointer';
+    const n = evt.target as NodeSingular;
+    if (clickFocusId || n.isParent() || n.hasClass('cy-expand-collapse-collapsed-node')) return;
+    cy.batch(() => cy.elements().removeClass(HL));
+    spotlight(n);
+  });
+  cy.on('mouseout', 'node', () => {
+    container.style.cursor = 'default';
+    if (clickFocusId) return;
+    applyDimming(); // restore the resting owner/filter emphasis (batched, clears HL)
+  });
+
+  // Pin the initial focus (service-detail page) before the first layout.
+  if (focusId) {
+    const fn = cy.nodes().filter((n) => n.data('serviceName') === focusId || n.id() === focusId);
+    if (fn.nonempty()) clickFocusId = fn.first().id();
   }
 
-  if (filterFn) applyFilter(filterFn);
-
-  // Clip line endpoint to target node's rectangle boundary
-  function clipToRect(sx: number, sy: number, tx: number, ty: number, hw: number, hh: number): { x: number; y: number } {
-    const dx = tx - sx;
-    const dy = ty - sy;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len === 0) return { x: tx, y: ty };
-    const nx = dx / len;
-    const ny = dy / len;
-    // Find intersection with rect edges
-    const scaleX = Math.abs(nx) > 1e-6 ? hw / Math.abs(nx) : Infinity;
-    const scaleY = Math.abs(ny) > 1e-6 ? hh / Math.abs(ny) : Infinity;
-    const scale = Math.min(scaleX, scaleY);
-    return { x: tx - nx * scale, y: ty - ny * scale };
-  }
-
-  function updatePositions() {
-    linkEls.each(function (d: any) {
-      const clipped = clipToRect(d.source.x, d.source.y, d.target.x, d.target.y, NODE_W / 2, NODE_H / 2);
-      d3.select(this)
-        .attr('x1', d.source.x).attr('y1', d.source.y)
-        .attr('x2', clipped.x).attr('y2', clipped.y);
-    });
-    nodeEls.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
-  }
-  if (sim) sim.on('tick', updatePositions);
-  else updatePositions();
-
-  // Auto-center on focus nodes once simulation settles
-  if (hasFocus && sim) {
-    sim.on('end.focus', () => {
-      const focusNodesList = nodes.filter((n) => focusSet.has(n.id));
-      if (!focusNodesList.length) return;
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const n of focusNodesList) {
-        const x = n.x ?? 0, y = n.y ?? 0;
-        if (x - NODE_W / 2 < minX) minX = x - NODE_W / 2;
-        if (x + NODE_W / 2 > maxX) maxX = x + NODE_W / 2;
-        if (y - NODE_H / 2 < minY) minY = y - NODE_H / 2;
-        if (y + NODE_H / 2 > maxY) maxY = y + NODE_H / 2;
+  function layoutAndFit(): void {
+    const l = cy.layout(cyLayout(layout));
+    l.one('layoutstop', () => {
+      // Layered tree: fold any over-wide level into sub-rows sized to the CURRENT
+      // canvas width, so one big level can't stretch the tree into a band.
+      if (layout === 'layered') {
+        const pos = new Map<string, { x: number; y: number }>();
+        cy.nodes().forEach((n) => { pos.set(n.id(), { x: n.position('x'), y: n.position('y') }); });
+        wrapWideRanks(pos, { nodeW: NODE_W, nodeH: NODE_H, nodesep: 24, ranksep: 80, maxWidth: (cy.width() || 1000) - 60 });
+        cy.batch(() => cy.nodes().forEach((n) => { const p = pos.get(n.id()); if (p) n.position(p); }));
       }
-      // Add padding
-      const pad = 60;
-      minX -= pad; minY -= pad; maxX += pad; maxY += pad;
-      const bw = maxX - minX, bh = maxY - minY;
-      const scale = Math.min(width / bw, height / bh, 1.5);
-      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-      const tx = width / 2 - cx * scale, ty = height / 2 - cy * scale;
-      const transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
-      (svg as any).transition().duration(600).call(zoom.transform, transform);
+      cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 250, easing: 'ease-out' });
+      if (filterFn) applyFilter(filterFn);
+      else applyDimming();
     });
+    l.run();
   }
 
-  // Fit the layered view to its content once (dagre lays out at arbitrary coords).
-  if (isLayered) {
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const n of nodes) {
-      const x = n.x ?? 0, y = n.y ?? 0;
-      if (x - NODE_W / 2 < minX) minX = x - NODE_W / 2;
-      if (x + NODE_W / 2 > maxX) maxX = x + NODE_W / 2;
-      if (y - NODE_H / 2 < minY) minY = y - NODE_H / 2;
-      if (y + NODE_H / 2 > maxY) maxY = y + NODE_H / 2;
-    }
-    const pad = 40;
-    minX -= pad; minY -= pad; maxX += pad; maxY += pad;
-    const bw = maxX - minX || 1, bh = maxY - minY || 1;
-    const scale = Math.min(width / bw, height / bh, 1.5);
-    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-    const transform = d3.zoomIdentity.translate(width / 2 - cx * scale, height / 2 - cy * scale).scale(scale);
-    (svg as any).call(zoom.transform, transform);
+  // Lay out only once the container has a real size — cy often initialises before
+  // the container is measured, which produced the "renders wrong until you click"
+  // bug (a click forced cy to re-measure). The observer also re-fits/re-wraps on
+  // later resizes (window, panel), unless a focus is pinned.
+  let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+  let firstLayout = true;
+  let ro: ResizeObserver | undefined;
+  if (typeof ResizeObserver !== 'undefined') {
+    ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width || cy.width();
+      cy.resize();
+      if (firstLayout) { if (w > 0) { firstLayout = false; layoutAndFit(); } return; }
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (clickFocusId) return; // don't disrupt a pinned focus
+        if (layout === 'layered') layoutAndFit();
+        else cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 200 });
+      }, 150);
+    });
+    ro.observe(container);
+  } else {
+    layoutAndFit(); // no ResizeObserver (jsdom tests / very old browsers)
+  }
+
+  function applyFilter(fn: ((n: GraphNode) => boolean) | null): void {
+    if (!fn) { filterHidden = null; applyDimming(); return; }
+    filterHidden = new Set(nodes.filter((n) => fn(n)).map((n) => n.id));
+    applyDimming();
+  }
+
+  function zoomBy(factor: number): void {
+    cy.zoom({ level: cy.zoom() * factor, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
   }
 
   return {
     nodes,
-    destroy: () => { if (sim) sim.stop(); container.innerHTML = ''; },
-    zoomIn: () => (svg as any).transition().duration(300).call(zoom.scaleBy, 1.4),
-    zoomOut: () => (svg as any).transition().duration(300).call(zoom.scaleBy, 0.7),
-    resetView: () => (svg as any).transition().duration(300).call(zoom.transform, d3.zoomIdentity),
+    destroy: () => { ro?.disconnect(); clearTimeout(resizeTimer); cy.destroy(); },
+    zoomIn: () => zoomBy(1.4),
+    zoomOut: () => zoomBy(0.7),
+    resetView: () => { clickFocusId = null; applyDimming(); cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 300 }); },
     applyFilter,
   };
 }

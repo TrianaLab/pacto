@@ -142,7 +142,7 @@ func (s *OCISource) ListServices(ctx context.Context) ([]Service, error) {
 // This is fast — one ListTags + one Pull per repo.
 func (s *OCISource) shallowScan(ctx context.Context) {
 	for _, repo := range s.repos {
-		s.discoverRepo(ctx, repo)
+		s.discoverRepo(ctx, repo) // no-ops instantly once ctx is cancelled
 	}
 }
 
@@ -177,12 +177,17 @@ func (s *OCISource) Close() {
 		cancel()
 	}
 	if started {
+		// Returns promptly: discoverRepo/depReposForService/prefetchVersions all
+		// no-op the moment the context is cancelled, so the loop exits at once.
 		<-s.stopped
 	}
 }
 
 // discoverAndPrefetch recursively discovers OCI dependencies from all known
 // services and prefetches their version history.
+// On shutdown the context is cancelled; discoverRepo, depReposForService and
+// prefetchVersions each no-op immediately once that happens, so this drains and
+// returns promptly rather than running every remaining registry call.
 func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 	visited := make(map[string]bool)
 
@@ -227,7 +232,19 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 		queue = append(queue, s.depReposForService(ctx, name)...)
 	}
 
-	// Prefetch all versions for every discovered service (populates cache).
+	s.prefetchVersions(ctx)
+
+	// Rescan the internal cache so GetVersions can enrich with hash,
+	// createdAt, and classification from the newly materialized bundles.
+	s.RescanCache()
+	if s.onDiscover != nil {
+		s.onDiscover()
+	}
+}
+
+// prefetchVersions pulls every semver tag of every discovered repo into the cache.
+// Bails as soon as the context is cancelled so shutdown isn't held up.
+func (s *OCISource) prefetchVersions(ctx context.Context) {
 	s.mu.RLock()
 	repos := make(map[string]string, len(s.repoMap))
 	for name, repo := range s.repoMap {
@@ -236,6 +253,9 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 	s.mu.RUnlock()
 
 	for _, repo := range repos {
+		if ctx.Err() != nil {
+			return
+		}
 		tags, err := s.store.ListTags(ctx, repo)
 		if err != nil {
 			continue
@@ -248,13 +268,6 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 		}
 	}
 
-	// Rescan the internal cache so GetVersions can enrich with hash,
-	// createdAt, and classification from the newly materialized bundles.
-	s.RescanCache()
-	if s.onDiscover != nil {
-		s.onDiscover()
-	}
-
 	slog.Debug("OCI background discovery complete", "services", len(repos))
 }
 
@@ -262,6 +275,9 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 // Returns the service name if successful, empty string otherwise.
 // On failure, records the reason in failedRepos for graph diagnostics.
 func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
+	if ctx.Err() != nil {
+		return ""
+	}
 	tags, err := s.store.ListTags(ctx, repo)
 	if err != nil {
 		logOCIError("OCI ListTags failed", "repo", repo, err)
@@ -315,6 +331,9 @@ func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 // depReposForService returns the OCI repo bases for a service's dependencies
 // and referenced contracts (configuration, policy).
 func (s *OCISource) depReposForService(ctx context.Context, name string) []string {
+	if ctx.Err() != nil {
+		return nil
+	}
 	bundle, err := s.findLatestBundle(ctx, name)
 	if err != nil {
 		return nil

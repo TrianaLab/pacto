@@ -19,6 +19,10 @@ import {
   ownerMatchesFilter,
   ownerIsStructured,
   aggregateByOwner,
+  aggregateGraphByOwner,
+  relatedSubgraph,
+  worstStatus,
+  compareScoresUnassessedLast,
   extractOwnerDetail,
   computeTooltipPosition,
   versionPolicyLabel,
@@ -292,11 +296,11 @@ describe('aggregateByOwner', () => {
     expect(teamA.totalBlast).toBe(3); // 2 + 1 + 0
   });
 
-  it('computes compliance as average of service scores', () => {
+  it('computes compliance as the share of assessed services that are compliant', () => {
     const result = aggregateByOwner(services);
     const teamA = result.find((r) => r.key === 'team-a')!;
-    // avg(100, 60, 100) = 86.67 → 87
-    expect(teamA.compliancePercent).toBe(87);
+    // 2 compliant of 3 assessed (2 Compliant + 1 Warning) → 67
+    expect(teamA.compliancePercent).toBe(67);
   });
 
   it('handles reference-only owner (no compliance scores)', () => {
@@ -580,7 +584,7 @@ describe('aggregateByOwner — sorting/filtering support', () => {
   it('supports sort by compliance % (ascending)', () => {
     const result = aggregateByOwner(services);
     const sorted = [...result].sort((a, b) => a.compliancePercent - b.compliancePercent);
-    // team-b: avg(0)=0%, team-a: avg(100,50)=75%, team-c: avg(100,100)=100%
+    // team-b: 0/1=0%, team-a: 1/2=50%, team-c: 2/2=100% (share of assessed compliant)
     expect(sorted[0].key).toBe('team-b');
     expect(sorted[0].compliancePercent).toBe(0);
   });
@@ -602,7 +606,7 @@ describe('aggregateByOwner — sorting/filtering support', () => {
   it('supports filter: fully compliant (100%)', () => {
     const result = aggregateByOwner(services);
     const filtered = result.filter((o) => o.compliancePercent === 100);
-    // team-c: avg(100,100)=100%
+    // team-c: 2 of 2 assessed compliant → 100%
     expect(filtered).toHaveLength(1);
     expect(filtered[0].key).toBe('team-c');
   });
@@ -612,6 +616,85 @@ describe('aggregateByOwner — sorting/filtering support', () => {
     const filtered = result.filter((o) => o.key.toLowerCase().includes('team-b'));
     expect(filtered).toHaveLength(1);
     expect(filtered[0].key).toBe('team-b');
+  });
+});
+
+describe('worstStatus', () => {
+  it('picks the most severe status present', () => {
+    expect(worstStatus(['Compliant', 'Warning', 'Compliant'])).toBe('Warning');
+    expect(worstStatus(['Compliant', 'NonCompliant', 'Warning'])).toBe('NonCompliant');
+    expect(worstStatus(['Compliant', 'Compliant'])).toBe('Compliant');
+  });
+});
+
+describe('aggregateGraphByOwner', () => {
+  const graph = { nodes: [
+    { id: 'a', serviceName: 'a', status: 'Compliant', edges: [{ targetId: 'b' }, { targetId: 'c' }] },
+    { id: 'b', serviceName: 'b', status: 'Warning', edges: [{ targetId: 'c' }] },
+    { id: 'c', serviceName: 'c', status: 'Compliant', edges: [] },
+  ] };
+  // a,b owned by team-x; c owned by team-y
+  const ownerOf = (n: { id: string }) => (n.id === 'c' ? 'team-y' : 'team-x');
+
+  it('collapses services into one node per owner with cross-owner edges only', () => {
+    const agg = aggregateGraphByOwner(graph, ownerOf);
+    expect(agg.nodes.map((n) => n.id).sort()).toEqual(['team-x', 'team-y']);
+    const x = agg.nodes.find((n) => n.id === 'team-x')!;
+    // a→c and b→c both cross into team-y → a single distinct team-x→team-y edge;
+    // a→b is intra-team and dropped.
+    expect(x.edges!.map((e) => e.targetId)).toEqual(['team-y']);
+    expect(agg.nodes.find((n) => n.id === 'team-y')!.edges).toEqual([]);
+  });
+
+  it('labels a team node with its service count and worst status', () => {
+    const x = aggregateGraphByOwner(graph, ownerOf).nodes.find((n) => n.id === 'team-x')!;
+    expect(x.version).toBe('2 services');
+    expect(x.status).toBe('Warning'); // worst of a(Compliant), b(Warning)
+  });
+});
+
+describe('relatedSubgraph', () => {
+  // core = {a}; a depends on infra; everyoneElse depends on infra too.
+  const graph = { nodes: [
+    { id: 'a', serviceName: 'a', status: 'Compliant', edges: [{ targetId: 'infra' }] },
+    { id: 'infra', serviceName: 'infra', status: 'Compliant', edges: [] },
+    { id: 'x', serviceName: 'x', status: 'Compliant', edges: [{ targetId: 'infra' }] },
+    { id: 'y', serviceName: 'y', status: 'Compliant', edges: [{ targetId: 'a' }] },
+  ] };
+
+  it('by default keeps core + its dependencies only (not dependents)', () => {
+    // Focusing team that owns infra must NOT drag in x and y just because they use it.
+    const sub = relatedSubgraph(graph, (n) => n.id === 'infra');
+    expect(sub.nodes.map((n) => n.id).sort()).toEqual(['infra']);
+  });
+
+  it('keeps core + deps; a core service pulls in what it depends on', () => {
+    const sub = relatedSubgraph(graph, (n) => n.id === 'a');
+    expect(sub.nodes.map((n) => n.id).sort()).toEqual(['a', 'infra']); // not y (a dependent)
+  });
+
+  it('includes dependents when asked', () => {
+    const sub = relatedSubgraph(graph, (n) => n.id === 'a', { includeDependents: true });
+    expect(sub.nodes.map((n) => n.id).sort()).toEqual(['a', 'infra', 'y']);
+  });
+
+  it('returns empty when nothing is core', () => {
+    expect(relatedSubgraph(graph, () => false).nodes).toEqual([]);
+  });
+});
+
+describe('compareScoresUnassessedLast', () => {
+  const sortAsc = (xs: number[]) => [...xs].sort((a, b) => compareScoresUnassessedLast(a, b, 1));
+  const sortDesc = (xs: number[]) => [...xs].sort((a, b) => compareScoresUnassessedLast(a, b, -1));
+
+  it('keeps unassessed (-1) last when sorting ascending', () => {
+    expect(sortAsc([50, -1, 0, 100])).toEqual([0, 50, 100, -1]);
+  });
+  it('keeps unassessed (-1) last when sorting descending', () => {
+    expect(sortDesc([50, -1, 0, 100])).toEqual([100, 50, 0, -1]);
+  });
+  it('orders two unassessed values equally', () => {
+    expect(compareScoresUnassessedLast(-1, -1, 1)).toBe(0);
   });
 });
 
@@ -1038,7 +1121,7 @@ describe('summarize', () => {
     expect(teamA.compliant).toBe(1);
     expect(teamA.warning).toBe(1);
     expect(teamA.totalBlast).toBe(6);
-    expect(teamA.compliancePercent).toBe(80); // (100+60)/2
+    expect(teamA.compliancePercent).toBe(50); // 1 compliant of 2 assessed
     // Readiness composition: a passes (ready), b score 60 not passing (partial).
     expect(teamA.ready).toBe(1);
     expect(teamA.partial).toBe(1);

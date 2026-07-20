@@ -359,6 +359,107 @@ export function aggregateByOwner(services: Array<Record<string, unknown>>): Owne
   return summarize(services).byOwner;
 }
 
+/**
+ * Numeric comparator that always sorts "unassessed" sentinel values (< 0, e.g.
+ * compliancePercent/score of -1) to the END, regardless of sort direction — a
+ * not-yet-assessed row is not the same as a 0% one and must never rank as the
+ * lowest (or highest) real value. `dir` is 1 for ascending, -1 for descending.
+ */
+export function compareScoresUnassessedLast(a: number, b: number, dir: number): number {
+  const au = a < 0, bu = b < 0;
+  if (au && bu) return 0;
+  if (au) return 1;  // a (unassessed) after b
+  if (bu) return -1; // b (unassessed) after a
+  return (a - b) * dir;
+}
+
+// ── Dependency graph aggregation ──
+
+const STATUS_SEVERITY: Record<string, number> = {
+  NonCompliant: 4, Warning: 3, Unknown: 2, external: 1, Reference: 0, Compliant: 0,
+};
+/** The worst (most-severe) status in a set — used to color an aggregated node. */
+export function worstStatus(statuses: Iterable<string>): string {
+  let worst = 'Compliant', sev = -1;
+  for (const s of statuses) {
+    const v = STATUS_SEVERITY[s] ?? 0;
+    if (v > sev) { sev = v; worst = s; }
+  }
+  return worst;
+}
+
+interface GNode { id: string; serviceName: string; status: string; edges?: Array<{ targetId: string; type?: string }> }
+
+/**
+ * A subgraph of the "core" nodes (e.g. one team's services) plus their related
+ * nodes — always their direct dependencies, and (optionally) their direct
+ * dependents. Unrelated services are dropped, so an owner view shows the team and
+ * what it touches, not the whole fleet.
+ *
+ * `includeDependents` defaults to false: when a team owns something everyone
+ * depends on (e.g. postgres), pulling in every dependent would drag in the whole
+ * fleet and defeat the point of focusing the team. Deps are always bounded by
+ * what the team's services actually consume.
+ */
+export function relatedSubgraph<T extends GNode>(
+  graphData: { nodes?: T[] } | null,
+  isCore: (node: T) => boolean,
+  { includeDependents = false }: { includeDependents?: boolean } = {},
+): { nodes: T[] } {
+  const nodes = graphData?.nodes || [];
+  const core = new Set(nodes.filter(isCore).map((n) => n.id));
+  if (!core.size) return { nodes: [] };
+  const keep = new Set(core);
+  for (const n of nodes) {
+    if (core.has(n.id)) for (const e of n.edges || []) keep.add(e.targetId); // deps
+    if (includeDependents) for (const e of n.edges || []) if (core.has(e.targetId)) keep.add(n.id);
+  }
+  return { nodes: nodes.filter((n) => keep.has(n.id)) };
+}
+
+interface AggNode { id: string; serviceName: string; status: string; version?: string; edges?: Array<{ targetId: string; type?: string; required?: boolean }> }
+
+/**
+ * Collapse a service dependency graph into a per-owner one: each owner becomes a
+ * single node (status = its worst service, label = service count), and edges are
+ * the DISTINCT cross-owner dependencies. Answers "which team depends on which".
+ * `ownerLabelOf` maps a service node to its owner label.
+ */
+export function aggregateGraphByOwner(
+  graphData: { nodes?: Array<{ id: string; serviceName: string; status: string; edges?: Array<{ targetId: string; type?: string }> }> } | null,
+  ownerLabelOf: (node: { id: string; serviceName: string; status: string }) => string,
+): { nodes: AggNode[] } {
+  const nodes = graphData?.nodes || [];
+  const ownerOf = new Map<string, string>();
+  for (const n of nodes) ownerOf.set(n.id, ownerLabelOf(n));
+
+  const stats = new Map<string, { count: number; statuses: string[] }>();
+  for (const n of nodes) {
+    const o = ownerOf.get(n.id);
+    if (!o) continue;
+    const a = stats.get(o) ?? stats.set(o, { count: 0, statuses: [] }).get(o)!;
+    a.count++; a.statuses.push(n.status);
+  }
+  const targets = new Map<string, Set<string>>();
+  for (const o of stats.keys()) targets.set(o, new Set());
+  for (const n of nodes) {
+    const so = ownerOf.get(n.id);
+    for (const e of n.edges || []) {
+      const to = ownerOf.get(e.targetId);
+      if (so && to && so !== to) targets.get(so)!.add(to);
+    }
+  }
+  return {
+    nodes: [...stats.entries()].map(([owner, a]) => ({
+      id: owner,
+      serviceName: owner,
+      status: worstStatus(a.statuses),
+      version: `${a.count} service${a.count !== 1 ? 's' : ''}`,
+      edges: [...(targets.get(owner) || [])].map((t) => ({ targetId: t, type: 'dependency', required: true })),
+    })),
+  };
+}
+
 // ── Readiness ──
 
 /** Readiness check revision history entry. */
@@ -626,7 +727,6 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
 
   // Owner aggregation state
   const ownerMap = new Map<string, OwnerAggregation>();
-  const ownerScores = new Map<string, number[]>();
 
   // Category aggregation state
   const categoryMap = new Map<string, CategoryBreakdown>();
@@ -652,7 +752,6 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     if (!agg) {
       agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, totalBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
       ownerMap.set(key, agg);
-      ownerScores.set(key, []);
     }
     agg.services++;
     const status = svc.contractStatus as string;
@@ -662,7 +761,6 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     else if (status === 'Reference') agg.reference++;
     else agg.unknown++;
     agg.totalBlast += (svc.blastRadius as number) || 0;
-    if (svc.complianceScore != null) ownerScores.get(key)!.push(svc.complianceScore as number);
 
     // Readiness aggregation
     const r = (svc as WithReadiness).readiness;
@@ -710,10 +808,13 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
   m.needsAttention = m.warning + m.nonCompliant;
   if (m.assessed > 0) m.compliancePercent = Math.round((m.compliant / m.assessed) * 100);
 
-  // Finalize owner aggregation
-  for (const [key, agg] of ownerMap) {
-    const s = ownerScores.get(key)!;
-    agg.compliancePercent = s.length > 0 ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : -1;
+  // Finalize owner aggregation. compliancePercent is the SHARE of assessed
+  // services that are compliant (matches the fleet metric and the "Compliant N"
+  // count on the same row), or -1 when the owner has nothing assessed. It is NOT
+  // a mean of compliance scores — that read differently from the count beside it.
+  for (const agg of ownerMap.values()) {
+    const assessed = agg.compliant + agg.warning + agg.nonCompliant;
+    agg.compliancePercent = assessed > 0 ? Math.round((agg.compliant / assessed) * 100) : -1;
   }
   m.byOwner = Array.from(ownerMap.values()).sort((a, b) => a.key.localeCompare(b.key));
 

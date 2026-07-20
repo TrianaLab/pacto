@@ -169,6 +169,13 @@
       detail = version ? await api.serviceAtVersion(name, version) : await api.service(name);
       loading = false;
 
+      // Surface failures on load: open Validation (and Dependencies) when the
+      // contract has errors, so the compliance story isn't hidden behind a
+      // collapsed section the user has to hunt for.
+      if ((detail.compliance?.summary?.errors || 0) > 0) {
+        openSections = { ...openSections, validation: true, dependencies: true };
+      }
+
       versionsError = false;
       depsError = false;
       const [vers, deps, refs] = await Promise.all([
@@ -356,10 +363,10 @@
           <ComplianceScore score={detail.compliance.score} />
         {/if}
         {#if detail.compliance.summary?.errors > 0}
-          <span class="badge badge-err">{detail.compliance.summary.errors} error{detail.compliance.summary.errors > 1 ? 's' : ''}</span>
+          <button type="button" class="badge badge-err badge-link" onclick={() => scrollToSection('validation')} data-tip="Jump to Validation">{detail.compliance.summary.errors} error{detail.compliance.summary.errors > 1 ? 's' : ''}</button>
         {/if}
         {#if detail.compliance.summary?.warnings > 0}
-          <span class="badge badge-warn">{detail.compliance.summary.warnings} warning{detail.compliance.summary.warnings > 1 ? 's' : ''}</span>
+          <button type="button" class="badge badge-warn badge-link" onclick={() => scrollToSection('validation')} data-tip="Jump to Validation">{detail.compliance.summary.warnings} warning{detail.compliance.summary.warnings > 1 ? 's' : ''}</button>
         {/if}
       {/if}
       {#if detail.checksSummary && detail.runtimeEvaluated && detail.contractStatus !== 'Reference'}
@@ -502,9 +509,10 @@
   {#if hasDependencyData}
     <DependenciesSection
       id="section-dependencies"
-      {name} {services} {graphData} {dependents} {crossRefs} {isHistorical}
+      {name} {services} {graphData} {dependents} {crossRefs} {isHistorical} {depsError}
       dependencies={detail.dependencies || []}
       source={sectionState('dependencies').source}
+      onRetry={load}
       bind:open={openSections.dependencies}
     />
   {:else}
@@ -802,9 +810,10 @@
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); }
   .pill-override {
-    background: rgba(59, 130, 246, 0.12); color: #2563eb;
+    background: var(--c-info-bg); color: var(--c-info);
     font-size: var(--text-xs); font-weight: 500;
   }
+  .badge-link { border: 0; cursor: pointer; font-family: inherit; }
   .owner-link { text-decoration: none; }
   .owner-link:hover { text-decoration: underline; color: var(--c-text); }
   .text-err { color: var(--c-err); font-size: var(--text-xs); }

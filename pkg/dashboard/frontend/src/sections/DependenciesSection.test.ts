@@ -246,7 +246,7 @@ describe('DependenciesSection — lock and drift rendering', () => {
     document.body.removeChild(target);
   });
 
-  it('renders the GraphPanel toolbar (direction + depth) when graphData is present', () => {
+  it('renders the GraphPanel (zoom controls + legend) when graphData is present', () => {
     const component = mount(DependenciesSection, {
       target,
       props: {
@@ -260,11 +260,10 @@ describe('DependenciesSection — lock and drift rendering', () => {
       },
     });
 
-    // GraphPanel owns the direction/depth toolbar (showDirectionDepth); confirm it renders.
-    expect(target.querySelector('.dep-graph-toolbar')).toBeTruthy();
+    // The graph renders with zoom controls + legend (direction/depth toolbar was
+    // replaced by the uniform hover/click directional spotlight).
     expect(target.querySelector('.graph-controls')).toBeTruthy();
     expect(target.querySelector('.graph-legend')).toBeTruthy();
-    expect(target.textContent).toContain('Depth');
 
     unmount(component);
     document.body.removeChild(target);

@@ -5,7 +5,7 @@
 
   let {
     graphData = null, focusId = null, height = 400, onNavigate, filterFn, focusNodes = null,
-    layout = 'force', direction = 'down', depth = 2, childCap = 12,
+    layout = 'force', direction = 'down', depth = 2, childCap = 12, groups = null,
   } = $props();
 
   let containerEl = $state(null);
@@ -27,9 +27,19 @@
     let data = null;
     let hidden;
     if (isLayered && focusId) {
-      const r = computeVisible(graphData, { rootId: focusId, direction, depth, expanded, childCap });
-      data = { nodes: r.nodes };
-      hidden = r.hidden;
+      // 'both' unions the down-cone (dependencies) and up-cone (dependents) around
+      // the focus so both questions are answered at once; the toolbar can isolate one.
+      if (direction === 'both') {
+        const down = computeVisible(graphData, { rootId: focusId, direction: 'down', depth, expanded, childCap });
+        const up = computeVisible(graphData, { rootId: focusId, direction: 'up', depth, expanded, childCap });
+        const byId = new Map();
+        for (const n of [...down.nodes, ...up.nodes]) byId.set(n.id, n);
+        data = { nodes: [...byId.values()] };
+      } else {
+        const r = computeVisible(graphData, { rootId: focusId, direction, depth, expanded, childCap });
+        data = { nodes: r.nodes };
+        hidden = r.hidden;
+      }
     } else if (focusId) {
       data = extractSubgraph(graphData, focusId);
     } else {
@@ -47,6 +57,7 @@
       filterFn,
       focusNodes: focusNodes || undefined,
       layout,
+      groups: groups || undefined,
       hidden,
       onExpand,
     });
@@ -56,12 +67,30 @@
     return () => { if (instance) instance.destroy(); };
   });
 
+  // Structure signature: re-init (and re-run the layout) ONLY when the graph's
+  // shape actually changes — not on every background poll, which re-creates the
+  // services array / groups map with identical content and would otherwise re-lay
+  // out the whole graph every 1-2s and throw away the user's view.
+  function structureSig() {
+    if (!graphData?.nodes) return '';
+    const ns = graphData.nodes.map((n) => n.id).sort().join(',');
+    const es = graphData.nodes
+      .flatMap((n) => (n.edges || []).map((e) => `${n.id}>${e.targetId}:${e.type || ''}`))
+      .sort().join(',');
+    const gs = groups ? [...groups.entries()].map(([k, v]) => `${k}=${v}`).sort().join(',') : '';
+    return [ns, es, gs, focusId, layout, direction, depth, renderVersion].join('||');
+  }
+  let lastSig = '';
+
   $effect(() => {
-    // Re-render on data/layout/tree-shape changes (not callback props).
-    const _ = [graphData, focusId, containerEl, layout, direction, depth, renderVersion];
-    if (graphData && containerEl) {
-      untrack(() => init());
-    }
+    // Track the inputs so the effect re-runs, but only re-init when the signature
+    // (structure) changed — a poll with unchanged content is a no-op.
+    const _ = [graphData, focusId, containerEl, layout, direction, depth, renderVersion, groups];
+    if (!graphData || !containerEl) return;
+    const sig = structureSig();
+    if (sig === lastSig) return;
+    lastSig = sig;
+    untrack(() => init());
   });
 
   export function zoomIn() { instance?.zoomIn(); }

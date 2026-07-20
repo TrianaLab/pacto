@@ -105,6 +105,10 @@ export function diffUrl(name: string, from?: string, to?: string): string {
   return str ? `${url}?${str}` : url;
 }
 
+export function graphUrl(): string {
+  return '#/graph';
+}
+
 export function ownersUrl(): string {
   return '#/owners';
 }

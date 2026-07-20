@@ -1,40 +1,54 @@
 /**
- * Pure layout helpers for the layered (hierarchical) graph mode.
- * No DOM, no d3 — data in, data out — so it is fully unit-testable.
+ * Pure layout helpers for the dependency-tree view. No DOM — data in, data out —
+ * so they are fully unit-testable. (Cytoscape/dagre computes the initial layered
+ * positions; wrapWideRanks post-processes them.)
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-import dagre from '@dagrejs/dagre';
 import type { GraphNode, GraphData } from './graph.ts';
 
-export interface LayeredOptions {
-  direction?: 'TB' | 'LR';
-  nodeW: number;
-  nodeH: number;
-  nodesep?: number;
-  ranksep?: number;
-}
-
-/** Compute node center positions with a Sugiyama layered layout (dagre). */
-export function layeredPositions(
-  nodes: GraphNode[],
-  links: Array<{ source: string; target: string }>,
-  { direction = 'TB', nodeW, nodeH, nodesep = 40, ranksep = 70 }: LayeredOptions,
-): Map<string, { x: number; y: number }> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const g = new (dagre as any).graphlib.Graph();
-  g.setGraph({ rankdir: direction, nodesep, ranksep, marginx: 20, marginy: 20 });
-  g.setDefaultEdgeLabel(() => ({}));
-  const ids = new Set(nodes.map((nn) => nn.id));
-  for (const nn of nodes) g.setNode(nn.id, { width: nodeW, height: nodeH });
-  for (const l of links) if (ids.has(l.source) && ids.has(l.target)) g.setEdge(l.source, l.target);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (dagre as any).layout(g);
-  const pos = new Map<string, { x: number; y: number }>();
-  for (const nn of nodes) {
-    const gn = g.node(nn.id);
-    if (gn) pos.set(nn.id, { x: gn.x, y: gn.y });
+/**
+ * Fold any rank wider than `maxWidth` into stacked sub-rows. In a layered
+ * dependency tree one level (e.g. ~15 mid-tier services) is often far wider than
+ * the others (2-3 roots, a few shared-infra sinks); left as a single row it makes
+ * the whole tree an illegible band. Wrapping that level into a compact block of
+ * rows keeps every level balanced and the tree readable in one view. Within-rank
+ * order (dagre's crossing-minimised x) is preserved, each row is re-centred, and
+ * lower ranks are pushed down by the height the wrap added. Mutates `pos`.
+ */
+export function wrapWideRanks(
+  pos: Map<string, { x: number; y: number }>,
+  { nodeW, nodeH, nodesep, ranksep, maxWidth }:
+    { nodeW: number; nodeH: number; nodesep: number; ranksep: number; maxWidth: number },
+): void {
+  const entries = [...pos.entries()];
+  if (!entries.length) return;
+  const byRank = new Map<number, string[]>();
+  for (const [id, p] of entries) {
+    const key = Math.round(p.y);
+    (byRank.get(key) ?? byRank.set(key, []).get(key)!).push(id);
   }
-  return pos;
+  const rankKeys = [...byRank.keys()].sort((a, b) => a - b);
+  const maxCols = Math.max(1, Math.floor(maxWidth / (nodeW + nodesep)));
+  if (![...byRank.values()].some((r) => r.length > maxCols)) return;
+
+  const xs = entries.map(([, p]) => p.x);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const step = nodeW + nodesep;
+  // Sub-rows of the same rank sit closer together than a full rank gap so they
+  // read as one tier, not as separate dependency levels.
+  const subRowH = nodeH + ranksep * 0.45;
+  let top = rankKeys[0];
+  for (const key of rankKeys) {
+    const ids = byRank.get(key)!.sort((a, b) => pos.get(a)!.x - pos.get(b)!.x);
+    const rows = Math.ceil(ids.length / maxCols);
+    // Balance the rows (e.g. 15 over 3 rows → 5/5/5, not 6/6/3).
+    const perRow = Math.ceil(ids.length / rows);
+    for (let r = 0; r < rows; r++) {
+      const rowIds = ids.slice(r * perRow, (r + 1) * perRow);
+      const startX = cx - ((rowIds.length - 1) * step) / 2;
+      rowIds.forEach((id, i) => pos.set(id, { x: startX + i * step, y: top + r * subRowH }));
+    }
+    top += (rows - 1) * subRowH + nodeH + ranksep;
+  }
 }
 
 export interface VisibleOptions {

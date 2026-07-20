@@ -1,9 +1,10 @@
 <script>
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { serviceUrl } from '../lib/router.ts';
+  import { serviceUrl, compareDiffUrl } from '../lib/router.ts';
   import { classificationClass } from '../lib/format.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
 
   let {
     name = '',
@@ -62,6 +63,9 @@
 
   async function runDiff() {
     if (!fromName || !toName || !fromVer || !toVer) return;
+    // Reflect the selection in the URL so a comparison is shareable and survives
+    // reload. replaceState avoids a hashchange round-trip (state is seeded once).
+    history.replaceState(null, '', compareDiffUrl({ fromName, fromVer, toName, toVer }));
     loading = true;
     error = null;
     result = null;
@@ -83,7 +87,9 @@
     toName = tmpName;
     toVer = tmpVer;
     toVersions = tmpVersions;
-    result = null;
+    // Re-run with the swapped sides rather than blanking the result pane.
+    if (fromName && toName && fromVer && toVer) runDiff();
+    else result = null;
   }
 
   // Service names for dropdowns
@@ -176,15 +182,23 @@
 
 {#if result}
   <div class="diff-result">
-    <div class="diff-summary">
-      <span class="badge {classificationClass(result.classification)}">{result.classification.replace(/_/g, ' ')}</span>
-      <span class="text-2">{result.changes?.length || 0} change{(result.changes?.length ?? 0) !== 1 ? 's' : ''}</span>
-      {#if !isSameService}
-        <span class="text-3">({fromName} {fromVer} vs {toName} {toVer})</span>
-      {/if}
-    </div>
+    {#if (result.changes?.length ?? 0) === 0}
+      <EmptyState
+        title="No differences"
+        message={isSameService
+          ? `${fromVer} and ${toVer} are identical.`
+          : `${fromName} ${fromVer} and ${toName} ${toVer} are identical.`} />
+    {:else}
+      <div class="diff-summary">
+        <span class="badge {classificationClass(result.classification)}">{result.classification.replace(/_/g, ' ')}</span>
+        <span class="text-2">{result.changes.length} change{result.changes.length !== 1 ? 's' : ''}</span>
+        {#if !isSameService}
+          <span class="text-3">({fromName} {fromVer} vs {toName} {toVer})</span>
+        {/if}
+      </div>
 
-    <DiffChangesTable changes={result.changes || []} />
+      <DiffChangesTable changes={result.changes} />
+    {/if}
   </div>
 {/if}
 

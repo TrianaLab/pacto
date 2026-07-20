@@ -9,6 +9,7 @@
     onNavigate,
     filterFn = null,
     layout = 'force',
+    groups = null,
     showZoom = true,
     showLegend = true,
     showDirectionDepth = false,
@@ -19,7 +20,7 @@
   // thereafter, so capturing only the initial value is intended.
   // svelte-ignore state_referenced_locally
   let direction = $state(initialDirection);
-  let depth = $state(2);
+  let depth = $state(1);
   let graphRef = $state(null);
 
   function setDirection(d) {
@@ -42,7 +43,8 @@
 <div class="graph-panel">
   {#if showDirectionDepth}
     <div class="dep-graph-toolbar">
-      <div class="seg" role="group" aria-label="Tree direction">
+      <div class="seg" role="group" aria-label="Dependency direction">
+        <button type="button" class="seg-btn" class:active={direction === 'both'} aria-pressed={direction === 'both'} onclick={() => setDirection('both')}>Both</button>
         <button type="button" class="seg-btn" class:active={direction === 'down'} aria-pressed={direction === 'down'} onclick={() => setDirection('down')}>Depends on</button>
         <button type="button" class="seg-btn" class:active={direction === 'up'} aria-pressed={direction === 'up'} onclick={() => setDirection('up')}>Depended on by</button>
       </div>
@@ -61,7 +63,7 @@
       <div class="graph-controls">
         <button type="button" class="btn btn-sm" onclick={() => graphRef?.zoomIn()} title="Zoom in">+</button>
         <button type="button" class="btn btn-sm" onclick={() => graphRef?.zoomOut()} title="Zoom out">−</button>
-        <button type="button" class="btn btn-sm" onclick={() => graphRef?.reset()} title="Reset view">↻</button>
+        <button type="button" class="btn btn-sm" onclick={() => graphRef?.resetView()} title="Reset view">↻</button>
       </div>
     {/if}
 
@@ -71,6 +73,7 @@
       {focusId}
       {focusNodes}
       {layout}
+      {groups}
       {direction}
       {depth}
       {height}
@@ -82,18 +85,18 @@
   {#if showLegend}
     <div class="graph-legend">
       <span class="legend-item" data-tip="All contract checks pass"><span class="legend-dot" style="background:var(--c-ok)"></span> Compliant</span>
-      <span class="legend-item" data-tip="Some contract checks fail (warnings or errors)"><span class="legend-dot" style="background:var(--c-warn)"></span> Warning</span>
+      <span class="legend-item" data-tip="Some contract checks fail with warnings"><span class="legend-dot" style="background:var(--c-warn)"></span> Warning</span>
       <span class="legend-item" data-tip="The contract has validation errors"><span class="legend-dot" style="background:var(--c-err)"></span> Non-Compliant</span>
       <span class="legend-item" data-tip="Contract status could not be determined"><span class="legend-dot" style="background:var(--c-neutral)"></span> Unknown</span>
+      <span class="legend-item" data-tip="Shared contract definition with no deployed workload"><span class="legend-dot" style="background:#60a5fa"></span> Reference</span>
       <span class="legend-sep">|</span>
       <span class="legend-item" data-tip="Non-OCI dependency — not a contract-backed service"><span class="legend-dot" style="background:var(--c-text-3)"></span> External</span>
       <span class="legend-item" data-tip="Registry authentication failed"><span class="legend-dot" style="background:var(--c-err)"></span> Auth required</span>
       <span class="legend-item" data-tip="OCI repo found but no valid semver tags, or registry unreachable"><span class="legend-dot" style="background:var(--c-warn)"></span> Not found / No versions</span>
       <span class="legend-item" data-tip="Background OCI discovery still running"><span class="legend-dot legend-dot-pulse" style="background:var(--c-accent)"></span> Discovering</span>
       <span class="legend-sep">|</span>
-      <span class="legend-item"><span class="legend-line solid"></span> required</span>
-      <span class="legend-item"><span class="legend-line dashed"></span> optional</span>
-      <span class="legend-item"><span class="legend-line ref"></span> reference</span>
+      <span class="legend-item" data-tip="On focus: what this service depends on"><span class="legend-line dep"></span> depends on</span>
+      <span class="legend-item" data-tip="On focus: what depends on this service (blast radius)"><span class="legend-line dependent"></span> depended on by</span>
     </div>
   {/if}
 </div>
@@ -205,16 +208,12 @@
     height: 0;
   }
 
-  .legend-line.solid {
-    border-top: 2px solid var(--c-text-2);
+  .legend-line.dep {
+    border-top: 2.5px solid var(--c-accent);
   }
 
-  .legend-line.dashed {
-    border-top: 1px dashed var(--c-text-3);
-  }
-
-  .legend-line.ref {
-    border-top: 1.5px dashed var(--c-accent);
+  .legend-line.dependent {
+    border-top: 2.5px solid var(--c-warn);
   }
 
   @media (max-width: 768px) {
