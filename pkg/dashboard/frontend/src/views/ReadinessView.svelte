@@ -329,7 +329,10 @@
      to .readiness-list so the nested .expand-table keeps its own widths. */
   .readiness-list { table-layout: fixed; }
   .readiness-list th { white-space: normal; }
-  .readiness-list td { overflow: visible; }
+  /* Direct rows only: overflow:visible lets outer-cell tooltips escape, but must
+     NOT cascade into the nested .expand-table — it would defeat .evidence-cell's
+     overflow:hidden ellipsis and spill evidence text past the table edge. */
+  .readiness-list > tbody > tr > td { overflow: visible; }
   .rl-service { width: auto; }
   .rl-owner { width: 18%; }
   .rl-score { width: 11%; }
