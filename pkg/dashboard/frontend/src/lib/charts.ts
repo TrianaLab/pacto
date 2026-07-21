@@ -11,17 +11,22 @@ import { readinessBucketLabel } from './format';
  */
 class ChartTooltip {
   private el: HTMLDivElement;
+  private container: HTMLElement | null = null;
 
   constructor() {
     this.el = document.createElement('div');
+    // max-width + wrap so a long label can't render as one line that runs off
+    // the page (html/body are overflow-x:clip, so the spill would be cut).
     this.el.style.cssText = `
       position: absolute;
       padding: 6px 14px;
+      max-width: min(320px, 90vw);
       background: var(--c-surface-raised);
       color: var(--c-text);
       font-size: var(--text-xs);
       font-weight: 500;
-      white-space: nowrap;
+      white-space: normal;
+      overflow-wrap: anywhere;
       border-radius: var(--radius-xs);
       border: 1px solid var(--c-border);
       box-shadow: var(--shadow-md);
@@ -34,9 +39,13 @@ class ChartTooltip {
 
   show(content: string, x: number, y: number) {
     this.el.textContent = content;
-    this.el.style.left = `${x}px`;
-    this.el.style.top = `${y}px`;
     this.el.style.opacity = '1';
+    // Clamp within the container (coords are container-relative) so the tooltip
+    // never overflows the chart edge and gets clipped by the page.
+    const cw = this.container?.clientWidth ?? Infinity;
+    const left = Math.max(0, Math.min(x, cw - this.el.offsetWidth));
+    this.el.style.left = `${left}px`;
+    this.el.style.top = `${Math.max(0, y)}px`;
   }
 
   hide() {
@@ -46,6 +55,7 @@ class ChartTooltip {
   attach(container: HTMLElement) {
     container.style.position = 'relative';
     container.appendChild(this.el);
+    this.container = container;
   }
 }
 

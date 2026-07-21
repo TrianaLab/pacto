@@ -181,6 +181,13 @@
     align-items: center;
     gap: 5px;
   }
+  /* The legend sits at the bottom of the graph box, which clips overflow (rounded
+     corners). Render its tooltips upward, into the graph area, so they aren't cut
+     off. Higher specificity than the global [data-tip]::after rule. */
+  .graph-legend .legend-item[data-tip]::after {
+    top: auto;
+    bottom: calc(100% + 6px);
+  }
 
   .legend-dot {
     width: 9px;

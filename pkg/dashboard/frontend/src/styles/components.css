@@ -62,6 +62,18 @@
   transition: background var(--transition);
 }
 
+/* Pills/badges are nowrap by default, which is right inline. But inside a
+   fixed-layout table cell a long tag (e.g. a "backup-recovery" category) can't
+   shrink and — with the cell's overflow:visible — bleeds into the next column.
+   Inside any table cell, cap tags to the column and wrap (breaking a long word
+   if needed) so they can never overlap a neighbouring cell. */
+td .pill,
+td .badge {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* ─── Button ─── */
 .btn {
   display: inline-flex;
@@ -299,7 +311,12 @@ select {
   color: var(--c-text);
   font-size: var(--text-xs);
   font-weight: 500;
-  white-space: nowrap;
+  /* Cap width and wrap: a long tip must not render as one line that runs off the
+     viewport edge (the page is overflow-x:clip, so the spill is silently cut). */
+  max-width: min(320px, 90vw);
+  width: max-content;
+  white-space: normal;
+  overflow-wrap: anywhere;
   border-radius: var(--radius-xs);
   border: 1px solid var(--c-border);
   box-shadow: var(--shadow-md);
@@ -313,10 +330,15 @@ select {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
-/* Align tooltip to right edge when near right side of viewport */
+/* Align tooltip to an edge when the host is near that side of the viewport, so
+   the centered box can't overflow off-screen (set manually, or automatically by
+   lib/tooltips.ts). */
 [data-tip-align="right"]::after { left: auto; right: 0; transform: translateY(-4px); }
 [data-tip-align="right"]:hover::after,
 [data-tip-align="right"]:focus-visible::after { transform: translateY(0); }
+[data-tip-align="left"]::after { left: 0; right: auto; transform: translateY(-4px); }
+[data-tip-align="left"]:hover::after,
+[data-tip-align="left"]:focus-visible::after { transform: translateY(0); }
 
 /* Keyboard focus rings for the SVG graph's focusable nodes and "+N" chips. */
 .nodes > g:focus-visible { outline: none; }

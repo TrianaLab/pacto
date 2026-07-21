@@ -9,6 +9,7 @@
 {#if hasContent}
   <CollapsibleSection title="SBOM" count={packages.length} bind:open {id} {source}>
     <p class="sbom-format">Format <code>{sbom.format}</code> · {packages.length} packages</p>
+    <div class="table-wrap">
     <table class="sbom-table">
       <thead><tr><th>Package</th><th>Version</th><th>License</th><th>Supplier</th></tr></thead>
       <tbody>
@@ -22,6 +23,7 @@
         {/each}
       </tbody>
     </table>
+    </div>
   </CollapsibleSection>
 {/if}
 
