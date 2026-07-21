@@ -184,9 +184,9 @@
               </td>
               <td>
                 {#if row.ownerName === '(unowned)'}
-                  <span class="text-dim">{row.ownerName}</span>
+                  <span class="text-dim owner-name">{row.ownerName}</span>
                 {:else}
-                  <a href={ownerUrl(row.ownerName)} onclick={(e) => { e.stopPropagation(); setFilter('owner', row.ownerName); }}>{row.ownerName}</a>
+                  <a class="owner-name" href={ownerUrl(row.ownerName)} onclick={(e) => { e.stopPropagation(); setFilter('owner', row.ownerName); }}>{row.ownerName}</a>
                 {/if}
               </td>
               <td>
@@ -309,6 +309,9 @@
   .cat-name {
     background: none; border: none; padding: 0; font: inherit; font-weight: 600;
     color: var(--c-accent); cursor: pointer;
+    /* Wrap long category names so they stay inside the fixed column rather than
+       bleeding into Status (the cell inherits nowrap from the th,td rule). */
+    white-space: normal; overflow-wrap: anywhere; text-align: left;
   }
   .cat-name:hover { text-decoration: underline; }
 
@@ -351,6 +354,11 @@
     vertical-align: middle;
   }
   .service-name:hover { text-decoration: underline; }
+  /* Truncate long owner names so they can't bleed into the Score column. */
+  .owner-name {
+    display: inline-block; max-width: 100%; vertical-align: middle;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .text-dim { color: var(--c-text-3); }
   .text-ok { color: var(--c-ok); }
   .text-warn { color: var(--c-warn); }
