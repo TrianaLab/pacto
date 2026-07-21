@@ -330,10 +330,15 @@ select {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
-/* Align tooltip to right edge when near right side of viewport */
+/* Align tooltip to an edge when the host is near that side of the viewport, so
+   the centered box can't overflow off-screen (set manually, or automatically by
+   lib/tooltips.ts). */
 [data-tip-align="right"]::after { left: auto; right: 0; transform: translateY(-4px); }
 [data-tip-align="right"]:hover::after,
 [data-tip-align="right"]:focus-visible::after { transform: translateY(0); }
+[data-tip-align="left"]::after { left: 0; right: auto; transform: translateY(-4px); }
+[data-tip-align="left"]:hover::after,
+[data-tip-align="left"]:focus-visible::after { transform: translateY(0); }
 
 /* Keyboard focus rings for the SVG graph's focusable nodes and "+N" chips. */
 .nodes > g:focus-visible { outline: none; }

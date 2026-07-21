@@ -17,6 +17,7 @@
 {#if hasContent}
   <CollapsibleSection title="Agent Capabilities" {count} bind:open {id} {source}>
     {#if capabilities?.length > 0}
+      <div class="table-wrap">
       <table class="cap-table">
         <thead><tr><th>Method</th><th>Path</th><th>Tool</th><th>Summary</th></tr></thead>
         <tbody>
@@ -35,6 +36,7 @@
           {/each}
         </tbody>
       </table>
+      </div>
     {/if}
 
     {#if skills?.length > 0}

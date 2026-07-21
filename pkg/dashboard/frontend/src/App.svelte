@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { parseHash } from './lib/router.ts';
   import { syncFromHash } from './lib/filters.svelte.ts';
+  import { initTooltipPlacement } from './lib/tooltips.ts';
   import { api } from './lib/api.ts';
   import Navbar from './Navbar.svelte';
   import ServiceListView from './views/ServiceListView.svelte';
@@ -100,11 +101,13 @@
 
   onMount(() => {
     window.addEventListener('hashchange', onHashChange);
+    const teardownTips = initTooltipPlacement();
     loadGlobal();
     // Start with fast polling; loadGlobal adjusts interval based on discovery state
     if (!(globalThis).__PACTO_STATIC__) { reloadTimer = setInterval(loadGlobal, POLL_FAST); }
     return () => {
       window.removeEventListener('hashchange', onHashChange);
+      teardownTips();
       if (reloadTimer) clearInterval(reloadTimer);
     };
   });
