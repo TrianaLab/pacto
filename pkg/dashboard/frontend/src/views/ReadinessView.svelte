@@ -18,15 +18,19 @@
   import SummaryBar from '../components/SummaryBar.svelte';
   import CategoryBreakdownChart from '../components/CategoryBreakdownChart.svelte';
   import ReadinessDonut from '../components/ReadinessDonut.svelte';
+  import PriorityQuadrant from '../components/PriorityQuadrant.svelte';
+  import ReadinessHeatmap from '../components/ReadinessHeatmap.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ReadinessScore from '../components/ReadinessScore.svelte';
   import SortControls from '../components/SortControls.svelte';
+  import { quadrantData, heatmapData } from '../lib/chartData.ts';
 
   let { services = [], initialLoading = false } = $props();
 
   let sortBy = $state('score');
   let sortAsc = $state(false);
   let expandedService = $state(null);
+  let breakdown = $state('category');
 
   // The visible set is driven by the shared filter store (FilterBar writes to it).
   const filters = $derived(getFilters());
@@ -118,21 +122,37 @@
     <p class="empty-hint">
       No service declares a <code>readiness</code> block yet — all are shown as <em>Not configured</em>.
     </p>
-  {/if}
-
-  <!-- Readiness charts: side-by-side in a responsive row -->
-  {#if summary.configured > 0 || byCategory.length > 0}
-    <div class="chart-row fade-in-up">
-      {#if summary.configured > 0}
+  {:else}
+    <div class="charts-container fade-in-up">
+      <!-- Focal pair: Where we stand + What to fix first -->
+      <div class="focal-pair">
         <div class="chart-panel">
-          <div class="chart-title">Status Distribution</div>
+          <div class="chart-title">Where we stand</div>
           <ReadinessDonut data={{ ready: summary.ready, partial: summary.partial, notReady: summary.notReady, notConfigured: summary.notConfigured }} />
         </div>
-      {/if}
-      {#if byCategory.length > 0}
         <div class="chart-panel">
-          <div class="chart-title">By category</div>
+          <div class="chart-title">What to fix first</div>
+          <PriorityQuadrant data={quadrantData(filtered)} onSelect={(name) => location.hash = serviceUrl(name)} />
+        </div>
+      </div>
+
+      <!-- Breakdown toggle: By category / By team / None -->
+      <div class="breakdown-controls">
+        <div class="seg" role="group" aria-label="Breakdown view">
+          <button type="button" class="seg-btn" class:active={breakdown === 'category'} aria-pressed={breakdown === 'category'} onclick={() => breakdown = 'category'}>By category</button>
+          <button type="button" class="seg-btn" class:active={breakdown === 'team'} aria-pressed={breakdown === 'team'} onclick={() => breakdown = 'team'}>By team</button>
+          <button type="button" class="seg-btn" class:active={breakdown === 'none'} aria-pressed={breakdown === 'none'} onclick={() => breakdown = 'none'}>None</button>
+        </div>
+      </div>
+
+      <!-- Breakdown region driven by toggle -->
+      {#if breakdown === 'category' && byCategory.length > 0}
+        <div class="chart-panel">
           <CategoryBreakdownChart data={byCategory} />
+        </div>
+      {:else if breakdown === 'team'}
+        <div class="chart-panel">
+          <ReadinessHeatmap data={heatmapData(filtered)} />
         </div>
       {/if}
     </div>
@@ -295,16 +315,50 @@
   }
 
   /* ── Chart panels ── */
-  .chart-row {
+  .charts-container {
+    max-width: 900px;
+    margin: 0 auto var(--sp-4);
+  }
+
+  .focal-pair {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: var(--sp-4);
     margin-bottom: var(--sp-4);
   }
-  .chart-panel { /* now inside chart-row */ }
+
+  .chart-panel { /* now inside focal-pair or breakdown region */ }
+
   .chart-title {
     font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--c-text-3); margin-bottom: var(--sp-2);
+  }
+
+  .breakdown-controls {
+    display: flex;
+    justify-content: center;
+    margin-bottom: var(--sp-4);
+  }
+
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+
+  .seg-btn {
+    padding: 4px 10px;
+    font-size: var(--text-xs);
+    background: var(--c-surface);
+    color: var(--c-text-3);
+    border: 0;
+    cursor: pointer;
+  }
+
+  .seg-btn.active {
+    background: var(--c-accent);
+    color: #fff;
   }
   .cat-name {
     background: none; border: none; padding: 0; font: inherit; font-weight: 600;

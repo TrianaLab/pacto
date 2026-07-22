@@ -70,14 +70,16 @@ describe('ReadinessView — shared filters + category breakdown', () => {
     const panels = target.querySelectorAll('.chart-panel');
     expect(panels.length).toBeGreaterThan(0);
     const text = target.textContent || '';
-    expect(text).toContain('By category');
+    // Default breakdown='category', so CategoryBreakdownChart renders
+    expect(text).toContain('By category'); // segmented button
     unmount(component);
   });
 
-  it('renders a readiness status donut chart', () => {
+  it('renders a readiness status donut chart in the focal pair', () => {
     const component = mount(ReadinessView, { target, props: { services } });
     const text = target.textContent || '';
-    expect(text).toContain('Status Distribution');
+    expect(text).toContain('Where we stand'); // donut panel title
+    expect(text).toContain('What to fix first'); // quadrant panel title
     unmount(component);
   });
 
