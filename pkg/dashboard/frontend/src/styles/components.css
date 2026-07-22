@@ -1,3 +1,18 @@
+/* ─── Chartkit / Soft Depth tokens ─── */
+:root {
+  --chart-shadow: 0 4px 10px rgba(2,6,23,.35);
+  --chart-radius: 6px;
+  --c-ok-light: #6ee7b7;
+  --c-warn-light: #fcd34d;
+  --c-err-light: #fda4af;
+}
+[data-theme="light"] {
+  --chart-shadow: 0 4px 8px rgba(15,23,42,.14);
+  --c-ok-light: #4ade80;
+  --c-warn-light: #fbbf24;
+  --c-err-light: #fb7185;
+}
+
 /* ─── Card ─── */
 .card {
   background: var(--c-surface);
