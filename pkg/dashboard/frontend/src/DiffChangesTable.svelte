@@ -74,11 +74,14 @@
   .diff-table th { white-space: normal; }
   .diff-table td { overflow: visible; white-space: nowrap; }
   .diff-table td:first-child { white-space: normal; }
-  .dc-path { width: auto; }
-  .dc-change { width: 12%; }
-  .dc-old { width: 28%; }
-  .dc-new { width: 28%; }
-  .dc-impact { width: 16%; }
+  /* PATH gets the most room (it holds long dotted identifiers); Old/New hold
+     short scalar values (long ones expand), so they don't need to dominate. This
+     keeps most paths on one line and the rest to a clean 2-line boundary wrap. */
+  .dc-path { width: auto; } /* ~34% of the remaining space */
+  .dc-change { width: 8%; }
+  .dc-old { width: 22%; }
+  .dc-new { width: 22%; }
+  .dc-impact { width: 14%; }
   /* Wrap long dotted paths at their natural boundaries (via <wbr> from
      breakableIdentifierHtml), never mid-word. break-word is only a last-resort
      fallback for a single segment longer than the column. */
