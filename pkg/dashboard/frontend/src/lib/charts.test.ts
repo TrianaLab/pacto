@@ -320,4 +320,10 @@ describe('renderVersionTimeline', () => {
     renderVersionTimeline(c2, []);
     expect(c2.textContent).toContain('No version history');
   });
+
+  it('handles a single version without collapsing', () => {
+    const c = document.createElement('div');
+    renderVersionTimeline(c, [{ version: '1.0.0', at: 1735689600000, classification: 'NON_BREAKING', isCurrent: true }]);
+    expect(c.querySelectorAll('svg circle').length).toBeGreaterThanOrEqual(1);
+  });
 });

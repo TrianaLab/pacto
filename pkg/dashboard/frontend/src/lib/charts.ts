@@ -1048,8 +1048,9 @@ export function renderVersionTimeline(
   const innerHeight = height - margin.top - margin.bottom;
 
   // Time scale
-  const extent = d3.extent(data, (d) => d.at) as [number, number];
-  const x = d3.scaleTime().domain(extent).range([0, innerWidth]);
+  let [min, max] = d3.extent(data, (d) => d.at) as [number, number];
+  if (min === max) { const day = 86400000; min -= day; max += day; }
+  const x = d3.scaleTime().domain([min, max]).range([0, innerWidth]);
 
   // Classification color map (status palette)
   const classColor: Record<string, string> = {
@@ -1084,7 +1085,7 @@ export function renderVersionTimeline(
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
       d3.select(this).transition().duration(150).attr('opacity', 0.8);
-      const dateStr = new Date(d.at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      const dateStr = (!d.at || isNaN(d.at)) ? '—' : new Date(d.at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
       const classStr = d.classification ? d.classification.replace(/_/g, ' ').toLowerCase() : '—';
       const content = `${d.version} · ${dateStr} · ${classStr}`;
       tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
