@@ -40,7 +40,7 @@
             <td><code>{@html breakableIdentifierHtml(change.path)}</code></td>
             <td><span class={changeTypeClass(change.type)}>{change.type}</span></td>
             <td>
-              <pre class="diff-value" class:diff-value-collapsed={canExpand && !isExpanded}>{oldText}</pre>
+              <pre class="diff-value" class:diff-value-collapsed={canExpand && !isExpanded}>{@html breakableIdentifierHtml(oldText)}</pre>
               {#if canExpand}
                 <button type="button" class="expand-toggle" onclick={() => toggleExpand(idx)}>
                   {isExpanded ? 'collapse' : 'expand'}
@@ -48,7 +48,7 @@
               {/if}
             </td>
             <td>
-              <pre class="diff-value" class:diff-value-collapsed={canExpand && !isExpanded}>{newText}</pre>
+              <pre class="diff-value" class:diff-value-collapsed={canExpand && !isExpanded}>{@html breakableIdentifierHtml(newText)}</pre>
               {#if canExpand}
                 <button type="button" class="expand-toggle" onclick={() => toggleExpand(idx)}>
                   {isExpanded ? 'collapse' : 'expand'}
@@ -94,7 +94,10 @@
     background: var(--c-surface);
     border-radius: var(--radius-xs);
     white-space: pre-wrap;
-    word-break: break-word;
+    /* Prefer the <wbr> boundary breaks from breakableIdentifierHtml; only break a
+       word mid-character as a last resort (e.g. a single 60-char unbroken token). */
+    word-break: normal;
+    overflow-wrap: break-word;
   }
   .diff-value-collapsed {
     max-height: 3.2em;
