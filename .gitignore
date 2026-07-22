@@ -29,3 +29,4 @@ config.yaml
 pactos/*/interfaces/openapi.json
 pactos/*/configuration/schema.json
 pactos/*/sbom/
+.superpowers/

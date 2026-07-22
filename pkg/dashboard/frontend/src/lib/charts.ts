@@ -532,3 +532,119 @@ export function renderOwnerBars(
     legendX += swatch + swatchGap + d.label.length * charW + itemGap;
   });
 }
+
+/** Status→gradient fill map for treemap tiles. */
+const STATUS_TO_PAL: Record<string, string> = {
+  Compliant: 'url(#grad-ok)',
+  Warning: 'url(#grad-warn)',
+  NonCompliant: 'url(#grad-err)',
+  Reference: 'url(#grad-info)',
+  Unknown: 'url(#grad-neutral)',
+};
+
+/** Treemap fleet risk map: tile size = blast radius, color = status. */
+export interface TreemapDatum {
+  name: string;
+  value: number;
+  status: string;
+  blast: number;
+}
+
+export interface TreemapOptions {
+  onSelect?: (name: string) => void;
+}
+
+export function renderTreemap(
+  container: HTMLElement,
+  data: TreemapDatum[],
+  opts: TreemapOptions = {},
+): void {
+  // Clear
+  d3.select(container).selectAll('*').remove();
+
+  if (!data.length) {
+    emptyState(container, 'No services to map');
+    return;
+  }
+
+  const pal = resolvePalette(container);
+
+  const width = container.clientWidth || 600;
+  const height = 260;
+
+  const svg = d3.select(container)
+    .append('svg')
+    .attr('width', '100%')
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
+    .style('font-family', 'var(--font-sans)');
+
+  defineGradients(svg, pal);
+
+  // Treemap layout
+  const root = d3.hierarchy<TreemapDatum>({ children: data } as any)
+    .sum((d) => d.value || 0);
+
+  const treemap = d3.treemap<TreemapDatum>()
+    .size([width, height])
+    .paddingInner(2);
+
+  treemap(root);
+
+  const tooltip = sharedTooltip();
+  tooltip.attach(container);
+
+  // ponytail: cast to HierarchyRectangularNode for x0/y0/x1/y1 access
+  const leaves = root.leaves() as Array<d3.HierarchyRectangularNode<TreemapDatum>>;
+
+  const tiles = svg.selectAll('g')
+    .data(leaves)
+    .join('g');
+
+  // Tile rectangles
+  tiles.append('rect')
+    .attr('x', (d) => d.x0)
+    .attr('y', (d) => d.y0)
+    .attr('width', (d) => Math.max(0, d.x1 - d.x0))
+    .attr('height', (d) => Math.max(0, d.y1 - d.y0))
+    .attr('fill', (d) => STATUS_TO_PAL[d.data.status] || 'url(#grad-neutral)')
+    .attr('rx', 'var(--chart-radius)')
+    .attr('cursor', opts.onSelect ? 'pointer' : 'default')
+    .on('mouseenter', function (event, d) {
+      d3.select(this).transition().duration(150).attr('opacity', 0.8);
+      const content = `${d.data.name} · ${d.data.status} · blast ${d.data.blast}`;
+      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mousemove', function (event) {
+      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mouseleave', function () {
+      d3.select(this).transition().duration(150).attr('opacity', 1);
+      tooltip.hide();
+    })
+    .on('click', (_, d) => {
+      if (opts.onSelect) opts.onSelect(d.data.name);
+    });
+
+  // Labels: only show on tiles wide/tall enough
+  tiles.append('text')
+    .attr('x', (d) => (d.x0 + d.x1) / 2)
+    .attr('y', (d) => (d.y0 + d.y1) / 2)
+    .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'middle')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text)')
+    .style('pointer-events', 'none')
+    .text((d) => {
+      const w = d.x1 - d.x0;
+      const h = d.y1 - d.y0;
+      // ponytail: heuristic truncation (6px/char, 8px margin); getComputedTextLength unavailable in jsdom
+      const maxChars = Math.floor((w - 8) / 6);
+      if (w < 60 || h < 30) return '';
+      return d.data.name.length > maxChars && maxChars > 3 ? d.data.name.slice(0, maxChars - 1) + '…' : d.data.name;
+    });
+
+  // Enter animation: fade in
+  animateIn(tiles.selectAll('rect'), { attr: 'opacity', from: 0, to: () => 1 });
+}

@@ -2,11 +2,14 @@
   import { serviceUrl } from '../lib/router.ts';
   import { getFilters } from '../lib/filters.svelte.ts';
   import { applyFilters } from '../lib/filters.ts';
+  import { treemapData } from '../lib/chartData.ts';
   import FilterBar from '../components/FilterBar.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
   import SourceDot from '../components/SourceDot.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import TreemapChart from '../components/TreemapChart.svelte';
+  import CollapsibleSection from '../CollapsibleSection.svelte';
 
   let { services = [], sourcesInfo = [], discovering = false, initialLoading = false, loadError = null, onRetry = null } = $props();
 
@@ -69,6 +72,12 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="flex-shrink:0; opacity:0.5"><path d="M9 18l6-6-6-6"/></svg>
     </a>
   </div>
+{/if}
+
+{#if filtered.length > 0}
+  <CollapsibleSection title="Fleet risk map">
+    <TreemapChart data={treemapData(filtered)} onSelect={(name) => location.hash = serviceUrl(name)} />
+  </CollapsibleSection>
 {/if}
 
 <!-- Needs attention -->

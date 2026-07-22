@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderCategoryStackedBars, renderReadinessDonut, renderOwnerBars } from './charts';
+import { renderCategoryStackedBars, renderReadinessDonut, renderOwnerBars, renderTreemap } from './charts';
 
 describe('renderCategoryStackedBars', () => {
   it('renders stacked bars for each category', () => {
@@ -270,5 +270,16 @@ describe('renderOwnerBars', () => {
     const data = [{ key: 'team-a', services: 4, ready: 2, partial: 1, notReady: 1, notConfigured: 0 }];
     renderOwnerBars(container, data);
     expect(container.querySelector('defs linearGradient')).not.toBeNull();
+  });
+});
+
+describe('renderTreemap', () => {
+  it('renders a tile per service and empty state', () => {
+    const container = document.createElement('div');
+    renderTreemap(container, [{ name: 'a', value: 9, status: 'NonCompliant', blast: 9 }, { name: 'b', value: 1, status: 'Compliant', blast: 0 }]);
+    expect(container.querySelectorAll('svg rect').length).toBeGreaterThanOrEqual(2);
+    const c2 = document.createElement('div');
+    renderTreemap(c2, []);
+    expect(c2.textContent).toContain('No services');
   });
 });
