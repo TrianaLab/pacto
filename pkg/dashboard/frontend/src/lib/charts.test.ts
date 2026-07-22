@@ -306,6 +306,20 @@ describe('renderHeatmap', () => {
     const c2 = document.createElement('div'); renderHeatmap(c2, { owners:[], categories:[], cells:[] });
     expect(c2.textContent).toContain('No category data');
   });
+
+  it('cells have a border so the grid reads, and column labels rise up-left (rotate 45) not into the grid', () => {
+    const c = document.createElement('div');
+    renderHeatmap(c, { owners: ['x'], categories: ['docs','testing'], cells: [{ owner:'x', category:'docs', score:50, n:2 }] });
+    // Every grid cell carries a stroke so empty/low cells stay visible as a matrix.
+    const cell = c.querySelector('svg g rect');
+    expect(cell?.getAttribute('stroke')).toBe('var(--c-border)');
+    // Column labels rotate +45 (up-left, clear of cells) — never -45 (down into them).
+    const labels = [...c.querySelectorAll('svg text')].map((t) => t.getAttribute('transform') || '');
+    const rotated = labels.filter((t) => t.includes('rotate('));
+    expect(rotated.length).toBeGreaterThan(0);
+    expect(rotated.every((t) => t.includes('rotate(45'))).toBe(true);
+    expect(rotated.some((t) => t.includes('rotate(-45'))).toBe(false);
+  });
 });
 
 describe('renderVersionTimeline', () => {

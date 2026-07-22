@@ -933,14 +933,19 @@ export function renderHeatmap(
 
   // Sequential single-hue ramp: theme-aware surface → green (low scores recede in both themes)
   const surfaceInset = getComputedStyle(container).getPropertyValue('--c-surface-inset').trim() || '#e9f7ef';
+  // Faint-green low end so a 0% cell still reads as ON the ramp — and stays distinct
+  // from an empty "no data" cell (which keeps the plain surface fill). Single-hue.
+  const rampLow = d3.interpolateRgb(surfaceInset, pal.ok)(0.14);
   const scoreFill = d3.scaleLinear<string>()
     .domain([0, 100])
-    .range([surfaceInset, pal.ok])
+    .range([rampLow, pal.ok])
     .interpolate(d3.interpolateRgb);
 
   const cellSize = 40;
   const gap = 2;
-  const margin = { top: 60, right: 140, bottom: 20, left: 140 };
+  // Generous top/left margins so the rotated category labels rise clear ABOVE the
+  // grid (not into it) and long owner names fit.
+  const margin = { top: 104, right: 140, bottom: 20, left: 156 };
 
   const width = margin.left + data.categories.length * (cellSize + gap) + margin.right;
   const height = margin.top + data.owners.length * (cellSize + gap) + margin.bottom;
@@ -993,6 +998,8 @@ export function renderHeatmap(
     .attr('height', cellSize)
     .attr('rx', radius)
     .attr('fill', (d) => (d.score != null ? scoreFill(d.score) : 'var(--c-surface-inset)'))
+    .attr('stroke', 'var(--c-border)')
+    .attr('stroke-width', 1)
     .attr('cursor', opts.onSelectCell ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
       if (d.score != null) {
@@ -1016,9 +1023,10 @@ export function renderHeatmap(
 
   animateIn(rects, { attr: 'opacity', from: 0, to: () => 1 });
 
-  // Column labels (categories)
+  // Column labels (categories): anchored just above the grid and rotated +45 with
+  // text-anchor:end so they rise UP-LEFT (clear of the cells), not down into them.
   svg.append('g')
-    .attr('transform', `translate(${margin.left},${margin.top - 10})`)
+    .attr('transform', `translate(${margin.left},${margin.top - 12})`)
     .selectAll('text')
     .data(data.categories)
     .join('text')
@@ -1026,7 +1034,7 @@ export function renderHeatmap(
     .attr('y', 0)
     .attr('text-anchor', 'end')
     .attr('dominant-baseline', 'middle')
-    .attr('transform', (_, i) => `rotate(-45, ${i * (cellSize + gap) + cellSize / 2}, 0)`)
+    .attr('transform', (_, i) => `rotate(45, ${i * (cellSize + gap) + cellSize / 2}, 0)`)
     .style('font-size', 'var(--text-xs)')
     .style('font-weight', '500')
     .style('fill', 'var(--c-text-2)')
@@ -1060,7 +1068,7 @@ export function renderHeatmap(
     .attr('x2', '0')
     .attr('y1', '1')
     .attr('y2', '0');
-  lg.append('stop').attr('offset', '0').attr('stop-color', surfaceInset);
+  lg.append('stop').attr('offset', '0').attr('stop-color', rampLow);
   lg.append('stop').attr('offset', '1').attr('stop-color', pal.ok);
 
   svg.append('rect')
