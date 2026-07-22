@@ -39,6 +39,18 @@
     else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIdx = Math.max(selectedIdx - 1, 0); }
     else if (e.key === 'Enter') { e.preventDefault(); activate(flat[selectedIdx]); }
     else if (e.key === 'Escape') { e.preventDefault(); onClose?.(); }
+    else if (e.key === 'Tab') {
+      e.preventDefault();
+      // Focus trap: cycle among input + result buttons
+      const focusable = Array.from(e.currentTarget.closest('.cp-panel')?.querySelectorAll('input, button') || []);
+      if (!focusable.length) return;
+      const current = document.activeElement;
+      const idx = focusable.indexOf(current);
+      const next = e.shiftKey
+        ? (idx <= 0 ? focusable.length - 1 : idx - 1)
+        : (idx >= focusable.length - 1 ? 0 : idx + 1);
+      focusable[next]?.focus();
+    }
   }
 
   // Flat index of the first item in each group, so hover/selection line up.

@@ -23,7 +23,7 @@
   let selectedNode = $state(null);
   let drawerData = $derived(nodeDrawerData(selectedNode, services, graphData));
 
-  const f = getFilters(); // reactive shared filter store
+  let f = $derived(getFilters()); // reactive shared filter store
   let crumbs = $derived(graphBreadcrumbs({ group: f.group, focus: f.focus }));
 
   // StatsBar mutates its bindables directly and uses the 'all' sentinel; the store
@@ -131,7 +131,11 @@
   );
 
   // Switching grouping changes the node set, so a stale focus no longer applies.
-  function toggleGroup() { setFilter('group', groupByOwner ? '' : 'owner'); setFilter('focus', ''); }
+  function toggleGroup() {
+    setFilter('group', groupByOwner ? '' : 'owner');
+    setFilter('focus', '');
+    selectedNode = null;
+  }
 
   onMount(() => { loadGraph(); });
 </script>
@@ -158,7 +162,7 @@
     </button>
     <label class="focus-pick">
       <span class="focus-hint">Focus</span>
-      <select value={focusSel} onchange={(e) => setFilter('focus', e.currentTarget.value)} aria-label="Focus the graph on">
+      <select value={focusSel} onchange={(e) => { setFilter('focus', e.currentTarget.value); selectedNode = null; }} aria-label="Focus the graph on">
         <option value="">{groupByOwner ? 'All teams' : 'Whole fleet'}</option>
         {#each focusOptions as name}
           <option value={name}>{name}</option>

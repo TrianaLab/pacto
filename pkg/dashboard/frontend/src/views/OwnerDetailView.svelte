@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { serviceUrl } from '../lib/router.ts';
+  import { serviceUrl, ownersUrl } from '../lib/router.ts';
   import { ownerKey, extractOwnerDetail, relatedSubgraph } from '../lib/format.ts';
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
@@ -32,7 +32,7 @@
     graphData ? relatedSubgraph(graphData, (n) => ownerServiceNames.has(n.serviceName)) : null,
   );
 
-  let crumbs = $derived([{ label: 'Owners', href: '#/owners' }, { label: owner }]);
+  let crumbs = $derived([{ label: 'Owners', href: ownersUrl() }, { label: owner }]);
 
   async function loadOwnerGraph() {
     graphLoading = true;

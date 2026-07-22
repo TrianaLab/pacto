@@ -54,7 +54,7 @@
     {/each}
   </nav>
 
-  <button type="button" class="search-box search-trigger" onclick={onOpenPalette} aria-label="Open command palette">
+  <button type="button" class="search-box search-trigger" onclick={onOpenPalette} aria-label="Search — open command palette">
     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     <span class="search-trigger-text">Search...</span>
     <kbd class="search-kbd">{navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl+'}K</kbd>
