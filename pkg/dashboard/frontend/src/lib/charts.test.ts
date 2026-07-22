@@ -307,18 +307,18 @@ describe('renderHeatmap', () => {
     expect(c2.textContent).toContain('No category data');
   });
 
-  it('cells have a border so the grid reads, and column labels rise up-left (rotate 45) not into the grid', () => {
+  it('cells have a border so the grid reads, and column headers are labelled category icons (no rotated text)', () => {
     const c = document.createElement('div');
-    renderHeatmap(c, { owners: ['x'], categories: ['docs','testing'], cells: [{ owner:'x', category:'docs', score:50, n:2 }] });
+    renderHeatmap(c, { owners: ['x'], categories: ['documentation','testing'], cells: [{ owner:'x', category:'documentation', score:50, n:2 }] });
     // Every grid cell carries a stroke so empty/low cells stay visible as a matrix.
     const cell = c.querySelector('svg g rect');
     expect(cell?.getAttribute('stroke')).toBe('var(--c-border)');
-    // Column labels rotate +45 (up-left, clear of cells) — never -45 (down into them).
-    const labels = [...c.querySelectorAll('svg text')].map((t) => t.getAttribute('transform') || '');
-    const rotated = labels.filter((t) => t.includes('rotate('));
-    expect(rotated.length).toBeGreaterThan(0);
-    expect(rotated.every((t) => t.includes('rotate(45'))).toBe(true);
-    expect(rotated.some((t) => t.includes('rotate(-45'))).toBe(false);
+    // One labelled icon per category header — full name on aria-label (a11y), not shape-alone.
+    const ariaLabels = [...c.querySelectorAll('svg[role="img"]')].map((s) => s.getAttribute('aria-label'));
+    expect(ariaLabels).toEqual(expect.arrayContaining(['documentation', 'testing']));
+    // No rotated text labels (the old collision-prone approach is gone).
+    const anyRotatedText = [...c.querySelectorAll('text')].some((t) => (t.getAttribute('transform') || '').includes('rotate'));
+    expect(anyRotatedText).toBe(false);
   });
 });
 

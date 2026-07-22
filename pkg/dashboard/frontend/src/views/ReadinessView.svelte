@@ -22,6 +22,7 @@
   import ReadinessHeatmap from '../components/ReadinessHeatmap.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ReadinessScore from '../components/ReadinessScore.svelte';
+  import CategoryIcon from '../components/CategoryIcon.svelte';
   import SortControls from '../components/SortControls.svelte';
   import { quadrantData, heatmapData } from '../lib/chartData.ts';
 
@@ -263,7 +264,7 @@
                               <td><span class="pill">{c.type}</span></td>
                               <td>
                                 {#if c.category}
-                                  <button type="button" class="cat-name" onclick={(e) => { e.stopPropagation(); setFilter('category', c.category); }}>{c.category}</button>
+                                  <button type="button" class="cat-name" onclick={(e) => { e.stopPropagation(); setFilter('category', c.category); }}><CategoryIcon category={c.category} size={13} />{c.category}</button>
                                 {:else}
                                   <span class="text-dim">—</span>
                                 {/if}
@@ -361,6 +362,7 @@
     color: #fff;
   }
   .cat-name {
+    display: inline-flex; align-items: center; gap: 5px;
     background: none; border: none; padding: 0; font: inherit; font-weight: 600;
     color: var(--c-accent); cursor: pointer;
     /* Wrap long category names so they stay inside the fixed column rather than

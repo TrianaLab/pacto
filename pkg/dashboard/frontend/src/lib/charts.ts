@@ -5,6 +5,7 @@
 import * as d3 from 'd3';
 import { readinessBucketLabel } from './format';
 import { resolvePalette, sharedTooltip, defineGradients, animateIn, emptyState } from './chartkit';
+import { categoryIconInner } from './categoryIcons';
 
 /** Horizontal stacked bar chart for readiness category breakdown. */
 export interface CategoryBarData {
@@ -945,7 +946,9 @@ export function renderHeatmap(
   const gap = 2;
   // Generous top/left margins so the rotated category labels rise clear ABOVE the
   // grid (not into it) and long owner names fit.
-  const margin = { top: 104, right: 140, bottom: 20, left: 156 };
+  // Compact top margin: category headers are ICONS (not rotated text), so they sit
+  // just above the grid with no collision.
+  const margin = { top: 44, right: 140, bottom: 20, left: 156 };
 
   const width = margin.left + data.categories.length * (cellSize + gap) + margin.right;
   const height = margin.top + data.owners.length * (cellSize + gap) + margin.bottom;
@@ -1023,22 +1026,28 @@ export function renderHeatmap(
 
   animateIn(rects, { attr: 'opacity', from: 0, to: () => 1 });
 
-  // Column labels (categories): anchored just above the grid and rotated +45 with
-  // text-anchor:end so they rise UP-LEFT (clear of the cells), not down into them.
-  svg.append('g')
-    .attr('transform', `translate(${margin.left},${margin.top - 12})`)
-    .selectAll('text')
-    .data(data.categories)
-    .join('text')
-    .attr('x', (_, i) => i * (cellSize + gap) + cellSize / 2)
-    .attr('y', 0)
-    .attr('text-anchor', 'end')
-    .attr('dominant-baseline', 'middle')
-    .attr('transform', (_, i) => `rotate(45, ${i * (cellSize + gap) + cellSize / 2}, 0)`)
-    .style('font-size', 'var(--text-xs)')
-    .style('font-weight', '500')
-    .style('fill', 'var(--c-text-2)')
-    .text((d) => d);
+  // Column headers: category ICONS (no rotated text → no label/grid collision),
+  // each with a hover <title> + aria-label carrying the full category name so it is
+  // never meaning-by-shape-alone. Unknown categories fall back to the 'other' icon.
+  const colHead = svg.append('g').attr('transform', `translate(${margin.left},${margin.top - 28})`);
+  data.categories.forEach((cat, i) => {
+    const cx = i * (cellSize + gap) + cellSize / 2;
+    const esc = cat.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    colHead.append('svg')
+      .attr('x', cx - 10)
+      .attr('y', 0)
+      .attr('width', 20)
+      .attr('height', 20)
+      .attr('viewBox', '0 0 24 24')
+      .attr('fill', 'none')
+      .attr('stroke', 'var(--c-text-2)')
+      .attr('stroke-width', 1.8)
+      .attr('stroke-linecap', 'round')
+      .attr('stroke-linejoin', 'round')
+      .attr('role', 'img')
+      .attr('aria-label', cat)
+      .html(`<title>${esc}</title>${categoryIconInner(cat)}`);
+  });
 
   // Row labels (owners)
   svg.append('g')

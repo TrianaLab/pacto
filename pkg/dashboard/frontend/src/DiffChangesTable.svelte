@@ -1,5 +1,5 @@
 <script>
-  import { classificationClass, changeTypeClass, formatDiffValue } from './lib/format.ts';
+  import { classificationClass, changeTypeClass, formatDiffValue, breakableIdentifierHtml } from './lib/format.ts';
 
   let { changes = [], compact = false } = $props();
 
@@ -37,7 +37,7 @@
           {@const canExpand = needsExpand(change.oldValue) || needsExpand(change.newValue)}
           {@const isExpanded = !!expanded[idx]}
           <tr>
-            <td><code>{change.path}</code></td>
+            <td><code>{@html breakableIdentifierHtml(change.path)}</code></td>
             <td><span class={changeTypeClass(change.type)}>{change.type}</span></td>
             <td>
               <pre class="diff-value" class:diff-value-collapsed={canExpand && !isExpanded}>{oldText}</pre>
@@ -79,7 +79,10 @@
   .dc-old { width: 28%; }
   .dc-new { width: 28%; }
   .dc-impact { width: 16%; }
-  .diff-table td code { word-break: break-all; }
+  /* Wrap long dotted paths at their natural boundaries (via <wbr> from
+     breakableIdentifierHtml), never mid-word. break-word is only a last-resort
+     fallback for a single segment longer than the column. */
+  .diff-table td code { word-break: normal; overflow-wrap: break-word; }
 
   .diff-value {
     font-size: var(--text-xs);

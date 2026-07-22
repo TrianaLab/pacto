@@ -72,6 +72,20 @@ export function formatDiffValue(val: unknown): string {
   return String(val);
 }
 
+/**
+ * HTML for a long dotted identifier/path that wraps at NATURAL boundaries
+ * (dots, brackets, colons, slashes, hyphens, underscores) instead of breaking
+ * mid-word. Escapes HTML, then inserts <wbr> break opportunities after each
+ * separator — so a narrow table cell renders "service.owner.\ncontacts[...]"
+ * rather than "service.owner.t\neam". <wbr> is not copied into the clipboard,
+ * so the path pastes cleanly. Use with {@html} + CSS `overflow-wrap: break-word`
+ * (no `word-break: break-all`). Reusable across any table that shows paths.
+ */
+export function breakableIdentifierHtml(s: string): string {
+  const escaped = (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return escaped.replace(/([.[\]:/_-])/g, '$1<wbr>');
+}
+
 // ── Dependency resolution reason helpers ──
 
 const REASON_LABELS: Record<string, string> = {
