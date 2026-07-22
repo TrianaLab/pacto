@@ -7,6 +7,7 @@
   import StatsBar from '../StatsBar.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import { getFilters, setFilter } from '../lib/filters.svelte.ts';
 
   let { services = [], sourcesInfo = [] } = $props();
   let blastByName = $derived(new Map(services.map(s => [s.name, s.blastRadius || 0])));
@@ -14,11 +15,29 @@
   let graphData = $state(null);
   let loading = $state(true);
   let graphError = $state(false);
-  let statusFilter = $state('all');
-  let sourceFilter = $state('all');
-  let nameFilter = $state('');
-  let groupByOwner = $state(false); // aggregate the tree per owning team
-  let focusSel = $state('');        // focus the tree on one service (or team)
+
+  const f = getFilters(); // reactive shared filter store
+
+  // StatsBar mutates its bindables directly and uses the 'all' sentinel; the store
+  // uses '' for empty. Mirror the store into three writable locals for StatsBar and
+  // bridge both directions with an equality guard (setting an equal value is a
+  // no-op, so the pair converges rather than looping).
+  let statusFilter = $state(f.contractStatus || 'all');
+  let sourceFilter = $state(f.source || 'all');
+  let nameFilter = $state(f.search || '');
+
+  // local (StatsBar) → store/hash
+  $effect(() => { const v = statusFilter === 'all' ? '' : statusFilter; if (f.contractStatus !== v) setFilter('contractStatus', v); });
+  $effect(() => { const v = sourceFilter === 'all' ? '' : sourceFilter; if (f.source !== v) setFilter('source', v); });
+  $effect(() => { if (f.search !== nameFilter) setFilter('search', nameFilter); });
+  // store → local (back/forward, palette navigation)
+  $effect(() => { const v = f.contractStatus || 'all'; if (statusFilter !== v) statusFilter = v; });
+  $effect(() => { const v = f.source || 'all'; if (sourceFilter !== v) sourceFilter = v; });
+  $effect(() => { const v = f.search || ''; if (nameFilter !== v) nameFilter = v; });
+
+  // Group + focus live straight in the store (not StatsBar bindables).
+  let groupByOwner = $derived(f.group === 'owner');
+  let focusSel = $derived(f.focus || '');
 
   // Graph nodes don't carry source info; map service name → sources from the fleet
   // list so the K8S/OCI pills can actually filter the graph and connections table.
@@ -104,7 +123,7 @@
   );
 
   // Switching grouping changes the node set, so a stale focus no longer applies.
-  function toggleGroup() { groupByOwner = !groupByOwner; focusSel = ''; }
+  function toggleGroup() { setFilter('group', groupByOwner ? '' : 'owner'); setFilter('focus', ''); }
 
   onMount(() => { loadGraph(); });
 </script>
@@ -131,7 +150,7 @@
     </button>
     <label class="focus-pick">
       <span class="focus-hint">Focus</span>
-      <select bind:value={focusSel} aria-label="Focus the graph on">
+      <select value={focusSel} onchange={(e) => setFilter('focus', e.currentTarget.value)} aria-label="Focus the graph on">
         <option value="">{groupByOwner ? 'All teams' : 'Whole fleet'}</option>
         {#each focusOptions as name}
           <option value={name}>{name}</option>
