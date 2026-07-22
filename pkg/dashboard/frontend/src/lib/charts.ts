@@ -4,60 +4,7 @@
  */
 import * as d3 from 'd3';
 import { readinessBucketLabel } from './format';
-
-/**
- * Shared tooltip helper for d3 charts.
- * Creates/updates a positioned tooltip div that matches the app's [data-tip] style.
- */
-class ChartTooltip {
-  private el: HTMLDivElement;
-  private container: HTMLElement | null = null;
-
-  constructor() {
-    this.el = document.createElement('div');
-    // max-width + wrap so a long label can't render as one line that runs off
-    // the page (html/body are overflow-x:clip, so the spill would be cut).
-    this.el.style.cssText = `
-      position: absolute;
-      padding: 6px 14px;
-      max-width: min(320px, 90vw);
-      background: var(--c-surface-raised);
-      color: var(--c-text);
-      font-size: var(--text-xs);
-      font-weight: 500;
-      white-space: normal;
-      overflow-wrap: anywhere;
-      border-radius: var(--radius-xs);
-      border: 1px solid var(--c-border);
-      box-shadow: var(--shadow-md);
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 150ms ease;
-      z-index: 1000;
-    `;
-  }
-
-  show(content: string, x: number, y: number) {
-    this.el.textContent = content;
-    this.el.style.opacity = '1';
-    // Clamp within the container (coords are container-relative) so the tooltip
-    // never overflows the chart edge and gets clipped by the page.
-    const cw = this.container?.clientWidth ?? Infinity;
-    const left = Math.max(0, Math.min(x, cw - this.el.offsetWidth));
-    this.el.style.left = `${left}px`;
-    this.el.style.top = `${Math.max(0, y)}px`;
-  }
-
-  hide() {
-    this.el.style.opacity = '0';
-  }
-
-  attach(container: HTMLElement) {
-    container.style.position = 'relative';
-    container.appendChild(this.el);
-    this.container = container;
-  }
-}
+import { resolvePalette, sharedTooltip, defineGradients, animateIn, emptyState } from './chartkit';
 
 /** Horizontal stacked bar chart for readiness category breakdown. */
 export interface CategoryBarData {
@@ -81,17 +28,11 @@ export function renderCategoryStackedBars(
   d3.select(container).selectAll('*').remove();
 
   if (!data.length) {
-    const msg = d3.select(container).append('div')
-      .attr('class', 'state-box');
-    msg.text('No category data');
+    emptyState(container, 'No category data');
     return;
   }
 
-  // Read theme colors from CSS
-  const doneColor = getComputedStyle(container).getPropertyValue('--c-ok').trim();
-  const partialColor = getComputedStyle(container).getPropertyValue('--c-warn').trim();
-  const notDoneColor = getComputedStyle(container).getPropertyValue('--c-err').trim();
-  const deferredColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
+  const pal = resolvePalette(container);
 
   const margin = { top: 20, right: 140, bottom: 40, left: 120 };
 
@@ -113,6 +54,8 @@ export function renderCategoryStackedBars(
     .attr('preserveAspectRatio', 'xMidYMid meet')
     .style('font-family', 'var(--font-sans)');
 
+  defineGradients(svg, pal);
+
   const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
   const innerWidth = width - margin.left - margin.right;
@@ -133,24 +76,25 @@ export function renderCategoryStackedBars(
     .range([0, innerHeight])
     .padding(0.3);
 
-  // Bars
-  const colorMap: Record<string, string> = { done: doneColor, partial: partialColor, notDone: notDoneColor, deferred: deferredColor };
+  // Bars — gradients by status, rounded ends, 2px surface gap between segments.
+  const gradientMap: Record<string, string> = { done: 'url(#grad-ok)', partial: 'url(#grad-warn)', notDone: 'url(#grad-err)', deferred: 'url(#grad-neutral)' };
 
-  const tooltip = new ChartTooltip();
+  const tooltip = sharedTooltip();
   tooltip.attach(container);
 
-  g.selectAll('g.layer')
+  const rects = g.selectAll('g.layer')
     .data(series)
     .join('g')
     .attr('class', 'layer')
-    .attr('fill', (d) => colorMap[d.key])
+    .attr('fill', (d) => gradientMap[d.key])
     .selectAll('rect')
     .data((d) => d)
     .join('rect')
-    .attr('x', (d) => x(d[0]))
+    .attr('x', (d) => Math.max(0, x(d[0]) + 1)) // 1px inset for surface gap
     .attr('y', (d) => y((d.data as CategoryBarData).category) || 0)
-    .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0])))
+    .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0]) - 2)) // -2px for gap
     .attr('height', y.bandwidth())
+    .attr('rx', 'var(--chart-radius)')
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
       d3.select(this).transition().duration(150).attr('opacity', 0.8);
@@ -169,6 +113,9 @@ export function renderCategoryStackedBars(
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect((d.data as CategoryBarData).category);
     });
+
+  // Enter animation: width 0→value.
+  animateIn(rects, { attr: 'width', from: 0, to: (d) => Math.max(0, x(d[1]) - x(d[0]) - 2) });
 
   // Y axis: category labels — muted chrome (no domain line, no tick marks).
   const yAxis = g.append('g').call(d3.axisLeft(y).tickSize(0));
@@ -199,10 +146,10 @@ export function renderCategoryStackedBars(
     .attr('transform', `translate(${innerWidth + margin.left + 20}, ${margin.top})`);
 
   const legendData = [
-    { label: 'Done', color: doneColor },
-    { label: 'Partial', color: partialColor },
-    { label: 'Not done', color: notDoneColor },
-    { label: 'Deferred', color: deferredColor },
+    { label: 'Done', color: pal.ok },
+    { label: 'Partial', color: pal.warn },
+    { label: 'Not done', color: pal.err },
+    { label: 'Deferred', color: pal.neutral },
   ];
 
   const legendItems = legend.selectAll('g')
@@ -248,17 +195,11 @@ export function renderReadinessDonut(
 
   const total = data.ready + data.partial + data.notReady + data.notConfigured;
   if (total === 0) {
-    const msg = d3.select(container).append('div')
-      .attr('class', 'state-box');
-    msg.text('No readiness data');
+    emptyState(container, 'No readiness data');
     return;
   }
 
-  // Read theme colors
-  const readyColor = getComputedStyle(container).getPropertyValue('--c-ok').trim();
-  const partialColor = getComputedStyle(container).getPropertyValue('--c-warn').trim();
-  const notReadyColor = getComputedStyle(container).getPropertyValue('--c-err').trim();
-  const notConfiguredColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
+  const pal = resolvePalette(container);
 
   const donutRadius = 70;
   const legendWidth = 150;
@@ -272,32 +213,34 @@ export function renderReadinessDonut(
     .attr('preserveAspectRatio', 'xMidYMid meet')
     .style('font-family', 'var(--font-sans)');
 
+  defineGradients(svg, pal);
+
   const g = svg.append('g').attr('transform', `translate(${donutRadius + 20}, ${height / 2})`);
 
   // Pie layout
   const pieData = [
-    { label: readinessBucketLabel('ready'), value: data.ready, bucket: 'ready', color: readyColor },
-    { label: readinessBucketLabel('partial'), value: data.partial, bucket: 'partial', color: partialColor },
-    { label: readinessBucketLabel('not-ready'), value: data.notReady, bucket: 'not-ready', color: notReadyColor },
-    { label: readinessBucketLabel('unknown'), value: data.notConfigured, bucket: 'unknown', color: notConfiguredColor },
+    { label: readinessBucketLabel('ready'), value: data.ready, bucket: 'ready', gradient: 'url(#grad-ok)' },
+    { label: readinessBucketLabel('partial'), value: data.partial, bucket: 'partial', gradient: 'url(#grad-warn)' },
+    { label: readinessBucketLabel('not-ready'), value: data.notReady, bucket: 'not-ready', gradient: 'url(#grad-err)' },
+    { label: readinessBucketLabel('unknown'), value: data.notConfigured, bucket: 'unknown', gradient: 'url(#grad-neutral)' },
   ].filter((d) => d.value > 0);
 
-  const pie = d3.pie<{ label: string; value: number; bucket: string; color: string }>()
+  const pie = d3.pie<{ label: string; value: number; bucket: string; gradient: string }>()
     .value((d) => d.value)
     .sort(null);
 
-  const arc = d3.arc<d3.PieArcDatum<{ label: string; value: number; bucket: string; color: string }>>()
+  const arc = d3.arc<d3.PieArcDatum<{ label: string; value: number; bucket: string; gradient: string }>>()
     .innerRadius(donutRadius * 0.6)
     .outerRadius(donutRadius);
 
-  const tooltip = new ChartTooltip();
+  const tooltip = sharedTooltip();
   tooltip.attach(container);
 
-  g.selectAll('path')
+  const paths = g.selectAll('path')
     .data(pie(pieData))
     .join('path')
     .attr('d', arc)
-    .attr('fill', (d) => d.data.color)
+    .attr('fill', (d) => d.data.gradient)
     .attr('stroke', 'var(--c-surface)')
     .attr('stroke-width', 2)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
@@ -323,6 +266,9 @@ export function renderReadinessDonut(
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect(d.data.bucket);
     });
+
+  // Enter animation: fade in.
+  animateIn(paths, { attr: 'opacity', from: 0, to: () => 1 });
 
   // Center label: total
   g.append('text')
@@ -356,7 +302,7 @@ export function renderReadinessDonut(
     .attr('cx', 6)
     .attr('cy', 6)
     .attr('r', 6)
-    .attr('fill', (d) => d.color);
+    .attr('fill', (d) => d.gradient);
 
   legendItems.append('text')
     .attr('x', 18)
@@ -391,20 +337,14 @@ export function renderOwnerBars(
   d3.select(container).selectAll('*').remove();
 
   if (!data.length) {
-    const msg = d3.select(container).append('div')
-      .attr('class', 'state-box');
-    msg.text('No owner data');
+    emptyState(container, 'No owner data');
     return;
   }
 
   // Limit to top 15 owners for readability
   const topData = data.slice(0, 15);
 
-  // Read theme colors from CSS — readiness palette.
-  const readyColor = getComputedStyle(container).getPropertyValue('--c-ok').trim();
-  const partialColor = getComputedStyle(container).getPropertyValue('--c-warn').trim();
-  const notReadyColor = getComputedStyle(container).getPropertyValue('--c-err').trim();
-  const notConfiguredColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
+  const pal = resolvePalette(container);
 
   // Legend lives BELOW the bars so it is never clipped at the right edge.
   const legendHeight = 28;
@@ -444,6 +384,8 @@ export function renderOwnerBars(
     .attr('preserveAspectRatio', 'xMidYMid meet')
     .style('font-family', 'var(--font-sans)');
 
+  defineGradients(svg, pal);
+
   const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
   const innerWidth = width - margin.left - margin.right;
@@ -474,30 +416,31 @@ export function renderOwnerBars(
     .range([0, innerHeight])
     .padding(0.25);
 
-  // Color map
-  const colorMap: Record<string, string> = {
-    ready: readyColor,
-    partial: partialColor,
-    notReady: notReadyColor,
-    notConfigured: notConfiguredColor,
+  // Gradient map — readiness palette.
+  const gradientMap: Record<string, string> = {
+    ready: 'url(#grad-ok)',
+    partial: 'url(#grad-warn)',
+    notReady: 'url(#grad-err)',
+    notConfigured: 'url(#grad-neutral)',
   };
 
-  const tooltip = new ChartTooltip();
+  const tooltip = sharedTooltip();
   tooltip.attach(container);
 
-  // Bars
-  g.selectAll('g.layer')
+  // Bars — gradients, rounded ends, 2px surface gap between segments.
+  const rects = g.selectAll('g.layer')
     .data(series)
     .join('g')
     .attr('class', 'layer')
-    .attr('fill', (d) => colorMap[d.key])
+    .attr('fill', (d) => gradientMap[d.key])
     .selectAll('rect')
     .data((d) => d)
     .join('rect')
-    .attr('x', (d) => x(d[0]))
+    .attr('x', (d) => Math.max(0, x(d[0]) + 1)) // 1px inset for surface gap
     .attr('y', (d) => y((d.data as typeof stackData[0]).key) || 0)
-    .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0])))
+    .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0]) - 2)) // -2px for gap
     .attr('height', y.bandwidth())
+    .attr('rx', 'var(--chart-radius)')
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
       d3.select(this).transition().duration(150).attr('opacity', 0.8);
@@ -516,6 +459,9 @@ export function renderOwnerBars(
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect((d.data as typeof stackData[0]).key);
     });
+
+  // Enter animation: width 0→value.
+  animateIn(rects, { attr: 'width', from: 0, to: (d) => Math.max(0, x(d[1]) - x(d[0]) - 2) });
 
   // Y axis: owner labels — muted chrome (no domain line, no tick marks).
   const yAxis = g.append('g').call(d3.axisLeft(y).tickSize(0));
@@ -557,10 +503,10 @@ export function renderOwnerBars(
 
   // Legend — placed below the bars, horizontally, so it always fits the frame.
   const legendData = [
-    { label: readinessBucketLabel('ready'), color: readyColor },
-    { label: readinessBucketLabel('partial'), color: partialColor },
-    { label: readinessBucketLabel('not-ready'), color: notReadyColor },
-    { label: readinessBucketLabel('unknown'), color: notConfiguredColor },
+    { label: readinessBucketLabel('ready'), color: pal.ok },
+    { label: readinessBucketLabel('partial'), color: pal.warn },
+    { label: readinessBucketLabel('not-ready'), color: pal.err },
+    { label: readinessBucketLabel('unknown'), color: pal.neutral },
   ];
 
   const legend = svg.append('g')

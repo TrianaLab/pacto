@@ -62,6 +62,13 @@ describe('renderCategoryStackedBars', () => {
       expect(t.style.fill.startsWith('var(--c-text')).toBe(true);
     }
   });
+
+  it('defines gradients for Soft Depth polish', () => {
+    const container = document.createElement('div');
+    const data = [{ category: 'test', done: 1, partial: 1, notDone: 1, deferred: 1 }];
+    renderCategoryStackedBars(container, data);
+    expect(container.querySelector('defs linearGradient')).not.toBeNull();
+  });
 });
 
 describe('renderReadinessDonut', () => {
@@ -122,6 +129,13 @@ describe('renderReadinessDonut', () => {
       expect(t.style.fontSize.startsWith('var(--text-')).toBe(true);
     }
   });
+
+  it('defines gradients for Soft Depth polish', () => {
+    const container = document.createElement('div');
+    const data = { ready: 10, partial: 5, notReady: 2, notConfigured: 3 };
+    renderReadinessDonut(container, data);
+    expect(container.querySelector('defs linearGradient')).not.toBeNull();
+  });
 });
 
 describe('renderOwnerBars', () => {
@@ -153,21 +167,14 @@ describe('renderOwnerBars', () => {
     expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
   });
 
-  it('colors segments with the readiness palette', () => {
+  it('colors segments with the readiness palette via gradients', () => {
     const container = document.createElement('div');
-    // Provide CSS custom props so getComputedStyle resolves real colors.
-    container.style.setProperty('--c-ok', '#34d399');
-    container.style.setProperty('--c-warn', '#fbbf24');
-    container.style.setProperty('--c-err', '#f87171');
-    container.style.setProperty('--c-text-3', '#64748b');
-    document.body.appendChild(container);
     const data = [{ key: 'team-a', services: 4, ready: 1, partial: 1, notReady: 1, notConfigured: 1 }];
 
     renderOwnerBars(container, data);
 
     const fills = Array.from(container.querySelectorAll('g.layer')).map((g) => g.getAttribute('fill'));
-    expect(fills).toEqual(['#34d399', '#fbbf24', '#f87171', '#64748b']);
-    document.body.removeChild(container);
+    expect(fills).toEqual(['url(#grad-ok)', 'url(#grad-warn)', 'url(#grad-err)', 'url(#grad-neutral)']);
   });
 
   it('limits to top 15 owners', () => {
@@ -256,5 +263,12 @@ describe('renderOwnerBars', () => {
     const barsGroup = container.querySelector('svg > g')!;
     const m = (barsGroup.getAttribute('transform') || '').match(/translate\(([\d.]+),/);
     expect(parseFloat(m![1])).toBe(120);
+  });
+
+  it('defines gradients for Soft Depth polish', () => {
+    const container = document.createElement('div');
+    const data = [{ key: 'team-a', services: 4, ready: 2, partial: 1, notReady: 1, notConfigured: 0 }];
+    renderOwnerBars(container, data);
+    expect(container.querySelector('defs linearGradient')).not.toBeNull();
   });
 });
