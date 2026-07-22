@@ -24,6 +24,7 @@
   import { api } from '../lib/api.ts';
   import { navigate, serviceUrl, serviceVersionUrl, diffUrl, ownerUrl } from '../lib/router.ts';
   import { complianceClass, classificationClass, versionPolicyLabel, versionPolicyClass, ownerIsStructured, referencedDocPaths, paginate } from '../lib/format.ts';
+  import { versionTimelineData } from '../lib/chartData.ts';
   import StatusBadge from '../components/StatusBadge.svelte';
   import ComplianceScore from '../components/ComplianceScore.svelte';
   import OwnerLink from '../components/OwnerLink.svelte';
@@ -33,6 +34,7 @@
   import { buildVersionSubgraph } from '../lib/graph.ts';
   import { formatDate } from '../lib/dateFormat.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
+  import VersionTimeline from '../components/VersionTimeline.svelte';
 
   import OverviewSection from '../sections/OverviewSection.svelte';
   import InterfacesSection from '../sections/InterfacesSection.svelte';
@@ -584,6 +586,7 @@
   {:else if versions?.length > 0}
     <section class="section" id="section-versions">
       <div class="section-title">Version History <span class="tab-count">{versions.length}</span></div>
+      <VersionTimeline data={versionTimelineData(versions)} onSelect={(v) => location.hash = serviceVersionUrl(name, v)} />
       <div class="table-wrap">
         <table class="version-history">
           <colgroup>

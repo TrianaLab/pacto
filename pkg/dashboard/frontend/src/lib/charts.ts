@@ -1003,3 +1003,135 @@ export function renderHeatmap(
     .style('fill', 'var(--c-text-3)')
     .text('0%');
 }
+
+/** Version timeline: horizontal time series with classification legend. */
+export interface VersionTimelineDatum {
+  version: string;
+  at: number; // epoch ms
+  classification?: string;
+  isCurrent?: boolean;
+}
+
+export interface VersionTimelineOptions {
+  onSelect?: (version: string) => void;
+}
+
+export function renderVersionTimeline(
+  container: HTMLElement,
+  data: VersionTimelineDatum[],
+  opts: VersionTimelineOptions = {},
+): void {
+  d3.select(container).selectAll('*').remove();
+
+  if (!data.length) {
+    emptyState(container, 'No version history');
+    return;
+  }
+
+  const pal = resolvePalette(container);
+
+  const margin = { top: 20, right: 20, bottom: 30, left: 20 };
+  const width = container.clientWidth || 600;
+  const height = 100;
+
+  const svg = d3.select(container)
+    .append('svg')
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
+    .style('width', '100%')
+    .style('height', 'auto')
+    .style('font-family', 'var(--font-sans)');
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+
+  // Time scale
+  const extent = d3.extent(data, (d) => d.at) as [number, number];
+  const x = d3.scaleTime().domain(extent).range([0, innerWidth]);
+
+  // Classification color map (status palette)
+  const classColor: Record<string, string> = {
+    BREAKING: pal.err,
+    POTENTIAL_BREAKING: pal.warn,
+    NON_BREAKING: pal.ok,
+  };
+
+  const tooltip = sharedTooltip();
+  tooltip.attach(container);
+
+  // Baseline
+  const baselineY = innerHeight / 2;
+  g.append('line')
+    .attr('x1', 0)
+    .attr('x2', innerWidth)
+    .attr('y1', baselineY)
+    .attr('y2', baselineY)
+    .attr('stroke', 'var(--c-border)')
+    .attr('stroke-width', 1);
+
+  // Markers
+  const markers = g.selectAll('circle')
+    .data(data)
+    .join('circle')
+    .attr('cx', (d) => x(d.at))
+    .attr('cy', baselineY)
+    .attr('r', (d) => d.isCurrent ? 8 : 6)
+    .attr('fill', (d) => classColor[d.classification || ''] || pal.neutral)
+    .attr('stroke', (d) => d.isCurrent ? 'var(--c-surface)' : 'none')
+    .attr('stroke-width', 2)
+    .attr('cursor', opts.onSelect ? 'pointer' : 'default')
+    .on('mouseenter', function (event, d) {
+      d3.select(this).transition().duration(150).attr('opacity', 0.8);
+      const dateStr = new Date(d.at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      const classStr = d.classification ? d.classification.replace(/_/g, ' ').toLowerCase() : '—';
+      const content = `${d.version} · ${dateStr} · ${classStr}`;
+      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mousemove', function (event) {
+      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mouseleave', function () {
+      d3.select(this).transition().duration(150).attr('opacity', 1);
+      tooltip.hide();
+    })
+    .on('click', (_, d) => {
+      if (opts.onSelect) opts.onSelect(d.version);
+    });
+
+  animateIn(markers, { attr: 'opacity', from: 0, to: () => 1 });
+
+  // Legend
+  const legendData = [
+    { label: 'Breaking', color: pal.err },
+    { label: 'Potential breaking', color: pal.warn },
+    { label: 'Non-breaking', color: pal.ok },
+  ];
+
+  const legend = svg.append('g')
+    .attr('transform', `translate(${margin.left}, ${height - 10})`);
+
+  let legendX = 0;
+  const swatch = 8;
+  const swatchGap = 6;
+  const itemGap = 16;
+  const charW = 6;
+
+  legendData.forEach((d) => {
+    const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
+    item.append('circle')
+      .attr('cx', swatch / 2)
+      .attr('cy', -swatch / 2)
+      .attr('r', swatch / 2)
+      .attr('fill', d.color);
+    item.append('text')
+      .attr('x', swatch + swatchGap)
+      .attr('dominant-baseline', 'middle')
+      .style('font-size', 'var(--text-xs)')
+      .style('font-weight', '500')
+      .style('fill', 'var(--c-text-3)')
+      .text(d.label);
+    legendX += swatch + swatchGap + d.label.length * charW + itemGap;
+  });
+}

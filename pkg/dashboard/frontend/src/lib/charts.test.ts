@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderCategoryStackedBars, renderReadinessDonut, renderOwnerBars, renderTreemap, renderPriorityQuadrant, renderHeatmap } from './charts';
+import { renderCategoryStackedBars, renderReadinessDonut, renderOwnerBars, renderTreemap, renderPriorityQuadrant, renderHeatmap, renderVersionTimeline } from './charts';
 
 describe('renderCategoryStackedBars', () => {
   it('renders stacked bars for each category', () => {
@@ -305,5 +305,19 @@ describe('renderHeatmap', () => {
     expect(c.querySelectorAll('svg rect').length).toBeGreaterThanOrEqual(4); // 2×2 grid cells (+ maybe legend)
     const c2 = document.createElement('div'); renderHeatmap(c2, { owners:[], categories:[], cells:[] });
     expect(c2.textContent).toContain('No category data');
+  });
+});
+
+describe('renderVersionTimeline', () => {
+  it('draws a marker per dated version + legend + empty', () => {
+    const c = document.createElement('div');
+    renderVersionTimeline(c, [
+      { version: '1.0.0', at: 1735689600000, classification: 'NON_BREAKING', isCurrent: false },
+      { version: '2.0.0', at: 1738368000000, classification: 'BREAKING', isCurrent: true },
+    ]);
+    expect(c.querySelectorAll('svg circle').length).toBeGreaterThanOrEqual(2);
+    const c2 = document.createElement('div');
+    renderVersionTimeline(c2, []);
+    expect(c2.textContent).toContain('No version history');
   });
 });
