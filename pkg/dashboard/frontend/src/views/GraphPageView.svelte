@@ -101,6 +101,12 @@
     return ownerKey(ownerByService.get(node.serviceName)) || '(unowned)';
   }
 
+  // The per-owner aggregated tree (teams as nodes). Derived once and reused for
+  // both the grouped display AND the Focus picker, so the team list stays stable
+  // even after drilling into a team (where displayGraph becomes that team's
+  // services, not the teams).
+  let aggregatedGraph = $derived(graphData && groupByOwner ? aggregateGraphByOwner(graphData, ownerLabelOf) : null);
+
   // The graph shown:
   //  - not grouped         → full service tree (Focus drills to a service via focusId)
   //  - grouped, no focus    → per-owner aggregated tree (teams + cross-team edges)
@@ -108,7 +114,7 @@
   let displayGraph = $derived.by(() => {
     if (!graphData) return null;
     if (groupByOwner && focusSel) return relatedSubgraph(graphData, (n) => ownerLabelOf(n) === focusSel);
-    if (groupByOwner) return aggregateGraphByOwner(graphData, ownerLabelOf);
+    if (groupByOwner) return aggregatedGraph;
     return graphData;
   });
   // Emphasize the focused team's own services when drilled in.
@@ -120,10 +126,12 @@
   // focusId only subsets the full service tree (not the grouped views).
   let graphFocusId = $derived(!groupByOwner ? (focusSel || undefined) : undefined);
 
-  // Focus picker options: teams when aggregated, else services (most-impactful first).
+  // Focus picker options: teams when aggregated (from the stable aggregated graph,
+  // NOT displayGraph — which becomes the drilled-in team's services once focused,
+  // dropping the selected team from the list), else services (most-impactful first).
   let focusOptions = $derived(
     groupByOwner
-      ? (displayGraph?.nodes || []).map((n) => n.serviceName).sort()
+      ? (aggregatedGraph?.nodes || []).map((n) => n.serviceName).sort()
       : (graphData?.nodes || [])
           .filter((n) => n.status !== 'external')
           .map((n) => n.serviceName)

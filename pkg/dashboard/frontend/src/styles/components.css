@@ -74,6 +74,16 @@ td .badge {
   overflow-wrap: anywhere;
 }
 
+/* Status badges are short, fixed labels (Compliant, Warning, Non-Compliant, …).
+   The wrap rule above is for long free-form tags (e.g. category names) and would
+   otherwise let a cramped table column break a status word mid-character
+   ("Complian"/"t"). Keep status badges intact. */
+td .badge.status-badge {
+  max-width: none;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
 /* ─── Button ─── */
 .btn {
   display: inline-flex;
