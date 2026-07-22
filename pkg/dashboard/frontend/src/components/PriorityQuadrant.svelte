@@ -8,7 +8,7 @@
 
   $effect(() => {
     if (!container || !data) return;
-    const sig = JSON.stringify(data);
+    const sig = JSON.stringify(data) + (document.documentElement.getAttribute('data-theme') || '');
     if (sig === lastSig) return;
     lastSig = sig;
     renderPriorityQuadrant(container, data, { onSelect });
