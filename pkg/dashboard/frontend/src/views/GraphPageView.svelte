@@ -7,7 +7,9 @@
   import StatsBar from '../StatsBar.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import NodeDrawer from '../components/NodeDrawer.svelte';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
+  import { nodeDrawerData } from '../lib/nodeDrawer.ts';
 
   let { services = [], sourcesInfo = [] } = $props();
   let blastByName = $derived(new Map(services.map(s => [s.name, s.blastRadius || 0])));
@@ -15,6 +17,9 @@
   let graphData = $state(null);
   let loading = $state(true);
   let graphError = $state(false);
+
+  let selectedNode = $state(null);
+  let drawerData = $derived(nodeDrawerData(selectedNode, services, graphData));
 
   const f = getFilters(); // reactive shared filter store
 
@@ -163,7 +168,7 @@
     </span>
   </div>
 
-  <div class="fade-in-up">
+  <div class="fade-in-up graph-stage">
     <!-- Top-down dependency tree; over-wide levels wrap into sub-rows. Group-by-owner
          aggregates it to a team-level tree; Focus drills to one node's neighborhood. -->
     <GraphPanel
@@ -175,9 +180,11 @@
       filterFn={activeGraphFilterFn}
       height={Math.min(window.innerHeight - 200, 640)}
       onNavigate={(name) => location.hash = (groupByOwner && !focusSel) ? ownerUrl(name) : serviceUrl(name)}
+      onSelect={(name) => (selectedNode = name)}
       showZoom
       showLegend
     />
+    <NodeDrawer data={drawerData} onClose={() => (selectedNode = null)} />
   </div>
 
   <!-- Connections table -->
@@ -250,6 +257,7 @@
 {/if}
 
 <style>
+  .graph-stage { position: relative; }
   .graph-header {
     display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-5); flex-wrap: wrap;
   }

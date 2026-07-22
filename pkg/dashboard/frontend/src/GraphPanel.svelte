@@ -7,6 +7,7 @@
     focusNodes = null,
     height = 400,
     onNavigate,
+    onSelect = null,
     filterFn = null,
     layout = 'force',
     groups = null,
@@ -78,6 +79,7 @@
       {depth}
       {height}
       {onNavigate}
+      {onSelect}
       {filterFn}
     />
   </div>
