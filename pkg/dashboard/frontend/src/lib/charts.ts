@@ -33,6 +33,7 @@ export function renderCategoryStackedBars(
   }
 
   const pal = resolvePalette(container);
+  const radius = parseFloat(getComputedStyle(container).getPropertyValue('--chart-radius')) || 6;
 
   const margin = { top: 20, right: 140, bottom: 40, left: 120 };
 
@@ -52,6 +53,8 @@ export function renderCategoryStackedBars(
     .attr('width', '100%')
     .attr('viewBox', `0 0 ${width} ${height}`)
     .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Readiness category breakdown chart')
     .style('font-family', 'var(--font-sans)');
 
   defineGradients(svg, pal);
@@ -94,7 +97,7 @@ export function renderCategoryStackedBars(
     .attr('y', (d) => y((d.data as CategoryBarData).category) || 0)
     .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0]) - 2)) // -2px for gap
     .attr('height', y.bandwidth())
-    .attr('rx', 'var(--chart-radius)')
+    .attr('rx', radius)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
       d3.select(this).transition().duration(150).attr('opacity', 0.8);
@@ -211,6 +214,8 @@ export function renderReadinessDonut(
     .attr('width', '100%')
     .attr('viewBox', `0 0 ${width} ${height}`)
     .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Readiness status distribution donut chart')
     .style('font-family', 'var(--font-sans)');
 
   defineGradients(svg, pal);
@@ -345,6 +350,7 @@ export function renderOwnerBars(
   const topData = data.slice(0, 15);
 
   const pal = resolvePalette(container);
+  const radius = parseFloat(getComputedStyle(container).getPropertyValue('--chart-radius')) || 6;
 
   // Legend lives BELOW the bars so it is never clipped at the right edge.
   const legendHeight = 28;
@@ -382,6 +388,8 @@ export function renderOwnerBars(
     .attr('width', '100%')
     .attr('viewBox', `0 0 ${width} ${height}`)
     .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Owner readiness breakdown chart')
     .style('font-family', 'var(--font-sans)');
 
   defineGradients(svg, pal);
@@ -440,7 +448,7 @@ export function renderOwnerBars(
     .attr('y', (d) => y((d.data as typeof stackData[0]).key) || 0)
     .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0]) - 2)) // -2px for gap
     .attr('height', y.bandwidth())
-    .attr('rx', 'var(--chart-radius)')
+    .attr('rx', radius)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
       d3.select(this).transition().duration(150).attr('opacity', 0.8);
@@ -568,6 +576,7 @@ export function renderTreemap(
   }
 
   const pal = resolvePalette(container);
+  const radius = parseFloat(getComputedStyle(container).getPropertyValue('--chart-radius')) || 6;
 
   const width = container.clientWidth || 600;
   const height = 260;
@@ -577,6 +586,8 @@ export function renderTreemap(
     .attr('width', '100%')
     .attr('viewBox', `0 0 ${width} ${height}`)
     .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Fleet risk treemap')
     .style('font-family', 'var(--font-sans)');
 
   defineGradients(svg, pal);
@@ -608,7 +619,7 @@ export function renderTreemap(
     .attr('width', (d) => Math.max(0, d.x1 - d.x0))
     .attr('height', (d) => Math.max(0, d.y1 - d.y0))
     .attr('fill', (d) => STATUS_TO_PAL[d.data.status] || 'url(#grad-neutral)')
-    .attr('rx', 'var(--chart-radius)')
+    .attr('rx', radius)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
       d3.select(this).transition().duration(150).attr('opacity', 0.8);
@@ -647,6 +658,41 @@ export function renderTreemap(
 
   // Enter animation: fade in
   animateIn(tiles.selectAll('rect'), { attr: 'opacity', from: 0, to: () => 1 });
+
+  // Status legend
+  const statusesPresent = [...new Set(data.map((d) => d.status))].filter(Boolean);
+  const statusLegendData = [
+    { label: 'Compliant', color: pal.ok, status: 'Compliant' },
+    { label: 'Warning', color: pal.warn, status: 'Warning' },
+    { label: 'Non-Compliant', color: pal.err, status: 'NonCompliant' },
+    { label: 'Reference', color: pal.info, status: 'Reference' },
+    { label: 'Unknown', color: pal.neutral, status: 'Unknown' },
+  ].filter((d) => statusesPresent.includes(d.status));
+
+  if (statusLegendData.length > 0) {
+    const legend = svg.append('g').attr('transform', `translate(12, ${height - 20})`);
+    let legendX = 0;
+    const swatch = 8;
+    const swatchGap = 6;
+    const itemGap = 16;
+    const charW = 6;
+    statusLegendData.forEach((d) => {
+      const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
+      item.append('circle')
+        .attr('cx', swatch / 2)
+        .attr('cy', -swatch / 2)
+        .attr('r', swatch / 2)
+        .attr('fill', d.color);
+      item.append('text')
+        .attr('x', swatch + swatchGap)
+        .attr('dominant-baseline', 'middle')
+        .style('font-size', 'var(--text-xs)')
+        .style('font-weight', '500')
+        .style('fill', 'var(--c-text-3)')
+        .text(d.label);
+      legendX += swatch + swatchGap + d.label.length * charW + itemGap;
+    });
+  }
 }
 
 /** Priority quadrant: readiness score (x) vs blast radius (y) scatter plot. */
@@ -685,6 +731,8 @@ export function renderPriorityQuadrant(
     .append('svg')
     .attr('viewBox', `0 0 ${width} ${height}`)
     .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Priority quadrant scatter plot')
     .style('width', '100%')
     .style('height', 'auto')
     .style('font-family', 'var(--font-sans)');
@@ -825,6 +873,40 @@ export function renderPriorityQuadrant(
     .style('font-weight', '500')
     .style('fill', 'var(--c-text-3)')
     .text('impact →');
+
+  // Status legend
+  const statusesPresent = [...new Set(data.map((d) => d.status))].filter(Boolean);
+  const statusLegendData = [
+    { label: 'Compliant', color: pal.ok, status: 'Compliant' },
+    { label: 'Warning', color: pal.warn, status: 'Warning' },
+    { label: 'Non-Compliant', color: pal.err, status: 'NonCompliant' },
+    { label: 'Reference', color: pal.info, status: 'Reference' },
+  ].filter((d) => statusesPresent.includes(d.status));
+
+  if (statusLegendData.length > 0) {
+    const legend = svg.append('g').attr('transform', `translate(${margin.left}, ${margin.top - 12})`);
+    let legendX = 0;
+    const swatch = 8;
+    const swatchGap = 6;
+    const itemGap = 16;
+    const charW = 6;
+    statusLegendData.forEach((d) => {
+      const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
+      item.append('circle')
+        .attr('cx', swatch / 2)
+        .attr('cy', -swatch / 2)
+        .attr('r', swatch / 2)
+        .attr('fill', d.color);
+      item.append('text')
+        .attr('x', swatch + swatchGap)
+        .attr('dominant-baseline', 'middle')
+        .style('font-size', 'var(--text-xs)')
+        .style('font-weight', '500')
+        .style('fill', 'var(--c-text-3)')
+        .text(d.label);
+      legendX += swatch + swatchGap + d.label.length * charW + itemGap;
+    });
+  }
 }
 
 /** Heatmap for team × category readiness. */
@@ -847,11 +929,13 @@ export function renderHeatmap(
   }
 
   const pal = resolvePalette(container);
+  const radius = parseFloat(getComputedStyle(container).getPropertyValue('--chart-radius')) || 6;
 
-  // Sequential single-hue ramp: pale tint → green (per dataviz: magnitude is sequential, not status)
+  // Sequential single-hue ramp: theme-aware surface → green (low scores recede in both themes)
+  const surfaceInset = getComputedStyle(container).getPropertyValue('--c-surface-inset').trim() || '#e9f7ef';
   const scoreFill = d3.scaleLinear<string>()
     .domain([0, 100])
-    .range(['#e9f7ef', pal.ok])
+    .range([surfaceInset, pal.ok])
     .interpolate(d3.interpolateRgb);
 
   const cellSize = 40;
@@ -866,6 +950,8 @@ export function renderHeatmap(
     .attr('width', '100%')
     .attr('viewBox', `0 0 ${width} ${height}`)
     .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Team by category readiness heatmap')
     .style('font-family', 'var(--font-sans)');
 
   const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
@@ -905,7 +991,7 @@ export function renderHeatmap(
     .attr('y', (d) => d.y)
     .attr('width', cellSize)
     .attr('height', cellSize)
-    .attr('rx', 'var(--chart-radius)')
+    .attr('rx', radius)
     .attr('fill', (d) => (d.score != null ? scoreFill(d.score) : 'var(--c-surface-inset)'))
     .attr('cursor', opts.onSelectCell ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
@@ -974,7 +1060,7 @@ export function renderHeatmap(
     .attr('x2', '0')
     .attr('y1', '1')
     .attr('y2', '0');
-  lg.append('stop').attr('offset', '0').attr('stop-color', '#e9f7ef');
+  lg.append('stop').attr('offset', '0').attr('stop-color', surfaceInset);
   lg.append('stop').attr('offset', '1').attr('stop-color', pal.ok);
 
   svg.append('rect')
@@ -1038,6 +1124,8 @@ export function renderVersionTimeline(
     .append('svg')
     .attr('viewBox', `0 0 ${width} ${height}`)
     .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Version timeline')
     .style('width', '100%')
     .style('height', 'auto')
     .style('font-family', 'var(--font-sans)');

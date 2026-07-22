@@ -4,11 +4,14 @@
   let { data, onSelect } = $props();
 
   let container;
+  let lastSig = '';
 
   $effect(() => {
-    if (container && data) {
-      renderVersionTimeline(container, data, { onSelect });
-    }
+    if (!container || !data) return;
+    const sig = JSON.stringify(data);
+    if (sig === lastSig) return;
+    lastSig = sig;
+    renderVersionTimeline(container, data, { onSelect });
   });
 </script>
 

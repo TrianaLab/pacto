@@ -4,11 +4,14 @@
   let { data, onSelect = undefined } = $props();
 
   let container;
+  let lastSig = '';
 
   $effect(() => {
-    if (container && data) {
-      renderTreemap(container, data, { onSelect });
-    }
+    if (!container || !data) return;
+    const sig = JSON.stringify(data);
+    if (sig === lastSig) return;
+    lastSig = sig;
+    renderTreemap(container, data, { onSelect });
   });
 </script>
 

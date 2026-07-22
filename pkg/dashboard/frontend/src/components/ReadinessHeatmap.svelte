@@ -5,16 +5,19 @@
   let { data } = $props();
 
   let container;
+  let lastSig = '';
 
   $effect(() => {
-    if (container && data) {
-      renderHeatmap(container, data, {
-        onSelectCell: (owner, category) => {
-          setFilter('owner', owner);
-          setFilter('category', category);
-        },
-      });
-    }
+    if (!container || !data) return;
+    const sig = JSON.stringify(data);
+    if (sig === lastSig) return;
+    lastSig = sig;
+    renderHeatmap(container, data, {
+      onSelectCell: (owner, category) => {
+        setFilter('owner', owner);
+        setFilter('category', category);
+      },
+    });
   });
 </script>
 
