@@ -6,6 +6,7 @@
   let {
     graphData = null, focusId = null, height = 400, onNavigate, filterFn, focusNodes = null,
     layout = 'force', direction = 'down', depth = 2, childCap = 12, groups = null, onSelect,
+    tapToOpen = false,
   } = $props();
 
   let containerEl = $state(null);
@@ -61,6 +62,7 @@
       hidden,
       onExpand,
       onSelect,
+      tapToOpen,
     });
   }
 

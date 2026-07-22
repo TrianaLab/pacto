@@ -138,6 +138,7 @@
           onNavigate={(name) => location.hash = serviceUrl(name)}
           showZoom
           showLegend
+          tapToOpen
         />
       </div>
     {:else if graphError}

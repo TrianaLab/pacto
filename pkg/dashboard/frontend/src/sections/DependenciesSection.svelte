@@ -39,6 +39,7 @@
           onNavigate={(n) => navigate('detail', { name: n })}
           showZoom
           showLegend
+          tapToOpen
         />
       </div>
     {/if}

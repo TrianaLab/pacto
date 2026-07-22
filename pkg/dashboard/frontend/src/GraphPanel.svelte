@@ -15,6 +15,7 @@
     showLegend = true,
     showDirectionDepth = false,
     initialDirection = 'down',
+    tapToOpen = false,
   } = $props();
 
   // Seed the toolbar direction once from the prop; it is user-controlled state
@@ -81,6 +82,7 @@
       {onNavigate}
       {onSelect}
       {filterFn}
+      {tapToOpen}
     />
   </div>
 

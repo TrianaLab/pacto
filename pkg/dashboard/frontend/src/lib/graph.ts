@@ -137,6 +137,8 @@ interface RenderOptions {
   groups?: Map<string, string>;
   /** Fired on single-tap pin (serviceName) and unpin / background tap (null). */
   onSelect?: (serviceName: string | null) => void;
+  /** When true, single-tap opens the service (embedded graphs). Default: false = spotlight. */
+  tapToOpen?: boolean;
   // Accepted for API compatibility; the "+N" expand chip is superseded by
   // click-to-focus, so these are ignored.
   hidden?: Map<string, number>;
@@ -393,7 +395,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
 export function renderGraph(
   container: HTMLElement,
   graphData: GraphData,
-  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups, onSelect }: RenderOptions = {},
+  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups, onSelect, tapToOpen }: RenderOptions = {},
 ): GraphControls {
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
   const hasGroups = !!(groups && groups.size);
@@ -510,6 +512,7 @@ export function renderGraph(
       if (!n.data('external') && onNavigate) onNavigate(n.data('serviceName'));
       return;
     }
+    if (tapToOpen && !n.data('external') && onNavigate) { onNavigate(n.data('serviceName')); return; }
     // Single-tap → PIN this service's directional spotlight and gently center it,
     // keeping the whole map in view (no hard zoom) so the global picture stays.
     clickFocusId = clickFocusId === id ? null : id;
