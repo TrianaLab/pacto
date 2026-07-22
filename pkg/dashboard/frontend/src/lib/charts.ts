@@ -1029,13 +1029,29 @@ export function renderHeatmap(
   // Column headers: category ICONS (no rotated text → no label/grid collision),
   // each with a hover <title> + aria-label carrying the full category name so it is
   // never meaning-by-shape-alone. Unknown categories fall back to the 'other' icon.
-  const colHead = svg.append('g').attr('transform', `translate(${margin.left},${margin.top - 28})`);
+  const colHead = svg.append('g').attr('transform', `translate(${margin.left},${margin.top - 26})`);
   data.categories.forEach((cat, i) => {
     const cx = i * (cellSize + gap) + cellSize / 2;
-    const esc = cat.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    colHead.append('svg')
-      .attr('x', cx - 10)
+    // Group carries the a11y name + a native <title>; a full-cell TRANSPARENT hit
+    // rect makes the whole header hoverable (the icon is stroke-only, so its empty
+    // interior isn't a hit target on its own), driving the same styled tooltip the
+    // cells use. The icon itself is pointer-events:none so the rect owns hover.
+    const cellG = colHead.append('g').attr('role', 'img').attr('aria-label', cat);
+    cellG.append('title').text(cat);
+    cellG.append('rect')
+      .attr('x', i * (cellSize + gap))
       .attr('y', 0)
+      .attr('width', cellSize)
+      .attr('height', 24)
+      .attr('fill', 'transparent')
+      .style('pointer-events', 'all')
+      .style('cursor', 'default')
+      .on('mouseenter', (event) => tooltip.show(cat, event.offsetX + 10, event.offsetY - 10))
+      .on('mousemove', (event) => tooltip.show(cat, event.offsetX + 10, event.offsetY - 10))
+      .on('mouseleave', () => tooltip.hide());
+    cellG.append('svg')
+      .attr('x', cx - 10)
+      .attr('y', 2)
       .attr('width', 20)
       .attr('height', 20)
       .attr('viewBox', '0 0 24 24')
@@ -1044,9 +1060,8 @@ export function renderHeatmap(
       .attr('stroke-width', 1.8)
       .attr('stroke-linecap', 'round')
       .attr('stroke-linejoin', 'round')
-      .attr('role', 'img')
-      .attr('aria-label', cat)
-      .html(`<title>${esc}</title>${categoryIconInner(cat)}`);
+      .style('pointer-events', 'none')
+      .html(categoryIconInner(cat));
   });
 
   // Row labels (owners)

@@ -314,8 +314,11 @@ describe('renderHeatmap', () => {
     const cell = c.querySelector('svg g rect');
     expect(cell?.getAttribute('stroke')).toBe('var(--c-border)');
     // One labelled icon per category header — full name on aria-label (a11y), not shape-alone.
-    const ariaLabels = [...c.querySelectorAll('svg[role="img"]')].map((s) => s.getAttribute('aria-label'));
+    const ariaLabels = [...c.querySelectorAll('[role="img"]')].map((s) => s.getAttribute('aria-label'));
     expect(ariaLabels).toEqual(expect.arrayContaining(['documentation', 'testing']));
+    // A transparent full-cell hit rect drives the hover tooltip (icons are stroke-only).
+    const hitRects = [...c.querySelectorAll('rect')].filter((r) => r.getAttribute('fill') === 'transparent');
+    expect(hitRects.length).toBeGreaterThanOrEqual(2);
     // No rotated text labels (the old collision-prone approach is gone).
     const anyRotatedText = [...c.querySelectorAll('text')].some((t) => (t.getAttribute('transform') || '').includes('rotate'));
     expect(anyRotatedText).toBe(false);
