@@ -7,6 +7,11 @@
   import StatsBar from '../StatsBar.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import NodeDrawer from '../components/NodeDrawer.svelte';
+  import Breadcrumbs from '../components/Breadcrumbs.svelte';
+  import { getFilters, setFilter } from '../lib/filters.svelte.ts';
+  import { nodeDrawerData } from '../lib/nodeDrawer.ts';
+  import { graphBreadcrumbs } from '../lib/breadcrumbs.ts';
 
   let { services = [], sourcesInfo = [] } = $props();
   let blastByName = $derived(new Map(services.map(s => [s.name, s.blastRadius || 0])));
@@ -14,11 +19,33 @@
   let graphData = $state(null);
   let loading = $state(true);
   let graphError = $state(false);
-  let statusFilter = $state('all');
-  let sourceFilter = $state('all');
-  let nameFilter = $state('');
-  let groupByOwner = $state(false); // aggregate the tree per owning team
-  let focusSel = $state('');        // focus the tree on one service (or team)
+
+  let selectedNode = $state(null);
+  let drawerData = $derived(nodeDrawerData(selectedNode, services, graphData));
+
+  let f = $derived(getFilters()); // reactive shared filter store
+  let crumbs = $derived(graphBreadcrumbs({ group: f.group, focus: f.focus }));
+
+  // StatsBar mutates its bindables directly and uses the 'all' sentinel; the store
+  // uses '' for empty. Mirror the store into three writable locals for StatsBar and
+  // bridge both directions with an equality guard (setting an equal value is a
+  // no-op, so the pair converges rather than looping).
+  let statusFilter = $state(f.contractStatus || 'all');
+  let sourceFilter = $state(f.source || 'all');
+  let nameFilter = $state(f.search || '');
+
+  // local (StatsBar) → store/hash
+  $effect(() => { const v = statusFilter === 'all' ? '' : statusFilter; if (f.contractStatus !== v) setFilter('contractStatus', v); });
+  $effect(() => { const v = sourceFilter === 'all' ? '' : sourceFilter; if (f.source !== v) setFilter('source', v); });
+  $effect(() => { if (f.search !== nameFilter) setFilter('search', nameFilter); });
+  // store → local (back/forward, palette navigation)
+  $effect(() => { const v = f.contractStatus || 'all'; if (statusFilter !== v) statusFilter = v; });
+  $effect(() => { const v = f.source || 'all'; if (sourceFilter !== v) sourceFilter = v; });
+  $effect(() => { const v = f.search || ''; if (nameFilter !== v) nameFilter = v; });
+
+  // Group + focus live straight in the store (not StatsBar bindables).
+  let groupByOwner = $derived(f.group === 'owner');
+  let focusSel = $derived(f.focus || '');
 
   // Graph nodes don't carry source info; map service name → sources from the fleet
   // list so the K8S/OCI pills can actually filter the graph and connections table.
@@ -74,6 +101,12 @@
     return ownerKey(ownerByService.get(node.serviceName)) || '(unowned)';
   }
 
+  // The per-owner aggregated tree (teams as nodes). Derived once and reused for
+  // both the grouped display AND the Focus picker, so the team list stays stable
+  // even after drilling into a team (where displayGraph becomes that team's
+  // services, not the teams).
+  let aggregatedGraph = $derived(graphData && groupByOwner ? aggregateGraphByOwner(graphData, ownerLabelOf) : null);
+
   // The graph shown:
   //  - not grouped         → full service tree (Focus drills to a service via focusId)
   //  - grouped, no focus    → per-owner aggregated tree (teams + cross-team edges)
@@ -81,7 +114,7 @@
   let displayGraph = $derived.by(() => {
     if (!graphData) return null;
     if (groupByOwner && focusSel) return relatedSubgraph(graphData, (n) => ownerLabelOf(n) === focusSel);
-    if (groupByOwner) return aggregateGraphByOwner(graphData, ownerLabelOf);
+    if (groupByOwner) return aggregatedGraph;
     return graphData;
   });
   // Emphasize the focused team's own services when drilled in.
@@ -93,10 +126,12 @@
   // focusId only subsets the full service tree (not the grouped views).
   let graphFocusId = $derived(!groupByOwner ? (focusSel || undefined) : undefined);
 
-  // Focus picker options: teams when aggregated, else services (most-impactful first).
+  // Focus picker options: teams when aggregated (from the stable aggregated graph,
+  // NOT displayGraph — which becomes the drilled-in team's services once focused,
+  // dropping the selected team from the list), else services (most-impactful first).
   let focusOptions = $derived(
     groupByOwner
-      ? (displayGraph?.nodes || []).map((n) => n.serviceName).sort()
+      ? (aggregatedGraph?.nodes || []).map((n) => n.serviceName).sort()
       : (graphData?.nodes || [])
           .filter((n) => n.status !== 'external')
           .map((n) => n.serviceName)
@@ -104,13 +139,17 @@
   );
 
   // Switching grouping changes the node set, so a stale focus no longer applies.
-  function toggleGroup() { groupByOwner = !groupByOwner; focusSel = ''; }
+  function toggleGroup() {
+    setFilter('group', groupByOwner ? '' : 'owner');
+    setFilter('focus', '');
+    selectedNode = null;
+  }
 
   onMount(() => { loadGraph(); });
 </script>
 
+<Breadcrumbs trail={crumbs} />
 <div class="graph-header">
-  <a href="#/" class="btn btn-sm btn-ghost">← Services</a>
   <h1>Dependency Graph</h1>
 </div>
 
@@ -131,7 +170,7 @@
     </button>
     <label class="focus-pick">
       <span class="focus-hint">Focus</span>
-      <select bind:value={focusSel} aria-label="Focus the graph on">
+      <select value={focusSel} onchange={(e) => { setFilter('focus', e.currentTarget.value); selectedNode = null; }} aria-label="Focus the graph on">
         <option value="">{groupByOwner ? 'All teams' : 'Whole fleet'}</option>
         {#each focusOptions as name}
           <option value={name}>{name}</option>
@@ -144,7 +183,7 @@
     </span>
   </div>
 
-  <div class="fade-in-up">
+  <div class="fade-in-up graph-stage">
     <!-- Top-down dependency tree; over-wide levels wrap into sub-rows. Group-by-owner
          aggregates it to a team-level tree; Focus drills to one node's neighborhood. -->
     <GraphPanel
@@ -156,9 +195,11 @@
       filterFn={activeGraphFilterFn}
       height={Math.min(window.innerHeight - 200, 640)}
       onNavigate={(name) => location.hash = (groupByOwner && !focusSel) ? ownerUrl(name) : serviceUrl(name)}
+      onSelect={(name) => (selectedNode = name)}
       showZoom
       showLegend
     />
+    <NodeDrawer data={drawerData} onClose={() => (selectedNode = null)} />
   </div>
 
   <!-- Connections table -->
@@ -231,6 +272,7 @@
 {/if}
 
 <style>
+  .graph-stage { position: relative; }
   .graph-header {
     display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-5); flex-wrap: wrap;
   }

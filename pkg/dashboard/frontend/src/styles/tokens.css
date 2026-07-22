@@ -93,9 +93,12 @@
   --c-warn: #d97706;
   --c-warn-bg: rgba(217, 119, 6, 0.06);
   --c-warn-border: rgba(217, 119, 6, 0.15);
-  --c-err: #dc2626;
-  --c-err-bg: rgba(220, 38, 38, 0.06);
-  --c-err-border: rgba(220, 38, 38, 0.15);
+  /* red-700: deepened from #dc2626 so warn(amber)↔err(red) clears the normal-vision
+     ΔE≥15 floor in light mode (was 14.4, now 18.8) — full-color readers can tell an
+     amber "partial" segment from a red "not-done" segment. warn stays amber. */
+  --c-err: #b91c1c;
+  --c-err-bg: rgba(185, 28, 28, 0.06);
+  --c-err-border: rgba(185, 28, 28, 0.15);
   --c-info: #2563eb;
   --c-info-bg: rgba(37, 99, 235, 0.06);
   --c-info-border: rgba(37, 99, 235, 0.15);

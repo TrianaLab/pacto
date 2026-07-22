@@ -7,6 +7,7 @@
   import ServicesTable from '../components/ServicesTable.svelte';
   import GraphPanel from '../GraphPanel.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import Breadcrumbs from '../components/Breadcrumbs.svelte';
 
   let { owner = '', services = [], initialLoading = false } = $props();
 
@@ -31,6 +32,8 @@
     graphData ? relatedSubgraph(graphData, (n) => ownerServiceNames.has(n.serviceName)) : null,
   );
 
+  let crumbs = $derived([{ label: 'Owners', href: ownersUrl() }, { label: owner }]);
+
   async function loadOwnerGraph() {
     graphLoading = true;
     graphError = false;
@@ -46,13 +49,7 @@
 </script>
 
 <!-- Breadcrumb -->
-<nav class="breadcrumb fade-in" aria-label="Breadcrumb">
-  <a href="#/">Services</a>
-  <span class="sep">/</span>
-  <a href={ownersUrl()}>Owners</a>
-  <span class="sep">/</span>
-  <span>{owner}</span>
-</nav>
+<Breadcrumbs trail={crumbs} />
 
 <header class="detail-header fade-in-up">
   <h1>{owner}</h1>
@@ -141,6 +138,7 @@
           onNavigate={(name) => location.hash = serviceUrl(name)}
           showZoom
           showLegend
+          tapToOpen
         />
       </div>
     {:else if graphError}
@@ -152,14 +150,6 @@
 {/if}
 
 <style>
-  .breadcrumb {
-    font-size: var(--text-sm); margin-bottom: var(--sp-4);
-    color: var(--c-text-3); display: flex; align-items: center; gap: 6px;
-  }
-  .breadcrumb a { color: var(--c-text-3); }
-  .breadcrumb a:hover { color: var(--c-text); }
-  .sep { color: var(--c-text-3); }
-
   .detail-header {
     display: flex; align-items: center; gap: var(--sp-3);
     margin-bottom: var(--sp-5); flex-wrap: wrap;

@@ -5,13 +5,16 @@
   let { data } = $props();
 
   let container;
+  let lastSig = '';
 
   $effect(() => {
-    if (container && data) {
-      renderReadinessDonut(container, data, {
-        onSelect: (bucket) => setFilter('readinessStatus', bucket),
-      });
-    }
+    if (!container || !data) return;
+    const sig = JSON.stringify(data) + (document.documentElement.getAttribute('data-theme') || '');
+    if (sig === lastSig) return;
+    lastSig = sig;
+    renderReadinessDonut(container, data, {
+      onSelect: (bucket) => setFilter('readinessStatus', bucket),
+    });
   });
 </script>
 

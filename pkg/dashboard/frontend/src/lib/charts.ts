@@ -4,60 +4,8 @@
  */
 import * as d3 from 'd3';
 import { readinessBucketLabel } from './format';
-
-/**
- * Shared tooltip helper for d3 charts.
- * Creates/updates a positioned tooltip div that matches the app's [data-tip] style.
- */
-class ChartTooltip {
-  private el: HTMLDivElement;
-  private container: HTMLElement | null = null;
-
-  constructor() {
-    this.el = document.createElement('div');
-    // max-width + wrap so a long label can't render as one line that runs off
-    // the page (html/body are overflow-x:clip, so the spill would be cut).
-    this.el.style.cssText = `
-      position: absolute;
-      padding: 6px 14px;
-      max-width: min(320px, 90vw);
-      background: var(--c-surface-raised);
-      color: var(--c-text);
-      font-size: var(--text-xs);
-      font-weight: 500;
-      white-space: normal;
-      overflow-wrap: anywhere;
-      border-radius: var(--radius-xs);
-      border: 1px solid var(--c-border);
-      box-shadow: var(--shadow-md);
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 150ms ease;
-      z-index: 1000;
-    `;
-  }
-
-  show(content: string, x: number, y: number) {
-    this.el.textContent = content;
-    this.el.style.opacity = '1';
-    // Clamp within the container (coords are container-relative) so the tooltip
-    // never overflows the chart edge and gets clipped by the page.
-    const cw = this.container?.clientWidth ?? Infinity;
-    const left = Math.max(0, Math.min(x, cw - this.el.offsetWidth));
-    this.el.style.left = `${left}px`;
-    this.el.style.top = `${Math.max(0, y)}px`;
-  }
-
-  hide() {
-    this.el.style.opacity = '0';
-  }
-
-  attach(container: HTMLElement) {
-    container.style.position = 'relative';
-    container.appendChild(this.el);
-    this.container = container;
-  }
-}
+import { resolvePalette, sharedTooltip, defineGradients, animateIn, emptyState } from './chartkit';
+import { categoryIconInner } from './categoryIcons';
 
 /** Horizontal stacked bar chart for readiness category breakdown. */
 export interface CategoryBarData {
@@ -81,17 +29,12 @@ export function renderCategoryStackedBars(
   d3.select(container).selectAll('*').remove();
 
   if (!data.length) {
-    const msg = d3.select(container).append('div')
-      .attr('class', 'state-box');
-    msg.text('No category data');
+    emptyState(container, 'No category data');
     return;
   }
 
-  // Read theme colors from CSS
-  const doneColor = getComputedStyle(container).getPropertyValue('--c-ok').trim();
-  const partialColor = getComputedStyle(container).getPropertyValue('--c-warn').trim();
-  const notDoneColor = getComputedStyle(container).getPropertyValue('--c-err').trim();
-  const deferredColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
+  const pal = resolvePalette(container);
+  const radius = parseFloat(getComputedStyle(container).getPropertyValue('--chart-radius')) || 6;
 
   const margin = { top: 20, right: 140, bottom: 40, left: 120 };
 
@@ -111,7 +54,11 @@ export function renderCategoryStackedBars(
     .attr('width', '100%')
     .attr('viewBox', `0 0 ${width} ${height}`)
     .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Readiness category breakdown chart')
     .style('font-family', 'var(--font-sans)');
+
+  defineGradients(svg, pal);
 
   const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
@@ -133,24 +80,25 @@ export function renderCategoryStackedBars(
     .range([0, innerHeight])
     .padding(0.3);
 
-  // Bars
-  const colorMap: Record<string, string> = { done: doneColor, partial: partialColor, notDone: notDoneColor, deferred: deferredColor };
+  // Bars — gradients by status, rounded ends, 2px surface gap between segments.
+  const gradientMap: Record<string, string> = { done: 'url(#grad-ok)', partial: 'url(#grad-warn)', notDone: 'url(#grad-err)', deferred: 'url(#grad-neutral)' };
 
-  const tooltip = new ChartTooltip();
+  const tooltip = sharedTooltip();
   tooltip.attach(container);
 
-  g.selectAll('g.layer')
+  const rects = g.selectAll('g.layer')
     .data(series)
     .join('g')
     .attr('class', 'layer')
-    .attr('fill', (d) => colorMap[d.key])
+    .attr('fill', (d) => gradientMap[d.key])
     .selectAll('rect')
     .data((d) => d)
     .join('rect')
-    .attr('x', (d) => x(d[0]))
+    .attr('x', (d) => Math.max(0, x(d[0]) + 1)) // 1px inset for surface gap
     .attr('y', (d) => y((d.data as CategoryBarData).category) || 0)
-    .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0])))
+    .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0]) - 2)) // -2px for gap
     .attr('height', y.bandwidth())
+    .attr('rx', radius)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
       d3.select(this).transition().duration(150).attr('opacity', 0.8);
@@ -169,6 +117,9 @@ export function renderCategoryStackedBars(
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect((d.data as CategoryBarData).category);
     });
+
+  // Enter animation: width 0→value.
+  animateIn(rects, { attr: 'width', from: 0, to: (d) => Math.max(0, x(d[1]) - x(d[0]) - 2) });
 
   // Y axis: category labels — muted chrome (no domain line, no tick marks).
   const yAxis = g.append('g').call(d3.axisLeft(y).tickSize(0));
@@ -199,10 +150,10 @@ export function renderCategoryStackedBars(
     .attr('transform', `translate(${innerWidth + margin.left + 20}, ${margin.top})`);
 
   const legendData = [
-    { label: 'Done', color: doneColor },
-    { label: 'Partial', color: partialColor },
-    { label: 'Not done', color: notDoneColor },
-    { label: 'Deferred', color: deferredColor },
+    { label: 'Done', color: pal.ok },
+    { label: 'Partial', color: pal.warn },
+    { label: 'Not done', color: pal.err },
+    { label: 'Deferred', color: pal.neutral },
   ];
 
   const legendItems = legend.selectAll('g')
@@ -248,17 +199,11 @@ export function renderReadinessDonut(
 
   const total = data.ready + data.partial + data.notReady + data.notConfigured;
   if (total === 0) {
-    const msg = d3.select(container).append('div')
-      .attr('class', 'state-box');
-    msg.text('No readiness data');
+    emptyState(container, 'No readiness data');
     return;
   }
 
-  // Read theme colors
-  const readyColor = getComputedStyle(container).getPropertyValue('--c-ok').trim();
-  const partialColor = getComputedStyle(container).getPropertyValue('--c-warn').trim();
-  const notReadyColor = getComputedStyle(container).getPropertyValue('--c-err').trim();
-  const notConfiguredColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
+  const pal = resolvePalette(container);
 
   const donutRadius = 70;
   const legendWidth = 150;
@@ -270,34 +215,38 @@ export function renderReadinessDonut(
     .attr('width', '100%')
     .attr('viewBox', `0 0 ${width} ${height}`)
     .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Readiness status distribution donut chart')
     .style('font-family', 'var(--font-sans)');
+
+  defineGradients(svg, pal);
 
   const g = svg.append('g').attr('transform', `translate(${donutRadius + 20}, ${height / 2})`);
 
   // Pie layout
   const pieData = [
-    { label: readinessBucketLabel('ready'), value: data.ready, bucket: 'ready', color: readyColor },
-    { label: readinessBucketLabel('partial'), value: data.partial, bucket: 'partial', color: partialColor },
-    { label: readinessBucketLabel('not-ready'), value: data.notReady, bucket: 'not-ready', color: notReadyColor },
-    { label: readinessBucketLabel('unknown'), value: data.notConfigured, bucket: 'unknown', color: notConfiguredColor },
+    { label: readinessBucketLabel('ready'), value: data.ready, bucket: 'ready', gradient: 'url(#grad-ok)', color: pal.ok },
+    { label: readinessBucketLabel('partial'), value: data.partial, bucket: 'partial', gradient: 'url(#grad-warn)', color: pal.warn },
+    { label: readinessBucketLabel('not-ready'), value: data.notReady, bucket: 'not-ready', gradient: 'url(#grad-err)', color: pal.err },
+    { label: readinessBucketLabel('unknown'), value: data.notConfigured, bucket: 'unknown', gradient: 'url(#grad-neutral)', color: pal.neutral },
   ].filter((d) => d.value > 0);
 
-  const pie = d3.pie<{ label: string; value: number; bucket: string; color: string }>()
+  const pie = d3.pie<{ label: string; value: number; bucket: string; gradient: string }>()
     .value((d) => d.value)
     .sort(null);
 
-  const arc = d3.arc<d3.PieArcDatum<{ label: string; value: number; bucket: string; color: string }>>()
+  const arc = d3.arc<d3.PieArcDatum<{ label: string; value: number; bucket: string; gradient: string }>>()
     .innerRadius(donutRadius * 0.6)
     .outerRadius(donutRadius);
 
-  const tooltip = new ChartTooltip();
+  const tooltip = sharedTooltip();
   tooltip.attach(container);
 
-  g.selectAll('path')
+  const paths = g.selectAll('path')
     .data(pie(pieData))
     .join('path')
     .attr('d', arc)
-    .attr('fill', (d) => d.data.color)
+    .attr('fill', (d) => d.data.gradient)
     .attr('stroke', 'var(--c-surface)')
     .attr('stroke-width', 2)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
@@ -323,6 +272,9 @@ export function renderReadinessDonut(
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect(d.data.bucket);
     });
+
+  // Enter animation: fade in.
+  animateIn(paths, { attr: 'opacity', from: 0, to: () => 1 });
 
   // Center label: total
   g.append('text')
@@ -391,20 +343,15 @@ export function renderOwnerBars(
   d3.select(container).selectAll('*').remove();
 
   if (!data.length) {
-    const msg = d3.select(container).append('div')
-      .attr('class', 'state-box');
-    msg.text('No owner data');
+    emptyState(container, 'No owner data');
     return;
   }
 
   // Limit to top 15 owners for readability
   const topData = data.slice(0, 15);
 
-  // Read theme colors from CSS — readiness palette.
-  const readyColor = getComputedStyle(container).getPropertyValue('--c-ok').trim();
-  const partialColor = getComputedStyle(container).getPropertyValue('--c-warn').trim();
-  const notReadyColor = getComputedStyle(container).getPropertyValue('--c-err').trim();
-  const notConfiguredColor = getComputedStyle(container).getPropertyValue('--c-text-3').trim();
+  const pal = resolvePalette(container);
+  const radius = parseFloat(getComputedStyle(container).getPropertyValue('--chart-radius')) || 6;
 
   // Legend lives BELOW the bars so it is never clipped at the right edge.
   const legendHeight = 28;
@@ -442,7 +389,11 @@ export function renderOwnerBars(
     .attr('width', '100%')
     .attr('viewBox', `0 0 ${width} ${height}`)
     .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Owner readiness breakdown chart')
     .style('font-family', 'var(--font-sans)');
+
+  defineGradients(svg, pal);
 
   const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
@@ -474,30 +425,31 @@ export function renderOwnerBars(
     .range([0, innerHeight])
     .padding(0.25);
 
-  // Color map
-  const colorMap: Record<string, string> = {
-    ready: readyColor,
-    partial: partialColor,
-    notReady: notReadyColor,
-    notConfigured: notConfiguredColor,
+  // Gradient map — readiness palette.
+  const gradientMap: Record<string, string> = {
+    ready: 'url(#grad-ok)',
+    partial: 'url(#grad-warn)',
+    notReady: 'url(#grad-err)',
+    notConfigured: 'url(#grad-neutral)',
   };
 
-  const tooltip = new ChartTooltip();
+  const tooltip = sharedTooltip();
   tooltip.attach(container);
 
-  // Bars
-  g.selectAll('g.layer')
+  // Bars — gradients, rounded ends, 2px surface gap between segments.
+  const rects = g.selectAll('g.layer')
     .data(series)
     .join('g')
     .attr('class', 'layer')
-    .attr('fill', (d) => colorMap[d.key])
+    .attr('fill', (d) => gradientMap[d.key])
     .selectAll('rect')
     .data((d) => d)
     .join('rect')
-    .attr('x', (d) => x(d[0]))
+    .attr('x', (d) => Math.max(0, x(d[0]) + 1)) // 1px inset for surface gap
     .attr('y', (d) => y((d.data as typeof stackData[0]).key) || 0)
-    .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0])))
+    .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0]) - 2)) // -2px for gap
     .attr('height', y.bandwidth())
+    .attr('rx', radius)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
       d3.select(this).transition().duration(150).attr('opacity', 0.8);
@@ -516,6 +468,9 @@ export function renderOwnerBars(
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect((d.data as typeof stackData[0]).key);
     });
+
+  // Enter animation: width 0→value.
+  animateIn(rects, { attr: 'width', from: 0, to: (d) => Math.max(0, x(d[1]) - x(d[0]) - 2) });
 
   // Y axis: owner labels — muted chrome (no domain line, no tick marks).
   const yAxis = g.append('g').call(d3.axisLeft(y).tickSize(0));
@@ -557,10 +512,10 @@ export function renderOwnerBars(
 
   // Legend — placed below the bars, horizontally, so it always fits the frame.
   const legendData = [
-    { label: readinessBucketLabel('ready'), color: readyColor },
-    { label: readinessBucketLabel('partial'), color: partialColor },
-    { label: readinessBucketLabel('not-ready'), color: notReadyColor },
-    { label: readinessBucketLabel('unknown'), color: notConfiguredColor },
+    { label: readinessBucketLabel('ready'), color: pal.ok },
+    { label: readinessBucketLabel('partial'), color: pal.warn },
+    { label: readinessBucketLabel('not-ready'), color: pal.err },
+    { label: readinessBucketLabel('unknown'), color: pal.neutral },
   ];
 
   const legend = svg.append('g')
@@ -575,6 +530,721 @@ export function renderOwnerBars(
       .attr('height', swatch)
       .attr('y', -swatch / 2)
       .attr('rx', 2)
+      .attr('fill', d.color);
+    item.append('text')
+      .attr('x', swatch + swatchGap)
+      .attr('dominant-baseline', 'middle')
+      .style('font-size', 'var(--text-xs)')
+      .style('font-weight', '500')
+      .style('fill', 'var(--c-text-3)')
+      .text(d.label);
+    legendX += swatch + swatchGap + d.label.length * charW + itemGap;
+  });
+}
+
+/** Status→gradient fill map for treemap tiles. */
+const STATUS_TO_PAL: Record<string, string> = {
+  Compliant: 'url(#grad-ok)',
+  Warning: 'url(#grad-warn)',
+  NonCompliant: 'url(#grad-err)',
+  Reference: 'url(#grad-info)',
+  Unknown: 'url(#grad-neutral)',
+};
+
+/** Treemap fleet risk map: tile size = blast radius, color = status. */
+export interface TreemapDatum {
+  name: string;
+  value: number;
+  status: string;
+  blast: number;
+}
+
+export interface TreemapOptions {
+  onSelect?: (name: string) => void;
+}
+
+export function renderTreemap(
+  container: HTMLElement,
+  data: TreemapDatum[],
+  opts: TreemapOptions = {},
+): void {
+  // Clear
+  d3.select(container).selectAll('*').remove();
+
+  if (!data.length) {
+    emptyState(container, 'No services to map');
+    return;
+  }
+
+  const pal = resolvePalette(container);
+  const radius = parseFloat(getComputedStyle(container).getPropertyValue('--chart-radius')) || 6;
+
+  const width = container.clientWidth || 600;
+  const height = 260;
+
+  const svg = d3.select(container)
+    .append('svg')
+    .attr('width', '100%')
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Fleet risk treemap')
+    .style('font-family', 'var(--font-sans)');
+
+  defineGradients(svg, pal);
+
+  // Treemap layout
+  const root = d3.hierarchy<TreemapDatum>({ children: data } as any)
+    .sum((d) => d.value || 0);
+
+  const treemap = d3.treemap<TreemapDatum>()
+    .size([width, height])
+    .paddingInner(2);
+
+  treemap(root);
+
+  const tooltip = sharedTooltip();
+  tooltip.attach(container);
+
+  // ponytail: cast to HierarchyRectangularNode for x0/y0/x1/y1 access
+  const leaves = root.leaves() as Array<d3.HierarchyRectangularNode<TreemapDatum>>;
+
+  const tiles = svg.selectAll('g')
+    .data(leaves)
+    .join('g');
+
+  // Tile rectangles
+  tiles.append('rect')
+    .attr('x', (d) => d.x0)
+    .attr('y', (d) => d.y0)
+    .attr('width', (d) => Math.max(0, d.x1 - d.x0))
+    .attr('height', (d) => Math.max(0, d.y1 - d.y0))
+    .attr('fill', (d) => STATUS_TO_PAL[d.data.status] || 'url(#grad-neutral)')
+    .attr('rx', radius)
+    .attr('cursor', opts.onSelect ? 'pointer' : 'default')
+    .on('mouseenter', function (event, d) {
+      d3.select(this).transition().duration(150).attr('opacity', 0.8);
+      const content = `${d.data.name} · ${d.data.status} · blast ${d.data.blast}`;
+      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mousemove', function (event) {
+      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mouseleave', function () {
+      d3.select(this).transition().duration(150).attr('opacity', 1);
+      tooltip.hide();
+    })
+    .on('click', (_, d) => {
+      if (opts.onSelect) opts.onSelect(d.data.name);
+    });
+
+  // Labels: only show on tiles wide/tall enough
+  tiles.append('text')
+    .attr('x', (d) => (d.x0 + d.x1) / 2)
+    .attr('y', (d) => (d.y0 + d.y1) / 2)
+    .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'middle')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text)')
+    .style('pointer-events', 'none')
+    .text((d) => {
+      const w = d.x1 - d.x0;
+      const h = d.y1 - d.y0;
+      // ponytail: heuristic truncation (6px/char, 8px margin); getComputedTextLength unavailable in jsdom
+      const maxChars = Math.floor((w - 8) / 6);
+      if (w < 60 || h < 30) return '';
+      return d.data.name.length > maxChars && maxChars > 3 ? d.data.name.slice(0, maxChars - 1) + '…' : d.data.name;
+    });
+
+  // Enter animation: fade in
+  animateIn(tiles.selectAll('rect'), { attr: 'opacity', from: 0, to: () => 1 });
+
+  // Status legend
+  const statusesPresent = [...new Set(data.map((d) => d.status))].filter(Boolean);
+  const statusLegendData = [
+    { label: 'Compliant', color: pal.ok, status: 'Compliant' },
+    { label: 'Warning', color: pal.warn, status: 'Warning' },
+    { label: 'Non-Compliant', color: pal.err, status: 'NonCompliant' },
+    { label: 'Reference', color: pal.info, status: 'Reference' },
+    { label: 'Unknown', color: pal.neutral, status: 'Unknown' },
+  ].filter((d) => statusesPresent.includes(d.status));
+
+  if (statusLegendData.length > 0) {
+    const legend = svg.append('g').attr('transform', `translate(12, ${height - 20})`);
+    let legendX = 0;
+    const swatch = 8;
+    const swatchGap = 6;
+    const itemGap = 16;
+    const charW = 6;
+    statusLegendData.forEach((d) => {
+      const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
+      item.append('circle')
+        .attr('cx', swatch / 2)
+        .attr('cy', -swatch / 2)
+        .attr('r', swatch / 2)
+        .attr('fill', d.color);
+      item.append('text')
+        .attr('x', swatch + swatchGap)
+        .attr('dominant-baseline', 'middle')
+        .style('font-size', 'var(--text-xs)')
+        .style('font-weight', '500')
+        .style('fill', 'var(--c-text-3)')
+        .text(d.label);
+      legendX += swatch + swatchGap + d.label.length * charW + itemGap;
+    });
+  }
+}
+
+/** Priority quadrant: readiness score (x) vs blast radius (y) scatter plot. */
+export interface QuadrantDatum {
+  name: string;
+  x: number; // readiness score 0–100
+  y: number; // blast/impact
+  status: string;
+  blast: number;
+}
+
+export interface QuadrantOptions {
+  onSelect?: (name: string) => void;
+}
+
+export function renderPriorityQuadrant(
+  container: HTMLElement,
+  data: QuadrantDatum[],
+  opts: QuadrantOptions = {},
+): void {
+  // Clear
+  d3.select(container).selectAll('*').remove();
+
+  if (!data.length) {
+    emptyState(container, 'No readiness data to plot');
+    return;
+  }
+
+  const pal = resolvePalette(container);
+
+  const margin = { top: 30, right: 30, bottom: 50, left: 60 };
+  const width = container.clientWidth || 600;
+  const height = 300;
+
+  const svg = d3.select(container)
+    .append('svg')
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Priority quadrant scatter plot')
+    .style('width', '100%')
+    .style('height', 'auto')
+    .style('font-family', 'var(--font-sans)');
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+
+  // X scale: readiness score 0–100
+  const x = d3.scaleLinear().domain([0, 100]).range([0, innerWidth]);
+
+  // Y scale: impact/blast 0–max
+  const yMax = d3.max(data, (d) => d.y) || 1;
+  const y = d3.scaleLinear().domain([0, yMax]).range([innerHeight, 0]);
+
+  // Quadrant guide lines: vertical at x=50, horizontal at y=median
+  const blastValues = data.map((d) => d.y).sort((a, b) => a - b);
+  const medianBlast = blastValues[Math.floor(blastValues.length / 2)] || yMax / 2;
+
+  g.append('line')
+    .attr('x1', x(50))
+    .attr('x2', x(50))
+    .attr('y1', 0)
+    .attr('y2', innerHeight)
+    .attr('stroke', 'var(--c-border)')
+    .attr('stroke-width', 1)
+    .attr('stroke-dasharray', '4 4');
+
+  g.append('line')
+    .attr('x1', 0)
+    .attr('x2', innerWidth)
+    .attr('y1', y(medianBlast))
+    .attr('y2', y(medianBlast))
+    .attr('stroke', 'var(--c-border)')
+    .attr('stroke-width', 1)
+    .attr('stroke-dasharray', '4 4');
+
+  // Quadrant labels
+  g.append('text')
+    .attr('x', 6)
+    .attr('y', 6)
+    .attr('dominant-baseline', 'hanging')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('Fix first');
+
+  g.append('text')
+    .attr('x', innerWidth - 6)
+    .attr('y', innerHeight - 6)
+    .attr('text-anchor', 'end')
+    .attr('dominant-baseline', 'alphabetic')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('Healthy');
+
+  // Status color map (flat, no gradients needed)
+  const statusColor: Record<string, string> = {
+    Compliant: pal.ok,
+    Warning: pal.warn,
+    NonCompliant: pal.err,
+    Reference: pal.info,
+  };
+
+  const tooltip = sharedTooltip();
+  tooltip.attach(container);
+
+  // Radius scale: larger blast = larger dot (min 8px per dataviz markers)
+  const maxBlast = d3.max(data, (d) => d.blast) || 1;
+  const rScale = d3.scaleSqrt().domain([0, maxBlast]).range([8, 16]);
+
+  // Dots
+  const dots = g.selectAll('circle')
+    .data(data)
+    .join('circle')
+    .attr('cx', (d) => x(d.x))
+    .attr('cy', (d) => y(d.y))
+    .attr('r', (d) => rScale(d.blast))
+    .attr('fill', (d) => statusColor[d.status] || pal.neutral)
+    .attr('stroke', 'var(--c-surface)')
+    .attr('stroke-width', 2)
+    .attr('cursor', opts.onSelect ? 'pointer' : 'default')
+    .on('mouseenter', function (event, d) {
+      d3.select(this).transition().duration(150).attr('opacity', 0.8);
+      const content = `${d.name} · readiness ${d.x} · impact ${d.y} · ${d.status}`;
+      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mousemove', function (event) {
+      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mouseleave', function () {
+      d3.select(this).transition().duration(150).attr('opacity', 1);
+      tooltip.hide();
+    })
+    .on('click', (_, d) => {
+      if (opts.onSelect) opts.onSelect(d.name);
+    });
+
+  // Enter animation: r 0→value
+  animateIn(dots, { attr: 'r', from: 0, to: (d) => rScale(d.blast) });
+
+  // X axis: readiness score
+  const xAxis = g.append('g')
+    .attr('transform', `translate(0,${innerHeight})`)
+    .call(d3.axisBottom(x).ticks(5));
+  xAxis.select('.domain').remove();
+  xAxis.selectAll('.tick line').remove();
+  xAxis.selectAll('text')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)');
+
+  // Y axis: impact
+  const yAxis = g.append('g').call(d3.axisLeft(y).ticks(5));
+  yAxis.select('.domain').remove();
+  yAxis.selectAll('.tick line').remove();
+  yAxis.selectAll('text')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)');
+
+  // Axis labels
+  svg.append('text')
+    .attr('x', width / 2)
+    .attr('y', height - 12)
+    .attr('text-anchor', 'middle')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('readiness →');
+
+  svg.append('text')
+    .attr('transform', `translate(12, ${height / 2}) rotate(-90)`)
+    .attr('text-anchor', 'middle')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('impact →');
+
+  // Status legend
+  const statusesPresent = [...new Set(data.map((d) => d.status))].filter(Boolean);
+  const statusLegendData = [
+    { label: 'Compliant', color: pal.ok, status: 'Compliant' },
+    { label: 'Warning', color: pal.warn, status: 'Warning' },
+    { label: 'Non-Compliant', color: pal.err, status: 'NonCompliant' },
+    { label: 'Reference', color: pal.info, status: 'Reference' },
+  ].filter((d) => statusesPresent.includes(d.status));
+
+  if (statusLegendData.length > 0) {
+    const legend = svg.append('g').attr('transform', `translate(${margin.left}, ${margin.top - 12})`);
+    let legendX = 0;
+    const swatch = 8;
+    const swatchGap = 6;
+    const itemGap = 16;
+    const charW = 6;
+    statusLegendData.forEach((d) => {
+      const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
+      item.append('circle')
+        .attr('cx', swatch / 2)
+        .attr('cy', -swatch / 2)
+        .attr('r', swatch / 2)
+        .attr('fill', d.color);
+      item.append('text')
+        .attr('x', swatch + swatchGap)
+        .attr('dominant-baseline', 'middle')
+        .style('font-size', 'var(--text-xs)')
+        .style('font-weight', '500')
+        .style('fill', 'var(--c-text-3)')
+        .text(d.label);
+      legendX += swatch + swatchGap + d.label.length * charW + itemGap;
+    });
+  }
+}
+
+/** Heatmap for team × category readiness. */
+export interface HeatmapOptions {
+  onSelectOwner?: (owner: string) => void;
+  onSelectCategory?: (category: string) => void;
+  onSelectCell?: (owner: string, category: string) => void;
+}
+
+export function renderHeatmap(
+  container: HTMLElement,
+  data: { owners: string[]; categories: string[]; cells: Array<{ owner: string; category: string; score: number; n: number }> },
+  opts: HeatmapOptions = {},
+): void {
+  d3.select(container).selectAll('*').remove();
+
+  if (!data.owners.length || !data.categories.length) {
+    emptyState(container, 'No category data');
+    return;
+  }
+
+  const pal = resolvePalette(container);
+  const radius = parseFloat(getComputedStyle(container).getPropertyValue('--chart-radius')) || 6;
+
+  // Sequential single-hue ramp: theme-aware surface → green (low scores recede in both themes)
+  const surfaceInset = getComputedStyle(container).getPropertyValue('--c-surface-inset').trim() || '#e9f7ef';
+  // Faint-green low end so a 0% cell still reads as ON the ramp — and stays distinct
+  // from an empty "no data" cell (which keeps the plain surface fill). Single-hue.
+  const rampLow = d3.interpolateRgb(surfaceInset, pal.ok)(0.14);
+  const scoreFill = d3.scaleLinear<string>()
+    .domain([0, 100])
+    .range([rampLow, pal.ok])
+    .interpolate(d3.interpolateRgb);
+
+  const cellSize = 40;
+  const gap = 2;
+  // Generous top/left margins so the rotated category labels rise clear ABOVE the
+  // grid (not into it) and long owner names fit.
+  // Compact top margin: category headers are ICONS (not rotated text), so they sit
+  // just above the grid with no collision.
+  const margin = { top: 44, right: 140, bottom: 20, left: 156 };
+
+  const width = margin.left + data.categories.length * (cellSize + gap) + margin.right;
+  const height = margin.top + data.owners.length * (cellSize + gap) + margin.bottom;
+
+  const svg = d3.select(container)
+    .append('svg')
+    .attr('width', '100%')
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Team by category readiness heatmap')
+    .style('font-family', 'var(--font-sans)');
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const tooltip = sharedTooltip();
+  tooltip.attach(container);
+
+  // Build a map for quick cell lookup
+  const cellMap = new Map<string, { score: number; n: number }>();
+  for (const c of data.cells) {
+    cellMap.set(`${c.owner}\0${c.category}`, { score: c.score, n: c.n });
+  }
+
+  // Grid cells
+  const cells: Array<{ owner: string; category: string; x: number; y: number; score?: number; n?: number }> = [];
+  for (let i = 0; i < data.owners.length; i++) {
+    for (let j = 0; j < data.categories.length; j++) {
+      const owner = data.owners[i];
+      const category = data.categories[j];
+      const key = `${owner}\0${category}`;
+      const cell = cellMap.get(key);
+      cells.push({
+        owner,
+        category,
+        x: j * (cellSize + gap),
+        y: i * (cellSize + gap),
+        score: cell?.score,
+        n: cell?.n,
+      });
+    }
+  }
+
+  const rects = g.selectAll('rect')
+    .data(cells)
+    .join('rect')
+    .attr('x', (d) => d.x)
+    .attr('y', (d) => d.y)
+    .attr('width', cellSize)
+    .attr('height', cellSize)
+    .attr('rx', radius)
+    .attr('fill', (d) => (d.score != null ? scoreFill(d.score) : 'var(--c-surface-inset)'))
+    .attr('stroke', 'var(--c-border)')
+    .attr('stroke-width', 1)
+    .attr('cursor', opts.onSelectCell ? 'pointer' : 'default')
+    .on('mouseenter', function (event, d) {
+      if (d.score != null) {
+        d3.select(this).transition().duration(150).attr('opacity', 0.8);
+        const content = `${d.owner} · ${d.category} · ${d.score}% · ${d.n} checks`;
+        tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
+      }
+    })
+    .on('mousemove', function (event) {
+      if (tooltip['el'].textContent) {
+        tooltip.show(tooltip['el'].textContent, event.offsetX + 10, event.offsetY - 10);
+      }
+    })
+    .on('mouseleave', function () {
+      d3.select(this).transition().duration(150).attr('opacity', 1);
+      tooltip.hide();
+    })
+    .on('click', (_, d) => {
+      if (opts.onSelectCell) opts.onSelectCell(d.owner, d.category);
+    });
+
+  animateIn(rects, { attr: 'opacity', from: 0, to: () => 1 });
+
+  // Column headers: category ICONS (no rotated text → no label/grid collision),
+  // each with a hover <title> + aria-label carrying the full category name so it is
+  // never meaning-by-shape-alone. Unknown categories fall back to the 'other' icon.
+  const colHead = svg.append('g').attr('transform', `translate(${margin.left},${margin.top - 26})`);
+  data.categories.forEach((cat, i) => {
+    const cx = i * (cellSize + gap) + cellSize / 2;
+    // Group carries the a11y name + a native <title>; a full-cell TRANSPARENT hit
+    // rect makes the whole header hoverable (the icon is stroke-only, so its empty
+    // interior isn't a hit target on its own), driving the same styled tooltip the
+    // cells use. The icon itself is pointer-events:none so the rect owns hover.
+    const cellG = colHead.append('g').attr('role', 'img').attr('aria-label', cat);
+    cellG.append('title').text(cat);
+    cellG.append('rect')
+      .attr('x', i * (cellSize + gap))
+      .attr('y', 0)
+      .attr('width', cellSize)
+      .attr('height', 24)
+      .attr('fill', 'transparent')
+      .style('pointer-events', 'all')
+      .style('cursor', 'default')
+      .on('mouseenter', (event) => tooltip.show(cat, event.offsetX + 10, event.offsetY - 10))
+      .on('mousemove', (event) => tooltip.show(cat, event.offsetX + 10, event.offsetY - 10))
+      .on('mouseleave', () => tooltip.hide());
+    cellG.append('svg')
+      .attr('x', cx - 10)
+      .attr('y', 2)
+      .attr('width', 20)
+      .attr('height', 20)
+      .attr('viewBox', '0 0 24 24')
+      .attr('fill', 'none')
+      .attr('stroke', 'var(--c-text-2)')
+      .attr('stroke-width', 1.8)
+      .attr('stroke-linecap', 'round')
+      .attr('stroke-linejoin', 'round')
+      .style('pointer-events', 'none')
+      .html(categoryIconInner(cat));
+  });
+
+  // Row labels (owners)
+  svg.append('g')
+    .attr('transform', `translate(${margin.left - 10},${margin.top})`)
+    .selectAll('text')
+    .data(data.owners)
+    .join('text')
+    .attr('x', 0)
+    .attr('y', (_, i) => i * (cellSize + gap) + cellSize / 2)
+    .attr('text-anchor', 'end')
+    .attr('dominant-baseline', 'middle')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-2)')
+    .text((d) => d);
+
+  // Sequential legend: gradient bar
+  const legendX = margin.left + data.categories.length * (cellSize + gap) + 20;
+  const legendY = margin.top;
+  const legendWidth = 12;
+  const legendHeight = 100;
+
+  const defs = svg.append('defs');
+  const lg = defs.append('linearGradient')
+    .attr('id', 'heatmap-legend-grad')
+    .attr('x1', '0')
+    .attr('x2', '0')
+    .attr('y1', '1')
+    .attr('y2', '0');
+  lg.append('stop').attr('offset', '0').attr('stop-color', rampLow);
+  lg.append('stop').attr('offset', '1').attr('stop-color', pal.ok);
+
+  svg.append('rect')
+    .attr('x', legendX)
+    .attr('y', legendY)
+    .attr('width', legendWidth)
+    .attr('height', legendHeight)
+    .attr('fill', 'url(#heatmap-legend-grad)')
+    .attr('rx', 2);
+
+  svg.append('text')
+    .attr('x', legendX + legendWidth + 6)
+    .attr('y', legendY)
+    .attr('dominant-baseline', 'hanging')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('100%');
+
+  svg.append('text')
+    .attr('x', legendX + legendWidth + 6)
+    .attr('y', legendY + legendHeight)
+    .attr('dominant-baseline', 'alphabetic')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('0%');
+}
+
+/** Version timeline: horizontal time series with classification legend. */
+export interface VersionTimelineDatum {
+  version: string;
+  at: number; // epoch ms
+  classification?: string;
+  isCurrent?: boolean;
+}
+
+export interface VersionTimelineOptions {
+  onSelect?: (version: string) => void;
+}
+
+export function renderVersionTimeline(
+  container: HTMLElement,
+  data: VersionTimelineDatum[],
+  opts: VersionTimelineOptions = {},
+): void {
+  d3.select(container).selectAll('*').remove();
+
+  if (!data.length) {
+    emptyState(container, 'No version history');
+    return;
+  }
+
+  const pal = resolvePalette(container);
+
+  const margin = { top: 20, right: 20, bottom: 30, left: 20 };
+  const width = container.clientWidth || 600;
+  const height = 100;
+
+  const svg = d3.select(container)
+    .append('svg')
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
+    .attr('role', 'img')
+    .attr('aria-label', 'Version timeline')
+    .style('width', '100%')
+    .style('height', 'auto')
+    .style('font-family', 'var(--font-sans)');
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+
+  // Time scale
+  let [min, max] = d3.extent(data, (d) => d.at) as [number, number];
+  if (min === max) { const day = 86400000; min -= day; max += day; }
+  const x = d3.scaleTime().domain([min, max]).range([0, innerWidth]);
+
+  // Classification color map (status palette)
+  const classColor: Record<string, string> = {
+    BREAKING: pal.err,
+    POTENTIAL_BREAKING: pal.warn,
+    NON_BREAKING: pal.ok,
+  };
+
+  const tooltip = sharedTooltip();
+  tooltip.attach(container);
+
+  // Baseline
+  const baselineY = innerHeight / 2;
+  g.append('line')
+    .attr('x1', 0)
+    .attr('x2', innerWidth)
+    .attr('y1', baselineY)
+    .attr('y2', baselineY)
+    .attr('stroke', 'var(--c-border)')
+    .attr('stroke-width', 1);
+
+  // Markers
+  const markers = g.selectAll('circle')
+    .data(data)
+    .join('circle')
+    .attr('cx', (d) => x(d.at))
+    .attr('cy', baselineY)
+    .attr('r', (d) => d.isCurrent ? 8 : 6)
+    .attr('fill', (d) => classColor[d.classification || ''] || pal.neutral)
+    .attr('stroke', (d) => d.isCurrent ? 'var(--c-surface)' : 'none')
+    .attr('stroke-width', 2)
+    .attr('cursor', opts.onSelect ? 'pointer' : 'default')
+    .on('mouseenter', function (event, d) {
+      d3.select(this).transition().duration(150).attr('opacity', 0.8);
+      const dateStr = (!d.at || isNaN(d.at)) ? '—' : new Date(d.at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      const classStr = d.classification ? d.classification.replace(/_/g, ' ').toLowerCase() : '—';
+      const content = `${d.version} · ${dateStr} · ${classStr}`;
+      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mousemove', function (event) {
+      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mouseleave', function () {
+      d3.select(this).transition().duration(150).attr('opacity', 1);
+      tooltip.hide();
+    })
+    .on('click', (_, d) => {
+      if (opts.onSelect) opts.onSelect(d.version);
+    });
+
+  animateIn(markers, { attr: 'opacity', from: 0, to: () => 1 });
+
+  // Legend
+  const legendData = [
+    { label: 'Breaking', color: pal.err },
+    { label: 'Potential breaking', color: pal.warn },
+    { label: 'Non-breaking', color: pal.ok },
+  ];
+
+  const legend = svg.append('g')
+    .attr('transform', `translate(${margin.left}, ${height - 10})`);
+
+  let legendX = 0;
+  const swatch = 8;
+  const swatchGap = 6;
+  const itemGap = 16;
+  const charW = 6;
+
+  legendData.forEach((d) => {
+    const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
+    item.append('circle')
+      .attr('cx', swatch / 2)
+      .attr('cy', -swatch / 2)
+      .attr('r', swatch / 2)
       .attr('fill', d.color);
     item.append('text')
       .attr('x', swatch + swatchGap)

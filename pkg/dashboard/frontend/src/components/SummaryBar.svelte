@@ -102,6 +102,7 @@
     border: 1px solid var(--c-border);
     border-radius: var(--radius-sm);
     background: var(--c-surface);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
     text-decoration: none;
     color: inherit;
     transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);

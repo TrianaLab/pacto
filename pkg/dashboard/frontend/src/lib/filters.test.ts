@@ -45,6 +45,18 @@ describe('filters hash', () => {
     expect(writeFiltersToHash('#/services', f)).toContain('#/services?');
     expect(writeFiltersToHash('#/owners/team%2Fpay', f)).toContain('#/owners/team%2Fpay?');
   });
+
+  it('round-trips graph view-state keys focus and group', () => {
+    const f: FilterState = { ...EMPTY_FILTERS, contractStatus: 'NonCompliant', group: 'owner', focus: 'payments' };
+    const h = writeFiltersToHash('#/graph', f);
+    expect(h).toContain('#/graph?');
+    expect(readFiltersFromHash(h)).toEqual(f);
+  });
+
+  it('excludes focus and group from filtersActive (they are view state)', () => {
+    expect(filtersActive({ ...EMPTY_FILTERS, group: 'owner' })).toBe(false);
+    expect(filtersActive({ ...EMPTY_FILTERS, focus: 'payments' })).toBe(false);
+  });
 });
 
 describe('filtersActive', () => {

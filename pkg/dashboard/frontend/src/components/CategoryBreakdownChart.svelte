@@ -5,13 +5,16 @@
   let { data = [] } = $props();
 
   let container;
+  let lastSig = '';
 
   $effect(() => {
-    if (container && data) {
-      renderCategoryStackedBars(container, data, {
-        onSelect: (category) => setFilter('category', category),
-      });
-    }
+    if (!container || !data) return;
+    const sig = JSON.stringify(data) + (document.documentElement.getAttribute('data-theme') || '');
+    if (sig === lastSig) return;
+    lastSig = sig;
+    renderCategoryStackedBars(container, data, {
+      onSelect: (category) => setFilter('category', category),
+    });
   });
 </script>
 

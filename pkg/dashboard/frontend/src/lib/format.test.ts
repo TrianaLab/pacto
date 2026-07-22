@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  breakableIdentifierHtml,
   statusClass,
   complianceClass,
   complianceStatusClass,
@@ -1225,4 +1226,19 @@ describe('driftBadgeLabel', () => {
   it('returns empty for null', () => expect(driftBadgeLabel(null)).toBe(''));
   it('returns empty for undefined', () => expect(driftBadgeLabel(undefined)).toBe(''));
   it('returns empty for empty string', () => expect(driftBadgeLabel('')).toBe(''));
+});
+
+describe('breakableIdentifierHtml', () => {
+  it('inserts <wbr> after separators so paths wrap at boundaries, not mid-word', () => {
+    const html = breakableIdentifierHtml('service.owner.contacts[oncall:x]');
+    expect(html).toContain('service.<wbr>owner.<wbr>contacts[<wbr>oncall:<wbr>x]<wbr>');
+    // No mid-word break points inside a plain word.
+    expect(breakableIdentifierHtml('version')).toBe('version');
+  });
+
+  it('escapes HTML before inserting break points', () => {
+    const html = breakableIdentifierHtml('a<b>&c');
+    expect(html).toContain('&lt;b&gt;&amp;');
+    expect(html).not.toContain('<b>');
+  });
 });

@@ -5,15 +5,18 @@
   let { data = [] } = $props();
 
   let container;
+  let lastSig = '';
 
   $effect(() => {
-    if (container && data) {
-      renderOwnerBars(container, data, {
-        onSelect: (key) => {
-          location.hash = ownerUrl(key);
-        },
-      });
-    }
+    if (!container || !data) return;
+    const sig = JSON.stringify(data) + (document.documentElement.getAttribute('data-theme') || '');
+    if (sig === lastSig) return;
+    lastSig = sig;
+    renderOwnerBars(container, data, {
+      onSelect: (key) => {
+        location.hash = ownerUrl(key);
+      },
+    });
   });
 </script>
 

@@ -1,5 +1,5 @@
 <script>
-  import { classificationClass, changeTypeClass, formatDiffValue } from './lib/format.ts';
+  import { classificationClass, changeTypeClass, formatDiffValue, breakableIdentifierHtml } from './lib/format.ts';
 
   let { changes = [], compact = false } = $props();
 
@@ -37,10 +37,10 @@
           {@const canExpand = needsExpand(change.oldValue) || needsExpand(change.newValue)}
           {@const isExpanded = !!expanded[idx]}
           <tr>
-            <td><code>{change.path}</code></td>
+            <td><code>{@html breakableIdentifierHtml(change.path)}</code></td>
             <td><span class={changeTypeClass(change.type)}>{change.type}</span></td>
             <td>
-              <pre class="diff-value" class:diff-value-collapsed={canExpand && !isExpanded}>{oldText}</pre>
+              <pre class="diff-value" class:diff-value-collapsed={canExpand && !isExpanded}>{@html breakableIdentifierHtml(oldText)}</pre>
               {#if canExpand}
                 <button type="button" class="expand-toggle" onclick={() => toggleExpand(idx)}>
                   {isExpanded ? 'collapse' : 'expand'}
@@ -48,7 +48,7 @@
               {/if}
             </td>
             <td>
-              <pre class="diff-value" class:diff-value-collapsed={canExpand && !isExpanded}>{newText}</pre>
+              <pre class="diff-value" class:diff-value-collapsed={canExpand && !isExpanded}>{@html breakableIdentifierHtml(newText)}</pre>
               {#if canExpand}
                 <button type="button" class="expand-toggle" onclick={() => toggleExpand(idx)}>
                   {isExpanded ? 'collapse' : 'expand'}
@@ -57,7 +57,7 @@
             </td>
             <td>
               <span class="badge {classificationClass(change.classification)}">{change.classification.replace(/_/g, ' ')}</span>
-              {#if change.reason}<br><span class="text-3" style="font-size:var(--text-xs)">{change.reason}</span>{/if}
+              {#if change.reason}<br><span class="text-3 diff-reason" style="font-size:var(--text-xs)">{@html breakableIdentifierHtml(change.reason)}</span>{/if}
             </td>
           </tr>
         {/each}
@@ -74,12 +74,23 @@
   .diff-table th { white-space: normal; }
   .diff-table td { overflow: visible; white-space: nowrap; }
   .diff-table td:first-child { white-space: normal; }
-  .dc-path { width: auto; }
-  .dc-change { width: 12%; }
-  .dc-old { width: 28%; }
-  .dc-new { width: 28%; }
-  .dc-impact { width: 16%; }
-  .diff-table td code { word-break: break-all; }
+  /* The Breaking column holds a long reason (a path + change type). All non-first
+     cells default to nowrap, so with overflow:visible it spilled OUTSIDE the table's
+     right edge. Let the last column wrap, and break the reason at boundaries. */
+  .diff-table td:last-child { white-space: normal; }
+  .diff-reason { display: inline-block; overflow-wrap: break-word; word-break: normal; }
+  /* PATH gets the most room (it holds long dotted identifiers); Old/New hold
+     short scalar values (long ones expand), so they don't need to dominate. This
+     keeps most paths on one line and the rest to a clean 2-line boundary wrap. */
+  .dc-path { width: auto; } /* ~34% of the remaining space */
+  .dc-change { width: 8%; }
+  .dc-old { width: 21%; }
+  .dc-new { width: 21%; }
+  .dc-impact { width: 18%; }
+  /* Wrap long dotted paths at their natural boundaries (via <wbr> from
+     breakableIdentifierHtml), never mid-word. break-word is only a last-resort
+     fallback for a single segment longer than the column. */
+  .diff-table td code { word-break: normal; overflow-wrap: break-word; }
 
   .diff-value {
     font-size: var(--text-xs);
@@ -88,7 +99,10 @@
     background: var(--c-surface);
     border-radius: var(--radius-xs);
     white-space: pre-wrap;
-    word-break: break-word;
+    /* Prefer the <wbr> boundary breaks from breakableIdentifierHtml; only break a
+       word mid-character as a last resort (e.g. a single 60-char unbroken token). */
+    word-break: normal;
+    overflow-wrap: break-word;
   }
   .diff-value-collapsed {
     max-height: 3.2em;

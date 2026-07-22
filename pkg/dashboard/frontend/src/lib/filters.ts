@@ -9,6 +9,8 @@ export interface FilterState {
   contractStatus: string;
   readinessStatus: string;
   source: string;
+  focus: string;
+  group: string;
 }
 
 export const EMPTY_FILTERS: FilterState = {
@@ -18,6 +20,8 @@ export const EMPTY_FILTERS: FilterState = {
   contractStatus: '',
   readinessStatus: '',
   source: '',
+  focus: '',
+  group: '',
 };
 
 /**
@@ -37,6 +41,8 @@ export function readFiltersFromHash(hash: string): FilterState {
   const contractStatus = qs.get('contractStatus');
   const readinessStatus = qs.get('readinessStatus');
   const source = qs.get('source');
+  const focus = qs.get('focus');
+  const group = qs.get('group');
 
   if (search) filters.search = search;
   if (owner) filters.owner = owner;
@@ -44,6 +50,8 @@ export function readFiltersFromHash(hash: string): FilterState {
   if (contractStatus) filters.contractStatus = contractStatus;
   if (readinessStatus) filters.readinessStatus = readinessStatus;
   if (source) filters.source = source;
+  if (focus) filters.focus = focus;
+  if (group) filters.group = group;
 
   return filters;
 }
@@ -64,6 +72,8 @@ export function writeFiltersToHash(hash: string, f: FilterState): string {
   if (f.contractStatus) qs.set('contractStatus', f.contractStatus);
   if (f.readinessStatus) qs.set('readinessStatus', f.readinessStatus);
   if (f.source) qs.set('source', f.source);
+  if (f.focus) qs.set('focus', f.focus);
+  if (f.group) qs.set('group', f.group);
 
   const qsStr = qs.toString();
   return qsStr ? `${path}?${qsStr}` : path;

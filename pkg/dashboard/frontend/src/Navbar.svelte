@@ -1,12 +1,11 @@
 <script>
-  import { navigate, serviceUrl, ownerUrl, graphUrl, ownersUrl, readinessUrl, compareDiffUrl } from './lib/router.ts';
-  import { statusClass, sourceTooltip, ownerMatchesFilter, ownerKey, ownerDisplay, complianceClass } from './lib/format.ts';
-  import StatusBadge from './components/StatusBadge.svelte';
+  import { graphUrl, ownersUrl, readinessUrl, compareDiffUrl } from './lib/router.ts';
+  import { sourceTooltip } from './lib/format.ts';
   import SourceDot from './components/SourceDot.svelte';
 
   let {
     services = [], sourcesInfo = [], version = '', discovering = false, view = 'list',
-    autoReload = false, refreshing = false, onRefresh, onToggleAutoReload, onToggleTheme,
+    autoReload = false, refreshing = false, onRefresh, onToggleAutoReload, onToggleTheme, onOpenPalette,
   } = $props();
 
   // Persistent primary nav. `views` lists the route.view values that light the
@@ -20,19 +19,7 @@
   ];
   const isActive = (item) => item.views.includes(view);
 
-  let query = $state('');
-  let showResults = $state(false);
-  let selectedIdx = $state(-1);
-  let searchInputEl = $state(null);
   let mobileMenuOpen = $state(false);
-
-  function handleGlobalKeydown(e) {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-      e.preventDefault();
-      searchInputEl?.focus();
-      showResults = !!query;
-    }
-  }
 
   // Spin the brand mark on click (also navigates home via the href). Reduced-motion safe.
   function spinLogo(e) {
@@ -43,84 +30,14 @@
     el.classList.add('spin');
   }
 
-  let matches = $derived.by(() => {
-    if (!query) return [];
-    const q = query.toLowerCase();
-    return services
-      .filter((s) => s.name.toLowerCase().includes(q) || ownerMatchesFilter(s.owner, q))
-      .slice(0, 8);
-  });
-
-  // Unique owners matching the query, with summary stats
-  let ownerMatches = $derived.by(() => {
-    if (!query) return [];
-    const q = query.toLowerCase();
-    // Build per-owner aggregation
-    const agg = new Map();
-    for (const s of services) {
-      const key = ownerKey(s.owner);
-      if (!key) continue;
-      let o = agg.get(key);
-      if (!o) {
-        o = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, totalBlast: 0, scores: [] };
-        agg.set(key, o);
-      }
-      o.services++;
-      const st = s.contractStatus;
-      if (st === 'Compliant') o.compliant++;
-      else if (st === 'Warning') o.warning++;
-      else if (st === 'NonCompliant') o.nonCompliant++;
-      o.totalBlast += s.blastRadius || 0;
-      if (s.complianceScore != null) o.scores.push(s.complianceScore);
-    }
-    const result = [];
-    for (const [key, o] of agg) {
-      if (!key.toLowerCase().includes(q)) continue;
-      o.compliancePercent = o.scores.length > 0 ? Math.round(o.scores.reduce((a, b) => a + b, 0) / o.scores.length) : -1;
-      result.push(o);
-      if (result.length >= 4) break;
-    }
-    return result;
-  });
-
-  function onInput(e) {
-    query = e.target.value;
-    showResults = !!query;
-    selectedIdx = -1;
-  }
-
-  let totalResults = $derived(ownerMatches.length + matches.length);
-
-  function onKeydown(e) {
-    if (e.key === 'ArrowDown') { e.preventDefault(); selectedIdx = Math.min(selectedIdx + 1, totalResults - 1); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIdx = Math.max(selectedIdx - 1, -1); }
-    else if (e.key === 'Enter' && selectedIdx >= 0) {
-      e.preventDefault();
-      if (selectedIdx < ownerMatches.length) {
-        pickOwner(ownerMatches[selectedIdx].key);
-      } else {
-        const svcIdx = selectedIdx - ownerMatches.length;
-        if (matches[svcIdx]) pick(matches[svcIdx].name);
-      }
-    }
-    else if (e.key === 'Escape') closeSearch();
-  }
-
-  function closeSearch() { showResults = false; selectedIdx = -1; query = ''; searchInputEl?.blur(); }
-
-  function pick(name) { closeSearch(); navigate('detail', { name }); }
-
-  function pickOwner(key) { closeSearch(); location.hash = ownerUrl(key); }
-
   function handleClickOutside(e) {
-    if (!e.target.closest('.search-box')) closeSearch();
     if (mobileMenuOpen && !e.target.closest('.navbar')) mobileMenuOpen = false;
   }
 
   const enabledSources = $derived(sourcesInfo.filter((s) => s.enabled));
 </script>
 
-<svelte:document onclick={handleClickOutside} onkeydown={handleGlobalKeydown} />
+<svelte:document onclick={handleClickOutside} />
 
 <nav class="navbar">
   <div class="navbar-left">
@@ -137,70 +54,11 @@
     {/each}
   </nav>
 
-  <div class="search-box">
+  <button type="button" class="search-box search-trigger" onclick={onOpenPalette} aria-label="Search — open command palette">
     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    <input
-      bind:this={searchInputEl}
-      type="text"
-      placeholder="Search..."
-      value={query}
-      oninput={onInput}
-      onfocus={() => { if (query) showResults = true; }}
-      onkeydown={onKeydown}
-      aria-label="Search services"
-    />
-    <kbd class="search-kbd">
-      {navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl+'}K
-    </kbd>
-    {#if showResults}
-      <div class="search-results" role="listbox">
-        {#if ownerMatches.length === 0 && matches.length === 0}
-          <div class="search-empty">No results for "{query}"</div>
-        {:else}
-          {#if ownerMatches.length > 0}
-            <div class="search-group-label">Owners</div>
-            {#each ownerMatches as om, i}
-              <a
-                href={ownerUrl(om.key)}
-                class="search-result"
-                class:selected={i === selectedIdx}
-                role="option"
-                aria-selected={i === selectedIdx}
-                onclick={(e) => { e.preventDefault(); pickOwner(om.key); }}
-                onmouseenter={() => { selectedIdx = i; }}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="flex-shrink:0; color:var(--c-text-3)"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-                <span class="search-result-name">{om.key}</span>
-                <span class="search-result-meta">{om.services} svc{om.services !== 1 ? 's' : ''}</span>
-                {#if om.compliancePercent >= 0}<span class="search-score {complianceClass(om.compliancePercent)}">{om.compliancePercent}%</span>{/if}
-                {#if om.warning > 0}<span class="search-stat search-stat-warn">{om.warning}w</span>{/if}
-                {#if om.nonCompliant > 0}<span class="search-stat search-stat-err">{om.nonCompliant}nc</span>{/if}
-              </a>
-            {/each}
-          {/if}
-          {#if matches.length > 0}
-            {#if ownerMatches.length > 0}<div class="search-group-label">Services</div>{/if}
-            {#each matches as svc, i}
-              {@const idx = ownerMatches.length + i}
-              <a
-                href={serviceUrl(svc.name)}
-                class="search-result"
-                class:selected={idx === selectedIdx}
-                role="option"
-                aria-selected={idx === selectedIdx}
-                onclick={(e) => { e.preventDefault(); pick(svc.name); }}
-                onmouseenter={() => { selectedIdx = idx; }}
-              >
-                <span class="search-result-name">{svc.name}</span>
-                {#if svc.version}<span class="search-result-meta">{svc.version}</span>{/if}
-                <StatusBadge status={svc.contractStatus} />
-              </a>
-            {/each}
-          {/if}
-        {/if}
-      </div>
-    {/if}
-  </div>
+    <span class="search-trigger-text">Search...</span>
+    <kbd class="search-kbd">{navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl+'}K</kbd>
+  </button>
 
   <!-- Desktop right section -->
   <div class="navbar-right navbar-right-desktop">
@@ -307,15 +165,6 @@
     position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
     color: var(--c-text-3); pointer-events: none;
   }
-  .search-box input {
-    width: 100%; padding: 8px 14px 8px 34px;
-    min-height: var(--touch-min);
-    border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    background: var(--c-bg); color: var(--c-text);
-    font: inherit; font-size: var(--text-sm);
-  }
-  .search-box input:focus { border-color: var(--c-accent); outline: none; }
-  .search-box input:focus + .search-kbd { display: none; }
   .search-kbd {
     position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
     padding: 2px 7px; border-radius: 3px;
@@ -323,37 +172,16 @@
     font-family: var(--font-sans); font-size: var(--text-xs); color: var(--c-text-3);
     pointer-events: none; line-height: 1.6;
   }
-  .search-results {
-    position: absolute; top: 100%; left: 0; right: 0;
-    margin-top: 4px; background: var(--c-surface);
-    border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-md); max-height: 360px; overflow-y: auto; z-index: 200;
-    animation: slideDown 150ms ease-out both;
-  }
-  .search-empty { padding: var(--sp-3) var(--sp-4); color: var(--c-text-3); font-size: var(--text-sm); }
-  .search-result {
+  .search-trigger {
     display: flex; align-items: center; gap: var(--sp-2);
-    padding: var(--sp-3) var(--sp-4); text-decoration: none; color: var(--c-text);
-    font-size: var(--text-sm); cursor: pointer;
-    min-height: var(--touch-min);
+    padding: 8px 14px 8px 34px; min-height: var(--touch-min);
+    border: 1px solid var(--c-border); border-radius: var(--radius-sm);
+    background: var(--c-bg); color: var(--c-text-3);
+    font: inherit; font-size: var(--text-sm); cursor: pointer; text-align: left;
+    position: relative;
   }
-  .search-result { transition: background var(--transition); }
-  .search-result:hover, .search-result.selected { background: var(--c-surface-hover); text-decoration: none; }
-  .search-result-name { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .search-result-meta { color: var(--c-text-3); font-size: var(--text-xs); }
-  .search-group-label {
-    padding: 6px var(--sp-4) 2px; font-size: 10px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.05em; color: var(--c-text-3);
-  }
-  .search-score {
-    font-size: var(--text-xs); font-weight: 600; margin-left: auto;
-  }
-  .search-stat {
-    font-size: 10px; font-weight: 600; padding: 1px 5px;
-    border-radius: var(--radius-xs);
-  }
-  .search-stat-warn { color: var(--c-warn); }
-  .search-stat-err { color: var(--c-err); }
+  .search-trigger:hover { border-color: var(--c-text-3); }
+  .search-trigger-text { flex: 1; }
   .navbar-right {
     display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-shrink: 0;
   }
