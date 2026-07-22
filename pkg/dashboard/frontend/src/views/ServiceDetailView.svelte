@@ -28,6 +28,7 @@
   import ComplianceScore from '../components/ComplianceScore.svelte';
   import OwnerLink from '../components/OwnerLink.svelte';
   import SourceDot from '../components/SourceDot.svelte';
+  import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import { compareDiffUrl } from '../lib/router.ts';
   import { buildVersionSubgraph } from '../lib/graph.ts';
   import { formatDate } from '../lib/dateFormat.ts';
@@ -143,6 +144,11 @@
       : (detail?.version || '')
   );
   let isHistorical = $derived(!!version && !!currentVersion && version !== currentVersion);
+  let crumbs = $derived(
+    isHistorical
+      ? [{ label: 'Services', href: '#/' }, { label: name, href: serviceUrl(name) }, { label: version }]
+      : [{ label: 'Services', href: '#/' }, { label: detail?.name ?? name }]
+  );
   // Label for the version-history compare buttons: the baseline is whatever
   // version is being viewed ("current" when that's the deployed one).
   let baselineLabel = $derived(detail?.version && detail.version !== currentVersion ? detail.version : 'current');
@@ -333,11 +339,7 @@
 {:else if detail}
 
   <!-- Breadcrumb -->
-  <nav class="breadcrumb fade-in" aria-label="Breadcrumb">
-    <a href="#/">Services</a>
-    <span class="sep">/</span>
-    <span>{detail.name}</span>
-  </nav>
+  <Breadcrumbs trail={crumbs} />
 
   {#if isHistorical}
     <div class="version-banner">
@@ -680,13 +682,6 @@
     padding: 4px 10px; cursor: pointer;
   }
   .section-state .state-retry:hover { background: var(--c-surface-hover, var(--c-surface-inset)); }
-  .breadcrumb {
-    font-size: var(--text-sm); margin-bottom: var(--sp-4);
-    color: var(--c-text-3); display: flex; align-items: center; gap: 6px;
-  }
-  .breadcrumb a { color: var(--c-text-3); }
-  .breadcrumb a:hover { color: var(--c-text); }
-  .sep { color: var(--c-text-3); }
 
   .detail-header { margin-bottom: var(--sp-6); position: relative; z-index: 60; }
   .detail-title-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }

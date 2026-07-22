@@ -8,8 +8,10 @@
   import StatusBadge from '../components/StatusBadge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import NodeDrawer from '../components/NodeDrawer.svelte';
+  import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
   import { nodeDrawerData } from '../lib/nodeDrawer.ts';
+  import { graphBreadcrumbs } from '../lib/breadcrumbs.ts';
 
   let { services = [], sourcesInfo = [] } = $props();
   let blastByName = $derived(new Map(services.map(s => [s.name, s.blastRadius || 0])));
@@ -22,6 +24,7 @@
   let drawerData = $derived(nodeDrawerData(selectedNode, services, graphData));
 
   const f = getFilters(); // reactive shared filter store
+  let crumbs = $derived(graphBreadcrumbs({ group: f.group, focus: f.focus }));
 
   // StatsBar mutates its bindables directly and uses the 'all' sentinel; the store
   // uses '' for empty. Mirror the store into three writable locals for StatsBar and
@@ -133,8 +136,8 @@
   onMount(() => { loadGraph(); });
 </script>
 
+<Breadcrumbs trail={crumbs} />
 <div class="graph-header">
-  <a href="#/" class="btn btn-sm btn-ghost">← Services</a>
   <h1>Dependency Graph</h1>
 </div>
 
