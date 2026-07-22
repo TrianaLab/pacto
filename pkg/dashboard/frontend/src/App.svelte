@@ -5,6 +5,7 @@
   import { initTooltipPlacement } from './lib/tooltips.ts';
   import { api } from './lib/api.ts';
   import Navbar from './Navbar.svelte';
+  import CommandPalette from './CommandPalette.svelte';
   import ServiceListView from './views/ServiceListView.svelte';
   import ServiceDetailView from './views/ServiceDetailView.svelte';
   import GraphPageView from './views/GraphPageView.svelte';
@@ -24,6 +25,7 @@
   let refreshTick = $state(0);
   let initialLoading = $state(true);
   let loadError = $state(null);
+  let paletteOpen = $state(false);
 
   const POLL_FAST = 2000;   // during discovery
   const POLL_NORMAL = 10000;
@@ -99,14 +101,29 @@
     localStorage.setItem('pacto-theme', next);
   }
 
+  function handlePaletteKeydown(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      paletteOpen = !paletteOpen;
+    }
+  }
+
+  function handlePaletteAction(id) {
+    if (id === 'theme') toggleTheme();
+    else if (id === 'refresh') loadGlobal(true);
+    else if (id === 'autoreload') toggleAutoReload();
+  }
+
   onMount(() => {
     window.addEventListener('hashchange', onHashChange);
+    window.addEventListener('keydown', handlePaletteKeydown);
     const teardownTips = initTooltipPlacement();
     loadGlobal();
     // Start with fast polling; loadGlobal adjusts interval based on discovery state
     if (!(globalThis).__PACTO_STATIC__) { reloadTimer = setInterval(loadGlobal, POLL_FAST); }
     return () => {
       window.removeEventListener('hashchange', onHashChange);
+      window.removeEventListener('keydown', handlePaletteKeydown);
       teardownTips();
       if (reloadTimer) clearInterval(reloadTimer);
     };
@@ -124,6 +141,14 @@
   onRefresh={() => loadGlobal(true)}
   onToggleAutoReload={toggleAutoReload}
   onToggleTheme={toggleTheme}
+  onOpenPalette={() => (paletteOpen = true)}
+/>
+
+<CommandPalette
+  open={paletteOpen}
+  {services}
+  onClose={() => (paletteOpen = false)}
+  onAction={handlePaletteAction}
 />
 
 {#if loadError && services.length > 0}
