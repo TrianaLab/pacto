@@ -126,8 +126,9 @@
   .stats-bar { margin-bottom: var(--sp-5); }
 
   .dist-bar {
-    display: flex; height: 8px; border-radius: 4px; overflow: hidden;
+    display: flex; height: 8px; border-radius: var(--chart-radius); overflow: hidden;
     margin-bottom: var(--sp-3); gap: 1px;
+    background: var(--c-surface-inset);
   }
   .dist-segment {
     border: none; padding: 0; cursor: pointer;
