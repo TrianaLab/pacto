@@ -90,7 +90,7 @@
       <span class="legend-item" data-tip="Some contract checks fail with warnings"><span class="legend-dot" style="background:var(--c-warn)"></span> Warning</span>
       <span class="legend-item" data-tip="The contract has validation errors"><span class="legend-dot" style="background:var(--c-err)"></span> Non-Compliant</span>
       <span class="legend-item" data-tip="Contract status could not be determined"><span class="legend-dot" style="background:var(--c-neutral)"></span> Unknown</span>
-      <span class="legend-item" data-tip="Shared contract definition with no deployed workload"><span class="legend-dot" style="background:#60a5fa"></span> Reference</span>
+      <span class="legend-item" data-tip="Shared contract definition with no deployed workload"><span class="legend-dot" style="background:var(--c-info)"></span> Reference</span>
       <span class="legend-sep">|</span>
       <span class="legend-item" data-tip="Non-OCI dependency — not a contract-backed service"><span class="legend-dot" style="background:var(--c-text-3)"></span> External</span>
       <span class="legend-item" data-tip="Registry authentication failed"><span class="legend-dot" style="background:var(--c-err)"></span> Auth required</span>

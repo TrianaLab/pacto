@@ -219,10 +219,10 @@ export function renderReadinessDonut(
 
   // Pie layout
   const pieData = [
-    { label: readinessBucketLabel('ready'), value: data.ready, bucket: 'ready', gradient: 'url(#grad-ok)' },
-    { label: readinessBucketLabel('partial'), value: data.partial, bucket: 'partial', gradient: 'url(#grad-warn)' },
-    { label: readinessBucketLabel('not-ready'), value: data.notReady, bucket: 'not-ready', gradient: 'url(#grad-err)' },
-    { label: readinessBucketLabel('unknown'), value: data.notConfigured, bucket: 'unknown', gradient: 'url(#grad-neutral)' },
+    { label: readinessBucketLabel('ready'), value: data.ready, bucket: 'ready', gradient: 'url(#grad-ok)', color: pal.ok },
+    { label: readinessBucketLabel('partial'), value: data.partial, bucket: 'partial', gradient: 'url(#grad-warn)', color: pal.warn },
+    { label: readinessBucketLabel('not-ready'), value: data.notReady, bucket: 'not-ready', gradient: 'url(#grad-err)', color: pal.err },
+    { label: readinessBucketLabel('unknown'), value: data.notConfigured, bucket: 'unknown', gradient: 'url(#grad-neutral)', color: pal.neutral },
   ].filter((d) => d.value > 0);
 
   const pie = d3.pie<{ label: string; value: number; bucket: string; gradient: string }>()
@@ -302,7 +302,7 @@ export function renderReadinessDonut(
     .attr('cx', 6)
     .attr('cy', 6)
     .attr('r', 6)
-    .attr('fill', (d) => d.gradient);
+    .attr('fill', (d) => d.color);
 
   legendItems.append('text')
     .attr('x', 18)
