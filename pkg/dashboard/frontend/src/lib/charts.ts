@@ -826,3 +826,180 @@ export function renderPriorityQuadrant(
     .style('fill', 'var(--c-text-3)')
     .text('impact →');
 }
+
+/** Heatmap for team × category readiness. */
+export interface HeatmapOptions {
+  onSelectOwner?: (owner: string) => void;
+  onSelectCategory?: (category: string) => void;
+  onSelectCell?: (owner: string, category: string) => void;
+}
+
+export function renderHeatmap(
+  container: HTMLElement,
+  data: { owners: string[]; categories: string[]; cells: Array<{ owner: string; category: string; score: number; n: number }> },
+  opts: HeatmapOptions = {},
+): void {
+  d3.select(container).selectAll('*').remove();
+
+  if (!data.owners.length || !data.categories.length) {
+    emptyState(container, 'No category data');
+    return;
+  }
+
+  const pal = resolvePalette(container);
+
+  // Sequential single-hue ramp: pale tint → green (per dataviz: magnitude is sequential, not status)
+  const scoreFill = d3.scaleLinear<string>()
+    .domain([0, 100])
+    .range(['#e9f7ef', pal.ok])
+    .interpolate(d3.interpolateRgb);
+
+  const cellSize = 40;
+  const gap = 2;
+  const margin = { top: 60, right: 140, bottom: 20, left: 140 };
+
+  const width = margin.left + data.categories.length * (cellSize + gap) + margin.right;
+  const height = margin.top + data.owners.length * (cellSize + gap) + margin.bottom;
+
+  const svg = d3.select(container)
+    .append('svg')
+    .attr('width', '100%')
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
+    .style('font-family', 'var(--font-sans)');
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const tooltip = sharedTooltip();
+  tooltip.attach(container);
+
+  // Build a map for quick cell lookup
+  const cellMap = new Map<string, { score: number; n: number }>();
+  for (const c of data.cells) {
+    cellMap.set(`${c.owner}\0${c.category}`, { score: c.score, n: c.n });
+  }
+
+  // Grid cells
+  const cells: Array<{ owner: string; category: string; x: number; y: number; score?: number; n?: number }> = [];
+  for (let i = 0; i < data.owners.length; i++) {
+    for (let j = 0; j < data.categories.length; j++) {
+      const owner = data.owners[i];
+      const category = data.categories[j];
+      const key = `${owner}\0${category}`;
+      const cell = cellMap.get(key);
+      cells.push({
+        owner,
+        category,
+        x: j * (cellSize + gap),
+        y: i * (cellSize + gap),
+        score: cell?.score,
+        n: cell?.n,
+      });
+    }
+  }
+
+  const rects = g.selectAll('rect')
+    .data(cells)
+    .join('rect')
+    .attr('x', (d) => d.x)
+    .attr('y', (d) => d.y)
+    .attr('width', cellSize)
+    .attr('height', cellSize)
+    .attr('rx', 'var(--chart-radius)')
+    .attr('fill', (d) => (d.score != null ? scoreFill(d.score) : 'var(--c-surface-inset)'))
+    .attr('cursor', opts.onSelectCell ? 'pointer' : 'default')
+    .on('mouseenter', function (event, d) {
+      if (d.score != null) {
+        d3.select(this).transition().duration(150).attr('opacity', 0.8);
+        const content = `${d.owner} · ${d.category} · ${d.score}% · ${d.n} checks`;
+        tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
+      }
+    })
+    .on('mousemove', function (event) {
+      if (tooltip['el'].textContent) {
+        tooltip.show(tooltip['el'].textContent, event.offsetX + 10, event.offsetY - 10);
+      }
+    })
+    .on('mouseleave', function () {
+      d3.select(this).transition().duration(150).attr('opacity', 1);
+      tooltip.hide();
+    })
+    .on('click', (_, d) => {
+      if (opts.onSelectCell) opts.onSelectCell(d.owner, d.category);
+    });
+
+  animateIn(rects, { attr: 'opacity', from: 0, to: () => 1 });
+
+  // Column labels (categories)
+  svg.append('g')
+    .attr('transform', `translate(${margin.left},${margin.top - 10})`)
+    .selectAll('text')
+    .data(data.categories)
+    .join('text')
+    .attr('x', (_, i) => i * (cellSize + gap) + cellSize / 2)
+    .attr('y', 0)
+    .attr('text-anchor', 'end')
+    .attr('dominant-baseline', 'middle')
+    .attr('transform', (_, i) => `rotate(-45, ${i * (cellSize + gap) + cellSize / 2}, 0)`)
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-2)')
+    .text((d) => d);
+
+  // Row labels (owners)
+  svg.append('g')
+    .attr('transform', `translate(${margin.left - 10},${margin.top})`)
+    .selectAll('text')
+    .data(data.owners)
+    .join('text')
+    .attr('x', 0)
+    .attr('y', (_, i) => i * (cellSize + gap) + cellSize / 2)
+    .attr('text-anchor', 'end')
+    .attr('dominant-baseline', 'middle')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-2)')
+    .text((d) => d);
+
+  // Sequential legend: gradient bar
+  const legendX = margin.left + data.categories.length * (cellSize + gap) + 20;
+  const legendY = margin.top;
+  const legendWidth = 12;
+  const legendHeight = 100;
+
+  const defs = svg.append('defs');
+  const lg = defs.append('linearGradient')
+    .attr('id', 'heatmap-legend-grad')
+    .attr('x1', '0')
+    .attr('x2', '0')
+    .attr('y1', '1')
+    .attr('y2', '0');
+  lg.append('stop').attr('offset', '0').attr('stop-color', '#e9f7ef');
+  lg.append('stop').attr('offset', '1').attr('stop-color', pal.ok);
+
+  svg.append('rect')
+    .attr('x', legendX)
+    .attr('y', legendY)
+    .attr('width', legendWidth)
+    .attr('height', legendHeight)
+    .attr('fill', 'url(#heatmap-legend-grad)')
+    .attr('rx', 2);
+
+  svg.append('text')
+    .attr('x', legendX + legendWidth + 6)
+    .attr('y', legendY)
+    .attr('dominant-baseline', 'hanging')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('100%');
+
+  svg.append('text')
+    .attr('x', legendX + legendWidth + 6)
+    .attr('y', legendY + legendHeight)
+    .attr('dominant-baseline', 'alphabetic')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('0%');
+}

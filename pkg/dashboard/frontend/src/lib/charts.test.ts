@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderCategoryStackedBars, renderReadinessDonut, renderOwnerBars, renderTreemap, renderPriorityQuadrant } from './charts';
+import { renderCategoryStackedBars, renderReadinessDonut, renderOwnerBars, renderTreemap, renderPriorityQuadrant, renderHeatmap } from './charts';
 
 describe('renderCategoryStackedBars', () => {
   it('renders stacked bars for each category', () => {
@@ -292,5 +292,18 @@ describe('renderPriorityQuadrant', () => {
     const c2 = document.createElement('div');
     renderPriorityQuadrant(c2, []);
     expect(c2.textContent).toContain('No readiness data');
+  });
+});
+
+describe('renderHeatmap', () => {
+  it('draws a cell per owner×category and empty state', () => {
+    const c = document.createElement('div');
+    renderHeatmap(c, { owners: ['x','y'], categories: ['docs','test'], cells: [
+      { owner:'x', category:'docs', score:50, n:2 }, { owner:'x', category:'test', score:100, n:1 },
+      { owner:'y', category:'docs', score:0, n:1 },
+    ]});
+    expect(c.querySelectorAll('svg rect').length).toBeGreaterThanOrEqual(4); // 2×2 grid cells (+ maybe legend)
+    const c2 = document.createElement('div'); renderHeatmap(c2, { owners:[], categories:[], cells:[] });
+    expect(c2.textContent).toContain('No category data');
   });
 });
