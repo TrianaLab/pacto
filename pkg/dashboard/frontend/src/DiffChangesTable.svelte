@@ -57,7 +57,7 @@
             </td>
             <td>
               <span class="badge {classificationClass(change.classification)}">{change.classification.replace(/_/g, ' ')}</span>
-              {#if change.reason}<br><span class="text-3" style="font-size:var(--text-xs)">{change.reason}</span>{/if}
+              {#if change.reason}<br><span class="text-3 diff-reason" style="font-size:var(--text-xs)">{@html breakableIdentifierHtml(change.reason)}</span>{/if}
             </td>
           </tr>
         {/each}
@@ -74,14 +74,19 @@
   .diff-table th { white-space: normal; }
   .diff-table td { overflow: visible; white-space: nowrap; }
   .diff-table td:first-child { white-space: normal; }
+  /* The Breaking column holds a long reason (a path + change type). All non-first
+     cells default to nowrap, so with overflow:visible it spilled OUTSIDE the table's
+     right edge. Let the last column wrap, and break the reason at boundaries. */
+  .diff-table td:last-child { white-space: normal; }
+  .diff-reason { display: inline-block; overflow-wrap: break-word; word-break: normal; }
   /* PATH gets the most room (it holds long dotted identifiers); Old/New hold
      short scalar values (long ones expand), so they don't need to dominate. This
      keeps most paths on one line and the rest to a clean 2-line boundary wrap. */
   .dc-path { width: auto; } /* ~34% of the remaining space */
   .dc-change { width: 8%; }
-  .dc-old { width: 22%; }
-  .dc-new { width: 22%; }
-  .dc-impact { width: 14%; }
+  .dc-old { width: 21%; }
+  .dc-new { width: 21%; }
+  .dc-impact { width: 18%; }
   /* Wrap long dotted paths at their natural boundaries (via <wbr> from
      breakableIdentifierHtml), never mid-word. break-word is only a last-resort
      fallback for a single segment longer than the column. */
