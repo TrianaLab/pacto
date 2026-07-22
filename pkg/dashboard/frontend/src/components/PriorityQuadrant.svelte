@@ -1,0 +1,22 @@
+<script>
+  import { renderPriorityQuadrant } from '../lib/charts.ts';
+
+  let { data, onSelect } = $props();
+
+  let container;
+
+  $effect(() => {
+    if (container && data) {
+      renderPriorityQuadrant(container, data, { onSelect });
+    }
+  });
+</script>
+
+<div class="chart-container" bind:this={container}></div>
+
+<style>
+  .chart-container {
+    width: 100%;
+    min-height: 200px;
+  }
+</style>

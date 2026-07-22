@@ -648,3 +648,181 @@ export function renderTreemap(
   // Enter animation: fade in
   animateIn(tiles.selectAll('rect'), { attr: 'opacity', from: 0, to: () => 1 });
 }
+
+/** Priority quadrant: readiness score (x) vs blast radius (y) scatter plot. */
+export interface QuadrantDatum {
+  name: string;
+  x: number; // readiness score 0–100
+  y: number; // blast/impact
+  status: string;
+  blast: number;
+}
+
+export interface QuadrantOptions {
+  onSelect?: (name: string) => void;
+}
+
+export function renderPriorityQuadrant(
+  container: HTMLElement,
+  data: QuadrantDatum[],
+  opts: QuadrantOptions = {},
+): void {
+  // Clear
+  d3.select(container).selectAll('*').remove();
+
+  if (!data.length) {
+    emptyState(container, 'No readiness data to plot');
+    return;
+  }
+
+  const pal = resolvePalette(container);
+
+  const margin = { top: 30, right: 30, bottom: 50, left: 60 };
+  const width = container.clientWidth || 600;
+  const height = 300;
+
+  const svg = d3.select(container)
+    .append('svg')
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
+    .style('width', '100%')
+    .style('height', 'auto')
+    .style('font-family', 'var(--font-sans)');
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+
+  // X scale: readiness score 0–100
+  const x = d3.scaleLinear().domain([0, 100]).range([0, innerWidth]);
+
+  // Y scale: impact/blast 0–max
+  const yMax = d3.max(data, (d) => d.y) || 1;
+  const y = d3.scaleLinear().domain([0, yMax]).range([innerHeight, 0]);
+
+  // Quadrant guide lines: vertical at x=50, horizontal at y=median
+  const blastValues = data.map((d) => d.y).sort((a, b) => a - b);
+  const medianBlast = blastValues[Math.floor(blastValues.length / 2)] || yMax / 2;
+
+  g.append('line')
+    .attr('x1', x(50))
+    .attr('x2', x(50))
+    .attr('y1', 0)
+    .attr('y2', innerHeight)
+    .attr('stroke', 'var(--c-border)')
+    .attr('stroke-width', 1)
+    .attr('stroke-dasharray', '4 4');
+
+  g.append('line')
+    .attr('x1', 0)
+    .attr('x2', innerWidth)
+    .attr('y1', y(medianBlast))
+    .attr('y2', y(medianBlast))
+    .attr('stroke', 'var(--c-border)')
+    .attr('stroke-width', 1)
+    .attr('stroke-dasharray', '4 4');
+
+  // Quadrant labels
+  g.append('text')
+    .attr('x', 6)
+    .attr('y', 6)
+    .attr('dominant-baseline', 'hanging')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('Fix first');
+
+  g.append('text')
+    .attr('x', innerWidth - 6)
+    .attr('y', innerHeight - 6)
+    .attr('text-anchor', 'end')
+    .attr('dominant-baseline', 'alphabetic')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('Healthy');
+
+  // Status color map (flat, no gradients needed)
+  const statusColor: Record<string, string> = {
+    Compliant: pal.ok,
+    Warning: pal.warn,
+    NonCompliant: pal.err,
+    Reference: pal.info,
+  };
+
+  const tooltip = sharedTooltip();
+  tooltip.attach(container);
+
+  // Radius scale: larger blast = larger dot (min 8px per dataviz markers)
+  const maxBlast = d3.max(data, (d) => d.blast) || 1;
+  const rScale = d3.scaleSqrt().domain([0, maxBlast]).range([8, 16]);
+
+  // Dots
+  const dots = g.selectAll('circle')
+    .data(data)
+    .join('circle')
+    .attr('cx', (d) => x(d.x))
+    .attr('cy', (d) => y(d.y))
+    .attr('r', (d) => rScale(d.blast))
+    .attr('fill', (d) => statusColor[d.status] || pal.neutral)
+    .attr('stroke', 'var(--c-surface)')
+    .attr('stroke-width', 2)
+    .attr('cursor', opts.onSelect ? 'pointer' : 'default')
+    .on('mouseenter', function (event, d) {
+      d3.select(this).transition().duration(150).attr('opacity', 0.8);
+      const content = `${d.name} · readiness ${d.x} · impact ${d.y} · ${d.status}`;
+      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mousemove', function (event) {
+      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mouseleave', function () {
+      d3.select(this).transition().duration(150).attr('opacity', 1);
+      tooltip.hide();
+    })
+    .on('click', (_, d) => {
+      if (opts.onSelect) opts.onSelect(d.name);
+    });
+
+  // Enter animation: r 0→value
+  animateIn(dots, { attr: 'r', from: 0, to: (d) => rScale(d.blast) });
+
+  // X axis: readiness score
+  const xAxis = g.append('g')
+    .attr('transform', `translate(0,${innerHeight})`)
+    .call(d3.axisBottom(x).ticks(5));
+  xAxis.select('.domain').remove();
+  xAxis.selectAll('.tick line').remove();
+  xAxis.selectAll('text')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)');
+
+  // Y axis: impact
+  const yAxis = g.append('g').call(d3.axisLeft(y).ticks(5));
+  yAxis.select('.domain').remove();
+  yAxis.selectAll('.tick line').remove();
+  yAxis.selectAll('text')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)');
+
+  // Axis labels
+  svg.append('text')
+    .attr('x', width / 2)
+    .attr('y', height - 12)
+    .attr('text-anchor', 'middle')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('readiness →');
+
+  svg.append('text')
+    .attr('transform', `translate(12, ${height / 2}) rotate(-90)`)
+    .attr('text-anchor', 'middle')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('impact →');
+}

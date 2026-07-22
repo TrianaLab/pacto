@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderCategoryStackedBars, renderReadinessDonut, renderOwnerBars, renderTreemap } from './charts';
+import { renderCategoryStackedBars, renderReadinessDonut, renderOwnerBars, renderTreemap, renderPriorityQuadrant } from './charts';
 
 describe('renderCategoryStackedBars', () => {
   it('renders stacked bars for each category', () => {
@@ -281,5 +281,16 @@ describe('renderTreemap', () => {
     const c2 = document.createElement('div');
     renderTreemap(c2, []);
     expect(c2.textContent).toContain('No services');
+  });
+});
+
+describe('renderPriorityQuadrant', () => {
+  it('draws a dot per datum and empty state', () => {
+    const container = document.createElement('div');
+    renderPriorityQuadrant(container, [{ name: 'a', x: 20, y: 9, status: 'NonCompliant', blast: 9 }, { name: 'b', x: 90, y: 1, status: 'Compliant', blast: 1 }]);
+    expect(container.querySelectorAll('svg circle').length).toBeGreaterThanOrEqual(2);
+    const c2 = document.createElement('div');
+    renderPriorityQuadrant(c2, []);
+    expect(c2.textContent).toContain('No readiness data');
   });
 });
