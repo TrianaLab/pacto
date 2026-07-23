@@ -1,69 +1,48 @@
-pactoVersion: "1.0"
-
+pactoVersion: "2.0"
 service:
   name: payments-api
   version: 2.1.0
   owner:
-    team: team/payments
-  image:
-    ref: ghcr.io/acme/payments-api:2.1.0
-    private: true
-
+    team: Platform
+    dri: alice@example.com
 interfaces:
-  - name: rest-api
-    type: http
-    port: 8080
+  - name: api
+    type: openapi
+    ref: interfaces/openapi.json
     visibility: public
-    contract: interfaces/openapi.yaml
-
-  - name: grpc-api
+  - name: events
+    type: asyncapi
+    ref: interfaces/asyncapi.yaml
+    visibility: internal
+  - name: admin
     type: grpc
-    port: 9090
+    ref: interfaces/admin.proto
     visibility: internal
-    contract: interfaces/service.proto
-
-  - name: order-events
-    type: event
-    visibility: internal
-    contract: interfaces/events.yaml
-
 configurations:
-  - name: default
+  - name: app
     schema: configuration/schema.json
-
+    values:
+      port: 8080
+      logLevel: info
 dependencies:
-  - name: auth-service
-    ref: ghcr.io/acme/auth-service-pacto@sha256:abc123def456
+  - name: auth-svc
+    ref: oci://ghcr.io/acme/auth:1.0.0
+    compatibility: ^1.0.0
     required: true
-    compatibility: "^2.0.0"
-  - name: notification-service
-    ref: ghcr.io/acme/notification-service-pacto:1.0.0
-    required: false
-    compatibility: "~1.0.0"
-
-runtime:
-  workload: service
-
-  state:
-    type: stateful
-    persistence:
-      scope: local
-      durability: persistent
-    dataCriticality: high
-
-  lifecycle:
-    upgradeStrategy: ordered
-    gracefulShutdownSeconds: 30
-
-  health:
-    interface: rest-api
-    path: /health
-    initialDelaySeconds: 15
-
-scaling:
-  min: 2
-  max: 10
-
-metadata:
-  team: payments
-  tier: critical
+  - name: cache
+    ref: oci://ghcr.io/acme/cache:2.0.0
+    compatibility: ^2.0.0
+state:
+  type: stateful
+  persistence:
+    scope: local
+    durability: persistent
+  dataCriticality: high
+workload: service
+capabilities:
+  - type: health
+  - type: metrics
+policies:
+  - name: security
+    schema: policy/security.json
+    target: contract

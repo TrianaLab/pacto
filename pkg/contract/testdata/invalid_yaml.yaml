@@ -1,2 +1,2 @@
-this is not: valid: yaml: [
-  broken
+pactoVersion: "2.0"
+service: [this is not: valid yaml

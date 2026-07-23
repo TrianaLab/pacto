@@ -9,8 +9,8 @@ import (
 
 // Parse deserializes a pacto.yaml from the given reader into a Contract.
 // It enforces syntactic correctness (field types, unknown-field rejection) and a
-// few required top-level fields (pactoVersion, service.name, service.version),
-// and applies one normalization: the scaling.replicas shorthand sets min=max.
+// few required top-level fields (pactoVersion, service.name, service.version).
+// Only pactoVersion "2.0" is supported; other versions are rejected.
 // Deeper semantic validation is a separate concern handled by the validation engine.
 func Parse(r io.Reader) (*Contract, error) {
 	var c Contract
@@ -30,6 +30,13 @@ func Parse(r io.Reader) (*Contract, error) {
 		}
 	}
 
+	if c.PactoVersion != "2.0" {
+		return nil, &ParseError{
+			Path:    "pactoVersion",
+			Message: fmt.Sprintf("unsupported pactoVersion %q; only \"2.0\" is supported", c.PactoVersion),
+		}
+	}
+
 	if c.Service.Name == "" {
 		return nil, &ParseError{
 			Path:    "service.name",
@@ -42,12 +49,6 @@ func Parse(r io.Reader) (*Contract, error) {
 			Path:    "service.version",
 			Message: "service.version is required",
 		}
-	}
-
-	// Normalize: replicas shorthand sets min = max = replicas.
-	if c.Scaling != nil && c.Scaling.Replicas != nil {
-		c.Scaling.Min = *c.Scaling.Replicas
-		c.Scaling.Max = *c.Scaling.Replicas
 	}
 
 	return &c, nil
