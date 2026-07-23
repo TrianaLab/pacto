@@ -27,6 +27,25 @@ var allowedInternal = map[string]bool{
 var forbiddenExact = map[string]bool{"net": true, "net/http": true, "os": true}
 var forbiddenPrefix = []string{"k8s.io/", "sigs.k8s.io/"}
 
+// disallowedImport returns a non-empty reason when the import is disallowed, "" when allowed.
+func disallowedImport(path string) string {
+	if strings.HasPrefix(path, modulePrefix) {
+		if !allowedInternal[path] {
+			return "internal import not on allowlist (contract, evidence, finding, graph)"
+		}
+		return ""
+	}
+	if forbiddenExact[path] {
+		return "forbidden exact import (engine must stay pure)"
+	}
+	for _, bad := range forbiddenPrefix {
+		if strings.HasPrefix(path, bad) {
+			return "forbidden prefix import (engine must stay pure)"
+		}
+	}
+	return ""
+}
+
 func TestEngineImportBoundary(t *testing.T) {
 	fset := token.NewFileSet()
 	entries, err := os.ReadDir(".")
@@ -43,20 +62,43 @@ func TestEngineImportBoundary(t *testing.T) {
 		}
 		for _, imp := range f.Imports {
 			p := strings.Trim(imp.Path.Value, `"`)
-			if strings.HasPrefix(p, modulePrefix) {
-				if !allowedInternal[p] {
-					t.Errorf("%s imports disallowed internal %q (engine allowlist: contract, evidence, finding, graph)", e.Name(), p)
-				}
-				continue
+			if reason := disallowedImport(p); reason != "" {
+				t.Errorf("%s imports disallowed %q: %s", e.Name(), p, reason)
 			}
-			if forbiddenExact[p] {
-				t.Errorf("%s imports forbidden %q (engine must stay pure)", e.Name(), p)
-			}
-			for _, bad := range forbiddenPrefix {
-				if strings.HasPrefix(p, bad) {
-					t.Errorf("%s imports forbidden %q (engine must stay pure)", e.Name(), p)
-				}
-			}
+		}
+	}
+}
+
+func TestDisallowedImport(t *testing.T) {
+	cases := []struct {
+		path string
+		want string // "" = allowed, non-empty = reason
+	}{
+		// allowed: module-internal on allowlist
+		{modulePrefix + "pkg/contract", ""},
+		{modulePrefix + "pkg/evidence", ""},
+		{modulePrefix + "pkg/finding", ""},
+		{modulePrefix + "pkg/graph", ""},
+		// allowed: stdlib (not forbidden)
+		{"fmt", ""},
+		{"strings", ""},
+		// disallowed: module-internal not on allowlist
+		{modulePrefix + "pkg/oci", "internal import not on allowlist (contract, evidence, finding, graph)"},
+		// disallowed: forbidden exact
+		{"os", "forbidden exact import (engine must stay pure)"},
+		{"net", "forbidden exact import (engine must stay pure)"},
+		{"net/http", "forbidden exact import (engine must stay pure)"},
+		// disallowed: forbidden prefix
+		{"k8s.io/client-go", "forbidden prefix import (engine must stay pure)"},
+		{"sigs.k8s.io/controller-runtime", "forbidden prefix import (engine must stay pure)"},
+	}
+	for _, tc := range cases {
+		got := disallowedImport(tc.path)
+		if tc.want == "" && got != "" {
+			t.Errorf("disallowedImport(%q) = %q, want allowed (empty)", tc.path, got)
+		}
+		if tc.want != "" && got == "" {
+			t.Errorf("disallowedImport(%q) = allowed, want %q", tc.path, tc.want)
 		}
 	}
 }

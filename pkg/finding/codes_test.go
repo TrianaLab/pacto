@@ -73,3 +73,27 @@ func TestUnknownCodeSeverity(t *testing.T) {
 		t.Fatalf("unknown code must default to error severity")
 	}
 }
+
+func TestRegistryContract(t *testing.T) {
+	warnCodes := map[Code]bool{
+		CodePortIgnored:                  true,
+		CodeHealthPathIgnored:            true,
+		CodeMetricsPathIgnored:           true,
+		CodeTagNotDigest:                 true,
+		CodeUpgradeStrategyStateMismatch: true,
+		CodePolicyRefNotEnforced:         true,
+		CodeConfigNotObserved:            true,
+	}
+	for code := range registry {
+		if cat := CategoryOf(code); cat == "" {
+			t.Errorf("CategoryOf(%q) = empty, want non-empty", code)
+		}
+		wantSev := SeverityError
+		if warnCodes[code] {
+			wantSev = SeverityWarning
+		}
+		if got := DefaultSeverity(code); got != wantSev {
+			t.Errorf("DefaultSeverity(%q) = %q, want %q", code, got, wantSev)
+		}
+	}
+}
