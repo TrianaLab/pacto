@@ -286,3 +286,48 @@ func hasChange(changes []Change, path string, ct ChangeType) bool {
 	_, ok := findChange(changes, path, ct)
 	return ok
 }
+
+func TestDiffContract_StateBothNil(t *testing.T) {
+	old := minimalContract()
+	old.State = nil
+	new := minimalContract()
+	new.State = nil
+	changes := diffContract(old, new)
+	for _, c := range changes {
+		if c.Path == "state.type" || c.Path == "state.persistence.scope" {
+			t.Errorf("expected no state changes for both nil, got %+v", c)
+		}
+	}
+}
+
+func TestDiffContract_StateOldNil(t *testing.T) {
+	old := minimalContract()
+	old.State = nil
+	new := minimalContract()
+	changes := diffContract(old, new)
+	found := false
+	for _, c := range changes {
+		if c.Path == "state.type" && c.Type == Added {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected state.type Added when old state is nil, got %+v", changes)
+	}
+}
+
+func TestDiffContract_StateNewNil(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+	new.State = nil
+	changes := diffContract(old, new)
+	found := false
+	for _, c := range changes {
+		if c.Path == "state.type" && c.Type == Removed {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected state.type Removed when new state is nil, got %+v", changes)
+	}
+}

@@ -68,26 +68,24 @@ func (m *MockPluginRunner) Run(ctx context.Context, name string, req plugin.Gene
 
 // ValidPactoYAML returns a minimal valid pacto.yaml content for testing.
 func ValidPactoYAML() []byte {
-	return []byte(`pactoVersion: "1.0"
+	return []byte(`pactoVersion: "2.0"
 service:
   name: test-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
-    contract: openapi.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    type: openapi
+    ref: openapi.yaml
+    visibility: public
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `)
 }
 
@@ -111,21 +109,18 @@ paths:
 // The bundle includes pacto.yaml plus additional files (openapi.yaml,
 // docs/) to verify that the full directory tree survives round-trips.
 func TestBundle() *contract.Bundle {
-	port := 8080
 	return &contract.Bundle{
 		Contract: &contract.Contract{
-			PactoVersion: "1.0",
-			Service:      contract.ServiceIdentity{Name: "test-svc", Version: "1.0.0"},
-			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port, Contract: "openapi.yaml"}},
-			Runtime: &contract.Runtime{
-				Workload: "service",
-				State: contract.State{
-					Type:            "stateless",
-					Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-					DataCriticality: "low",
-				},
-				Health: &contract.Health{Interface: "api", Path: "/health"},
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: "test-svc", Version: "1.0.0"},
+			Interfaces:   []contract.Interface{{Name: "api", Type: contract.InterfaceTypeOpenAPI, Ref: "openapi.yaml", Visibility: contract.VisibilityPublic}},
+			Workload:     contract.WorkloadService,
+			State: &contract.State{
+				Type:            contract.StateStateless,
+				Persistence:     contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral},
+				DataCriticality: contract.DataCriticalityLow,
 			},
+			Capabilities: []contract.Capability{{Type: contract.CapabilityHealth}},
 		},
 		RawYAML: ValidPactoYAML(),
 		FS: fstest.MapFS{

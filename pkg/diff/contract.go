@@ -214,3 +214,15 @@ func diffStringSet(oldSet, newSet map[string]bool, pathPrefix, entityName string
 
 	return changes
 }
+
+// strChangeType classifies a string field change as Added (was empty), Removed
+// (now empty), or Modified.
+func strChangeType(old, new string) ChangeType {
+	if old == "" {
+		return Added
+	}
+	if new == "" {
+		return Removed
+	}
+	return Modified
+}

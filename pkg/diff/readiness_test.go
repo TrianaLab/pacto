@@ -149,3 +149,64 @@ func TestCompare_IncludesReadiness(t *testing.T) {
 		t.Errorf("expected Compare to surface readiness Added, got %+v", result.Changes)
 	}
 }
+
+func TestIntPtrChanged_BothNil(t *testing.T) {
+	if intPtrChanged(nil, nil) {
+		t.Error("expected false for both nil")
+	}
+}
+
+func TestIntPtrChanged_OneNil(t *testing.T) {
+	v := 10
+	if !intPtrChanged(nil, &v) {
+		t.Error("expected true when old is nil")
+	}
+	if !intPtrChanged(&v, nil) {
+		t.Error("expected true when new is nil")
+	}
+}
+
+func TestIntPtrChanged_BothNonNil(t *testing.T) {
+	a, b := 10, 20
+	if !intPtrChanged(&a, &b) {
+		t.Error("expected true for different values")
+	}
+	c := 10
+	if intPtrChanged(&a, &c) {
+		t.Error("expected false for same values")
+	}
+}
+
+func TestIntPtrChangeType_Added(t *testing.T) {
+	v := 10
+	if intPtrChangeType(nil, &v) != Added {
+		t.Error("expected Added")
+	}
+}
+
+func TestIntPtrChangeType_Removed(t *testing.T) {
+	v := 10
+	if intPtrChangeType(&v, nil) != Removed {
+		t.Error("expected Removed")
+	}
+}
+
+func TestIntPtrChangeType_Modified(t *testing.T) {
+	a, b := 10, 20
+	if intPtrChangeType(&a, &b) != Modified {
+		t.Error("expected Modified")
+	}
+}
+
+func TestIntPtrVal_Nil(t *testing.T) {
+	if intPtrVal(nil) != 0 {
+		t.Error("expected 0 for nil")
+	}
+}
+
+func TestIntPtrVal_NonNil(t *testing.T) {
+	v := 42
+	if intPtrVal(&v) != 42 {
+		t.Error("expected 42")
+	}
+}

@@ -6,6 +6,34 @@ import (
 	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
+// intPtrChanged returns true if two int pointers differ.
+func intPtrChanged(a, b *int) bool {
+	if a == nil && b == nil {
+		return false
+	}
+	if a == nil || b == nil {
+		return true
+	}
+	return *a != *b
+}
+
+func intPtrVal(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+func intPtrChangeType(old, new *int) ChangeType {
+	if old == nil {
+		return Added
+	}
+	if new == nil {
+		return Removed
+	}
+	return Modified
+}
+
 // diffReadiness compares the optional readiness assessment. Readiness records
 // operational maturity, not consumer-facing contract surface, so every change is
 // NonBreaking — but changes (a check regressing, the assessment expiring, the

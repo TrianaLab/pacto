@@ -56,12 +56,12 @@ type CheckResult struct {
 }
 
 // Evaluate derives the readiness Result at time now. Returns nil when no
-// readiness (or no checks) is declared. Deferred checks are excluded from both
-// the numerator and denominator. Done checks earn their full weight; partial
-// checks earn round(weight*partialCredit); not-done (and any unknown status)
-// earn nothing. When the assessment is expired every in-scope check earns zero.
+// readiness (or no claims) is declared. Deferred claims are excluded from both
+// the numerator and denominator. Done claims earn their full weight; partial
+// claims earn round(weight*partialCredit); not-done (and any unknown status)
+// earn nothing. When the assessment is expired every in-scope claim earns zero.
 func Evaluate(r *contract.Readiness, now time.Time) *Result {
-	if r == nil || len(r.Checks) == 0 {
+	if r == nil || len(r.Claims) == 0 {
 		return nil
 	}
 	minScore := DefaultMinScore
@@ -76,7 +76,7 @@ func Evaluate(r *contract.Readiness, now time.Time) *Result {
 	res := &Result{MinScore: minScore, PartialCredit: credit, Expires: r.Expires}
 	res.Expired, res.DaysRemaining = expiryState(r.Expires, now)
 
-	for _, c := range r.Checks {
+	for _, c := range r.Claims {
 		cr := CheckResult{
 			ID: c.ID, Type: c.Type, Category: c.Category, Status: c.Status,
 			Evidence: c.Evidence, Description: c.Description, Weight: c.Weight,
