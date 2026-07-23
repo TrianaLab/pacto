@@ -26,10 +26,11 @@ type ExplainResult struct {
 	Version      string              `json:"version"`
 	Owner        contract.Owner      `json:"owner,omitempty"`
 	PactoVersion string              `json:"pactoVersion"`
-	Runtime      ExplainRuntime      `json:"runtime"`
+	Workload     string              `json:"workload,omitempty"`
+	State        *ExplainState       `json:"state,omitempty"`
+	Capabilities []ExplainCapability `json:"capabilities,omitempty"`
 	Interfaces   []ExplainInterface  `json:"interfaces,omitempty"`
 	Dependencies []ExplainDependency `json:"dependencies,omitempty"`
-	Scaling      *contract.Scaling   `json:"scaling,omitempty"`
 	Readiness    *ExplainReadiness   `json:"readiness,omitempty"`
 	Metadata     map[string]any      `json:"metadata,omitempty"`
 }
@@ -73,20 +74,25 @@ type ExplainReadinessRevision struct {
 	Description string `json:"description"`
 }
 
-// ExplainRuntime is a simplified runtime summary.
-type ExplainRuntime struct {
-	WorkloadType    string `json:"workloadType"`
-	StateType       string `json:"stateType"`
+// ExplainState is a simplified state summary.
+type ExplainState struct {
+	Type            string `json:"type"`
 	Scope           string `json:"scope"`
 	Durability      string `json:"durability"`
 	DataCriticality string `json:"dataCriticality"`
+}
+
+// ExplainCapability is a simplified capability summary.
+type ExplainCapability struct {
+	Type string `json:"type"`
+	Ref  string `json:"ref,omitempty"`
 }
 
 // ExplainInterface is a simplified interface summary.
 type ExplainInterface struct {
 	Name       string `json:"name"`
 	Type       string `json:"type"`
-	Port       *int   `json:"port,omitempty"`
+	Ref        string `json:"ref"`
 	Visibility string `json:"visibility,omitempty"`
 }
 
@@ -116,25 +122,31 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		Version:      c.Service.Version,
 		Owner:        c.Service.Owner,
 		PactoVersion: c.PactoVersion,
-		Scaling:      c.Scaling,
+		Workload:     c.Workload,
 		Metadata:     c.Metadata,
 	}
 
-	if c.Runtime != nil {
-		result.Runtime = ExplainRuntime{
-			WorkloadType:    c.Runtime.Workload,
-			StateType:       c.Runtime.State.Type,
-			Scope:           c.Runtime.State.Persistence.Scope,
-			Durability:      c.Runtime.State.Persistence.Durability,
-			DataCriticality: c.Runtime.State.DataCriticality,
+	if c.State != nil {
+		result.State = &ExplainState{
+			Type:            c.State.Type,
+			Scope:           c.State.Persistence.Scope,
+			Durability:      c.State.Persistence.Durability,
+			DataCriticality: c.State.DataCriticality,
 		}
+	}
+
+	for _, cap := range c.Capabilities {
+		result.Capabilities = append(result.Capabilities, ExplainCapability{
+			Type: cap.Type,
+			Ref:  cap.Ref,
+		})
 	}
 
 	for _, iface := range c.Interfaces {
 		result.Interfaces = append(result.Interfaces, ExplainInterface{
 			Name:       iface.Name,
 			Type:       iface.Type,
-			Port:       iface.Port,
+			Ref:        iface.Ref,
 			Visibility: iface.Visibility,
 		})
 	}

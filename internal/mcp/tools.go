@@ -32,9 +32,6 @@ func createTool() *mcpsdk.Tool {
 			"data_shared_across_instances": {Type: "boolean", Description: "Whether data is shared across instances"},
 			"data_loss_impact":             {Type: "string", Description: "Impact of data loss", Enum: []string{"low", "medium", "high"}},
 			"config_properties":            {Type: "string", Description: "JSON array of config properties: [{name, type?, required?}]"},
-			"replicas":                     {Type: "integer", Description: "Exact replica count"},
-			"min_replicas":                 {Type: "integer", Description: "Minimum replicas for auto-scaling"},
-			"max_replicas":                 {Type: "integer", Description: "Maximum replicas for auto-scaling"},
 			"metadata":                     {Type: "string", Description: "JSON object of metadata key-value pairs"},
 			"dry_run":                      {Type: "boolean", Description: "If true, validate and return result without writing files"},
 		}, []string{"name"}),
@@ -83,10 +80,6 @@ func createHandler() mcpsdk.ToolHandler {
 			}
 		}
 
-		input.Replicas = parseInputIntPtr(req, "replicas")
-		input.MinReplicas = parseInputIntPtr(req, "min_replicas")
-		input.MaxReplicas = parseInputIntPtr(req, "max_replicas")
-
 		result, err := Create(input)
 		if err != nil {
 			return errorResult(err), nil
@@ -118,9 +111,6 @@ func editTool() *mcpsdk.Tool {
 			"data_shared_across_instances": {Type: "boolean", Description: "Whether data is shared across instances"},
 			"data_loss_impact":             {Type: "string", Description: "Impact of data loss", Enum: []string{"low", "medium", "high"}},
 			"add_config_properties":        {Type: "string", Description: "JSON array of config properties to add: [{name, type?, required?}]"},
-			"replicas":                     {Type: "integer", Description: "Exact replica count"},
-			"min_replicas":                 {Type: "integer", Description: "Minimum replicas for auto-scaling"},
-			"max_replicas":                 {Type: "integer", Description: "Maximum replicas for auto-scaling"},
 			"set_metadata":                 {Type: "string", Description: "JSON object of metadata to set"},
 			"remove_metadata":              {Type: "string", Description: "JSON array of metadata keys to remove"},
 			"dry_run":                      {Type: "boolean", Description: "If true, validate and return result without writing"},
@@ -157,9 +147,6 @@ func parseEditScalars(req *mcpsdk.CallToolRequest, input *EditInput) {
 			*f.dst = &b
 		}
 	}
-	input.Replicas = parseInputIntPtr(req, "replicas")
-	input.MinReplicas = parseInputIntPtr(req, "min_replicas")
-	input.MaxReplicas = parseInputIntPtr(req, "max_replicas")
 }
 
 // parseEditJSONFields extracts JSON array/object fields into EditInput.

@@ -67,10 +67,6 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 		return nil, err
 	}
 
-	if err := rejectLocalChart(c); err != nil {
-		return nil, err
-	}
-
 	if err := rejectLocalRefs(c); err != nil {
 		return nil, err
 	}
@@ -116,18 +112,6 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 func isNotFound(err error) bool {
 	var notFound *oci.ArtifactNotFoundError
 	return errors.As(err, &notFound)
-}
-
-// rejectLocalChart returns an error if the chart uses a local reference.
-func rejectLocalChart(c *contract.Contract) error {
-	if c.Service.Chart == nil {
-		return nil
-	}
-	parsed := graph.ParseDependencyRef(c.Service.Chart.Ref)
-	if parsed.IsLocal() {
-		return fmt.Errorf("local chart reference detected: %s\nLocal chart references are not allowed when publishing. Use an OCI reference (oci://...)", c.Service.Chart.Ref)
-	}
-	return nil
 }
 
 // rejectLocalDeps returns an error if any dependency uses a local reference.

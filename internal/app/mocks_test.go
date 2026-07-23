@@ -28,26 +28,21 @@ func writeInvalidBundle(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	pactoPath := filepath.Join(dir, "pacto.yaml")
-	// Valid YAML, valid parse, but fails cross-field validation (health interface not found)
-	content := []byte(`pactoVersion: "1.0"
+	// Valid YAML, valid parse, but fails structural validation (interface missing required Type)
+	content := []byte(`pactoVersion: "2.0"
 service:
   name: bad-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: nonexistent
-    path: /health
+    ref: openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `)
 	if err := os.WriteFile(pactoPath, content, 0644); err != nil {
 		t.Fatal(err)

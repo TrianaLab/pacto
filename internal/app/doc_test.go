@@ -132,24 +132,21 @@ func TestDoc_WriteFileError(t *testing.T) {
 func TestDoc_WithConfiguration(t *testing.T) {
 	store := &mockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
-			port := 8080
 			return &contract.Bundle{
 				Contract: &contract.Contract{
-					PactoVersion: "1.0",
-					Service:      contract.ServiceIdentity{Name: "cfg-svc", Version: "1.0.0"},
-					Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
-					Configurations: []contract.ConfigurationSource{
+					PactoVersion: "2.0",
+					Service:      contract.Service{Name: "cfg-svc", Version: "1.0.0"},
+					Interfaces:   []contract.Interface{{Name: "api", Type: contract.InterfaceTypeOpenAPI, Ref: "openapi.yaml"}},
+					Configurations: []contract.Configuration{
 						{Name: "default", Schema: "configuration/schema.json"},
 					},
-					Runtime: &contract.Runtime{
-						Workload: "service",
-						State: contract.State{
-							Type:            "stateless",
-							Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-							DataCriticality: "low",
-						},
-						Health: &contract.Health{Interface: "api", Path: "/health"},
+					Workload: contract.WorkloadService,
+					State: &contract.State{
+						Type:            contract.StateStateless,
+						Persistence:     contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral},
+						DataCriticality: contract.DataCriticalityLow,
 					},
+					Capabilities: []contract.Capability{{Type: contract.CapabilityHealth}},
 				},
 				FS: fstest.MapFS{
 					"configuration/schema.json": &fstest.MapFile{Data: []byte(`{

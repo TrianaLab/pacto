@@ -164,9 +164,9 @@ func assertScaffoldReadiness(t *testing.T, r *contract.Readiness) {
 	minScoreOK := r.MinScore != nil && *r.MinScore > 0
 	expiresOK := r.Expires != ""
 	historyOK := len(r.History) > 0
-	checksOK := len(r.Checks) > 0
+	checksOK := len(r.Claims) > 0
 	if !minScoreOK || !expiresOK || !historyOK || !checksOK {
-		t.Errorf("readiness incomplete: minScore>0=%v expires=%v history=%v checks=%v", minScoreOK, expiresOK, historyOK, checksOK)
+		t.Errorf("readiness incomplete: minScore>0=%v expires=%v history=%v claims=%v", minScoreOK, expiresOK, historyOK, checksOK)
 	}
 }
 
@@ -194,8 +194,8 @@ func TestInit_ScaffoldValidates(t *testing.T) {
 		t.Fatalf("failed to parse scaffolded contract: %v", err)
 	}
 
-	if c.PactoVersion != "1.2" {
-		t.Errorf("expected pactoVersion 1.2, got %s", c.PactoVersion)
+	if c.PactoVersion != "2.0" {
+		t.Errorf("expected pactoVersion 2.0, got %s", c.PactoVersion)
 	}
 
 	assertScaffoldOwner(t, c.Service.Owner)

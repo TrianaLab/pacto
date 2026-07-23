@@ -33,7 +33,7 @@ func capBundle(fsys fstest.MapFS, ifaces ...contract.Interface) *contract.Bundle
 }
 
 func httpIface(name, path string) contract.Interface {
-	return contract.Interface{Name: name, Type: contract.InterfaceTypeHTTP, Contract: path}
+	return contract.Interface{Name: name, Type: contract.InterfaceTypeOpenAPI, Ref: path}
 }
 
 // connectCaps registers capabilities on a fresh server and returns a client session.
@@ -164,10 +164,10 @@ func TestRegisterCapabilities_ServersFromSpec(t *testing.T) {
 func TestRegisterCapabilities_SkipsNonHTTP(t *testing.T) {
 	fsys := fstest.MapFS{"o.json": {Data: []byte(capSpec)}, "skills/x.md": {Data: []byte("x")}}
 	bundle := capBundle(fsys,
-		contract.Interface{Name: "ev", Type: contract.InterfaceTypeEvent, Contract: "events.json"},
-		contract.Interface{Name: "nocontract", Type: contract.InterfaceTypeHTTP},
+		contract.Interface{Name: "ev", Type: contract.InterfaceTypeAsyncAPI, Ref: "events.json"},
+		contract.Interface{Name: "noref", Type: contract.InterfaceTypeOpenAPI},
 	)
-	// only pacto_skill should be registered (no http-with-contract interfaces)
+	// only pacto_skill should be registered (no openapi-with-ref interfaces)
 	session := connectCaps(t, bundle, CapabilityOptions{}, io.Discard)
 	names := toolNames(t, session)
 	if !names["pacto_skill"] || names["ping"] {
@@ -198,7 +198,7 @@ func TestNewCapabilityServer_InstructionsReachClient(t *testing.T) {
 	}
 	bundle := &contract.Bundle{
 		Contract: &contract.Contract{
-			Service:    contract.ServiceIdentity{Name: "demo-svc"},
+			Service:    contract.Service{Name: "demo-svc"},
 			Interfaces: []contract.Interface{httpIface("http", "o.json")},
 		},
 		FS: fsys,
@@ -233,7 +233,7 @@ func TestNewCapabilityServer_InstructionsReachClient(t *testing.T) {
 }
 
 func TestCapabilityInstructions_AllowWrites(t *testing.T) {
-	bundle := &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "svc"}}, FS: fstest.MapFS{}}
+	bundle := &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "svc"}}, FS: fstest.MapFS{}}
 	ro := capabilityInstructions(bundle, CapabilityOptions{})
 	if !strings.Contains(ro, "Only read-only") {
 		t.Errorf("read-only instructions = %q", ro)

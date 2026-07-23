@@ -49,9 +49,6 @@ type CreateInput struct {
 	DataLossImpact            string
 
 	ConfigProperties []ConfigProperty
-	Replicas         *int
-	MinReplicas      *int
-	MaxReplicas      *int
 	Metadata         map[string]any
 
 	DryRun bool
@@ -61,7 +58,6 @@ type CreateInput struct {
 type InterfaceInput struct {
 	Name       string `json:"name"`
 	Type       string `json:"type"`
-	Port       *int   `json:"port,omitempty"`
 	Visibility string `json:"visibility,omitempty"`
 }
 
@@ -108,9 +104,6 @@ type EditInput struct {
 	DataLossImpact            *string
 
 	AddConfigProperties []ConfigProperty
-	Replicas            *int
-	MinReplicas         *int
-	MaxReplicas         *int
 	SetMetadata         map[string]any
 	RemoveMetadata      []string
 
@@ -201,25 +194,16 @@ func inferFromDescription(desc string) descriptionHints {
 	return h
 }
 
-// --- Runtime derivation ---
+// --- State derivation ---
 
-type runtimeIntent struct {
-	workload                  string
+type stateIntent struct {
 	storesData                bool
 	dataSurvivesRestart       bool
 	dataSharedAcrossInstances bool
 	dataLossImpact            string
 }
 
-func deriveRuntimeMap(intent runtimeIntent) map[string]any {
-	rt := make(map[string]any)
-
-	workload := intent.workload
-	if workload == "" {
-		workload = contract.WorkloadTypeService
-	}
-	rt["workload"] = workload
-
+func deriveStateMap(intent stateIntent) map[string]any {
 	stateType := contract.StateStateless
 	scope := contract.ScopeLocal
 	durability := contract.DurabilityEphemeral
@@ -240,7 +224,7 @@ func deriveRuntimeMap(intent runtimeIntent) map[string]any {
 		dataCrit = intent.dataLossImpact
 	}
 
-	rt["state"] = map[string]any{
+	return map[string]any{
 		"type": stateType,
 		"persistence": map[string]any{
 			"scope":      scope,
@@ -248,8 +232,6 @@ func deriveRuntimeMap(intent runtimeIntent) map[string]any {
 		},
 		"dataCriticality": dataCrit,
 	}
-
-	return rt
 }
 
 // --- Create ---
@@ -312,19 +294,17 @@ func applyHintsToCreate(input *CreateInput, h descriptionHints) {
 	if len(input.Interfaces) == 0 {
 		if h.hasHTTP {
 			input.Interfaces = append(input.Interfaces, InterfaceInput{
-				Name: "http-api", Type: contract.InterfaceTypeHTTP,
-				Port: intPtr(8080), Visibility: contract.VisibilityPublic,
+				Name: "http-api", Type: contract.InterfaceTypeOpenAPI, Visibility: contract.VisibilityPublic,
 			})
 		}
 		if h.hasGRPC {
 			input.Interfaces = append(input.Interfaces, InterfaceInput{
-				Name: "grpc-api", Type: contract.InterfaceTypeGRPC,
-				Port: intPtr(9090), Visibility: contract.VisibilityInternal,
+				Name: "grpc-api", Type: contract.InterfaceTypeGRPC, Visibility: contract.VisibilityInternal,
 			})
 		}
 		if h.hasEvents {
 			input.Interfaces = append(input.Interfaces, InterfaceInput{
-				Name: "events", Type: contract.InterfaceTypeEvent,
+				Name: "events", Type: contract.InterfaceTypeAsyncAPI,
 			})
 		}
 	}
@@ -341,16 +321,16 @@ func applyHintsToCreate(input *CreateInput, h descriptionHints) {
 
 	if input.Workload == "" {
 		if h.isScheduled {
-			input.Workload = contract.WorkloadTypeScheduled
+			input.Workload = contract.WorkloadScheduled
 		} else if h.isWorker {
-			input.Workload = contract.WorkloadTypeJob
+			input.Workload = contract.WorkloadJob
 		}
 	}
 }
 
 func buildCreateMap(input CreateInput) map[string]any {
 	m := map[string]any{
-		"pactoVersion": "1.0",
+		"pactoVersion": "2.0",
 		"service": map[string]any{
 			"name":    input.Name,
 			"version": defaultVersion(input.Version),
@@ -370,23 +350,19 @@ func buildCreateMap(input CreateInput) map[string]any {
 		m["dependencies"] = buildDependenciesList(input.Dependencies)
 	}
 
-	intent := runtimeIntent{
-		workload:                  input.Workload,
+	workload := input.Workload
+	if workload == "" {
+		workload = contract.WorkloadService
+	}
+	m["workload"] = workload
+
+	intent := stateIntent{
 		storesData:                input.StoresData,
 		dataSurvivesRestart:       input.DataSurvivesRestart,
 		dataSharedAcrossInstances: input.DataSharedAcrossInstances,
 		dataLossImpact:            input.DataLossImpact,
 	}
-	rt := deriveRuntimeMap(intent)
-
-	// Wire health/metrics to first HTTP interface
-	wireHealthMetrics(rt, input.Interfaces)
-
-	m["runtime"] = rt
-
-	if input.Replicas != nil || input.MinReplicas != nil || input.MaxReplicas != nil {
-		m["scaling"] = buildScalingMap(input.Replicas, input.MinReplicas, input.MaxReplicas)
-	}
+	m["state"] = deriveStateMap(intent)
 
 	if len(input.ConfigProperties) > 0 {
 		m["configurations"] = []any{
@@ -408,12 +384,9 @@ func buildInterfacesList(inputs []InterfaceInput) []any {
 	var result []any
 	for _, iface := range inputs {
 		entry := map[string]any{
-			"name":     iface.Name,
-			"type":     iface.Type,
-			"contract": interfaceContractPath(iface),
-		}
-		if iface.Port != nil {
-			entry["port"] = *iface.Port
+			"name": iface.Name,
+			"type": iface.Type,
+			"ref":  interfaceRefPath(iface),
 		}
 		if iface.Visibility != "" {
 			entry["visibility"] = iface.Visibility
@@ -423,7 +396,7 @@ func buildInterfacesList(inputs []InterfaceInput) []any {
 	return result
 }
 
-func interfaceContractPath(iface InterfaceInput) string {
+func interfaceRefPath(iface InterfaceInput) string {
 	return fmt.Sprintf("interfaces/%s.yaml", iface.Name)
 }
 
@@ -460,41 +433,6 @@ func buildDependenciesList(inputs []DependencyInput) []any {
 		result = append(result, entry)
 	}
 	return result
-}
-
-func wireHealthMetrics(rt map[string]any, interfaces []InterfaceInput) {
-	var httpIface string
-	for _, iface := range interfaces {
-		if iface.Type == contract.InterfaceTypeHTTP {
-			httpIface = iface.Name
-			break
-		}
-	}
-	if httpIface == "" {
-		return
-	}
-	rt["health"] = map[string]any{
-		"interface": httpIface,
-		"path":      "/health",
-	}
-	rt["metrics"] = map[string]any{
-		"interface": httpIface,
-		"path":      "/metrics",
-	}
-}
-
-func buildScalingMap(replicas, min, max *int) map[string]any {
-	if replicas != nil {
-		return map[string]any{"replicas": *replicas}
-	}
-	s := map[string]any{}
-	if min != nil {
-		s["min"] = *min
-	}
-	if max != nil {
-		s["max"] = *max
-	}
-	return s
 }
 
 // --- Edit ---
@@ -602,15 +540,13 @@ func applyEdits(m map[string]any, input EditInput) []string {
 		changes = append(changes, addDependencies(m, input.AddDependencies)...)
 	}
 
-	// Runtime
-	if hasRuntimeEdits(input) {
-		changes = append(changes, applyRuntimeEdits(m, input)...)
+	// Workload and state
+	if input.Workload != nil {
+		m["workload"] = *input.Workload
+		changes = append(changes, fmt.Sprintf("set workload to %q", *input.Workload))
 	}
-
-	// Scaling
-	if hasScalingEdits(input) {
-		m["scaling"] = buildScalingMap(input.Replicas, input.MinReplicas, input.MaxReplicas)
-		changes = append(changes, "updated scaling")
+	if hasStateEdits(input) {
+		changes = append(changes, applyStateEdits(m, input)...)
 	}
 
 	// Config properties
@@ -625,10 +561,6 @@ func applyEdits(m map[string]any, input EditInput) []string {
 	}
 
 	return changes
-}
-
-func hasScalingEdits(input EditInput) bool {
-	return input.Replicas != nil || input.MinReplicas != nil || input.MaxReplicas != nil
 }
 
 func removeInterfaces(m map[string]any, names []string) []string {
@@ -664,12 +596,9 @@ func addInterfaces(m map[string]any, inputs []InterfaceInput) []string {
 	ifaces, _ := m["interfaces"].([]any)
 	for _, iface := range inputs {
 		entry := map[string]any{
-			"name":     iface.Name,
-			"type":     iface.Type,
-			"contract": interfaceContractPath(iface),
-		}
-		if iface.Port != nil {
-			entry["port"] = *iface.Port
+			"name": iface.Name,
+			"type": iface.Type,
+			"ref":  interfaceRefPath(iface),
 		}
 		if iface.Visibility != "" {
 			entry["visibility"] = iface.Visibility
@@ -728,37 +657,10 @@ func addDependencies(m map[string]any, inputs []DependencyInput) []string {
 	return changes
 }
 
-func hasRuntimeEdits(input EditInput) bool {
-	return input.Workload != nil || input.StoresData != nil ||
-		input.DataSurvivesRestart != nil || input.DataSharedAcrossInstances != nil ||
-		input.DataLossImpact != nil
-}
-
-func applyRuntimeEdits(m map[string]any, input EditInput) []string {
-	var changes []string
-
-	rt, ok := m["runtime"].(map[string]any)
-	if !ok {
-		rt = map[string]any{"workload": contract.WorkloadTypeService}
-	}
-
-	if input.Workload != nil {
-		rt["workload"] = *input.Workload
-		changes = append(changes, fmt.Sprintf("set workload to %q", *input.Workload))
-	}
-
-	if hasStateEdits(input) {
-		intent := buildStateIntent(rt, input)
-		derived := deriveRuntimeMap(intent)
-		rt["state"] = derived["state"]
-		changes = append(changes, "updated state model")
-	}
-
-	m["runtime"] = rt
-
-	rewireHealthMetricsIfNeeded(rt, m)
-
-	return changes
+func applyStateEdits(m map[string]any, input EditInput) []string {
+	intent := buildStateIntentFromCurrent(m, input)
+	m["state"] = deriveStateMap(intent)
+	return []string{"updated state model"}
 }
 
 func hasStateEdits(input EditInput) bool {
@@ -766,8 +668,8 @@ func hasStateEdits(input EditInput) bool {
 		input.DataSharedAcrossInstances != nil || input.DataLossImpact != nil
 }
 
-func buildStateIntent(rt map[string]any, input EditInput) runtimeIntent {
-	storesData, dataSurvives, dataShared, dataLossImpact := readCurrentState(rt)
+func buildStateIntentFromCurrent(m map[string]any, input EditInput) stateIntent {
+	storesData, dataSurvives, dataShared, dataLossImpact := readCurrentState(m)
 
 	if input.StoresData != nil {
 		storesData = *input.StoresData
@@ -782,7 +684,7 @@ func buildStateIntent(rt map[string]any, input EditInput) runtimeIntent {
 		dataLossImpact = *input.DataLossImpact
 	}
 
-	return runtimeIntent{
+	return stateIntent{
 		storesData:                storesData,
 		dataSurvivesRestart:       dataSurvives,
 		dataSharedAcrossInstances: dataShared,
@@ -790,8 +692,8 @@ func buildStateIntent(rt map[string]any, input EditInput) runtimeIntent {
 	}
 }
 
-func readCurrentState(rt map[string]any) (storesData, dataSurvives, dataShared bool, dataLossImpact string) {
-	state, ok := rt["state"].(map[string]any)
+func readCurrentState(m map[string]any) (storesData, dataSurvives, dataShared bool, dataLossImpact string) {
+	state, ok := m["state"].(map[string]any)
 	if !ok {
 		return
 	}
@@ -810,30 +712,6 @@ func readCurrentState(rt map[string]any) (storesData, dataSurvives, dataShared b
 		dataLossImpact = dc
 	}
 	return
-}
-
-func rewireHealthMetricsIfNeeded(rt, m map[string]any) {
-	if _, hasHealth := rt["health"]; hasHealth {
-		return
-	}
-	ifaces, ok := m["interfaces"].([]any)
-	if !ok {
-		return
-	}
-	var ifaceInputs []InterfaceInput
-	for _, iface := range ifaces {
-		if ifaceMap, ok := iface.(map[string]any); ok {
-			// Use safe assertions: a parseable-but-malformed interface (missing
-			// or non-string name/type) must not panic — skip it instead.
-			name, _ := ifaceMap["name"].(string)
-			typ, _ := ifaceMap["type"].(string)
-			if name == "" || typ == "" {
-				continue
-			}
-			ifaceInputs = append(ifaceInputs, InterfaceInput{Name: name, Type: typ})
-		}
-	}
-	wireHealthMetrics(rt, ifaceInputs)
 }
 
 func ensureConfigSection(m map[string]any) {
@@ -934,7 +812,7 @@ func Check(path string) (*CheckResult, error) {
 
 var topLevelKeyOrder = []string{
 	"pactoVersion", "service", "interfaces", "configurations",
-	"policies", "dependencies", "runtime", "scaling", "metadata",
+	"policies", "dependencies", "state", "workload", "capabilities", "readiness", "metadata", "extensions",
 }
 
 func marshalContract(m map[string]any) ([]byte, error) {
@@ -1016,8 +894,8 @@ func buildStubFS(c *contract.Contract, yamlBytes []byte) fstest.MapFS {
 		"pacto.yaml": &fstest.MapFile{Data: yamlBytes},
 	}
 	for _, iface := range c.Interfaces {
-		if iface.Contract != "" {
-			m[iface.Contract] = &fstest.MapFile{Data: []byte("{}")}
+		if iface.Ref != "" {
+			m[iface.Ref] = &fstest.MapFile{Data: []byte("{}")}
 		}
 	}
 	for _, cfg := range c.Configurations {
@@ -1057,9 +935,9 @@ func buildBundleFSForValidation(dir string, yamlBytes []byte, c *contract.Contra
 
 	// Add stubs for referenced files not yet on disk
 	for _, iface := range c.Interfaces {
-		if iface.Contract != "" {
-			if _, ok := m[iface.Contract]; !ok {
-				m[iface.Contract] = &fstest.MapFile{Data: []byte("{}")}
+		if iface.Ref != "" {
+			if _, ok := m[iface.Ref]; !ok {
+				m[iface.Ref] = &fstest.MapFile{Data: []byte("{}")}
 			}
 		}
 	}
@@ -1090,9 +968,9 @@ func writeBundle(dir string, yamlBytes []byte, input CreateInput) (int, error) {
 	}
 	fileCount++
 
-	// Scaffold interface contract files
+	// Scaffold interface spec files
 	for _, iface := range input.Interfaces {
-		if iface.Type == contract.InterfaceTypeHTTP || iface.Type == contract.InterfaceTypeGRPC {
+		if iface.Type == contract.InterfaceTypeOpenAPI || iface.Type == contract.InterfaceTypeGRPC {
 			ifaceDir := filepath.Join(dir, "interfaces")
 			if err := osMkdirAll(ifaceDir, 0755); err != nil {
 				return fileCount, fmt.Errorf("failed to create %s: %w", ifaceDir, err)
@@ -1125,7 +1003,7 @@ func writeBundle(dir string, yamlBytes []byte, input CreateInput) (int, error) {
 
 func scaffoldNewInterfaceFiles(dir string, interfaces []InterfaceInput) error {
 	for _, iface := range interfaces {
-		if iface.Type != contract.InterfaceTypeHTTP && iface.Type != contract.InterfaceTypeGRPC {
+		if iface.Type != contract.InterfaceTypeOpenAPI && iface.Type != contract.InterfaceTypeGRPC {
 			continue
 		}
 		ifaceDir := filepath.Join(dir, "interfaces")
@@ -1220,12 +1098,12 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 		Name:     c.Service.Name,
 		Version:  c.Service.Version,
 		Owner:    c.Service.Owner.DisplayString(),
+		Workload: c.Workload,
 		Sections: assessSections(c),
 	}
 
-	if c.Runtime != nil {
-		s.Workload = c.Runtime.Workload
-		s.StateType = c.Runtime.State.Type
+	if c.State != nil {
+		s.StateType = c.State.Type
 	}
 
 	for _, iface := range c.Interfaces {
@@ -1269,12 +1147,8 @@ func summarizeService(s *ContractSummary, m map[string]any) {
 }
 
 func summarizeRuntime(s *ContractSummary, m map[string]any) {
-	rt, ok := m["runtime"].(map[string]any)
-	if !ok {
-		return
-	}
-	s.Workload, _ = rt["workload"].(string)
-	if state, ok := rt["state"].(map[string]any); ok {
+	s.Workload, _ = m["workload"].(string)
+	if state, ok := m["state"].(map[string]any); ok {
 		s.StateType, _ = state["type"].(string)
 	}
 }
@@ -1308,12 +1182,12 @@ func summarizeDepsFromMap(s *ContractSummary, m map[string]any) {
 }
 
 func summarizeSectionsFromMap(s *ContractSummary, m map[string]any) {
-	for _, key := range []string{"service", "interfaces", "runtime"} {
+	for _, key := range []string{"service", "interfaces", "workload", "state"} {
 		if _, ok := m[key]; ok {
 			s.Sections[key] = "present"
 		}
 	}
-	for _, key := range []string{"policies", "dependencies", "scaling", "metadata"} {
+	for _, key := range []string{"policies", "dependencies", "metadata"} {
 		if _, ok := m[key]; ok {
 			s.Sections[key] = "present"
 		} else {
@@ -1330,7 +1204,6 @@ func summarizeSectionsFromMap(s *ContractSummary, m map[string]any) {
 func assessSections(c *contract.Contract) map[string]string {
 	sections := map[string]string{
 		"service": "present",
-		"runtime": "absent",
 	}
 
 	if len(c.Interfaces) > 0 {
@@ -1339,9 +1212,18 @@ func assessSections(c *contract.Contract) map[string]string {
 		sections["interfaces"] = "absent"
 	}
 
-	if c.Runtime != nil {
-		sections["runtime"] = "present"
+	if c.Workload != "" {
+		sections["workload"] = "present"
+	} else {
+		sections["workload"] = "absent"
 	}
+
+	if c.State != nil {
+		sections["state"] = "present"
+	} else {
+		sections["state"] = "absent"
+	}
+
 	if len(c.Configurations) > 0 {
 		sections["configurations"] = "present"
 	} else {
@@ -1351,11 +1233,6 @@ func assessSections(c *contract.Contract) map[string]string {
 		sections["dependencies"] = "present"
 	} else {
 		sections["dependencies"] = "absent"
-	}
-	if c.Scaling != nil {
-		sections["scaling"] = "present"
-	} else {
-		sections["scaling"] = "absent"
 	}
 	if len(c.Metadata) > 0 {
 		sections["metadata"] = "present"
@@ -1382,17 +1259,17 @@ func buildSuggestions(c *contract.Contract, valid bool) []Suggestion {
 
 	if len(c.Interfaces) == 0 {
 		suggestions = append(suggestions, Suggestion{
-			Message: "No interfaces defined. Consider adding an HTTP or gRPC interface.",
+			Message: "No interfaces defined. Consider adding an OpenAPI or gRPC interface.",
 			ToolCall: &ToolCall{
 				Tool:   "pacto_edit",
-				Params: map[string]any{"add_interfaces": []map[string]any{{"name": "http-api", "type": "http", "port": 8080}}},
+				Params: map[string]any{"add_interfaces": []map[string]any{{"name": "http-api", "type": "openapi"}}},
 			},
 		})
 	}
 
-	if c.Runtime == nil {
+	if c.State == nil {
 		suggestions = append(suggestions, Suggestion{
-			Message: "No runtime section. The runtime section describes operational behavior.",
+			Message: "No state section. The state section describes data semantics.",
 		})
 	}
 
@@ -1405,30 +1282,6 @@ func buildSuggestions(c *contract.Contract, valid bool) []Suggestion {
 	if len(c.Dependencies) == 0 {
 		suggestions = append(suggestions, Suggestion{
 			Message: "No dependencies declared. If this service depends on others, declare them explicitly.",
-		})
-	}
-
-	if c.Scaling == nil {
-		suggestions = append(suggestions, Suggestion{
-			Message: "No scaling section. Consider specifying replica counts.",
-		})
-	}
-
-	hasHTTP := false
-	for _, iface := range c.Interfaces {
-		if iface.Type == contract.InterfaceTypeHTTP {
-			hasHTTP = true
-			break
-		}
-	}
-
-	if hasHTTP && c.Runtime != nil && c.Runtime.Health == nil {
-		suggestions = append(suggestions, Suggestion{
-			Message: "HTTP interface found but no health check configured.",
-			ToolCall: &ToolCall{
-				Tool:   "pacto_edit",
-				Params: map[string]any{"stores_data": false},
-			},
 		})
 	}
 

@@ -78,7 +78,7 @@ func RegisterCapabilities(server *mcpsdk.Server, bundle *contract.Bundle, opts C
 func httpInterfaces(c *contract.Contract) []contract.Interface {
 	var out []contract.Interface
 	for _, iface := range c.Interfaces {
-		if iface.Type == contract.InterfaceTypeHTTP && iface.Contract != "" {
+		if iface.Type == contract.InterfaceTypeOpenAPI && iface.Ref != "" {
 			out = append(out, iface)
 		}
 	}
@@ -86,7 +86,7 @@ func httpInterfaces(c *contract.Contract) []contract.Interface {
 }
 
 func registerInterface(server *mcpsdk.Server, fsys fs.FS, iface contract.Interface, prefixed bool, opts CapabilityOptions, stderr io.Writer) error {
-	doc, err := openapi.ReadDoc(fsys, iface.Contract)
+	doc, err := openapi.ReadDoc(fsys, iface.Ref)
 	if err != nil {
 		return fmt.Errorf("interface %q: %w", iface.Name, err)
 	}

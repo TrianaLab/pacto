@@ -50,13 +50,13 @@ func TestValidate_ReadinessValid(t *testing.T) {
 
 func TestValidate_ReadinessDuplicateID(t *testing.T) {
 	dir := t.TempDir()
-	content := []byte(`pactoVersion: "1.2"
+	content := []byte(`pactoVersion: "2.0"
 service:
   name: payment-api
   version: "1.4.0"
 readiness:
   expires: "2026-12-31"
-  checks:
+  claims:
     - id: dashboard
       type: url
       status: done
@@ -81,12 +81,12 @@ readiness:
 	}
 	found := false
 	for _, e := range result.Errors {
-		if e.Code == "DUPLICATE_READINESS_ID" && e.Path == "readiness.checks[1].id" {
+		if e.Code == "DUPLICATE_READINESS_ID" && e.Path == "readiness.claims[1].id" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected DUPLICATE_READINESS_ID at readiness.checks[1].id, got %v", result.Errors)
+		t.Errorf("expected DUPLICATE_READINESS_ID at readiness.claims[1].id, got %v", result.Errors)
 	}
 }
 
@@ -117,13 +117,13 @@ func TestValidate_ReadinessGate_MessageShape(t *testing.T) {
 	// Scores 50 (one done w=50, one not-done w=30, one deferred w=20 excluded):
 	// earned 50 of total 80 -> 63, below default minScore 100. Far-future expiry
 	// so the failure is "score below gate", and the message lists every count.
-	content := []byte(`pactoVersion: "1.2"
+	content := []byte(`pactoVersion: "2.0"
 service:
   name: payment-api
   version: "1.4.0"
 readiness:
   expires: "2099-12-31"
-  checks:
+  claims:
     - id: dashboard
       type: url
       status: done

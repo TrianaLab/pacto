@@ -176,25 +176,23 @@ func TestGraph_LocalDependency(t *testing.T) {
 	if err := os.MkdirAll(depBundleDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	depYAML := []byte(`pactoVersion: "1.0"
+	depYAML := []byte(`pactoVersion: "2.0"
 service:
   name: dep-svc
   version: "2.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 9090
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    type: openapi
+    ref: openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `)
 	if err := os.WriteFile(filepath.Join(depBundleDir, "pacto.yaml"), depYAML, 0644); err != nil {
 		t.Fatal(err)
@@ -205,30 +203,28 @@ runtime:
 	if err := os.MkdirAll(mainBundleDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	mainYAML := []byte(`pactoVersion: "1.0"
+	mainYAML := []byte(`pactoVersion: "2.0"
 service:
   name: main-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: openapi.yaml
 dependencies:
   - name: dep
     ref: ../dep-svc
     required: true
     compatibility: "^2.0.0"
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `)
 	if err := os.WriteFile(filepath.Join(mainBundleDir, "pacto.yaml"), mainYAML, 0644); err != nil {
 		t.Fatal(err)
@@ -275,30 +271,28 @@ func TestGraph_FileSchemeDependency(t *testing.T) {
 	if err := os.MkdirAll(mainBundleDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	mainYAML := []byte(fmt.Sprintf(`pactoVersion: "1.0"
+	mainYAML := []byte(fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: main-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: openapi.yaml
 dependencies:
   - name: dep
     ref: "file://%s"
     required: true
     compatibility: "^1.0.0"
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `, depBundleDir))
 	if err := os.WriteFile(filepath.Join(mainBundleDir, "pacto.yaml"), mainYAML, 0644); err != nil {
 		t.Fatal(err)

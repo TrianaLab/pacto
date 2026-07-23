@@ -94,7 +94,7 @@ func TestCreateTool(t *testing.T) {
 	t.Run("with explicit interfaces", func(t *testing.T) {
 		result := callTool(t, svc, "pacto_create", map[string]any{
 			"name":       "grpc-svc",
-			"interfaces": `[{"name":"grpc-api","type":"grpc","port":9090}]`,
+			"interfaces": `[{"name":"grpc-api","type":"grpc"}]`,
 			"dry_run":    true,
 		})
 		text := resultText(t, result)
@@ -122,7 +122,7 @@ func TestCreateTool(t *testing.T) {
 		result := callTool(t, svc, "pacto_create", map[string]any{
 			"name":       "my-svc",
 			"path":       outPath,
-			"interfaces": `[{"name":"http-api","type":"http","port":8080}]`,
+			"interfaces": `[{"name":"http-api","type":"openapi"}]`,
 		})
 		if result.IsError {
 			t.Fatalf("expected no error: %s", resultText(t, result))
@@ -254,7 +254,7 @@ func TestEditTool(t *testing.T) {
 		dir := testutil.WriteTestBundle(t)
 		result := callTool(t, svc, "pacto_edit", map[string]any{
 			"path":           dir,
-			"add_interfaces": `[{"name":"events","type":"event"}]`,
+			"add_interfaces": `[{"name":"events","type":"asyncapi"}]`,
 		})
 		text := resultText(t, result)
 		if !strings.Contains(text, "events") {

@@ -19,7 +19,7 @@ import (
 func writeRoot(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	yaml := "pactoVersion: \"1.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n    required: true\n"
+	yaml := "pactoVersion: \"2.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n    required: true\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func writeRoot(t *testing.T) string {
 // authStore returns a mock store that serves an "auth" bundle resolving to the
 // given digest.
 func authStore(digest string) *testutil.MockBundleStore {
-	auth := &contract.Contract{Service: contract.ServiceIdentity{Name: "auth", Version: "1.2.0"}}
+	auth := &contract.Contract{Service: contract.Service{Name: "auth", Version: "1.2.0"}}
 	return &testutil.MockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.2.0"}, nil },
 		ResolveFn:  func(_ context.Context, _ string) (string, error) { return digest, nil },
@@ -83,7 +83,7 @@ func TestLockBuildError(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, _ string) (string, error) { return "", errors.New("boom") },
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
-			return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "auth", Version: "1.2.0"}}}, nil
+			return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "auth", Version: "1.2.0"}}}, nil
 		},
 	}
 	s := NewService(store, nil)
@@ -289,7 +289,7 @@ func TestVerifyNoLockIsNoop(t *testing.T) {
 
 func TestVerifyOCIRefIsNoop(t *testing.T) {
 	s := NewService(authStore("sha256:v1"), nil)
-	if err := s.verifyLockIfPresent(context.Background(), "oci://ghcr.io/acme/root:1.0.0", &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "root"}}}); err != nil {
+	if err := s.verifyLockIfPresent(context.Background(), "oci://ghcr.io/acme/root:1.0.0", &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "root"}}}); err != nil {
 		t.Errorf("OCI ref should be a no-op, got %v", err)
 	}
 }
@@ -317,7 +317,7 @@ func TestVerifyBuildError(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, _ string) (string, error) { return "", errors.New("boom") },
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
-			return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "auth", Version: "1.2.0"}}}, nil
+			return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "auth", Version: "1.2.0"}}}, nil
 		},
 	}
 	s := NewService(store, nil)
