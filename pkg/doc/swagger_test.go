@@ -17,12 +17,11 @@ import (
 )
 
 func TestCollectSwaggerSpecs(t *testing.T) {
-	port := 8080
 	specs := CollectSwaggerSpecs([]contract.Interface{
-		{Name: "api", Type: "http", Port: &port, Contract: "openapi.yaml"},
-		{Name: "grpc", Type: "grpc", Contract: "service.proto"},
-		{Name: "web", Type: "http", Port: &port, Contract: "web.yaml"},
-		{Name: "bare", Type: "http", Port: &port},
+		{Name: "api", Type: "openapi", Ref: "openapi.yaml"},
+		{Name: "grpc", Type: "grpc", Ref: "service.proto"},
+		{Name: "web", Type: "openapi", Ref: "web.yaml"},
+		{Name: "bare", Type: "openapi"},
 	})
 
 	if len(specs) != 2 {

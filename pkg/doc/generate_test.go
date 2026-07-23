@@ -17,17 +17,16 @@ func ptr(v int) *int { return &v }
 // ── Task 4: header / overview / runtime ────────────────────────────────
 
 func TestGenerate_HeaderOverviewRuntime(t *testing.T) {
-	repl := 3
 	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.2.0", ContractStatus: dashboard.StatusCompliant},
-		Runtime: &dashboard.RuntimeInfo{Workload: "service", StateType: "stateless", DataCriticality: "low"},
-		Scaling: &dashboard.ScalingInfo{Replicas: &repl},
+		Service:  dashboard.Service{Name: "svc", Version: "1.2.0", ContractStatus: dashboard.StatusCompliant},
+		Workload: "service",
+		State:    &dashboard.StateInfo{Type: "stateless", DataCriticality: "low"},
 	}
 	md, err := Generate(d, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"# svc", "1.2.0", "stateless", "service", "## 1. Runtime & operations", "Replicas"} {
+	for _, want := range []string{"# svc", "1.2.0", "stateless", "service", "## 1. Runtime & operations"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("markdown missing %q\n%s", want, md)
 		}
@@ -37,11 +36,10 @@ func TestGenerate_HeaderOverviewRuntime(t *testing.T) {
 // ── Task 5: interfaces / configuration / policies ──────────────────────
 
 func TestGenerate_InterfacesConfigPolicies(t *testing.T) {
-	port := 8080
 	d := &dashboard.ServiceDetails{
 		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
 		Interfaces: []dashboard.InterfaceInfo{{
-			Name: "api", Type: "http", Port: &port, Visibility: "public",
+			Name: "api", Type: "openapi", Visibility: "public",
 			Endpoints: []dashboard.InterfaceEndpoint{{Method: "get", Path: "/things", Summary: "list"}},
 		}},
 		Configurations: []dashboard.ConfigurationInfo{{Name: "app", HasSchema: true,
@@ -54,7 +52,7 @@ func TestGenerate_InterfacesConfigPolicies(t *testing.T) {
 	}
 	for _, want := range []string{
 		"api", "/things", "GET", "timeout", "30s", "org", "oci://ghcr.io/acme/policy:1",
-		"### 2.1. HTTP Interface: api", "| Name | Type | Source |",
+		"### 2.1. OpenAPI Interface: api", "| Name | Type | Source |",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("missing %q\n%s", want, md)
@@ -92,7 +90,6 @@ func TestGenerate_DepsReadinessSbomLockDocs(t *testing.T) {
 // ── Comprehensive snapshot (no graph) ──────────────────────────────────
 
 func fullSnapshot() *dashboard.ServiceDetails {
-	port := 8080
 	score := 90
 	return &dashboard.ServiceDetails{
 		Service: dashboard.Service{
@@ -101,30 +98,25 @@ func fullSnapshot() *dashboard.ServiceDetails {
 			Owner:          contract.Owner{Team: "team/payments"},
 			ContractStatus: dashboard.StatusCompliant,
 		},
-		ImageRef:   "ghcr.io/acme/payments-api:2.1.0",
-		ChartRef:   "oci://ghcr.io/acme/payments-chart",
 		Compliance: &dashboard.ComplianceInfo{Status: dashboard.ComplianceOK, Score: &score},
-		Runtime: &dashboard.RuntimeInfo{
-			Workload:                "service",
-			StateType:               "stateful",
-			DataCriticality:         "high",
-			PersistenceScope:        "shared",
-			PersistenceDurability:   "persistent",
-			UpgradeStrategy:         "rolling",
-			GracefulShutdownSeconds: ptr(30),
-			HealthInterface:         "api",
-			HealthPath:              "/health",
-			MetricsInterface:        "api",
-			MetricsPath:             "/metrics",
+		Workload:   "service",
+		State: &dashboard.StateInfo{
+			Type:                  "stateful",
+			DataCriticality:       "high",
+			PersistenceScope:      "shared",
+			PersistenceDurability: "persistent",
 		},
-		Scaling: &dashboard.ScalingInfo{Min: ptr(2), Max: ptr(10)},
+		Capabilities: []dashboard.CapabilityInfo{
+			{Type: "health"},
+			{Type: "metrics"},
+		},
 		Interfaces: []dashboard.InterfaceInfo{
-			{Name: "api", Type: "http", Port: &port, Visibility: "public",
+			{Name: "api", Type: "openapi", Visibility: "public",
 				Endpoints: []dashboard.InterfaceEndpoint{
 					{Method: "get", Path: "/health", Summary: "Health check"},
 					{Method: "post", Path: "/payments"},
 				}},
-			{Name: "events", Type: "event"},
+			{Name: "events", Type: "asyncapi"},
 		},
 		Configurations: []dashboard.ConfigurationInfo{
 			{Name: "default", HasSchema: true, Values: []schemax.Property{{Key: "PORT", Value: "8080", Type: "integer"}}},
@@ -176,8 +168,6 @@ func TestGenerate_FullSnapshot(t *testing.T) {
 		"compliance `OK`",
 		"readiness `82/100`",
 		"| **Owner** | `team/payments` |",
-		"| **Image** | `ghcr.io/acme/payments-api:2.1.0` |",
-		"| **Chart** | `oci://ghcr.io/acme/payments-chart` |",
 		"## Table of Contents",
 		"## 1. Runtime & operations",
 		"| **Workload** | `service` |",
@@ -185,25 +175,20 @@ func TestGenerate_FullSnapshot(t *testing.T) {
 		"| **Data criticality** | `high` |",
 		"| **Persistence scope** | `shared` |",
 		"| **Persistence durability** | `persistent` |",
-		"| **Upgrade strategy** | `rolling` |",
-		"| **Graceful shutdown** | `30s` |",
-		"| **Health interface** | `api` |",
-		"| **Health path** | `/health` |",
-		"| **Metrics interface** | `api` |",
-		"| **Metrics path** | `/metrics` |",
-		"| **Replicas** | `2–10` |",
+		"| **Health** | `supported` |",
+		"| **Metrics** | `supported` |",
 		"## 2. Architecture",
 		"```mermaid",
 		`subgraph paymentsapi["payments-api v2.1.0"]`,
-		`paymentsapi_state[("stateful · high criticality · shared persistent · 2–10 replicas")]`,
+		`paymentsapi_state[("stateful · high criticality · shared persistent")]`,
 		"<br/>♥ health",
 		"<br/>📊 metrics",
 		`external(["External User"])`,
 		"external --> paymentsapi_iface_api",
 		"## 3. Interfaces",
-		"| `api` | `http` | `8080` | `public` |",
-		"| `events` | `event` | — | — |",
-		"### 3.1. HTTP Interface: api",
+		"| `api` | `openapi` | `public` |",
+		"| `events` | `asyncapi` | — |",
+		"### 3.1. OpenAPI Interface: api",
 		"| `GET` | `/health` | Health check |",
 		"| `POST` | `/payments` | — |",
 		"## 4. Configuration",
@@ -292,76 +277,48 @@ func TestGenerate_Minimal(t *testing.T) {
 	}
 }
 
-// ── Scaling variants (replicas / min-only / empty) ─────────────────────
+// ── Runtime variants ───────────────────────────────────────────────────
 
-func TestGenerate_ScalingReplicasOnly(t *testing.T) {
-	r := 3
+func TestGenerate_RuntimeWithCapabilities(t *testing.T) {
 	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Runtime: &dashboard.RuntimeInfo{Workload: "service", StateType: "stateless", DataCriticality: "low"},
-		Scaling: &dashboard.ScalingInfo{Replicas: &r},
+		Service:  dashboard.Service{Name: "svc", Version: "1.0.0"},
+		Workload: "service",
+		State:    &dashboard.StateInfo{Type: "stateless", DataCriticality: "low"},
+		Capabilities: []dashboard.CapabilityInfo{
+			{Type: "health"},
+			{Type: "extension", Ref: "example.com/custom"},
+		},
 	}
 	md, err := Generate(d, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(md, "| **Replicas** | `3` |") {
-		t.Errorf("expected replicas row:\n%s", md)
-	}
-	if !strings.Contains(md, "· 3 replicas") {
-		t.Errorf("expected replicas in state label:\n%s", md)
-	}
-}
-
-func TestGenerate_ScalingMinOnly(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Runtime: &dashboard.RuntimeInfo{Workload: "service", StateType: "stateless", DataCriticality: "low"},
-		Scaling: &dashboard.ScalingInfo{Min: ptr(1)},
-	}
-	md, err := Generate(d, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// max nil renders "?" via intp
-	if !strings.Contains(md, "| **Replicas** | `1–?` |") {
-		t.Errorf("expected min-only replicas row:\n%s", md)
+	for _, want := range []string{
+		"## 1. Runtime & operations",
+		"| **Workload** | `service` |",
+		"| **Health** | `supported` |",
+		"| **Extension** | `example.com/custom` |",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("expected %q:\n%s", want, md)
+		}
 	}
 }
 
-func TestGenerate_ScalingEmptyWithoutRuntime(t *testing.T) {
-	// Scaling present but empty, Runtime nil: runtime section renders (scaling
-	// present) but neither replicas branch fires and the runtime rows are skipped.
+func TestGenerate_RuntimeMinimal(t *testing.T) {
 	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Scaling: &dashboard.ScalingInfo{},
+		Service:  dashboard.Service{Name: "svc", Version: "1.0.0"},
+		Workload: "job",
 	}
 	md, err := Generate(d, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(md, "## 1. Runtime & operations") {
-		t.Errorf("expected runtime section for scaling-only snapshot:\n%s", md)
+		t.Errorf("expected runtime section:\n%s", md)
 	}
-	if strings.Contains(md, "Replicas") {
-		t.Errorf("did not expect a Replicas row for empty scaling:\n%s", md)
-	}
-}
-
-func TestGenerate_RuntimeWithoutHealthMetricsScaling(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Runtime: &dashboard.RuntimeInfo{Workload: "job", StateType: "stateless", DataCriticality: "low"},
-	}
-	md, err := Generate(d, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(md, "♥ health") || strings.Contains(md, "📊 metrics") {
-		t.Errorf("did not expect health/metrics markers:\n%s", md)
-	}
-	if strings.Contains(md, "Graceful shutdown") {
-		t.Errorf("did not expect graceful shutdown row:\n%s", md)
+	if !strings.Contains(md, "| **Workload** | `job` |") {
+		t.Errorf("expected workload row:\n%s", md)
 	}
 }
 
@@ -372,9 +329,9 @@ func TestGenerate_InterfaceHeadingTypes(t *testing.T) {
 	d := &dashboard.ServiceDetails{
 		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
 		Interfaces: []dashboard.InterfaceInfo{
-			{Name: "h", Type: "http", Endpoints: ep},
+			{Name: "api", Type: "openapi", Endpoints: ep},
 			{Name: "g", Type: "grpc", Endpoints: ep},
-			{Name: "e", Type: "event", Endpoints: ep},
+			{Name: "e", Type: "asyncapi", Endpoints: ep},
 			{Name: "w", Type: "websocket", Endpoints: ep},
 		},
 	}
@@ -383,7 +340,7 @@ func TestGenerate_InterfaceHeadingTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"HTTP Interface: h", "gRPC Interface: g", "Event Interface: e", "Websocket Interface: w",
+		"OpenAPI Interface: api", "gRPC Interface: g", "AsyncAPI Interface: e", "Websocket Interface: w",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("missing heading %q\n%s", want, md)
@@ -394,7 +351,7 @@ func TestGenerate_InterfaceHeadingTypes(t *testing.T) {
 func TestGenerate_InterfaceWithoutEndpoints(t *testing.T) {
 	d := &dashboard.ServiceDetails{
 		Service:    dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Interfaces: []dashboard.InterfaceInfo{{Name: "api", Type: "http", Port: ptr(80), Visibility: "internal"}},
+		Interfaces: []dashboard.InterfaceInfo{{Name: "api", Type: "openapi", Visibility: "internal"}},
 	}
 	md, err := Generate(d, nil)
 	if err != nil {
@@ -539,7 +496,7 @@ func TestGenerate_DependencyEdgesFallback(t *testing.T) {
 	d := &dashboard.ServiceDetails{
 		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
 		Interfaces: []dashboard.InterfaceInfo{
-			{Name: "api", Type: "http", Port: ptr(80), Visibility: "public"},
+			{Name: "api", Type: "openapi", Visibility: "public"},
 		},
 		Dependencies: []dashboard.DependencyInfo{
 			{Name: "auth", Ref: "reg/auth-pacto:1.0.0", Required: true, Compatibility: "^1.0.0"},
@@ -569,23 +526,18 @@ func TestGenerate_DependencyEdgesFallback(t *testing.T) {
 
 func TestGenerate_WithGraph(t *testing.T) {
 	rootC := &contract.Contract{
-		Service:    contract.ServiceIdentity{Name: "frontend", Version: "1.0.0"},
-		Interfaces: []contract.Interface{{Name: "http", Type: "http", Port: ptr(3000), Visibility: "public"}},
-		Runtime: &contract.Runtime{
-			Workload: "service",
-			State:    contract.State{Type: "stateless", DataCriticality: "low"},
-			Health:   &contract.Health{Interface: "http", Path: "/health"},
-		},
+		Service:      contract.Service{Name: "frontend", Version: "1.0.0"},
+		Interfaces:   []contract.Interface{{Name: "http", Type: "openapi", Ref: "interfaces/openapi.yaml", Visibility: "public"}},
+		Workload:     "service",
+		Capabilities: []contract.Capability{{Type: "health"}},
 	}
 	backendC := &contract.Contract{
-		Service:        contract.ServiceIdentity{Name: "backend", Version: "1.0.0"},
-		Interfaces:     []contract.Interface{{Name: "api", Type: "http", Port: ptr(8080), Visibility: "public", Contract: "interfaces/openapi.yaml"}},
-		Configurations: []contract.ConfigurationSource{{Name: "default", Schema: "configuration/schema.json"}},
+		Service:        contract.Service{Name: "backend", Version: "1.0.0"},
+		Interfaces:     []contract.Interface{{Name: "api", Type: "openapi", Ref: "interfaces/openapi.yaml", Visibility: "public"}},
+		Configurations: []contract.Configuration{{Name: "default", Schema: "configuration/schema.json"}},
 		Dependencies:   []contract.Dependency{{Name: "postgres", Ref: "reg/postgres:16", Required: true, Compatibility: "^16.0.0"}},
-		Runtime: &contract.Runtime{
-			Workload: "service",
-			State:    contract.State{Type: "stateless", DataCriticality: "low"},
-		},
+		Workload:       "service",
+		State:          &contract.State{Type: "stateless", DataCriticality: "low"},
 	}
 	backendFS := fstest.MapFS{
 		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte(`
@@ -601,22 +553,17 @@ paths:
 }`)},
 	}
 	postgresC := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "postgres", Version: "16.0.0"},
-		Runtime: &contract.Runtime{
-			Workload: "service",
-			State:    contract.State{Type: "stateful", DataCriticality: "high", Persistence: contract.Persistence{Scope: "local", Durability: "persistent"}},
-		},
-		Scaling: &contract.Scaling{Min: 1, Max: 1},
+		Service:  contract.Service{Name: "postgres", Version: "16.0.0"},
+		Workload: "service",
+		State:    &contract.State{Type: "stateful", DataCriticality: "high", Persistence: contract.Persistence{Scope: "local", Durability: "persistent"}},
 	}
 	keycloakC := &contract.Contract{
-		Service:    contract.ServiceIdentity{Name: "keycloak", Version: "26.0.0"},
-		Interfaces: []contract.Interface{{Name: "http", Type: "http", Port: ptr(8080), Visibility: "public"}},
-		Runtime: &contract.Runtime{
-			Workload: "service",
-			State:    contract.State{Type: "stateless", DataCriticality: "low"},
-		},
+		Service:    contract.Service{Name: "keycloak", Version: "26.0.0"},
+		Interfaces: []contract.Interface{{Name: "http", Type: "openapi", Ref: "openapi.yaml", Visibility: "public"}},
+		Workload:   "service",
+		State:      &contract.State{Type: "stateless", DataCriticality: "low"},
 	}
-	utilsC := &contract.Contract{Service: contract.ServiceIdentity{Name: "utils", Version: "1.0.0"}}
+	utilsC := &contract.Contract{Service: contract.Service{Name: "utils", Version: "1.0.0"}}
 
 	postgresNode := &graph.Node{Name: "postgres", Version: "16.0.0", Contract: postgresC}
 	gr := &graph.Result{
@@ -656,9 +603,9 @@ paths:
 		`subgraph frontend["frontend v1.0.0"]`,
 		`subgraph backend["backend v1.0.0"]`,
 		`subgraph postgres["postgres v16.0.0"]`,
-		`postgres_state[("stateful · high criticality · local persistent · 1–1 replicas")]`,
+		`postgres_state[("stateful · high criticality · local persistent")]`,
 		`subgraph keycloak["keycloak v26.0.0"]`,
-		`utils_info["utils"]`, // utils has no runtime/interfaces → info node
+		`utils_info["utils"]`, // utils has no state/interfaces → info node
 		// external + arrows
 		`external(["External User"])`,
 		"external --> frontend_iface_http",
@@ -674,7 +621,7 @@ paths:
 		"<summary><strong>backend</strong> <code>v1.0.0</code></summary>",
 		"**Runtime**",
 		"**Interfaces**",
-		"| `api` | `http` | `8080` | `public` |",
+		"| `api` | `openapi` | `public` |",
 		"**Configuration**",
 		"| `PORT` | `integer` | `8080` |",
 		"**Dependencies**",
@@ -689,12 +636,33 @@ paths:
 
 // ── Small unit / edge-case tests ───────────────────────────────────────
 
+func TestBuildStateLabel_NoPersistence(t *testing.T) {
+	c := &contract.Contract{
+		State: &contract.State{Type: "stateless", DataCriticality: "low"},
+	}
+	label := buildStateLabel(c)
+	if !strings.Contains(label, "stateless") || !strings.Contains(label, "low") {
+		t.Errorf("expected basic state label, got %q", label)
+	}
+	if strings.Contains(label, "persistent") || strings.Contains(label, "shared") {
+		t.Errorf("did not expect persistence in label without persistence set, got %q", label)
+	}
+}
+
+func TestBuildStateLabel_NilState(t *testing.T) {
+	c := &contract.Contract{Service: contract.Service{Name: "pure-reference", Version: "1.0.0"}}
+	label := buildStateLabel(c)
+	if label != "" {
+		t.Errorf("expected empty label for nil state, got %q", label)
+	}
+}
+
 func TestGenerate_DuplicateEdges(t *testing.T) {
 	depNode := &graph.Node{Name: "dep", Version: "1.0.0"}
 	gr := &graph.Result{
 		Root: &graph.Node{
 			Name: "svc", Version: "1.0.0",
-			Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"}},
+			Contract: &contract.Contract{Service: contract.Service{Name: "svc", Version: "1.0.0"}},
 			Dependencies: []graph.Edge{
 				{Ref: "reg/dep:1.0.0", Node: depNode},
 				{Ref: "reg/dep:1.0.0", Node: depNode, Shared: true},
@@ -715,7 +683,7 @@ func TestGenerate_NilEdgeNode(t *testing.T) {
 	gr := &graph.Result{
 		Root: &graph.Node{
 			Name: "svc", Version: "1.0.0",
-			Contract:     &contract.Contract{Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"}},
+			Contract:     &contract.Contract{Service: contract.Service{Name: "svc", Version: "1.0.0"}},
 			Dependencies: []graph.Edge{{Ref: "reg/missing:1.0.0", Node: nil, Error: "not found"}},
 		},
 	}
@@ -738,7 +706,7 @@ func TestWalkMermaidEdges_NilNode(t *testing.T) {
 }
 
 func TestCollectAllContracts_NilGraph(t *testing.T) {
-	c := &contract.Contract{Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"}}
+	c := &contract.Contract{Service: contract.Service{Name: "svc", Version: "1.0.0"}}
 	all := collectAllContracts(c, nil)
 	if len(all) != 1 || all[0].Service.Name != "svc" {
 		t.Errorf("expected single contract for nil graph, got %d", len(all))

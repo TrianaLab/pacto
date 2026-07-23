@@ -20,14 +20,14 @@ type SwaggerSpec struct {
 	SpecPath      string
 }
 
-// CollectSwaggerSpecs returns the HTTP interfaces that have an OpenAPI contract.
+// CollectSwaggerSpecs returns the OpenAPI interfaces that have a spec.
 func CollectSwaggerSpecs(interfaces []contract.Interface) []SwaggerSpec {
 	var specs []SwaggerSpec
 	for _, iface := range interfaces {
-		if iface.Type == contract.InterfaceTypeHTTP && iface.Contract != "" {
+		if iface.Type == contract.InterfaceTypeOpenAPI && iface.Ref != "" {
 			specs = append(specs, SwaggerSpec{
 				InterfaceName: iface.Name,
-				SpecPath:      iface.Contract,
+				SpecPath:      iface.Ref,
 			})
 		}
 	}
