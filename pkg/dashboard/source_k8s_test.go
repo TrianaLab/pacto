@@ -543,6 +543,7 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	r.Status.ContractVersion = "1.2.3"
 	r.Status.LastReconciledAt = time.Now().Add(-5 * time.Minute).Format(time.RFC3339)
 	r.Status.Contract = &k8sContractInfo{ServiceName: "billing", Version: "1.0.0", Owner: contract.Owner{Team: "payments"}, ResolvedRef: "sha256:abc"}
+	r.Status.Workload = "service"
 	r.Status.State = &k8sState{Type: "stateless", PersistenceScope: "local", PersistenceDurability: "ephemeral", DataCriticality: "low"}
 	r.Status.Metadata = map[string]string{"team": "platform", "env": "prod"}
 	r.Status.Interfaces = flexSlice[k8sInterface]{{Name: "http", Type: "http", Visibility: "public", HasContractFile: true}}

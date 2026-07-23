@@ -114,7 +114,7 @@ func TestLockFromFS_ReadError(t *testing.T) {
 // surfaced (Lock + dependency LockedDigest) by ServiceDetailsFromBundle, exactly
 // like a local on-disk bundle. This is what lights up drift for non-local sources.
 func TestServiceDetailsFromBundle_EmbeddedLock(t *testing.T) {
-	c, err := contract.Parse(bytes.NewReader([]byte(`pactoVersion: "1.0"
+	c, err := contract.Parse(bytes.NewReader([]byte(`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
@@ -143,7 +143,7 @@ dependencies:
 // TestServiceDetailsFromBundle_NoEmbeddedLock proves an FS without pacto.lock
 // leaves Lock nil (unchanged behavior).
 func TestServiceDetailsFromBundle_NoEmbeddedLock(t *testing.T) {
-	c, err := contract.Parse(bytes.NewReader([]byte("pactoVersion: \"1.0\"\nservice:\n  name: api\n  version: 1.0.0\n")))
+	c, err := contract.Parse(bytes.NewReader([]byte("pactoVersion: \"2.0\"\nservice:\n  name: api\n  version: 1.0.0\n")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestServiceDetailsFromBundle_NoEmbeddedLock(t *testing.T) {
 // TestServiceDetailsFromBundle_NilFSNoPanic proves a bundle with a nil FS does
 // not panic and surfaces no lock.
 func TestServiceDetailsFromBundle_NilFSNoPanic(t *testing.T) {
-	c, err := contract.Parse(bytes.NewReader([]byte("pactoVersion: \"1.0\"\nservice:\n  name: api\n  version: 1.0.0\n")))
+	c, err := contract.Parse(bytes.NewReader([]byte("pactoVersion: \"2.0\"\nservice:\n  name: api\n  version: 1.0.0\n")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestServiceDetailsFromBundle_NilFSNoPanic(t *testing.T) {
 // embedded lock is best-effort: it is ignored (nil Lock) rather than dropping the
 // whole service from the dashboard.
 func TestServiceDetailsFromBundle_MalformedEmbeddedLockIgnored(t *testing.T) {
-	c, err := contract.Parse(bytes.NewReader([]byte("pactoVersion: \"1.0\"\nservice:\n  name: api\n  version: 1.0.0\n")))
+	c, err := contract.Parse(bytes.NewReader([]byte("pactoVersion: \"2.0\"\nservice:\n  name: api\n  version: 1.0.0\n")))
 	if err != nil {
 		t.Fatal(err)
 	}

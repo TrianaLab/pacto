@@ -21,7 +21,7 @@ func TestCacheSource_ConcurrentRescanAndReads(t *testing.T) {
 	root := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
@@ -135,14 +135,14 @@ func writeBundleTarGzFile(t *testing.T, path string, pactoYAML string) {
 func TestCacheSource_HistoricalVersionsNotRetained(t *testing.T) {
 	root := t.TempDir()
 	oldPath := filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz")
-	writeBundleTarGzFile(t, oldPath, `pactoVersion: "1.0"
+	writeBundleTarGzFile(t, oldPath, `pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 2.0.0
@@ -175,21 +175,21 @@ func TestCacheSource_ScansDirectory(t *testing.T) {
 	// Create two services with multiple versions.
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 2.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/worker/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: worker
   version: 1.0.0
@@ -278,14 +278,14 @@ func TestCacheSource_GetDiff(t *testing.T) {
 
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 2.0.0
@@ -327,7 +327,7 @@ func TestCacheSource_GetDiff_VersionNotFound(t *testing.T) {
 	root := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
@@ -367,21 +367,21 @@ func TestCacheSource_VersionsSortedDescending(t *testing.T) {
 
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/3.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 3.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 2.0.0
@@ -414,7 +414,7 @@ func TestCacheSource_NonTarGzFileSkipped(t *testing.T) {
 	// Write a valid bundle.
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
@@ -441,7 +441,7 @@ func TestCacheSource_ScanSkipsShallowPaths(t *testing.T) {
 	// rel = "shallow/bundle.tar.gz" -> parts = ["shallow"] -> len < 2, skipped.
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "shallow/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: shallow-svc
   version: 1.0.0
@@ -508,7 +508,7 @@ func TestCacheSource_GetDiff_FromVersionNotFound(t *testing.T) {
 	root := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
@@ -528,7 +528,7 @@ func TestCacheSource_GetDiff_ToServiceNotFound(t *testing.T) {
 	root := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
@@ -548,14 +548,14 @@ func TestCacheSource_GetDiff_ToVersionNotFound(t *testing.T) {
 	root := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/worker/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: worker
   version: 1.0.0
@@ -577,7 +577,7 @@ func TestCacheSource_Rescan_PicksUpNewBundles(t *testing.T) {
 	// Start with one bundle.
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
@@ -594,7 +594,7 @@ service:
 	// Add a new version on disk (simulating a CachedStore write).
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 2.0.0
@@ -602,7 +602,7 @@ service:
 	// Also add a new service.
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/worker/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: worker
   version: 1.0.0
@@ -637,7 +637,7 @@ func TestCacheSource_Rescan_EmptyAfterClear(t *testing.T) {
 
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
@@ -672,7 +672,7 @@ func TestCacheSource_CurrentVersionIsHighestSemver(t *testing.T) {
 	} {
 		writeBundleTarGzFile(t,
 			filepath.Join(root, "ghcr.io/org/svc", v.tag, "bundle.tar.gz"),
-			fmt.Sprintf(`pactoVersion: "1.0"
+			fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: my-svc
   version: %s
@@ -732,7 +732,7 @@ func TestExtractTar_DirectoryEntry(t *testing.T) {
 	_, _ = tw.Write(data)
 
 	// Add pacto.yaml.
-	yamlData := []byte(`pactoVersion: "1.0"`)
+	yamlData := []byte(`pactoVersion: "2.0"`)
 	_ = tw.WriteHeader(&tar.Header{
 		Name: "pacto.yaml",
 		Size: int64(len(yamlData)),
@@ -901,14 +901,14 @@ func TestCacheSource_GetVersions_Classification(t *testing.T) {
 	// v1 and v2 are identical contracts (only version differs) → NON_BREAKING
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 2.0.0
@@ -916,18 +916,17 @@ service:
 	// v3 removes an interface → BREAKING
 	writeBundleTarGzWithFiles(t,
 		filepath.Join(root, "ghcr.io/org/api/2.5.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 2.5.0
 interfaces:
   - name: http
-    type: rest
-    port: 8080
+    type: openapi
 `, nil)
 	writeBundleTarGzWithFiles(t,
 		filepath.Join(root, "ghcr.io/org/api/3.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 3.0.0
@@ -969,14 +968,14 @@ service:
 // fail this test — the exact gap the always-resident behavior used to cover.
 func TestCacheSource_GetDiff_LazyLoadsHistoricalFS(t *testing.T) {
 	root := t.TempDir()
-	iface := `pactoVersion: "1.0"
+	iface := `pactoVersion: "2.0"
 service:
   name: api
   version: %s
 interfaces:
   - name: http
-    type: rest
-    contract: openapi.json
+    type: openapi
+    ref: openapi.json
 `
 	writeBundleTarGzWithFiles(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
@@ -989,7 +988,7 @@ interfaces:
 	// Latest — makes 1.0.0 and 1.1.0 both non-latest (FS not resident).
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 2.0.0
@@ -1076,14 +1075,14 @@ func TestCacheSource_GetServiceVersion(t *testing.T) {
 	root := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 2.0.0
@@ -1114,7 +1113,7 @@ func TestCacheSource_GetServiceVersion_VersionNotFound(t *testing.T) {
 	root := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0

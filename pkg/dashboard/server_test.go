@@ -1868,7 +1868,7 @@ func TestServerRefreshCacheSources_OnTheFly(t *testing.T) {
 	cacheDir := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: svc
   version: 1.0.0
@@ -2132,14 +2132,14 @@ func TestNoCache_AllowsSameSessionEnrichment(t *testing.T) {
 
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: svc
   version: 1.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/svc/2.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: svc
   version: 2.0.0

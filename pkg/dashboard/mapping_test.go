@@ -577,7 +577,7 @@ func TestExtractSchemaProperties_PropertiesNotMapValue(t *testing.T) {
 }
 
 func TestServiceDetailsFromBundle_ValidationValid(t *testing.T) {
-	yamlContent := `pactoVersion: "1.0"
+	yamlContent := `pactoVersion: "2.0"
 service:
   name: svc
   version: 1.0.0
@@ -780,7 +780,7 @@ func TestContractStatusFromBundle(t *testing.T) {
 	})
 
 	t.Run("valid contract returns compliant", func(t *testing.T) {
-		raw := []byte(`pactoVersion: "1.0"
+		raw := []byte(`pactoVersion: "2.0"
 service:
   name: svc
   version: 1.0.0
@@ -794,7 +794,7 @@ service:
 
 	t.Run("invalid contract returns non-compliant", func(t *testing.T) {
 		// Missing required service.version field triggers validation error.
-		raw := []byte(`pactoVersion: "1.0"
+		raw := []byte(`pactoVersion: "2.0"
 service:
   name: svc
 `)
@@ -1105,7 +1105,7 @@ func mustParse(t *testing.T, data []byte) *contract.Contract {
 func TestServiceDetailsFromBundle_PopulatesSBOM(t *testing.T) {
 	spdx := `{"spdxVersion":"SPDX-2.3","packages":[{"name":"libfoo","versionInfo":"1.2.3","licenseConcluded":"MIT"}]}`
 	fsys := fstest.MapFS{
-		"pacto.yaml":          &fstest.MapFile{Data: []byte("pactoVersion: \"1.2\"\nservice:\n  name: svc\n  version: 1.0.0\n")},
+		"pacto.yaml":          &fstest.MapFile{Data: []byte("pactoVersion: \"2.0\"\nservice:\n  name: svc\n  version: 1.0.0\n")},
 		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(spdx)},
 	}
 	c, err := contract.Parse(bytes.NewReader(fsys["pacto.yaml"].Data))
@@ -1124,7 +1124,7 @@ func TestServiceDetailsFromBundle_PopulatesSBOM(t *testing.T) {
 
 func TestServiceDetailsFromBundle_NoSBOM(t *testing.T) {
 	fsys := fstest.MapFS{
-		"pacto.yaml": &fstest.MapFile{Data: []byte("pactoVersion: \"1.2\"\nservice:\n  name: svc\n  version: 1.0.0\n")},
+		"pacto.yaml": &fstest.MapFile{Data: []byte("pactoVersion: \"2.0\"\nservice:\n  name: svc\n  version: 1.0.0\n")},
 	}
 	b := &contract.Bundle{Contract: mustParse(t, fsys["pacto.yaml"].Data), RawYAML: fsys["pacto.yaml"].Data, FS: fsys}
 	d := ServiceDetailsFromBundle(b, "local")

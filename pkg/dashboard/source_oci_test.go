@@ -991,14 +991,14 @@ func TestOCISource_GetVersions_InternalCacheEnrichment(t *testing.T) {
 	root := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/2.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 2.0.0

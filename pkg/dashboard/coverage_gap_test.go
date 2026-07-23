@@ -47,7 +47,7 @@ func TestCacheSource_ScanWalkError(t *testing.T) {
 	// Create a valid bundle first so there's something to scan.
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
@@ -76,14 +76,14 @@ func TestDetectCache_WithValidBundles(t *testing.T) {
 
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/worker/2.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: worker
   version: 2.0.0
