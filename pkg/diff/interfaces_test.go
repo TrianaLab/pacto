@@ -591,3 +591,51 @@ func TestDiffPolicy_MultipleByName(t *testing.T) {
 		t.Error("expected policies Added change for 'security'")
 	}
 }
+
+func TestDiffInterfaces_RefChangedWithBreakingSpecChange(t *testing.T) {
+	old := minimalContract()
+	old.Interfaces[0].Ref = "interfaces/openapi-v1.yaml"
+	new := minimalContract()
+	new.Interfaces[0].Ref = "interfaces/openapi-v2.yaml"
+
+	oldFS := fstest.MapFS{
+		"interfaces/openapi-v1.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
+info:
+  title: test
+  version: 0.1.0
+paths:
+  /users:
+    get:
+      summary: List users
+`)},
+	}
+	newFS := fstest.MapFS{
+		"interfaces/openapi-v2.yaml": &fstest.MapFile{Data: []byte(`openapi: "3.0.0"
+info:
+  title: test
+  version: 0.2.0
+paths:
+  /health:
+    get:
+      summary: Health
+`)},
+	}
+
+	changes := diffInterfaces(old, new, oldFS, newFS)
+	foundRefChange := false
+	foundPathRemoved := false
+	for _, c := range changes {
+		if c.Path == "interfaces.ref" && c.Type == Modified {
+			foundRefChange = true
+		}
+		if c.Path == "openapi.paths[/users]" && c.Type == Removed {
+			foundPathRemoved = true
+		}
+	}
+	if !foundRefChange {
+		t.Errorf("expected interfaces.ref Modified, got %+v", changes)
+	}
+	if !foundPathRemoved {
+		t.Errorf("expected openapi.paths[/users] Removed (spec-level breaking change), got %+v", changes)
+	}
+}

@@ -69,8 +69,6 @@ var rules = map[classificationKey]Classification{
 	{"interfaces", Removed}:             Breaking,
 	{"interfaces.type", Modified}:       Breaking,
 	{"interfaces.ref", Modified}:        PotentialBreaking,
-	{"interfaces.ref", Added}:           NonBreaking,
-	{"interfaces.ref", Removed}:         Breaking,
 	{"interfaces.visibility", Modified}: PotentialBreaking,
 
 	// Configurations (name-indexed)

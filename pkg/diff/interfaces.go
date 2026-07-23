@@ -34,9 +34,9 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 			changes = append(changes, newChange("interfaces.ref", Modified, name+": "+oldIface.Ref, name+": "+newIface.Ref))
 		}
 
-		// Diff OpenAPI spec content if both are openapi type and reference the same file
+		// Diff OpenAPI spec content if both are openapi type and both have refs (regardless of ref equality)
 		if oldIface.Type == contract.InterfaceTypeOpenAPI && newIface.Type == contract.InterfaceTypeOpenAPI &&
-			oldIface.Ref != "" && newIface.Ref != "" && oldIface.Ref == newIface.Ref {
+			oldIface.Ref != "" && newIface.Ref != "" {
 			changes = append(changes, diffOpenAPI(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
 		}
 	}
