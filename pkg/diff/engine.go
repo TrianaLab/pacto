@@ -94,7 +94,6 @@ func Compare(old, new *contract.Contract, oldFS, newFS fs.FS) *Result {
 	var changes []Change
 
 	changes = append(changes, diffContract(old, new)...)
-	changes = append(changes, diffRuntime(old, new)...)
 	changes = append(changes, diffDependencies(old, new)...)
 	changes = append(changes, diffInterfaces(old, new, oldFS, newFS)...)
 	changes = append(changes, diffConfiguration(old, new, oldFS, newFS)...)

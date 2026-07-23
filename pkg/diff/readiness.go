@@ -37,50 +37,50 @@ func diffReadiness(old, new *contract.Readiness) []Change {
 			floatPtrChangeType(old.PartialCredit, new.PartialCredit), floatPtrVal(old.PartialCredit), floatPtrVal(new.PartialCredit)))
 	}
 
-	changes = append(changes, diffReadinessChecks(old.Checks, new.Checks)...)
+	changes = append(changes, diffReadinessClaims(old.Claims, new.Claims)...)
 
 	return changes
 }
 
-// diffReadinessChecks compares readiness checks keyed by ID (the organizational
-// requirement). A check is a comparable struct, so any field difference makes it
+// diffReadinessClaims compares readiness claims keyed by ID (the organizational
+// requirement). A claim is a comparable struct, so any field difference makes it
 // Modified, with a formatted summary showing the change.
-func diffReadinessChecks(old, new []contract.ReadinessCheck) []Change {
+func diffReadinessClaims(old, new []contract.ReadinessClaim) []Change {
 	var changes []Change
-	oldByID := indexChecks(old)
-	newByID := indexChecks(new)
+	oldByID := indexClaims(old)
+	newByID := indexClaims(new)
 
 	for id, o := range oldByID {
 		n, exists := newByID[id]
 		if !exists {
-			changes = append(changes, newChange(checkPath(id), Removed, formatCheck(o), nil))
+			changes = append(changes, newChange(claimPath(id), Removed, formatClaim(o), nil))
 			continue
 		}
 		if o != n {
-			changes = append(changes, newChange(checkPath(id), Modified, formatCheck(o), formatCheck(n)))
+			changes = append(changes, newChange(claimPath(id), Modified, formatClaim(o), formatClaim(n)))
 		}
 	}
 	for id, n := range newByID {
 		if _, exists := oldByID[id]; !exists {
-			changes = append(changes, newChange(checkPath(id), Added, nil, formatCheck(n)))
+			changes = append(changes, newChange(claimPath(id), Added, nil, formatClaim(n)))
 		}
 	}
 	return changes
 }
 
-func indexChecks(checks []contract.ReadinessCheck) map[string]contract.ReadinessCheck {
-	m := make(map[string]contract.ReadinessCheck, len(checks))
-	for _, c := range checks {
+func indexClaims(claims []contract.ReadinessClaim) map[string]contract.ReadinessClaim {
+	m := make(map[string]contract.ReadinessClaim, len(claims))
+	for _, c := range claims {
 		m[c.ID] = c
 	}
 	return m
 }
 
-func checkPath(id string) string {
-	return "readiness.checks[" + id + "]"
+func claimPath(id string) string {
+	return "readiness.claims[" + id + "]"
 }
 
-func formatCheck(c contract.ReadinessCheck) string {
+func formatClaim(c contract.ReadinessClaim) string {
 	return fmt.Sprintf("status=%s weight=%d evidence=%s", c.Status, c.Weight, c.Evidence)
 }
 

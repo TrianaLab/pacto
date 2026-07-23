@@ -8,30 +8,25 @@ import (
 )
 
 func minimalContract() *contract.Contract {
-	port := 8080
 	return &contract.Contract{
-		PactoVersion: "1.0",
-		Service: contract.ServiceIdentity{
+		PactoVersion: "2.0",
+		Service: contract.Service{
 			Name:    "my-svc",
 			Version: "1.0.0",
 			Owner:   contract.Owner{Team: "team/backend"},
 		},
 		Interfaces: []contract.Interface{
-			{Name: "api", Type: "http", Port: &port, Visibility: "internal", Contract: "interfaces/openapi.yaml"},
+			{Name: "api", Type: contract.InterfaceTypeOpenAPI, Ref: "interfaces/openapi.yaml", Visibility: contract.VisibilityInternal},
 		},
-		Configurations: []contract.ConfigurationSource{
+		Configurations: []contract.Configuration{
 			{Name: "default", Schema: "configuration/schema.json"},
 		},
-		Runtime: &contract.Runtime{
-			Workload: "service",
-			State: contract.State{
-				Type:            "stateless",
-				Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-				DataCriticality: "low",
-			},
-			Health: &contract.Health{Interface: "api", Path: "/health"},
+		Workload: contract.WorkloadService,
+		State: &contract.State{
+			Type:            contract.StateStateless,
+			Persistence:     contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral},
+			DataCriticality: contract.DataCriticalityLow,
 		},
-		Scaling: &contract.Scaling{Min: 1, Max: 3},
 	}
 }
 
@@ -76,14 +71,14 @@ func TestCompare_VersionChange_NonBreaking(t *testing.T) {
 func TestCompare_StateTypeChange_Breaking(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	new.Runtime.State.Type = "stateful"
+	new.State.Type = contract.StateStateful
 
 	result := Compare(old, new, nil, nil)
 
 	if result.Classification != Breaking {
 		t.Errorf("expected BREAKING, got %s", result.Classification)
 	}
-	assertHasChange(t, result, "runtime.state.type", Modified, Breaking)
+	assertHasChange(t, result, "state.type", Modified, Breaking)
 }
 
 func TestCompare_InterfaceRemoved_Breaking(t *testing.T) {
@@ -102,9 +97,8 @@ func TestCompare_InterfaceRemoved_Breaking(t *testing.T) {
 func TestCompare_InterfaceAdded_NonBreaking(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	grpcPort := 9090
 	new.Interfaces = append(new.Interfaces, contract.Interface{
-		Name: "grpc", Type: "grpc", Port: &grpcPort,
+		Name: "grpc", Type: contract.InterfaceTypeGRPC, Ref: "interfaces/service.proto",
 	})
 
 	result := Compare(old, new, nil, nil)
@@ -145,56 +139,47 @@ func TestCompare_DependencyAdded_NonBreaking(t *testing.T) {
 	assertHasChange(t, result, "dependencies", Added, NonBreaking)
 }
 
-func TestCompare_ScalingMaxChange_NonBreaking(t *testing.T) {
+func TestCompare_CapabilityAdded_NonBreaking(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	new.Scaling.Max = 10
+	new.Capabilities = []contract.Capability{
+		{Type: contract.CapabilityHealth},
+	}
 
 	result := Compare(old, new, nil, nil)
 
 	if result.Classification != NonBreaking {
 		t.Errorf("expected NON_BREAKING, got %s", result.Classification)
 	}
-	assertHasChange(t, result, "scaling.max", Modified, NonBreaking)
+	assertHasChange(t, result, "capabilities", Added, NonBreaking)
 }
 
-func TestCompare_ScalingMinChange_PotentialBreaking(t *testing.T) {
+func TestCompare_CapabilityRemoved_PotentialBreaking(t *testing.T) {
 	old := minimalContract()
+	old.Capabilities = []contract.Capability{
+		{Type: contract.CapabilityMetrics},
+	}
 	new := minimalContract()
-	new.Scaling.Min = 3
 
 	result := Compare(old, new, nil, nil)
 
 	if result.Classification != PotentialBreaking {
 		t.Errorf("expected POTENTIAL_BREAKING, got %s", result.Classification)
 	}
-	assertHasChange(t, result, "scaling.min", Modified, PotentialBreaking)
-}
-
-func TestCompare_HealthPathChange_PotentialBreaking(t *testing.T) {
-	old := minimalContract()
-	new := minimalContract()
-	new.Runtime.Health.Path = "/healthz"
-
-	result := Compare(old, new, nil, nil)
-
-	if result.Classification != PotentialBreaking {
-		t.Errorf("expected POTENTIAL_BREAKING, got %s", result.Classification)
-	}
-	assertHasChange(t, result, "runtime.health.path", Modified, PotentialBreaking)
+	assertHasChange(t, result, "capabilities", Removed, PotentialBreaking)
 }
 
 func TestCompare_PersistenceScopeChange_Breaking(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	new.Runtime.State.Persistence.Scope = "shared"
+	new.State.Persistence.Scope = contract.ScopeShared
 
 	result := Compare(old, new, nil, nil)
 
 	if result.Classification != Breaking {
 		t.Errorf("expected BREAKING, got %s", result.Classification)
 	}
-	assertHasChange(t, result, "runtime.state.persistence.scope", Modified, Breaking)
+	assertHasChange(t, result, "state.persistence.scope", Modified, Breaking)
 }
 
 func TestCompare_ConfigurationRemoved_Breaking(t *testing.T) {
@@ -267,8 +252,8 @@ func TestCompare_SchemaPropertyAdded_NonBreaking(t *testing.T) {
 func TestCompare_OverallClassification_MaxSeverity(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	new.Service.Version = "2.0.0"       // NON_BREAKING
-	new.Runtime.State.Type = "stateful" // BREAKING
+	new.Service.Version = "2.0.0"           // NON_BREAKING
+	new.State.Type = contract.StateStateful // BREAKING
 
 	result := Compare(old, new, nil, nil)
 

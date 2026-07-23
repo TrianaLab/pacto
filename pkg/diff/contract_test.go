@@ -6,123 +6,6 @@ import (
 	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
-func TestDiffScaling_BothNil(t *testing.T) {
-	changes := diffScaling(nil, nil)
-	if len(changes) != 0 {
-		t.Errorf("expected 0 changes, got %d", len(changes))
-	}
-}
-
-func TestDiffScaling_OldNil(t *testing.T) {
-	newS := &contract.Scaling{Min: 1, Max: 3}
-	changes := diffScaling(nil, newS)
-	if len(changes) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(changes))
-	}
-	if changes[0].Type != Added {
-		t.Errorf("expected Added, got %s", changes[0].Type)
-	}
-}
-
-func TestDiffScaling_NewNil(t *testing.T) {
-	oldS := &contract.Scaling{Min: 1, Max: 3}
-	changes := diffScaling(oldS, nil)
-	if len(changes) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(changes))
-	}
-	if changes[0].Type != Removed {
-		t.Errorf("expected Removed, got %s", changes[0].Type)
-	}
-}
-
-func TestDiffScaling_MinChanged(t *testing.T) {
-	oldS := &contract.Scaling{Min: 1, Max: 3}
-	newS := &contract.Scaling{Min: 2, Max: 3}
-	changes := diffScaling(oldS, newS)
-	if len(changes) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(changes))
-	}
-	if changes[0].Path != "scaling.min" {
-		t.Errorf("expected path scaling.min, got %s", changes[0].Path)
-	}
-}
-
-func TestDiffScaling_MaxChanged(t *testing.T) {
-	oldS := &contract.Scaling{Min: 1, Max: 3}
-	newS := &contract.Scaling{Min: 1, Max: 10}
-	changes := diffScaling(oldS, newS)
-	if len(changes) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(changes))
-	}
-	if changes[0].Path != "scaling.max" {
-		t.Errorf("expected path scaling.max, got %s", changes[0].Path)
-	}
-}
-
-func TestDiffScaling_ReplicasChanged(t *testing.T) {
-	oldR, newR := 3, 5
-	oldS := &contract.Scaling{Replicas: &oldR, Min: oldR, Max: oldR}
-	newS := &contract.Scaling{Replicas: &newR, Min: newR, Max: newR}
-	changes := diffScaling(oldS, newS)
-	if len(changes) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(changes))
-	}
-	if changes[0].Path != "scaling.replicas" {
-		t.Errorf("expected path scaling.replicas, got %s", changes[0].Path)
-	}
-}
-
-func TestDiffScaling_ReplicasUnchanged(t *testing.T) {
-	r := 3
-	oldS := &contract.Scaling{Replicas: &r, Min: r, Max: r}
-	newS := &contract.Scaling{Replicas: &r, Min: r, Max: r}
-	changes := diffScaling(oldS, newS)
-	if len(changes) != 0 {
-		t.Errorf("expected 0 changes, got %d", len(changes))
-	}
-}
-
-func TestDiffScaling_ReplicasToRange(t *testing.T) {
-	r := 3
-	oldS := &contract.Scaling{Replicas: &r, Min: r, Max: r}
-	newS := &contract.Scaling{Min: 1, Max: 5}
-	changes := diffScaling(oldS, newS)
-	if len(changes) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(changes))
-	}
-	if changes[0].Path != "scaling" || changes[0].Type != Modified {
-		t.Errorf("expected scaling Modified, got %s %s", changes[0].Path, changes[0].Type)
-	}
-}
-
-func TestDiffScaling_RangeToReplicas(t *testing.T) {
-	r := 3
-	oldS := &contract.Scaling{Min: 1, Max: 5}
-	newS := &contract.Scaling{Replicas: &r, Min: r, Max: r}
-	changes := diffScaling(oldS, newS)
-	if len(changes) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(changes))
-	}
-	if changes[0].Path != "scaling" || changes[0].Type != Modified {
-		t.Errorf("expected scaling Modified, got %s %s", changes[0].Path, changes[0].Type)
-	}
-}
-
-func TestDiffScaling_OldNilNewReplicas(t *testing.T) {
-	r := 3
-	newS := &contract.Scaling{Replicas: &r, Min: r, Max: r}
-	changes := diffScaling(nil, newS)
-	if len(changes) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(changes))
-	}
-	if changes[0].Type != Added {
-		t.Errorf("expected Added, got %s", changes[0].Type)
-	}
-	if changes[0].NewValue != "replicas=3" {
-		t.Errorf("expected 'replicas=3', got %v", changes[0].NewValue)
-	}
-}
-
 func TestDiffContract_OwnerAdded(t *testing.T) {
 	old := minimalContract()
 	old.Service.Owner = contract.Owner{}
@@ -157,8 +40,6 @@ func TestDiffContract_OwnerRemoved(t *testing.T) {
 	}
 }
 
-// Reproduces the reported bug: team unchanged but a contact added must surface
-// as a granular contact change, not an opaque "team -> team" modification.
 func TestDiffContract_OwnerContactAdded(t *testing.T) {
 	old := minimalContract()
 	old.Service.Owner = contract.Owner{Team: "foundations-team"}
@@ -263,73 +144,11 @@ func TestDiffContract_OwnerContactPurposeModified(t *testing.T) {
 	}
 }
 
-func TestDiffContract_ImageAdded(t *testing.T) {
-	old := minimalContract()
-	old.Service.Image = nil
-	new := minimalContract()
-	new.Service.Image = &contract.Image{Ref: "ghcr.io/acme/svc:1.0.0"}
-	changes := diffContract(old, new)
-	found := false
-	for _, c := range changes {
-		if c.Path == "service.image" && c.Type == Added {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected service.image Added change")
-	}
-}
-
-func TestDiffContract_ImageRemoved(t *testing.T) {
-	old := minimalContract()
-	old.Service.Image = &contract.Image{Ref: "ghcr.io/acme/svc:1.0.0"}
-	new := minimalContract()
-	new.Service.Image = nil
-	changes := diffContract(old, new)
-	found := false
-	for _, c := range changes {
-		if c.Path == "service.image" && c.Type == Removed {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected service.image Removed change")
-	}
-}
-
-func TestDiffContract_ImageModified(t *testing.T) {
-	old := minimalContract()
-	old.Service.Image = &contract.Image{Ref: "ghcr.io/acme/svc:1.0.0"}
-	new := minimalContract()
-	new.Service.Image = &contract.Image{Ref: "ghcr.io/acme/svc:2.0.0"}
-	changes := diffContract(old, new)
-	found := false
-	for _, c := range changes {
-		if c.Path == "service.image" && c.Type == Modified {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected service.image Modified change")
-	}
-}
-
-func TestDiffContract_ImagePrivateToggled(t *testing.T) {
-	old := minimalContract()
-	old.Service.Image = &contract.Image{Ref: "ghcr.io/acme/svc:1.0.0", Private: false}
-	new := minimalContract()
-	new.Service.Image = &contract.Image{Ref: "ghcr.io/acme/svc:1.0.0", Private: true}
-	changes := diffContract(old, new)
-	if !hasChange(changes, "service.image", Modified) {
-		t.Errorf("expected service.image Modified for private toggle, got %+v", changes)
-	}
-}
-
 func TestDiffContract_PactoVersionModified(t *testing.T) {
 	old := minimalContract()
-	old.PactoVersion = "1.1"
+	old.PactoVersion = "2.0"
 	new := minimalContract()
-	new.PactoVersion = "1.2"
+	new.PactoVersion = "2.1"
 	changes := diffContract(old, new)
 	c, ok := findChange(changes, "pactoVersion", Modified)
 	if !ok {
@@ -340,16 +159,83 @@ func TestDiffContract_PactoVersionModified(t *testing.T) {
 	}
 }
 
-func TestFormatImage_Nil(t *testing.T) {
-	if got := formatImage(nil); got != "" {
-		t.Errorf("expected empty, got %q", got)
+func TestDiffContract_WorkloadChanged(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+	new.Workload = contract.WorkloadJob
+	changes := diffContract(old, new)
+	found := false
+	for _, c := range changes {
+		if c.Path == "workload" && c.Type == Modified && c.Classification == Breaking {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected workload Modified Breaking, got %+v", changes)
 	}
 }
 
-func TestFormatImage_NonNil(t *testing.T) {
-	img := &contract.Image{Ref: "ghcr.io/acme/svc:1.0.0"}
-	if got := formatImage(img); got != "ghcr.io/acme/svc:1.0.0" {
-		t.Errorf("expected ghcr.io/acme/svc:1.0.0, got %q", got)
+func TestDiffContract_StateTypeChanged(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+	new.State.Type = contract.StateStateful
+	changes := diffContract(old, new)
+	found := false
+	for _, c := range changes {
+		if c.Path == "state.type" && c.Type == Modified && c.Classification == Breaking {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected state.type Modified Breaking, got %+v", changes)
+	}
+}
+
+func TestDiffContract_CapabilityAdded(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+	new.Capabilities = []contract.Capability{{Type: contract.CapabilityHealth}}
+	changes := diffContract(old, new)
+	found := false
+	for _, c := range changes {
+		if c.Path == "capabilities" && c.Type == Added && c.Classification == NonBreaking {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected capabilities Added NonBreaking, got %+v", changes)
+	}
+}
+
+func TestDiffContract_CapabilityRemoved(t *testing.T) {
+	old := minimalContract()
+	old.Capabilities = []contract.Capability{{Type: contract.CapabilityMetrics}}
+	new := minimalContract()
+	changes := diffContract(old, new)
+	found := false
+	for _, c := range changes {
+		if c.Path == "capabilities" && c.Type == Removed && c.Classification == PotentialBreaking {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected capabilities Removed PotentialBreaking, got %+v", changes)
+	}
+}
+
+func TestDiffContract_ExtensionCapabilityAdded(t *testing.T) {
+	old := minimalContract()
+	new := minimalContract()
+	new.Capabilities = []contract.Capability{{Type: contract.CapabilityExtension, Ref: "acme.com/tracing"}}
+	changes := diffContract(old, new)
+	found := false
+	for _, c := range changes {
+		if c.Path == "capabilities" && c.Type == Added {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected extension capability Added, got %+v", changes)
 	}
 }
 
@@ -374,71 +260,6 @@ func TestDiffStringSet_AddedAndRemoved(t *testing.T) {
 	}
 }
 
-func TestDiffContract_ChartAdded(t *testing.T) {
-	old := minimalContract()
-	old.Service.Chart = nil
-	new := minimalContract()
-	new.Service.Chart = &contract.Chart{Ref: "oci://ghcr.io/acme/chart", Version: "1.0.0"}
-	changes := diffContract(old, new)
-	found := false
-	for _, c := range changes {
-		if c.Path == "service.chart" && c.Type == Added {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected service.chart Added change")
-	}
-}
-
-func TestDiffContract_ChartRemoved(t *testing.T) {
-	old := minimalContract()
-	old.Service.Chart = &contract.Chart{Ref: "oci://ghcr.io/acme/chart", Version: "1.0.0"}
-	new := minimalContract()
-	new.Service.Chart = nil
-	changes := diffContract(old, new)
-	found := false
-	for _, c := range changes {
-		if c.Path == "service.chart" && c.Type == Removed {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected service.chart Removed change")
-	}
-}
-
-func TestDiffContract_ChartModified(t *testing.T) {
-	old := minimalContract()
-	old.Service.Chart = &contract.Chart{Ref: "oci://ghcr.io/acme/chart", Version: "1.0.0"}
-	new := minimalContract()
-	new.Service.Chart = &contract.Chart{Ref: "oci://ghcr.io/acme/chart", Version: "2.0.0"}
-	changes := diffContract(old, new)
-	found := false
-	for _, c := range changes {
-		if c.Path == "service.chart" && c.Type == Modified {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected service.chart Modified change")
-	}
-}
-
-func TestFormatChart_Nil(t *testing.T) {
-	if got := formatChart(nil); got != "" {
-		t.Errorf("expected empty, got %q", got)
-	}
-}
-
-func TestFormatChart_NonNil(t *testing.T) {
-	ch := &contract.Chart{Ref: "oci://ghcr.io/acme/chart", Version: "1.0.0"}
-	expected := "oci://ghcr.io/acme/chart:1.0.0"
-	if got := formatChart(ch); got != expected {
-		t.Errorf("expected %q, got %q", expected, got)
-	}
-}
-
 func TestNewChange(t *testing.T) {
 	c := newChange("service.name", Modified, "old", "new")
 	if c.Path != "service.name" {
@@ -450,4 +271,18 @@ func TestNewChange(t *testing.T) {
 	if c.Classification != Breaking {
 		t.Errorf("expected Breaking, got %s", c.Classification)
 	}
+}
+
+func findChange(changes []Change, path string, ct ChangeType) (Change, bool) {
+	for _, c := range changes {
+		if c.Path == path && c.Type == ct {
+			return c, true
+		}
+	}
+	return Change{}, false
+}
+
+func hasChange(changes []Change, path string, ct ChangeType) bool {
+	_, ok := findChange(changes, path, ct)
+	return ok
 }

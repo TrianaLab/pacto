@@ -11,7 +11,7 @@ import (
 func TestDiffInterfaces_TypeChanged(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	new.Interfaces[0].Type = "grpc"
+	new.Interfaces[0].Type = contract.InterfaceTypeGRPC
 	changes := diffInterfaces(old, new, nil, nil)
 	found := false
 	for _, c := range changes {
@@ -24,59 +24,10 @@ func TestDiffInterfaces_TypeChanged(t *testing.T) {
 	}
 }
 
-func TestDiffInterfaces_PortChanged(t *testing.T) {
-	old := minimalContract()
-	new := minimalContract()
-	newPort := 9090
-	new.Interfaces[0].Port = &newPort
-	changes := diffInterfaces(old, new, nil, nil)
-	found := false
-	for _, c := range changes {
-		if c.Path == "interfaces.port" && c.Type == Modified {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected interfaces.port Modified change")
-	}
-}
-
-func TestDiffInterfaces_PortAdded(t *testing.T) {
-	old := minimalContract()
-	old.Interfaces[0].Port = nil
-	new := minimalContract()
-	changes := diffInterfaces(old, new, nil, nil)
-	found := false
-	for _, c := range changes {
-		if c.Path == "interfaces.port" && c.Type == Added {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected interfaces.port Added change")
-	}
-}
-
-func TestDiffInterfaces_PortRemoved(t *testing.T) {
-	old := minimalContract()
-	new := minimalContract()
-	new.Interfaces[0].Port = nil
-	changes := diffInterfaces(old, new, nil, nil)
-	found := false
-	for _, c := range changes {
-		if c.Path == "interfaces.port" && c.Type == Removed {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected interfaces.port Removed change")
-	}
-}
-
 func TestDiffInterfaces_VisibilityChanged(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	new.Interfaces[0].Visibility = "public"
+	new.Interfaces[0].Visibility = contract.VisibilityPublic
 	changes := diffInterfaces(old, new, nil, nil)
 	found := false
 	for _, c := range changes {
@@ -89,37 +40,20 @@ func TestDiffInterfaces_VisibilityChanged(t *testing.T) {
 	}
 }
 
-func TestDiffInterfaces_ContractPathChanged(t *testing.T) {
+func TestDiffInterfaces_RefChanged(t *testing.T) {
 	old := minimalContract()
-	old.Interfaces[0].Contract = "old.yaml"
+	old.Interfaces[0].Ref = "interfaces/old.yaml"
 	new := minimalContract()
-	new.Interfaces[0].Contract = "new.yaml"
+	new.Interfaces[0].Ref = "interfaces/new.yaml"
 	changes := diffInterfaces(old, new, nil, nil)
 	found := false
 	for _, c := range changes {
-		if c.Path == "interfaces.contract" && c.Type == Modified {
+		if c.Path == "interfaces.ref" && c.Type == Modified {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected interfaces.contract Modified change")
-	}
-}
-
-func TestDiffInterfaces_ContractOneEmpty(t *testing.T) {
-	old := minimalContract()
-	old.Interfaces[0].Contract = ""
-	new := minimalContract()
-	new.Interfaces[0].Contract = "openapi.yaml"
-	changes := diffInterfaces(old, new, nil, nil)
-	found := false
-	for _, c := range changes {
-		if c.Path == "interfaces.contract" && c.Type == Modified {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected interfaces.contract Modified change when one is empty")
+		t.Error("expected interfaces.ref Modified change")
 	}
 }
 
@@ -138,7 +72,7 @@ func TestDiffConfiguration_Added(t *testing.T) {
 	old := minimalContract()
 	old.Configurations = nil
 	new := minimalContract()
-	new.Configurations = []contract.ConfigurationSource{
+	new.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json"},
 	}
 	changes := diffConfiguration(old, new, nil, nil)
@@ -155,7 +89,7 @@ func TestDiffConfiguration_Added(t *testing.T) {
 
 func TestDiffConfiguration_Removed(t *testing.T) {
 	old := minimalContract()
-	old.Configurations = []contract.ConfigurationSource{
+	old.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json"},
 	}
 	new := minimalContract()
@@ -174,11 +108,11 @@ func TestDiffConfiguration_Removed(t *testing.T) {
 
 func TestDiffConfiguration_ValuesChanged(t *testing.T) {
 	old := minimalContract()
-	old.Configurations = []contract.ConfigurationSource{
+	old.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json", Values: map[string]any{"replicas": 1, "tier": "free"}},
 	}
 	new := minimalContract()
-	new.Configurations = []contract.ConfigurationSource{
+	new.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json", Values: map[string]any{"replicas": 3, "tier": "free"}},
 	}
 	changes := diffConfiguration(old, new, nil, nil)
@@ -195,11 +129,11 @@ func TestDiffConfiguration_ValuesChanged(t *testing.T) {
 
 func TestDiffConfiguration_ValuesUnchanged(t *testing.T) {
 	old := minimalContract()
-	old.Configurations = []contract.ConfigurationSource{
+	old.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json", Values: map[string]any{"tier": "free"}},
 	}
 	new := minimalContract()
-	new.Configurations = []contract.ConfigurationSource{
+	new.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json", Values: map[string]any{"tier": "free"}},
 	}
 	if changes := diffConfiguration(old, new, nil, nil); len(changes) != 0 {
@@ -209,11 +143,11 @@ func TestDiffConfiguration_ValuesUnchanged(t *testing.T) {
 
 func TestDiffConfiguration_SchemaChanged(t *testing.T) {
 	old := minimalContract()
-	old.Configurations = []contract.ConfigurationSource{
+	old.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/old.json"},
 	}
 	new := minimalContract()
-	new.Configurations = []contract.ConfigurationSource{
+	new.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/new.json"},
 	}
 	changes := diffConfiguration(old, new, nil, nil)
@@ -230,11 +164,11 @@ func TestDiffConfiguration_SchemaChanged(t *testing.T) {
 
 func TestDiffConfiguration_RefChanged(t *testing.T) {
 	old := minimalContract()
-	old.Configurations = []contract.ConfigurationSource{
+	old.Configurations = []contract.Configuration{
 		{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0.0"},
 	}
 	new := minimalContract()
-	new.Configurations = []contract.ConfigurationSource{
+	new.Configurations = []contract.Configuration{
 		{Name: "app", Ref: "oci://ghcr.io/acme/config:2.0.0"},
 	}
 	changes := diffConfiguration(old, new, nil, nil)
@@ -251,11 +185,11 @@ func TestDiffConfiguration_RefChanged(t *testing.T) {
 
 func TestDiffConfiguration_RefAdded(t *testing.T) {
 	old := minimalContract()
-	old.Configurations = []contract.ConfigurationSource{
+	old.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json"},
 	}
 	new := minimalContract()
-	new.Configurations = []contract.ConfigurationSource{
+	new.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json", Ref: "oci://ghcr.io/acme/config:1.0.0"},
 	}
 	changes := diffConfiguration(old, new, nil, nil)
@@ -272,11 +206,11 @@ func TestDiffConfiguration_RefAdded(t *testing.T) {
 
 func TestDiffConfiguration_RefRemoved(t *testing.T) {
 	old := minimalContract()
-	old.Configurations = []contract.ConfigurationSource{
+	old.Configurations = []contract.Configuration{
 		{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0.0"},
 	}
 	new := minimalContract()
-	new.Configurations = []contract.ConfigurationSource{
+	new.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json"},
 	}
 	changes := diffConfiguration(old, new, nil, nil)
@@ -293,11 +227,11 @@ func TestDiffConfiguration_RefRemoved(t *testing.T) {
 
 func TestDiffConfiguration_EmptySchemaNoFileDiff(t *testing.T) {
 	old := minimalContract()
-	old.Configurations = []contract.ConfigurationSource{
+	old.Configurations = []contract.Configuration{
 		{Name: "app", Schema: ""},
 	}
 	new := minimalContract()
-	new.Configurations = []contract.ConfigurationSource{
+	new.Configurations = []contract.Configuration{
 		{Name: "app", Schema: ""},
 	}
 	changes := diffConfiguration(old, new, nil, nil)
@@ -329,12 +263,12 @@ func TestDiffConfiguration_SchemaFileDiffed(t *testing.T) {
 
 func TestDiffConfiguration_MultipleConfigs(t *testing.T) {
 	old := minimalContract()
-	old.Configurations = []contract.ConfigurationSource{
+	old.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json"},
 		{Name: "db", Schema: "config/db.json"},
 	}
 	new := minimalContract()
-	new.Configurations = []contract.ConfigurationSource{
+	new.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json"},
 		{Name: "cache", Schema: "config/cache.json"},
 	}
@@ -359,11 +293,11 @@ func TestDiffConfiguration_MultipleConfigs(t *testing.T) {
 
 func TestDiffConfiguration_NoChanges(t *testing.T) {
 	old := minimalContract()
-	old.Configurations = []contract.ConfigurationSource{
+	old.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json"},
 	}
 	new := minimalContract()
-	new.Configurations = []contract.ConfigurationSource{
+	new.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json"},
 	}
 	changes := diffConfiguration(old, new, nil, nil)
@@ -403,7 +337,7 @@ func TestDiffPolicy_BothNil(t *testing.T) {
 func TestDiffPolicy_Added(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	new.Policies = []contract.PolicySource{{Name: "org", Schema: "policy/schema.json"}}
+	new.Policies = []contract.Policy{{Name: "org", Schema: "policy/schema.json"}}
 	changes := diffPolicy(old, new, nil, nil)
 	found := false
 	for _, c := range changes {
@@ -419,7 +353,7 @@ func TestDiffPolicy_Added(t *testing.T) {
 func TestDiffPolicy_AddedWithRef(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	new.Policies = []contract.PolicySource{{Name: "org", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+	new.Policies = []contract.Policy{{Name: "org", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	changes := diffPolicy(old, new, nil, nil)
 	found := false
 	for _, c := range changes {
@@ -434,7 +368,7 @@ func TestDiffPolicy_AddedWithRef(t *testing.T) {
 
 func TestDiffPolicy_Removed(t *testing.T) {
 	old := minimalContract()
-	old.Policies = []contract.PolicySource{{Name: "org", Schema: "policy/schema.json"}}
+	old.Policies = []contract.Policy{{Name: "org", Schema: "policy/schema.json"}}
 	new := minimalContract()
 	changes := diffPolicy(old, new, nil, nil)
 	found := false
@@ -450,7 +384,7 @@ func TestDiffPolicy_Removed(t *testing.T) {
 
 func TestDiffPolicy_RemovedWithRef(t *testing.T) {
 	old := minimalContract()
-	old.Policies = []contract.PolicySource{{Name: "org", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+	old.Policies = []contract.Policy{{Name: "org", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	new := minimalContract()
 	changes := diffPolicy(old, new, nil, nil)
 	found := false
@@ -466,9 +400,9 @@ func TestDiffPolicy_RemovedWithRef(t *testing.T) {
 
 func TestDiffPolicy_SchemaChanged(t *testing.T) {
 	old := minimalContract()
-	old.Policies = []contract.PolicySource{{Name: "org", Schema: "policy/old.json"}}
+	old.Policies = []contract.Policy{{Name: "org", Schema: "policy/old.json"}}
 	new := minimalContract()
-	new.Policies = []contract.PolicySource{{Name: "org", Schema: "policy/new.json"}}
+	new.Policies = []contract.Policy{{Name: "org", Schema: "policy/new.json"}}
 	changes := diffPolicy(old, new, nil, nil)
 	found := false
 	for _, c := range changes {
@@ -483,9 +417,9 @@ func TestDiffPolicy_SchemaChanged(t *testing.T) {
 
 func TestDiffPolicy_RefChanged(t *testing.T) {
 	old := minimalContract()
-	old.Policies = []contract.PolicySource{{Name: "org", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+	old.Policies = []contract.Policy{{Name: "org", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	new := minimalContract()
-	new.Policies = []contract.PolicySource{{Name: "org", Ref: "oci://ghcr.io/acme/policy:2.0.0"}}
+	new.Policies = []contract.Policy{{Name: "org", Ref: "oci://ghcr.io/acme/policy:2.0.0"}}
 	changes := diffPolicy(old, new, nil, nil)
 	found := false
 	for _, c := range changes {
@@ -500,9 +434,9 @@ func TestDiffPolicy_RefChanged(t *testing.T) {
 
 func TestDiffPolicy_NoChanges(t *testing.T) {
 	old := minimalContract()
-	old.Policies = []contract.PolicySource{{Name: "org", Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+	old.Policies = []contract.Policy{{Name: "org", Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	new := minimalContract()
-	new.Policies = []contract.PolicySource{{Name: "org", Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+	new.Policies = []contract.Policy{{Name: "org", Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	changes := diffPolicy(old, new, nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
@@ -511,9 +445,9 @@ func TestDiffPolicy_NoChanges(t *testing.T) {
 
 func TestDiffPolicy_RefAdded(t *testing.T) {
 	old := minimalContract()
-	old.Policies = []contract.PolicySource{{Name: "org", Schema: "policy/schema.json"}}
+	old.Policies = []contract.Policy{{Name: "org", Schema: "policy/schema.json"}}
 	new := minimalContract()
-	new.Policies = []contract.PolicySource{{Name: "org", Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+	new.Policies = []contract.Policy{{Name: "org", Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	changes := diffPolicy(old, new, nil, nil)
 	found := false
 	for _, c := range changes {
@@ -528,9 +462,9 @@ func TestDiffPolicy_RefAdded(t *testing.T) {
 
 func TestDiffPolicy_RefRemoved(t *testing.T) {
 	old := minimalContract()
-	old.Policies = []contract.PolicySource{{Name: "org", Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+	old.Policies = []contract.Policy{{Name: "org", Schema: "policy/schema.json", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
 	new := minimalContract()
-	new.Policies = []contract.PolicySource{{Name: "org", Schema: "policy/schema.json"}}
+	new.Policies = []contract.Policy{{Name: "org", Schema: "policy/schema.json"}}
 	changes := diffPolicy(old, new, nil, nil)
 	found := false
 	for _, c := range changes {
@@ -544,7 +478,6 @@ func TestDiffPolicy_RefRemoved(t *testing.T) {
 }
 
 func TestDiffPolicy_SchemaFileChanged(t *testing.T) {
-	// Policy-provider bundle: no policies in contract, but policy/schema.json exists.
 	old := minimalContract()
 	new := minimalContract()
 	oldFS := fstest.MapFS{
@@ -577,7 +510,7 @@ func TestDiffPolicy_SchemaFileChanged(t *testing.T) {
 func TestDiffPolicy_SchemaFileAdded(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	oldFS := fstest.MapFS{} // empty — no policy/schema.json
+	oldFS := fstest.MapFS{}
 	newFS := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
 	}
@@ -596,7 +529,7 @@ func TestDiffPolicy_SchemaFileRemoved(t *testing.T) {
 	oldFS := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
 	}
-	newFS := fstest.MapFS{} // empty — no policy/schema.json
+	newFS := fstest.MapFS{}
 	changes := diffPolicy(old, new, oldFS, newFS)
 	if len(changes) != 1 {
 		t.Fatalf("expected 1 change, got %d", len(changes))
@@ -631,12 +564,12 @@ func TestDiffPolicy_SchemaFileNoChange(t *testing.T) {
 
 func TestDiffPolicy_MultipleByName(t *testing.T) {
 	old := minimalContract()
-	old.Policies = []contract.PolicySource{
+	old.Policies = []contract.Policy{
 		{Name: "org", Schema: "policy/org.json"},
 		{Name: "team", Schema: "policy/team.json"},
 	}
 	new := minimalContract()
-	new.Policies = []contract.PolicySource{
+	new.Policies = []contract.Policy{
 		{Name: "org", Schema: "policy/org.json"},
 		{Name: "security", Schema: "policy/security.json"},
 	}
