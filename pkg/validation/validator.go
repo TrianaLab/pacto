@@ -1,7 +1,7 @@
-// Package validation checks a contract across four layers — structural (JSON
-// Schema), cross-field consistency, semantic rules, and policy enforcement — and
-// reports errors and warnings. It supports local-only policy resolution as well
-// as recursive, ref-based resolution through a pluggable BundleResolver.
+// Package validation checks a contract across three layers — structural (JSON
+// Schema), cross-field consistency, and policy enforcement — and reports errors
+// and warnings. It supports local-only policy resolution as well as recursive,
+// ref-based resolution through a pluggable BundleResolver.
 package validation
 
 import (
@@ -14,7 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Validate runs all four validation layers in order on the given contract.
+// Validate runs all three validation layers in order on the given contract.
 // If structural validation fails, subsequent layers are skipped.
 // The rawYAML parameter is the original YAML bytes for JSON Schema validation.
 // The bundleFS parameter provides access to bundle files for cross-field validation.
@@ -24,7 +24,7 @@ func Validate(c *contract.Contract, rawYAML []byte, bundleFS fs.FS) ValidationRe
 	})
 }
 
-// ValidateWithResolver runs all four validation layers, using the provided
+// ValidateWithResolver runs all three validation layers, using the provided
 // BundleResolver for recursive ref-based policy resolution. If resolver is nil,
 // any ref-based policies produce a hard POLICY_REF_UNRESOLVED error (fail closed).
 func ValidateWithResolver(ctx context.Context, c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolver BundleResolver) ValidationResult {
@@ -33,8 +33,8 @@ func ValidateWithResolver(ctx context.Context, c *contract.Contract, rawYAML []b
 	})
 }
 
-// runLayers runs the four-layer validation pipeline, short-circuiting on
-// structural and cross-field failures. Layer 4 policy resolution is delegated to
+// runLayers runs the three-layer validation pipeline, short-circuiting on
+// structural and cross-field failures. Layer 3 policy resolution is delegated to
 // resolvePolicies, which is the only step that differs between the local-only
 // Validate and the resolver-based ValidateWithResolver.
 func runLayers(c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolvePolicies func() ([]ResolvedPolicy, ValidationResult)) ValidationResult {
@@ -50,10 +50,7 @@ func runLayers(c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolvePoli
 		return result
 	}
 
-	// Layer 3: Semantic validation.
-	result.Merge(ValidateSemantic(c))
-
-	// Layer 4: Policy resolution + enforcement.
+	// Layer 3: Policy resolution + enforcement.
 	policies, policyResult := resolvePolicies()
 	result.Merge(policyResult)
 	if result.IsValid() {

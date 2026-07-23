@@ -29,10 +29,8 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateConfigurationNamesUnique(c, &result)
 	validatePolicyNamesUnique(c, &result)
 	validateDependencyNamesUnique(c, &result)
-	validateInterfacePorts(c, &result)
-	validateInterfaceContracts(c, &result)
-	validateHealthInterface(c, &result)
-	validateMetricsInterface(c, &result)
+	validateInterfaces(c, bundleFS, &result)
+	validateCapabilities(c, &result)
 	validateInterfaceFiles(c, bundleFS, &result)
 	validateInterfaceFileContent(c, bundleFS, &result)
 	validateConfigFiles(c, bundleFS, &result)
@@ -40,12 +38,9 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateConfigRef(c, &result)
 	validatePolicyFields(c, bundleFS, &result)
 	validatePolicySchemaContent(c, bundleFS, &result)
+	validatePolicyTarget(c, &result)
 	validateDependencyRefs(c, &result)
-	validateImageRef(c, &result)
-	validateChartRef(c, &result)
 	validateConfigValues(c, bundleFS, &result)
-	validateScaling(c, &result)
-	validateJobScaling(c, &result)
 	validateStatePersistenceInvariants(c, &result)
 	validateReadiness(c, &result)
 
@@ -55,7 +50,7 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 // validateReadiness enforces the readiness rules that JSON Schema cannot express:
 // the assessment-level expires (and each revision date) must be a strict
 // canonical YYYY-MM-DD date, revision version/author/description must not be
-// blank, readiness check IDs must be unique, and evidence and (when present)
+// blank, readiness claim IDs must be unique, and evidence and (when present)
 // description must not be whitespace-only. Shape rules (id pattern, type/status
 // enum, weight range, evidence length) are enforced by the structural schema and
 // are deliberately not duplicated here.
@@ -90,30 +85,30 @@ func validateReadiness(c *contract.Contract, result *ValidationResult) {
 	}
 
 	seen := make(map[string]int)
-	for i, check := range r.Checks {
-		base := fmt.Sprintf("readiness.checks[%d]", i)
-		if prev, exists := seen[check.ID]; exists {
+	for i, claim := range r.Claims {
+		base := fmt.Sprintf("readiness.claims[%d]", i)
+		if prev, exists := seen[claim.ID]; exists {
 			result.AddError(
 				base+".id",
 				"DUPLICATE_READINESS_ID",
-				fmt.Sprintf("readiness check id %q is already declared at readiness.checks[%d]", check.ID, prev),
+				fmt.Sprintf("readiness claim id %q is already declared at readiness.claims[%d]", claim.ID, prev),
 			)
 		}
-		seen[check.ID] = i
+		seen[claim.ID] = i
 
-		if strings.TrimSpace(check.Evidence) == "" {
+		if strings.TrimSpace(claim.Evidence) == "" {
 			result.AddError(
 				base+".evidence",
 				"EMPTY_READINESS_EVIDENCE",
-				fmt.Sprintf("readiness check %q has blank evidence", check.ID),
+				fmt.Sprintf("readiness claim %q has blank evidence", claim.ID),
 			)
 		}
 
-		if check.Description != "" && strings.TrimSpace(check.Description) == "" {
+		if claim.Description != "" && strings.TrimSpace(claim.Description) == "" {
 			result.AddError(
 				base+".description",
 				"EMPTY_READINESS_DESCRIPTION",
-				fmt.Sprintf("readiness check %q has a blank description", check.ID),
+				fmt.Sprintf("readiness claim %q has a blank description", claim.ID),
 			)
 		}
 	}
@@ -198,94 +193,72 @@ func validateDependencyNamesUnique(c *contract.Contract, result *ValidationResul
 	}
 }
 
-func validateInterfacePorts(c *contract.Contract, result *ValidationResult) {
+// validateInterfaces validates v2 interfaces: type in enum, ref required, ref file exists and parses.
+func validateInterfaces(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
+	validTypes := map[string]bool{
+		"openapi":  true,
+		"asyncapi": true,
+		"grpc":     true,
+	}
 	for i, iface := range c.Interfaces {
-		switch iface.Type {
-		case contract.InterfaceTypeHTTP, contract.InterfaceTypeGRPC:
-			if iface.Port == nil {
+		if !validTypes[iface.Type] {
+			result.AddError(
+				fmt.Sprintf("interfaces[%d].type", i),
+				"INVALID_INTERFACE_TYPE",
+				fmt.Sprintf("interface type %q is invalid; must be openapi, asyncapi, or grpc", iface.Type),
+			)
+		}
+		if iface.Ref == "" {
+			result.AddError(
+				fmt.Sprintf("interfaces[%d].ref", i),
+				"INTERFACE_REF_REQUIRED",
+				fmt.Sprintf("interface %q requires a ref to the spec file", iface.Name),
+			)
+		}
+	}
+}
+
+// validateCapabilities validates v2 capabilities: type in enum, extension requires namespaced ref, standard types must not have ref, no duplicate standard types.
+func validateCapabilities(c *contract.Contract, result *ValidationResult) {
+	validTypes := map[string]bool{
+		"health":    true,
+		"metrics":   true,
+		"extension": true,
+	}
+	seen := make(map[string]int)
+	for i, cap := range c.Capabilities {
+		if !validTypes[cap.Type] {
+			result.AddError(
+				fmt.Sprintf("capabilities[%d].type", i),
+				"INVALID_CAPABILITY_TYPE",
+				fmt.Sprintf("capability type %q is invalid; must be health, metrics, or extension", cap.Type),
+			)
+		}
+		if cap.Type == "extension" {
+			if cap.Ref == "" {
 				result.AddError(
-					fmt.Sprintf("interfaces[%d].port", i),
-					"PORT_REQUIRED",
-					fmt.Sprintf("port is required for %s interface %q", iface.Type, iface.Name),
+					fmt.Sprintf("capabilities[%d].ref", i),
+					"CAPABILITY_REF_REQUIRED",
+					"extension capabilities require a namespaced ref",
 				)
-			}
-		case contract.InterfaceTypeEvent:
-			if iface.Port != nil {
-				result.AddWarning(
-					fmt.Sprintf("interfaces[%d].port", i),
-					"PORT_IGNORED",
-					fmt.Sprintf("port is not applicable for event interface %q", iface.Name),
-				)
-			}
-		}
-	}
-}
-
-func validateInterfaceContracts(c *contract.Contract, result *ValidationResult) {
-	for i, iface := range c.Interfaces {
-		switch iface.Type {
-		case contract.InterfaceTypeGRPC, contract.InterfaceTypeEvent:
-			if iface.Contract == "" {
+			} else if !strings.Contains(cap.Ref, "/") || !strings.Contains(strings.Split(cap.Ref, "/")[0], ".") {
 				result.AddError(
-					fmt.Sprintf("interfaces[%d].contract", i),
-					"CONTRACT_REQUIRED",
-					fmt.Sprintf("contract is required for %s interface %q", iface.Type, iface.Name),
+					fmt.Sprintf("capabilities[%d].ref", i),
+					"CAPABILITY_REF_INVALID",
+					fmt.Sprintf("extension capability ref %q must be namespaced (e.g. example.com/custom)", cap.Ref),
 				)
 			}
 		}
-	}
-}
-
-func validateHealthInterface(c *contract.Contract, result *ValidationResult) {
-	if c.Runtime == nil || c.Runtime.Health == nil {
-		return
-	}
-	validateProbeInterface(c, result, "health", c.Runtime.Health.Interface, c.Runtime.Health.Path)
-}
-
-func validateMetricsInterface(c *contract.Contract, result *ValidationResult) {
-	if c.Runtime == nil || c.Runtime.Metrics == nil {
-		return
-	}
-	validateProbeInterface(c, result, "metrics", c.Runtime.Metrics.Interface, c.Runtime.Metrics.Path)
-}
-
-// validateProbeInterface validates a runtime probe (health or metrics) interface
-// reference: it must name a declared http/grpc interface, http probes require a
-// path, and grpc probes must not set one. kind drives the field path, error
-// codes, and messages so health and metrics share one implementation.
-func validateProbeInterface(c *contract.Contract, result *ValidationResult, kind, iface, path string) {
-	field := "runtime." + kind
-	code := strings.ToUpper(kind)
-
-	var found *contract.Interface
-	for i := range c.Interfaces {
-		if c.Interfaces[i].Name == iface {
-			found = &c.Interfaces[i]
-			break
+		if cap.Type == "health" || cap.Type == "metrics" {
+			if prev, exists := seen[cap.Type]; exists {
+				result.AddError(
+					fmt.Sprintf("capabilities[%d].type", i),
+					"DUPLICATE_CAPABILITY",
+					fmt.Sprintf("duplicate standard capability %q (already declared at capabilities[%d])", cap.Type, prev),
+				)
+			}
+			seen[cap.Type] = i
 		}
-	}
-
-	if found == nil {
-		result.AddError(field+".interface", code+"_INTERFACE_NOT_FOUND",
-			fmt.Sprintf("%s interface %q does not match any declared interface", kind, iface))
-		return
-	}
-
-	if found.Type == contract.InterfaceTypeEvent {
-		result.AddError(field+".interface", code+"_INTERFACE_INVALID",
-			fmt.Sprintf("%s interface %q is an event interface; %s checks require http or grpc", kind, iface, kind))
-		return
-	}
-
-	if found.Type == contract.InterfaceTypeHTTP && path == "" {
-		result.AddError(field+".path", code+"_PATH_REQUIRED",
-			fmt.Sprintf("%s path is required when the %s interface type is http", kind, kind))
-	}
-
-	if found.Type == contract.InterfaceTypeGRPC && path != "" {
-		result.AddWarning(field+".path", code+"_PATH_IGNORED",
-			fmt.Sprintf("%s path is not used for grpc interfaces", kind))
 	}
 }
 
@@ -294,14 +267,14 @@ func validateInterfaceFiles(c *contract.Contract, bundleFS fs.FS, result *Valida
 		return
 	}
 	for i, iface := range c.Interfaces {
-		if iface.Contract == "" {
+		if iface.Ref == "" {
 			continue
 		}
-		if _, err := fs.Stat(bundleFS, iface.Contract); err != nil {
+		if _, err := fs.Stat(bundleFS, iface.Ref); err != nil {
 			result.AddError(
-				fmt.Sprintf("interfaces[%d].contract", i),
+				fmt.Sprintf("interfaces[%d].ref", i),
 				"FILE_NOT_FOUND",
-				fmt.Sprintf("interface contract file %q not found in bundle", iface.Contract),
+				fmt.Sprintf("interface spec file %q not found in bundle", iface.Ref),
 			)
 		}
 	}
@@ -394,48 +367,17 @@ func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {
 	}
 }
 
-func validateImageRef(c *contract.Contract, result *ValidationResult) {
-	if c.Service.Image == nil {
-		return
+// validatePolicyTarget validates that policy target is supported (contract only).
+func validatePolicyTarget(c *contract.Contract, result *ValidationResult) {
+	for i, pol := range c.Policies {
+		if pol.Target != "" && pol.Target != "contract" {
+			result.AddError(
+				fmt.Sprintf("policies[%d].target", i),
+				"UNSUPPORTED_POLICY_TARGET",
+				fmt.Sprintf("policy target %q is not supported; only 'contract' is allowed", pol.Target),
+			)
+		}
 	}
-	validateOCIRef(c.Service.Image.Ref, "service.image.ref", "INVALID_IMAGE_REF", result)
-}
-
-func validateScaling(c *contract.Contract, result *ValidationResult) {
-	if c.Scaling == nil {
-		return
-	}
-	if c.Scaling.Min > c.Scaling.Max {
-		result.AddError(
-			"scaling",
-			"SCALING_MIN_EXCEEDS_MAX",
-			fmt.Sprintf("scaling min (%d) must not exceed max (%d)", c.Scaling.Min, c.Scaling.Max),
-		)
-	}
-}
-
-func validateJobScaling(c *contract.Contract, result *ValidationResult) {
-	if c.Runtime != nil && c.Runtime.Workload == contract.WorkloadTypeJob && c.Scaling != nil {
-		result.AddError(
-			"scaling",
-			"JOB_SCALING_NOT_ALLOWED",
-			"scaling must not be applied to job workloads",
-		)
-	}
-}
-
-func validateChartRef(c *contract.Contract, result *ValidationResult) {
-	if c.Service.Chart == nil {
-		return
-	}
-	ref := c.Service.Chart.Ref
-	parsed := graph.ParseDependencyRef(ref)
-	if parsed.IsOCI() {
-		validateOCIRef(parsed.Location, "service.chart.ref", "INVALID_CHART_REF", result)
-	}
-	// Version presence and minLength are enforced by JSON Schema (structural validation).
-	// Here we validate semver format, which JSON Schema cannot express.
-	validateSemver(c.Service.Chart.Version, "service.chart.version", "INVALID_CHART_VERSION", result)
 }
 
 func validateConfigValues(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
@@ -449,7 +391,7 @@ func validateConfigValues(c *contract.Contract, bundleFS fs.FS, result *Validati
 }
 
 // validateSingleConfigValues validates a single config's values against its schema.
-func validateSingleConfigValues(cfg contract.ConfigurationSource, fieldPath string, bundleFS fs.FS, result *ValidationResult) {
+func validateSingleConfigValues(cfg contract.Configuration, fieldPath string, bundleFS fs.FS, result *ValidationResult) {
 	if cfg.Schema == "" && cfg.Ref == "" {
 		result.AddError(
 			fieldPath,
@@ -513,23 +455,23 @@ func validateInterfaceFileContent(c *contract.Contract, bundleFS fs.FS, result *
 		return
 	}
 	for i, iface := range c.Interfaces {
-		if iface.Contract == "" {
+		if iface.Ref == "" {
 			continue
 		}
-		data, err := fs.ReadFile(bundleFS, iface.Contract)
+		data, err := fs.ReadFile(bundleFS, iface.Ref)
 		if err != nil {
 			// File-not-found is already caught by validateInterfaceFiles.
 			continue
 		}
-		if !isYAMLFile(iface.Contract) {
+		if !isYAMLFile(iface.Ref) {
 			continue
 		}
 		var parsed any
 		if err := yaml.Unmarshal(data, &parsed); err != nil {
 			result.AddError(
-				fmt.Sprintf("interfaces[%d].contract", i),
-				"INVALID_CONTRACT_FILE",
-				fmt.Sprintf("interface contract file %q is not valid YAML: %v", iface.Contract, err),
+				fmt.Sprintf("interfaces[%d].ref", i),
+				"INVALID_INTERFACE_SPEC",
+				fmt.Sprintf("interface spec file %q is not valid YAML: %v", iface.Ref, err),
 			)
 		}
 	}
@@ -580,14 +522,14 @@ func validatePolicySchemaContent(c *contract.Contract, bundleFS fs.FS, result *V
 }
 
 func validateStatePersistenceInvariants(c *contract.Contract, result *ValidationResult) {
-	if c.Runtime == nil {
+	if c.State == nil {
 		return
 	}
 	// Invariant: stateless services must use ephemeral durability.
-	if c.Runtime.State.Type == contract.StateStateless &&
-		c.Runtime.State.Persistence.Durability == contract.DurabilityPersistent {
+	if c.State.Type == contract.StateStateless &&
+		c.State.Persistence.Durability == contract.DurabilityPersistent {
 		result.AddError(
-			"runtime.state.persistence.durability",
+			"state.persistence.durability",
 			"STATELESS_PERSISTENT_CONFLICT",
 			"stateless services must use ephemeral durability; persistent durability requires stateful or hybrid",
 		)

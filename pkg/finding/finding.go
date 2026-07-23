@@ -36,6 +36,7 @@ const (
 	CategorySchemaViolation        Category = "SchemaViolation"
 	CategoryRuntimeDrift           Category = "RuntimeDrift"
 	CategoryInvalidDependency      Category = "InvalidDependency"
+	CategoryInvalidCapability      Category = "InvalidCapability"
 )
 
 // One representative durable v2 code; the full set (including evidence-based and

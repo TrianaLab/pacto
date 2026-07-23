@@ -243,7 +243,7 @@ func resolveRefPolicy(ctx context.Context, ref, origin string, resolver BundleRe
 
 // policyOrigin returns a human-readable origin string for a policy source.
 // It uses the policy name if available, falling back to the index.
-func policyOrigin(pol contract.PolicySource, index int) string {
+func policyOrigin(pol contract.Policy, index int) string {
 	if pol.Name != "" {
 		return fmt.Sprintf("policies[%q]", pol.Name)
 	}

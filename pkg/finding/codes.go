@@ -15,12 +15,11 @@ const (
 	CodeDuplicateConfigurationName   Code = "DUPLICATE_CONFIGURATION_NAME"
 	CodeDuplicatePolicyName          Code = "DUPLICATE_POLICY_NAME"
 	CodeDuplicateDependencyName      Code = "DUPLICATE_DEPENDENCY_NAME"
-	CodeContractRequired             Code = "CONTRACT_REQUIRED"
 	CodeEmptyCompatibility           Code = "EMPTY_COMPATIBILITY"
 	CodeInvalidCompatibility         Code = "INVALID_COMPATIBILITY"
 	CodeValuesWithoutSchema          Code = "VALUES_WITHOUT_SCHEMA"
 	CodeConfigValuesValidationFailed Code = "CONFIG_VALUES_VALIDATION_FAILED"
-	CodeInvalidContractFile          Code = "INVALID_CONTRACT_FILE"
+	CodeInvalidInterfaceSpec         Code = "INVALID_INTERFACE_SPEC"
 	CodeInvalidConfigJson            Code = "INVALID_CONFIG_JSON"
 	CodeInvalidConfigSchema          Code = "INVALID_CONFIG_SCHEMA"
 	CodeInvalidPolicyJson            Code = "INVALID_POLICY_JSON"
@@ -36,31 +35,17 @@ const (
 	CodePolicyRefNotEnforced         Code = "POLICY_REF_NOT_ENFORCED"
 	CodePolicyRefUnresolved          Code = "POLICY_REF_UNRESOLVED"
 	CodePolicyRefCycle               Code = "POLICY_REF_CYCLE"
+	CodeInvalidInterfaceType         Code = "INVALID_INTERFACE_TYPE"
+	CodeInterfaceRefRequired         Code = "INTERFACE_REF_REQUIRED"
+	CodeInvalidCapabilityType        Code = "INVALID_CAPABILITY_TYPE"
+	CodeCapabilityRefRequired        Code = "CAPABILITY_REF_REQUIRED"
+	CodeCapabilityRefInvalid         Code = "CAPABILITY_REF_INVALID"
+	CodeDuplicateCapability          Code = "DUPLICATE_CAPABILITY"
+	CodeUnsupportedPolicyTarget      Code = "UNSUPPORTED_POLICY_TARGET"
 
 	// Evidence-based codes (emitted only by Evaluate, Phase 5).
 	CodePortNotObserved   Code = "PORT_NOT_OBSERVED"
 	CodeConfigNotObserved Code = "CONFIG_NOT_OBSERVED"
-
-	// Legacy v1 codes: still emitted when validating v1 bundles, but NOT part of
-	// the v2 domain (their fields are removed in v2). Grouped and documented here
-	// so they are not mistaken for canonical v2 findings. No runtime taxonomy flag
-	// (Scope/Legacy) is added until a consumer needs one — docs-only distinction.
-	CodePortRequired                 Code = "PORT_REQUIRED"
-	CodePortIgnored                  Code = "PORT_IGNORED"
-	CodeHealthInterfaceNotFound      Code = "HEALTH_INTERFACE_NOT_FOUND"
-	CodeHealthInterfaceInvalid       Code = "HEALTH_INTERFACE_INVALID"
-	CodeHealthPathRequired           Code = "HEALTH_PATH_REQUIRED"
-	CodeHealthPathIgnored            Code = "HEALTH_PATH_IGNORED"
-	CodeMetricsInterfaceNotFound     Code = "METRICS_INTERFACE_NOT_FOUND"
-	CodeMetricsInterfaceInvalid      Code = "METRICS_INTERFACE_INVALID"
-	CodeMetricsPathRequired          Code = "METRICS_PATH_REQUIRED"
-	CodeMetricsPathIgnored           Code = "METRICS_PATH_IGNORED"
-	CodeInvalidImageRef              Code = "INVALID_IMAGE_REF"
-	CodeInvalidChartRef              Code = "INVALID_CHART_REF"
-	CodeInvalidChartVersion          Code = "INVALID_CHART_VERSION"
-	CodeScalingMinExceedsMax         Code = "SCALING_MIN_EXCEEDS_MAX"
-	CodeJobScalingNotAllowed         Code = "JOB_SCALING_NOT_ALLOWED"
-	CodeUpgradeStrategyStateMismatch Code = "UPGRADE_STRATEGY_STATE_MISMATCH"
 )
 
 type codeMeta struct {
@@ -83,12 +68,11 @@ var registry = map[Code]codeMeta{
 	CodeDuplicateConfigurationName:   {CategoryDuplicateName, SeverityError},
 	CodeDuplicatePolicyName:          {CategoryDuplicateName, SeverityError},
 	CodeDuplicateDependencyName:      {CategoryDuplicateName, SeverityError},
-	CodeContractRequired:             {CategoryInterfaceMismatch, SeverityError},
 	CodeEmptyCompatibility:           {CategoryInvalidDependency, SeverityError},
 	CodeInvalidCompatibility:         {CategoryInvalidDependency, SeverityError},
 	CodeValuesWithoutSchema:          {CategoryMissingConfiguration, SeverityError},
 	CodeConfigValuesValidationFailed: {CategoryConfigurationViolation, SeverityError},
-	CodeInvalidContractFile:          {CategoryInvalidFile, SeverityError},
+	CodeInvalidInterfaceSpec:         {CategoryInvalidFile, SeverityError},
 	CodeInvalidConfigJson:            {CategoryInvalidFile, SeverityError},
 	CodeInvalidConfigSchema:          {CategorySchemaViolation, SeverityError},
 	CodeInvalidPolicyJson:            {CategoryInvalidFile, SeverityError},
@@ -105,28 +89,17 @@ var registry = map[Code]codeMeta{
 	CodePolicyRefNotEnforced:         {CategoryUnresolvedReference, SeverityWarning},
 	CodePolicyRefUnresolved:          {CategoryUnresolvedReference, SeverityError},
 	CodePolicyRefCycle:               {CategoryReferenceCycle, SeverityError},
+	CodeInvalidInterfaceType:         {CategoryInterfaceMismatch, SeverityError},
+	CodeInterfaceRefRequired:         {CategoryInterfaceMismatch, SeverityError},
+	CodeInvalidCapabilityType:        {CategoryInvalidCapability, SeverityError},
+	CodeCapabilityRefRequired:        {CategoryInvalidCapability, SeverityError},
+	CodeCapabilityRefInvalid:         {CategoryInvalidCapability, SeverityError},
+	CodeDuplicateCapability:          {CategoryDuplicateName, SeverityError},
+	CodeUnsupportedPolicyTarget:      {CategoryPolicyViolation, SeverityError},
 
 	// Evidence-based
 	CodePortNotObserved:   {CategoryRuntimeDrift, SeverityError},
 	CodeConfigNotObserved: {CategoryRuntimeDrift, SeverityWarning},
-
-	// Legacy v1
-	CodePortRequired:                 {CategoryInterfaceMismatch, SeverityError},
-	CodePortIgnored:                  {CategoryInterfaceMismatch, SeverityWarning},
-	CodeHealthInterfaceNotFound:      {CategoryInterfaceMismatch, SeverityError},
-	CodeHealthInterfaceInvalid:       {CategoryInterfaceMismatch, SeverityError},
-	CodeHealthPathRequired:           {CategoryInterfaceMismatch, SeverityError},
-	CodeHealthPathIgnored:            {CategoryInterfaceMismatch, SeverityWarning},
-	CodeMetricsInterfaceNotFound:     {CategoryInterfaceMismatch, SeverityError},
-	CodeMetricsInterfaceInvalid:      {CategoryInterfaceMismatch, SeverityError},
-	CodeMetricsPathRequired:          {CategoryInterfaceMismatch, SeverityError},
-	CodeMetricsPathIgnored:           {CategoryInterfaceMismatch, SeverityWarning},
-	CodeInvalidImageRef:              {CategoryInvalidReference, SeverityError},
-	CodeInvalidChartRef:              {CategoryInvalidReference, SeverityError},
-	CodeInvalidChartVersion:          {CategoryInvalidVersion, SeverityError},
-	CodeScalingMinExceedsMax:         {CategoryConfigurationViolation, SeverityError},
-	CodeJobScalingNotAllowed:         {CategoryConfigurationViolation, SeverityError},
-	CodeUpgradeStrategyStateMismatch: {CategoryStateMismatch, SeverityWarning},
 }
 
 // CategoryOf returns the coarse category for a code, or "" if unknown.
