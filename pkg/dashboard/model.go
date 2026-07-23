@@ -148,8 +148,6 @@ type ServiceDetails struct {
 	Service
 
 	Namespace string            `json:"namespace,omitempty"`
-	ImageRef  string            `json:"imageRef,omitempty"`
-	ChartRef  string            `json:"chartRef,omitempty"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
 
 	// Contract references from operator.
@@ -164,14 +162,15 @@ type ServiceDetails struct {
 	Interfaces     []InterfaceInfo     `json:"interfaces,omitempty"`
 	Configurations []ConfigurationInfo `json:"configurations,omitempty"`
 	Dependencies   []DependencyInfo    `json:"dependencies,omitempty"`
-	Runtime        *RuntimeInfo        `json:"runtime,omitempty"`
-	Scaling        *ScalingInfo        `json:"scaling,omitempty"`
+	Workload       string              `json:"workload,omitempty"`
+	State          *StateInfo          `json:"state,omitempty"`
+	Capabilities   []CapabilityInfo    `json:"capabilities,omitempty"`
 	Policies       []PolicyInfo        `json:"policies,omitempty"`
 
-	// Capabilities are agent-invocable tools derived from the http interfaces'
-	// OpenAPI operations. Populated by bundle-backed sources (local/OCI/cache);
+	// Tools are agent-invocable capabilities derived from openapi interfaces'
+	// operations. Populated by bundle-backed sources (local/OCI/cache);
 	// empty for k8s-only services (no bundle FS to parse).
-	Capabilities []CapabilityTool `json:"capabilities,omitempty"`
+	Tools []CapabilityTool `json:"tools,omitempty"`
 
 	// Skills are optional domain-knowledge documents (skills/*.md) shipped in the
 	// bundle. Populated by bundle-backed sources; empty for k8s-only services.
@@ -302,8 +301,7 @@ type SkillInfo struct {
 // InterfaceInfo describes a single service interface.
 type InterfaceInfo struct {
 	Name            string              `json:"name"`
-	Type            string              `json:"type"` // http, grpc, event
-	Port            *int                `json:"port,omitempty"`
+	Type            string              `json:"type"` // openapi, asyncapi, grpc
 	Visibility      string              `json:"visibility,omitempty"`
 	HasContractFile bool                `json:"hasContractFile,omitempty"`
 	ContractFile    string              `json:"contractFile,omitempty"`
@@ -383,26 +381,18 @@ type LockRefInfo struct {
 	ContentHash string `json:"contentHash,omitempty"`
 }
 
-// RuntimeInfo describes runtime behavior.
-type RuntimeInfo struct {
-	Workload                string `json:"workload"` // service, job, scheduled
-	StateType               string `json:"stateType,omitempty"`
-	PersistenceScope        string `json:"persistenceScope,omitempty"`
-	PersistenceDurability   string `json:"persistenceDurability,omitempty"`
-	DataCriticality         string `json:"dataCriticality,omitempty"`
-	UpgradeStrategy         string `json:"upgradeStrategy,omitempty"`
-	GracefulShutdownSeconds *int   `json:"gracefulShutdownSeconds,omitempty"`
-	HealthInterface         string `json:"healthInterface,omitempty"`
-	HealthPath              string `json:"healthPath,omitempty"`
-	MetricsInterface        string `json:"metricsInterface,omitempty"`
-	MetricsPath             string `json:"metricsPath,omitempty"`
+// StateInfo describes the state semantics of the service.
+type StateInfo struct {
+	Type                  string `json:"type"`
+	PersistenceScope      string `json:"persistenceScope,omitempty"`
+	PersistenceDurability string `json:"persistenceDurability,omitempty"`
+	DataCriticality       string `json:"dataCriticality,omitempty"`
 }
 
-// ScalingInfo describes scaling parameters.
-type ScalingInfo struct {
-	Replicas *int `json:"replicas,omitempty"`
-	Min      *int `json:"min,omitempty"`
-	Max      *int `json:"max,omitempty"`
+// CapabilityInfo describes a service capability.
+type CapabilityInfo struct {
+	Type string `json:"type"`
+	Ref  string `json:"ref,omitempty"`
 }
 
 // PolicyInfo describes an attached policy (JSON Schema constraint).

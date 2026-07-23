@@ -628,9 +628,6 @@ func discoverOCIReposFromSource(ctx context.Context, src DataSource) ([]string, 
 		}
 		ref := d.ResolvedRef
 		if ref == "" {
-			ref = d.ImageRef
-		}
-		if ref == "" {
 			continue
 		}
 		repo := stripTag(ref)

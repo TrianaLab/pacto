@@ -59,8 +59,9 @@ type pactoStatus struct {
 	Configurations     flexSlice[k8sConfig]     `json:"configurations,omitempty"`
 	Policies           flexSlice[k8sPolicy]     `json:"policies,omitempty"`
 	Dependencies       flexSlice[k8sDependency] `json:"dependencies,omitempty"`
-	Runtime            *k8sRuntime              `json:"runtime,omitempty"`
-	Scaling            *k8sScaling              `json:"scaling,omitempty"`
+	Workload           string                   `json:"workload,omitempty"`
+	State              *k8sState                `json:"state,omitempty"`
+	Capabilities       flexSlice[k8sCapability] `json:"capabilities,omitempty"`
 	Readiness          *k8sReadiness            `json:"readiness,omitempty"`
 	Resources          *k8sResources            `json:"resources,omitempty"`
 	Ports              *k8sPorts                `json:"ports,omitempty"`
@@ -99,7 +100,6 @@ type k8sContractInfo struct {
 	ServiceName      string         `json:"serviceName"`
 	Version          string         `json:"version"`
 	Owner            contract.Owner `json:"owner"`
-	ImageRef         string         `json:"imageRef"`
 	ResolvedRef      string         `json:"resolvedRef"`
 	CurrentRevision  string         `json:"currentRevision,omitempty"`
 	ResolutionPolicy string         `json:"resolutionPolicy,omitempty"` // "Latest", "PinnedTag", "PinnedDigest"
@@ -120,7 +120,6 @@ type k8sIssue struct {
 type k8sInterface struct {
 	Name            string `json:"name"`
 	Type            string `json:"type"`
-	Port            *int   `json:"port,omitempty"`
 	Visibility      string `json:"visibility"`
 	HasContractFile bool   `json:"hasContractFile"`
 }
@@ -160,24 +159,16 @@ type k8sDependency struct {
 	Compatibility string `json:"compatibility"`
 }
 
-type k8sRuntime struct {
-	Workload                string `json:"workload"`
-	StateType               string `json:"stateType"`
-	PersistenceScope        string `json:"persistenceScope"`
-	PersistenceDurability   string `json:"persistenceDurability"`
-	DataCriticality         string `json:"dataCriticality"`
-	UpgradeStrategy         string `json:"upgradeStrategy"`
-	GracefulShutdownSeconds *int   `json:"gracefulShutdownSeconds,omitempty"`
-	HealthInterface         string `json:"healthInterface"`
-	HealthPath              string `json:"healthPath"`
-	MetricsInterface        string `json:"metricsInterface"`
-	MetricsPath             string `json:"metricsPath"`
+type k8sState struct {
+	Type                  string `json:"type"`
+	PersistenceScope      string `json:"persistenceScope,omitempty"`
+	PersistenceDurability string `json:"persistenceDurability,omitempty"`
+	DataCriticality       string `json:"dataCriticality,omitempty"`
 }
 
-type k8sScaling struct {
-	Replicas *int `json:"replicas,omitempty"`
-	Min      *int `json:"min,omitempty"`
-	Max      *int `json:"max,omitempty"`
+type k8sCapability struct {
+	Type string `json:"type"`
+	Ref  string `json:"ref,omitempty"`
 }
 
 // k8sReadiness mirrors the operator's status.readiness (derived readiness).
@@ -613,7 +604,6 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 	svc.Namespace = r.Metadata.Namespace
 
 	if r.Status.Contract != nil {
-		svc.ImageRef = r.Status.Contract.ImageRef
 		svc.ResolvedRef = r.Status.Contract.ResolvedRef
 		svc.CurrentRevision = r.Status.Contract.CurrentRevision
 		if r.Status.Contract.ResolutionPolicy != "" {
@@ -632,7 +622,6 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 		svc.Interfaces = append(svc.Interfaces, InterfaceInfo{
 			Name:            i.Name,
 			Type:            i.Type,
-			Port:            i.Port,
 			Visibility:      i.Visibility,
 			HasContractFile: i.HasContractFile,
 		})
@@ -673,30 +662,22 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 		})
 	}
 
-	// Runtime
-	if r.Status.Runtime != nil {
-		svc.Runtime = &RuntimeInfo{
-			Workload:                r.Status.Runtime.Workload,
-			StateType:               r.Status.Runtime.StateType,
-			PersistenceScope:        r.Status.Runtime.PersistenceScope,
-			PersistenceDurability:   r.Status.Runtime.PersistenceDurability,
-			DataCriticality:         r.Status.Runtime.DataCriticality,
-			UpgradeStrategy:         r.Status.Runtime.UpgradeStrategy,
-			GracefulShutdownSeconds: r.Status.Runtime.GracefulShutdownSeconds,
-			HealthInterface:         r.Status.Runtime.HealthInterface,
-			HealthPath:              r.Status.Runtime.HealthPath,
-			MetricsInterface:        r.Status.Runtime.MetricsInterface,
-			MetricsPath:             r.Status.Runtime.MetricsPath,
+	svc.Workload = r.Status.Workload
+
+	if r.Status.State != nil {
+		svc.State = &StateInfo{
+			Type:                  r.Status.State.Type,
+			PersistenceScope:      r.Status.State.PersistenceScope,
+			PersistenceDurability: r.Status.State.PersistenceDurability,
+			DataCriticality:       r.Status.State.DataCriticality,
 		}
 	}
 
-	// Scaling
-	if r.Status.Scaling != nil {
-		svc.Scaling = &ScalingInfo{
-			Replicas: r.Status.Scaling.Replicas,
-			Min:      r.Status.Scaling.Min,
-			Max:      r.Status.Scaling.Max,
-		}
+	for _, cap := range r.Status.Capabilities {
+		svc.Capabilities = append(svc.Capabilities, CapabilityInfo{
+			Type: cap.Type,
+			Ref:  cap.Ref,
+		})
 	}
 
 	svc.Readiness = readinessFromK8s(r.Status.Readiness)
@@ -719,8 +700,8 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 	// Compute compliance from contract status and conditions.
 	svc.Compliance = ComputeCompliance(svc.ContractStatus, svc.Conditions)
 
-	// Compute runtime diff if both contract runtime and observed runtime are available.
-	svc.RuntimeDiff = ComputeRuntimeDiff(svc.Runtime, svc.ObservedRuntime)
+	// Compute runtime diff if contract or observed runtime are available.
+	svc.RuntimeDiff = ComputeRuntimeDiff(svc.Workload, svc.State, svc.ObservedRuntime)
 
 	return svc
 }

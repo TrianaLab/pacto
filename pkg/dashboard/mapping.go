@@ -57,20 +57,14 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 		Service: ServiceFromContract(c, source),
 	}
 
-	if c.Service.Image != nil {
-		svc.ImageRef = c.Service.Image.Ref
-	}
-	if c.Service.Chart != nil {
-		svc.ChartRef = c.Service.Chart.Ref
-	}
-
 	svc.Interfaces = interfacesFromContract(c, bundle.FS)
 	svc.Configurations = configsFromContract(c, bundle.FS)
 	svc.Dependencies = depsFromContract(c)
-	svc.Runtime = runtimeFromContract(c)
-	svc.Scaling = scalingFromContract(c)
+	svc.Workload = c.Workload
+	svc.State = stateFromContract(c)
+	svc.Capabilities = capabilitiesFromContract(c)
 	svc.Policies = policiesFromContract(c, bundle.FS)
-	svc.Capabilities = capabilitiesFromContract(c, bundle.FS)
+	svc.Tools = toolsFromContract(c, bundle.FS)
 	svc.Skills = skillsFromContract(bundle.FS)
 	svc.Docs = docsFromContract(bundle.FS)
 	svc.Readiness = readinessFromContract(c, docPathSet(svc.Docs))
@@ -245,23 +239,28 @@ func interfacesFromContract(c *contract.Contract, fsys fs.FS) []InterfaceInfo {
 		info := InterfaceInfo{
 			Name:            iface.Name,
 			Type:            iface.Type,
-			Port:            iface.Port,
 			Visibility:      iface.Visibility,
-			HasContractFile: iface.Contract != "",
-			ContractFile:    iface.Contract,
+			HasContractFile: iface.Ref != "",
+			ContractFile:    iface.Ref,
 		}
-		if iface.Contract != "" && fsys != nil {
-			endpoints, err := openapi.ReadOpenAPIEndpoints(fsys, iface.Contract)
-			if err == nil && len(endpoints) > 0 {
-				for _, ep := range endpoints {
-					info.Endpoints = append(info.Endpoints, InterfaceEndpoint{
-						Method:  strings.ToUpper(ep.Method),
-						Path:    ep.Path,
-						Summary: ep.Summary,
-					})
+		if iface.Ref != "" && fsys != nil {
+			if iface.Type == contract.InterfaceTypeOpenAPI {
+				endpoints, err := openapi.ReadOpenAPIEndpoints(fsys, iface.Ref)
+				if err == nil && len(endpoints) > 0 {
+					for _, ep := range endpoints {
+						info.Endpoints = append(info.Endpoints, InterfaceEndpoint{
+							Method:  strings.ToUpper(ep.Method),
+							Path:    ep.Path,
+							Summary: ep.Summary,
+						})
+					}
+				} else {
+					if data, readErr := fs.ReadFile(fsys, iface.Ref); readErr == nil {
+						info.ContractContent = truncateContent(string(data))
+					}
 				}
 			} else {
-				if data, readErr := fs.ReadFile(fsys, iface.Contract); readErr == nil {
+				if data, readErr := fs.ReadFile(fsys, iface.Ref); readErr == nil {
 					info.ContractContent = truncateContent(string(data))
 				}
 			}
@@ -271,37 +270,46 @@ func interfacesFromContract(c *contract.Contract, fsys fs.FS) []InterfaceInfo {
 	return out
 }
 
-// capabilitiesFromContract derives agent-invocable tool descriptors from every
-// http interface's OpenAPI operations. It surfaces all operations (mutating ones
+func capabilitiesFromContract(c *contract.Contract) []CapabilityInfo {
+	var out []CapabilityInfo
+	for _, cap := range c.Capabilities {
+		out = append(out, CapabilityInfo{
+			Type: cap.Type,
+			Ref:  cap.Ref,
+		})
+	}
+	return out
+}
+
+// toolsFromContract derives agent-invocable tool descriptors from every
+// openapi interface's operations. It surfaces all operations (mutating ones
 // flagged); the dashboard only displays them, never invokes. Interface names
-// prefix tool names when more than one http interface exists, matching the MCP
+// prefix tool names when more than one openapi interface exists, matching the MCP
 // runtime. k8s-only services (nil FS) yield nothing.
-func capabilitiesFromContract(c *contract.Contract, fsys fs.FS) []CapabilityTool {
+func toolsFromContract(c *contract.Contract, fsys fs.FS) []CapabilityTool {
 	if fsys == nil {
 		return nil
 	}
-	httpIfaces := 0
+	openapiIfaces := 0
 	for _, iface := range c.Interfaces {
-		if iface.Type == contract.InterfaceTypeHTTP && iface.Contract != "" {
-			httpIfaces++
+		if iface.Type == contract.InterfaceTypeOpenAPI && iface.Ref != "" {
+			openapiIfaces++
 		}
 	}
 	var out []CapabilityTool
 	for _, iface := range c.Interfaces {
-		if iface.Type != contract.InterfaceTypeHTTP || iface.Contract == "" {
+		if iface.Type != contract.InterfaceTypeOpenAPI || iface.Ref == "" {
 			continue
 		}
-		doc, err := openapi.ReadDoc(fsys, iface.Contract)
+		doc, err := openapi.ReadDoc(fsys, iface.Ref)
 		if err != nil {
 			continue
 		}
 		prefix := ""
-		if httpIfaces > 1 {
+		if openapiIfaces > 1 {
 			prefix = iface.Name + "_"
 		}
 		for _, tool := range capability.BuildTools(doc, true) {
-			// Fall back to the operation description when there is no summary, so
-			// the dashboard matches the text the MCP tool advertises.
 			summary := tool.Summary
 			if summary == "" {
 				summary = tool.Description
@@ -379,46 +387,16 @@ func depsFromContract(c *contract.Contract) []DependencyInfo {
 	return out
 }
 
-func runtimeFromContract(c *contract.Contract) *RuntimeInfo {
-	if c.Runtime == nil {
+func stateFromContract(c *contract.Contract) *StateInfo {
+	if c.State == nil {
 		return nil
 	}
-	ri := &RuntimeInfo{
-		Workload:              c.Runtime.Workload,
-		StateType:             c.Runtime.State.Type,
-		DataCriticality:       c.Runtime.State.DataCriticality,
-		PersistenceScope:      c.Runtime.State.Persistence.Scope,
-		PersistenceDurability: c.Runtime.State.Persistence.Durability,
+	return &StateInfo{
+		Type:                  c.State.Type,
+		PersistenceScope:      c.State.Persistence.Scope,
+		PersistenceDurability: c.State.Persistence.Durability,
+		DataCriticality:       c.State.DataCriticality,
 	}
-	if c.Runtime.Lifecycle != nil {
-		ri.UpgradeStrategy = c.Runtime.Lifecycle.UpgradeStrategy
-		ri.GracefulShutdownSeconds = c.Runtime.Lifecycle.GracefulShutdownSeconds
-	}
-	if c.Runtime.Health != nil {
-		ri.HealthInterface = c.Runtime.Health.Interface
-		ri.HealthPath = c.Runtime.Health.Path
-	}
-	if c.Runtime.Metrics != nil {
-		ri.MetricsInterface = c.Runtime.Metrics.Interface
-		ri.MetricsPath = c.Runtime.Metrics.Path
-	}
-	return ri
-}
-
-func scalingFromContract(c *contract.Contract) *ScalingInfo {
-	if c.Scaling == nil {
-		return nil
-	}
-	si := &ScalingInfo{Replicas: c.Scaling.Replicas}
-	if c.Scaling.Min > 0 {
-		v := c.Scaling.Min
-		si.Min = &v
-	}
-	if c.Scaling.Max > 0 {
-		v := c.Scaling.Max
-		si.Max = &v
-	}
-	return si
 }
 
 func policiesFromContract(c *contract.Contract, fsys fs.FS) []PolicyInfo {

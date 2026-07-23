@@ -107,16 +107,12 @@ func ComputeCompliance(cs ContractStatus, conditions []Condition) *ComplianceInf
 }
 
 // ComputeRuntimeDiff builds the semantic contract-vs-runtime comparison rows.
-func ComputeRuntimeDiff(runtime *RuntimeInfo, observed *ObservedRuntime) []RuntimeDiffRow {
-	if runtime == nil && observed == nil {
+func ComputeRuntimeDiff(workload string, state *StateInfo, observed *ObservedRuntime) []RuntimeDiffRow {
+	if state == nil && observed == nil {
 		return nil
 	}
 
 	var rows []RuntimeDiffRow
-	rt := runtime
-	if rt == nil {
-		rt = &RuntimeInfo{}
-	}
 	obs := observed
 	if obs == nil {
 		obs = &ObservedRuntime{}
@@ -125,53 +121,22 @@ func ComputeRuntimeDiff(runtime *RuntimeInfo, observed *ObservedRuntime) []Runti
 	// Workload Type
 	rows = append(rows, diffRow(
 		"Workload Type",
-		"runtime.workload",
-		mapWorkloadToDeclared(rt.Workload),
+		"workload",
+		mapWorkloadToDeclared(workload),
 		obs.WorkloadKind,
 	))
 
-	// Upgrade Strategy
-	rows = append(rows, diffRow(
-		"Upgrade Strategy",
-		"runtime.lifecycle.upgradeStrategy",
-		rt.UpgradeStrategy,
-		obs.DeploymentStrategy,
-	))
-
-	// Graceful Shutdown
-	rows = append(rows, diffRow(
-		"Graceful Shutdown",
-		"runtime.lifecycle.gracefulShutdownSeconds",
-		intPtrToString(rt.GracefulShutdownSeconds),
-		intPtrToString(obs.TerminationGracePeriodSeconds),
-	))
-
-	// Container Image
-	declaredImage := ""
-	observedImages := strings.Join(obs.ContainerImages, ", ")
-	rows = append(rows, diffRow(
-		"Container Image",
-		"service.image",
-		declaredImage,
-		observedImages,
-	))
-
 	// State / Storage
-	declaredState := rt.StateType
+	declaredState := ""
+	if state != nil {
+		declaredState = state.Type
+	}
 	observedState := storageState(obs)
 	rows = append(rows, diffRow(
 		"State / Storage",
-		"runtime.state.type",
+		"state.type",
 		declaredState,
 		observedState,
-	))
-
-	// Health Probe Delay
-	rows = append(rows, diffRow(
-		"Health Probe Delay",
-		"runtime.health",
-		"",
-		intPtrToString(obs.HealthProbeInitialDelay),
 	))
 
 	return rows
