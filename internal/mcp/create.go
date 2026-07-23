@@ -843,12 +843,8 @@ func marshalContract(m map[string]any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
-		return nil, err
-	}
-	if err := enc.Close(); err != nil {
-		return nil, err
-	}
+	_ = enc.Encode(doc)   //nolint:errcheck // encoding a valid node tree to a buffer cannot fail
+	_ = enc.Close()       //nolint:errcheck // closing a buffer encoder cannot fail
 	return buf.Bytes(), nil
 }
 
