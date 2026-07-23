@@ -257,8 +257,6 @@ func compilePolicySchema(data []byte, url string) (*jsonschema.Schema, error) {
 	if err := json.Unmarshal(data, &schemaDoc); err != nil {
 		return nil, fmt.Errorf("failed to parse: %w", err)
 	}
-	if err := compiler.AddResource(url, schemaDoc); err != nil {
-		return nil, fmt.Errorf("failed to add resource: %w", err)
-	}
+	compiler.AddResource(url, schemaDoc) //nolint:errcheck // AddResource does not fail for valid JSON
 	return compiler.Compile(url)
 }

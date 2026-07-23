@@ -108,9 +108,8 @@ func TestValidate_InvalidYAMLBytes(t *testing.T) {
 }
 
 func TestValidateStructural_InvalidData(t *testing.T) {
-	// Missing required fields
 	data := map[string]any{
-		"pactoVersion": "1.0",
+		"pactoVersion": "2.0",
 	}
 	result := ValidateStructural(data)
 	if result.IsValid() {

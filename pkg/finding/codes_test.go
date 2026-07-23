@@ -4,24 +4,31 @@ import "testing"
 
 func TestCategoryOf(t *testing.T) {
 	cases := map[Code]Category{
-		CodePortRequired:                 CategoryInterfaceMismatch,
 		CodeStatelessPersistent:          CategoryStateMismatch,
 		CodePolicyViolation:              CategoryPolicyViolation,
 		CodeDuplicateInterfaceName:       CategoryDuplicateName,
-		CodePortNotObserved:              CategoryRuntimeDrift,
 		CodeInvalidSemver:                CategoryInvalidVersion,
 		CodeTagNotDigest:                 CategoryInvalidReference,
 		CodeEmptyCompatibility:           CategoryInvalidDependency,
 		CodeInvalidConfigRef:             CategoryInvalidReference,
 		CodeYamlParseError:               CategorySchemaViolation,
-		CodeHealthInterfaceNotFound:      CategoryInterfaceMismatch,
 		CodePolicyRefUnresolved:          CategoryUnresolvedReference,
 		CodePolicyRefCycle:               CategoryReferenceCycle,
 		CodeInvalidReadinessExpires:      CategoryInvalidReadiness,
 		CodeEmptyReadinessEvidence:       CategoryMissingEvidence,
 		CodeValuesWithoutSchema:          CategoryMissingConfiguration,
 		CodeConfigValuesValidationFailed: CategoryConfigurationViolation,
-		CodeInvalidContractFile:          CategoryInvalidFile,
+		CodeInvalidInterfaceSpec:         CategoryInvalidFile,
+		CodeFileNotFound:                 CategoryInvalidFile,
+		CodeInvalidInterfaceType:         CategoryInterfaceMismatch,
+		CodeInterfaceRefRequired:         CategoryInterfaceMismatch,
+		CodeInvalidCapabilityType:        CategoryInvalidCapability,
+		CodeCapabilityRefRequired:        CategoryInvalidCapability,
+		CodeCapabilityRefInvalid:         CategoryInvalidCapability,
+		CodeDuplicateCapability:          CategoryDuplicateName,
+		CodeUnsupportedPolicyTarget:      CategoryPolicyViolation,
+		CodePortNotObserved:              CategoryRuntimeDrift,
+		CodeConfigNotObserved:            CategoryRuntimeDrift,
 	}
 	for code, want := range cases {
 		if got := CategoryOf(code); got != want {
@@ -32,11 +39,7 @@ func TestCategoryOf(t *testing.T) {
 
 func TestDefaultSeverity_WarningCodes(t *testing.T) {
 	warningCodes := []Code{
-		CodePortIgnored,
-		CodeHealthPathIgnored,
-		CodeMetricsPathIgnored,
 		CodeTagNotDigest,
-		CodeUpgradeStrategyStateMismatch,
 		CodePolicyRefNotEnforced,
 		CodeConfigNotObserved,
 	}
@@ -49,11 +52,17 @@ func TestDefaultSeverity_WarningCodes(t *testing.T) {
 
 func TestDefaultSeverity_ErrorCodes(t *testing.T) {
 	errorCodes := []Code{
-		CodePortRequired,
 		CodePortNotObserved,
 		CodePolicyViolation,
 		CodeInvalidSemver,
 		CodeStatelessPersistent,
+		CodeInvalidInterfaceType,
+		CodeInterfaceRefRequired,
+		CodeInvalidCapabilityType,
+		CodeCapabilityRefRequired,
+		CodeCapabilityRefInvalid,
+		CodeDuplicateCapability,
+		CodeUnsupportedPolicyTarget,
 	}
 	for _, code := range errorCodes {
 		if got := DefaultSeverity(code); got != SeverityError {
@@ -76,13 +85,9 @@ func TestUnknownCodeSeverity(t *testing.T) {
 
 func TestRegistryContract(t *testing.T) {
 	warnCodes := map[Code]bool{
-		CodePortIgnored:                  true,
-		CodeHealthPathIgnored:            true,
-		CodeMetricsPathIgnored:           true,
-		CodeTagNotDigest:                 true,
-		CodeUpgradeStrategyStateMismatch: true,
-		CodePolicyRefNotEnforced:         true,
-		CodeConfigNotObserved:            true,
+		CodeTagNotDigest:         true,
+		CodePolicyRefNotEnforced: true,
+		CodeConfigNotObserved:    true,
 	}
 	for code := range registry {
 		if cat := CategoryOf(code); cat == "" {

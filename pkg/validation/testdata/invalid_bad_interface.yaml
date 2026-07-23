@@ -1,12 +1,12 @@
 pactoVersion: "2.0"
 
 service:
-  name: my-service
+  name: bad-iface
   version: 1.0.0
   owner:
     team: platform
 
 interfaces:
   - name: api
-    type: openapi
-    ref: interfaces/openapi.yaml
+    type: http
+    ref: interfaces/spec.yaml

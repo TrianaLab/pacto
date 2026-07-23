@@ -1,32 +1,50 @@
-pactoVersion: "1.0"
+pactoVersion: "2.0"
 
 service:
-  name: db-service
-  version: 2.0.0
-  image:
-    ref: ghcr.io/acme/db-service:2.0.0
-    private: true
+  name: data-service
+  version: 2.1.0
+  owner:
+    team: backend
 
 interfaces:
   - name: api
-    type: http
-    port: 5432
+    type: openapi
+    ref: interfaces/openapi.yaml
+    visibility: public
 
-runtime:
-  workload: service
+workload: service
 
-  state:
-    type: stateful
-    persistence:
-      scope: local
-      durability: persistent
-    dataCriticality: high
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
 
-  lifecycle:
-    upgradeStrategy: ordered
-    gracefulShutdownSeconds: 60
+capabilities:
+  - type: health
+  - type: metrics
 
-  health:
-    interface: api
-    path: /health
-    initialDelaySeconds: 30
+configurations:
+  - name: app
+    schema: configuration/app.schema.json
+    values:
+      replicas: 3
+      timeout: 30
+
+dependencies:
+  - name: cache
+    ref: oci://ghcr.io/acme/redis@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    compatibility: ^1.0.0
+    required: true
+
+readiness:
+  minScore: 75
+  expires: "2027-12-31"
+  claims:
+    - id: deploy-automation
+      type: other
+      category: deployment
+      status: done
+      evidence: Uses ArgoCD for continuous deployment
+      weight: 10
