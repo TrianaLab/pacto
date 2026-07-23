@@ -116,54 +116,55 @@ func TestComputeCompliance_NoConds(t *testing.T) {
 }
 
 func TestComputeRuntimeDiff_BothNil(t *testing.T) {
-	rows := ComputeRuntimeDiff(nil, nil)
+	rows := ComputeRuntimeDiff("", nil, nil)
 	if rows != nil {
 		t.Errorf("expected nil, got %v", rows)
 	}
 }
 
 func TestComputeRuntimeDiff_Match(t *testing.T) {
-	rt := &RuntimeInfo{
-		Workload:        "service",
-		UpgradeStrategy: "RollingUpdate",
+	state := &StateInfo{
+		Type: "stateless",
 	}
 	obs := &ObservedRuntime{
-		WorkloadKind:       "Deployment",
-		DeploymentStrategy: "RollingUpdate",
+		WorkloadKind: "Deployment",
 	}
-	rows := ComputeRuntimeDiff(rt, obs)
-	if len(rows) == 0 {
-		t.Fatal("expected rows")
+	rows := ComputeRuntimeDiff("service", state, obs)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
 	}
 	// Workload: service -> Deployment, observed Deployment -> match
 	if rows[0].Status != "match" {
 		t.Errorf("expected match for workload, got %q", rows[0].Status)
 	}
-	// Upgrade strategy: RollingUpdate == RollingUpdate -> match
+	if rows[0].Field != "Workload Type" {
+		t.Errorf("expected field 'Workload Type', got %q", rows[0].Field)
+	}
+	// State: stateless, no PVC/emptyDir -> stateless -> match
 	if rows[1].Status != "match" {
-		t.Errorf("expected match for upgrade strategy, got %q", rows[1].Status)
+		t.Errorf("expected match for state, got %q", rows[1].Status)
 	}
 }
 
 func TestComputeRuntimeDiff_Mismatch(t *testing.T) {
-	rt := &RuntimeInfo{
-		Workload: "service",
+	state := &StateInfo{
+		Type: "stateless",
 	}
 	obs := &ObservedRuntime{
 		WorkloadKind: "StatefulSet",
 	}
-	rows := ComputeRuntimeDiff(rt, obs)
+	rows := ComputeRuntimeDiff("service", state, obs)
 	// Workload: service -> Deployment, observed StatefulSet -> mismatch
 	if rows[0].Status != "mismatch" {
 		t.Errorf("expected mismatch for workload, got %q", rows[0].Status)
 	}
 }
 
-func TestComputeRuntimeDiff_NilRuntime(t *testing.T) {
+func TestComputeRuntimeDiff_NilState(t *testing.T) {
 	obs := &ObservedRuntime{WorkloadKind: "Deployment"}
-	rows := ComputeRuntimeDiff(nil, obs)
-	if len(rows) == 0 {
-		t.Fatal("expected rows even with nil runtime")
+	rows := ComputeRuntimeDiff("service", nil, obs)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows even with nil state, got %d", len(rows))
 	}
 }
 

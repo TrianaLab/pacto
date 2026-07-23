@@ -1703,18 +1703,15 @@ func (s *resolveStore) Pull(_ context.Context, _ string) (*contract.Bundle, erro
 func (s *resolveStore) ListTags(context.Context, string) ([]string, error) { return nil, nil }
 
 func newResolveTestBundle() *contract.Bundle {
-	port := 8080
 	return &contract.Bundle{
 		Contract: &contract.Contract{
-			PactoVersion: "1.0",
-			Service:      contract.ServiceIdentity{Name: "remote-svc", Version: "1.0.0"},
-			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
-			Runtime: &contract.Runtime{
-				Workload: "service",
-				State:    contract.State{Type: "stateless", Persistence: contract.Persistence{Scope: "local", Durability: "ephemeral"}, DataCriticality: "low"},
-			},
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: "remote-svc", Version: "1.0.0"},
+			Interfaces:   []contract.Interface{{Name: "api", Type: contract.InterfaceTypeOpenAPI}},
+			Workload:     contract.WorkloadService,
+			State:        &contract.State{Type: contract.StateStateless, Persistence: contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral}, DataCriticality: contract.DataCriticalityLow},
 		},
-		RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: remote-svc\n  version: \"1.0.0\"\ninterfaces:\n  - name: api\n    type: http\n    port: 8080\nruntime:\n  workload: service\n  state:\n    type: stateless\n    persistence:\n      scope: local\n      durability: ephemeral\n    dataCriticality: low\n"),
+		RawYAML: []byte("pactoVersion: \"2.0\"\nservice:\n  name: remote-svc\n  version: \"1.0.0\"\ninterfaces:\n  - name: api\n    type: openapi\nworkload: service\nstate:\n  type: stateless\n  persistence:\n    scope: local\n    durability: ephemeral\n  dataCriticality: low\n"),
 	}
 }
 

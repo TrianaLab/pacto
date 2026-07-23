@@ -14,11 +14,34 @@ const capOpenAPI = `{"paths":{
 }}`
 
 func TestCapabilitiesFromContract(t *testing.T) {
+	c := &contract.Contract{
+		Capabilities: []contract.Capability{
+			{Type: contract.CapabilityHealth},
+			{Type: contract.CapabilityMetrics, Ref: "/metrics"},
+			{Type: "extension", Ref: "/custom"},
+		},
+	}
+	caps := capabilitiesFromContract(c)
+	if len(caps) != 3 {
+		t.Fatalf("expected 3 capabilities, got %d: %+v", len(caps), caps)
+	}
+	if caps[0].Type != "health" || caps[0].Ref != "" {
+		t.Errorf("caps[0] = %+v", caps[0])
+	}
+	if caps[1].Type != "metrics" || caps[1].Ref != "/metrics" {
+		t.Errorf("caps[1] = %+v", caps[1])
+	}
+	if caps[2].Type != "extension" || caps[2].Ref != "/custom" {
+		t.Errorf("caps[2] = %+v", caps[2])
+	}
+}
+
+func TestToolsFromContract(t *testing.T) {
 	c := &contract.Contract{Interfaces: []contract.Interface{
-		{Name: "http", Type: contract.InterfaceTypeHTTP, Contract: "openapi.json"},
+		{Name: "http", Type: contract.InterfaceTypeOpenAPI, Ref: "openapi.json"},
 	}}
 	fsys := fstest.MapFS{"openapi.json": {Data: []byte(capOpenAPI)}}
-	tools := capabilitiesFromContract(c, fsys)
+	tools := toolsFromContract(c, fsys)
 	if len(tools) != 2 {
 		t.Fatalf("tools = %+v", tools)
 	}
@@ -34,27 +57,27 @@ func TestCapabilitiesFromContract(t *testing.T) {
 	}
 }
 
-func TestCapabilitiesFromContract_DescriptionFallback(t *testing.T) {
+func TestToolsFromContract_DescriptionFallback(t *testing.T) {
 	c := &contract.Contract{Interfaces: []contract.Interface{
-		{Name: "http", Type: contract.InterfaceTypeHTTP, Contract: "o.json"},
+		{Name: "http", Type: contract.InterfaceTypeOpenAPI, Ref: "o.json"},
 	}}
 	spec := `{"paths":{"/x":{"get":{"operationId":"getX","description":"Only a description"}}}}`
-	tools := capabilitiesFromContract(c, fstest.MapFS{"o.json": {Data: []byte(spec)}})
+	tools := toolsFromContract(c, fstest.MapFS{"o.json": {Data: []byte(spec)}})
 	if len(tools) != 1 || tools[0].Summary != "Only a description" {
 		t.Fatalf("expected description used as summary, got %+v", tools)
 	}
 }
 
-func TestCapabilitiesFromContract_MultiInterfacePrefix(t *testing.T) {
+func TestToolsFromContract_MultiInterfacePrefix(t *testing.T) {
 	c := &contract.Contract{Interfaces: []contract.Interface{
-		{Name: "alpha", Type: contract.InterfaceTypeHTTP, Contract: "a.json"},
-		{Name: "beta", Type: contract.InterfaceTypeHTTP, Contract: "b.json"},
+		{Name: "alpha", Type: contract.InterfaceTypeOpenAPI, Ref: "a.json"},
+		{Name: "beta", Type: contract.InterfaceTypeOpenAPI, Ref: "b.json"},
 	}}
 	fsys := fstest.MapFS{
 		"a.json": {Data: []byte(`{"paths":{"/ping":{"get":{"operationId":"ping"}}}}`)},
 		"b.json": {Data: []byte(`{"paths":{"/ping":{"get":{"operationId":"ping"}}}}`)},
 	}
-	tools := capabilitiesFromContract(c, fsys)
+	tools := toolsFromContract(c, fsys)
 	names := map[string]bool{}
 	for _, tl := range tools {
 		names[tl.Name] = true
@@ -64,16 +87,16 @@ func TestCapabilitiesFromContract_MultiInterfacePrefix(t *testing.T) {
 	}
 }
 
-func TestCapabilitiesFromContract_SkipsAndErrors(t *testing.T) {
-	if got := capabilitiesFromContract(&contract.Contract{}, nil); got != nil {
+func TestToolsFromContract_SkipsAndErrors(t *testing.T) {
+	if got := toolsFromContract(&contract.Contract{}, nil); got != nil {
 		t.Errorf("nil FS must yield nil, got %v", got)
 	}
 	c := &contract.Contract{Interfaces: []contract.Interface{
-		{Name: "ev", Type: contract.InterfaceTypeEvent, Contract: "e.json"},          // non-http skipped
-		{Name: "nocontract", Type: contract.InterfaceTypeHTTP},                       // no contract skipped
-		{Name: "broken", Type: contract.InterfaceTypeHTTP, Contract: "missing.json"}, // ReadDoc error skipped
+		{Name: "ev", Type: contract.InterfaceTypeAsyncAPI, Ref: "e.json"},          // non-openapi skipped
+		{Name: "nocontract", Type: contract.InterfaceTypeOpenAPI},                  // no ref skipped
+		{Name: "broken", Type: contract.InterfaceTypeOpenAPI, Ref: "missing.json"}, // ReadDoc error skipped
 	}}
-	if got := capabilitiesFromContract(c, fstest.MapFS{}); got != nil {
+	if got := toolsFromContract(c, fstest.MapFS{}); got != nil {
 		t.Errorf("expected nil, got %v", got)
 	}
 }
@@ -106,18 +129,18 @@ func TestSkillsFromContract_CountCap(t *testing.T) {
 	}
 }
 
-func TestServiceDetailsFromBundle_Capabilities(t *testing.T) {
+func TestServiceDetailsFromBundle_Tools(t *testing.T) {
 	c := &contract.Contract{
-		Service:    contract.ServiceIdentity{Name: "demo", Version: "1.0.0"},
-		Interfaces: []contract.Interface{{Name: "http", Type: contract.InterfaceTypeHTTP, Contract: "openapi.json"}},
+		Service:    contract.Service{Name: "demo", Version: "1.0.0"},
+		Interfaces: []contract.Interface{{Name: "http", Type: contract.InterfaceTypeOpenAPI, Ref: "openapi.json"}},
 	}
 	fsys := fstest.MapFS{
 		"openapi.json":    {Data: []byte(capOpenAPI)},
 		"skills/usage.md": {Data: []byte("# Usage")},
 	}
 	svc := ServiceDetailsFromBundle(&contract.Bundle{Contract: c, FS: fsys}, "local")
-	if len(svc.Capabilities) != 2 {
-		t.Fatalf("capabilities = %+v", svc.Capabilities)
+	if len(svc.Tools) != 2 {
+		t.Fatalf("tools = %+v", svc.Tools)
 	}
 	if len(svc.Skills) != 1 || svc.Skills[0].Name != "usage.md" || svc.Skills[0].Content != "# Usage" {
 		t.Fatalf("skills = %+v", svc.Skills)

@@ -58,22 +58,19 @@ func startResolveTestServer(t *testing.T, source DataSource, store oci.BundleSto
 
 // newPaymentBundle creates a test bundle for payment-service.
 func newPaymentBundle() *contract.Bundle {
-	port := 8080
 	return &contract.Bundle{
 		Contract: &contract.Contract{
-			PactoVersion: "1.0",
-			Service:      contract.ServiceIdentity{Name: "payment-service", Version: "2.0.0"},
-			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
-			Runtime: &contract.Runtime{
-				Workload: "service",
-				State: contract.State{
-					Type:            "stateless",
-					Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-					DataCriticality: "low",
-				},
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: "payment-service", Version: "2.0.0"},
+			Interfaces:   []contract.Interface{{Name: "api", Type: contract.InterfaceTypeOpenAPI}},
+			Workload:     contract.WorkloadService,
+			State: &contract.State{
+				Type:            contract.StateStateless,
+				Persistence:     contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral},
+				DataCriticality: contract.DataCriticalityLow,
 			},
 		},
-		RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: payment-service\n  version: \"2.0.0\"\ninterfaces:\n  - name: api\n    type: http\n    port: 8080\nruntime:\n  workload: service\n  state:\n    type: stateless\n    persistence:\n      scope: local\n      durability: ephemeral\n    dataCriticality: low\n"),
+		RawYAML: []byte("pactoVersion: \"2.0\"\nservice:\n  name: payment-service\n  version: \"2.0.0\"\ninterfaces:\n  - name: api\n    type: openapi\nworkload: service\nstate:\n  type: stateless\n  persistence:\n    scope: local\n    durability: ephemeral\n  dataCriticality: low\n"),
 	}
 }
 
@@ -391,36 +388,31 @@ func (s *cachingStore) ListTags(_ context.Context, _ string) ([]string, error) {
 }
 
 func newVersionedBundle(name, version string) *contract.Bundle {
-	port := 8080
-	yaml := fmt.Sprintf(`pactoVersion: "1.0"
+	yaml := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: %s
   version: "%s"
 interfaces:
   - name: api
-    type: http
-    port: 8080
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+    type: openapi
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `, name, version)
 	return &contract.Bundle{
 		Contract: &contract.Contract{
-			PactoVersion: "1.0",
-			Service:      contract.ServiceIdentity{Name: name, Version: version},
-			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
-			Runtime: &contract.Runtime{
-				Workload: "service",
-				State: contract.State{
-					Type:            "stateless",
-					Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-					DataCriticality: "low",
-				},
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: name, Version: version},
+			Interfaces:   []contract.Interface{{Name: "api", Type: contract.InterfaceTypeOpenAPI}},
+			Workload:     contract.WorkloadService,
+			State: &contract.State{
+				Type:            contract.StateStateless,
+				Persistence:     contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral},
+				DataCriticality: contract.DataCriticalityLow,
 			},
 		},
 		RawYAML: []byte(yaml),

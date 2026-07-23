@@ -71,7 +71,7 @@ func Generate(d *dashboard.ServiceDetails, gr *graph.Result) (string, error) {
 	return b.String(), nil
 }
 
-// ── §presence + at-a-glance + TOC ──────────────────────────────────────
+// ── presence + at-a-glance + TOC ──────────────────────────────────────
 
 func hasSBOM(d *dashboard.ServiceDetails) bool {
 	return d.SBOM != nil && len(d.SBOM.Packages) > 0
@@ -168,7 +168,7 @@ func writeTableOfContents(b *strings.Builder, d *dashboard.ServiceDetails) {
 	fmt.Fprintln(b)
 }
 
-// ── §1 Runtime & operations ────────────────────────────────────────────
+// ── 1 Runtime & operations ────────────────────────────────────────────
 
 func writeRuntimeOps(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if d.Workload == "" && d.State == nil && len(d.Capabilities) == 0 {
@@ -207,7 +207,7 @@ func writeKV(b *strings.Builder, k, v string) {
 	fmt.Fprintf(b, "| **%s** | `%s` |\n", k, escapeMarkdownCell(v))
 }
 
-// ── §2 Architecture (Mermaid) ──────────────────────────────────────────
+// ── 2 Architecture (Mermaid) ──────────────────────────────────────────
 
 func writeMermaidDiagram(b *strings.Builder, gr *graph.Result, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	root := rootContract(gr, d)
@@ -438,7 +438,7 @@ func depName(ref string) string {
 	return name
 }
 
-// ── §3 Interfaces ──────────────────────────────────────────────────────
+// ── 3 Interfaces ──────────────────────────────────────────────────────
 
 func writeInterfaces(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if len(d.Interfaces) == 0 {
@@ -486,7 +486,7 @@ func interfaceHeadingByType(t, name string) string {
 	}
 }
 
-// ── §4 Configuration ───────────────────────────────────────────────────
+// ── 4 Configuration ───────────────────────────────────────────────────
 
 func writeConfiguration(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if len(d.Configurations) == 0 {
@@ -527,7 +527,7 @@ func writeConfigList(b *strings.Builder, configs []dashboard.ConfigurationInfo) 
 	}
 }
 
-// ── §5 Policies ────────────────────────────────────────────────────────
+// ── 5 Policies ────────────────────────────────────────────────────────
 
 func writePolicies(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if len(d.Policies) == 0 {
@@ -546,7 +546,7 @@ func writePolicies(b *strings.Builder, d *dashboard.ServiceDetails, num *section
 	fmt.Fprintln(b)
 }
 
-// ── §6 Dependencies ────────────────────────────────────────────────────
+// ── 6 Dependencies ────────────────────────────────────────────────────
 
 func writeDependencies(b *strings.Builder, d *dashboard.ServiceDetails, gr *graph.Result, num *sectionNumberer) {
 	if len(d.Dependencies) == 0 {
@@ -627,7 +627,7 @@ func writeDependencyDetail(b *strings.Builder, node *graph.Node) {
 	fmt.Fprintln(b)
 }
 
-// ── §7 Readiness ───────────────────────────────────────────────────────
+// ── 7 Readiness ───────────────────────────────────────────────────────
 
 func writeReadiness(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if d.Readiness == nil {
@@ -667,7 +667,7 @@ func writeReadiness(b *strings.Builder, d *dashboard.ServiceDetails, num *sectio
 	}
 }
 
-// ── §8 SBOM ────────────────────────────────────────────────────────────
+// ── 8 SBOM ────────────────────────────────────────────────────────────
 
 func writeSBOM(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if !hasSBOM(d) {
@@ -683,7 +683,7 @@ func writeSBOM(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumb
 	fmt.Fprintln(b)
 }
 
-// ── §9 Lockfile ────────────────────────────────────────────────────────
+// ── 9 Lockfile ────────────────────────────────────────────────────────
 
 func writeLockfile(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if !hasLock(d) {
@@ -711,7 +711,7 @@ func writeLockfile(b *strings.Builder, d *dashboard.ServiceDetails, num *section
 	}
 }
 
-// ── §10 Documentation ──────────────────────────────────────────────────
+// ── 10 Documentation ──────────────────────────────────────────────────
 
 func writeBundleDocs(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if len(d.Docs) == 0 {

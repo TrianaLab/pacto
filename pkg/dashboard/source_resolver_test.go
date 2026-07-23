@@ -142,8 +142,9 @@ func TestResolvedSource_GetService_ContractPlusRuntime(t *testing.T) {
 	k8s := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service: Service{Name: "svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "k8s"},
-				Runtime: &RuntimeInfo{Workload: "service", HealthInterface: "api", HealthPath: "/healthz"},
+				Service:  Service{Name: "svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "k8s"},
+				Workload: "service",
+				State:    &StateInfo{Type: "stateless"},
 				Resources: &ResourcesInfo{
 					ServiceExists: boolPtr(true),
 				},
@@ -180,12 +181,9 @@ func TestResolvedSource_GetService_ContractPlusRuntime(t *testing.T) {
 		t.Errorf("expected version '1.0.0' from k8s operator, got %q", details.Version)
 	}
 
-	// Runtime from k8s
-	if details.Runtime == nil {
-		t.Fatal("expected runtime from k8s")
-	}
-	if details.Runtime.HealthPath != "/healthz" {
-		t.Errorf("expected health path '/healthz', got %q", details.Runtime.HealthPath)
+	// Workload from k8s
+	if details.Workload != "service" {
+		t.Errorf("expected workload 'service', got %q", details.Workload)
 	}
 
 	// Resources from k8s
@@ -250,8 +248,8 @@ func TestResolvedSource_GetService_K8sOnly(t *testing.T) {
 	k8s := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service:   Service{Name: "svc", ContractStatus: StatusCompliant, Source: "k8s"},
-				Runtime:   &RuntimeInfo{Workload: "service"},
+				Service:  Service{Name: "svc", ContractStatus: StatusCompliant, Source: "k8s"},
+				Workload: "service", State: &StateInfo{Type: "stateless"},
 				Resources: &ResourcesInfo{ServiceExists: boolPtr(true)},
 			},
 		},
@@ -270,7 +268,7 @@ func TestResolvedSource_GetService_K8sOnly(t *testing.T) {
 	if details.ContractStatus != StatusCompliant {
 		t.Errorf("expected Compliant, got %q", details.ContractStatus)
 	}
-	if details.Runtime == nil {
+	if details.Workload == "" {
 		t.Error("expected runtime from k8s")
 	}
 }
@@ -481,7 +479,7 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 				Interfaces:     []InterfaceInfo{{Name: "api", Type: "http"}},
 				Configurations: []ConfigurationInfo{{HasSchema: true, Ref: "oci://config"}},
 				Dependencies:   []DependencyInfo{{Ref: "oci://auth:1.0.0", Required: true}},
-				Runtime:        &RuntimeInfo{Workload: "service"},
+				Workload:       "service", State: &StateInfo{Type: "stateless"},
 			},
 		},
 	}
@@ -529,7 +527,7 @@ func TestResolvedSource_RuntimeNeverOverridesContract(t *testing.T) {
 	if details.ContractStatus != StatusCompliant {
 		t.Errorf("expected Compliant from k8s runtime, got %q", details.ContractStatus)
 	}
-	if details.Runtime == nil || details.Runtime.Workload != "service" {
+	if details.Workload == "" || details.Workload != "service" {
 		t.Error("expected runtime from k8s")
 	}
 }
@@ -815,8 +813,8 @@ func TestResolvedSource_GetAggregated_WithRuntime(t *testing.T) {
 	k8s := &stubSource{
 		details: map[string]*ServiceDetails{
 			"svc": {
-				Service: Service{Name: "svc", ContractStatus: StatusCompliant, Source: "k8s"},
-				Runtime: &RuntimeInfo{Workload: "service"},
+				Service:  Service{Name: "svc", ContractStatus: StatusCompliant, Source: "k8s"},
+				Workload: "service", State: &StateInfo{Type: "stateless"},
 			},
 		},
 	}
@@ -860,13 +858,12 @@ func TestResolvedSource_GetAggregated_NotFound(t *testing.T) {
 
 func newFullRuntime() *ServiceDetails {
 	return &ServiceDetails{
-		Service:          Service{Name: "svc", ContractStatus: StatusCompliant},
-		Runtime:          &RuntimeInfo{Workload: "service"},
+		Service:  Service{Name: "svc", ContractStatus: StatusCompliant},
+		Workload: "service", State: &StateInfo{Type: "stateless"},
 		Resources:        &ResourcesInfo{ServiceExists: boolPtr(true)},
 		Ports:            &PortsInfo{Expected: []int{8080}},
 		Validation:       &ValidationInfo{Valid: true},
 		Endpoints:        []EndpointStatus{{Interface: "api", URL: "http://svc:8080"}},
-		Scaling:          &ScalingInfo{Replicas: intPtr(3)},
 		Conditions:       []Condition{{Type: "Ready", Status: "True"}},
 		Insights:         []Insight{{Severity: "info", Title: "ok"}},
 		ChecksSummary:    &ChecksSummary{Passed: 5, Total: 5},
@@ -889,8 +886,8 @@ func TestEnrichWithRuntime_StructFields(t *testing.T) {
 	if svcDetails.ContractStatus != StatusCompliant {
 		t.Error("expected contract status from runtime")
 	}
-	if svcDetails.Runtime == nil {
-		t.Error("expected runtime")
+	if svcDetails.Workload == "" {
+		t.Error("expected workload")
 	}
 	if svcDetails.Resources == nil {
 		t.Error("expected resources")
@@ -900,9 +897,6 @@ func TestEnrichWithRuntime_StructFields(t *testing.T) {
 	}
 	if svcDetails.Validation == nil {
 		t.Error("expected validation")
-	}
-	if svcDetails.Scaling == nil {
-		t.Error("expected scaling")
 	}
 	if svcDetails.ChecksSummary == nil {
 		t.Error("expected checks summary")
@@ -923,22 +917,19 @@ func TestEnrichWithRuntime_StructFields(t *testing.T) {
 }
 
 func TestEnrichWithRuntime_DeclaredRuntimeNotOverridden(t *testing.T) {
-	// When the contract base declares Runtime/Scaling, the k8s overlay must NOT
+	// When the contract base declares Workload/State, the k8s overlay must NOT
 	// replace them (contract is authoritative); observed values live in their own
 	// sections.
 	declared := &ServiceDetails{
-		Service: Service{Name: "svc", ContractStatus: StatusCompliant},
-		Runtime: &RuntimeInfo{Workload: "worker"},
-		Scaling: &ScalingInfo{Replicas: intPtr(2)},
+		Service:  Service{Name: "svc", ContractStatus: StatusCompliant},
+		Workload: "worker", State: &StateInfo{Type: "stateless"},
 	}
-	enrichWithRuntime(declared, newFullRuntime()) // runtime declares workload "service", replicas 3
+	enrichWithRuntime(declared, newFullRuntime()) // runtime declares workload "service"
 
-	if declared.Runtime.Workload != "worker" {
-		t.Errorf("declared runtime overridden by k8s: %+v", declared.Runtime)
+	if declared.Workload != "worker" {
+		t.Errorf("declared workload overridden by k8s: got %q", declared.Workload)
 	}
-	if declared.Scaling.Replicas == nil || *declared.Scaling.Replicas != 2 {
-		t.Errorf("declared scaling overridden by k8s: %+v", declared.Scaling)
-	}
+	// Scaling removed in v2
 	// Observed runtime is still enriched from k8s.
 	if declared.ObservedRuntime == nil {
 		t.Error("expected observed runtime from k8s overlay")

@@ -59,7 +59,7 @@ func (m *mockBundleStore) addBundle(repo, tag, name, version string) {
 	ref := repo + ":" + tag
 	m.bundles[ref] = &contract.Bundle{
 		Contract: &contract.Contract{
-			Service: contract.ServiceIdentity{
+			Service: contract.Service{
 				Name:    name,
 				Version: version,
 			},
@@ -73,7 +73,7 @@ func (m *mockBundleStore) addBundleWithDeps(repo, tag, name, version string, dep
 	ref := repo + ":" + tag
 	m.bundles[ref] = &contract.Bundle{
 		Contract: &contract.Contract{
-			Service: contract.ServiceIdentity{
+			Service: contract.Service{
 				Name:    name,
 				Version: version,
 			},
@@ -546,11 +546,11 @@ func TestOCISource_ListServices_RecursiveReferences(t *testing.T) {
 	ref := "ghcr.io/org/root:1.0.0"
 	store.bundles[ref] = &contract.Bundle{
 		Contract: &contract.Contract{
-			Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
-			Configurations: []contract.ConfigurationSource{
+			Service: contract.Service{Name: "root", Version: "1.0.0"},
+			Configurations: []contract.Configuration{
 				{Name: "default", Ref: "oci://ghcr.io/org/shared-config"},
 			},
-			Policies: []contract.PolicySource{{Ref: "oci://ghcr.io/org/shared-policy:1.0.0"}},
+			Policies: []contract.Policy{{Ref: "oci://ghcr.io/org/shared-policy:1.0.0"}},
 		},
 		RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: root\n  version: 1.0.0\n"),
 	}
@@ -902,8 +902,8 @@ func TestOCISource_DepReposForService_EmptyConfigRef(t *testing.T) {
 	ref := "ghcr.io/org/svc:1.0.0"
 	store.bundles[ref] = &contract.Bundle{
 		Contract: &contract.Contract{
-			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-			Configurations: []contract.ConfigurationSource{
+			Service: contract.Service{Name: "svc", Version: "1.0.0"},
+			Configurations: []contract.Configuration{
 				{Name: "default", Ref: "file://local/schema.json"},
 			},
 		},
@@ -945,8 +945,8 @@ func TestOCISource_DepReposForService_ConfigRefWithTag(t *testing.T) {
 	ref := "ghcr.io/org/svc:1.0.0"
 	store.bundles[ref] = &contract.Bundle{
 		Contract: &contract.Contract{
-			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-			Configurations: []contract.ConfigurationSource{
+			Service: contract.Service{Name: "svc", Version: "1.0.0"},
+			Configurations: []contract.Configuration{
 				{Name: "default", Ref: "oci://ghcr.io/org/shared-config:2.0.0"},
 			},
 		},
@@ -968,8 +968,8 @@ func TestOCISource_DepReposForService_PolicyRefEmpty(t *testing.T) {
 	ref := "ghcr.io/org/svc:1.0.0"
 	store.bundles[ref] = &contract.Bundle{
 		Contract: &contract.Contract{
-			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-			Policies: []contract.PolicySource{
+			Service: contract.Service{Name: "svc", Version: "1.0.0"},
+			Policies: []contract.Policy{
 				{Schema: "policy/schema.json"}, // local policy, no ref
 			},
 		},
@@ -1173,7 +1173,7 @@ func TestOCISource_UnresolvedReason(t *testing.T) {
 		bundles: map[string]*contract.Bundle{
 			"ghcr.io/org/main-svc:1.0.0": {
 				Contract: &contract.Contract{
-					Service: contract.ServiceIdentity{Name: "main-svc", Version: "1.0.0"},
+					Service: contract.Service{Name: "main-svc", Version: "1.0.0"},
 				},
 			},
 		},
@@ -1363,7 +1363,7 @@ func TestRepoProviderFromSource(t *testing.T) {
 		},
 		details: map[string]*ServiceDetails{
 			"svc-a": {ResolvedRef: "ghcr.io/org/a:1.0.0"},
-			"svc-b": {ImageRef: "ghcr.io/org/b:2.0.0"},
+			"svc-b": {ResolvedRef: "ghcr.io/org/b:2.0.0"},
 		},
 	}
 	provider := RepoProviderFromSource(src)

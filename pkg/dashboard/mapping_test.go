@@ -16,7 +16,7 @@ import (
 
 func TestServiceFromContract(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{
+		Service: contract.Service{
 			Name:    "my-service",
 			Version: "1.2.3",
 			Owner:   contract.Owner{Team: "team-a"},
@@ -42,11 +42,10 @@ func TestServiceFromContract(t *testing.T) {
 }
 
 func TestServiceDetailsFromBundle_Interfaces(t *testing.T) {
-	port := 8080
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
 		Interfaces: []contract.Interface{
-			{Name: "api", Type: "http", Port: &port, Visibility: "public", Contract: "openapi.yaml"},
+			{Name: "api", Type: contract.InterfaceTypeOpenAPI, Visibility: contract.VisibilityPublic, Ref: "openapi.yaml"},
 		},
 	}
 
@@ -63,46 +62,32 @@ func TestServiceDetailsFromBundle_Interfaces(t *testing.T) {
 	}
 }
 
-func TestServiceDetailsFromBundle_Runtime(t *testing.T) {
-	shutdown := 30
+func TestServiceDetailsFromBundle_WorkloadAndState(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Runtime: &contract.Runtime{
-			Workload: "service",
-			State: contract.State{
-				Type:            "stateful",
-				DataCriticality: "high",
-				Persistence: contract.Persistence{
-					Scope:      "shared",
-					Durability: "persistent",
-				},
-			},
-			Lifecycle: &contract.Lifecycle{
-				UpgradeStrategy:         "rolling",
-				GracefulShutdownSeconds: &shutdown,
-			},
-			Health: &contract.Health{
-				Interface: "api",
-				Path:      "/healthz",
+		Service:  contract.Service{Name: "svc", Version: "1.0.0"},
+		Workload: contract.WorkloadService,
+		State: &contract.State{
+			Type:            contract.StateStateful,
+			DataCriticality: contract.DataCriticalityHigh,
+			Persistence: contract.Persistence{
+				Scope:      contract.ScopeShared,
+				Durability: contract.DurabilityPersistent,
 			},
 		},
 	}
 
 	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
-	if details.Runtime == nil {
-		t.Fatal("expected runtime to be set")
+	if details.Workload != "service" {
+		t.Errorf("expected workload 'service', got %q", details.Workload)
 	}
-	if details.Runtime.Workload != "service" {
-		t.Errorf("expected workload 'service', got %q", details.Runtime.Workload)
+	if details.State == nil {
+		t.Fatal("expected state to be set")
 	}
-	if details.Runtime.StateType != "stateful" {
-		t.Errorf("expected state 'stateful', got %q", details.Runtime.StateType)
+	if details.State.Type != "stateful" {
+		t.Errorf("expected state 'stateful', got %q", details.State.Type)
 	}
-	if details.Runtime.UpgradeStrategy != "rolling" {
-		t.Errorf("expected strategy 'rolling', got %q", details.Runtime.UpgradeStrategy)
-	}
-	if *details.Runtime.GracefulShutdownSeconds != 30 {
-		t.Errorf("expected shutdown 30, got %d", *details.Runtime.GracefulShutdownSeconds)
+	if details.State.DataCriticality != "high" {
+		t.Errorf("expected criticality 'high', got %q", details.State.DataCriticality)
 	}
 }
 
@@ -141,7 +126,7 @@ func TestDiffResultFromEngine(t *testing.T) {
 
 func TestServiceDetailsFromBundle_Dependencies(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://ghcr.io/org/db:1.0.0", Required: true, Compatibility: "^1.0.0"},
 			{Ref: "cache-svc", Required: false},
@@ -164,8 +149,8 @@ func TestServiceDetailsFromBundle_Dependencies(t *testing.T) {
 
 func TestServiceDetailsFromBundle_Configuration(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.Configuration{
 			{
 				Name:   "default",
 				Schema: "config.schema.json",
@@ -196,35 +181,12 @@ func TestServiceDetailsFromBundle_Configuration(t *testing.T) {
 	}
 }
 
-func TestServiceDetailsFromBundle_Scaling(t *testing.T) {
-	replicas := 3
-	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Scaling: &contract.Scaling{
-			Replicas: &replicas,
-			Min:      2,
-			Max:      5,
-		},
-	}
-	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
-	if details.Scaling == nil {
-		t.Fatal("expected scaling to be set")
-	}
-	if details.Scaling.Replicas == nil || *details.Scaling.Replicas != 3 {
-		t.Error("expected replicas=3")
-	}
-	if details.Scaling.Min == nil || *details.Scaling.Min != 2 {
-		t.Error("expected min=2")
-	}
-	if details.Scaling.Max == nil || *details.Scaling.Max != 5 {
-		t.Error("expected max=5")
-	}
-}
+// TestServiceDetailsFromBundle_Scaling removed: Scaling is not in v2 model
 
 func TestServiceDetailsFromBundle_Policy(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Policies: []contract.PolicySource{{
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
+		Policies: []contract.Policy{{
 			Schema: "policy.schema.json",
 			Ref:    "shared-policy",
 		}},
@@ -246,7 +208,7 @@ func TestServiceDetailsFromBundle_Policy(t *testing.T) {
 
 func TestServiceDetailsFromBundle_Metadata(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
 		Metadata: map[string]any{
 			"team": "platform",
 			"tier": "backend",
@@ -266,7 +228,7 @@ func TestServiceDetailsFromBundle_Metadata(t *testing.T) {
 
 func TestServiceDetailsFromBundle_Metadata_NonStringSkipped(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
 		Metadata: map[string]any{
 			"team":  "platform",
 			"count": 42, // non-string, should be skipped
@@ -278,23 +240,7 @@ func TestServiceDetailsFromBundle_Metadata_NonStringSkipped(t *testing.T) {
 	}
 }
 
-func TestServiceDetailsFromBundle_ImageAndChart(t *testing.T) {
-	c := &contract.Contract{
-		Service: contract.ServiceIdentity{
-			Name:    "svc",
-			Version: "1.0.0",
-			Image:   &contract.Image{Ref: "ghcr.io/org/svc:1.0.0"},
-			Chart:   &contract.Chart{Ref: "oci://charts/svc", Version: "1.0.0"},
-		},
-	}
-	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "oci")
-	if details.ImageRef != "ghcr.io/org/svc:1.0.0" {
-		t.Errorf("expected imageRef, got %q", details.ImageRef)
-	}
-	if details.ChartRef != "oci://charts/svc" {
-		t.Errorf("expected chartRef, got %q", details.ChartRef)
-	}
-}
+// TestServiceDetailsFromBundle_ImageAndChart removed: Image/Chart are not in v2 model
 
 func TestGraphFromResult_Nil(t *testing.T) {
 	result := GraphFromResult(nil)
@@ -354,7 +300,7 @@ func TestValidationInfoFromResult_WithErrors(t *testing.T) {
 	// Test that validation errors and warnings are mapped correctly
 	c := &contract.Contract{
 		PactoVersion: "1.0",
-		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Service:      contract.Service{Name: "svc", Version: "1.0.0"},
 	}
 	yaml := `invalid yaml content here: [[[`
 	bundle := &contract.Bundle{Contract: c, RawYAML: []byte(yaml)}
@@ -365,50 +311,14 @@ func TestValidationInfoFromResult_WithErrors(t *testing.T) {
 	}
 }
 
-func TestServiceDetailsFromBundle_InterfaceNilPort(t *testing.T) {
-	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Interfaces: []contract.Interface{
-			{Name: "api", Type: "http", Port: nil, Visibility: "public"},
-		},
-	}
-	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
-	if len(details.Interfaces) != 1 {
-		t.Fatalf("expected 1 interface, got %d", len(details.Interfaces))
-	}
-	if details.Interfaces[0].Port != nil {
-		t.Error("expected nil port")
-	}
-}
+// TestServiceDetailsFromBundle_InterfaceNilPort removed: Port is not in v2 Interface
 
-func TestServiceDetailsFromBundle_ScalingNilFields(t *testing.T) {
-	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Scaling: &contract.Scaling{
-			Replicas: nil,
-			Min:      0,
-			Max:      0,
-		},
-	}
-	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
-	if details.Scaling == nil {
-		t.Fatal("expected scaling to be set")
-	}
-	if details.Scaling.Replicas != nil {
-		t.Error("expected nil replicas")
-	}
-	if details.Scaling.Min != nil {
-		t.Error("expected nil min (0 means not set)")
-	}
-	if details.Scaling.Max != nil {
-		t.Error("expected nil max (0 means not set)")
-	}
-}
+// TestServiceDetailsFromBundle_ScalingNilFields removed: Scaling is not in v2 model
 
 func TestServiceDetailsFromBundle_ConfigurationSchemaExtract(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.Configuration{
 			{Name: "default", Schema: "config.schema.json"},
 		},
 	}
@@ -438,8 +348,8 @@ func TestServiceDetailsFromBundle_ConfigurationSchemaExtract(t *testing.T) {
 
 func TestServiceDetailsFromBundle_PolicyContent(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Policies: []contract.PolicySource{{
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
+		Policies: []contract.Policy{{
 			Ref: "policy.yaml",
 		}},
 	}
@@ -463,8 +373,8 @@ func TestServiceDetailsFromBundle_PolicyContent(t *testing.T) {
 
 func TestServiceDetailsFromBundle_PolicySchemaFallback(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Policies: []contract.PolicySource{{
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
+		Policies: []contract.Policy{{
 			Schema: "policy.schema.json",
 		}},
 	}
@@ -491,7 +401,7 @@ func TestServiceDetailsFromBundle_PolicySchemaFallback(t *testing.T) {
 func TestServiceDetailsFromBundle_PolicyProviderAutoDetect(t *testing.T) {
 	// Bundle has policy/schema.json but no policies declared in contract.
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "shared-policy", Version: "1.0.0"},
+		Service: contract.Service{Name: "shared-policy", Version: "1.0.0"},
 	}
 	fsys := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{
@@ -534,7 +444,7 @@ func TestServiceDetailsFromBundle_PolicyProviderAutoDetect(t *testing.T) {
 func TestServiceDetailsFromBundle_PolicyProviderAutoDetectNoProperties(t *testing.T) {
 	// Auto-detected policy schema with no "properties" — falls back to parseContentAsValues.
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "shared-policy", Version: "1.0.0"},
+		Service: contract.Service{Name: "shared-policy", Version: "1.0.0"},
 	}
 	fsys := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{
@@ -554,8 +464,8 @@ func TestServiceDetailsFromBundle_PolicyProviderAutoDetectNoProperties(t *testin
 func TestServiceDetailsFromBundle_PolicyProviderNoAutoDetectWhenDeclared(t *testing.T) {
 	// Bundle has policy/schema.json AND explicit policies — use declared only.
 	c := &contract.Contract{
-		Service:  contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Policies: []contract.PolicySource{{Ref: "other-policy"}},
+		Service:  contract.Service{Name: "svc", Version: "1.0.0"},
+		Policies: []contract.Policy{{Ref: "other-policy"}},
 	}
 	fsys := fstest.MapFS{
 		"policy/schema.json": &fstest.MapFile{
@@ -634,9 +544,9 @@ func TestMapGraphNode_NilEdgeNode(t *testing.T) {
 
 func TestServiceDetailsFromBundle_InterfaceContractContentFallback(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
 		Interfaces: []contract.Interface{
-			{Name: "api", Type: "grpc", Contract: "service.proto"},
+			{Name: "api", Type: contract.InterfaceTypeGRPC, Ref: "service.proto"},
 		},
 	}
 	fsys := fstest.MapFS{
@@ -674,7 +584,7 @@ service:
 `
 	c := &contract.Contract{
 		PactoVersion: "1.0",
-		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Service:      contract.Service{Name: "svc", Version: "1.0.0"},
 	}
 	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c, RawYAML: []byte(yamlContent)}, "local")
 	if details.Validation == nil {
@@ -682,28 +592,7 @@ service:
 	}
 }
 
-func TestServiceDetailsFromBundle_RuntimeMetrics(t *testing.T) {
-	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Runtime: &contract.Runtime{
-			Workload: "service",
-			Metrics: &contract.Metrics{
-				Interface: "api",
-				Path:      "/metrics",
-			},
-		},
-	}
-	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
-	if details.Runtime == nil {
-		t.Fatal("expected runtime")
-	}
-	if details.Runtime.MetricsInterface != "api" {
-		t.Errorf("expected metrics interface 'api', got %q", details.Runtime.MetricsInterface)
-	}
-	if details.Runtime.MetricsPath != "/metrics" {
-		t.Errorf("expected metrics path '/metrics', got %q", details.Runtime.MetricsPath)
-	}
-}
+// TestServiceDetailsFromBundle_RuntimeMetrics removed: Runtime is not in v2 model
 
 func TestExtractSchemaProperties_ValidSchema(t *testing.T) {
 	fsys := fstest.MapFS{
@@ -780,8 +669,8 @@ func TestParseContentAsValues_EmptyContent(t *testing.T) {
 func TestServiceDetailsFromBundle_ConfigurationValuesWithKeys(t *testing.T) {
 	// Ensure ValueKeys is populated when Configuration has inline Values.
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.Configuration{
 			{
 				Name: "default",
 				Values: map[string]any{
@@ -802,9 +691,9 @@ func TestServiceDetailsFromBundle_ConfigurationValuesWithKeys(t *testing.T) {
 func TestServiceDetailsFromBundle_LargeContractContentTruncated(t *testing.T) {
 	// Test that large contract content (>10KB) is truncated in fallback.
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
 		Interfaces: []contract.Interface{
-			{Name: "api", Type: "grpc", Contract: "big.proto"},
+			{Name: "api", Type: contract.InterfaceTypeGRPC, Ref: "big.proto"},
 		},
 	}
 	// Create a file larger than 10KB
@@ -825,8 +714,8 @@ func TestServiceDetailsFromBundle_LargeContractContentTruncated(t *testing.T) {
 func TestServiceDetailsFromBundle_LargePolicyContentTruncated(t *testing.T) {
 	// Test that large policy content (>10KB) is truncated.
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Policies: []contract.PolicySource{{
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
+		Policies: []contract.Policy{{
 			Ref: "policy.yaml",
 		}},
 	}
@@ -850,9 +739,9 @@ func TestServiceDetailsFromBundle_LargePolicyContentTruncated(t *testing.T) {
 func TestServiceDetailsFromBundle_InterfaceOpenAPIEndpoints(t *testing.T) {
 	// Test interface with a valid OpenAPI spec that yields endpoints.
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
 		Interfaces: []contract.Interface{
-			{Name: "api", Type: "http", Contract: "openapi.yaml"},
+			{Name: "api", Type: contract.InterfaceTypeOpenAPI, Ref: "openapi.yaml"},
 		},
 	}
 	fsys := fstest.MapFS{
@@ -882,7 +771,7 @@ func TestContractStatusFromBundle(t *testing.T) {
 	t.Run("nil RawYAML returns unknown", func(t *testing.T) {
 		b := &contract.Bundle{
 			Contract: &contract.Contract{
-				Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc", Version: "1.0.0"},
 			},
 		}
 		if got := contractStatusFromBundle(b); got != StatusUnknown {
@@ -911,7 +800,7 @@ service:
 `)
 		c := &contract.Contract{
 			PactoVersion: "1.0",
-			Service:      contract.ServiceIdentity{Name: "svc"},
+			Service:      contract.Service{Name: "svc"},
 		}
 		b := &contract.Bundle{Contract: c, RawYAML: raw}
 		if got := contractStatusFromBundle(b); got != StatusNonCompliant {
@@ -922,7 +811,7 @@ service:
 
 func TestServiceFromContract_StructuredOwner(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{
+		Service: contract.Service{
 			Name:    "my-service",
 			Version: "1.0.0",
 			Owner:   contract.Owner{Team: "foundations", DRI: "alice"},
@@ -943,7 +832,7 @@ func TestServiceFromContract_StructuredOwner(t *testing.T) {
 
 func TestServiceFromContract_EmptyOwner(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{
+		Service: contract.Service{
 			Name:    "my-service",
 			Version: "1.0.0",
 		},
@@ -960,8 +849,8 @@ func TestServiceFromContract_EmptyOwner(t *testing.T) {
 
 func TestServiceDetailsFromBundle_MultiConfig(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.Configuration{
 			{Name: "app", Schema: "config/app.json", Values: map[string]any{"PORT": float64(8080)}},
 			{Name: "db", Ref: "oci://ghcr.io/acme/db-config:1.0.0"},
 		},
@@ -992,7 +881,7 @@ func TestServiceDetailsFromBundle_MultiConfig(t *testing.T) {
 
 func TestServiceDetailsFromBundle_NilConfiguration(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
 	}
 	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
 	if len(details.Configurations) != 0 {
@@ -1003,8 +892,8 @@ func TestServiceDetailsFromBundle_NilConfiguration(t *testing.T) {
 func TestServiceDetailsFromBundle_EmptyConfiguration(t *testing.T) {
 	// Configurations present but empty slice → returns empty.
 	c := &contract.Contract{
-		Service:        contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{},
+		Service:        contract.Service{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.Configuration{},
 	}
 	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
 	if len(details.Configurations) != 0 {
@@ -1030,11 +919,11 @@ func TestReadinessFromContract_Nil(t *testing.T) {
 func TestServiceDetailsFromBundle_Readiness(t *testing.T) {
 	pinDashboardTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
 	c := &contract.Contract{
-		PactoVersion: "1.2",
-		Service:      contract.ServiceIdentity{Name: "payment-api", Version: "1.4.0"},
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "payment-api", Version: "1.4.0"},
 		Readiness: &contract.Readiness{
 			Expires: "2099-12-31",
-			Checks: []contract.ReadinessCheck{
+			Claims: []contract.ReadinessClaim{
 				{ID: "dashboard", Type: "url", Category: "observability", Status: "done", Evidence: "https://x", Weight: 60, Description: "Main"},
 				{ID: "security-review", Type: "ticket", Status: "not-done", Evidence: "SEC-1", Weight: 40},
 			},
@@ -1181,11 +1070,11 @@ func TestDocsFromContract_UnreadableFileSkipped(t *testing.T) {
 func TestServiceDetailsFromBundle_ReadinessDocPath(t *testing.T) {
 	pinDashboardTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
 	c := &contract.Contract{
-		PactoVersion: "1.2",
-		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "svc", Version: "1.0.0"},
 		Readiness: &contract.Readiness{
 			Expires: "2099-12-31",
-			Checks: []contract.ReadinessCheck{
+			Claims: []contract.ReadinessClaim{
 				{ID: "runbook", Type: "document", Status: "done", Evidence: "docs/runbooks/deploy.md", Weight: 50},
 				{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://grafana/x", Weight: 50},
 			},
