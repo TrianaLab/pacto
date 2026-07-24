@@ -191,7 +191,24 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// 10. Collect runtime evidence and evaluate findings
 	obs := observer.New(r.Client)
-	evidenceSet, err := obs.CollectForTarget(ctx, pacto.Namespace, serviceName, workloadName, workloadKind, loadResult.ResolvedRef)
+
+	// Build CollectInput from the resolved target (spec section 9.1).
+	workloadExplicit := pacto.Spec.Target.WorkloadRef != nil &&
+		pacto.Spec.Target.WorkloadRef.Name != "" &&
+		pacto.Spec.Target.WorkloadRef.Kind != ""
+
+	collectInput := observer.CollectInput{
+		Namespace:        pacto.Namespace,
+		ServiceName:      serviceName,
+		WorkloadName:     workloadName,
+		WorkloadKind:     workloadKind,
+		ContractRef:      loadResult.ResolvedRef,
+		WorkloadExplicit: workloadExplicit,
+		Contract:         loadResult.Contract,
+		BundleFS:         loadResult.BundleFS,
+	}
+
+	evidenceSet, err := obs.Collect(ctx, collectInput)
 	if err != nil {
 		log.Error(err, "Failed to collect runtime evidence")
 		obsMsg := fmt.Sprintf("failed to collect runtime evidence: %v", err)

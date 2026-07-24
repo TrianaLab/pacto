@@ -17,7 +17,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -118,18 +117,14 @@ func (o *Observer) observeWorkloadDim(ctx context.Context, input CollectInput, p
 	err := o.observeWorkload(ctx, input.Namespace, input.WorkloadName, input.WorkloadKind, snapshot)
 
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			// NotFound -> EVIDENCE_MISSING (mapped by Evaluate).
-			obs, _ := evidence.NewUnobserved(evidence.WorkloadObserved, subj, evidence.Unsupported, prov)
-			return obs
-		}
+		// observe* methods swallow NotFound (return nil), so any error here is non-NotFound.
 		// Non-NotFound API error -> COLLECTION_FAILED.
 		obs, _ := evidence.NewUnobserved(evidence.WorkloadObserved, subj, evidence.Failed, prov)
 		return obs
 	}
 
 	if !snapshot.WorkloadExists {
-		// Workload GET succeeded but object not found -> EVIDENCE_MISSING.
+		// Workload GET succeeded (NotFound swallowed) but object not found -> EVIDENCE_MISSING.
 		obs, _ := evidence.NewUnobserved(evidence.WorkloadObserved, subj, evidence.Unsupported, prov)
 		return obs
 	}
@@ -159,15 +154,14 @@ func (o *Observer) observePersistenceDim(ctx context.Context, input CollectInput
 	err := o.observeWorkload(ctx, input.Namespace, input.WorkloadName, input.WorkloadKind, snapshot)
 
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Unsupported, prov)
-			return obs
-		}
+		// observe* methods swallow NotFound (return nil), so any error here is non-NotFound.
+		// Non-NotFound API error -> COLLECTION_FAILED.
 		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Failed, prov)
 		return obs
 	}
 
 	if !snapshot.WorkloadExists {
+		// Workload GET succeeded (NotFound swallowed) but object not found -> EVIDENCE_MISSING.
 		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Unsupported, prov)
 		return obs
 	}
@@ -182,11 +176,8 @@ func (o *Observer) observePersistenceDim(ctx context.Context, input CollectInput
 	case persistenceEphemeral:
 		// All ephemeral or no volumes -> contradicted.
 		return evidence.NewPersistenceObserved(subj, false, prov)
-	case persistenceAmbiguous:
+	default: // persistenceAmbiguous
 		// Any ambiguous volume -> EVIDENCE_INSUFFICIENT.
-		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Insufficient, prov)
-		return obs
-	default:
 		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Insufficient, prov)
 		return obs
 	}
@@ -205,68 +196,25 @@ func (o *Observer) classifyPersistence(snapshot *RuntimeSnapshot) persistenceCla
 	return snapshot.PersistenceClass
 }
 
-// CollectForTarget is DEPRECATED; kept temporarily for controller compatibility. Will be removed in S6.3 step 2.
-func (o *Observer) CollectForTarget(ctx context.Context, namespace, serviceName, workloadName, workloadKind, contractRef string) (evidence.EvidenceSet, error) {
-	now := time.Now()
-	prov := evidence.Provenance{Collector: "k8s-observer", DetectedAt: now}
-	subject := evidence.SubjectRef{Kind: "service", Name: fmt.Sprintf("%s/%s", namespace, serviceName)}
-	if serviceName == "" && workloadName != "" {
-		subject.Name = fmt.Sprintf("%s/%s", namespace, workloadName)
+
+func mapWorkloadKindToType(kind string) string {
+	switch kind {
+	case "Job":
+		return "job"
+	case "CronJob":
+		return "scheduled"
+	default:
+		return "service"
 	}
-
-	var observations []evidence.Observation
-
-	// Observe Service
-	if serviceName != "" {
-		svc := &corev1.Service{}
-		err := o.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: serviceName}, svc)
-		if err != nil && client.IgnoreNotFound(err) != nil {
-			return evidence.EvidenceSet{}, fmt.Errorf("failed to get service %s: %w", serviceName, err)
-		}
-		if err == nil {
-			// Service ports → interface observations (derive from port number, mark as present)
-			for _, port := range svc.Spec.Ports {
-				ifaceSubj := evidence.SubjectRef{Kind: "interface", Name: fmt.Sprintf("port-%d", port.Port)}
-				obs := evidence.NewInterfaceObserved(ifaceSubj, "http", true, prov)
-				observations = append(observations, obs)
-			}
-		}
-	}
-
-	// Observe Workload
-	if workloadName != "" {
-		snapshot := &RuntimeSnapshot{WorkloadKind: workloadKind}
-		if err := o.observeWorkload(ctx, namespace, workloadName, workloadKind, snapshot); err != nil {
-			return evidence.EvidenceSet{}, err
-		}
-
-		if snapshot.WorkloadExists {
-			// Workload type observation
-			wlSubj := evidence.SubjectRef{Kind: "service", Name: subject.Name}
-			observations = append(observations, evidence.NewWorkloadObserved(wlSubj, mapWorkloadKindToType(workloadKind), prov))
-
-			// Persistence observation
-			durable := snapshot.HasPVC
-			observations = append(observations, evidence.NewPersistenceObserved(wlSubj, durable, prov))
-		}
-	}
-
-	return evidence.EvidenceSet{
-		Subject:      subject,
-		ContractRef:  contractRef,
-		Source:       "k8s",
-		ObservedAt:   now,
-		Observations: observations,
-	}, nil
 }
 
-// Observe is DEPRECATED; kept temporarily for controller compatibility. Will be removed in S6.3 step 2.
+// Observe is kept for controller back-compat (dashboard ObservedRuntime). Will be removed in a future step.
 func (o *Observer) Observe(ctx context.Context, namespace, serviceName, workloadName, workloadKind string) (*RuntimeSnapshot, error) {
 	snapshot := &RuntimeSnapshot{
 		WorkloadKind: workloadKind,
 	}
 
-	// Observe Service
+	// Observe Service (for ServicePorts, ServiceExists)
 	if serviceName != "" {
 		svc := &corev1.Service{}
 		err := o.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: serviceName}, svc)
@@ -290,17 +238,6 @@ func (o *Observer) Observe(ctx context.Context, namespace, serviceName, workload
 	}
 
 	return snapshot, nil
-}
-
-func mapWorkloadKindToType(kind string) string {
-	switch kind {
-	case "Job":
-		return "job"
-	case "CronJob":
-		return "scheduled"
-	default:
-		return "service"
-	}
 }
 
 // observeWorkload reads the workload resource and populates extended snapshot fields.
@@ -433,32 +370,29 @@ func (o *Observer) extractPodTemplateInfo(podSpec *corev1.PodSpec, snap *Runtime
 	// Volume analysis (B3 three-bucket classification, spec section 7.2).
 	hasPersistent := false
 	hasAmbiguous := false
-	hasEphemeral := false
 
 	for _, vol := range podSpec.Volumes {
 		if vol.PersistentVolumeClaim != nil {
 			snap.HasPVC = true
 			hasPersistent = true
 		} else if isExplicitlyEphemeral(&vol) {
-			hasEphemeral = true
 			if vol.EmptyDir != nil {
 				snap.HasEmptyDir = true
 			}
+			// Explicitly ephemeral volume, tracked implicitly by absence of hasPersistent/hasAmbiguous
 		} else {
 			hasAmbiguous = true
 		}
 	}
 
-	// Classify: persistent wins, then ambiguous, then ephemeral.
+	// Classify: persistent wins, then ambiguous, then ephemeral (including no volumes).
 	if hasPersistent {
 		snap.PersistenceClass = persistenceDurable
 	} else if hasAmbiguous {
 		snap.PersistenceClass = persistenceAmbiguous
-	} else if hasEphemeral || len(podSpec.Volumes) == 0 {
-		// All ephemeral or no volumes -> ephemeral.
-		snap.PersistenceClass = persistenceEphemeral
 	} else {
-		snap.PersistenceClass = persistenceAmbiguous
+		// All explicitly ephemeral or no volumes -> ephemeral.
+		snap.PersistenceClass = persistenceEphemeral
 	}
 }
 
