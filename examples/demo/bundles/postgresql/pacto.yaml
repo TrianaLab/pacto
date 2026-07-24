@@ -1,4 +1,4 @@
-pactoVersion: "1.0"
+pactoVersion: "2.0"
 
 service:
   name: postgresql
@@ -16,23 +16,14 @@ service:
       - type: oncall
         value: infra-data-oncall
         purpose: oncall
-  image:
-    ref: docker.io/library/postgres:16
 
-runtime:
-  workload: service
-  state:
-    type: stateful
-    persistence:
-      scope: shared
-      durability: persistent
-    dataCriticality: high
-  lifecycle:
-    upgradeStrategy: ordered
-    gracefulShutdownSeconds: 120
-
-scaling:
-  replicas: 1
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
 
 metadata:
   tier: infra

@@ -1,4 +1,4 @@
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: auth-service
@@ -16,19 +16,12 @@ service:
       - type: oncall
         value: identity-team-oncall
         purpose: oncall
-  image:
-    ref: ghcr.io/trianalab/pacto-demo/auth-service
 
 interfaces:
-  - name: http
-    type: http
-    port: 8081
-    visibility: internal
   - name: grpc
     type: grpc
-    port: 9091
+    ref: interfaces/auth.proto
     visibility: internal
-    contract: interfaces/auth.proto
 
 configurations:
   - name: platform
@@ -52,21 +45,13 @@ dependencies:
     required: true
     compatibility: "^7.0.0"
 
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: high
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-
-scaling:
-  min: 2
-  max: 4
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: high
 
 metadata:
   tier: domain
@@ -95,7 +80,7 @@ readiness:
       version: 1.0.0
       author: erik.nilsson
       description: Added incident response and compliance checks
-  checks:
+  claims:
     - id: observability-dashboard
       type: url
       category: observability

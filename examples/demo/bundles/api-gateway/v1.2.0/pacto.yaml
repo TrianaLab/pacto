@@ -1,4 +1,4 @@
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: api-gateway
@@ -16,15 +16,12 @@ service:
       - type: oncall
         value: platform-foundations-oncall
         purpose: oncall
-  image:
-    ref: ghcr.io/trianalab/pacto-demo/api-gateway
 
 interfaces:
   - name: http
-    type: http
-    port: 8080
+    type: openapi
+    ref: interfaces/openapi.json
     visibility: public
-    contract: interfaces/openapi.json
 
 configurations:
   - name: platform
@@ -57,21 +54,13 @@ dependencies:
     required: true
     compatibility: "^1.0.0"
 
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-
-scaling:
-  min: 2
-  max: 5
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 
 metadata:
   tier: edge
@@ -91,7 +80,7 @@ readiness:
   minScore: 75
   expires: "2025-01-01"
   partialCredit: 0.5
-  checks:
+  claims:
     - id: gateway-dashboard
       type: url
       category: observability

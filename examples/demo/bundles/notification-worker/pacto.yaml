@@ -1,4 +1,4 @@
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: notification-worker
@@ -13,14 +13,12 @@ service:
       - type: chat
         value: "#commerce-team"
         purpose: support
-  image:
-    ref: ghcr.io/trianalab/pacto-demo/notification-worker:1.0.0
 
 interfaces:
   - name: events
-    type: event
+    type: asyncapi
+    ref: interfaces/events.json
     visibility: internal
-    contract: interfaces/events.json
 
 configurations:
   - name: platform
@@ -44,20 +42,13 @@ dependencies:
     required: true
     compatibility: "^1.0.0"
 
-runtime:
-  workload: scheduled
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-
-scaling:
-  replicas: 1
+workload: scheduled
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 
 metadata:
   tier: domain
@@ -77,7 +68,7 @@ readiness:
   minScore: 70
   expires: "2026-12-31"
   partialCredit: 0.5
-  checks:
+  claims:
     - id: worker-dashboard
       type: url
       category: observability

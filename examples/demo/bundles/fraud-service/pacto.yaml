@@ -1,4 +1,4 @@
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: fraud-service
@@ -16,14 +16,6 @@ service:
       - type: oncall
         value: payments-oncall
         purpose: oncall
-  image:
-    ref: ghcr.io/trianalab/pacto-demo/fraud-service
-
-interfaces:
-  - name: http
-    type: http
-    port: 8084
-    visibility: internal
 
 configurations:
   - name: platform
@@ -46,21 +38,13 @@ dependencies:
     required: true
     compatibility: "^7.0.0"
 
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-
-scaling:
-  min: 2
-  max: 4
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 
 metadata:
   tier: domain
@@ -79,7 +63,7 @@ readiness:
   minScore: 75
   expires: "2027-03-15"
   partialCredit: 0.5
-  checks:
+  claims:
     - id: ml-dashboard
       type: url
       category: observability

@@ -1,4 +1,4 @@
-pactoVersion: "1.0"
+pactoVersion: "2.0"
 
 service:
   name: platform-app-config

@@ -1,4 +1,4 @@
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: orders-service
@@ -16,19 +16,16 @@ service:
       - type: oncall
         value: commerce-oncall
         purpose: oncall
-  image:
-    ref: ghcr.io/trianalab/pacto-demo/orders-service
 
 interfaces:
   - name: http
-    type: http
-    port: 8082
+    type: openapi
+    ref: interfaces/openapi.json
     visibility: internal
-    contract: interfaces/openapi.json
   - name: events
-    type: event
+    type: asyncapi
+    ref: interfaces/events.json
     visibility: internal
-    contract: interfaces/events.json
 
 configurations:
   - name: platform
@@ -59,21 +56,13 @@ dependencies:
     required: true
     compatibility: "^1.0.0"
 
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: high
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-
-scaling:
-  min: 2
-  max: 5
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: high
 
 metadata:
   tier: domain
@@ -98,7 +87,7 @@ readiness:
       version: 1.2.0
       author: fatima.ahmed
       description: Added order tracking, structured ownership metadata and readiness assessment
-  checks:
+  claims:
     - id: dashboard
       type: url
       category: observability

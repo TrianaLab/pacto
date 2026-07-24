@@ -1,4 +1,4 @@
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: payments-service
@@ -16,19 +16,16 @@ service:
       - type: oncall
         value: payments-oncall
         purpose: oncall
-  image:
-    ref: ghcr.io/trianalab/pacto-demo/payments-service:2.1.0
 
 interfaces:
   - name: http
-    type: http
-    port: 8083
+    type: openapi
+    ref: interfaces/openapi.json
     visibility: internal
-    contract: interfaces/openapi.json
   - name: events
-    type: event
+    type: asyncapi
+    ref: interfaces/events.json
     visibility: internal
-    contract: interfaces/events.json
 
 configurations:
   - name: platform
@@ -60,21 +57,13 @@ dependencies:
     required: true
     compatibility: "^1.0.0"
 
-runtime:
-  workload: service
-  state:
-    type: stateful
-    persistence:
-      scope: shared
-      durability: persistent
-    dataCriticality: high
-  lifecycle:
-    upgradeStrategy: recreate
-    gracefulShutdownSeconds: 60
-
-scaling:
-  min: 2
-  max: 4
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
 
 metadata:
   tier: domain
@@ -100,7 +89,7 @@ readiness:
       version: 2.1.0
       author: james.wilson
       description: Added structured ownership metadata and fraud detection readiness tracking
-  checks:
+  claims:
     - id: dashboard
       type: url
       category: observability

@@ -1,4 +1,4 @@
-pactoVersion: "1.0"
+pactoVersion: "2.0"
 
 service:
   name: stripe-api
@@ -15,10 +15,9 @@ service:
 
 interfaces:
   - name: http
-    type: http
-    port: 443
+    type: openapi
+    ref: interfaces/openapi.json
     visibility: public
-    contract: interfaces/openapi.json
 
 metadata:
   tier: external
