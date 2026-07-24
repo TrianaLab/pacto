@@ -208,7 +208,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		BundleFS:         loadResult.BundleFS,
 	}
 
-	evidenceSet, err := obs.Collect(ctx, collectInput)
+	evidenceSet, _, err := obs.Collect(ctx, collectInput)
 	if err != nil {
 		log.Error(err, "Failed to collect runtime evidence")
 		obsMsg := fmt.Sprintf("failed to collect runtime evidence: %v", err)

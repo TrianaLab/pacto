@@ -39,7 +39,7 @@ func TestCollect_Workload_Satisfied(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestCollect_Workload_MismatchExplicit(t *testing.T) {
 		WorkloadExplicit: true, // explicit -> mismatch assertable
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestCollect_Workload_MismatchNonExplicit(t *testing.T) {
 		WorkloadExplicit: false, // non-explicit -> EVIDENCE_INSUFFICIENT
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestCollect_Workload_NotFound(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestCollect_Workload_APIError(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestCollect_Persistence_Durable(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestCollect_Persistence_Ephemeral(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestCollect_Persistence_Ambiguous(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestCollect_Persistence_StatefulSetVCT(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestCollect_Persistence_NoVolumes(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -421,7 +421,7 @@ func TestCollect_Persistence_NotFound(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -459,7 +459,7 @@ func TestCollect_WorkloadAndPersistence(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -495,7 +495,7 @@ func TestCollect_NoWorkloadOrPersistence(t *testing.T) {
 		ContractRef: "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -606,7 +606,7 @@ func TestCollect_Workload_Job(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -635,7 +635,7 @@ func TestCollect_NoWorkloadName(t *testing.T) {
 		ContractRef: "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -663,7 +663,7 @@ func TestCollect_SubjectName(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}

@@ -56,7 +56,7 @@ func TestObserveWorkloadDim_APIError(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestObservePersistenceDim_APIError(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestCollect_EvidenceSetFields(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -490,7 +490,7 @@ func TestCollect_WorkloadNameOnly(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -913,7 +913,7 @@ func TestObservePersistenceDim_DefaultClass(t *testing.T) {
 	// a persistence class we set manually - but we can't do that without modifying internal state.
 	// Instead, we'll add a test that covers the StatefulSet VCT path more thoroughly.
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}

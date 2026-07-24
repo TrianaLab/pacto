@@ -44,7 +44,7 @@ func TestCollect_Workload_CronJob(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestCollect_Workload_ReplicaSet(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestCollect_Persistence_MixedVolumes(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestCollect_Persistence_ConfigMapVolume(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestCollect_Persistence_SecretVolume(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestCollect_Persistence_DownwardAPIVolume(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestCollect_Persistence_ProjectedVolume(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}
@@ -415,7 +415,7 @@ func TestCollect_Persistence_AmbiguousMixed(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, err := obs.Collect(context.Background(), input)
+	es, _, err := obs.Collect(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Collect failed: %v", err)
 	}

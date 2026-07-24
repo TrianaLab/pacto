@@ -17,12 +17,28 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/evidence"
 )
+
+// InterfaceBinding maps a contract interface to the Service port that serves it (spec section 9.3 / B4).
+type InterfaceBinding struct {
+	Interface   string
+	ServicePort intstr.IntOrString
+}
+
+// ObservationWindowUpdate records updated stabilization state for one assertion.
+type ObservationWindowUpdate struct {
+	Kind    string
+	Subject string
+	FirstObservedNegativeAt *metav1.Time
+}
 
 // CollectInput carries the information the controller passes to Collect. See spec section 9.1.
 type CollectInput struct {
@@ -34,8 +50,13 @@ type CollectInput struct {
 	WorkloadExplicit bool
 	Contract        *contract.Contract
 	BundleFS        fs.FS
-	// TODO(S6.3): InterfaceBindings, ConfigBindings, ProbeEnabled, MetricsEnabled,
-	// InterfaceNameMatchDiscovery, StabilizationWindow, ObservationWindows will be added in later steps.
+
+	InterfaceBindings []InterfaceBinding
+	StabilizationWindow time.Duration
+	ObservationWindows map[string]*metav1.Time
+	Now time.Time
+
+	// TODO(S6.4): ConfigBindings, ProbeEnabled, MetricsEnabled, InterfaceNameMatchDiscovery will be added in later steps.
 }
 
 // RuntimeSnapshot is the internal state for k8s observations (kept for internal convenience).
@@ -69,8 +90,11 @@ func New(c client.Client) *Observer {
 }
 
 // Collect implements the new per-dimension collection driven by the contract. Spec section 9.1.
-func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.EvidenceSet, error) {
-	now := time.Now()
+func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.EvidenceSet, []ObservationWindowUpdate, error) {
+	now := input.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
 	prov := evidence.Provenance{Collector: "k8s-observer", DetectedAt: now}
 
 	// EvidenceSet.Subject is the runtime TARGET (namespace/service), distinct from per-observation assertion identity.
@@ -80,12 +104,19 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 	}
 
 	var observations []evidence.Observation
+	var windowUpdates []ObservationWindowUpdate
 
-	// TODO(S6.3 step 1): interfaces producer (spec section 7.3).
-	// TODO(S6.3 step 1): health producer (spec section 7.4).
-	// TODO(S6.3 step 1): metrics producer (spec section 7.5).
-	// TODO(S6.3 step 1): dependencies producer (spec section 7.6).
-	// TODO(S6.3 step 1): configurations producer (spec section 7.7).
+	// Interfaces producer (spec section 7.3 / B1 + B4).
+	if len(input.Contract.Interfaces) > 0 {
+		iObs, iUpdates := o.observeInterfacesDim(ctx, input, prov, now)
+		observations = append(observations, iObs...)
+		windowUpdates = append(windowUpdates, iUpdates...)
+	}
+
+	// TODO(S6.4): health producer (spec section 7.4).
+	// TODO(S6.4): metrics producer (spec section 7.5).
+	// TODO(S6.5): dependencies producer (spec section 7.6).
+	// TODO(S6.6): configurations producer (spec section 7.7).
 
 	// Workload producer (spec section 7.1 + AR7).
 	if input.Contract.Workload != "" && input.WorkloadName != "" {
@@ -105,7 +136,7 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 		Source:       "k8s",
 		ObservedAt:   now,
 		Observations: observations,
-	}, nil
+	}, windowUpdates, nil
 }
 
 // observeWorkloadDim observes the workload dimension. Spec section 7.1 + AR7.
@@ -404,4 +435,190 @@ func isExplicitlyEphemeral(vol *corev1.Volume) bool {
 		vol.ConfigMap != nil ||
 		vol.Secret != nil ||
 		vol.DownwardAPI != nil
+}
+
+// stabilize applies the stabilization window logic to a single observation (spec section 9.5 / B5). It is a
+// PURE function: given the existing window state, whether the current observation is negative, and the current
+// time, it returns the appropriate Outcome and the updated window state.
+func stabilize(existing *metav1.Time, isNegative bool, now time.Time, window time.Duration) (evidence.Outcome, *metav1.Time) {
+	if !isNegative {
+		// Non-negative observation -> reset the window (nil) and emit Observed (caller will stamp Present=true).
+		return evidence.Observed, nil
+	}
+
+	// isNegative == true
+	if existing == nil {
+		// First negative observation -> start the window.
+		t := metav1.NewTime(now)
+		return evidence.Insufficient, &t
+	}
+
+	// Negative with an existing window -> check if we're beyond the stabilization window.
+	elapsed := now.Sub(existing.Time)
+	if elapsed < window {
+		// Still within the window -> Insufficient (Unknown).
+		return evidence.Insufficient, existing
+	}
+
+	// Beyond the window -> confirmed negative (caller will emit Observed + Present=false).
+	return evidence.Observed, existing
+}
+
+// observeInterfacesDim observes all declared interfaces. Spec section 7.3 / B1 + B4.
+func (o *Observer) observeInterfacesDim(ctx context.Context, input CollectInput, prov evidence.Provenance, now time.Time) ([]evidence.Observation, []ObservationWindowUpdate) {
+	var observations []evidence.Observation
+	var windowUpdates []ObservationWindowUpdate
+
+	for _, iface := range input.Contract.Interfaces {
+		subj := evidence.SubjectRef{Kind: "interface", Name: iface.Name}
+		windowKey := fmt.Sprintf("interface/%s", iface.Name)
+
+		// Find the binding for this interface.
+		binding := findInterfaceBinding(input.InterfaceBindings, iface.Name)
+		if binding == nil {
+			// No binding -> OBSERVATION_UNSUPPORTED (spec section 7.3).
+			obs, _ := evidence.NewUnobserved(evidence.InterfaceObserved, subj, evidence.Unsupported, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		// Read the Service + EndpointSlices to determine ready endpoints.
+		readyCount, err := o.countReadyEndpoints(ctx, input.Namespace, input.ServiceName, binding.ServicePort)
+
+		if err != nil {
+			// API error (non-NotFound) -> COLLECTION_FAILED.
+			obs, _ := evidence.NewUnobserved(evidence.InterfaceObserved, subj, evidence.Failed, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		if readyCount < 0 {
+			// Service NotFound or port not mappable -> EVIDENCE_MISSING / EVIDENCE_INSUFFICIENT.
+			obs, _ := evidence.NewUnobserved(evidence.InterfaceObserved, subj, evidence.Unsupported, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		// We have a mappable port and a ready-endpoint count.
+		isNegative := readyCount == 0
+		existing := input.ObservationWindows[windowKey]
+
+		outcome, updatedWindow := stabilize(existing, isNegative, now, input.StabilizationWindow)
+
+		if outcome == evidence.Observed {
+			// Beyond window (or positive) -> emit Observed with the appropriate Present flag.
+			observations = append(observations, evidence.NewInterfaceObserved(subj, iface.Type, !isNegative, prov))
+		} else {
+			// Insufficient (within window or first negative) -> emit Insufficient.
+			obs, _ := evidence.NewUnobserved(evidence.InterfaceObserved, subj, outcome, prov)
+			observations = append(observations, obs)
+		}
+
+		windowUpdates = append(windowUpdates, ObservationWindowUpdate{
+			Kind:    "interface",
+			Subject: iface.Name,
+			FirstObservedNegativeAt: updatedWindow,
+		})
+	}
+
+	return observations, windowUpdates
+}
+
+// findInterfaceBinding locates the binding for a given interface name.
+func findInterfaceBinding(bindings []InterfaceBinding, ifaceName string) *InterfaceBinding {
+	for i := range bindings {
+		if bindings[i].Interface == ifaceName {
+			return &bindings[i]
+		}
+	}
+	return nil
+}
+
+// countReadyEndpoints reads the Service and EndpointSlices for the given service and port, then returns the
+// count of Ready endpoints covering that port. Returns -1 if the Service is NotFound or the port cannot be
+// mapped; a non-NotFound API error is returned as error.
+func (o *Observer) countReadyEndpoints(ctx context.Context, namespace, serviceName string, servicePort intstr.IntOrString) (int, error) {
+	// Read the Service.
+	svc := &corev1.Service{}
+	err := o.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: serviceName}, svc)
+	if err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return 0, fmt.Errorf("failed to get Service %s: %w", serviceName, err)
+		}
+		// Service NotFound -> -1 (unmappable).
+		return -1, nil
+	}
+
+	// Check if the Service is selector-backed (not ExternalName).
+	if svc.Spec.Type == corev1.ServiceTypeExternalName || len(svc.Spec.Selector) == 0 {
+		// Selector-less / ExternalName -> unmappable.
+		return -1, nil
+	}
+
+	// Resolve the service port to a target port number.
+	var targetPort int32
+	found := false
+	for _, p := range svc.Spec.Ports {
+		if matchesServicePort(p, servicePort) {
+			// For counting ready endpoints, we use the service port itself (EndpointSlice ports match service ports).
+			targetPort = p.Port
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Port not found in Service -> unmappable.
+		return -1, nil
+	}
+
+	// List EndpointSlices for this Service.
+	slices := &discoveryv1.EndpointSliceList{}
+	err = o.client.List(ctx, slices, client.InNamespace(namespace), client.MatchingLabels{
+		discoveryv1.LabelServiceName: serviceName,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to list EndpointSlices for Service %s: %w", serviceName, err)
+	}
+
+	if len(slices.Items) == 0 {
+		// Empty slice list (freshly-created Service) -> zero ready (will be windowed).
+		return 0, nil
+	}
+
+	// Count Ready endpoints covering the target port.
+	readyCount := 0
+	for _, slice := range slices.Items {
+		// Check if this slice has a port matching our target port.
+		hasPort := false
+		for _, slicePort := range slice.Ports {
+			if slicePort.Port != nil && *slicePort.Port == targetPort {
+				hasPort = true
+				break
+			}
+		}
+		if !hasPort {
+			continue
+		}
+
+		// Count ready endpoints in this slice.
+		for _, endpoint := range slice.Endpoints {
+			if endpoint.Conditions.Ready != nil && *endpoint.Conditions.Ready {
+				readyCount++
+			}
+		}
+	}
+
+	return readyCount, nil
+}
+
+// matchesServicePort reports whether a Service port matches the given IntOrString selector.
+func matchesServicePort(p corev1.ServicePort, selector intstr.IntOrString) bool {
+	switch selector.Type {
+	case intstr.Int:
+		return p.Port == selector.IntVal
+	case intstr.String:
+		return p.Name == selector.StrVal
+	default:
+		return false
+	}
 }
