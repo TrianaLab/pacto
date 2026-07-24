@@ -51,10 +51,14 @@ type SubjectRef struct {
 	Name string
 }
 
-// Finding is a typed conclusion produced by the engine. Phase 2 covers
-// contract-internal findings only; evidence linkage (EvidenceRefs) is added in
-// Phase 5 when Evaluate produces evidence-based findings. It is deliberately
-// omitted here so the Finding type does not prematurely encode Phase 5 shape.
+// EvidenceRef links a finding to the evidence that supports it.
+type EvidenceRef struct {
+	Source     string
+	ObservedAt string
+}
+
+// Finding is a typed conclusion produced by the engine. Contract-only findings
+// leave EvidenceRefs empty; evidence-based findings (Phase 5, Evaluate) populate it.
 type Finding struct {
 	Code         Code
 	Severity     Severity
@@ -62,4 +66,5 @@ type Finding struct {
 	Subject      SubjectRef
 	ContractPath string
 	Message      string
+	EvidenceRefs []EvidenceRef
 }

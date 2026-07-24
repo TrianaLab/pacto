@@ -44,8 +44,13 @@ const (
 	CodeUnsupportedPolicyTarget      Code = "UNSUPPORTED_POLICY_TARGET"
 
 	// Evidence-based codes (emitted only by Evaluate, Phase 5).
-	CodePortNotObserved   Code = "PORT_NOT_OBSERVED"
-	CodeConfigNotObserved Code = "CONFIG_NOT_OBSERVED"
+	CodePortNotObserved       Code = "PORT_NOT_OBSERVED"
+	CodeConfigNotObserved     Code = "CONFIG_NOT_OBSERVED"
+	CodeCapabilityNotObserved Code = "CAPABILITY_NOT_OBSERVED"
+	CodeInterfaceNotObserved  Code = "INTERFACE_NOT_OBSERVED"
+	CodeDependencyUnreachable Code = "DEPENDENCY_UNREACHABLE"
+	CodeWorkloadMismatch      Code = "WORKLOAD_MISMATCH"
+	CodePersistenceMismatch   Code = "PERSISTENCE_MISMATCH"
 )
 
 type codeMeta struct {
@@ -98,8 +103,13 @@ var registry = map[Code]codeMeta{
 	CodeUnsupportedPolicyTarget:      {CategoryPolicyViolation, SeverityError},
 
 	// Evidence-based
-	CodePortNotObserved:   {CategoryRuntimeDrift, SeverityError},
-	CodeConfigNotObserved: {CategoryRuntimeDrift, SeverityWarning},
+	CodePortNotObserved:       {CategoryRuntimeDrift, SeverityError},
+	CodeConfigNotObserved:     {CategoryRuntimeDrift, SeverityWarning},
+	CodeCapabilityNotObserved: {CategoryRuntimeDrift, SeverityWarning},
+	CodeInterfaceNotObserved:  {CategoryRuntimeDrift, SeverityWarning},
+	CodeDependencyUnreachable: {CategoryRuntimeDrift, SeverityWarning},
+	CodeWorkloadMismatch:      {CategoryRuntimeDrift, SeverityWarning},
+	CodePersistenceMismatch:   {CategoryRuntimeDrift, SeverityWarning},
 }
 
 // CategoryOf returns the coarse category for a code, or "" if unknown.

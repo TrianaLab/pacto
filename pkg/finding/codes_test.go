@@ -29,6 +29,11 @@ func TestCategoryOf(t *testing.T) {
 		CodeUnsupportedPolicyTarget:      CategoryPolicyViolation,
 		CodePortNotObserved:              CategoryRuntimeDrift,
 		CodeConfigNotObserved:            CategoryRuntimeDrift,
+		CodeCapabilityNotObserved:        CategoryRuntimeDrift,
+		CodeInterfaceNotObserved:         CategoryRuntimeDrift,
+		CodeDependencyUnreachable:        CategoryRuntimeDrift,
+		CodeWorkloadMismatch:             CategoryRuntimeDrift,
+		CodePersistenceMismatch:          CategoryRuntimeDrift,
 	}
 	for code, want := range cases {
 		if got := CategoryOf(code); got != want {
@@ -42,6 +47,11 @@ func TestDefaultSeverity_WarningCodes(t *testing.T) {
 		CodeTagNotDigest,
 		CodePolicyRefNotEnforced,
 		CodeConfigNotObserved,
+		CodeCapabilityNotObserved,
+		CodeInterfaceNotObserved,
+		CodeDependencyUnreachable,
+		CodeWorkloadMismatch,
+		CodePersistenceMismatch,
 	}
 	for _, code := range warningCodes {
 		if got := DefaultSeverity(code); got != SeverityWarning {
@@ -85,9 +95,14 @@ func TestUnknownCodeSeverity(t *testing.T) {
 
 func TestRegistryContract(t *testing.T) {
 	warnCodes := map[Code]bool{
-		CodeTagNotDigest:         true,
-		CodePolicyRefNotEnforced: true,
-		CodeConfigNotObserved:    true,
+		CodeTagNotDigest:          true,
+		CodePolicyRefNotEnforced:  true,
+		CodeConfigNotObserved:     true,
+		CodeCapabilityNotObserved: true,
+		CodeInterfaceNotObserved:  true,
+		CodeDependencyUnreachable: true,
+		CodeWorkloadMismatch:      true,
+		CodePersistenceMismatch:   true,
 	}
 	for code := range registry {
 		if cat := CategoryOf(code); cat == "" {
