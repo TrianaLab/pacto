@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -248,8 +249,28 @@ func validateCapabilities(c *contract.Contract, result *ValidationResult) {
 		"metrics":   true,
 		"extension": true,
 	}
+	declaredIfaces := make(map[string]bool, len(c.Interfaces))
+	for _, iface := range c.Interfaces {
+		declaredIfaces[iface.Name] = true
+	}
 	seen := make(map[string]int)
 	for i, cap := range c.Capabilities {
+		if cap.Binding != nil {
+			if cap.Binding.Interface != "" && !declaredIfaces[cap.Binding.Interface] {
+				result.AddError(
+					fmt.Sprintf("capabilities[%d].binding.interface", i),
+					"CAPABILITY_INTERFACE_UNKNOWN",
+					fmt.Sprintf("capability binding references interface %q, which is not declared in interfaces[]", cap.Binding.Interface),
+				)
+			}
+			if cap.Binding.Path != "" && !validCapabilityPath(cap.Binding.Path) {
+				result.AddError(
+					fmt.Sprintf("capabilities[%d].binding.path", i),
+					"CAPABILITY_PATH_INVALID",
+					fmt.Sprintf("capability binding path %q must start with a single '/' and contain no scheme, host, userinfo or fragment", cap.Binding.Path),
+				)
+			}
+		}
 		if !validTypes[cap.Type] {
 			result.AddError(
 				fmt.Sprintf("capabilities[%d].type", i),
@@ -283,6 +304,21 @@ func validateCapabilities(c *contract.Contract, result *ValidationResult) {
 			seen[cap.Type] = i
 		}
 	}
+}
+
+// validCapabilityPath enforces INV-6 (SSRF-safe): an application path must start with a single "/" and
+// carry no scheme, authority/host, userinfo, fragment or opaque component. This crossfield check is
+// AUTHORITATIVE for INV-6; the JSON-schema pattern is defense-in-depth. The collector additionally builds
+// the probe URL with net/url using the host from the trusted binding, never from this path.
+func validCapabilityPath(path string) bool {
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
+		return false
+	}
+	u, err := url.Parse(path)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "" && u.Host == "" && u.User == nil && u.Fragment == "" && u.Opaque == ""
 }
 
 func validateInterfaceFiles(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {

@@ -216,6 +216,54 @@ func TestValidateInterfaces_NilBundleFS(t *testing.T) {
 	}
 }
 
+func TestValidateCapabilities_BindingInterfaceUnknown(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}}
+	c.Capabilities = []contract.Capability{{Type: "health", Binding: &contract.CapabilityBinding{Type: "http", Interface: "nope", Path: "/healthz"}}}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if !hasErrorCode(result, "CAPABILITY_INTERFACE_UNKNOWN") {
+		t.Errorf("expected CAPABILITY_INTERFACE_UNKNOWN, got %+v", result.Errors)
+	}
+}
+
+func TestValidateCapabilities_BindingInterfaceKnown(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}}
+	c.Capabilities = []contract.Capability{{Type: "health", Binding: &contract.CapabilityBinding{Type: "http", Interface: "public-api", Path: "/healthz"}}}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if hasErrorCode(result, "CAPABILITY_INTERFACE_UNKNOWN") || hasErrorCode(result, "CAPABILITY_PATH_INVALID") {
+		t.Errorf("valid binding must produce no binding errors, got %+v", result.Errors)
+	}
+}
+
+func TestValidateCapabilities_BindingPathInvalid(t *testing.T) {
+	for _, bad := range []string{"//evil.example", "http://evil.example", "https://evil.example", "user@host", "#fragment", "relative/no/slash", "/\x7f"} {
+		c := validV20Contract()
+		c.Interfaces = []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}}
+		c.Capabilities = []contract.Capability{{Type: "health", Binding: &contract.CapabilityBinding{Type: "http", Interface: "public-api", Path: bad}}}
+		var result ValidationResult
+		validateCapabilities(c, &result)
+		if !hasErrorCode(result, "CAPABILITY_PATH_INVALID") {
+			t.Errorf("path %q must be rejected as CAPABILITY_PATH_INVALID, got %+v", bad, result.Errors)
+		}
+	}
+}
+
+func TestValidateCapabilities_BindingPathValid(t *testing.T) {
+	for _, ok := range []string{"/healthz", "/metrics", "/a/b/c"} {
+		c := validV20Contract()
+		c.Interfaces = []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}}
+		c.Capabilities = []contract.Capability{{Type: "health", Binding: &contract.CapabilityBinding{Type: "http", Interface: "public-api", Path: ok}}}
+		var result ValidationResult
+		validateCapabilities(c, &result)
+		if hasErrorCode(result, "CAPABILITY_PATH_INVALID") {
+			t.Errorf("path %q must be accepted, got %+v", ok, result.Errors)
+		}
+	}
+}
+
 func TestValidateCapabilities_ValidStandardTypes(t *testing.T) {
 	types := []string{"health", "metrics"}
 	for _, typ := range types {
