@@ -257,7 +257,7 @@ func TestApplyConfigurationOverrides_NoMatch(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-matching configuration scope")
 	}
-	if !strings.Contains(err.Error(), "no configuration named") {
+	if !strings.Contains(err.Error(), "configuration \"nonexistent\" not found") {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }

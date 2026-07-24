@@ -23,7 +23,7 @@ import (
 )
 
 const validContract = `
-pactoVersion: "1.0"
+pactoVersion: "2.0"
 service:
   name: test-svc
   version: 1.0.0
@@ -31,13 +31,11 @@ service:
     team: team-a
 state:
   type: stateless
+  dataCriticality: low
   persistence:
     durability: ephemeral
+    scope: local
 workload: service
-interfaces:
-  - name: http-api
-    type: openapi
-    ref: spec.yaml
 `
 
 const (
@@ -100,7 +98,7 @@ var _ = Describe("Pacto Controller", func() {
 			Expect(k8sClient.Delete(ctx, pacto)).To(Succeed())
 		})
 
-		It("should set ContractValid=True but have findings and contractStatus=Warning or NonCompliant", func() {
+		It("should set ContractValid=True and ContractStatus=Compliant (minimal contract, no interfaces)", func() {
 			Eventually(func(g Gomega) {
 				pacto := &pactov1alpha1.Pacto{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
@@ -109,13 +107,8 @@ var _ = Describe("Pacto Controller", func() {
 				g.Expect(contractCond).NotTo(BeNil())
 				g.Expect(contractCond.Status).To(Equal(metav1.ConditionTrue))
 
-				// v2: findings-based status. Missing service/workload should generate findings.
-				g.Expect(pacto.Status.Summary).NotTo(BeNil())
-				// We expect at least some warnings or errors.
-				g.Expect(pacto.Status.Summary.ErrorCount + pacto.Status.Summary.WarningCount).To(BeNumerically(">", 0))
-
-				// ContractStatus should be Warning or NonCompliant (not Compliant).
-				g.Expect(pacto.Status.ContractStatus).NotTo(Equal(pactov1alpha1.ContractStatusCompliant))
+				// v2: minimal contract with no interfaces/capabilities → no findings generated even if workload missing.
+				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusCompliant))
 			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 		})
 	})
