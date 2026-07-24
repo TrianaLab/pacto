@@ -12,11 +12,14 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"testing/fstest"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
 	"github.com/trianalab/pacto-operator/internal/loader"
 	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/schemax"
 	"github.com/trianalab/pacto/v2/pkg/validation"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -328,5 +331,125 @@ func TestMapOwnerToInfo_Empty(t *testing.T) {
 	info := mapOwnerToInfo(owner)
 	if info != nil {
 		t.Errorf("expected nil for empty owner, got %+v", info)
+	}
+}
+
+// ---------- requeueInterval ----------
+
+func TestRequeueInterval_Default(t *testing.T) {
+	r := &PactoReconciler{}
+	p := &pactov1alpha1.Pacto{}
+	got := r.requeueInterval(p)
+	if got != 5*time.Minute {
+		t.Fatalf("expected 5m, got %v", got)
+	}
+}
+
+func TestRequeueInterval_Custom(t *testing.T) {
+	r := &PactoReconciler{}
+	p := &pactov1alpha1.Pacto{
+		Spec: pactov1alpha1.PactoSpec{
+			CheckIntervalSeconds: 60,
+		},
+	}
+	got := r.requeueInterval(p)
+	if got != 60*time.Second {
+		t.Fatalf("expected 60s, got %v", got)
+	}
+}
+
+// ---------- schema helpers ----------
+
+func TestSchemaPropsFromBundle_NilFS(t *testing.T) {
+	got := schemaPropsFromBundle(nil, "config/schema.json")
+	if got != nil {
+		t.Errorf("expected nil for nil FS, got %v", got)
+	}
+}
+
+func TestSchemaPropsFromBundle_EmptyPath(t *testing.T) {
+	fsys := fstest.MapFS{"config/schema.json": &fstest.MapFile{Data: []byte("{}")}}
+	got := schemaPropsFromBundle(fsys, "")
+	if got != nil {
+		t.Errorf("expected nil for empty path, got %v", got)
+	}
+}
+
+func TestSchemaPropsFromBundle_FileNotFound(t *testing.T) {
+	fsys := fstest.MapFS{}
+	got := schemaPropsFromBundle(fsys, "missing.json")
+	if got != nil {
+		t.Errorf("expected nil for missing file, got %v", got)
+	}
+}
+
+func TestSchemaPropsFromBundle_Valid(t *testing.T) {
+	schema := `{"properties":{"key":{"type":"string","default":"value"}}}`
+	fsys := fstest.MapFS{"config/schema.json": &fstest.MapFile{Data: []byte(schema)}}
+	got := schemaPropsFromBundle(fsys, "config/schema.json")
+	if len(got) == 0 {
+		t.Fatalf("expected properties, got none")
+	}
+	if got[0].Key != "key" || got[0].Type != "string" {
+		t.Errorf("unexpected property: %+v", got[0])
+	}
+}
+
+func TestSchemaMetaFromBundle_NilFS(t *testing.T) {
+	title, desc := schemaMetaFromBundle(nil, "schema.json")
+	if title != "" || desc != "" {
+		t.Errorf("expected empty strings for nil FS, got %q/%q", title, desc)
+	}
+}
+
+func TestSchemaMetaFromBundle_EmptyPath(t *testing.T) {
+	fsys := fstest.MapFS{"schema.json": &fstest.MapFile{Data: []byte("{}")}}
+	title, desc := schemaMetaFromBundle(fsys, "")
+	if title != "" || desc != "" {
+		t.Errorf("expected empty strings for empty path, got %q/%q", title, desc)
+	}
+}
+
+func TestSchemaMetaFromBundle_FileNotFound(t *testing.T) {
+	fsys := fstest.MapFS{}
+	title, desc := schemaMetaFromBundle(fsys, "missing.json")
+	if title != "" || desc != "" {
+		t.Errorf("expected empty strings for missing file, got %q/%q", title, desc)
+	}
+}
+
+func TestSchemaMetaFromBundle_Valid(t *testing.T) {
+	schema := `{"title":"Config","description":"Service config"}`
+	fsys := fstest.MapFS{"schema.json": &fstest.MapFile{Data: []byte(schema)}}
+	title, desc := schemaMetaFromBundle(fsys, "schema.json")
+	if title != "Config" {
+		t.Errorf("expected title=Config, got %q", title)
+	}
+	if desc != "Service config" {
+		t.Errorf("expected desc=Service config, got %q", desc)
+	}
+}
+
+func TestToSchemaProps_Empty(t *testing.T) {
+	got := toSchemaProps(nil)
+	if got != nil {
+		t.Errorf("expected nil for empty input, got %v", got)
+	}
+}
+
+func TestToSchemaProps_Valid(t *testing.T) {
+	input := []schemax.Property{
+		{Key: "k1", Value: "v1", Type: "string"},
+		{Key: "k2", Value: "42", Type: "integer"},
+	}
+	got := toSchemaProps(input)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 props, got %d", len(got))
+	}
+	if got[0].Key != "k1" || got[0].Type != "string" {
+		t.Errorf("unexpected first prop: %+v", got[0])
+	}
+	if got[1].Key != "k2" || got[1].Type != "integer" {
+		t.Errorf("unexpected second prop: %+v", got[1])
 	}
 }

@@ -424,3 +424,198 @@ func TestMapWorkloadKindToType(t *testing.T) {
 		}
 	}
 }
+
+// --- Additional workload coverage tests ---
+
+func TestObserve_ReplicaSet(t *testing.T) {
+	rs := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec: appsv1.ReplicaSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "app"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "app"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "app", Image: "app:v1"},
+					},
+				},
+			},
+		},
+	}
+
+	fc := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(rs).Build()
+	obs := New(fc)
+
+	snap, err := obs.Observe(context.Background(), "default", "", "app", "ReplicaSet")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !snap.WorkloadExists {
+		t.Error("expected WorkloadExists=true")
+	}
+	if len(snap.ContainerImages) != 1 || snap.ContainerImages[0] != "app:v1" {
+		t.Errorf("expected app:v1, got %v", snap.ContainerImages)
+	}
+}
+
+func TestObserve_Job(t *testing.T) {
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: "migration", Namespace: "default"},
+		Spec: batchv1.JobSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "migrate", Image: "ghcr.io/org/migrate:v1"},
+					},
+					RestartPolicy: corev1.RestartPolicyNever,
+				},
+			},
+		},
+	}
+
+	c := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(job).Build()
+	obs := New(c)
+
+	snap, err := obs.Observe(context.Background(), "default", "", "migration", "Job")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !snap.WorkloadExists {
+		t.Error("expected WorkloadExists=true")
+	}
+	if snap.WorkloadKind != "Job" {
+		t.Errorf("expected Job, got %s", snap.WorkloadKind)
+	}
+	if len(snap.ContainerImages) != 1 || snap.ContainerImages[0] != "ghcr.io/org/migrate:v1" {
+		t.Errorf("expected migrate image, got %v", snap.ContainerImages)
+	}
+}
+
+func TestObserve_CronJob(t *testing.T) {
+	cj := &batchv1.CronJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "cleanup", Namespace: "default"},
+		Spec: batchv1.CronJobSpec{
+			Schedule: "0 * * * *",
+			JobTemplate: batchv1.JobTemplateSpec{
+				Spec: batchv1.JobSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "cleanup", Image: "ghcr.io/org/cleanup:v1"},
+							},
+							RestartPolicy: corev1.RestartPolicyNever,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	c := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(cj).Build()
+	obs := New(c)
+
+	snap, err := obs.Observe(context.Background(), "default", "", "cleanup", "CronJob")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !snap.WorkloadExists {
+		t.Error("expected WorkloadExists=true")
+	}
+	if len(snap.ContainerImages) != 1 || snap.ContainerImages[0] != "ghcr.io/org/cleanup:v1" {
+		t.Errorf("expected cleanup image, got %v", snap.ContainerImages)
+	}
+}
+
+func TestObserveReplicaSet_NotFound(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	obs := New(c)
+
+	snap, err := obs.Observe(context.Background(), "default", "", "missing-rs", "ReplicaSet")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snap.WorkloadExists {
+		t.Error("expected WorkloadExists=false for missing ReplicaSet")
+	}
+}
+
+func TestObserveJob_NotFound(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	obs := New(c)
+
+	snap, err := obs.Observe(context.Background(), "default", "", "missing-job", "Job")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snap.WorkloadExists {
+		t.Error("expected WorkloadExists=false for missing Job")
+	}
+}
+
+func TestObserveCronJob_NotFound(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	obs := New(c)
+
+	snap, err := obs.Observe(context.Background(), "default", "", "missing-cj", "CronJob")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snap.WorkloadExists {
+		t.Error("expected WorkloadExists=false for missing CronJob")
+	}
+}
+
+func TestCollectForTarget_ReplicaSet(t *testing.T) {
+	rs := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-rs", Namespace: "default"},
+		Spec: appsv1.ReplicaSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "my-rs"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "my-rs"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "app", Image: "ghcr.io/org/rs:v1"},
+					},
+				},
+			},
+		},
+	}
+
+	c := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(rs).Build()
+	obs := New(c)
+
+	evidenceSet, err := obs.CollectForTarget(context.Background(), "default", "", "my-rs", "ReplicaSet", "ghcr.io/org/rs-pacto:1.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if evidenceSet.Subject.Name != "default/my-rs" {
+		t.Errorf("expected subject name=default/my-rs, got %s", evidenceSet.Subject.Name)
+	}
+
+	workloadObs := 0
+	for _, obs := range evidenceSet.Observations {
+		if obs.Kind == evidence.WorkloadObserved {
+			workloadObs++
+		}
+	}
+	if workloadObs == 0 {
+		t.Error("expected at least one workload observation")
+	}
+}
+
+func TestCollect_NotImplemented(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	obs := New(c)
+
+	_, err := obs.Collect(context.Background(), evidence.SubjectRef{Kind: "service", Name: "ns/svc"})
+	if err == nil {
+		t.Fatal("expected not-implemented error")
+	}
+	if err.Error() != "Collect not yet implemented; use CollectForTarget" {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
