@@ -21,7 +21,6 @@ import (
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
-	"github.com/trianalab/pacto-operator/internal/validator"
 )
 
 const meterName = "pacto.trianalab.io/operator"
@@ -125,48 +124,6 @@ func RecordContractStatus(namespace, name, status string) {
 			attribute.String("status", s),
 		))
 	}
-}
-
-// RecordValidation updates all metrics for a Pacto CR based on validation checks.
-func RecordValidation(namespace, service string, checks []validator.Check) {
-	ctx := context.Background()
-	baseAttrs := []attribute.KeyValue{
-		attribute.String("service", service),
-		attribute.String("namespace", namespace),
-	}
-
-	var errors, warnings int64
-	allPassed := true
-
-	for _, check := range checks {
-		val := int64(1)
-		if !check.Passed {
-			val = 0
-			allPassed = false
-			severity := check.Severity
-			if severity == "" {
-				severity = pactov1alpha1.SeverityError
-			}
-			if severity == pactov1alpha1.SeverityError {
-				errors++
-			} else {
-				warnings++
-			}
-		}
-		checkAttrs := make([]attribute.KeyValue, len(baseAttrs)+1)
-		copy(checkAttrs, baseAttrs)
-		checkAttrs[len(baseAttrs)] = attribute.String("check", check.Name)
-		validationResult.Record(ctx, val, otelmetric.WithAttributes(checkAttrs...))
-	}
-
-	if allPassed {
-		complianceStatus.Record(ctx, 1, otelmetric.WithAttributes(baseAttrs...))
-	} else {
-		complianceStatus.Record(ctx, 0, otelmetric.WithAttributes(baseAttrs...))
-	}
-
-	validationErrors.Record(ctx, errors, otelmetric.WithAttributes(baseAttrs...))
-	validationWarns.Record(ctx, warnings, otelmetric.WithAttributes(baseAttrs...))
 }
 
 // RecordReadiness emits the readiness gauges for a Pacto CR: the derived score,
