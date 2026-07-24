@@ -176,4 +176,3 @@ func TestReconcile_GetError(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
-

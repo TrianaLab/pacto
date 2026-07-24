@@ -37,6 +37,7 @@ import (
 	"github.com/trianalab/pacto-operator/internal/metrics"
 	"github.com/trianalab/pacto-operator/internal/observer"
 	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/finding"
 	"github.com/trianalab/pacto/v2/pkg/oci"
 	"github.com/trianalab/pacto/v2/pkg/schemax"
 	"github.com/trianalab/pacto/v2/pkg/validation"
@@ -275,28 +276,10 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		pacto.Status.Findings = append(pacto.Status.Findings, fs)
 	}
 
-	// 14. Compute summary from findings
-	var summary pactov1alpha1.Summary
-	for _, f := range allFindings {
-		switch f.Severity {
-		case "error":
-			summary.ErrorCount++
-		case "warning":
-			summary.WarningCount++
-		case "info":
-			summary.InfoCount++
-		}
-	}
+	// 14-15. Compute summary + final contract status from findings.
+	summary, status := summarizeFindings(allFindings)
 	pacto.Status.Summary = &summary
-
-	// 15. Compute final contract status from findings
-	if summary.ErrorCount > 0 {
-		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusNonCompliant
-	} else if summary.WarningCount > 0 {
-		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusWarning
-	} else {
-		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusCompliant
-	}
+	pacto.Status.ContractStatus = status
 
 	return r.finishReconciliation(ctx, pacto)
 }
@@ -628,6 +611,32 @@ func mapValidationResult(vr validation.ValidationResult) *pactov1alpha1.Validati
 		})
 	}
 	return result
+}
+
+// summarizeFindings counts findings by severity and derives the overall contract
+// status: any error -> NonCompliant, otherwise any warning -> Warning, else Compliant.
+// It is a pure function over the full severity set so its behavior is defined for
+// every finding severity the engine may emit now or in the future.
+func summarizeFindings(findings []finding.Finding) (pactov1alpha1.Summary, string) {
+	var summary pactov1alpha1.Summary
+	for _, f := range findings {
+		switch f.Severity {
+		case finding.SeverityError:
+			summary.ErrorCount++
+		case finding.SeverityWarning:
+			summary.WarningCount++
+		case finding.SeverityInfo:
+			summary.InfoCount++
+		}
+	}
+	switch {
+	case summary.ErrorCount > 0:
+		return summary, pactov1alpha1.ContractStatusNonCompliant
+	case summary.WarningCount > 0:
+		return summary, pactov1alpha1.ContractStatusWarning
+	default:
+		return summary, pactov1alpha1.ContractStatusCompliant
+	}
 }
 
 func formatValidationErrors(errors []contract.ValidationError) string {
