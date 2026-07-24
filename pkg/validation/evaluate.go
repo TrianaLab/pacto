@@ -8,187 +8,205 @@ import (
 	"github.com/trianalab/pacto/v2/pkg/finding"
 )
 
-// Evaluate reasons over Contract × Evidence → typed Findings. It emits a finding
-// ONLY when evidence AFFIRMATIVELY contradicts the contract (conservative semantic
-// equality to avoid false drift). If NO observation exists for a contract assertion,
-// Evaluate does NOT flag drift — the collector may not observe that dimension.
-func Evaluate(c contract.Contract, ev evidence.EvidenceSet) []finding.Finding {
-	var findings []finding.Finding
+// Coverage reports how many of the contract's REQUIRED assertions were actually evaluated
+// (Outcome=Observed). Explanatory metadata; it NEVER changes the aggregate compliance state (INV-2).
+// Computed in the same pass as Evaluate.
+type Coverage struct {
+	Evaluated int `json:"evaluated"`
+	Required  int `json:"required"`
+}
 
+// Evaluate reasons over Contract x Evidence -> typed Findings + Coverage. It emits a confirmed violation
+// ONLY when a matching observation has Outcome=Observed AND its payload contradicts the contract; a required
+// assertion with no usable observation yields a SeverityUnknown finding. The engine is pure and stateless:
+// it reads the operator-stamped Outcome and applies no temporal or k8s logic. Spec section 4.
+func Evaluate(c contract.Contract, ev evidence.EvidenceSet) ([]finding.Finding, Coverage) {
+	var findings []finding.Finding
+	var cov Coverage
 	evRef := finding.EvidenceRef{
 		Source:     ev.Source,
 		ObservedAt: ev.ObservedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
+	svc := c.Service.Name
 
-	// Capabilities: if the contract requires a capability and evidence shows Present=false → finding.
-	for _, cap := range c.Capabilities {
-		if obs := findCapabilityObservation(ev.Observations, cap.Type); obs != nil {
-			capObs, err := obs.GetCapabilityObservation()
-			if err == nil && !capObs.Present {
-				findings = append(findings, finding.Finding{
-					Code:         finding.CodeCapabilityNotObserved,
-					Severity:     finding.DefaultSeverity(finding.CodeCapabilityNotObserved),
-					Category:     finding.CategoryOf(finding.CodeCapabilityNotObserved),
-					Subject:      finding.SubjectRef{Kind: "capability", Name: cap.Type},
-					ContractPath: fmt.Sprintf("capabilities[type=%s]", cap.Type),
-					Message:      fmt.Sprintf("capability %q not observed in runtime", cap.Type),
-					EvidenceRefs: []finding.EvidenceRef{evRef},
-				})
-			}
-		}
-	}
-
-	// Interfaces: if the contract declares an interface and evidence shows Present=false → finding.
+	// Interfaces: availability is ALWAYS required (AR3). Contradiction: !Present -> INTERFACE_ABSENT.
 	for _, iface := range c.Interfaces {
-		if obs := findInterfaceObservation(ev.Observations, iface.Name); obs != nil {
-			ifaceObs, err := obs.GetInterfaceObservation()
-			if err == nil && !ifaceObs.Present {
-				findings = append(findings, finding.Finding{
-					Code:         finding.CodeInterfaceNotObserved,
-					Severity:     finding.DefaultSeverity(finding.CodeInterfaceNotObserved),
-					Category:     finding.CategoryOf(finding.CodeInterfaceNotObserved),
-					Subject:      finding.SubjectRef{Kind: "interface", Name: iface.Name},
-					ContractPath: fmt.Sprintf("interfaces[name=%s]", iface.Name),
-					Message:      fmt.Sprintf("interface %q not observed in runtime", iface.Name),
-					EvidenceRefs: []finding.EvidenceRef{evRef},
-				})
-			}
-		}
+		evalAssertion(&findings, &cov, ev, evRef, evidence.InterfaceObserved, "interface", iface.Name,
+			fmt.Sprintf("interfaces[name=%s]", iface.Name), true,
+			func(o evidence.Observation) (bool, finding.Code, string) {
+				p, _ := o.GetInterfaceObservation()
+				return !p.Present, finding.CodeInterfaceAbsent,
+					fmt.Sprintf("interface %q is not available (zero ready endpoints beyond the stabilization window)", iface.Name)
+			})
 	}
 
-	// Dependencies: if evidence shows Reachable=false → finding.
+	// Capabilities: health/metrics are required + observable. extension routes to the engine rule.
+	for _, cap := range c.Capabilities {
+		if cap.Type == contract.CapabilityExtension {
+			cov.Required++
+			findings = append(findings, unknownFinding(finding.CodeExtensionEvaluatorUnavailable,
+				"capability", cap.Type, fmt.Sprintf("capabilities[type=%s]", cap.Type),
+				fmt.Sprintf("extension capability %q has no registered evaluator", cap.Ref), evRef))
+			continue
+		}
+		capType := cap.Type
+		evalAssertion(&findings, &cov, ev, evRef, evidence.CapabilityObserved, "capability", capType,
+			fmt.Sprintf("capabilities[type=%s]", capType), true,
+			func(o evidence.Observation) (bool, finding.Code, string) {
+				p, _ := o.GetCapabilityObservation()
+				return !p.Present, finding.CodeCapabilityAbsent,
+					fmt.Sprintf("capability %q is absent at runtime", capType)
+			})
+	}
+
+	// Dependencies: required per dep.Required. Contradiction: !Reachable -> DEPENDENCY_UNREACHABLE.
 	for _, dep := range c.Dependencies {
-		if obs := findDependencyObservation(ev.Observations, dep.Name); obs != nil {
-			depObs, err := obs.GetDependencyObservation()
-			if err == nil && !depObs.Reachable {
-				findings = append(findings, finding.Finding{
-					Code:         finding.CodeDependencyUnreachable,
-					Severity:     finding.DefaultSeverity(finding.CodeDependencyUnreachable),
-					Category:     finding.CategoryOf(finding.CodeDependencyUnreachable),
-					Subject:      finding.SubjectRef{Kind: "dependency", Name: dep.Name},
-					ContractPath: fmt.Sprintf("dependencies[name=%s]", dep.Name),
-					Message:      fmt.Sprintf("dependency %q is unreachable", dep.Name),
-					EvidenceRefs: []finding.EvidenceRef{evRef},
-				})
-			}
-		}
+		name := dep.Name
+		evalAssertion(&findings, &cov, ev, evRef, evidence.DependencyReachable, "dependency", name,
+			fmt.Sprintf("dependencies[name=%s]", name), dep.Required,
+			func(o evidence.Observation) (bool, finding.Code, string) {
+				p, _ := o.GetDependencyObservation()
+				return !p.Reachable, finding.CodeDependencyUnreachable,
+					fmt.Sprintf("dependency %q is unreachable", name)
+			})
 	}
 
-	// Configuration: for each configuration, check if any key observation shows Present=false.
+	// Configurations: required per cfg.Required. Contradiction: !Present -> CONFIGURATION_ABSENT.
 	for _, cfg := range c.Configurations {
-		if obs := findConfigurationObservation(ev.Observations, cfg.Name); obs != nil {
-			cfgObs, err := obs.GetConfigurationObservation()
-			if err == nil && !cfgObs.Present {
-				findings = append(findings, finding.Finding{
-					Code:         finding.CodeConfigNotObserved,
-					Severity:     finding.DefaultSeverity(finding.CodeConfigNotObserved),
-					Category:     finding.CategoryOf(finding.CodeConfigNotObserved),
-					Subject:      finding.SubjectRef{Kind: "configuration", Name: cfg.Name},
-					ContractPath: fmt.Sprintf("configurations[name=%s]", cfg.Name),
-					Message:      fmt.Sprintf("configuration %q not observed in runtime", cfg.Name),
-					EvidenceRefs: []finding.EvidenceRef{evRef},
-				})
-			}
-		}
+		name := cfg.Name
+		evalAssertion(&findings, &cov, ev, evRef, evidence.ConfigurationPresent, "configuration", name,
+			fmt.Sprintf("configurations[name=%s]", name), cfg.Required,
+			func(o evidence.Observation) (bool, finding.Code, string) {
+				p, _ := o.GetConfigurationObservation()
+				return !p.Present, finding.CodeConfigurationAbsent,
+					fmt.Sprintf("required configuration %q is absent at runtime", name)
+			})
 	}
 
-	// Workload: if evidence exists and workload type != contract workload → finding.
+	// Workload: required iff declared. Service-scoped subject (matched by c.Service.Name).
 	if c.Workload != "" {
-		if obs := findWorkloadObservation(ev.Observations); obs != nil {
-			wObs, err := obs.GetWorkloadObservation()
-			if err == nil && wObs.Type != c.Workload {
-				findings = append(findings, finding.Finding{
-					Code:         finding.CodeWorkloadMismatch,
-					Severity:     finding.DefaultSeverity(finding.CodeWorkloadMismatch),
-					Category:     finding.CategoryOf(finding.CodeWorkloadMismatch),
-					Subject:      finding.SubjectRef{Kind: "service", Name: c.Service.Name},
-					ContractPath: "workload",
-					Message:      fmt.Sprintf("workload type is %q but observed as %q", c.Workload, wObs.Type),
-					EvidenceRefs: []finding.EvidenceRef{evRef},
-				})
-			}
-		}
+		evalAssertion(&findings, &cov, ev, evRef, evidence.WorkloadObserved, "service", svc,
+			"workload", true,
+			func(o evidence.Observation) (bool, finding.Code, string) {
+				p, _ := o.GetWorkloadObservation()
+				return p.Type != c.Workload, finding.CodeWorkloadMismatch,
+					fmt.Sprintf("workload type is %q but observed as %q", c.Workload, p.Type)
+			})
 	}
 
-	// Persistence: if contract declares persistent durability but evidence shows Durable=false → finding.
+	// Persistence: required iff persistent durability declared. Service-scoped subject.
 	if c.State != nil && c.State.Persistence.Durability == contract.DurabilityPersistent {
-		if obs := findPersistenceObservation(ev.Observations); obs != nil {
-			pObs, err := obs.GetPersistenceObservation()
-			if err == nil && !pObs.Durable {
-				findings = append(findings, finding.Finding{
-					Code:         finding.CodePersistenceMismatch,
-					Severity:     finding.DefaultSeverity(finding.CodePersistenceMismatch),
-					Category:     finding.CategoryOf(finding.CodePersistenceMismatch),
-					Subject:      finding.SubjectRef{Kind: "service", Name: c.Service.Name},
-					ContractPath: "state.persistence.durability",
-					Message:      "contract declares persistent durability but evidence shows ephemeral storage",
-					EvidenceRefs: []finding.EvidenceRef{evRef},
-				})
-			}
+		evalAssertion(&findings, &cov, ev, evRef, evidence.PersistenceObserved, "service", svc,
+			"state.persistence.durability", true,
+			func(o evidence.Observation) (bool, finding.Code, string) {
+				p, _ := o.GetPersistenceObservation()
+				return !p.Durable, finding.CodePersistenceMismatch,
+					"contract declares persistent durability but no persistent storage binding was observed"
+			})
+	}
+
+	// Interface conformance opt-in (contract-level, AR1): Required++ + EXTENSION_EVALUATOR_UNAVAILABLE
+	// (no evaluator this release). Never increments Evaluated.
+	if c.Verification != nil {
+		for _, name := range c.Verification.Conformance {
+			cov.Required++
+			findings = append(findings, unknownFinding(finding.CodeExtensionEvaluatorUnavailable,
+				"interface", name, fmt.Sprintf("verification.conformance[%s]", name),
+				fmt.Sprintf("interface %q contract-conformance verification requested but no evaluator is available", name), evRef))
 		}
 	}
 
-	return findings
+	return findings, cov
 }
 
-func findCapabilityObservation(obs []evidence.Observation, capType string) *evidence.Observation {
-	for i := range obs {
-		if obs[i].Kind == evidence.CapabilityObserved {
-			if capObs, err := obs[i].GetCapabilityObservation(); err == nil && capObs.Type == capType {
-				return &obs[i]
-			}
+// evalAssertion applies the uniform per-assertion shape (spec 4.2) for one declared assertion.
+func evalAssertion(findings *[]finding.Finding, cov *Coverage, ev evidence.EvidenceSet,
+	evRef finding.EvidenceRef, kind evidence.ObservationKind, subjectKind, name, contractPath string,
+	required bool, contradicted func(evidence.Observation) (bool, finding.Code, string)) {
+
+	obs := findObservation(ev.Observations, kind, name)
+	if obs == nil || obs.Outcome != evidence.Observed {
+		if required {
+			cov.Required++
+			code := unknownCode(obs)
+			*findings = append(*findings, unknownFinding(code, subjectKind, name, contractPath,
+				unknownMessage(code, subjectKind, name), evRef))
 		}
+		return
 	}
-	return nil
-}
-
-func findInterfaceObservation(obs []evidence.Observation, name string) *evidence.Observation {
-	for i := range obs {
-		if obs[i].Kind == evidence.InterfaceObserved {
-			if ifaceObs, err := obs[i].GetInterfaceObservation(); err == nil && ifaceObs.Name == name {
-				return &obs[i]
-			}
+	if required {
+		cov.Required++
+		cov.Evaluated++
+	}
+	bad, code, msg := contradicted(*obs)
+	if bad {
+		sev := finding.SeverityError
+		if !required {
+			sev = finding.SeverityWarning
 		}
+		*findings = append(*findings, finding.Finding{
+			Code:         code,
+			Severity:     sev,
+			Category:     finding.CategoryRuntimeDrift,
+			Subject:      finding.SubjectRef{Kind: subjectKind, Name: name},
+			ContractPath: contractPath,
+			Message:      msg,
+			EvidenceRefs: []finding.EvidenceRef{evRef},
+		})
 	}
-	return nil
 }
 
-func findDependencyObservation(obs []evidence.Observation, name string) *evidence.Observation {
+// findObservation matches uniformly on (Kind, Subject.Name) for EVERY dimension — no kind-alone path.
+// validate() (INV-1c) guarantees Kind implies Subject.Kind, so the match is safe.
+func findObservation(obs []evidence.Observation, kind evidence.ObservationKind, name string) *evidence.Observation {
 	for i := range obs {
-		if obs[i].Kind == evidence.DependencyReachable {
-			if depObs, err := obs[i].GetDependencyObservation(); err == nil && depObs.Name == name {
-				return &obs[i]
-			}
-		}
-	}
-	return nil
-}
-
-func findConfigurationObservation(obs []evidence.Observation, key string) *evidence.Observation {
-	for i := range obs {
-		if obs[i].Kind == evidence.ConfigurationPresent {
-			if cfgObs, err := obs[i].GetConfigurationObservation(); err == nil && cfgObs.Key == key {
-				return &obs[i]
-			}
-		}
-	}
-	return nil
-}
-
-func findWorkloadObservation(obs []evidence.Observation) *evidence.Observation {
-	for i := range obs {
-		if obs[i].Kind == evidence.WorkloadObserved {
+		if obs[i].Kind == kind && obs[i].Subject.Name == name {
 			return &obs[i]
 		}
 	}
 	return nil
 }
 
-func findPersistenceObservation(obs []evidence.Observation) *evidence.Observation {
-	for i := range obs {
-		if obs[i].Kind == evidence.PersistenceObserved {
-			return &obs[i]
-		}
+// unknownCode maps a (possibly nil) observation to its family-2 code (spec 4.4).
+func unknownCode(obs *evidence.Observation) finding.Code {
+	if obs == nil {
+		return finding.CodeEvidenceMissing
 	}
-	return nil
+	switch obs.Outcome {
+	case evidence.Unsupported:
+		return finding.CodeObservationUnsupported
+	case evidence.Failed:
+		return finding.CodeCollectionFailed
+	case evidence.Stale:
+		return finding.CodeEvidenceStale
+	default: // evidence.Insufficient
+		return finding.CodeEvidenceInsufficient
+	}
+}
+
+func unknownMessage(code finding.Code, subjectKind, name string) string {
+	switch code {
+	case finding.CodeEvidenceMissing:
+		return fmt.Sprintf("no observation was produced for required %s %q", subjectKind, name)
+	case finding.CodeObservationUnsupported:
+		return fmt.Sprintf("%s %q cannot be observed in this environment", subjectKind, name)
+	case finding.CodeCollectionFailed:
+		return fmt.Sprintf("collection failed for %s %q", subjectKind, name)
+	case finding.CodeEvidenceStale:
+		return fmt.Sprintf("evidence for %s %q is stale", subjectKind, name)
+	default: // CodeEvidenceInsufficient
+		return fmt.Sprintf("evidence for %s %q is insufficient to satisfy or contradict the contract", subjectKind, name)
+	}
+}
+
+func unknownFinding(code finding.Code, subjectKind, name, contractPath, msg string, evRef finding.EvidenceRef) finding.Finding {
+	return finding.Finding{
+		Code:         code,
+		Severity:     finding.SeverityUnknown,
+		Category:     finding.CategoryInconclusive,
+		Subject:      finding.SubjectRef{Kind: subjectKind, Name: name},
+		ContractPath: contractPath,
+		Message:      msg,
+		EvidenceRefs: []finding.EvidenceRef{evRef},
+	}
 }

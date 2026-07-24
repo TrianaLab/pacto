@@ -9,410 +9,271 @@ import (
 	"github.com/trianalab/pacto/v2/pkg/finding"
 )
 
-func TestEvaluate_NoEvidenceNoFindings(t *testing.T) {
-	c := contract.Contract{
-		Service: contract.Service{Name: "payments", Version: "1.0.0"},
-		Capabilities: []contract.Capability{
-			{Type: contract.CapabilityHealth},
-		},
-		Interfaces: []contract.Interface{
-			{Name: "api", Type: contract.InterfaceTypeOpenAPI, Ref: "interfaces/openapi.json"},
-		},
-		Dependencies: []contract.Dependency{
-			{Name: "database", Ref: "oci://reg/db:v1", Required: true, Compatibility: "^1.0.0"},
-		},
-		Configurations: []contract.Configuration{
-			{Name: "app", Schema: "configuration/schema.json"},
-		},
-		Workload: contract.WorkloadService,
-		State: &contract.State{
-			Type: contract.StateStateful,
-			Persistence: contract.Persistence{
-				Scope:      contract.ScopeShared,
-				Durability: contract.DurabilityPersistent,
-			},
-		},
-	}
+func prov() evidence.Provenance {
+	return evidence.Provenance{Collector: "test", DetectedAt: time.Unix(1, 0)}
+}
+func sr(kind, name string) evidence.SubjectRef { return evidence.SubjectRef{Kind: kind, Name: name} }
 
-	ev := evidence.EvidenceSet{
-		Subject:      evidence.SubjectRef{Kind: "service", Name: "payments"},
-		ContractRef:  "payments:1.0.0",
-		Source:       "test",
-		ObservedAt:   time.Now(),
-		Observations: []evidence.Observation{},
-	}
-
-	findings := Evaluate(c, ev)
-	if len(findings) != 0 {
-		t.Errorf("expected no findings when no observations exist, got %d", len(findings))
+func es(obs ...evidence.Observation) evidence.EvidenceSet {
+	return evidence.EvidenceSet{
+		Subject:      sr("service", "ns/orders"),
+		ContractRef:  "oci://x",
+		Source:       "k8s",
+		ObservedAt:   time.Unix(1, 0),
+		Observations: obs,
 	}
 }
 
-func TestEvaluate_CapabilityNotObserved(t *testing.T) {
-	c := contract.Contract{
-		Service: contract.Service{Name: "payments", Version: "1.0.0"},
-		Capabilities: []contract.Capability{
-			{Type: contract.CapabilityHealth},
-		},
+func unobs(t *testing.T, k evidence.ObservationKind, subjKind, name string, oc evidence.Outcome) evidence.Observation {
+	t.Helper()
+	o, err := evidence.NewUnobserved(k, sr(subjKind, name), oc, prov())
+	if err != nil {
+		t.Fatalf("NewUnobserved: %v", err)
 	}
+	return o
+}
 
-	prov := evidence.Provenance{Collector: "test", DetectedAt: time.Now()}
-	subj := evidence.SubjectRef{Kind: "service", Name: "payments"}
-
-	ev := evidence.EvidenceSet{
-		Subject:     subj,
-		ContractRef: "payments:1.0.0",
-		Source:      "kubernetes",
-		ObservedAt:  time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
-		Observations: []evidence.Observation{
-			evidence.NewCapabilityObserved(subj, contract.CapabilityHealth, false, prov),
-		},
-	}
-
-	findings := Evaluate(c, ev)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
-	}
-	f := findings[0]
-	if f.Code != finding.CodeCapabilityNotObserved {
-		t.Errorf("code = %q, want %q", f.Code, finding.CodeCapabilityNotObserved)
-	}
-	if f.Subject.Kind != "capability" || f.Subject.Name != contract.CapabilityHealth {
-		t.Errorf("subject = %+v, want {capability, health}", f.Subject)
-	}
-	if len(f.EvidenceRefs) != 1 {
-		t.Fatalf("expected 1 evidence ref, got %d", len(f.EvidenceRefs))
-	}
-	if f.EvidenceRefs[0].Source != "kubernetes" {
-		t.Errorf("evidence source = %q, want kubernetes", f.EvidenceRefs[0].Source)
-	}
-	if f.EvidenceRefs[0].ObservedAt != "2026-07-24T12:00:00Z" {
-		t.Errorf("evidence observedAt = %q", f.EvidenceRefs[0].ObservedAt)
+// fullContract declares one required assertion of every dimension. Required total = 6.
+func fullContract() contract.Contract {
+	return contract.Contract{
+		Service:        contract.Service{Name: "orders", Version: "1.0.0"},
+		Interfaces:     []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}},
+		Capabilities:   []contract.Capability{{Type: contract.CapabilityHealth}},
+		Dependencies:   []contract.Dependency{{Name: "payments", Ref: "oci://p", Required: true, Compatibility: "^1.0.0"}},
+		Configurations: []contract.Configuration{{Name: "app", Schema: "s.json", Required: true}},
+		Workload:       contract.WorkloadService,
+		State:          &contract.State{Persistence: contract.Persistence{Durability: contract.DurabilityPersistent}},
 	}
 }
 
-func TestEvaluate_InterfaceNotObserved(t *testing.T) {
-	c := contract.Contract{
-		Service: contract.Service{Name: "api-gateway", Version: "2.0.0"},
-		Interfaces: []contract.Interface{
-			{Name: "rest", Type: contract.InterfaceTypeOpenAPI, Ref: "interfaces/openapi.json"},
-		},
-	}
+func satisfied() evidence.EvidenceSet {
+	return es(
+		evidence.NewInterfaceObserved(sr("interface", "public-api"), "openapi", true, prov()),
+		evidence.NewCapabilityObserved(sr("capability", "health"), true, prov()),
+		evidence.NewDependencyReachable(sr("dependency", "payments"), true, prov()),
+		evidence.NewConfigurationPresent(sr("configuration", "app"), true, prov()),
+		evidence.NewWorkloadObserved(sr("service", "orders"), "service", prov()),
+		evidence.NewPersistenceObserved(sr("service", "orders"), true, prov()),
+	)
+}
 
-	prov := evidence.Provenance{Collector: "test", DetectedAt: time.Now()}
-	subj := evidence.SubjectRef{Kind: "service", Name: "api-gateway"}
+func countSeverity(fs []finding.Finding, s finding.Severity) int {
+	n := 0
+	for _, f := range fs {
+		if f.Severity == s {
+			n++
+		}
+	}
+	return n
+}
 
-	ev := evidence.EvidenceSet{
-		Subject:     subj,
-		ContractRef: "api-gateway:2.0.0",
-		Source:      "docker",
-		ObservedAt:  time.Now(),
-		Observations: []evidence.Observation{
-			evidence.NewInterfaceObserved(subj, "rest", contract.InterfaceTypeOpenAPI, false, prov),
-		},
+func hasCode(fs []finding.Finding, code finding.Code) bool {
+	for _, f := range fs {
+		if f.Code == code {
+			return true
+		}
 	}
+	return false
+}
 
-	findings := Evaluate(c, ev)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
+func TestEvaluate_AllSatisfied(t *testing.T) {
+	fs, cov := Evaluate(fullContract(), satisfied())
+	if len(fs) != 0 {
+		t.Fatalf("expected no findings, got %v", fs)
 	}
-	f := findings[0]
-	if f.Code != finding.CodeInterfaceNotObserved {
-		t.Errorf("code = %q, want %q", f.Code, finding.CodeInterfaceNotObserved)
-	}
-	if f.Subject.Name != "rest" {
-		t.Errorf("subject name = %q, want rest", f.Subject.Name)
+	if cov.Required != 6 || cov.Evaluated != 6 {
+		t.Fatalf("coverage = %+v, want {6,6}", cov)
 	}
 }
 
-func TestEvaluate_DependencyUnreachable(t *testing.T) {
-	c := contract.Contract{
-		Service: contract.Service{Name: "worker", Version: "1.5.0"},
-		Dependencies: []contract.Dependency{
-			{Name: "queue", Ref: "oci://reg/queue:v2", Required: true, Compatibility: "^2.0.0"},
-		},
+func TestEvaluate_ContradictionPerDimension(t *testing.T) {
+	cases := []struct {
+		name string
+		obs  evidence.Observation
+		code finding.Code
+	}{
+		{"interface", evidence.NewInterfaceObserved(sr("interface", "public-api"), "openapi", false, prov()), finding.CodeInterfaceAbsent},
+		{"capability", evidence.NewCapabilityObserved(sr("capability", "health"), false, prov()), finding.CodeCapabilityAbsent},
+		{"dependency", evidence.NewDependencyReachable(sr("dependency", "payments"), false, prov()), finding.CodeDependencyUnreachable},
+		{"configuration", evidence.NewConfigurationPresent(sr("configuration", "app"), false, prov()), finding.CodeConfigurationAbsent},
+		{"workload", evidence.NewWorkloadObserved(sr("service", "orders"), "job", prov()), finding.CodeWorkloadMismatch},
+		{"persistence", evidence.NewPersistenceObserved(sr("service", "orders"), false, prov()), finding.CodePersistenceMismatch},
 	}
-
-	prov := evidence.Provenance{Collector: "test", DetectedAt: time.Now()}
-	subj := evidence.SubjectRef{Kind: "service", Name: "worker"}
-
-	ev := evidence.EvidenceSet{
-		Subject:     subj,
-		ContractRef: "worker:1.5.0",
-		Source:      "kubernetes",
-		ObservedAt:  time.Now(),
-		Observations: []evidence.Observation{
-			evidence.NewDependencyReachable(subj, "queue", false, prov),
-		},
-	}
-
-	findings := Evaluate(c, ev)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
-	}
-	f := findings[0]
-	if f.Code != finding.CodeDependencyUnreachable {
-		t.Errorf("code = %q, want %q", f.Code, finding.CodeDependencyUnreachable)
-	}
-	if f.Subject.Name != "queue" {
-		t.Errorf("subject name = %q, want queue", f.Subject.Name)
-	}
-}
-
-func TestEvaluate_ConfigNotObserved(t *testing.T) {
-	c := contract.Contract{
-		Service: contract.Service{Name: "frontend", Version: "3.0.0"},
-		Configurations: []contract.Configuration{
-			{Name: "app", Schema: "configuration/schema.json"},
-		},
-	}
-
-	prov := evidence.Provenance{Collector: "test", DetectedAt: time.Now()}
-	subj := evidence.SubjectRef{Kind: "service", Name: "frontend"}
-
-	ev := evidence.EvidenceSet{
-		Subject:     subj,
-		ContractRef: "frontend:3.0.0",
-		Source:      "ci",
-		ObservedAt:  time.Now(),
-		Observations: []evidence.Observation{
-			evidence.NewConfigurationPresent(subj, "app", false, prov),
-		},
-	}
-
-	findings := Evaluate(c, ev)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
-	}
-	f := findings[0]
-	if f.Code != finding.CodeConfigNotObserved {
-		t.Errorf("code = %q, want %q", f.Code, finding.CodeConfigNotObserved)
-	}
-	if f.Subject.Name != "app" {
-		t.Errorf("subject name = %q, want app", f.Subject.Name)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Start from satisfied, replace the one dimension's observation with the contradicting one.
+			set := satisfied()
+			for i := range set.Observations {
+				if set.Observations[i].Kind == tc.obs.Kind && set.Observations[i].Subject == tc.obs.Subject {
+					set.Observations[i] = tc.obs
+				}
+			}
+			fs, cov := Evaluate(fullContract(), set)
+			if !hasCode(fs, tc.code) {
+				t.Fatalf("want code %s, got %v", tc.code, fs)
+			}
+			if countSeverity(fs, finding.SeverityError) != 1 {
+				t.Errorf("want exactly 1 Error, got %d", countSeverity(fs, finding.SeverityError))
+			}
+			// Observed-and-contradicted still counts as evaluated: no coverage gap.
+			if cov.Required != 6 || cov.Evaluated != 6 {
+				t.Errorf("coverage = %+v, want {6,6}", cov)
+			}
+		})
 	}
 }
 
-func TestEvaluate_WorkloadMismatch(t *testing.T) {
-	c := contract.Contract{
-		Service:  contract.Service{Name: "batch-processor", Version: "1.0.0"},
-		Workload: contract.WorkloadJob,
+func TestEvaluate_UnknownCodesAndMessages(t *testing.T) {
+	// Drive the interface (required) through every non-Observed outcome + the missing case.
+	base := func(ifaceObs *evidence.Observation) evidence.EvidenceSet {
+		obs := []evidence.Observation{
+			evidence.NewCapabilityObserved(sr("capability", "health"), true, prov()),
+			evidence.NewDependencyReachable(sr("dependency", "payments"), true, prov()),
+			evidence.NewConfigurationPresent(sr("configuration", "app"), true, prov()),
+			evidence.NewWorkloadObserved(sr("service", "orders"), "service", prov()),
+			evidence.NewPersistenceObserved(sr("service", "orders"), true, prov()),
+		}
+		if ifaceObs != nil {
+			obs = append(obs, *ifaceObs)
+		}
+		return es(obs...)
 	}
-
-	prov := evidence.Provenance{Collector: "test", DetectedAt: time.Now()}
-	subj := evidence.SubjectRef{Kind: "service", Name: "batch-processor"}
-
-	ev := evidence.EvidenceSet{
-		Subject:     subj,
-		ContractRef: "batch-processor:1.0.0",
-		Source:      "kubernetes",
-		ObservedAt:  time.Now(),
-		Observations: []evidence.Observation{
-			evidence.NewWorkloadObserved(subj, contract.WorkloadService, prov),
-		},
+	uns := func(oc evidence.Outcome) *evidence.Observation {
+		o := unobs(t, evidence.InterfaceObserved, "interface", "public-api", oc)
+		return &o
 	}
-
-	findings := Evaluate(c, ev)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
+	cases := []struct {
+		name  string
+		iface *evidence.Observation
+		code  finding.Code
+	}{
+		{"missing", nil, finding.CodeEvidenceMissing},
+		{"unsupported", uns(evidence.Unsupported), finding.CodeObservationUnsupported},
+		{"failed", uns(evidence.Failed), finding.CodeCollectionFailed},
+		{"stale", uns(evidence.Stale), finding.CodeEvidenceStale},
+		{"insufficient", uns(evidence.Insufficient), finding.CodeEvidenceInsufficient},
 	}
-	f := findings[0]
-	if f.Code != finding.CodeWorkloadMismatch {
-		t.Errorf("code = %q, want %q", f.Code, finding.CodeWorkloadMismatch)
-	}
-}
-
-func TestEvaluate_PersistenceMismatch(t *testing.T) {
-	c := contract.Contract{
-		Service: contract.Service{Name: "storage-service", Version: "2.0.0"},
-		State: &contract.State{
-			Type: contract.StateStateful,
-			Persistence: contract.Persistence{
-				Scope:      contract.ScopeShared,
-				Durability: contract.DurabilityPersistent,
-			},
-		},
-	}
-
-	prov := evidence.Provenance{Collector: "test", DetectedAt: time.Now()}
-	subj := evidence.SubjectRef{Kind: "service", Name: "storage-service"}
-
-	ev := evidence.EvidenceSet{
-		Subject:     subj,
-		ContractRef: "storage-service:2.0.0",
-		Source:      "kubernetes",
-		ObservedAt:  time.Now(),
-		Observations: []evidence.Observation{
-			evidence.NewPersistenceObserved(subj, false, prov),
-		},
-	}
-
-	findings := Evaluate(c, ev)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
-	}
-	f := findings[0]
-	if f.Code != finding.CodePersistenceMismatch {
-		t.Errorf("code = %q, want %q", f.Code, finding.CodePersistenceMismatch)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fs, cov := Evaluate(fullContract(), base(tc.iface))
+			if !hasCode(fs, tc.code) {
+				t.Fatalf("want %s, got %v", tc.code, fs)
+			}
+			for _, f := range fs {
+				if f.Code == tc.code {
+					if f.Severity != finding.SeverityUnknown || f.Category != finding.CategoryInconclusive {
+						t.Errorf("%s: want Unknown/Inconclusive, got %s/%s", tc.code, f.Severity, f.Category)
+					}
+					if f.Message == "" {
+						t.Errorf("%s: empty message", tc.code)
+					}
+				}
+			}
+			// interface Required but not Evaluated -> gap of 1.
+			if cov.Required != 6 || cov.Evaluated != 5 {
+				t.Errorf("coverage = %+v, want {5,6}", cov)
+			}
+		})
 	}
 }
 
-func TestEvaluate_MultipleFindings(t *testing.T) {
+func TestEvaluate_OptionalDependency(t *testing.T) {
 	c := contract.Contract{
-		Service: contract.Service{Name: "multi-service", Version: "1.0.0"},
-		Capabilities: []contract.Capability{
-			{Type: contract.CapabilityHealth},
-			{Type: contract.CapabilityMetrics},
-		},
-		Dependencies: []contract.Dependency{
-			{Name: "db", Ref: "oci://reg/db:v1", Required: true, Compatibility: "^1.0.0"},
-		},
+		Service:      contract.Service{Name: "orders", Version: "1"},
+		Dependencies: []contract.Dependency{{Name: "cache", Ref: "oci://c", Required: false, Compatibility: "^1"}},
 	}
-
-	prov := evidence.Provenance{Collector: "test", DetectedAt: time.Now()}
-	subj := evidence.SubjectRef{Kind: "service", Name: "multi-service"}
-
-	ev := evidence.EvidenceSet{
-		Subject:     subj,
-		ContractRef: "multi-service:1.0.0",
-		Source:      "test",
-		ObservedAt:  time.Now(),
-		Observations: []evidence.Observation{
-			evidence.NewCapabilityObserved(subj, contract.CapabilityHealth, false, prov),
-			evidence.NewCapabilityObserved(subj, contract.CapabilityMetrics, false, prov),
-			evidence.NewDependencyReachable(subj, "db", false, prov),
-		},
+	// Missing optional -> no finding, no coverage.
+	fs, cov := Evaluate(c, es())
+	if len(fs) != 0 || cov.Required != 0 || cov.Evaluated != 0 {
+		t.Fatalf("optional missing: fs=%v cov=%+v", fs, cov)
 	}
-
-	findings := Evaluate(c, ev)
-	if len(findings) != 3 {
-		t.Fatalf("expected 3 findings, got %d", len(findings))
+	// Observed + satisfied -> no finding, no coverage.
+	fs, cov = Evaluate(c, es(evidence.NewDependencyReachable(sr("dependency", "cache"), true, prov())))
+	if len(fs) != 0 || cov.Required != 0 {
+		t.Fatalf("optional satisfied: fs=%v cov=%+v", fs, cov)
 	}
-
-	codes := make(map[finding.Code]bool)
-	for _, f := range findings {
-		codes[f.Code] = true
+	// Observed + contradicted -> Warning (not Error), still no coverage.
+	fs, cov = Evaluate(c, es(evidence.NewDependencyReachable(sr("dependency", "cache"), false, prov())))
+	if countSeverity(fs, finding.SeverityWarning) != 1 || countSeverity(fs, finding.SeverityError) != 0 {
+		t.Fatalf("optional contradicted: want 1 Warning 0 Error, got %v", fs)
 	}
-	if !codes[finding.CodeCapabilityNotObserved] {
-		t.Errorf("missing capability finding")
-	}
-	if !codes[finding.CodeDependencyUnreachable] {
-		t.Errorf("missing dependency finding")
+	if cov.Required != 0 {
+		t.Errorf("optional must not touch coverage: %+v", cov)
 	}
 }
 
-func TestEvaluate_MatchingEvidenceNoFindings(t *testing.T) {
+func TestEvaluate_ExtensionCapability(t *testing.T) {
 	c := contract.Contract{
-		Service: contract.Service{Name: "healthy-service", Version: "1.0.0"},
-		Capabilities: []contract.Capability{
-			{Type: contract.CapabilityHealth},
-		},
-		Workload: contract.WorkloadService,
-		State: &contract.State{
-			Type: contract.StateStateful,
-			Persistence: contract.Persistence{
-				Scope:      contract.ScopeShared,
-				Durability: contract.DurabilityPersistent,
-			},
-		},
+		Service:      contract.Service{Name: "orders", Version: "1"},
+		Capabilities: []contract.Capability{{Type: contract.CapabilityExtension, Ref: "example.com/custom"}},
 	}
-
-	prov := evidence.Provenance{Collector: "test", DetectedAt: time.Now()}
-	subj := evidence.SubjectRef{Kind: "service", Name: "healthy-service"}
-
-	ev := evidence.EvidenceSet{
-		Subject:     subj,
-		ContractRef: "healthy-service:1.0.0",
-		Source:      "test",
-		ObservedAt:  time.Now(),
-		Observations: []evidence.Observation{
-			evidence.NewCapabilityObserved(subj, contract.CapabilityHealth, true, prov),
-			evidence.NewWorkloadObserved(subj, contract.WorkloadService, prov),
-			evidence.NewPersistenceObserved(subj, true, prov),
-		},
+	fs, cov := Evaluate(c, es())
+	if !hasCode(fs, finding.CodeExtensionEvaluatorUnavailable) {
+		t.Fatalf("want EXTENSION_EVALUATOR_UNAVAILABLE, got %v", fs)
 	}
-
-	findings := Evaluate(c, ev)
-	if len(findings) != 0 {
-		t.Errorf("expected no findings when evidence matches contract, got %d", len(findings))
+	if cov.Required != 1 || cov.Evaluated != 0 {
+		t.Errorf("extension coverage = %+v, want {0,1}", cov)
+	}
+	if hasCode(fs, finding.CodeEvidenceMissing) {
+		t.Error("extension must NOT route through EVIDENCE_MISSING")
 	}
 }
 
-func TestEvaluate_EphemeralDurabilityNoFinding(t *testing.T) {
+func TestEvaluate_ConformanceOptIn(t *testing.T) {
 	c := contract.Contract{
-		Service: contract.Service{Name: "cache", Version: "1.0.0"},
-		State: &contract.State{
-			Type: contract.StateStateless,
-			Persistence: contract.Persistence{
-				Scope:      contract.ScopeLocal,
-				Durability: contract.DurabilityEphemeral,
-			},
-		},
+		Service:      contract.Service{Name: "orders", Version: "1"},
+		Interfaces:   []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}},
+		Verification: &contract.Verification{Conformance: []string{"public-api"}},
 	}
-
-	prov := evidence.Provenance{Collector: "test", DetectedAt: time.Now()}
-	subj := evidence.SubjectRef{Kind: "service", Name: "cache"}
-
-	ev := evidence.EvidenceSet{
-		Subject:     subj,
-		ContractRef: "cache:1.0.0",
-		Source:      "test",
-		ObservedAt:  time.Now(),
-		Observations: []evidence.Observation{
-			evidence.NewPersistenceObserved(subj, false, prov),
-		},
+	// Interface available + conformance requested with no evaluator.
+	fs, cov := Evaluate(c, es(evidence.NewInterfaceObserved(sr("interface", "public-api"), "openapi", true, prov())))
+	if !hasCode(fs, finding.CodeExtensionEvaluatorUnavailable) {
+		t.Fatalf("want conformance Unknown, got %v", fs)
 	}
-
-	findings := Evaluate(c, ev)
-	if len(findings) != 0 {
-		t.Errorf("expected no finding for ephemeral durability with non-durable storage, got %d", len(findings))
+	// interface availability evaluated (1/1) + conformance Required++ only -> {1,2}.
+	if cov.Required != 2 || cov.Evaluated != 1 {
+		t.Errorf("conformance coverage = %+v, want {1,2}", cov)
 	}
 }
 
-func TestEvaluate_NoWorkloadInContractNoFinding(t *testing.T) {
-	c := contract.Contract{
-		Service: contract.Service{Name: "generic", Version: "1.0.0"},
+func TestEvaluate_CoverageBiconditional(t *testing.T) {
+	// no Unknown -> Evaluated == Required
+	fs, cov := Evaluate(fullContract(), satisfied())
+	if (cov.Evaluated == cov.Required) != (countSeverity(fs, finding.SeverityUnknown) == 0) {
+		t.Errorf("biconditional violated (satisfied): cov=%+v unknown=%d", cov, countSeverity(fs, finding.SeverityUnknown))
 	}
-
-	prov := evidence.Provenance{Collector: "test", DetectedAt: time.Now()}
-	subj := evidence.SubjectRef{Kind: "service", Name: "generic"}
-
-	ev := evidence.EvidenceSet{
-		Subject:     subj,
-		ContractRef: "generic:1.0.0",
-		Source:      "test",
-		ObservedAt:  time.Now(),
-		Observations: []evidence.Observation{
-			evidence.NewWorkloadObserved(subj, contract.WorkloadService, prov),
-		},
-	}
-
-	findings := Evaluate(c, ev)
-	if len(findings) != 0 {
-		t.Errorf("expected no finding when contract has no workload declared, got %d", len(findings))
+	// one Unknown -> Evaluated < Required
+	set := satisfied()
+	set.Observations = set.Observations[1:] // drop the interface observation
+	fs, cov = Evaluate(fullContract(), set)
+	if (cov.Evaluated < cov.Required) != (countSeverity(fs, finding.SeverityUnknown) >= 1) {
+		t.Errorf("biconditional violated (gap): cov=%+v unknown=%d", cov, countSeverity(fs, finding.SeverityUnknown))
 	}
 }
 
-func TestEvaluate_NoStateInContractNoFinding(t *testing.T) {
-	c := contract.Contract{
-		Service: contract.Service{Name: "stateless", Version: "1.0.0"},
+func TestEvaluate_FabricationGuard(t *testing.T) {
+	// A Failed interface observation must map to Unknown (COLLECTION_FAILED), never a violation.
+	set := satisfied()
+	set.Observations[0] = unobs(t, evidence.InterfaceObserved, "interface", "public-api", evidence.Failed)
+	fs, _ := Evaluate(fullContract(), set)
+	if hasCode(fs, finding.CodeInterfaceAbsent) {
+		t.Fatal("Failed observation must NOT produce a confirmed violation")
 	}
-
-	prov := evidence.Provenance{Collector: "test", DetectedAt: time.Now()}
-	subj := evidence.SubjectRef{Kind: "service", Name: "stateless"}
-
-	ev := evidence.EvidenceSet{
-		Subject:     subj,
-		ContractRef: "stateless:1.0.0",
-		Source:      "test",
-		ObservedAt:  time.Now(),
-		Observations: []evidence.Observation{
-			evidence.NewPersistenceObserved(subj, false, prov),
-		},
+	if !hasCode(fs, finding.CodeCollectionFailed) {
+		t.Fatalf("Failed observation must map to COLLECTION_FAILED, got %v", fs)
 	}
+}
 
-	findings := Evaluate(c, ev)
-	if len(findings) != 0 {
-		t.Errorf("expected no finding when contract has no state declared, got %d", len(findings))
+func TestEvaluate_ServiceScopedMatchByServiceName(t *testing.T) {
+	c := contract.Contract{Service: contract.Service{Name: "orders", Version: "1"}, Workload: contract.WorkloadService}
+	// Correct: subject name = c.Service.Name -> found + evaluated.
+	fs, cov := Evaluate(c, es(evidence.NewWorkloadObserved(sr("service", "orders"), "service", prov())))
+	if len(fs) != 0 || cov.Evaluated != 1 {
+		t.Fatalf("service-scoped match: fs=%v cov=%+v", fs, cov)
+	}
+	// Wrong: subject name = k8s target (ns/orders) -> NOT found -> EVIDENCE_MISSING.
+	fs, cov = Evaluate(c, es(evidence.NewWorkloadObserved(sr("service", "ns/orders"), "service", prov())))
+	if !hasCode(fs, finding.CodeEvidenceMissing) || cov.Evaluated != 0 {
+		t.Fatalf("k8s-target subject must NOT match c.Service.Name: fs=%v cov=%+v", fs, cov)
 	}
 }
