@@ -33,6 +33,9 @@ const (
 const (
 	ReasonContractParsed  = "Parsed"
 	ReasonContractInvalid = "Invalid"
+	// ReasonContractUnavailable marks a transient inability to OBTAIN the contract (registry/auth/not-found),
+	// distinct from a malformed one: validity is undetermined, not False.
+	ReasonContractUnavailable = "Unavailable"
 
 	ReasonFound    = "Found"
 	ReasonNotFound = "NotFound"
@@ -86,6 +89,10 @@ const (
 	ContractStatusNonCompliant = "NonCompliant"
 	ContractStatusReference    = "Reference"
 	ContractStatusUnknown      = "Unknown"
+	// ContractStatusInvalid means structural validation failed OR a malformed artifact could not be parsed.
+	ContractStatusInvalid = "Invalid"
+	// ContractStatusNotEvaluated means a valid contract with a target had no runtime evidence this cycle.
+	ContractStatusNotEvaluated = "NotEvaluated"
 )
 
 // ResolutionPolicy values describe how the OCI reference is resolved.

@@ -9,6 +9,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 // ContractRef specifies where to find the Pacto contract.
@@ -40,10 +41,10 @@ type WorkloadRef struct {
 	// +required
 	Name string `json:"name"`
 
-	// Kind of the workload resource.
-	// Job/CronJob targets require an explicit kind (contract runtime.workload job/scheduled).
+	// Kind of the workload resource. Left unspecified (empty) unless the author sets it explicitly;
+	// WORKLOAD_MISMATCH only fires when BOTH name AND kind were explicit (AR7). No default is applied here
+	// so the collector can distinguish "author asserted kind X" from "kind was defaulted for the GET".
 	// +kubebuilder:validation:Enum=Deployment;StatefulSet;ReplicaSet;Job;CronJob
-	// +kubebuilder:default=Deployment
 	// +optional
 	Kind string `json:"kind,omitempty"`
 }
@@ -58,6 +59,46 @@ type TargetRef struct {
 	// If omitted, defaults to name=serviceName, kind=Deployment.
 	// +optional
 	WorkloadRef *WorkloadRef `json:"workloadRef,omitempty"`
+
+	// InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes
+	// deployment knowledge — lives on the CR, NOT the platform-agnostic contract.
+	// +optional
+	InterfaceBindings []InterfaceBinding `json:"interfaceBindings,omitempty"`
+
+	// ConfigBindings maps contract configurations to the concrete ConfigMap/Secret backing each (B7).
+	// +optional
+	ConfigBindings []ConfigBinding `json:"configBindings,omitempty"`
+}
+
+// InterfaceBinding maps a contract interface to the Service port that serves it (B4).
+type InterfaceBinding struct {
+	// Interface is the contract interfaces[].name this binding resolves.
+	// +required
+	Interface string `json:"interface"`
+	// ServicePort is the Service port name or number that serves the interface.
+	// +required
+	ServicePort intstr.IntOrString `json:"servicePort"`
+}
+
+// ConfigBinding maps a contract configuration to the concrete Kubernetes object backing it (B7).
+type ConfigBinding struct {
+	// Configuration is the contract configurations[].name this binding backs.
+	// +required
+	Configuration string `json:"configuration"`
+	// Kind of the backing object.
+	// +kubebuilder:validation:Enum=ConfigMap;Secret
+	// +required
+	Kind string `json:"kind"`
+	// Name of the backing ConfigMap/Secret in the Pacto's namespace.
+	// +required
+	Name string `json:"name"`
+	// Key names the single ConfigMap/Secret key to decode and validate. Omit for existence-only.
+	// +optional
+	Key string `json:"key,omitempty"`
+	// Format of the value at Key. Required with Key for ConfigMap conformance.
+	// +kubebuilder:validation:Enum=yaml;json
+	// +optional
+	Format string `json:"format,omitempty"`
 }
 
 // ConfigurationOverride specifies value overrides for a single named configuration scope.
@@ -500,8 +541,8 @@ type FindingStatus struct {
 	// Code is the stable finding identifier (e.g. WORKLOAD_MISMATCH).
 	Code string `json:"code"`
 
-	// Severity is error, warning, or info.
-	// +kubebuilder:validation:Enum=error;warning;info
+	// Severity is error, warning, info, or unknown.
+	// +kubebuilder:validation:Enum=error;warning;info;unknown
 	Severity string `json:"severity"`
 
 	// Category groups related codes (e.g. RuntimeDrift, PolicyViolation).
@@ -543,6 +584,32 @@ type Summary struct {
 
 	// InfoCount is the number of info-severity findings.
 	InfoCount int32 `json:"infoCount"`
+
+	// UnknownCount is the number of unknown-severity findings (a required assertion could not be evaluated).
+	UnknownCount int32 `json:"unknownCount"`
+}
+
+// EvaluationCoverage reports how many REQUIRED assertions were actually evaluated (Outcome=Observed).
+// Explanatory metadata only; it NEVER changes ContractStatus.
+type EvaluationCoverage struct {
+	// Evaluated is the number of required assertions with a conclusive (Observed) observation.
+	Evaluated int32 `json:"evaluated"`
+	// Required is the total number of required assertions the contract declares.
+	Required int32 `json:"required"`
+}
+
+// ObservationWindow tracks the first sustained NEGATIVE observation for one assertion, so a transient
+// negative reads Unknown (stabilizing) and only a sustained one converts to a confirmed violation (B5).
+type ObservationWindow struct {
+	// Kind is the assertion dimension: interface | dependency | configuration | capability.
+	// +required
+	Kind string `json:"kind"`
+	// Subject is the assertion identity (interface/dependency/configuration name, or capability key).
+	// +required
+	Subject string `json:"subject"`
+	// FirstObservedNegativeAt is when the current negative streak began.
+	// +required
+	FirstObservedNegativeAt metav1.Time `json:"firstObservedNegativeAt"`
 }
 
 // PactoStatus defines the observed state of Pacto.
@@ -551,9 +618,19 @@ type Summary struct {
 type PactoStatus struct {
 	// ContractStatus is the high-level contract compliance state.
 	// This reflects contract validation/compliance and is NOT runtime health.
-	// +kubebuilder:validation:Enum=Compliant;Warning;NonCompliant;Reference;Unknown
+	// +kubebuilder:validation:Enum=Compliant;Warning;NonCompliant;Reference;Unknown;Invalid;NotEvaluated
 	// +optional
 	ContractStatus string `json:"contractStatus,omitempty"`
+
+	// EvaluationCoverage reports how many required assertions were evaluated (metadata; never affects
+	// ContractStatus).
+	// +optional
+	EvaluationCoverage *EvaluationCoverage `json:"evaluationCoverage,omitempty"`
+
+	// ObservationWindows tracks per-assertion negative-observation streaks for time-based stabilization
+	// (B5). Operator-owned temporal state; the pure engine never sees it.
+	// +optional
+	ObservationWindows []ObservationWindow `json:"observationWindows,omitempty"`
 
 	// ResolutionPolicy describes how the OCI reference was resolved.
 	// Latest: unversioned ref, operator tracks the highest semver tag.
