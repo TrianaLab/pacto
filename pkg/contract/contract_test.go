@@ -1,11 +1,48 @@
 package contract
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
+
+func TestRequired_SerializationRoundTrip(t *testing.T) {
+	// required is MANDATORY in the v2 schema, so a false value MUST survive marshaling
+	// (no omitempty) or the re-emitted contract would fail the schema on reload. Spec section 5.2.
+	c := Contract{
+		PactoVersion:   "2.0",
+		Service:        Service{Name: "orders", Version: "1.0.0"},
+		Dependencies:   []Dependency{{Name: "dep", Ref: "oci://x", Required: false, Compatibility: "^1.0.0"}},
+		Configurations: []Configuration{{Name: "cfg", Schema: "config/schema.json", Required: false}},
+	}
+	for _, tc := range []struct {
+		val      bool
+		yamlWant string
+		jsonWant string
+	}{
+		{false, "required: false", `"required":false`},
+		{true, "required: true", `"required":true`},
+	} {
+		c.Dependencies[0].Required = tc.val
+		c.Configurations[0].Required = tc.val
+		y, err := yaml.Marshal(c)
+		if err != nil {
+			t.Fatalf("yaml marshal: %v", err)
+		}
+		if got := strings.Count(string(y), tc.yamlWant); got != 2 {
+			t.Errorf("yaml: want 2 %q (dependency+configuration), got %d\n%s", tc.yamlWant, got, y)
+		}
+		j, err := json.Marshal(c)
+		if err != nil {
+			t.Fatalf("json marshal: %v", err)
+		}
+		if got := strings.Count(string(j), tc.jsonWant); got != 2 {
+			t.Errorf("json: want 2 %q, got %d\n%s", tc.jsonWant, got, j)
+		}
+	}
+}
 
 func TestConfiguration_Fields(t *testing.T) {
 	cs := Configuration{

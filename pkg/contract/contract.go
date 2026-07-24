@@ -154,10 +154,11 @@ const (
 // Name is required and must be unique within the configurations array.
 // Exactly one of Schema or Ref must be set. Values is only allowed with Schema.
 type Configuration struct {
-	Name   string         `yaml:"name" json:"name"`
-	Schema string         `yaml:"schema,omitempty" json:"schema,omitempty"`
-	Ref    string         `yaml:"ref,omitempty" json:"ref,omitempty"`
-	Values map[string]any `yaml:"values,omitempty" json:"values,omitempty"`
+	Name     string         `yaml:"name" json:"name"`
+	Schema   string         `yaml:"schema,omitempty" json:"schema,omitempty"`
+	Ref      string         `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Values   map[string]any `yaml:"values,omitempty" json:"values,omitempty"`
+	Required bool           `yaml:"required" json:"required"` // MANDATORY in schema; true = confirmed absence is a violation
 }
 
 // Policy declares a named policy constraint source.
@@ -181,7 +182,7 @@ type Policy struct {
 type Dependency struct {
 	Name          string `yaml:"name" json:"name"`
 	Ref           string `yaml:"ref" json:"ref"`
-	Required      bool   `yaml:"required,omitempty" json:"required,omitempty"`
+	Required      bool   `yaml:"required" json:"required"`
 	Compatibility string `yaml:"compatibility" json:"compatibility"`
 }
 
