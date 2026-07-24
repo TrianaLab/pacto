@@ -160,16 +160,14 @@ func TestEmbedSource_GetServiceVersion(t *testing.T) {
 // TestEmbedSource_SurfacesCapabilitiesAndSkills guards that the demo actually
 // demonstrates the agent-capabilities feature: services with an http/OpenAPI
 // interface expose derived capability tools, and payments-service ships a skill.
-// ponytail: Skipped until pkg/mcp migrates to v2 openapi interface type.
 func TestEmbedSource_SurfacesCapabilitiesAndSkills(t *testing.T) {
-	t.Skip("pkg/mcp capability derivation not yet migrated to v2 openapi interface type")
 	src := bundlesFS(t)
 
 	pay, err := src.GetService(context.Background(), "payments-service")
 	if err != nil {
 		t.Fatalf("GetService(payments-service): %v", err)
 	}
-	if len(pay.Capabilities) == 0 {
+	if len(pay.Tools) == 0 {
 		t.Fatal("payments-service should expose derived capability tools from its OpenAPI")
 	}
 	var refund bool
