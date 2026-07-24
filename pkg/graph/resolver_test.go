@@ -61,7 +61,7 @@ func (f *blockingFetcher) release() { close(f.barrier) }
 
 func TestResolve_NoDependencies(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 	}
 
 	result := Resolve(context.Background(), c, nil)
@@ -85,7 +85,7 @@ func TestResolve_NoDependencies(t *testing.T) {
 
 func TestResolve_DirectDependenciesNoFetcher(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
@@ -110,13 +110,13 @@ func TestResolve_WithFetcher(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 			},
 		},
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
@@ -144,19 +144,19 @@ func TestResolve_TransitiveDependencies(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
 					{Ref: "oci://registry.io/svc-c:2.0.0", Required: true, Compatibility: "^2.0.0"},
 				},
 			},
 			"oci://registry.io/svc-c:2.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-c", Version: "2.0.0"},
+				Service: contract.Service{Name: "svc-c", Version: "2.0.0"},
 			},
 		},
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
@@ -186,7 +186,7 @@ func TestResolve_CycleDetection(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
 					{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 				},
@@ -195,7 +195,7 @@ func TestResolve_CycleDetection(t *testing.T) {
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
@@ -214,7 +214,7 @@ func TestResolve_FetchError(t *testing.T) {
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-missing:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
@@ -235,28 +235,28 @@ func TestResolve_VersionConflict(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
 					{Ref: "oci://registry.io/svc-c:2.0.0", Required: true, Compatibility: "^2.0.0"},
 				},
 			},
 			"oci://registry.io/svc-b:2.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "2.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "2.0.0"},
 				Dependencies: []contract.Dependency{
 					{Ref: "oci://registry.io/svc-c:3.0.0", Required: true, Compatibility: "^3.0.0"},
 				},
 			},
 			"oci://registry.io/svc-c:2.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-c", Version: "2.0.0"},
+				Service: contract.Service{Name: "svc-c", Version: "2.0.0"},
 			},
 			"oci://registry.io/svc-c:3.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-c", Version: "3.0.0"},
+				Service: contract.Service{Name: "svc-c", Version: "3.0.0"},
 			},
 		},
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 			{Ref: "oci://registry.io/svc-b:2.0.0", Required: true, Compatibility: "^2.0.0"},
@@ -288,16 +288,16 @@ func TestResolve_MultipleDependencies(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 			},
 			"oci://registry.io/svc-c:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-c", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-c", Version: "1.0.0"},
 			},
 		},
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 			{Ref: "oci://registry.io/svc-c:1.0.0", Required: false, Compatibility: "^1.0.0"},
@@ -335,25 +335,25 @@ func TestResolve_DiamondDependency(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
 					{Ref: "oci://registry.io/svc-d:1.0.0", Required: true, Compatibility: "^1.0.0"},
 				},
 			},
 			"oci://registry.io/svc-c:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-c", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-c", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
 					{Ref: "oci://registry.io/svc-d:1.0.0", Required: true, Compatibility: "^1.0.0"},
 				},
 			},
 			"oci://registry.io/svc-d:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-d", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-d", Version: "1.0.0"},
 			},
 		},
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 			{Ref: "oci://registry.io/svc-c:1.0.0", Required: true, Compatibility: "^1.0.0"},
@@ -407,13 +407,13 @@ func TestResolve_SharedEdgeHasNodeInfo(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 			},
 		},
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
@@ -517,13 +517,13 @@ func TestResolve_LocalDependencyMarkedLocal(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"../dep-svc": {
-				Service: contract.ServiceIdentity{Name: "dep-svc", Version: "1.0.0"},
+				Service: contract.Service{Name: "dep-svc", Version: "1.0.0"},
 			},
 		},
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "../dep-svc", Required: true, Compatibility: "^1.0.0"},
 		},
@@ -547,13 +547,13 @@ func TestResolve_FileSchemeMarkedLocal(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"file:///abs/path/dep-svc": {
-				Service: contract.ServiceIdentity{Name: "dep-svc", Version: "2.0.0"},
+				Service: contract.Service{Name: "dep-svc", Version: "2.0.0"},
 			},
 		},
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "file:///abs/path/dep-svc", Required: true, Compatibility: "^2.0.0"},
 		},
@@ -577,13 +577,13 @@ func TestResolve_OCINotMarkedLocal(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 			},
 		},
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
@@ -610,14 +610,14 @@ func TestResolve_PendingDedup(t *testing.T) {
 	inner := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 			},
 		},
 	}
 	bf := newBlockingFetcher(inner)
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
@@ -684,7 +684,7 @@ func TestResolve_PendingFetchError(t *testing.T) {
 	bf := newBlockingFetcher(inner)
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/missing:1.0.0", Required: true, Compatibility: "^1.0.0"},
 			{Ref: "oci://registry.io/missing:1.0.0", Required: true, Compatibility: "^1.0.0"},
@@ -730,13 +730,13 @@ func TestResolve_PendingFetchError_Deterministic(t *testing.T) {
 	inner := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
 					{Ref: "oci://registry.io/missing:1.0.0", Required: true, Compatibility: "^1.0.0"},
 				},
 			},
 			"oci://registry.io/svc-c:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-c", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-c", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
 					{Ref: "oci://registry.io/missing:1.0.0", Required: true, Compatibility: "^1.0.0"},
 				},
@@ -746,7 +746,7 @@ func TestResolve_PendingFetchError_Deterministic(t *testing.T) {
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 			{Ref: "oci://registry.io/svc-c:1.0.0", Required: true, Compatibility: "^1.0.0"},
@@ -882,7 +882,7 @@ func TestResolve_NilBundleFromFetcher(t *testing.T) {
 	fetcher := &nilBundleFetcher{}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
@@ -904,7 +904,7 @@ func TestResolve_NilContractInBundle(t *testing.T) {
 	fetcher := &nilContractFetcher{}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 		},
@@ -923,7 +923,7 @@ func TestResolve_NilContractInBundle(t *testing.T) {
 
 func TestExtractReferenceEdges_NoConfigNoPolicy(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 	}
 	edges := ExtractReferenceEdges(c)
 	if len(edges) != 0 {
@@ -933,8 +933,8 @@ func TestExtractReferenceEdges_NoConfigNoPolicy(t *testing.T) {
 
 func TestExtractReferenceEdges_ConfigOnly(t *testing.T) {
 	c := &contract.Contract{
-		Service:        contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{{Name: "default", Ref: "oci://registry.io/config:1.0.0"}},
+		Service:        contract.Service{Name: "svc-a", Version: "1.0.0"},
+		Configurations: []contract.Configuration{{Name: "default", Ref: "oci://registry.io/config:1.0.0"}},
 	}
 	edges := ExtractReferenceEdges(c)
 	if len(edges) != 1 {
@@ -950,8 +950,8 @@ func TestExtractReferenceEdges_ConfigOnly(t *testing.T) {
 
 func TestExtractReferenceEdges_PolicyOnly(t *testing.T) {
 	c := &contract.Contract{
-		Service:  contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
-		Policies: []contract.PolicySource{{Name: "remote", Ref: "oci://registry.io/policy:2.0.0"}},
+		Service:  contract.Service{Name: "svc-a", Version: "1.0.0"},
+		Policies: []contract.Policy{{Name: "remote", Ref: "oci://registry.io/policy:2.0.0"}},
 	}
 	edges := ExtractReferenceEdges(c)
 	if len(edges) != 1 {
@@ -967,9 +967,9 @@ func TestExtractReferenceEdges_PolicyOnly(t *testing.T) {
 
 func TestExtractReferenceEdges_ConfigAndPolicy(t *testing.T) {
 	c := &contract.Contract{
-		Service:        contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{{Name: "default", Ref: "oci://registry.io/config:1.0.0"}},
-		Policies:       []contract.PolicySource{{Name: "remote", Ref: "oci://registry.io/policy:2.0.0"}},
+		Service:        contract.Service{Name: "svc-a", Version: "1.0.0"},
+		Configurations: []contract.Configuration{{Name: "default", Ref: "oci://registry.io/config:1.0.0"}},
+		Policies:       []contract.Policy{{Name: "remote", Ref: "oci://registry.io/policy:2.0.0"}},
 	}
 	edges := ExtractReferenceEdges(c)
 	if len(edges) != 2 {
@@ -990,9 +990,9 @@ func TestExtractReferenceEdges_ConfigAndPolicy(t *testing.T) {
 
 func TestExtractReferenceEdges_DuplicateRefs(t *testing.T) {
 	c := &contract.Contract{
-		Service:        contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{{Name: "default", Ref: "oci://registry.io/shared:1.0.0"}},
-		Policies:       []contract.PolicySource{{Name: "shared", Ref: "oci://registry.io/shared:1.0.0"}},
+		Service:        contract.Service{Name: "svc-a", Version: "1.0.0"},
+		Configurations: []contract.Configuration{{Name: "default", Ref: "oci://registry.io/shared:1.0.0"}},
+		Policies:       []contract.Policy{{Name: "shared", Ref: "oci://registry.io/shared:1.0.0"}},
 	}
 	edges := ExtractReferenceEdges(c)
 	if len(edges) != 1 {
@@ -1005,9 +1005,9 @@ func TestExtractReferenceEdges_DuplicateRefs(t *testing.T) {
 
 func TestExtractReferenceEdges_EmptyRefs(t *testing.T) {
 	c := &contract.Contract{
-		Service:        contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{{Name: "default"}},
-		Policies:       []contract.PolicySource{{Name: "empty"}},
+		Service:        contract.Service{Name: "svc-a", Version: "1.0.0"},
+		Configurations: []contract.Configuration{{Name: "default"}},
+		Policies:       []contract.Policy{{Name: "empty"}},
 	}
 	edges := ExtractReferenceEdges(c)
 	if len(edges) != 0 {
@@ -1020,13 +1020,13 @@ func TestResolve_FetchErrorParallel(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 			},
 		},
 	}
 
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true, Compatibility: "^1.0.0"},
 			{Ref: "oci://registry.io/missing:1.0.0", Required: true, Compatibility: "^1.0.0"},
@@ -1055,24 +1055,24 @@ func TestResolveOnResolvedFiresPerUniqueNode(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
 					{Ref: "oci://registry.io/svc-d:1.0.0", Required: true},
 				},
 			},
 			"oci://registry.io/svc-c:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-c", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-c", Version: "1.0.0"},
 				Dependencies: []contract.Dependency{
 					{Ref: "oci://registry.io/svc-d:1.0.0", Required: true},
 				},
 			},
 			"oci://registry.io/svc-d:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-d", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-d", Version: "1.0.0"},
 			},
 		},
 	}
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true},
 			{Ref: "oci://registry.io/svc-c:1.0.0", Required: true},
@@ -1094,12 +1094,12 @@ func TestResolveOnResolvedNilDoesNotPanic(t *testing.T) {
 	fetcher := &mockFetcher{
 		contracts: map[string]*contract.Contract{
 			"oci://registry.io/svc-b:1.0.0": {
-				Service: contract.ServiceIdentity{Name: "svc-b", Version: "1.0.0"},
+				Service: contract.Service{Name: "svc-b", Version: "1.0.0"},
 			},
 		},
 	}
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "svc-a", Version: "1.0.0"},
+		Service: contract.Service{Name: "svc-a", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://registry.io/svc-b:1.0.0", Required: true},
 		},
@@ -1119,12 +1119,12 @@ func TestResolveOnResolvedNilDoesNotPanic(t *testing.T) {
 
 func TestResolveWithOptions_OnlyReferences(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Name: "dep-a", Ref: "oci://dep-a", Required: true},
 		},
-		Configurations: []contract.ConfigurationSource{{Name: "default", Ref: "oci://config-svc"}},
-		Policies:       []contract.PolicySource{{Name: "policy", Ref: "oci://policy-svc"}},
+		Configurations: []contract.Configuration{{Name: "default", Ref: "oci://config-svc"}},
+		Policies:       []contract.Policy{{Name: "policy", Ref: "oci://policy-svc"}},
 	}
 
 	result := ResolveWithOptions(context.Background(), c, nil, ResolveOptions{OnlyReferences: true})
