@@ -35,41 +35,33 @@ func newTestClient(t *testing.T) (*oci.Client, string) {
 }
 
 func newTestBundle() *contract.Bundle {
-	port := 8080
-	pactoYAML := []byte(`pactoVersion: "1.0"
+	pactoYAML := []byte(`pactoVersion: "2.0"
 service:
   name: test-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
-    contract: openapi.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    type: openapi
+    ref: openapi.yaml
+    visibility: public
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `)
 	return &contract.Bundle{
 		Contract: &contract.Contract{
-			PactoVersion: "1.0",
-			Service:      contract.ServiceIdentity{Name: "test-svc", Version: "1.0.0"},
-			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port, Contract: "openapi.yaml"}},
-			Runtime: &contract.Runtime{
-				Workload: "service",
-				State: contract.State{
-					Type:            "stateless",
-					Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-					DataCriticality: "low",
-				},
-				Health: &contract.Health{Interface: "api", Path: "/health"},
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: "test-svc", Version: "1.0.0"},
+			Interfaces:   []contract.Interface{{Name: "api", Type: "openapi", Ref: "openapi.yaml", Visibility: "public"}},
+			Workload:     "service",
+			State: &contract.State{
+				Type:            "stateless",
+				Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
+				DataCriticality: "low",
 			},
 		},
 		RawYAML: pactoYAML,

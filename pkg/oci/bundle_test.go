@@ -30,41 +30,33 @@ type tarErrWriter struct{}
 func (tarErrWriter) Write([]byte) (int, error) { return 0, fmt.Errorf("write error") }
 
 func testBundle() *contract.Bundle {
-	port := 8080
-	pactoYAML := []byte(`pactoVersion: "1.0"
+	pactoYAML := []byte(`pactoVersion: "2.0"
 service:
   name: test-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
-    contract: openapi.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    type: openapi
+    ref: openapi.yaml
+    visibility: public
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `)
 	return &contract.Bundle{
 		Contract: &contract.Contract{
-			PactoVersion: "1.0",
-			Service:      contract.ServiceIdentity{Name: "test-svc", Version: "1.0.0"},
-			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port, Contract: "openapi.yaml"}},
-			Runtime: &contract.Runtime{
-				Workload: "service",
-				State: contract.State{
-					Type:            "stateless",
-					Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-					DataCriticality: "low",
-				},
-				Health: &contract.Health{Interface: "api", Path: "/health"},
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: "test-svc", Version: "1.0.0"},
+			Interfaces:   []contract.Interface{{Name: "api", Type: "openapi", Ref: "openapi.yaml", Visibility: "public"}},
+			Workload:     "service",
+			State: &contract.State{
+				Type:            "stateless",
+				Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
+				DataCriticality: "low",
 			},
 		},
 		RawYAML: pactoYAML,
@@ -122,7 +114,7 @@ func TestBundleToImage_NilContract(t *testing.T) {
 
 func TestBundleToImage_NilFS(t *testing.T) {
 	b := &contract.Bundle{
-		Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"}},
+		Contract: &contract.Contract{Service: contract.Service{Name: "svc", Version: "1.0.0"}},
 		FS:       nil,
 	}
 	_, err := bundleToImage(b)
@@ -149,7 +141,7 @@ func TestBundleToImage_Labels(t *testing.T) {
 	wantLabels := map[string]string{
 		"io.pacto.name":         "test-svc",
 		"io.pacto.version":      "1.0.0",
-		"io.pacto.pactoVersion": "1.0",
+		"io.pacto.pactoVersion": "2.0",
 	}
 
 	for k, want := range wantLabels {
@@ -191,8 +183,8 @@ func TestImageToBundle_Roundtrip(t *testing.T) {
 	if len(got.Contract.Interfaces) != len(b.Contract.Interfaces) {
 		t.Errorf("len(Interfaces) = %d, want %d", len(got.Contract.Interfaces), len(b.Contract.Interfaces))
 	}
-	if got.Contract.Runtime.Health.Path != b.Contract.Runtime.Health.Path {
-		t.Errorf("Health.Path = %q, want %q", got.Contract.Runtime.Health.Path, b.Contract.Runtime.Health.Path)
+	if got.Contract.Workload != b.Contract.Workload {
+		t.Errorf("Workload = %q, want %q", got.Contract.Workload, b.Contract.Workload)
 	}
 }
 
@@ -1229,7 +1221,7 @@ func TestImageToBundle_DocsPreserved(t *testing.T) {
 
 func TestBundleToTarGz_DocsPreserved(t *testing.T) {
 	fsys := fstest.MapFS{
-		"pacto.yaml":      &fstest.MapFile{Data: []byte("pactoVersion: '1.0'")},
+		"pacto.yaml":      &fstest.MapFile{Data: []byte("pactoVersion: '2.0'")},
 		"docs":            &fstest.MapFile{Mode: fs.ModeDir | 0755},
 		"docs/README.md":  &fstest.MapFile{Data: []byte("# Docs")},
 		"docs/runbook.md": &fstest.MapFile{Data: []byte("# Runbook")},
