@@ -21,12 +21,12 @@ func TestFinding_Fields(t *testing.T) {
 
 func TestFinding_EvidenceRefs(t *testing.T) {
 	f := Finding{
-		Code:         CodeCapabilityNotObserved,
-		Severity:     SeverityWarning,
+		Code:         CodeCapabilityAbsent,
+		Severity:     SeverityError,
 		Category:     CategoryRuntimeDrift,
 		Subject:      SubjectRef{Kind: "capability", Name: "health"},
 		ContractPath: "capabilities[type=health]",
-		Message:      "capability not observed",
+		Message:      "capability absent at runtime",
 		EvidenceRefs: []EvidenceRef{
 			{Source: "kubernetes", ObservedAt: "2026-07-24T12:00:00Z"},
 		},

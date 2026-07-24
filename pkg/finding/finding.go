@@ -11,6 +11,7 @@ const (
 	SeverityError   Severity = "error"
 	SeverityWarning Severity = "warning"
 	SeverityInfo    Severity = "info"
+	SeverityUnknown Severity = "unknown" // required assertion could not be evaluated
 )
 
 // Code is a stable, specific finding identifier (e.g. STATELESS_PERSISTENT_CONFLICT).
@@ -37,6 +38,7 @@ const (
 	CategoryRuntimeDrift           Category = "RuntimeDrift"
 	CategoryInvalidDependency      Category = "InvalidDependency"
 	CategoryInvalidCapability      Category = "InvalidCapability"
+	CategoryInconclusive           Category = "Inconclusive" // family 2; distinct from CategoryMissingEvidence
 )
 
 // One representative durable v2 code; the full set (including evidence-based and

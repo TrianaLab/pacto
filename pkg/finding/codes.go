@@ -43,14 +43,25 @@ const (
 	CodeDuplicateCapability          Code = "DUPLICATE_CAPABILITY"
 	CodeUnsupportedPolicyTarget      Code = "UNSUPPORTED_POLICY_TARGET"
 
-	// Evidence-based codes (emitted only by Evaluate, Phase 5).
-	CodePortNotObserved       Code = "PORT_NOT_OBSERVED"
-	CodeConfigNotObserved     Code = "CONFIG_NOT_OBSERVED"
-	CodeCapabilityNotObserved Code = "CAPABILITY_NOT_OBSERVED"
-	CodeInterfaceNotObserved  Code = "INTERFACE_NOT_OBSERVED"
-	CodeDependencyUnreachable Code = "DEPENDENCY_UNREACHABLE"
+	// Family 1 — confirmed violations (emitted only by Evaluate). Registry: {RuntimeDrift, Error}.
 	CodeWorkloadMismatch      Code = "WORKLOAD_MISMATCH"
 	CodePersistenceMismatch   Code = "PERSISTENCE_MISMATCH"
+	CodeDependencyUnreachable Code = "DEPENDENCY_UNREACHABLE"
+	CodeCapabilityAbsent      Code = "CAPABILITY_ABSENT"
+	CodeInterfaceAbsent       Code = "INTERFACE_ABSENT"
+	CodeConfigurationAbsent   Code = "CONFIGURATION_ABSENT"
+
+	// Family 2 — insufficient/unreliable evidence (emitted by Evaluate). Registry: {Inconclusive, Unknown}.
+	CodeEvidenceMissing               Code = "EVIDENCE_MISSING"
+	CodeObservationUnsupported        Code = "OBSERVATION_UNSUPPORTED"
+	CodeCollectionFailed              Code = "COLLECTION_FAILED"
+	CodeEvidenceStale                 Code = "EVIDENCE_STALE"
+	CodeEvidenceInsufficient          Code = "EVIDENCE_INSUFFICIENT"
+	CodeExtensionEvaluatorUnavailable Code = "EXTENSION_EVALUATOR_UNAVAILABLE"
+
+	// Structural (crossfield) — capability binding. Registry: {InvalidCapability, Error}.
+	CodeCapabilityInterfaceUnknown Code = "CAPABILITY_INTERFACE_UNKNOWN" // binding.interface references no declared interface
+	CodeCapabilityPathInvalid      Code = "CAPABILITY_PATH_INVALID"      // binding.path fails the net/url SSRF check
 )
 
 type codeMeta struct {
@@ -102,14 +113,25 @@ var registry = map[Code]codeMeta{
 	CodeDuplicateCapability:          {CategoryDuplicateName, SeverityError},
 	CodeUnsupportedPolicyTarget:      {CategoryPolicyViolation, SeverityError},
 
-	// Evidence-based
-	CodePortNotObserved:       {CategoryRuntimeDrift, SeverityError},
-	CodeConfigNotObserved:     {CategoryRuntimeDrift, SeverityWarning},
-	CodeCapabilityNotObserved: {CategoryRuntimeDrift, SeverityWarning},
-	CodeInterfaceNotObserved:  {CategoryRuntimeDrift, SeverityWarning},
-	CodeDependencyUnreachable: {CategoryRuntimeDrift, SeverityWarning},
-	CodeWorkloadMismatch:      {CategoryRuntimeDrift, SeverityWarning},
-	CodePersistenceMismatch:   {CategoryRuntimeDrift, SeverityWarning},
+	// Family 1 — confirmed violations
+	CodeWorkloadMismatch:      {CategoryRuntimeDrift, SeverityError},
+	CodePersistenceMismatch:   {CategoryRuntimeDrift, SeverityError},
+	CodeDependencyUnreachable: {CategoryRuntimeDrift, SeverityError},
+	CodeCapabilityAbsent:      {CategoryRuntimeDrift, SeverityError},
+	CodeInterfaceAbsent:       {CategoryRuntimeDrift, SeverityError},
+	CodeConfigurationAbsent:   {CategoryRuntimeDrift, SeverityError},
+
+	// Family 2 — uncertainty
+	CodeEvidenceMissing:               {CategoryInconclusive, SeverityUnknown},
+	CodeObservationUnsupported:        {CategoryInconclusive, SeverityUnknown},
+	CodeCollectionFailed:              {CategoryInconclusive, SeverityUnknown},
+	CodeEvidenceStale:                 {CategoryInconclusive, SeverityUnknown},
+	CodeEvidenceInsufficient:          {CategoryInconclusive, SeverityUnknown},
+	CodeExtensionEvaluatorUnavailable: {CategoryInconclusive, SeverityUnknown},
+
+	// Structural (crossfield) — capability binding
+	CodeCapabilityInterfaceUnknown: {CategoryInvalidCapability, SeverityError},
+	CodeCapabilityPathInvalid:      {CategoryInvalidCapability, SeverityError},
 }
 
 // CategoryOf returns the coarse category for a code, or "" if unknown.
