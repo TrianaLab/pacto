@@ -32,6 +32,7 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateDependencyNamesUnique(c, &result)
 	validateInterfaces(c, bundleFS, &result)
 	validateCapabilities(c, &result)
+	validateVerification(c, &result)
 	validateInterfaceFiles(c, bundleFS, &result)
 	validateInterfaceFileContent(c, bundleFS, &result)
 	validateConfigFiles(c, bundleFS, &result)
@@ -293,16 +294,45 @@ func validateCapabilities(c *contract.Contract, result *ValidationResult) {
 				)
 			}
 		}
-		if cap.Type == "health" || cap.Type == "metrics" {
-			if prev, exists := seen[cap.Type]; exists {
+		// Uniqueness on the canonical assertion key (standard type OR extension ref) — one rule covering
+		// duplicate standard types, duplicate extension refs and any cross-collision. Empty key means the
+		// extension ref is missing, already flagged above.
+		if key := cap.AssertionKey(); key != "" {
+			if prev, exists := seen[key]; exists {
 				result.AddError(
-					fmt.Sprintf("capabilities[%d].type", i),
+					fmt.Sprintf("capabilities[%d]", i),
 					"DUPLICATE_CAPABILITY",
-					fmt.Sprintf("duplicate standard capability %q (already declared at capabilities[%d])", cap.Type, prev),
+					fmt.Sprintf("duplicate capability assertion %q (already declared at capabilities[%d])", key, prev),
 				)
 			}
-			seen[cap.Type] = i
+			seen[key] = i
 		}
+	}
+}
+
+// validateVerification checks that every verification.conformance entry references a declared interface
+// and is unique, so a typo cannot create a permanently-Unknown required assertion for a nonexistent
+// interface. Reuses DUPLICATE_INTERFACE_NAME for repeats (a duplicated interface name in the list).
+func validateVerification(c *contract.Contract, result *ValidationResult) {
+	if c.Verification == nil {
+		return
+	}
+	declaredIfaces := make(map[string]bool, len(c.Interfaces))
+	for _, iface := range c.Interfaces {
+		declaredIfaces[iface.Name] = true
+	}
+	seen := make(map[string]bool, len(c.Verification.Conformance))
+	for i, name := range c.Verification.Conformance {
+		field := fmt.Sprintf("verification.conformance[%d]", i)
+		if !declaredIfaces[name] {
+			result.AddError(field, "VERIFICATION_INTERFACE_UNKNOWN",
+				fmt.Sprintf("verification.conformance references interface %q, which is not declared in interfaces[]", name))
+		}
+		if seen[name] {
+			result.AddError(field, "DUPLICATE_INTERFACE_NAME",
+				fmt.Sprintf("interface %q is listed more than once in verification.conformance", name))
+		}
+		seen[name] = true
 	}
 }
 

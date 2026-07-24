@@ -205,12 +205,14 @@ func (o *Observation) UnmarshalJSON(data []byte) error {
 	return o.validate()
 }
 
-// mustMarshal marshals a payload struct. The payload types are closed structs of primitives, so
-// json.Marshal cannot fail; the error is dropped deliberately.
-// ponytail: error impossible for the fixed primitive payload structs; revisit if a payload gains a
-// non-marshalable field (then the boundary validate() would also need to catch it).
+// mustMarshal marshals a payload struct. The current payload types are closed structs of primitives, so
+// json.Marshal cannot fail today — but a future payload with a non-marshalable field must fail LOUDLY
+// (a programmer bug), never silently produce empty/invalid evidence.
 func mustMarshal(v any) json.RawMessage {
-	b, _ := json.Marshal(v)
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("evidence: marshal payload: %v", err))
+	}
 	return b
 }
 
@@ -323,11 +325,21 @@ func ValidateEvidenceSet(es EvidenceSet) []error {
 	if es.ObservedAt.IsZero() {
 		errs = append(errs, errors.New("observed at is zero"))
 	}
+	// Assertion identity (ObservationKind + Subject.Kind + Subject.Name) must appear at most once, so
+	// findObservation is deterministic and contradictory evidence cannot hide behind array ordering
+	// (INV-3). Workload and persistence share a service Subject but differ in Kind, so they do not collide.
+	seen := make(map[[3]string]bool, len(es.Observations))
 	for i, obs := range es.Observations {
 		if obs.Subject.Kind == "" || obs.Subject.Name == "" {
 			errs = append(errs, fmt.Errorf("observation[%d]: subject kind or name is empty", i))
 			continue
 		}
+		key := [3]string{string(obs.Kind), obs.Subject.Kind, obs.Subject.Name}
+		if seen[key] {
+			errs = append(errs, fmt.Errorf("observation[%d]: duplicate assertion identity %s/%s/%s", i, obs.Kind, obs.Subject.Kind, obs.Subject.Name))
+			continue
+		}
+		seen[key] = true
 		if obs.Provenance.Collector == "" {
 			errs = append(errs, fmt.Errorf("observation[%d]: provenance collector is empty", i))
 			continue

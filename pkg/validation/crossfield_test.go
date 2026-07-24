@@ -264,6 +264,70 @@ func TestValidateCapabilities_BindingPathValid(t *testing.T) {
 	}
 }
 
+func TestValidateCapabilities_DuplicateExtensionRef(t *testing.T) {
+	c := validV20Contract()
+	c.Capabilities = []contract.Capability{
+		{Type: "extension", Ref: "acme.io/backup"},
+		{Type: "extension", Ref: "acme.io/backup"},
+	}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if !hasErrorCode(result, "DUPLICATE_CAPABILITY") {
+		t.Errorf("duplicate extension ref must be DUPLICATE_CAPABILITY, got %+v", result.Errors)
+	}
+}
+
+func TestValidateCapabilities_DistinctExtensionRefs_OK(t *testing.T) {
+	c := validV20Contract()
+	c.Capabilities = []contract.Capability{
+		{Type: "extension", Ref: "acme.io/backup"},
+		{Type: "extension", Ref: "acme.io/security-scan"},
+	}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if hasErrorCode(result, "DUPLICATE_CAPABILITY") {
+		t.Errorf("distinct extension refs must NOT collide, got %+v", result.Errors)
+	}
+}
+
+func TestValidateVerification(t *testing.T) {
+	base := func() *contract.Contract {
+		c := validV20Contract()
+		c.Interfaces = []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}}
+		return c
+	}
+	// nil verification -> no error (guard)
+	var r0 ValidationResult
+	validateVerification(base(), &r0)
+	if !r0.IsValid() {
+		t.Errorf("nil verification must be valid, got %+v", r0.Errors)
+	}
+	// valid declared interface
+	c := base()
+	c.Verification = &contract.Verification{Conformance: []string{"public-api"}}
+	var r1 ValidationResult
+	validateVerification(c, &r1)
+	if !r1.IsValid() {
+		t.Errorf("declared conformance interface must be valid, got %+v", r1.Errors)
+	}
+	// unknown interface
+	c = base()
+	c.Verification = &contract.Verification{Conformance: []string{"nope"}}
+	var r2 ValidationResult
+	validateVerification(c, &r2)
+	if !hasErrorCode(r2, "VERIFICATION_INTERFACE_UNKNOWN") {
+		t.Errorf("unknown conformance interface must be VERIFICATION_INTERFACE_UNKNOWN, got %+v", r2.Errors)
+	}
+	// duplicate conformance entry
+	c = base()
+	c.Verification = &contract.Verification{Conformance: []string{"public-api", "public-api"}}
+	var r3 ValidationResult
+	validateVerification(c, &r3)
+	if !hasErrorCode(r3, "DUPLICATE_INTERFACE_NAME") {
+		t.Errorf("duplicate conformance entry must be DUPLICATE_INTERFACE_NAME, got %+v", r3.Errors)
+	}
+}
+
 func TestValidateCapabilities_ValidStandardTypes(t *testing.T) {
 	types := []string{"health", "metrics"}
 	for _, typ := range types {

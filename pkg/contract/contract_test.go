@@ -355,6 +355,18 @@ func TestCapability_Extension(t *testing.T) {
 	}
 }
 
+func TestCapability_AssertionKey(t *testing.T) {
+	if got := (Capability{Type: CapabilityHealth}).AssertionKey(); got != "health" {
+		t.Errorf("health key = %q, want health", got)
+	}
+	if got := (Capability{Type: CapabilityMetrics}).AssertionKey(); got != "metrics" {
+		t.Errorf("metrics key = %q, want metrics", got)
+	}
+	if got := (Capability{Type: CapabilityExtension, Ref: "acme.io/backup"}).AssertionKey(); got != "acme.io/backup" {
+		t.Errorf("extension key = %q, want the ref", got)
+	}
+}
+
 func TestCapability_DiscriminatedBinding(t *testing.T) {
 	src := `pactoVersion: "2.0"
 service:

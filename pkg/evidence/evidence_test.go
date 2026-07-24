@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-func prov() Provenance { return Provenance{Collector: "k8s-observer", DetectedAt: time.Unix(1, 0)} }
+func prov() Provenance                { return Provenance{Collector: "k8s-observer", DetectedAt: time.Unix(1, 0)} }
+func sr(kind, name string) SubjectRef { return SubjectRef{Kind: kind, Name: name} }
 
 // allObserved returns one Observed observation of every kind, with a correct Subject.Kind pairing.
 func allObserved() []Observation {
@@ -179,13 +180,60 @@ func TestValidateEvidenceSet(t *testing.T) {
 	// Empty top-level fields (5) + one observation hitting each per-observation branch:
 	// empty subject, empty collector, zero detectedAt, and a validate() failure.
 	bad := EvidenceSet{Observations: []Observation{
-		{Kind: WorkloadObserved, Subject: SubjectRef{}, Outcome: Failed, Provenance: prov()},                                               // empty subject
-		{Kind: WorkloadObserved, Subject: SubjectRef{Kind: "service", Name: "s"}, Outcome: Failed},                                         // empty collector
-		{Kind: WorkloadObserved, Subject: SubjectRef{Kind: "service", Name: "s"}, Outcome: Failed, Provenance: Provenance{Collector: "c"}}, // zero detectedAt
-		{Kind: CapabilityObserved, Subject: SubjectRef{Kind: "capability", Name: "h"}, Outcome: Observed, Provenance: prov()},              // validate() fail: Observed no value
+		{Kind: WorkloadObserved, Subject: SubjectRef{}, Outcome: Failed, Provenance: prov()},                                                  // empty subject
+		{Kind: WorkloadObserved, Subject: SubjectRef{Kind: "service", Name: "s"}, Outcome: Failed},                                            // empty collector
+		{Kind: PersistenceObserved, Subject: SubjectRef{Kind: "service", Name: "s"}, Outcome: Failed, Provenance: Provenance{Collector: "c"}}, // zero detectedAt (distinct identity)
+		{Kind: CapabilityObserved, Subject: SubjectRef{Kind: "capability", Name: "h"}, Outcome: Observed, Provenance: prov()},                 // validate() fail: Observed no value
 	}}
 	errs := ValidateEvidenceSet(bad)
 	if len(errs) < 9 { // 5 top-level + 4 per-observation
 		t.Fatalf("bad set must produce >=9 errors, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestMustMarshal_PanicsOnUnmarshalable(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("mustMarshal must panic on an unmarshalable payload, not return empty evidence")
+		}
+	}()
+	_ = mustMarshal(make(chan int)) // channels cannot be JSON-encoded
+}
+
+func TestValidateEvidenceSet_DuplicateIdentity(t *testing.T) {
+	good := func(obs ...Observation) EvidenceSet {
+		return EvidenceSet{Subject: sr("service", "ns/orders"), ContractRef: "o", Source: "k8s", ObservedAt: time.Unix(1, 0), Observations: obs}
+	}
+	iface := func(present bool) Observation {
+		return NewInterfaceObserved(sr("interface", "public-api"), "openapi", present, prov())
+	}
+	// duplicate identical -> rejected
+	if errs := ValidateEvidenceSet(good(iface(true), iface(true))); len(errs) == 0 {
+		t.Error("duplicate identical observation must be rejected")
+	}
+	// duplicate with conflicting payload -> rejected (this is the dangerous case)
+	if errs := ValidateEvidenceSet(good(iface(true), iface(false))); len(errs) == 0 {
+		t.Error("duplicate conflicting-payload observation must be rejected")
+	}
+	// duplicate with different Outcome -> rejected
+	uns, _ := NewUnobserved(InterfaceObserved, sr("interface", "public-api"), Failed, prov())
+	if errs := ValidateEvidenceSet(good(iface(true), uns)); len(errs) == 0 {
+		t.Error("duplicate identity with different Outcome must be rejected")
+	}
+	// same Subject.Name under different ObservationKind -> valid
+	sameName := good(
+		NewDependencyReachable(sr("dependency", "shared"), true, prov()),
+		NewConfigurationPresent(sr("configuration", "shared"), true, prov()),
+	)
+	if errs := ValidateEvidenceSet(sameName); len(errs) != 0 {
+		t.Errorf("same name under different kinds must be valid: %v", errs)
+	}
+	// workload + persistence share the service Subject but differ in Kind -> valid
+	svcScoped := good(
+		NewWorkloadObserved(sr("service", "orders"), "service", prov()),
+		NewPersistenceObserved(sr("service", "orders"), true, prov()),
+	)
+	if errs := ValidateEvidenceSet(svcScoped); len(errs) != 0 {
+		t.Errorf("workload+persistence sharing a service name must be valid: %v", errs)
 	}
 }

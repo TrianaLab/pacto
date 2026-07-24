@@ -219,6 +219,29 @@ func TestEvaluate_ExtensionCapability(t *testing.T) {
 	}
 }
 
+func TestEvaluate_ExtensionIdentityByRef(t *testing.T) {
+	c := contract.Contract{
+		Service: contract.Service{Name: "orders", Version: "1"},
+		Capabilities: []contract.Capability{
+			{Type: contract.CapabilityExtension, Ref: "acme.io/backup"},
+			{Type: contract.CapabilityExtension, Ref: "acme.io/security-scan"},
+		},
+	}
+	fs, cov := Evaluate(c, es())
+	if cov.Required != 2 || cov.Evaluated != 0 {
+		t.Fatalf("two distinct extensions coverage = %+v, want {0,2}", cov)
+	}
+	subjects := map[string]bool{}
+	for _, f := range fs {
+		if f.Code == finding.CodeExtensionEvaluatorUnavailable {
+			subjects[f.Subject.Name] = true
+		}
+	}
+	if !subjects["acme.io/backup"] || !subjects["acme.io/security-scan"] {
+		t.Errorf("extension findings must be keyed by ref, got %v", subjects)
+	}
+}
+
 func TestEvaluate_ConformanceOptIn(t *testing.T) {
 	c := contract.Contract{
 		Service:      contract.Service{Name: "orders", Version: "1"},

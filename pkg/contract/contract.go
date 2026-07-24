@@ -293,6 +293,17 @@ const (
 	CapabilityExtension = "extension"
 )
 
+// AssertionKey returns the canonical assertion identity for a capability: the namespaced ref for an
+// extension, otherwise the standard type. This is the single identity rule used everywhere — Evidence
+// Subject.Name, finding subjects, coverage counting, uniqueness validation and (in S6) collector /
+// evaluator registration — so two distinct extensions never collapse to the same "extension" identity.
+func (cap Capability) AssertionKey() string {
+	if cap.Type == CapabilityExtension {
+		return cap.Ref
+	}
+	return cap.Type
+}
+
 // PolicyTarget constants.
 const (
 	PolicyTargetContract = "contract"

@@ -42,20 +42,20 @@ func Evaluate(c contract.Contract, ev evidence.EvidenceSet) ([]finding.Finding, 
 
 	// Capabilities: health/metrics are required + observable. extension routes to the engine rule.
 	for _, cap := range c.Capabilities {
+		key := cap.AssertionKey() // "health"/"metrics" for standard, the namespaced ref for extension
 		if cap.Type == contract.CapabilityExtension {
 			cov.Required++
 			findings = append(findings, unknownFinding(finding.CodeExtensionEvaluatorUnavailable,
-				"capability", cap.Type, fmt.Sprintf("capabilities[type=%s]", cap.Type),
-				fmt.Sprintf("extension capability %q has no registered evaluator", cap.Ref), evRef))
+				"capability", key, fmt.Sprintf("capabilities[ref=%s]", key),
+				fmt.Sprintf("extension capability %q has no registered evaluator", key), evRef))
 			continue
 		}
-		capType := cap.Type
-		evalAssertion(&findings, &cov, ev, evRef, evidence.CapabilityObserved, "capability", capType,
-			fmt.Sprintf("capabilities[type=%s]", capType), true,
+		evalAssertion(&findings, &cov, ev, evRef, evidence.CapabilityObserved, "capability", key,
+			fmt.Sprintf("capabilities[type=%s]", key), true,
 			func(o evidence.Observation) (bool, finding.Code, string) {
 				p, _ := o.GetCapabilityObservation()
 				return !p.Present, finding.CodeCapabilityAbsent,
-					fmt.Sprintf("capability %q is absent at runtime", capType)
+					fmt.Sprintf("capability %q is absent at runtime", key)
 			})
 	}
 
