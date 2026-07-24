@@ -17,20 +17,18 @@ import (
 
 func TestLockCommandWritesFile(t *testing.T) {
 	dir := t.TempDir()
-	yaml := "pactoVersion: \"1.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n"
+	yaml := "pactoVersion: \"2.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	auth := &contract.Contract{
-		PactoVersion: "1.0",
-		Service:      contract.ServiceIdentity{Name: "auth", Version: "1.2.0"},
-		Runtime: &contract.Runtime{
-			Workload: "service",
-			State: contract.State{
-				Type:            "stateless",
-				Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-				DataCriticality: "low",
-			},
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "auth", Version: "1.2.0"},
+		Workload:     contract.WorkloadService,
+		State: &contract.State{
+			Type:            contract.StateStateless,
+			Persistence:     contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral},
+			DataCriticality: contract.DataCriticalityLow,
 		},
 	}
 	store := &testutil.MockBundleStore{
@@ -58,20 +56,18 @@ func TestLockCommandWritesFile(t *testing.T) {
 
 func TestLockCommandCheckFailsOnDrift(t *testing.T) {
 	dir := t.TempDir()
-	yaml := "pactoVersion: \"1.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n"
+	yaml := "pactoVersion: \"2.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	auth := &contract.Contract{
-		PactoVersion: "1.0",
-		Service:      contract.ServiceIdentity{Name: "auth", Version: "1.2.0"},
-		Runtime: &contract.Runtime{
-			Workload: "service",
-			State: contract.State{
-				Type:            "stateless",
-				Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-				DataCriticality: "low",
-			},
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "auth", Version: "1.2.0"},
+		Workload:     contract.WorkloadService,
+		State: &contract.State{
+			Type:            contract.StateStateless,
+			Persistence:     contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral},
+			DataCriticality: contract.DataCriticalityLow,
 		},
 	}
 	store := &testutil.MockBundleStore{
@@ -108,20 +104,18 @@ func TestLockCommandCheckFailsOnDrift(t *testing.T) {
 
 func TestLockCommandUpdateRepins(t *testing.T) {
 	dir := t.TempDir()
-	yaml := "pactoVersion: \"1.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n"
+	yaml := "pactoVersion: \"2.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	auth := &contract.Contract{
-		PactoVersion: "1.0",
-		Service:      contract.ServiceIdentity{Name: "auth", Version: "1.2.0"},
-		Runtime: &contract.Runtime{
-			Workload: "service",
-			State: contract.State{
-				Type:            "stateless",
-				Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-				DataCriticality: "low",
-			},
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "auth", Version: "1.2.0"},
+		Workload:     contract.WorkloadService,
+		State: &contract.State{
+			Type:            contract.StateStateless,
+			Persistence:     contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral},
+			DataCriticality: contract.DataCriticalityLow,
 		},
 	}
 	store := &testutil.MockBundleStore{
@@ -177,7 +171,7 @@ func TestLockCommandUpdateRepins(t *testing.T) {
 
 func TestLockCommandJSON(t *testing.T) {
 	dir := t.TempDir()
-	yaml := "pactoVersion: \"1.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\n"
+	yaml := "pactoVersion: \"2.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +201,7 @@ func TestLockCommandError(t *testing.T) {
 
 func TestLockCommandUpToDate(t *testing.T) {
 	dir := t.TempDir()
-	yaml := "pactoVersion: \"1.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\n"
+	yaml := "pactoVersion: \"2.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +234,7 @@ func TestLockCommandUpToDate(t *testing.T) {
 // closure the way `--update` does.
 func TestLockCommandUpdateNameSelective(t *testing.T) {
 	dir := t.TempDir()
-	yaml := "pactoVersion: \"1.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n  - name: db\n    ref: oci://ghcr.io/acme/db\n    compatibility: ^1.0.0\n"
+	yaml := "pactoVersion: \"2.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n  - name: db\n    ref: oci://ghcr.io/acme/db\n    compatibility: ^1.0.0\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +252,7 @@ func TestLockCommandUpdateNameSelective(t *testing.T) {
 			if strings.Contains(ref, "/auth") {
 				name = "auth"
 			}
-			return &contract.Bundle{Contract: &contract.Contract{PactoVersion: "1.0", Service: contract.ServiceIdentity{Name: name, Version: "1.2.0"}}}, nil
+			return &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.2.0"}}}, nil
 		},
 	}
 	svc := app.NewService(store, nil)

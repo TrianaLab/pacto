@@ -239,22 +239,32 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		}
 		_, _ = fmt.Fprintf(w, "Pacto Version: %s\n", result.PactoVersion)
 
-		if result.Runtime.WorkloadType != "" {
-			_, _ = fmt.Fprintf(w, "\nRuntime:\n")
-			_, _ = fmt.Fprintf(w, "  Workload: %s\n", result.Runtime.WorkloadType)
-			_, _ = fmt.Fprintf(w, "  State: %s\n", result.Runtime.StateType)
-			_, _ = fmt.Fprintf(w, "  Persistence: %s/%s\n", result.Runtime.Scope, result.Runtime.Durability)
-			_, _ = fmt.Fprintf(w, "  Data Criticality: %s\n", result.Runtime.DataCriticality)
+		if result.Workload != "" {
+			_, _ = fmt.Fprintf(w, "\nWorkload: %s\n", result.Workload)
+		}
+
+		if result.State != nil {
+			_, _ = fmt.Fprintf(w, "\nState:\n")
+			_, _ = fmt.Fprintf(w, "  Type: %s\n", result.State.Type)
+			_, _ = fmt.Fprintf(w, "  Persistence: %s/%s\n", result.State.Scope, result.State.Durability)
+			_, _ = fmt.Fprintf(w, "  Data Criticality: %s\n", result.State.DataCriticality)
+		}
+
+		if len(result.Capabilities) > 0 {
+			_, _ = fmt.Fprintf(w, "\nCapabilities (%d):\n", len(result.Capabilities))
+			for _, cap := range result.Capabilities {
+				if cap.Ref != "" {
+					_, _ = fmt.Fprintf(w, "  - %s: %s\n", cap.Type, cap.Ref)
+				} else {
+					_, _ = fmt.Fprintf(w, "  - %s\n", cap.Type)
+				}
+			}
 		}
 
 		if len(result.Interfaces) > 0 {
 			_, _ = fmt.Fprintf(w, "\nInterfaces (%d):\n", len(result.Interfaces))
 			for _, iface := range result.Interfaces {
-				if iface.Port != nil {
-					_, _ = fmt.Fprintf(w, "  - %s (%s, port %d", iface.Name, iface.Type, *iface.Port)
-				} else {
-					_, _ = fmt.Fprintf(w, "  - %s (%s", iface.Name, iface.Type)
-				}
+				_, _ = fmt.Fprintf(w, "  - %s (%s: %s", iface.Name, iface.Type, iface.Ref)
 				if iface.Visibility != "" {
 					_, _ = fmt.Fprintf(w, ", %s", iface.Visibility)
 				}
@@ -270,14 +280,6 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 					req = "required"
 				}
 				_, _ = fmt.Fprintf(w, "  - %s: %s (%s, %s)\n", dep.Name, dep.Ref, dep.Compatibility, req)
-			}
-		}
-
-		if result.Scaling != nil {
-			if result.Scaling.Replicas != nil {
-				_, _ = fmt.Fprintf(w, "\nScaling: %d replicas\n", *result.Scaling.Replicas)
-			} else {
-				_, _ = fmt.Fprintf(w, "\nScaling: %d-%d\n", result.Scaling.Min, result.Scaling.Max)
 			}
 		}
 

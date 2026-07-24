@@ -132,21 +132,7 @@ Services are grouped by name across sources and merged using priority rules:
 			// new services are discovered. refreshCacheSources handles
 			// on-the-fly CacheSource creation (critical for --no-cache),
 			// cache rescan, OCI wiring, and memory cache invalidation.
-			if detectResult.OCI != nil {
-				// Wire internal cache into OCI for version enrichment
-				// (hash, createdAt, classification) without exposing cache
-				// as a separate public source.
-				if detectResult.Cache != nil {
-					detectResult.OCI.SetCache(detectResult.Cache)
-				}
-
-				// Wire k8s repo provider so that OCI background discovery
-				// picks up repos from CRDs that appear after startup
-				// (e.g. deployed by ArgoCD after the dashboard starts).
-				if detectResult.K8s != nil {
-					detectResult.OCI.SetRepoProvider(dashboard.RepoProviderFromSource(detectResult.K8s))
-				}
-			}
+			wireOCICache(detectResult)
 
 			// Build resolved source with contract + runtime separation.
 			resolved := dashboard.BuildResolvedSource(cachedSources)
@@ -369,6 +355,18 @@ func wireK8sRedetect(
 	}
 }
 
+// wireOCICache wires cache and K8s repo provider into OCI source when available.
+func wireOCICache(detectResult *dashboard.DetectResult) {
+	if detectResult.OCI != nil {
+		if detectResult.Cache != nil {
+			detectResult.OCI.SetCache(detectResult.Cache)
+		}
+		if detectResult.K8s != nil {
+			detectResult.OCI.SetRepoProvider(dashboard.RepoProviderFromSource(detectResult.K8s))
+		}
+	}
+}
+
 // wireOCIEnrichment returns a callback that attempts OCI discovery from K8s
 // and wires the new sources into the existing pipeline. Called lazily by the
 // server when OCI was not available at startup.
@@ -399,15 +397,7 @@ func wireOCIEnrichment(
 		detectResult.OCI.SetOnDiscover(server.RefreshCacheSources)
 		server.SetOCISource(detectResult.OCI)
 
-		// Wire cache internally into OCI source for enrichment.
-		if detectResult.Cache != nil {
-			detectResult.OCI.SetCache(detectResult.Cache)
-		}
-
-		// Wire k8s repo provider for late-arriving CRDs.
-		if detectResult.K8s != nil {
-			detectResult.OCI.SetRepoProvider(dashboard.RepoProviderFromSource(detectResult.K8s))
-		}
+		wireOCICache(detectResult)
 
 		// Always pass memCache so RefreshCacheSources can invalidate stale
 		// data even when CacheSource is created on-the-fly (--no-cache).
