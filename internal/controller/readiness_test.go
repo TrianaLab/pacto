@@ -35,9 +35,9 @@ func pinReadinessClock(t *testing.T, at time.Time) {
 	t.Cleanup(func() { readinessClock = old })
 }
 
-// rdCheck builds a declared readiness check with the given id, weight and status.
-func rdCheck(id string, weight int, status string) contract.ReadinessCheck {
-	return contract.ReadinessCheck{
+// rdCheck builds a declared readiness claim with the given id, weight and status.
+func rdCheck(id string, weight int, status string) contract.ReadinessClaim {
+	return contract.ReadinessClaim{
 		ID:       id,
 		Type:     "url",
 		Category: "documentation",
@@ -48,21 +48,21 @@ func rdCheck(id string, weight int, status string) contract.ReadinessCheck {
 }
 
 // rdContractExpires builds a v1.2 contract whose readiness expires on the given
-// date (assessment-level). With no checks, no readiness block is set.
-func rdContractExpires(expires string, checks ...contract.ReadinessCheck) *contract.Contract {
+// date (assessment-level). With no claims, no readiness block is set.
+func rdContractExpires(expires string, claims ...contract.ReadinessClaim) *contract.Contract {
 	c := &contract.Contract{
 		PactoVersion: "1.2",
-		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Service:      contract.Service{Name: "svc", Version: "1.0.0"},
 	}
-	if len(checks) > 0 {
-		c.Readiness = &contract.Readiness{Expires: expires, Checks: checks}
+	if len(claims) > 0 {
+		c.Readiness = &contract.Readiness{Expires: expires, Claims: claims}
 	}
 	return c
 }
 
 // rdContract builds a v1.2 contract with a far-future (current) assessment expiry.
-func rdContract(checks ...contract.ReadinessCheck) *contract.Contract {
-	return rdContractExpires(futureExpires, checks...)
+func rdContract(claims ...contract.ReadinessClaim) *contract.Contract {
+	return rdContractExpires(futureExpires, claims...)
 }
 
 func drainEvents(rec *record.FakeRecorder) []string {
@@ -111,13 +111,13 @@ func TestReadinessCondition(t *testing.T) {
 func TestBuildReadinessStatus(t *testing.T) {
 	c := &contract.Contract{
 		PactoVersion: "1.2",
-		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Service:      contract.Service{Name: "svc", Version: "1.0.0"},
 		Readiness: &contract.Readiness{
 			Expires: futureExpires,
 			History: []contract.ReadinessRevision{
 				{Date: "2026-06-01", Version: "1.0.0", Author: "alice", Description: "initial assessment"},
 			},
-			Checks: []contract.ReadinessCheck{
+			Claims: []contract.ReadinessClaim{
 				rdCheck("dashboard", 60, contract.StatusDone),
 				rdCheck("runbook", 20, contract.StatusPartial),
 				rdCheck("dr-drill", 20, contract.StatusDeferred),
@@ -141,17 +141,17 @@ func TestBuildReadinessStatus(t *testing.T) {
 	if rs.DoneCount != 1 || rs.PartialCount != 1 || rs.NotDoneCount != 0 || rs.DeferredCount != 1 {
 		t.Errorf("unexpected counts: done=%d partial=%d notDone=%d deferred=%d", rs.DoneCount, rs.PartialCount, rs.NotDoneCount, rs.DeferredCount)
 	}
-	if len(rs.Checks) != 3 {
-		t.Fatalf("expected 3 checks, got %d", len(rs.Checks))
+	if len(rs.Claims) != 3 {
+		t.Fatalf("expected 3 claims, got %d", len(rs.Claims))
 	}
-	if rs.Checks[0].Status != contract.StatusDone || rs.Checks[0].Category != "documentation" || rs.Checks[0].EarnedWeight != 60 || rs.Checks[0].Excluded {
-		t.Errorf("unexpected done check: %+v", rs.Checks[0])
+	if rs.Claims[0].Status != contract.StatusDone || rs.Claims[0].Category != "documentation" || rs.Claims[0].EarnedWeight != 60 || rs.Claims[0].Excluded {
+		t.Errorf("unexpected done claim: %+v", rs.Claims[0])
 	}
-	if rs.Checks[1].Status != contract.StatusPartial || rs.Checks[1].EarnedWeight != 10 {
-		t.Errorf("unexpected partial check: %+v", rs.Checks[1])
+	if rs.Claims[1].Status != contract.StatusPartial || rs.Claims[1].EarnedWeight != 10 {
+		t.Errorf("unexpected partial claim: %+v", rs.Claims[1])
 	}
-	if rs.Checks[2].Status != contract.StatusDeferred || !rs.Checks[2].Excluded || rs.Checks[2].EarnedWeight != 0 {
-		t.Errorf("expected deferred check excluded with 0 earned, got %+v", rs.Checks[2])
+	if rs.Claims[2].Status != contract.StatusDeferred || !rs.Claims[2].Excluded || rs.Claims[2].EarnedWeight != 0 {
+		t.Errorf("expected deferred claim excluded with 0 earned, got %+v", rs.Claims[2])
 	}
 	if len(rs.Revisions) != 1 || rs.Revisions[0].Author != "alice" || rs.Revisions[0].Version != "1.0.0" {
 		t.Errorf("unexpected revisions: %+v", rs.Revisions)

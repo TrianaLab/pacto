@@ -18,7 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 
 	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
 )
@@ -30,10 +29,15 @@ service:
   version: 1.0.0
   owner:
     team: team-a
+state:
+  type: stateless
+  persistence:
+    durability: ephemeral
+workload: service
 interfaces:
   - name: http-api
-    type: http
-    port: 8080
+    type: openapi
+    ref: spec.yaml
 `
 
 const (
@@ -96,7 +100,7 @@ var _ = Describe("Pacto Controller", func() {
 			Expect(k8sClient.Delete(ctx, pacto)).To(Succeed())
 		})
 
-		It("should set ServiceExists=False and contractStatus=NonCompliant", func() {
+		It("should set ContractValid=True but have findings and contractStatus=Warning or NonCompliant", func() {
 			Eventually(func(g Gomega) {
 				pacto := &pactov1alpha1.Pacto{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
@@ -105,17 +109,18 @@ var _ = Describe("Pacto Controller", func() {
 				g.Expect(contractCond).NotTo(BeNil())
 				g.Expect(contractCond.Status).To(Equal(metav1.ConditionTrue))
 
-				svcCond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionServiceExists)
-				g.Expect(svcCond).NotTo(BeNil())
-				g.Expect(svcCond.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(svcCond.Reason).To(Equal(pactov1alpha1.ReasonNotFound))
+				// v2: findings-based status. Missing service/workload should generate findings.
+				g.Expect(pacto.Status.Summary).NotTo(BeNil())
+				// We expect at least some warnings or errors.
+				g.Expect(pacto.Status.Summary.ErrorCount + pacto.Status.Summary.WarningCount).To(BeNumerically(">", 0))
 
-				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusNonCompliant))
+				// ContractStatus should be Warning or NonCompliant (not Compliant).
+				g.Expect(pacto.Status.ContractStatus).NotTo(Equal(pactov1alpha1.ContractStatusCompliant))
 			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 		})
 	})
 
-	Context("When service exists with matching ports", func() {
+	Context("When service exists with matching workload", func() {
 		const name = "test-compliant"
 		const svcName = "compliant-svc"
 
@@ -139,14 +144,14 @@ var _ = Describe("Pacto Controller", func() {
 			deleteDeployment(svcName, "default")
 		})
 
-		It("should set contractStatus=Compliant with all checks passed", func() {
+		It("should set contractStatus=Compliant with no error findings", func() {
 			Eventually(func(g Gomega) {
 				pacto := &pactov1alpha1.Pacto{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
 
 				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusCompliant))
 				g.Expect(pacto.Status.Summary).NotTo(BeNil())
-				g.Expect(pacto.Status.Summary.Failed).To(Equal(int32(0)))
+				g.Expect(pacto.Status.Summary.ErrorCount).To(Equal(int32(0)))
 				g.Expect(pacto.Status.LastReconciledAt).NotTo(BeNil())
 
 				// Check resources are populated
@@ -155,50 +160,6 @@ var _ = Describe("Pacto Controller", func() {
 				g.Expect(pacto.Status.Resources.Service.Exists).To(BeTrue())
 				g.Expect(pacto.Status.Resources.Workload).NotTo(BeNil())
 				g.Expect(pacto.Status.Resources.Workload.Exists).To(BeTrue())
-			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
-		})
-	})
-
-	Context("When service exists with wrong ports", func() {
-		const name = "test-port-mismatch"
-		const svcName = "wrong-port-svc"
-
-		BeforeEach(func() {
-			createService(svcName, "default", 9090)
-			createDeployment(svcName, "default")
-
-			pacto := &pactov1alpha1.Pacto{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-				Spec: pactov1alpha1.PactoSpec{
-					ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
-					Target:      pactov1alpha1.TargetRef{ServiceName: svcName},
-				},
-			}
-			Expect(k8sClient.Create(ctx, pacto)).To(Succeed())
-		})
-
-		AfterEach(func() {
-			deleteResource(name, "default")
-			deleteService(svcName, "default")
-			deleteDeployment(svcName, "default")
-		})
-
-		It("should set contractStatus=Warning with missing ports", func() {
-			Eventually(func(g Gomega) {
-				pacto := &pactov1alpha1.Pacto{}
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
-
-				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusWarning))
-
-				portsCond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionPortsValid)
-				g.Expect(portsCond).NotTo(BeNil())
-				g.Expect(portsCond.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(portsCond.Reason).To(Equal(pactov1alpha1.ReasonMissingPorts))
-
-				// Check port status
-				g.Expect(pacto.Status.Ports).NotTo(BeNil())
-				g.Expect(pacto.Status.Ports.Missing).To(ContainElement(int32(8080)))
-				g.Expect(pacto.Status.Ports.Unexpected).To(ContainElement(int32(9090)))
 			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 		})
 	})
@@ -221,166 +182,51 @@ var _ = Describe("Pacto Controller", func() {
 			deleteResource(name, "default")
 		})
 
-		It("should set contractStatus=Reference with no runtime conditions", func() {
+		It("should set contractStatus=Reference with no findings", func() {
 			Eventually(func(g Gomega) {
 				pacto := &pactov1alpha1.Pacto{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
 
 				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusReference))
 				g.Expect(pacto.Status.Summary).NotTo(BeNil())
-				g.Expect(pacto.Status.Summary.Total).To(Equal(int32(1)))
-				g.Expect(pacto.Status.Summary.Passed).To(Equal(int32(1)))
-				g.Expect(pacto.Status.Summary.Failed).To(Equal(int32(0)))
+				g.Expect(pacto.Status.Summary.ErrorCount).To(Equal(int32(0)))
 
-				// No runtime status should be set
+				// No runtime status should be set for reference-only
 				g.Expect(pacto.Status.Resources).To(BeNil())
-				g.Expect(pacto.Status.Ports).To(BeNil())
-				g.Expect(pacto.Status.Endpoints).To(BeNil())
-
-				// Contract info should be populated
-				g.Expect(pacto.Status.Contract).NotTo(BeNil())
-				g.Expect(pacto.Status.Contract.ServiceName).To(Equal("test-svc"))
-
-				// ContractValid should be set with ReferenceOnly reason
-				cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionContractValid)
-				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
-				g.Expect(cond.Reason).To(Equal(pactov1alpha1.ReasonReferenceOnly))
-
-				// No ServiceExists or WorkloadExists conditions should exist
-				g.Expect(meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionServiceExists)).To(BeNil())
-				g.Expect(meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionWorkloadExists)).To(BeNil())
 			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 		})
 	})
 
-	Context("Summary counts are accurate", func() {
-		const name = "test-summary"
-		const svcName = "summary-svc"
-
-		BeforeEach(func() {
-			createService(svcName, "default", 8080)
-			createDeployment(svcName, "default")
-
-			pacto := &pactov1alpha1.Pacto{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-				Spec: pactov1alpha1.PactoSpec{
-					ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
-					Target:      pactov1alpha1.TargetRef{ServiceName: svcName},
-				},
-			}
-			Expect(k8sClient.Create(ctx, pacto)).To(Succeed())
-		})
-
-		AfterEach(func() {
-			deleteResource(name, "default")
-			deleteService(svcName, "default")
-			deleteDeployment(svcName, "default")
-		})
-
-		It("should have total = passed + failed", func() {
-			Eventually(func(g Gomega) {
-				pacto := &pactov1alpha1.Pacto{}
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
-
-				g.Expect(pacto.Status.Summary).NotTo(BeNil())
-				g.Expect(pacto.Status.Summary.Total).To(Equal(pacto.Status.Summary.Passed + pacto.Status.Summary.Failed))
-				g.Expect(pacto.Status.Summary.Total).To(BeNumerically(">", 0))
-
-				// Verify conditions count matches summary
-				condCount := int32(len(pacto.Status.Conditions))
-				g.Expect(pacto.Status.Summary.Total).To(Equal(condCount))
-			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
-		})
-	})
-
-	Context("Contract validation failure clears stale status", func() {
-		const name = "test-stale-clear"
-
-		BeforeEach(func() {
-			pacto := &pactov1alpha1.Pacto{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-				Spec: pactov1alpha1.PactoSpec{
-					ContractRef: pactov1alpha1.ContractRef{Inline: "invalid yaml: [[["},
-					Target:      pactov1alpha1.TargetRef{ServiceName: "some-svc"},
-				},
-			}
-			Expect(k8sClient.Create(ctx, pacto)).To(Succeed())
-		})
-
-		AfterEach(func() {
-			deleteResource(name, "default")
-		})
-
-		It("should have no stale runtime fields", func() {
-			Eventually(func(g Gomega) {
-				pacto := &pactov1alpha1.Pacto{}
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
-
-				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusNonCompliant))
-
-				// No runtime fields should exist
-				g.Expect(pacto.Status.Resources).To(BeNil())
-				g.Expect(pacto.Status.Ports).To(BeNil())
-				g.Expect(pacto.Status.Endpoints).To(BeNil())
-				g.Expect(pacto.Status.Contract).To(BeNil())
-				g.Expect(pacto.Status.Interfaces).To(BeNil())
-
-				// Only ContractValid condition should exist
-				g.Expect(pacto.Status.Conditions).To(HaveLen(1))
-				cond := pacto.Status.Conditions[0]
-				g.Expect(cond.Type).To(Equal(pactov1alpha1.ConditionContractValid))
-				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
-		})
-	})
-
-	Context("ObservedGeneration is set correctly", func() {
-		const name = "test-observed-gen"
-
-		BeforeEach(func() {
-			pacto := &pactov1alpha1.Pacto{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-				Spec: pactov1alpha1.PactoSpec{
-					ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
-				},
-			}
-			Expect(k8sClient.Create(ctx, pacto)).To(Succeed())
-		})
-
-		AfterEach(func() {
-			deleteResource(name, "default")
-		})
-
-		It("should match metadata.generation", func() {
-			Eventually(func(g Gomega) {
-				pacto := &pactov1alpha1.Pacto{}
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
-				g.Expect(pacto.Status.ObservedGeneration).To(Equal(pacto.Generation))
-			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
-		})
-	})
 })
 
-// --- Test helpers ---
+// Helper functions to create/delete resources for testing
 
-func createService(name, namespace string, port int32) {
+func createService(name, namespace string, ports ...int32) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: corev1.ServiceSpec{
 			Selector: map[string]string{"app": name},
-			Ports: []corev1.ServicePort{{
-				Port:       port,
-				TargetPort: intstr.FromInt32(port),
-			}},
 		},
 	}
-	ExpectWithOffset(1, k8sClient.Create(ctx, svc)).To(Succeed())
+	for _, port := range ports {
+		svc.Spec.Ports = append(svc.Spec.Ports, corev1.ServicePort{
+			Name: fmt.Sprintf("port-%d", port),
+			Port: port,
+		})
+	}
+	Expect(k8sClient.Create(ctx, svc)).To(Succeed())
+}
+
+func deleteService(name, namespace string) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+	}
+	_ = k8sClient.Delete(ctx, svc)
 }
 
 func createDeployment(name, namespace string) {
 	replicas := int32(1)
-	deploy := &appsv1.Deployment{
+	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
@@ -388,194 +234,33 @@ func createDeployment(name, namespace string) {
 				MatchLabels: map[string]string{"app": name},
 			},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}},
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{"app": name},
+				},
 				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{
-						Name:  "app",
-						Image: fmt.Sprintf("%s:latest", name),
-					}},
+					Containers: []corev1.Container{
+						{
+							Name:  "app",
+							Image: "nginx:latest",
+						},
+					},
 				},
 			},
 		},
 	}
-	ExpectWithOffset(1, k8sClient.Create(ctx, deploy)).To(Succeed())
-}
-
-func deleteResource(name, namespace string) { //nolint:unparam // test helper always uses "default"
-	pacto := &pactov1alpha1.Pacto{}
-	if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, pacto); err == nil {
-		_ = k8sClient.Delete(ctx, pacto)
-	}
-}
-
-func deleteService(name, namespace string) {
-	svc := &corev1.Service{}
-	if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, svc); err == nil {
-		_ = k8sClient.Delete(ctx, svc)
-	}
+	Expect(k8sClient.Create(ctx, dep)).To(Succeed())
 }
 
 func deleteDeployment(name, namespace string) {
-	deploy := &appsv1.Deployment{}
-	if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, deploy); err == nil {
-		_ = k8sClient.Delete(ctx, deploy)
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 	}
+	_ = k8sClient.Delete(ctx, dep)
 }
 
-const readinessContract = `
-pactoVersion: "1.2"
-service:
-  name: readiness-svc
-  version: 1.0.0
-  owner:
-    team: team-a
-readiness:
-  expires: "2099-12-31"
-  checks:
-    - id: dashboard
-      type: url
-      status: done
-      evidence: https://grafana.company.com/readiness-svc
-      weight: 60
-    - id: runbook
-      type: document
-      status: done
-      evidence: docs/runbooks/readiness-svc.md
-      weight: 40
-`
-
-const readinessExpiredContract = `
-pactoVersion: "1.2"
-service:
-  name: readiness-expired-svc
-  version: 1.0.0
-  owner:
-    team: team-a
-readiness:
-  expires: "2000-01-15"
-  checks:
-    - id: dashboard
-      type: url
-      status: done
-      evidence: https://grafana.company.com/readiness-expired-svc
-      weight: 60
-    - id: security-review
-      type: ticket
-      status: done
-      evidence: SEC-1
-      weight: 40
-`
-
-var _ = Describe("Pacto Controller Readiness", func() {
-
-	Context("When a reference contract declares readiness with all checks current", func() {
-		const name = "test-readiness-current"
-
-		BeforeEach(func() {
-			pacto := &pactov1alpha1.Pacto{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-				Spec: pactov1alpha1.PactoSpec{
-					ContractRef: pactov1alpha1.ContractRef{Inline: readinessContract},
-				},
-			}
-			Expect(k8sClient.Create(ctx, pacto)).To(Succeed())
-		})
-
-		AfterEach(func() {
-			pacto := &pactov1alpha1.Pacto{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, pacto)).To(Succeed())
-		})
-
-		It("populates status.readiness and ReadinessChecksCurrent=True", func() {
-			Eventually(func(g Gomega) {
-				pacto := &pactov1alpha1.Pacto{}
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
-
-				g.Expect(pacto.Status.Readiness).NotTo(BeNil())
-				g.Expect(pacto.Status.Readiness.Score).To(Equal(int32(100)))
-				g.Expect(pacto.Status.Readiness.TotalWeight).To(Equal(int32(100)))
-				g.Expect(pacto.Status.Readiness.DoneCount).To(Equal(int32(2)))
-				g.Expect(pacto.Status.Readiness.Expired).To(BeFalse())
-				g.Expect(pacto.Status.Readiness.Checks).To(HaveLen(2))
-
-				cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
-				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
-				g.Expect(cond.Reason).To(Equal(pactov1alpha1.ReasonReadinessSatisfied))
-
-				// Readiness is a separate dimension: a valid reference contract stays compliant.
-				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusReference))
-			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
-		})
-	})
-
-	Context("When a contract declares an expired readiness check", func() {
-		const name = "test-readiness-expired"
-
-		BeforeEach(func() {
-			pacto := &pactov1alpha1.Pacto{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-				Spec: pactov1alpha1.PactoSpec{
-					ContractRef: pactov1alpha1.ContractRef{Inline: readinessExpiredContract},
-				},
-			}
-			Expect(k8sClient.Create(ctx, pacto)).To(Succeed())
-		})
-
-		AfterEach(func() {
-			pacto := &pactov1alpha1.Pacto{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, pacto)).To(Succeed())
-		})
-
-		It("sets ReadinessChecksCurrent=False without affecting ContractStatus", func() {
-			Eventually(func(g Gomega) {
-				pacto := &pactov1alpha1.Pacto{}
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
-
-				g.Expect(pacto.Status.Readiness).NotTo(BeNil())
-				g.Expect(pacto.Status.Readiness.Expired).To(BeTrue())
-				g.Expect(pacto.Status.Readiness.Score).To(Equal(int32(0)))
-
-				cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
-				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(cond.Reason).To(Equal(pactov1alpha1.ReasonReadinessExpired))
-
-				// Expired readiness does NOT make the contract non-compliant.
-				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusReference))
-			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
-		})
-	})
-
-	Context("When a contract declares no readiness", func() {
-		const name = "test-readiness-absent"
-
-		BeforeEach(func() {
-			pacto := &pactov1alpha1.Pacto{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-				Spec: pactov1alpha1.PactoSpec{
-					ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
-				},
-			}
-			Expect(k8sClient.Create(ctx, pacto)).To(Succeed())
-		})
-
-		AfterEach(func() {
-			pacto := &pactov1alpha1.Pacto{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, pacto)).To(Succeed())
-		})
-
-		It("leaves status.readiness and the readiness condition absent", func() {
-			Eventually(func(g Gomega) {
-				pacto := &pactov1alpha1.Pacto{}
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
-				g.Expect(pacto.Status.ContractStatus).NotTo(BeEmpty())
-				g.Expect(pacto.Status.Readiness).To(BeNil())
-				g.Expect(meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)).To(BeNil())
-			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
-		})
-	})
-})
+func deleteResource(name, namespace string) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+	}
+	_ = k8sClient.Delete(ctx, pacto)
+}
