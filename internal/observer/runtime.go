@@ -11,17 +11,33 @@ package observer
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/trianalab/pacto/v2/pkg/collector"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/evidence"
 )
+
+// CollectInput carries the information the controller passes to Collect. See spec section 9.1.
+type CollectInput struct {
+	Namespace       string
+	ServiceName     string
+	WorkloadName    string
+	WorkloadKind    string
+	ContractRef     string
+	WorkloadExplicit bool
+	Contract        *contract.Contract
+	BundleFS        fs.FS
+	// TODO(S6.3): InterfaceBindings, ConfigBindings, ProbeEnabled, MetricsEnabled,
+	// InterfaceNameMatchDiscovery, StabilizationWindow, ObservationWindows will be added in later steps.
+}
 
 // RuntimeSnapshot is the internal state for k8s observations (kept for internal convenience).
 type RuntimeSnapshot struct {
@@ -38,29 +54,158 @@ type RuntimeSnapshot struct {
 	HasPVC                  bool
 	HasEmptyDir             bool
 	HealthProbeInitialDelay *int32
+
+	// PersistenceClass is the B3 three-bucket classification for the workload's volumes.
+	PersistenceClass persistenceClass
 }
 
-// Observer is the k8s Collector: implements collector.Collector.
+// Observer is the k8s Collector.
 type Observer struct {
 	client client.Client
 }
-
-var _ collector.Collector = (*Observer)(nil)
 
 // New creates a new Observer.
 func New(c client.Client) *Observer {
 	return &Observer{client: c}
 }
 
-// Collect implements collector.Collector by observing k8s resources and emitting typed Evidence.
-func (o *Observer) Collect(ctx context.Context, subject evidence.SubjectRef) (evidence.EvidenceSet, error) {
-	// Subject.Name format: "namespace/serviceName" or "namespace/workloadName"
-	// For now we'll need namespace+serviceName+workloadName passed separately
-	// (the controller already knows these). Temporary: expose a CollectForTarget helper.
-	return evidence.EvidenceSet{}, fmt.Errorf("Collect not yet implemented; use CollectForTarget")
+// Collect implements the new per-dimension collection driven by the contract. Spec section 9.1.
+func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.EvidenceSet, error) {
+	now := time.Now()
+	prov := evidence.Provenance{Collector: "k8s-observer", DetectedAt: now}
+
+	// EvidenceSet.Subject is the runtime TARGET (namespace/service), distinct from per-observation assertion identity.
+	subject := evidence.SubjectRef{Kind: "service", Name: fmt.Sprintf("%s/%s", input.Namespace, input.ServiceName)}
+	if input.ServiceName == "" && input.WorkloadName != "" {
+		subject.Name = fmt.Sprintf("%s/%s", input.Namespace, input.WorkloadName)
+	}
+
+	var observations []evidence.Observation
+
+	// TODO(S6.3 step 1): interfaces producer (spec section 7.3).
+	// TODO(S6.3 step 1): health producer (spec section 7.4).
+	// TODO(S6.3 step 1): metrics producer (spec section 7.5).
+	// TODO(S6.3 step 1): dependencies producer (spec section 7.6).
+	// TODO(S6.3 step 1): configurations producer (spec section 7.7).
+
+	// Workload producer (spec section 7.1 + AR7).
+	if input.Contract.Workload != "" && input.WorkloadName != "" {
+		obs := o.observeWorkloadDim(ctx, input, prov)
+		observations = append(observations, obs)
+	}
+
+	// Persistence producer (spec section 7.2 / B3).
+	if input.Contract.State != nil && input.Contract.State.Persistence.Durability == "persistent" && input.WorkloadName != "" {
+		obs := o.observePersistenceDim(ctx, input, prov)
+		observations = append(observations, obs)
+	}
+
+	return evidence.EvidenceSet{
+		Subject:      subject,
+		ContractRef:  input.ContractRef,
+		Source:       "k8s",
+		ObservedAt:   now,
+		Observations: observations,
+	}, nil
 }
 
-// CollectForTarget collects k8s evidence for a specific service+workload target and returns an EvidenceSet.
+// observeWorkloadDim observes the workload dimension. Spec section 7.1 + AR7.
+func (o *Observer) observeWorkloadDim(ctx context.Context, input CollectInput, prov evidence.Provenance) evidence.Observation {
+	// Subject is the CONTRACT service name, not the k8s target (spec 7.0 rule 1).
+	subj := evidence.SubjectRef{Kind: "service", Name: input.Contract.Service.Name}
+
+	snapshot := &RuntimeSnapshot{WorkloadKind: input.WorkloadKind}
+	err := o.observeWorkload(ctx, input.Namespace, input.WorkloadName, input.WorkloadKind, snapshot)
+
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// NotFound -> EVIDENCE_MISSING (mapped by Evaluate).
+			obs, _ := evidence.NewUnobserved(evidence.WorkloadObserved, subj, evidence.Unsupported, prov)
+			return obs
+		}
+		// Non-NotFound API error -> COLLECTION_FAILED.
+		obs, _ := evidence.NewUnobserved(evidence.WorkloadObserved, subj, evidence.Failed, prov)
+		return obs
+	}
+
+	if !snapshot.WorkloadExists {
+		// Workload GET succeeded but object not found -> EVIDENCE_MISSING.
+		obs, _ := evidence.NewUnobserved(evidence.WorkloadObserved, subj, evidence.Unsupported, prov)
+		return obs
+	}
+
+	observedType := mapWorkloadKindToType(input.WorkloadKind)
+
+	// WORKLOAD_MISMATCH is gated on WorkloadExplicit (AR7).
+	if observedType != input.Contract.Workload {
+		if input.WorkloadExplicit {
+			// Both name AND kind were explicitly set -> mismatch is assertable.
+			return evidence.NewWorkloadObserved(subj, observedType, prov)
+		}
+		// Non-explicit kind diff -> EVIDENCE_INSUFFICIENT.
+		obs, _ := evidence.NewUnobserved(evidence.WorkloadObserved, subj, evidence.Insufficient, prov)
+		return obs
+	}
+
+	// Satisfied.
+	return evidence.NewWorkloadObserved(subj, observedType, prov)
+}
+
+// observePersistenceDim observes the persistence dimension. Spec section 7.2 / B3.
+func (o *Observer) observePersistenceDim(ctx context.Context, input CollectInput, prov evidence.Provenance) evidence.Observation {
+	subj := evidence.SubjectRef{Kind: "service", Name: input.Contract.Service.Name}
+
+	snapshot := &RuntimeSnapshot{WorkloadKind: input.WorkloadKind}
+	err := o.observeWorkload(ctx, input.Namespace, input.WorkloadName, input.WorkloadKind, snapshot)
+
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Unsupported, prov)
+			return obs
+		}
+		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Failed, prov)
+		return obs
+	}
+
+	if !snapshot.WorkloadExists {
+		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Unsupported, prov)
+		return obs
+	}
+
+	// Classify volumes via the volumeClassifier (spec 7.2 / B3 three-bucket rule).
+	class := o.classifyPersistence(snapshot)
+
+	switch class {
+	case persistenceDurable:
+		// Persistent storage binding declared -> satisfied.
+		return evidence.NewPersistenceObserved(subj, true, prov)
+	case persistenceEphemeral:
+		// All ephemeral or no volumes -> contradicted.
+		return evidence.NewPersistenceObserved(subj, false, prov)
+	case persistenceAmbiguous:
+		// Any ambiguous volume -> EVIDENCE_INSUFFICIENT.
+		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Insufficient, prov)
+		return obs
+	default:
+		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Insufficient, prov)
+		return obs
+	}
+}
+
+type persistenceClass int
+
+const (
+	persistenceDurable persistenceClass = iota
+	persistenceEphemeral
+	persistenceAmbiguous
+)
+
+// classifyPersistence returns the pre-computed persistence class from the snapshot.
+func (o *Observer) classifyPersistence(snapshot *RuntimeSnapshot) persistenceClass {
+	return snapshot.PersistenceClass
+}
+
+// CollectForTarget is DEPRECATED; kept temporarily for controller compatibility. Will be removed in S6.3 step 2.
 func (o *Observer) CollectForTarget(ctx context.Context, namespace, serviceName, workloadName, workloadKind, contractRef string) (evidence.EvidenceSet, error) {
 	now := time.Now()
 	prov := evidence.Provenance{Collector: "k8s-observer", DetectedAt: now}
@@ -81,7 +226,8 @@ func (o *Observer) CollectForTarget(ctx context.Context, namespace, serviceName,
 		if err == nil {
 			// Service ports → interface observations (derive from port number, mark as present)
 			for _, port := range svc.Spec.Ports {
-				obs := evidence.NewInterfaceObserved(subject, fmt.Sprintf("port-%d", port.Port), "http", true, prov)
+				ifaceSubj := evidence.SubjectRef{Kind: "interface", Name: fmt.Sprintf("port-%d", port.Port)}
+				obs := evidence.NewInterfaceObserved(ifaceSubj, "http", true, prov)
 				observations = append(observations, obs)
 			}
 		}
@@ -96,11 +242,12 @@ func (o *Observer) CollectForTarget(ctx context.Context, namespace, serviceName,
 
 		if snapshot.WorkloadExists {
 			// Workload type observation
-			observations = append(observations, evidence.NewWorkloadObserved(subject, mapWorkloadKindToType(workloadKind), prov))
+			wlSubj := evidence.SubjectRef{Kind: "service", Name: subject.Name}
+			observations = append(observations, evidence.NewWorkloadObserved(wlSubj, mapWorkloadKindToType(workloadKind), prov))
 
 			// Persistence observation
 			durable := snapshot.HasPVC
-			observations = append(observations, evidence.NewPersistenceObserved(subject, durable, prov))
+			observations = append(observations, evidence.NewPersistenceObserved(wlSubj, durable, prov))
 		}
 	}
 
@@ -113,7 +260,7 @@ func (o *Observer) CollectForTarget(ctx context.Context, namespace, serviceName,
 	}, nil
 }
 
-// Observe reads the target Service and workload, returning a snapshot (backward compat).
+// Observe is DEPRECATED; kept temporarily for controller compatibility. Will be removed in S6.3 step 2.
 func (o *Observer) Observe(ctx context.Context, namespace, serviceName, workloadName, workloadKind string) (*RuntimeSnapshot, error) {
 	snapshot := &RuntimeSnapshot{
 		WorkloadKind: workloadKind,
@@ -208,10 +355,17 @@ func (o *Observer) observeStatefulSet(ctx context.Context, key types.NamespacedN
 	if sts.Spec.Replicas != nil {
 		snap.Replicas = sts.Spec.Replicas
 	}
-	if len(sts.Spec.VolumeClaimTemplates) > 0 {
+	hasVCT := len(sts.Spec.VolumeClaimTemplates) > 0
+	if hasVCT {
 		snap.HasPVC = true
+		// VolumeClaimTemplates are persistent-binding-declared (spec 7.2).
+		snap.PersistenceClass = persistenceDurable
 	}
 	o.extractPodTemplateInfo(&sts.Spec.Template.Spec, snap)
+	// If VCT declared persistent, don't let pod volumes downgrade it.
+	if hasVCT {
+		snap.PersistenceClass = persistenceDurable
+	}
 	return nil
 }
 
@@ -276,13 +430,44 @@ func (o *Observer) extractPodTemplateInfo(podSpec *corev1.PodSpec, snap *Runtime
 		}
 	}
 
-	// Volume analysis
+	// Volume analysis (B3 three-bucket classification, spec section 7.2).
+	hasPersistent := false
+	hasAmbiguous := false
+	hasEphemeral := false
+
 	for _, vol := range podSpec.Volumes {
 		if vol.PersistentVolumeClaim != nil {
 			snap.HasPVC = true
-		}
-		if vol.EmptyDir != nil {
-			snap.HasEmptyDir = true
+			hasPersistent = true
+		} else if isExplicitlyEphemeral(&vol) {
+			hasEphemeral = true
+			if vol.EmptyDir != nil {
+				snap.HasEmptyDir = true
+			}
+		} else {
+			hasAmbiguous = true
 		}
 	}
+
+	// Classify: persistent wins, then ambiguous, then ephemeral.
+	if hasPersistent {
+		snap.PersistenceClass = persistenceDurable
+	} else if hasAmbiguous {
+		snap.PersistenceClass = persistenceAmbiguous
+	} else if hasEphemeral || len(podSpec.Volumes) == 0 {
+		// All ephemeral or no volumes -> ephemeral.
+		snap.PersistenceClass = persistenceEphemeral
+	} else {
+		snap.PersistenceClass = persistenceAmbiguous
+	}
+}
+
+// isExplicitlyEphemeral returns true if the volume is in the B3 explicitly-ephemeral closed set.
+func isExplicitlyEphemeral(vol *corev1.Volume) bool {
+	// Spec section 7.2: emptyDir, projected, configMap, secret, downwardAPI.
+	return vol.EmptyDir != nil ||
+		vol.Projected != nil ||
+		vol.ConfigMap != nil ||
+		vol.Secret != nil ||
+		vol.DownwardAPI != nil
 }

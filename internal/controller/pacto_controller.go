@@ -250,7 +250,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	// 13. Evaluate: contract × evidence → findings
-	findings := validation.Evaluate(*effectiveContract, evidenceSet)
+	findings, _ := validation.Evaluate(*effectiveContract, evidenceSet) // TODO(S6.3 step 2): use coverage
 
 	// Append contract-only findings from structural validation
 	structuralFindings := contractResult.Findings()
