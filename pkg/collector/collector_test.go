@@ -14,8 +14,8 @@ func TestStaticCollector(t *testing.T) {
 	prov := evidence.Provenance{Collector: "static", DetectedAt: time.Now()}
 
 	obs := []evidence.Observation{
-		evidence.NewCapabilityObserved(subject, "health", true, prov),
-		evidence.NewWorkloadObserved(subject, "service", prov),
+		evidence.NewCapabilityObserved(evidence.SubjectRef{Kind: "capability", Name: "health"}, true, prov),
+		evidence.NewWorkloadObserved(evidence.SubjectRef{Kind: "service", Name: "test-service"}, "service", prov),
 	}
 
 	collector := NewStaticCollector("test-contract@1.0.0", "static", obs)
@@ -48,12 +48,12 @@ func TestStaticCollector_ValidateEvidenceSet(t *testing.T) {
 	prov := evidence.Provenance{Collector: "static", DetectedAt: time.Now()}
 
 	obs := []evidence.Observation{
-		evidence.NewCapabilityObserved(subject, "health", true, prov),
-		evidence.NewWorkloadObserved(subject, "service", prov),
-		evidence.NewInterfaceObserved(subject, "http", "rest", true, prov),
-		evidence.NewDependencyReachable(subject, "db", true, prov),
-		evidence.NewConfigurationPresent(subject, "port", true, prov),
-		evidence.NewPersistenceObserved(subject, true, prov),
+		evidence.NewCapabilityObserved(evidence.SubjectRef{Kind: "capability", Name: "health"}, true, prov),
+		evidence.NewWorkloadObserved(evidence.SubjectRef{Kind: "service", Name: "test-service"}, "service", prov),
+		evidence.NewInterfaceObserved(evidence.SubjectRef{Kind: "interface", Name: "public-api"}, "openapi", true, prov),
+		evidence.NewDependencyReachable(evidence.SubjectRef{Kind: "dependency", Name: "db"}, true, prov),
+		evidence.NewConfigurationPresent(evidence.SubjectRef{Kind: "configuration", Name: "port"}, true, prov),
+		evidence.NewPersistenceObserved(evidence.SubjectRef{Kind: "service", Name: "test-service"}, true, prov),
 	}
 
 	collector := NewStaticCollector("test-contract@1.0.0", "static", obs)
@@ -75,8 +75,8 @@ func TestStaticCollector_JSONRoundTrip(t *testing.T) {
 	prov := evidence.Provenance{Collector: "static", DetectedAt: time.Now().Truncate(time.Second)}
 
 	obs := []evidence.Observation{
-		evidence.NewCapabilityObserved(subject, "health", true, prov),
-		evidence.NewWorkloadObserved(subject, "service", prov),
+		evidence.NewCapabilityObserved(evidence.SubjectRef{Kind: "capability", Name: "health"}, true, prov),
+		evidence.NewWorkloadObserved(evidence.SubjectRef{Kind: "service", Name: "test-service"}, "service", prov),
 	}
 
 	collector := NewStaticCollector("test-contract@1.0.0", "static", obs)

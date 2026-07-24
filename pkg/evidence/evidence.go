@@ -1,16 +1,29 @@
+// Package evidence defines the Option A observation model: a discriminated Observation carrying an Outcome
+// and a single json.RawMessage payload set iff Outcome == Observed. Assertion identity lives on SubjectRef
+// (INV-1b); the Kind<->Subject.Kind pairing is enforced by validate() (INV-1c). Spec section 3.
 package evidence
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 )
 
-// SubjectRef identifies the entity being observed.
+// SubjectRef identifies the specific entity an observation is about. For per-assertion kinds it names the
+// assertion (capability type, interface name, dependency name, configuration name); for service-scoped
+// kinds (workload, persistence) it names the service (c.Service.Name). Identity lives here, not in the
+// payload, so a non-Observed observation is still attributable.
 type SubjectRef struct {
-	Kind string
-	Name string
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
+
+// Provenance tracks how an observation was collected.
+type Provenance struct {
+	Collector  string    `json:"collector"`
+	DetectedAt time.Time `json:"detectedAt"`
 }
 
 // ObservationKind enumerates observation types.
@@ -25,21 +38,67 @@ const (
 	PersistenceObserved  ObservationKind = "PersistenceObserved"
 )
 
-// Provenance tracks how an observation was collected.
-type Provenance struct {
-	Collector  string
-	DetectedAt time.Time
+// Outcome is the collection verdict. Exactly Observed carries a payload. There is NO OutcomeAbsent.
+type Outcome string
+
+const (
+	Observed     Outcome = "Observed"     // collected; Value present
+	Unsupported  Outcome = "Unsupported"  // collector cannot observe this dimension
+	Failed       Outcome = "Failed"       // collection attempted and errored
+	Stale        Outcome = "Stale"        // last known data too old to trust
+	Insufficient Outcome = "Insufficient" // partial/ambiguous, not conclusive (incl. within-window negatives)
+)
+
+func (o Outcome) valid() bool {
+	switch o {
+	case Observed, Unsupported, Failed, Stale, Insufficient:
+		return true
+	}
+	return false
 }
 
-// Observation represents a single observed fact.
+// Typed payloads carry observed FACTS only; identity is on SubjectRef (INV-1b migration).
+type CapabilityObservation struct {
+	Present bool `json:"present"`
+}
+type WorkloadObservation struct {
+	Type string `json:"type"`
+}
+type InterfaceObservation struct {
+	Type    string `json:"type"`
+	Present bool   `json:"present"` // AVAILABILITY / reachability (B1)
+}
+type DependencyObservation struct {
+	Reachable bool `json:"reachable"`
+}
+type ConfigurationObservation struct {
+	Present bool `json:"present"`
+}
+type PersistenceObservation struct {
+	Durable bool `json:"durable"`
+}
+
+// Observation is a single observed fact. Value holds the typed payload as raw JSON and is set iff
+// Outcome == Observed. The Observed-implies-one-payload invariant is enforced by validate() at every
+// JSON boundary.
 type Observation struct {
 	Kind       ObservationKind
 	Subject    SubjectRef
-	Value      any
+	Outcome    Outcome
+	Value      json.RawMessage // set iff Outcome == Observed
 	Provenance Provenance
 }
 
-// EvidenceSet is a timestamped collection of observations about a service.
+type observationJSON struct {
+	Kind       ObservationKind `json:"kind"`
+	Subject    SubjectRef      `json:"subject"`
+	Outcome    Outcome         `json:"outcome"`
+	Value      json.RawMessage `json:"value,omitempty"`
+	Provenance Provenance      `json:"provenance"`
+}
+
+// EvidenceSet is a timestamped collection of observations about a service. Subject is the runtime TARGET
+// identity (e.g. namespace/service) — never substituted for a per-observation assertion identity.
 type EvidenceSet struct {
 	Subject      SubjectRef
 	ContractRef  string
@@ -48,256 +107,205 @@ type EvidenceSet struct {
 	Observations []Observation
 }
 
-// CapabilityObservation carries capability presence data.
-type CapabilityObservation struct {
-	Type    string
-	Present bool
-}
-
-// WorkloadObservation carries workload type data.
-type WorkloadObservation struct {
-	Type string
-}
-
-// InterfaceObservation carries interface presence data.
-type InterfaceObservation struct {
-	Name    string
-	Type    string
-	Present bool
-}
-
-// DependencyObservation carries dependency reachability data.
-type DependencyObservation struct {
-	Name      string
-	Reachable bool
-}
-
-// ConfigurationObservation carries configuration key presence data.
-type ConfigurationObservation struct {
-	Key     string
-	Present bool
-}
-
-// PersistenceObservation carries persistence durability data.
-type PersistenceObservation struct {
-	Durable bool
-}
-
-// observationJSON is the JSON wire format for Observation.
-type observationJSON struct {
-	Kind       ObservationKind `json:"kind"`
-	Subject    SubjectRef      `json:"subject"`
-	Value      json.RawMessage `json:"value"`
-	Provenance Provenance      `json:"provenance"`
-}
-
-// MarshalJSON implements custom JSON marshaling for Observation.
-func (o Observation) MarshalJSON() ([]byte, error) {
-	valueBytes, err := json.Marshal(o.Value)
-	if err != nil {
-		return nil, fmt.Errorf("marshal observation value: %w", err)
-	}
-	return json.Marshal(observationJSON{
-		Kind:       o.Kind,
-		Subject:    o.Subject,
-		Value:      valueBytes,
-		Provenance: o.Provenance,
-	})
-}
-
-// UnmarshalJSON implements custom JSON unmarshaling for Observation.
-func (o *Observation) UnmarshalJSON(data []byte) error {
-	var raw observationJSON
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("unmarshal observation: %w", err)
-	}
-
-	o.Kind = raw.Kind
-	o.Subject = raw.Subject
-	o.Provenance = raw.Provenance
-
-	var target any
-	switch raw.Kind {
+// subjectKind is the expected Subject.Kind for an ObservationKind (INV-1c). Per-assertion kinds name their
+// assertion; workload/persistence are service-scoped.
+func (k ObservationKind) subjectKind() string {
+	switch k {
 	case CapabilityObserved:
-		target = &CapabilityObservation{}
-	case WorkloadObserved:
-		target = &WorkloadObservation{}
+		return "capability"
 	case InterfaceObserved:
-		target = &InterfaceObservation{}
+		return "interface"
 	case DependencyReachable:
-		target = &DependencyObservation{}
+		return "dependency"
 	case ConfigurationPresent:
-		target = &ConfigurationObservation{}
-	case PersistenceObserved:
-		target = &PersistenceObservation{}
-	default:
-		return fmt.Errorf("unknown observation kind: %s", raw.Kind)
+		return "configuration"
+	case WorkloadObserved, PersistenceObserved:
+		return "service"
 	}
+	return ""
+}
 
-	if err := json.Unmarshal(raw.Value, target); err != nil {
-		return fmt.Errorf("unmarshal %s value: %w", raw.Kind, err)
+// validate enforces: Kind/Outcome known; Subject.Kind pairs with Kind (INV-1c); Observed <=> exactly one
+// payload present AND decodable as the declared kind; non-Observed => no payload.
+func (o Observation) validate() error {
+	want := o.Kind.subjectKind()
+	if want == "" {
+		return fmt.Errorf("unknown observation kind: %q", o.Kind)
 	}
-	o.Value = target
+	if !o.Outcome.valid() {
+		return fmt.Errorf("unknown outcome: %q", o.Outcome)
+	}
+	if o.Subject.Kind != want {
+		return fmt.Errorf("kind %s requires Subject.Kind %q, got %q (INV-1c)", o.Kind, want, o.Subject.Kind)
+	}
+	if o.Outcome == Observed {
+		if len(o.Value) == 0 {
+			return fmt.Errorf("outcome Observed requires a value payload for kind %s", o.Kind)
+		}
+		return o.checkKind()
+	}
+	if len(o.Value) != 0 {
+		return fmt.Errorf("outcome %s must not carry a value payload", o.Outcome)
+	}
 	return nil
 }
 
-// NewCapabilityObserved constructs a capability observation.
-func NewCapabilityObserved(subject SubjectRef, capType string, present bool, prov Provenance) Observation {
-	return Observation{
-		Kind:       CapabilityObserved,
-		Subject:    subject,
-		Value:      CapabilityObservation{Type: capType, Present: present},
-		Provenance: prov,
+// checkKind proves Value decodes as the payload type for Kind. Rejects EXTRA fields; a subset shape
+// (missing fields) is accepted.
+func (o Observation) checkKind() error {
+	var err error
+	switch o.Kind {
+	case CapabilityObserved:
+		_, err = decode[CapabilityObservation](o.Value)
+	case WorkloadObserved:
+		_, err = decode[WorkloadObservation](o.Value)
+	case InterfaceObserved:
+		_, err = decode[InterfaceObservation](o.Value)
+	case DependencyReachable:
+		_, err = decode[DependencyObservation](o.Value)
+	case ConfigurationPresent:
+		_, err = decode[ConfigurationObservation](o.Value)
+	case PersistenceObserved:
+		_, err = decode[PersistenceObservation](o.Value)
 	}
+	if err != nil {
+		return fmt.Errorf("value does not match kind %s: %w", o.Kind, err)
+	}
+	return nil
 }
 
-// NewWorkloadObserved constructs a workload observation.
+func decode[T any](raw json.RawMessage) (T, error) {
+	var v T
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	err := dec.Decode(&v)
+	return v, err
+}
+
+// MarshalJSON implements custom JSON marshaling for Observation, running validate() and omitting value for
+// non-Observed outcomes.
+func (o Observation) MarshalJSON() ([]byte, error) {
+	if err := o.validate(); err != nil {
+		return nil, err
+	}
+	j := observationJSON{Kind: o.Kind, Subject: o.Subject, Outcome: o.Outcome, Provenance: o.Provenance}
+	if o.Outcome == Observed {
+		j.Value = o.Value
+	}
+	return json.Marshal(j)
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for Observation, running validate() after decode.
+func (o *Observation) UnmarshalJSON(data []byte) error {
+	var j observationJSON
+	if err := json.Unmarshal(data, &j); err != nil {
+		return fmt.Errorf("unmarshal observation: %w", err)
+	}
+	*o = Observation{Kind: j.Kind, Subject: j.Subject, Outcome: j.Outcome, Value: j.Value, Provenance: j.Provenance}
+	return o.validate()
+}
+
+// mustMarshal marshals a payload struct. The payload types are closed structs of primitives, so
+// json.Marshal cannot fail; the error is dropped deliberately.
+// ponytail: error impossible for the fixed primitive payload structs; revisit if a payload gains a
+// non-marshalable field (then the boundary validate() would also need to catch it).
+func mustMarshal(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
+}
+
+// NewCapabilityObserved constructs an Observed capability observation.
+func NewCapabilityObserved(subject SubjectRef, present bool, prov Provenance) Observation {
+	return Observation{Kind: CapabilityObserved, Subject: subject, Outcome: Observed,
+		Value: mustMarshal(CapabilityObservation{Present: present}), Provenance: prov}
+}
+
+// NewWorkloadObserved constructs an Observed workload observation.
 func NewWorkloadObserved(subject SubjectRef, wType string, prov Provenance) Observation {
-	return Observation{
-		Kind:       WorkloadObserved,
-		Subject:    subject,
-		Value:      WorkloadObservation{Type: wType},
-		Provenance: prov,
-	}
+	return Observation{Kind: WorkloadObserved, Subject: subject, Outcome: Observed,
+		Value: mustMarshal(WorkloadObservation{Type: wType}), Provenance: prov}
 }
 
-// NewInterfaceObserved constructs an interface observation.
-func NewInterfaceObserved(subject SubjectRef, name, iType string, present bool, prov Provenance) Observation {
-	return Observation{
-		Kind:       InterfaceObserved,
-		Subject:    subject,
-		Value:      InterfaceObservation{Name: name, Type: iType, Present: present},
-		Provenance: prov,
-	}
+// NewInterfaceObserved constructs an Observed interface observation.
+func NewInterfaceObserved(subject SubjectRef, iType string, present bool, prov Provenance) Observation {
+	return Observation{Kind: InterfaceObserved, Subject: subject, Outcome: Observed,
+		Value: mustMarshal(InterfaceObservation{Type: iType, Present: present}), Provenance: prov}
 }
 
-// NewDependencyReachable constructs a dependency reachability observation.
-func NewDependencyReachable(subject SubjectRef, name string, reachable bool, prov Provenance) Observation {
-	return Observation{
-		Kind:       DependencyReachable,
-		Subject:    subject,
-		Value:      DependencyObservation{Name: name, Reachable: reachable},
-		Provenance: prov,
-	}
+// NewDependencyReachable constructs an Observed dependency observation.
+func NewDependencyReachable(subject SubjectRef, reachable bool, prov Provenance) Observation {
+	return Observation{Kind: DependencyReachable, Subject: subject, Outcome: Observed,
+		Value: mustMarshal(DependencyObservation{Reachable: reachable}), Provenance: prov}
 }
 
-// NewConfigurationPresent constructs a configuration presence observation.
-func NewConfigurationPresent(subject SubjectRef, key string, present bool, prov Provenance) Observation {
-	return Observation{
-		Kind:       ConfigurationPresent,
-		Subject:    subject,
-		Value:      ConfigurationObservation{Key: key, Present: present},
-		Provenance: prov,
-	}
+// NewConfigurationPresent constructs an Observed configuration observation.
+func NewConfigurationPresent(subject SubjectRef, present bool, prov Provenance) Observation {
+	return Observation{Kind: ConfigurationPresent, Subject: subject, Outcome: Observed,
+		Value: mustMarshal(ConfigurationObservation{Present: present}), Provenance: prov}
 }
 
-// NewPersistenceObserved constructs a persistence observation.
+// NewPersistenceObserved constructs an Observed persistence observation.
 func NewPersistenceObserved(subject SubjectRef, durable bool, prov Provenance) Observation {
-	return Observation{
-		Kind:       PersistenceObserved,
-		Subject:    subject,
-		Value:      PersistenceObservation{Durable: durable},
-		Provenance: prov,
-	}
+	return Observation{Kind: PersistenceObserved, Subject: subject, Outcome: Observed,
+		Value: mustMarshal(PersistenceObservation{Durable: durable}), Provenance: prov}
 }
 
-// GetCapabilityObservation retrieves typed payload for CapabilityObserved.
+// NewUnobserved builds a payload-less observation for any non-Observed outcome. Identity is carried on
+// subject so the observation stays attributable (INV-1b); the Kind<->Subject.Kind pairing is enforced.
+func NewUnobserved(kind ObservationKind, subject SubjectRef, outcome Outcome, prov Provenance) (Observation, error) {
+	if outcome == Observed {
+		return Observation{}, fmt.Errorf("NewUnobserved requires a non-Observed outcome, got %s", outcome)
+	}
+	o := Observation{Kind: kind, Subject: subject, Outcome: outcome, Provenance: prov}
+	if err := o.validate(); err != nil {
+		return Observation{}, err
+	}
+	return o, nil
+}
+
+func get[T any](o Observation, want ObservationKind) (T, error) {
+	var zero T
+	if o.Outcome != Observed {
+		return zero, fmt.Errorf("observation outcome is %s (not Observed): no payload", o.Outcome)
+	}
+	if o.Kind != want {
+		return zero, fmt.Errorf("observation kind is %s, not %s", o.Kind, want)
+	}
+	return decode[T](o.Value)
+}
+
+// GetCapabilityObservation returns the typed payload iff Outcome == Observed and Kind matches.
 func (o Observation) GetCapabilityObservation() (CapabilityObservation, error) {
-	if o.Kind != CapabilityObserved {
-		return CapabilityObservation{}, fmt.Errorf("observation kind is %s, not %s", o.Kind, CapabilityObserved)
-	}
-	v, ok := o.Value.(CapabilityObservation)
-	if !ok {
-		vp, ok := o.Value.(*CapabilityObservation)
-		if !ok {
-			return CapabilityObservation{}, fmt.Errorf("value is %T, not CapabilityObservation", o.Value)
-		}
-		return *vp, nil
-	}
-	return v, nil
+	return get[CapabilityObservation](o, CapabilityObserved)
 }
 
-// GetWorkloadObservation retrieves typed payload for WorkloadObserved.
+// GetWorkloadObservation returns the typed payload iff Outcome == Observed and Kind matches.
 func (o Observation) GetWorkloadObservation() (WorkloadObservation, error) {
-	if o.Kind != WorkloadObserved {
-		return WorkloadObservation{}, fmt.Errorf("observation kind is %s, not %s", o.Kind, WorkloadObserved)
-	}
-	v, ok := o.Value.(WorkloadObservation)
-	if !ok {
-		vp, ok := o.Value.(*WorkloadObservation)
-		if !ok {
-			return WorkloadObservation{}, fmt.Errorf("value is %T, not WorkloadObservation", o.Value)
-		}
-		return *vp, nil
-	}
-	return v, nil
+	return get[WorkloadObservation](o, WorkloadObserved)
 }
 
-// GetInterfaceObservation retrieves typed payload for InterfaceObserved.
+// GetInterfaceObservation returns the typed payload iff Outcome == Observed and Kind matches.
 func (o Observation) GetInterfaceObservation() (InterfaceObservation, error) {
-	if o.Kind != InterfaceObserved {
-		return InterfaceObservation{}, fmt.Errorf("observation kind is %s, not %s", o.Kind, InterfaceObserved)
-	}
-	v, ok := o.Value.(InterfaceObservation)
-	if !ok {
-		vp, ok := o.Value.(*InterfaceObservation)
-		if !ok {
-			return InterfaceObservation{}, fmt.Errorf("value is %T, not InterfaceObservation", o.Value)
-		}
-		return *vp, nil
-	}
-	return v, nil
+	return get[InterfaceObservation](o, InterfaceObserved)
 }
 
-// GetDependencyObservation retrieves typed payload for DependencyReachable.
+// GetDependencyObservation returns the typed payload iff Outcome == Observed and Kind matches.
 func (o Observation) GetDependencyObservation() (DependencyObservation, error) {
-	if o.Kind != DependencyReachable {
-		return DependencyObservation{}, fmt.Errorf("observation kind is %s, not %s", o.Kind, DependencyReachable)
-	}
-	v, ok := o.Value.(DependencyObservation)
-	if !ok {
-		vp, ok := o.Value.(*DependencyObservation)
-		if !ok {
-			return DependencyObservation{}, fmt.Errorf("value is %T, not DependencyObservation", o.Value)
-		}
-		return *vp, nil
-	}
-	return v, nil
+	return get[DependencyObservation](o, DependencyReachable)
 }
 
-// GetConfigurationObservation retrieves typed payload for ConfigurationPresent.
+// GetConfigurationObservation returns the typed payload iff Outcome == Observed and Kind matches.
 func (o Observation) GetConfigurationObservation() (ConfigurationObservation, error) {
-	if o.Kind != ConfigurationPresent {
-		return ConfigurationObservation{}, fmt.Errorf("observation kind is %s, not %s", o.Kind, ConfigurationPresent)
-	}
-	v, ok := o.Value.(ConfigurationObservation)
-	if !ok {
-		vp, ok := o.Value.(*ConfigurationObservation)
-		if !ok {
-			return ConfigurationObservation{}, fmt.Errorf("value is %T, not ConfigurationObservation", o.Value)
-		}
-		return *vp, nil
-	}
-	return v, nil
+	return get[ConfigurationObservation](o, ConfigurationPresent)
 }
 
-// GetPersistenceObservation retrieves typed payload for PersistenceObserved.
+// GetPersistenceObservation returns the typed payload iff Outcome == Observed and Kind matches.
 func (o Observation) GetPersistenceObservation() (PersistenceObservation, error) {
-	if o.Kind != PersistenceObserved {
-		return PersistenceObservation{}, fmt.Errorf("observation kind is %s, not %s", o.Kind, PersistenceObserved)
-	}
-	v, ok := o.Value.(PersistenceObservation)
-	if !ok {
-		vp, ok := o.Value.(*PersistenceObservation)
-		if !ok {
-			return PersistenceObservation{}, fmt.Errorf("value is %T, not PersistenceObservation", o.Value)
-		}
-		return *vp, nil
-	}
-	return v, nil
+	return get[PersistenceObservation](o, PersistenceObserved)
 }
 
-// ValidateEvidenceSet checks structural validity of an EvidenceSet.
+// ValidateEvidenceSet checks structural validity of an EvidenceSet: top-level identity/source/timestamp
+// and each observation (Subject/Provenance non-empty plus the Observation invariant via validate()).
 func ValidateEvidenceSet(es EvidenceSet) []error {
 	var errs []error
 	if es.Subject.Kind == "" {
@@ -316,75 +324,21 @@ func ValidateEvidenceSet(es EvidenceSet) []error {
 		errs = append(errs, errors.New("observed at is zero"))
 	}
 	for i, obs := range es.Observations {
-		if err := validateObservation(obs); err != nil {
+		if obs.Subject.Kind == "" || obs.Subject.Name == "" {
+			errs = append(errs, fmt.Errorf("observation[%d]: subject kind or name is empty", i))
+			continue
+		}
+		if obs.Provenance.Collector == "" {
+			errs = append(errs, fmt.Errorf("observation[%d]: provenance collector is empty", i))
+			continue
+		}
+		if obs.Provenance.DetectedAt.IsZero() {
+			errs = append(errs, fmt.Errorf("observation[%d]: provenance detected at is zero", i))
+			continue
+		}
+		if err := obs.validate(); err != nil {
 			errs = append(errs, fmt.Errorf("observation[%d]: %w", i, err))
 		}
 	}
 	return errs
-}
-
-func validateObservation(obs Observation) error {
-	if obs.Subject.Kind == "" || obs.Subject.Name == "" {
-		return errors.New("subject kind or name is empty")
-	}
-	if obs.Provenance.Collector == "" {
-		return errors.New("provenance collector is empty")
-	}
-	if obs.Provenance.DetectedAt.IsZero() {
-		return errors.New("provenance detected at is zero")
-	}
-
-	switch obs.Kind {
-	case CapabilityObserved:
-		_, ok := obs.Value.(CapabilityObservation)
-		if !ok {
-			_, ok = obs.Value.(*CapabilityObservation)
-		}
-		if !ok {
-			return fmt.Errorf("value type is %T, not CapabilityObservation", obs.Value)
-		}
-	case WorkloadObserved:
-		_, ok := obs.Value.(WorkloadObservation)
-		if !ok {
-			_, ok = obs.Value.(*WorkloadObservation)
-		}
-		if !ok {
-			return fmt.Errorf("value type is %T, not WorkloadObservation", obs.Value)
-		}
-	case InterfaceObserved:
-		_, ok := obs.Value.(InterfaceObservation)
-		if !ok {
-			_, ok = obs.Value.(*InterfaceObservation)
-		}
-		if !ok {
-			return fmt.Errorf("value type is %T, not InterfaceObservation", obs.Value)
-		}
-	case DependencyReachable:
-		_, ok := obs.Value.(DependencyObservation)
-		if !ok {
-			_, ok = obs.Value.(*DependencyObservation)
-		}
-		if !ok {
-			return fmt.Errorf("value type is %T, not DependencyObservation", obs.Value)
-		}
-	case ConfigurationPresent:
-		_, ok := obs.Value.(ConfigurationObservation)
-		if !ok {
-			_, ok = obs.Value.(*ConfigurationObservation)
-		}
-		if !ok {
-			return fmt.Errorf("value type is %T, not ConfigurationObservation", obs.Value)
-		}
-	case PersistenceObserved:
-		_, ok := obs.Value.(PersistenceObservation)
-		if !ok {
-			_, ok = obs.Value.(*PersistenceObservation)
-		}
-		if !ok {
-			return fmt.Errorf("value type is %T, not PersistenceObservation", obs.Value)
-		}
-	default:
-		return fmt.Errorf("unknown observation kind: %s", obs.Kind)
-	}
-	return nil
 }

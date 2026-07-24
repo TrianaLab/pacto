@@ -2,1044 +2,190 @@ package evidence
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestObservation_JSONRoundTrip(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
-	subj := SubjectRef{Kind: "Service", Name: "payments"}
-	prov := Provenance{Collector: "k8s", DetectedAt: now}
+func prov() Provenance { return Provenance{Collector: "k8s-observer", DetectedAt: time.Unix(1, 0)} }
 
-	tests := []struct {
-		name string
-		obs  Observation
-	}{
-		{
-			name: "CapabilityObserved",
-			obs:  NewCapabilityObserved(subj, "health", true, prov),
-		},
-		{
-			name: "WorkloadObserved",
-			obs:  NewWorkloadObserved(subj, "service", prov),
-		},
-		{
-			name: "InterfaceObserved",
-			obs:  NewInterfaceObserved(subj, "api", "http", true, prov),
-		},
-		{
-			name: "DependencyReachable",
-			obs:  NewDependencyReachable(subj, "database", false, prov),
-		},
-		{
-			name: "ConfigurationPresent",
-			obs:  NewConfigurationPresent(subj, "LOG_LEVEL", true, prov),
-		},
-		{
-			name: "PersistenceObserved",
-			obs:  NewPersistenceObserved(subj, true, prov),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			data, err := json.Marshal(tt.obs)
-			if err != nil {
-				t.Fatalf("marshal: %v", err)
-			}
-
-			var got Observation
-			if err := json.Unmarshal(data, &got); err != nil {
-				t.Fatalf("unmarshal: %v", err)
-			}
-
-			if got.Kind != tt.obs.Kind {
-				t.Errorf("kind = %v, want %v", got.Kind, tt.obs.Kind)
-			}
-			if got.Subject != tt.obs.Subject {
-				t.Errorf("subject = %v, want %v", got.Subject, tt.obs.Subject)
-			}
-			if got.Provenance.Collector != tt.obs.Provenance.Collector {
-				t.Errorf("collector = %v, want %v", got.Provenance.Collector, tt.obs.Provenance.Collector)
-			}
-			if !got.Provenance.DetectedAt.Equal(tt.obs.Provenance.DetectedAt) {
-				t.Errorf("detected at = %v, want %v", got.Provenance.DetectedAt, tt.obs.Provenance.DetectedAt)
-			}
-
-			switch tt.obs.Kind {
-			case CapabilityObserved:
-				want := tt.obs.Value.(CapabilityObservation)
-				gotVal, ok := got.Value.(*CapabilityObservation)
-				if !ok {
-					t.Fatalf("value type = %T, want *CapabilityObservation", got.Value)
-				}
-				if *gotVal != want {
-					t.Errorf("value = %+v, want %+v", *gotVal, want)
-				}
-			case WorkloadObserved:
-				want := tt.obs.Value.(WorkloadObservation)
-				gotVal, ok := got.Value.(*WorkloadObservation)
-				if !ok {
-					t.Fatalf("value type = %T, want *WorkloadObservation", got.Value)
-				}
-				if *gotVal != want {
-					t.Errorf("value = %+v, want %+v", *gotVal, want)
-				}
-			case InterfaceObserved:
-				want := tt.obs.Value.(InterfaceObservation)
-				gotVal, ok := got.Value.(*InterfaceObservation)
-				if !ok {
-					t.Fatalf("value type = %T, want *InterfaceObservation", got.Value)
-				}
-				if *gotVal != want {
-					t.Errorf("value = %+v, want %+v", *gotVal, want)
-				}
-			case DependencyReachable:
-				want := tt.obs.Value.(DependencyObservation)
-				gotVal, ok := got.Value.(*DependencyObservation)
-				if !ok {
-					t.Fatalf("value type = %T, want *DependencyObservation", got.Value)
-				}
-				if *gotVal != want {
-					t.Errorf("value = %+v, want %+v", *gotVal, want)
-				}
-			case ConfigurationPresent:
-				want := tt.obs.Value.(ConfigurationObservation)
-				gotVal, ok := got.Value.(*ConfigurationObservation)
-				if !ok {
-					t.Fatalf("value type = %T, want *ConfigurationObservation", got.Value)
-				}
-				if *gotVal != want {
-					t.Errorf("value = %+v, want %+v", *gotVal, want)
-				}
-			case PersistenceObserved:
-				want := tt.obs.Value.(PersistenceObservation)
-				gotVal, ok := got.Value.(*PersistenceObservation)
-				if !ok {
-					t.Fatalf("value type = %T, want *PersistenceObservation", got.Value)
-				}
-				if *gotVal != want {
-					t.Errorf("value = %+v, want %+v", *gotVal, want)
-				}
-			}
-		})
+// allObserved returns one Observed observation of every kind, with a correct Subject.Kind pairing.
+func allObserved() []Observation {
+	return []Observation{
+		NewCapabilityObserved(SubjectRef{Kind: "capability", Name: "health"}, true, prov()),
+		NewWorkloadObserved(SubjectRef{Kind: "service", Name: "orders"}, "service", prov()),
+		NewInterfaceObserved(SubjectRef{Kind: "interface", Name: "public-api"}, "openapi", true, prov()),
+		NewDependencyReachable(SubjectRef{Kind: "dependency", Name: "payments"}, true, prov()),
+		NewConfigurationPresent(SubjectRef{Kind: "configuration", Name: "app"}, true, prov()),
+		NewPersistenceObserved(SubjectRef{Kind: "service", Name: "orders"}, true, prov()),
 	}
 }
 
-func TestEvidenceSet_JSONRoundTrip(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
-	subj := SubjectRef{Kind: "Service", Name: "payments"}
-	prov := Provenance{Collector: "k8s", DetectedAt: now}
-
-	es := EvidenceSet{
-		Subject:     subj,
-		ContractRef: "payments@1.0.0",
-		Source:      "kubernetes",
-		ObservedAt:  now,
-		Observations: []Observation{
-			NewCapabilityObserved(subj, "health", true, prov),
-			NewWorkloadObserved(subj, "service", prov),
-			NewInterfaceObserved(subj, "api", "http", true, prov),
-			NewDependencyReachable(subj, "database", false, prov),
-			NewConfigurationPresent(subj, "LOG_LEVEL", true, prov),
-			NewPersistenceObserved(subj, true, prov),
-		},
-	}
-
-	data, err := json.Marshal(es)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-
-	var got EvidenceSet
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-
-	if got.Subject != es.Subject {
-		t.Errorf("subject = %v, want %v", got.Subject, es.Subject)
-	}
-	if got.ContractRef != es.ContractRef {
-		t.Errorf("contract ref = %v, want %v", got.ContractRef, es.ContractRef)
-	}
-	if got.Source != es.Source {
-		t.Errorf("source = %v, want %v", got.Source, es.Source)
-	}
-	if !got.ObservedAt.Equal(es.ObservedAt) {
-		t.Errorf("observed at = %v, want %v", got.ObservedAt, es.ObservedAt)
-	}
-	if len(got.Observations) != len(es.Observations) {
-		t.Fatalf("observations count = %d, want %d", len(got.Observations), len(es.Observations))
-	}
-
-	for i, obs := range got.Observations {
-		if obs.Kind != es.Observations[i].Kind {
-			t.Errorf("observation[%d] kind = %v, want %v", i, obs.Kind, es.Observations[i].Kind)
+func TestRoundTrip_ObservedAndUnobserved(t *testing.T) {
+	nonObserved := []Outcome{Unsupported, Failed, Stale, Insufficient}
+	for _, o := range allObserved() {
+		data, err := json.Marshal(o)
+		if err != nil {
+			t.Fatalf("marshal %s: %v", o.Kind, err)
+		}
+		if !strings.Contains(string(data), `"value"`) {
+			t.Errorf("%s: Observed must carry a value key: %s", o.Kind, data)
+		}
+		var back Observation
+		if err := json.Unmarshal(data, &back); err != nil {
+			t.Fatalf("unmarshal %s: %v", o.Kind, err)
+		}
+		if back.Kind != o.Kind || back.Subject != o.Subject || back.Outcome != Observed {
+			t.Errorf("%s: round-trip envelope mismatch: %+v", o.Kind, back)
+		}
+		re, err := json.Marshal(back)
+		if err != nil || string(re) != string(data) {
+			t.Errorf("%s: not byte-identical re-marshal", o.Kind)
+		}
+		for _, oc := range nonObserved {
+			u, err := NewUnobserved(o.Kind, o.Subject, oc, prov())
+			if err != nil {
+				t.Fatalf("NewUnobserved %s/%s: %v", o.Kind, oc, err)
+			}
+			ud, err := json.Marshal(u)
+			if err != nil {
+				t.Fatalf("marshal unobserved: %v", err)
+			}
+			if strings.Contains(string(ud), `"value"`) {
+				t.Errorf("%s/%s must NOT carry a value key: %s", o.Kind, oc, ud)
+			}
+			var ub Observation
+			if err := json.Unmarshal(ud, &ub); err != nil {
+				t.Fatalf("unmarshal unobserved: %v", err)
+			}
+			if ub.Outcome != oc || len(ub.Value) != 0 {
+				t.Errorf("%s/%s round-trip mismatch: %+v", o.Kind, oc, ub)
+			}
 		}
 	}
+}
 
-	cap, err := got.Observations[0].GetCapabilityObservation()
-	if err != nil {
-		t.Errorf("get capability: %v", err)
+func TestConfirmedAbsent_CarriesPayload(t *testing.T) {
+	o := NewInterfaceObserved(SubjectRef{Kind: "interface", Name: "public-api"}, "openapi", false, prov())
+	iface, err := o.GetInterfaceObservation()
+	if err != nil || iface.Present {
+		t.Fatalf("confirmed-absent interface: %+v err=%v", iface, err)
 	}
-	if cap.Type != "health" || !cap.Present {
-		t.Errorf("capability = %+v, want {health true}", cap)
+	data, _ := json.Marshal(o)
+	if !strings.Contains(string(data), `"present":false`) {
+		t.Errorf("confirmed-absent must carry present:false: %s", data)
 	}
+}
 
-	wl, err := got.Observations[1].GetWorkloadObservation()
-	if err != nil {
-		t.Errorf("get workload: %v", err)
+func TestAllGetters(t *testing.T) {
+	obs := allObserved()
+	if c, err := obs[0].GetCapabilityObservation(); err != nil || !c.Present {
+		t.Errorf("capability getter: %+v %v", c, err)
 	}
-	if wl.Type != "service" {
-		t.Errorf("workload type = %v, want service", wl.Type)
+	if w, err := obs[1].GetWorkloadObservation(); err != nil || w.Type != "service" {
+		t.Errorf("workload getter: %+v %v", w, err)
 	}
+	if i, err := obs[2].GetInterfaceObservation(); err != nil || i.Type != "openapi" || !i.Present {
+		t.Errorf("interface getter: %+v %v", i, err)
+	}
+	if d, err := obs[3].GetDependencyObservation(); err != nil || !d.Reachable {
+		t.Errorf("dependency getter: %+v %v", d, err)
+	}
+	if cf, err := obs[4].GetConfigurationObservation(); err != nil || !cf.Present {
+		t.Errorf("configuration getter: %+v %v", cf, err)
+	}
+	if p, err := obs[5].GetPersistenceObservation(); err != nil || !p.Durable {
+		t.Errorf("persistence getter: %+v %v", p, err)
+	}
+}
 
-	iface, err := got.Observations[2].GetInterfaceObservation()
-	if err != nil {
-		t.Errorf("get interface: %v", err)
+func TestGetterGuard(t *testing.T) {
+	u, _ := NewUnobserved(CapabilityObserved, SubjectRef{Kind: "capability", Name: "health"}, Failed, prov())
+	if _, err := u.GetCapabilityObservation(); err == nil {
+		t.Error("getter must error for non-Observed outcome")
 	}
-	if iface.Name != "api" || iface.Type != "http" || !iface.Present {
-		t.Errorf("interface = %+v, want {api http true}", iface)
+	c := NewCapabilityObserved(SubjectRef{Kind: "capability", Name: "health"}, true, prov())
+	if _, err := c.GetWorkloadObservation(); err == nil {
+		t.Error("getter must error on kind mismatch")
 	}
+	// every getter errors on a kind mismatch, exercising each get[T] path
+	if _, err := c.GetInterfaceObservation(); err == nil {
+		t.Error("interface getter mismatch")
+	}
+	if _, err := c.GetDependencyObservation(); err == nil {
+		t.Error("dependency getter mismatch")
+	}
+	if _, err := c.GetConfigurationObservation(); err == nil {
+		t.Error("configuration getter mismatch")
+	}
+	if _, err := c.GetPersistenceObservation(); err == nil {
+		t.Error("persistence getter mismatch")
+	}
+}
 
-	dep, err := got.Observations[3].GetDependencyObservation()
-	if err != nil {
-		t.Errorf("get dependency: %v", err)
+func TestUnmarshal_RejectsBadCombos(t *testing.T) {
+	cases := []string{
+		`{"kind":"CapabilityObserved","subject":{"kind":"capability","name":"health"},"outcome":"Failed","value":{"present":true},"provenance":{"collector":"c","detectedAt":"2026-01-01T00:00:00Z"}}`,
+		`{"kind":"CapabilityObserved","subject":{"kind":"capability","name":"health"},"outcome":"Observed","provenance":{"collector":"c","detectedAt":"2026-01-01T00:00:00Z"}}`,
+		`{"kind":"CapabilityObserved","subject":{"kind":"capability","name":"health"},"outcome":"","provenance":{"collector":"c","detectedAt":"2026-01-01T00:00:00Z"}}`,
+		`{"kind":"Nope","subject":{"kind":"x","name":"y"},"outcome":"Failed","provenance":{"collector":"c","detectedAt":"2026-01-01T00:00:00Z"}}`,
+		`{"kind":"CapabilityObserved","subject":{"kind":"capability","name":"health"},"outcome":"Observed","value":{"nope":true},"provenance":{"collector":"c","detectedAt":"2026-01-01T00:00:00Z"}}`,
+		`not json`, // fails in the json scanner before UnmarshalJSON is dispatched
+		`123`,      // valid JSON token, wrong shape: reaches UnmarshalJSON and fails its inner decode
 	}
-	if dep.Name != "database" || dep.Reachable {
-		t.Errorf("dependency = %+v, want {database false}", dep)
+	for i, s := range cases {
+		var o Observation
+		if err := json.Unmarshal([]byte(s), &o); err == nil {
+			t.Errorf("case %d: expected rejection, got nil", i)
+		}
 	}
+}
 
-	cfg, err := got.Observations[4].GetConfigurationObservation()
-	if err != nil {
-		t.Errorf("get configuration: %v", err)
+func TestMarshal_RejectsInvalid(t *testing.T) {
+	// A hand-built invalid Observation (Observed with no value) must fail Marshal.
+	bad := Observation{Kind: CapabilityObserved, Subject: SubjectRef{Kind: "capability", Name: "h"}, Outcome: Observed}
+	if _, err := json.Marshal(bad); err == nil {
+		t.Error("marshal of Observed-without-value must fail")
 	}
-	if cfg.Key != "LOG_LEVEL" || !cfg.Present {
-		t.Errorf("configuration = %+v, want {LOG_LEVEL true}", cfg)
-	}
+}
 
-	pers, err := got.Observations[5].GetPersistenceObservation()
-	if err != nil {
-		t.Errorf("get persistence: %v", err)
+func TestSubjectKindPairing_INV1c(t *testing.T) {
+	wrong := NewWorkloadObserved(SubjectRef{Kind: "workload", Name: "orders"}, "service", prov())
+	if _, err := json.Marshal(wrong); err == nil {
+		t.Error("WorkloadObserved with Subject.Kind=workload must be rejected (INV-1c)")
 	}
-	if !pers.Durable {
-		t.Errorf("persistence durable = %v, want true", pers.Durable)
+	if _, err := NewUnobserved(InterfaceObserved, SubjectRef{Kind: "service", Name: "x"}, Failed, prov()); err == nil {
+		t.Error("InterfaceObserved paired with service subject must be rejected (INV-1c)")
+	}
+	if _, err := NewUnobserved(WorkloadObserved, SubjectRef{Kind: "service", Name: "orders"}, Observed, prov()); err == nil {
+		t.Error("NewUnobserved must reject Observed outcome")
+	}
+	if _, err := NewUnobserved("Bogus", SubjectRef{Kind: "x", Name: "y"}, Failed, prov()); err == nil {
+		t.Error("NewUnobserved must reject unknown kind")
 	}
 }
 
 func TestValidateEvidenceSet(t *testing.T) {
-	now := time.Now().UTC()
-	subj := SubjectRef{Kind: "Service", Name: "payments"}
-	prov := Provenance{Collector: "k8s", DetectedAt: now}
-
-	tests := []struct {
-		name    string
-		es      EvidenceSet
-		wantErr bool
-		errMsg  string
-	}{
-		{
-			name: "valid",
-			es: EvidenceSet{
-				Subject:     subj,
-				ContractRef: "payments@1.0.0",
-				Source:      "kubernetes",
-				ObservedAt:  now,
-				Observations: []Observation{
-					NewCapabilityObserved(subj, "health", true, prov),
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "empty subject kind",
-			es: EvidenceSet{
-				Subject:     SubjectRef{Kind: "", Name: "payments"},
-				ContractRef: "payments@1.0.0",
-				Source:      "kubernetes",
-				ObservedAt:  now,
-			},
-			wantErr: true,
-			errMsg:  "subject kind",
-		},
-		{
-			name: "empty subject name",
-			es: EvidenceSet{
-				Subject:     SubjectRef{Kind: "Service", Name: ""},
-				ContractRef: "payments@1.0.0",
-				Source:      "kubernetes",
-				ObservedAt:  now,
-			},
-			wantErr: true,
-			errMsg:  "subject name",
-		},
-		{
-			name: "empty contract ref",
-			es: EvidenceSet{
-				Subject:     subj,
-				ContractRef: "",
-				Source:      "kubernetes",
-				ObservedAt:  now,
-			},
-			wantErr: true,
-			errMsg:  "contract ref",
-		},
-		{
-			name: "empty source",
-			es: EvidenceSet{
-				Subject:     subj,
-				ContractRef: "payments@1.0.0",
-				Source:      "",
-				ObservedAt:  now,
-			},
-			wantErr: true,
-			errMsg:  "source",
-		},
-		{
-			name: "zero observed at",
-			es: EvidenceSet{
-				Subject:     subj,
-				ContractRef: "payments@1.0.0",
-				Source:      "kubernetes",
-				ObservedAt:  time.Time{},
-			},
-			wantErr: true,
-			errMsg:  "observed at",
-		},
-		{
-			name: "invalid observation subject",
-			es: EvidenceSet{
-				Subject:     subj,
-				ContractRef: "payments@1.0.0",
-				Source:      "kubernetes",
-				ObservedAt:  now,
-				Observations: []Observation{
-					{
-						Kind:       CapabilityObserved,
-						Subject:    SubjectRef{Kind: "", Name: ""},
-						Value:      CapabilityObservation{Type: "health", Present: true},
-						Provenance: prov,
-					},
-				},
-			},
-			wantErr: true,
-			errMsg:  "subject kind or name",
-		},
-		{
-			name: "invalid observation provenance",
-			es: EvidenceSet{
-				Subject:     subj,
-				ContractRef: "payments@1.0.0",
-				Source:      "kubernetes",
-				ObservedAt:  now,
-				Observations: []Observation{
-					{
-						Kind:       CapabilityObserved,
-						Subject:    subj,
-						Value:      CapabilityObservation{Type: "health", Present: true},
-						Provenance: Provenance{Collector: "", DetectedAt: now},
-					},
-				},
-			},
-			wantErr: true,
-			errMsg:  "provenance collector",
-		},
-		{
-			name: "wrong value type",
-			es: EvidenceSet{
-				Subject:     subj,
-				ContractRef: "payments@1.0.0",
-				Source:      "kubernetes",
-				ObservedAt:  now,
-				Observations: []Observation{
-					{
-						Kind:       CapabilityObserved,
-						Subject:    subj,
-						Value:      WorkloadObservation{Type: "service"},
-						Provenance: prov,
-					},
-				},
-			},
-			wantErr: true,
-			errMsg:  "value type",
-		},
-		{
-			name: "unknown kind",
-			es: EvidenceSet{
-				Subject:     subj,
-				ContractRef: "payments@1.0.0",
-				Source:      "kubernetes",
-				ObservedAt:  now,
-				Observations: []Observation{
-					{
-						Kind:       "UnknownKind",
-						Subject:    subj,
-						Value:      CapabilityObservation{Type: "health", Present: true},
-						Provenance: prov,
-					},
-				},
-			},
-			wantErr: true,
-			errMsg:  "unknown observation kind",
-		},
+	good := EvidenceSet{
+		Subject:      SubjectRef{Kind: "service", Name: "ns/orders"},
+		ContractRef:  "oci://x",
+		Source:       "k8s",
+		ObservedAt:   time.Unix(1, 0),
+		Observations: allObserved(),
+	}
+	if errs := ValidateEvidenceSet(good); len(errs) != 0 {
+		t.Fatalf("good set: %v", errs)
+	}
+	// Empty top-level fields (5) + one observation hitting each per-observation branch:
+	// empty subject, empty collector, zero detectedAt, and a validate() failure.
+	bad := EvidenceSet{Observations: []Observation{
+		{Kind: WorkloadObserved, Subject: SubjectRef{}, Outcome: Failed, Provenance: prov()},                                               // empty subject
+		{Kind: WorkloadObserved, Subject: SubjectRef{Kind: "service", Name: "s"}, Outcome: Failed},                                         // empty collector
+		{Kind: WorkloadObserved, Subject: SubjectRef{Kind: "service", Name: "s"}, Outcome: Failed, Provenance: Provenance{Collector: "c"}}, // zero detectedAt
+		{Kind: CapabilityObserved, Subject: SubjectRef{Kind: "capability", Name: "h"}, Outcome: Observed, Provenance: prov()},              // validate() fail: Observed no value
+	}}
+	errs := ValidateEvidenceSet(bad)
+	if len(errs) < 9 { // 5 top-level + 4 per-observation
+		t.Fatalf("bad set must produce >=9 errors, got %d: %v", len(errs), errs)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			errs := ValidateEvidenceSet(tt.es)
-			if tt.wantErr {
-				if len(errs) == 0 {
-					t.Fatalf("expected error containing %q, got nil", tt.errMsg)
-				}
-				found := false
-				for _, e := range errs {
-					if contains(e.Error(), tt.errMsg) {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Errorf("expected error containing %q, got %v", tt.errMsg, errs)
-				}
-			} else {
-				if len(errs) > 0 {
-					t.Errorf("unexpected error: %v", errs)
-				}
-			}
-		})
-	}
-}
-
-func TestConstructors(t *testing.T) {
-	now := time.Now().UTC()
-	subj := SubjectRef{Kind: "Service", Name: "payments"}
-	prov := Provenance{Collector: "k8s", DetectedAt: now}
-
-	tests := []struct {
-		name     string
-		obs      Observation
-		wantKind ObservationKind
-	}{
-		{
-			name:     "NewCapabilityObserved",
-			obs:      NewCapabilityObserved(subj, "health", true, prov),
-			wantKind: CapabilityObserved,
-		},
-		{
-			name:     "NewWorkloadObserved",
-			obs:      NewWorkloadObserved(subj, "service", prov),
-			wantKind: WorkloadObserved,
-		},
-		{
-			name:     "NewInterfaceObserved",
-			obs:      NewInterfaceObserved(subj, "api", "http", true, prov),
-			wantKind: InterfaceObserved,
-		},
-		{
-			name:     "NewDependencyReachable",
-			obs:      NewDependencyReachable(subj, "db", false, prov),
-			wantKind: DependencyReachable,
-		},
-		{
-			name:     "NewConfigurationPresent",
-			obs:      NewConfigurationPresent(subj, "LOG", true, prov),
-			wantKind: ConfigurationPresent,
-		},
-		{
-			name:     "NewPersistenceObserved",
-			obs:      NewPersistenceObserved(subj, true, prov),
-			wantKind: PersistenceObserved,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.obs.Kind != tt.wantKind {
-				t.Errorf("kind = %v, want %v", tt.obs.Kind, tt.wantKind)
-			}
-			if tt.obs.Subject != subj {
-				t.Errorf("subject = %v, want %v", tt.obs.Subject, subj)
-			}
-			if tt.obs.Provenance != prov {
-				t.Errorf("provenance = %v, want %v", tt.obs.Provenance, prov)
-			}
-		})
-	}
-}
-
-func TestGetters_WrongKind(t *testing.T) {
-	subj := SubjectRef{Kind: "Service", Name: "payments"}
-	prov := Provenance{Collector: "k8s", DetectedAt: time.Now()}
-
-	cap := NewCapabilityObserved(subj, "health", true, prov)
-	wl := NewWorkloadObserved(subj, "service", prov)
-
-	_, err := cap.GetWorkloadObservation()
-	if err == nil {
-		t.Error("expected error for wrong kind")
-	}
-
-	_, err = wl.GetCapabilityObservation()
-	if err == nil {
-		t.Error("expected error for wrong kind on CapabilityObserved")
-	}
-}
-
-func TestGetters_WrongValueType(t *testing.T) {
-	obs := Observation{
-		Kind:       CapabilityObserved,
-		Subject:    SubjectRef{Kind: "Service", Name: "payments"},
-		Value:      "wrong",
-		Provenance: Provenance{Collector: "k8s", DetectedAt: time.Now()},
-	}
-
-	_, err := obs.GetCapabilityObservation()
-	if err == nil {
-		t.Error("expected error for wrong value type")
-	}
-}
-
-func TestObservation_UnmarshalJSON_UnknownKind(t *testing.T) {
-	data := []byte(`{"kind":"UnknownKind","subject":{"Kind":"Service","Name":"payments"},"value":{},"provenance":{"Collector":"k8s","DetectedAt":"2026-07-24T00:00:00Z"}}`)
-	var obs Observation
-	err := obs.UnmarshalJSON(data)
-	if err == nil || !contains(err.Error(), "unknown observation kind") {
-		t.Errorf("expected unknown kind error, got %v", err)
-	}
-}
-
-func TestObservation_UnmarshalJSON_InvalidJSON(t *testing.T) {
-	data := []byte(`{invalid}`)
-	var obs Observation
-	err := obs.UnmarshalJSON(data)
-	if err == nil {
-		t.Error("expected error for invalid JSON")
-	}
-}
-
-func TestObservation_MarshalJSON_InvalidValue(t *testing.T) {
-	obs := Observation{
-		Kind:    CapabilityObserved,
-		Subject: SubjectRef{Kind: "Service", Name: "payments"},
-		Value:   make(chan int),
-		Provenance: Provenance{
-			Collector:  "k8s",
-			DetectedAt: time.Now(),
-		},
-	}
-	_, err := obs.MarshalJSON()
-	if err == nil {
-		t.Error("expected error for invalid value type")
-	}
-}
-
-func TestGetters_PointerVariant(t *testing.T) {
-	subj := SubjectRef{Kind: "Service", Name: "payments"}
-	prov := Provenance{Collector: "k8s", DetectedAt: time.Now()}
-
-	data := []byte(`{"kind":"CapabilityObserved","subject":{"Kind":"Service","Name":"payments"},"value":{"Type":"health","Present":true},"provenance":{"Collector":"k8s","DetectedAt":"2026-07-24T00:00:00Z"}}`)
-	var obs Observation
-	if err := json.Unmarshal(data, &obs); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-
-	cap, err := obs.GetCapabilityObservation()
-	if err != nil {
-		t.Errorf("get capability (pointer variant): %v", err)
-	}
-	if cap.Type != "health" || !cap.Present {
-		t.Errorf("capability = %+v, want {health true}", cap)
-	}
-
-	obs2 := NewWorkloadObserved(subj, "service", prov)
-	data2, _ := json.Marshal(obs2)
-	var obs3 Observation
-	if err := json.Unmarshal(data2, &obs3); err != nil {
-		t.Fatal(err)
-	}
-	wl, err := obs3.GetWorkloadObservation()
-	if err != nil {
-		t.Errorf("get workload (pointer variant): %v", err)
-	}
-	if wl.Type != "service" {
-		t.Errorf("workload type = %v, want service", wl.Type)
-	}
-
-	obs4 := NewInterfaceObserved(subj, "api", "http", true, prov)
-	data4, _ := json.Marshal(obs4)
-	var obs5 Observation
-	if err := json.Unmarshal(data4, &obs5); err != nil {
-		t.Fatal(err)
-	}
-	iface, err := obs5.GetInterfaceObservation()
-	if err != nil {
-		t.Errorf("get interface (pointer variant): %v", err)
-	}
-	if iface.Name != "api" {
-		t.Errorf("interface name = %v, want api", iface.Name)
-	}
-
-	obs6 := NewDependencyReachable(subj, "db", false, prov)
-	data6, _ := json.Marshal(obs6)
-	var obs7 Observation
-	if err := json.Unmarshal(data6, &obs7); err != nil {
-		t.Fatal(err)
-	}
-	dep, err := obs7.GetDependencyObservation()
-	if err != nil {
-		t.Errorf("get dependency (pointer variant): %v", err)
-	}
-	if dep.Name != "db" {
-		t.Errorf("dependency name = %v, want db", dep.Name)
-	}
-
-	obs8 := NewConfigurationPresent(subj, "LOG", true, prov)
-	data8, _ := json.Marshal(obs8)
-	var obs9 Observation
-	if err := json.Unmarshal(data8, &obs9); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := obs9.GetConfigurationObservation()
-	if err != nil {
-		t.Errorf("get configuration (pointer variant): %v", err)
-	}
-	if cfg.Key != "LOG" {
-		t.Errorf("configuration key = %v, want LOG", cfg.Key)
-	}
-
-	obs10 := NewPersistenceObserved(subj, true, prov)
-	data10, _ := json.Marshal(obs10)
-	var obs11 Observation
-	if err := json.Unmarshal(data10, &obs11); err != nil {
-		t.Fatal(err)
-	}
-	pers, err := obs11.GetPersistenceObservation()
-	if err != nil {
-		t.Errorf("get persistence (pointer variant): %v", err)
-	}
-	if !pers.Durable {
-		t.Errorf("persistence durable = %v, want true", pers.Durable)
-	}
-}
-
-func TestObservation_UnmarshalJSON_InvalidValueJSON(t *testing.T) {
-	data := []byte(`{"kind":"CapabilityObserved","subject":{"Kind":"Service","Name":"payments"},"value":"invalid","provenance":{"Collector":"k8s","DetectedAt":"2026-07-24T00:00:00Z"}}`)
-	var obs Observation
-	err := obs.UnmarshalJSON(data)
-	if err == nil || !contains(err.Error(), "unmarshal CapabilityObserved value") {
-		t.Errorf("expected value unmarshal error, got %v", err)
-	}
-}
-
-func TestValidateEvidenceSet_ZeroProvenanceDetectedAt(t *testing.T) {
-	subj := SubjectRef{Kind: "Service", Name: "payments"}
-	es := EvidenceSet{
-		Subject:     subj,
-		ContractRef: "payments@1.0.0",
-		Source:      "kubernetes",
-		ObservedAt:  time.Now(),
-		Observations: []Observation{
-			{
-				Kind:       CapabilityObserved,
-				Subject:    subj,
-				Value:      CapabilityObservation{Type: "health", Present: true},
-				Provenance: Provenance{Collector: "k8s", DetectedAt: time.Time{}},
-			},
-		},
-	}
-	errs := ValidateEvidenceSet(es)
-	if len(errs) == 0 {
-		t.Fatal("expected error for zero provenance detected at")
-	}
-	found := false
-	for _, e := range errs {
-		if contains(e.Error(), "provenance detected at") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected error containing 'provenance detected at', got %v", errs)
-	}
-}
-
-func TestValidateObservation_AllKinds(t *testing.T) {
-	now := time.Now().UTC()
-	subj := SubjectRef{Kind: "Service", Name: "payments"}
-	prov := Provenance{Collector: "k8s", DetectedAt: now}
-
-	tests := []struct {
-		name    string
-		obs     Observation
-		wantErr string
-	}{
-		{
-			name:    "CapabilityObserved valid",
-			obs:     NewCapabilityObserved(subj, "health", true, prov),
-			wantErr: "",
-		},
-		{
-			name: "CapabilityObserved wrong value type",
-			obs: Observation{
-				Kind:       CapabilityObserved,
-				Subject:    subj,
-				Value:      "wrong",
-				Provenance: prov,
-			},
-			wantErr: "value type",
-		},
-		{
-			name:    "WorkloadObserved valid",
-			obs:     NewWorkloadObserved(subj, "service", prov),
-			wantErr: "",
-		},
-		{
-			name: "WorkloadObserved wrong value type",
-			obs: Observation{
-				Kind:       WorkloadObserved,
-				Subject:    subj,
-				Value:      "wrong",
-				Provenance: prov,
-			},
-			wantErr: "value type",
-		},
-		{
-			name:    "InterfaceObserved valid",
-			obs:     NewInterfaceObserved(subj, "api", "http", true, prov),
-			wantErr: "",
-		},
-		{
-			name: "InterfaceObserved wrong value type",
-			obs: Observation{
-				Kind:       InterfaceObserved,
-				Subject:    subj,
-				Value:      "wrong",
-				Provenance: prov,
-			},
-			wantErr: "value type",
-		},
-		{
-			name:    "DependencyReachable valid",
-			obs:     NewDependencyReachable(subj, "db", false, prov),
-			wantErr: "",
-		},
-		{
-			name: "DependencyReachable wrong value type",
-			obs: Observation{
-				Kind:       DependencyReachable,
-				Subject:    subj,
-				Value:      "wrong",
-				Provenance: prov,
-			},
-			wantErr: "value type",
-		},
-		{
-			name:    "ConfigurationPresent valid",
-			obs:     NewConfigurationPresent(subj, "LOG", true, prov),
-			wantErr: "",
-		},
-		{
-			name: "ConfigurationPresent wrong value type",
-			obs: Observation{
-				Kind:       ConfigurationPresent,
-				Subject:    subj,
-				Value:      "wrong",
-				Provenance: prov,
-			},
-			wantErr: "value type",
-		},
-		{
-			name:    "PersistenceObserved valid",
-			obs:     NewPersistenceObserved(subj, true, prov),
-			wantErr: "",
-		},
-		{
-			name: "PersistenceObserved wrong value type",
-			obs: Observation{
-				Kind:       PersistenceObserved,
-				Subject:    subj,
-				Value:      "wrong",
-				Provenance: prov,
-			},
-			wantErr: "value type",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateObservation(tt.obs)
-			if tt.wantErr != "" {
-				if err == nil || !contains(err.Error(), tt.wantErr) {
-					t.Errorf("expected error containing %q, got %v", tt.wantErr, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-			}
-		})
-	}
-}
-
-func TestGetters_ValueVariant(t *testing.T) {
-	subj := SubjectRef{Kind: "Service", Name: "payments"}
-	prov := Provenance{Collector: "k8s", DetectedAt: time.Now()}
-
-	obs1 := Observation{
-		Kind:       CapabilityObserved,
-		Subject:    subj,
-		Value:      CapabilityObservation{Type: "health", Present: true},
-		Provenance: prov,
-	}
-	cap, err := obs1.GetCapabilityObservation()
-	if err != nil {
-		t.Errorf("get capability (value variant): %v", err)
-	}
-	if cap.Type != "health" {
-		t.Errorf("capability type = %v, want health", cap.Type)
-	}
-
-	obs2 := Observation{
-		Kind:       WorkloadObserved,
-		Subject:    subj,
-		Value:      WorkloadObservation{Type: "service"},
-		Provenance: prov,
-	}
-	wl, err := obs2.GetWorkloadObservation()
-	if err != nil {
-		t.Errorf("get workload (value variant): %v", err)
-	}
-	if wl.Type != "service" {
-		t.Errorf("workload type = %v, want service", wl.Type)
-	}
-
-	obs3 := Observation{
-		Kind:       InterfaceObserved,
-		Subject:    subj,
-		Value:      InterfaceObservation{Name: "api", Type: "http", Present: true},
-		Provenance: prov,
-	}
-	iface, err := obs3.GetInterfaceObservation()
-	if err != nil {
-		t.Errorf("get interface (value variant): %v", err)
-	}
-	if iface.Name != "api" {
-		t.Errorf("interface name = %v, want api", iface.Name)
-	}
-
-	obs4 := Observation{
-		Kind:       DependencyReachable,
-		Subject:    subj,
-		Value:      DependencyObservation{Name: "db", Reachable: false},
-		Provenance: prov,
-	}
-	dep, err := obs4.GetDependencyObservation()
-	if err != nil {
-		t.Errorf("get dependency (value variant): %v", err)
-	}
-	if dep.Name != "db" {
-		t.Errorf("dependency name = %v, want db", dep.Name)
-	}
-
-	obs5 := Observation{
-		Kind:       ConfigurationPresent,
-		Subject:    subj,
-		Value:      ConfigurationObservation{Key: "LOG", Present: true},
-		Provenance: prov,
-	}
-	cfg, err := obs5.GetConfigurationObservation()
-	if err != nil {
-		t.Errorf("get configuration (value variant): %v", err)
-	}
-	if cfg.Key != "LOG" {
-		t.Errorf("configuration key = %v, want LOG", cfg.Key)
-	}
-
-	obs6 := Observation{
-		Kind:       PersistenceObserved,
-		Subject:    subj,
-		Value:      PersistenceObservation{Durable: true},
-		Provenance: prov,
-	}
-	pers, err := obs6.GetPersistenceObservation()
-	if err != nil {
-		t.Errorf("get persistence (value variant): %v", err)
-	}
-	if !pers.Durable {
-		t.Errorf("persistence durable = %v, want true", pers.Durable)
-	}
-}
-
-func TestGetters_AllWrongKind(t *testing.T) {
-	subj := SubjectRef{Kind: "Service", Name: "payments"}
-	prov := Provenance{Collector: "k8s", DetectedAt: time.Now()}
-
-	obs := NewCapabilityObserved(subj, "health", true, prov)
-
-	_, err := obs.GetWorkloadObservation()
-	if err == nil || !contains(err.Error(), "observation kind") {
-		t.Errorf("GetWorkloadObservation: expected kind error, got %v", err)
-	}
-
-	_, err = obs.GetInterfaceObservation()
-	if err == nil || !contains(err.Error(), "observation kind") {
-		t.Errorf("GetInterfaceObservation: expected kind error, got %v", err)
-	}
-
-	_, err = obs.GetDependencyObservation()
-	if err == nil || !contains(err.Error(), "observation kind") {
-		t.Errorf("GetDependencyObservation: expected kind error, got %v", err)
-	}
-
-	_, err = obs.GetConfigurationObservation()
-	if err == nil || !contains(err.Error(), "observation kind") {
-		t.Errorf("GetConfigurationObservation: expected kind error, got %v", err)
-	}
-
-	_, err = obs.GetPersistenceObservation()
-	if err == nil || !contains(err.Error(), "observation kind") {
-		t.Errorf("GetPersistenceObservation: expected kind error, got %v", err)
-	}
-}
-
-func TestGetters_AllWrongValuePointer(t *testing.T) {
-	subj := SubjectRef{Kind: "Service", Name: "payments"}
-	prov := Provenance{Collector: "k8s", DetectedAt: time.Now()}
-
-	tests := []struct {
-		name    string
-		obs     Observation
-		getFunc func(Observation) (any, error)
-	}{
-		{
-			name: "CapabilityObserved",
-			obs: Observation{
-				Kind:       CapabilityObserved,
-				Subject:    subj,
-				Value:      new(int),
-				Provenance: prov,
-			},
-			getFunc: func(o Observation) (any, error) {
-				return o.GetCapabilityObservation()
-			},
-		},
-		{
-			name: "WorkloadObserved",
-			obs: Observation{
-				Kind:       WorkloadObserved,
-				Subject:    subj,
-				Value:      new(int),
-				Provenance: prov,
-			},
-			getFunc: func(o Observation) (any, error) {
-				return o.GetWorkloadObservation()
-			},
-		},
-		{
-			name: "InterfaceObserved",
-			obs: Observation{
-				Kind:       InterfaceObserved,
-				Subject:    subj,
-				Value:      new(int),
-				Provenance: prov,
-			},
-			getFunc: func(o Observation) (any, error) {
-				return o.GetInterfaceObservation()
-			},
-		},
-		{
-			name: "DependencyReachable",
-			obs: Observation{
-				Kind:       DependencyReachable,
-				Subject:    subj,
-				Value:      new(int),
-				Provenance: prov,
-			},
-			getFunc: func(o Observation) (any, error) {
-				return o.GetDependencyObservation()
-			},
-		},
-		{
-			name: "ConfigurationPresent",
-			obs: Observation{
-				Kind:       ConfigurationPresent,
-				Subject:    subj,
-				Value:      new(int),
-				Provenance: prov,
-			},
-			getFunc: func(o Observation) (any, error) {
-				return o.GetConfigurationObservation()
-			},
-		},
-		{
-			name: "PersistenceObserved",
-			obs: Observation{
-				Kind:       PersistenceObserved,
-				Subject:    subj,
-				Value:      new(int),
-				Provenance: prov,
-			},
-			getFunc: func(o Observation) (any, error) {
-				return o.GetPersistenceObservation()
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := tt.getFunc(tt.obs)
-			if err == nil || !contains(err.Error(), "value is") {
-				t.Errorf("expected value type error, got %v", err)
-			}
-		})
-	}
-}
-
-func TestGetters_PointerCorrectType(t *testing.T) {
-	subj := SubjectRef{Kind: "Service", Name: "payments"}
-	prov := Provenance{Collector: "k8s", DetectedAt: time.Now()}
-
-	tests := []struct {
-		name  string
-		obs   Observation
-		check func(t *testing.T, obs Observation)
-	}{
-		{
-			name: "CapabilityObserved pointer",
-			obs: Observation{
-				Kind:       CapabilityObserved,
-				Subject:    subj,
-				Value:      &CapabilityObservation{Type: "health", Present: true},
-				Provenance: prov,
-			},
-			check: func(t *testing.T, obs Observation) {
-				cap, err := obs.GetCapabilityObservation()
-				if err != nil {
-					t.Errorf("get capability (correct pointer): %v", err)
-				}
-				if cap.Type != "health" || !cap.Present {
-					t.Errorf("capability = %+v, want {health true}", cap)
-				}
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.check(t, tt.obs)
-		})
-	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || indexContains(s, substr) >= 0)
-}
-
-func indexContains(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }
