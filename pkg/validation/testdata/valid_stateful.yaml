@@ -28,6 +28,7 @@ capabilities:
 configurations:
   - name: app
     schema: configuration/app.schema.json
+    required: true
     values:
       replicas: 3
       timeout: 30

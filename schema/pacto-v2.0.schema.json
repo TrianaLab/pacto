@@ -126,7 +126,7 @@
       "description": "Named configuration sources. Each entry is an independent named scope with no implicit merge semantics.",
       "items": {
         "type": "object",
-        "required": ["name"],
+        "required": ["name", "required"],
         "additionalProperties": false,
         "properties": {
           "name": {
@@ -147,6 +147,10 @@
           "values": {
             "type": "object",
             "description": "Configuration values to be validated against the configuration schema. Only allowed with schema."
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether this configuration is mandatory. If true, its confirmed absence at runtime is a violation; if false it is optional."
           }
         },
         "oneOf": [
@@ -205,7 +209,7 @@
       "description": "Other services this service depends on. Each dependency references another service's published Pacto contract.",
       "items": {
         "type": "object",
-        "required": ["name", "ref", "compatibility"],
+        "required": ["name", "ref", "compatibility", "required"],
         "additionalProperties": false,
         "properties": {
           "name": {
@@ -336,8 +340,23 @@
             "type": "string",
             "minLength": 1,
             "description": "Required for extension capabilities. Must be a namespaced identifier (e.g. 'example.com/custom')."
+          },
+          "binding": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "interface"],
+            "description": "Binds a standard capability endpoint to a declared interface. Only http is supported this release.",
+            "properties": {
+              "type": { "type": "string", "enum": ["http"] },
+              "interface": { "type": "string", "minLength": 1, "description": "Name of the declared interface that owns this endpoint (must match an interfaces[].name)." },
+              "path": { "type": "string", "minLength": 1, "pattern": "^/([^/].*)?$", "description": "Optional application path on the owning interface (must start with a single '/'; no scheme/host/userinfo/fragment)." }
+            }
           }
-        }
+        },
+        "oneOf": [
+          { "properties": { "type": { "enum": ["health", "metrics"] } }, "required": ["type"], "not": { "required": ["ref"] } },
+          { "properties": { "type": { "const": "extension" } }, "required": ["type", "ref"], "not": { "required": ["binding"] } }
+        ]
       }
     },
 
@@ -431,6 +450,19 @@
               }
             }
           }
+        }
+      }
+    },
+
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Author-required verification beyond structural validity (platform-agnostic, opt-in).",
+      "properties": {
+        "conformance": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Names of interfaces[] whose running API must be verified to conform to the declared contract. With no evaluator this release, each entry resolves to EXTENSION_EVALUATOR_UNAVAILABLE (Unknown)."
         }
       }
     },
