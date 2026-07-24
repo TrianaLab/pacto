@@ -329,7 +329,7 @@ func validateVerification(c *contract.Contract, result *ValidationResult) {
 				fmt.Sprintf("verification.conformance references interface %q, which is not declared in interfaces[]", name))
 		}
 		if seen[name] {
-			result.AddError(field, "DUPLICATE_INTERFACE_NAME",
+			result.AddError(field, "DUPLICATE_VERIFICATION_INTERFACE",
 				fmt.Sprintf("interface %q is listed more than once in verification.conformance", name))
 		}
 		seen[name] = true

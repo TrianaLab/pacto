@@ -63,8 +63,9 @@ const (
 	CodeCapabilityInterfaceUnknown Code = "CAPABILITY_INTERFACE_UNKNOWN" // binding.interface references no declared interface
 	CodeCapabilityPathInvalid      Code = "CAPABILITY_PATH_INVALID"      // binding.path fails the net/url SSRF check
 
-	// Structural (crossfield) — verification. Registry: {InterfaceMismatch, Error}.
-	CodeVerificationInterfaceUnknown Code = "VERIFICATION_INTERFACE_UNKNOWN" // verification.conformance references no declared interface
+	// Structural (crossfield) — verification.
+	CodeVerificationInterfaceUnknown   Code = "VERIFICATION_INTERFACE_UNKNOWN"   // verification.conformance references no declared interface {InterfaceMismatch, Error}
+	CodeDuplicateVerificationInterface Code = "DUPLICATE_VERIFICATION_INTERFACE" // verification.conformance lists the same interface twice {DuplicateName, Error}
 )
 
 type codeMeta struct {
@@ -137,7 +138,8 @@ var registry = map[Code]codeMeta{
 	CodeCapabilityPathInvalid:      {CategoryInvalidCapability, SeverityError},
 
 	// Structural (crossfield) — verification
-	CodeVerificationInterfaceUnknown: {CategoryInterfaceMismatch, SeverityError},
+	CodeVerificationInterfaceUnknown:   {CategoryInterfaceMismatch, SeverityError},
+	CodeDuplicateVerificationInterface: {CategoryDuplicateName, SeverityError},
 }
 
 // CategoryOf returns the coarse category for a code, or "" if unknown.

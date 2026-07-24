@@ -323,8 +323,12 @@ func TestValidateVerification(t *testing.T) {
 	c.Verification = &contract.Verification{Conformance: []string{"public-api", "public-api"}}
 	var r3 ValidationResult
 	validateVerification(c, &r3)
-	if !hasErrorCode(r3, "DUPLICATE_INTERFACE_NAME") {
-		t.Errorf("duplicate conformance entry must be DUPLICATE_INTERFACE_NAME, got %+v", r3.Errors)
+	if !hasErrorCode(r3, "DUPLICATE_VERIFICATION_INTERFACE") {
+		t.Errorf("duplicate conformance entry must be DUPLICATE_VERIFICATION_INTERFACE, got %+v", r3.Errors)
+	}
+	// The duplicate-conformance code MUST be distinct from a duplicate interface DECLARATION.
+	if hasErrorCode(r3, "DUPLICATE_INTERFACE_NAME") {
+		t.Error("duplicate conformance must NOT reuse DUPLICATE_INTERFACE_NAME (different defect)")
 	}
 }
 
