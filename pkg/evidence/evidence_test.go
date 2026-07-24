@@ -554,7 +554,9 @@ func TestGetters_PointerVariant(t *testing.T) {
 	obs2 := NewWorkloadObserved(subj, "service", prov)
 	data2, _ := json.Marshal(obs2)
 	var obs3 Observation
-	json.Unmarshal(data2, &obs3)
+	if err := json.Unmarshal(data2, &obs3); err != nil {
+		t.Fatal(err)
+	}
 	wl, err := obs3.GetWorkloadObservation()
 	if err != nil {
 		t.Errorf("get workload (pointer variant): %v", err)
@@ -566,7 +568,9 @@ func TestGetters_PointerVariant(t *testing.T) {
 	obs4 := NewInterfaceObserved(subj, "api", "http", true, prov)
 	data4, _ := json.Marshal(obs4)
 	var obs5 Observation
-	json.Unmarshal(data4, &obs5)
+	if err := json.Unmarshal(data4, &obs5); err != nil {
+		t.Fatal(err)
+	}
 	iface, err := obs5.GetInterfaceObservation()
 	if err != nil {
 		t.Errorf("get interface (pointer variant): %v", err)
@@ -578,7 +582,9 @@ func TestGetters_PointerVariant(t *testing.T) {
 	obs6 := NewDependencyReachable(subj, "db", false, prov)
 	data6, _ := json.Marshal(obs6)
 	var obs7 Observation
-	json.Unmarshal(data6, &obs7)
+	if err := json.Unmarshal(data6, &obs7); err != nil {
+		t.Fatal(err)
+	}
 	dep, err := obs7.GetDependencyObservation()
 	if err != nil {
 		t.Errorf("get dependency (pointer variant): %v", err)
@@ -590,7 +596,9 @@ func TestGetters_PointerVariant(t *testing.T) {
 	obs8 := NewConfigurationPresent(subj, "LOG", true, prov)
 	data8, _ := json.Marshal(obs8)
 	var obs9 Observation
-	json.Unmarshal(data8, &obs9)
+	if err := json.Unmarshal(data8, &obs9); err != nil {
+		t.Fatal(err)
+	}
 	cfg, err := obs9.GetConfigurationObservation()
 	if err != nil {
 		t.Errorf("get configuration (pointer variant): %v", err)
@@ -602,7 +610,9 @@ func TestGetters_PointerVariant(t *testing.T) {
 	obs10 := NewPersistenceObserved(subj, true, prov)
 	data10, _ := json.Marshal(obs10)
 	var obs11 Observation
-	json.Unmarshal(data10, &obs11)
+	if err := json.Unmarshal(data10, &obs11); err != nil {
+		t.Fatal(err)
+	}
 	pers, err := obs11.GetPersistenceObservation()
 	if err != nil {
 		t.Errorf("get persistence (pointer variant): %v", err)

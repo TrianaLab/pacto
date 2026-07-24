@@ -214,6 +214,29 @@ func validateInterfaces(c *contract.Contract, bundleFS fs.FS, result *Validation
 				"INTERFACE_REF_REQUIRED",
 				fmt.Sprintf("interface %q requires a ref to the spec file", iface.Name),
 			)
+			continue
+		}
+
+		// Validate ref file existence and content (only when a bundle FS is available).
+		if bundleFS != nil && iface.Ref != "" {
+			fieldPath := fmt.Sprintf("interfaces[%d].ref", i)
+			data, err := fs.ReadFile(bundleFS, iface.Ref)
+			if err != nil {
+				result.AddError(fieldPath, "FILE_NOT_FOUND",
+					fmt.Sprintf("interface spec file %q not found in bundle", iface.Ref))
+				continue
+			}
+			var parsed any
+			var perr error
+			if isYAMLFile(iface.Ref) {
+				perr = yaml.Unmarshal(data, &parsed)
+			} else {
+				perr = json.Unmarshal(data, &parsed)
+			}
+			if perr != nil {
+				result.AddError(fieldPath, "INVALID_INTERFACE_SPEC",
+					fmt.Sprintf("interface spec file %q is not valid: %v", iface.Ref, perr))
+			}
 		}
 	}
 }

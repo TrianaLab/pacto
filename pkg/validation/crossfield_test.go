@@ -147,6 +147,75 @@ func TestValidateInterfaces_MissingRef(t *testing.T) {
 	}
 }
 
+func TestValidateInterfaces_FileNotFound(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "missing.yaml"}}
+	bundleFS := fstest.MapFS{}
+	var result ValidationResult
+	validateInterfaces(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error for missing spec file")
+	}
+	if !hasErrorCode(result, "FILE_NOT_FOUND") {
+		t.Errorf("expected FILE_NOT_FOUND, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaces_InvalidYAMLSpec(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "bad.yaml"}}
+	bundleFS := fstest.MapFS{
+		"bad.yaml": &fstest.MapFile{Data: []byte("\t\tinvalid:\n\t-broken")},
+	}
+	var result ValidationResult
+	validateInterfaces(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid YAML")
+	}
+	if !hasErrorCode(result, "INVALID_INTERFACE_SPEC") {
+		t.Errorf("expected INVALID_INTERFACE_SPEC, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaces_InvalidJSONSpec(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "bad.json"}}
+	bundleFS := fstest.MapFS{
+		"bad.json": &fstest.MapFile{Data: []byte("{not valid")},
+	}
+	var result ValidationResult
+	validateInterfaces(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid JSON")
+	}
+	if !hasErrorCode(result, "INVALID_INTERFACE_SPEC") {
+		t.Errorf("expected INVALID_INTERFACE_SPEC, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaces_ValidSpecFile(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "spec.yaml"}}
+	bundleFS := fstest.MapFS{
+		"spec.yaml": &fstest.MapFile{Data: []byte("openapi: '3.0.0'\n")},
+	}
+	var result ValidationResult
+	validateInterfaces(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected valid spec file, got errors: %v", result.Errors)
+	}
+}
+
+func TestValidateInterfaces_NilBundleFS(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "spec.yaml"}}
+	var result ValidationResult
+	validateInterfaces(c, nil, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error when bundleFS is nil, got errors: %v", result.Errors)
+	}
+}
+
 func TestValidateCapabilities_ValidStandardTypes(t *testing.T) {
 	types := []string{"health", "metrics"}
 	for _, typ := range types {

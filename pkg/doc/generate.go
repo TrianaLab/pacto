@@ -191,9 +191,10 @@ func writeRuntimeTable(b *strings.Builder, d *dashboard.ServiceDetails) {
 		writeKV(b, "Persistence durability", st.PersistenceDurability)
 	}
 	for _, cap := range d.Capabilities {
-		if cap.Type == "health" || cap.Type == "metrics" {
+		switch cap.Type {
+		case "health", "metrics":
 			writeKV(b, capitalizeFirst(cap.Type), "supported")
-		} else if cap.Type == "extension" {
+		case "extension":
 			writeKV(b, "Extension", cap.Ref)
 		}
 	}

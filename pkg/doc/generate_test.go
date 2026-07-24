@@ -12,8 +12,6 @@ import (
 	"github.com/trianalab/pacto/v2/pkg/schemax"
 )
 
-func ptr(v int) *int { return &v }
-
 // ── Task 4: header / overview / runtime ────────────────────────────────
 
 func TestGenerate_HeaderOverviewRuntime(t *testing.T) {

@@ -674,10 +674,7 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 	}
 
 	for _, cap := range r.Status.Capabilities {
-		svc.Capabilities = append(svc.Capabilities, CapabilityInfo{
-			Type: cap.Type,
-			Ref:  cap.Ref,
-		})
+		svc.Capabilities = append(svc.Capabilities, CapabilityInfo(cap))
 	}
 
 	svc.Readiness = readinessFromK8s(r.Status.Readiness)

@@ -73,10 +73,6 @@ func boolPtr(b bool) *bool {
 	return &b
 }
 
-func intPtr(i int) *int {
-	return &i
-}
-
 func TestResolvedSource_ListServices_GroupsByName(t *testing.T) {
 	k8s := &stubSource{
 		services: []Service{
