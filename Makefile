@@ -13,7 +13,7 @@ endif
 
 IMAGE := ghcr.io/trianalab/pacto-dashboard
 
-.PHONY: build test e2e coverage lint clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run
+.PHONY: build test e2e coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run
 
 # Local docs preview includes the in-browser WASM dashboard demo at /demo/.
 DOCS_DEMO := docs/demo
@@ -33,9 +33,14 @@ coverage:
 	go tool cover -html=coverage.out -o coverage.html
 	@go tool cover -func=coverage.out | tail -1
 
-lint:
+lint: check-section
 	gofmt -s -l $(shell find . -name '*.go')
 	go vet ./...
+
+# check-section is the reusable U+00A7 gate: zero section-sign glyphs in authored
+# files (generated UI bundles excluded by path). See scripts/check-section-sign.sh.
+check-section:
+	@sh scripts/check-section-sign.sh
 
 gen-cli-docs:
 	go run ./cmd/gendocs/
