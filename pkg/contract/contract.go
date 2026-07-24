@@ -17,8 +17,20 @@ type Contract struct {
 	Capabilities   []Capability    `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
 	Policies       []Policy        `yaml:"policies,omitempty" json:"policies,omitempty"`
 	Readiness      *Readiness      `yaml:"readiness,omitempty" json:"readiness,omitempty"`
+	Verification   *Verification   `yaml:"verification,omitempty" json:"verification,omitempty"`
 	Metadata       map[string]any  `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	Extensions     map[string]any  `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+}
+
+// Verification declares author-required verification beyond structural validity. Platform-agnostic: it
+// states WHAT compliance requires, never HOW k8s exposes it. This release supports only interface
+// contract-conformance opt-in; with no evaluator shipped it resolves to EXTENSION_EVALUATOR_UNAVAILABLE
+// (Unknown). Kept separate from the interface declaration so declaring an interface never implies a
+// conformance capability that does not exist.
+type Verification struct {
+	// Conformance lists interfaces[].name whose running API MUST be verified to conform to the declared
+	// interface contract. Each listed interface adds a Required++ conformance assertion in Evaluate.
+	Conformance []string `yaml:"conformance,omitempty" json:"conformance,omitempty"`
 }
 
 // Readiness declares operational readiness evidence for the service.
@@ -252,12 +264,26 @@ const (
 	DurabilityPersistent = "persistent"
 )
 
-// Capability describes a service capability.
-// Standard types (health, metrics) carry no ref; extension requires a namespaced ref.
+// Capability describes a service capability. Standard types (health, metrics) may declare a binding to a
+// declared interface; extension requires a namespaced ref (no binding).
 type Capability struct {
-	Type string `yaml:"type" json:"type"`
-	Ref  string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Type    string             `yaml:"type" json:"type"`
+	Ref     string             `yaml:"ref,omitempty" json:"ref,omitempty"`         // extension only
+	Binding *CapabilityBinding `yaml:"binding,omitempty" json:"binding,omitempty"` // standard types only
 }
+
+// CapabilityBinding binds a standard capability endpoint to a declared interface. Type is the binding
+// transport, discriminated: only "http" is implemented this release ("grpc" reserved).
+type CapabilityBinding struct {
+	Type      string `yaml:"type" json:"type"`                     // "http" (grpc later)
+	Interface string `yaml:"interface" json:"interface"`           // name of the owning declared interface
+	Path      string `yaml:"path,omitempty" json:"path,omitempty"` // http only; must start with "/" (INV-6)
+}
+
+// CapabilityBindingType constants.
+const (
+	CapabilityBindingHTTP = "http"
+)
 
 // CapabilityType constants.
 const (

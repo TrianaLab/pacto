@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -314,6 +315,69 @@ func TestCapability_Extension(t *testing.T) {
 	}
 	if ext.Ref != "example.com/custom" {
 		t.Errorf("expected namespaced ref, got %s", ext.Ref)
+	}
+}
+
+func TestCapability_DiscriminatedBinding(t *testing.T) {
+	src := `pactoVersion: "2.0"
+service:
+  name: orders
+  version: 1.0.0
+interfaces:
+  - name: public-api
+    type: openapi
+    ref: interfaces/openapi.json
+capabilities:
+  - type: health
+    binding:
+      type: http
+      interface: public-api
+      path: /healthz
+  - type: metrics
+    binding:
+      type: http
+      interface: public-api
+      path: /metrics
+  - type: extension
+    ref: example.com/custom
+verification:
+  conformance:
+    - public-api
+`
+	c, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(c.Capabilities) != 3 {
+		t.Fatalf("want 3 capabilities, got %d", len(c.Capabilities))
+	}
+	h := c.Capabilities[0]
+	if h.Binding == nil || h.Binding.Type != "http" || h.Binding.Interface != "public-api" || h.Binding.Path != "/healthz" {
+		t.Errorf("health binding not parsed: %+v", h.Binding)
+	}
+	if c.Capabilities[2].Binding != nil {
+		t.Error("extension capability must not carry a binding")
+	}
+	if c.Capabilities[2].Ref != "example.com/custom" {
+		t.Errorf("extension ref = %q", c.Capabilities[2].Ref)
+	}
+	if c.Verification == nil || len(c.Verification.Conformance) != 1 || c.Verification.Conformance[0] != "public-api" {
+		t.Errorf("verification.conformance not parsed: %+v", c.Verification)
+	}
+}
+
+func TestVerification_AbsentIsNil(t *testing.T) {
+	src := `pactoVersion: "2.0"
+service:
+  name: orders
+  version: 1.0.0
+`
+	c, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if c.Verification != nil {
+		t.Errorf("absent verification block must be nil, got %+v", c.Verification)
 	}
 }
 
