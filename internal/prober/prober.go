@@ -9,12 +9,17 @@ See LICENSE file in the project root for full license text.
 package prober
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
+	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 )
 
 const (
@@ -32,8 +37,10 @@ type Result struct {
 
 	// ContentPresent indicates whether the response body was non-empty.
 	ContentPresent bool
-	// PrometheusLike indicates whether the response body contains Prometheus-style markers.
-	PrometheusLike bool
+	// PrometheusParsed is true only when the response has a compatible Content-Type AND the bounded body
+	// parses as Prometheus text-exposition with at least one metric family (Refinement D) — NOT a substring
+	// heuristic.
+	PrometheusParsed bool
 }
 
 // Prober performs HTTP endpoint checks.
@@ -84,12 +91,31 @@ func (p *Prober) Probe(ctx context.Context, url string) Result {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyRead))
 	result.ContentPresent = len(body) > 0
 
-	if result.ContentPresent {
-		bodyStr := string(body)
-		result.PrometheusLike = strings.Contains(bodyStr, "# HELP") || strings.Contains(bodyStr, "# TYPE")
+	if result.ContentPresent && metricsContentType(resp.Header.Get("Content-Type")) {
+		result.PrometheusParsed = parsePrometheus(body)
 	}
 
 	return result
+}
+
+// metricsContentType reports whether a Content-Type is Prometheus text-exposition or OpenMetrics.
+func metricsContentType(ct string) bool {
+	ct = strings.ToLower(ct)
+	return strings.Contains(ct, "text/plain") || strings.Contains(ct, "application/openmetrics-text")
+}
+
+// parsePrometheus reports whether the bounded body parses as Prometheus text-exposition with at least one
+// metric family. A trailing partial line (from the 4KB cap) is dropped so a complete leading metric still
+// parses. The parse error is intentionally not surfaced: a malformed remote body is untrusted input, not a
+// programmer invariant — an unparseable body simply reads as "not parsed" (EVIDENCE_INSUFFICIENT upstream).
+func parsePrometheus(body []byte) bool {
+	if i := bytes.LastIndexByte(body, '\n'); i >= 0 {
+		body = body[:i+1]
+	}
+	// NewTextParser (not a zero-value TextParser, which panics) with permissive UTF-8 name validation.
+	parser := expfmt.NewTextParser(model.UTF8Validation)
+	families, _ := parser.TextToMetricFamilies(bytes.NewReader(body))
+	return len(families) > 0
 }
 
 // sanitizeError extracts a clean error message, stripping URL repetition from net/http errors.
@@ -105,10 +131,18 @@ func sanitizeError(err error) string {
 	return msg
 }
 
-// BuildURL constructs an in-cluster HTTP URL for a Kubernetes Service endpoint.
+// BuildURL constructs an in-cluster HTTP URL for a Kubernetes Service endpoint (INV-6, SSRF-safe). The
+// authority is built ONLY from the trusted service/namespace/port; the (contract-derived) path goes in the
+// url.URL.Path field, so a path such as "//evil.example" or one containing a scheme/userinfo can never
+// hijack the host — it stays in the path component.
 func BuildURL(serviceName, namespace string, port int32, path string) string {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
-	return fmt.Sprintf("http://%s.%s.svc:%d%s", serviceName, namespace, port, path)
+	u := url.URL{
+		Scheme: "http",
+		Host:   fmt.Sprintf("%s.%s.svc:%d", serviceName, namespace, port),
+		Path:   path,
+	}
+	return u.String()
 }

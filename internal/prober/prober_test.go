@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -66,8 +67,9 @@ func TestProbe_EmptyResponse(t *testing.T) {
 	}
 }
 
-func TestProbe_PrometheusLike(t *testing.T) {
+func TestProbe_PrometheusParsed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("# HELP http_requests_total Total requests\n# TYPE http_requests_total counter\nhttp_requests_total 42\n"))
 	}))
@@ -76,8 +78,8 @@ func TestProbe_PrometheusLike(t *testing.T) {
 	p := New(2 * time.Second)
 	result := p.Probe(context.Background(), srv.URL+"/metrics")
 
-	if !result.PrometheusLike {
-		t.Error("expected PrometheusLike=true for response with # HELP and # TYPE")
+	if !result.PrometheusParsed {
+		t.Error("expected PrometheusParsed=true for a real Prometheus exposition body")
 	}
 }
 
@@ -179,48 +181,37 @@ func TestSanitizeError_EmptySuffix(t *testing.T) {
 	}
 }
 
-func TestProbe_PrometheusLike_HelpOnly(t *testing.T) {
+func TestProbe_PrometheusParsed_SubstringNotParsed(t *testing.T) {
+	// Body contains "# HELP" as a SUBSTRING but does not parse as exposition -> false (parse != substring).
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("# HELP some_metric A help line\nsome_metric 1\n"))
+		_, _ = w.Write([]byte(`{"note":"# HELP and # TYPE appear only as text here"}`))
 	}))
 	defer srv.Close()
 
 	p := New(2 * time.Second)
 	result := p.Probe(context.Background(), srv.URL+"/metrics")
 
-	if !result.PrometheusLike {
-		t.Error("expected PrometheusLike=true for response with # HELP only")
+	if result.PrometheusParsed {
+		t.Error("expected PrometheusParsed=false: '# HELP' substring must not count as parsed metrics")
 	}
 }
 
-func TestProbe_PrometheusLike_TypeOnly(t *testing.T) {
+func TestProbe_PrometheusParsed_WrongContentType(t *testing.T) {
+	// Valid exposition body but a non-metrics Content-Type -> gated out (false).
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("# TYPE some_metric counter\nsome_metric 1\n"))
+		_, _ = w.Write([]byte("# TYPE m counter\nm 1\n"))
 	}))
 	defer srv.Close()
 
 	p := New(2 * time.Second)
 	result := p.Probe(context.Background(), srv.URL+"/metrics")
 
-	if !result.PrometheusLike {
-		t.Error("expected PrometheusLike=true for response with # TYPE only")
-	}
-}
-
-func TestProbe_PrometheusLike_NeitherMarker(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	}))
-	defer srv.Close()
-
-	p := New(2 * time.Second)
-	result := p.Probe(context.Background(), srv.URL+"/metrics")
-
-	if result.PrometheusLike {
-		t.Error("expected PrometheusLike=false for JSON response without markers")
+	if result.PrometheusParsed {
+		t.Error("expected PrometheusParsed=false when Content-Type is not text/plain or openmetrics")
 	}
 }
 
@@ -253,5 +244,20 @@ func TestBuildURL_PathWithoutSlash(t *testing.T) {
 	want := "http://svc.ns.svc:8080/metrics"
 	if got != want {
 		t.Errorf("BuildURL with path without slash: got %q, want %q", got, want)
+	}
+}
+
+func TestBuildURL_SSRFSafe(t *testing.T) {
+	// A hostile path must never move the authority off the trusted service host (INV-6).
+	wantHost := "svc.ns.svc:8080"
+	for _, path := range []string{"//evil.example", "//evil.example/x", "/%2f%2fevil", "/normal"} {
+		got := BuildURL("svc", "ns", 8080, path)
+		u, err := url.Parse(got)
+		if err != nil {
+			t.Fatalf("BuildURL produced unparseable URL %q: %v", got, err)
+		}
+		if u.Host != wantHost {
+			t.Errorf("path %q hijacked host: built %q (host %q), want host %q", path, got, u.Host, wantHost)
+		}
 	}
 }
