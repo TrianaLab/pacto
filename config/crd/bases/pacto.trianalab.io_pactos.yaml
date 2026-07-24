@@ -24,11 +24,11 @@ spec:
     - jsonPath: .status.contractVersion
       name: Version
       type: string
-    - jsonPath: .status.summary.passed
-      name: Passed
+    - jsonPath: .status.summary.errorCount
+      name: Errors
       type: integer
-    - jsonPath: .status.summary.failed
-      name: Failed
+    - jsonPath: .status.summary.warningCount
+      name: Warnings
       type: integer
     - jsonPath: .status.lastReconciledAt
       name: Last Reconciled
@@ -165,8 +165,26 @@ spec:
           status:
             description: status defines the observed state of Pacto.
             properties:
+              capabilities:
+                description: Capabilities lists the declared capabilities from the
+                  contract.
+                items:
+                  description: CapabilityInfo describes a declared capability.
+                  properties:
+                    ref:
+                      description: Ref is the capability reference (OCI URI or local
+                        path).
+                      type: string
+                    type:
+                      description: Type is the capability type (e.g. "database", "cache").
+                      type: string
+                  required:
+                  - type
+                  type: object
+                type: array
               conditions:
-                description: Conditions represent individual validation checks.
+                description: Conditions represent aggregated state (ContractValid,
+                  RuntimeObserved, etc.).
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -297,10 +315,6 @@ spec:
               contract:
                 description: Contract exposes parsed contract metadata.
                 properties:
-                  imageRef:
-                    description: ImageRef is the container image reference from the
-                      contract.
-                    type: string
                   owner:
                     description: |-
                       Owner contains the structured ownership metadata from the contract
@@ -402,101 +416,90 @@ spec:
                   - required
                   type: object
                 type: array
-              endpoints:
+              findings:
                 description: |-
-                  Endpoints describes the runtime probe results for declared health and metrics endpoints.
-                  Only populated when the service exists and the contract declares health/metrics.
-                properties:
-                  health:
-                    description: Health describes the result of probing the declared
-                      health endpoint.
-                    properties:
-                      error:
-                        description: Error is the error message if the probe failed.
-                          Empty on success.
-                        type: string
-                      latencyMs:
-                        description: LatencyMs is the request round-trip time in milliseconds.
-                        format: int64
-                        type: integer
-                      reachable:
-                        description: Reachable indicates whether the HTTP request
-                          completed (no connection error).
-                        type: boolean
-                      statusCode:
-                        description: StatusCode is the HTTP status code returned.
-                          Zero if unreachable.
-                        format: int32
-                        type: integer
-                      url:
-                        description: URL is the fully-constructed endpoint URL that
-                          was probed.
-                        type: string
-                    required:
-                    - reachable
-                    - url
-                    type: object
-                  metrics:
-                    description: Metrics describes the result of probing the declared
-                      metrics endpoint.
-                    properties:
-                      error:
-                        description: Error is the error message if the probe failed.
-                          Empty on success.
-                        type: string
-                      latencyMs:
-                        description: LatencyMs is the request round-trip time in milliseconds.
-                        format: int64
-                        type: integer
-                      reachable:
-                        description: Reachable indicates whether the HTTP request
-                          completed (no connection error).
-                        type: boolean
-                      statusCode:
-                        description: StatusCode is the HTTP status code returned.
-                          Zero if unreachable.
-                        format: int32
-                        type: integer
-                      url:
-                        description: URL is the fully-constructed endpoint URL that
-                          was probed.
-                        type: string
-                    required:
-                    - reachable
-                    - url
-                    type: object
-                type: object
+                  Findings is the list of typed conclusions from the Pacto engine.
+                  Includes both contract-only findings (structural/semantic) and
+                  evidence-based findings (runtime drift).
+                items:
+                  description: FindingStatus is a typed conclusion emitted by the
+                    Pacto engine.
+                  properties:
+                    category:
+                      description: Category groups related codes (e.g. RuntimeDrift,
+                        PolicyViolation).
+                      type: string
+                    code:
+                      description: Code is the stable finding identifier (e.g. WORKLOAD_MISMATCH).
+                      type: string
+                    contractPath:
+                      description: ContractPath is the YAML path to the relevant contract
+                        field.
+                      type: string
+                    evidenceRefs:
+                      description: EvidenceRefs links the finding to supporting evidence.
+                      items:
+                        description: EvidenceRefStatus links a finding to the evidence
+                          that supports it.
+                        properties:
+                          observedAt:
+                            description: ObservedAt is the ISO8601 timestamp when
+                              the evidence was collected.
+                            type: string
+                          source:
+                            description: Source is the evidence source (e.g. "k8s").
+                            type: string
+                        required:
+                        - observedAt
+                        - source
+                        type: object
+                      type: array
+                    message:
+                      description: Message is a human-readable description.
+                      type: string
+                    severity:
+                      description: Severity is error, warning, or info.
+                      enum:
+                      - error
+                      - warning
+                      - info
+                      type: string
+                    subject:
+                      description: Subject identifies what the finding is about.
+                      type: string
+                  required:
+                  - category
+                  - code
+                  - message
+                  - severity
+                  type: object
+                type: array
               interfaces:
                 description: Interfaces lists the parsed interfaces from the contract.
                 items:
                   description: InterfaceInfo describes a single interface declared
                     in the contract.
                   properties:
-                    hasContractFile:
-                      description: |-
-                        HasContractFile indicates whether a contract file (OpenAPI, protobuf, AsyncAPI)
-                        is present in the bundle for this interface.
-                      type: boolean
                     name:
                       description: Name is the interface name.
                       type: string
-                    port:
-                      description: Port is the declared port number.
-                      format: int32
-                      type: integer
+                    ref:
+                      description: Ref is the bundle-relative path to the interface
+                        specification file.
+                      type: string
                     type:
-                      description: 'Type is the interface type: http, grpc, or event.'
+                      description: 'Type is the interface type: openapi, asyncapi,
+                        or grpc.'
                       enum:
-                      - http
+                      - openapi
+                      - asyncapi
                       - grpc
-                      - event
                       type: string
                     visibility:
                       description: 'Visibility is the declared visibility: public
                         or internal.'
                       type: string
                   required:
-                  - hasContractFile
                   - name
                   - type
                   type: object
@@ -519,7 +522,7 @@ spec:
               observedRuntime:
                 description: |-
                   ObservedRuntime describes the actual runtime state observed from the cluster.
-                  Only populated when a target workload exists.
+                  Only populated when a target workload exists. This is a lean evidence view.
                 properties:
                   containerImages:
                     description: ContainerImages lists the container images from the
@@ -624,48 +627,18 @@ spec:
                   - name
                   type: object
                 type: array
-              ports:
-                description: Ports describes the port comparison between contract
-                  and runtime.
-                properties:
-                  expected:
-                    description: Expected lists ports declared in the contract.
-                    items:
-                      format: int32
-                      type: integer
-                    type: array
-                  missing:
-                    description: Missing lists contract ports not found on the Service.
-                    items:
-                      format: int32
-                      type: integer
-                    type: array
-                  observed:
-                    description: Observed lists ports found on the Kubernetes Service.
-                    items:
-                      format: int32
-                      type: integer
-                    type: array
-                  unexpected:
-                    description: Unexpected lists Service ports not declared in the
-                      contract.
-                    items:
-                      format: int32
-                      type: integer
-                    type: array
-                type: object
               readiness:
                 description: |-
                   Readiness is the derived operational readiness assessment of the contract.
-                  It is computed from the contract's declared readiness checks and the current
+                  It is computed from the contract's declared readiness claims and the current
                   time. It is a separate dimension from contract compliance and does NOT affect
                   ContractStatus. Absent when the contract declares no readiness.
                 properties:
-                  checks:
-                    description: Checks is the derived per-check readiness status.
+                  claims:
+                    description: Claims is the derived per-claim readiness status.
                     items:
-                      description: ReadinessCheckStatus is the derived state of a
-                        single readiness check.
+                      description: ClaimStatus is the derived state of a single readiness
+                        claim.
                       properties:
                         category:
                           description: Category is the software-domain category (security,
@@ -847,93 +820,25 @@ spec:
                     - name
                     type: object
                 type: object
-              runtime:
-                description: Runtime describes the contract's runtime section (declared).
-                properties:
-                  dataCriticality:
-                    description: 'DataCriticality is the data criticality level: low,
-                      medium, or high.'
-                    type: string
-                  gracefulShutdownSeconds:
-                    description: GracefulShutdownSeconds is the declared graceful
-                      shutdown period.
-                    format: int32
-                    type: integer
-                  healthInitialDelaySeconds:
-                    description: HealthInitialDelaySeconds is the declared initial
-                      delay before health checks start.
-                    format: int32
-                    type: integer
-                  healthInterface:
-                    description: HealthInterface is the interface used for health
-                      checks.
-                    type: string
-                  healthPath:
-                    description: HealthPath is the HTTP path for health checks.
-                    type: string
-                  metricsInterface:
-                    description: MetricsInterface is the interface used for metrics.
-                    type: string
-                  metricsPath:
-                    description: MetricsPath is the HTTP path for metrics.
-                    type: string
-                  persistenceDurability:
-                    description: 'PersistenceDurability is the durability: ephemeral
-                      or persistent.'
-                    type: string
-                  persistenceScope:
-                    description: 'PersistenceScope is the persistence scope: local
-                      or shared.'
-                    type: string
-                  stateType:
-                    description: 'StateType is the state semantics: stateless, stateful,
-                      or hybrid.'
-                    type: string
-                  upgradeStrategy:
-                    description: 'UpgradeStrategy is the declared upgrade strategy:
-                      rolling, recreate, or ordered.'
-                    type: string
-                  workload:
-                    description: 'Workload is the workload type: service, job, or
-                      scheduled.'
-                    type: string
-                type: object
-              scaling:
-                description: Scaling describes the contract's scaling section.
-                properties:
-                  max:
-                    description: Max is the maximum replica count for autoscaling.
-                    format: int32
-                    type: integer
-                  min:
-                    description: Min is the minimum replica count for autoscaling.
-                    format: int32
-                    type: integer
-                  replicas:
-                    description: Replicas is the exact replica count (mutually exclusive
-                      with Min/Max).
-                    format: int32
-                    type: integer
-                type: object
               summary:
-                description: Summary provides precomputed check counts.
+                description: Summary provides severity-based finding counts.
                 properties:
-                  failed:
-                    description: Failed is the number of checks that failed.
+                  errorCount:
+                    description: ErrorCount is the number of error-severity findings.
                     format: int32
                     type: integer
-                  passed:
-                    description: Passed is the number of checks that passed.
+                  infoCount:
+                    description: InfoCount is the number of info-severity findings.
                     format: int32
                     type: integer
-                  total:
-                    description: Total is the number of checks performed.
+                  warningCount:
+                    description: WarningCount is the number of warning-severity findings.
                     format: int32
                     type: integer
                 required:
-                - failed
-                - passed
-                - total
+                - errorCount
+                - infoCount
+                - warningCount
                 type: object
               validation:
                 description: Validation describes the structural validation outcome

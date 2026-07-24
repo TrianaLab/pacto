@@ -36,8 +36,6 @@ import (
 	"github.com/trianalab/pacto-operator/internal/loader"
 	"github.com/trianalab/pacto-operator/internal/metrics"
 	"github.com/trianalab/pacto-operator/internal/observer"
-	"github.com/trianalab/pacto-operator/internal/prober"
-	"github.com/trianalab/pacto-operator/internal/validator"
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/oci"
 	"github.com/trianalab/pacto/v2/pkg/schemax"
@@ -182,40 +180,38 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			pactov1alpha1.ReasonReferenceOnly,
 			fmt.Sprintf("Reference contract %s v%s is valid", effectiveContract.Service.Name, effectiveContract.Service.Version))
 		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusReference
-		pacto.Status.Summary = &pactov1alpha1.CheckSummary{Total: 1, Passed: 1}
-		return r.finishReconciliation(ctx, pacto, effectiveContract, []validator.Check{
-			{Name: pactov1alpha1.ConditionContractValid, Passed: true, Severity: pactov1alpha1.SeverityError},
-		})
+		pacto.Status.Summary = &pactov1alpha1.Summary{}
+		return r.finishReconciliation(ctx, pacto)
 	}
 
 	// 9. Resolve target
 	workloadName, workloadKind := pacto.ResolvedWorkload()
 	serviceName := pacto.Spec.Target.ServiceName
 
-	// 10. Observe runtime state
+	// 10. Collect runtime evidence and evaluate findings
 	obs := observer.New(r.Client)
-	snapshot, err := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
+	evidenceSet, err := obs.CollectForTarget(ctx, pacto.Namespace, serviceName, workloadName, workloadKind, loadResult.ResolvedRef)
 	if err != nil {
-		log.Error(err, "Failed to observe runtime state")
-		// Observation failed — we genuinely could not determine compliance. Mark
-		// it as a failed RuntimeObserved condition (distinct from "resources do
-		// not exist") and report a failed summary + an explicit event, instead of
-		// the previous misleading {Total:1,Passed:1} which read as success.
-		obsMsg := fmt.Sprintf("failed to observe runtime state: %v", err)
+		log.Error(err, "Failed to collect runtime evidence")
+		obsMsg := fmt.Sprintf("failed to collect runtime evidence: %v", err)
 		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionFalse,
 			pactov1alpha1.ReasonObservationFailed, obsMsg)
 		r.Recorder.Eventf(pacto, corev1.EventTypeWarning, "ObservationFailed",
 			"Could not observe runtime state for %q: %v", serviceName, err)
 		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusUnknown
-		pacto.Status.Summary = &pactov1alpha1.CheckSummary{Total: 1, Passed: 0, Failed: 1}
-		return r.finishReconciliation(ctx, pacto, effectiveContract, []validator.Check{
-			{Name: pactov1alpha1.ConditionContractValid, Passed: true, Severity: pactov1alpha1.SeverityError},
-			{Name: pactov1alpha1.ConditionRuntimeObserved, Passed: false, Severity: pactov1alpha1.SeverityError, Message: obsMsg},
+		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
+		pacto.Status.Findings = append(pacto.Status.Findings, pactov1alpha1.FindingStatus{
+			Code:     "OBSERVATION_FAILED",
+			Severity: "error",
+			Category: "RuntimeDrift",
+			Message:  obsMsg,
 		})
+		return r.finishReconciliation(ctx, pacto)
 	}
 
-	// 11. Populate observed runtime into status (for dashboard diff view)
-	if snapshot.WorkloadExists {
+	// 11. Populate lean observed runtime into status (backward compat for dashboard)
+	snapshot, _ := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
+	if snapshot != nil && snapshot.WorkloadExists {
 		pacto.Status.ObservedRuntime = &pactov1alpha1.ObservedRuntime{
 			WorkloadKind:                   snapshot.WorkloadKind,
 			DeploymentStrategy:             snapshot.DeploymentStrategy,
@@ -228,28 +224,81 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
-	// 12. Validate contract against runtime (includes runtime reconciliation checks)
+	r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionTrue,
+		pactov1alpha1.ReasonFound, "Runtime evidence collected successfully")
+
+	// 12. Resources status (backward compat)
 	hasService := serviceName != ""
-	result := validator.Validate(effectiveContract, snapshot, hasService)
-
-	// 13. Map validation result → status
-	r.applyValidationResult(pacto, result, snapshot, serviceName, workloadName, workloadKind)
-
-	// Collect all checks for metrics: ContractValid + validator checks
-	allChecks := make([]validator.Check, 0, len(result.Checks)+3)
-	allChecks = append(allChecks, validator.Check{Name: pactov1alpha1.ConditionContractValid, Passed: true, Severity: pactov1alpha1.SeverityError})
-	allChecks = append(allChecks, result.Checks...)
-
-	// 14. Probe declared endpoints (only when service exists)
-	if snapshot.ServiceExists {
-		endpointChecks := r.probeEndpoints(ctx, pacto, effectiveContract, serviceName)
-		allChecks = append(allChecks, endpointChecks...)
+	if hasService {
+		pacto.Status.Resources = &pactov1alpha1.ResourcesStatus{
+			Service: &pactov1alpha1.ResourceStatus{
+				Name:   serviceName,
+				Exists: snapshot != nil && snapshot.ServiceExists,
+			},
+		}
+	}
+	if workloadName != "" {
+		if pacto.Status.Resources == nil {
+			pacto.Status.Resources = &pactov1alpha1.ResourcesStatus{}
+		}
+		pacto.Status.Resources.Workload = &pactov1alpha1.ResourceStatus{
+			Name:   workloadName,
+			Kind:   workloadKind,
+			Exists: snapshot != nil && snapshot.WorkloadExists,
+		}
 	}
 
-	// 15. Compute final contract status including all checks
-	pacto.Status.ContractStatus = r.computeFinalContractStatus(pacto)
+	// 13. Evaluate: contract × evidence → findings
+	findings := validation.Evaluate(*effectiveContract, evidenceSet)
 
-	return r.finishReconciliation(ctx, pacto, effectiveContract, allChecks)
+	// Append contract-only findings from structural validation
+	structuralFindings := contractResult.Findings()
+	allFindings := append(structuralFindings, findings...)
+
+	// Map findings to status
+	pacto.Status.Findings = make([]pactov1alpha1.FindingStatus, 0, len(allFindings))
+	for _, f := range allFindings {
+		fs := pactov1alpha1.FindingStatus{
+			Code:         string(f.Code),
+			Severity:     string(f.Severity),
+			Category:     string(f.Category),
+			Subject:      fmt.Sprintf("%s/%s", f.Subject.Kind, f.Subject.Name),
+			ContractPath: f.ContractPath,
+			Message:      f.Message,
+		}
+		for _, er := range f.EvidenceRefs {
+			fs.EvidenceRefs = append(fs.EvidenceRefs, pactov1alpha1.EvidenceRefStatus{
+				Source:     er.Source,
+				ObservedAt: er.ObservedAt,
+			})
+		}
+		pacto.Status.Findings = append(pacto.Status.Findings, fs)
+	}
+
+	// 14. Compute summary from findings
+	var summary pactov1alpha1.Summary
+	for _, f := range allFindings {
+		switch f.Severity {
+		case "error":
+			summary.ErrorCount++
+		case "warning":
+			summary.WarningCount++
+		case "info":
+			summary.InfoCount++
+		}
+	}
+	pacto.Status.Summary = &summary
+
+	// 15. Compute final contract status from findings
+	if summary.ErrorCount > 0 {
+		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusNonCompliant
+	} else if summary.WarningCount > 0 {
+		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusWarning
+	} else {
+		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusCompliant
+	}
+
+	return r.finishReconciliation(ctx, pacto)
 }
 
 // resetDerivedStatus clears all status fields that are recomputed each reconciliation.
@@ -262,18 +311,16 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.Contract = nil
 	pacto.Status.Validation = nil
 	pacto.Status.Resources = nil
-	pacto.Status.Ports = nil
-	pacto.Status.Endpoints = nil
 	pacto.Status.Interfaces = nil
 	pacto.Status.Configurations = nil
 	pacto.Status.Dependencies = nil
 	pacto.Status.Policies = nil
-	pacto.Status.Runtime = nil
 	pacto.Status.ObservedRuntime = nil
-	pacto.Status.Scaling = nil
 	pacto.Status.Readiness = nil
 	pacto.Status.Metadata = nil
 	pacto.Status.Conditions = nil
+	pacto.Status.Findings = nil
+	pacto.Status.Capabilities = nil
 	// Preserve: CurrentRevision (set in step 7), LastReconciledAt/ObservedGeneration (set in finish)
 }
 
@@ -285,7 +332,7 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
 		pactov1alpha1.ReasonContractInvalid, msg)
 	pacto.Status.ContractStatus = pactov1alpha1.ContractStatusNonCompliant
-	pacto.Status.Summary = &pactov1alpha1.CheckSummary{Total: 1, Failed: 1}
+	pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
 	pacto.Status.Validation = valResult
 
 	now := metav1.Now()
@@ -300,18 +347,12 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 
 	// Emit metrics so invalid contracts are visible in Prometheus
 	metrics.RecordContractStatus(pacto.Namespace, pacto.Name, pacto.Status.ContractStatus)
-	if c != nil && c.Service.Name != "" {
-		metrics.RecordValidation(pacto.Namespace, c.Service.Name, []validator.Check{
-			{Name: pactov1alpha1.ConditionContractValid, Passed: false, Severity: pactov1alpha1.SeverityError},
-		})
-	}
 
 	return ctrl.Result{RequeueAfter: r.requeueInterval(pacto)}, nil
 }
 
 // finishReconciliation sets final metadata, persists status, and emits metrics.
-// checks carries the actual validator.Check slice (with Severity) for accurate metric recording.
-func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, c *contract.Contract, checks []validator.Check) (ctrl.Result, error) {
+func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	now := metav1.Now()
@@ -326,15 +367,13 @@ func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pacto
 	if pacto.Status.ContractStatus != pactov1alpha1.ContractStatusCompliant && pacto.Status.ContractStatus != pactov1alpha1.ContractStatusReference {
 		if pacto.Status.Summary != nil {
 			r.Recorder.Eventf(pacto, corev1.EventTypeWarning, "ValidationFailed",
-				"ContractStatus: %s, %d/%d checks failed", pacto.Status.ContractStatus, pacto.Status.Summary.Failed, pacto.Status.Summary.Total)
+				"ContractStatus: %s, %d errors, %d warnings", pacto.Status.ContractStatus,
+				pacto.Status.Summary.ErrorCount, pacto.Status.Summary.WarningCount)
 		}
 	}
 
 	// Emit Prometheus metrics
 	metrics.RecordContractStatus(pacto.Namespace, pacto.Name, pacto.Status.ContractStatus)
-	if c != nil && c.Service.Name != "" {
-		metrics.RecordValidation(pacto.Namespace, c.Service.Name, checks)
-	}
 
 	log.Info("Reconciliation complete", "contractStatus", pacto.Status.ContractStatus)
 	return ctrl.Result{RequeueAfter: r.requeueInterval(pacto)}, nil
@@ -350,6 +389,7 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 	// Initialize slices so JSON output is [] instead of null when empty.
 	pacto.Status.Configurations = []pactov1alpha1.ConfigurationInfo{}
 	pacto.Status.Policies = []pactov1alpha1.PolicyInfo{}
+	pacto.Status.Capabilities = []pactov1alpha1.CapabilityInfo{}
 
 	// Contract info
 	info := &pactov1alpha1.ContractInfo{
@@ -361,24 +401,25 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 		info.Owner = mapOwnerToInfo(c.Service.Owner)
 		info.OwnerDisplay = c.Service.Owner.DisplayString()
 	}
-	if c.Service.Image != nil {
-		info.ImageRef = c.Service.Image.Ref
-	}
 	pacto.Status.Contract = info
 
-	// Interfaces
+	// Interfaces (v2: Type is openapi/asyncapi/grpc, Ref not Contract, no Port)
 	for _, iface := range c.Interfaces {
 		ii := pactov1alpha1.InterfaceInfo{
-			Name:            iface.Name,
-			Type:            iface.Type,
-			Visibility:      iface.Visibility,
-			HasContractFile: iface.Contract != "",
-		}
-		if iface.Port != nil {
-			p := int32(*iface.Port)
-			ii.Port = &p
+			Name:       iface.Name,
+			Type:       iface.Type,
+			Ref:        iface.Ref,
+			Visibility: iface.Visibility,
 		}
 		pacto.Status.Interfaces = append(pacto.Status.Interfaces, ii)
+	}
+
+	// Capabilities (v2)
+	for _, cap := range c.Capabilities {
+		pacto.Status.Capabilities = append(pacto.Status.Capabilities, pactov1alpha1.CapabilityInfo{
+			Type: cap.Type,
+			Ref:  cap.Ref,
+		})
 	}
 
 	// Configurations
@@ -434,55 +475,6 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 		pacto.Status.Policies = append(pacto.Status.Policies, pi)
 	}
 
-	// Runtime
-	if c.Runtime != nil {
-		ri := &pactov1alpha1.RuntimeInfo{
-			Workload:              c.Runtime.Workload,
-			StateType:             c.Runtime.State.Type,
-			PersistenceScope:      c.Runtime.State.Persistence.Scope,
-			PersistenceDurability: c.Runtime.State.Persistence.Durability,
-			DataCriticality:       c.Runtime.State.DataCriticality,
-		}
-		if c.Runtime.Lifecycle != nil {
-			ri.UpgradeStrategy = c.Runtime.Lifecycle.UpgradeStrategy
-			if c.Runtime.Lifecycle.GracefulShutdownSeconds != nil {
-				gs := int32(*c.Runtime.Lifecycle.GracefulShutdownSeconds)
-				ri.GracefulShutdownSeconds = &gs
-			}
-		}
-		if c.Runtime.Health != nil {
-			ri.HealthInterface = c.Runtime.Health.Interface
-			ri.HealthPath = c.Runtime.Health.Path
-			if c.Runtime.Health.InitialDelaySeconds != nil {
-				ids := int32(*c.Runtime.Health.InitialDelaySeconds)
-				ri.HealthInitialDelaySeconds = &ids
-			}
-		}
-		if c.Runtime.Metrics != nil {
-			ri.MetricsInterface = c.Runtime.Metrics.Interface
-			ri.MetricsPath = c.Runtime.Metrics.Path
-		}
-		pacto.Status.Runtime = ri
-	}
-
-	// Scaling
-	if c.Scaling != nil {
-		si := &pactov1alpha1.ScalingInfo{}
-		if c.Scaling.Replicas != nil {
-			rep := int32(*c.Scaling.Replicas)
-			si.Replicas = &rep
-		}
-		if c.Scaling.Min > 0 {
-			min := int32(c.Scaling.Min)
-			si.Min = &min
-		}
-		if c.Scaling.Max > 0 {
-			max := int32(c.Scaling.Max)
-			si.Max = &max
-		}
-		pacto.Status.Scaling = si
-	}
-
 	// Metadata
 	if len(c.Metadata) > 0 {
 		pacto.Status.Metadata = make(map[string]string, len(c.Metadata))
@@ -529,274 +521,6 @@ func toSchemaProps(ps []schemax.Property) []pactov1alpha1.SchemaProperty {
 		out = append(out, pactov1alpha1.SchemaProperty{Key: p.Key, Value: p.Value, Type: p.Type})
 	}
 	return out
-}
-
-// applyValidationResult maps validator output to CRD status fields.
-func (r *PactoReconciler) applyValidationResult(
-	pacto *pactov1alpha1.Pacto,
-	result validator.Result,
-	snapshot *observer.RuntimeSnapshot,
-	serviceName, workloadName, workloadKind string,
-) {
-	// Resources
-	pacto.Status.Resources = &pactov1alpha1.ResourcesStatus{}
-	if serviceName != "" {
-		pacto.Status.Resources.Service = &pactov1alpha1.ResourceStatus{
-			Name:   serviceName,
-			Exists: snapshot.ServiceExists,
-		}
-	}
-	if workloadName != "" {
-		pacto.Status.Resources.Workload = &pactov1alpha1.ResourceStatus{
-			Name:   workloadName,
-			Kind:   workloadKind,
-			Exists: snapshot.WorkloadExists,
-		}
-	}
-
-	// Ports
-	if len(result.Ports.Expected) > 0 || len(result.Ports.Observed) > 0 {
-		pacto.Status.Ports = &pactov1alpha1.PortStatus{
-			Expected:   result.Ports.Expected,
-			Observed:   result.Ports.Observed,
-			Missing:    result.Ports.Missing,
-			Unexpected: result.Ports.Unexpected,
-		}
-	}
-
-	// Conditions (one per check)
-	for _, check := range result.Checks {
-		status := metav1.ConditionTrue
-		if !check.Passed {
-			status = metav1.ConditionFalse
-		}
-		r.setCondition(pacto, check.Name, status, check.Reason, check.Message)
-	}
-
-	// Summary: ContractValid (already passed) + validator checks.
-	// Endpoint checks will be added by probeEndpoints.
-	var passed, failed int32
-	passed = 1 // ContractValid
-	for _, check := range result.Checks {
-		if check.Passed {
-			passed++
-		} else {
-			failed++
-		}
-	}
-	pacto.Status.Summary = &pactov1alpha1.CheckSummary{
-		Total:  int32(len(result.Checks)) + 1,
-		Passed: passed,
-		Failed: failed,
-	}
-}
-
-// probeEndpoints checks declared health and metrics endpoints and updates
-// status.endpoints, conditions, and summary counts in place.
-func (r *PactoReconciler) probeEndpoints(ctx context.Context, pacto *pactov1alpha1.Pacto, c *contract.Contract, serviceName string) []validator.Check {
-	if c.Runtime == nil {
-		return nil
-	}
-
-	// Build interface lookups
-	ifaceExists := make(map[string]bool)
-	ifacePort := make(map[string]int32)
-	for _, iface := range c.Interfaces {
-		ifaceExists[iface.Name] = true
-		if iface.Port != nil {
-			ifacePort[iface.Name] = int32(*iface.Port)
-		}
-	}
-
-	p := prober.New(0) // default 5s timeout
-	var endpoints pactov1alpha1.EndpointsStatus
-	var probeChecks []validator.Check
-
-	// Health endpoint
-	if c.Runtime.Health != nil && c.Runtime.Health.Interface != "" {
-		check, result := r.probeOneEndpoint(ctx, p, probeSpec{
-			conditionType: pactov1alpha1.ConditionHealthEndpointValid,
-			label:         "health",
-			interfaceName: c.Runtime.Health.Interface,
-			path:          c.Runtime.Health.Path,
-			serviceName:   serviceName,
-			namespace:     pacto.Namespace,
-			ifaceExists:   ifaceExists,
-			ifacePort:     ifacePort,
-			requireBody:   false,
-		})
-		r.applyCheck(pacto, check)
-		probeChecks = append(probeChecks, check)
-		if result != nil {
-			endpoints.Health = result
-		}
-	}
-
-	// Metrics endpoint
-	if c.Runtime.Metrics != nil && c.Runtime.Metrics.Interface != "" {
-		check, result := r.probeOneEndpoint(ctx, p, probeSpec{
-			conditionType: pactov1alpha1.ConditionMetricsEndpointValid,
-			label:         "metrics",
-			interfaceName: c.Runtime.Metrics.Interface,
-			path:          c.Runtime.Metrics.Path,
-			serviceName:   serviceName,
-			namespace:     pacto.Namespace,
-			ifaceExists:   ifaceExists,
-			ifacePort:     ifacePort,
-			requireBody:   true,
-		})
-		r.applyCheck(pacto, check)
-		probeChecks = append(probeChecks, check)
-		if result != nil {
-			endpoints.Metrics = result
-		}
-	}
-
-	if endpoints.Health != nil || endpoints.Metrics != nil {
-		pacto.Status.Endpoints = &endpoints
-	}
-	return probeChecks
-}
-
-// applyCheck adds a check result to conditions and summary.
-func (r *PactoReconciler) applyCheck(pacto *pactov1alpha1.Pacto, check validator.Check) {
-	status := metav1.ConditionTrue
-	if !check.Passed {
-		status = metav1.ConditionFalse
-	}
-	r.setCondition(pacto, check.Name, status, check.Reason, check.Message)
-
-	if pacto.Status.Summary == nil {
-		pacto.Status.Summary = &pactov1alpha1.CheckSummary{}
-	}
-	pacto.Status.Summary.Total++
-	if check.Passed {
-		pacto.Status.Summary.Passed++
-	} else {
-		pacto.Status.Summary.Failed++
-	}
-}
-
-type probeSpec struct {
-	conditionType string
-	label         string
-	interfaceName string
-	path          string
-	serviceName   string
-	namespace     string
-	ifaceExists   map[string]bool
-	ifacePort     map[string]int32
-	requireBody   bool
-}
-
-func (r *PactoReconciler) probeOneEndpoint(ctx context.Context, p *prober.Prober, spec probeSpec) (validator.Check, *pactov1alpha1.EndpointCheckResult) {
-	// Check interface exists
-	if !spec.ifaceExists[spec.interfaceName] {
-		return validator.Check{
-			Name:    spec.conditionType,
-			Passed:  false,
-			Reason:  pactov1alpha1.ReasonEndpointInterfaceMissing,
-			Message: fmt.Sprintf("Interface %q referenced by %s not found in contract", spec.interfaceName, spec.label),
-		}, nil
-	}
-
-	// Check interface has a port
-	port, hasPort := spec.ifacePort[spec.interfaceName]
-	if !hasPort {
-		return validator.Check{
-			Name:    spec.conditionType,
-			Passed:  false,
-			Reason:  pactov1alpha1.ReasonEndpointNoPort,
-			Message: fmt.Sprintf("Interface %q referenced by %s has no port declared", spec.interfaceName, spec.label),
-		}, nil
-	}
-
-	url := prober.BuildURL(spec.serviceName, spec.namespace, port, spec.path)
-	result := p.Probe(ctx, url)
-	return evaluateProbeResult(result, url, spec)
-}
-
-// evaluateProbeResult translates a prober.Result into a check and endpoint status.
-func evaluateProbeResult(result prober.Result, url string, spec probeSpec) (validator.Check, *pactov1alpha1.EndpointCheckResult) {
-	epResult := &pactov1alpha1.EndpointCheckResult{
-		URL:        url,
-		Reachable:  result.Reachable,
-		StatusCode: result.StatusCode,
-		LatencyMs:  result.LatencyMs,
-		Error:      result.Error,
-	}
-
-	// Not reachable
-	if !result.Reachable {
-		return validator.Check{
-			Name:    spec.conditionType,
-			Passed:  false,
-			Reason:  pactov1alpha1.ReasonEndpointConnectionError,
-			Message: fmt.Sprintf("%s endpoint %s is unreachable: %s", spec.label, url, result.Error),
-		}, epResult
-	}
-
-	// Status code check: 2xx or 3xx for health, exactly 200 for metrics
-	if spec.requireBody {
-		if result.StatusCode != 200 {
-			return validator.Check{
-				Name:    spec.conditionType,
-				Passed:  false,
-				Reason:  pactov1alpha1.ReasonEndpointInvalidStatus,
-				Message: fmt.Sprintf("%s endpoint %s returned HTTP %d, expected 200", spec.label, url, result.StatusCode),
-			}, epResult
-		}
-		if !result.ContentPresent {
-			return validator.Check{
-				Name:    spec.conditionType,
-				Passed:  false,
-				Reason:  pactov1alpha1.ReasonEndpointEmptyResponse,
-				Message: fmt.Sprintf("%s endpoint %s returned empty response body", spec.label, url),
-			}, epResult
-		}
-	} else {
-		if result.StatusCode < 200 || result.StatusCode >= 400 {
-			return validator.Check{
-				Name:    spec.conditionType,
-				Passed:  false,
-				Reason:  pactov1alpha1.ReasonEndpointInvalidStatus,
-				Message: fmt.Sprintf("%s endpoint %s returned HTTP %d, expected 2xx/3xx", spec.label, url, result.StatusCode),
-			}, epResult
-		}
-	}
-
-	return validator.Check{
-		Name:    spec.conditionType,
-		Passed:  true,
-		Reason:  pactov1alpha1.ReasonEndpointOK,
-		Message: fmt.Sprintf("%s endpoint %s responded with HTTP %d (%dms)", spec.label, url, result.StatusCode, result.LatencyMs),
-	}, epResult
-}
-
-// computeFinalContractStatus derives the contract compliance status from all conditions set on the CR.
-// This is called once, after all checks (validator + probing) are complete.
-func (r *PactoReconciler) computeFinalContractStatus(pacto *pactov1alpha1.Pacto) string {
-	hasResourceFailure := false
-	hasOtherFailure := false
-
-	for _, cond := range pacto.Status.Conditions {
-		if cond.Status == metav1.ConditionTrue {
-			continue
-		}
-		if cond.Type == pactov1alpha1.ConditionServiceExists || cond.Type == pactov1alpha1.ConditionWorkloadExists {
-			hasResourceFailure = true
-		} else {
-			hasOtherFailure = true
-		}
-	}
-
-	if hasResourceFailure {
-		return pactov1alpha1.ContractStatusNonCompliant
-	}
-	if hasOtherFailure {
-		return pactov1alpha1.ContractStatusWarning
-	}
-	return pactov1alpha1.ContractStatusCompliant
 }
 
 func (r *PactoReconciler) setCondition(pacto *pactov1alpha1.Pacto, condType string, status metav1.ConditionStatus, reason, message string) {
@@ -861,7 +585,7 @@ func applyConfigurationOverrides(c *contract.Contract, overrides *pactov1alpha1.
 
 	// Shallow-copy the contract and deep-copy the Configurations slice + Values maps.
 	effective := *c
-	effective.Configurations = make([]contract.ConfigurationSource, len(c.Configurations))
+	effective.Configurations = make([]contract.Configuration, len(c.Configurations))
 	for i, cfg := range c.Configurations {
 		effective.Configurations[i] = cfg
 		if cfg.Values != nil {

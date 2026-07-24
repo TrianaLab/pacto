@@ -124,33 +124,6 @@ type ResourceStatus struct {
 	Exists bool `json:"exists"`
 }
 
-// PortStatus describes the port comparison between contract and runtime.
-type PortStatus struct {
-	// Expected lists ports declared in the contract.
-	Expected []int32 `json:"expected,omitempty"`
-
-	// Observed lists ports found on the Kubernetes Service.
-	Observed []int32 `json:"observed,omitempty"`
-
-	// Missing lists contract ports not found on the Service.
-	Missing []int32 `json:"missing,omitempty"`
-
-	// Unexpected lists Service ports not declared in the contract.
-	Unexpected []int32 `json:"unexpected,omitempty"`
-}
-
-// CheckSummary provides precomputed check counts.
-type CheckSummary struct {
-	// Total is the number of checks performed.
-	Total int32 `json:"total"`
-
-	// Passed is the number of checks that passed.
-	Passed int32 `json:"passed"`
-
-	// Failed is the number of checks that failed.
-	Failed int32 `json:"failed"`
-}
-
 // ReadinessStatus is the derived operational readiness assessment of a contract.
 // It is computed from the contract's declared readiness checks and the current
 // time; the derived per-check status and score are never authored in the contract.
@@ -207,9 +180,9 @@ type ReadinessStatus struct {
 	// +optional
 	Revisions []ReadinessRevisionStatus `json:"revisions,omitempty"`
 
-	// Checks is the derived per-check readiness status.
+	// Claims is the derived per-claim readiness status.
 	// +optional
-	Checks []ReadinessCheckStatus `json:"checks,omitempty"`
+	Claims []ClaimStatus `json:"claims,omitempty"`
 }
 
 // ReadinessRevisionStatus is one declared readiness revision-history entry.
@@ -231,8 +204,8 @@ type ReadinessRevisionStatus struct {
 	Description string `json:"description"`
 }
 
-// ReadinessCheckStatus is the derived state of a single readiness check.
-type ReadinessCheckStatus struct {
+// ClaimStatus is the derived state of a single readiness claim.
+type ClaimStatus struct {
 	// ID is the readiness requirement identifier (e.g. dashboard, runbook).
 	// +required
 	ID string `json:"id"`
@@ -333,10 +306,6 @@ type ContractInfo struct {
 	// +optional
 	OwnerDisplay string `json:"ownerDisplay,omitempty"`
 
-	// ImageRef is the container image reference from the contract.
-	// +optional
-	ImageRef string `json:"imageRef,omitempty"`
-
 	// ResolvedRef is the fully-resolved OCI reference (with tag/digest).
 	// Empty for inline contracts.
 	// +optional
@@ -348,21 +317,17 @@ type InterfaceInfo struct {
 	// Name is the interface name.
 	Name string `json:"name"`
 
-	// Type is the interface type: http, grpc, or event.
-	// +kubebuilder:validation:Enum=http;grpc;event
+	// Type is the interface type: openapi, asyncapi, or grpc.
+	// +kubebuilder:validation:Enum=openapi;asyncapi;grpc
 	Type string `json:"type"`
 
-	// Port is the declared port number.
+	// Ref is the bundle-relative path to the interface specification file.
 	// +optional
-	Port *int32 `json:"port,omitempty"`
+	Ref string `json:"ref,omitempty"`
 
 	// Visibility is the declared visibility: public or internal.
 	// +optional
 	Visibility string `json:"visibility,omitempty"`
-
-	// HasContractFile indicates whether a contract file (OpenAPI, protobuf, AsyncAPI)
-	// is present in the bundle for this interface.
-	HasContractFile bool `json:"hasContractFile"`
 }
 
 // ConfigurationInfo describes a single named configuration scope from the contract.
@@ -460,59 +425,7 @@ type PolicyInfo struct {
 	Properties []SchemaProperty `json:"properties,omitempty"`
 }
 
-// RuntimeInfo describes the contract's runtime section.
-type RuntimeInfo struct {
-	// Workload is the workload type: service, job, or scheduled.
-	// +optional
-	Workload string `json:"workload,omitempty"`
-
-	// StateType is the state semantics: stateless, stateful, or hybrid.
-	// +optional
-	StateType string `json:"stateType,omitempty"`
-
-	// PersistenceScope is the persistence scope: local or shared.
-	// +optional
-	PersistenceScope string `json:"persistenceScope,omitempty"`
-
-	// PersistenceDurability is the durability: ephemeral or persistent.
-	// +optional
-	PersistenceDurability string `json:"persistenceDurability,omitempty"`
-
-	// DataCriticality is the data criticality level: low, medium, or high.
-	// +optional
-	DataCriticality string `json:"dataCriticality,omitempty"`
-
-	// UpgradeStrategy is the declared upgrade strategy: rolling, recreate, or ordered.
-	// +optional
-	UpgradeStrategy string `json:"upgradeStrategy,omitempty"`
-
-	// GracefulShutdownSeconds is the declared graceful shutdown period.
-	// +optional
-	GracefulShutdownSeconds *int32 `json:"gracefulShutdownSeconds,omitempty"`
-
-	// HealthInterface is the interface used for health checks.
-	// +optional
-	HealthInterface string `json:"healthInterface,omitempty"`
-
-	// HealthPath is the HTTP path for health checks.
-	// +optional
-	HealthPath string `json:"healthPath,omitempty"`
-
-	// MetricsInterface is the interface used for metrics.
-	// +optional
-	MetricsInterface string `json:"metricsInterface,omitempty"`
-
-	// MetricsPath is the HTTP path for metrics.
-	// +optional
-	MetricsPath string `json:"metricsPath,omitempty"`
-
-	// HealthInitialDelaySeconds is the declared initial delay before health checks start.
-	// +optional
-	HealthInitialDelaySeconds *int32 `json:"healthInitialDelaySeconds,omitempty"`
-}
-
-// ObservedRuntime describes the actual runtime state observed from the cluster.
-// This complements RuntimeInfo (contract-declared) to enable contract-vs-runtime comparison.
+// ObservedRuntime describes the actual runtime state observed from the cluster (lean evidence view).
 type ObservedRuntime struct {
 	// WorkloadKind is the actual Kubernetes resource kind (Deployment, StatefulSet, Job, CronJob).
 	// +optional
@@ -545,53 +458,6 @@ type ObservedRuntime struct {
 	HealthProbeInitialDelaySeconds *int32 `json:"healthProbeInitialDelaySeconds,omitempty"`
 }
 
-// ScalingInfo describes the contract's scaling section.
-type ScalingInfo struct {
-	// Replicas is the exact replica count (mutually exclusive with Min/Max).
-	// +optional
-	Replicas *int32 `json:"replicas,omitempty"`
-
-	// Min is the minimum replica count for autoscaling.
-	// +optional
-	Min *int32 `json:"min,omitempty"`
-
-	// Max is the maximum replica count for autoscaling.
-	// +optional
-	Max *int32 `json:"max,omitempty"`
-}
-
-// EndpointCheckResult describes the result of probing a single HTTP endpoint.
-type EndpointCheckResult struct {
-	// URL is the fully-constructed endpoint URL that was probed.
-	URL string `json:"url"`
-
-	// Reachable indicates whether the HTTP request completed (no connection error).
-	Reachable bool `json:"reachable"`
-
-	// StatusCode is the HTTP status code returned. Zero if unreachable.
-	// +optional
-	StatusCode int32 `json:"statusCode,omitempty"`
-
-	// LatencyMs is the request round-trip time in milliseconds.
-	// +optional
-	LatencyMs int64 `json:"latencyMs,omitempty"`
-
-	// Error is the error message if the probe failed. Empty on success.
-	// +optional
-	Error string `json:"error,omitempty"`
-}
-
-// EndpointsStatus describes the runtime probe results for declared endpoints.
-type EndpointsStatus struct {
-	// Health describes the result of probing the declared health endpoint.
-	// +optional
-	Health *EndpointCheckResult `json:"health,omitempty"`
-
-	// Metrics describes the result of probing the declared metrics endpoint.
-	// +optional
-	Metrics *EndpointCheckResult `json:"metrics,omitempty"`
-}
-
 // ValidationIssue describes a single validation error or warning.
 type ValidationIssue struct {
 	// Code is a machine-readable error code.
@@ -620,6 +486,65 @@ type ValidationResult struct {
 	Warnings []ValidationIssue `json:"warnings,omitempty"`
 }
 
+// EvidenceRefStatus links a finding to the evidence that supports it.
+type EvidenceRefStatus struct {
+	// Source is the evidence source (e.g. "k8s").
+	Source string `json:"source"`
+
+	// ObservedAt is the ISO8601 timestamp when the evidence was collected.
+	ObservedAt string `json:"observedAt"`
+}
+
+// FindingStatus is a typed conclusion emitted by the Pacto engine.
+type FindingStatus struct {
+	// Code is the stable finding identifier (e.g. WORKLOAD_MISMATCH).
+	Code string `json:"code"`
+
+	// Severity is error, warning, or info.
+	// +kubebuilder:validation:Enum=error;warning;info
+	Severity string `json:"severity"`
+
+	// Category groups related codes (e.g. RuntimeDrift, PolicyViolation).
+	Category string `json:"category"`
+
+	// Subject identifies what the finding is about.
+	// +optional
+	Subject string `json:"subject,omitempty"`
+
+	// ContractPath is the YAML path to the relevant contract field.
+	// +optional
+	ContractPath string `json:"contractPath,omitempty"`
+
+	// Message is a human-readable description.
+	Message string `json:"message"`
+
+	// EvidenceRefs links the finding to supporting evidence.
+	// +optional
+	EvidenceRefs []EvidenceRefStatus `json:"evidenceRefs,omitempty"`
+}
+
+// CapabilityInfo describes a declared capability.
+type CapabilityInfo struct {
+	// Type is the capability type (e.g. "database", "cache").
+	Type string `json:"type"`
+
+	// Ref is the capability reference (OCI URI or local path).
+	// +optional
+	Ref string `json:"ref,omitempty"`
+}
+
+// Summary provides severity-based finding counts.
+type Summary struct {
+	// ErrorCount is the number of error-severity findings.
+	ErrorCount int32 `json:"errorCount"`
+
+	// WarningCount is the number of warning-severity findings.
+	WarningCount int32 `json:"warningCount"`
+
+	// InfoCount is the number of info-severity findings.
+	InfoCount int32 `json:"infoCount"`
+}
+
 // PactoStatus defines the observed state of Pacto.
 // All contract data is exposed as structured fields so external consumers
 // can read the CR status directly without parsing contracts themselves.
@@ -639,9 +564,9 @@ type PactoStatus struct {
 	// +optional
 	ResolutionPolicy string `json:"resolutionPolicy,omitempty"`
 
-	// Summary provides precomputed check counts.
+	// Summary provides severity-based finding counts.
 	// +optional
-	Summary *CheckSummary `json:"summary,omitempty"`
+	Summary *Summary `json:"summary,omitempty"`
 
 	// ContractVersion is the version from the parsed contract.
 	// Kept for backward compatibility and simple access via JSONPath.
@@ -656,22 +581,23 @@ type PactoStatus struct {
 	// +optional
 	Validation *ValidationResult `json:"validation,omitempty"`
 
+	// Findings is the list of typed conclusions from the Pacto engine.
+	// Includes both contract-only findings (structural/semantic) and
+	// evidence-based findings (runtime drift).
+	// +optional
+	Findings []FindingStatus `json:"findings,omitempty"`
+
 	// Resources describes the existence of target Kubernetes resources.
 	// +optional
 	Resources *ResourcesStatus `json:"resources,omitempty"`
 
-	// Ports describes the port comparison between contract and runtime.
-	// +optional
-	Ports *PortStatus `json:"ports,omitempty"`
-
-	// Endpoints describes the runtime probe results for declared health and metrics endpoints.
-	// Only populated when the service exists and the contract declares health/metrics.
-	// +optional
-	Endpoints *EndpointsStatus `json:"endpoints,omitempty"`
-
 	// Interfaces lists the parsed interfaces from the contract.
 	// +optional
 	Interfaces []InterfaceInfo `json:"interfaces,omitempty"`
+
+	// Capabilities lists the declared capabilities from the contract.
+	// +optional
+	Capabilities []CapabilityInfo `json:"capabilities,omitempty"`
 
 	// Configurations lists the contract's named configuration scopes.
 	// Each entry corresponds to one configurations[] entry in the contract.
@@ -688,21 +614,13 @@ type PactoStatus struct {
 	// +optional
 	Policies []PolicyInfo `json:"policies,omitempty"`
 
-	// Runtime describes the contract's runtime section (declared).
-	// +optional
-	Runtime *RuntimeInfo `json:"runtime,omitempty"`
-
 	// ObservedRuntime describes the actual runtime state observed from the cluster.
-	// Only populated when a target workload exists.
+	// Only populated when a target workload exists. This is a lean evidence view.
 	// +optional
 	ObservedRuntime *ObservedRuntime `json:"observedRuntime,omitempty"`
 
-	// Scaling describes the contract's scaling section.
-	// +optional
-	Scaling *ScalingInfo `json:"scaling,omitempty"`
-
 	// Readiness is the derived operational readiness assessment of the contract.
-	// It is computed from the contract's declared readiness checks and the current
+	// It is computed from the contract's declared readiness claims and the current
 	// time. It is a separate dimension from contract compliance and does NOT affect
 	// ContractStatus. Absent when the contract declares no readiness.
 	// +optional
@@ -712,7 +630,7 @@ type PactoStatus struct {
 	// +optional
 	Metadata map[string]string `json:"metadata,omitempty"`
 
-	// Conditions represent individual validation checks.
+	// Conditions represent aggregated state (ContractValid, RuntimeObserved, etc.).
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -736,8 +654,8 @@ type PactoStatus struct {
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.contractStatus`
 // +kubebuilder:printcolumn:name="Service",type=string,JSONPath=`.spec.target.serviceName`
 // +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.status.contractVersion`
-// +kubebuilder:printcolumn:name="Passed",type=integer,JSONPath=`.status.summary.passed`
-// +kubebuilder:printcolumn:name="Failed",type=integer,JSONPath=`.status.summary.failed`
+// +kubebuilder:printcolumn:name="Errors",type=integer,JSONPath=`.status.summary.errorCount`
+// +kubebuilder:printcolumn:name="Warnings",type=integer,JSONPath=`.status.summary.warningCount`
 // +kubebuilder:printcolumn:name="Last Reconciled",type=date,JSONPath=`.status.lastReconciledAt`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

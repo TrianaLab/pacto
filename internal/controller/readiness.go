@@ -85,14 +85,14 @@ func buildReadinessStatus(eval *readiness.Result, decl *contract.Readiness) *pac
 		PartialCount:  int32(eval.PartialCount),
 		NotDoneCount:  int32(eval.NotDoneCount),
 		DeferredCount: int32(eval.DeferredCount),
-		Checks:        make([]pactov1alpha1.ReadinessCheckStatus, 0, len(eval.Checks)),
+		Claims:        make([]pactov1alpha1.ClaimStatus, 0, len(eval.Checks)),
 	}
 	if eval.DaysRemaining != nil {
 		d := int32(*eval.DaysRemaining)
 		rs.DaysRemaining = &d
 	}
 	for _, ch := range eval.Checks {
-		rs.Checks = append(rs.Checks, pactov1alpha1.ReadinessCheckStatus{
+		rs.Claims = append(rs.Claims, pactov1alpha1.ClaimStatus{
 			ID:           ch.ID,
 			Type:         ch.Type,
 			Category:     ch.Category,

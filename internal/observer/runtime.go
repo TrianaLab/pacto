@@ -5,50 +5,115 @@ Licensed under the MIT License.
 See LICENSE file in the project root for full license text.
 */
 
-// Package observer reads Kubernetes resources and produces a RuntimeSnapshot.
-// It does NOT validate anything — that is the validator's job.
+// Package observer reads Kubernetes resources and produces Evidence (Collector).
 package observer
 
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/trianalab/pacto/v2/pkg/collector"
+	"github.com/trianalab/pacto/v2/pkg/evidence"
 )
 
-// RuntimeSnapshot is the deterministic observation of cluster state.
-// It contains only facts — no interpretation, no inference.
+// RuntimeSnapshot is the internal state for k8s observations (kept for internal convenience).
 type RuntimeSnapshot struct {
 	ServiceExists  bool
 	WorkloadExists bool
 	WorkloadKind   string
 	ServicePorts   []int32
+	Replicas       *int32
 
-	// Extended runtime observations for contract reconciliation.
-	DeploymentStrategy      string // "RollingUpdate", "Recreate", or "" if not a Deployment
-	PodManagementPolicy     string // "OrderedReady", "Parallel", or "" if not a StatefulSet
+	DeploymentStrategy      string
+	PodManagementPolicy     string
 	TerminationGracePeriod  *int64
-	ContainerImages         []string // images from the first container in the pod spec
-	HasPVC                  bool     // workload references PersistentVolumeClaims
-	HasEmptyDir             bool     // workload uses emptyDir volumes
-	HealthProbeInitialDelay *int32   // from readiness or liveness probe on first container
+	ContainerImages         []string
+	HasPVC                  bool
+	HasEmptyDir             bool
+	HealthProbeInitialDelay *int32
 }
 
-// Observer inspects Kubernetes resources to produce a RuntimeSnapshot.
+// Observer is the k8s Collector: implements collector.Collector.
 type Observer struct {
 	client client.Client
 }
+
+var _ collector.Collector = (*Observer)(nil)
 
 // New creates a new Observer.
 func New(c client.Client) *Observer {
 	return &Observer{client: c}
 }
 
-// Observe reads the target Service and workload, returning a snapshot of what exists.
+// Collect implements collector.Collector by observing k8s resources and emitting typed Evidence.
+func (o *Observer) Collect(ctx context.Context, subject evidence.SubjectRef) (evidence.EvidenceSet, error) {
+	// Subject.Name format: "namespace/serviceName" or "namespace/workloadName"
+	// For now we'll need namespace+serviceName+workloadName passed separately
+	// (the controller already knows these). Temporary: expose a CollectForTarget helper.
+	return evidence.EvidenceSet{}, fmt.Errorf("Collect not yet implemented; use CollectForTarget")
+}
+
+// CollectForTarget collects k8s evidence for a specific service+workload target and returns an EvidenceSet.
+func (o *Observer) CollectForTarget(ctx context.Context, namespace, serviceName, workloadName, workloadKind, contractRef string) (evidence.EvidenceSet, error) {
+	now := time.Now()
+	prov := evidence.Provenance{Collector: "k8s-observer", DetectedAt: now}
+	subject := evidence.SubjectRef{Kind: "service", Name: fmt.Sprintf("%s/%s", namespace, serviceName)}
+	if serviceName == "" && workloadName != "" {
+		subject.Name = fmt.Sprintf("%s/%s", namespace, workloadName)
+	}
+
+	var observations []evidence.Observation
+
+	// Observe Service
+	if serviceName != "" {
+		svc := &corev1.Service{}
+		err := o.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: serviceName}, svc)
+		if err != nil && client.IgnoreNotFound(err) != nil {
+			return evidence.EvidenceSet{}, fmt.Errorf("failed to get service %s: %w", serviceName, err)
+		}
+		if err == nil {
+			// Service ports → interface observations (derive from port number, mark as present)
+			for _, port := range svc.Spec.Ports {
+				obs := evidence.NewInterfaceObserved(subject, fmt.Sprintf("port-%d", port.Port), "http", true, prov)
+				observations = append(observations, obs)
+			}
+		}
+	}
+
+	// Observe Workload
+	if workloadName != "" {
+		snapshot := &RuntimeSnapshot{WorkloadKind: workloadKind}
+		if err := o.observeWorkload(ctx, namespace, workloadName, workloadKind, snapshot); err != nil {
+			return evidence.EvidenceSet{}, err
+		}
+
+		if snapshot.WorkloadExists {
+			// Workload type observation
+			observations = append(observations, evidence.NewWorkloadObserved(subject, mapWorkloadKindToType(workloadKind), prov))
+
+			// Persistence observation
+			durable := snapshot.HasPVC
+			observations = append(observations, evidence.NewPersistenceObserved(subject, durable, prov))
+		}
+	}
+
+	return evidence.EvidenceSet{
+		Subject:      subject,
+		ContractRef:  contractRef,
+		Source:       "k8s",
+		ObservedAt:   now,
+		Observations: observations,
+	}, nil
+}
+
+// Observe reads the target Service and workload, returning a snapshot (backward compat).
 func (o *Observer) Observe(ctx context.Context, namespace, serviceName, workloadName, workloadKind string) (*RuntimeSnapshot, error) {
 	snapshot := &RuntimeSnapshot{
 		WorkloadKind: workloadKind,
@@ -78,6 +143,17 @@ func (o *Observer) Observe(ctx context.Context, namespace, serviceName, workload
 	}
 
 	return snapshot, nil
+}
+
+func mapWorkloadKindToType(kind string) string {
+	switch kind {
+	case "Job":
+		return "job"
+	case "CronJob":
+		return "scheduled"
+	default:
+		return "service"
+	}
 }
 
 // observeWorkload reads the workload resource and populates extended snapshot fields.
@@ -112,6 +188,9 @@ func (o *Observer) observeDeployment(ctx context.Context, key types.NamespacedNa
 	if dep.Spec.Strategy.Type != "" {
 		snap.DeploymentStrategy = string(dep.Spec.Strategy.Type)
 	}
+	if dep.Spec.Replicas != nil {
+		snap.Replicas = dep.Spec.Replicas
+	}
 	o.extractPodTemplateInfo(&dep.Spec.Template.Spec, snap)
 	return nil
 }
@@ -126,7 +205,9 @@ func (o *Observer) observeStatefulSet(ctx context.Context, key types.NamespacedN
 	}
 	snap.WorkloadExists = true
 	snap.PodManagementPolicy = string(sts.Spec.PodManagementPolicy)
-	// StatefulSets with volumeClaimTemplates use PVCs
+	if sts.Spec.Replicas != nil {
+		snap.Replicas = sts.Spec.Replicas
+	}
 	if len(sts.Spec.VolumeClaimTemplates) > 0 {
 		snap.HasPVC = true
 	}

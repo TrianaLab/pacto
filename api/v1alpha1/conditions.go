@@ -15,54 +15,18 @@ const (
 	LabelRevisionVersion = "pacto.trianalab.io/version"
 )
 
-// Condition types — each validation produces exactly one condition.
+// Condition types (lean finding-derived set).
 const (
 	// ConditionContractValid indicates whether the contract was successfully parsed and validated.
 	ConditionContractValid = "ContractValid"
 
-	// ConditionServiceExists indicates whether the target Service exists.
-	ConditionServiceExists = "ServiceExists"
-
-	// ConditionWorkloadExists indicates whether the target workload exists.
-	ConditionWorkloadExists = "WorkloadExists"
-
-	// ConditionPortsValid indicates whether all declared ports are present on the Service.
-	ConditionPortsValid = "PortsValid"
-
-	// ConditionHealthEndpointValid indicates whether the declared health endpoint responds correctly.
-	ConditionHealthEndpointValid = "HealthEndpointValid"
-
-	// ConditionMetricsEndpointValid indicates whether the declared metrics endpoint responds correctly.
-	ConditionMetricsEndpointValid = "MetricsEndpointValid"
-
-	// ConditionWorkloadTypeMatch indicates whether the runtime workload kind matches the contract declaration.
-	ConditionWorkloadTypeMatch = "WorkloadTypeMatch"
-
-	// ConditionStateModelMatch indicates whether the workload's storage matches the contract state model.
-	ConditionStateModelMatch = "StateModelMatch"
-
-	// ConditionUpgradeStrategyMatch indicates whether the actual deployment strategy matches the contract.
-	ConditionUpgradeStrategyMatch = "UpgradeStrategyMatch"
-
-	// ConditionGracefulShutdownMatch indicates whether terminationGracePeriodSeconds matches the contract.
-	ConditionGracefulShutdownMatch = "GracefulShutdownMatch"
-
-	// ConditionImageMatch indicates whether the running container image matches the contract.
-	ConditionImageMatch = "ImageMatch"
-
-	// ConditionHealthTimingMatch indicates whether probe initialDelaySeconds matches the contract.
-	ConditionHealthTimingMatch = "HealthTimingMatch"
+	// ConditionRuntimeObserved indicates whether the operator successfully collected runtime evidence.
+	// False with reason ObservationFailed means the cluster query errored.
+	ConditionRuntimeObserved = "RuntimeObserved"
 
 	// ConditionReadinessSatisfied indicates whether the derived readiness gate is met
-	// (score >= minScore). It is a single aggregate condition, not one per check.
-	// Absent when the contract declares no readiness.
+	// (score >= minScore). Absent when the contract declares no readiness.
 	ConditionReadinessSatisfied = "ReadinessSatisfied"
-
-	// ConditionRuntimeObserved indicates whether the operator was able to observe
-	// the runtime state at all. False with reason ObservationFailed means the
-	// cluster query errored, so compliance could not be determined (distinct from
-	// "resources don't exist").
-	ConditionRuntimeObserved = "RuntimeObserved"
 )
 
 // Condition reasons.
