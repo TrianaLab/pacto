@@ -235,24 +235,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		Now:                 now,
 	}
 
-	evidenceSet, windowUpdates, err := obs.Collect(ctx, collectInput)
-	if err != nil {
-		log.Error(err, "Failed to collect runtime evidence")
-		obsMsg := fmt.Sprintf("failed to collect runtime evidence: %v", err)
-		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionFalse,
-			pactov1alpha1.ReasonObservationFailed, obsMsg)
-		r.Recorder.Eventf(pacto, corev1.EventTypeWarning, "ObservationFailed",
-			"Could not observe runtime state for %q: %v", serviceName, err)
-		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusUnknown
-		pacto.Status.Summary = &pactov1alpha1.Summary{UnknownCount: 1}
-		pacto.Status.Findings = append(pacto.Status.Findings, pactov1alpha1.FindingStatus{
-			Code:     "COLLECTION_FAILED",
-			Severity: "unknown",
-			Category: "Inconclusive",
-			Message:  obsMsg,
-		})
-		return r.finishReconciliation(ctx, pacto)
-	}
+	evidenceSet, windowUpdates := obs.Collect(ctx, collectInput)
 
 	// Apply window updates (spec section 9.5): upsert by (Kind, Subject); nil resets the entry.
 	r.applyObservationWindowUpdates(pacto, windowUpdates)

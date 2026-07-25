@@ -234,11 +234,7 @@ func TestCollect_Dependencies(t *testing.T) {
 		Now:                 now,
 	}
 
-	es, windowUpdates, err := obs.Collect(context.Background(), input)
-
-	if err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
+	es, windowUpdates := obs.Collect(context.Background(), input)
 
 	// Check that we have at least one dependency observation.
 	foundDep := false
@@ -294,11 +290,7 @@ func TestCollect_NoDependencies(t *testing.T) {
 		Now:                 now,
 	}
 
-	es, windowUpdates, err := obs.Collect(context.Background(), input)
-
-	if err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
+	es, windowUpdates := obs.Collect(context.Background(), input)
 
 	// Check that no dependency observations are emitted.
 	for _, o := range es.Observations {

@@ -108,7 +108,7 @@ func New(c client.Client) *Observer {
 }
 
 // Collect implements the new per-dimension collection driven by the contract. Spec section 9.1.
-func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.EvidenceSet, []ObservationWindowUpdate, error) {
+func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.EvidenceSet, []ObservationWindowUpdate) {
 	now := input.Now
 	if now.IsZero() {
 		now = time.Now()
@@ -178,7 +178,7 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 		Source:       "k8s",
 		ObservedAt:   now,
 		Observations: observations,
-	}, windowUpdates, nil
+	}, windowUpdates
 }
 
 // observeWorkloadDim observes the workload dimension. Spec section 7.1 + AR7.

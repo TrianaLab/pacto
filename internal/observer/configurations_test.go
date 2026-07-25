@@ -700,10 +700,7 @@ func TestCollect_WithConfiguration(t *testing.T) {
 		Now:            time.Now(),
 	}
 
-	evidenceSet, _, err := obs.Collect(ctx, input)
-	if err != nil {
-		t.Fatalf("Collect error: %v", err)
-	}
+	evidenceSet, _ := obs.Collect(ctx, input)
 
 	// Find the configuration observation.
 	var configObs *evidence.Observation

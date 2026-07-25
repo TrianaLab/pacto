@@ -41,11 +41,7 @@ func TestCollect_Workload_Satisfied(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	if len(es.Observations) != 1 {
 		t.Fatalf("expected 1 observation, got %d", len(es.Observations))
 	}
@@ -87,11 +83,7 @@ func TestCollect_Workload_MismatchExplicit(t *testing.T) {
 		WorkloadExplicit: true, // explicit -> mismatch assertable
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	o := es.Observations[0]
 	if o.Outcome != evidence.Observed {
 		t.Errorf("expected Observed for mismatch, got %s", o.Outcome)
@@ -124,11 +116,7 @@ func TestCollect_Workload_MismatchNonExplicit(t *testing.T) {
 		WorkloadExplicit: false, // non-explicit -> EVIDENCE_INSUFFICIENT
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	o := es.Observations[0]
 	if o.Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient for non-explicit mismatch, got %s", o.Outcome)
@@ -154,11 +142,7 @@ func TestCollect_Workload_NotFound(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	o := es.Observations[0]
 	if o.Outcome != evidence.Unsupported {
 		t.Errorf("expected Unsupported (NotFound), got %s", o.Outcome)
@@ -186,11 +170,7 @@ func TestCollect_Workload_APIError(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	o := es.Observations[0]
 	// InvalidKind defaults to observeDeployment, which will NotFound -> Unsupported.
 	// To test Failed, we'd need a real API error. Skip for now.
@@ -220,11 +200,7 @@ func TestCollect_Persistence_Durable(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -261,11 +237,7 @@ func TestCollect_Persistence_Ephemeral(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -304,11 +276,7 @@ func TestCollect_Persistence_Ambiguous(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -348,11 +316,7 @@ func TestCollect_Persistence_StatefulSetVCT(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -386,11 +350,7 @@ func TestCollect_Persistence_NoVolumes(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -423,11 +383,7 @@ func TestCollect_Persistence_NotFound(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -461,11 +417,7 @@ func TestCollect_WorkloadAndPersistence(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	if len(es.Observations) != 2 {
 		t.Errorf("expected 2 observations (workload + persistence), got %d", len(es.Observations))
 	}
@@ -497,11 +449,7 @@ func TestCollect_NoWorkloadOrPersistence(t *testing.T) {
 		ContractRef: "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	if len(es.Observations) != 0 {
 		t.Errorf("expected 0 observations, got %d", len(es.Observations))
 	}
@@ -608,11 +556,7 @@ func TestCollect_Workload_Job(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	o := es.Observations[0]
 	wl, err := o.GetWorkloadObservation()
 	if err != nil {
@@ -637,11 +581,7 @@ func TestCollect_NoWorkloadName(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	if len(es.Observations) != 0 {
 		t.Errorf("expected 0 observations when WorkloadName is empty, got %d", len(es.Observations))
 	}
@@ -665,11 +605,7 @@ func TestCollect_SubjectName(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	// EvidenceSet.Subject is the runtime target.
 	if es.Subject.Name != "default/k8s-service-name" {
 		t.Errorf("expected EvidenceSet.Subject.Name=default/k8s-service-name, got %s", es.Subject.Name)
@@ -711,11 +647,7 @@ func TestCollect_HealthCapability(t *testing.T) {
 		},
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	// Should have one health observation.
 	if len(es.Observations) != 1 {
 		t.Fatalf("expected 1 observation, got %d", len(es.Observations))
@@ -775,11 +707,7 @@ func TestCollect_MetricsSatisfied(t *testing.T) {
 		},
 	}
 
-	es, _, err := obs.Collect(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Collect failed: %v", err)
-	}
-
+	es, _ := obs.Collect(context.Background(), input)
 	if len(es.Observations) != 1 {
 		t.Fatalf("expected 1 observation, got %d", len(es.Observations))
 	}
