@@ -1,0 +1,18 @@
+# RBAC overlay for ServiceMonitor/PodMonitor discovery (spec section 9.10 / AR8).
+# Grants get/list/watch on monitoring.coreos.com servicemonitors and podmonitors.
+# This patch is applied ONLY when the metrics-observation feature is enabled.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - servicemonitors
+  - podmonitors
+  verbs:
+  - get
+  - list
+  - watch

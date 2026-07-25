@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"strconv"
 	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -22,6 +23,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1403,7 +1406,7 @@ func (o *Observer) observeConfigMapConfiguration(
 
 // observeMetricsDim observes the metrics capability (spec section 7.5 / Refinement D). Returns nil if no metrics
 // capability is declared, otherwise exactly one observation. No reliable operator-side negative this release.
-// ponytail: probe 200+parsed -> satisfied; 404/5xx/non-parseable/transport -> Insufficient/Failed (no CAPABILITY_ABSENT).
+// ponytail: discovery precedence (ServiceMonitor > annotations > named-port > contract), then active probe.
 func (o *Observer) observeMetricsDim(ctx context.Context, input CollectInput, prov evidence.Provenance, now time.Time) (*evidence.Observation, []ObservationWindowUpdate) {
 	// Find the metrics capability.
 	var metricsCap *contract.Capability
@@ -1440,7 +1443,7 @@ func (o *Observer) observeMetricsDim(ctx context.Context, input CollectInput, pr
 		return &obs, nil
 	}
 
-	// Resolve the Service port number.
+	// Get the Service.
 	svc := &corev1.Service{}
 	err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, svc)
 	if err != nil {
@@ -1454,11 +1457,12 @@ func (o *Observer) observeMetricsDim(ctx context.Context, input CollectInput, pr
 		return &obs, nil
 	}
 
-	var targetPort int32
+	// Resolve the interface-bound port number.
+	var boundPort int32
 	found := false
 	for _, p := range svc.Spec.Ports {
 		if matchesServicePort(p, binding.ServicePort) {
-			targetPort = p.Port
+			boundPort = p.Port
 			found = true
 			break
 		}
@@ -1469,8 +1473,16 @@ func (o *Observer) observeMetricsDim(ctx context.Context, input CollectInput, pr
 		return &obs, nil
 	}
 
+	// Discovery precedence (spec section 7.5): first that yields a path+port wins.
+	target, method := o.discoverMetricsTarget(ctx, input.Namespace, input.ServiceName, svc, metricsCap.Binding.Path, boundPort)
+	if target == nil {
+		// No discovery path succeeded -> Unsupported (Unknown).
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
 	// Build the probe URL (SSRF-safe via prober.BuildURL — INV-6).
-	probeURL := prober.BuildURL(input.ServiceName, input.Namespace, targetPort, metricsCap.Binding.Path)
+	probeURL := prober.BuildURL(input.ServiceName, input.Namespace, target.port, target.path)
 
 	// Direct in-cluster probe (metrics has no tier-B fallback).
 	result := o.prober.Probe(ctx, probeURL)
@@ -1494,7 +1506,8 @@ func (o *Observer) observeMetricsDim(ctx context.Context, input CollectInput, pr
 		return &obs, nil
 	}
 
-	// 200 + real Prometheus content -> satisfied.
+	// 200 + real Prometheus content -> satisfied. Update provenance with discovery method.
+	prov.Collector = fmt.Sprintf("k8s-observer/metrics:%s", method)
 	obs := evidence.NewCapabilityObserved(subj, true, prov)
 	return &obs, nil
 }
@@ -1550,4 +1563,184 @@ func validateConfigAgainstSchema(parsed any, cfg contract.Configuration, bundleF
 
 	// Conforms.
 	return true, nil
+}
+
+// metricsTarget is a discovered scrape target (path+port).
+type metricsTarget struct {
+	path string
+	port int32
+}
+
+// discoverMetricsTarget implements the 4-step precedence (spec section 7.5): ServiceMonitor/PodMonitor >
+// annotations > named-port > contract binding.path. Returns (target, method) or (nil, "") if no path succeeds.
+// ponytail: precedence ladder, first valid path+port wins.
+func (o *Observer) discoverMetricsTarget(ctx context.Context, namespace, serviceName string, service *corev1.Service, contractPath string, boundPort int32) (*metricsTarget, string) {
+	// 1. ServiceMonitor/PodMonitor (unstructured read, extract path+port).
+	if t := o.discoverFromServiceMonitor(ctx, namespace, serviceName, service); t != nil {
+		return t, "servicemonitor"
+	}
+	if t := o.discoverFromPodMonitor(ctx, namespace, service); t != nil {
+		return t, "podmonitor"
+	}
+
+	// 2. prometheus.io annotations (scrape=true + path + port).
+	if t := discoverFromAnnotations(service); t != nil {
+		return t, "annotation"
+	}
+
+	// 3. Named metrics port ("metrics" / "http-metrics").
+	if t := discoverFromNamedPort(service, contractPath); t != nil {
+		return t, "named-port"
+	}
+
+	// 4. Contract binding.path on the bound port.
+	return &metricsTarget{path: contractPath, port: boundPort}, "probe"
+}
+
+// discoverFromServiceMonitor reads ServiceMonitor CRDs via unstructured (no Go dep on prometheus-operator).
+// Returns path+port from the first matching endpoint, or nil if CRD absent / no match / list error.
+// ponytail: unstructured List + extract endpoint path/port, skip auth fields (INV-5).
+func (o *Observer) discoverFromServiceMonitor(ctx context.Context, namespace, serviceName string, service *corev1.Service) *metricsTarget {
+	gvk := schema.GroupVersionKind{Group: "monitoring.coreos.com", Version: "v1", Kind: "ServiceMonitor"}
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(gvk)
+
+	if err := o.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
+		// CRD not installed / NoKindMatchError -> fall through (not Failed).
+		return nil
+	}
+
+	for _, item := range list.Items {
+		// Check if this ServiceMonitor targets the Service via matchLabels.
+		selector, found, _ := unstructured.NestedMap(item.Object, "spec", "selector", "matchLabels")
+		if !found || !labelsMatch(service.Labels, selector) {
+			continue
+		}
+
+		// Extract endpoints[].path + port (INV-5: skip auth fields).
+		endpoints, _, _ := unstructured.NestedSlice(item.Object, "spec", "endpoints")
+		for _, ep := range endpoints {
+			epMap, ok := ep.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			path, _ := epMap["path"].(string)
+			if path == "" {
+				path = "/metrics" // default
+			}
+			port := extractPort(epMap)
+			if port > 0 {
+				return &metricsTarget{path: path, port: port}
+			}
+		}
+	}
+	return nil
+}
+
+// discoverFromPodMonitor reads PodMonitor CRDs via unstructured. Returns path+port or nil.
+// ponytail: unstructured List + extract podMetricsEndpoints path/port, skip auth fields.
+func (o *Observer) discoverFromPodMonitor(ctx context.Context, namespace string, service *corev1.Service) *metricsTarget {
+	gvk := schema.GroupVersionKind{Group: "monitoring.coreos.com", Version: "v1", Kind: "PodMonitor"}
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(gvk)
+
+	if err := o.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
+		return nil
+	}
+
+	for _, item := range list.Items {
+		// Check selector.matchLabels against Service selector (PodMonitor targets pods).
+		selector, found, _ := unstructured.NestedMap(item.Object, "spec", "selector", "matchLabels")
+		if !found || service.Spec.Selector == nil || !labelsMatch(service.Spec.Selector, selector) {
+			continue
+		}
+
+		// Extract podMetricsEndpoints[].path + port (INV-5: skip auth).
+		endpoints, _, _ := unstructured.NestedSlice(item.Object, "spec", "podMetricsEndpoints")
+		for _, ep := range endpoints {
+			epMap, ok := ep.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			path, _ := epMap["path"].(string)
+			if path == "" {
+				path = "/metrics"
+			}
+			port := extractPort(epMap)
+			if port > 0 {
+				return &metricsTarget{path: path, port: port}
+			}
+		}
+	}
+	return nil
+}
+
+// extractPort extracts port from an endpoint map (int64 or string name). Returns 0 if absent/invalid.
+// ponytail: handle port as number or string, safe cast.
+func extractPort(epMap map[string]interface{}) int32 {
+	portVal, ok := epMap["port"]
+	if !ok {
+		return 0
+	}
+	switch v := portVal.(type) {
+	case int64:
+		return int32(v)
+	case string:
+		// Named port in ServiceMonitor/PodMonitor -> cannot resolve to number without pod template.
+		// Treat as unresolved (0) so this path yields nothing.
+		return 0
+	default:
+		return 0
+	}
+}
+
+// labelsMatch reports whether all selector labels are present in target with matching values.
+// ponytail: subset match, selector ⊆ target.
+func labelsMatch(target map[string]string, selector map[string]interface{}) bool {
+	for k, v := range selector {
+		vs, ok := v.(string)
+		if !ok || target[k] != vs {
+			return false
+		}
+	}
+	return true
+}
+
+// discoverFromAnnotations extracts prometheus.io annotations from the Service or Pod. Returns nil if not set.
+// ponytail: scrape=true + path + port from annotations.
+func discoverFromAnnotations(svc *corev1.Service) *metricsTarget {
+	if svc.Annotations == nil {
+		return nil
+	}
+	if svc.Annotations["prometheus.io/scrape"] != "true" {
+		return nil
+	}
+	path := svc.Annotations["prometheus.io/path"]
+	if path == "" {
+		path = "/metrics"
+	}
+	portStr := svc.Annotations["prometheus.io/port"]
+	if portStr == "" {
+		return nil
+	}
+	port, err := strconv.ParseInt(portStr, 10, 32)
+	if err != nil || port <= 0 {
+		return nil
+	}
+	return &metricsTarget{path: path, port: int32(port)}
+}
+
+// discoverFromNamedPort finds a Service port named "metrics" or "http-metrics". Returns path+port or nil.
+// ponytail: scan ports for metrics/http-metrics name.
+func discoverFromNamedPort(svc *corev1.Service, fallbackPath string) *metricsTarget {
+	for _, p := range svc.Spec.Ports {
+		if p.Name == "metrics" || p.Name == "http-metrics" {
+			path := fallbackPath
+			if path == "" {
+				path = "/metrics"
+			}
+			return &metricsTarget{path: path, port: p.Port}
+		}
+	}
+	return nil
 }
