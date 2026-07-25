@@ -684,6 +684,10 @@ type ServiceListEntry struct {
 	ComplianceWarns  int              `json:"complianceWarnings"`
 	TopInsight       string           `json:"topInsight,omitempty"`
 	UpdateAvailable  bool             `json:"updateAvailable,omitempty"`
+	// EvaluationCoverage feeds the list's compact coverage badge (E of R required
+	// assertions evaluated). Metadata only, never changes status. Nil when the
+	// service was not runtime-evaluated.
+	EvaluationCoverage *EvaluationCoverage `json:"evaluationCoverage,omitempty"`
 	// Readiness is the derived operational readiness assessment, carried on the
 	// list entry so the aggregated readiness overview can summarize, sort, and
 	// filter every service from a single /api/services call (mirroring how the
