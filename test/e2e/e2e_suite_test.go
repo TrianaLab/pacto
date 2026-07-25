@@ -145,16 +145,21 @@ func latestEnvTestBinaryDir() string {
 
 // --- reconcile harness ------------------------------------------------------
 
-// faultClient wraps a client.Client and injects an error for Deployment GETs of a chosen name, to drive
-// the workload COLLECTION_FAILED case (a non-NotFound API error) through the full real pipeline without a
-// real cluster outage. All other calls pass through to the envtest apiserver.
+// faultClient wraps a client.Client and injects an error for Deployment or Service GETs of a chosen name,
+// to drive COLLECTION_FAILED cases (a non-NotFound API error) through the full real pipeline without a real
+// cluster outage. A failed Service GET exercises the dependency/interface Failed path. All other calls pass
+// through to the envtest apiserver.
 type faultClient struct {
 	client.Client
 	failDeploymentName string
+	failServiceName    string
 }
 
 func (f faultClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 	if _, ok := obj.(*appsv1.Deployment); ok && key.Name == f.failDeploymentName {
+		return apierrors.NewInternalError(fmt.Errorf("synthetic apiserver failure"))
+	}
+	if _, ok := obj.(*corev1.Service); ok && f.failServiceName != "" && key.Name == f.failServiceName {
 		return apierrors.NewInternalError(fmt.Errorf("synthetic apiserver failure"))
 	}
 	return f.Client.Get(ctx, key, obj, opts...)

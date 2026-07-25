@@ -640,6 +640,49 @@ func TestDependencies(t *testing.T) {
 		}
 	})
 
+	t.Run("collection_failed_cycle_does_not_advance_window", func(t *testing.T) {
+		// Spec section 12: a transient collection failure emits Failed WITHOUT a window update, so the
+		// stabilization clock must neither advance nor reset. Seed a window, backdate it beyond the
+		// boundary, run a COLLECTION_FAILED cycle (the dependency Service GET errors) and assert the
+		// window is PRESERVED and the status is Unknown, then a normal reconcile confirms NonCompliant.
+		ns := newNamespace(t)
+		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createService(t, ns, "pay-svc", port)
+		createEndpointSlice(t, ns, "pay-svc", port, 0) // sustained zero-ready negative
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+
+		// 1. First negative -> within window -> Unknown; window seeded.
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+
+		// 2. Backdate the window beyond the stabilization boundary.
+		backdateWindows(t, "p", ns)
+		seeded := getPacto(t, "p", ns).Status.ObservationWindows
+		if len(seeded) != 1 {
+			t.Fatalf("expected 1 seeded window, got %d", len(seeded))
+		}
+		backdated := seeded[0].FirstObservedNegativeAt
+
+		// 3. COLLECTION_FAILED cycle: the dependency Service GET errors -> Failed, no window update.
+		p = reconcile(t, "p", ns, reconcileOpts{cl: faultClient{Client: k8sClient, failServiceName: "pay-svc"}}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "COLLECTION_FAILED")
+		if len(p.Status.ObservationWindows) != 1 {
+			t.Fatalf("COLLECTION_FAILED cycle must PRESERVE the window, got %d", len(p.Status.ObservationWindows))
+		}
+		if !p.Status.ObservationWindows[0].FirstObservedNegativeAt.Equal(&backdated) {
+			t.Fatalf("COLLECTION_FAILED cycle advanced/reset the window: was %v, now %v",
+				backdated, p.Status.ObservationWindows[0].FirstObservedNegativeAt)
+		}
+
+		// 4. Normal reconcile: the sustained negative is now beyond the PRESERVED window -> confirmed.
+		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireFinding(t, p, "DEPENDENCY_UNREACHABLE")
+	})
+
 	t.Run("window_resets_when_backend_becomes_ready", func(t *testing.T) {
 		ns := newNamespace(t)
 		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
