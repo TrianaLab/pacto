@@ -1593,7 +1593,10 @@ func (o *Observer) discoverMetricsTarget(ctx context.Context, namespace, service
 		return t, "named-port"
 	}
 
-	// 4. Contract binding.path on the bound port.
+	// 4. Contract binding.path on the bound port (if path is specified).
+	if contractPath == "" {
+		return nil, ""
+	}
 	return &metricsTarget{path: contractPath, port: boundPort}, "probe"
 }
 
