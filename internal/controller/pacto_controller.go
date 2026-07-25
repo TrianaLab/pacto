@@ -10,6 +10,7 @@ package controller
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -63,7 +64,9 @@ type PactoReconciler struct {
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactorevisions,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactorevisions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;watch
+// +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;replicasets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs;cronjobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
@@ -98,7 +101,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				&pactov1alpha1.ValidationResult{
 					Valid:  false,
 					Errors: []pactov1alpha1.ValidationIssue{{Path: "spec.contractRef.pullSecretRef", Message: secretErr.Error()}},
-				}, nil)
+				}, nil, pactov1alpha1.ContractStatusUnknown)
 		}
 		ociAuth = auth
 	}
@@ -109,11 +112,12 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	loadResult, err := r.Loader.Load(ctx, ociRef, pacto.Spec.ContractRef.Inline, ociAuth)
 	if err != nil {
+		status := classifyLoadError(err)
 		return r.failReconciliation(ctx, pacto, err.Error(),
 			&pactov1alpha1.ValidationResult{
 				Valid:  false,
 				Errors: []pactov1alpha1.ValidationIssue{{Message: err.Error()}},
-			}, nil)
+			}, nil, status)
 	}
 
 	// 4b. Apply configuration overrides (if specified)
@@ -127,7 +131,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				&pactov1alpha1.ValidationResult{
 					Valid:  false,
 					Errors: []pactov1alpha1.ValidationIssue{{Path: "spec.overrides", Message: overrideErr.Error()}},
-				}, loadResult.Contract)
+				}, loadResult.Contract, pactov1alpha1.ContractStatusInvalid)
 		}
 	}
 
@@ -137,7 +141,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	if len(contractResult.Errors) > 0 {
 		msg := formatValidationErrors(contractResult.Errors)
-		return r.failReconciliation(ctx, pacto, msg, pacto.Status.Validation, effectiveContract)
+		return r.failReconciliation(ctx, pacto, msg, pacto.Status.Validation, effectiveContract, pactov1alpha1.ContractStatusInvalid)
 	}
 
 	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue,
@@ -197,18 +201,40 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		pacto.Spec.Target.WorkloadRef.Name != "" &&
 		pacto.Spec.Target.WorkloadRef.Kind != ""
 
-	collectInput := observer.CollectInput{
-		Namespace:        pacto.Namespace,
-		ServiceName:      serviceName,
-		WorkloadName:     workloadName,
-		WorkloadKind:     workloadKind,
-		ContractRef:      loadResult.ResolvedRef,
-		WorkloadExplicit: workloadExplicit,
-		Contract:         loadResult.Contract,
-		BundleFS:         loadResult.BundleFS,
+	// Map InterfaceBindings from CR to observer types
+	interfaceBindings := make([]observer.InterfaceBinding, len(pacto.Spec.Target.InterfaceBindings))
+	for i, b := range pacto.Spec.Target.InterfaceBindings {
+		interfaceBindings[i] = observer.InterfaceBinding{
+			Interface:   b.Interface,
+			ServicePort: b.ServicePort,
+		}
 	}
 
-	evidenceSet, _, err := obs.Collect(ctx, collectInput)
+	// Convert ObservationWindows from status into the map format
+	observationWindows := make(map[string]*metav1.Time)
+	for _, w := range pacto.Status.ObservationWindows {
+		key := fmt.Sprintf("%s/%s", w.Kind, w.Subject)
+		observationWindows[key] = &w.FirstObservedNegativeAt
+	}
+
+	now := time.Now()
+	collectInput := observer.CollectInput{
+		Namespace:           pacto.Namespace,
+		ServiceName:         serviceName,
+		WorkloadName:        workloadName,
+		WorkloadKind:        workloadKind,
+		ContractRef:         loadResult.ResolvedRef,
+		WorkloadExplicit:    workloadExplicit,
+		Contract:            effectiveContract,
+		BundleFS:            loadResult.BundleFS,
+		InterfaceBindings:   interfaceBindings,
+		ConfigBindings:      pacto.Spec.Target.ConfigBindings,
+		StabilizationWindow: 2 * time.Minute, // TODO: wire from reconciler config
+		ObservationWindows:  observationWindows,
+		Now:                 now,
+	}
+
+	evidenceSet, windowUpdates, err := obs.Collect(ctx, collectInput)
 	if err != nil {
 		log.Error(err, "Failed to collect runtime evidence")
 		obsMsg := fmt.Sprintf("failed to collect runtime evidence: %v", err)
@@ -217,15 +243,18 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		r.Recorder.Eventf(pacto, corev1.EventTypeWarning, "ObservationFailed",
 			"Could not observe runtime state for %q: %v", serviceName, err)
 		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusUnknown
-		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
+		pacto.Status.Summary = &pactov1alpha1.Summary{UnknownCount: 1}
 		pacto.Status.Findings = append(pacto.Status.Findings, pactov1alpha1.FindingStatus{
-			Code:     "OBSERVATION_FAILED",
-			Severity: "error",
-			Category: "RuntimeDrift",
+			Code:     "COLLECTION_FAILED",
+			Severity: "unknown",
+			Category: "Inconclusive",
 			Message:  obsMsg,
 		})
 		return r.finishReconciliation(ctx, pacto)
 	}
+
+	// Apply window updates (spec section 9.5): upsert by (Kind, Subject); nil resets the entry.
+	r.applyObservationWindowUpdates(pacto, windowUpdates)
 
 	// 11. Populate lean observed runtime into status (backward compat for dashboard)
 	snapshot, _ := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
@@ -266,8 +295,8 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
-	// 13. Evaluate: contract × evidence → findings
-	findings, _ := validation.Evaluate(*effectiveContract, evidenceSet) // TODO(S6.3 step 2): use coverage
+	// 13. Evaluate: contract × evidence → findings + coverage
+	findings, cov := validation.Evaluate(*effectiveContract, evidenceSet)
 
 	// Append contract-only findings from structural validation
 	structuralFindings := contractResult.Findings()
@@ -293,7 +322,13 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		pacto.Status.Findings = append(pacto.Status.Findings, fs)
 	}
 
-	// 14-15. Compute summary + final contract status from findings.
+	// 14. Copy EvaluationCoverage (metadata; never affects ContractStatus)
+	pacto.Status.EvaluationCoverage = &pactov1alpha1.EvaluationCoverage{
+		Evaluated: int32(cov.Evaluated),
+		Required:  int32(cov.Required),
+	}
+
+	// 15. Compute summary + final contract status from findings (4-state ladder)
 	summary, status := summarizeFindings(allFindings)
 	pacto.Status.Summary = &summary
 	pacto.Status.ContractStatus = status
@@ -321,18 +356,33 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.Conditions = nil
 	pacto.Status.Findings = nil
 	pacto.Status.Capabilities = nil
-	// Preserve: CurrentRevision (set in step 7), LastReconciledAt/ObservedGeneration (set in finish)
+	pacto.Status.EvaluationCoverage = nil
+	// Preserve: CurrentRevision (set in step 7), ObservationWindows (temporal state, spec 9.5), LastReconciledAt/ObservedGeneration (set in finish)
 }
 
-// failReconciliation handles the common pattern for contract-level failures:
-// sets ContractValid=False, contractStatus=NonCompliant, summary={1,0,1}, updates status.
-func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, c *contract.Contract) (ctrl.Result, error) {
+// failReconciliation handles the common pattern for contract-level failures with phase-classified status
+// (spec section 9.8): Invalid vs Unknown. The status parameter drives condition reason + summary.
+func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, c *contract.Contract, status string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
-		pactov1alpha1.ReasonContractInvalid, msg)
-	pacto.Status.ContractStatus = pactov1alpha1.ContractStatusNonCompliant
-	pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
+	switch status {
+	case pactov1alpha1.ContractStatusInvalid:
+		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
+			pactov1alpha1.ReasonContractInvalid, msg)
+		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
+	case pactov1alpha1.ContractStatusUnknown:
+		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionUnknown,
+			pactov1alpha1.ReasonContractUnavailable, msg)
+		pacto.Status.Summary = &pactov1alpha1.Summary{UnknownCount: 1}
+	default:
+		// Fallback for unexpected status
+		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
+			pactov1alpha1.ReasonContractInvalid, msg)
+		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
+		status = pactov1alpha1.ContractStatusInvalid
+	}
+
+	pacto.Status.ContractStatus = status
 	pacto.Status.Validation = valResult
 
 	now := metav1.Now()
@@ -343,12 +393,108 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 		log.Error(statusErr, "Failed to update status")
 		return ctrl.Result{}, statusErr
 	}
-	r.Recorder.Event(pacto, corev1.EventTypeWarning, "ContractInvalid", msg)
 
-	// Emit metrics so invalid contracts are visible in Prometheus
+	eventType := corev1.EventTypeWarning
+	eventReason := "ContractInvalid"
+	if status == pactov1alpha1.ContractStatusUnknown {
+		eventReason = "ContractUnavailable"
+	}
+	r.Recorder.Event(pacto, eventType, eventReason, msg)
+
+	// Emit metrics
 	metrics.RecordContractStatus(pacto.Namespace, pacto.Name, pacto.Status.ContractStatus)
 
 	return ctrl.Result{RequeueAfter: r.requeueInterval(pacto)}, nil
+}
+
+// classifyLoadError maps OCI load errors to Invalid vs Unknown (spec section 9.8).
+func classifyLoadError(err error) string {
+	if errorsAsAny(err, &oci.RegistryUnreachableError{}, &oci.AuthenticationError{}, &oci.ArtifactNotFoundError{}) {
+		return pactov1alpha1.ContractStatusUnknown // transient obtain-failure
+	}
+	if errorsAsAny(err, &oci.InvalidRefError{}, &oci.InvalidBundleError{}, &oci.NoMatchingVersionError{}) {
+		return pactov1alpha1.ContractStatusInvalid // malformed artifact
+	}
+	return pactov1alpha1.ContractStatusInvalid // fail-closed
+}
+
+// applyObservationWindowUpdates persists window updates into status.observationWindows (spec section 9.5).
+// Upsert by (Kind, Subject); a nil FirstObservedNegativeAt removes/resets the entry.
+func (r *PactoReconciler) applyObservationWindowUpdates(pacto *pactov1alpha1.Pacto, updates []observer.ObservationWindowUpdate) {
+	// Build a map of current windows keyed by (Kind/Subject)
+	windowMap := make(map[string]*pactov1alpha1.ObservationWindow)
+	for i := range pacto.Status.ObservationWindows {
+		w := &pacto.Status.ObservationWindows[i]
+		key := fmt.Sprintf("%s/%s", w.Kind, w.Subject)
+		windowMap[key] = w
+	}
+
+	// Apply updates
+	for _, u := range updates {
+		key := fmt.Sprintf("%s/%s", u.Kind, u.Subject)
+		if u.FirstObservedNegativeAt == nil {
+			// Reset: remove the entry
+			delete(windowMap, key)
+		} else {
+			// Upsert
+			if existing, ok := windowMap[key]; ok {
+				existing.FirstObservedNegativeAt = *u.FirstObservedNegativeAt
+			} else {
+				windowMap[key] = &pactov1alpha1.ObservationWindow{
+					Kind:                    u.Kind,
+					Subject:                 u.Subject,
+					FirstObservedNegativeAt: *u.FirstObservedNegativeAt,
+				}
+			}
+		}
+	}
+
+	// Rebuild the slice from the map
+	windows := make([]pactov1alpha1.ObservationWindow, 0, len(windowMap))
+	for _, w := range windowMap {
+		windows = append(windows, *w)
+	}
+	pacto.Status.ObservationWindows = windows
+}
+
+// errorsAsAny checks if err matches any of the target types using errors.As.
+// ponytail: generic type-match helper for classifyLoadError; expands per error type.
+func errorsAsAny(err error, targets ...error) bool {
+	for _, target := range targets {
+		switch target.(type) {
+		case *oci.RegistryUnreachableError:
+			var t *oci.RegistryUnreachableError
+			if errors.As(err, &t) {
+				return true
+			}
+		case *oci.AuthenticationError:
+			var t *oci.AuthenticationError
+			if errors.As(err, &t) {
+				return true
+			}
+		case *oci.ArtifactNotFoundError:
+			var t *oci.ArtifactNotFoundError
+			if errors.As(err, &t) {
+				return true
+			}
+		case *oci.InvalidRefError:
+			var t *oci.InvalidRefError
+			if errors.As(err, &t) {
+				return true
+			}
+		case *oci.InvalidBundleError:
+			var t *oci.InvalidBundleError
+			if errors.As(err, &t) {
+				return true
+			}
+		case *oci.NoMatchingVersionError:
+			var t *oci.NoMatchingVersionError
+			if errors.As(err, &t) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // finishReconciliation sets final metadata, persists status, and emits metrics.
@@ -630,16 +776,17 @@ func mapValidationResult(vr validation.ValidationResult) *pactov1alpha1.Validati
 	return result
 }
 
-// summarizeFindings counts findings by severity and derives the overall contract
-// status: any error -> NonCompliant, otherwise any warning -> Warning, else Compliant.
-// It is a pure function over the full severity set so its behavior is defined for
-// every finding severity the engine may emit now or in the future.
+// summarizeFindings counts findings by severity and derives the overall contract status using the
+// 4-state ladder (spec section 1.4): Error -> NonCompliant, Unknown -> Unknown, Warning -> Warning, else Compliant.
+// Runtime findings only; Invalid is set by the pre-findings structural gate.
 func summarizeFindings(findings []finding.Finding) (pactov1alpha1.Summary, string) {
 	var summary pactov1alpha1.Summary
 	for _, f := range findings {
 		switch f.Severity {
 		case finding.SeverityError:
 			summary.ErrorCount++
+		case finding.SeverityUnknown:
+			summary.UnknownCount++
 		case finding.SeverityWarning:
 			summary.WarningCount++
 		case finding.SeverityInfo:
@@ -649,6 +796,8 @@ func summarizeFindings(findings []finding.Finding) (pactov1alpha1.Summary, strin
 	switch {
 	case summary.ErrorCount > 0:
 		return summary, pactov1alpha1.ContractStatusNonCompliant
+	case summary.UnknownCount > 0:
+		return summary, pactov1alpha1.ContractStatusUnknown
 	case summary.WarningCount > 0:
 		return summary, pactov1alpha1.ContractStatusWarning
 	default:

@@ -32,6 +32,8 @@ var allStatuses = []string{
 	pactov1alpha1.ContractStatusNonCompliant,
 	pactov1alpha1.ContractStatusReference,
 	pactov1alpha1.ContractStatusUnknown,
+	pactov1alpha1.ContractStatusInvalid,
+	pactov1alpha1.ContractStatusNotEvaluated,
 }
 
 // allReadinessStatuses is the set of readiness gate states emitted by RecordReadiness.

@@ -131,6 +131,68 @@ spec:
                   Target specifies which Kubernetes resources to observe.
                   When omitted, the Pacto acts as a reference-only contract (no runtime validation).
                 properties:
+                  configBindings:
+                    description: ConfigBindings maps contract configurations to the
+                      concrete ConfigMap/Secret backing each (B7).
+                    items:
+                      description: ConfigBinding maps a contract configuration to
+                        the concrete Kubernetes object backing it (B7).
+                      properties:
+                        configuration:
+                          description: Configuration is the contract configurations[].name
+                            this binding backs.
+                          type: string
+                        format:
+                          description: Format of the value at Key. Required with Key
+                            for ConfigMap conformance.
+                          enum:
+                          - yaml
+                          - json
+                          type: string
+                        key:
+                          description: Key names the single ConfigMap/Secret key to
+                            decode and validate. Omit for existence-only.
+                          type: string
+                        kind:
+                          description: Kind of the backing object.
+                          enum:
+                          - ConfigMap
+                          - Secret
+                          type: string
+                        name:
+                          description: Name of the backing ConfigMap/Secret in the
+                            Pacto's namespace.
+                          type: string
+                      required:
+                      - configuration
+                      - kind
+                      - name
+                      type: object
+                    type: array
+                  interfaceBindings:
+                    description: |-
+                      InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes
+                      deployment knowledge — lives on the CR, NOT the platform-agnostic contract.
+                    items:
+                      description: InterfaceBinding maps a contract interface to the
+                        Service port that serves it (B4).
+                      properties:
+                        interface:
+                          description: Interface is the contract interfaces[].name
+                            this binding resolves.
+                          type: string
+                        servicePort:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: ServicePort is the Service port name or number
+                            that serves the interface.
+                          x-kubernetes-int-or-string: true
+                      required:
+                      - interface
+                      - servicePort
+                      type: object
+                    type: array
                   serviceName:
                     description: ServiceName is the name of the Kubernetes Service
                       to observe.
@@ -141,10 +203,10 @@ spec:
                       If omitted, defaults to name=serviceName, kind=Deployment.
                     properties:
                       kind:
-                        default: Deployment
                         description: |-
-                          Kind of the workload resource.
-                          Job/CronJob targets require an explicit kind (contract runtime.workload job/scheduled).
+                          Kind of the workload resource. Left unspecified (empty) unless the author sets it explicitly;
+                          WORKLOAD_MISMATCH only fires when BOTH name AND kind were explicit (AR7). No default is applied here
+                          so the collector can distinguish "author asserted kind X" from "kind was defaulted for the GET".
                         enum:
                         - Deployment
                         - StatefulSet
@@ -381,6 +443,8 @@ spec:
                 - NonCompliant
                 - Reference
                 - Unknown
+                - Invalid
+                - NotEvaluated
                 type: string
               contractVersion:
                 description: |-
@@ -416,6 +480,25 @@ spec:
                   - required
                   type: object
                 type: array
+              evaluationCoverage:
+                description: |-
+                  EvaluationCoverage reports how many required assertions were evaluated (metadata; never affects
+                  ContractStatus).
+                properties:
+                  evaluated:
+                    description: Evaluated is the number of required assertions with
+                      a conclusive (Observed) observation.
+                    format: int32
+                    type: integer
+                  required:
+                    description: Required is the total number of required assertions
+                      the contract declares.
+                    format: int32
+                    type: integer
+                required:
+                - evaluated
+                - required
+                type: object
               findings:
                 description: |-
                   Findings is the list of typed conclusions from the Pacto engine.
@@ -458,11 +541,12 @@ spec:
                       description: Message is a human-readable description.
                       type: string
                     severity:
-                      description: Severity is error, warning, or info.
+                      description: Severity is error, warning, info, or unknown.
                       enum:
                       - error
                       - warning
                       - info
+                      - unknown
                       type: string
                     subject:
                       description: Subject identifies what the finding is about.
@@ -514,6 +598,34 @@ spec:
                 description: Metadata contains arbitrary key-value pairs from the
                   contract's metadata section.
                 type: object
+              observationWindows:
+                description: |-
+                  ObservationWindows tracks per-assertion negative-observation streaks for time-based stabilization
+                  (B5). Operator-owned temporal state; the pure engine never sees it.
+                items:
+                  description: |-
+                    ObservationWindow tracks the first sustained NEGATIVE observation for one assertion, so a transient
+                    negative reads Unknown (stabilizing) and only a sustained one converts to a confirmed violation (B5).
+                  properties:
+                    firstObservedNegativeAt:
+                      description: FirstObservedNegativeAt is when the current negative
+                        streak began.
+                      format: date-time
+                      type: string
+                    kind:
+                      description: 'Kind is the assertion dimension: interface | dependency
+                        | configuration | capability.'
+                      type: string
+                    subject:
+                      description: Subject is the assertion identity (interface/dependency/configuration
+                        name, or capability key).
+                      type: string
+                  required:
+                  - firstObservedNegativeAt
+                  - kind
+                  - subject
+                  type: object
+                type: array
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed
                   by the controller.
@@ -831,6 +943,11 @@ spec:
                     description: InfoCount is the number of info-severity findings.
                     format: int32
                     type: integer
+                  unknownCount:
+                    description: UnknownCount is the number of unknown-severity findings
+                      (a required assertion could not be evaluated).
+                    format: int32
+                    type: integer
                   warningCount:
                     description: WarningCount is the number of warning-severity findings.
                     format: int32
@@ -838,6 +955,7 @@ spec:
                 required:
                 - errorCount
                 - infoCount
+                - unknownCount
                 - warningCount
                 type: object
               validation:
