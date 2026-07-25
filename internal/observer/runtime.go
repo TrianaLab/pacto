@@ -10,10 +10,13 @@ package observer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"time"
 
+	"github.com/santhosh-tekuri/jsonschema/v6"
+	"gopkg.in/yaml.v3"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -54,11 +57,12 @@ type CollectInput struct {
 	BundleFS        fs.FS
 
 	InterfaceBindings []InterfaceBinding
+	ConfigBindings    []unversioned.ConfigBinding
 	StabilizationWindow time.Duration
 	ObservationWindows map[string]*metav1.Time
 	Now time.Time
 
-	// TODO(S6.4): ConfigBindings, ProbeEnabled, MetricsEnabled, InterfaceNameMatchDiscovery will be added in later steps.
+	// TODO(S6.4): ProbeEnabled, MetricsEnabled, InterfaceNameMatchDiscovery will be added in later steps.
 }
 
 // RuntimeSnapshot is the internal state for k8s observations (kept for internal convenience).
@@ -146,7 +150,12 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 		windowUpdates = append(windowUpdates, updates...)
 	}
 
-	// TODO(S6.6): configurations producer (spec section 7.7).
+	// Configurations producer (spec section 7.7).
+	if len(input.Contract.Configurations) > 0 {
+		cObs, cUpdates := o.observeConfigurationsDim(ctx, input, prov, now)
+		observations = append(observations, cObs...)
+		windowUpdates = append(windowUpdates, cUpdates...)
+	}
 
 	// Workload producer (spec section 7.1 + AR7).
 	if input.Contract.Workload != "" && input.WorkloadName != "" {
@@ -1184,6 +1193,214 @@ func (o *Observer) checkReadinessProbeFallback(ctx context.Context, input Collec
 	return true, true
 }
 
+// observeConfigurationsDim observes all declared configurations (spec section 7.7 / B6 Secret + B7 ConfigMap).
+// ponytail: metadata-only Secret GET (INV-5); ConfigMap decode+validate+discard; stabilize() for NotFound negatives.
+func (o *Observer) observeConfigurationsDim(ctx context.Context, input CollectInput, prov evidence.Provenance, now time.Time) ([]evidence.Observation, []ObservationWindowUpdate) {
+	var observations []evidence.Observation
+	var windowUpdates []ObservationWindowUpdate
+
+	for _, cfg := range input.Contract.Configurations {
+		subj := evidence.SubjectRef{Kind: "configuration", Name: cfg.Name}
+		windowKey := "configuration/" + cfg.Name
+
+		// Find binding for this configuration.
+		binding := findConfigBinding(input.ConfigBindings, cfg.Name)
+		if binding == nil {
+			// No binding -> Unsupported (Unknown) for required; optional configs emit nothing per spec.
+			if cfg.Required {
+				obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Unsupported, prov)
+				observations = append(observations, obs)
+			}
+			continue
+		}
+
+		// Route by binding kind.
+		if binding.Kind == "Secret" {
+			obs, updates := o.observeSecretConfiguration(ctx, input, cfg, binding, subj, windowKey, prov, now)
+			observations = append(observations, obs)
+			windowUpdates = append(windowUpdates, updates...)
+		} else if binding.Kind == "ConfigMap" {
+			obs, updates := o.observeConfigMapConfiguration(ctx, input, cfg, binding, subj, windowKey, prov, now)
+			observations = append(observations, obs)
+			windowUpdates = append(windowUpdates, updates...)
+		}
+	}
+
+	return observations, windowUpdates
+}
+
+// findConfigBinding locates the binding for a given configuration name.
+func findConfigBinding(bindings []unversioned.ConfigBinding, cfgName string) *unversioned.ConfigBinding {
+	for i := range bindings {
+		if bindings[i].Configuration == cfgName {
+			return &bindings[i]
+		}
+	}
+	return nil
+}
+
+// observeSecretConfiguration observes a Secret-backed configuration (B6 metadata-only). Spec section 7.7.
+// ponytail: PartialObjectMetadata GET, no .Data read; presence -> Insufficient; NotFound -> windowed.
+func (o *Observer) observeSecretConfiguration(
+	ctx context.Context,
+	input CollectInput,
+	cfg contract.Configuration,
+	binding *unversioned.ConfigBinding,
+	subj evidence.SubjectRef,
+	windowKey string,
+	prov evidence.Provenance,
+	now time.Time,
+) (evidence.Observation, []ObservationWindowUpdate) {
+	// Metadata-only GET (INV-5 — Secret VALUES never enter operator memory).
+	partial := &metav1.PartialObjectMetadata{}
+	partial.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
+	err := o.client.Get(ctx, client.ObjectKey{Namespace: input.Namespace, Name: binding.Name}, partial)
+
+	if err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			// Non-NotFound API error (RBAC-denied / other) -> Failed.
+			obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Failed, prov)
+			return obs, nil
+		}
+		// Secret NotFound -> windowed negative.
+		isNegative := true
+		existing := input.ObservationWindows[windowKey]
+		outcome, updatedWindow := stabilize(existing, isNegative, now, input.StabilizationWindow)
+
+		var obs evidence.Observation
+		if outcome == evidence.Observed {
+			// Beyond window -> confirmed absent.
+			obs = evidence.NewConfigurationPresent(subj, false, prov)
+		} else {
+			// Within window -> Insufficient.
+			obs, _ = evidence.NewUnobserved(evidence.ConfigurationPresent, subj, outcome, prov)
+		}
+
+		update := ObservationWindowUpdate{
+			Kind:                    "configuration",
+			Subject:                 cfg.Name,
+			FirstObservedNegativeAt: updatedWindow,
+		}
+		return obs, []ObservationWindowUpdate{update}
+	}
+
+	// Secret present (metadata-only) -> Insufficient (existence established, conformance unverified).
+	obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
+	// Reset window on positive.
+	update := ObservationWindowUpdate{
+		Kind:                    "configuration",
+		Subject:                 cfg.Name,
+		FirstObservedNegativeAt: nil,
+	}
+	return obs, []ObservationWindowUpdate{update}
+}
+
+// observeConfigMapConfiguration observes a ConfigMap-backed configuration (B7 decode+validate). Spec section 7.7.
+// ponytail: decode key+format, validate against local schema, discard content, emit boolean result only.
+func (o *Observer) observeConfigMapConfiguration(
+	ctx context.Context,
+	input CollectInput,
+	cfg contract.Configuration,
+	binding *unversioned.ConfigBinding,
+	subj evidence.SubjectRef,
+	windowKey string,
+	prov evidence.Provenance,
+	now time.Time,
+) (evidence.Observation, []ObservationWindowUpdate) {
+	// GET the ConfigMap.
+	cm := &corev1.ConfigMap{}
+	err := o.client.Get(ctx, client.ObjectKey{Namespace: input.Namespace, Name: binding.Name}, cm)
+
+	if err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			// Non-NotFound API error -> Failed.
+			obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Failed, prov)
+			return obs, nil
+		}
+		// ConfigMap NotFound -> windowed negative (required scope).
+		isNegative := true
+		existing := input.ObservationWindows[windowKey]
+		outcome, updatedWindow := stabilize(existing, isNegative, now, input.StabilizationWindow)
+
+		var obs evidence.Observation
+		if outcome == evidence.Observed {
+			// Beyond window -> confirmed absent.
+			obs = evidence.NewConfigurationPresent(subj, false, prov)
+		} else {
+			// Within window -> Insufficient.
+			obs, _ = evidence.NewUnobserved(evidence.ConfigurationPresent, subj, outcome, prov)
+		}
+
+		update := ObservationWindowUpdate{
+			Kind:                    "configuration",
+			Subject:                 cfg.Name,
+			FirstObservedNegativeAt: updatedWindow,
+		}
+		return obs, []ObservationWindowUpdate{update}
+	}
+
+	// ConfigMap exists. Without Key+Format -> Insufficient (existence-only, never full-conformance).
+	if binding.Key == "" || binding.Format == "" {
+		obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
+		// Reset window on positive.
+		update := ObservationWindowUpdate{
+			Kind:                    "configuration",
+			Subject:                 cfg.Name,
+			FirstObservedNegativeAt: nil,
+		}
+		return obs, []ObservationWindowUpdate{update}
+	}
+
+	// With Key+Format: decode+validate the named key.
+	content, ok := cm.Data[binding.Key]
+	if !ok {
+		// Key missing in ConfigMap -> Insufficient (parse failure).
+		obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
+		// Reset window on positive (ConfigMap present, just missing key).
+		update := ObservationWindowUpdate{
+			Kind:                    "configuration",
+			Subject:                 cfg.Name,
+			FirstObservedNegativeAt: nil,
+		}
+		return obs, []ObservationWindowUpdate{update}
+	}
+
+	// Parse the content by Format (yaml/json).
+	parsed, parseErr := parseConfigContent(content, binding.Format)
+	if parseErr != nil {
+		// Parse failure -> Insufficient.
+		obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
+		update := ObservationWindowUpdate{
+			Kind:                    "configuration",
+			Subject:                 cfg.Name,
+			FirstObservedNegativeAt: nil,
+		}
+		return obs, []ObservationWindowUpdate{update}
+	}
+
+	// Validate parsed doc against the configuration's LOCAL schema.
+	conforms, err := validateConfigAgainstSchema(parsed, cfg, input.BundleFS)
+	if err != nil {
+		// Schema remote/unresolvable -> Insufficient (collector cannot validate).
+		obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
+		update := ObservationWindowUpdate{
+			Kind:                    "configuration",
+			Subject:                 cfg.Name,
+			FirstObservedNegativeAt: nil,
+		}
+		return obs, []ObservationWindowUpdate{update}
+	}
+
+	// Discard source content (INV-5). Emit only the boolean result.
+	obs := evidence.NewConfigurationPresent(subj, conforms, prov)
+	update := ObservationWindowUpdate{
+		Kind:                    "configuration",
+		Subject:                 cfg.Name,
+		FirstObservedNegativeAt: nil,
+	}
+	return obs, []ObservationWindowUpdate{update}
+}
+
 // observeMetricsDim observes the metrics capability (spec section 7.5 / Refinement D). Returns nil if no metrics
 // capability is declared, otherwise exactly one observation. No reliable operator-side negative this release.
 // ponytail: probe 200+parsed -> satisfied; 404/5xx/non-parseable/transport -> Insufficient/Failed (no CAPABILITY_ABSENT).
@@ -1280,4 +1497,57 @@ func (o *Observer) observeMetricsDim(ctx context.Context, input CollectInput, pr
 	// 200 + real Prometheus content -> satisfied.
 	obs := evidence.NewCapabilityObserved(subj, true, prov)
 	return &obs, nil
+}
+
+// parseConfigContent parses a config value by format (yaml|json). Returns the parsed document as any.
+// ponytail: yaml/json unmarshal into any, return parsed doc for schema validation.
+func parseConfigContent(content, format string) (any, error) {
+	var parsed any
+	var err error
+	switch format {
+	case "yaml":
+		err = yaml.Unmarshal([]byte(content), &parsed)
+	case "json":
+		err = json.Unmarshal([]byte(content), &parsed)
+	default:
+		return nil, fmt.Errorf("unsupported format: %s", format)
+	}
+	return parsed, err
+}
+
+// validateConfigAgainstSchema validates a parsed config document against the configuration's local schema.
+// Returns (conforms, error). error != nil means schema unresolvable (remote ref / not in bundle).
+// ponytail: reuse pkg/validation compileConfigSchema pattern (santhosh-tekuri/jsonschema/v6), no new dep.
+func validateConfigAgainstSchema(parsed any, cfg contract.Configuration, bundleFS fs.FS) (bool, error) {
+	// Remote ref schema -> cannot resolve -> error (Insufficient).
+	if cfg.Ref != "" {
+		return false, fmt.Errorf("remote ref schema not resolvable locally")
+	}
+	if cfg.Schema == "" {
+		// No schema -> cannot validate -> error.
+		return false, fmt.Errorf("no schema defined")
+	}
+
+	// Parse the schema string into a JSON doc (per pkg/validation/crossfield.go compileConfigSchema pattern).
+	var schemaDoc any
+	if err := json.Unmarshal([]byte(cfg.Schema), &schemaDoc); err != nil {
+		return false, fmt.Errorf("failed to parse schema: %w", err)
+	}
+
+	// Compile the schema.
+	compiler := jsonschema.NewCompiler()
+	compiler.AddResource("mem:///config-schema.json", schemaDoc) //nolint:errcheck
+	schema, err := compiler.Compile("mem:///config-schema.json")
+	if err != nil {
+		return false, fmt.Errorf("failed to compile schema: %w", err)
+	}
+
+	// Validate the parsed doc.
+	if err := schema.Validate(parsed); err != nil {
+		// Validation failed -> non-conform.
+		return false, nil
+	}
+
+	// Conforms.
+	return true, nil
 }
