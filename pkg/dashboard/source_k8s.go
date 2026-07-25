@@ -229,10 +229,9 @@ type k8sPorts struct {
 }
 
 type k8sSummary struct {
-	Total   int `json:"total"`
-	Passed  int `json:"passed"`
-	Failed  int `json:"failed"`
-	Unknown int `json:"unknownCount"` // operator field is "unknownCount"
+	Total  int `json:"total"`
+	Passed int `json:"passed"`
+	Failed int `json:"failed"`
 }
 
 type k8sEvaluationCoverage struct {
