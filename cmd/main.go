@@ -252,9 +252,10 @@ func main() {
 	}
 
 	if err := (&controller.PactoReconciler{
-		Client:                   mgr.GetClient(),
-		Scheme:                   mgr.GetScheme(),
-		Recorder:                 mgr.GetEventRecorderFor("pacto-controller"), //nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
+		Recorder:                 mgr.GetEventRecorderFor("pacto-controller"),
 		Loader:                   loader.New(),
 		StabilizationWindow:      stabilizationWindow,
 		EnableMetricsObservation: enableMetricsObservation,

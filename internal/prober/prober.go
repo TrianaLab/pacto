@@ -65,10 +65,10 @@ func New(timeout time.Duration) *Prober {
 }
 
 // Probe performs an HTTP GET to the given URL and reports the result.
-func (p *Prober) Probe(ctx context.Context, url string) Result {
-	result := Result{URL: url}
+func (p *Prober) Probe(ctx context.Context, targetURL string) Result {
+	result := Result{URL: targetURL}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		result.Error = fmt.Sprintf("invalid URL: %v", err)
 		return result

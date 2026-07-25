@@ -291,7 +291,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// Map findings to status
 	pacto.Status.Findings = make([]pactov1alpha1.FindingStatus, 0, len(allFindings))
 	for _, f := range allFindings {
-		fs := pactov1alpha1.FindingStatus{
+		findingStatus := pactov1alpha1.FindingStatus{
 			Code:         string(f.Code),
 			Severity:     string(f.Severity),
 			Category:     string(f.Category),
@@ -300,12 +300,12 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			Message:      f.Message,
 		}
 		for _, er := range f.EvidenceRefs {
-			fs.EvidenceRefs = append(fs.EvidenceRefs, pactov1alpha1.EvidenceRefStatus{
+			findingStatus.EvidenceRefs = append(findingStatus.EvidenceRefs, pactov1alpha1.EvidenceRefStatus{
 				Source:     er.Source,
 				ObservedAt: er.ObservedAt,
 			})
 		}
-		pacto.Status.Findings = append(pacto.Status.Findings, fs)
+		pacto.Status.Findings = append(pacto.Status.Findings, findingStatus)
 	}
 
 	// 14. Copy EvaluationCoverage (metadata; never affects ContractStatus)
@@ -348,7 +348,7 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 
 // failReconciliation handles the common pattern for contract-level failures with phase-classified status
 // (spec section 9.8): Invalid vs Unknown. The status parameter drives condition reason + summary.
-func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, c *contract.Contract, status string) (ctrl.Result, error) {
+func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, _ *contract.Contract, status string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	switch status {
@@ -791,9 +791,9 @@ func summarizeFindings(findings []finding.Finding) (pactov1alpha1.Summary, strin
 	}
 }
 
-func formatValidationErrors(errors []contract.ValidationError) string {
+func formatValidationErrors(validationErrors []contract.ValidationError) string {
 	var details []string
-	for _, e := range errors {
+	for _, e := range validationErrors {
 		if e.Path != "" {
 			details = append(details, fmt.Sprintf("%s: %s", e.Path, e.Message))
 		} else {

@@ -25,6 +25,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+const dockerIORegistry = "docker.io"
+
 // dockerConfigJSON mirrors the Docker config.json structure.
 type dockerConfigJSON struct {
 	Auths map[string]dockerConfigEntry `json:"auths"`
@@ -123,7 +125,7 @@ func normalizeRegistryHost(host string) string {
 	}
 	host = strings.TrimRight(host, "/")
 	// Canonicalize Docker Hub
-	if host == "docker.io" {
+	if host == dockerIORegistry {
 		return dockerHubHost
 	}
 	return host

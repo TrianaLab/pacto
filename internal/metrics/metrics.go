@@ -47,15 +47,11 @@ var allReadinessStatuses = []string{
 var readinessCheckStatuses = []string{"done", "partial", "not-done", "deferred"}
 
 var (
-	complianceStatus otelmetric.Int64Gauge
-	validationErrors otelmetric.Int64Gauge
-	validationWarns  otelmetric.Int64Gauge
-	validationResult otelmetric.Int64Gauge
-	contractStatus   otelmetric.Int64Gauge
-	readinessScore   otelmetric.Int64Gauge
-	readinessGate    otelmetric.Int64Gauge
-	readinessStatus  otelmetric.Int64Gauge
-	readinessChecks  otelmetric.Int64Gauge
+	contractStatus  otelmetric.Int64Gauge
+	readinessScore  otelmetric.Int64Gauge
+	readinessGate   otelmetric.Int64Gauge
+	readinessStatus otelmetric.Int64Gauge
+	readinessChecks otelmetric.Int64Gauge
 )
 
 func init() {
@@ -81,18 +77,6 @@ func registerGauges(exporter sdkmetric.Reader) {
 	meter := provider.Meter(meterName)
 
 	// Int64Gauge never returns an error for valid instrument names (OTel SDK guarantee).
-	complianceStatus, _ = meter.Int64Gauge("pacto_contract_compliance_status",
-		otelmetric.WithDescription("Whether the service is fully compliant with its contract (1=compliant, 0=non-compliant)"),
-	)
-	validationErrors, _ = meter.Int64Gauge("pacto_contract_validation_errors",
-		otelmetric.WithDescription("Number of error-level contract validation failures"),
-	)
-	validationWarns, _ = meter.Int64Gauge("pacto_contract_validation_warnings",
-		otelmetric.WithDescription("Number of warning-level contract validation mismatches"),
-	)
-	validationResult, _ = meter.Int64Gauge("pacto_contract_validation_result",
-		otelmetric.WithDescription("Result of each contract validation check (1=pass, 0=fail)"),
-	)
 	contractStatus, _ = meter.Int64Gauge("pacto_contract_status",
 		otelmetric.WithDescription("Contract status by phase (1=active, 0=inactive). Label 'status' is one of: Compliant, Warning, NonCompliant, Reference, Unknown"),
 	)

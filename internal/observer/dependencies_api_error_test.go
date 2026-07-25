@@ -218,8 +218,8 @@ func TestCollect_Dependencies(t *testing.T) {
 		Ports:     []discoveryv1.EndpointPort{{Port: &port}},
 	}
 
-	client := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(pacto, svc, slice).Build()
-	obs := New(client)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(pacto, svc, slice).Build()
+	obs := New(fakeClient)
 
 	input := CollectInput{
 		Namespace:    testNS,
@@ -274,8 +274,8 @@ func TestCollect_NoDependencies(t *testing.T) {
 	_ = corev1.AddToScheme(scheme)
 	_ = appsv1.AddToScheme(scheme)
 
-	client := fake.NewClientBuilder().WithScheme(scheme).Build()
-	obs := New(client)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	obs := New(fakeClient)
 
 	input := CollectInput{
 		Namespace:    testNS,

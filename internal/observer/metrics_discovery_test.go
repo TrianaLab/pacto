@@ -28,7 +28,7 @@ import (
 
 // Test extractPort with int64 port
 func TestExtractPort_Int64(t *testing.T) {
-	epMap := map[string]interface{}{
+	epMap := map[string]any{
 		"port": int64(9090),
 	}
 	port := extractPort(epMap)
@@ -39,7 +39,7 @@ func TestExtractPort_Int64(t *testing.T) {
 
 // Test extractPort with string port (named port)
 func TestExtractPort_String(t *testing.T) {
-	epMap := map[string]interface{}{
+	epMap := map[string]any{
 		"port": "metrics",
 	}
 	port := extractPort(epMap)
@@ -50,7 +50,7 @@ func TestExtractPort_String(t *testing.T) {
 
 // Test extractPort with missing port
 func TestExtractPort_Missing(t *testing.T) {
-	epMap := map[string]interface{}{}
+	epMap := map[string]any{}
 	port := extractPort(epMap)
 	if port != 0 {
 		t.Errorf("expected port 0 for missing port, got %d", port)
@@ -59,7 +59,7 @@ func TestExtractPort_Missing(t *testing.T) {
 
 // Test extractPort with invalid port type
 func TestExtractPort_InvalidType(t *testing.T) {
-	epMap := map[string]interface{}{
+	epMap := map[string]any{
 		"port": 3.14,
 	}
 	port := extractPort(epMap)
@@ -74,7 +74,7 @@ func TestLabelsMatch_Match(t *testing.T) {
 		"app":  "test",
 		"tier": "backend",
 	}
-	selector := map[string]interface{}{
+	selector := map[string]any{
 		"app": "test",
 	}
 	if !labelsMatch(target, selector) {
@@ -87,7 +87,7 @@ func TestLabelsMatch_NoMatch(t *testing.T) {
 	target := map[string]string{
 		"app": "test",
 	}
-	selector := map[string]interface{}{
+	selector := map[string]any{
 		"app": "other",
 	}
 	if labelsMatch(target, selector) {
@@ -100,7 +100,7 @@ func TestLabelsMatch_MissingLabel(t *testing.T) {
 	target := map[string]string{
 		"app": "test",
 	}
-	selector := map[string]interface{}{
+	selector := map[string]any{
 		"tier": "backend",
 	}
 	if labelsMatch(target, selector) {
@@ -113,7 +113,7 @@ func TestLabelsMatch_EmptySelector(t *testing.T) {
 	target := map[string]string{
 		"app": "test",
 	}
-	selector := map[string]interface{}{}
+	selector := map[string]any{}
 	if !labelsMatch(target, selector) {
 		t.Error("expected empty selector to match")
 	}
@@ -124,7 +124,7 @@ func TestLabelsMatch_NonStringValue(t *testing.T) {
 	target := map[string]string{
 		"app": "test",
 	}
-	selector := map[string]interface{}{
+	selector := map[string]any{
 		"app": 123,
 	}
 	if labelsMatch(target, selector) {
@@ -336,21 +336,21 @@ func TestDiscoverFromServiceMonitor_Match(t *testing.T) {
 		},
 	}
 	sm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "ServiceMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-sm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "test",
 					},
 				},
-				"endpoints": []interface{}{
-					map[string]interface{}{
+				"endpoints": []any{
+					map[string]any{
 						"path": "/custom/metrics",
 						"port": int64(9090),
 					},
@@ -390,21 +390,21 @@ func TestDiscoverFromServiceMonitor_DefaultPath(t *testing.T) {
 		},
 	}
 	sm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "ServiceMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-sm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "test",
 					},
 				},
-				"endpoints": []interface{}{
-					map[string]interface{}{
+				"endpoints": []any{
+					map[string]any{
 						"port": int64(9090),
 					},
 				},
@@ -440,21 +440,21 @@ func TestDiscoverFromServiceMonitor_NoMatch(t *testing.T) {
 		},
 	}
 	sm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "ServiceMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-sm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "other",
 					},
 				},
-				"endpoints": []interface{}{
-					map[string]interface{}{
+				"endpoints": []any{
+					map[string]any{
 						"path": "/metrics",
 						"port": int64(9090),
 					},
@@ -512,30 +512,30 @@ func TestDiscoverFromServiceMonitor_WithAuthFields(t *testing.T) {
 		},
 	}
 	sm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "ServiceMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-sm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "test",
 					},
 				},
-				"endpoints": []interface{}{
-					map[string]interface{}{
+				"endpoints": []any{
+					map[string]any{
 						"path": "/metrics",
 						"port": int64(9090),
-						"bearerTokenSecret": map[string]interface{}{
+						"bearerTokenSecret": map[string]any{
 							"name": "token-secret",
 						},
-						"authorization": map[string]interface{}{
+						"authorization": map[string]any{
 							"type": "Bearer",
 						},
-						"basicAuth": map[string]interface{}{
+						"basicAuth": map[string]any{
 							"username": "user",
 						},
 					},
@@ -577,21 +577,21 @@ func TestDiscoverFromPodMonitor_Match(t *testing.T) {
 		},
 	}
 	pm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "PodMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-pm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "test",
 					},
 				},
-				"podMetricsEndpoints": []interface{}{
-					map[string]interface{}{
+				"podMetricsEndpoints": []any{
+					map[string]any{
 						"path": "/pod/metrics",
 						"port": int64(9091),
 					},
@@ -633,21 +633,21 @@ func TestDiscoverFromPodMonitor_DefaultPath(t *testing.T) {
 		},
 	}
 	pm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "PodMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-pm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "test",
 					},
 				},
-				"podMetricsEndpoints": []interface{}{
-					map[string]interface{}{
+				"podMetricsEndpoints": []any{
+					map[string]any{
 						"port": int64(9091),
 					},
 				},
@@ -685,21 +685,21 @@ func TestDiscoverFromPodMonitor_NoMatch(t *testing.T) {
 		},
 	}
 	pm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "PodMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-pm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "other",
 					},
 				},
-				"podMetricsEndpoints": []interface{}{
-					map[string]interface{}{
+				"podMetricsEndpoints": []any{
+					map[string]any{
 						"path": "/metrics",
 						"port": int64(9091),
 					},
@@ -761,21 +761,21 @@ func TestDiscoverFromPodMonitor_NilServiceSelector(t *testing.T) {
 		},
 	}
 	pm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "PodMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-pm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "test",
 					},
 				},
-				"podMetricsEndpoints": []interface{}{
-					map[string]interface{}{
+				"podMetricsEndpoints": []any{
+					map[string]any{
 						"port": int64(9091),
 					},
 				},
@@ -810,24 +810,24 @@ func TestDiscoverFromPodMonitor_WithAuthFields(t *testing.T) {
 		},
 	}
 	pm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "PodMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-pm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "test",
 					},
 				},
-				"podMetricsEndpoints": []interface{}{
-					map[string]interface{}{
+				"podMetricsEndpoints": []any{
+					map[string]any{
 						"path": "/metrics",
 						"port": int64(9091),
-						"bearerTokenSecret": map[string]interface{}{
+						"bearerTokenSecret": map[string]any{
 							"name": "token-secret",
 						},
 					},
@@ -877,21 +877,21 @@ func TestDiscoverMetricsTarget_ServiceMonitorPrecedence(t *testing.T) {
 		},
 	}
 	sm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "ServiceMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-sm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "test",
 					},
 				},
-				"endpoints": []interface{}{
-					map[string]interface{}{
+				"endpoints": []any{
+					map[string]any{
 						"path": "/sm/metrics",
 						"port": int64(9999),
 					},
@@ -943,21 +943,21 @@ func TestDiscoverMetricsTarget_PodMonitorPrecedence(t *testing.T) {
 		},
 	}
 	pm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "PodMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-pm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "test",
 					},
 				},
-				"podMetricsEndpoints": []interface{}{
-					map[string]interface{}{
+				"podMetricsEndpoints": []any{
+					map[string]any{
 						"path": "/pm/metrics",
 						"port": int64(9998),
 					},
@@ -1095,22 +1095,22 @@ func TestDiscoverFromServiceMonitor_InvalidEndpointType(t *testing.T) {
 		},
 	}
 	sm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "ServiceMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-sm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "test",
 					},
 				},
-				"endpoints": []interface{}{
+				"endpoints": []any{
 					"invalid-not-a-map",
-					map[string]interface{}{
+					map[string]any{
 						"path": "/metrics",
 						"port": int64(9090),
 					},
@@ -1149,22 +1149,22 @@ func TestDiscoverFromPodMonitor_InvalidEndpointType(t *testing.T) {
 		},
 	}
 	pm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "monitoring.coreos.com/v1",
 			"kind":       "PodMonitor",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "test-pm",
 				"namespace": "default",
 			},
-			"spec": map[string]interface{}{
-				"selector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
 						"app": "test",
 					},
 				},
-				"podMetricsEndpoints": []interface{}{
+				"podMetricsEndpoints": []any{
 					"invalid-not-a-map",
-					map[string]interface{}{
+					map[string]any{
 						"path": "/pod/metrics",
 						"port": int64(9091),
 					},

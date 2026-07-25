@@ -28,6 +28,10 @@ const (
 	LabelComponent = "app.kubernetes.io/component"
 	LabelName      = "app.kubernetes.io/name"
 
+	envWatchNamespace = "PACTO_WATCH_NAMESPACE"
+	volumeCache       = "cache"
+	volumeOCIcreds    = "oci-creds"
+
 	// Values
 	ManagedByValue = "pacto-operator"
 	ComponentValue = "dashboard"
@@ -124,20 +128,20 @@ func BuildDeployment(cfg Config) *appsv1.Deployment {
 
 	if cfg.WatchNamespace != "" {
 		env = append(env, corev1.EnvVar{
-			Name:  "PACTO_WATCH_NAMESPACE",
+			Name:  envWatchNamespace,
 			Value: cfg.WatchNamespace,
 		})
 	}
 
 	volumeMounts := []corev1.VolumeMount{
 		{
-			Name:      "cache",
+			Name:      volumeCache,
 			MountPath: "/home/pacto/.cache/pacto",
 		},
 	}
 	volumes := []corev1.Volume{
 		{
-			Name: "cache",
+			Name: volumeCache,
 			VolumeSource: corev1.VolumeSource{
 				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
@@ -149,12 +153,12 @@ func BuildDeployment(cfg Config) *appsv1.Deployment {
 	// that go-containerregistry's default keychain reads automatically.
 	if len(cfg.EffectiveOCISecrets()) > 0 {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "oci-creds",
+			Name:      volumeOCIcreds,
 			MountPath: "/home/pacto/.docker",
 			ReadOnly:  true,
 		})
 		volumes = append(volumes, corev1.Volume{
-			Name: "oci-creds",
+			Name: volumeOCIcreds,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: ManagedSecretName,
@@ -186,7 +190,7 @@ func BuildDeployment(cfg Config) *appsv1.Deployment {
 					ServiceAccountName: Name,
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: new(true),
-						RunAsUser:    int64Ptr(65532),
+						RunAsUser:    new(int64(65532)),
 						SeccompProfile: &corev1.SeccompProfile{
 							Type: corev1.SeccompProfileTypeRuntimeDefault,
 						},
@@ -235,7 +239,7 @@ func BuildDeployment(cfg Config) *appsv1.Deployment {
 						},
 					},
 					Volumes:                       volumes,
-					TerminationGracePeriodSeconds: int64Ptr(10),
+					TerminationGracePeriodSeconds: new(int64(10)),
 				},
 			},
 		},
@@ -263,6 +267,3 @@ func BuildService(cfg Config) *corev1.Service {
 		},
 	}
 }
-
-//go:fix inline
-func int64Ptr(i int64) *int64 { return new(i) }

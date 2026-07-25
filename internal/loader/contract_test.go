@@ -409,7 +409,7 @@ func TestLoad_CacheEviction(t *testing.T) {
 	}
 
 	// Fill cache with > 100 entries, some expired
-	for i := 0; i < 110; i++ {
+	for i := range 110 {
 		key := fmt.Sprintf("inline-%d", i)
 		expires := time.Now().Add(30 * time.Second)
 		if i%2 == 0 {
@@ -441,7 +441,7 @@ func TestListTags_CacheEviction(t *testing.T) {
 	}
 
 	// Fill tag cache with > 100 entries, some expired
-	for i := 0; i < 110; i++ {
+	for i := range 110 {
 		key := fmt.Sprintf("tags:ghcr.io/org/svc%d", i)
 		expires := time.Now().Add(5 * time.Minute)
 		if i%2 == 0 {

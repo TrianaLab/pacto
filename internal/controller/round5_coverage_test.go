@@ -352,7 +352,7 @@ func TestReconcile_CollectForTargetError(t *testing.T) {
 		}
 	}
 	if !found {
-		var codes []string
+		codes := make([]string, 0, len(got.Status.Findings))
 		for _, f := range got.Status.Findings {
 			codes = append(codes, f.Code)
 		}
