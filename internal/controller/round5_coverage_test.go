@@ -80,8 +80,9 @@ func TestReconcile_PullSecretMissing(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "ps-missing", "default")
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
-		t.Errorf("expected NonCompliant, got %s", got.Status.ContractStatus)
+	// Spec section 9.8: pull-secret read failed -> transient/credentials -> Unknown
+	if got.Status.ContractStatus != pactov1alpha1.ContractStatusUnknown {
+		t.Errorf("expected Unknown, got %s", got.Status.ContractStatus)
 	}
 	if got.Status.Validation == nil || len(got.Status.Validation.Errors) == 0 {
 		t.Error("expected validation errors from pull secret failure")
@@ -150,8 +151,9 @@ func TestReconcile_OverrideError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "ov-err", "default")
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
-		t.Errorf("expected NonCompliant, got %s", got.Status.ContractStatus)
+	// Spec section 9.8: override error -> effective contract cannot be constructed -> Invalid
+	if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+		t.Errorf("expected Invalid, got %s", got.Status.ContractStatus)
 	}
 }
 
@@ -220,8 +222,9 @@ func TestReconcile_ContractValidationError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "val-err", "default")
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
-		t.Errorf("expected NonCompliant, got %s", got.Status.ContractStatus)
+	// Spec section 9.8: structural/crossfield errors -> contract malformed -> Invalid
+	if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+		t.Errorf("expected Invalid, got %s", got.Status.ContractStatus)
 	}
 	if got.Status.Validation == nil || len(got.Status.Validation.Errors) == 0 {
 		t.Error("expected validation errors")
@@ -299,7 +302,7 @@ func TestReconcile_SyncAllRevisionsError(t *testing.T) {
 	}
 }
 
-// ---------- Reconcile: CollectForTarget error (194-210) ----------
+// ---------- Reconcile: workload GET error -> per-dimension Outcome=Failed -> COLLECTION_FAILED finding ----------
 
 func TestReconcile_CollectForTargetError(t *testing.T) {
 	pacto := &pactov1alpha1.Pacto{
@@ -315,8 +318,8 @@ func TestReconcile_CollectForTargetError(t *testing.T) {
 		WithObjects(pacto).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if _, ok := obj.(*corev1.Service); ok {
-					return fmt.Errorf("service get failed")
+				if _, ok := obj.(*appsv1.Deployment); ok {
+					return fmt.Errorf("deployment get failed")
 				}
 				return c.Get(ctx, key, obj, opts...)
 			},
@@ -340,22 +343,28 @@ func TestReconcile_CollectForTargetError(t *testing.T) {
 	if got.Status.ContractStatus != pactov1alpha1.ContractStatusUnknown {
 		t.Errorf("expected Unknown, got %s", got.Status.ContractStatus)
 	}
+	// Workload GET errored (non-NotFound) -> observeWorkloadDim produces Outcome=Failed observation
+	// -> Evaluate emits COLLECTION_FAILED (family-2, SeverityUnknown) -> aggregate Unknown.
 	found := false
 	for _, f := range got.Status.Findings {
-		if f.Code == "OBSERVATION_FAILED" {
+		if f.Code == "COLLECTION_FAILED" {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected OBSERVATION_FAILED finding")
+		var codes []string
+		for _, f := range got.Status.Findings {
+			codes = append(codes, f.Code)
+		}
+		t.Errorf("expected COLLECTION_FAILED finding; got codes: %v", codes)
 	}
 }
 
-// ---------- Reconcile: findings mapping -> Warning + non-compliant finish event ----------
+// ---------- Reconcile: findings mapping -> Error -> NonCompliant ----------
 
 // A target whose declared workload/persistence contradict observed evidence yields
-// warning findings (WORKLOAD_MISMATCH + PERSISTENCE_MISMATCH), driving the mapping
-// loop, warning counting, Warning status, workload-only Resources init, and the
+// Error findings (WORKLOAD_MISMATCH + PERSISTENCE_MISMATCH), driving the mapping
+// loop, error counting, NonCompliant status, workload-only Resources init, and the
 // finishReconciliation ValidationFailed event.
 func TestReconcile_DriftFindingsWarning(t *testing.T) {
 	pacto := &pactov1alpha1.Pacto{
@@ -394,11 +403,13 @@ func TestReconcile_DriftFindingsWarning(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "drift", "default")
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusWarning {
-		t.Errorf("expected Warning, got %s", got.Status.ContractStatus)
+	// Workload + persistence are required assertions (workload != "", durability=persistent).
+	// Contradicted required assertions -> SeverityError (spec section 4.2) -> NonCompliant.
+	if got.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+		t.Errorf("expected NonCompliant, got %s", got.Status.ContractStatus)
 	}
-	if got.Status.Summary == nil || got.Status.Summary.WarningCount == 0 {
-		t.Errorf("expected warning findings, got summary %+v", got.Status.Summary)
+	if got.Status.Summary == nil || got.Status.Summary.ErrorCount == 0 {
+		t.Errorf("expected error findings, got summary %+v", got.Status.Summary)
 	}
 	// Resources.Workload initialized from workloadName when no serviceName present.
 	if got.Status.Resources == nil || got.Status.Resources.Workload == nil {
