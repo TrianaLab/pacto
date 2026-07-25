@@ -245,7 +245,7 @@ Coverage is a metadata metric separate from compliance status. It tracks what pe
 
 ## Operator CR Changes
 
-The `pacto.trianalab.com/v1alpha1` `ServiceContract` CR evolves to support the compliance model:
+The `pacto.trianalab.io/v1alpha1` `Pacto` CR gains runtime bindings that let the operator observe interfaces and configurations under the compliance model. Bindings nest under `spec.target`.
 
 ### Spec Changes
 
@@ -254,10 +254,10 @@ The `pacto.trianalab.com/v1alpha1` `ServiceContract` CR evolves to support the c
 ```yaml
 spec:
   target:
+    serviceName: my-service
     interfaceBindings:
-      - name: http-api
-        service: my-service
-        port: 8080
+      - interface: http-api      # contract interfaces[].name
+        servicePort: 8080        # Service port name or number
 ```
 
 Binds declared interface names to Kubernetes Service ports for interface availability observation.
@@ -267,18 +267,21 @@ Binds declared interface names to Kubernetes Service ports for interface availab
 ```yaml
 spec:
   target:
+    serviceName: my-service
     configBindings:
-      - name: app
-        configMap: my-service-config
-      - name: secrets
-        secret: my-service-secrets
+      - configuration: app       # contract configurations[].name
+        kind: ConfigMap          # ConfigMap or Secret
+        name: my-service-config
+      - configuration: secrets
+        kind: Secret
+        name: my-service-secrets
 ```
 
-Binds declared configuration names to ConfigMap/Secret resources for configuration presence observation.
+Binds declared configuration names to the ConfigMap/Secret backing each for configuration presence observation.
 
 **Flags**:
 
-- `--stabilization-window`: grace period before confirmed-absence findings (default 5m)
+- `--stabilization-window`: grace period before a sustained negative becomes a confirmed finding (default 2m)
 - `--enable-metrics-observation`: opt-in metrics endpoint probing (default false)
 
 ### Status Changes
@@ -291,18 +294,16 @@ status:
   findings:
     - code: CAPABILITY_ABSENT
       severity: error
+      category: RuntimeDrift
+      subject: health           # plain string identifying the assertion
       message: "health capability not observed"
-      subject:
-        kind: capability
-        name: health
-  evaluationCoverage:
+  evaluationCoverage:           # metadata only; never changes contractStatus
     required: 5
     evaluated: 4
-    percent: 80
-  observationWindows:
-    capability:
-      observedAt: "2026-07-25T10:00:00Z"
-      freshnessWindow: 5m0s
+  observationWindows:           # a list; one entry per assertion with an open negative streak
+    - kind: capability
+      subject: health
+      firstObservedNegativeAt: "2026-07-25T10:00:00Z"
 ```
 
 ## Before and After Example
@@ -473,7 +474,7 @@ readiness:
 - **Contract model**: `pkg/contract/contract.go` (Go types)
 - **Compliance model spec**: `docs/superpowers/specs/2026-07-24-compliance-model-refinement.md`
 - **Findings and evidence**: `pkg/finding/finding.go`, `pkg/evidence/evidence.go`
-- **Operator integration**: pacto-operator repo, `api/v1alpha1/servicecontract_types.go`
+- **Operator integration**: pacto-operator repo, `api/v1alpha1/pacto_types.go`
 
 ## No Automated Migration Tool
 
