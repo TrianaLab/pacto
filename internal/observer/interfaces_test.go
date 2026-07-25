@@ -129,7 +129,7 @@ func TestObserveInterfacesDim(t *testing.T) {
 		}
 	})
 
-	t.Run("Service NotFound - Unsupported", func(t *testing.T) {
+	t.Run("Service NotFound - no observation (EVIDENCE_MISSING)", func(t *testing.T) {
 		obs := setup()
 		input := CollectInput{
 			Namespace:   "test-ns",
@@ -146,18 +146,17 @@ func TestObserveInterfacesDim(t *testing.T) {
 
 		observations, windowUpdates := obs.observeInterfacesDim(context.Background(), input, prov, now)
 
-		if len(observations) != 1 {
-			t.Fatalf("len(observations) = %d, want 1", len(observations))
-		}
-		if observations[0].Outcome != evidence.Unsupported {
-			t.Errorf("Outcome = %v, want Unsupported (Service NotFound)", observations[0].Outcome)
+		// A bound interface whose Service is NotFound emits NO observation, so the engine infers
+		// EVIDENCE_MISSING (spec section 7.3), never OBSERVATION_UNSUPPORTED.
+		if len(observations) != 0 {
+			t.Fatalf("len(observations) = %d, want 0 (Service NotFound -> EVIDENCE_MISSING)", len(observations))
 		}
 		if len(windowUpdates) != 0 {
-			t.Errorf("len(windowUpdates) = %d, want 0 (unmappable)", len(windowUpdates))
+			t.Errorf("len(windowUpdates) = %d, want 0 (no observation)", len(windowUpdates))
 		}
 	})
 
-	t.Run("Service ExternalName - Unsupported", func(t *testing.T) {
+	t.Run("Service ExternalName - Insufficient", func(t *testing.T) {
 		svc := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "test-ns"},
 			Spec: corev1.ServiceSpec{
@@ -184,12 +183,12 @@ func TestObserveInterfacesDim(t *testing.T) {
 		if len(observations) != 1 {
 			t.Fatalf("len(observations) = %d, want 1", len(observations))
 		}
-		if observations[0].Outcome != evidence.Unsupported {
-			t.Errorf("Outcome = %v, want Unsupported (ExternalName)", observations[0].Outcome)
+		if observations[0].Outcome != evidence.Insufficient {
+			t.Errorf("Outcome = %v, want Insufficient (ExternalName unmappable -> EVIDENCE_INSUFFICIENT)", observations[0].Outcome)
 		}
 	})
 
-	t.Run("port not found - Unsupported", func(t *testing.T) {
+	t.Run("port not found - Insufficient", func(t *testing.T) {
 		svc := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "test-ns"},
 			Spec: corev1.ServiceSpec{
@@ -213,8 +212,8 @@ func TestObserveInterfacesDim(t *testing.T) {
 
 		observations, _ := obs.observeInterfacesDim(context.Background(), input, prov, now)
 
-		if observations[0].Outcome != evidence.Unsupported {
-			t.Errorf("Outcome = %v, want Unsupported (port not found)", observations[0].Outcome)
+		if observations[0].Outcome != evidence.Insufficient {
+			t.Errorf("Outcome = %v, want Insufficient (port unmappable -> EVIDENCE_INSUFFICIENT)", observations[0].Outcome)
 		}
 	})
 
@@ -754,8 +753,8 @@ func TestCountReadyEndpoints(t *testing.T) {
 		if err != nil {
 			t.Errorf("error = %v, want nil", err)
 		}
-		if count != -1 {
-			t.Errorf("count = %d, want -1 (NotFound)", count)
+		if count != endpointsServiceNotFound {
+			t.Errorf("count = %d, want %d (NotFound)", count, endpointsServiceNotFound)
 		}
 	})
 
@@ -769,8 +768,8 @@ func TestCountReadyEndpoints(t *testing.T) {
 		if err != nil {
 			t.Errorf("error = %v, want nil", err)
 		}
-		if count != -1 {
-			t.Errorf("count = %d, want -1 (no selector)", count)
+		if count != endpointsUnmappable {
+			t.Errorf("count = %d, want %d (no selector -> unmappable)", count, endpointsUnmappable)
 		}
 	})
 

@@ -431,6 +431,29 @@ func TestObserveDependenciesDim(t *testing.T) {
 			}{},
 		},
 		{
+			name: "ambiguous multi-match (blue-green, equal resolvedRef) -> Insufficient",
+			deps: []contract.Dependency{
+				{Name: "payments", Ref: "oci://registry/payments-pacto:1.0.0", Required: true},
+			},
+			objects: []runtime.Object{
+				// Two siblings share the resolvedRef but expose distinct target services -> an arbitrary
+				// first-match pick would risk a wrong verdict, so the resolution must be Insufficient.
+				makePacto("payments-blue", testNS, "payment-blue", "1.0.0", "oci://registry/payments-pacto:1.0.0"),
+				makePacto("payments-green", testNS, "payment-green", "1.0.0", "oci://registry/payments-pacto:1.0.0"),
+			},
+			wantObservations: []struct {
+				depName string
+				outcome evidence.Outcome
+				value   *evidence.DependencyObservation
+			}{
+				{depName: "payments", outcome: evidence.Insufficient, value: nil},
+			},
+			wantWindowUpdates: []struct {
+				depName      string
+				windowActive bool
+			}{},
+		},
+		{
 			name: "dependency with all not-ready endpoints (not just missing slices)",
 			deps: []contract.Dependency{
 				{Name: "payments", Ref: "oci://registry/payments-pacto:1.0.0", Required: true},
@@ -622,6 +645,10 @@ func TestStripRefSuffix(t *testing.T) {
 		{name: "no scheme", ref: "registry/service:1.0.0", want: "registry/service"},
 		{name: "empty", ref: "", want: ""},
 		{name: "short oci", ref: "oci://", want: "oci://"},
+		// host:port authority: the registry port colon must NOT be mistaken for a tag separator.
+		{name: "ported registry untagged", ref: "oci://registry:5000/payments", want: "oci://registry:5000/payments"},
+		{name: "ported registry tagged", ref: "oci://registry:5000/payments:1.2.3", want: "oci://registry:5000/payments"},
+		{name: "ported registry digest", ref: "oci://registry:5000/payments@sha256:abcd", want: "oci://registry:5000/payments"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -644,10 +671,15 @@ func TestMatchesCompatibility(t *testing.T) {
 		{name: "1.x matches 1.5.3", constraint: "1.x", version: "1.5.3", want: true},
 		{name: "1.x does not match 2.0.0", constraint: "1.x", version: "2.0.0", want: false},
 		{name: "2.x matches 2.1.0", constraint: "2.x", version: "2.1.0", want: true},
+		// Real npm-style ranges (the canonical/validated form) must resolve, not fall through to equality.
+		{name: "caret matches within major", constraint: "^1.0.0", version: "1.4.2", want: true},
+		{name: "caret does not cross major", constraint: "^1.0.0", version: "2.0.0", want: false},
+		{name: "tilde matches within minor", constraint: "~1.2.0", version: "1.2.9", want: true},
+		{name: "tilde does not cross minor", constraint: "~1.2.0", version: "1.3.0", want: false},
 		{name: "exact match", constraint: "1.2.3", version: "1.2.3", want: true},
 		{name: "exact no match", constraint: "1.2.3", version: "1.2.4", want: false},
-		{name: "empty constraint matches empty version", constraint: "", version: "", want: true},
-		{name: "empty constraint does not match version", constraint: "", version: "1.0.0", want: false},
+		{name: "invalid constraint never matches", constraint: "", version: "1.0.0", want: false},
+		{name: "unparseable version never matches", constraint: "^1.0.0", version: "not-semver", want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

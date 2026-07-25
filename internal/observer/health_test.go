@@ -748,6 +748,97 @@ func TestObserveHealthDim_NamedTargetPort(t *testing.T) {
 	}
 }
 
+// TestObserveHealthDim_TierB_UsesOwningBindingNotFirst proves the Tier-B readiness fallback checks the
+// health capability's OWNING binding port, not an arbitrary InterfaceBindings[0]. Bindings are ordered
+// [{metrics,9090},{api,8080}] with health owning "api". The metrics container (9090) is Ready with a
+// readiness probe, so the old [0]-based resolution would over-claim SATISFIED; the api container (8080)
+// has NO readiness probe, so checking the owning binding must yield Failed.
+func TestObserveHealthDim_TierB_UsesOwningBindingNotFirst(t *testing.T) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "test"},
+			Ports: []corev1.ServicePort{
+				{Name: "metrics", Port: 9090, TargetPort: intstr.FromInt32(9090)},
+				{Name: "api", Port: 8080, TargetPort: intstr.FromInt32(8080)},
+			},
+		},
+	}
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-deploy", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "metrics",
+							Image: "metrics:latest",
+							Ports: []corev1.ContainerPort{{ContainerPort: 9090}},
+							ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
+								HTTPGet: &corev1.HTTPGetAction{Path: "/metrics", Port: intstr.FromInt32(9090)},
+							}},
+						},
+						{
+							Name:  "api",
+							Image: "api:latest",
+							Ports: []corev1.ContainerPort{{ContainerPort: 8080}},
+							// No readiness probe on the health-owning container.
+						},
+					},
+				},
+			},
+		},
+	}
+	// Ready endpoints on the METRICS port, so the buggy [0]-based path would resolve to SATISFIED.
+	ready := true
+	metricsPort := int32(9090)
+	slice := &discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-svc-abc",
+			Namespace: "default",
+			Labels:    map[string]string{discoveryv1.LabelServiceName: "test-svc"},
+		},
+		Ports:     []discoveryv1.EndpointPort{{Port: &metricsPort}},
+		Endpoints: []discoveryv1.Endpoint{{Conditions: discoveryv1.EndpointConditions{Ready: &ready}}},
+	}
+
+	o := &Observer{
+		client: fake.NewClientBuilder().WithObjects(svc, dep, slice).Build(),
+		prober: prober.New(5 * time.Second),
+	}
+	cap := contract.Capability{
+		Type: contract.CapabilityHealth,
+		Binding: &contract.CapabilityBinding{
+			Type:      contract.CapabilityBindingHTTP,
+			Interface: "api", // owning interface is "api" (8080), NOT InterfaceBindings[0] ("metrics", 9090)
+			Path:      "/health",
+		},
+	}
+	input := CollectInput{
+		Namespace:    "default",
+		ServiceName:  "test-svc",
+		WorkloadName: "test-deploy",
+		WorkloadKind: "Deployment",
+		Contract:     &contract.Contract{Service: contract.Service{Name: "test"}},
+		InterfaceBindings: []InterfaceBinding{
+			{Interface: "metrics", ServicePort: intstr.FromInt32(9090)},
+			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
+		},
+		StabilizationWindow: 2 * time.Minute,
+		ObservationWindows:  make(map[string]*metav1.Time),
+		Now:                 time.Now(),
+	}
+	prov := evidence.Provenance{Collector: "k8s-observer"}
+
+	obs, _ := o.observeHealthDim(context.Background(), input, cap, prov, input.Now)
+
+	// Direct probe to api:8080 fails; Tier-B checks the api container (no readiness) -> Failed.
+	// A regression to InterfaceBindings[0] (metrics, ready) would wrongly report Observed.
+	if obs.Outcome != evidence.Failed {
+		t.Errorf("Outcome = %s, want Failed (Tier-B must check the owning 'api' binding, not metrics[0])", obs.Outcome)
+	}
+}
+
 func TestObserveHealthDim_WindowUpdates(t *testing.T) {
 	// Verify that window updates are correctly emitted and reset.
 	svc := &corev1.Service{
@@ -1063,7 +1154,7 @@ func TestHandleHealthProbeResult_2xx_Satisfied(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, updates := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, nil, context.Background())
+	obs, updates := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, nil, context.Background(), 8080)
 
 	if obs.Outcome != evidence.Observed {
 		t.Errorf("expected Observed for 2xx, got %s", obs.Outcome)
@@ -1095,7 +1186,7 @@ func TestHandleHealthProbeResult_3xx_Satisfied(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, _ := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, nil, context.Background())
+	obs, _ := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, nil, context.Background(), 8080)
 
 	if obs.Outcome != evidence.Observed {
 		t.Errorf("expected Observed for 3xx, got %s", obs.Outcome)
@@ -1124,7 +1215,7 @@ func TestHandleHealthProbeResult_404_WithinWindow(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, updates := handleHealthProbeResult(result, subj, "health", input, prov, now, nil, context.Background())
+	obs, updates := handleHealthProbeResult(result, subj, "health", input, prov, now, nil, context.Background(), 8080)
 
 	if obs.Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient for first 404, got %s", obs.Outcome)
@@ -1157,7 +1248,7 @@ func TestHandleHealthProbeResult_404_BeyondWindow(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, updates := handleHealthProbeResult(result, subj, "health", input, prov, now, nil, context.Background())
+	obs, updates := handleHealthProbeResult(result, subj, "health", input, prov, now, nil, context.Background(), 8080)
 
 	if obs.Outcome != evidence.Observed {
 		t.Errorf("expected Observed for 404 beyond window, got %s", obs.Outcome)
@@ -1189,7 +1280,7 @@ func TestHandleHealthProbeResult_5xx_Insufficient(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, updates := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, nil, context.Background())
+	obs, updates := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, nil, context.Background(), 8080)
 
 	if obs.Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient for 5xx, got %s", obs.Outcome)
@@ -1213,7 +1304,7 @@ func TestHandleHealthProbeResult_501_Insufficient(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, _ := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, nil, context.Background())
+	obs, _ := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, nil, context.Background(), 8080)
 
 	if obs.Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient for 501, got %s", obs.Outcome)
@@ -1305,7 +1396,7 @@ func TestHandleHealthProbeResult_Unreachable_TierB(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	observation, _ := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, obs, context.Background())
+	observation, _ := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, obs, context.Background(), 8080)
 
 	// Tier B should succeed.
 	if observation.Outcome != evidence.Observed {
@@ -1603,40 +1694,10 @@ func TestCheckReadinessProbeFallbackFromInput_ServiceGetError(t *testing.T) {
 		},
 	}
 
-	hasProbe, podReady := o.checkReadinessProbeFallbackFromInput(context.Background(), input)
+	hasProbe, podReady := o.checkReadinessProbeFallbackFromInput(context.Background(), input, 8080)
 
 	if hasProbe || podReady {
 		t.Errorf("expected (false, false) for Service GET error, got (%v, %v)", hasProbe, podReady)
-	}
-}
-
-func TestCheckReadinessProbeFallbackFromInput_NoMatchingPort(t *testing.T) {
-	// Test servicePort == 0 (no matching port in Service).
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
-		Spec: corev1.ServiceSpec{
-			Ports: []corev1.ServicePort{
-				{Name: "http", Port: 9090},
-			},
-		},
-	}
-
-	o := &Observer{
-		client: fake.NewClientBuilder().WithObjects(svc).Build(),
-	}
-
-	input := CollectInput{
-		Namespace:   "default",
-		ServiceName: "test-svc",
-		InterfaceBindings: []InterfaceBinding{
-			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
-		},
-	}
-
-	hasProbe, podReady := o.checkReadinessProbeFallbackFromInput(context.Background(), input)
-
-	if hasProbe || podReady {
-		t.Errorf("expected (false, false) for no matching port, got (%v, %v)", hasProbe, podReady)
 	}
 }
 

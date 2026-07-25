@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io/fs"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -57,9 +58,6 @@ const (
 	promDefaultPath           = "/metrics"
 	promScrapeAnnotation      = "true"
 	promGroup                 = "monitoring.coreos.com"
-
-	ociSchemePrefix = "oci://"
-	defaultRegistry = "docker.io"
 
 	collectorName  = "k8s-observer"
 	scheduledScope = "scheduled"
@@ -573,9 +571,15 @@ func (o *Observer) observeInterfacesDim(ctx context.Context, input CollectInput,
 			continue
 		}
 
-		if readyCount < 0 {
-			// Service NotFound or port not mappable -> EVIDENCE_MISSING / EVIDENCE_INSUFFICIENT.
-			obs, _ := evidence.NewUnobserved(evidence.InterfaceObserved, subj, evidence.Unsupported, prov)
+		if readyCount == endpointsServiceNotFound {
+			// Bound interface whose Service is NotFound -> emit NO observation so the engine infers
+			// EVIDENCE_MISSING (spec section 7.3, mirroring the workload dimension's NotFound handling).
+			continue
+		}
+
+		if readyCount == endpointsUnmappable {
+			// Selector-less / ExternalName / port-unmappable -> conclusive EVIDENCE_INSUFFICIENT (spec section 7.3).
+			obs, _ := evidence.NewUnobserved(evidence.InterfaceObserved, subj, evidence.Insufficient, prov)
 			observations = append(observations, obs)
 			continue
 		}
@@ -615,9 +619,18 @@ func findInterfaceBinding(bindings []InterfaceBinding, ifaceName string) *Interf
 	return nil
 }
 
+// Sentinels for countReadyEndpoints. They distinguish the two non-count outcomes so the interfaces
+// producer can route them to the correct emission (spec section 7.3): a NotFound Service means the engine
+// should infer EVIDENCE_MISSING, whereas an unmappable Service is a conclusive EVIDENCE_INSUFFICIENT.
+const (
+	endpointsServiceNotFound = -1 // the Service does not exist
+	endpointsUnmappable      = -2 // selector-less / ExternalName / port not present in the Service
+)
+
 // countReadyEndpoints reads the Service and EndpointSlices for the given service and port, then returns the
-// count of Ready endpoints covering that port. Returns -1 if the Service is NotFound or the port cannot be
-// mapped; a non-NotFound API error is returned as error.
+// count of Ready endpoints covering that port. Returns endpointsServiceNotFound if the Service is NotFound,
+// endpointsUnmappable if the Service is selector-less / ExternalName / the port is absent, or a non-NotFound
+// API error as error.
 func (o *Observer) countReadyEndpoints(ctx context.Context, namespace, serviceName string, servicePort intstr.IntOrString) (int, error) {
 	// Read the Service.
 	svc := &corev1.Service{}
@@ -626,14 +639,14 @@ func (o *Observer) countReadyEndpoints(ctx context.Context, namespace, serviceNa
 		if client.IgnoreNotFound(err) != nil {
 			return 0, fmt.Errorf("failed to get Service %s: %w", serviceName, err)
 		}
-		// Service NotFound -> -1 (unmappable).
-		return -1, nil
+		// Service NotFound -> distinct from unmappable so the caller can infer EVIDENCE_MISSING.
+		return endpointsServiceNotFound, nil
 	}
 
 	// Check if the Service is selector-backed (not ExternalName).
 	if svc.Spec.Type == corev1.ServiceTypeExternalName || len(svc.Spec.Selector) == 0 {
-		// Selector-less / ExternalName -> unmappable.
-		return -1, nil
+		// Selector-less / ExternalName -> unmappable (EVIDENCE_INSUFFICIENT).
+		return endpointsUnmappable, nil
 	}
 
 	// Resolve the service port to a target port number.
@@ -648,8 +661,8 @@ func (o *Observer) countReadyEndpoints(ctx context.Context, namespace, serviceNa
 		}
 	}
 	if !found {
-		// Port not found in Service -> unmappable.
-		return -1, nil
+		// Port not found in Service -> unmappable (EVIDENCE_INSUFFICIENT).
+		return endpointsUnmappable, nil
 	}
 
 	// List EndpointSlices for this Service.
@@ -744,11 +757,18 @@ func (o *Observer) observeDependenciesDim(ctx context.Context, input CollectInpu
 		windowKey := fmt.Sprintf("dependency/%s", dep.Name)
 
 		// Resolve the dependency to an in-cluster sibling Pacto CR (spec section 7.6).
-		target, err := o.resolveDependencyToSibling(ctx, input.Namespace, dep)
+		target, ambiguous, err := o.resolveDependencyToSibling(ctx, input.Namespace, dep)
 
 		if err != nil {
 			// Controller-runtime client error (not a "no match" case) -> COLLECTION_FAILED.
 			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Failed, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		if ambiguous {
+			// More than one distinct sibling target -> arbitrary pick would be unsafe -> Insufficient (Unknown).
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Insufficient, prov)
 			observations = append(observations, obs)
 			continue
 		}
@@ -819,56 +839,50 @@ type dependencyTarget struct {
 }
 
 // resolveDependencyToSibling resolves a contract dependency to an in-cluster Pacto CR (spec section 7.6).
-// Returns nil if no reliable match exists (external / not pacto-managed).
+// Returns (nil, false, nil) when no reliable match exists (external / not pacto-managed); (target, false,
+// nil) for a single match; (nil, true, nil) when the dependency resolves to more than one DISTINCT
+// {namespace, serviceName} target (blue-green with equal resolvedRef, or the same service in two watched
+// namespaces) — an arbitrary pick would risk a wrong verdict, so the caller must treat it as Insufficient.
 // Returns an error only for controller-runtime client failures.
-// ponytail: sibling-CR identity match via status.contract (resolvedRef / serviceName+version) + spec.target.serviceName.
-func (o *Observer) resolveDependencyToSibling(ctx context.Context, _ string, dep contract.Dependency) (*dependencyTarget, error) {
+func (o *Observer) resolveDependencyToSibling(ctx context.Context, _ string, dep contract.Dependency) (*dependencyTarget, bool, error) {
 	// List all Pacto CRs. For single-namespace manager cache, this only sees CRs in the watched namespace(s).
-	// Cross-namespace dependencies invisible under a single-namespace cache -> a distinct COLLECTION_FAILED per spec.
 	var pactoList unversioned.PactoList
 	if err := o.client.List(ctx, &pactoList); err != nil {
-		return nil, fmt.Errorf("failed to list Pacto CRs: %w", err)
+		return nil, false, fmt.Errorf("failed to list Pacto CRs: %w", err)
 	}
 
-	// Match dep.Ref / compatibility to a sibling's status.contract (resolvedRef / serviceName+version).
-	// Spec section 7.6: match dep.Ref / dep.Compatibility to sibling status.contract (resolvedRef / serviceName+version),
-	// then read sibling's spec.target.serviceName + namespace for Service coordinates.
-	// The spec does not detail the EXACT matching rule, so I implement a reasonable interpretation:
-	// - Match on resolvedRef prefix (ignoring tag/digest suffix for unversioned deps).
-	// - If compatibility is specified, check semver constraint against sibling's version.
-
+	// Match dep.Ref / dep.Compatibility to sibling status.contract (resolvedRef / version), then read the
+	// sibling's spec.target.serviceName + namespace for Service coordinates. Distinct matches are counted
+	// so an ambiguous resolution is never silently collapsed to a first-match-wins pick.
+	var matches []dependencyTarget
+	seen := make(map[dependencyTarget]bool)
 	for _, sibling := range pactoList.Items {
 		if sibling.Status.Contract == nil {
 			continue
 		}
-
-		// Check if the resolvedRef matches the dep.Ref.
 		if !matchesRef(dep.Ref, sibling.Status.Contract.ResolvedRef) {
 			continue
 		}
-
-		// If compatibility is specified, check semver constraint.
-		if dep.Compatibility != "" {
-			if !matchesCompatibility(dep.Compatibility, sibling.Status.Contract.Version) {
-				continue
-			}
+		if dep.Compatibility != "" && !matchesCompatibility(dep.Compatibility, sibling.Status.Contract.Version) {
+			continue
 		}
-
-		// Match found -> extract target Service coordinates.
-		// Check if sibling has a spec.target.serviceName (not reference-only).
-		if sibling.Spec.Target.ServiceName == "" {
-			// Reference-only contract -> return a target with empty serviceName (caller handles as Insufficient).
-			return &dependencyTarget{namespace: sibling.Namespace, serviceName: ""}, nil
+		t := dependencyTarget{namespace: sibling.Namespace, serviceName: sibling.Spec.Target.ServiceName}
+		if !seen[t] {
+			seen[t] = true
+			matches = append(matches, t)
 		}
-
-		return &dependencyTarget{
-			namespace:   sibling.Namespace,
-			serviceName: sibling.Spec.Target.ServiceName,
-		}, nil
 	}
 
-	// No matching sibling CR -> external / not pacto-managed.
-	return nil, nil
+	switch len(matches) {
+	case 0:
+		// No matching sibling CR -> external / not pacto-managed.
+		return nil, false, nil
+	case 1:
+		return &matches[0], false, nil
+	default:
+		// Ambiguous multi-match -> caller emits EVIDENCE_INSUFFICIENT (spec section 7.6).
+		return nil, true, nil
+	}
 }
 
 // matchesRef reports whether a dependency ref matches a sibling's resolvedRef.
@@ -882,50 +896,29 @@ func matchesRef(depRef, siblingRef string) bool {
 	return depBase == siblingBase
 }
 
-// stripRefSuffix removes trailing :tag or @digest from an OCI ref.
-// ponytail: scan from end, skip scheme's "://".
+// stripRefSuffix removes a trailing :tag or @digest from an OCI ref, ignoring the host:port colon in a
+// registry authority. A '@' digest separator is unambiguous anywhere; a ':' is a tag separator only when
+// it appears AFTER the last '/' (so "oci://registry:5000/payments" keeps its full repo path).
 func stripRefSuffix(ref string) string {
-	// Find the FIRST occurrence of ':' or '@' AFTER the scheme (oci://).
-	// We scan from the end to find the last such separator.
-	schemeEnd := 0
-	if len(ref) >= 6 && ref[:6] == ociSchemePrefix {
-		schemeEnd = 6
-	}
-	// Find the last '@' (digest separator).
-	if idx := lastIndexAfter(ref, '@', schemeEnd); idx >= 0 {
+	if idx := strings.LastIndexByte(ref, '@'); idx >= 0 {
 		return ref[:idx]
 	}
-	// Find the last ':' after the scheme (tag separator).
-	if idx := lastIndexAfter(ref, ':', schemeEnd); idx >= 0 {
+	if idx := strings.LastIndexByte(ref, ':'); idx > strings.LastIndexByte(ref, '/') {
 		return ref[:idx]
 	}
 	return ref
 }
 
-// lastIndexAfter finds the last occurrence of c in s after position start.
-// Returns -1 if not found.
-func lastIndexAfter(s string, c byte, start int) int {
-	for i := len(s) - 1; i >= start; i-- {
-		if s[i] == c {
-			return i
-		}
-	}
-	return -1
-}
-
-// matchesCompatibility reports whether a version satisfies a semver compatibility constraint.
-// ponytail: minimal semver constraint check — "1.x" matches "1.2.3", exact match otherwise.
+// matchesCompatibility reports whether a version satisfies a semver compatibility RANGE (spec 7.6).
+// dep.Compatibility is mandatory and its validated form is a range, so every npm-style constraint
+// (^, ~, x-wildcard, exact) resolves through the engine's range parser. An unparseable constraint
+// never matches (fail closed).
 func matchesCompatibility(constraint, version string) bool {
-	// Minimal implementation: support "X.x" pattern (major version match) and exact match.
-	// "1.x" matches any "1.y.z", "2.x" matches any "2.y.z", etc.
-	if len(constraint) >= 2 && constraint[len(constraint)-2:] == ".x" {
-		// Extract major version from constraint.
-		major := constraint[:len(constraint)-2]
-		// Check if version starts with the same major.
-		return len(version) > len(major) && version[:len(major)] == major && version[len(major)] == '.'
+	r, err := contract.ParseRange(constraint)
+	if err != nil {
+		return false
 	}
-	// Otherwise, require exact match.
-	return constraint == version
+	return r.Contains(version)
 }
 
 // countReadyEndpointsForService counts ready endpoints for a Service (protocol-agnostic, any port).
@@ -1020,7 +1013,9 @@ func (o *Observer) observeHealthDim(ctx context.Context, input CollectInput, cap
 	// Tier A: direct in-cluster probe.
 	result := o.prober.Probe(ctx, probeURL)
 
-	return handleHealthProbeResult(result, subj, cap.AssertionKey(), input, prov, now, o, ctx)
+	// targetPort is the health capability's OWNING binding port; the Tier-B readiness fallback must check
+	// that same binding, never an arbitrary InterfaceBindings[0].
+	return handleHealthProbeResult(result, subj, cap.AssertionKey(), input, prov, now, o, ctx, targetPort)
 }
 
 // handleHealthProbeResult interprets the prober result and returns the appropriate observation/window-update.
@@ -1035,6 +1030,7 @@ func handleHealthProbeResult(
 	now time.Time,
 	obs *Observer,
 	ctx context.Context,
+	owningServicePort int32,
 ) (evidence.Observation, []ObservationWindowUpdate) {
 	windowKey := fmt.Sprintf("capability/%s", assertionKey)
 
@@ -1075,7 +1071,7 @@ func handleHealthProbeResult(
 
 	// Direct probe failed (transport error) -> try Tier B (READINESS-probe fallback).
 	if obs != nil {
-		hasReadinessProbe, podReady := obs.checkReadinessProbeFallbackFromInput(ctx, input)
+		hasReadinessProbe, podReady := obs.checkReadinessProbeFallbackFromInput(ctx, input, owningServicePort)
 
 		if hasReadinessProbe && podReady {
 			// Tier B satisfied (lower confidence).
@@ -1088,31 +1084,15 @@ func handleHealthProbeResult(
 	return observation, nil
 }
 
-// checkReadinessProbeFallbackFromInput is a wrapper that resolves the Service from the input and calls
-// checkReadinessProbeFallback.
-func (o *Observer) checkReadinessProbeFallbackFromInput(ctx context.Context, input CollectInput) (bool, bool) {
-	// Resolve the Service (we need it for checkReadinessProbeFallback).
+// checkReadinessProbeFallbackFromInput resolves the Service and runs the Tier-B readiness fallback against
+// the health capability's OWNING binding port (already resolved by observeHealthDim), never an arbitrary
+// InterfaceBindings[0]. Using the wrong binding's port would check the wrong container and could report
+// SATISFIED when only a sidecar is Ready.
+func (o *Observer) checkReadinessProbeFallbackFromInput(ctx context.Context, input CollectInput, servicePort int32) (bool, bool) {
 	svc := &corev1.Service{}
-	err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, svc)
-	if err != nil {
+	if err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, svc); err != nil {
 		return false, false
 	}
-
-	// Find the service port from the first interface binding (health uses the owning interface's port).
-	var servicePort int32
-	if len(input.InterfaceBindings) > 0 {
-		for _, p := range svc.Spec.Ports {
-			if matchesServicePort(p, input.InterfaceBindings[0].ServicePort) {
-				servicePort = p.Port
-				break
-			}
-		}
-	}
-
-	if servicePort == 0 {
-		return false, false
-	}
-
 	return o.checkReadinessProbeFallback(ctx, input, svc, servicePort)
 }
 
