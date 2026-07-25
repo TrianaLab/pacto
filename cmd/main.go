@@ -83,6 +83,8 @@ func main() {
 	var showVersion bool
 	var stabilizationWindow time.Duration
 	var enableMetricsObservation bool
+	var enableProbing bool
+	var enableInterfaceNameMatchDiscovery bool
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or set to 0 to disable the metrics service.")
@@ -127,6 +129,12 @@ func main() {
 			"Assertions must remain unsatisfied for this entire window before being considered a failure.")
 	flag.BoolVar(&enableMetricsObservation, "enable-metrics-observation", false,
 		"Enable full metrics observation (discovery + active probe). When disabled, metrics dimension returns Unsupported.")
+	flag.BoolVar(&enableProbing, "enable-probing", false,
+		"Enable active in-cluster HTTP probing of health capability endpoints (Tier A). Off by default; "+
+			"when off, health uses passive readiness-probe and EndpointSlice signals only.")
+	flag.BoolVar(&enableInterfaceNameMatchDiscovery, "interface-name-match-discovery", false,
+		"Enable resolving an unbound interface's Service port by matching a Service port whose name equals "+
+			"the interface name (positive availability assist only; never produces an absent or error result).")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -255,10 +263,12 @@ func main() {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
-		Recorder:                 mgr.GetEventRecorderFor("pacto-controller"),
-		Loader:                   loader.New(),
-		StabilizationWindow:      stabilizationWindow,
-		EnableMetricsObservation: enableMetricsObservation,
+		Recorder:                          mgr.GetEventRecorderFor("pacto-controller"),
+		Loader:                            loader.New(),
+		StabilizationWindow:               stabilizationWindow,
+		EnableMetricsObservation:          enableMetricsObservation,
+		EnableProbing:                     enableProbing,
+		EnableInterfaceNameMatchDiscovery: enableInterfaceNameMatchDiscovery,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pacto")
 		os.Exit(1)

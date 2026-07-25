@@ -199,6 +199,9 @@ func reconcile(t *testing.T, name, ns string, opts reconcileOpts) reconcileResul
 		Loader:                   ldr,
 		StabilizationWindow:      stabWindow,
 		EnableMetricsObservation: opts.metricsEnabled,
+		// Active Tier-A health probing is opt-in (M4a). Existing e2e health assertions rely on it;
+		// a later agent adds probing-off cases.
+		EnableProbing: true,
 	}
 	req := ctrl.Request{NamespacedName: client.ObjectKey{Namespace: ns, Name: name}}
 	if _, err := r.Reconcile(testCtx, req); err != nil {

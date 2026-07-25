@@ -97,7 +97,12 @@ type CollectInput struct {
 	Now                 time.Time
 
 	EnableMetricsObservation bool
-	// TODO(S6.4): ProbeEnabled, InterfaceNameMatchDiscovery will be added in later steps.
+	// EnableProbing gates the health dimension's active Tier-A HTTP probe (SSRF surface; opt-in).
+	// When false, health uses only passive Tier-B signals (readiness probe + EndpointSlice Ready).
+	EnableProbing bool
+	// EnableInterfaceNameMatchDiscovery lets the interfaces collector resolve an unbound interface's
+	// Service port by matching a Service port named after the interface — positive availability only.
+	EnableInterfaceNameMatchDiscovery bool
 }
 
 // RuntimeSnapshot is the internal state for k8s observations (kept for internal convenience).
@@ -555,6 +560,13 @@ func (o *Observer) observeInterfacesDim(ctx context.Context, input CollectInput,
 		// Find the binding for this interface.
 		binding := findInterfaceBinding(input.InterfaceBindings, iface.Name)
 		if binding == nil {
+			// Optional name-match discovery (spec section 7.3 / B4): resolve an unbound interface's Service
+			// port by matching a port named after the interface — positive availability assist ONLY (INV-4),
+			// never INTERFACE_ABSENT.
+			if input.EnableInterfaceNameMatchDiscovery && o.interfaceSatisfiedByNameMatch(ctx, input, iface.Name) {
+				observations = append(observations, evidence.NewInterfaceObserved(subj, iface.Type, true, prov))
+				continue
+			}
 			// No binding -> OBSERVATION_UNSUPPORTED (spec section 7.3).
 			obs, _ := evidence.NewUnobserved(evidence.InterfaceObserved, subj, evidence.Unsupported, prov)
 			observations = append(observations, obs)
@@ -607,6 +619,15 @@ func (o *Observer) observeInterfacesDim(ctx context.Context, input CollectInput,
 	}
 
 	return observations, windowUpdates
+}
+
+// interfaceSatisfiedByNameMatch attempts name-match discovery (spec section 7.3 / B4) for an unbound
+// interface: it resolves the Service port whose Name equals the interface name and reports whether at
+// least one Ready endpoint covers it. Positive-availability assist ONLY (INV-4) — it can only report
+// satisfied, never absent, so a NotFound / unmappable / zero-ready outcome yields false.
+func (o *Observer) interfaceSatisfiedByNameMatch(ctx context.Context, input CollectInput, ifaceName string) bool {
+	readyCount, err := o.countReadyEndpoints(ctx, input.Namespace, input.ServiceName, intstr.FromString(ifaceName))
+	return err == nil && readyCount >= 1
 }
 
 // findInterfaceBinding locates the binding for a given interface name.
@@ -1007,11 +1028,14 @@ func (o *Observer) observeHealthDim(ctx context.Context, input CollectInput, cap
 		return obs, nil
 	}
 
-	// Build the probe URL (SSRF-safe via prober.BuildURL — INV-6).
-	probeURL := prober.BuildURL(input.ServiceName, input.Namespace, targetPort, cap.Binding.Path)
-
-	// Tier A: direct in-cluster probe.
-	result := o.prober.Probe(ctx, probeURL)
+	// Tier A: active in-cluster probe (opt-in via EnableProbing — SSRF surface). When disabled, leave the
+	// zero-value (Reachable=false) result so handleHealthProbeResult routes straight to passive Tier-B.
+	var result prober.Result
+	if input.EnableProbing {
+		// SSRF-safe URL via prober.BuildURL — INV-6.
+		probeURL := prober.BuildURL(input.ServiceName, input.Namespace, targetPort, cap.Binding.Path)
+		result = o.prober.Probe(ctx, probeURL)
+	}
 
 	// targetPort is the health capability's OWNING binding port; the Tier-B readiness fallback must check
 	// that same binding, never an arbitrary InterfaceBindings[0].
@@ -1069,7 +1093,7 @@ func handleHealthProbeResult(
 		return observation, nil
 	}
 
-	// Direct probe failed (transport error) -> try Tier B (READINESS-probe fallback).
+	// Active probe unreachable or disabled -> passive Tier B (READINESS-probe fallback).
 	if obs != nil {
 		hasReadinessProbe, podReady := obs.checkReadinessProbeFallbackFromInput(ctx, input, owningServicePort)
 
@@ -1077,9 +1101,16 @@ func handleHealthProbeResult(
 			// Tier B satisfied (lower confidence).
 			return evidence.NewCapabilityObserved(subj, true, prov), nil
 		}
+		if !hasReadinessProbe {
+			// No usable Tier-B evidence (liveness-only / no-probe / tcpSocket / exec / unresolvable target)
+			// -> EVIDENCE_INSUFFICIENT (spec section 7.4), never COLLECTION_FAILED from missing evidence.
+			observation, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Insufficient, prov)
+			return observation, nil
+		}
+		// hasReadinessProbe && !podReady falls through: a declared readiness probe whose Pod is not Ready.
 	}
 
-	// Probe failed and no READINESS fallback -> Failed (transport error).
+	// Readiness probe present but Pod not Ready (or extraction guard obs==nil) -> Failed.
 	observation, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Failed, prov)
 	return observation, nil
 }

@@ -428,17 +428,18 @@ func TestHealth(t *testing.T) {
 		requireNoFinding(t, p, "CAPABILITY_ABSENT")
 	})
 
-	t.Run("probe_unreachable_no_readiness_unknown_COLLECTION_FAILED", func(t *testing.T) {
+	t.Run("probe_unreachable_no_readiness_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
-		createDeployment(t, ns, "svc", deployOpts{}) // no readiness probe -> tier-B fails
+		createDeployment(t, ns, "svc", deployOpts{}) // no readiness probe -> no usable tier-B evidence
 		pointAtClosedPort(t, ns, "svc", port)
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
 			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
-		requireFinding(t, p, "COLLECTION_FAILED")
+		// Spec section 7.4: liveness-only / no-probe -> EVIDENCE_INSUFFICIENT, not COLLECTION_FAILED (M13).
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 	})
 
 	t.Run("no_binding_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {

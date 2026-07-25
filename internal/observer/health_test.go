@@ -405,9 +405,9 @@ func TestObserveHealthDim_TierB_LivenessOnly_Insufficient(t *testing.T) {
 
 	obs, _ := o.observeHealthDim(context.Background(), input, cap, prov, input.Now)
 
-	// Direct probe fails, tier B has liveness-only -> Failed (no readiness probe).
-	if obs.Outcome != evidence.Failed {
-		t.Errorf("expected Failed for liveness-only, got %s", obs.Outcome)
+	// No active probe, tier B has liveness-only -> no usable evidence -> EVIDENCE_INSUFFICIENT (spec section 7.4).
+	if obs.Outcome != evidence.Insufficient {
+		t.Errorf("expected Insufficient for liveness-only, got %s", obs.Outcome)
 	}
 }
 
@@ -832,10 +832,10 @@ func TestObserveHealthDim_TierB_UsesOwningBindingNotFirst(t *testing.T) {
 
 	obs, _ := o.observeHealthDim(context.Background(), input, cap, prov, input.Now)
 
-	// Direct probe to api:8080 fails; Tier-B checks the api container (no readiness) -> Failed.
+	// Tier-B checks the api container (no readiness probe) -> no usable evidence -> Insufficient.
 	// A regression to InterfaceBindings[0] (metrics, ready) would wrongly report Observed.
-	if obs.Outcome != evidence.Failed {
-		t.Errorf("Outcome = %s, want Failed (Tier-B must check the owning 'api' binding, not metrics[0])", obs.Outcome)
+	if obs.Outcome != evidence.Insufficient {
+		t.Errorf("Outcome = %s, want Insufficient (Tier-B must check the owning 'api' binding, not metrics[0])", obs.Outcome)
 	}
 }
 
@@ -1073,7 +1073,7 @@ func TestObserveHealthDim_EmptyInterfaceBindings_NoPort(t *testing.T) {
 	}
 }
 
-func TestObserveHealthDim_NoReadinessProbe_Failed(t *testing.T) {
+func TestObserveHealthDim_NoReadinessProbe_Insufficient(t *testing.T) {
 	// Test case where there's no readiness probe at all.
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
@@ -1135,9 +1135,9 @@ func TestObserveHealthDim_NoReadinessProbe_Failed(t *testing.T) {
 
 	obs, _ := o.observeHealthDim(context.Background(), input, cap, prov, input.Now)
 
-	// No readiness probe -> Failed.
-	if obs.Outcome != evidence.Failed {
-		t.Errorf("expected Failed for no readiness probe, got %s", obs.Outcome)
+	// No readiness probe -> no usable Tier-B evidence -> EVIDENCE_INSUFFICIENT (spec section 7.4).
+	if obs.Outcome != evidence.Insufficient {
+		t.Errorf("expected Insufficient for no readiness probe, got %s", obs.Outcome)
 	}
 }
 
@@ -1412,7 +1412,7 @@ func TestHandleHealthProbeResult_Unreachable_TierB(t *testing.T) {
 	}
 }
 
-func TestObserveHealthDim_ContainerNotExposingPort_Failed(t *testing.T) {
+func TestObserveHealthDim_ContainerNotExposingPort_Insufficient(t *testing.T) {
 	// Test case where the container doesn't expose the target port.
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
@@ -1481,9 +1481,9 @@ func TestObserveHealthDim_ContainerNotExposingPort_Failed(t *testing.T) {
 
 	obs, _ := o.observeHealthDim(context.Background(), input, cap, prov, input.Now)
 
-	// Container not exposing the target port -> Failed.
-	if obs.Outcome != evidence.Failed {
-		t.Errorf("expected Failed for container not exposing port, got %s", obs.Outcome)
+	// Container not exposing the target port -> unresolvable Tier-B target -> EVIDENCE_INSUFFICIENT.
+	if obs.Outcome != evidence.Insufficient {
+		t.Errorf("expected Insufficient for container not exposing port, got %s", obs.Outcome)
 	}
 }
 
@@ -1804,5 +1804,105 @@ func TestCheckReadinessProbeFallback_NoTargetPortMatch(t *testing.T) {
 
 	if hasProbe || podReady {
 		t.Errorf("expected (false, false) for no target port match, got (%v, %v)", hasProbe, podReady)
+	}
+}
+
+// M4a: --enable-probing gates the active Tier-A HTTP probe (SSRF surface; opt-in).
+
+func TestObserveHealthDim_ProbingEnabled_TierAActive(t *testing.T) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "test"},
+			Ports:    []corev1.ServicePort{{Name: "http", Port: 8080, TargetPort: intstr.FromInt32(8080)}},
+		},
+	}
+	o := &Observer{
+		client: fake.NewClientBuilder().WithObjects(svc).Build(),
+		prober: &fakeMetricsProber{result: prober.Result{Reachable: true, StatusCode: 200}},
+	}
+	cap := contract.Capability{
+		Type:    contract.CapabilityHealth,
+		Binding: &contract.CapabilityBinding{Type: contract.CapabilityBindingHTTP, Interface: "api", Path: "/health"},
+	}
+	input := CollectInput{
+		Namespace:           "default",
+		ServiceName:         "test-svc",
+		WorkloadName:        "test-deploy",
+		WorkloadKind:        "Deployment",
+		Contract:            &contract.Contract{Service: contract.Service{Name: "test"}},
+		InterfaceBindings:   []InterfaceBinding{{Interface: "api", ServicePort: intstr.FromInt32(8080)}},
+		StabilizationWindow: 2 * time.Minute,
+		ObservationWindows:  make(map[string]*metav1.Time),
+		Now:                 time.Now(),
+		EnableProbing:       true,
+	}
+	prov := evidence.Provenance{Collector: "k8s-observer"}
+
+	obs, _ := o.observeHealthDim(context.Background(), input, cap, prov, input.Now)
+
+	// Active Tier-A probe ran and returned 2xx -> satisfied.
+	if obs.Outcome != evidence.Observed {
+		t.Fatalf("expected Observed from active Tier-A probe, got %s", obs.Outcome)
+	}
+	payload, err := obs.GetCapabilityObservation()
+	if err != nil {
+		t.Fatalf("expected payload, got error: %v", err)
+	}
+	if !payload.Present {
+		t.Error("expected Present=true for Tier-A 2xx")
+	}
+}
+
+func TestObserveHealthDim_ProbingDisabled_SkipsActiveProbe(t *testing.T) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "test"},
+			Ports:    []corev1.ServicePort{{Name: "http", Port: 8080, TargetPort: intstr.FromInt32(8080)}},
+		},
+	}
+	// Deployment with no readiness probe -> Tier-B cannot establish availability.
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-deploy", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "app", Image: "app:latest", Ports: []corev1.ContainerPort{{ContainerPort: 8080}}},
+					},
+				},
+			},
+		},
+	}
+	o := &Observer{
+		client: fake.NewClientBuilder().WithObjects(svc, dep).Build(),
+		// A 200-returning prober: if the gate were bypassed this would report Observed.
+		prober: &fakeMetricsProber{result: prober.Result{Reachable: true, StatusCode: 200}},
+	}
+	cap := contract.Capability{
+		Type:    contract.CapabilityHealth,
+		Binding: &contract.CapabilityBinding{Type: contract.CapabilityBindingHTTP, Interface: "api", Path: "/health"},
+	}
+	input := CollectInput{
+		Namespace:           "default",
+		ServiceName:         "test-svc",
+		WorkloadName:        "test-deploy",
+		WorkloadKind:        "Deployment",
+		Contract:            &contract.Contract{Service: contract.Service{Name: "test"}},
+		InterfaceBindings:   []InterfaceBinding{{Interface: "api", ServicePort: intstr.FromInt32(8080)}},
+		StabilizationWindow: 2 * time.Minute,
+		ObservationWindows:  make(map[string]*metav1.Time),
+		Now:                 time.Now(),
+		EnableProbing:       false,
+	}
+	prov := evidence.Provenance{Collector: "k8s-observer"}
+
+	obs, _ := o.observeHealthDim(context.Background(), input, cap, prov, input.Now)
+
+	// Active probe skipped; Tier-B has no readiness probe -> honest Unknown (EVIDENCE_INSUFFICIENT),
+	// NOT the fake prober's 200. Observed here would mean the gate leaked the active probe.
+	if obs.Outcome != evidence.Insufficient {
+		t.Fatalf("expected Insufficient (active probe skipped, Tier-B absent), got %s", obs.Outcome)
 	}
 }

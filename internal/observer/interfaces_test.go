@@ -562,6 +562,92 @@ func TestObserveInterfacesDim(t *testing.T) {
 			t.Errorf("len(windowUpdates) = %d, want 0 (API error)", len(windowUpdates))
 		}
 	})
+
+	// M4b: name-match discovery. The Service exposes a port NAMED after the interface, but the interface
+	// has NO explicit binding. Discovery is a positive-availability assist only (INV-4) — never absent.
+	nameMatchSetup := func(ready bool) *Observer {
+		svc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "test-ns"},
+			Spec: corev1.ServiceSpec{
+				Selector: map[string]string{"app": "test"},
+				Ports:    []corev1.ServicePort{{Name: "api", Port: 8080}},
+			},
+		}
+		port := int32(8080)
+		slice := &discoveryv1.EndpointSlice{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-svc-abc",
+				Namespace: "test-ns",
+				Labels:    map[string]string{discoveryv1.LabelServiceName: "test-svc"},
+			},
+			Endpoints: []discoveryv1.Endpoint{
+				{Conditions: discoveryv1.EndpointConditions{Ready: &ready}},
+			},
+			Ports: []discoveryv1.EndpointPort{{Port: &port}},
+		}
+		return setup(svc, slice)
+	}
+	nameMatchInput := func(discovery bool) CollectInput {
+		return CollectInput{
+			Namespace:   "test-ns",
+			ServiceName: "test-svc",
+			Contract: &contract.Contract{
+				Interfaces: []contract.Interface{{Name: "api", Type: "openapi"}},
+			},
+			InterfaceBindings:                 []InterfaceBinding{},
+			StabilizationWindow:               window,
+			ObservationWindows:                map[string]*metav1.Time{},
+			Now:                               now,
+			EnableInterfaceNameMatchDiscovery: discovery,
+		}
+	}
+
+	t.Run("name-match discovery ON + ready endpoint - Observed Present=true", func(t *testing.T) {
+		obs := nameMatchSetup(true)
+		prov := evidence.Provenance{Collector: "k8s-observer", DetectedAt: now}
+
+		observations, windowUpdates := obs.observeInterfacesDim(context.Background(), nameMatchInput(true), prov, now)
+
+		if len(observations) != 1 {
+			t.Fatalf("len(observations) = %d, want 1", len(observations))
+		}
+		if observations[0].Outcome != evidence.Observed {
+			t.Fatalf("Outcome = %v, want Observed (name-match + ready)", observations[0].Outcome)
+		}
+		iObs, err := observations[0].GetInterfaceObservation()
+		if err != nil {
+			t.Fatalf("GetInterfaceObservation() error = %v", err)
+		}
+		if !iObs.Present {
+			t.Error("Present = false, want true (positive availability assist)")
+		}
+		// Positive-only path emits no window update.
+		if len(windowUpdates) != 0 {
+			t.Errorf("len(windowUpdates) = %d, want 0 (positive assist)", len(windowUpdates))
+		}
+	})
+
+	t.Run("name-match discovery ON + zero ready - Unsupported (never absent)", func(t *testing.T) {
+		obs := nameMatchSetup(false)
+		prov := evidence.Provenance{Collector: "k8s-observer", DetectedAt: now}
+
+		observations, _ := obs.observeInterfacesDim(context.Background(), nameMatchInput(true), prov, now)
+
+		if observations[0].Outcome != evidence.Unsupported {
+			t.Errorf("Outcome = %v, want Unsupported (zero-ready name-match must not be absent)", observations[0].Outcome)
+		}
+	})
+
+	t.Run("name-match discovery OFF - Unsupported (no effect)", func(t *testing.T) {
+		obs := nameMatchSetup(true)
+		prov := evidence.Provenance{Collector: "k8s-observer", DetectedAt: now}
+
+		observations, _ := obs.observeInterfacesDim(context.Background(), nameMatchInput(false), prov, now)
+
+		if observations[0].Outcome != evidence.Unsupported {
+			t.Errorf("Outcome = %v, want Unsupported (discovery off -> no effect)", observations[0].Outcome)
+		}
+	})
 }
 
 func TestCollect_Now(t *testing.T) {
