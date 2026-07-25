@@ -78,7 +78,7 @@ func registerGauges(exporter sdkmetric.Reader) {
 
 	// Int64Gauge never returns an error for valid instrument names (OTel SDK guarantee).
 	contractStatus, _ = meter.Int64Gauge("pacto_contract_status",
-		otelmetric.WithDescription("Contract status by phase (1=active, 0=inactive). Label 'status' is one of: Compliant, Warning, NonCompliant, Reference, Unknown"),
+		otelmetric.WithDescription("Contract status by phase (1=active, 0=inactive). Label 'status' is one of: Compliant, Warning, NonCompliant, Reference, Unknown, Invalid, NotEvaluated"),
 	)
 	readinessScore, _ = meter.Int64Gauge("pacto_readiness_score",
 		otelmetric.WithDescription("Derived operational readiness score (0-100)"),
