@@ -202,7 +202,7 @@ func (o *Observation) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &j); err != nil {
 		return fmt.Errorf("unmarshal observation: %w", err)
 	}
-	*o = Observation{Kind: j.Kind, Subject: j.Subject, Outcome: j.Outcome, Value: j.Value, Provenance: j.Provenance}
+	*o = Observation(j)
 	return o.validate()
 }
 
