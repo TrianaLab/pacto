@@ -72,7 +72,8 @@ type DependencyObservation struct {
 	Reachable bool `json:"reachable"`
 }
 type ConfigurationObservation struct {
-	Present bool `json:"present"`
+	Present    bool `json:"present"`
+	Conformant bool `json:"conformant"` // meaningful only when Present==true AND conformance was evaluated
 }
 type PersistenceObservation struct {
 	Durable bool `json:"durable"`
@@ -240,10 +241,11 @@ func NewDependencyReachable(subject SubjectRef, reachable bool, prov Provenance)
 		Value: mustMarshal(DependencyObservation{Reachable: reachable}), Provenance: prov}
 }
 
-// NewConfigurationPresent constructs an Observed configuration observation.
-func NewConfigurationPresent(subject SubjectRef, present bool, prov Provenance) Observation {
+// NewConfigurationPresent constructs an Observed configuration observation. When present is true,
+// conformant indicates whether the config passed schema validation (meaningful only when evaluated).
+func NewConfigurationPresent(subject SubjectRef, present bool, conformant bool, prov Provenance) Observation {
 	return Observation{Kind: ConfigurationPresent, Subject: subject, Outcome: Observed,
-		Value: mustMarshal(ConfigurationObservation{Present: present}), Provenance: prov}
+		Value: mustMarshal(ConfigurationObservation{Present: present, Conformant: conformant}), Provenance: prov}
 }
 
 // NewPersistenceObserved constructs an Observed persistence observation.

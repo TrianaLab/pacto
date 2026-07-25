@@ -50,6 +50,7 @@ const (
 	CodeCapabilityAbsent      Code = "CAPABILITY_ABSENT"
 	CodeInterfaceAbsent       Code = "INTERFACE_ABSENT"
 	CodeConfigurationAbsent   Code = "CONFIGURATION_ABSENT"
+	CodeConfigurationMismatch Code = "CONFIGURATION_MISMATCH"
 
 	// Family 2 — insufficient/unreliable evidence (emitted by Evaluate). Registry: {Inconclusive, Unknown}.
 	CodeEvidenceMissing               Code = "EVIDENCE_MISSING"
@@ -124,6 +125,7 @@ var registry = map[Code]codeMeta{
 	CodeCapabilityAbsent:      {CategoryRuntimeDrift, SeverityError},
 	CodeInterfaceAbsent:       {CategoryRuntimeDrift, SeverityError},
 	CodeConfigurationAbsent:   {CategoryRuntimeDrift, SeverityError},
+	CodeConfigurationMismatch: {CategoryRuntimeDrift, SeverityError},
 
 	// Family 2 — uncertainty
 	CodeEvidenceMissing:               {CategoryInconclusive, SeverityUnknown},

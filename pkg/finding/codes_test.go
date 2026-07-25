@@ -34,6 +34,7 @@ func TestCategoryOf(t *testing.T) {
 		CodeCapabilityAbsent:      CategoryRuntimeDrift,
 		CodeInterfaceAbsent:       CategoryRuntimeDrift,
 		CodeConfigurationAbsent:   CategoryRuntimeDrift,
+		CodeConfigurationMismatch: CategoryRuntimeDrift,
 		// Family 2 — uncertainty (Inconclusive).
 		CodeEvidenceMissing:               CategoryInconclusive,
 		CodeObservationUnsupported:        CategoryInconclusive,
@@ -78,7 +79,7 @@ func TestDefaultSeverity_ByFamily(t *testing.T) {
 	// Family 1 (confirmed violations) now default to Error, not Warning.
 	errorFamily1 := []Code{
 		CodeWorkloadMismatch, CodePersistenceMismatch, CodeDependencyUnreachable,
-		CodeCapabilityAbsent, CodeInterfaceAbsent, CodeConfigurationAbsent,
+		CodeCapabilityAbsent, CodeInterfaceAbsent, CodeConfigurationAbsent, CodeConfigurationMismatch,
 	}
 	for _, code := range errorFamily1 {
 		if got := DefaultSeverity(code); got != SeverityError {

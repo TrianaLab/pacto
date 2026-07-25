@@ -52,7 +52,7 @@ func TestStaticCollector_ValidateEvidenceSet(t *testing.T) {
 		evidence.NewWorkloadObserved(evidence.SubjectRef{Kind: "service", Name: "test-service"}, "service", prov),
 		evidence.NewInterfaceObserved(evidence.SubjectRef{Kind: "interface", Name: "public-api"}, "openapi", true, prov),
 		evidence.NewDependencyReachable(evidence.SubjectRef{Kind: "dependency", Name: "db"}, true, prov),
-		evidence.NewConfigurationPresent(evidence.SubjectRef{Kind: "configuration", Name: "port"}, true, prov),
+		evidence.NewConfigurationPresent(evidence.SubjectRef{Kind: "configuration", Name: "port"}, true, true, prov),
 		evidence.NewPersistenceObserved(evidence.SubjectRef{Kind: "service", Name: "test-service"}, true, prov),
 	}
 

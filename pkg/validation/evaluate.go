@@ -71,15 +71,23 @@ func Evaluate(c contract.Contract, ev evidence.EvidenceSet) ([]finding.Finding, 
 			})
 	}
 
-	// Configurations: required per cfg.Required. Contradiction: !Present -> CONFIGURATION_ABSENT.
+	// Configurations: required per cfg.Required. Contradiction: !Present -> CONFIGURATION_ABSENT;
+	// Present && !Conformant -> CONFIGURATION_MISMATCH.
 	for _, cfg := range c.Configurations {
 		name := cfg.Name
 		evalAssertion(&findings, &cov, ev, evRef, evidence.ConfigurationPresent, "configuration", name,
 			fmt.Sprintf("configurations[name=%s]", name), cfg.Required,
 			func(o evidence.Observation) (bool, finding.Code, string) {
 				p, _ := o.GetConfigurationObservation()
-				return !p.Present, finding.CodeConfigurationAbsent,
-					fmt.Sprintf("required configuration %q is absent at runtime", name)
+				if !p.Present {
+					return true, finding.CodeConfigurationAbsent,
+						fmt.Sprintf("required configuration %q is absent at runtime", name)
+				}
+				if !p.Conformant {
+					return true, finding.CodeConfigurationMismatch,
+						fmt.Sprintf("configuration %q exists but does not conform to the declared schema", name)
+				}
+				return false, "", ""
 			})
 	}
 

@@ -17,7 +17,7 @@ func allObserved() []Observation {
 		NewWorkloadObserved(SubjectRef{Kind: "service", Name: "orders"}, "service", prov()),
 		NewInterfaceObserved(SubjectRef{Kind: "interface", Name: "public-api"}, "openapi", true, prov()),
 		NewDependencyReachable(SubjectRef{Kind: "dependency", Name: "payments"}, true, prov()),
-		NewConfigurationPresent(SubjectRef{Kind: "configuration", Name: "app"}, true, prov()),
+		NewConfigurationPresent(SubjectRef{Kind: "configuration", Name: "app"}, true, true, prov()),
 		NewPersistenceObserved(SubjectRef{Kind: "service", Name: "orders"}, true, prov()),
 	}
 }
@@ -92,7 +92,7 @@ func TestAllGetters(t *testing.T) {
 	if d, err := obs[3].GetDependencyObservation(); err != nil || !d.Reachable {
 		t.Errorf("dependency getter: %+v %v", d, err)
 	}
-	if cf, err := obs[4].GetConfigurationObservation(); err != nil || !cf.Present {
+	if cf, err := obs[4].GetConfigurationObservation(); err != nil || !cf.Present || !cf.Conformant {
 		t.Errorf("configuration getter: %+v %v", cf, err)
 	}
 	if p, err := obs[5].GetPersistenceObservation(); err != nil || !p.Durable {
@@ -223,7 +223,7 @@ func TestValidateEvidenceSet_DuplicateIdentity(t *testing.T) {
 	// same Subject.Name under different ObservationKind -> valid
 	sameName := good(
 		NewDependencyReachable(sr("dependency", "shared"), true, prov()),
-		NewConfigurationPresent(sr("configuration", "shared"), true, prov()),
+		NewConfigurationPresent(sr("configuration", "shared"), true, true, prov()),
 	)
 	if errs := ValidateEvidenceSet(sameName); len(errs) != 0 {
 		t.Errorf("same name under different kinds must be valid: %v", errs)
@@ -235,5 +235,37 @@ func TestValidateEvidenceSet_DuplicateIdentity(t *testing.T) {
 	)
 	if errs := ValidateEvidenceSet(svcScoped); len(errs) != 0 {
 		t.Errorf("workload+persistence sharing a service name must be valid: %v", errs)
+	}
+}
+
+func TestConfigurationObservation_ConformantField(t *testing.T) {
+	cases := []struct {
+		name       string
+		present    bool
+		conformant bool
+	}{
+		{"absent", false, false},
+		{"present-conformant", true, true},
+		{"present-nonconformant", true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := NewConfigurationPresent(sr("configuration", "app"), tc.present, tc.conformant, prov())
+			data, err := json.Marshal(o)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var back Observation
+			if err := json.Unmarshal(data, &back); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			cfg, err := back.GetConfigurationObservation()
+			if err != nil {
+				t.Fatalf("getter: %v", err)
+			}
+			if cfg.Present != tc.present || cfg.Conformant != tc.conformant {
+				t.Errorf("want {present:%v conformant:%v}, got %+v", tc.present, tc.conformant, cfg)
+			}
+		})
 	}
 }

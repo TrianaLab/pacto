@@ -51,7 +51,7 @@ func satisfied() evidence.EvidenceSet {
 		evidence.NewInterfaceObserved(sr("interface", "public-api"), "openapi", true, prov()),
 		evidence.NewCapabilityObserved(sr("capability", "health"), true, prov()),
 		evidence.NewDependencyReachable(sr("dependency", "payments"), true, prov()),
-		evidence.NewConfigurationPresent(sr("configuration", "app"), true, prov()),
+		evidence.NewConfigurationPresent(sr("configuration", "app"), true, true, prov()),
 		evidence.NewWorkloadObserved(sr("service", "orders"), "service", prov()),
 		evidence.NewPersistenceObserved(sr("service", "orders"), true, prov()),
 	)
@@ -95,7 +95,8 @@ func TestEvaluate_ContradictionPerDimension(t *testing.T) {
 		{"interface", evidence.NewInterfaceObserved(sr("interface", "public-api"), "openapi", false, prov()), finding.CodeInterfaceAbsent},
 		{"capability", evidence.NewCapabilityObserved(sr("capability", "health"), false, prov()), finding.CodeCapabilityAbsent},
 		{"dependency", evidence.NewDependencyReachable(sr("dependency", "payments"), false, prov()), finding.CodeDependencyUnreachable},
-		{"configuration", evidence.NewConfigurationPresent(sr("configuration", "app"), false, prov()), finding.CodeConfigurationAbsent},
+		{"configuration-absent", evidence.NewConfigurationPresent(sr("configuration", "app"), false, false, prov()), finding.CodeConfigurationAbsent},
+		{"configuration-mismatch", evidence.NewConfigurationPresent(sr("configuration", "app"), true, false, prov()), finding.CodeConfigurationMismatch},
 		{"workload", evidence.NewWorkloadObserved(sr("service", "orders"), "job", prov()), finding.CodeWorkloadMismatch},
 		{"persistence", evidence.NewPersistenceObserved(sr("service", "orders"), false, prov()), finding.CodePersistenceMismatch},
 	}
@@ -129,7 +130,7 @@ func TestEvaluate_UnknownCodesAndMessages(t *testing.T) {
 		obs := []evidence.Observation{
 			evidence.NewCapabilityObserved(sr("capability", "health"), true, prov()),
 			evidence.NewDependencyReachable(sr("dependency", "payments"), true, prov()),
-			evidence.NewConfigurationPresent(sr("configuration", "app"), true, prov()),
+			evidence.NewConfigurationPresent(sr("configuration", "app"), true, true, prov()),
 			evidence.NewWorkloadObserved(sr("service", "orders"), "service", prov()),
 			evidence.NewPersistenceObserved(sr("service", "orders"), true, prov()),
 		}
