@@ -630,6 +630,35 @@ func matchesServicePort(p corev1.ServicePort, selector intstr.IntOrString) bool 
 	}
 }
 
+// emitDependencyReachability applies stabilization and emits the appropriate observation/window-update.
+// ponytail: dedupe the stabilize-then-emit-Observed-or-Insufficient pattern.
+func emitDependencyReachability(
+	subj evidence.SubjectRef,
+	depName string,
+	isNegative bool,
+	existingWindow *metav1.Time,
+	now time.Time,
+	stabilizationWindow time.Duration,
+	prov evidence.Provenance,
+) (evidence.Observation, ObservationWindowUpdate) {
+	outcome, updatedWindow := stabilize(existingWindow, isNegative, now, stabilizationWindow)
+
+	var obs evidence.Observation
+	if outcome == evidence.Observed {
+		obs = evidence.NewDependencyReachable(subj, !isNegative, prov)
+	} else {
+		obs, _ = evidence.NewUnobserved(evidence.DependencyReachable, subj, outcome, prov)
+	}
+
+	update := ObservationWindowUpdate{
+		Kind:                    "dependency",
+		Subject:                 depName,
+		FirstObservedNegativeAt: updatedWindow,
+	}
+
+	return obs, update
+}
+
 // observeDependenciesDim observes all declared dependencies. Spec section 7.6 / B5.
 // ponytail: sibling-CR matching + windowed reachability negatives.
 func (o *Observer) observeDependenciesDim(ctx context.Context, input CollectInput, prov evidence.Provenance, now time.Time) ([]evidence.Observation, []ObservationWindowUpdate) {
@@ -675,23 +704,9 @@ func (o *Observer) observeDependenciesDim(ctx context.Context, input CollectInpu
 				continue
 			}
 			// Service NotFound -> a negative, apply stabilization.
-			existing := input.ObservationWindows[windowKey]
-			outcome, updatedWindow := stabilize(existing, true, now, input.StabilizationWindow)
-
-			if outcome == evidence.Observed {
-				// Beyond window -> confirmed negative.
-				observations = append(observations, evidence.NewDependencyReachable(subj, false, prov))
-			} else {
-				// Within window -> Insufficient.
-				obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, outcome, prov)
-				observations = append(observations, obs)
-			}
-
-			windowUpdates = append(windowUpdates, ObservationWindowUpdate{
-				Kind:    "dependency",
-				Subject: dep.Name,
-				FirstObservedNegativeAt: updatedWindow,
-			})
+			obs, update := emitDependencyReachability(subj, dep.Name, true, input.ObservationWindows[windowKey], now, input.StabilizationWindow, prov)
+			observations = append(observations, obs)
+			windowUpdates = append(windowUpdates, update)
 			continue
 		}
 
@@ -715,24 +730,9 @@ func (o *Observer) observeDependenciesDim(ctx context.Context, input CollectInpu
 
 		// We have a reliable ready-endpoint count.
 		isNegative := readyCount == 0
-		existing := input.ObservationWindows[windowKey]
-
-		outcome, updatedWindow := stabilize(existing, isNegative, now, input.StabilizationWindow)
-
-		if outcome == evidence.Observed {
-			// Beyond window (or positive) -> emit Observed with the appropriate Reachable flag.
-			observations = append(observations, evidence.NewDependencyReachable(subj, !isNegative, prov))
-		} else {
-			// Insufficient (within window or first negative) -> emit Insufficient.
-			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, outcome, prov)
-			observations = append(observations, obs)
-		}
-
-		windowUpdates = append(windowUpdates, ObservationWindowUpdate{
-			Kind:    "dependency",
-			Subject: dep.Name,
-			FirstObservedNegativeAt: updatedWindow,
-		})
+		obs, update := emitDependencyReachability(subj, dep.Name, isNegative, input.ObservationWindows[windowKey], now, input.StabilizationWindow, prov)
+		observations = append(observations, obs)
+		windowUpdates = append(windowUpdates, update)
 	}
 
 	return observations, windowUpdates
