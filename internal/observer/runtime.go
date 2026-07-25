@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	unversioned "github.com/trianalab/pacto-operator/api/v1alpha1"
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/evidence"
 )
@@ -113,9 +114,15 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 		windowUpdates = append(windowUpdates, iUpdates...)
 	}
 
+	// Dependencies producer (spec section 7.6).
+	if len(input.Contract.Dependencies) > 0 {
+		dObs, dUpdates := o.observeDependenciesDim(ctx, input, prov, now)
+		observations = append(observations, dObs...)
+		windowUpdates = append(windowUpdates, dUpdates...)
+	}
+
 	// TODO(S6.4): health producer (spec section 7.4).
 	// TODO(S6.4): metrics producer (spec section 7.5).
-	// TODO(S6.5): dependencies producer (spec section 7.6).
 	// TODO(S6.6): configurations producer (spec section 7.7).
 
 	// Workload producer (spec section 7.1 + AR7).
@@ -621,4 +628,259 @@ func matchesServicePort(p corev1.ServicePort, selector intstr.IntOrString) bool 
 	default:
 		return false
 	}
+}
+
+// observeDependenciesDim observes all declared dependencies. Spec section 7.6 / B5.
+// ponytail: sibling-CR matching + windowed reachability negatives.
+func (o *Observer) observeDependenciesDim(ctx context.Context, input CollectInput, prov evidence.Provenance, now time.Time) ([]evidence.Observation, []ObservationWindowUpdate) {
+	var observations []evidence.Observation
+	var windowUpdates []ObservationWindowUpdate
+
+	for _, dep := range input.Contract.Dependencies {
+		subj := evidence.SubjectRef{Kind: "dependency", Name: dep.Name}
+		windowKey := fmt.Sprintf("dependency/%s", dep.Name)
+
+		// Resolve the dependency to an in-cluster sibling Pacto CR (spec section 7.6).
+		target, err := o.resolveDependencyToSibling(ctx, input.Namespace, dep)
+
+		if err != nil {
+			// Controller-runtime client error (not a "no match" case) -> COLLECTION_FAILED.
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Failed, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		if target == nil {
+			// No reliable sibling match (external / not pacto-managed) -> Unsupported (Unknown), never NonCompliant.
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Unsupported, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		if target.serviceName == "" {
+			// Sibling matched but reference-only (empty spec.target.serviceName) -> Insufficient (Unknown).
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Insufficient, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		// Check if the resolved Service is ExternalName -> Unsupported.
+		svc := &corev1.Service{}
+		err = o.client.Get(ctx, types.NamespacedName{Namespace: target.namespace, Name: target.serviceName}, svc)
+		if err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				// Non-NotFound API error -> COLLECTION_FAILED.
+				obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Failed, prov)
+				observations = append(observations, obs)
+				continue
+			}
+			// Service NotFound -> a negative, apply stabilization.
+			existing := input.ObservationWindows[windowKey]
+			outcome, updatedWindow := stabilize(existing, true, now, input.StabilizationWindow)
+
+			if outcome == evidence.Observed {
+				// Beyond window -> confirmed negative.
+				observations = append(observations, evidence.NewDependencyReachable(subj, false, prov))
+			} else {
+				// Within window -> Insufficient.
+				obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, outcome, prov)
+				observations = append(observations, obs)
+			}
+
+			windowUpdates = append(windowUpdates, ObservationWindowUpdate{
+				Kind:    "dependency",
+				Subject: dep.Name,
+				FirstObservedNegativeAt: updatedWindow,
+			})
+			continue
+		}
+
+		// Service exists -> check if it's ExternalName.
+		if svc.Spec.Type == corev1.ServiceTypeExternalName {
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Unsupported, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		// Count ready endpoints for the dependency Service (protocol-agnostic, using any port).
+		// Reuse countReadyEndpoints with a dummy port (we count all ready endpoints).
+		readyCount := o.countReadyEndpointsForService(ctx, target.namespace, target.serviceName)
+
+		if readyCount < 0 {
+			// Error listing EndpointSlices -> COLLECTION_FAILED.
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Failed, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		// We have a reliable ready-endpoint count.
+		isNegative := readyCount == 0
+		existing := input.ObservationWindows[windowKey]
+
+		outcome, updatedWindow := stabilize(existing, isNegative, now, input.StabilizationWindow)
+
+		if outcome == evidence.Observed {
+			// Beyond window (or positive) -> emit Observed with the appropriate Reachable flag.
+			observations = append(observations, evidence.NewDependencyReachable(subj, !isNegative, prov))
+		} else {
+			// Insufficient (within window or first negative) -> emit Insufficient.
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, outcome, prov)
+			observations = append(observations, obs)
+		}
+
+		windowUpdates = append(windowUpdates, ObservationWindowUpdate{
+			Kind:    "dependency",
+			Subject: dep.Name,
+			FirstObservedNegativeAt: updatedWindow,
+		})
+	}
+
+	return observations, windowUpdates
+}
+
+// dependencyTarget is the resolved in-cluster target for a dependency.
+type dependencyTarget struct {
+	namespace   string
+	serviceName string
+}
+
+// resolveDependencyToSibling resolves a contract dependency to an in-cluster Pacto CR (spec section 7.6).
+// Returns nil if no reliable match exists (external / not pacto-managed).
+// Returns an error only for controller-runtime client failures.
+// ponytail: sibling-CR identity match via status.contract (resolvedRef / serviceName+version) + spec.target.serviceName.
+func (o *Observer) resolveDependencyToSibling(ctx context.Context, currentNS string, dep contract.Dependency) (*dependencyTarget, error) {
+	// List all Pacto CRs. For single-namespace manager cache, this only sees CRs in the watched namespace(s).
+	// Cross-namespace dependencies invisible under a single-namespace cache -> a distinct COLLECTION_FAILED per spec.
+	var pactoList unversioned.PactoList
+	if err := o.client.List(ctx, &pactoList); err != nil {
+		return nil, fmt.Errorf("failed to list Pacto CRs: %w", err)
+	}
+
+	// Match dep.Ref / compatibility to a sibling's status.contract (resolvedRef / serviceName+version).
+	// Spec section 7.6: match dep.Ref / dep.Compatibility to sibling status.contract (resolvedRef / serviceName+version),
+	// then read sibling's spec.target.serviceName + namespace for Service coordinates.
+	// The spec does not detail the EXACT matching rule, so I implement a reasonable interpretation:
+	// - Match on resolvedRef prefix (ignoring tag/digest suffix for unversioned deps).
+	// - If compatibility is specified, check semver constraint against sibling's version.
+
+	for _, sibling := range pactoList.Items {
+		if sibling.Status.Contract == nil {
+			continue
+		}
+
+		// Check if the resolvedRef matches the dep.Ref.
+		if !matchesRef(dep.Ref, sibling.Status.Contract.ResolvedRef) {
+			continue
+		}
+
+		// If compatibility is specified, check semver constraint.
+		if dep.Compatibility != "" {
+			if !matchesCompatibility(dep.Compatibility, sibling.Status.Contract.Version) {
+				continue
+			}
+		}
+
+		// Match found -> extract target Service coordinates.
+		// Check if sibling has a spec.target.serviceName (not reference-only).
+		if sibling.Spec.Target.ServiceName == "" {
+			// Reference-only contract -> return a target with empty serviceName (caller handles as Insufficient).
+			return &dependencyTarget{namespace: sibling.Namespace, serviceName: ""}, nil
+		}
+
+		return &dependencyTarget{
+			namespace:   sibling.Namespace,
+			serviceName: sibling.Spec.Target.ServiceName,
+		}, nil
+	}
+
+	// No matching sibling CR -> external / not pacto-managed.
+	return nil, nil
+}
+
+// matchesRef reports whether a dependency ref matches a sibling's resolvedRef.
+// ponytail: base-ref match ignoring tag/digest suffix.
+func matchesRef(depRef, siblingRef string) bool {
+	// Extract the base ref (without tag/digest) from both and compare.
+	// This handles unversioned refs (oci://registry/service-pacto) matching versioned resolvedRefs
+	// (oci://registry/service-pacto:1.2.3 or oci://registry/service-pacto@sha256:...).
+	depBase := stripRefSuffix(depRef)
+	siblingBase := stripRefSuffix(siblingRef)
+	return depBase == siblingBase
+}
+
+// stripRefSuffix removes trailing :tag or @digest from an OCI ref.
+// ponytail: scan from end, skip scheme's "://".
+func stripRefSuffix(ref string) string {
+	// Find the FIRST occurrence of ':' or '@' AFTER the scheme (oci://).
+	// We scan from the end to find the last such separator.
+	schemeEnd := 0
+	if len(ref) >= 6 && ref[:6] == "oci://" {
+		schemeEnd = 6
+	}
+	// Find the last '@' (digest separator).
+	if idx := lastIndexAfter(ref, '@', schemeEnd); idx >= 0 {
+		return ref[:idx]
+	}
+	// Find the last ':' after the scheme (tag separator).
+	if idx := lastIndexAfter(ref, ':', schemeEnd); idx >= 0 {
+		return ref[:idx]
+	}
+	return ref
+}
+
+// lastIndexAfter finds the last occurrence of c in s after position start.
+// Returns -1 if not found.
+func lastIndexAfter(s string, c byte, start int) int {
+	for i := len(s) - 1; i >= start; i-- {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
+}
+
+// matchesCompatibility reports whether a version satisfies a semver compatibility constraint.
+// ponytail: minimal semver constraint check — "1.x" matches "1.2.3", exact match otherwise.
+func matchesCompatibility(constraint, version string) bool {
+	// Minimal implementation: support "X.x" pattern (major version match) and exact match.
+	// "1.x" matches any "1.y.z", "2.x" matches any "2.y.z", etc.
+	if len(constraint) >= 2 && constraint[len(constraint)-2:] == ".x" {
+		// Extract major version from constraint.
+		major := constraint[:len(constraint)-2]
+		// Check if version starts with the same major.
+		return len(version) > len(major) && version[:len(major)] == major && version[len(major)] == '.'
+	}
+	// Otherwise, require exact match.
+	return constraint == version
+}
+
+// countReadyEndpointsForService counts ready endpoints for a Service (protocol-agnostic, any port).
+// Returns -1 on error (distinct from zero ready).
+// ponytail: reuse EndpointSlice listing logic, count all ready endpoints regardless of port.
+func (o *Observer) countReadyEndpointsForService(ctx context.Context, namespace, serviceName string) int {
+	slices := &discoveryv1.EndpointSliceList{}
+	err := o.client.List(ctx, slices, client.InNamespace(namespace), client.MatchingLabels{
+		discoveryv1.LabelServiceName: serviceName,
+	})
+	if err != nil {
+		// List error -> -1 (distinct from zero ready).
+		return -1
+	}
+
+	if len(slices.Items) == 0 {
+		// Empty slice list (freshly-created Service) -> zero ready (will be windowed).
+		return 0
+	}
+
+	// Count all ready endpoints across all slices (protocol-agnostic).
+	readyCount := 0
+	for _, slice := range slices.Items {
+		for _, endpoint := range slice.Endpoints {
+			if endpoint.Conditions.Ready != nil && *endpoint.Conditions.Ready {
+				readyCount++
+			}
+		}
+	}
+
+	return readyCount
 }
