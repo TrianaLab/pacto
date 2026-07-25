@@ -9,6 +9,7 @@ package observer
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,10 +17,12 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/trianalab/pacto-operator/internal/prober"
 	"github.com/trianalab/pacto/v2/pkg/contract"
@@ -1529,5 +1532,217 @@ func TestObserveHealthDim_Coverage_AllWorkloadKinds(t *testing.T) {
 				t.Errorf("%s: expected Observed, got %s", tc.name, obs.Outcome)
 			}
 		})
+	}
+}
+
+func TestObserveHealthDim_ServiceGetError_Failed(t *testing.T) {
+	// Test non-NotFound Service GET error -> COLLECTION_FAILED.
+	clientWithError := fake.NewClientBuilder().
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*corev1.Service); ok {
+					return errors.NewInternalError(fmt.Errorf("forced Service GET error"))
+				}
+				return client.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	o := &Observer{
+		client: clientWithError,
+		prober: prober.New(5 * time.Second),
+	}
+
+	cap := contract.Capability{
+		Type: contract.CapabilityHealth,
+		Binding: &contract.CapabilityBinding{
+			Type:      contract.CapabilityBindingHTTP,
+			Interface: "api",
+			Path:      "/health",
+		},
+	}
+	input := CollectInput{
+		Namespace:   "default",
+		ServiceName: "test-svc",
+		Contract:    &contract.Contract{Service: contract.Service{Name: "test"}},
+		InterfaceBindings: []InterfaceBinding{
+			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
+		},
+		StabilizationWindow: 2 * time.Minute,
+		ObservationWindows:  make(map[string]*metav1.Time),
+		Now:                 time.Now(),
+	}
+	prov := evidence.Provenance{Collector: "k8s-observer"}
+
+	obs, _ := o.observeHealthDim(context.Background(), input, cap, prov, input.Now)
+
+	if obs.Outcome != evidence.Failed {
+		t.Errorf("expected Failed for Service GET error, got %s", obs.Outcome)
+	}
+}
+
+func TestCheckReadinessProbeFallbackFromInput_ServiceGetError(t *testing.T) {
+	// Test Service GET error in checkReadinessProbeFallbackFromInput.
+	clientWithError := fake.NewClientBuilder().
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*corev1.Service); ok {
+					return errors.NewInternalError(fmt.Errorf("forced Service GET error"))
+				}
+				return client.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	o := &Observer{client: clientWithError}
+
+	input := CollectInput{
+		Namespace:   "default",
+		ServiceName: "test-svc",
+		InterfaceBindings: []InterfaceBinding{
+			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
+		},
+	}
+
+	hasProbe, podReady := o.checkReadinessProbeFallbackFromInput(context.Background(), input)
+
+	if hasProbe || podReady {
+		t.Errorf("expected (false, false) for Service GET error, got (%v, %v)", hasProbe, podReady)
+	}
+}
+
+func TestCheckReadinessProbeFallbackFromInput_NoMatchingPort(t *testing.T) {
+	// Test servicePort == 0 (no matching port in Service).
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{Name: "http", Port: 9090},
+			},
+		},
+	}
+
+	o := &Observer{
+		client: fake.NewClientBuilder().WithObjects(svc).Build(),
+	}
+
+	input := CollectInput{
+		Namespace:   "default",
+		ServiceName: "test-svc",
+		InterfaceBindings: []InterfaceBinding{
+			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
+		},
+	}
+
+	hasProbe, podReady := o.checkReadinessProbeFallbackFromInput(context.Background(), input)
+
+	if hasProbe || podReady {
+		t.Errorf("expected (false, false) for no matching port, got (%v, %v)", hasProbe, podReady)
+	}
+}
+
+func TestCheckReadinessProbeFallback_NoPodSpec(t *testing.T) {
+	// Test podSpec == nil (workload exists but second Get fails).
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{Name: "http", Port: 8080, TargetPort: intstr.FromInt32(8080)},
+			},
+		},
+	}
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-deploy", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "app", Image: "app:latest"},
+					},
+				},
+			},
+		},
+	}
+
+	// Use an interceptor that succeeds on the first Get but fails on the second.
+	getCount := 0
+	clientWithError := fake.NewClientBuilder().
+		WithObjects(svc, dep).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*appsv1.Deployment); ok {
+					getCount++
+					if getCount > 1 {
+						// Second Get fails.
+						return errors.NewInternalError(fmt.Errorf("forced second Get error"))
+					}
+				}
+				return client.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	o := &Observer{client: clientWithError}
+
+	input := CollectInput{
+		Namespace:    "default",
+		WorkloadName: "test-deploy",
+		WorkloadKind: "Deployment",
+	}
+
+	hasProbe, podReady := o.checkReadinessProbeFallback(context.Background(), input, svc, 8080)
+
+	if hasProbe || podReady {
+		t.Errorf("expected (false, false) for nil podSpec, got (%v, %v)", hasProbe, podReady)
+	}
+}
+
+func TestCheckReadinessProbeFallback_NoTargetPortMatch(t *testing.T) {
+	// Test !foundTargetPort (Service target port maps to no container port).
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				// Target port is a named port that doesn't exist in any container.
+				{Name: "http", Port: 8080, TargetPort: intstr.FromString("nonexistent")},
+			},
+		},
+	}
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-deploy", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "app",
+							Image: "app:latest",
+							Ports: []corev1.ContainerPort{
+								{Name: "http", ContainerPort: 9090},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	o := &Observer{
+		client: fake.NewClientBuilder().WithObjects(svc, dep).Build(),
+	}
+
+	input := CollectInput{
+		Namespace:    "default",
+		ServiceName:  "test-svc",
+		WorkloadName: "test-deploy",
+		WorkloadKind: "Deployment",
+	}
+
+	hasProbe, podReady := o.checkReadinessProbeFallback(context.Background(), input, svc, 8080)
+
+	if hasProbe || podReady {
+		t.Errorf("expected (false, false) for no target port match, got (%v, %v)", hasProbe, podReady)
 	}
 }
