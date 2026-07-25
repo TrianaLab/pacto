@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/trianalab/pacto-operator/internal/prober"
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/evidence"
 	appsv1 "k8s.io/api/apps/v1"
@@ -727,4 +728,87 @@ func TestCollect_HealthCapability(t *testing.T) {
 	if o.Subject.Kind != "capability" || o.Subject.Name != "health" {
 		t.Errorf("expected Subject{capability,health}, got %+v", o.Subject)
 	}
+}
+
+// TestCollect_MetricsSatisfied verifies the metrics producer emits Observed when probe succeeds with parsed content.
+func TestCollect_MetricsSatisfied(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.Service{Name: "my-service"},
+		Capabilities: []contract.Capability{
+			{
+				Type: contract.CapabilityMetrics,
+				Binding: &contract.CapabilityBinding{
+					Type:      contract.CapabilityBindingHTTP,
+					Interface: "api",
+					Path:      "/metrics",
+				},
+			},
+		},
+	}
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{{Name: "http", Port: 8080}},
+		},
+	}
+
+	fc := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(svc).Build()
+	obs := &Observer{
+		client: fc,
+		prober: &fakeMetricsProber{
+			result: prober.Result{
+				Reachable:        true,
+				StatusCode:       200,
+				PrometheusParsed: true,
+			},
+		},
+	}
+
+	input := CollectInput{
+		Namespace:   "default",
+		ServiceName: "my-service",
+		Contract:    c,
+		ContractRef: "ghcr.io/org/my-service:1.0.0",
+		InterfaceBindings: []InterfaceBinding{
+			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
+		},
+	}
+
+	es, _, err := obs.Collect(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Collect failed: %v", err)
+	}
+
+	if len(es.Observations) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(es.Observations))
+	}
+
+	o := es.Observations[0]
+	if o.Kind != evidence.CapabilityObserved {
+		t.Errorf("expected CapabilityObserved, got %s", o.Kind)
+	}
+	if o.Outcome != evidence.Observed {
+		t.Errorf("expected Observed, got %s", o.Outcome)
+	}
+	if o.Subject.Kind != "capability" || o.Subject.Name != "metrics" {
+		t.Errorf("expected Subject{capability,metrics}, got %+v", o.Subject)
+	}
+
+	cap, err := o.GetCapabilityObservation()
+	if err != nil {
+		t.Fatalf("GetCapabilityObservation failed: %v", err)
+	}
+	if !cap.Present {
+		t.Errorf("expected Present=true, got false")
+	}
+}
+
+type fakeMetricsProber struct {
+	result prober.Result
+}
+
+func (f *fakeMetricsProber) Probe(ctx context.Context, url string) prober.Result {
+	f.result.URL = url
+	return f.result
 }

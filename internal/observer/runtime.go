@@ -81,10 +81,15 @@ type RuntimeSnapshot struct {
 	PersistenceClass persistenceClass
 }
 
+// endpointProber defines the interface for HTTP endpoint probing.
+type endpointProber interface {
+	Probe(ctx context.Context, url string) prober.Result
+}
+
 // Observer is the k8s Collector.
 type Observer struct {
 	client client.Client
-	prober *prober.Prober
+	prober endpointProber
 }
 
 // New creates a new Observer.
@@ -135,7 +140,12 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 		}
 	}
 
-	// TODO(S6.5): metrics producer (spec section 7.5).
+	// Metrics producer (spec section 7.5).
+	if obs, updates := o.observeMetricsDim(ctx, input, prov, now); obs != nil {
+		observations = append(observations, *obs)
+		windowUpdates = append(windowUpdates, updates...)
+	}
+
 	// TODO(S6.6): configurations producer (spec section 7.7).
 
 	// Workload producer (spec section 7.1 + AR7).
@@ -1172,4 +1182,102 @@ func (o *Observer) checkReadinessProbeFallback(ctx context.Context, input Collec
 	}
 
 	return true, true
+}
+
+// observeMetricsDim observes the metrics capability (spec section 7.5 / Refinement D). Returns nil if no metrics
+// capability is declared, otherwise exactly one observation. No reliable operator-side negative this release.
+// ponytail: probe 200+parsed -> satisfied; 404/5xx/non-parseable/transport -> Insufficient/Failed (no CAPABILITY_ABSENT).
+func (o *Observer) observeMetricsDim(ctx context.Context, input CollectInput, prov evidence.Provenance, now time.Time) (*evidence.Observation, []ObservationWindowUpdate) {
+	// Find the metrics capability.
+	var metricsCap *contract.Capability
+	for i := range input.Contract.Capabilities {
+		if input.Contract.Capabilities[i].Type == contract.CapabilityMetrics {
+			metricsCap = &input.Contract.Capabilities[i]
+			break
+		}
+	}
+
+	if metricsCap == nil {
+		return nil, nil
+	}
+
+	subj := evidence.SubjectRef{Kind: "capability", Name: metricsCap.AssertionKey()} // "metrics"
+
+	// No binding -> Unsupported.
+	if metricsCap.Binding == nil {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
+	// Non-HTTP binding -> Unsupported (grpc not implemented).
+	if metricsCap.Binding.Type != contract.CapabilityBindingHTTP {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
+	// Resolve the owning interface to its Service port (B4 reuse).
+	binding := findInterfaceBinding(input.InterfaceBindings, metricsCap.Binding.Interface)
+	if binding == nil {
+		// Owning interface has no binding -> Unsupported (cannot resolve probe target).
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
+	// Resolve the Service port number.
+	svc := &corev1.Service{}
+	err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, svc)
+	if err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			// Non-NotFound API error -> Failed.
+			obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Failed, prov)
+			return &obs, nil
+		}
+		// Service NotFound -> Unsupported (cannot probe).
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
+	var targetPort int32
+	found := false
+	for _, p := range svc.Spec.Ports {
+		if matchesServicePort(p, binding.ServicePort) {
+			targetPort = p.Port
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Bound port not found in Service -> Unsupported.
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
+	// Build the probe URL (SSRF-safe via prober.BuildURL — INV-6).
+	probeURL := prober.BuildURL(input.ServiceName, input.Namespace, targetPort, metricsCap.Binding.Path)
+
+	// Direct in-cluster probe (metrics has no tier-B fallback).
+	result := o.prober.Probe(ctx, probeURL)
+
+	if !result.Reachable {
+		// Transport error -> Failed.
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Failed, prov)
+		return &obs, nil
+	}
+
+	// Reachable but not 200 -> Insufficient (no reliable negative for metrics).
+	if result.StatusCode != 200 {
+		// 404/410/5xx/401-403 -> Insufficient (Unknown), not a violation.
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Insufficient, prov)
+		return &obs, nil
+	}
+
+	// 200 but body does not parse as Prometheus -> Insufficient.
+	if !result.PrometheusParsed {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Insufficient, prov)
+		return &obs, nil
+	}
+
+	// 200 + real Prometheus content -> satisfied.
+	obs := evidence.NewCapabilityObserved(subj, true, prov)
+	return &obs, nil
 }
