@@ -82,6 +82,7 @@ func main() {
 	var dashboardMemoryRequest, dashboardMemoryLimit string
 	var showVersion bool
 	var stabilizationWindow time.Duration
+	var enableMetricsObservation bool
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or set to 0 to disable the metrics service.")
@@ -124,6 +125,8 @@ func main() {
 	flag.DurationVar(&stabilizationWindow, "stabilization-window", 2*time.Minute,
 		"The stabilization window duration for compliance assertions before they trigger a false condition. "+
 			"Assertions must remain unsatisfied for this entire window before being considered a failure.")
+	flag.BoolVar(&enableMetricsObservation, "enable-metrics-observation", false,
+		"Enable full metrics observation (discovery + active probe). When disabled, metrics dimension returns Unsupported.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -249,11 +252,12 @@ func main() {
 	}
 
 	if err := (&controller.PactoReconciler{
-		Client:              mgr.GetClient(),
-		Scheme:              mgr.GetScheme(),
-		Recorder:            mgr.GetEventRecorderFor("pacto-controller"), //nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
-		Loader:              loader.New(),
-		StabilizationWindow: stabilizationWindow,
+		Client:                   mgr.GetClient(),
+		Scheme:                   mgr.GetScheme(),
+		Recorder:                 mgr.GetEventRecorderFor("pacto-controller"), //nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
+		Loader:                   loader.New(),
+		StabilizationWindow:      stabilizationWindow,
+		EnableMetricsObservation: enableMetricsObservation,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pacto")
 		os.Exit(1)

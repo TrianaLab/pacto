@@ -143,9 +143,9 @@ func TestCollect_Workload_NotFound(t *testing.T) {
 	}
 
 	es, _ := obs.Collect(context.Background(), input)
-	o := es.Observations[0]
-	if o.Outcome != evidence.Unsupported {
-		t.Errorf("expected Unsupported (NotFound), got %s", o.Outcome)
+	// Workload NotFound -> NO observation emitted (nil) so engine sees EVIDENCE_MISSING.
+	if len(es.Observations) != 0 {
+		t.Errorf("expected no observations (NotFound -> skip-emit), got %d", len(es.Observations))
 	}
 }
 
@@ -171,11 +171,10 @@ func TestCollect_Workload_APIError(t *testing.T) {
 	}
 
 	es, _ := obs.Collect(context.Background(), input)
-	o := es.Observations[0]
-	// InvalidKind defaults to observeDeployment, which will NotFound -> Unsupported.
+	// InvalidKind defaults to observeDeployment, which will NotFound -> NO observation (skip-emit).
 	// To test Failed, we'd need a real API error. Skip for now.
-	if o.Outcome != evidence.Unsupported {
-		t.Errorf("expected Unsupported, got %s", o.Outcome)
+	if len(es.Observations) != 0 {
+		t.Errorf("expected no observations (NotFound -> skip-emit), got %d", len(es.Observations))
 	}
 }
 
@@ -385,11 +384,9 @@ func TestCollect_Persistence_NotFound(t *testing.T) {
 
 	es, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
-	if o == nil {
-		t.Fatal("PersistenceObserved not found")
-	}
-	if o.Outcome != evidence.Unsupported {
-		t.Errorf("expected Unsupported (NotFound), got %s", o.Outcome)
+	// Workload NotFound -> NO observation emitted (nil) so engine sees EVIDENCE_MISSING.
+	if o != nil {
+		t.Errorf("expected no PersistenceObserved (NotFound -> skip-emit), got %s", o.Outcome)
 	}
 }
 
@@ -705,6 +702,7 @@ func TestCollect_MetricsSatisfied(t *testing.T) {
 		InterfaceBindings: []InterfaceBinding{
 			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
 		},
+		EnableMetricsObservation: true,
 	}
 
 	es, _ := obs.Collect(context.Background(), input)

@@ -274,8 +274,11 @@ func TestConfigurationsDim_ConfigMapNotConform(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConfigurationObservation error: %v", err)
 	}
-	if val.Present {
-		t.Errorf("expected Present=false (non-conform), got %v", val.Present)
+	if !val.Present {
+		t.Errorf("expected Present=true (ConfigMap exists), got %v", val.Present)
+	}
+	if val.Conformant {
+		t.Errorf("expected Conformant=false (schema validation failed), got %v", val.Conformant)
 	}
 }
 

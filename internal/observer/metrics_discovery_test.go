@@ -1249,9 +1249,10 @@ func TestObserveMetricsDim_NoDiscoveryPathEmptyContractPath(t *testing.T) {
 		InterfaceBindings: []InterfaceBinding{
 			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 

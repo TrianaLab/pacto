@@ -53,10 +53,11 @@ type ContractLoader interface {
 // PactoReconciler reconciles a Pacto object.
 type PactoReconciler struct {
 	client.Client
-	Scheme              *runtime.Scheme
-	Recorder            record.EventRecorder
-	Loader              ContractLoader
-	StabilizationWindow time.Duration
+	Scheme                   *runtime.Scheme
+	Recorder                 record.EventRecorder
+	Loader                   ContractLoader
+	StabilizationWindow      time.Duration
+	EnableMetricsObservation bool
 }
 
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactos,verbs=get;list;watch;create;update;patch;delete
@@ -220,19 +221,20 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	now := time.Now()
 	collectInput := observer.CollectInput{
-		Namespace:           pacto.Namespace,
-		ServiceName:         serviceName,
-		WorkloadName:        workloadName,
-		WorkloadKind:        workloadKind,
-		ContractRef:         loadResult.ResolvedRef,
-		WorkloadExplicit:    workloadExplicit,
-		Contract:            effectiveContract,
-		BundleFS:            loadResult.BundleFS,
-		InterfaceBindings:   interfaceBindings,
-		ConfigBindings:      pacto.Spec.Target.ConfigBindings,
-		StabilizationWindow: r.StabilizationWindow,
-		ObservationWindows:  observationWindows,
-		Now:                 now,
+		Namespace:                pacto.Namespace,
+		ServiceName:              serviceName,
+		WorkloadName:             workloadName,
+		WorkloadKind:             workloadKind,
+		ContractRef:              loadResult.ResolvedRef,
+		WorkloadExplicit:         workloadExplicit,
+		Contract:                 effectiveContract,
+		BundleFS:                 loadResult.BundleFS,
+		InterfaceBindings:        interfaceBindings,
+		ConfigBindings:           pacto.Spec.Target.ConfigBindings,
+		StabilizationWindow:      r.StabilizationWindow,
+		ObservationWindows:       observationWindows,
+		Now:                      now,
+		EnableMetricsObservation: r.EnableMetricsObservation,
 	}
 
 	evidenceSet, windowUpdates := obs.Collect(ctx, collectInput)

@@ -32,9 +32,10 @@ func TestObserveMetricsDim_NoCapability(t *testing.T) {
 			Service:      contract.Service{Name: "test"},
 			Capabilities: []contract.Capability{},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -42,6 +43,41 @@ func TestObserveMetricsDim_NoCapability(t *testing.T) {
 
 	if obs != nil {
 		t.Errorf("expected nil observation when no metrics capability, got %+v", obs)
+	}
+	if len(updates) != 0 {
+		t.Errorf("expected no window updates, got %d", len(updates))
+	}
+}
+
+func TestObserveMetricsDim_Disabled(t *testing.T) {
+	o := &Observer{client: fake.NewClientBuilder().Build()}
+	cap := contract.Capability{
+		Type: contract.CapabilityMetrics,
+		Binding: &contract.CapabilityBinding{
+			Type:      contract.CapabilityBindingHTTP,
+			Interface: "api",
+			Path:      "/metrics",
+		},
+	}
+	input := CollectInput{
+		Contract: &contract.Contract{
+			Service:      contract.Service{Name: "test"},
+			Capabilities: []contract.Capability{cap},
+		},
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: false, // DISABLED
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
+	}
+	prov := evidence.Provenance{Collector: "k8s-observer"}
+
+	obs, updates := o.observeMetricsDim(context.Background(), input, prov, input.Now)
+
+	if obs == nil {
+		t.Fatal("expected observation, got nil")
+	}
+	if obs.Outcome != evidence.Unsupported {
+		t.Errorf("expected Unsupported when disabled, got %s", obs.Outcome)
 	}
 	if len(updates) != 0 {
 		t.Errorf("expected no window updates, got %d", len(updates))
@@ -56,9 +92,10 @@ func TestObserveMetricsDim_NoBinding(t *testing.T) {
 			Service:      contract.Service{Name: "test"},
 			Capabilities: []contract.Capability{cap},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -92,9 +129,10 @@ func TestObserveMetricsDim_NonHTTPBinding(t *testing.T) {
 			Service:      contract.Service{Name: "test"},
 			Capabilities: []contract.Capability{cap},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -123,10 +161,11 @@ func TestObserveMetricsDim_NoInterfaceBinding(t *testing.T) {
 			Service:      contract.Service{Name: "test"},
 			Capabilities: []contract.Capability{cap},
 		},
-		InterfaceBindings:   []InterfaceBinding{},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		InterfaceBindings:        []InterfaceBinding{},
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -160,9 +199,10 @@ func TestObserveMetricsDim_ServiceNotFound(t *testing.T) {
 		InterfaceBindings: []InterfaceBinding{
 			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -204,9 +244,10 @@ func TestObserveMetricsDim_ServicePortNotFound(t *testing.T) {
 		InterfaceBindings: []InterfaceBinding{
 			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -246,9 +287,10 @@ func TestObserveMetricsDim_ServiceGetError(t *testing.T) {
 		InterfaceBindings: []InterfaceBinding{
 			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -299,9 +341,10 @@ func TestObserveMetricsDim_ProbeReachable200Parsed(t *testing.T) {
 		InterfaceBindings: []InterfaceBinding{
 			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -362,9 +405,10 @@ func TestObserveMetricsDim_Probe200NotParsed(t *testing.T) {
 		InterfaceBindings: []InterfaceBinding{
 			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -414,9 +458,10 @@ func TestObserveMetricsDim_Probe404(t *testing.T) {
 		InterfaceBindings: []InterfaceBinding{
 			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -466,9 +511,10 @@ func TestObserveMetricsDim_Probe410(t *testing.T) {
 		InterfaceBindings: []InterfaceBinding{
 			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -518,9 +564,10 @@ func TestObserveMetricsDim_Probe5xx(t *testing.T) {
 		InterfaceBindings: []InterfaceBinding{
 			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -570,9 +617,10 @@ func TestObserveMetricsDim_Probe401(t *testing.T) {
 		InterfaceBindings: []InterfaceBinding{
 			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
@@ -622,9 +670,10 @@ func TestObserveMetricsDim_ProbeTransportError(t *testing.T) {
 		InterfaceBindings: []InterfaceBinding{
 			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
 		},
-		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows:  make(map[string]*metav1.Time),
-		Now:                 time.Now(),
+		StabilizationWindow:      2 * time.Minute,
+		EnableMetricsObservation: true,
+		ObservationWindows:       make(map[string]*metav1.Time),
+		Now:                      time.Now(),
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 

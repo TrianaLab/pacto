@@ -65,7 +65,8 @@ type CollectInput struct {
 	ObservationWindows  map[string]*metav1.Time
 	Now                 time.Time
 
-	// TODO(S6.4): ProbeEnabled, MetricsEnabled, InterfaceNameMatchDiscovery will be added in later steps.
+	EnableMetricsObservation bool
+	// TODO(S6.4): ProbeEnabled, InterfaceNameMatchDiscovery will be added in later steps.
 }
 
 // RuntimeSnapshot is the internal state for k8s observations (kept for internal convenience).
@@ -162,14 +163,16 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 
 	// Workload producer (spec section 7.1 + AR7).
 	if input.Contract.Workload != "" && input.WorkloadName != "" {
-		obs := o.observeWorkloadDim(ctx, input, prov)
-		observations = append(observations, obs)
+		if obs := o.observeWorkloadDim(ctx, input, prov); obs != nil {
+			observations = append(observations, *obs)
+		}
 	}
 
 	// Persistence producer (spec section 7.2 / B3).
 	if input.Contract.State != nil && input.Contract.State.Persistence.Durability == "persistent" && input.WorkloadName != "" {
-		obs := o.observePersistenceDim(ctx, input, prov)
-		observations = append(observations, obs)
+		if obs := o.observePersistenceDim(ctx, input, prov); obs != nil {
+			observations = append(observations, *obs)
+		}
 	}
 
 	return evidence.EvidenceSet{
@@ -182,7 +185,8 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 }
 
 // observeWorkloadDim observes the workload dimension. Spec section 7.1 + AR7.
-func (o *Observer) observeWorkloadDim(ctx context.Context, input CollectInput, prov evidence.Provenance) evidence.Observation {
+// Returns nil if NotFound (so engine emits EVIDENCE_MISSING); non-nil for all other cases.
+func (o *Observer) observeWorkloadDim(ctx context.Context, input CollectInput, prov evidence.Provenance) *evidence.Observation {
 	// Subject is the CONTRACT service name, not the k8s target (spec 7.0 rule 1).
 	subj := evidence.SubjectRef{Kind: "service", Name: input.Contract.Service.Name}
 
@@ -193,13 +197,12 @@ func (o *Observer) observeWorkloadDim(ctx context.Context, input CollectInput, p
 		// observe* methods swallow NotFound (return nil), so any error here is non-NotFound.
 		// Non-NotFound API error -> COLLECTION_FAILED.
 		obs, _ := evidence.NewUnobserved(evidence.WorkloadObserved, subj, evidence.Failed, prov)
-		return obs
+		return &obs
 	}
 
 	if !snapshot.WorkloadExists {
-		// Workload GET succeeded (NotFound swallowed) but object not found -> EVIDENCE_MISSING.
-		obs, _ := evidence.NewUnobserved(evidence.WorkloadObserved, subj, evidence.Unsupported, prov)
-		return obs
+		// Workload NotFound -> emit NO observation (nil) so engine sees obs==nil -> EVIDENCE_MISSING.
+		return nil
 	}
 
 	observedType := mapWorkloadKindToType(input.WorkloadKind)
@@ -208,19 +211,22 @@ func (o *Observer) observeWorkloadDim(ctx context.Context, input CollectInput, p
 	if observedType != input.Contract.Workload {
 		if input.WorkloadExplicit {
 			// Both name AND kind were explicitly set -> mismatch is assertable.
-			return evidence.NewWorkloadObserved(subj, observedType, prov)
+			obs := evidence.NewWorkloadObserved(subj, observedType, prov)
+			return &obs
 		}
 		// Non-explicit kind diff -> EVIDENCE_INSUFFICIENT.
 		obs, _ := evidence.NewUnobserved(evidence.WorkloadObserved, subj, evidence.Insufficient, prov)
-		return obs
+		return &obs
 	}
 
 	// Satisfied.
-	return evidence.NewWorkloadObserved(subj, observedType, prov)
+	obs := evidence.NewWorkloadObserved(subj, observedType, prov)
+	return &obs
 }
 
 // observePersistenceDim observes the persistence dimension. Spec section 7.2 / B3.
-func (o *Observer) observePersistenceDim(ctx context.Context, input CollectInput, prov evidence.Provenance) evidence.Observation {
+// Returns nil if NotFound (so engine emits EVIDENCE_MISSING); non-nil for all other cases.
+func (o *Observer) observePersistenceDim(ctx context.Context, input CollectInput, prov evidence.Provenance) *evidence.Observation {
 	subj := evidence.SubjectRef{Kind: "service", Name: input.Contract.Service.Name}
 
 	snapshot := &RuntimeSnapshot{WorkloadKind: input.WorkloadKind}
@@ -230,13 +236,12 @@ func (o *Observer) observePersistenceDim(ctx context.Context, input CollectInput
 		// observe* methods swallow NotFound (return nil), so any error here is non-NotFound.
 		// Non-NotFound API error -> COLLECTION_FAILED.
 		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Failed, prov)
-		return obs
+		return &obs
 	}
 
 	if !snapshot.WorkloadExists {
-		// Workload GET succeeded (NotFound swallowed) but object not found -> EVIDENCE_MISSING.
-		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Unsupported, prov)
-		return obs
+		// Workload NotFound -> emit NO observation (nil) so engine sees obs==nil -> EVIDENCE_MISSING.
+		return nil
 	}
 
 	// Classify volumes via the volumeClassifier (spec 7.2 / B3 three-bucket rule).
@@ -245,14 +250,16 @@ func (o *Observer) observePersistenceDim(ctx context.Context, input CollectInput
 	switch class {
 	case persistenceDurable:
 		// Persistent storage binding declared -> satisfied.
-		return evidence.NewPersistenceObserved(subj, true, prov)
+		obs := evidence.NewPersistenceObserved(subj, true, prov)
+		return &obs
 	case persistenceEphemeral:
 		// All ephemeral or no volumes -> contradicted.
-		return evidence.NewPersistenceObserved(subj, false, prov)
+		obs := evidence.NewPersistenceObserved(subj, false, prov)
+		return &obs
 	default: // persistenceAmbiguous
 		// Any ambiguous volume -> EVIDENCE_INSUFFICIENT.
 		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Insufficient, prov)
-		return obs
+		return &obs
 	}
 }
 
@@ -1271,8 +1278,8 @@ func (o *Observer) observeSecretConfiguration(
 
 		var obs evidence.Observation
 		if outcome == evidence.Observed {
-			// Beyond window -> confirmed absent.
-			obs = evidence.NewConfigurationPresent(subj, false, prov)
+			// Beyond window -> confirmed absent (Present=false, Conformant=false -> CONFIGURATION_ABSENT).
+			obs = evidence.NewConfigurationPresent(subj, false, false, prov)
 		} else {
 			// Within window -> Insufficient.
 			obs, _ = evidence.NewUnobserved(evidence.ConfigurationPresent, subj, outcome, prov)
@@ -1326,8 +1333,8 @@ func (o *Observer) observeConfigMapConfiguration(
 
 		var obs evidence.Observation
 		if outcome == evidence.Observed {
-			// Beyond window -> confirmed absent.
-			obs = evidence.NewConfigurationPresent(subj, false, prov)
+			// Beyond window -> confirmed absent (Present=false, Conformant=false -> CONFIGURATION_ABSENT).
+			obs = evidence.NewConfigurationPresent(subj, false, false, prov)
 		} else {
 			// Within window -> Insufficient.
 			obs, _ = evidence.NewUnobserved(evidence.ConfigurationPresent, subj, outcome, prov)
@@ -1394,7 +1401,9 @@ func (o *Observer) observeConfigMapConfiguration(
 	}
 
 	// Discard source content (INV-5). Emit only the boolean result.
-	obs := evidence.NewConfigurationPresent(subj, conforms, prov)
+	// ConfigMap with key+format, values read+parsed+validated -> (Present, Conformant) per validation result.
+	// Conformant=true (satisfied) or Conformant=false -> CONFIGURATION_MISMATCH.
+	obs := evidence.NewConfigurationPresent(subj, true, conforms, prov)
 	update := ObservationWindowUpdate{
 		Kind:                    "configuration",
 		Subject:                 cfg.Name,
@@ -1421,6 +1430,12 @@ func (o *Observer) observeMetricsDim(ctx context.Context, input CollectInput, pr
 	}
 
 	subj := evidence.SubjectRef{Kind: "capability", Name: metricsCap.AssertionKey()} // "metrics"
+
+	// When metrics observation is DISABLED, return Unsupported HONESTLY (no discovery).
+	if !input.EnableMetricsObservation {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
 
 	// No binding -> Unsupported.
 	if metricsCap.Binding == nil {
