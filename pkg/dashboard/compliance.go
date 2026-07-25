@@ -44,26 +44,38 @@ func LookupValidation(conditionType string) ValidationCatalogEntry {
 
 // ComputeCompliance computes the compliance status and score from contract status and conditions.
 func ComputeCompliance(cs ContractStatus, conditions []Condition) *ComplianceInfo {
-	info := &ComplianceInfo{}
-
-	// Short-circuit for states with no runtime evaluation (excluded from denominator).
-	if cs == StatusReference || cs == StatusNotEvaluated {
-		info.Status = ComplianceReference
+	if info := shortCircuitCompliance(cs); info != nil {
 		return info
 	}
 
-	// Short-circuit for Invalid (structural failure, before runtime evaluation).
-	if cs == StatusInvalid {
-		info.Status = ComplianceError
-		return info
+	counts := countConditions(conditions)
+	info := &ComplianceInfo{Summary: &counts}
+
+	if len(conditions) > 0 {
+		score := int(math.Round(float64(counts.Passed) / float64(counts.Total) * 100))
+		info.Score = &score
 	}
 
-	// Compute summary from conditions (runtime-evaluated states).
+	info.Status = determineComplianceStatus(counts.Errors, counts.Unknown, counts.Warnings, cs)
+	return info
+}
+
+// shortCircuitCompliance returns early results for non-runtime-evaluated states.
+func shortCircuitCompliance(cs ContractStatus) *ComplianceInfo {
+	switch cs {
+	case StatusReference, StatusNotEvaluated:
+		return &ComplianceInfo{Status: ComplianceReference}
+	case StatusInvalid:
+		return &ComplianceInfo{Status: ComplianceError}
+	default:
+		return nil
+	}
+}
+
+// countConditions tallies condition outcomes by severity.
+func countConditions(conditions []Condition) ComplianceCounts {
 	total := len(conditions)
-	passed := 0
-	errors := 0
-	warnings := 0
-	unknown := 0
+	passed, errors, warnings, unknown := 0, 0, 0, 0
 
 	for _, c := range conditions {
 		severity := c.Severity
@@ -84,44 +96,30 @@ func ComputeCompliance(cs ContractStatus, conditions []Condition) *ComplianceInf
 		}
 	}
 
-	failed := total - passed
-	compliant := passed
-	nonCompliant := errors
-	// Secondary metrics per B-2 (informational, distinguish failure from uncertainty).
-	runtimeEvaluated := compliant + warnings + nonCompliant + unknown
-	conclusive := compliant + warnings + nonCompliant
-
-	info.Summary = &ComplianceCounts{
+	return ComplianceCounts{
 		Total:            total,
 		Passed:           passed,
-		Failed:           failed,
+		Failed:           total - passed,
 		Errors:           errors,
 		Warnings:         warnings,
 		Unknown:          unknown,
-		RuntimeEvaluated: runtimeEvaluated,
-		Conclusive:       conclusive,
+		RuntimeEvaluated: passed + warnings + errors + unknown,
+		Conclusive:       passed + warnings + errors,
 	}
+}
 
-	if total > 0 {
-		score := int(math.Round(float64(passed) / float64(total) * 100))
-		info.Score = &score
-	}
-
-	// Determine status from conditions or contract status.
-	// Precedence: Error > Unknown > Warning > OK.
-	// Contract status takes precedence when no conditions are available.
+// determineComplianceStatus derives the final status from counts and contract status.
+func determineComplianceStatus(errors, unknown, warnings int, cs ContractStatus) ComplianceStatus {
 	switch {
 	case errors > 0 || cs == StatusNonCompliant:
-		info.Status = ComplianceError
+		return ComplianceError
 	case unknown > 0 || cs == StatusUnknown:
-		info.Status = ComplianceUnknown
+		return ComplianceUnknown
 	case warnings > 0 || cs == StatusWarning:
-		info.Status = ComplianceWarning
+		return ComplianceWarning
 	default:
-		info.Status = ComplianceOK
+		return ComplianceOK
 	}
-
-	return info
 }
 
 // ComputeRuntimeDiff builds the semantic contract-vs-runtime comparison rows.

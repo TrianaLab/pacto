@@ -25,44 +25,56 @@ func allObserved() []Observation {
 func TestRoundTrip_ObservedAndUnobserved(t *testing.T) {
 	nonObserved := []Outcome{Unsupported, Failed, Stale, Insufficient}
 	for _, o := range allObserved() {
-		data, err := json.Marshal(o)
-		if err != nil {
-			t.Fatalf("marshal %s: %v", o.Kind, err)
-		}
-		if !strings.Contains(string(data), `"value"`) {
-			t.Errorf("%s: Observed must carry a value key: %s", o.Kind, data)
-		}
-		var back Observation
-		if err := json.Unmarshal(data, &back); err != nil {
-			t.Fatalf("unmarshal %s: %v", o.Kind, err)
-		}
-		if back.Kind != o.Kind || back.Subject != o.Subject || back.Outcome != Observed {
-			t.Errorf("%s: round-trip envelope mismatch: %+v", o.Kind, back)
-		}
-		re, err := json.Marshal(back)
-		if err != nil || string(re) != string(data) {
-			t.Errorf("%s: not byte-identical re-marshal", o.Kind)
-		}
-		for _, oc := range nonObserved {
+		t.Run(string(o.Kind), func(t *testing.T) {
+			testObservedRoundTrip(t, o)
+			testUnobservedRoundTrip(t, o, nonObserved)
+		})
+	}
+}
+
+func testObservedRoundTrip(t *testing.T, o Observation) {
+	data, err := json.Marshal(o)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"value"`) {
+		t.Errorf("Observed must carry a value key: %s", data)
+	}
+	var back Observation
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if back.Kind != o.Kind || back.Subject != o.Subject || back.Outcome != Observed {
+		t.Errorf("round-trip envelope mismatch: %+v", back)
+	}
+	re, err := json.Marshal(back)
+	if err != nil || string(re) != string(data) {
+		t.Errorf("not byte-identical re-marshal")
+	}
+}
+
+func testUnobservedRoundTrip(t *testing.T, o Observation, outcomes []Outcome) {
+	for _, oc := range outcomes {
+		t.Run(string(oc), func(t *testing.T) {
 			u, err := NewUnobserved(o.Kind, o.Subject, oc, prov())
 			if err != nil {
-				t.Fatalf("NewUnobserved %s/%s: %v", o.Kind, oc, err)
+				t.Fatalf("NewUnobserved: %v", err)
 			}
 			ud, err := json.Marshal(u)
 			if err != nil {
 				t.Fatalf("marshal unobserved: %v", err)
 			}
 			if strings.Contains(string(ud), `"value"`) {
-				t.Errorf("%s/%s must NOT carry a value key: %s", o.Kind, oc, ud)
+				t.Errorf("must NOT carry a value key: %s", ud)
 			}
 			var ub Observation
 			if err := json.Unmarshal(ud, &ub); err != nil {
 				t.Fatalf("unmarshal unobserved: %v", err)
 			}
 			if ub.Outcome != oc || len(ub.Value) != 0 {
-				t.Errorf("%s/%s round-trip mismatch: %+v", o.Kind, oc, ub)
+				t.Errorf("round-trip mismatch: %+v", ub)
 			}
-		}
+		})
 	}
 }
 

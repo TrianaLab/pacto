@@ -352,9 +352,14 @@ func enrichWithRuntime(contract *ServiceDetails, runtime *ServiceDetails) {
 
 // enrichRuntimeFields copies runtime-only struct/slice fields from k8s.
 func enrichRuntimeFields(contract *ServiceDetails, runtime *ServiceDetails) {
-	// Declared workload, state, and capabilities stay from the contract base
-	// (the contract is authoritative for what the service SHOULD be). Only
-	// fill when the contract base had none (k8s-only service).
+	// Declared workload, state, capabilities: only fill when contract base is empty.
+	fillDeclaredFields(contract, runtime)
+	// Runtime-only fields: always set from k8s when present.
+	fillRuntimeOnlyFields(contract, runtime)
+}
+
+// fillDeclaredFields fills contract-authoritative fields only when empty.
+func fillDeclaredFields(contract *ServiceDetails, runtime *ServiceDetails) {
 	if contract.Workload == "" && runtime.Workload != "" {
 		contract.Workload = runtime.Workload
 	}
@@ -364,6 +369,10 @@ func enrichRuntimeFields(contract *ServiceDetails, runtime *ServiceDetails) {
 	if len(contract.Capabilities) == 0 && len(runtime.Capabilities) > 0 {
 		contract.Capabilities = runtime.Capabilities
 	}
+}
+
+// fillRuntimeOnlyFields unconditionally copies runtime fields when present.
+func fillRuntimeOnlyFields(contract *ServiceDetails, runtime *ServiceDetails) {
 	if runtime.Resources != nil {
 		contract.Resources = runtime.Resources
 	}
