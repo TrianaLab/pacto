@@ -11,1427 +11,1209 @@ See LICENSE file in the project root for full license text.
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
-	"time"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"github.com/google/go-containerregistry/pkg/authn"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
-	"github.com/trianalab/pacto-operator/test/utils"
+	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
+	"github.com/trianalab/pacto-operator/internal/loader"
+	"github.com/trianalab/pacto/v2/pkg/dashboard"
+	"github.com/trianalab/pacto/v2/pkg/oci"
 )
 
-// namespace where the project is deployed in.
-const namespace = "pacto-operator-system"
+// port is the Service port every fixture uses; the collector resolves probe targets to it.
+const port int32 = 8080
 
-// serviceAccountName created for the project.
-const serviceAccountName = "pacto-operator-controller-manager"
+// --- contract builder -------------------------------------------------------
 
-// metricsServiceName is the name of the metrics service of the project.
-const metricsServiceName = "pacto-operator-controller-manager-metrics-service"
+type ifaceSpec struct {
+	name string
+	typ  string // default "openapi"
+}
 
-// metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data.
-const metricsRoleBindingName = "pacto-operator-metrics-binding"
+type capSpec struct {
+	typ   string // "health" | "metrics" | "extension"
+	iface string // owning interface name; "" => no binding (standard)
+	path  string // optional application path
+	ref   string // extension only
+}
 
-// testNamespace is a dedicated namespace for test Pacto CRs (isolated from operator system ns).
-const testNamespace = "pacto-e2e-test"
+type depSpec struct {
+	name, ref, compat string
+	required          bool
+}
 
-// Inline contracts used across tests. Each is minimal but valid for its purpose.
-const (
-	// contractSimple is a minimal valid contract with one HTTP interface.
-	contractSimple = `
-pactoVersion: "1.0"
-service:
-  name: simple-svc
-  version: 1.0.0
-  owner:
-    team: team-test
-interfaces:
-  - name: http-api
-    type: http
-    port: 8080
-`
-	// contractWithRuntime includes runtime section for runtime validation tests.
-	contractWithRuntime = `
-pactoVersion: "1.0"
-service:
-  name: runtime-svc
-  version: 2.0.0
-  owner:
-    team: team-runtime
-  image:
-    ref: docker.io/library/nginx:latest
-interfaces:
-  - name: http-api
-    type: http
-    port: 8080
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-`
-	// contractStateful includes stateful runtime expectations.
-	contractStateful = `
-pactoVersion: "1.0"
-service:
-  name: stateful-svc
-  version: 1.0.0
-  owner:
-    team: team-data
-interfaces:
-  - name: http-api
-    type: http
-    port: 5432
-runtime:
-  workload: service
-  state:
-    type: stateful
-    persistence:
-      scope: shared
-      durability: persistent
-    dataCriticality: high
-  lifecycle:
-    upgradeStrategy: ordered
-    gracefulShutdownSeconds: 60
-`
-	// contractInvalid is intentionally malformed to trigger contract validation failure.
-	contractInvalid = `not valid yaml: [[[`
+type cfgSpec struct {
+	name, schema string
+	required     bool
+}
 
-	// contractMissingFields is valid YAML but missing required contract fields.
-	contractMissingFields = `
-pactoVersion: "1.0"
-service:
-  name: ""
-  version: ""
-`
+type contractSpec struct {
+	name        string
+	workload    string // "", "service", "job", "scheduled"
+	persistence string // "", "ephemeral", "persistent"
+	ifaces      []ifaceSpec
+	caps        []capSpec
+	deps        []depSpec
+	cfgs        []cfgSpec
+	conformance []string
+}
 
-	// contractWithConfig includes a single named configuration.
-	contractWithConfig = `
-pactoVersion: "1.0"
-service:
-  name: config-svc
-  version: 1.0.0
-  owner:
-    team: team-config
-interfaces:
-  - name: http-api
-    type: http
-    port: 8080
-configurations:
-  - name: default
-    schema: config-schema.json
-    values:
-      db_host: localhost
-      api_key: "secret://vault/key"
-`
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
 
-	// contractWithMultiConfig includes multiple named configuration scopes.
-	contractWithMultiConfig = `
-pactoVersion: "1.0"
-service:
-  name: multi-config-svc
-  version: 1.0.0
-  owner:
-    team: team-platform
-interfaces:
-  - name: http-api
-    type: http
-    port: 8080
-configurations:
-  - name: app
-    schema: app-config.json
-    values:
-      port: 8080
-  - name: monitoring
-    ref: "oci://ghcr.io/acme/monitoring-config"
-`
-
-	// contractWithPolicies includes multiple policies.
-	contractWithPolicies = `
-pactoVersion: "1.0"
-service:
-  name: policy-svc
-  version: 1.0.0
-  owner:
-    team: team-security
-interfaces:
-  - name: http-api
-    type: http
-    port: 8080
-policies:
-  - name: security
-    schema: security-policy.json
-  - name: baseline
-    ref: "oci://org-policies/baseline"
-`
-
-	// contractWithSinglePolicy includes a single local-schema policy.
-	contractWithSinglePolicy = `
-pactoVersion: "1.0"
-service:
-  name: single-policy-svc
-  version: 1.0.0
-  owner:
-    team: team-ops
-interfaces:
-  - name: http-api
-    type: http
-    port: 8080
-policies:
-  - name: ops
-    schema: ops-policy.json
-`
-
-	// contractReadinessAllCurrent is a 1.2 reference contract whose readiness
-	// checks are all done with a far-future assessment expiry → score 100,
-	// deterministic regardless of when the suite runs.
-	contractReadinessAllCurrent = `
-pactoVersion: "1.2"
-service:
-  name: readiness-current-svc
-  version: 1.0.0
-  owner:
-    team: team-readiness
-readiness:
-  expires: "2099-12-31"
-  checks:
-    - id: dashboard
-      type: url
-      status: done
-      evidence: https://grafana.example.com/d/readiness-current
-      weight: 60
-    - id: runbook
-      type: document
-      status: done
-      evidence: docs/runbooks/readiness-current.md
-      weight: 40
-`
-
-	// contractReadinessMixed is a 1.2 reference contract with one done and one
-	// not-done check → score 70, below the default minScore (gate unmet).
-	contractReadinessMixed = `
-pactoVersion: "1.2"
-service:
-  name: readiness-mixed-svc
-  version: 1.0.0
-  owner:
-    team: team-readiness
-readiness:
-  expires: "2099-12-31"
-  checks:
-    - id: dashboard
-      type: url
-      status: done
-      evidence: https://grafana.example.com/d/readiness-mixed
-      weight: 70
-    - id: security-review
-      type: ticket
-      status: not-done
-      evidence: SEC-1
-      weight: 30
-`
-
-	// contractScheduled declares a "scheduled" workload — validated against a CronJob.
-	// No interfaces/Service: batch workloads are targeted via workloadRef only.
-	contractScheduled = `
-pactoVersion: "1.0"
-service:
-  name: scheduled-svc
-  version: 1.0.0
-  owner:
-    team: team-batch
-runtime:
-  workload: scheduled
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-`
-
-	// contractJob declares a "job" workload — validated against a Job.
-	contractJob = `
-pactoVersion: "1.0"
-service:
-  name: job-svc
-  version: 1.0.0
-  owner:
-    team: team-batch
-runtime:
-  workload: job
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-`
-)
-
-var _ = Describe("Operator", Ordered, func() {
-	var controllerPodName string
-
-	// Shared setup: deploy the operator once for all tests.
-	BeforeAll(func() {
-		By("creating manager namespace")
-		cmd := exec.Command("kubectl", "create", "ns", namespace)
-		_, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
-
-		By("labeling the namespace to enforce the restricted security policy")
-		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
-			"pod-security.kubernetes.io/enforce=restricted")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace")
-
-		By("installing CRDs")
-		cmd = exec.Command("make", "install")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
-
-		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
-
-		By("creating test namespace for Pacto CRs")
-		cmd = exec.Command("kubectl", "create", "ns", testNamespace)
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create test namespace")
-	})
-
-	AfterAll(func() {
-		By("deleting test namespace")
-		cmd := exec.Command("kubectl", "delete", "ns", testNamespace, "--ignore-not-found", "--wait=false")
-		_, _ = utils.Run(cmd)
-
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
-		_, _ = utils.Run(cmd)
-
-		By("uninstalling CRDs")
-		cmd = exec.Command("make", "uninstall")
-		_, _ = utils.Run(cmd)
-
-		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--ignore-not-found")
-		_, _ = utils.Run(cmd)
-	})
-
-	// Collect debug info on failure.
-	AfterEach(func() {
-		specReport := CurrentSpecReport()
-		if specReport.Failed() {
-			By("Fetching controller manager pod logs")
-			if controllerPodName != "" {
-				cmd := exec.Command("kubectl", "logs", controllerPodName, "-n", namespace, "--tail=100")
-				controllerLogs, err := utils.Run(cmd)
-				if err == nil {
-					_, _ = fmt.Fprintf(GinkgoWriter, "Controller logs:\n%s", controllerLogs)
+// buildContract renders a minimal, schema-valid pactoVersion 2.0 inline contract from the spec.
+func buildContract(s contractSpec) string {
+	var b strings.Builder
+	b.WriteString("pactoVersion: \"2.0\"\n")
+	b.WriteString("service:\n  name: " + s.name + "\n  version: 1.0.0\n")
+	if s.workload != "" {
+		b.WriteString("workload: " + s.workload + "\n")
+	}
+	if s.persistence != "" {
+		b.WriteString("state:\n  type: stateful\n  dataCriticality: low\n  persistence:\n    scope: local\n    durability: " + s.persistence + "\n")
+	}
+	if len(s.ifaces) > 0 {
+		b.WriteString("interfaces:\n")
+		for _, i := range s.ifaces {
+			typ := i.typ
+			if typ == "" {
+				typ = "openapi"
+			}
+			b.WriteString("  - name: " + i.name + "\n    type: " + typ + "\n    ref: " + i.name + ".spec\n")
+		}
+	}
+	if len(s.caps) > 0 {
+		b.WriteString("capabilities:\n")
+		for _, c := range s.caps {
+			b.WriteString("  - type: " + c.typ + "\n")
+			if c.ref != "" {
+				b.WriteString("    ref: " + c.ref + "\n")
+			}
+			if c.iface != "" {
+				b.WriteString("    binding:\n      type: http\n      interface: " + c.iface + "\n")
+				if c.path != "" {
+					b.WriteString("      path: '" + c.path + "'\n")
 				}
 			}
-
-			By("Fetching Kubernetes events in test namespace")
-			cmd := exec.Command("kubectl", "get", "events", "-n", testNamespace,
-				"--sort-by=.lastTimestamp", "--no-headers")
-			eventsOutput, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Events:\n%s", eventsOutput)
+		}
+	}
+	if len(s.deps) > 0 {
+		b.WriteString("dependencies:\n")
+		for _, d := range s.deps {
+			b.WriteString("  - name: " + d.name + "\n    ref: " + d.ref + "\n    required: " + boolStr(d.required) + "\n    compatibility: " + d.compat + "\n")
+		}
+	}
+	if len(s.cfgs) > 0 {
+		b.WriteString("configurations:\n")
+		for _, cf := range s.cfgs {
+			b.WriteString("  - name: " + cf.name + "\n    required: " + boolStr(cf.required) + "\n")
+			if cf.schema != "" {
+				b.WriteString("    schema: '" + cf.schema + "'\n")
 			}
+		}
+	}
+	if len(s.conformance) > 0 {
+		b.WriteString("verification:\n  conformance:\n")
+		for _, n := range s.conformance {
+			b.WriteString("    - " + n + "\n")
+		}
+	}
+	return b.String()
+}
 
-			By("Fetching Pacto resources in test namespace")
-			cmd = exec.Command("kubectl", "get", "pactos,pactorevisions",
-				"-n", testNamespace, "-o", "wide")
-			resources, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Pacto resources:\n%s", resources)
-			}
+// apiBinding is the standard interface->port binding used across cases.
+func apiBinding(iface string) []pactov1alpha1.InterfaceBinding {
+	return []pactov1alpha1.InterfaceBinding{{Interface: iface, ServicePort: intstr.FromInt32(port)}}
+}
+
+// =====================================================================================
+// workload (Refinement C / AR7)
+// =====================================================================================
+
+func TestWorkload(t *testing.T) {
+	t.Run("explicit_name_and_kind_match_compliant", func(t *testing.T) {
+		ns := newNamespace(t)
+		createDeployment(t, ns, "wl", deployOpts{})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
+			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Deployment"}},
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 1, 1)
+	})
+
+	t.Run("explicit_wrong_kind_noncompliant_WORKLOAD_MISMATCH", func(t *testing.T) {
+		ns := newNamespace(t)
+		createJob(t, ns, "wl")
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
+			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Job"}},
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireFinding(t, p, "WORKLOAD_MISMATCH")
+	})
+
+	t.Run("defaulted_kind_wrong_type_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
+		ns := newNamespace(t)
+		createDeployment(t, ns, "wl", deployOpts{}) // observed type "service"
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			// contract wants a job; kind is left unspecified (defaulted to Deployment for the GET only).
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "job"})},
+			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl"}},
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+		requireNoFinding(t, p, "WORKLOAD_MISMATCH")
+	})
+
+	t.Run("notfound_unknown_EVIDENCE_MISSING", func(t *testing.T) {
+		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
+			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "ghost", Kind: "Deployment"}},
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_MISSING")
+	})
+
+	t.Run("api_failure_unknown_COLLECTION_FAILED", func(t *testing.T) {
+		ns := newNamespace(t)
+		createDeployment(t, ns, "wl", deployOpts{})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
+			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Deployment"}},
+		})
+		// Full real pipeline, but the apiserver GET of this Deployment errors (non-NotFound).
+		p := reconcile(t, "p", ns, reconcileOpts{cl: faultClient{Client: k8sClient, failDeploymentName: "wl"}}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "COLLECTION_FAILED")
+	})
+}
+
+// =====================================================================================
+// persistence (B3)
+// =====================================================================================
+
+func TestPersistence(t *testing.T) {
+	pvc := []corev1.Volume{{Name: "data", VolumeSource: corev1.VolumeSource{
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data-pvc"}}}}
+	emptyDir := []corev1.Volume{{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
+	hostPath := []corev1.Volume{{Name: "hp", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/data"}}}}
+
+	persistentTarget := func() pactov1alpha1.TargetRef {
+		return pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Deployment"}}
+	}
+
+	t.Run("binding_declared_compliant", func(t *testing.T) {
+		ns := newNamespace(t)
+		createDeployment(t, ns, "wl", deployOpts{volumes: pvc})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", persistence: "persistent"})},
+			Target:      persistentTarget(),
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 1, 1)
+	})
+
+	t.Run("all_ephemeral_noncompliant_PERSISTENCE_MISMATCH", func(t *testing.T) {
+		ns := newNamespace(t)
+		createDeployment(t, ns, "wl", deployOpts{volumes: emptyDir})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", persistence: "persistent"})},
+			Target:      persistentTarget(),
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireFinding(t, p, "PERSISTENCE_MISMATCH")
+	})
+
+	t.Run("ambiguous_volume_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
+		ns := newNamespace(t)
+		createDeployment(t, ns, "wl", deployOpts{volumes: hostPath})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", persistence: "persistent"})},
+			Target:      persistentTarget(),
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+		requireNoFinding(t, p, "PERSISTENCE_MISMATCH")
+	})
+
+	t.Run("workload_notfound_unknown_EVIDENCE_MISSING", func(t *testing.T) {
+		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", persistence: "persistent"})},
+			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "ghost", Kind: "Deployment"}},
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_MISSING")
+	})
+
+	t.Run("ephemeral_compliant_excluded_from_coverage", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			// ephemeral persistence adds NO required assertion; only the interface is required.
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+				name: "app", persistence: "ephemeral", ifaces: []ifaceSpec{{name: "api"}}})},
+			Target: pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")},
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 1, 1) // persistence NOT counted
+	})
+}
+
+// =====================================================================================
+// interfaces (B1 + B4 + B5)
+// =====================================================================================
+
+func TestInterfaces(t *testing.T) {
+	ifaceTarget := pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
+
+	t.Run("bound_ready_compliant_availability", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+			Target:      ifaceTarget,
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 1, 1)
+	})
+
+	t.Run("zero_ready_within_window_unknown", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 0) // slice exists, zero ready
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+			Target:      ifaceTarget,
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+		requireNoFinding(t, p, "INTERFACE_ABSENT")
+	})
+
+	t.Run("zero_ready_beyond_window_noncompliant_INTERFACE_ABSENT", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 0)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+			Target:      ifaceTarget,
+		})
+		reconcile(t, "p", ns, reconcileOpts{}) // seed window (within -> Unknown)
+		backdateWindows(t, "p", ns)
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireFinding(t, p, "INTERFACE_ABSENT")
+		requireNoIP(t, p)
+	})
+
+	t.Run("no_binding_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "svc"}, // no interfaceBindings
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
+	})
+
+	t.Run("conformance_optin_no_evaluator_unknown_EXTENSION_EVALUATOR_UNAVAILABLE", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1) // availability satisfied
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+				name: "app", ifaces: []ifaceSpec{{name: "api"}}, conformance: []string{"api"}})},
+			Target: ifaceTarget,
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EXTENSION_EVALUATOR_UNAVAILABLE")
+		requireNoFinding(t, p, "INTERFACE_ABSENT") // availability still satisfied
+		requireCoverage(t, p, 1, 2)                // availability evaluated; conformance required-but-unevaluated
+	})
+
+	t.Run("asyncapi_no_binding_unknown", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+				name: "app", ifaces: []ifaceSpec{{name: "events", typ: "asyncapi"}}})},
+			Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
+	})
+}
+
+// =====================================================================================
+// health capability (Refinement A + B4 + B5)
+// =====================================================================================
+
+func TestHealth(t *testing.T) {
+	healthContract := buildContract(contractSpec{
+		name:   "app",
+		ifaces: []ifaceSpec{{name: "api"}},
+		caps:   []capSpec{{typ: "health", iface: "api", path: "/healthz"}},
+	})
+	target := pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
+
+	t.Run("direct_probe_2xx_compliant", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		startProbeServer(t, ns, "svc", port, okHealth)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 2, 2) // interface availability + health
+	})
+
+	t.Run("declared_path_404_beyond_window_noncompliant_CAPABILITY_ABSENT", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		startProbeServer(t, ns, "svc", port, status404)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		reconcile(t, "p", ns, reconcileOpts{}) // 404 within window -> Unknown
+		backdateWindows(t, "p", ns)
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireFinding(t, p, "CAPABILITY_ABSENT")
+	})
+
+	t.Run("probe_5xx_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		startProbeServer(t, ns, "svc", port, status503) // serving but unhealthy -> present, not absent
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+		requireNoFinding(t, p, "CAPABILITY_ABSENT")
+	})
+
+	t.Run("probe_unreachable_no_readiness_unknown_COLLECTION_FAILED", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		createDeployment(t, ns, "svc", deployOpts{}) // no readiness probe -> tier-B fails
+		pointAtClosedPort(t, ns, "svc", port)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "COLLECTION_FAILED")
+	})
+
+	t.Run("no_binding_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
+		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			// health capability with NO binding block -> Unsupported.
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+				name: "app", caps: []capSpec{{typ: "health"}}})},
+			Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
+	})
+
+	t.Run("undeclared_interface_invalid_CAPABILITY_INTERFACE_UNKNOWN", func(t *testing.T) {
+		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+				name: "app", caps: []capSpec{{typ: "health", iface: "ghost", path: "/healthz"}}})},
+			Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusInvalid)
+		if !contains(validationCodes(p), "CAPABILITY_INTERFACE_UNKNOWN") {
+			t.Fatalf("expected CAPABILITY_INTERFACE_UNKNOWN, got %v", validationCodes(p))
+		}
+	})
+}
+
+// =====================================================================================
+// metrics capability (Refinement D)
+// =====================================================================================
+
+func TestMetrics(t *testing.T) {
+	metricsContract := func(path string) string {
+		return buildContract(contractSpec{
+			name:   "app",
+			ifaces: []ifaceSpec{{name: "api"}},
+			caps:   []capSpec{{typ: "metrics", iface: "api", path: path}},
+		})
+	}
+	target := pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
+
+	t.Run("active_probe_prometheus_parsed_compliant", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		startProbeServer(t, ns, "svc", port, promMetrics)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 2, 2)
+	})
+
+	t.Run("substring_but_not_parseable_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		startProbeServer(t, ns, "svc", port, substringButNotPrometheus)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+	})
+
+	t.Run("disabled_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: false}).pacto // flag OFF
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
+	})
+
+	t.Run("enabled_no_discovery_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		// metrics binding without a path, no ServiceMonitor/annotation/named-port -> nothing to probe.
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("")}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
+	})
+}
+
+// =====================================================================================
+// extension capability (N1)
+// =====================================================================================
+
+func TestExtensionCapability(t *testing.T) {
+	ns := newNamespace(t)
+	createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+			name: "app", caps: []capSpec{{typ: "extension", ref: "example.com/backup"}}})},
+		Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+	})
+	p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+	requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+	requireFinding(t, p, "EXTENSION_EVALUATOR_UNAVAILABLE")
+	requireNoFinding(t, p, "EVIDENCE_MISSING")
+	requireCoverage(t, p, 0, 1) // required but never evaluable (no collector observation)
+}
+
+// =====================================================================================
+// required-dependencies (B5)
+// =====================================================================================
+
+func TestDependencies(t *testing.T) {
+	// depContract builds a contract with one dependency; ref is namespaced-unique to avoid cross-test
+	// sibling matches (Pacto list is cluster-wide).
+	depContract := func(ns string, required bool) string {
+		return buildContract(contractSpec{
+			name: "app",
+			deps: []depSpec{{name: "payments", ref: "oci://ghcr.io/e2e/" + ns + "-payments", required: required, compat: "1.x"}},
+		})
+	}
+	mainTarget := pactov1alpha1.TargetRef{ServiceName: "main-svc"}
+
+	t.Run("ready_backend_compliant", func(t *testing.T) {
+		ns := newNamespace(t)
+		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createService(t, ns, "pay-svc", port)
+		createEndpointSlice(t, ns, "pay-svc", port, 1)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 1, 1)
+	})
+
+	t.Run("zero_ready_within_window_unknown", func(t *testing.T) {
+		ns := newNamespace(t)
+		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createService(t, ns, "pay-svc", port)
+		createEndpointSlice(t, ns, "pay-svc", port, 0)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+	})
+
+	t.Run("zero_ready_beyond_window_noncompliant_DEPENDENCY_UNREACHABLE", func(t *testing.T) {
+		ns := newNamespace(t)
+		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createService(t, ns, "pay-svc", port)
+		createEndpointSlice(t, ns, "pay-svc", port, 0)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		reconcile(t, "p", ns, reconcileOpts{})
+		backdateWindows(t, "p", ns)
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireFinding(t, p, "DEPENDENCY_UNREACHABLE")
+		requireNoIP(t, p)
+	})
+
+	t.Run("no_sibling_external_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
+		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
+	})
+
+	t.Run("optional_absent_no_finding_compliant", func(t *testing.T) {
+		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, false)}, Target: mainTarget})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant) // optional + unresolvable -> no false Unknown
+		if len(p.Status.Findings) != 0 {
+			t.Fatalf("optional absent dependency should surface no finding, got %v", findingCodes(p))
 		}
 	})
 
-	// ── A. Operator Lifecycle ─────────────────────────────────────────────
-
-	Context("Operator Lifecycle", func() {
-		It("should run the controller-manager pod successfully", func() {
-			verifyControllerUp := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "pods",
-					"-l", "control-plane=controller-manager",
-					"-o", "go-template={{ range .items }}"+
-						"{{ if not .metadata.deletionTimestamp }}"+
-						"{{ .metadata.name }}"+
-						"{{ \"\\n\" }}{{ end }}{{ end }}",
-					"-n", namespace,
-				)
-				podOutput, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred(), "Failed to list controller-manager pods")
-				podNames := utils.GetNonEmptyLines(podOutput)
-				g.Expect(podNames).To(HaveLen(1), "expected exactly 1 controller pod")
-				controllerPodName = podNames[0]
-				g.Expect(controllerPodName).To(ContainSubstring("controller-manager"))
-
-				cmd = exec.Command("kubectl", "get", "pods", controllerPodName,
-					"-o", "jsonpath={.status.phase}", "-n", namespace)
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Running"), "controller pod not in Running phase")
-			}
-			Eventually(verifyControllerUp, 90*time.Second, 2*time.Second).Should(Succeed())
-		})
-	})
-
-	// ── B. Contract Status Computation ────────────────────────────────────
-
-	Context("Contract Status Computation", Ordered, func() {
-		// These tests run in parallel-safe fashion: each creates a uniquely-named
-		// Pacto CR in the shared test namespace.
-
-		It("should set contractStatus=Reference for a contract with no target", func() {
-			name := "e2e-reference"
-			applyPacto(name, testNamespace, contractSimple, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("Reference"),
-					"expected Reference status for contract without target")
-				g.Expect(status.Summary.Total).To(BeNumerically(">=", 1))
-				g.Expect(status.Summary.Failed).To(Equal(float64(0)))
-				g.Expect(status.LastReconciledAt).NotTo(BeEmpty())
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should set contractStatus=NonCompliant when workload does not exist", func() {
-			name := "e2e-noncompliant-missing"
-			applyPacto(name, testNamespace, contractSimple, "nonexistent-svc", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("NonCompliant"),
-					"expected NonCompliant when target resources are missing")
-				g.Expect(status.Summary.Failed).To(BeNumerically(">", 0))
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should set contractStatus=Compliant when service and deployment match", func() {
-			name := "e2e-compliant"
-			svcName := "e2e-compliant-svc"
-			createKubeService(svcName, testNamespace, 8080)
-			createKubeDeployment(svcName, testNamespace, "nginx:latest")
-			DeferCleanup(deleteKubeService, svcName, testNamespace)
-			DeferCleanup(deleteKubeDeployment, svcName, testNamespace)
-
-			applyPacto(name, testNamespace, contractSimple, svcName, nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("Compliant"),
-					"expected Compliant when service+deployment match contract")
-				g.Expect(status.Summary.Failed).To(Equal(float64(0)))
-				g.Expect(status.Resources.Service.Exists).To(BeTrue())
-				g.Expect(status.Resources.Workload.Exists).To(BeTrue())
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should set contractStatus=Warning when ports mismatch", func() {
-			name := "e2e-warning-ports"
-			svcName := "e2e-warning-svc"
-			createKubeService(svcName, testNamespace, 9090) // contract expects 8080
-			createKubeDeployment(svcName, testNamespace, "nginx:latest")
-			DeferCleanup(deleteKubeService, svcName, testNamespace)
-			DeferCleanup(deleteKubeDeployment, svcName, testNamespace)
-
-			applyPacto(name, testNamespace, contractSimple, svcName, nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("Warning"),
-					"expected Warning when ports don't match")
-				g.Expect(status.Ports.Missing).To(ContainElement(float64(8080)))
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-	})
-
-	// ── C. PactoRevision Lifecycle ────────────────────────────────────────
-
-	Context("PactoRevision Lifecycle", Ordered, func() {
-		It("should create a PactoRevision linked to the parent Pacto", func() {
-			name := "e2e-revision"
-			applyPacto(name, testNamespace, contractSimple, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.CurrentRevision).NotTo(BeEmpty(),
-					"expected currentRevision to be populated after reconciliation")
-
-				// Verify the revision exists and is linked
-				revName := status.CurrentRevision
-				rev := getRevisionJSON(g, revName, testNamespace)
-				g.Expect(rev.Spec.PactoRef).To(Equal(name),
-					"revision.spec.pactoRef should reference the parent Pacto")
-				g.Expect(rev.Spec.Version).To(Equal("1.0.0"))
-				g.Expect(rev.Spec.ServiceName).To(Equal("simple-svc"))
-				g.Expect(rev.Status.Resolved).To(BeTrue())
-				g.Expect(rev.Status.ContractHash).NotTo(BeEmpty())
-
-				// Verify owner reference exists for GC
-				g.Expect(rev.Metadata.OwnerReferences).NotTo(BeEmpty(),
-					"revision should have an owner reference to the parent Pacto")
-				g.Expect(rev.Metadata.OwnerReferences[0].Name).To(Equal(name))
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should populate revision labels correctly", func() {
-			name := "e2e-revision-labels"
-			applyPacto(name, testNamespace, contractSimple, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.CurrentRevision).NotTo(BeEmpty())
-
-				// List revisions by label
-				cmd := exec.Command("kubectl", "get", "pactorevisions",
-					"-n", testNamespace,
-					"-l", fmt.Sprintf("pacto.trianalab.io/pacto=%s", name),
-					"-o", "jsonpath={.items[0].metadata.name}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal(status.CurrentRevision),
-					"revision found by label should match currentRevision")
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-	})
-
-	// ── D. Runtime Validation ─────────────────────────────────────────────
-
-	Context("Runtime Validation", Ordered, func() {
-		It("should validate runtime fields when workload matches contract", func() {
-			name := "e2e-runtime-match"
-			svcName := "e2e-runtime-match-svc"
-
-			// Create service and deployment matching the contract's runtime expectations
-			createKubeService(svcName, testNamespace, 8080)
-			createKubeDeploymentWithOptions(svcName, testNamespace, deploymentOpts{
-				image:                  "nginx:latest",
-				strategy:               "RollingUpdate",
-				terminationGracePeriod: 30,
-			})
-			DeferCleanup(deleteKubeService, svcName, testNamespace)
-			DeferCleanup(deleteKubeDeployment, svcName, testNamespace)
-
-			applyPacto(name, testNamespace, contractWithRuntime, svcName, nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("Compliant"),
-					"expected Compliant when runtime matches contract")
-
-				// Verify observed runtime is populated
-				g.Expect(status.ObservedRuntime).NotTo(BeNil())
-				g.Expect(status.ObservedRuntime.WorkloadKind).To(Equal("Deployment"))
-
-				// Verify runtime contract info is populated
-				g.Expect(status.Runtime).NotTo(BeNil())
-				g.Expect(status.Runtime.Workload).To(Equal("service"))
-				g.Expect(status.Runtime.UpgradeStrategy).To(Equal("rolling"))
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should produce Warning when runtime fields mismatch", func() {
-			name := "e2e-runtime-mismatch"
-			svcName := "e2e-runtime-mismatch-svc"
-
-			// Deployment uses Recreate strategy but contract expects rolling
-			createKubeService(svcName, testNamespace, 8080)
-			createKubeDeploymentWithOptions(svcName, testNamespace, deploymentOpts{
-				image:                  "nginx:latest",
-				strategy:               "Recreate",
-				terminationGracePeriod: 10, // contract expects 30
-			})
-			DeferCleanup(deleteKubeService, svcName, testNamespace)
-			DeferCleanup(deleteKubeDeployment, svcName, testNamespace)
-
-			applyPacto(name, testNamespace, contractWithRuntime, svcName, nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				// Runtime mismatches produce Warning (not NonCompliant — that's only for missing resources)
-				g.Expect(status.ContractStatus).To(Equal("Warning"),
-					"expected Warning for runtime field mismatches")
-				g.Expect(status.Summary.Failed).To(BeNumerically(">", 0))
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-	})
-
-	// ── D2. Job and Scheduled Workloads ───────────────────────────────────
-	// A contract whose runtime.workload is "scheduled"/"job" is validated against
-	// a CronJob/Job target (kinds now permitted by the WorkloadRef enum). Batch
-	// workloads have no Service, so they are targeted via workloadRef only.
-
-	Context("Job and Scheduled Workloads", Ordered, func() {
-		It("should set Compliant for a scheduled contract targeting a CronJob", func() {
-			name := "e2e-scheduled"
-			cjName := "e2e-scheduled-cj"
-			createKubeCronJob(cjName, testNamespace, "busybox:latest")
-			DeferCleanup(deleteKubeCronJob, cjName, testNamespace)
-
-			applyPacto(name, testNamespace, contractScheduled, "",
-				&struct{ name, kind string }{name: cjName, kind: "CronJob"})
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("Compliant"),
-					"expected Compliant when CronJob matches scheduled contract")
-				g.Expect(status.Summary.Failed).To(Equal(float64(0)))
-				g.Expect(status.ObservedRuntime).NotTo(BeNil())
-				g.Expect(status.ObservedRuntime.WorkloadKind).To(Equal("CronJob"))
-				g.Expect(status.Runtime).NotTo(BeNil())
-				g.Expect(status.Runtime.Workload).To(Equal("scheduled"))
-				g.Expect(status.Resources.Workload.Exists).To(BeTrue())
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should set Compliant for a job contract targeting a Job", func() {
-			name := "e2e-job"
-			jobName := "e2e-job-workload"
-			createKubeJob(jobName, testNamespace, "busybox:latest")
-			DeferCleanup(deleteKubeJob, jobName, testNamespace)
-
-			applyPacto(name, testNamespace, contractJob, "",
-				&struct{ name, kind string }{name: jobName, kind: "Job"})
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("Compliant"),
-					"expected Compliant when Job matches job contract")
-				g.Expect(status.ObservedRuntime).NotTo(BeNil())
-				g.Expect(status.ObservedRuntime.WorkloadKind).To(Equal("Job"))
-				g.Expect(status.Runtime).NotTo(BeNil())
-				g.Expect(status.Runtime.Workload).To(Equal("job"))
-				g.Expect(status.Resources.Workload.Exists).To(BeTrue())
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should set NonCompliant when the scheduled contract's CronJob is missing", func() {
-			name := "e2e-scheduled-missing"
-			applyPacto(name, testNamespace, contractScheduled, "",
-				&struct{ name, kind string }{name: "nonexistent-cj", kind: "CronJob"})
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("NonCompliant"),
-					"expected NonCompliant when the CronJob target does not exist")
-				g.Expect(status.Summary.Failed).To(BeNumerically(">", 0))
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-	})
-
-	// ── E. Error and Edge Cases ───────────────────────────────────────────
-
-	Context("Error and Edge Cases", Ordered, func() {
-		It("should set NonCompliant for an invalid inline contract", func() {
-			name := "e2e-invalid-contract"
-			applyPacto(name, testNamespace, contractInvalid, "some-svc", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("NonCompliant"),
-					"expected NonCompliant for invalid YAML contract")
-				g.Expect(status.Validation).NotTo(BeNil())
-				g.Expect(status.Validation.Valid).To(BeFalse())
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should clear stale status fields on invalid contract", func() {
-			name := "e2e-stale-clear"
-			applyPacto(name, testNamespace, contractInvalid, "some-svc", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("NonCompliant"))
-				// No runtime fields should be populated on contract failure
-				g.Expect(status.Resources).To(BeNil())
-				g.Expect(status.Ports).To(BeNil())
-				g.Expect(status.Contract).To(BeNil())
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should set ObservedGeneration on every reconciliation", func() {
-			name := "e2e-observed-gen"
-			applyPacto(name, testNamespace, contractSimple, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				// Get both generation and observedGeneration
-				cmd := exec.Command("kubectl", "get", "pacto", name,
-					"-n", testNamespace,
-					"-o", "jsonpath={.metadata.generation} {.status.observedGeneration}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				parts := strings.Fields(output)
-				g.Expect(parts).To(HaveLen(2))
-				g.Expect(parts[0]).To(Equal(parts[1]),
-					"observedGeneration should match metadata.generation")
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-	})
-
-	// ── F. Configuration and Policy Status ────────────────────────────────
-
-	Context("Configuration and Policy Status", Ordered, func() {
-		It("should surface named config in status.configurations", func() {
-			name := "e2e-named-config"
-			applyPacto(name, testNamespace, contractWithConfig, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("Reference"))
-				g.Expect(status.Configurations).To(HaveLen(1),
-					"single named config should produce one entry")
-				g.Expect(status.Configurations[0].Name).To(Equal("default"))
-				g.Expect(status.Configurations[0].HasSchema).To(BeTrue())
-				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("db_host"))
-				g.Expect(status.Configurations[0].SecretKeys).To(ContainElement("api_key"))
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should surface multi-config in status.configurations", func() {
-			name := "e2e-multi-config"
-			applyPacto(name, testNamespace, contractWithMultiConfig, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("Reference"))
-				g.Expect(status.Configurations).To(HaveLen(2),
-					"multi-config should produce two entries")
-				g.Expect(status.Configurations[0].Name).To(Equal("app"))
-				g.Expect(status.Configurations[0].HasSchema).To(BeTrue())
-				g.Expect(status.Configurations[1].Name).To(Equal("monitoring"))
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should surface multiple policies in status.policies", func() {
-			name := "e2e-multi-policy"
-			applyPacto(name, testNamespace, contractWithPolicies, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				// Contract may be NonCompliant if policy schemas aren't found in bundle,
-				// but policies metadata should still be surfaced in status.
-				g.Expect(status.Policies).To(HaveLen(2),
-					"should have two policy entries")
-				g.Expect(status.Policies[0].Name).To(Equal("security"))
-				g.Expect(status.Policies[0].HasSchema).To(BeTrue())
-				g.Expect(status.Policies[1].Name).To(Equal("baseline"))
-				g.Expect(status.Policies[1].Ref).To(Equal("oci://org-policies/baseline"))
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should surface single local-schema policy", func() {
-			name := "e2e-single-policy"
-			applyPacto(name, testNamespace, contractWithSinglePolicy, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.Policies).To(HaveLen(1))
-				g.Expect(status.Policies[0].HasSchema).To(BeTrue())
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should have empty configurations and policies when not declared", func() {
-			name := "e2e-no-config-policy"
-			applyPacto(name, testNamespace, contractSimple, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("Reference"))
-				g.Expect(status.Configurations).To(BeEmpty())
-				g.Expect(status.Policies).To(BeEmpty())
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-	})
-
-	// ── F2. Configuration Overrides ──────────────────────────────────────
-
-	Context("Configuration Overrides", Ordered, func() {
-		It("should merge override values into resolved contract (reference-only)", func() {
-			name := "e2e-config-override"
-			overridesYAML := `
-  overrides:
-    configurations:
-      - name: default
-        values:
-          db_host: staging-db.example.com`
-			applyPactoRaw(name, testNamespace, contractWithConfig, "", nil, overridesYAML)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("Reference"))
-				g.Expect(status.Configurations).To(HaveLen(1))
-				g.Expect(status.Configurations[0].Name).To(Equal("default"))
-				g.Expect(status.Configurations[0].OverriddenKeys).To(ContainElement("db_host"))
-				// Original keys should still be present.
-				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("db_host"))
-				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("api_key"))
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should apply overrides through full reconciliation with target workload", func() {
-			name := "e2e-config-override-target"
-			svcName := "e2e-override-target-svc"
-			createKubeService(svcName, testNamespace, 8080)
-			createKubeDeployment(svcName, testNamespace, "nginx:latest")
-			DeferCleanup(deleteKubeService, svcName, testNamespace)
-			DeferCleanup(deleteKubeDeployment, svcName, testNamespace)
-
-			overridesYAML := `
-  overrides:
-    configurations:
-      - name: default
-        values:
-          db_host: staging-db.example.com
-          new_key: new_value`
-			applyPactoRaw(name, testNamespace, contractWithConfig, svcName, nil, overridesYAML)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				// Should complete full reconciliation with runtime validation.
-				g.Expect(status.ContractStatus).NotTo(BeEmpty())
-				g.Expect(status.ContractStatus).NotTo(Equal("NonCompliant"),
-					"overrides should not cause contract failure")
-				// Resources should be observed.
-				g.Expect(status.Resources).NotTo(BeNil())
-				g.Expect(status.Resources.Service).NotTo(BeNil())
-				g.Expect(status.Resources.Service.Exists).To(BeTrue())
-				g.Expect(status.Resources.Workload).NotTo(BeNil())
-				g.Expect(status.Resources.Workload.Exists).To(BeTrue())
-				// Configurations should reflect overrides.
-				g.Expect(status.Configurations).To(HaveLen(1))
-				g.Expect(status.Configurations[0].OverriddenKeys).To(ConsistOf("db_host", "new_key"))
-				// Original + new keys should all be present.
-				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("db_host"))
-				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("api_key"))
-				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("new_key"))
-				// Summary should include runtime checks.
-				g.Expect(status.Summary).NotTo(BeNil())
-				g.Expect(status.Summary.Total).To(BeNumerically(">", 1),
-					"should have more than just ContractValid check")
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should fail reconciliation for unknown configuration name in overrides", func() {
-			name := "e2e-config-override-unknown"
-			overridesYAML := `
-  overrides:
-    configurations:
-      - name: nonexistent
-        values:
-          key: value`
-			applyPactoRaw(name, testNamespace, contractWithConfig, "", nil, overridesYAML)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("NonCompliant"))
-				g.Expect(status.Validation).NotTo(BeNil())
-				g.Expect(status.Validation.Valid).To(BeFalse())
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("should have no overriddenKeys when overrides are not specified", func() {
-			name := "e2e-config-no-override"
-			applyPacto(name, testNamespace, contractWithConfig, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("Reference"))
-				g.Expect(status.Configurations).To(HaveLen(1))
-				g.Expect(status.Configurations[0].OverriddenKeys).To(BeEmpty(),
-					"should have no overriddenKeys when no overrides are specified")
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-	})
-
-	// ── G. Metrics Verification ───────────────────────────────────────────
-
-	// ── Readiness (derived operational readiness) ─────────────────────────
-	Context("Readiness", Ordered, func() {
-		It("populates status.readiness and ReadinessChecksCurrent=True when all checks are current", func() {
-			name := "e2e-readiness-current"
-			applyPacto(name, testNamespace, contractReadinessAllCurrent, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.Readiness).NotTo(BeNil(), "expected status.readiness to be populated")
-				g.Expect(status.Readiness.Score).To(Equal(float64(100)))
-				g.Expect(status.Readiness.TotalWeight).To(Equal(float64(100)))
-				g.Expect(status.Readiness.DoneCount).To(Equal(float64(2)))
-				g.Expect(status.Readiness.Expired).To(BeFalse())
-				g.Expect(status.Readiness.Checks).To(HaveLen(2))
-
-				cond := findCondition(status.Conditions, "ReadinessSatisfied")
-				g.Expect(cond).NotTo(BeNil(), "expected ReadinessChecksCurrent condition")
-				g.Expect(cond.Status).To(Equal("True"))
-				g.Expect(cond.Reason).To(Equal("Satisfied"))
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("sets ReadinessSatisfied=False (BelowMinScore) without affecting contractStatus", func() {
-			name := "e2e-readiness-belowmin"
-			applyPacto(name, testNamespace, contractReadinessMixed, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.Readiness).NotTo(BeNil())
-				g.Expect(status.Readiness.Score).To(Equal(float64(70)))
-				g.Expect(status.Readiness.DoneCount).To(Equal(float64(1)))
-				g.Expect(status.Readiness.NotDoneCount).To(Equal(float64(1)))
-
-				cond := findCondition(status.Conditions, "ReadinessSatisfied")
-				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal("False"))
-				g.Expect(cond.Reason).To(Equal("BelowMinScore"))
-
-				// Readiness is a separate dimension — an unmet gate must not make
-				// an otherwise-valid reference contract non-compliant.
-				g.Expect(status.ContractStatus).To(Equal("Reference"))
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-
-		It("omits status.readiness when the contract declares none", func() {
-			name := "e2e-readiness-absent"
-			applyPacto(name, testNamespace, contractSimple, "", nil)
-			DeferCleanup(deletePacto, name, testNamespace)
-
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, name, testNamespace)
-				g.Expect(status.ContractStatus).To(Equal("Reference"))
-				g.Expect(status.Readiness).To(BeNil())
-				g.Expect(findCondition(status.Conditions, "ReadinessSatisfied")).To(BeNil())
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-		})
-	})
-
-	Context("Metrics", Ordered, func() {
-		It("should expose pacto-specific metrics on the metrics endpoint", func() {
-			By("creating a ClusterRoleBinding for metrics access")
-			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
-				"--clusterrole=pacto-operator-metrics-reader",
-				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
-			)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create ClusterRoleBinding")
-			DeferCleanup(func() {
-				cmd := exec.Command("kubectl", "delete", "clusterrolebinding",
-					metricsRoleBindingName, "--ignore-not-found")
-				_, _ = utils.Run(cmd)
-			})
-
-			// Create a Pacto CR so the operator emits metrics for it.
-			metricsTestName := "e2e-metrics-probe"
-			applyPacto(metricsTestName, testNamespace, contractSimple, "", nil)
-			DeferCleanup(deletePacto, metricsTestName, testNamespace)
-
-			// Wait for reconciliation to complete
-			Eventually(func(g Gomega) {
-				status := getPactoStatus(g, metricsTestName, testNamespace)
-				g.Expect(status.ContractStatus).NotTo(BeEmpty())
-			}, 60*time.Second, 2*time.Second).Should(Succeed())
-
-			By("getting the service account token")
-			token, err := serviceAccountToken()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(token).NotTo(BeEmpty())
-
-			By("fetching metrics via port-forward")
-			metricsOutput := fetchMetricsViaPortForward(token)
-
-			By("verifying pacto-specific metrics are present")
-			Expect(metricsOutput).To(ContainSubstring("pacto_contract_compliance_status"),
-				"expected pacto_contract_compliance_status metric")
-			Expect(metricsOutput).To(ContainSubstring("pacto_contract_status"),
-				"expected pacto_contract_status metric")
-			Expect(metricsOutput).To(ContainSubstring("pacto_contract_validation_result"),
-				"expected pacto_contract_validation_result metric")
-			Expect(metricsOutput).To(ContainSubstring("pacto_contract_validation_errors"),
-				"expected pacto_contract_validation_errors metric")
-			Expect(metricsOutput).To(ContainSubstring("pacto_contract_validation_warnings"),
-				"expected pacto_contract_validation_warnings metric")
-			// Verify the reconciliation happened for our specific CR
-			Expect(metricsOutput).To(ContainSubstring("simple-svc"),
-				"expected metrics to reference our test service")
-		})
-	})
-})
-
-// ── Types for JSON parsing ────────────────────────────────────────────────
-
-// pactoStatus is a lightweight JSON representation of PactoStatus for assertions.
-// Uses interface{} for numeric fields since kubectl JSON output may use float64.
-type pactoStatus struct {
-	ContractStatus     string              `json:"contractStatus"`
-	ContractVersion    string              `json:"contractVersion"`
-	CurrentRevision    string              `json:"currentRevision"`
-	LastReconciledAt   string              `json:"lastReconciledAt"`
-	ObservedGeneration float64             `json:"observedGeneration"`
-	Summary            *checkSummary       `json:"summary"`
-	Contract           *contractInfo       `json:"contract"`
-	Validation         *validationResult   `json:"validation"`
-	Resources          *resourcesStatus    `json:"resources"`
-	Ports              *portStatus         `json:"ports"`
-	Runtime            *runtimeInfo        `json:"runtime"`
-	ObservedRuntime    *observedRuntime    `json:"observedRuntime"`
-	Configurations     []configurationInfo `json:"configurations"`
-	Policies           []policyInfo        `json:"policies"`
-	Readiness          *readinessStatus    `json:"readiness"`
-	Conditions         []condition         `json:"conditions"`
-}
-
-type readinessStatus struct {
-	Score         float64                `json:"score"`
-	MinScore      float64                `json:"minScore"`
-	TotalWeight   float64                `json:"totalWeight"`
-	EarnedWeight  float64                `json:"earnedWeight"`
-	Passing       bool                   `json:"passing"`
-	Expired       bool                   `json:"expired"`
-	DoneCount     float64                `json:"doneCount"`
-	PartialCount  float64                `json:"partialCount"`
-	NotDoneCount  float64                `json:"notDoneCount"`
-	DeferredCount float64                `json:"deferredCount"`
-	Checks        []readinessCheckStatus `json:"checks"`
-}
-
-type readinessCheckStatus struct {
-	ID           string  `json:"id"`
-	Type         string  `json:"type"`
-	Category     string  `json:"category"`
-	Status       string  `json:"status"`
-	Weight       float64 `json:"weight"`
-	EarnedWeight float64 `json:"earnedWeight"`
-	Excluded     bool    `json:"excluded"`
-}
-
-type configurationInfo struct {
-	Name           string   `json:"name"`
-	HasSchema      bool     `json:"hasSchema"`
-	Ref            string   `json:"ref"`
-	ValueKeys      []string `json:"valueKeys"`
-	SecretKeys     []string `json:"secretKeys"`
-	OverriddenKeys []string `json:"overriddenKeys"`
-}
-
-type policyInfo struct {
-	Name      string `json:"name"`
-	HasSchema bool   `json:"hasSchema"`
-	Schema    string `json:"schema"`
-	Ref       string `json:"ref"`
-}
-
-type checkSummary struct {
-	Total  float64 `json:"total"`
-	Passed float64 `json:"passed"`
-	Failed float64 `json:"failed"`
-}
-
-type contractInfo struct {
-	ServiceName string `json:"serviceName"`
-	Version     string `json:"version"`
-}
-
-type validationResult struct {
-	Valid bool `json:"valid"`
-}
-
-type resourcesStatus struct {
-	Service  *resourceStatus `json:"service"`
-	Workload *resourceStatus `json:"workload"`
-}
-
-type resourceStatus struct {
-	Name   string `json:"name"`
-	Kind   string `json:"kind"`
-	Exists bool   `json:"exists"`
-}
-
-type portStatus struct {
-	Expected   []float64 `json:"expected"`
-	Observed   []float64 `json:"observed"`
-	Missing    []float64 `json:"missing"`
-	Unexpected []float64 `json:"unexpected"`
-}
-
-type runtimeInfo struct {
-	Workload        string `json:"workload"`
-	UpgradeStrategy string `json:"upgradeStrategy"`
-}
-
-type observedRuntime struct {
-	WorkloadKind string `json:"workloadKind"`
-}
-
-type condition struct {
-	Type   string `json:"type"`
-	Status string `json:"status"`
-	Reason string `json:"reason"`
-}
-
-// findCondition returns the condition of the given type, or nil if absent.
-func findCondition(conds []condition, condType string) *condition {
-	for i := range conds {
-		if conds[i].Type == condType {
-			return &conds[i]
+	t.Run("optional_beyond_window_warning", func(t *testing.T) {
+		ns := newNamespace(t)
+		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createService(t, ns, "pay-svc", port)
+		createEndpointSlice(t, ns, "pay-svc", port, 0)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, false)}, Target: mainTarget})
+		reconcile(t, "p", ns, reconcileOpts{})
+		backdateWindows(t, "p", ns)
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusWarning) // optional contradiction -> Warning, not Error
+		f := findFinding(p, "DEPENDENCY_UNREACHABLE")
+		if f == nil || f.Severity != "warning" {
+			t.Fatalf("expected optional DEPENDENCY_UNREACHABLE at warning severity, got %+v", f)
 		}
+	})
+
+	t.Run("window_resets_when_backend_becomes_ready", func(t *testing.T) {
+		ns := newNamespace(t)
+		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createService(t, ns, "pay-svc", port)
+		createEndpointSlice(t, ns, "pay-svc", port, 0)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		if len(p.Status.ObservationWindows) == 0 {
+			t.Fatalf("expected a window after a negative observation")
+		}
+		// Backend becomes ready -> window must reset and status recover.
+		setEndpointSliceReady(t, ns, "pay-svc", port)
+		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		if len(p.Status.ObservationWindows) != 0 {
+			t.Fatalf("expected window reset after recovery, got %+v", p.Status.ObservationWindows)
+		}
+	})
+}
+
+// =====================================================================================
+// required-configurations (B6 + B7)
+// =====================================================================================
+
+const configSchema = `{"type":"object","required":["level"],"properties":{"level":{"type":"string"}}}`
+
+func TestConfigurations(t *testing.T) {
+	cfgContract := func(required bool, schema string) string {
+		return buildContract(contractSpec{name: "app", cfgs: []cfgSpec{{name: "appcfg", required: required, schema: schema}}})
 	}
-	return nil
-}
-
-type revisionJSON struct {
-	Metadata struct {
-		Name            string `json:"name"`
-		OwnerReferences []struct {
-			Name string `json:"name"`
-			Kind string `json:"kind"`
-		} `json:"ownerReferences"`
-		Labels map[string]string `json:"labels"`
-	} `json:"metadata"`
-	Spec struct {
-		Version     string `json:"version"`
-		PactoRef    string `json:"pactoRef"`
-		ServiceName string `json:"serviceName"`
-		Source      struct {
-			Inline bool   `json:"inline"`
-			OCI    string `json:"oci"`
-		} `json:"source"`
-	} `json:"spec"`
-	Status struct {
-		Resolved     bool   `json:"resolved"`
-		ContractHash string `json:"contractHash"`
-	} `json:"status"`
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-// applyPacto creates a Pacto CR using kubectl apply.
-func applyPacto(name, ns, inlineContract, serviceName string, workloadRef *struct{ name, kind string }) {
-	applyPactoRaw(name, ns, inlineContract, serviceName, workloadRef, "")
-}
-
-// applyPactoRaw creates a Pacto CR with optional raw spec additions (e.g. overrides).
-func applyPactoRaw(name, ns, inlineContract, serviceName string, workloadRef *struct{ name, kind string }, extraSpec string) {
-	spec := fmt.Sprintf(`  contractRef:
-    inline: |
-%s`, indentYAML(inlineContract, 6))
-
-	// Emit target only when there is something to target. workloadRef may be set
-	// without a serviceName (e.g. Job/CronJob targets, which have no Service).
-	if serviceName != "" || workloadRef != nil {
-		spec += "\n  target:"
-		if serviceName != "" {
-			spec += fmt.Sprintf("\n    serviceName: %s", serviceName)
-		}
-		if workloadRef != nil {
-			spec += fmt.Sprintf("\n    workloadRef:\n      name: %s\n      kind: %s",
-				workloadRef.name, workloadRef.kind)
+	bind := func(kind, name, key, format string) pactov1alpha1.TargetRef {
+		return pactov1alpha1.TargetRef{
+			ServiceName:    "main-svc",
+			ConfigBindings: []pactov1alpha1.ConfigBinding{{Configuration: "appcfg", Kind: kind, Name: name, Key: key, Format: format}},
 		}
 	}
 
-	spec += "\n  checkIntervalSeconds: 30"
+	t.Run("configmap_conforms_compliant", func(t *testing.T) {
+		ns := newNamespace(t)
+		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 1, 1)
+	})
 
-	if extraSpec != "" {
-		spec += extraSpec
-	}
+	t.Run("configmap_violates_schema_noncompliant_CONFIGURATION_MISMATCH", func(t *testing.T) {
+		ns := newNamespace(t)
+		// level is an int, schema requires string; a distinctive extra key must NOT surface in the finding.
+		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: 123\nother_key: sideValue987\n"})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		f := findFinding(p, "CONFIGURATION_MISMATCH")
+		if f == nil {
+			t.Fatalf("expected CONFIGURATION_MISMATCH, got %v", findingCodes(p))
+		}
+		if strings.Contains(f.Message, "sideValue987") || strings.Contains(f.Message, "other_key") {
+			t.Fatalf("mismatch message leaked non-contract ConfigMap content: %q", f.Message)
+		}
+	})
 
-	manifest := fmt.Sprintf(`apiVersion: pacto.trianalab.io/v1alpha1
-kind: Pacto
-metadata:
-  name: %s
-  namespace: %s
-spec:
-%s`, name, ns, spec)
+	t.Run("bound_configmap_missing_beyond_window_noncompliant_CONFIGURATION_ABSENT", func(t *testing.T) {
+		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			Target:      bind("ConfigMap", "missing-cm", "config.yaml", "yaml"),
+		})
+		reconcile(t, "p", ns, reconcileOpts{})
+		backdateWindows(t, "p", ns)
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireFinding(t, p, "CONFIGURATION_ABSENT")
+	})
 
-	cmd := exec.Command("kubectl", "apply", "-f", "-")
-	cmd.Stdin = strings.NewReader(manifest)
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply Pacto CR %s", name)
-}
+	t.Run("no_binding_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
+		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "main-svc"}, // no configBindings
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
+	})
 
-func deletePacto(name, ns string) {
-	cmd := exec.Command("kubectl", "delete", "pacto", name, "-n", ns, "--ignore-not-found")
-	_, _ = utils.Run(cmd)
-}
+	t.Run("configmap_without_key_format_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
+		ns := newNamespace(t)
+		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			Target:      bind("ConfigMap", "app-cm", "", ""), // existence-only
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+	})
 
-func getPactoStatus(g Gomega, name, ns string) pactoStatus {
-	cmd := exec.Command("kubectl", "get", "pacto", name, "-n", ns, "-o", "json")
-	output, err := utils.Run(cmd)
-	g.Expect(err).NotTo(HaveOccurred(), "Failed to get Pacto %s", name)
-
-	var raw struct {
-		Status pactoStatus `json:"status"`
-	}
-	g.Expect(json.Unmarshal([]byte(output), &raw)).To(Succeed(), "Failed to parse Pacto JSON")
-	return raw.Status
-}
-
-func getRevisionJSON(g Gomega, name, ns string) revisionJSON {
-	cmd := exec.Command("kubectl", "get", "pactorevision", name, "-n", ns, "-o", "json")
-	output, err := utils.Run(cmd)
-	g.Expect(err).NotTo(HaveOccurred(), "Failed to get PactoRevision %s", name)
-
-	var rev revisionJSON
-	g.Expect(json.Unmarshal([]byte(output), &rev)).To(Succeed(), "Failed to parse PactoRevision JSON")
-	return rev
-}
-
-type deploymentOpts struct {
-	image                  string
-	strategy               string // "RollingUpdate" or "Recreate"
-	terminationGracePeriod int64
-}
-
-func createKubeService(name, ns string, port int32) {
-	manifest := fmt.Sprintf(`apiVersion: v1
-kind: Service
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  selector:
-    app: %s
-  ports:
-    - port: %d
-      targetPort: %d`, name, ns, name, port, port)
-
-	cmd := exec.Command("kubectl", "apply", "-f", "-")
-	cmd.Stdin = strings.NewReader(manifest)
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create Service %s", name)
-}
-
-func deleteKubeService(name, ns string) {
-	cmd := exec.Command("kubectl", "delete", "service", name, "-n", ns, "--ignore-not-found")
-	_, _ = utils.Run(cmd)
-}
-
-func createKubeDeployment(name, ns, image string) {
-	createKubeDeploymentWithOptions(name, ns, deploymentOpts{
-		image:                  image,
-		strategy:               "RollingUpdate",
-		terminationGracePeriod: 30,
+	t.Run("optional_missing_no_finding_compliant", func(t *testing.T) {
+		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(false, configSchema)},
+			Target:      bind("ConfigMap", "missing-cm", "config.yaml", "yaml"),
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant) // optional + within-window absence -> no finding
+		if len(p.Status.Findings) != 0 {
+			t.Fatalf("optional missing configuration should surface no finding, got %v", findingCodes(p))
+		}
 	})
 }
 
-func createKubeDeploymentWithOptions(name, ns string, opts deploymentOpts) {
-	manifest := fmt.Sprintf(`apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  replicas: 1
-  strategy:
-    type: %s
-  selector:
-    matchLabels:
-      app: %s
-  template:
-    metadata:
-      labels:
-        app: %s
-    spec:
-      terminationGracePeriodSeconds: %d
-      containers:
-        - name: app
-          image: %s`, name, ns, opts.strategy, name, name, opts.terminationGracePeriod, opts.image)
+// =====================================================================================
+// Secret metadata-only + NO-LEAK (INV-5)
+// =====================================================================================
 
-	cmd := exec.Command("kubectl", "apply", "-f", "-")
-	cmd.Stdin = strings.NewReader(manifest)
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create Deployment %s", name)
-}
+func TestSecretNoLeak(t *testing.T) {
+	ns := newNamespace(t)
+	const (
+		secretKey1 = "DB_PASSWORD"
+		secretKey2 = "api-token"
+		secretVal1 = "S3cr3t-P@ssw0rd-LEAK-CANARY"
+		secretVal2 = "tok_live_LEAKCANARY_998877"
+	)
+	createSecret(t, ns, "creds", map[string][]byte{
+		secretKey1: []byte(secretVal1),
+		secretKey2: []byte(secretVal2),
+	})
+	createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+		// A schema is required structurally (config needs schema XOR ref); the Secret observation path is
+		// metadata-only and never reads it.
+		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+			name: "app", cfgs: []cfgSpec{{name: "appcfg", required: true, schema: configSchema}}})},
+		Target: pactov1alpha1.TargetRef{
+			ServiceName:    "main-svc",
+			ConfigBindings: []pactov1alpha1.ConfigBinding{{Configuration: "appcfg", Kind: "Secret", Name: "creds"}},
+		},
+	})
+	res := reconcile(t, "p", ns, reconcileOpts{})
+	p := res.pacto
 
-func deleteKubeDeployment(name, ns string) {
-	cmd := exec.Command("kubectl", "delete", "deployment", name, "-n", ns, "--ignore-not-found")
-	_, _ = utils.Run(cmd)
-}
+	// Metadata-only existence -> Unknown, never satisfied.
+	requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+	requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 
-func createKubeCronJob(name, ns, image string) {
-	manifest := fmt.Sprintf(`apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  schedule: "*/5 * * * *"
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          restartPolicy: OnFailure
-          containers:
-            - name: worker
-              image: %s
-              command: ["sh", "-c", "true"]`, name, ns, image)
-
-	cmd := exec.Command("kubectl", "apply", "-f", "-")
-	cmd.Stdin = strings.NewReader(manifest)
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create CronJob %s", name)
-}
-
-func deleteKubeCronJob(name, ns string) {
-	cmd := exec.Command("kubectl", "delete", "cronjob", name, "-n", ns, "--ignore-not-found")
-	_, _ = utils.Run(cmd)
-}
-
-func createKubeJob(name, ns, image string) {
-	manifest := fmt.Sprintf(`apiVersion: batch/v1
-kind: Job
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  template:
-    spec:
-      restartPolicy: Never
-      containers:
-        - name: worker
-          image: %s
-          command: ["sh", "-c", "true"]`, name, ns, image)
-
-	cmd := exec.Command("kubectl", "apply", "-f", "-")
-	cmd.Stdin = strings.NewReader(manifest)
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create Job %s", name)
-}
-
-func deleteKubeJob(name, ns string) {
-	cmd := exec.Command("kubectl", "delete", "job", name, "-n", ns, "--ignore-not-found")
-	_, _ = utils.Run(cmd)
-}
-
-func indentYAML(yaml string, spaces int) string {
-	prefix := strings.Repeat(" ", spaces)
-	var lines []string
-	for _, line := range strings.Split(yaml, "\n") {
-		if line == "" {
-			lines = append(lines, "")
-		} else {
-			lines = append(lines, prefix+line)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-// serviceAccountToken returns a token for the specified service account.
-func serviceAccountToken() (string, error) {
-	const tokenRequestRawString = `{
-		"apiVersion": "authentication.k8s.io/v1",
-		"kind": "TokenRequest"
-	}`
-
-	secretName := fmt.Sprintf("%s-token-request", serviceAccountName)
-	tokenRequestFile := filepath.Join("/tmp", secretName)
-	err := os.WriteFile(tokenRequestFile, []byte(tokenRequestRawString), os.FileMode(0o644))
+	// Scan the ENTIRE serialized status + every recorded event for secret values and key names.
+	statusJSON, err := json.Marshal(p.Status)
 	if err != nil {
-		return "", err
+		t.Fatalf("marshal status: %v", err)
 	}
-
-	var out string
-	verifyTokenCreation := func(g Gomega) {
-		cmd := exec.Command("kubectl", "create", "--raw", fmt.Sprintf(
-			"/api/v1/namespaces/%s/serviceaccounts/%s/token",
-			namespace, serviceAccountName,
-		), "-f", tokenRequestFile)
-
-		output, err := cmd.CombinedOutput()
-		g.Expect(err).NotTo(HaveOccurred())
-
-		var token tokenRequest
-		err = json.Unmarshal(output, &token)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		out = token.Status.Token
-	}
-	Eventually(verifyTokenCreation, 30*time.Second, 2*time.Second).Should(Succeed())
-
-	return out, err
-}
-
-// fetchMetricsViaPortForward uses kubectl port-forward to access the metrics endpoint
-// directly from the test runner, avoiding the slow curl-pod-in-cluster pattern.
-// This saves ~60-90s compared to the pod-based approach by eliminating pod scheduling,
-// image pull, and container startup time.
-func fetchMetricsViaPortForward(token string) string {
-	// Find a free local port
-	localPort := "18443"
-
-	// Start port-forward in the background
-	pfCmd := exec.Command("kubectl", "port-forward",
-		fmt.Sprintf("svc/%s", metricsServiceName),
-		fmt.Sprintf("%s:8443", localPort),
-		"-n", namespace)
-	pfCmd.Dir, _ = utils.GetProjectDir()
-	err := pfCmd.Start()
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to start port-forward")
-	defer func() {
-		if pfCmd.Process != nil {
-			_ = pfCmd.Process.Kill()
-			_ = pfCmd.Wait()
+	haystack := string(statusJSON) + "\n" + strings.Join(res.events, "\n")
+	for _, canary := range []string{secretVal1, secretVal2, secretKey1, secretKey2} {
+		if strings.Contains(haystack, canary) {
+			t.Fatalf("INV-5 LEAK: secret material %q found in status/events", canary)
 		}
-	}()
-
-	// Wait for port-forward to be ready, then fetch metrics
-	var metricsOutput string
-	Eventually(func(g Gomega) {
-		curlCmd := exec.Command("curl", "-s", "-k",
-			"-H", fmt.Sprintf("Authorization: Bearer %s", token),
-			fmt.Sprintf("https://localhost:%s/metrics", localPort))
-		output, err := curlCmd.CombinedOutput()
-		g.Expect(err).NotTo(HaveOccurred(), "curl failed: %s", string(output))
-		g.Expect(string(output)).NotTo(BeEmpty())
-		g.Expect(string(output)).NotTo(ContainSubstring("refused"))
-		metricsOutput = string(output)
-	}, 30*time.Second, 2*time.Second).Should(Succeed())
-
-	return metricsOutput
+	}
 }
 
-// tokenRequest is a simplified representation of the Kubernetes TokenRequest API response.
-type tokenRequest struct {
-	Status struct {
-		Token string `json:"token"`
-	} `json:"status"`
+// =====================================================================================
+// SSRF rejection (Refinement F / INV-6 / AR4)
+// =====================================================================================
+
+func TestSSRFRejection(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"double_slash_authority", "//evil.example/steal"},
+		{"http_scheme", "http://evil.example/steal"},
+		{"https_scheme", "https://evil.example/steal"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ns := newNamespace(t)
+			createService(t, ns, "svc", port)
+			createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+				ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+					name:   "app",
+					ifaces: []ifaceSpec{{name: "api"}},
+					caps:   []capSpec{{typ: "health", iface: "api", path: tc.path}},
+				})},
+				Target: pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")},
+			})
+			p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+			// A hostile path is rejected at validation -> Invalid, never a runtime state.
+			requireStatus(t, p, pactov1alpha1.ContractStatusInvalid)
+			codes := validationCodes(p)
+			if !contains(codes, "CAPABILITY_PATH_INVALID") && !contains(codes, "SCHEMA_VIOLATION") {
+				t.Fatalf("expected a path-rejection error (CAPABILITY_PATH_INVALID/SCHEMA_VIOLATION), got %v", codes)
+			}
+		})
+	}
+
+	// A schema-valid-but-crossfield-unsafe path (embedded fragment) exercises the dedicated AR4 code.
+	t.Run("crossfield_fragment_CAPABILITY_PATH_INVALID", func(t *testing.T) {
+		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+				name:   "app",
+				ifaces: []ifaceSpec{{name: "api"}},
+				caps:   []capSpec{{typ: "health", iface: "api", path: "/healthz#frag"}},
+			})},
+			Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusInvalid)
+		if !contains(validationCodes(p), "CAPABILITY_PATH_INVALID") {
+			t.Fatalf("expected CAPABILITY_PATH_INVALID, got %v", validationCodes(p))
+		}
+	})
+}
+
+// =====================================================================================
+// coverage propagation + aggregate precedence + load failures
+// =====================================================================================
+
+func TestCoveragePropagation(t *testing.T) {
+	// 6 required assertions, exactly 2 with Outcome=Observed:
+	//   interface api  (bound + ready)   -> evaluated
+	//   interface b    (no binding)      -> Unsupported
+	//   capability health (no binding)   -> Unsupported
+	//   capability metrics (disabled)    -> Unsupported
+	//   dependency dep (no sibling)      -> Unsupported
+	//   workload service (Deployment)    -> evaluated
+	ns := newNamespace(t)
+	createService(t, ns, "svc", port)
+	createEndpointSlice(t, ns, "svc", port, 1)
+	createDeployment(t, ns, "svc", deployOpts{})
+	c := buildContract(contractSpec{
+		name:     "app",
+		workload: "service",
+		ifaces:   []ifaceSpec{{name: "api"}, {name: "b"}},
+		caps:     []capSpec{{typ: "health"}, {typ: "metrics", iface: "api"}},
+		deps:     []depSpec{{name: "dep", ref: "oci://ghcr.io/e2e/" + ns + "-dep", required: true, compat: "1.x"}},
+	})
+	createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+		ContractRef: pactov1alpha1.ContractRef{Inline: c},
+		Target: pactov1alpha1.TargetRef{
+			ServiceName:       "svc",
+			WorkloadRef:       &pactov1alpha1.WorkloadRef{Name: "svc", Kind: "Deployment"},
+			InterfaceBindings: apiBinding("api"), // only api bound; b unbound
+		},
+	})
+	p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: false}).pacto
+	requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+	requireCoverage(t, p, 2, 6)
+}
+
+func TestAggregatePrecedence(t *testing.T) {
+	// One confirmed violation (persistence Error, immediate) + one Unknown (metrics disabled):
+	// Error dominates -> NonCompliant, and the Unknown finding is still surfaced.
+	ns := newNamespace(t)
+	createDeployment(t, ns, "wl", deployOpts{volumes: []corev1.Volume{
+		{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}})
+	createService(t, ns, "svc", port)
+	createEndpointSlice(t, ns, "svc", port, 1)
+	c := buildContract(contractSpec{
+		name:        "app",
+		persistence: "persistent",
+		ifaces:      []ifaceSpec{{name: "api"}},
+		caps:        []capSpec{{typ: "metrics", iface: "api", path: "/metrics"}},
+	})
+	createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+		ContractRef: pactov1alpha1.ContractRef{Inline: c},
+		Target: pactov1alpha1.TargetRef{
+			ServiceName:       "svc",
+			WorkloadRef:       &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Deployment"},
+			InterfaceBindings: apiBinding("api"),
+		},
+	})
+	p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: false}).pacto
+	requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+	requireFinding(t, p, "PERSISTENCE_MISMATCH")    // the confirmed Error
+	requireFinding(t, p, "OBSERVATION_UNSUPPORTED") // the coexisting Unknown, still surfaced
+	if p.Status.Summary == nil || p.Status.Summary.ErrorCount == 0 || p.Status.Summary.UnknownCount == 0 {
+		t.Fatalf("expected both error and unknown counts, got %+v", p.Status.Summary)
+	}
+}
+
+// stubLoader returns a fixed load result or error, driving classifyLoadError through the real pipeline.
+type stubLoader struct {
+	res *loader.LoadResult
+	err error
+}
+
+func (s stubLoader) Load(_ context.Context, _, _ string, _ *authn.AuthConfig) (*loader.LoadResult, error) {
+	return s.res, s.err
+}
+func (s stubLoader) ListTags(_ context.Context, _ string, _ *authn.AuthConfig) ([]string, error) {
+	return nil, nil
+}
+
+func TestLoadFailures(t *testing.T) {
+	t.Run("malformed_contract_invalid", func(t *testing.T) {
+		ns := newNamespace(t)
+		// Unsupported pactoVersion -> structural failure -> Invalid, never reaches runtime aggregation.
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: "pactoVersion: \"1.0\"\nservice:\n  name: app\n  version: 1.0.0\n"},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "svc"},
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusInvalid)
+	})
+
+	t.Run("transient_registry_unreachable_unknown", func(t *testing.T) {
+		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{OCI: "oci://ghcr.io/e2e/" + ns + "-svc:1.0.0"},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "svc"},
+		})
+		ldr := stubLoader{err: &oci.RegistryUnreachableError{Ref: "ghcr.io/e2e/svc:1.0.0", Err: fmt.Errorf("dial tcp: connection refused")}}
+		p := reconcile(t, "p", ns, reconcileOpts{loader: ldr}).pacto
+		// A transient obtain-failure is Unknown, NOT Invalid and NOT NonCompliant.
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+	})
+}
+
+// =====================================================================================
+// dashboard consumption: per-service mapping (source_k8s -> ComputeCompliance)
+// =====================================================================================
+
+func TestDashboardPerServiceMapping(t *testing.T) {
+	// Reconcile real CRs of each evaluated state, then feed them through the REAL dashboard k8s source
+	// (all-namespaces mode, so lookup is by contract service name).
+	compliant := reconcileWorkloadCompliant(t)
+	unknown := reconcileExtensionUnknown(t)
+	nonCompliant := reconcilePersistenceNonCompliant(t)
+	invalid := reconcileInvalid(t)
+	reference := reconcileReference(t)
+
+	cases := []struct {
+		name string
+		cr   *pactov1alpha1.Pacto
+		want dashboard.ComplianceStatus
+	}{
+		{"compliant_to_OK", compliant, dashboard.ComplianceOK},
+		{"unknown_to_UNKNOWN", unknown, dashboard.ComplianceUnknown},
+		{"noncompliant_to_ERROR", nonCompliant, dashboard.ComplianceError},
+		{"invalid_to_ERROR", invalid, dashboard.ComplianceError},
+		{"reference_to_REFERENCE", reference, dashboard.ComplianceReference},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := dashboard.NewK8sSource(newDashClient(t, tc.cr), "", "pactos")
+			d, err := src.GetService(testCtx, tc.cr.Status.Contract.ServiceName)
+			if err != nil {
+				t.Fatalf("dashboard GetService: %v", err)
+			}
+			if d.Compliance == nil || d.Compliance.Status != tc.want {
+				t.Fatalf("dashboard compliance = %+v, want status %q (contractStatus %q)",
+					d.Compliance, tc.want, d.ContractStatus)
+			}
+		})
+	}
+}
+
+func reconcileWorkloadCompliant(t *testing.T) *pactov1alpha1.Pacto {
+	ns := newNamespace(t)
+	createDeployment(t, ns, "wl", deployOpts{})
+	createPacto(t, "cmp", ns, pactov1alpha1.PactoSpec{
+		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "svc-compliant", workload: "service"})},
+		Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Deployment"}},
+	})
+	return reconcile(t, "cmp", ns, reconcileOpts{}).pacto
+}
+
+func reconcileExtensionUnknown(t *testing.T) *pactov1alpha1.Pacto {
+	ns := newNamespace(t)
+	createPacto(t, "unk", ns, pactov1alpha1.PactoSpec{
+		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+			name: "svc-unknown", caps: []capSpec{{typ: "extension", ref: "example.com/x"}}})},
+		Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+	})
+	return reconcile(t, "unk", ns, reconcileOpts{}).pacto
+}
+
+func reconcilePersistenceNonCompliant(t *testing.T) *pactov1alpha1.Pacto {
+	ns := newNamespace(t)
+	createDeployment(t, ns, "wl", deployOpts{volumes: []corev1.Volume{
+		{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}})
+	createPacto(t, "ncp", ns, pactov1alpha1.PactoSpec{
+		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "svc-noncompliant", persistence: "persistent"})},
+		Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Deployment"}},
+	})
+	return reconcile(t, "ncp", ns, reconcileOpts{}).pacto
+}
+
+func reconcileInvalid(t *testing.T) *pactov1alpha1.Pacto {
+	ns := newNamespace(t)
+	createPacto(t, "inv", ns, pactov1alpha1.PactoSpec{
+		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+			name: "svc-invalid", caps: []capSpec{{typ: "health", iface: "ghost", path: "/healthz"}}})},
+		Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+	})
+	p := reconcile(t, "inv", ns, reconcileOpts{}).pacto
+	// Invalid short-circuits before populateContractStatus, so status.contract is nil; supply the service
+	// name for the dashboard lookup (the derived status carried on the LIST path is what the case asserts).
+	if p.Status.Contract == nil {
+		p.Status.Contract = &pactov1alpha1.ContractInfo{ServiceName: "svc-invalid"}
+	}
+	return p
+}
+
+func reconcileReference(t *testing.T) *pactov1alpha1.Pacto {
+	ns := newNamespace(t)
+	createPacto(t, "ref", ns, pactov1alpha1.PactoSpec{
+		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "svc-reference"})},
+		// no target -> reference-only
+	})
+	return reconcile(t, "ref", ns, reconcileOpts{}).pacto
+}
+
+// =====================================================================================
+// dashboard fleet math (B-2)
+// =====================================================================================
+
+// The product's fleet-% reducer lives in the Svelte frontend (format.ts summarize(), vitest-covered);
+// the Go dashboard exposes per-service classification only. These cases drive the REAL source_k8s status
+// mapping (serviceFromK8sStatus -> NormalizeContractStatus) over a fleet, then apply the spec section 1.5
+// denominator to assert the B-2 numbers end to end.
+
+func syntheticPacto(name, status string) *pactov1alpha1.Pacto {
+	return &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "fleet"},
+		Status: pactov1alpha1.PactoStatus{
+			ContractStatus: status,
+			Contract:       &pactov1alpha1.ContractInfo{ServiceName: name, Version: "1.0.0"},
+		},
+	}
+}
+
+// fleetPercent applies the section 1.5 denominator over dashboard-mapped statuses:
+//
+//	denominator = Compliant + NonCompliant + Warning + Unknown + Invalid (Reference/NotEvaluated excluded)
+//	numerator   = Compliant
+func fleetPercent(services []dashboard.Service) (pct float64, assessed, needsAttention, unknown int) {
+	var compliant, nonCompliant, warning, invalid int
+	for _, s := range services {
+		switch s.ContractStatus {
+		case dashboard.StatusCompliant:
+			compliant++
+		case dashboard.StatusNonCompliant:
+			nonCompliant++
+		case dashboard.StatusWarning:
+			warning++
+		case dashboard.StatusUnknown:
+			unknown++
+		case dashboard.StatusInvalid:
+			invalid++
+			// StatusReference and StatusNotEvaluated are excluded from the denominator.
+		}
+	}
+	assessed = compliant + nonCompliant + warning + unknown + invalid
+	needsAttention = nonCompliant + warning + invalid // Unknown is NOT needsAttention
+	if assessed == 0 {
+		return -1, 0, needsAttention, unknown // N/A sentinel
+	}
+	return float64(compliant) / float64(assessed) * 100, assessed, needsAttention, unknown
+}
+
+func fleetServices(t *testing.T, pactos ...*pactov1alpha1.Pacto) []dashboard.Service {
+	t.Helper()
+	src := dashboard.NewK8sSource(newDashClient(t, pactos...), "fleet", "pactos")
+	services, err := src.ListServices(testCtx)
+	if err != nil {
+		t.Fatalf("dashboard ListServices: %v", err)
+	}
+	return services
+}
+
+func TestDashboardFleetMath(t *testing.T) {
+	t.Run("one_compliant_99_unknown_is_1_percent", func(t *testing.T) {
+		var fleet []*pactov1alpha1.Pacto
+		fleet = append(fleet, syntheticPacto("svc-0", pactov1alpha1.ContractStatusCompliant))
+		for i := 1; i < 100; i++ {
+			fleet = append(fleet, syntheticPacto(fmt.Sprintf("svc-%d", i), pactov1alpha1.ContractStatusUnknown))
+		}
+		pct, assessed, needsAttention, unknown := fleetPercent(fleetServices(t, fleet...))
+		if pct != 1 {
+			t.Fatalf("compliancePercent = %v, want 1 (NOT 100)", pct)
+		}
+		if assessed != 100 || unknown != 99 {
+			t.Fatalf("assessed=%d unknown=%d, want 100/99", assessed, unknown)
+		}
+		if needsAttention != 0 {
+			t.Fatalf("needsAttention = %d, want 0 (Unknown is not needsAttention)", needsAttention)
+		}
+	})
+
+	t.Run("all_unknown_is_0_percent_not_NA", func(t *testing.T) {
+		var fleet []*pactov1alpha1.Pacto
+		for i := 0; i < 10; i++ {
+			fleet = append(fleet, syntheticPacto(fmt.Sprintf("svc-%d", i), pactov1alpha1.ContractStatusUnknown))
+		}
+		pct, assessed, _, _ := fleetPercent(fleetServices(t, fleet...))
+		if pct != 0 {
+			t.Fatalf("all-Unknown compliancePercent = %v, want 0 (NOT N/A)", pct)
+		}
+		if assessed != 10 {
+			t.Fatalf("assessed = %d, want 10", assessed)
+		}
+	})
+
+	t.Run("reference_and_notEvaluated_excluded", func(t *testing.T) {
+		fleet := []*pactov1alpha1.Pacto{
+			syntheticPacto("c", pactov1alpha1.ContractStatusCompliant),
+			syntheticPacto("r", pactov1alpha1.ContractStatusReference),
+			syntheticPacto("n", pactov1alpha1.ContractStatusNotEvaluated),
+		}
+		pct, assessed, _, _ := fleetPercent(fleetServices(t, fleet...))
+		if assessed != 1 || pct != 100 {
+			t.Fatalf("assessed=%d pct=%v, want 1/100 (Reference+NotEvaluated excluded)", assessed, pct)
+		}
+	})
+
+	t.Run("invalid_counts_in_denominator_and_needsAttention", func(t *testing.T) {
+		fleet := []*pactov1alpha1.Pacto{
+			syntheticPacto("c", pactov1alpha1.ContractStatusCompliant),
+			syntheticPacto("i", pactov1alpha1.ContractStatusInvalid),
+		}
+		pct, assessed, needsAttention, _ := fleetPercent(fleetServices(t, fleet...))
+		if assessed != 2 || pct != 50 || needsAttention != 1 {
+			t.Fatalf("assessed=%d pct=%v needsAttention=%d, want 2/50/1", assessed, pct, needsAttention)
+		}
+	})
+
+	t.Run("secondary_conclusive_metric_distinguishes_failure_from_uncertainty", func(t *testing.T) {
+		fleet := []*pactov1alpha1.Pacto{
+			syntheticPacto("c", pactov1alpha1.ContractStatusCompliant),
+			syntheticPacto("nc", pactov1alpha1.ContractStatusNonCompliant),
+			syntheticPacto("w", pactov1alpha1.ContractStatusWarning),
+			syntheticPacto("u1", pactov1alpha1.ContractStatusUnknown),
+			syntheticPacto("u2", pactov1alpha1.ContractStatusUnknown),
+		}
+		services := fleetServices(t, fleet...)
+		pct, assessed, _, unknown := fleetPercent(services)
+		if assessed != 5 || pct != 20 || unknown != 2 {
+			t.Fatalf("assessed=%d pct=%v unknown=%d, want 5/20/2", assessed, pct, unknown)
+		}
+		// runtimeEvaluated = compliant+warning+nonCompliant+unknown; conclusive = compliant+warning+nonCompliant.
+		var compliant, warning, nonCompliant int
+		for _, s := range services {
+			switch s.ContractStatus {
+			case dashboard.StatusCompliant:
+				compliant++
+			case dashboard.StatusWarning:
+				warning++
+			case dashboard.StatusNonCompliant:
+				nonCompliant++
+			}
+		}
+		runtimeEvaluated := compliant + warning + nonCompliant + unknown
+		conclusive := compliant + warning + nonCompliant
+		if runtimeEvaluated != 5 || conclusive != 3 {
+			t.Fatalf("runtimeEvaluated=%d conclusive=%d, want 5/3", runtimeEvaluated, conclusive)
+		}
+	})
+
+	t.Run("unknown_service_is_not_a_pass_per_service", func(t *testing.T) {
+		u := syntheticPacto("only-unknown", pactov1alpha1.ContractStatusUnknown)
+		src := dashboard.NewK8sSource(newDashClient(t, u), "fleet", "pactos")
+		d, err := src.GetService(testCtx, "only-unknown")
+		if err != nil {
+			t.Fatalf("GetService: %v", err)
+		}
+		if d.Compliance == nil || d.Compliance.Status != dashboard.ComplianceUnknown {
+			t.Fatalf("Unknown service mapped to %+v, want ComplianceUnknown (must not read as a pass)", d.Compliance)
+		}
+	})
 }
