@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 func TestTagCacheKey(t *testing.T) {
@@ -237,5 +238,227 @@ func TestLoad_AuthOverrideBypassesCache(t *testing.T) {
 	}
 	if err.Error() == "cached auth error" {
 		t.Fatal("got cached error — authOverride should bypass cache")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: constructors + inline loading
+// ---------------------------------------------------------------------------
+
+func TestNew(t *testing.T) {
+	l := New()
+	if l == nil {
+		t.Fatal("expected non-nil Loader")
+	}
+	if l.oci == nil {
+		t.Fatal("expected OCI puller to be initialized")
+	}
+	if l.cache == nil || l.tagCache == nil {
+		t.Fatal("expected caches to be initialized")
+	}
+}
+
+func TestNewOCIPuller(t *testing.T) {
+	p := NewOCIPuller()
+	if p == nil {
+		t.Fatal("expected non-nil OCIPuller")
+	}
+}
+
+func TestLoadInline_ValidContract(t *testing.T) {
+	yaml := `pactoVersion: "2.0"
+service:
+  name: test-svc
+  version: 1.0.0
+  owner:
+    team: team-a
+workload: service
+`
+	result, err := loadInline(yaml)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Contract == nil {
+		t.Fatal("expected contract to be parsed")
+	}
+	if result.Contract.Service.Name != "test-svc" {
+		t.Errorf("expected service name test-svc, got %s", result.Contract.Service.Name)
+	}
+	if string(result.RawYAML) != yaml {
+		t.Error("expected RawYAML to match input")
+	}
+	if result.BundleFS != nil {
+		t.Error("expected nil BundleFS for inline contract")
+	}
+}
+
+func TestLoadInline_InvalidYAML(t *testing.T) {
+	_, err := loadInline("invalid: [unclosed")
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestLoadUncached_NoContractSource(t *testing.T) {
+	l := &Loader{}
+	_, err := l.loadUncached(t.Context(), "", "", nil)
+	if err == nil || err.Error() != "no contract source specified: set either spec.contractRef.oci or spec.contractRef.inline" {
+		t.Fatalf("expected no-contract-source error, got: %v", err)
+	}
+}
+
+func TestLoadUncached_InlinePrecedence(t *testing.T) {
+	l := &Loader{}
+	yaml := `pactoVersion: "2.0"
+service:
+  name: inline-svc
+  version: 1.0.0
+  owner:
+    team: team-a
+workload: service
+`
+	// When both inline and OCI are set, inline takes precedence
+	result, err := l.loadUncached(t.Context(), "ghcr.io/org/svc", yaml, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Contract.Service.Name != "inline-svc" {
+		t.Errorf("expected inline contract to be used, got %s", result.Contract.Service.Name)
+	}
+}
+
+func TestCacheKey_InlineBranch(t *testing.T) {
+	l := &Loader{}
+	yaml1 := "pactoVersion: \"2.0\"\nservice:\n  name: svc1\n  version: 1.0.0\n  owner:\n    team: team-a\n"
+	yaml2 := "pactoVersion: \"2.0\"\nservice:\n  name: svc2\n  version: 1.0.0\n  owner:\n    team: team-a\n"
+	key1 := l.cacheKey("", yaml1)
+	key2 := l.cacheKey("", yaml2)
+	if key1 == key2 {
+		t.Error("expected different cache keys for different inline contracts")
+	}
+	if key1 == "" || !contains(key1, "inline:") {
+		t.Errorf("expected inline cache key to start with 'inline:', got %q", key1)
+	}
+}
+
+func TestCacheKey_OCIBranch(t *testing.T) {
+	l := &Loader{}
+	key := l.cacheKey("ghcr.io/org/svc:1.0.0", "")
+	if key != "oci:ghcr.io/org/svc:1.0.0" {
+		t.Errorf("expected oci cache key, got %q", key)
+	}
+}
+
+func TestLoad_CacheHit(t *testing.T) {
+	l := &Loader{
+		cache:    make(map[string]cacheEntry),
+		cacheTTL: 30 * time.Second,
+	}
+	yaml := "pactoVersion: \"2.0\"\nservice:\n  name: cached-svc\n  version: 1.0.0\n  owner:\n    team: team-a\n"
+	key := l.cacheKey("", yaml)
+	l.cache[key] = cacheEntry{
+		result: &LoadResult{
+			Contract: &contract.Contract{Service: contract.Service{Name: "cached-svc"}},
+			RawYAML:  []byte(yaml),
+		},
+		expiresAt: time.Now().Add(30 * time.Second),
+	}
+
+	result, err := l.Load(t.Context(), "", yaml, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Contract.Service.Name != "cached-svc" {
+		t.Errorf("expected cached contract, got %s", result.Contract.Service.Name)
+	}
+}
+
+func TestLoad_CacheExpiry(t *testing.T) {
+	l := &Loader{
+		cache:    make(map[string]cacheEntry),
+		cacheTTL: 30 * time.Second,
+	}
+	yaml := "pactoVersion: \"2.0\"\nservice:\n  name: expired-svc\n  version: 1.0.0\n  owner:\n    team: team-a\n"
+	key := l.cacheKey("", yaml)
+	l.cache[key] = cacheEntry{
+		result: &LoadResult{
+			Contract: &contract.Contract{Service: contract.Service{Name: "expired-svc"}},
+			RawYAML:  []byte(yaml),
+		},
+		expiresAt: time.Now().Add(-1 * time.Second), // expired
+	}
+
+	// Should not return expired cache, will re-parse
+	result, err := l.Load(t.Context(), "", yaml, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Contract.Service.Name != "expired-svc" {
+		t.Errorf("expected re-parsed contract, got %s", result.Contract.Service.Name)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && s[:len(substr)] == substr
+}
+
+func TestLoad_CacheEviction(t *testing.T) {
+	l := &Loader{
+		cache:    make(map[string]cacheEntry),
+		cacheTTL: 30 * time.Second,
+	}
+
+	// Fill cache with > 100 entries, some expired
+	for i := 0; i < 110; i++ {
+		key := fmt.Sprintf("inline-%d", i)
+		expires := time.Now().Add(30 * time.Second)
+		if i%2 == 0 {
+			expires = time.Now().Add(-1 * time.Second) // expired
+		}
+		l.cache[key] = cacheEntry{
+			result: &LoadResult{
+				Contract: &contract.Contract{Service: contract.Service{Name: "svc"}},
+			},
+			expiresAt: expires,
+		}
+	}
+
+	// Trigger eviction by loading one more (>100 threshold)
+	yaml := "pactoVersion: \"2.0\"\nservice:\n  name: trigger-svc\n  version: 1.0.0\n  owner:\n    team: team-a\n"
+	_, _ = l.Load(t.Context(), "", yaml, nil)
+
+	// Check that some expired entries were evicted
+	if len(l.cache) >= 110 {
+		t.Errorf("expected cache eviction to reduce size, got %d entries", len(l.cache))
+	}
+}
+
+func TestListTags_CacheEviction(t *testing.T) {
+	l := &Loader{
+		tagCache:    make(map[string]tagCacheEntry),
+		tagCacheTTL: 5 * time.Minute,
+		oci:         &OCIPuller{},
+	}
+
+	// Fill tag cache with > 100 entries, some expired
+	for i := 0; i < 110; i++ {
+		key := fmt.Sprintf("tags:ghcr.io/org/svc%d", i)
+		expires := time.Now().Add(5 * time.Minute)
+		if i%2 == 0 {
+			expires = time.Now().Add(-1 * time.Second) // expired
+		}
+		l.tagCache[key] = tagCacheEntry{
+			tags:      []string{"1.0.0"},
+			expiresAt: expires,
+		}
+	}
+
+	// Trigger eviction by listing tags (>100 threshold)
+	// This will fail because it's a real OCI call, but eviction logic runs first
+	_, _ = l.ListTags(t.Context(), "ghcr.io/org/new-svc", nil)
+
+	// Check that some expired entries were evicted
+	if len(l.tagCache) >= 110 {
+		t.Errorf("expected tag cache eviction to reduce size, got %d entries", len(l.tagCache))
 	}
 }
