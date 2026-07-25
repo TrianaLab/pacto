@@ -27,6 +27,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -38,7 +39,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -145,14 +149,16 @@ func latestEnvTestBinaryDir() string {
 
 // --- reconcile harness ------------------------------------------------------
 
-// faultClient wraps a client.Client and injects an error for Deployment or Service GETs of a chosen name,
-// to drive COLLECTION_FAILED cases (a non-NotFound API error) through the full real pipeline without a real
-// cluster outage. A failed Service GET exercises the dependency/interface Failed path. All other calls pass
-// through to the envtest apiserver.
+// faultClient wraps a client.Client and injects an error for Deployment, Service or ConfigMap GETs of a
+// chosen name, to drive COLLECTION_FAILED cases (a non-NotFound API error) through the full real pipeline
+// without a real cluster outage. A failed Service GET exercises the dependency/interface Failed path; a
+// failed ConfigMap GET exercises the configuration Failed path. All other calls pass through to the envtest
+// apiserver.
 type faultClient struct {
 	client.Client
 	failDeploymentName string
 	failServiceName    string
+	failConfigMapName  string
 }
 
 func (f faultClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -160,6 +166,9 @@ func (f faultClient) Get(ctx context.Context, key client.ObjectKey, obj client.O
 		return apierrors.NewInternalError(fmt.Errorf("synthetic apiserver failure"))
 	}
 	if _, ok := obj.(*corev1.Service); ok && f.failServiceName != "" && key.Name == f.failServiceName {
+		return apierrors.NewInternalError(fmt.Errorf("synthetic apiserver failure"))
+	}
+	if _, ok := obj.(*corev1.ConfigMap); ok && f.failConfigMapName != "" && key.Name == f.failConfigMapName {
 		return apierrors.NewInternalError(fmt.Errorf("synthetic apiserver failure"))
 	}
 	return f.Client.Get(ctx, key, obj, opts...)
@@ -176,6 +185,9 @@ type reconcileOpts struct {
 	cl             client.Client             // defaults to k8sClient
 	loader         controller.ContractLoader // defaults to sharedLoader
 	metricsEnabled bool
+	// probingDisabled turns OFF active Tier-A health probing so the passive Tier-B readiness-probe path is
+	// exercised (M11). The zero value keeps probing ON, preserving every existing case.
+	probingDisabled bool
 }
 
 // reconcile builds a real PactoReconciler (direct, strongly-consistent client; no background manager) and
@@ -199,9 +211,9 @@ func reconcile(t *testing.T, name, ns string, opts reconcileOpts) reconcileResul
 		Loader:                   ldr,
 		StabilizationWindow:      stabWindow,
 		EnableMetricsObservation: opts.metricsEnabled,
-		// Active Tier-A health probing is opt-in (M4a). Existing e2e health assertions rely on it;
-		// a later agent adds probing-off cases.
-		EnableProbing: true,
+		// Active Tier-A health probing is opt-in (M4a). Existing e2e health assertions rely on it; the
+		// passive Tier-B path is driven by opts.probingDisabled (M11).
+		EnableProbing: !opts.probingDisabled,
 	}
 	req := ctrl.Request{NamespacedName: client.ObjectKey{Namespace: ns, Name: name}}
 	if _, err := r.Reconcile(testCtx, req); err != nil {
@@ -282,6 +294,39 @@ func createService(t *testing.T, ns, name string, port int32) {
 	}
 }
 
+// createServiceFull creates a Service with explicit ports and annotations, for the metrics-discovery
+// fixtures (prometheus.io annotations, named "metrics" port). Selector-backed like createService.
+func createServiceFull(t *testing.T, ns, name string, ports []corev1.ServicePort, annotations map[string]string) {
+	t.Helper()
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name, Namespace: ns,
+			Labels:      map[string]string{"app": name},
+			Annotations: annotations,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": name},
+			Ports:    ports,
+		},
+	}
+	if err := k8sClient.Create(testCtx, svc); err != nil {
+		t.Fatalf("create service: %v", err)
+	}
+}
+
+// createExternalNameService creates a type=ExternalName Service (no selector, no endpoints), so the
+// dependency observer classifies it as OBSERVATION_UNSUPPORTED (spec section 7.6).
+func createExternalNameService(t *testing.T, ns, name, externalName string) {
+	t.Helper()
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeExternalName, ExternalName: externalName},
+	}
+	if err := k8sClient.Create(testCtx, svc); err != nil {
+		t.Fatalf("create externalname service: %v", err)
+	}
+}
+
 // createEndpointSlice creates an EndpointSlice for a Service with `ready` replicas covering `port`.
 func createEndpointSlice(t *testing.T, ns, svcName string, port int32, ready int) {
 	t.Helper()
@@ -339,11 +384,23 @@ func setEndpointSliceReady(t *testing.T, ns, svcName string, port int32) {
 // deployOpts controls the pod template of a created workload.
 type deployOpts struct {
 	volumes []corev1.Volume // raw volumes for persistence classification
+	// readinessProbePort, when > 0, gives the main container that ContainerPort plus an httpGet READINESS
+	// probe on it, so the passive Tier-B health fallback has usable evidence (M11).
+	readinessProbePort int32
 }
 
 func createDeployment(t *testing.T, ns, name string, opts deployOpts) {
 	t.Helper()
 	replicas := int32(1)
+	main := corev1.Container{Name: "main", Image: "app:1"}
+	if opts.readinessProbePort > 0 {
+		main.Ports = []corev1.ContainerPort{{ContainerPort: opts.readinessProbePort}}
+		main.ReadinessProbe = &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt32(opts.readinessProbePort)},
+			},
+		}
+	}
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: appsv1.DeploymentSpec{
@@ -353,7 +410,7 @@ func createDeployment(t *testing.T, ns, name string, opts deployOpts) {
 				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}},
 				Spec: corev1.PodSpec{
 					Volumes:    opts.volumes,
-					Containers: []corev1.Container{{Name: "main", Image: "app:1"}},
+					Containers: []corev1.Container{main},
 				},
 			},
 		},
@@ -446,6 +503,15 @@ func pointAtClosedPort(t *testing.T, ns, svc string, port int32) {
 
 func okHealth(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
 
+// healthBodyCanary is a distinctive response body the prober reads for the 2xx check but must NEVER persist
+// to status/findings (INV-5 no-body canary).
+const healthBodyCanary = "HEALTH-BODY-LEAK-CANARY-2f9a"
+
+func okHealthWithBody(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(healthBodyCanary))
+}
+
 func status404(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) }
 
 func status503(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }
@@ -526,17 +592,60 @@ func requireNoFinding(t *testing.T, p *pactov1alpha1.Pacto, code string) {
 	}
 }
 
-// requireNoIP asserts the serialized status carries no endpoint IP address (INV-5). Fixtures use the
-// 10.244.0.x range for EndpointSlice addresses, which must never surface in findings or status.
+// ipv4Pattern matches any dotted-quad IPv4 address (four octets). Legitimate status content — semver
+// "1.0.0" (three parts), RFC3339 timestamps (dashes/colons), OCI refs — never forms a four-octet quad, so
+// a match is a real EndpointSlice/ClusterIP leak.
+var ipv4Pattern = regexp.MustCompile(`\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b`)
+
+// ipv6Pattern matches obvious IPv6 forms: a "::" compression marker followed by a hex group, or four-plus
+// colon-separated hex groups. RFC3339 times ("18:44:00", two colons) never reach four groups, so this does
+// not false-positive on the timestamps status legitimately carries.
+var ipv6Pattern = regexp.MustCompile(`::[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){4,}[0-9a-fA-F]{1,4}`)
+
+// requireNoIP asserts the serialized status/findings carry NO IPv4 or IPv6 address (INV-5). Fixtures use
+// the 10.244.0.x range for EndpointSlice addresses; a ClusterIP or pod IP would also be a dotted quad. Any
+// such address surfacing in findings or status is a leak.
 func requireNoIP(t *testing.T, p *pactov1alpha1.Pacto) {
 	t.Helper()
 	b, err := json.Marshal(p.Status)
 	if err != nil {
 		t.Fatalf("marshal status: %v", err)
 	}
-	if strings.Contains(string(b), "10.244.0.") {
-		t.Fatalf("INV-5 LEAK: endpoint IP found in serialized status: %s", string(b))
+	s := string(b)
+	if m := ipv4Pattern.FindString(s); m != "" {
+		t.Fatalf("INV-5 LEAK: IPv4 address %q found in serialized status: %s", m, s)
 	}
+	if m := ipv6Pattern.FindString(s); m != "" {
+		t.Fatalf("INV-5 LEAK: IPv6 address %q found in serialized status: %s", m, s)
+	}
+}
+
+// requireStatusExcludes fails if any needle appears in the serialized status (a no-leak canary for known
+// secret/config values or response bodies that INV-5 must discard).
+func requireStatusExcludes(t *testing.T, p *pactov1alpha1.Pacto, needles ...string) {
+	t.Helper()
+	b, err := json.Marshal(p.Status)
+	if err != nil {
+		t.Fatalf("marshal status: %v", err)
+	}
+	for _, n := range needles {
+		if strings.Contains(string(b), n) {
+			t.Fatalf("no-leak canary: %q found in serialized status: %s", n, string(b))
+		}
+	}
+}
+
+// serviceMonitorCRDInstalled reports whether the monitoring.coreos.com ServiceMonitor CRD is registered in
+// the running control plane. envtest loads only config/crd/bases, so this is expected to be false; the
+// metrics ServiceMonitor-discovery row is guarded on it (see TestMetrics).
+func serviceMonitorCRDInstalled(ctx context.Context) bool {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "monitoring.coreos.com", Version: "v1", Kind: "ServiceMonitorList",
+	})
+	err := k8sClient.List(ctx, list)
+	// No-match => CRD absent. Any other outcome (nil, or a non-NoMatch error) treats the kind as known.
+	return !meta.IsNoMatchError(err)
 }
 
 func requireCoverage(t *testing.T, p *pactov1alpha1.Pacto, evaluated, required int32) {

@@ -204,6 +204,36 @@ func TestWorkload(t *testing.T) {
 		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
 		requireFinding(t, p, "COLLECTION_FAILED")
 	})
+
+	t.Run("service_name_only_defaults_to_deployment_compliant", func(t *testing.T) {
+		// ServiceName-only target -> ResolvedWorkload returns {name:svc, kind:Deployment}, exercising the
+		// ServiceName->Deployment resolution branch (distinct from the WorkloadRef rows above).
+		ns := newNamespace(t)
+		createDeployment(t, ns, "wl", deployOpts{})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "wl"}, // no WorkloadRef -> kind defaulted, not explicit
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 1, 1)
+	})
+
+	t.Run("service_name_only_wrong_type_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
+		// ServiceName-only (kind defaulted, WorkloadExplicit=false) + observed Deployment(service) vs a
+		// contract wanting job. Shares the non-explicit mismatch path with defaulted_kind_wrong_type above
+		// (-> EVIDENCE_INSUFFICIENT, never WORKLOAD_MISMATCH); present as its own matrix row via ServiceName.
+		ns := newNamespace(t)
+		createDeployment(t, ns, "wl", deployOpts{})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "job"})},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "wl"},
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+		requireNoFinding(t, p, "WORKLOAD_MISMATCH")
+	})
 }
 
 // =====================================================================================
@@ -401,6 +431,33 @@ func TestHealth(t *testing.T) {
 		requireCoverage(t, p, 2, 2) // interface availability + health
 	})
 
+	t.Run("passive_tierB_readiness_ready_compliant", func(t *testing.T) {
+		// EnableProbing OFF -> no active Tier-A probe. The passive Tier-B fallback reads the target-port
+		// container's httpGet readiness probe plus a ready endpoint -> health satisfied (spec section 7.4).
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		createDeployment(t, ns, "svc", deployOpts{readinessProbePort: port}) // workload name defaults to svc
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{probingDisabled: true}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 2, 2) // interface availability + health (Tier B)
+	})
+
+	t.Run("direct_probe_2xx_body_not_persisted_canary", func(t *testing.T) {
+		// The prober reads a response body for the 2xx check; that body must never reach status (INV-5).
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		startProbeServer(t, ns, "svc", port, okHealthWithBody)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatusExcludes(t, p, healthBodyCanary)
+	})
+
 	t.Run("declared_path_404_beyond_window_noncompliant_CAPABILITY_ABSENT", func(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
@@ -530,6 +587,60 @@ func TestMetrics(t *testing.T) {
 		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
 		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
 	})
+
+	t.Run("annotation_discovery_prometheus_compliant", func(t *testing.T) {
+		// prometheus.io annotations carry the scrape path+port; the contract has NO metrics path, so
+		// discovery MUST come from the annotations (spec section 7.5 precedence).
+		ns := newNamespace(t)
+		createServiceFull(t, ns, "svc",
+			[]corev1.ServicePort{{Name: "http", Port: port, TargetPort: intstr.FromInt32(port)}},
+			map[string]string{
+				"prometheus.io/scrape": "true",
+				"prometheus.io/path":   "/metrics",
+				"prometheus.io/port":   fmt.Sprintf("%d", port),
+			})
+		createEndpointSlice(t, ns, "svc", port, 1)
+		startProbeServer(t, ns, "svc", port, promMetrics)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("")}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 2, 2) // interface availability + metrics
+	})
+
+	t.Run("named_port_discovery_prometheus_compliant", func(t *testing.T) {
+		// A Service port named "metrics" is the scrape target; the contract has NO metrics path and no
+		// annotations, so discovery MUST come from the named port (spec section 7.5 precedence).
+		const metricsScrapePort int32 = 9090
+		ns := newNamespace(t)
+		createServiceFull(t, ns, "svc",
+			[]corev1.ServicePort{
+				{Name: "http", Port: port, TargetPort: intstr.FromInt32(port)},                              // bound interface port
+				{Name: "metrics", Port: metricsScrapePort, TargetPort: intstr.FromInt32(metricsScrapePort)}, // scrape target
+			}, nil)
+		createEndpointSlice(t, ns, "svc", port, 1) // availability on the interface port
+		startProbeServer(t, ns, "svc", metricsScrapePort, promMetrics)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("")}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 2, 2) // interface availability + metrics
+	})
+
+	t.Run("servicemonitor_discovery_unit_covered_blocked_in_envtest", func(t *testing.T) {
+		// ServiceMonitor discovery (spec section 7.5, first precedence) reads monitoring.coreos.com/v1
+		// ServiceMonitor CRs via an unstructured List. envtest loads only config/crd/bases, which does NOT
+		// include the prometheus-operator ServiceMonitor CRD, and that CRD cannot be sourced offline from the
+		// module cache (prometheus-operator is not a dependency; only ServiceMonitor *instances* live there,
+		// not the CRD definition, and no network fetch is permitted in the test run). This path is therefore
+		// UNIT-covered by internal/observer/metrics_discovery_test.go (TestDiscoverFromServiceMonitor_*) and
+		// guarded here on CRD presence rather than silently skipped.
+		if serviceMonitorCRDInstalled(testCtx) {
+			t.Fatal("ServiceMonitor CRD is installed; wire a positive e2e discovery case (SM fixture + probe) here")
+		}
+		t.Skip("ServiceMonitor discovery needs the monitoring.coreos.com CRD, which envtest does not load and " +
+			"cannot be sourced offline; unit-covered by internal/observer/metrics_discovery_test.go")
+	})
 }
 
 // =====================================================================================
@@ -606,6 +717,47 @@ func TestDependencies(t *testing.T) {
 
 	t.Run("no_sibling_external_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
 		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
+	})
+
+	t.Run("sibling_service_notfound_within_window_unknown", func(t *testing.T) {
+		// Sibling CR resolves to a serviceName, but the backing Service itself is absent -> a windowed
+		// reachability negative (spec section 7.6). Within window -> honest Unknown, never a violation.
+		ns := newNamespace(t)
+		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		// no createService("pay-svc") -> Service GET returns NotFound
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+		requireNoFinding(t, p, "DEPENDENCY_UNREACHABLE")
+	})
+
+	t.Run("sibling_service_notfound_beyond_window_noncompliant_DEPENDENCY_UNREACHABLE", func(t *testing.T) {
+		// Same absent-Service negative sustained beyond the stabilization window -> confirmed unreachable.
+		ns := newNamespace(t)
+		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		reconcile(t, "p", ns, reconcileOpts{}) // seed window (within -> Unknown)
+		backdateWindows(t, "p", ns)
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireFinding(t, p, "DEPENDENCY_UNREACHABLE")
+		requireNoIP(t, p)
+	})
+
+	t.Run("sibling_externalname_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
+		// Sibling resolves to a type=ExternalName Service (no selector, no endpoints) -> the observer cannot
+		// count readiness, so the honest subcode is Unsupported (spec section 7.6), never a violation.
+		ns := newNamespace(t)
+		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createExternalNameService(t, ns, "pay-svc", "payments.external.example.com")
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
 			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
@@ -724,7 +876,10 @@ func TestConfigurations(t *testing.T) {
 
 	t.Run("configmap_conforms_compliant", func(t *testing.T) {
 		ns := newNamespace(t)
-		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
+		// A distinctive but schema-valid string value (level must be a string): proves B6/B7 discard the
+		// ConfigMap's VALUES even on the conforming path — only the boolean result may surface (INV-5).
+		const cfgValueCanary = "prod-CONFIGVALUE-LEAK-CANARY-42"
+		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: " + cfgValueCanary + "\n"})
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
 			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
@@ -732,6 +887,21 @@ func TestConfigurations(t *testing.T) {
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
 		requireCoverage(t, p, 1, 1)
+		requireStatusExcludes(t, p, cfgValueCanary)
+	})
+
+	t.Run("configmap_get_error_unknown_COLLECTION_FAILED", func(t *testing.T) {
+		// A bound ConfigMap that exists, but whose apiserver GET errors (non-NotFound) -> the config
+		// dimension is Failed -> COLLECTION_FAILED, service Unknown (never NonCompliant on a collection gap).
+		ns := newNamespace(t)
+		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{cl: faultClient{Client: k8sClient, failConfigMapName: "app-cm"}}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown) // Unknown, not NonCompliant
+		requireFinding(t, p, "COLLECTION_FAILED")
 	})
 
 	t.Run("configmap_violates_schema_noncompliant_CONFIGURATION_MISMATCH", func(t *testing.T) {
@@ -1035,7 +1205,14 @@ func TestDashboardPerServiceMapping(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			src := dashboard.NewK8sSource(newDashClient(t, tc.cr), "", "pactos")
-			d, err := src.GetService(testCtx, tc.cr.Status.Contract.ServiceName)
+			// Invalid short-circuits with a nil status.contract; the dashboard resolves such a CR by its
+			// metadata.name, so look it up by CR name and exercise that real fallback. Every other case
+			// carries a contract and is looked up by its service name.
+			lookup := tc.cr.Name
+			if tc.cr.Status.Contract != nil {
+				lookup = tc.cr.Status.Contract.ServiceName
+			}
+			d, err := src.GetService(testCtx, lookup)
 			if err != nil {
 				t.Fatalf("dashboard GetService: %v", err)
 			}
@@ -1085,13 +1262,10 @@ func reconcileInvalid(t *testing.T) *pactov1alpha1.Pacto {
 			name: "svc-invalid", caps: []capSpec{{typ: "health", iface: "ghost", path: "/healthz"}}})},
 		Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
 	})
-	p := reconcile(t, "inv", ns, reconcileOpts{}).pacto
-	// Invalid short-circuits before populateContractStatus, so status.contract is nil; supply the service
-	// name for the dashboard lookup (the derived status carried on the LIST path is what the case asserts).
-	if p.Status.Contract == nil {
-		p.Status.Contract = &pactov1alpha1.ContractInfo{ServiceName: "svc-invalid"}
-	}
-	return p
+	// Invalid short-circuits before populateContractStatus, so status.contract stays nil. Do NOT hand-patch
+	// it: TestDashboardPerServiceMapping looks this case up by CR name so the dashboard's REAL nil-Contract
+	// metadata.name fallback (getPacto: r.Metadata.Name == name) is exercised end to end.
+	return reconcile(t, "inv", ns, reconcileOpts{}).pacto
 }
 
 func reconcileReference(t *testing.T) *pactov1alpha1.Pacto {
@@ -1107,10 +1281,13 @@ func reconcileReference(t *testing.T) *pactov1alpha1.Pacto {
 // dashboard fleet math (B-2)
 // =====================================================================================
 
-// The product's fleet-% reducer lives in the Svelte frontend (format.ts summarize(), vitest-covered);
-// the Go dashboard exposes per-service classification only. These cases drive the REAL source_k8s status
-// mapping (serviceFromK8sStatus -> NormalizeContractStatus) over a fleet, then apply the spec section 1.5
-// denominator to assert the B-2 numbers end to end.
+// SOURCE OF TRUTH: the authoritative B-2 denominator guard lives in the engine frontend at
+// pkg/dashboard/frontend/src/lib/format.test.ts (exercising aggregateByOwner's compliancePercent) — that
+// vitest owns the fleet-% reducer. This e2e does NOT re-derive that logic as a contract; its job is to prove
+// the OPERATOR emits the raw per-status counts that FEED the reducer, by driving the REAL source_k8s status
+// mapping (serviceFromK8sStatus -> NormalizeContractStatus) over a fleet. fleetPercent below is only a local
+// restatement of the section 1.5 denominator so those per-status counts can be asserted end to end; treat
+// format.test.ts, not this helper, as the definition of the numbers.
 
 func syntheticPacto(name, status string) *pactov1alpha1.Pacto {
 	return &pactov1alpha1.Pacto{
