@@ -99,7 +99,7 @@ func countConditions(conditions []Condition) ComplianceCounts {
 	return ComplianceCounts{
 		Total:            total,
 		Passed:           passed,
-		Failed:           total - passed,
+		Failed:           errors + warnings, // Unknown is inconclusive, not a violation
 		Errors:           errors,
 		Warnings:         warnings,
 		Unknown:          unknown,

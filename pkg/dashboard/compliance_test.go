@@ -109,6 +109,15 @@ func TestComputeCompliance_WithUnknown(t *testing.T) {
 	if info.Summary.Unknown != 1 {
 		t.Errorf("expected 1 unknown, got %d", info.Summary.Unknown)
 	}
+	// Unknown is inconclusive, NOT a violation: Failed excludes it (errors+warnings=0),
+	// so Failed must differ from the old total-passed folding (which would be 1).
+	if info.Summary.Failed != 0 {
+		t.Errorf("expected Failed=0 (Unknown excluded), got %d", info.Summary.Failed)
+	}
+	if info.Summary.Failed == info.Summary.Total-info.Summary.Passed {
+		t.Errorf("Failed (%d) must not fold Unknown into total-passed (%d)",
+			info.Summary.Failed, info.Summary.Total-info.Summary.Passed)
+	}
 	// Check secondary metrics per B-2.
 	if info.Summary.RuntimeEvaluated != 2 {
 		t.Errorf("expected RuntimeEvaluated=2, got %d", info.Summary.RuntimeEvaluated)
