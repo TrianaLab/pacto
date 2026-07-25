@@ -314,11 +314,11 @@ status:
 pactoVersion: "1.0"
 
 service:
-  name: payments-service
+  name: acme-widget
   version: 2.1.0
-  image: ghcr.io/org/payments-service:2.1.0
+  image: ghcr.io/org/acme-widget:2.1.0
   owner:
-    team: payments-team
+    team: acme-team
 
 interfaces:
   - name: http
@@ -367,7 +367,7 @@ readiness:
     - id: dashboard
       type: url
       status: done
-      evidence: https://grafana.acme.com/d/payments
+      evidence: https://grafana.acme.com/d/acme-widget
       weight: 30
 ```
 
@@ -377,10 +377,10 @@ readiness:
 pactoVersion: "2.0"
 
 service:
-  name: payments-service
+  name: acme-widget
   version: 2.1.0
   owner:
-    team: payments-team
+    team: acme-team
 
 interfaces:
   - name: http
@@ -431,7 +431,7 @@ readiness:
       type: url
       category: observability
       status: done
-      evidence: https://grafana.acme.com/d/payments
+      evidence: https://grafana.acme.com/d/acme-widget
       weight: 30
 ```
 
