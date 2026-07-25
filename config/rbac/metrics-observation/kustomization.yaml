@@ -1,13 +1,10 @@
-# Kustomize overlay for metrics-observation feature (optional ServiceMonitor/PodMonitor discovery).
-# Applied ONLY when metrics observation is enabled. The base role must NOT include these grants.
+# Kustomize overlay for the metrics-observation feature (optional ServiceMonitor/PodMonitor discovery).
+# It ships monitoring.coreos.com access as a SEPARATE ADDITIVE ClusterRole + binding (spec section 9.10 /
+# AR8), applied ALONGSIDE the base rbac. It does NOT reference or patch the base: a strategic merge on the
+# atomic manager-role rules list would wipe every base reconciler grant, and a `resources: - ../` back-edge
+# to the parent also fails kustomize with a build cycle.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-- ../
-
-patches:
-- path: servicemonitor_rbac.yaml
-  target:
-    kind: ClusterRole
-    name: manager-role
+- servicemonitor_rbac.yaml
