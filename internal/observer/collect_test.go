@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -677,5 +678,53 @@ func TestCollect_SubjectName(t *testing.T) {
 	o := es.Observations[0]
 	if o.Subject.Name != "contract-service-name" {
 		t.Errorf("expected Observation.Subject.Name=contract-service-name, got %s", o.Subject.Name)
+	}
+}
+
+// TestCollect_HealthCapability verifies the health capability producer is invoked.
+func TestCollect_HealthCapability(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.Service{Name: "my-service"},
+		Capabilities: []contract.Capability{
+			{
+				Type: contract.CapabilityHealth,
+				Binding: &contract.CapabilityBinding{
+					Type:      contract.CapabilityBindingHTTP,
+					Interface: "api",
+					Path:      "/health",
+				},
+			},
+		},
+	}
+
+	fc := fake.NewClientBuilder().WithScheme(newScheme()).Build()
+	obs := New(fc)
+
+	input := CollectInput{
+		Namespace:   "default",
+		ServiceName: "test-svc",
+		Contract:    c,
+		ContractRef: "ghcr.io/org/my-service:1.0.0",
+		InterfaceBindings: []InterfaceBinding{
+			{Interface: "api", ServicePort: intstr.FromInt32(8080)},
+		},
+	}
+
+	es, _, err := obs.Collect(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Collect failed: %v", err)
+	}
+
+	// Should have one health observation.
+	if len(es.Observations) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(es.Observations))
+	}
+
+	o := es.Observations[0]
+	if o.Kind != evidence.CapabilityObserved {
+		t.Errorf("expected CapabilityObserved, got %s", o.Kind)
+	}
+	if o.Subject.Kind != "capability" || o.Subject.Name != "health" {
+		t.Errorf("expected Subject{capability,health}, got %+v", o.Subject)
 	}
 }

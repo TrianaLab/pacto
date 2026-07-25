@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	unversioned "github.com/trianalab/pacto-operator/api/v1alpha1"
+	"github.com/trianalab/pacto-operator/internal/prober"
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/evidence"
 )
@@ -83,11 +84,15 @@ type RuntimeSnapshot struct {
 // Observer is the k8s Collector.
 type Observer struct {
 	client client.Client
+	prober *prober.Prober
 }
 
 // New creates a new Observer.
 func New(c client.Client) *Observer {
-	return &Observer{client: c}
+	return &Observer{
+		client: c,
+		prober: prober.New(5 * time.Second),
+	}
 }
 
 // Collect implements the new per-dimension collection driven by the contract. Spec section 9.1.
@@ -121,8 +126,16 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 		windowUpdates = append(windowUpdates, dUpdates...)
 	}
 
-	// TODO(S6.4): health producer (spec section 7.4).
-	// TODO(S6.4): metrics producer (spec section 7.5).
+	// Health producer (spec section 7.4).
+	for _, cap := range input.Contract.Capabilities {
+		if cap.Type == contract.CapabilityHealth {
+			obs, updates := o.observeHealthDim(ctx, input, cap, prov, now)
+			observations = append(observations, obs)
+			windowUpdates = append(windowUpdates, updates...)
+		}
+	}
+
+	// TODO(S6.5): metrics producer (spec section 7.5).
 	// TODO(S6.6): configurations producer (spec section 7.7).
 
 	// Workload producer (spec section 7.1 + AR7).
@@ -883,4 +896,280 @@ func (o *Observer) countReadyEndpointsForService(ctx context.Context, namespace,
 	}
 
 	return readyCount
+}
+
+// observeHealthDim observes the health capability (spec section 7.4). Returns exactly one observation and any
+// window updates for the assertion.
+// ponytail: discriminated http binding, tier-A direct probe + tier-B READINESS-fallback, windowed 404.
+func (o *Observer) observeHealthDim(ctx context.Context, input CollectInput, cap contract.Capability, prov evidence.Provenance, now time.Time) (evidence.Observation, []ObservationWindowUpdate) {
+	subj := evidence.SubjectRef{Kind: "capability", Name: cap.AssertionKey()} // "health"
+
+	// No binding -> Unsupported.
+	if cap.Binding == nil {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return obs, nil
+	}
+
+	// Non-HTTP binding -> Unsupported (grpc not implemented).
+	if cap.Binding.Type != contract.CapabilityBindingHTTP {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return obs, nil
+	}
+
+	// Resolve the owning interface to its Service port (B4 reuse).
+	binding := findInterfaceBinding(input.InterfaceBindings, cap.Binding.Interface)
+	if binding == nil {
+		// Owning interface has no binding -> Unsupported (cannot resolve probe target).
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return obs, nil
+	}
+
+	// Resolve the Service port number.
+	svc := &corev1.Service{}
+	err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, svc)
+	if err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			// Non-NotFound API error -> Failed.
+			obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Failed, prov)
+			return obs, nil
+		}
+		// Service NotFound -> Unsupported (cannot probe).
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return obs, nil
+	}
+
+	var targetPort int32
+	found := false
+	for _, p := range svc.Spec.Ports {
+		if matchesServicePort(p, binding.ServicePort) {
+			targetPort = p.Port
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Bound port not found in Service -> Unsupported.
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return obs, nil
+	}
+
+	// Build the probe URL (SSRF-safe via prober.BuildURL — INV-6).
+	probeURL := prober.BuildURL(input.ServiceName, input.Namespace, targetPort, cap.Binding.Path)
+
+	// Tier A: direct in-cluster probe.
+	result := o.prober.Probe(ctx, probeURL)
+
+	return handleHealthProbeResult(result, subj, cap.AssertionKey(), input, prov, now, o, ctx)
+}
+
+// handleHealthProbeResult interprets the prober result and returns the appropriate observation/window-update.
+// Extracted for testability (can test result-handling logic without real HTTP).
+// ponytail: tier-A probe result -> satisfied/404-windowed/insufficient, then tier-B fallback.
+func handleHealthProbeResult(
+	result prober.Result,
+	subj evidence.SubjectRef,
+	assertionKey string,
+	input CollectInput,
+	prov evidence.Provenance,
+	now time.Time,
+	obs *Observer,
+	ctx context.Context,
+) (evidence.Observation, []ObservationWindowUpdate) {
+	windowKey := fmt.Sprintf("capability/%s", assertionKey)
+
+	if result.Reachable {
+		// Probe succeeded.
+		if result.StatusCode >= 200 && result.StatusCode < 400 {
+			// 2xx/3xx -> satisfied (Tier A).
+			return evidence.NewCapabilityObserved(subj, true, prov), nil
+		}
+
+		if result.StatusCode == 404 {
+			// Declared-path 404 -> windowed negative (spec section 7.4).
+			isNegative := true
+			existing := input.ObservationWindows[windowKey]
+			outcome, updatedWindow := stabilize(existing, isNegative, now, input.StabilizationWindow)
+
+			var observation evidence.Observation
+			if outcome == evidence.Observed {
+				// Beyond window -> confirmed absent.
+				observation = evidence.NewCapabilityObserved(subj, false, prov)
+			} else {
+				// Within window -> Insufficient.
+				observation, _ = evidence.NewUnobserved(evidence.CapabilityObserved, subj, outcome, prov)
+			}
+
+			update := ObservationWindowUpdate{
+				Kind:                    "capability",
+				Subject:                 assertionKey,
+				FirstObservedNegativeAt: updatedWindow,
+			}
+			return observation, []ObservationWindowUpdate{update}
+		}
+
+		// 5xx/501/405 -> endpoint exists but unhealthy/not-serving-GET -> Insufficient (not absent).
+		observation, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Insufficient, prov)
+		return observation, nil
+	}
+
+	// Direct probe failed (transport error) -> try Tier B (READINESS-probe fallback).
+	if obs != nil {
+		hasReadinessProbe, podReady := obs.checkReadinessProbeFallbackFromInput(ctx, input)
+
+		if hasReadinessProbe && podReady {
+			// Tier B satisfied (lower confidence).
+			return evidence.NewCapabilityObserved(subj, true, prov), nil
+		}
+	}
+
+	// Probe failed and no READINESS fallback -> Failed (transport error).
+	observation, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Failed, prov)
+	return observation, nil
+}
+
+// checkReadinessProbeFallbackFromInput is a wrapper that resolves the Service from the input and calls
+// checkReadinessProbeFallback.
+func (o *Observer) checkReadinessProbeFallbackFromInput(ctx context.Context, input CollectInput) (bool, bool) {
+	// Resolve the Service (we need it for checkReadinessProbeFallback).
+	svc := &corev1.Service{}
+	err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, svc)
+	if err != nil {
+		return false, false
+	}
+
+	// Find the service port from the first interface binding (health uses the owning interface's port).
+	var servicePort int32
+	if len(input.InterfaceBindings) > 0 {
+		for _, p := range svc.Spec.Ports {
+			if matchesServicePort(p, input.InterfaceBindings[0].ServicePort) {
+				servicePort = p.Port
+				break
+			}
+		}
+	}
+
+	if servicePort == 0 {
+		return false, false
+	}
+
+	return o.checkReadinessProbeFallback(ctx, input, svc, servicePort)
+}
+
+// checkReadinessProbeFallback checks if the workload has an httpGet READINESS probe (not liveness) configured
+// on the container backing the Service target port, and if the Pod is Ready. Returns (hasReadinessProbe, podReady).
+// ponytail: sidecar-safe container selection via Service target port -> pod container port match.
+func (o *Observer) checkReadinessProbeFallback(ctx context.Context, input CollectInput, svc *corev1.Service, servicePort int32) (bool, bool) {
+	// Read the workload to get the PodSpec.
+	snapshot := &RuntimeSnapshot{WorkloadKind: input.WorkloadKind}
+	err := o.observeWorkload(ctx, input.Namespace, input.WorkloadName, input.WorkloadKind, snapshot)
+	if err != nil || !snapshot.WorkloadExists {
+		return false, false
+	}
+
+	// Read the PodSpec from the workload.
+	var podSpec *corev1.PodSpec
+	key := types.NamespacedName{Namespace: input.Namespace, Name: input.WorkloadName}
+	switch input.WorkloadKind {
+	case "Deployment":
+		dep := &appsv1.Deployment{}
+		if err := o.client.Get(ctx, key, dep); err == nil {
+			podSpec = &dep.Spec.Template.Spec
+		}
+	case "StatefulSet":
+		sts := &appsv1.StatefulSet{}
+		if err := o.client.Get(ctx, key, sts); err == nil {
+			podSpec = &sts.Spec.Template.Spec
+		}
+	case "ReplicaSet":
+		rs := &appsv1.ReplicaSet{}
+		if err := o.client.Get(ctx, key, rs); err == nil {
+			podSpec = &rs.Spec.Template.Spec
+		}
+	case "Job":
+		job := &batchv1.Job{}
+		if err := o.client.Get(ctx, key, job); err == nil {
+			podSpec = &job.Spec.Template.Spec
+		}
+	case "CronJob":
+		cj := &batchv1.CronJob{}
+		if err := o.client.Get(ctx, key, cj); err == nil {
+			podSpec = &cj.Spec.JobTemplate.Spec.Template.Spec
+		}
+	}
+
+	if podSpec == nil {
+		return false, false
+	}
+
+	// Resolve the Service target port to a container port number.
+	// Find the Service port definition.
+	var targetContainerPort int32
+	foundTargetPort := false
+	for _, p := range svc.Spec.Ports {
+		if p.Port == servicePort {
+			// Resolve TargetPort (which can be a port number or name).
+			switch p.TargetPort.Type {
+			case intstr.Int:
+				targetContainerPort = p.TargetPort.IntVal
+			case intstr.String:
+				// Named port -> resolve via container ports.
+				for _, c := range podSpec.Containers {
+					for _, cp := range c.Ports {
+						if cp.Name == p.TargetPort.StrVal {
+							targetContainerPort = cp.ContainerPort
+							foundTargetPort = true
+							break
+						}
+					}
+					if foundTargetPort {
+						break
+					}
+				}
+			}
+			if !foundTargetPort && p.TargetPort.Type == intstr.Int {
+				targetContainerPort = p.TargetPort.IntVal
+				foundTargetPort = true
+			}
+			break
+		}
+	}
+
+	if !foundTargetPort {
+		return false, false
+	}
+
+	// Find the container that exposes targetContainerPort and has an httpGet READINESS probe.
+	hasHTTPGetReadiness := false
+	for _, c := range podSpec.Containers {
+		// Check if this container exposes the target port.
+		exposesPort := false
+		for _, cp := range c.Ports {
+			if cp.ContainerPort == targetContainerPort {
+				exposesPort = true
+				break
+			}
+		}
+
+		if !exposesPort {
+			continue
+		}
+
+		// Check if this container has an httpGet READINESS probe (not liveness).
+		if c.ReadinessProbe != nil && c.ReadinessProbe.HTTPGet != nil {
+			hasHTTPGetReadiness = true
+			break
+		}
+	}
+
+	if !hasHTTPGetReadiness {
+		return false, false
+	}
+
+	// Check if the Pod is Ready via EndpointSlice (preferred over reading pods — lower privilege).
+	readyCount, err := o.countReadyEndpoints(ctx, input.Namespace, input.ServiceName, intstr.FromInt32(servicePort))
+	if err != nil || readyCount <= 0 {
+		return true, false
+	}
+
+	return true, true
 }
