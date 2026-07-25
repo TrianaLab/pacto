@@ -133,6 +133,13 @@
               {:else}
                 <span class="text-dim">—</span>
               {/if}
+              {#if svc.evaluationCoverage}
+                <span
+                  class="eval-badge"
+                  data-tip="Required assertions evaluated at runtime — metadata, does not change status"
+                  aria-label="Evaluation coverage {svc.evaluationCoverage.evaluated} of {svc.evaluationCoverage.required}"
+                >cov {svc.evaluationCoverage.evaluated}/{svc.evaluationCoverage.required}</span>
+              {/if}
             </td>
             <td>
               {#each svc.sources || [svc.source] as src}
@@ -277,6 +284,18 @@
   .blast-zero {
     background: var(--c-neutral-bg);
     color: var(--c-text-3);
+  }
+
+  .eval-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: var(--radius-xs);
+    background: var(--c-neutral-bg);
+    color: var(--c-text-3);
+    font-size: 10px;
+    font-weight: 600;
+    vertical-align: middle;
   }
 
   .update-dot {

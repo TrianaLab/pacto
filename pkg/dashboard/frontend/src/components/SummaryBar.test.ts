@@ -46,6 +46,51 @@ describe('SummaryBar — metrics and click-to-filter', () => {
     unmount(component);
   });
 
+  it('1 Compliant + 99 Unknown reads 1% and shows the 99 unknown on the Compliant tile', () => {
+    const component = mount(SummaryBar, {
+      target,
+      props: {
+        services: [
+          { name: 'a', contractStatus: 'Compliant' },
+          ...Array.from({ length: 99 }, (_, i) => ({ name: `u${i}`, contractStatus: 'Unknown' })),
+        ],
+      },
+    });
+
+    const complianceTile = Array.from(target.querySelectorAll('.metric-tile')).find((t) =>
+      t.textContent?.includes('Compliant'),
+    )!;
+    const text = complianceTile.textContent || '';
+    // 1 / 100 assessed (Unknown IS in the denominator) = 1%, NOT 100%.
+    expect(text).toContain('1');
+    expect(text).toContain('%');
+    expect(text).toContain('1 of 100 assessed');
+    // The 99 Unknown must be VISIBLE on this tile.
+    expect(text).toContain('99 unknown');
+
+    unmount(component);
+  });
+
+  it('surfaces fleet evaluation coverage on the Compliant tile when present', () => {
+    const component = mount(SummaryBar, {
+      target,
+      props: {
+        services: [
+          { name: 'a', contractStatus: 'Compliant', evaluationCoverage: { evaluated: 4, required: 5 } },
+          { name: 'b', contractStatus: 'Unknown', evaluationCoverage: { evaluated: 1, required: 3 } },
+        ],
+      },
+    });
+
+    const complianceTile = Array.from(target.querySelectorAll('.metric-tile')).find((t) =>
+      t.textContent?.includes('Compliant'),
+    )!;
+    // Fleet coverage sums evaluated/required across services: 5 of 8.
+    expect(complianceTile.textContent).toContain('coverage: 5 of 8 evaluated');
+
+    unmount(component);
+  });
+
   it('renders needs-attention card with count', () => {
     const component = mount(SummaryBar, {
       target,

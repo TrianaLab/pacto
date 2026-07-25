@@ -47,6 +47,7 @@ import {
   shortDigest,
   driftBadgeClass,
   driftBadgeLabel,
+  evaluationCoverageLabel,
 } from './format.ts';
 
 describe('statusClass', () => {
@@ -1273,6 +1274,22 @@ describe('breakableIdentifierHtml', () => {
 
 // ── B-2 ruling: Unknown in denominator, distinct from needsAttention ──
 
+describe('evaluationCoverageLabel', () => {
+  it('renders "E of R" when runtime-evaluated with coverage', () => {
+    expect(evaluationCoverageLabel({ runtimeEvaluated: true, evaluationCoverage: { evaluated: 4, required: 5 } })).toBe('4 of 5');
+  });
+  it('is omitted when the service was not runtime-evaluated', () => {
+    expect(evaluationCoverageLabel({ runtimeEvaluated: false, evaluationCoverage: { evaluated: 4, required: 5 } })).toBe('');
+  });
+  it('is omitted when there is no coverage even if runtime-evaluated', () => {
+    expect(evaluationCoverageLabel({ runtimeEvaluated: true })).toBe('');
+  });
+  it('is omitted for null/undefined input', () => {
+    expect(evaluationCoverageLabel(null)).toBe('');
+    expect(evaluationCoverageLabel(undefined)).toBe('');
+  });
+});
+
 describe('summarize B-2 ruling', () => {
   it('all-Unknown fleet reads 0%, NOT N/A', () => {
     const services = [
@@ -1339,6 +1356,22 @@ describe('summarize B-2 ruling', () => {
     expect(m.assessed).toBe(2); // Compliant + Invalid
     expect(m.compliancePercent).toBe(50); // 1/2
     expect(m.needsAttention).toBe(1); // Invalid IS in needsAttention
+  });
+
+  it('sums fleet evaluationCoverage across services that carry it', () => {
+    const services = [
+      { contractStatus: 'Compliant', evaluationCoverage: { evaluated: 4, required: 5 } },
+      { contractStatus: 'Unknown', evaluationCoverage: { evaluated: 1, required: 3 } },
+      { contractStatus: 'Reference' }, // no coverage — ignored
+    ];
+    const m = summarize(services);
+    expect(m.evaluationCoverage.evaluated).toBe(5); // 4 + 1
+    expect(m.evaluationCoverage.required).toBe(8); // 5 + 3
+  });
+
+  it('fleet evaluationCoverage is zero when no service carries it', () => {
+    const m = summarize([{ contractStatus: 'Unknown' }]);
+    expect(m.evaluationCoverage).toEqual({ evaluated: 0, required: 0 });
   });
 
   it('secondary conclusive/runtimeEvaluated metrics (NEW)', () => {

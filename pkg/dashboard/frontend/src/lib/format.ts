@@ -32,6 +32,20 @@ export function complianceClass(score: number): string {
   return 'score-err';
 }
 
+/**
+ * "E of R" evaluation-coverage label for the detail view and list badge. Returns
+ * '' unless the service was runtime-evaluated AND carries an evaluationCoverage —
+ * a definition-only view cannot assert how many assertions were evaluated. Metadata
+ * only; never affects status or percentage.
+ */
+export function evaluationCoverageLabel(
+  svc: { runtimeEvaluated?: boolean; evaluationCoverage?: { evaluated: number; required: number } | null } | null | undefined,
+): string {
+  const ec = svc?.evaluationCoverage;
+  if (!svc?.runtimeEvaluated || !ec) return '';
+  return `${ec.evaluated} of ${ec.required}`;
+}
+
 export function complianceStatusClass(status: string): string {
   if (status === 'OK') return 'score-ok';
   if (status === 'WARNING') return 'score-warn';
@@ -737,6 +751,9 @@ export interface Metrics {
   highImpact: number;
   runtimeEvaluated: number;
   conclusive: number;
+  // Fleet evaluation coverage: {evaluated, required} summed across services that
+  // carry it. Metadata only — never affects any status or percentage.
+  evaluationCoverage: { evaluated: number; required: number };
   readiness: ReadinessSummary;
   byOwner: OwnerAggregation[];
   byCategory: CategoryBreakdown[];
@@ -752,6 +769,7 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     reference: 0, unknown: 0, invalid: 0, notEvaluated: 0,
     needsAttention: 0, compliancePercent: -1, highImpact: 0,
     runtimeEvaluated: 0, conclusive: 0,
+    evaluationCoverage: { evaluated: 0, required: 0 },
     readiness: {
       total: services.length, ready: 0, partial: 0, notReady: 0, notConfigured: 0,
       configured: 0, avgScore: -1, expiredAssessments: 0,
@@ -785,6 +803,13 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
 
     // High impact
     if (((svc.blastRadius as number) || 0) >= HIGH_IMPACT_THRESHOLD) m.highImpact++;
+
+    // Fleet evaluation coverage — sum evaluated/required across services that carry it.
+    const ec = svc.evaluationCoverage as { evaluated?: number; required?: number } | undefined;
+    if (ec) {
+      m.evaluationCoverage.evaluated += ec.evaluated || 0;
+      m.evaluationCoverage.required += ec.required || 0;
+    }
 
     // Owner aggregation
     const key = ownerKey(svc.owner) || '(unowned)';
