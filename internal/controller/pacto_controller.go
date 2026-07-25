@@ -239,8 +239,9 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	evidenceSet, windowUpdates := obs.Collect(ctx, collectInput)
 
-	// Apply window updates (spec section 9.5): upsert by (Kind, Subject); nil resets the entry.
-	r.applyObservationWindowUpdates(pacto, windowUpdates)
+	// Apply window updates (spec section 9.5): upsert by (Kind, Subject); nil resets the entry; windows for
+	// assertions no longer declared by the effective contract are pruned.
+	r.applyObservationWindowUpdates(pacto, windowUpdates, declaredWindowKeys(effectiveContract))
 
 	// 11. Populate lean observed runtime into status (backward compat for dashboard)
 	snapshot, _ := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
@@ -356,20 +357,24 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
 			pactov1alpha1.ReasonContractInvalid, msg)
 		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
+		// The contract was loaded and judged invalid -> record the validation result.
+		pacto.Status.Validation = valResult
 	case pactov1alpha1.ContractStatusUnknown:
 		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionUnknown,
 			pactov1alpha1.ReasonContractUnavailable, msg)
 		pacto.Status.Summary = &pactov1alpha1.Summary{UnknownCount: 1}
+		// Transient obtain-failure (spec section 9.8): the contract was never loaded, so leave
+		// status.validation nil rather than asserting the contract IS invalid.
 	default:
 		// Fallback for unexpected status
 		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
 			pactov1alpha1.ReasonContractInvalid, msg)
 		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
+		pacto.Status.Validation = valResult
 		status = pactov1alpha1.ContractStatusInvalid
 	}
 
 	pacto.Status.ContractStatus = status
-	pacto.Status.Validation = valResult
 
 	now := metav1.Now()
 	pacto.Status.LastReconciledAt = &now
@@ -405,8 +410,11 @@ func classifyLoadError(err error) string {
 }
 
 // applyObservationWindowUpdates persists window updates into status.observationWindows (spec section 9.5).
-// Upsert by (Kind, Subject); a nil FirstObservedNegativeAt removes/resets the entry.
-func (r *PactoReconciler) applyObservationWindowUpdates(pacto *pactov1alpha1.Pacto, updates []observer.ObservationWindowUpdate) {
+// Upsert by (Kind, Subject); a nil FirstObservedNegativeAt removes/resets the entry. Windows whose key is
+// NOT in declaredKeys (the assertion set of the CURRENT effective contract) are pruned, so removing an
+// assertion drops its stale window instead of leaving it to fire a premature confirmed-negative or to grow
+// status unbounded under churn. Still-declared entries that had no update this cycle are preserved.
+func (r *PactoReconciler) applyObservationWindowUpdates(pacto *pactov1alpha1.Pacto, updates []observer.ObservationWindowUpdate, declaredKeys map[string]bool) {
 	// Build a map of current windows keyed by (Kind/Subject)
 	windowMap := make(map[string]*pactov1alpha1.ObservationWindow)
 	for i := range pacto.Status.ObservationWindows {
@@ -435,12 +443,39 @@ func (r *PactoReconciler) applyObservationWindowUpdates(pacto *pactov1alpha1.Pac
 		}
 	}
 
+	// Prune windows for assertions no longer declared by the contract.
+	for key := range windowMap {
+		if !declaredKeys[key] {
+			delete(windowMap, key)
+		}
+	}
+
 	// Rebuild the slice from the map
 	windows := make([]pactov1alpha1.ObservationWindow, 0, len(windowMap))
 	for _, w := range windowMap {
 		windows = append(windows, *w)
 	}
 	pacto.Status.ObservationWindows = windows
+}
+
+// declaredWindowKeys returns the set of observation-window keys (Kind/Subject) for every assertion the
+// effective contract currently declares. Only these dimensions ever open a window, so any status window
+// whose key is absent belongs to an assertion that was removed and must be pruned.
+func declaredWindowKeys(c *contract.Contract) map[string]bool {
+	keys := make(map[string]bool)
+	for _, iface := range c.Interfaces {
+		keys["interface/"+iface.Name] = true
+	}
+	for _, dep := range c.Dependencies {
+		keys["dependency/"+dep.Name] = true
+	}
+	for _, cap := range c.Capabilities {
+		keys["capability/"+cap.AssertionKey()] = true
+	}
+	for _, cfg := range c.Configurations {
+		keys["configuration/"+cfg.Name] = true
+	}
+	return keys
 }
 
 // errorsAsAny checks if err matches any of the target types using errors.As.

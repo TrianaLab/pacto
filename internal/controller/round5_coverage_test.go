@@ -84,8 +84,10 @@ func TestReconcile_PullSecretMissing(t *testing.T) {
 	if got.Status.ContractStatus != pactov1alpha1.ContractStatusUnknown {
 		t.Errorf("expected Unknown, got %s", got.Status.ContractStatus)
 	}
-	if got.Status.Validation == nil || len(got.Status.Validation.Errors) == 0 {
-		t.Error("expected validation errors from pull secret failure")
+	// Transient failure: the contract was never loaded, so status.validation must stay nil rather than
+	// asserting the contract IS invalid (spec section 9.8 / F7).
+	if got.Status.Validation != nil {
+		t.Errorf("expected nil validation on transient Unknown, got %+v", got.Status.Validation)
 	}
 }
 

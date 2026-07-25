@@ -16,6 +16,7 @@ import (
 
 	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
 	"github.com/trianalab/pacto-operator/internal/observer"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/oci"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -160,7 +161,7 @@ func TestApplyObservationWindowUpdates_InsertNew(t *testing.T) {
 		{Kind: "check", Subject: "foo", FirstObservedNegativeAt: &now},
 	}
 
-	r.applyObservationWindowUpdates(pacto, updates)
+	r.applyObservationWindowUpdates(pacto, updates, map[string]bool{"check/foo": true})
 
 	if len(pacto.Status.ObservationWindows) != 1 {
 		t.Fatalf("expected 1 window, got %d", len(pacto.Status.ObservationWindows))
@@ -189,7 +190,7 @@ func TestApplyObservationWindowUpdates_UpdateExisting(t *testing.T) {
 		{Kind: "check", Subject: "foo", FirstObservedNegativeAt: &now},
 	}
 
-	r.applyObservationWindowUpdates(pacto, updates)
+	r.applyObservationWindowUpdates(pacto, updates, map[string]bool{"check/foo": true})
 
 	if len(pacto.Status.ObservationWindows) != 1 {
 		t.Fatalf("expected 1 window, got %d", len(pacto.Status.ObservationWindows))
@@ -214,7 +215,7 @@ func TestApplyObservationWindowUpdates_RemoveEntry(t *testing.T) {
 		{Kind: "check", Subject: "foo", FirstObservedNegativeAt: nil}, // reset
 	}
 
-	r.applyObservationWindowUpdates(pacto, updates)
+	r.applyObservationWindowUpdates(pacto, updates, map[string]bool{"check/foo": true})
 
 	if len(pacto.Status.ObservationWindows) != 0 {
 		t.Fatalf("expected 0 windows after reset, got %d", len(pacto.Status.ObservationWindows))
@@ -237,7 +238,7 @@ func TestApplyObservationWindowUpdates_MultipleUpdates(t *testing.T) {
 		{Kind: "check", Subject: "existing", FirstObservedNegativeAt: &now},
 	}
 
-	r.applyObservationWindowUpdates(pacto, updates)
+	r.applyObservationWindowUpdates(pacto, updates, map[string]bool{"check/existing": true, "check/new": true})
 
 	if len(pacto.Status.ObservationWindows) != 2 {
 		t.Fatalf("expected 2 windows, got %d", len(pacto.Status.ObservationWindows))
@@ -261,6 +262,8 @@ func TestApplyObservationWindowUpdates_MultipleUpdates(t *testing.T) {
 	}
 }
 
+// TestApplyObservationWindowUpdates_EmptyInput proves a still-declared window with no update this cycle is
+// preserved (e.g. a COLLECTION_FAILED cycle emits no update, so the stabilization clock must not be lost).
 func TestApplyObservationWindowUpdates_EmptyInput(t *testing.T) {
 	r := newReconciler()
 	old := metav1.NewTime(time.Now().Add(-1 * time.Hour))
@@ -272,10 +275,53 @@ func TestApplyObservationWindowUpdates_EmptyInput(t *testing.T) {
 		},
 	}
 
-	r.applyObservationWindowUpdates(pacto, nil)
+	r.applyObservationWindowUpdates(pacto, nil, map[string]bool{"check/existing": true})
 
 	if len(pacto.Status.ObservationWindows) != 1 {
 		t.Fatalf("expected 1 window to remain, got %d", len(pacto.Status.ObservationWindows))
+	}
+}
+
+// TestApplyObservationWindowUpdates_PrunesUndeclared proves that when an assertion is removed from the
+// contract (its key is absent from declaredKeys), its stale window is pruned even with no update this
+// cycle (spec section 9.5) — otherwise a re-added still-negative assertion would fire a premature
+// confirmed-negative and status would grow unbounded under churn.
+func TestApplyObservationWindowUpdates_PrunesUndeclared(t *testing.T) {
+	r := newReconciler()
+	old := metav1.NewTime(time.Now().Add(-1 * time.Hour))
+	pacto := &pactov1alpha1.Pacto{
+		Status: pactov1alpha1.PactoStatus{
+			ObservationWindows: []pactov1alpha1.ObservationWindow{
+				{Kind: "dependency", Subject: "db", FirstObservedNegativeAt: old},
+				{Kind: "dependency", Subject: "cache", FirstObservedNegativeAt: old},
+			},
+		},
+	}
+
+	// "db" was removed from the contract; only "cache" is still declared.
+	r.applyObservationWindowUpdates(pacto, nil, map[string]bool{"dependency/cache": true})
+
+	if len(pacto.Status.ObservationWindows) != 1 {
+		t.Fatalf("expected 1 window after pruning removed assertion, got %d", len(pacto.Status.ObservationWindows))
+	}
+	if pacto.Status.ObservationWindows[0].Subject != "cache" {
+		t.Fatalf("expected the still-declared 'cache' window to survive, got %q", pacto.Status.ObservationWindows[0].Subject)
+	}
+}
+
+// TestDeclaredWindowKeys proves the key set covers every windowing dimension of the effective contract.
+func TestDeclaredWindowKeys(t *testing.T) {
+	c := &contract.Contract{
+		Interfaces:     []contract.Interface{{Name: "api"}},
+		Dependencies:   []contract.Dependency{{Name: "payments"}},
+		Capabilities:   []contract.Capability{{Type: contract.CapabilityHealth}},
+		Configurations: []contract.Configuration{{Name: "appcfg"}},
+	}
+	keys := declaredWindowKeys(c)
+	for _, want := range []string{"interface/api", "dependency/payments", "capability/health", "configuration/appcfg"} {
+		if !keys[want] {
+			t.Errorf("declaredWindowKeys missing %q; got %v", want, keys)
+		}
 	}
 }
 
