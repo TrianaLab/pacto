@@ -1,51 +1,47 @@
-pactoVersion: "2.0"
-
+pactoVersion: '2.0'
 service:
   name: payments-service
   version: 2.0.0
   owner:
     team: team/payments
-
 interfaces:
-  - name: http
-    type: openapi
-    ref: interfaces/openapi.json
-    visibility: internal
-  - name: events
-    type: asyncapi
-    ref: interfaces/events.json
-    visibility: internal
-
+- name: http
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: internal
+- name: events
+  type: asyncapi
+  ref: interfaces/events.json
+  visibility: internal
 configurations:
-  - name: platform
-    ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
-  - name: app
-    schema: configuration/schema.json
-    values:
-      LOG_LEVEL: info
-      STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY}"
-      PAYMENTS_DB_URL: postgresql://postgres:5432/payments
-      WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET}"
-      FRAUD_CHECK_ENABLED: true
-
+- name: platform
+  ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  required: true
+- name: app
+  schema: configuration/schema.json
+  values:
+    LOG_LEVEL: info
+    STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+    PAYMENTS_DB_URL: postgresql://postgres:5432/payments
+    WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+    FRAUD_CHECK_ENABLED: true
+  required: true
 policies:
-  - name: http-security
-    ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
-
+- name: http-security
+  ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
 dependencies:
-  - name: postgresql
-    ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
-    required: true
-    compatibility: "^16.0.0"
-  - name: stripe-api
-    ref: oci://ghcr.io/trianalab/pacto-demo/stripe-api
-    required: true
-    compatibility: "^2024.01.01"
-  - name: fraud-service
-    ref: oci://ghcr.io/trianalab/pacto-demo/fraud-service
-    required: true
-    compatibility: "^1.0.0"
-
+- name: postgresql
+  ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
+  required: true
+  compatibility: ^16.0.0
+- name: stripe-api
+  ref: oci://ghcr.io/trianalab/pacto-demo/stripe-api
+  required: true
+  compatibility: ^2024.01.01
+- name: fraud-service
+  ref: oci://ghcr.io/trianalab/pacto-demo/fraud-service
+  required: true
+  compatibility: ^1.0.0
 workload: service
 state:
   type: stateful
@@ -53,18 +49,18 @@ state:
     scope: shared
     durability: persistent
   dataCriticality: high
-
 metadata:
   tier: domain
   category: payments
   criticality: high
-  summary: Payment Intents API with mandatory fraud detection - BREAKING from v1.x charges API
+  summary: Payment Intents API with mandatory fraud detection - BREAKING from v1.x
+    charges API
   language: go
   repo: github.com/trianalab/pacto-demo/payments-service
   tags:
-    - payments
-    - stripe
-    - payment-intents
-    - fraud-detection
-    - webhooks
-    - breaking-change
+  - payments
+  - stripe
+  - payment-intents
+  - fraud-detection
+  - webhooks
+  - breaking-change

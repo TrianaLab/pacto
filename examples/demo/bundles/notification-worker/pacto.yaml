@@ -1,5 +1,4 @@
-pactoVersion: "2.0"
-
+pactoVersion: '2.0'
 service:
   name: notification-worker
   version: 1.0.0
@@ -7,41 +6,38 @@ service:
     team: commerce-team
     dri: fatima.ahmed
     contacts:
-      - type: email
-        value: commerce-team@acme.com
-        purpose: escalation
-      - type: chat
-        value: "#commerce-team"
-        purpose: support
-
+    - type: email
+      value: commerce-team@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#commerce-team'
+      purpose: support
 interfaces:
-  - name: events
-    type: asyncapi
-    ref: interfaces/events.json
-    visibility: internal
-
+- name: events
+  type: asyncapi
+  ref: interfaces/events.json
+  visibility: internal
 configurations:
-  - name: platform
-    ref: oci://ghcr.io/trianalab/pacto-demo/platform-worker-config
-  - name: app
-    schema: configuration/schema.json
-    values:
-      OTEL_SERVICE_NAME: notification-worker
-      WORKER_CONCURRENCY: 3
-      EMAIL_PROVIDER_URL: https://api.sendgrid.com
-      EMAIL_FROM: noreply@platform.example.com
-      SENDGRID_API_KEY: "${SENDGRID_API_KEY}"
-
+- name: platform
+  ref: oci://ghcr.io/trianalab/pacto-demo/platform-worker-config
+  required: true
+- name: app
+  schema: configuration/schema.json
+  values:
+    OTEL_SERVICE_NAME: notification-worker
+    WORKER_CONCURRENCY: 3
+    EMAIL_PROVIDER_URL: https://api.sendgrid.com
+    EMAIL_FROM: noreply@platform.example.com
+    SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+  required: true
 policies:
-  - name: http-security
-    ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
-
+- name: http-security
+  ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
 dependencies:
-  - name: email-provider
-    ref: oci://ghcr.io/trianalab/pacto-demo/email-provider
-    required: true
-    compatibility: "^1.0.0"
-
+- name: email-provider
+  ref: oci://ghcr.io/trianalab/pacto-demo/email-provider
+  required: true
+  compatibility: ^1.0.0
 workload: scheduled
 state:
   type: stateless
@@ -49,7 +45,46 @@ state:
     scope: local
     durability: ephemeral
   dataCriticality: low
-
+readiness:
+  minScore: 70
+  expires: '2026-12-31'
+  partialCredit: 0.5
+  claims:
+  - id: worker-dashboard
+    type: url
+    category: observability
+    status: not-done
+    evidence: https://grafana.acme.com/d/notification-worker
+    weight: 30
+    description: Dashboard for notification worker metrics (not created yet)
+  - id: retry-logic
+    type: ticket
+    category: resilience
+    status: not-done
+    evidence: ENG-1543
+    weight: 35
+    description: Implement exponential backoff for failed notifications
+  - id: runbook
+    type: document
+    category: documentation
+    status: not-done
+    evidence: docs/runbooks/notification-worker.md
+    weight: 25
+    description: On-call runbook (not written)
+  - id: dlq-handling
+    type: ticket
+    category: infrastructure
+    status: partial
+    evidence: ENG-1598
+    weight: 30
+    description: Dead letter queue for failed notifications (partially implemented)
+  - id: perf-test
+    type: report
+    category: testing
+    status: not-done
+    evidence: TBD
+    weight: 20
+    description: Performance testing under sustained load
 metadata:
   tier: domain
   category: notifications
@@ -58,49 +93,8 @@ metadata:
   language: go
   repo: github.com/trianalab/pacto-demo/notification-worker
   tags:
-    - notifications
-    - email
-    - worker
-    - events
-    - scheduled
-
-readiness:
-  minScore: 70
-  expires: "2026-12-31"
-  partialCredit: 0.5
-  claims:
-    - id: worker-dashboard
-      type: url
-      category: observability
-      status: not-done
-      evidence: https://grafana.acme.com/d/notification-worker
-      weight: 30
-      description: Dashboard for notification worker metrics (not created yet)
-    - id: retry-logic
-      type: ticket
-      category: resilience
-      status: not-done
-      evidence: ENG-1543
-      weight: 35
-      description: Implement exponential backoff for failed notifications
-    - id: runbook
-      type: document
-      category: documentation
-      status: not-done
-      evidence: docs/runbooks/notification-worker.md
-      weight: 25
-      description: On-call runbook (not written)
-    - id: dlq-handling
-      type: ticket
-      category: infrastructure
-      status: partial
-      evidence: ENG-1598
-      weight: 30
-      description: Dead letter queue for failed notifications (partially implemented)
-    - id: perf-test
-      type: report
-      category: testing
-      status: not-done
-      evidence: TBD
-      weight: 20
-      description: Performance testing under sustained load
+  - notifications
+  - email
+  - worker
+  - events
+  - scheduled

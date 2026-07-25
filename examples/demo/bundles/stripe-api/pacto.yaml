@@ -1,24 +1,21 @@
-pactoVersion: "2.0"
-
+pactoVersion: '2.0'
 service:
   name: stripe-api
   version: 2024.01.01
   owner:
     team: external/stripe
     contacts:
-      - type: url
-        value: https://support.stripe.com
-        purpose: support
-      - type: url
-        value: https://status.stripe.com
-        purpose: oncall
-
+    - type: url
+      value: https://support.stripe.com
+      purpose: support
+    - type: url
+      value: https://status.stripe.com
+      purpose: oncall
 interfaces:
-  - name: http
-    type: openapi
-    ref: interfaces/openapi.json
-    visibility: public
-
+- name: http
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: public
 metadata:
   tier: external
   category: payments
@@ -28,7 +25,7 @@ metadata:
   protocol: https
   repo: https://stripe.com/docs/api
   tags:
-    - payments
-    - external
-    - stripe
-    - pci
+  - payments
+  - external
+  - stripe
+  - pci

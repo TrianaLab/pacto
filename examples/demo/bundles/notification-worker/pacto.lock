@@ -10,17 +10,17 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto-demo/email-provider
       constraint: ^1.0.0
       version: 1.0.0
-      digest: sha256:1fdc70104c50b3ed04e8ca6cb65539ce9e711ce37e5496f0733003fd0b1fa7ae
+      digest: sha256:2ef9480d81b9d2006f9f2d98b1745cd698fe2d5805e2fe42980fb1ad24acf366
 references:
     - kind: config
       name: platform
       source: oci
       ref: oci://ghcr.io/trianalab/pacto-demo/platform-worker-config
       version: 1.0.0
-      digest: sha256:2f90d5ed3c0e95d2e3a79896ac1f658e221e3b989853c37a14880ac6d51c6656
+      digest: sha256:159e590d349c3f069e76b1033ff98503e33323ef383c364dce124a7e36dd972e
     - kind: policy
       name: http-security
       source: oci
       ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
       version: 1.0.0
-      digest: sha256:6a7d266d194181c540baac9b8f544135ee1f6f82f6bce3c7af618bd677ea2bc7
+      digest: sha256:a2baa0f8dc5b716a94449dda9a30c93abd34c9c96ab9a724cf48839c25bef039

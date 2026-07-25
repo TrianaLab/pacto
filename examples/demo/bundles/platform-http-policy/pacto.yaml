@@ -1,5 +1,4 @@
-pactoVersion: "2.0"
-
+pactoVersion: '2.0'
 service:
   name: platform-http-policy
   version: 1.0.0
@@ -7,16 +6,15 @@ service:
     team: platform-foundations
     dri: alice.johnson
     contacts:
-      - type: email
-        value: platform-foundations@acme.com
-        purpose: escalation
-      - type: chat
-        value: "#platform-foundations"
-        purpose: support
-      - type: oncall
-        value: platform-foundations-oncall
-        purpose: oncall
-
+    - type: email
+      value: platform-foundations@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#platform-foundations'
+      purpose: support
+    - type: oncall
+      value: platform-foundations-oncall
+      purpose: oncall
 metadata:
   tier: platform
   category: policy
@@ -24,7 +22,7 @@ metadata:
   summary: Shared HTTP security and rate-limiting policy for all platform services
   repo: github.com/trianalab/pacto-demo/platform-http-policy
   tags:
-    - policy
-    - security
-    - rate-limiting
-    - shared
+  - policy
+  - security
+  - rate-limiting
+  - shared

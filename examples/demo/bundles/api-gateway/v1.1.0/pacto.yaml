@@ -1,48 +1,44 @@
-pactoVersion: "2.0"
-
+pactoVersion: '2.0'
 service:
   name: api-gateway
   version: 1.1.0
   owner:
     team: team/platform
-
 interfaces:
-  - name: http
-    type: openapi
-    ref: interfaces/openapi.json
-    visibility: public
-
+- name: http
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: public
 configurations:
-  - name: platform
-    ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
-  - name: app
-    schema: configuration/schema.json
-    values:
-      OTEL_SERVICE_NAME: api-gateway
-      AUTH_SERVICE_URL: auth-service:50051
-      ORDERS_SERVICE_URL: http://orders-service:8082
-      PAYMENTS_SERVICE_URL: http://payments-service:8083
-      REQUEST_TIMEOUT_SECONDS: 30
-      ENABLE_WEBSOCKETS: true
-
+- name: platform
+  ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  required: true
+- name: app
+  schema: configuration/schema.json
+  values:
+    OTEL_SERVICE_NAME: api-gateway
+    AUTH_SERVICE_URL: auth-service:50051
+    ORDERS_SERVICE_URL: http://orders-service:8082
+    PAYMENTS_SERVICE_URL: http://payments-service:8083
+    REQUEST_TIMEOUT_SECONDS: 30
+    ENABLE_WEBSOCKETS: true
+  required: true
 policies:
-  - name: gateway-routing
-    schema: policy/schema.json
-
+- name: gateway-routing
+  schema: policy/schema.json
 dependencies:
-  - name: auth-service
-    ref: oci://ghcr.io/trianalab/pacto-demo/auth-service
-    required: true
-    compatibility: "^1.0.0"
-  - name: orders-service
-    ref: oci://ghcr.io/trianalab/pacto-demo/orders-service
-    required: true
-    compatibility: "^1.0.0"
-  - name: payments-service
-    ref: oci://ghcr.io/trianalab/pacto-demo/payments-service
-    required: true
-    compatibility: "^1.0.0"
-
+- name: auth-service
+  ref: oci://ghcr.io/trianalab/pacto-demo/auth-service
+  required: true
+  compatibility: ^1.0.0
+- name: orders-service
+  ref: oci://ghcr.io/trianalab/pacto-demo/orders-service
+  required: true
+  compatibility: ^1.0.0
+- name: payments-service
+  ref: oci://ghcr.io/trianalab/pacto-demo/payments-service
+  required: true
+  compatibility: ^1.0.0
 workload: service
 state:
   type: stateless
@@ -50,7 +46,6 @@ state:
     scope: local
     durability: ephemeral
   dataCriticality: low
-
 metadata:
   tier: edge
   category: gateway
@@ -59,8 +54,8 @@ metadata:
   language: go
   repo: github.com/trianalab/pacto-demo/api-gateway
   tags:
-    - gateway
-    - routing
-    - websockets
-    - authentication
-    - public
+  - gateway
+  - routing
+  - websockets
+  - authentication
+  - public

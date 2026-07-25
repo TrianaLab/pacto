@@ -1,5 +1,4 @@
-pactoVersion: "2.0"
-
+pactoVersion: '2.0'
 service:
   name: platform-app-config
   version: 1.0.0
@@ -7,20 +6,19 @@ service:
     team: platform-foundations
     dri: alice.johnson
     contacts:
-      - type: email
-        value: platform-foundations@acme.com
-        purpose: escalation
-      - type: chat
-        value: "#platform-foundations"
-        purpose: support
-      - type: oncall
-        value: platform-foundations-oncall
-        purpose: oncall
-
+    - type: email
+      value: platform-foundations@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#platform-foundations'
+      purpose: support
+    - type: oncall
+      value: platform-foundations-oncall
+      purpose: oncall
 configurations:
-  - name: default
-    schema: configuration/schema.json
-
+- name: default
+  schema: configuration/schema.json
+  required: true
 metadata:
   tier: platform
   category: configuration
@@ -28,6 +26,6 @@ metadata:
   summary: Shared application configuration schema for standard platform services
   repo: github.com/trianalab/pacto-demo/platform-app-config
   tags:
-    - configuration
-    - shared
-    - observability
+  - configuration
+  - shared
+  - observability
