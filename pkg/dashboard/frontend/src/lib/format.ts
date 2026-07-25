@@ -4,7 +4,10 @@ export function statusClass(status: string | undefined): string {
   if (status === 'Compliant') return 'ok';
   if (status === 'Warning') return 'warn';
   if (status === 'NonCompliant') return 'err';
+  if (status === 'Invalid') return 'err';
+  if (status === 'Unknown') return 'info';
   if (status === 'Reference') return 'reference';
+  if (status === 'NotEvaluated') return 'neutral';
   return 'neutral';
 }
 
@@ -12,8 +15,10 @@ const STATUS_LABELS: Record<string, string> = {
   Compliant: 'Compliant',
   Warning: 'Warning',
   NonCompliant: 'Non-Compliant',
+  Invalid: 'Invalid',
   Unknown: 'Unknown',
   Reference: 'Reference',
+  NotEvaluated: 'Not Evaluated',
 };
 
 export function statusLabel(status: string | undefined): string {
@@ -31,6 +36,7 @@ export function complianceStatusClass(status: string): string {
   if (status === 'OK') return 'score-ok';
   if (status === 'WARNING') return 'score-warn';
   if (status === 'ERROR') return 'score-err';
+  if (status === 'UNKNOWN') return 'score-info';
   return '';
 }
 
@@ -359,6 +365,8 @@ export interface OwnerAggregation {
   nonCompliant: number;
   reference: number;
   unknown: number;
+  invalid: number;
+  notEvaluated: number;
   totalBlast: number;
   compliancePercent: number;
   // Per-owner readiness composition (buckets sum to `services`).
@@ -390,7 +398,7 @@ export function compareScoresUnassessedLast(a: number, b: number, dir: number): 
 // ── Dependency graph aggregation ──
 
 const STATUS_SEVERITY: Record<string, number> = {
-  NonCompliant: 4, Warning: 3, Unknown: 2, external: 1, Reference: 0, Compliant: 0,
+  Invalid: 5, NonCompliant: 4, Unknown: 3, Warning: 2, external: 1, Reference: 0, NotEvaluated: 0, Compliant: 0,
 };
 /** The worst (most-severe) status in a set — used to color an aggregated node. */
 export function worstStatus(statuses: Iterable<string>): string {
@@ -667,15 +675,19 @@ export function readinessCheckTypes(services: WithReadiness[]): string[] {
 /** Headline fleet metrics for the landing-page overview. */
 export interface FleetSummary {
   total: number;
-  assessed: number; // compliant + warning + nonCompliant (excludes reference/unknown)
+  assessed: number; // compliant + warning + nonCompliant + unknown + invalid (excludes reference/notEvaluated)
   compliant: number;
   warning: number;
   nonCompliant: number;
   reference: number;
   unknown: number;
-  needsAttention: number; // warning + nonCompliant
+  invalid: number;
+  notEvaluated: number;
+  needsAttention: number; // warning + nonCompliant + invalid (unknown surfaced separately)
   compliancePercent: number; // compliant / assessed * 100; -1 if nothing assessed
   highImpact: number; // services with blast radius >= HIGH_IMPACT_THRESHOLD
+  runtimeEvaluated: number; // compliant + warning + nonCompliant + unknown (secondary metric)
+  conclusive: number; // compliant + warning + nonCompliant (secondary metric)
 }
 
 /** Roll up the whole service list into the few signals that matter at a glance. */
@@ -689,9 +701,13 @@ export function summarizeFleet(services: Array<Record<string, unknown>>): FleetS
     nonCompliant: metrics.nonCompliant,
     reference: metrics.reference,
     unknown: metrics.unknown,
+    invalid: metrics.invalid,
+    notEvaluated: metrics.notEvaluated,
     needsAttention: metrics.needsAttention,
     compliancePercent: metrics.compliancePercent,
     highImpact: metrics.highImpact,
+    runtimeEvaluated: metrics.runtimeEvaluated,
+    conclusive: metrics.conclusive,
   };
 }
 
@@ -714,9 +730,13 @@ export interface Metrics {
   nonCompliant: number;
   reference: number;
   unknown: number;
+  invalid: number;
+  notEvaluated: number;
   needsAttention: number;
   compliancePercent: number;
   highImpact: number;
+  runtimeEvaluated: number;
+  conclusive: number;
   readiness: ReadinessSummary;
   byOwner: OwnerAggregation[];
   byCategory: CategoryBreakdown[];
@@ -729,7 +749,9 @@ export interface Metrics {
 export function summarize(services: Array<Record<string, unknown>>): Metrics {
   const m: Metrics = {
     total: services.length, assessed: 0, compliant: 0, warning: 0, nonCompliant: 0,
-    reference: 0, unknown: 0, needsAttention: 0, compliancePercent: -1, highImpact: 0,
+    reference: 0, unknown: 0, invalid: 0, notEvaluated: 0,
+    needsAttention: 0, compliancePercent: -1, highImpact: 0,
+    runtimeEvaluated: 0, conclusive: 0,
     readiness: {
       total: services.length, ready: 0, partial: 0, notReady: 0, notConfigured: 0,
       configured: 0, avgScore: -1, expiredAssessments: 0,
@@ -748,12 +770,16 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
   let readinessScoreSum = 0;
 
   for (const svc of services) {
-    // Contract status
-    switch (svc.contractStatus) {
+    // Contract status bucketing
+    const status = svc.contractStatus as string;
+    switch (status) {
       case 'Compliant': m.compliant++; break;
       case 'Warning': m.warning++; break;
       case 'NonCompliant': m.nonCompliant++; break;
       case 'Reference': m.reference++; break;
+      case 'Unknown': m.unknown++; break;
+      case 'Invalid': m.invalid++; break;
+      case 'NotEvaluated': m.notEvaluated++; break;
       default: m.unknown++; break;
     }
 
@@ -764,15 +790,17 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     const key = ownerKey(svc.owner) || '(unowned)';
     let agg = ownerMap.get(key);
     if (!agg) {
-      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, totalBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
+      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, invalid: 0, notEvaluated: 0, totalBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
       ownerMap.set(key, agg);
     }
     agg.services++;
-    const status = svc.contractStatus as string;
     if (status === 'Compliant') agg.compliant++;
     else if (status === 'Warning') agg.warning++;
     else if (status === 'NonCompliant') agg.nonCompliant++;
     else if (status === 'Reference') agg.reference++;
+    else if (status === 'Unknown') agg.unknown++;
+    else if (status === 'Invalid') agg.invalid++;
+    else if (status === 'NotEvaluated') agg.notEvaluated++;
     else agg.unknown++;
     agg.totalBlast += (svc.blastRadius as number) || 0;
 
@@ -817,17 +845,23 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     }
   }
 
-  // Finalize contract metrics
-  m.assessed = m.compliant + m.warning + m.nonCompliant;
-  m.needsAttention = m.warning + m.nonCompliant;
+  // Finalize contract metrics per B-2 ruling.
+  // assessed = compliant + warning + nonCompliant + unknown + invalid (excludes reference/notEvaluated)
+  m.assessed = m.compliant + m.warning + m.nonCompliant + m.unknown + m.invalid;
+  // needsAttention = nonCompliant + warning + invalid (unknown surfaced separately)
+  m.needsAttention = m.nonCompliant + m.warning + m.invalid;
+  // compliancePercent = compliant / assessed; -1 sentinel when assessed == 0
   if (m.assessed > 0) m.compliancePercent = Math.round((m.compliant / m.assessed) * 100);
+  // Secondary conclusive/verification metric (NEW)
+  m.runtimeEvaluated = m.compliant + m.warning + m.nonCompliant + m.unknown;
+  m.conclusive = m.compliant + m.warning + m.nonCompliant;
 
   // Finalize owner aggregation. compliancePercent is the SHARE of assessed
   // services that are compliant (matches the fleet metric and the "Compliant N"
   // count on the same row), or -1 when the owner has nothing assessed. It is NOT
   // a mean of compliance scores — that read differently from the count beside it.
   for (const agg of ownerMap.values()) {
-    const assessed = agg.compliant + agg.warning + agg.nonCompliant;
+    const assessed = agg.compliant + agg.warning + agg.nonCompliant + agg.unknown + agg.invalid;
     agg.compliancePercent = assessed > 0 ? Math.round((agg.compliant / assessed) * 100) : -1;
   }
   m.byOwner = Array.from(ownerMap.values()).sort((a, b) => a.key.localeCompare(b.key));
