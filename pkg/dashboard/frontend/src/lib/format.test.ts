@@ -354,6 +354,23 @@ describe('aggregateByOwner', () => {
     expect(segTotal).toBe(team.services);
   });
 
+  it('computes runtimeEvaluated and conclusive per owner (Unknown counts toward evaluated, not conclusive)', () => {
+    const svc = [
+      { name: 'a', owner: { team: 't' }, contractStatus: 'Compliant', blastRadius: 0 },
+      { name: 'b', owner: { team: 't' }, contractStatus: 'Warning', blastRadius: 0 },
+      { name: 'c', owner: { team: 't' }, contractStatus: 'NonCompliant', blastRadius: 0 },
+      { name: 'd', owner: { team: 't' }, contractStatus: 'Unknown', blastRadius: 0 },
+      { name: 'e', owner: { team: 't' }, contractStatus: 'Reference', blastRadius: 0 },
+      { name: 'f', owner: { team: 't' }, contractStatus: 'NotEvaluated', blastRadius: 0 },
+    ];
+    const team = aggregateByOwner(svc).find((r) => r.key === 't')!;
+    // runtimeEvaluated = compliant + warning + nonCompliant + unknown (Reference/NotEvaluated excluded)
+    expect(team.runtimeEvaluated).toBe(4);
+    // conclusive = compliant + warning + nonCompliant (Unknown excluded)
+    expect(team.conclusive).toBe(3);
+    expect(team.runtimeEvaluated - team.conclusive).toBe(team.unknown);
+  });
+
   it('counts per-owner readiness buckets (unknown → notConfigured)', () => {
     const ready = { readiness: { score: 100, passing: true } };
     const partial = { readiness: { score: 60, passing: false } };

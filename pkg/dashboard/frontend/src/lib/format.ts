@@ -381,6 +381,9 @@ export interface OwnerAggregation {
   unknown: number;
   invalid: number;
   notEvaluated: number;
+  // Secondary conclusive/verification metrics (mirror the fleet tile).
+  runtimeEvaluated: number; // compliant + warning + nonCompliant + unknown
+  conclusive: number; // compliant + warning + nonCompliant
   totalBlast: number;
   compliancePercent: number;
   // Per-owner readiness composition (buckets sum to `services`).
@@ -815,7 +818,7 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     const key = ownerKey(svc.owner) || '(unowned)';
     let agg = ownerMap.get(key);
     if (!agg) {
-      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, invalid: 0, notEvaluated: 0, totalBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
+      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, invalid: 0, notEvaluated: 0, runtimeEvaluated: 0, conclusive: 0, totalBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
       ownerMap.set(key, agg);
     }
     agg.services++;
@@ -888,6 +891,9 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
   for (const agg of ownerMap.values()) {
     const assessed = agg.compliant + agg.warning + agg.nonCompliant + agg.unknown + agg.invalid;
     agg.compliancePercent = assessed > 0 ? Math.round((agg.compliant / assessed) * 100) : -1;
+    // Secondary conclusive/verification metric (mirrors the fleet summarize()).
+    agg.runtimeEvaluated = agg.compliant + agg.warning + agg.nonCompliant + agg.unknown;
+    agg.conclusive = agg.compliant + agg.warning + agg.nonCompliant;
   }
   m.byOwner = Array.from(ownerMap.values()).sort((a, b) => a.key.localeCompare(b.key));
 

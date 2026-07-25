@@ -211,6 +211,9 @@
               </td>
               <td>
                 <ComplianceScore score={row.compliancePercent} />
+                {#if row.runtimeEvaluated > 0}
+                  <span class="conclusive-sub" data-tip="Services that reached a conclusive verdict out of those evaluated at runtime — metadata, does not change the percentage">{row.conclusive} of {row.runtimeEvaluated} conclusive</span>
+                {/if}
               </td>
               <td>
                 {#if row.totalBlast > 0}
@@ -351,6 +354,13 @@
     vertical-align: middle;
   }
   .owner-name:hover { text-decoration: underline; }
+
+  .conclusive-sub {
+    display: block;
+    font-size: var(--text-xs);
+    color: var(--c-text-3);
+    margin-top: 2px;
+  }
 
   .text-dim { color: var(--c-text-3); }
   .text-ok { color: var(--c-ok); }
