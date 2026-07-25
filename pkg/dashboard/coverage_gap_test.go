@@ -183,7 +183,9 @@ func TestGenerateInsights_ContractStatus(t *testing.T) {
 		status   ContractStatus
 		severity string
 	}{
+		{StatusInvalid, "critical"},
 		{StatusNonCompliant, "critical"},
+		{StatusUnknown, "warning"},
 		{StatusWarning, "warning"},
 	} {
 		d := &ServiceDetails{}

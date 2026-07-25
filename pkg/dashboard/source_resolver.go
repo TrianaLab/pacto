@@ -331,8 +331,10 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 // dependencies) but DOES override Version and Owner because the operator is
 // the authoritative source of the currently deployed/effective version.
 func enrichWithRuntime(contract *ServiceDetails, runtime *ServiceDetails) {
-	// Contract status: k8s is authoritative when present.
-	if runtime.ContractStatus != StatusUnknown && runtime.ContractStatus != "" {
+	// Contract status: AR6 — override whenever RuntimeEvaluated (runtimeDetails != nil),
+	// regardless of the runtime status value, so a genuinely runtime-observed Unknown
+	// overrides a NotEvaluated base.
+	if runtime.ContractStatus != "" {
 		contract.ContractStatus = runtime.ContractStatus
 	}
 

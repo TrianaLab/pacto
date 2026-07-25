@@ -91,6 +91,21 @@ func TestServiceDetailsFromBundle_WorkloadAndState(t *testing.T) {
 	}
 }
 
+func TestServiceDetailsFromBundle_NotEvaluatedStatus(t *testing.T) {
+	// Valid contract with workload but no runtime evaluation.
+	raw := []byte(`pactoVersion: "2.0"
+service:
+  name: svc
+  version: 1.0.0
+workload: service
+`)
+	c, _ := contract.Parse(bytes.NewReader(raw))
+	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c, RawYAML: raw}, "oci")
+	if details.ContractStatus != StatusNotEvaluated {
+		t.Errorf("expected NotEvaluated, got %q", details.ContractStatus)
+	}
+}
+
 func TestDiffResultFromEngine(t *testing.T) {
 	r := &diff.Result{
 		Classification: diff.Breaking,
@@ -779,7 +794,21 @@ func TestContractStatusFromBundle(t *testing.T) {
 		}
 	})
 
-	t.Run("valid contract returns compliant", func(t *testing.T) {
+	t.Run("valid contract with workload returns NotEvaluated", func(t *testing.T) {
+		raw := []byte(`pactoVersion: "2.0"
+service:
+  name: svc
+  version: 1.0.0
+workload: service
+`)
+		c, _ := contract.Parse(bytes.NewReader(raw))
+		b := &contract.Bundle{Contract: c, RawYAML: raw}
+		if got := contractStatusFromBundle(b); got != StatusNotEvaluated {
+			t.Errorf("expected StatusNotEvaluated, got %v", got)
+		}
+	})
+
+	t.Run("valid reference-only contract returns Reference", func(t *testing.T) {
 		raw := []byte(`pactoVersion: "2.0"
 service:
   name: svc
@@ -787,12 +816,12 @@ service:
 `)
 		c, _ := contract.Parse(bytes.NewReader(raw))
 		b := &contract.Bundle{Contract: c, RawYAML: raw}
-		if got := contractStatusFromBundle(b); got != StatusCompliant {
-			t.Errorf("expected StatusCompliant, got %v", got)
+		if got := contractStatusFromBundle(b); got != StatusReference {
+			t.Errorf("expected StatusReference, got %v", got)
 		}
 	})
 
-	t.Run("invalid contract returns non-compliant", func(t *testing.T) {
+	t.Run("invalid contract returns Invalid", func(t *testing.T) {
 		// Missing required service.version field triggers validation error.
 		raw := []byte(`pactoVersion: "2.0"
 service:
@@ -803,8 +832,8 @@ service:
 			Service:      contract.Service{Name: "svc"},
 		}
 		b := &contract.Bundle{Contract: c, RawYAML: raw}
-		if got := contractStatusFromBundle(b); got != StatusNonCompliant {
-			t.Errorf("expected StatusNonCompliant, got %v", got)
+		if got := contractStatusFromBundle(b); got != StatusInvalid {
+			t.Errorf("expected StatusInvalid, got %v", got)
 		}
 	})
 }

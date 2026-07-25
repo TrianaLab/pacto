@@ -46,19 +46,24 @@ func LookupValidation(conditionType string) ValidationCatalogEntry {
 func ComputeCompliance(cs ContractStatus, conditions []Condition) *ComplianceInfo {
 	info := &ComplianceInfo{}
 
-	if cs == StatusReference {
+	// Short-circuit for states with no runtime evaluation (excluded from denominator).
+	if cs == StatusReference || cs == StatusNotEvaluated {
 		info.Status = ComplianceReference
 		return info
 	}
 
-	if cs == StatusNonCompliant {
+	// Short-circuit for Invalid (structural failure, before runtime evaluation).
+	if cs == StatusInvalid {
 		info.Status = ComplianceError
+		return info
 	}
 
+	// Compute summary from conditions (runtime-evaluated states).
 	total := len(conditions)
 	passed := 0
 	errors := 0
 	warnings := 0
+	unknown := 0
 
 	for _, c := range conditions {
 		severity := c.Severity
@@ -74,16 +79,27 @@ func ComputeCompliance(cs ContractStatus, conditions []Condition) *ComplianceInf
 			} else {
 				errors++
 			}
+		case "Unknown":
+			unknown++
 		}
 	}
 
 	failed := total - passed
+	compliant := passed
+	nonCompliant := errors
+	// Secondary metrics per B-2 (informational, distinguish failure from uncertainty).
+	runtimeEvaluated := compliant + warnings + nonCompliant + unknown
+	conclusive := compliant + warnings + nonCompliant
+
 	info.Summary = &ComplianceCounts{
-		Total:    total,
-		Passed:   passed,
-		Failed:   failed,
-		Errors:   errors,
-		Warnings: warnings,
+		Total:            total,
+		Passed:           passed,
+		Failed:           failed,
+		Errors:           errors,
+		Warnings:         warnings,
+		Unknown:          unknown,
+		RuntimeEvaluated: runtimeEvaluated,
+		Conclusive:       conclusive,
 	}
 
 	if total > 0 {
@@ -91,16 +107,18 @@ func ComputeCompliance(cs ContractStatus, conditions []Condition) *ComplianceInf
 		info.Score = &score
 	}
 
-	// Determine status from conditions if not already set by contract status.
-	if info.Status == "" {
-		switch {
-		case errors > 0:
-			info.Status = ComplianceError
-		case warnings > 0:
-			info.Status = ComplianceWarning
-		default:
-			info.Status = ComplianceOK
-		}
+	// Determine status from conditions or contract status.
+	// Precedence: Error > Unknown > Warning > OK.
+	// Contract status takes precedence when no conditions are available.
+	switch {
+	case errors > 0 || cs == StatusNonCompliant:
+		info.Status = ComplianceError
+	case unknown > 0 || cs == StatusUnknown:
+		info.Status = ComplianceUnknown
+	case warnings > 0 || cs == StatusWarning:
+		info.Status = ComplianceWarning
+	default:
+		info.Status = ComplianceOK
 	}
 
 	return info

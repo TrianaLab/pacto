@@ -21,13 +21,15 @@ const (
 	StatusNonCompliant ContractStatus = "NonCompliant"
 	StatusUnknown      ContractStatus = "Unknown"
 	StatusReference    ContractStatus = "Reference"
+	StatusInvalid      ContractStatus = "Invalid"
+	StatusNotEvaluated ContractStatus = "NotEvaluated"
 )
 
-// NormalizeContractStatus maps any non-standard status to one of the five
-// canonical contract statuses.
+// NormalizeContractStatus maps any non-standard status to one of the canonical
+// contract statuses.
 func NormalizeContractStatus(s ContractStatus) ContractStatus {
 	switch s {
-	case StatusCompliant, StatusWarning, StatusNonCompliant, StatusUnknown, StatusReference:
+	case StatusCompliant, StatusWarning, StatusNonCompliant, StatusUnknown, StatusReference, StatusInvalid, StatusNotEvaluated:
 		return s
 	default:
 		return StatusUnknown
@@ -42,7 +44,14 @@ const (
 	ComplianceWarning   ComplianceStatus = "WARNING"
 	ComplianceError     ComplianceStatus = "ERROR"
 	ComplianceReference ComplianceStatus = "REFERENCE"
+	ComplianceUnknown   ComplianceStatus = "UNKNOWN"
 )
+
+// EvaluationCoverage reports how many required assertions were evaluated.
+type EvaluationCoverage struct {
+	Evaluated int `json:"evaluated"` // required assertions with Outcome == Observed
+	Required  int `json:"required"`  // total required assertions
+}
 
 // ComplianceInfo holds the computed compliance state for a service.
 type ComplianceInfo struct {
@@ -58,6 +67,10 @@ type ComplianceCounts struct {
 	Failed   int `json:"failed"`
 	Errors   int `json:"errors"`
 	Warnings int `json:"warnings"`
+	Unknown  int `json:"unknown"`
+	// Secondary metrics per B-2 ruling (informational, distinguish failure from uncertainty).
+	RuntimeEvaluated int `json:"runtimeEvaluated"` // Compliant + Warning + NonCompliant + Unknown
+	Conclusive       int `json:"conclusive"`       // Compliant + Warning + NonCompliant
 }
 
 // ReadinessInfo is the derived readiness assessment surfaced in the dashboard.
@@ -184,6 +197,10 @@ type ServiceDetails struct {
 
 	// Compliance is the computed compliance assessment.
 	Compliance *ComplianceInfo `json:"compliance,omitempty"`
+
+	// EvaluationCoverage reports how many required assertions were evaluated.
+	// Metadata only, never changes compliance status.
+	EvaluationCoverage *EvaluationCoverage `json:"evaluationCoverage,omitempty"`
 
 	// Readiness is the derived operational readiness assessment. It is a separate
 	// dimension from contract compliance and does not affect compliance status.
@@ -577,8 +594,12 @@ func (d *ServiceDetails) GenerateInsights() {
 	var ins []Insight
 
 	switch d.ContractStatus {
+	case StatusInvalid:
+		ins = append(ins, Insight{Severity: "critical", Title: "Contract is malformed", Description: "The contract failed structural validation and cannot be evaluated."})
 	case StatusNonCompliant:
 		ins = append(ins, Insight{Severity: "critical", Title: "Contract is non-compliant", Description: "One or more critical validation checks have failed."})
+	case StatusUnknown:
+		ins = append(ins, Insight{Severity: "warning", Title: "Contract evaluation inconclusive", Description: "A required assertion could not be verified."})
 	case StatusWarning:
 		ins = append(ins, Insight{Severity: "warning", Title: "Contract has warnings", Description: "Some validation checks are failing."})
 	}

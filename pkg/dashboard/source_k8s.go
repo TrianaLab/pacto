@@ -67,6 +67,7 @@ type pactoStatus struct {
 	Ports              *k8sPorts                `json:"ports,omitempty"`
 	Metadata           map[string]string        `json:"metadata,omitempty"`
 	Summary            *k8sSummary              `json:"summary,omitempty"`
+	EvaluationCoverage *k8sEvaluationCoverage   `json:"evaluationCoverage,omitempty"`
 	Conditions         flexSlice[k8sCondition]  `json:"conditions,omitempty"`
 	Endpoints          k8sEndpoints             `json:"endpoints,omitempty"`
 	Insights           flexSlice[k8sInsight]    `json:"insights,omitempty"`
@@ -228,9 +229,15 @@ type k8sPorts struct {
 }
 
 type k8sSummary struct {
-	Total  int `json:"total"`
-	Passed int `json:"passed"`
-	Failed int `json:"failed"`
+	Total   int `json:"total"`
+	Passed  int `json:"passed"`
+	Failed  int `json:"failed"`
+	Unknown int `json:"unknownCount"` // operator field is "unknownCount"
+}
+
+type k8sEvaluationCoverage struct {
+	Evaluated int `json:"evaluated"`
+	Required  int `json:"required"`
 }
 
 type k8sCondition struct {
@@ -691,6 +698,14 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 			Total:  r.Status.Summary.Total,
 			Passed: r.Status.Summary.Passed,
 			Failed: r.Status.Summary.Failed,
+		}
+	}
+
+	// Map evaluationCoverage from operator status.
+	if r.Status.EvaluationCoverage != nil {
+		svc.EvaluationCoverage = &EvaluationCoverage{
+			Evaluated: r.Status.EvaluationCoverage.Evaluated,
+			Required:  r.Status.EvaluationCoverage.Required,
 		}
 	}
 

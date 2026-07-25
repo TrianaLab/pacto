@@ -44,9 +44,15 @@ func contractStatusFromBundle(bundle *contract.Bundle) ContractStatus {
 	}
 	result := validation.Validate(bundle.Contract, bundle.RawYAML, bundle.FS)
 	if result.IsValid() {
-		return StatusCompliant
+		// Valid offline/OCI/local bundle with no runtime evaluation is NotEvaluated,
+		// not Compliant (B8 fix). A reference-only contract declares no workload.
+		if bundle.Contract.Workload == "" {
+			return StatusReference
+		}
+		return StatusNotEvaluated
 	}
-	return StatusNonCompliant
+	// Structurally invalid bundle.
+	return StatusInvalid
 }
 
 // ServiceDetailsFromBundle builds full ServiceDetails from a contract bundle.
@@ -75,9 +81,16 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 		result := validation.Validate(c, bundle.RawYAML, bundle.FS)
 		svc.Validation = validationInfoFromResult(result)
 		if result.IsValid() {
-			svc.ContractStatus = StatusCompliant
+			// Valid offline/OCI/local bundle with no runtime evaluation is NotEvaluated,
+			// not Compliant (B8 fix). A reference-only contract declares no workload.
+			if c.Workload == "" {
+				svc.ContractStatus = StatusReference
+			} else {
+				svc.ContractStatus = StatusNotEvaluated
+			}
 		} else {
-			svc.ContractStatus = StatusNonCompliant
+			// Structurally invalid bundle.
+			svc.ContractStatus = StatusInvalid
 		}
 	}
 

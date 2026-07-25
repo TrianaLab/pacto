@@ -1467,3 +1467,32 @@ func mustJSON(t *testing.T, v any) []byte {
 	}
 	return data
 }
+
+func TestK8s_serviceDetailsFromK8sStatus_EvaluationCoverage(t *testing.T) {
+	payload := `{
+		"metadata": {"name": "svc", "namespace": "prod"},
+		"status": {
+			"contractStatus": "Unknown",
+			"evaluationCoverage": {
+				"evaluated": 3,
+				"required": 5
+			}
+		}
+	}`
+	var r pactoResource
+	if err := json.Unmarshal([]byte(payload), &r); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	details := serviceDetailsFromK8sStatus(&r)
+
+	if details.EvaluationCoverage == nil {
+		t.Fatal("expected evaluationCoverage to be set")
+	}
+	if details.EvaluationCoverage.Evaluated != 3 {
+		t.Errorf("expected Evaluated=3, got %d", details.EvaluationCoverage.Evaluated)
+	}
+	if details.EvaluationCoverage.Required != 5 {
+		t.Errorf("expected Required=5, got %d", details.EvaluationCoverage.Required)
+	}
+}

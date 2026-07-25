@@ -36,6 +36,13 @@ func TestComputeCompliance_Reference(t *testing.T) {
 }
 
 func TestComputeCompliance_Invalid(t *testing.T) {
+	info := ComputeCompliance(StatusInvalid, nil)
+	if info.Status != ComplianceError {
+		t.Errorf("expected ERROR, got %q", info.Status)
+	}
+}
+
+func TestComputeCompliance_NonCompliant(t *testing.T) {
 	info := ComputeCompliance(StatusNonCompliant, nil)
 	if info.Status != ComplianceError {
 		t.Errorf("expected ERROR, got %q", info.Status)
@@ -87,6 +94,41 @@ func TestComputeCompliance_WithErrors(t *testing.T) {
 	}
 	if info.Summary.Errors != 1 {
 		t.Errorf("expected 1 error, got %d", info.Summary.Errors)
+	}
+}
+
+func TestComputeCompliance_WithUnknown(t *testing.T) {
+	conds := []Condition{
+		{Type: "ContractValid", Status: "True"},
+		{Type: "SomeCheck", Status: "Unknown"},
+	}
+	info := ComputeCompliance(StatusCompliant, conds)
+	if info.Status != ComplianceUnknown {
+		t.Errorf("expected UNKNOWN, got %q", info.Status)
+	}
+	if info.Summary.Unknown != 1 {
+		t.Errorf("expected 1 unknown, got %d", info.Summary.Unknown)
+	}
+	// Check secondary metrics per B-2.
+	if info.Summary.RuntimeEvaluated != 2 {
+		t.Errorf("expected RuntimeEvaluated=2, got %d", info.Summary.RuntimeEvaluated)
+	}
+	if info.Summary.Conclusive != 1 {
+		t.Errorf("expected Conclusive=1, got %d", info.Summary.Conclusive)
+	}
+}
+
+func TestComputeCompliance_UnknownStatus(t *testing.T) {
+	info := ComputeCompliance(StatusUnknown, nil)
+	if info.Status != ComplianceUnknown {
+		t.Errorf("expected UNKNOWN, got %q", info.Status)
+	}
+}
+
+func TestComputeCompliance_NotEvaluated(t *testing.T) {
+	info := ComputeCompliance(StatusNotEvaluated, nil)
+	if info.Status != ComplianceReference {
+		t.Errorf("expected REFERENCE (excluded from denominator), got %q", info.Status)
 	}
 }
 
