@@ -856,20 +856,21 @@ func newFullRuntime() *ServiceDetails {
 	return &ServiceDetails{
 		Service:  Service{Name: "svc", ContractStatus: StatusCompliant},
 		Workload: "service", State: &StateInfo{Type: "stateless"},
-		Resources:        &ResourcesInfo{ServiceExists: boolPtr(true)},
-		Ports:            &PortsInfo{Expected: []int{8080}},
-		Validation:       &ValidationInfo{Valid: true},
-		Endpoints:        []EndpointStatus{{Interface: "api", URL: "http://svc:8080"}},
-		Conditions:       []Condition{{Type: "Ready", Status: "True"}},
-		Insights:         []Insight{{Severity: "info", Title: "ok"}},
-		ChecksSummary:    &ChecksSummary{Passed: 5, Total: 5},
-		ObservedRuntime:  &ObservedRuntime{WorkloadKind: "Deployment"},
-		RuntimeDiff:      []RuntimeDiffRow{{Field: "image", DeclaredValue: "img:1", ObservedValue: "img:2"}},
-		Namespace:        "prod",
-		ResolvedRef:      "ghcr.io/org/svc:1.0.0",
-		CurrentRevision:  "rev-1",
-		LastReconciledAt: "2025-01-01T00:00:00Z",
-		Compliance:       &ComplianceInfo{Status: "compliant"},
+		Resources:          &ResourcesInfo{ServiceExists: boolPtr(true)},
+		Ports:              &PortsInfo{Expected: []int{8080}},
+		Validation:         &ValidationInfo{Valid: true},
+		Endpoints:          []EndpointStatus{{Interface: "api", URL: "http://svc:8080"}},
+		Conditions:         []Condition{{Type: "Ready", Status: "True"}},
+		Insights:           []Insight{{Severity: "info", Title: "ok"}},
+		ChecksSummary:      &ChecksSummary{Passed: 5, Total: 5},
+		ObservedRuntime:    &ObservedRuntime{WorkloadKind: "Deployment"},
+		RuntimeDiff:        []RuntimeDiffRow{{Field: "image", DeclaredValue: "img:1", ObservedValue: "img:2"}},
+		EvaluationCoverage: &EvaluationCoverage{Evaluated: 4, Required: 5},
+		Namespace:          "prod",
+		ResolvedRef:        "ghcr.io/org/svc:1.0.0",
+		CurrentRevision:    "rev-1",
+		LastReconciledAt:   "2025-01-01T00:00:00Z",
+		Compliance:         &ComplianceInfo{Status: "compliant"},
 	}
 }
 
@@ -899,6 +900,9 @@ func TestEnrichWithRuntime_StructFields(t *testing.T) {
 	}
 	if svcDetails.ObservedRuntime == nil {
 		t.Error("expected observed runtime")
+	}
+	if svcDetails.EvaluationCoverage == nil || svcDetails.EvaluationCoverage.Evaluated != 4 || svcDetails.EvaluationCoverage.Required != 5 {
+		t.Error("expected evaluation coverage carried from the runtime overlay onto the contract base")
 	}
 	if svcDetails.Compliance == nil {
 		t.Error("expected compliance")

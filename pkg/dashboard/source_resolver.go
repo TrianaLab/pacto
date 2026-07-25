@@ -400,6 +400,9 @@ func fillRuntimeOnlyFields(contract *ServiceDetails, runtime *ServiceDetails) {
 	if len(runtime.RuntimeDiff) > 0 {
 		contract.RuntimeDiff = runtime.RuntimeDiff
 	}
+	if runtime.EvaluationCoverage != nil {
+		contract.EvaluationCoverage = runtime.EvaluationCoverage
+	}
 }
 
 // enrichRuntimeMetadata copies k8s-specific string metadata fields.
