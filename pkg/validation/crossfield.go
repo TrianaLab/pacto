@@ -312,7 +312,7 @@ func validateCapabilities(c *contract.Contract, result *ValidationResult) {
 
 // validateVerification checks that every verification.conformance entry references a declared interface
 // and is unique, so a typo cannot create a permanently-Unknown required assertion for a nonexistent
-// interface. Reuses DUPLICATE_INTERFACE_NAME for repeats (a duplicated interface name in the list).
+// interface. Emits DUPLICATE_VERIFICATION_INTERFACE for repeats (an interface name listed more than once).
 func validateVerification(c *contract.Contract, result *ValidationResult) {
 	if c.Verification == nil {
 		return
@@ -346,6 +346,11 @@ func validCapabilityPath(path string) bool {
 	}
 	u, err := url.Parse(path)
 	if err != nil {
+		return false
+	}
+	// u.Path is decoded, so a leading "//" also catches encoded-authority forms
+	// like /%2Fevil.example and /%2f%2fevil.example (INV-6 MUST-reject set).
+	if strings.HasPrefix(u.Path, "//") {
 		return false
 	}
 	return u.Scheme == "" && u.Host == "" && u.User == nil && u.Fragment == "" && u.Opaque == ""

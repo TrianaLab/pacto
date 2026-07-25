@@ -239,7 +239,7 @@ func TestValidateCapabilities_BindingInterfaceKnown(t *testing.T) {
 }
 
 func TestValidateCapabilities_BindingPathInvalid(t *testing.T) {
-	for _, bad := range []string{"//evil.example", "http://evil.example", "https://evil.example", "user@host", "#fragment", "relative/no/slash", "/\x7f"} {
+	for _, bad := range []string{"//evil.example", "/%2Fevil.example", "/%2f%2fevil.example", "http://evil.example", "https://evil.example", "user@host", "#fragment", "relative/no/slash", "/\x7f"} {
 		c := validV20Contract()
 		c.Interfaces = []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}}
 		c.Capabilities = []contract.Capability{{Type: "health", Binding: &contract.CapabilityBinding{Type: "http", Interface: "public-api", Path: bad}}}
