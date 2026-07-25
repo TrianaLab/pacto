@@ -39,11 +39,11 @@ func TestConfigurationsDim_NoBinding(t *testing.T) {
 
 	cfg := contract.Configuration{Name: "app", Required: true, Schema: "{}"}
 	input := CollectInput{
-		Namespace:   "default",
-		Contract:    &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:    fstest.MapFS{},
+		Namespace:      "default",
+		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
+		BundleFS:       fstest.MapFS{},
 		ConfigBindings: nil, // NO binding
-		Now:         time.Now(),
+		Now:            time.Now(),
 	}
 
 	observations, _ := obs.observeConfigurationsDim(ctx, input, evidence.Provenance{Collector: "test"}, input.Now)
@@ -138,13 +138,13 @@ func TestConfigurationsDim_SecretNotFound_BeyondWindow(t *testing.T) {
 	now := time.Now()
 	windowStart := metav1.NewTime(now.Add(-5 * time.Minute))
 	input := CollectInput{
-		Namespace:   "default",
-		Contract:    &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:    fstest.MapFS{},
-		ConfigBindings: []unversioned.ConfigBinding{binding},
+		Namespace:           "default",
+		Contract:            &contract.Contract{Configurations: []contract.Configuration{cfg}},
+		BundleFS:            fstest.MapFS{},
+		ConfigBindings:      []unversioned.ConfigBinding{binding},
 		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows: map[string]*metav1.Time{"configuration/app": &windowStart},
-		Now: now,
+		ObservationWindows:  map[string]*metav1.Time{"configuration/app": &windowStart},
+		Now:                 now,
 	}
 
 	observations, _ := obs.observeConfigurationsDim(ctx, input, evidence.Provenance{Collector: "test"}, input.Now)
@@ -360,13 +360,13 @@ func TestConfigurationsDim_ConfigMapNotFound_WithinWindow(t *testing.T) {
 	now := time.Now()
 	windowStart := metav1.NewTime(now.Add(-30 * time.Second)) // Within 2-minute window
 	input := CollectInput{
-		Namespace:   "default",
-		Contract:    &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:    fstest.MapFS{},
-		ConfigBindings: []unversioned.ConfigBinding{binding},
+		Namespace:           "default",
+		Contract:            &contract.Contract{Configurations: []contract.Configuration{cfg}},
+		BundleFS:            fstest.MapFS{},
+		ConfigBindings:      []unversioned.ConfigBinding{binding},
 		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows: map[string]*metav1.Time{"configuration/app": &windowStart},
-		Now: now,
+		ObservationWindows:  map[string]*metav1.Time{"configuration/app": &windowStart},
+		Now:                 now,
 	}
 
 	observations, _ := obs.observeConfigurationsDim(ctx, input, evidence.Provenance{Collector: "test"}, input.Now)
@@ -393,13 +393,13 @@ func TestConfigurationsDim_ConfigMapNotFound_BeyondWindow(t *testing.T) {
 	now := time.Now()
 	windowStart := metav1.NewTime(now.Add(-5 * time.Minute))
 	input := CollectInput{
-		Namespace:   "default",
-		Contract:    &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:    fstest.MapFS{},
-		ConfigBindings: []unversioned.ConfigBinding{binding},
+		Namespace:           "default",
+		Contract:            &contract.Contract{Configurations: []contract.Configuration{cfg}},
+		BundleFS:            fstest.MapFS{},
+		ConfigBindings:      []unversioned.ConfigBinding{binding},
 		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows: map[string]*metav1.Time{"configuration/app": &windowStart},
-		Now: now,
+		ObservationWindows:  map[string]*metav1.Time{"configuration/app": &windowStart},
+		Now:                 now,
 	}
 
 	observations, _ := obs.observeConfigurationsDim(ctx, input, evidence.Provenance{Collector: "test"}, input.Now)
@@ -503,13 +503,13 @@ func TestConfigurationsDim_SecretNotFound_SustainedWithinWindow(t *testing.T) {
 	now := time.Now()
 	windowStart := metav1.NewTime(now.Add(-30 * time.Second)) // Within 2-minute window
 	input := CollectInput{
-		Namespace:   "default",
-		Contract:    &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:    fstest.MapFS{},
-		ConfigBindings: []unversioned.ConfigBinding{binding},
+		Namespace:           "default",
+		Contract:            &contract.Contract{Configurations: []contract.Configuration{cfg}},
+		BundleFS:            fstest.MapFS{},
+		ConfigBindings:      []unversioned.ConfigBinding{binding},
 		StabilizationWindow: 2 * time.Minute,
-		ObservationWindows: map[string]*metav1.Time{"configuration/app": &windowStart},
-		Now: now,
+		ObservationWindows:  map[string]*metav1.Time{"configuration/app": &windowStart},
+		Now:                 now,
 	}
 
 	observations, _ := obs.observeConfigurationsDim(ctx, input, evidence.Provenance{Collector: "test"}, input.Now)

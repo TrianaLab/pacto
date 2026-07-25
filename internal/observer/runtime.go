@@ -43,27 +43,27 @@ type InterfaceBinding struct {
 
 // ObservationWindowUpdate records updated stabilization state for one assertion.
 type ObservationWindowUpdate struct {
-	Kind    string
-	Subject string
+	Kind                    string
+	Subject                 string
 	FirstObservedNegativeAt *metav1.Time
 }
 
 // CollectInput carries the information the controller passes to Collect. See spec section 9.1.
 type CollectInput struct {
-	Namespace       string
-	ServiceName     string
-	WorkloadName    string
-	WorkloadKind    string
-	ContractRef     string
+	Namespace        string
+	ServiceName      string
+	WorkloadName     string
+	WorkloadKind     string
+	ContractRef      string
 	WorkloadExplicit bool
-	Contract        *contract.Contract
-	BundleFS        fs.FS
+	Contract         *contract.Contract
+	BundleFS         fs.FS
 
-	InterfaceBindings []InterfaceBinding
-	ConfigBindings    []unversioned.ConfigBinding
+	InterfaceBindings   []InterfaceBinding
+	ConfigBindings      []unversioned.ConfigBinding
 	StabilizationWindow time.Duration
-	ObservationWindows map[string]*metav1.Time
-	Now time.Time
+	ObservationWindows  map[string]*metav1.Time
+	Now                 time.Time
 
 	// TODO(S6.4): ProbeEnabled, MetricsEnabled, InterfaceNameMatchDiscovery will be added in later steps.
 }
@@ -268,7 +268,6 @@ const (
 func (o *Observer) classifyPersistence(snapshot *RuntimeSnapshot) persistenceClass {
 	return snapshot.PersistenceClass
 }
-
 
 func mapWorkloadKindToType(kind string) string {
 	switch kind {
@@ -557,8 +556,8 @@ func (o *Observer) observeInterfacesDim(ctx context.Context, input CollectInput,
 		}
 
 		windowUpdates = append(windowUpdates, ObservationWindowUpdate{
-			Kind:    "interface",
-			Subject: iface.Name,
+			Kind:                    "interface",
+			Subject:                 iface.Name,
 			FirstObservedNegativeAt: updatedWindow,
 		})
 	}

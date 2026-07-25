@@ -36,11 +36,11 @@ func TestCollect_Workload_CronJob(t *testing.T) {
 	obs := New(fc)
 
 	input := CollectInput{
-		Namespace:       "default",
-		WorkloadName:    "my-cron",
-		WorkloadKind:    "CronJob",
-		Contract:        c,
-		ContractRef:     "ghcr.io/org/my-service:1.0.0",
+		Namespace:        "default",
+		WorkloadName:     "my-cron",
+		WorkloadKind:     "CronJob",
+		Contract:         c,
+		ContractRef:      "ghcr.io/org/my-service:1.0.0",
 		WorkloadExplicit: true,
 	}
 
@@ -79,11 +79,11 @@ func TestCollect_Workload_ReplicaSet(t *testing.T) {
 	obs := New(fc)
 
 	input := CollectInput{
-		Namespace:       "default",
-		WorkloadName:    "my-rs",
-		WorkloadKind:    "ReplicaSet",
-		Contract:        c,
-		ContractRef:     "ghcr.io/org/my-service:1.0.0",
+		Namespace:        "default",
+		WorkloadName:     "my-rs",
+		WorkloadKind:     "ReplicaSet",
+		Contract:         c,
+		ContractRef:      "ghcr.io/org/my-service:1.0.0",
 		WorkloadExplicit: true,
 	}
 

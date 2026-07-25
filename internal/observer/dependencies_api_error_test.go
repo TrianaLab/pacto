@@ -222,8 +222,8 @@ func TestCollect_Dependencies(t *testing.T) {
 	obs := New(client)
 
 	input := CollectInput{
-		Namespace:   testNS,
-		ServiceName: "my-service",
+		Namespace:    testNS,
+		ServiceName:  "my-service",
 		WorkloadName: "my-deployment",
 		WorkloadKind: "Deployment",
 		Contract: &contract.Contract{

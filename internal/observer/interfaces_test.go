@@ -685,14 +685,14 @@ func TestCollect_Now(t *testing.T) {
 		obs := New(fakeClient)
 
 		input := CollectInput{
-			Namespace:    "test-ns",
-			ServiceName:  "test-svc",
-			WorkloadName: "test-workload",
-			WorkloadKind: "Deployment",
+			Namespace:        "test-ns",
+			ServiceName:      "test-svc",
+			WorkloadName:     "test-workload",
+			WorkloadKind:     "Deployment",
 			WorkloadExplicit: true,
 			Contract: &contract.Contract{
-				Service:  contract.Service{Name: "test-service"},
-				Workload: "service",
+				Service:    contract.Service{Name: "test-service"},
+				Workload:   "service",
 				Interfaces: []contract.Interface{{Name: "api", Type: "openapi"}},
 			},
 			InterfaceBindings:   []InterfaceBinding{{Interface: "api", ServicePort: intstr.FromInt32(8080)}},

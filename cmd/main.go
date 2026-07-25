@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -80,6 +81,7 @@ func main() {
 	var dashboardCPURequest, dashboardCPULimit string
 	var dashboardMemoryRequest, dashboardMemoryLimit string
 	var showVersion bool
+	var stabilizationWindow time.Duration
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or set to 0 to disable the metrics service.")
@@ -119,6 +121,9 @@ func main() {
 	flag.StringVar(&dashboardMemoryLimit, "dashboard-memory-limit", "",
 		"Memory limit for the dashboard container (e.g. 512Mi). Empty uses the built-in default.")
 	flag.BoolVar(&showVersion, "version", false, "Print version information and exit.")
+	flag.DurationVar(&stabilizationWindow, "stabilization-window", 2*time.Minute,
+		"The stabilization window duration for compliance assertions before they trigger a false condition. "+
+			"Assertions must remain unsatisfied for this entire window before being considered a failure.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -244,10 +249,11 @@ func main() {
 	}
 
 	if err := (&controller.PactoReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("pacto-controller"), //nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
-		Loader:   loader.New(),
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		Recorder:            mgr.GetEventRecorderFor("pacto-controller"), //nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
+		Loader:              loader.New(),
+		StabilizationWindow: stabilizationWindow,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pacto")
 		os.Exit(1)

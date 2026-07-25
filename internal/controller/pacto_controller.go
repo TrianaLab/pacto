@@ -53,9 +53,10 @@ type ContractLoader interface {
 // PactoReconciler reconciles a Pacto object.
 type PactoReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
-	Loader   ContractLoader
+	Scheme              *runtime.Scheme
+	Recorder            record.EventRecorder
+	Loader              ContractLoader
+	StabilizationWindow time.Duration
 }
 
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactos,verbs=get;list;watch;create;update;patch;delete
@@ -229,7 +230,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		BundleFS:            loadResult.BundleFS,
 		InterfaceBindings:   interfaceBindings,
 		ConfigBindings:      pacto.Spec.Target.ConfigBindings,
-		StabilizationWindow: 2 * time.Minute, // TODO: wire from reconciler config
+		StabilizationWindow: r.StabilizationWindow,
 		ObservationWindows:  observationWindows,
 		Now:                 now,
 	}

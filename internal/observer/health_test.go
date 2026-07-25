@@ -748,7 +748,6 @@ func TestObserveHealthDim_NamedTargetPort(t *testing.T) {
 	}
 }
 
-
 func TestObserveHealthDim_WindowUpdates(t *testing.T) {
 	// Verify that window updates are correctly emitted and reset.
 	svc := &corev1.Service{
@@ -965,10 +964,10 @@ func TestObserveHealthDim_EmptyInterfaceBindings_NoPort(t *testing.T) {
 		},
 	}
 	input := CollectInput{
-		Namespace:   "default",
-		ServiceName: "test-svc",
-		Contract:    &contract.Contract{Service: contract.Service{Name: "test"}},
-		InterfaceBindings: []InterfaceBinding{}, // empty
+		Namespace:           "default",
+		ServiceName:         "test-svc",
+		Contract:            &contract.Contract{Service: contract.Service{Name: "test"}},
+		InterfaceBindings:   []InterfaceBinding{}, // empty
 		StabilizationWindow: 2 * time.Minute,
 		ObservationWindows:  make(map[string]*metav1.Time),
 		Now:                 time.Now(),

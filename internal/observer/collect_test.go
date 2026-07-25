@@ -33,11 +33,11 @@ func TestCollect_Workload_Satisfied(t *testing.T) {
 	obs := New(fc)
 
 	input := CollectInput{
-		Namespace:       "default",
-		WorkloadName:    "my-app",
-		WorkloadKind:    "Deployment",
-		Contract:        c,
-		ContractRef:     "ghcr.io/org/my-service:1.0.0",
+		Namespace:        "default",
+		WorkloadName:     "my-app",
+		WorkloadKind:     "Deployment",
+		Contract:         c,
+		ContractRef:      "ghcr.io/org/my-service:1.0.0",
 		WorkloadExplicit: true,
 	}
 
@@ -79,11 +79,11 @@ func TestCollect_Workload_MismatchExplicit(t *testing.T) {
 	obs := New(fc)
 
 	input := CollectInput{
-		Namespace:       "default",
-		WorkloadName:    "my-app",
-		WorkloadKind:    "Deployment",
-		Contract:        c,
-		ContractRef:     "ghcr.io/org/my-service:1.0.0",
+		Namespace:        "default",
+		WorkloadName:     "my-app",
+		WorkloadKind:     "Deployment",
+		Contract:         c,
+		ContractRef:      "ghcr.io/org/my-service:1.0.0",
 		WorkloadExplicit: true, // explicit -> mismatch assertable
 	}
 
@@ -116,11 +116,11 @@ func TestCollect_Workload_MismatchNonExplicit(t *testing.T) {
 	obs := New(fc)
 
 	input := CollectInput{
-		Namespace:       "default",
-		WorkloadName:    "my-app",
-		WorkloadKind:    "Deployment",
-		Contract:        c,
-		ContractRef:     "ghcr.io/org/my-service:1.0.0",
+		Namespace:        "default",
+		WorkloadName:     "my-app",
+		WorkloadKind:     "Deployment",
+		Contract:         c,
+		ContractRef:      "ghcr.io/org/my-service:1.0.0",
 		WorkloadExplicit: false, // non-explicit -> EVIDENCE_INSUFFICIENT
 	}
 
@@ -146,11 +146,11 @@ func TestCollect_Workload_NotFound(t *testing.T) {
 	obs := New(fc)
 
 	input := CollectInput{
-		Namespace:       "default",
-		WorkloadName:    "missing",
-		WorkloadKind:    "Deployment",
-		Contract:        c,
-		ContractRef:     "ghcr.io/org/my-service:1.0.0",
+		Namespace:        "default",
+		WorkloadName:     "missing",
+		WorkloadKind:     "Deployment",
+		Contract:         c,
+		ContractRef:      "ghcr.io/org/my-service:1.0.0",
 		WorkloadExplicit: true,
 	}
 
@@ -178,11 +178,11 @@ func TestCollect_Workload_APIError(t *testing.T) {
 	obs := New(fc)
 
 	input := CollectInput{
-		Namespace:       "default",
-		WorkloadName:    "my-app",
-		WorkloadKind:    "InvalidKind", // This will route to observeDeployment and fail
-		Contract:        c,
-		ContractRef:     "ghcr.io/org/my-service:1.0.0",
+		Namespace:        "default",
+		WorkloadName:     "my-app",
+		WorkloadKind:     "InvalidKind", // This will route to observeDeployment and fail
+		Contract:         c,
+		ContractRef:      "ghcr.io/org/my-service:1.0.0",
 		WorkloadExplicit: true,
 	}
 
@@ -453,11 +453,11 @@ func TestCollect_WorkloadAndPersistence(t *testing.T) {
 	obs := New(fc)
 
 	input := CollectInput{
-		Namespace:       "default",
-		WorkloadName:    "my-app",
-		WorkloadKind:    "Deployment",
-		Contract:        c,
-		ContractRef:     "ghcr.io/org/my-service:1.0.0",
+		Namespace:        "default",
+		WorkloadName:     "my-app",
+		WorkloadKind:     "Deployment",
+		Contract:         c,
+		ContractRef:      "ghcr.io/org/my-service:1.0.0",
 		WorkloadExplicit: true,
 	}
 
@@ -600,11 +600,11 @@ func TestCollect_Workload_Job(t *testing.T) {
 	obs := New(fc)
 
 	input := CollectInput{
-		Namespace:       "default",
-		WorkloadName:    "my-job",
-		WorkloadKind:    "Job",
-		Contract:        c,
-		ContractRef:     "ghcr.io/org/my-service:1.0.0",
+		Namespace:        "default",
+		WorkloadName:     "my-job",
+		WorkloadKind:     "Job",
+		Contract:         c,
+		ContractRef:      "ghcr.io/org/my-service:1.0.0",
 		WorkloadExplicit: true,
 	}
 
@@ -631,10 +631,10 @@ func TestCollect_NoWorkloadName(t *testing.T) {
 	obs := New(fc)
 
 	input := CollectInput{
-		Namespace:   "default",
+		Namespace:    "default",
 		WorkloadName: "", // empty
-		Contract:    c,
-		ContractRef: "ghcr.io/org/my-service:1.0.0",
+		Contract:     c,
+		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
 	es, _, err := obs.Collect(context.Background(), input)
@@ -656,12 +656,12 @@ func TestCollect_SubjectName(t *testing.T) {
 	obs := New(fc)
 
 	input := CollectInput{
-		Namespace:       "default",
-		ServiceName:     "k8s-service-name",
-		WorkloadName:    "k8s-workload-name",
-		WorkloadKind:    "Deployment",
-		Contract:        c,
-		ContractRef:     "ghcr.io/org/my-service:1.0.0",
+		Namespace:        "default",
+		ServiceName:      "k8s-service-name",
+		WorkloadName:     "k8s-workload-name",
+		WorkloadKind:     "Deployment",
+		Contract:         c,
+		ContractRef:      "ghcr.io/org/my-service:1.0.0",
 		WorkloadExplicit: true,
 	}
 
