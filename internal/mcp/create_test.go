@@ -2037,14 +2037,47 @@ func TestEdit_MarshalAfterEdits(t *testing.T) {
 }
 
 func TestCheck_WarningsCollected(t *testing.T) {
-	// Trigger a contract that produces warnings (not just errors)
-	// The test bundle is valid — no warnings expected but code path is covered
-	dir := testutil.WriteTestBundle(t)
+	// A structurally valid contract whose dependency ref uses a tag (not a digest)
+	// yields a TAG_NOT_DIGEST warning, exercising Check's warnings-collection path.
+	dir := t.TempDir()
+	pactoYAML := []byte(`pactoVersion: "2.0"
+service:
+  name: warnsvc
+  version: 1.0.0
+  owner:
+    team: platform
+interfaces:
+  - name: api
+    type: openapi
+    ref: openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
+dependencies:
+  - name: db
+    ref: oci://ghcr.io/acme/db:1.0.0
+    required: true
+    compatibility: "^1.0.0"
+`)
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), pactoYAML, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "openapi.yaml"), testutil.TestOpenAPI(), 0644); err != nil {
+		t.Fatal(err)
+	}
 	result, err := Check(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Just verify the structure is populated
+	if len(result.Warnings) == 0 {
+		t.Error("expected a TAG_NOT_DIGEST warning to be collected")
+	}
 	if result.Summary.Name == "" {
 		t.Error("expected non-empty summary")
 	}

@@ -367,8 +367,9 @@ func buildCreateMap(input CreateInput) map[string]any {
 	if len(input.ConfigProperties) > 0 {
 		m["configurations"] = []any{
 			map[string]any{
-				"name":   "default",
-				"schema": "configuration/schema.json",
+				"name":     "default",
+				"schema":   "configuration/schema.json",
+				"required": true,
 			},
 		}
 	}
@@ -426,9 +427,7 @@ func buildDependenciesList(inputs []DependencyInput) []any {
 			"name":          dependencyName(dep),
 			"ref":           dep.Ref,
 			"compatibility": defaultCompatibility(dep.Compatibility),
-		}
-		if dep.Required {
-			entry["required"] = true
+			"required":      dep.Required, // mandatory in v2 schema; emit true AND false
 		}
 		result = append(result, entry)
 	}
@@ -646,9 +645,7 @@ func addDependencies(m map[string]any, inputs []DependencyInput) []string {
 			"name":          dependencyName(dep),
 			"ref":           dep.Ref,
 			"compatibility": defaultCompatibility(dep.Compatibility),
-		}
-		if dep.Required {
-			entry["required"] = true
+			"required":      dep.Required, // mandatory in v2 schema; emit true AND false
 		}
 		deps = append(deps, entry)
 		changes = append(changes, fmt.Sprintf("added dependency %q", dep.Ref))
@@ -720,8 +717,9 @@ func ensureConfigSection(m map[string]any) {
 	}
 	m["configurations"] = []any{
 		map[string]any{
-			"name":   "default",
-			"schema": "configuration/schema.json",
+			"name":     "default",
+			"schema":   "configuration/schema.json",
+			"required": true,
 		},
 	}
 }

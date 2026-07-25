@@ -395,6 +395,7 @@ interfaces:
 configurations:
   - name: default
     ref: "../local-config"
+    required: false
 workload: service
 state:
   type: stateless

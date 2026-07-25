@@ -41,6 +41,7 @@ interfaces:
 configurations:
   - name: default
     schema: configuration/schema.json
+    required: true
 
 # dependencies:
 #   - name: other-service
