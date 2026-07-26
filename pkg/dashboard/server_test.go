@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
@@ -644,6 +646,34 @@ func TestCORSMiddleware(t *testing.T) {
 				t.Errorf("ACAO: got %q, want %q", got, tt.wantACAO)
 			}
 		})
+	}
+}
+
+func TestSetLogger(t *testing.T) {
+	s := NewServer(&mockSource{}, fstest.MapFS{})
+
+	custom := slog.New(slog.NewTextHandler(&strings.Builder{}, nil))
+	s.SetLogger(custom)
+	if s.logger != custom {
+		t.Fatal("SetLogger did not store the provided logger")
+	}
+
+	// A nil logger falls back to slog.Default() rather than leaving it unset.
+	s.SetLogger(nil)
+	if s.logger != slog.Default() {
+		t.Fatal("SetLogger(nil) should fall back to slog.Default()")
+	}
+
+	// The middleware carries the stored logger onto the request context so
+	// handlers reach it via logging.LoggerFromContext.
+	s.SetLogger(custom)
+	var got *slog.Logger
+	h := s.corsMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got = logging.LoggerFromContext(r.Context())
+	}))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://dash.local/api/x", nil))
+	if got != custom {
+		t.Fatal("middleware did not inject the server logger into the request context")
 	}
 }
 

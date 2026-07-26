@@ -228,7 +228,7 @@ func (s *CacheSource) GetService(_ context.Context, name string) (*ServiceDetail
 
 // GetVersions returns all cached versions of name (latest first) with contract
 // hash, classification, and the on-disk materialization time as createdAt.
-func (s *CacheSource) GetVersions(_ context.Context, name string) ([]Version, error) {
+func (s *CacheSource) GetVersions(ctx context.Context, name string) ([]Version, error) {
 	svc, ok := s.snapshot()[name]
 	if !ok {
 		return nil, fmt.Errorf("service %q not found in OCI cache", name)
@@ -242,7 +242,7 @@ func (s *CacheSource) GetVersions(_ context.Context, name string) ([]Version, er
 		b, _ := svc.bundle(v.tag)
 		pairs[i] = BundlePair{Tag: v.tag, Bundle: b}
 	}
-	classifications := ClassifyVersions(pairs)
+	classifications := ClassifyVersions(ctx, pairs)
 	var versions []Version
 	for _, v := range sorted {
 		ver := Version{
@@ -269,7 +269,7 @@ func (s *CacheSource) GetVersions(_ context.Context, name string) ([]Version, er
 
 // GetDiff compares two versions read from the on-disk OCI cache, erroring if
 // either version is not cached.
-func (s *CacheSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) {
+func (s *CacheSource) GetDiff(ctx context.Context, a, b Ref) (*DiffResult, error) {
 	idx := s.snapshot()
 	svcA, ok := idx[a.Name]
 	if !ok {
@@ -289,7 +289,7 @@ func (s *CacheSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) 
 		return nil, fmt.Errorf("version %q of %q not found in OCI cache", b.Version, b.Name)
 	}
 
-	return ComputeDiff(a, b, bundleA, bundleB), nil
+	return ComputeDiff(ctx, a, b, bundleA, bundleB), nil
 }
 
 // GetServiceVersion returns details for a specific cached version from the

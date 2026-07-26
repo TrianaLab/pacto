@@ -3,10 +3,10 @@ package dashboard
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sort"
 	"sync"
 
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/semver"
 )
 
@@ -64,7 +64,7 @@ func (r *ResolvedSource) sources() ([]namedContractSource, *runtimeSourceEntry, 
 
 // logSourceError logs a source error only when the message changes,
 // preventing repeated identical warnings from flooding the terminal.
-func (r *ResolvedSource) logSourceError(sourceType string, err error) {
+func (r *ResolvedSource) logSourceError(ctx context.Context, sourceType string, err error) {
 	msg := err.Error()
 	r.mu.Lock()
 	if r.lastSourceErr == nil {
@@ -74,7 +74,7 @@ func (r *ResolvedSource) logSourceError(sourceType string, err error) {
 	r.lastSourceErr[sourceType] = msg
 	r.mu.Unlock()
 	if msg != prev {
-		slog.Warn("source ListServices failed", "source", sourceType, "error", err)
+		logging.LoggerFromContext(ctx).Warn("source ListServices failed", "source", sourceType, "error", err)
 	}
 }
 
@@ -220,7 +220,7 @@ func (r *ResolvedSource) ListServices(ctx context.Context) ([]Service, error) {
 	for range all {
 		res := <-results
 		if res.err != nil {
-			r.logSourceError(res.sourceType, res.err)
+			r.logSourceError(ctx, res.sourceType, res.err)
 			continue
 		}
 		for _, svc := range res.services {

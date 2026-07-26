@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/dashboard"
 	"github.com/trianalab/pacto/v3/pkg/doc"
 	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/override"
 )
 
@@ -46,17 +46,17 @@ type DocResult struct {
 func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) {
 	ref := defaultPath(opts.Path)
 
-	slog.Debug("resolving contract for doc generation", "ref", ref)
+	logging.LoggerFromContext(ctx).Debug("resolving contract for doc generation", "ref", ref)
 	bundle, err := s.resolveBundleWithOverrides(ctx, ref, opts.Overrides)
 	if err != nil {
 		return nil, err
 	}
 
-	slog.Debug("resolving dependency graph for documentation", "name", bundle.Contract.Service.Name)
+	logging.LoggerFromContext(ctx).Debug("resolving dependency graph for documentation", "name", bundle.Contract.Service.Name)
 	fetcher := s.newDepFetcher(ref)
 	gr := graph.Resolve(ctx, bundle.Contract, fetcher)
 
-	slog.Debug("generating markdown documentation")
+	logging.LoggerFromContext(ctx).Debug("generating markdown documentation")
 	details := dashboard.ServiceDetailsFromBundle(bundle, "local")
 	details.GenerateInsights()
 	markdown, err := generateDoc(details, gr)
@@ -73,7 +73,7 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 	}
 
 	if opts.OutputDir != "" {
-		slog.Debug("writing documentation to disk", "dir", opts.OutputDir)
+		logging.LoggerFromContext(ctx).Debug("writing documentation to disk", "dir", opts.OutputDir)
 		filename := bundle.Contract.Service.Name + ".md"
 		outPath := filepath.Join(opts.OutputDir, filename)
 

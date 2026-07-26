@@ -3,11 +3,11 @@ package dashboard
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
@@ -351,7 +351,7 @@ func (r *DetectResult) EnrichFromK8s(ctx context.Context, store oci.BundleStore,
 		return
 	}
 
-	slog.Info("OCI enrichment: discovering repos from K8s resolvedRefs")
+	logging.LoggerFromContext(ctx).Info("OCI enrichment: discovering repos from K8s resolvedRefs")
 	repos, err := r.discoverOCIReposFromK8s(ctx)
 	if err != nil {
 		// Mark K8s as unavailable so retry loop stops immediately.
@@ -361,18 +361,18 @@ func (r *DetectResult) EnrichFromK8s(ctx context.Context, store oci.BundleStore,
 		return
 	}
 	if len(repos) == 0 {
-		slog.Info("OCI enrichment: no repos found (K8s resources may not be ready yet)")
+		logging.LoggerFromContext(ctx).Info("OCI enrichment: no repos found (K8s resources may not be ready yet)")
 		return
 	}
 
-	slog.Info("OCI enrichment: discovered repos from K8s", "count", len(repos), "repos", repos)
+	logging.LoggerFromContext(ctx).Info("OCI enrichment: discovered repos from K8s", "count", len(repos), "repos", repos)
 	r.detectOCI(store, repos)
 
 	// Ensure a CacheSource exists for post-resolve rescan, even if the cache
 	// directory was empty at detection time.
 	if r.OCI != nil && r.Cache == nil {
 		r.ensureCacheSource(cacheDir)
-		slog.Info("OCI enrichment: initialized cache source", "cacheDir", cacheDir)
+		logging.LoggerFromContext(ctx).Info("OCI enrichment: initialized cache source", "cacheDir", cacheDir)
 	}
 }
 

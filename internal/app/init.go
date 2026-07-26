@@ -3,9 +3,10 @@ package app
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
+
+	"github.com/trianalab/pacto/v3/pkg/logging"
 )
 
 // InitOptions holds options for the init command.
@@ -112,12 +113,12 @@ const defaultConfigSchema = `{
 `
 
 // Init scaffolds a new pacto project directory with the full bundle structure.
-func (s *Service) Init(_ context.Context, opts InitOptions) (*InitResult, error) {
+func (s *Service) Init(ctx context.Context, opts InitOptions) (*InitResult, error) {
 	name := opts.Name
 	if name == "" {
 		return nil, fmt.Errorf("service name is required")
 	}
-	slog.Debug("initializing new pacto project", "name", name)
+	logging.LoggerFromContext(ctx).Debug("initializing new pacto project", "name", name)
 
 	dir := name
 

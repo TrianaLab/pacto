@@ -3,13 +3,13 @@ package oci
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 )
 
 // BundleStore handles push and pull of contract bundles to/from OCI registries.
@@ -123,13 +123,13 @@ func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) 
 		return "", err
 	}
 
-	slog.Debug("building OCI image from bundle", "ref", ref)
+	logging.LoggerFromContext(ctx).Debug("building OCI image from bundle", "ref", ref)
 	img, err := buildImageFn(bundle)
 	if err != nil {
 		return "", fmt.Errorf("failed to build OCI image: %w", err)
 	}
 
-	slog.Debug("writing image to registry", "ref", ref)
+	logging.LoggerFromContext(ctx).Debug("writing image to registry", "ref", ref)
 	if err := c.doWithAuth(ctx, r.Context(), ref, func(opts []remote.Option) error {
 		return remote.Write(r, img, opts...)
 	}); err != nil {
@@ -141,7 +141,7 @@ func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) 
 		return "", fmt.Errorf("failed to compute digest: %w", err)
 	}
 
-	slog.Debug("image pushed successfully", "ref", ref, "digest", digest.String())
+	logging.LoggerFromContext(ctx).Debug("image pushed successfully", "ref", ref, "digest", digest.String())
 	return digest.String(), nil
 }
 
@@ -152,7 +152,7 @@ func (c *Client) Pull(ctx context.Context, ref string) (*contract.Bundle, error)
 		return nil, err
 	}
 
-	slog.Debug("fetching image from registry", "ref", ref)
+	logging.LoggerFromContext(ctx).Debug("fetching image from registry", "ref", ref)
 	var img v1.Image
 	if err := c.doWithAuth(ctx, r.Context(), ref, func(opts []remote.Option) error {
 		var opErr error
@@ -162,7 +162,7 @@ func (c *Client) Pull(ctx context.Context, ref string) (*contract.Bundle, error)
 		return nil, err
 	}
 
-	slog.Debug("extracting bundle from image", "ref", ref)
+	logging.LoggerFromContext(ctx).Debug("extracting bundle from image", "ref", ref)
 	bundle, err := imageToBundle(img)
 	if err != nil {
 		return nil, &InvalidBundleError{Ref: ref, Err: err}
@@ -178,7 +178,7 @@ func (c *Client) Resolve(ctx context.Context, ref string) (string, error) {
 		return "", err
 	}
 
-	slog.Debug("resolving digest", "ref", ref)
+	logging.LoggerFromContext(ctx).Debug("resolving digest", "ref", ref)
 	var desc *v1.Descriptor
 	if err := c.doWithAuth(ctx, r.Context(), ref, func(opts []remote.Option) error {
 		var opErr error
@@ -188,7 +188,7 @@ func (c *Client) Resolve(ctx context.Context, ref string) (string, error) {
 		return "", err
 	}
 
-	slog.Debug("resolved digest", "ref", ref, "digest", desc.Digest.String())
+	logging.LoggerFromContext(ctx).Debug("resolved digest", "ref", ref, "digest", desc.Digest.String())
 	return desc.Digest.String(), nil
 }
 
@@ -199,7 +199,7 @@ func (c *Client) ListTags(ctx context.Context, repo string) ([]string, error) {
 		return nil, &InvalidRefError{Ref: repo, Err: err}
 	}
 
-	slog.Debug("listing tags", "repo", repo)
+	logging.LoggerFromContext(ctx).Debug("listing tags", "repo", repo)
 	var tags []string
 	if err := c.doWithAuth(ctx, r, repo, func(opts []remote.Option) error {
 		var opErr error
@@ -209,6 +209,6 @@ func (c *Client) ListTags(ctx context.Context, repo string) ([]string, error) {
 		return nil, err
 	}
 
-	slog.Debug("tags listed", "repo", repo, "count", len(tags))
+	logging.LoggerFromContext(ctx).Debug("tags listed", "repo", repo, "count", len(tags))
 	return tags, nil
 }

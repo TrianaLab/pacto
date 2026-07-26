@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
@@ -144,6 +144,10 @@ Services are grouped by name across sources and merged using priority rules:
 				diag = detectResult.Diagnostics
 			}
 			server := dashboard.NewResolvedServer(resolved, uiFS, detectResult.Sources, diag)
+			// Thread this command's logger into the server so request handlers and
+			// background discovery log through it (via request-context injection)
+			// rather than the process-global slog default.
+			server.SetLogger(logging.LoggerFromContext(cmd.Context()))
 			server.UpdateSourceInfo(detectResult.Sources)
 			server.SetVersion(version)
 			server.SetListenAddr(host, port)
@@ -384,7 +388,7 @@ func wireOCIEnrichment(
 			return false
 		}
 
-		slog.Info("lazy OCI enrichment: wiring OCI source into pipeline")
+		logging.LoggerFromContext(ctx).Info("lazy OCI enrichment: wiring OCI source into pipeline")
 
 		// Wrap the new OCI source with in-memory caching.
 		ociCached := dashboard.NewCachedDataSource(

@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"path"
@@ -608,7 +609,7 @@ func extractSchemaProperties(fsys fs.FS, path string) []ConfigValue {
 }
 
 // ComputeDiff runs the diff engine on two bundles and returns a dashboard DiffResult.
-func ComputeDiff(from, to Ref, oldBundle, newBundle *contract.Bundle) *DiffResult {
+func ComputeDiff(ctx context.Context, from, to Ref, oldBundle, newBundle *contract.Bundle) *DiffResult {
 	var oldFS, newFS fs.FS
 	if oldBundle.FS != nil {
 		oldFS = oldBundle.FS
@@ -616,6 +617,6 @@ func ComputeDiff(from, to Ref, oldBundle, newBundle *contract.Bundle) *DiffResul
 	if newBundle.FS != nil {
 		newFS = newBundle.FS
 	}
-	r := diff.Compare(oldBundle.Contract, newBundle.Contract, oldFS, newFS)
+	r := diff.Compare(ctx, oldBundle.Contract, newBundle.Contract, oldFS, newFS)
 	return DiffResultFromEngine(from, to, r)
 }

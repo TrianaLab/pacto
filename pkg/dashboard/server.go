@@ -21,6 +21,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
@@ -39,6 +40,12 @@ type Server struct {
 	listenAddr  string // optional: server URL for OpenAPI spec
 	version     string // optional: Pacto version to expose via /health
 	corsOrigin  string // optional: explicit cross-origin allowed to call the API (startup-only)
+
+	// logger is injected into every request context (see corsMiddleware), so the
+	// handler and source code that log via logging.LoggerFromContext reach the
+	// command-configured logger rather than the process default. Set from the
+	// dashboard command via SetLogger; defaults to slog.Default().
+	logger *slog.Logger
 
 	// cfgMu guards the optional wiring fields that can be set AFTER startup from
 	// request goroutines via lazy OCI enrichment (wireOCIEnrichment) or
@@ -100,7 +107,7 @@ func APIConfig() huma.Config {
 // NewServer creates a dashboard server backed by the given data source.
 // ui is the embedded filesystem containing the web UI assets.
 func NewServer(source DataSource, ui fs.FS) *Server {
-	return &Server{source: source, ui: ui}
+	return &Server{source: source, ui: ui, logger: slog.Default()}
 }
 
 // NewResolvedServer creates a dashboard server with the contract+runtime resolution model.
@@ -111,6 +118,7 @@ func NewResolvedServer(resolved *ResolvedSource, ui fs.FS, sourceInfo []SourceIn
 		ui:          ui,
 		sourceInfo:  sourceInfo,
 		diagnostics: diagnostics,
+		logger:      slog.Default(),
 	}
 }
 
@@ -233,13 +241,13 @@ func (s *Server) redetectK8sIfNeeded(ctx context.Context) {
 
 	newSource, err := s.k8sRedetect(ctx)
 	if err != nil {
-		slog.Debug("k8s re-detection: failed", "error", err)
+		logging.LoggerFromContext(ctx).Debug("k8s re-detection: failed", "error", err)
 		return
 	}
 	if newSource == nil {
 		return
 	}
-	slog.Info("k8s re-detection: context change detected, swapping source")
+	logging.LoggerFromContext(ctx).Info("k8s re-detection: context change detected, swapping source")
 	if s.resolved != nil {
 		s.resolved.SetRuntimeSource(newSource)
 	}
@@ -266,12 +274,12 @@ func (s *Server) ensureOCIEnriched(ctx context.Context) {
 		return
 	}
 	s.enrichLastTry = time.Now()
-	slog.Info("lazy OCI enrichment: attempting discovery from K8s")
+	logging.LoggerFromContext(ctx).Info("lazy OCI enrichment: attempting discovery from K8s")
 	if s.lazyEnrich(ctx) {
 		s.enrichDone.Store(true)
-		slog.Info("lazy OCI enrichment: succeeded, OCI source now active")
+		logging.LoggerFromContext(ctx).Info("lazy OCI enrichment: succeeded, OCI source now active")
 	} else {
-		slog.Debug("lazy OCI enrichment: not yet available, will retry on next request")
+		logging.LoggerFromContext(ctx).Debug("lazy OCI enrichment: not yet available, will retry on next request")
 	}
 }
 
@@ -681,6 +689,16 @@ func (s *Server) SetVersion(v string) {
 // requests are rejected. Must be called before Serve.
 func (s *Server) SetCORSOrigin(origin string) {
 	s.corsOrigin = origin
+}
+
+// SetLogger sets the logger injected into every request context, so handlers
+// and sources that log via logging.LoggerFromContext use the command-configured
+// logger. A nil logger falls back to slog.Default(). Must be called before Serve.
+func (s *Server) SetLogger(lg *slog.Logger) {
+	if lg == nil {
+		lg = slog.Default()
+	}
+	s.logger = lg
 }
 
 func (s *Server) health(_ context.Context, _ *struct{}) (*healthOutput, error) {
@@ -1458,7 +1476,11 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "cross-origin request forbidden", http.StatusForbidden)
 			return
 		}
-		next.ServeHTTP(w, r)
+		// Carry the command-configured logger on the request context so handlers
+		// and sources log through it (not the process default) via
+		// logging.LoggerFromContext. Detached background contexts derived with
+		// context.WithoutCancel (e.g. OCI discovery) preserve this value.
+		next.ServeHTTP(w, r.WithContext(logging.WithLogger(r.Context(), s.logger)))
 	})
 }
 

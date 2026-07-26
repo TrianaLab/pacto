@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"context"
+
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/diff"
 )
@@ -22,13 +24,13 @@ type BundlePair struct {
 //
 // This is a purely derivational function — it depends only on contract bundles
 // and is independent of any specific data source (cache, OCI, etc.).
-func ClassifyVersions(versions []BundlePair) map[string]string {
+func ClassifyVersions(ctx context.Context, versions []BundlePair) map[string]string {
 	result := make(map[string]string, len(versions))
 	for i := 0; i < len(versions)-1; i++ {
 		cur := versions[i]
 		prev := versions[i+1]
 		if cur.Bundle != nil && prev.Bundle != nil {
-			r := diff.Compare(prev.Bundle.Contract, cur.Bundle.Contract, prev.Bundle.FS, cur.Bundle.FS)
+			r := diff.Compare(ctx, prev.Bundle.Contract, cur.Bundle.Contract, prev.Bundle.FS, cur.Bundle.FS)
 			result[cur.Tag] = r.Classification.String()
 		}
 	}

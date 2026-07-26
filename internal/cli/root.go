@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -10,8 +9,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/logger"
 	"github.com/trianalab/pacto/v3/internal/update"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 )
 
 const outputFormatKey = "output-format"
@@ -55,7 +54,12 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 
 	// Config file search + async update check
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		logger.Setup(cmd.OutOrStderr(), v.GetBool("verbose"))
+		// Configure one logger for THIS command Execute and carry it on the
+		// command context (per-invocation, never a process global). Every app
+		// and pkg call site logs through it via logging.LoggerFromContext, so
+		// concurrent in-process Execute calls never race on a shared logger.
+		lg := logging.New(cmd.OutOrStderr(), v.GetBool("verbose"))
+		cmd.SetContext(logging.WithLogger(cmd.Context(), lg))
 
 		cfgFile := v.GetString("config")
 		if cfgFile != "" {
@@ -84,7 +88,7 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
-						slog.Debug("update check panicked", "panic", r)
+						lg.Debug("update check panicked", "panic", r)
 						updateResultCh <- nil
 					}
 				}()

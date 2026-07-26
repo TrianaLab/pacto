@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"context"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
@@ -138,7 +139,7 @@ func TestCompare_IncludesReadiness(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
 	new.Readiness = &contract.Readiness{Expires: "2026-12-31"}
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 	found := false
 	for _, c := range result.Changes {
 		if c.Path == "readiness" && c.Type == Added {

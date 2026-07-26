@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"slices"
 	"sort"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 )
 
 // ContractFetcher fetches a contract bundle for a dependency.
@@ -93,7 +93,7 @@ func Resolve(ctx context.Context, c *contract.Contract, fetcher ContractFetcher)
 
 // ResolveWithOptions builds the dependency graph with the given options.
 func ResolveWithOptions(ctx context.Context, c *contract.Contract, fetcher ContractFetcher, opts ResolveOptions) *Result {
-	slog.Debug("starting graph resolution", "root", c.Service.Name, "version", c.Service.Version, "dependencies", len(c.Dependencies))
+	logging.LoggerFromContext(ctx).Debug("starting graph resolution", "root", c.Service.Name, "version", c.Service.Version, "dependencies", len(c.Dependencies))
 	root := &Node{
 		Name:     c.Service.Name,
 		Version:  c.Service.Version,
@@ -126,7 +126,7 @@ func ResolveWithOptions(ctx context.Context, c *contract.Contract, fetcher Contr
 	// resolve in parallel, so a split cycle can be deduped away before any
 	// branch explores its back-edge (see detectCycles).
 	cycles := r.detectCycles(root)
-	slog.Debug("graph resolution complete", "root", c.Service.Name, "cycles", len(cycles), "conflicts", len(conflicts))
+	logging.LoggerFromContext(ctx).Debug("graph resolution complete", "root", c.Service.Name, "cycles", len(cycles), "conflicts", len(conflicts))
 
 	return &Result{
 		Root:      root,
@@ -239,10 +239,10 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, pat
 	r.pending[dep.Ref] = ch
 	r.mu.Unlock()
 
-	slog.Debug("fetching dependency", "ref", dep.Ref)
+	logging.LoggerFromContext(ctx).Debug("fetching dependency", "ref", dep.Ref)
 	bundle, err := r.fetcher.Fetch(ctx, dep)
 	if err != nil {
-		slog.Debug("dependency fetch failed", "ref", dep.Ref, "error", err)
+		logging.LoggerFromContext(ctx).Debug("dependency fetch failed", "ref", dep.Ref, "error", err)
 		r.failEdge(dep.Ref, ch, err.Error())
 		edge.Error = err.Error()
 		return edge

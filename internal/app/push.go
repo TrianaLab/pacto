@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 	"github.com/trianalab/pacto/v3/pkg/override"
 )
@@ -82,19 +82,19 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 
 	if !opts.Force {
 		if _, err := s.BundleStore.Resolve(ctx, ref); err == nil {
-			slog.Debug("artifact already exists, skipping push", "ref", ref)
+			logging.LoggerFromContext(ctx).Debug("artifact already exists, skipping push", "ref", ref)
 			return nil, fmt.Errorf("%w: %s (use --force to overwrite)", ErrArtifactAlreadyExists, ref)
 		} else if !isNotFound(err) {
 			return nil, err
 		}
-		slog.Debug("artifact not found, proceeding with push", "ref", ref)
+		logging.LoggerFromContext(ctx).Debug("artifact not found, proceeding with push", "ref", ref)
 	} else {
-		slog.Debug("force flag set, skipping existence check", "ref", ref)
+		logging.LoggerFromContext(ctx).Debug("force flag set, skipping existence check", "ref", ref)
 	}
 
 	bundle := &contract.Bundle{Contract: c, FS: bundleFS}
 
-	slog.Debug("pushing artifact", "ref", ref)
+	logging.LoggerFromContext(ctx).Debug("pushing artifact", "ref", ref)
 	digest, err := s.BundleStore.Push(ctx, ref, bundle)
 	if err != nil {
 		return nil, err

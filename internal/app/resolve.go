@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"testing/fstest"
@@ -13,6 +12,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/ignore"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 	"github.com/trianalab/pacto/v3/pkg/override"
 	"github.com/trianalab/pacto/v3/pkg/validation"
@@ -84,7 +84,7 @@ func loadLocalBundle(dir string) (*contract.Bundle, error) {
 func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
 	parsed := graph.ParseDependencyRef(ref)
 	if parsed.IsOCI() {
-		slog.Debug("resolving OCI bundle", "ref", parsed.Location)
+		logging.LoggerFromContext(ctx).Debug("resolving OCI bundle", "ref", parsed.Location)
 		if err := s.requireBundleStore(); err != nil {
 			return nil, err
 		}
@@ -95,7 +95,7 @@ func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bund
 		return s.BundleStore.Pull(ctx, location)
 	}
 
-	slog.Debug("loading local bundle", "path", parsed.Location)
+	logging.LoggerFromContext(ctx).Debug("loading local bundle", "path", parsed.Location)
 	return loadLocalBundle(parsed.Location)
 }
 
@@ -193,8 +193,8 @@ func copyFSWithReplace(src fs.FS, replaceName string, replaceData []byte) (fstes
 // loadAndValidateLocal reads a local contract directory, parses pacto.yaml,
 // validates it, and returns the parsed contract and bundle FS. This is the
 // shared helper for pack and push commands that must validate before proceeding.
-func loadAndValidateLocal(dir string, overrides override.Overrides) (*contract.Contract, []byte, fs.FS, error) {
-	slog.Debug("loading and validating local bundle", "dir", dir)
+func loadAndValidateLocal(ctx context.Context, dir string, overrides override.Overrides) (*contract.Contract, []byte, fs.FS, error) {
+	logging.LoggerFromContext(ctx).Debug("loading and validating local bundle", "dir", dir)
 	bundle, err := loadLocalBundle(dir)
 	if err != nil {
 		return nil, nil, nil, err
@@ -207,11 +207,11 @@ func loadAndValidateLocal(dir string, overrides override.Overrides) (*contract.C
 
 	result := validation.Validate(bundle.Contract, bundle.RawYAML, bundle.FS)
 	if !result.IsValid() {
-		slog.Debug("local validation failed", "errors", len(result.Errors))
+		logging.LoggerFromContext(ctx).Debug("local validation failed", "errors", len(result.Errors))
 		return nil, nil, nil, fmt.Errorf("contract validation failed with %d error(s)", len(result.Errors))
 	}
 
-	slog.Debug("local validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
+	logging.LoggerFromContext(ctx).Debug("local validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
 	return bundle.Contract, bundle.RawYAML, bundle.FS, nil
 }
 
@@ -220,7 +220,7 @@ func loadAndValidateLocal(dir string, overrides override.Overrides) (*contract.C
 // returns the parsed contract and bundle FS. Used by push to enforce remote
 // policies before publishing.
 func loadAndValidateFull(ctx context.Context, dir string, overrides override.Overrides, store oci.BundleStore) (*contract.Contract, []byte, fs.FS, error) {
-	slog.Debug("loading and validating local bundle with remote resolution", "dir", dir)
+	logging.LoggerFromContext(ctx).Debug("loading and validating local bundle with remote resolution", "dir", dir)
 	bundle, err := loadLocalBundle(dir)
 	if err != nil {
 		return nil, nil, nil, err
@@ -237,11 +237,11 @@ func loadAndValidateFull(ctx context.Context, dir string, overrides override.Ove
 	}
 	result := validation.ValidateWithResolver(ctx, bundle.Contract, bundle.RawYAML, bundle.FS, resolver)
 	if !result.IsValid() {
-		slog.Debug("validation failed", "errors", len(result.Errors))
+		logging.LoggerFromContext(ctx).Debug("validation failed", "errors", len(result.Errors))
 		return nil, nil, nil, fmt.Errorf("contract validation failed with %d error(s)", len(result.Errors))
 	}
 
-	slog.Debug("validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
+	logging.LoggerFromContext(ctx).Debug("validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
 	return bundle.Contract, bundle.RawYAML, bundle.FS, nil
 }
 

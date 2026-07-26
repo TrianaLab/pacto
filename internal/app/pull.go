@@ -3,9 +3,9 @@ package app
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
@@ -34,13 +34,13 @@ func (s *Service) Pull(ctx context.Context, opts PullOptions) (*PullResult, erro
 		return nil, fmt.Errorf("pull requires an OCI reference (oci://...): got %q", opts.Ref)
 	}
 
-	slog.Debug("resolving OCI reference", "ref", parsed.Location)
+	logging.LoggerFromContext(ctx).Debug("resolving OCI reference", "ref", parsed.Location)
 	location, err := oci.ResolveRef(ctx, s.BundleStore, parsed.Location, "")
 	if err != nil {
 		return nil, err
 	}
 
-	slog.Debug("pulling bundle from registry", "ref", location)
+	logging.LoggerFromContext(ctx).Debug("pulling bundle from registry", "ref", location)
 	bundle, err := s.BundleStore.Pull(ctx, location)
 	if err != nil {
 		return nil, err
@@ -51,12 +51,12 @@ func (s *Service) Pull(ctx context.Context, opts PullOptions) (*PullResult, erro
 		output = bundle.Contract.Service.Name
 	}
 
-	slog.Debug("extracting bundle to disk", "output", output)
+	logging.LoggerFromContext(ctx).Debug("extracting bundle to disk", "output", output)
 	if err := extractBundleFS(bundle.FS, output); err != nil {
 		return nil, fmt.Errorf("failed to extract bundle: %w", err)
 	}
 
-	slog.Debug("pull complete", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
+	logging.LoggerFromContext(ctx).Debug("pull complete", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
 	return &PullResult{
 		Ref:     location,
 		Output:  output,

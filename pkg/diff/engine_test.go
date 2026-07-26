@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"context"
 	"testing"
 	"testing/fstest"
 
@@ -32,7 +33,7 @@ func minimalContract() *contract.Contract {
 
 func TestCompare_NoChanges(t *testing.T) {
 	c := minimalContract()
-	result := Compare(c, c, nil, nil)
+	result := Compare(context.Background(), c, c, nil, nil)
 
 	if result.Classification != NonBreaking {
 		t.Errorf("expected NON_BREAKING, got %s", result.Classification)
@@ -47,7 +48,7 @@ func TestCompare_ServiceNameChange_Breaking(t *testing.T) {
 	new := minimalContract()
 	new.Service.Name = "renamed-svc"
 
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 
 	if result.Classification != Breaking {
 		t.Errorf("expected BREAKING, got %s", result.Classification)
@@ -60,7 +61,7 @@ func TestCompare_VersionChange_NonBreaking(t *testing.T) {
 	new := minimalContract()
 	new.Service.Version = "2.0.0"
 
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 
 	if result.Classification != NonBreaking {
 		t.Errorf("expected NON_BREAKING, got %s", result.Classification)
@@ -73,7 +74,7 @@ func TestCompare_StateTypeChange_Breaking(t *testing.T) {
 	new := minimalContract()
 	new.State.Type = contract.StateStateful
 
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 
 	if result.Classification != Breaking {
 		t.Errorf("expected BREAKING, got %s", result.Classification)
@@ -86,7 +87,7 @@ func TestCompare_InterfaceRemoved_Breaking(t *testing.T) {
 	new := minimalContract()
 	new.Interfaces = nil
 
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 
 	if result.Classification != Breaking {
 		t.Errorf("expected BREAKING, got %s", result.Classification)
@@ -101,7 +102,7 @@ func TestCompare_InterfaceAdded_NonBreaking(t *testing.T) {
 		Name: "grpc", Type: contract.InterfaceTypeGRPC, Ref: "interfaces/service.proto",
 	})
 
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 
 	if result.Classification != NonBreaking {
 		t.Errorf("expected NON_BREAKING, got %s", result.Classification)
@@ -116,7 +117,7 @@ func TestCompare_DependencyRemoved_Breaking(t *testing.T) {
 	}
 	new := minimalContract()
 
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 
 	if result.Classification != Breaking {
 		t.Errorf("expected BREAKING, got %s", result.Classification)
@@ -131,7 +132,7 @@ func TestCompare_DependencyAdded_NonBreaking(t *testing.T) {
 		{Name: "auth", Ref: "ghcr.io/acme/auth:1.0.0", Required: true, Compatibility: "^1.0.0"},
 	}
 
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 
 	if result.Classification != NonBreaking {
 		t.Errorf("expected NON_BREAKING, got %s", result.Classification)
@@ -146,7 +147,7 @@ func TestCompare_CapabilityAdded_NonBreaking(t *testing.T) {
 		{Type: contract.CapabilityHealth},
 	}
 
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 
 	if result.Classification != NonBreaking {
 		t.Errorf("expected NON_BREAKING, got %s", result.Classification)
@@ -161,7 +162,7 @@ func TestCompare_CapabilityRemoved_PotentialBreaking(t *testing.T) {
 	}
 	new := minimalContract()
 
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 
 	if result.Classification != PotentialBreaking {
 		t.Errorf("expected POTENTIAL_BREAKING, got %s", result.Classification)
@@ -174,7 +175,7 @@ func TestCompare_PersistenceScopeChange_Breaking(t *testing.T) {
 	new := minimalContract()
 	new.State.Persistence.Scope = contract.ScopeShared
 
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 
 	if result.Classification != Breaking {
 		t.Errorf("expected BREAKING, got %s", result.Classification)
@@ -187,7 +188,7 @@ func TestCompare_ConfigurationRemoved_Breaking(t *testing.T) {
 	new := minimalContract()
 	new.Configurations = nil
 
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 
 	if result.Classification != Breaking {
 		t.Errorf("expected BREAKING, got %s", result.Classification)
@@ -225,7 +226,7 @@ paths:
 	old := minimalContract()
 	new := minimalContract()
 
-	result := Compare(old, new, oldFS, newFS)
+	result := Compare(context.Background(), old, new, oldFS, newFS)
 
 	if result.Classification != Breaking {
 		t.Errorf("expected BREAKING, got %s", result.Classification)
@@ -244,7 +245,7 @@ func TestCompare_SchemaPropertyAdded_NonBreaking(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
 
-	result := Compare(old, new, oldFS, newFS)
+	result := Compare(context.Background(), old, new, oldFS, newFS)
 
 	assertHasChange(t, result, "schema.properties.debug", Added, PotentialBreaking)
 }
@@ -255,7 +256,7 @@ func TestCompare_OverallClassification_MaxSeverity(t *testing.T) {
 	new.Service.Version = "2.0.0"           // NON_BREAKING
 	new.State.Type = contract.StateStateful // BREAKING
 
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 
 	if result.Classification != Breaking {
 		t.Errorf("expected overall BREAKING (max severity), got %s", result.Classification)
@@ -299,7 +300,7 @@ paths:
 		"docs/runbook.md": &fstest.MapFile{Data: []byte("# Runbook — brand new file")},
 	}
 
-	result := Compare(old, new, oldFS, newFS)
+	result := Compare(context.Background(), old, new, oldFS, newFS)
 
 	if result.Classification != NonBreaking {
 		t.Errorf("expected NON_BREAKING, got %s", result.Classification)
@@ -340,7 +341,7 @@ paths:
 		"docs/runbook.md": &fstest.MapFile{Data: []byte("# Runbook")},
 	}
 
-	result := Compare(old, new, oldFS, newFS)
+	result := Compare(context.Background(), old, new, oldFS, newFS)
 
 	if result.Classification != NonBreaking {
 		t.Errorf("expected NON_BREAKING, got %s", result.Classification)
@@ -380,7 +381,7 @@ paths:
 `)},
 	}
 
-	result := Compare(old, new, oldFS, newFS)
+	result := Compare(context.Background(), old, new, oldFS, newFS)
 
 	if result.Classification != NonBreaking {
 		t.Errorf("expected NON_BREAKING, got %s", result.Classification)
@@ -407,7 +408,7 @@ func TestCompare_SBOMDiff_BothPresent(t *testing.T) {
 		}`)},
 	}
 
-	result := Compare(old, new, oldFS, newFS)
+	result := Compare(context.Background(), old, new, oldFS, newFS)
 	if result.SBOMDiff == nil {
 		t.Fatal("expected SBOMDiff to be non-nil")
 	}
@@ -423,7 +424,7 @@ func TestCompare_SBOMDiff_BothPresent(t *testing.T) {
 func TestCompare_SBOMDiff_NeitherPresent(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
-	result := Compare(old, new, nil, nil)
+	result := Compare(context.Background(), old, new, nil, nil)
 	if result.SBOMDiff != nil {
 		t.Error("expected nil SBOMDiff when no SBOMs present")
 	}
@@ -438,7 +439,7 @@ func TestCompare_SBOMDiff_IdenticalSBOMs(t *testing.T) {
 		"sbom/sbom.spdx.json": &fstest.MapFile{Data: sbomData},
 	}
 
-	result := Compare(old, new, fs, fs)
+	result := Compare(context.Background(), old, new, fs, fs)
 	if result.SBOMDiff != nil {
 		t.Error("expected nil SBOMDiff when SBOMs are identical")
 	}
@@ -455,7 +456,7 @@ func TestCompare_SBOMDiff_OnlyOldHasSBOM(t *testing.T) {
 		}`)},
 	}
 
-	result := Compare(old, new, oldFS, nil)
+	result := Compare(context.Background(), old, new, oldFS, nil)
 	if result.SBOMDiff == nil {
 		t.Fatal("expected SBOMDiff when old has SBOM and new doesn't")
 	}
@@ -475,7 +476,7 @@ func TestCompare_SBOMDiff_OnlyNewHasSBOM(t *testing.T) {
 		}`)},
 	}
 
-	result := Compare(old, new, nil, newFS)
+	result := Compare(context.Background(), old, new, nil, newFS)
 	if result.SBOMDiff == nil {
 		t.Fatal("expected SBOMDiff when new has SBOM and old doesn't")
 	}
@@ -498,7 +499,7 @@ func TestCompare_SBOMDiff_InvalidOldSBOM(t *testing.T) {
 		}`)},
 	}
 
-	result := Compare(old, new, oldFS, newFS)
+	result := Compare(context.Background(), old, new, oldFS, newFS)
 	if result.SBOMDiff != nil {
 		t.Error("expected nil SBOMDiff when old SBOM is invalid")
 	}
@@ -518,7 +519,7 @@ func TestCompare_SBOMDiff_InvalidNewSBOM(t *testing.T) {
 		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte(`not valid json`)},
 	}
 
-	result := Compare(old, new, oldFS, newFS)
+	result := Compare(context.Background(), old, new, oldFS, newFS)
 	if result.SBOMDiff != nil {
 		t.Error("expected nil SBOMDiff when new SBOM is invalid")
 	}

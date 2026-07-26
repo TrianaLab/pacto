@@ -10,12 +10,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/trianalab/pacto/v3/pkg/logging"
 )
 
 // Plugin execution limits, overridable in tests. They bound a buggy or hostile
@@ -53,19 +54,19 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 // Run finds the plugin binary, spawns it, writes the request JSON to stdin,
 // and reads the response JSON from stdout.
 func (r *SubprocessRunner) Run(ctx context.Context, name string, req GenerateRequest) (*GenerateResponse, error) {
-	slog.Debug("discovering plugin binary", "plugin", name)
+	logging.LoggerFromContext(ctx).Debug("discovering plugin binary", "plugin", name)
 	binary, err := findPlugin(name)
 	if err != nil {
 		return nil, err
 	}
-	slog.Debug("plugin binary found", "plugin", name, "path", binary)
+	logging.LoggerFromContext(ctx).Debug("plugin binary found", "plugin", name, "path", binary)
 
 	input, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal plugin input: %w", err)
 	}
 
-	slog.Debug("executing plugin", "plugin", name)
+	logging.LoggerFromContext(ctx).Debug("executing plugin", "plugin", name)
 	ctx, cancel := context.WithTimeout(ctx, pluginTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary)

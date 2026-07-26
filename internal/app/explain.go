@@ -2,10 +2,10 @@ package app
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/override"
 	"github.com/trianalab/pacto/v3/pkg/readiness"
 )
@@ -108,12 +108,12 @@ type ExplainDependency struct {
 func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainResult, error) {
 	ref := defaultPath(opts.Path)
 
-	slog.Debug("resolving contract for explain", "ref", ref)
+	logging.LoggerFromContext(ctx).Debug("resolving contract for explain", "ref", ref)
 	bundle, err := s.resolveBundleWithOverrides(ctx, ref, opts.Overrides)
 	if err != nil {
 		return nil, err
 	}
-	slog.Debug("explaining contract", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
+	logging.LoggerFromContext(ctx).Debug("explaining contract", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
 
 	c := bundle.Contract
 

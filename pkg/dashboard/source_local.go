@@ -135,7 +135,7 @@ func (s *LocalSource) GetVersions(_ context.Context, name string) ([]Version, er
 
 // GetDiff compares the on-disk bundles for a and b found under the root
 // directory, erroring if either service is not present locally.
-func (s *LocalSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) {
+func (s *LocalSource) GetDiff(ctx context.Context, a, b Ref) (*DiffResult, error) {
 	bundleA, err := s.findBundle(a.Name)
 	if err != nil {
 		return nil, fmt.Errorf("loading %q: %w", a.Name, err)
@@ -144,7 +144,7 @@ func (s *LocalSource) GetDiff(_ context.Context, a, b Ref) (*DiffResult, error) 
 	if err != nil {
 		return nil, fmt.Errorf("loading %q: %w", b.Name, err)
 	}
-	return ComputeDiff(a, b, bundleA, bundleB), nil
+	return ComputeDiff(ctx, a, b, bundleA, bundleB), nil
 }
 
 // GetServiceVersion returns details for the local bundle only when its on-disk

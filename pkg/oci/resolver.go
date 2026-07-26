@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/semver"
 )
 
@@ -154,7 +154,7 @@ func (r *Resolver) FetchAllVersions(ctx context.Context, ref string) ([]string, 
 		// Pull triggers caching in CachedStore. Errors are non-fatal —
 		// we still return versions that were successfully listed.
 		if _, pullErr := r.store.Pull(ctx, ref+":"+v); pullErr != nil {
-			slog.Warn("failed to cache version", "ref", ref+":"+v, "error", pullErr)
+			logging.LoggerFromContext(ctx).Warn("failed to cache version", "ref", ref+":"+v, "error", pullErr)
 		}
 	}
 	return versions, nil

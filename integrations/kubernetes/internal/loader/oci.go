@@ -11,11 +11,11 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
@@ -49,10 +49,10 @@ func (p *OCIPuller) Pull(ctx context.Context, ref string, authOverride *authn.Au
 	// Resolve tag if not explicitly specified
 	resolvedRef, err := oci.ResolveRef(ctx, client, ref, "")
 	if err != nil {
-		slog.Warn("Tag resolution failed, using original ref", "ref", ref, "error", err)
+		logging.LoggerFromContext(ctx).Warn("Tag resolution failed, using original ref", "ref", ref, "error", err)
 		resolvedRef = ref
 	} else if resolvedRef != ref {
-		slog.Info("Resolved OCI tag", "original", ref, "resolved", resolvedRef)
+		logging.LoggerFromContext(ctx).Info("Resolved OCI tag", "original", ref, "resolved", resolvedRef)
 	}
 
 	bundle, err := client.Pull(ctx, resolvedRef)
@@ -65,7 +65,7 @@ func (p *OCIPuller) Pull(ctx context.Context, ref string, authOverride *authn.Au
 	if d, resolveErr := client.Resolve(ctx, resolvedRef); resolveErr == nil {
 		digest = d
 	} else {
-		slog.Warn("Failed to resolve OCI digest", "ref", resolvedRef, "error", resolveErr)
+		logging.LoggerFromContext(ctx).Warn("Failed to resolve OCI digest", "ref", resolvedRef, "error", resolveErr)
 	}
 
 	// Populate RawYAML from bundle FS if the client didn't set it

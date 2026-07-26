@@ -494,7 +494,7 @@ func TestApplyOverrides_SchemaViolation(t *testing.T) {
 
 func TestLoadAndValidateLocal_Success(t *testing.T) {
 	dir := writeTestBundle(t)
-	c, rawYAML, bundleFS, err := loadAndValidateLocal(dir, override.Overrides{})
+	c, rawYAML, bundleFS, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -510,7 +510,7 @@ func TestLoadAndValidateLocal_Success(t *testing.T) {
 }
 
 func TestLoadAndValidateLocal_FileNotFound(t *testing.T) {
-	_, _, _, err := loadAndValidateLocal("/nonexistent/dir", override.Overrides{})
+	_, _, _, err := loadAndValidateLocal(context.Background(), "/nonexistent/dir", override.Overrides{})
 	if err == nil {
 		t.Error("expected error for nonexistent directory")
 	}
@@ -524,7 +524,7 @@ func TestLoadAndValidateLocal_UnreadableFile(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(pactoPath, 0644) })
 
-	_, _, _, err := loadAndValidateLocal(dir, override.Overrides{})
+	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{})
 	if err == nil {
 		t.Error("expected error when pacto.yaml is unreadable")
 	}
@@ -532,7 +532,7 @@ func TestLoadAndValidateLocal_UnreadableFile(t *testing.T) {
 
 func TestLoadAndValidateLocal_InvalidContract(t *testing.T) {
 	dir := writeUnparseableBundle(t)
-	_, _, _, err := loadAndValidateLocal(dir, override.Overrides{})
+	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{})
 	if err == nil {
 		t.Error("expected error for invalid contract")
 	}
@@ -540,7 +540,7 @@ func TestLoadAndValidateLocal_InvalidContract(t *testing.T) {
 
 func TestLoadAndValidateLocal_OverrideError(t *testing.T) {
 	dir := writeTestBundle(t)
-	_, _, _, err := loadAndValidateLocal(dir, override.Overrides{
+	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{
 		SetValues: []string{"no-equals"},
 	})
 	if err == nil {
@@ -550,7 +550,7 @@ func TestLoadAndValidateLocal_OverrideError(t *testing.T) {
 
 func TestLoadAndValidateLocal_ValidationFails(t *testing.T) {
 	dir := writeInvalidBundle(t)
-	_, _, _, err := loadAndValidateLocal(dir, override.Overrides{})
+	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{})
 	if err == nil {
 		t.Error("expected error for invalid bundle")
 	}

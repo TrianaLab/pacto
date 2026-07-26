@@ -4,13 +4,13 @@ import (
 	"compress/gzip"
 	"container/list"
 	"context"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 )
 
 // pullCacheMaxEntries bounds the in-memory pulled-bundle cache. Long-running
@@ -129,7 +129,7 @@ func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, erro
 	c.tagsMu.Lock()
 	if cached, ok := c.tagsCache[repo]; ok {
 		c.tagsMu.Unlock()
-		slog.Debug("tags cache hit", "repo", repo)
+		logging.LoggerFromContext(ctx).Debug("tags cache hit", "repo", repo)
 		return cached, nil
 	}
 	c.tagsMu.Unlock()
@@ -156,7 +156,7 @@ func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, e
 		c.pullLRU.MoveToFront(el)
 		b := el.Value.(*pullEntry).bundle
 		c.pullMu.Unlock()
-		slog.Debug("cache hit (memory)", "ref", ref)
+		logging.LoggerFromContext(ctx).Debug("cache hit (memory)", "ref", ref)
 		return b, nil
 	}
 	c.pullMu.Unlock()
@@ -165,14 +165,14 @@ func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, e
 	if c.cacheDir != "" && !c.skipDiskReads {
 		cachePath := c.cachePath(ref)
 		if bundle, err := c.loadFromCache(cachePath); err == nil {
-			slog.Debug("cache hit (disk)", "ref", ref)
+			logging.LoggerFromContext(ctx).Debug("cache hit (disk)", "ref", ref)
 			c.storePull(ref, bundle)
 			return bundle, nil
 		}
 	}
 
 	// 3. Registry (slowest).
-	slog.Debug("cache miss, pulling from registry", "ref", ref)
+	logging.LoggerFromContext(ctx).Debug("cache miss, pulling from registry", "ref", ref)
 	bundle, err := c.inner.Pull(ctx, ref)
 	if err != nil {
 		return nil, err
