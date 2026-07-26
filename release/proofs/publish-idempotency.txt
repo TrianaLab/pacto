@@ -1,0 +1,15 @@
+# PROOF - digest-aware idempotency (rerun = zero re-publish)
+
+target: localhost:5001/pacto-test-idem-1785066810141
+
+RUN 1 (fresh):  planned=7 built=7 verified=7 published=7 failed=0 resumable=0 complete=7
+RUN 2 (rerun):  planned=7 built=7 verified=7 published=0 failed=0 resumable=0 complete=7   <- published=0, all already-published
+
+# publish order (release-plan.publishOrder, core module first):
+  OK core             localhost:5001/pacto-test-idem-1785066810141/gomod/github.com/trianalab/pacto/v2:v2.7.0
+  OK dashboard-image  localhost:5001/pacto-test-idem-1785066810141/trianalab/pacto-dashboard:2.7.0
+  OK cli              localhost:5001/pacto-test-idem-1785066810141/releases/github.com/trianalab/pacto/releases:v2.7.0
+  OK k8s-module       localhost:5001/pacto-test-idem-1785066810141/gomod/github.com/trianalab/pacto/integrations/kubernetes:integrations-kubernetes-v4.7.0
+  OK operator-image   localhost:5001/pacto-test-idem-1785066810141/trianalab/pacto-operator/pacto-controller:4.7.0
+  OK operator-chart   localhost:5001/pacto-test-idem-1785066810141/trianalab/pacto-operator/charts/pacto-operator:4.7.0
+  OK k8s-docs         localhost:5001/pacto-test-idem-1785066810141/docs/mkdocs/integrations/kubernetes:4.7.0
