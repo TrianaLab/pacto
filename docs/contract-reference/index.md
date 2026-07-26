@@ -3,6 +3,8 @@ A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operat
 
 Each `interfaces`, `configurations` and `policies` entry points at a schema you already have — an OpenAPI spec, a protobuf or event definition, a JSON Schema — so a contract composes the interfaces you already own rather than inventing a new configuration language. On top of that it adds what no single schema can express: ownership, dependencies, compatibility, readiness and how they change over time.
 
+Every section below contributes one piece of a service's machine-readable operational meaning. The contract states stable *intent* — what the service is, independent of any orchestrator. What deliberately stays **outside** the contract: how the service is built, scheduled, scaled and wired (delivery concerns owned by the platform — which is why there is no port, scaling, image or lifecycle field), and what the service looks like at runtime (an observation, gathered as [evidence](../architecture.md#declaration-versus-observation) and evaluated against the contract, never baked into the declaration). This separation is what lets one contract be validated at authoring time, diffed in CI and verified against a running system without depending on how any of those systems work.
+
 ---
 
 The canonical JSON Schema is

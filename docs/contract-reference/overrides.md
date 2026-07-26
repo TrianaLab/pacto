@@ -29,7 +29,7 @@ integer (`int64`) → float (`float64`) → boolean → string. The first parse 
 succeeds wins; anything that matches none stays a string. Consequences worth
 knowing:
 
-- `--set scaling.replicas=3` → integer `3`; `--set ratio=1.5` → float `1.5`.
+- `--set readiness.minScore=80` → integer `80`; `--set ratio=1.5` → float `1.5`.
 - `--set flag=true` → boolean `true` (but `--set flag=1` → integer `1`, not boolean).
 - A multi-dot semver like `--set service.version=1.0.0` has two dots, so it parses
   as none of the numeric/boolean types and **stays a string** (the desired result).
@@ -52,7 +52,7 @@ pacto validate my-service -f staging-values.yaml --set service.version=3.0.0
 pacto validate my-service --set configurations[0].values.DB_HOST=localhost
 
 # Set array elements using bracket notation
-pacto validate my-service --set interfaces[0].port=9090
+pacto validate my-service --set interfaces[0].visibility=internal
 ```
 
 ## Diff overrides
@@ -82,8 +82,8 @@ pacto diff old-service new-service \
 All overrides are validated against the Pacto JSON Schema after they are applied. This means invalid enum values, unknown fields, and type mismatches are rejected by every command — not just `validate` and `push`.
 
 ```bash
-# Rejected: "invalid" is not a valid enum value for runtime.state.type
-pacto explain my-service --set runtime.state.type=invalid
+# Rejected: "invalid" is not a valid enum value for state.type
+pacto explain my-service --set state.type=invalid
 
 # Rejected: "unknownField" is not defined in the schema
 pacto doc my-service --set service.unknownField=value
@@ -91,7 +91,7 @@ pacto doc my-service --set service.unknownField=value
 
 ## Environment-specific values files
 
-A common pattern is to maintain per-environment values files that override configuration and scaling for each deployment target. The base `pacto.yaml` defines defaults, and each values file layers environment-specific settings on top.
+A common pattern is to maintain per-environment values files that override configuration for each deployment target. The base `pacto.yaml` defines defaults, and each values file layers environment-specific settings on top.
 
 ```
 my-service/

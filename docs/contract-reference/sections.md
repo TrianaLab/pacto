@@ -238,7 +238,7 @@ In practice, organizations may combine both models — a platform-defined base s
 
 ## `policies`
 
-Defines or references policy constraints for the contract. Optional — services not subject to a policy may omit this section entirely. A policy is a JSON Schema that validates the contract itself, enabling platform teams to enforce organizational standards (e.g., require health endpoints, mandate specific ports, enforce visibility rules).
+Defines or references policy constraints for the contract. Optional — services not subject to a policy may omit this section entirely. A policy is a JSON Schema that validates the contract itself, enabling platform teams to enforce organizational standards (e.g., require a health capability, enforce interface visibility rules, mandate a declared owner or a readiness gate).
 
 When present, each entry must have a `name` and either `schema` or `ref` specified.
 

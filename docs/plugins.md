@@ -175,8 +175,8 @@ REQUEST=$(cat)
 # Extract fields using jq
 NAME=$(echo "$REQUEST" | jq -r '.contract.service.name')
 VERSION=$(echo "$REQUEST" | jq -r '.contract.service.version')
-WORKLOAD=$(echo "$REQUEST" | jq -r '.contract.runtime.workload // "n/a"')
-STATE=$(echo "$REQUEST" | jq -r '.contract.runtime.state.type // "n/a"')
+WORKLOAD=$(echo "$REQUEST" | jq -r '.contract.workload // "n/a"')
+STATE=$(echo "$REQUEST" | jq -r '.contract.state.type // "n/a"')
 
 # Generate a README
 CONTENT="# ${NAME}
@@ -264,4 +264,4 @@ if __name__ == "__main__":
 - **Write only to stdout.** Don't write files directly; return them in the response. Pacto handles file creation.
 - **Follow the protocol.** Return clean relative paths, write errors to stderr and exit non-zero on failure — see [Path safety](#path-safety) and [Errors](#errors) above for what Pacto enforces.
 - **Be deterministic.** Given the same input, produce the same output.
-- **Handle missing optional fields.** Not all contracts have `runtime`, `configurations`, `dependencies`, `scaling`, etc.
+- **Handle missing optional fields.** Only `pactoVersion` and `service` are required — not all contracts have `workload`, `state`, `configurations`, `dependencies` or `capabilities`.

@@ -8,6 +8,8 @@ Point the server at a bundle (`pacto mcp <bundle-ref>`) and it goes further: eve
 
 [MCP](https://modelcontextprotocol.io) is an open standard that lets AI tools invoke external functions through structured tool calls. With the Pacto MCP server, an assistant calls tools like `pacto_create` or `pacto_check` and gets structured JSON back — creating, editing and validating contracts in a single conversation instead of copy-pasting CLI output.
 
+MCP is an *integration surface*, not the definition of Pacto. The projection that turns a bundle's interface into callable tools lives in the framework-independent `pkg/capability` package; MCP is simply the transport this page uses to expose it. A different agent runtime could consume the same projection without MCP, and everything Pacto does — validate, diff, graph, enforce policy, evaluate evidence — works with no agent at all.
+
 ---
 
 ## How it works
@@ -55,9 +57,7 @@ Creates a new Pacto contract from structured input. The tool infers contract det
 | `data_shared_across_instances=true` | `persistence.scope: shared` |
 | `data_loss_impact=high` | `dataCriticality: high` |
 
-The persistence rows take effect only when `stores_data=true` — `stores_data` is what sets `state.type: stateful` and the default `dataCriticality: medium`. With `stores_data=false` the state stays stateless, local and ephemeral, and `data_shared_across_instances` is ignored; `data_loss_impact` still sets `dataCriticality` independently of `stores_data`. See [Contract reference](contract-reference/index.md) for the full runtime and state field definitions.
-
-**Scaling inputs:** `replicas` and `min_replicas`/`max_replicas` are mutually exclusive. If `replicas` is set, the min/max values are silently ignored (current behavior) — set either a fixed replica count or an auto-scaling range, not both.
+The persistence rows take effect only when `stores_data=true` — `stores_data` is what sets `state.type: stateful` and the default `dataCriticality: medium`. With `stores_data=false` the state stays stateless, local and ephemeral, and `data_shared_across_instances` is ignored; `data_loss_impact` still sets `dataCriticality` independently of `stores_data`. See [Contract reference](contract-reference/index.md) for the full workload and state field definitions.
 
 ### pacto_edit
 
@@ -69,8 +69,6 @@ Modifies an existing contract. Reads the current `pacto.yaml`, applies changes, 
 - `add_dependencies` / `remove_dependencies` — add or remove dependencies
 - Runtime flags (`stores_data`, `data_survives_restart`, etc.)
 - `dry_run` — validate without writing
-
-Scaling inputs follow the same rule as `pacto_create`: `replicas` and `min_replicas`/`max_replicas` are mutually exclusive, and setting `replicas` silently ignores the min/max values (current behavior).
 
 !!! warning
     `pacto_edit` only scaffolds stub files for HTTP and gRPC interfaces. Other interface types (e.g. `event`) are added to `pacto.yaml` with a `contract:` path, but no file is created for them, so `pacto_edit` can report success while a referenced interface file is missing. Create those files yourself after the edit.
@@ -93,7 +91,12 @@ Returns the Pacto format description and the full JSON Schema for `pacto.yaml`. 
 
 ## Agent capabilities
 
-Interfaces describe how software can be invoked; a **capability** is the agent-facing projection of a published interface — the same OpenAPI contract, rendered as tools an autonomous agent can call, with no per-tool glue written by the bundle author. Skills, described below, layer optional domain knowledge on top of that capability.
+The mental model is **bundle → capability → generated tools**. A bundle publishes interfaces; each interface represents a capability the service offers; Pacto *projects* every operation in that interface into a generated tool an agent can call, with no per-tool glue written by the bundle author. Two things this deliberately keeps separate:
+
+- **Generated tools are projections, not the contract's `capabilities` section.** The contract [`capabilities`](contract-reference/sections.md#capabilities) section declares observability endpoints (`health`/`metrics`/`extension`). The tools here are derived from a service's *interface* operations. Pacto invents no new capability on the service's behalf — it renders what the interface already describes.
+- **The contract gives the agent context around the tools.** The tools say what can be invoked; the surrounding contract (identity, dependencies, policies, state) tells the agent what the service *is*, so it can reason rather than guess.
+
+Skills, described below, layer optional domain knowledge on top of the generated tools.
 
 The authoring tools above are always available. When you additionally pass a **bundle reference** — a local directory or an `oci://` reference — Pacto turns that bundle's interfaces into executable agent tools:
 
@@ -342,8 +345,8 @@ Claude: [creates pacto.yaml with HTTP interface, postgres dependency,
          stateful runtime, and persistent storage]
 
 You:    Check the contract in ./payments-api
-Claude: payments-api is valid. Suggestions: add a health interface,
-        consider adding scaling configuration.
+Claude: payments-api is valid. Suggestions: declare a health capability
+        bound to the rest-api interface, add an owner.
 ```
 
 ---

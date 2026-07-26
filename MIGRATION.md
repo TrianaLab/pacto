@@ -4,6 +4,24 @@ This document is the authoritative guide for migrating Pacto contracts from v1.0
 
 Pacto 2.0 is a clean-break release that refines the contract model, introduces a compliance evaluation framework and consolidates the service-contract shape around core principles: workload lifecycle is a service concern, capabilities are extensible and interface-bound, and configuration and dependency requirements are explicit.
 
+## Why v2 moves runtime data out of the contract
+
+The single principle behind most of the shape changes below: **the contract defines stable operational intent; runtime-specific observation and execution belong to integrations.** A contract should say what a service *is*, not how a particular platform deploys it or what a particular cluster currently shows. When intent and runtime detail are mixed, the contract drifts every time the deployment changes and cannot be reasoned about independently of the system that runs it.
+
+So v2 sorts each v1 field into where it actually belongs:
+
+| v1 field | Belongs to | v2 home |
+|---|---|---|
+| `service.image` | Delivery (which artifact to run) | Deployment manifests / CI, not the contract |
+| `interfaces[].port` | Deployment (where it is bound) | Deployment manifests; the contract keeps the interface `ref` |
+| `runtime.lifecycle` (upgrade strategy, graceful shutdown) | Deployment (how it rolls out) | Deployment manifests |
+| `scaling` (replicas, min/max) | Deployment (how it scales) | Deployment manifests / autoscaler config |
+| `runtime.workload`, `runtime.state` | Intent (what it is) | Promoted to top-level `workload`, `state` |
+| `runtime.health`, `runtime.metrics` | Intent (what it exposes) | The discriminated `capabilities[]` array |
+| *(new in v2)* runtime observations | Observation (what it looks like now) | External `Evidence`, evaluated against the contract — never stored in it |
+
+Anything genuinely service-specific that has no first-class field can go in `metadata` (free-form) or `extensions` (namespaced tooling data). Runtime *state* is never declared: it is collected as evidence and compared against the contract by the evaluation engine. The concrete field-by-field steps follow.
+
 ## Quick Reference
 
 | Aspect | v1 | v2 |
