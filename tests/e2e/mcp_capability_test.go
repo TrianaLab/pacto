@@ -31,14 +31,14 @@ func TestMCPCapabilityInvokesLiveEndpoint(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	pactoYAML := `pactoVersion: "1.0"
+	pactoYAML := `pactoVersion: "2.0"
 service:
   name: ping-service
   version: 1.0.0
 interfaces:
   - name: http
-    type: http
-    contract: interfaces/openapi.json
+    type: openapi
+    ref: interfaces/openapi.json
 `
 	writeFile(t, filepath.Join(dir, "pacto.yaml"), pactoYAML)
 	writeFile(t, filepath.Join(dir, "interfaces", "openapi.json"),

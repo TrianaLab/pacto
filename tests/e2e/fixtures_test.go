@@ -131,6 +131,16 @@ message HealthResponse {
 }
 `
 
+// grpcSpecTemplate is a JSON-encoded gRPC service descriptor. v2 interface spec
+// files must be JSON- or YAML-parseable; a raw .proto is not, so grpc interfaces
+// reference a .json descriptor. Two %s args: package name and service prefix.
+const grpcSpecTemplate = `{
+  "package": "%s",
+  "service": "%sService",
+  "rpcs": ["Health"]
+}
+`
+
 const configSchemaTemplate = `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
@@ -140,7 +150,7 @@ const configSchemaTemplate = `{
 `
 
 func myAppContractV1(registryHost string) string {
-	return fmt.Sprintf(`pactoVersion: "1.0"
+	return fmt.Sprintf(`pactoVersion: "2.0"
 
 service:
   name: my-app
@@ -150,14 +160,14 @@ service:
 
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 
 configurations:
   - name: default
     schema: configuration/schema.json
+    required: true
 
 dependencies:
   - name: postgres
@@ -169,25 +179,13 @@ dependencies:
     required: false
     compatibility: "^1.0.0"
 
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-  health:
-    interface: api
-    path: /health
-    initialDelaySeconds: 5
-
-scaling:
-  min: 1
-  max: 5
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 
 metadata:
   team: platform
@@ -195,7 +193,7 @@ metadata:
 `, registryHost, registryHost)
 }
 
-const postgresContractV1 = `pactoVersion: "1.0"
+const postgresContractV1 = `pactoVersion: "2.0"
 
 service:
   name: postgres-pacto
@@ -206,36 +204,28 @@ service:
 interfaces:
   - name: db
     type: grpc
-    port: 5432
     visibility: internal
-    contract: interfaces/db.proto
+    ref: interfaces/db.json
 
 configurations:
   - name: default
     schema: configuration/schema.json
+    required: true
 
-runtime:
-  workload: service
-  state:
-    type: stateful
-    persistence:
-      scope: shared
-      durability: persistent
-    dataCriticality: high
-  health:
-    interface: db
-    path: /health
-
-scaling:
-  min: 1
-  max: 3
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
 
 metadata:
   team: data
   tier: critical
 `
 
-const redisContractV1 = `pactoVersion: "1.0"
+const redisContractV1 = `pactoVersion: "2.0"
 
 service:
   name: redis-pacto
@@ -246,36 +236,28 @@ service:
 interfaces:
   - name: cache
     type: grpc
-    port: 6379
     visibility: internal
-    contract: interfaces/cache.proto
+    ref: interfaces/cache.json
 
 configurations:
   - name: default
     schema: configuration/schema.json
+    required: true
 
-runtime:
-  workload: service
-  state:
-    type: stateful
-    persistence:
-      scope: shared
-      durability: persistent
-    dataCriticality: medium
-  health:
-    interface: cache
-    path: /health
-
-scaling:
-  min: 1
-  max: 3
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: medium
 
 metadata:
   team: data
   tier: standard
 `
 
-const redisContractV2 = `pactoVersion: "1.0"
+const redisContractV2 = `pactoVersion: "2.0"
 
 service:
   name: redis-pacto
@@ -286,59 +268,46 @@ service:
 interfaces:
   - name: cache
     type: grpc
-    port: 6379
     visibility: internal
-    contract: interfaces/cache.proto
+    ref: interfaces/cache.json
 
 configurations:
   - name: default
     schema: configuration/schema.json
+    required: true
 
-runtime:
-  workload: service
-  state:
-    type: stateful
-    persistence:
-      scope: shared
-      durability: persistent
-    dataCriticality: high
-  health:
-    interface: cache
-    path: /health
-
-scaling:
-  min: 2
-  max: 6
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
 
 metadata:
   team: data
   tier: critical
 `
 
-const brokenContract = `pactoVersion: "1.0"
+const brokenContract = `pactoVersion: "2.0"
 service:
   name: broken-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: wrong-name
-    path: /health
+    type: openapi
+    ref: interfaces/openapi.yaml
+capabilities:
+  - type: health
+    binding:
+      type: http
+      interface: wrong-name
+      path: /health
 `
 
 // myAppContractV2 references redis v2 (upgraded) and drops postgres (removed).
 func myAppContractV2(registryHost string) string {
-	return fmt.Sprintf(`pactoVersion: "1.0"
+	return fmt.Sprintf(`pactoVersion: "2.0"
 
 service:
   name: my-app
@@ -348,14 +317,14 @@ service:
 
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 
 configurations:
   - name: default
     schema: configuration/schema.json
+    required: true
 
 dependencies:
   - name: redis
@@ -363,24 +332,13 @@ dependencies:
     required: true
     compatibility: "^2.0.0"
 
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-  health:
-    interface: api
-    path: /health
-
-scaling:
-  min: 1
-  max: 5
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 
 metadata:
   team: platform
@@ -445,7 +403,7 @@ func writePostgresBundle(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "postgres-pacto")
 	return writeBundleDir(t, dir, postgresContractV1, map[string]string{
-		"db.proto": fmt.Sprintf(protoTemplate, "postgres", "Postgres"),
+		"db.json": fmt.Sprintf(grpcSpecTemplate, "postgres", "Postgres"),
 	})
 }
 
@@ -454,7 +412,7 @@ func writeRedisV1Bundle(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "redis-pacto-v1")
 	return writeBundleDir(t, dir, redisContractV1, map[string]string{
-		"cache.proto": fmt.Sprintf(protoTemplate, "redis", "Redis"),
+		"cache.json": fmt.Sprintf(grpcSpecTemplate, "redis", "Redis"),
 	})
 }
 
@@ -463,31 +421,26 @@ func writeRedisV2Bundle(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "redis-pacto-v2")
 	return writeBundleDir(t, dir, redisContractV2, map[string]string{
-		"cache.proto": fmt.Sprintf(protoTemplate, "redis", "Redis"),
+		"cache.json": fmt.Sprintf(grpcSpecTemplate, "redis", "Redis"),
 	})
 }
 
-const openapiDiffContract = `pactoVersion: "1.0"
+const openapiDiffContract = `pactoVersion: "2.0"
 service:
   name: user-api
   version: "%s"
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    ref: interfaces/openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 
 const sbomSPDXV1 = `{
@@ -557,27 +510,22 @@ const sbomCDXV1 = `{
   ]
 }`
 
-const sbomServiceContract = `pactoVersion: "1.0"
+const sbomServiceContract = `pactoVersion: "2.0"
 service:
   name: sbom-svc
   version: "%s"
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    ref: interfaces/openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 
 // writeBundleWithSBOM creates a bundle directory with an SBOM file.
@@ -598,32 +546,26 @@ func writeBundleWithSBOM(t *testing.T, version, sbomFileName, sbomContent string
 	return bundlePath
 }
 
-const twoInterfaceContract = `pactoVersion: "1.0"
+const twoInterfaceContract = `pactoVersion: "2.0"
 service:
   name: two-iface-svc
   version: "1.0.0"
 interfaces:
   - name: public-api
-    type: http
-    port: 8080
+    type: openapi
     visibility: public
-    contract: interfaces/public.yaml
+    ref: interfaces/public.yaml
   - name: admin-api
-    type: http
-    port: 9090
+    type: openapi
     visibility: internal
-    contract: interfaces/admin.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: public-api
-    path: /health
+    ref: interfaces/admin.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 
 const publicOpenAPI = `openapi: "3.0.0"
@@ -664,21 +606,20 @@ paths:
           description: Updated
 `
 
-const zeroInterfaceContract = `pactoVersion: "1.0"
+const zeroInterfaceContract = `pactoVersion: "2.0"
 service:
   name: zero-iface-svc
   version: "1.0.0"
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 
-// writeTwoInterfaceBundle creates a bundle with two HTTP/OpenAPI interfaces.
+// writeTwoInterfaceBundle creates a bundle with two openapi interfaces.
 func writeTwoInterfaceBundle(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "two-iface-svc")
@@ -801,7 +742,7 @@ func writeOpenAPIDiffBundleV2(t *testing.T) string {
 
 // ── Structured owner fixture ──
 
-const structuredOwnerContract = `pactoVersion: "1.0"
+const structuredOwnerContract = `pactoVersion: "2.0"
 
 service:
   name: owned-service
@@ -818,21 +759,16 @@ service:
 
 interfaces:
   - name: api
-    type: http
-    port: 8080
-    contract: interfaces/openapi.yaml
+    type: openapi
+    ref: interfaces/openapi.yaml
 
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 
 // writeStructuredOwnerBundle creates a bundle with structured owner metadata.

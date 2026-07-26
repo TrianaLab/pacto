@@ -38,7 +38,7 @@ func TestPolicyRefCycleViaOCI(t *testing.T) {
 	t.Parallel()
 	reg := newTestRegistry(t)
 
-	aYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	aYAML := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: policy-a
   version: 1.0.0
@@ -46,7 +46,7 @@ policies:
   - name: b
     ref: oci://%s/policy-b:1.0.0
 `, reg.host)
-	bYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	bYAML := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: policy-b
   version: 1.0.0
@@ -60,7 +60,7 @@ policies:
 	pushRawBundle(t, reg, reg.host+"/policy-b:1.0.0", bDir, bYAML)
 
 	// A consumer referencing policy-a triggers consumer -> A -> B -> A.
-	consumerYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	consumerYAML := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: cycle-consumer
   version: 1.0.0
@@ -85,7 +85,7 @@ func TestPolicyRefSharedAcrossSiblings(t *testing.T) {
 	reg := newTestRegistry(t)
 
 	// A shared policy bundle with a trivially-satisfied schema (no refs of its own).
-	sharedYAML := `pactoVersion: "1.0"
+	sharedYAML := `pactoVersion: "2.0"
 service:
   name: shared-policy
   version: 1.0.0
@@ -96,7 +96,7 @@ service:
 	}
 
 	// Consumer references the same shared policy twice (two siblings).
-	consumerYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	consumerYAML := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: diamond-consumer
   version: 1.0.0
@@ -119,30 +119,25 @@ policies:
 func TestPolicyLocalSchema(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "policy-svc")
-	contractYAML := `pactoVersion: "1.0"
+	contractYAML := `pactoVersion: "2.0"
 service:
   name: policy-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: default
     schema: policy/schema.json
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "policy-svc", "1.0.0"),
@@ -166,30 +161,25 @@ runtime:
 func TestPolicyRefUnresolvable(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "policy-ref-svc")
-	contractYAML := `pactoVersion: "1.0"
+	contractYAML := `pactoVersion: "2.0"
 service:
   name: policy-ref-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: platform
     ref: oci://ghcr.io/acme/platform-policy:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "policy-ref-svc", "1.0.0"),
@@ -205,30 +195,26 @@ runtime:
 func TestConfigRef(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "config-ref-svc")
-	contractYAML := `pactoVersion: "1.0"
+	contractYAML := `pactoVersion: "2.0"
 service:
   name: config-ref-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 configurations:
   - name: default
     ref: oci://ghcr.io/acme/platform-config:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    required: true
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "config-ref-svc", "1.0.0"),
@@ -244,28 +230,23 @@ runtime:
 func TestPolicyEmptyRejected(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "empty-policy-svc")
-	contractYAML := `pactoVersion: "1.0"
+	contractYAML := `pactoVersion: "2.0"
 service:
   name: empty-policy-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies: []
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "empty-policy-svc", "1.0.0"),
@@ -281,30 +262,25 @@ runtime:
 func TestPolicyMissingSchemaFile(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "missing-policy-svc")
-	contractYAML := `pactoVersion: "1.0"
+	contractYAML := `pactoVersion: "2.0"
 service:
   name: missing-policy-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: default
     schema: policy/schema.json
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "missing-policy-svc", "1.0.0"),
@@ -321,30 +297,25 @@ func TestPushRejectsLocalPolicyRef(t *testing.T) {
 	t.Parallel()
 	reg := newTestRegistry(t)
 	dir := filepath.Join(t.TempDir(), "local-policy-svc")
-	contractYAML := `pactoVersion: "1.0"
+	contractYAML := `pactoVersion: "2.0"
 service:
   name: local-policy-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: platform
     ref: file://../platform-policy
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "local-policy-svc", "1.0.0"),
@@ -362,14 +333,10 @@ func TestPolicyOCIRefSuccess(t *testing.T) {
 
 	// Push a policy contract to the registry
 	policyDir := filepath.Join(t.TempDir(), "platform-policy")
-	policyContractYAML := `pactoVersion: "1.0"
+	policyContractYAML := `pactoVersion: "2.0"
 service:
   name: platform-policy
   version: 1.0.0
-interfaces:
-  - name: api
-    type: http
-    port: 8080
 `
 	policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyContractYAML,
 		`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["service"]}`)
@@ -383,16 +350,15 @@ interfaces:
 
 	// Create a service that references this policy
 	svcDir := filepath.Join(t.TempDir(), "svc-with-ref-policy")
-	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	svcYAML := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: svc-with-ref-policy
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: platform
     ref: oci://%s/platform-policy:1.0.0
@@ -412,19 +378,15 @@ func TestPolicyOCIRefViolated(t *testing.T) {
 	t.Parallel()
 	reg := newTestRegistry(t)
 
-	// Push a policy that requires runtime.health
+	// Push a policy that requires a health capability (v2 home of runtime.health)
 	policyDir := filepath.Join(t.TempDir(), "strict-policy")
-	policyYAML := `pactoVersion: "1.0"
+	policyYAML := `pactoVersion: "2.0"
 service:
   name: strict-policy
   version: 1.0.0
-interfaces:
-  - name: api
-    type: http
-    port: 8080
 `
 	policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyYAML,
-		`{"type":"object","required":["runtime"],"properties":{"runtime":{"type":"object","required":["health"]}}}`)
+		`{"type":"object","required":["capabilities"],"properties":{"capabilities":{"type":"array","contains":{"type":"object","required":["type"],"properties":{"type":{"const":"health"}}}}}}`)
 	if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -433,18 +395,17 @@ interfaces:
 		t.Fatalf("failed to push policy bundle: %v", err)
 	}
 
-	// Create a service without health — policy violated
+	// Create a service without a health capability — policy violated
 	svcDir := filepath.Join(t.TempDir(), "no-health-svc")
-	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	svcYAML := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: no-health-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: strict
     ref: oci://%s/strict-policy:1.0.0
@@ -466,14 +427,10 @@ func TestPolicyMixedLocalAndRef(t *testing.T) {
 
 	// Push a ref policy that requires "service"
 	policyDir := filepath.Join(t.TempDir(), "ref-policy")
-	policyYAML := `pactoVersion: "1.0"
+	policyYAML := `pactoVersion: "2.0"
 service:
   name: ref-policy
   version: 1.0.0
-interfaces:
-  - name: api
-    type: http
-    port: 8080
 `
 	policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyYAML,
 		`{"type":"object","required":["service"]}`)
@@ -485,37 +442,32 @@ interfaces:
 		t.Fatalf("failed to push policy: %v", err)
 	}
 
-	// Create service with both local policy (requires runtime.health) and ref policy
+	// Create service with both local policy (requires state) and ref policy
 	svcDir := filepath.Join(t.TempDir(), "mixed-policy-svc")
-	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	svcYAML := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: mixed-policy-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: local
     schema: policy/schema.json
   - name: ref
     ref: oci://%s/ref-policy:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `, reg.host)
 	svcBundlePath := writeBundleDirWithPolicy(t, svcDir, svcYAML,
-		`{"type":"object","required":["runtime"],"properties":{"runtime":{"type":"object","required":["health"]}}}`)
+		`{"type":"object","required":["state"]}`)
 	if err := os.MkdirAll(filepath.Join(svcBundlePath, "interfaces"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -535,19 +487,19 @@ func TestMultiConfigValidation(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "multi-config-svc")
 	configSchema := `{"type":"object","properties":{"PORT":{"type":"integer"}}}`
-	contractYAML := `pactoVersion: "1.0"
+	contractYAML := `pactoVersion: "2.0"
 service:
   name: multi-config-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 configurations:
   - name: app
     schema: configuration/schema.json
+    required: true
     values:
       PORT: 8080
 `
@@ -566,61 +518,52 @@ func TestPushRejectsRemotePolicyViolation(t *testing.T) {
 	t.Parallel()
 	reg := newTestRegistry(t)
 
-	// Push a policy that requires "scaling"
-	policyDir := filepath.Join(t.TempDir(), "scaling-policy")
-	policyYAML := `pactoVersion: "1.0"
+	// Push a policy that requires "readiness" (a v2 field a service may omit).
+	policyDir := filepath.Join(t.TempDir(), "readiness-policy")
+	policyYAML := `pactoVersion: "2.0"
 service:
-  name: scaling-policy
+  name: readiness-policy
   version: 1.0.0
-interfaces:
-  - name: api
-    type: http
-    port: 8080
 `
 	policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyYAML,
-		`{"type":"object","required":["scaling"],"properties":{"scaling":{"type":"object","required":["replicas"]}}}`)
+		`{"type":"object","required":["readiness"]}`)
 	if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/scaling-policy:1.0.0", "-p", policyBundlePath)
+	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/readiness-policy:1.0.0", "-p", policyBundlePath)
 	if err != nil {
 		t.Fatalf("failed to push policy bundle: %v", err)
 	}
 
-	// Create a service without scaling — push should fail
-	svcDir := filepath.Join(t.TempDir(), "no-scaling-svc")
-	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	// Create a service without readiness — push should fail
+	svcDir := filepath.Join(t.TempDir(), "no-readiness-svc")
+	svcYAML := fmt.Sprintf(`pactoVersion: "2.0"
 service:
-  name: no-scaling-svc
+  name: no-readiness-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
-  - name: scaling
-    ref: oci://%s/scaling-policy:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+  - name: readiness
+    ref: oci://%s/readiness-policy:1.0.0
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `, reg.host)
 	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
-		"openapi.yaml": fmt.Sprintf(openapiTemplate, "no-scaling-svc", "1.0.0"),
+		"openapi.yaml": fmt.Sprintf(openapiTemplate, "no-readiness-svc", "1.0.0"),
 	})
 
-	_, err = runCommand(t, reg, "push", "oci://"+reg.host+"/no-scaling-svc:1.0.0", "-p", svcBundlePath)
+	_, err = runCommand(t, reg, "push", "oci://"+reg.host+"/no-readiness-svc:1.0.0", "-p", svcBundlePath)
 	if err == nil {
-		t.Fatal("expected push to reject contract that violates remote policy (missing scaling)")
+		t.Fatal("expected push to reject contract that violates remote policy (missing readiness)")
 	}
 }
 
@@ -630,14 +573,10 @@ func TestPushSucceedsWithRemotePolicyCompliance(t *testing.T) {
 
 	// Push a policy that requires "service" (which every valid contract has)
 	policyDir := filepath.Join(t.TempDir(), "basic-policy")
-	policyYAML := `pactoVersion: "1.0"
+	policyYAML := `pactoVersion: "2.0"
 service:
   name: basic-policy
   version: 1.0.0
-interfaces:
-  - name: api
-    type: http
-    port: 8080
 `
 	policyBundlePath := writeBundleDirWithPolicy(t, policyDir, policyYAML,
 		`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["service"]}`)
@@ -651,30 +590,25 @@ interfaces:
 
 	// Create a compliant service — push should succeed
 	svcDir := filepath.Join(t.TempDir(), "compliant-svc")
-	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	svcYAML := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: compliant-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: basic
     ref: oci://%s/basic-policy:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `, reg.host)
 	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "compliant-svc", "1.0.0"),
@@ -696,14 +630,10 @@ func TestPushPolicyProviderWithExplicitPolicies(t *testing.T) {
 	if err := os.MkdirAll(policyDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	policyYAML := `pactoVersion: "1.0"
+	policyYAML := `pactoVersion: "2.0"
 service:
   name: explicit-policy
   version: 1.0.0
-interfaces:
-  - name: api
-    type: http
-    port: 8080
 policies:
   - name: default
     schema: policy/schema.json
@@ -721,30 +651,25 @@ policies:
 
 	// Consumer references this policy — should validate with exactly 1 policy (no double enforcement)
 	svcDir := filepath.Join(t.TempDir(), "consumer-explicit")
-	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	svcYAML := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: consumer-explicit
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: explicit
     ref: oci://%s/explicit-policy:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `, reg.host)
 	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "consumer-explicit", "1.0.0"),
@@ -766,14 +691,10 @@ func TestPushPolicyProviderWithCustomSchemaPath(t *testing.T) {
 	if err := os.MkdirAll(policyDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	policyYAML := `pactoVersion: "1.0"
+	policyYAML := `pactoVersion: "2.0"
 service:
   name: custom-path-policy
   version: 1.0.0
-interfaces:
-  - name: api
-    type: http
-    port: 8080
 policies:
   - name: custom
     schema: policy/custom.json
@@ -791,30 +712,25 @@ policies:
 
 	// Consumer references this policy — should resolve via recursion (no fixed-path needed)
 	svcDir := filepath.Join(t.TempDir(), "consumer-custom")
-	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	svcYAML := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: consumer-custom
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: custom-path
     ref: oci://%s/custom-path-policy:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `, reg.host)
 	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "consumer-custom", "1.0.0"),
@@ -838,34 +754,26 @@ func TestPushPolicyProviderWithMultiplePolicies(t *testing.T) {
 	}
 	// The provider itself must comply with its own policies, so both schemas
 	// must be satisfiable by the provider's contract.
-	policyYAML := `pactoVersion: "1.0"
+	policyYAML := `pactoVersion: "2.0"
 service:
   name: multi-policy
   version: 1.0.0
-interfaces:
-  - name: api
-    type: http
-    port: 8080
 policies:
   - name: service
     schema: policy/service.json
-  - name: runtime
-    schema: policy/runtime.json
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+  - name: state
+    schema: policy/state.json
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	policyBundlePath := writeBundleDirWithPolicies(t, policyDir, policyYAML, map[string]string{
 		"policy/service.json": `{"type":"object","required":["service"]}`,
-		"policy/runtime.json": `{"type":"object","required":["runtime"],"properties":{"runtime":{"type":"object","required":["health"]}}}`,
+		"policy/state.json":   `{"type":"object","required":["state"]}`,
 	})
 	if err := os.MkdirAll(filepath.Join(policyBundlePath, "interfaces"), 0755); err != nil {
 		t.Fatal(err)
@@ -877,30 +785,25 @@ runtime:
 
 	// Consumer that complies with both policies
 	svcDir := filepath.Join(t.TempDir(), "consumer-multi")
-	svcYAML := fmt.Sprintf(`pactoVersion: "1.0"
+	svcYAML := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: consumer-multi
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: multi
     ref: oci://%s/multi-policy:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `, reg.host)
 	svcBundlePath := writeBundleDir(t, svcDir, svcYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "consumer-multi", "1.0.0"),
@@ -912,18 +815,17 @@ runtime:
 	}
 	assertContains(t, output, "is valid")
 
-	// Consumer that violates runtime policy (no health) — should fail
+	// Consumer that violates state policy (no state) — should fail
 	svcDir2 := filepath.Join(t.TempDir(), "consumer-multi-fail")
-	svcYAML2 := fmt.Sprintf(`pactoVersion: "1.0"
+	svcYAML2 := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: consumer-multi-fail
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: multi
     ref: oci://%s/multi-policy:1.0.0
@@ -943,30 +845,26 @@ func TestPushRejectsLocalConfigRef(t *testing.T) {
 	t.Parallel()
 	reg := newTestRegistry(t)
 	dir := filepath.Join(t.TempDir(), "local-config-svc")
-	contractYAML := `pactoVersion: "1.0"
+	contractYAML := `pactoVersion: "2.0"
 service:
   name: local-config-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 configurations:
   - name: default
     ref: file://../platform-config
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    required: true
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "local-config-svc", "1.0.0"),

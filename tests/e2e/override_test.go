@@ -10,7 +10,7 @@ import (
 )
 
 // Base contract for override tests — a minimal valid contract with a config schema.
-const overrideBaseContract = `pactoVersion: "1.0"
+const overrideBaseContract = `pactoVersion: "2.0"
 service:
   name: override-svc
   version: "1.0.0"
@@ -18,24 +18,20 @@ service:
     team: platform
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 configurations:
   - name: default
     schema: configuration/schema.json
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    required: true
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 
 // A config schema that expects DB_HOST (string) and DB_PORT (integer).
@@ -224,6 +220,7 @@ func TestOverrideConfigValues(t *testing.T) {
 		valuesFile := writeValuesFile(t, t.TempDir(), "config-values.yaml", `configurations:
   - name: default
     schema: configuration/schema.json
+    required: true
     values:
       DB_HOST: db.example.com
       DB_PORT: 3306
@@ -244,6 +241,7 @@ func TestOverrideConfigValues(t *testing.T) {
 		valuesFile := writeValuesFile(t, t.TempDir(), "config-values.yaml", `configurations:
   - name: default
     schema: configuration/schema.json
+    required: true
     values:
       DB_PORT: 5432
 `)

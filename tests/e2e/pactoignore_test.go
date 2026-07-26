@@ -11,7 +11,7 @@ import (
 
 // ignoreContract is a minimal valid contract whose only interface points at
 // interfaces/openapi.yaml, so the kept interface file is exercised end-to-end.
-const ignoreContract = `pactoVersion: "1.0"
+const ignoreContract = `pactoVersion: "2.0"
 service:
   name: ignore-svc
   version: 1.0.0
@@ -19,21 +19,16 @@ service:
     team: platform
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    ref: interfaces/openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 
 const pactoignoreFile = `# test ignore file
@@ -109,14 +104,14 @@ func TestPactoignoreCannotDropPactoYAML(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "interfaces"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	// Contract uses a .proto interface so the catch-all `*.yaml` ignore would
-	// otherwise have nothing legitimate to protect except pacto.yaml itself.
+	// Contract uses a non-YAML (.json) interface so the catch-all `*.yaml` ignore
+	// would otherwise have nothing legitimate to protect except pacto.yaml itself.
 	contractYAML := depServiceContract("protect-svc", "1.0.0", "", "")
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "interfaces", "api.proto"),
-		[]byte(fmt.Sprintf(protoTemplate, "protect", "Protect")), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "interfaces", "api.json"),
+		[]byte(fmt.Sprintf(grpcSpecTemplate, "protect", "Protect")), 0644); err != nil {
 		t.Fatal(err)
 	}
 	// The adversarial .pactoignore: try to drop pacto.yaml directly and via glob.
@@ -186,7 +181,7 @@ func TestPactoignoreIgnoredDirHidesReferencedFile(t *testing.T) {
 	}
 
 	// Contract references api/openapi.yaml.
-	contractYAML := `pactoVersion: "1.0"
+	contractYAML := `pactoVersion: "2.0"
 service:
   name: ignore-dir-svc
   version: 1.0.0
@@ -194,21 +189,16 @@ service:
     team: platform
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: api/openapi.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    ref: api/openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0644); err != nil {
 		t.Fatal(err)
@@ -282,7 +272,7 @@ func TestPactoignoreIgnoredNestedDirHidesReferencedFile(t *testing.T) {
 	}
 
 	// Contract references deeply/nested/dir/openapi.yaml.
-	contractYAML := `pactoVersion: "1.0"
+	contractYAML := `pactoVersion: "2.0"
 service:
   name: ignore-nested-svc
   version: 1.0.0
@@ -290,21 +280,16 @@ service:
     team: platform
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: deeply/nested/dir/openapi.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    ref: deeply/nested/dir/openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0644); err != nil {
 		t.Fatal(err)
@@ -346,7 +331,7 @@ func TestPactoignoreAnchoredDirPatternDoesNotMatchSubdir(t *testing.T) {
 	}
 
 	// Contract references sub/build/api.yaml.
-	contractYAML := `pactoVersion: "1.0"
+	contractYAML := `pactoVersion: "2.0"
 service:
   name: anchored-svc
   version: 1.0.0
@@ -354,21 +339,16 @@ service:
     team: platform
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: sub/build/api.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    ref: sub/build/api.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(contractYAML), 0644); err != nil {
 		t.Fatal(err)
