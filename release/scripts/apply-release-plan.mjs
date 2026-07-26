@@ -72,13 +72,8 @@ function assert(cond, msg) {
   assert(new RegExp(`^appVersion: "${esc(appVersion)}"$`, 'm').test(after), `${rel}: appVersion != ${appVersion}`);
   assert(after.includes(`${opImageCoord}:${appVersion}`), `${rel}: artifacthub image tag != ${appVersion}`);
 }
-
-// ---- 3. chart values.yaml: default operator image tag = appVersion ----
-{
-  const rel = 'integrations/kubernetes/charts/pacto-operator/values.yaml';
-  const after = edit(rel, (s) => s.replace(/^([ \t]+tag:).*$/m, `$1 "${imageTag}"`));
-  assert(new RegExp(`^[ \\t]+tag: "${esc(imageTag)}"$`, 'm').test(after), `${rel}: image.tag != ${imageTag}`);
-}
+  // image.tag intentionally NOT pinned in values.yaml: the chart deployment defaults
+  // the tag to .Chart.AppVersion, so pinning it here would only create helm-docs drift.
 
 // ---- 4. artifacthub-repo.yml consistency (repo metadata carries no version) ----
 {

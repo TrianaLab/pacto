@@ -100,6 +100,7 @@ artifact-drift:
 # (plan/manifest publish-integrity refusals) WITHOUT contacting any registry.
 release-dry-run:
 	node release/scripts/build-release-plan.mjs
+	bash release/scripts/verify-standalone.sh
 	node release/scripts/publish.mjs --dry-run
 
 ci-test:
