@@ -37,7 +37,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `fullnameOverride` | `""` | Override the full release name |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `image.repository` | `ghcr.io/trianalab/pacto-operator/pacto-controller` | Controller image repository |
-| `image.tag` | `4.7.0` | Overrides the image tag (default is the chart appVersion) |
+| `image.tag` | `""` | Overrides the image tag (default is the chart appVersion) |
 | `imagePullSecrets` | `[]` | Image pull secrets for private registries |
 | `leaderElection.enabled` | `true` | Enable leader election for HA deployments |
 | `metrics.enabled` | `true` | Enable the metrics endpoint |
