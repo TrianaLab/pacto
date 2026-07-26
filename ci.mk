@@ -83,8 +83,14 @@ docs-serve:
 # serve from that branch (Settings > Pages > "Deploy from a branch: gh-pages /root");
 # mike creates gh-pages on first run. The WASM demo is included when built into
 # docs/demo/ first (the deploy workflow folds it there; locally run `make docs-build`).
+# Docs deploy is a release-transaction unit (release/DESIGN-release-safety.md item
+# 11): release.yml passes the EXACT released core version via PACTO_DOCS_CORE_VERSION
+# so the versioned snapshot never depends on "latest release" guessing. The
+# non-release docs.yml push path leaves it unset and falls back to the committed
+# manifest (redeploying the current core version's docs). A k8s-only release keeps
+# the same core version and refreshes the integration docs inside that snapshot.
 docs-deploy: docs-generate
-	@ver=$$(python3 -c "import json;print(json.load(open('release/release-manifest.json'))['units']['core']['version'])"); \
+	@ver=$${PACTO_DOCS_CORE_VERSION:-$$(python3 -c "import json;print(json.load(open('release/release-manifest.json'))['units']['core']['version'])")}; \
 	echo "==> mike deploy --push --update-aliases $$ver latest"; \
 	mike deploy --push --update-aliases "$$ver" latest
 
