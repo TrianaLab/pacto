@@ -100,7 +100,7 @@ var commandNotes = map[string]string{
 		"See the [readiness reference](contract-reference/sections.md#readiness) for the score and gate semantics.\n\n" +
 		"**Exit code:** Non-zero if validation fails.",
 
-	"explain": "**Readiness output.** When the contract declares a `readiness` section (requires `pactoVersion: \"1.2\"`), `explain` adds a Readiness block: " +
+	"explain": "**Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: \"2.0\"` feature), `explain` adds a Readiness block: " +
 		"the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, " +
 		"the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state), and a per-check table " +
 		"showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight, and `evidence`. " +
