@@ -8,7 +8,7 @@
 
 **Kubernetes operator that checks whether running workloads match their declared [Pacto](https://github.com/TrianaLab/pacto) service contracts.**
 
-Teams declare operational intent in a contract — workload type, upgrade strategy, images, probes, storage — then deploy separately through Helm or Kustomize, and nothing connects the two sides at runtime, so contracts drift from reality silently. The operator closes that gap: it watches `Pacto` custom resources, reads the referenced contract, observes the live workload and reports whether they align — continuously, read-only, never modifying your workloads.
+Teams declare operational intent in a contract — workload type, state and persistence, interfaces, capabilities, dependencies and configurations — then deploy separately through Helm or Kustomize, and nothing connects the two sides at runtime, so contracts drift from reality silently. The operator closes that gap: it watches `Pacto` custom resources, reads the referenced contract, observes the live workload and reports whether they align — continuously, read-only, never modifying your workloads.
 
 **[Pacto](https://github.com/TrianaLab/pacto)** · **[Documentation](https://trianalab.github.io/pacto)** · **[Contract reference](https://trianalab.github.io/pacto/contract-reference)** · **[Helm chart](charts/pacto-operator/)**
 
@@ -53,8 +53,8 @@ spec:
 The operator resolves the highest semver tag, snapshots it as a `PactoRevision`, observes the `my-service` Deployment and Service, runs the checks and sets the status:
 
 ```bash
-kubectl get pactos                 # STATUS: Compliant | Warning | NonCompliant | Reference
-kubectl describe pacto my-service  # per-check conditions
+kubectl get pactos                 # STATUS: one of Compliant, Warning, NonCompliant, Reference, Unknown, Invalid, NotEvaluated
+kubectl describe pacto my-service  # conditions + findings
 ```
 
 Full install options (Helm values, Kustomize) are in [Installation](#installation).
@@ -89,27 +89,62 @@ Each reconciliation follows a fixed pipeline:
 
 1. **Loader** resolves the contract from an OCI registry (auto-selecting the highest semver tag) or parses inline YAML.
 2. **Observer** reads runtime state from the Kubernetes API — workload kind, strategy, images, probes, volumes, termination grace period.
-3. **Validator** is a pure function: `(contract, snapshot, hasService) → result`. The `hasService` flag tells the validator whether a runtime target was bound, so it can distinguish a missing Service from reference-only mode. No side effects.
+3. **Validator** is the engine's pure evaluator, `validation.Evaluate(contract, evidenceSet) → (findings, coverage)`. The operator turns the observed runtime into an `EvidenceSet`, then Evaluate reasons over contract vs evidence and returns typed findings plus coverage metadata. It is stateless — no Kubernetes or temporal logic and no side effects; the operator owns evidence collection and status writes.
 4. **Controller** coordinates the pipeline, creates `PactoRevision` snapshots for each resolved version, and updates the CR status with structured conditions, a contract compliance status, and metrics.
 
 ---
 
 ## Runtime checks
 
-The following checks run on each reconciliation. These are the current built-in checks — they cover the most common contract-to-runtime mismatches, not every possible validation.
+Each reconciliation compares the declared contract against observed runtime evidence and produces typed **findings**. Every finding carries a code and a severity (`error`, `warning`, `info` or `unknown`); the contract status is derived from the worst severity present. Findings fall into two families.
 
-| Check | Severity | What it validates |
-|-------|----------|-------------------|
-| WorkloadType | error | Deployment vs StatefulSet vs Job matches contract |
-| StateModel | error | PVC/emptyDir presence matches contract state model |
-| UpgradeStrategy | warning | RollingUpdate vs Recreate vs OrderedReady matches contract |
-| GracefulShutdown | warning | terminationGracePeriodSeconds matches contract |
-| Image | warning | Container image matches contract |
-| HealthTiming | warning | Probe initialDelaySeconds matches contract |
+**Confirmed violations** (`error`) — a matching observation contradicts the contract:
 
-Error-severity failures set the contract status to `NonCompliant`. Warning-severity failures set it to `Warning`. When all checks pass, the status is `Compliant`.
+| Code | What contradicted the contract |
+|------|--------------------------------|
+| `INTERFACE_ABSENT` | a declared interface is not served |
+| `CAPABILITY_ABSENT` | a declared capability (health, metrics, extension) is not present |
+| `DEPENDENCY_UNREACHABLE` | a declared dependency cannot be reached |
+| `CONFIGURATION_ABSENT` / `CONFIGURATION_MISMATCH` | a declared configuration is missing or differs |
+| `WORKLOAD_MISMATCH` | the observed workload kind differs from the declared workload |
+| `PERSISTENCE_MISMATCH` | observed storage differs from the declared state model |
 
-These runtime checks are **structural-only**: they compare the declared contract (image, upgrade strategy, probe timing, storage, workload type, state model) against the observed workload spec — no traffic is sent. Separately, the operator probes the contract's declared **health and metrics endpoints** for reachability. Those probes are asynchronous network calls; their results are recorded in `status.endpoints` and as `HealthEndpointValid`/`MetricsEndpointValid` conditions. A failed endpoint probe surfaces as a `Warning` — it does not drive the contract to `NonCompliant` the way a missing Service or workload (a structural failure) does.
+**Insufficient evidence** (`unknown`) — the assertion could not be evaluated, which is distinct from a contradiction:
+
+| Code | Why it could not be evaluated |
+|------|-------------------------------|
+| `EVIDENCE_MISSING` | no observation was collected for a required assertion |
+| `EVIDENCE_INSUFFICIENT` | an observation was collected but is inconclusive |
+| `OBSERVATION_UNSUPPORTED` | the dimension cannot be observed in this environment |
+| `COLLECTION_FAILED` | the cluster query needed to observe the assertion errored |
+
+Severity is derived, not authored: a required assertion that is contradicted is `error`; an optional one is `warning`; one that cannot be observed is `unknown`.
+
+### Status derivation
+
+The contract status follows a strict precedence over the findings (worst wins):
+
+`Invalid` > `NonCompliant` > `Unknown` > `Warning` > `Compliant`
+
+- `Invalid` — the contract failed structural validation or the artifact was malformed. Set by the pre-findings gate, before any runtime evidence is evaluated.
+- `NonCompliant` — at least one `error`-severity finding.
+- `Unknown` — no errors, but at least one `unknown`-severity finding (a required assertion could not be evaluated).
+- `Warning` — no errors or unknowns, but at least one `warning`-severity finding.
+- `Compliant` — no findings above `info`.
+
+The evaluator compares only what the contract declares and the operator can observe: interfaces, capabilities, dependencies, configurations, workload type and persistence. Image, upgrade strategy and probe timing are **observed** into `status.observedRuntime` but are not asserted into findings.
+
+### Health and metrics capabilities
+
+Health and metrics are contract **capabilities**, evaluated like any other assertion: a declared-but-absent health or metrics capability is `CAPABILITY_ABSENT` (`error`, so `NonCompliant`) or `unknown` when it cannot be observed — never a bare `Warning`. There is no separate `status.endpoints` field and no `HealthEndpointValid`/`MetricsEndpointValid` condition; the only status conditions are `ContractValid`, `RuntimeObserved` and `ReadinessSatisfied`.
+
+By default the operator observes health passively (readiness-probe and EndpointSlice signals) and sends no traffic. Active probing and full metrics observation are opt-in:
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `--enable-probing` | off | Active in-cluster HTTP probing of health capability endpoints (Tier A). When off, health uses passive readiness-probe and EndpointSlice signals only. |
+| `--enable-metrics-observation` | off | Full metrics observation (discovery + active probe). When off, the metrics dimension returns Unsupported. |
+| `--interface-name-match-discovery` | off | Resolve an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never yields an absent or error result). |
 
 > **Note:** `ContractStatus` reflects contract validation/compliance, not runtime health.
 
@@ -117,19 +152,19 @@ These runtime checks are **structural-only**: they compare the declared contract
 
 ## Readiness
 
-The `readiness` section requires `pactoVersion: "1.1"` — this is structurally enforced by the contract JSON schema, so contracts that declare `readiness` under an older `pactoVersion` are rejected by the CLI before they ever reach the operator.
+The `readiness` section is part of `pactoVersion: "2.0"` — the only contract version the engine accepts. Contracts pinned to any other `pactoVersion` are rejected by the CLI before they ever reach the operator.
 
-When a contract declares a `readiness` section, the operator computes a derived readiness assessment and writes it to **`status.readiness`** — `score`, `minScore`, `passing`, `totalWeight`, `currentWeight`, `currentCount`, `expiredCount`, and a per-check list (`status` ∈ `Current`/`Expired`/`Invalid`, plus `daysRemaining`). It is computed from the declared `weight`/`expires`/`minScore` values and the current time; the evidence targets are never fetched or verified.
+When a contract declares a `readiness` section, the operator computes a derived readiness assessment and writes it to **`status.readiness`** — `score`, `minScore`, `passing`, `totalWeight`, `earnedWeight`, `expires`, `expired`, `daysRemaining`, the counts `doneCount`/`partialCount`/`notDoneCount`/`deferredCount`, a per-claim list under `claims` (each with `status` ∈ `done`/`partial`/`not-done`/`deferred`, `weight`, `earnedWeight` and `evidence`) and the declared revision history under `revisions`. It is computed from the declared `weight`/`expires`/`minScore` values and the current time; the evidence targets are never fetched or verified.
 
 Readiness is a **separate dimension** from contract compliance — it never changes `ContractStatus`. The operator surfaces the gate (`score >= minScore`, with `minScore` defaulting to 100 when omitted) through one aggregate condition, **`ReadinessSatisfied`**:
 
 | Status | Reason | Meaning |
 |--------|--------|---------|
 | `True`  | `Satisfied`     | the readiness score meets `minScore` |
-| `False` | `Invalid`       | the gate is unmet **and** at least one check has an unparseable `expires` date |
-| `False` | `BelowMinScore` | the gate is unmet with all expiry dates parseable (e.g. checks expired) |
+| `False` | `Expired`       | the gate is unmet because the assessment has passed its `expires` date |
+| `False` | `BelowMinScore` | the gate is unmet with the assessment still current |
 
-The reason precedence when the gate is unmet is: `Invalid` whenever any check has an invalid expiry (`InvalidCount > 0`), otherwise `BelowMinScore`.
+The reason precedence when the gate is unmet is: `Expired` when the assessment has passed its `expires` date, otherwise `BelowMinScore`.
 
 On gate transitions it emits events sparingly: a `Warning`/`ReadinessGateUnmet` when the gate first drops and a `Normal`/`ReadinessRecovered` when it is met again. Contracts without readiness get neither `status.readiness` nor the condition.
 
@@ -235,7 +270,7 @@ spec:
 
 The operator watches the referenced Secret — if credentials are rotated, the next reconciliation uses the updated values automatically.
 
-If the Secret is missing or has invalid keys, the Pacto CR status is set to `NonCompliant` with a clear error message.
+If the Secret is missing or cannot be read, the Pacto CR status is set to `Unknown` with a clear error message — a transient obtain-failure: the contract could not be fetched, so its validity is undetermined rather than `NonCompliant`.
 
 > **Note:** `spec.contractRef.pullSecretRef` provides credentials for the **operator** to pull contracts. The separate `dashboard.ociSecret` Helm value provides credentials for the **dashboard** pod. These are independent configurations.
 
@@ -259,11 +294,11 @@ The controller exposes Prometheus metrics via OpenTelemetry:
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `pacto_contract_status` | Gauge | name, namespace, status | Info-style gauge: 1 for the current status, 0 for all others. Status is one of: Compliant, Warning, NonCompliant, Reference, Unknown |
-| `pacto_contract_compliance_status` | Gauge | service, namespace | 1 = compliant, 0 = non-compliant |
-| `pacto_contract_validation_errors` | Gauge | service, namespace | Count of error-severity failures |
-| `pacto_contract_validation_warnings` | Gauge | service, namespace | Count of warning-severity mismatches |
-| `pacto_contract_validation_result` | Gauge | service, namespace, check | Per-check result (1=pass, 0=fail) |
+| `pacto_contract_status` | Gauge | name, namespace, status | Info-style gauge: 1 for the current status, 0 for all others. `status` is one of: Compliant, Warning, NonCompliant, Reference, Unknown, Invalid, NotEvaluated |
+| `pacto_readiness_score` | Gauge | name, namespace | Derived operational readiness score (0-100) |
+| `pacto_readiness_gate` | Gauge | name, namespace | Whether the readiness gate is met (1=passing, 0=not passing) |
+| `pacto_readiness_status` | Gauge | name, namespace, status | Info-style gauge for the gate state: 1 for the current state, 0 for others. `status` is one of: Satisfied, BelowMinScore, Expired |
+| `pacto_readiness_checks` | Gauge | name, namespace, status | Number of readiness checks by declared status. `status` is one of: done, partial, not-done, deferred |
 
 Enable a Prometheus ServiceMonitor via Helm:
 
@@ -286,7 +321,7 @@ kubectl apply -f config/prometheus/alerts.yaml
 - **Enforce or block deployments.** The operator is read-only. It reports drift; it does not prevent it. Use admission webhooks or CI gates if you need enforcement.
 - **Author or publish contracts.** That is the [CLI](https://github.com/TrianaLab/pacto)'s job.
 - **Modify workloads.** It never patches, scales, restarts, or deletes your resources.
-- **Deep protocol validation.** It probes declared health and metrics endpoints for reachability but does not validate OpenAPI responses or run integration tests. It checks structural properties (image, strategy, probes, storage) declared in the contract.
+- **Deep protocol validation.** It does not validate OpenAPI responses or run integration tests. It compares the contract's declared interfaces, capabilities, dependencies, configurations, workload type and persistence against observed runtime evidence; active endpoint probing is opt-in (`--enable-probing`).
 - **Replace monitoring.** It answers "does the workload match the contract?", not "is the workload healthy?". Use it alongside — not instead of — observability tools.
 
 ---
