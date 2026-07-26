@@ -24,7 +24,7 @@ func createTool() *mcpsdk.Tool {
 			"path":                         {Type: "string", Description: "Output directory (defaults to service name)"},
 			"version":                      {Type: "string", Description: "Service version (defaults to '0.1.0')"},
 			"owner":                        {Type: "string", Description: "Owner identifier (e.g. 'team/platform')"},
-			"interfaces":                   {Type: "string", Description: "JSON array of interfaces: [{name, type, port?, visibility?}]"},
+			"interfaces":                   {Type: "string", Description: "JSON array of interfaces: [{name, type, visibility?}]"},
 			"dependencies":                 {Type: "string", Description: "JSON array of dependencies: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted)"},
 			"workload":                     {Type: "string", Description: "Workload type", Enum: []string{"service", "job", "scheduled"}},
 			"stores_data":                  {Type: "boolean", Description: "Whether the service stores data (drives state model)"},
@@ -94,14 +94,14 @@ func editTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_edit",
 		Description: "Edits an existing Pacto contract. Supports adding/removing interfaces " +
-			"and dependencies, changing runtime semantics, updating metadata, and more. " +
+			"and dependencies, changing workload and state semantics, updating metadata, and more. " +
 			"Validates the result before writing. Supports dry_run mode.",
 		InputSchema: inputSchema(map[string]property{
 			"path":                         {Type: "string", Description: "Path to directory containing pacto.yaml (defaults to '.')"},
 			"name":                         {Type: "string", Description: "New service name"},
 			"version":                      {Type: "string", Description: "New service version"},
 			"owner":                        {Type: "string", Description: "New owner identifier"},
-			"add_interfaces":               {Type: "string", Description: "JSON array of interfaces to add: [{name, type, port?, visibility?}]"},
+			"add_interfaces":               {Type: "string", Description: "JSON array of interfaces to add: [{name, type, visibility?}]"},
 			"remove_interfaces":            {Type: "string", Description: "JSON array of interface names to remove: [\"name1\", \"name2\"]"},
 			"add_dependencies":             {Type: "string", Description: "JSON array of dependencies to add: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted)"},
 			"remove_dependencies":          {Type: "string", Description: "JSON array of dependency refs to remove: [\"ref1\", \"ref2\"]"},
@@ -243,8 +243,8 @@ func schemaHandler() mcpsdk.ToolHandler {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 		result := schemaResult{
 			Description: "Pacto is an operational contract format for cloud-native services. " +
-				"A pacto.yaml file describes the service itself — interfaces, dependencies, runtime semantics, " +
-				"configuration, and scaling. Use pacto_create to generate new contracts and pacto_edit to " +
+				"A pacto.yaml file describes the service itself — interfaces, dependencies, " +
+				"configuration, workload and state semantics, and policies. Use pacto_create to generate new contracts and pacto_edit to " +
 				"modify existing ones. Use pacto_check to validate and get improvement suggestions.",
 			Docs:       docsURL,
 			JSONSchema: string(validation.SchemaBytes()),
