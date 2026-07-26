@@ -44,3 +44,6 @@ pactos/*/interfaces/openapi.json
 pactos/*/configuration/schema.json
 pactos/*/sbom/
 .superpowers/
+
+# runtime-regenerated publisher proof transcripts (non-deterministic namespaces)
+release/proofs/publish-*.txt

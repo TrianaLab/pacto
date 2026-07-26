@@ -86,9 +86,9 @@ test('guards pass on the real release manifest + plan', () => {
   assert.doesNotThrow(() => checkPublisherMapping(manifest, plan));
   assert.doesNotThrow(() => checkChartAppVersion(plan));
   assert.doesNotThrow(() => checkCleanTree({ PACTO_STAGING_ALLOW_DIRTY: '1' }));
-  // publishOrder resolves to all eight units in deterministic (core-first) order.
+  // publishOrder resolves to all nine units in deterministic (core-first) order.
   assert.deepEqual(resolveOrder(plan).map((o) => o.unit),
-    ['core', 'dashboard-image', 'cli', 'demo-bundles', 'k8s-module', 'operator-image', 'operator-chart', 'k8s-docs']);
+    ['core', 'dashboard-image', 'dashboard-contract-bundle', 'cli', 'demo-bundles', 'k8s-module', 'operator-image', 'operator-chart', 'k8s-docs']);
 });
 
 test('resolveTarget defaults to a local disposable registry', () => {
@@ -113,10 +113,10 @@ test('idempotent: rerun skips already-published artifacts', { skip }, () => {
   const target = ns('idem'); const __ledger = tmpLedger();
   const first = run({ PACTO_STAGING_REGISTRY: target, __ledger });
   const second = run({ PACTO_STAGING_REGISTRY: target, __ledger });
-  assert.equal(first.counts.published, 8, 'first run publishes all eight units');
-  assert.equal(first.counts.complete, 8);
+  assert.equal(first.counts.published, 9, 'first run publishes all nine units');
+  assert.equal(first.counts.complete, 9);
   assert.equal(second.counts.published, 0, 'rerun publishes nothing');
-  assert.equal(second.counts.complete, 8, 'rerun sees all eight already-published');
+  assert.equal(second.counts.complete, 9, 'rerun sees all nine already-published');
   for (const r of Object.values(second.artifacts)) assert.equal(r.result, 'already-published');
 
   proof('publish-idempotency.txt',
@@ -167,12 +167,12 @@ test('resumable: rerun resumes from a non-complete ledger', { skip }, () => {
 
   assert.equal(resumed.counts.resumable, 2, 'two non-complete artifacts resumed');
   assert.equal(resumed.counts.published, 0, 'nothing re-pushed (all present)');
-  assert.equal(resumed.counts.complete, 8);
+  assert.equal(resumed.counts.complete, 9);
 
   proof('publish-resume.txt',
     ['# PROOF - resumable: rerun resumes from the first non-complete ledger entry', '',
       `target: ${target}`, '',
       `RUN 1 (fresh):            ${line(first)}`,
       'crash simulated: operator-chart -> built, k8s-docs -> verified (still on registry)',
-      `RUN 2 (resume + verify):  ${line(resumed)}   <- resumable=2, published=0, complete=8`].join('\n'));
+      `RUN 2 (resume + verify):  ${line(resumed)}   <- resumable=2, published=0, complete=9`].join('\n'));
 });
