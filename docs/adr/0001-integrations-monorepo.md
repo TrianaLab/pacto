@@ -36,7 +36,7 @@ independently published, standalone-consumable** components.
 ### Why this eliminates the blocker (not hides it)
 
 `go.work` makes *source development atomic* (one commit builds everything). The
-release layer (ADR 0002 / Changesets) computes a new core version, tags+publishes
+release layer ([ADR 0002](0002-changesets-release.md) / Changesets) computes a new core version, tags+publishes
 the core module first, then bumps the integration `go.mod` to that version and
 publishes the integration — so every published module resolves outside the
 workspace. An external-consumer smoke test builds the integration module from a
@@ -46,18 +46,26 @@ version/tag/publish sequence does.
 
 ## Architecture boundaries (enforced)
 
-Dependency direction, enforced by `tests/architecture/boundary_test.go`:
+Dependency direction, enforced by `tests/architecture/boundary_test.go` and run
+in CI via `make ci-gates` (a dedicated `ci-gates` job plus the `ci` aggregate):
 
     k8s operator -> k8s collector -> Pacto evidence/evaluation APIs -> Pacto core
 
-`pkg/contract`, `pkg/evidence`, `pkg/finding`, `pkg/validation` must never import
-`k8s.io/*`, `sigs.k8s.io/*`, or any `integrations/*` package (transitively). The
-gate fails the build on any violation, so external/third-party collectors can
-consume the core without pulling Kubernetes.
+The platform-neutral engine packages the integration consumes — `pkg/contract`,
+`pkg/evidence`, `pkg/finding`, `pkg/graph`, `pkg/oci`, `pkg/readiness`,
+`pkg/schemax`, `pkg/semver`, `pkg/validation` — must never import `k8s.io/*`,
+`sigs.k8s.io/*`, or any `integrations/*` package (transitively). The gate is the
+integration's full `v2/pkg/...` import closure minus `pkg/dashboard`, which
+intentionally embeds a `client-go` runtime source. It fails the build on any
+violation, so external/third-party collectors can consume the core without
+pulling Kubernetes.
 
-The Kubernetes **collector** (Kubernetes -> Evidence translation) is separated
-from the operator **host** (reconciliation, CRDs, status, temporal windows,
-deployment); the collector is testable without starting a controller manager.
+The Kubernetes **collector** — the `internal/observer` package inside the
+integration module (Kubernetes -> Evidence translation) — is a separable package,
+not a separate top-level directory or module. It is decoupled from the operator
+**host** (`internal/controller`: reconciliation, CRDs, status, temporal windows,
+deployment) and is testable without starting a controller manager. It implements
+the platform-neutral `pkg/collector.Collector` interface in the core.
 
 ## Release units and tag policy
 
@@ -90,4 +98,5 @@ Historical public versions preserved: core Go module `v2.7.0` (latest), operator
 - Independent public versions preserved (historical continuity — the operator is
   NOT reset to 0.1.0 because its source moved).
 - The old `TrianaLab/pacto-operator` repo is archived only *after* a staging
-  release simulation proves the new pipeline (see cutover checklist).
+  release simulation proves the new pipeline (see the cutover checklist,
+  [ADR 0003](0003-operator-repo-cutover.md)).
