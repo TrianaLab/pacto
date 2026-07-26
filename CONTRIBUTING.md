@@ -31,6 +31,18 @@ By participating in this project, you agree to treat all contributors with respe
    go mod download
    ```
 
+   > **Engine sibling checkout.** The operator depends on the
+   > [Pacto engine](https://github.com/TrianaLab/pacto) module
+   > `github.com/trianalab/pacto/v2`. On the development branch `go.mod` carries
+   > a `replace github.com/trianalab/pacto/v2 => ../pacto` so the build uses a
+   > sibling engine checkout. Clone the engine next to this repo (as `../pacto`)
+   > for co-development. The operator imports engine packages (`pkg/evidence`,
+   > `pkg/finding`) that may be newer than the pinned engine tag, so with the
+   > `replace` removed a clean clone cannot build until the engine is published
+   > and the `require` bumped — see [RELEASING.md](RELEASING.md). Toggle the
+   > sibling with `make pacto-local` (add the replace) and `make pacto-remote`
+   > (drop it).
+
 3. **Run the CI pipeline locally:**
 
    ```bash
@@ -139,7 +151,9 @@ The `make ci` target runs all quality gates in order:
 
 ## Releasing
 
-Releases are automated. When a PR is merged to `main`, the auto-release workflow determines the version bump from the PR title (conventional commit format) and creates a GitHub release, Docker image, and Helm chart.
+Releasing the operator is a **cross-repo, engine-first** procedure: the Pacto engine must be published at a version containing the imported packages, the operator's `require` bumped to it and the dev-only `../pacto` `replace` dropped, before the operator itself is released. The full steps are in [RELEASING.md](RELEASING.md).
+
+Once the engine dependency is in order, releases are automated. When a PR is merged to `main`, the auto-release workflow determines the version bump from the PR title (conventional commit format) and creates a GitHub release, Docker image and Helm chart.
 
 ## Questions?
 
