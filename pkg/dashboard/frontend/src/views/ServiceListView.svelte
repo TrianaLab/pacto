@@ -75,7 +75,7 @@
 {/if}
 
 {#if filtered.length > 0}
-  <CollapsibleSection title="Fleet risk map">
+  <CollapsibleSection title="Fleet risk map" open={true}>
     <TreemapChart data={treemapData(filtered)} onSelect={(name) => location.hash = serviceUrl(name)} />
   </CollapsibleSection>
 {/if}
