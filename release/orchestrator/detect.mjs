@@ -12,7 +12,7 @@
 //   decideRecovery(txn, input, manifestVersions) — workflow_dispatch. A recovery
 //     mechanism, never a second release trigger: it validates an existing
 //     transaction and rejects anything that would publish something new.
-import { readFileSync } from 'node:fs';
+import { readFileSync, appendFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
@@ -89,25 +89,64 @@ export function decideRecovery(txn, input, manifestVersions) {
   return { ok: true, reason: 'recovery of incomplete units', transactionId: txn.transactionId, units: recoverable };
 }
 
-// CLI: on push, read the transaction at HEAD and HEAD^ and print the decision as
-// GITHUB_OUTPUT lines. Used by release.yml's detect job.
+// CLI entry for release.yml's detect job. On push it decides from the transaction
+// at HEAD vs HEAD^; on workflow_dispatch it validates a recovery request. Emits
+// GITHUB_OUTPUT (release, recover, units, units_json, groups, transaction_id,
+// source_sha). A refused recovery exits non-zero; a normal "no release" push exits 0.
+function readTxn(ref) {
+  try {
+    return JSON.parse(ref === 'HEAD'
+      ? readFileSync('release/release-transaction.json', 'utf8')
+      : execFileSync('git', ['show', `${ref}:release/release-transaction.json`], { encoding: 'utf8' }));
+  } catch { return null; }
+}
+
+function readManifestVersions() {
+  try {
+    const m = JSON.parse(readFileSync('release/release-manifest.json', 'utf8'));
+    return Object.fromEntries(Object.entries(m.units || {}).map(([u, v]) => [u, v.version]));
+  } catch { return null; }
+}
+
+function emit(o) {
+  const lines = [
+    `release=${!!o.release}`,
+    `recover=${!!o.recover}`,
+    `units=${(o.units || []).join(',')}`,
+    `units_json=${JSON.stringify(o.units || [])}`,
+    `groups=${(o.groups || []).join(',')}`,
+    `transaction_id=${o.transaction_id || ''}`,
+    `source_sha=${o.source_sha || ''}`,
+  ].join('\n') + '\n';
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, lines);
+  else process.stdout.write(lines);
+}
+
 function main() {
-  const read = (ref) => {
-    try {
-      return JSON.parse(ref === 'HEAD'
-        ? readFileSync('release/release-transaction.json', 'utf8')
-        : execFileSync('git', ['show', `${ref}:release/release-transaction.json`], { encoding: 'utf8' }));
-    } catch { return null; }
-  };
-  const d = decideRelease(read('HEAD'), read('HEAD^'));
-  const out = [
-    `release=${d.release}`,
-    `changed_units=${(d.changedUnits || []).join(',')}`,
-    `changed_groups=${(d.changedGroups || []).join(',')}`,
-    `transaction_id=${d.transactionId || ''}`,
-  ].join('\n');
-  process.stdout.write(out + '\n');
+  const event = process.env.GITHUB_EVENT_NAME || 'push';
+  if (event === 'workflow_dispatch') {
+    const input = {
+      transactionId: process.env.INPUT_TRANSACTION_ID,
+      sourceSha: process.env.INPUT_SOURCE_SHA,
+      units: (process.env.INPUT_UNITS || '').split(',').map((s) => s.trim()).filter(Boolean),
+    };
+    const r = decideRecovery(readTxn('HEAD'), input, readManifestVersions());
+    if (!r.ok) {
+      console.error(`detect: recovery REFUSED — ${r.reason}`);
+      emit({ release: false, recover: false });
+      process.exit(1);
+    }
+    console.error(`detect: RECOVERY of [${r.units.join(',')}] — ${r.reason}`);
+    emit({ release: true, recover: true, units: r.units, transaction_id: r.transactionId, source_sha: input.sourceSha });
+    return;
+  }
+  const d = decideRelease(readTxn('HEAD'), readTxn('HEAD^'));
   console.error(`detect: ${d.release ? 'RELEASE' : 'no release'} — ${d.reason}`);
+  emit({
+    release: d.release, recover: false,
+    units: d.changedUnits || [], groups: d.changedGroups || [],
+    transaction_id: d.transactionId || '', source_sha: process.env.GITHUB_SHA || '',
+  });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main();

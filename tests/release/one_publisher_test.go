@@ -122,9 +122,58 @@ func TestExactlyOnePublisherPerUnit(t *testing.T) {
 	}
 }
 
+// readVerbRE marks a line that only READS a coordinate (a diff / existence check
+// / consume reference), which must NOT count as a publisher. pushLine below only
+// counts genuine publish operations, so a `pacto diff` against a coordinate in a
+// PR-CI workflow is not mistaken for a second publisher.
+// readVerbRE marks a line that only READS a coordinate (a diff / existence check
+// / consume build-arg), which must NOT count as a publisher. Combined with the
+// marker gate (exactly one declared publisher per unit), `publishes` catches a
+// second workflow that pushes a coordinate — directly, via a continuation line,
+// or via an external script fed the coordinate as an env var — without being the
+// declared publisher.
+var readVerbRE = regexp.MustCompile(`(?i)\b(diff|view|inspect|digest|fetch|pull|download|verify-oci-absent|build-args|dashboard_image)\b`)
+
+// joinContinuations collapses shell line-continuations (a trailing backslash) so
+// a verb and the coordinate it operates on land on one logical line — e.g.
+// `pacto diff \` + `  oci://…/pacto-dashboard` becomes one read-only line.
+func joinContinuations(text string) []string {
+	var out []string
+	cur := ""
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasSuffix(strings.TrimRight(line, " \t"), "\\") {
+			cur += strings.TrimSuffix(strings.TrimRight(line, " \t"), "\\") + " "
+			continue
+		}
+		out = append(out, cur+line)
+		cur = ""
+	}
+	if cur != "" {
+		out = append(out, cur)
+	}
+	return out
+}
+
+// publishes reports whether a workflow references a coordinate in a
+// publish-capable (non-read-only) way.
+func publishes(w workflow, coord string) bool {
+	for _, line := range joinContinuations(w.text) {
+		if !strings.Contains(line, coord) {
+			continue
+		}
+		if readVerbRE.MatchString(line) && !strings.Contains(strings.ToLower(line), "push") {
+			continue // read-only usage of the coordinate
+		}
+		return true
+	}
+	return false
+}
+
 // TestNoDuplicateRegistryCoordinate: each published registry coordinate (image
-// repo / chart) appears in exactly the one workflow that declares its unit, and
-// in no other workflow.
+// repo / chart / bundle) is PUSHED by exactly one workflow. Read-only references
+// (a PR-time `pacto diff`, an immutability existence check, a consume build-arg)
+// do not count — only genuine publish operations. This detects duplicate
+// execution paths, not just duplicate marker comments (release-safety item 10).
 func TestNoDuplicateRegistryCoordinate(t *testing.T) {
 	root := repoRoot(t)
 	m := loadManifest(t, root)
@@ -136,7 +185,7 @@ func TestNoDuplicateRegistryCoordinate(t *testing.T) {
 		}
 		var producing []string
 		for _, w := range workflows {
-			if strings.Contains(w.text, u.Coordinate) {
+			if publishes(w, u.Coordinate) {
 				producing = append(producing, w.name)
 			}
 		}
@@ -145,6 +194,34 @@ func TestNoDuplicateRegistryCoordinate(t *testing.T) {
 			t.Errorf("unit %q coordinate %q is not pushed by any workflow", unit, u.Coordinate)
 		case len(producing) > 1:
 			t.Errorf("unit %q coordinate %q is pushed by more than one workflow %v — collapse to one canonical publisher", unit, u.Coordinate, producing)
+		}
+	}
+}
+
+// TestPublisherWorkflowTriggersAreSafe: a workflow that publishes a release unit
+// (carries a `pacto-publishes:` marker) must be driven ONLY by push +
+// workflow_dispatch. A `release:` or `workflow_run:` trigger on a publisher is a
+// duplicate-trigger hazard (it fires a second publish path on the same release),
+// which is what let the dashboard contract bundle + docs publish twice
+// (release-safety item 10). Recovery is workflow_dispatch, never a second trigger.
+func TestPublisherWorkflowTriggersAreSafe(t *testing.T) {
+	root := repoRoot(t)
+	workflows := loadWorkflows(t, root)
+
+	for _, w := range workflows {
+		if !publishesRE.MatchString(w.text) {
+			continue // not a publisher workflow
+		}
+		var doc struct {
+			On map[string]any `yaml:"on"`
+		}
+		if err := yaml.Unmarshal([]byte(w.text), &doc); err != nil {
+			t.Fatalf("parse %s: %v", w.name, err)
+		}
+		for _, bad := range []string{"release", "workflow_run"} {
+			if _, ok := doc.On[bad]; ok {
+				t.Errorf("publisher workflow %s has a %q trigger — publishers must fire only on push + workflow_dispatch (recovery); a %q trigger duplicates the release publish path", w.name, bad, bad)
+			}
 		}
 	}
 }

@@ -1,5 +1,10 @@
 name: Pacto Contract CI
 
+# PR-time contract CI only. The dashboard CONTRACT BUNDLE is published by the
+# release transaction (.github/workflows/release.yml, unit
+# dashboard-contract-bundle) — one publisher, exact version + source SHA from the
+# plan. This workflow no longer self-triggers on release/workflow_run (that was a
+# duplicate publisher with latest-tag guessing).
 on:
   push:
     branches: [main]
@@ -10,15 +15,9 @@ on:
     paths:
       - 'pactos/**'
       - 'pkg/dashboard/**'
-  release:
-    types: [published]
-  workflow_run:
-    workflows: ['Release']
-    types: [completed]
 
 permissions:
   contents: read
-  packages: write
   pull-requests: write
 
 jobs:
@@ -92,50 +91,3 @@ jobs:
         run: |
           pacto doc ./pactos/pacto-dashboard \
             --set service.version=0.0.0-pr.${{ github.event.pull_request.number }}
-
-  # pacto-publishes: dashboard-contract-bundle
-  # Canonical (single) publisher for the dashboard CONTRACT BUNDLE coordinate
-  # oci://ghcr.io/trianalab/pactos/pacto-dashboard. This is the OCI-distributed
-  # pacto contract for the dashboard service — a separate coordinate from the
-  # dashboard container image unit that release.yml publishes. The tests/release
-  # one-publisher gate enforces exactly one publisher for this unit.
-  publish:
-    if: >-
-      github.event_name == 'release' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
-    needs: bundle
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.0
-
-      - uses: trianalab/pacto-actions@v1
-        with:
-          command: setup
-
-      # Resolve the release tag: use the release event tag if available,
-      # otherwise fetch the latest release tag (workflow_run trigger).
-      - name: Resolve release tag
-        id: tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          else
-            TAG=$(gh release view --json tagName -q .tagName)
-            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Download bundle artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: pacto-dashboard-bundle
-          path: pactos/pacto-dashboard/
-
-      - uses: trianalab/pacto-actions@v1
-        with:
-          command: push
-          ref: oci://ghcr.io/trianalab/pactos/pacto-dashboard:${{ steps.tag.outputs.tag }}
-          path: ./pactos/pacto-dashboard
-          set: |
-            service.version=${{ steps.tag.outputs.tag }}
