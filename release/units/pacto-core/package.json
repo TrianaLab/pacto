@@ -1,0 +1,6 @@
+{
+  "name": "@pacto/core",
+  "version": "2.7.0",
+  "private": true,
+  "pacto": { "releaseUnit": "core", "kind": "go-module", "coordinate": "github.com/trianalab/pacto/v2" }
+}

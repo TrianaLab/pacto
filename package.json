@@ -1,0 +1,12 @@
+{
+  "name": "pacto-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": ["release/units/*"],
+  "scripts": {
+    "release:version": "changeset version && node release/scripts/build-release-plan.mjs && node release/scripts/apply-release-plan.mjs",
+    "release:plan": "node release/scripts/build-release-plan.mjs",
+    "release:publish": "node release/scripts/publish.mjs"
+  },
+  "devDependencies": { "@changesets/cli": "2.27.11" }
+}

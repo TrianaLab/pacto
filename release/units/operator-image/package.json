@@ -1,0 +1,6 @@
+{
+  "name": "@pacto/operator-image",
+  "version": "4.7.0",
+  "private": true,
+  "pacto": { "releaseUnit": "operator-image", "kind": "oci-image", "coordinate": "ghcr.io/trianalab/pacto-operator/pacto-controller" }
+}
