@@ -15,6 +15,14 @@ rules:
   - apiGroups: [""]
     resources: [secrets]
     verbs: [get, list, watch]
+  # ConfigMap-backed configuration collection (required-configurations dimension).
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get]
+  # EndpointSlice readiness for interface availability + dependency reachability.
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
   - apiGroups: [apps]
     resources: [deployments, replicasets, statefulsets]
     verbs: [get, list, watch]
