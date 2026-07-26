@@ -1,0 +1,7 @@
+=== go build ./... (standalone, GOWORK=off, no replace) ===
+>>> OPERATOR MODULE STANDALONE BUILD OK <<<
+=== build controller binary ===
+controller binary: 77589202 bytes
+=== go vet a couple core-facing pkgs (real compile against staged core) ===
+collector+controller compile against staged core OK
+replace count: 0 ; require: 	github.com/trianalab/pacto/v2 v2.8.0-mono
