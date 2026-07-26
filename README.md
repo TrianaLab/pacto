@@ -27,7 +27,7 @@ flowchart LR
     R --> P["Platforms and tools<br/>CI · Kubernetes · Backstage · Crossplane"]
 ```
 
-Pacto composes the interfaces you already own into one versioned contract, distributes it like a container image and lets whatever runs your services read it instead of reverse-engineering it.
+Pacto composes the interfaces you already own into one versioned contract, distributes it like a container image and lets whatever consumes your services — platforms, CI, runtime controllers and increasingly autonomous agents — read it instead of reverse-engineering it.
 
 ## The three tools
 
@@ -172,7 +172,7 @@ Full documentation at **[trianalab.github.io/pacto](https://trianalab.github.io/
 | [For Platform Engineers](https://trianalab.github.io/pacto/platform-engineers) | Consume contracts for deployment, policies and graphs |
 | [CLI Reference](https://trianalab.github.io/pacto/cli-reference) | All commands, flags and output formats |
 | [Dashboard](https://trianalab.github.io/pacto/dashboard-docker) | Deploy the dashboard container alongside the operator |
-| [Kubernetes Operator](https://trianalab.github.io/pacto/operator) | Runtime contract tracking and verification |
+| [Kubernetes Operator](https://trianalab.github.io/pacto/integrations/kubernetes/overview/) | Runtime contract tracking and verification |
 | [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) | Connect AI tools (Claude, Cursor, Copilot) to Pacto via MCP |
 | [Plugin Development](https://trianalab.github.io/pacto/plugins) | Build plugins to generate artifacts from contracts |
 | [Examples](https://trianalab.github.io/pacto/examples) | PostgreSQL, Redis, RabbitMQ, NGINX, gRPC and more |
