@@ -465,15 +465,15 @@ readiness:
 - [ ] Remove `scaling` if present
 - [ ] Rename `readiness.checks` to `readiness.claims` if present
 - [ ] Run `pacto validate <bundle>` to verify migration
-- [ ] Regenerate lock files if using dependency resolution (`go run ./genlocks` for demo bundles)
+- [ ] Regenerate lock files if using dependency resolution (`pacto lock` in each bundle; `make -C examples/demo demo-locks` for the demo bundles)
 - [ ] Update operator CRs to add `interfaceBindings` and `configBindings` if runtime evaluation is needed
 
 ## Further Reading
 
 - **Schema reference**: `pkg/validation/schema/pacto-v2.0.schema.json` (JSON Schema)
 - **Contract model**: `pkg/contract/contract.go` (Go types)
-- **Compliance model spec**: `docs/superpowers/specs/2026-07-24-compliance-model-refinement.md`
 - **Findings and evidence**: `pkg/finding/finding.go`, `pkg/evidence/evidence.go`
+- **Evaluation model**: `pkg/validation/evaluate.go` (pure `Evaluate(contract, evidence) -> (findings, coverage)`)
 - **Operator integration**: pacto-operator repo, `api/v1alpha1/pacto_types.go`
 
 ## No Automated Migration Tool

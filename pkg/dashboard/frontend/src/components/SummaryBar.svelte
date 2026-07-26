@@ -40,7 +40,7 @@
     <span class="metric-head">Needs attention</span>
     <span class="metric-value">{metrics.needsAttention}</span>
     <span class="metric-sub">
-      {#if metrics.needsAttention === 0}all clear{:else}{metrics.nonCompliant} non-compliant · {metrics.warning} warning{metrics.warning !== 1 ? 's' : ''}{/if}
+      {#if metrics.needsAttention === 0}all clear{:else}{metrics.nonCompliant} non-compliant · {metrics.warning} warning{metrics.warning !== 1 ? 's' : ''}{#if metrics.invalid > 0} · {metrics.invalid} invalid{/if}{/if}
     </span>
   </button>
 

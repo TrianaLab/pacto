@@ -15,7 +15,9 @@
   const PER_PAGE = 25;
   // Worst-first rank so an ascending status sort surfaces the services that need
   // attention (NonCompliant) at the top.
-  const STATUS_RANK = { NonCompliant: 0, Warning: 1, Unknown: 2, Reference: 3, Compliant: 4 };
+  // Worst-first per the compliance ladder Invalid > NonCompliant > Unknown > Warning > Compliant.
+  // Reference/NotEvaluated are outside the runtime ladder, so they sort after Compliant.
+  const STATUS_RANK = { Invalid: 0, NonCompliant: 1, Unknown: 2, Warning: 3, Compliant: 4, Reference: 5, NotEvaluated: 6 };
 
   let sortBy = $state('blast');
   let sortAsc = $state(false); // blast descending by default (highest impact first)
@@ -34,7 +36,7 @@
     return [...services].sort((a, b) => {
       switch (sortBy) {
         case 'name': return (a.name || '').localeCompare(b.name || '') * dir;
-        case 'status': return ((STATUS_RANK[a.contractStatus] ?? 5) - (STATUS_RANK[b.contractStatus] ?? 5)) * dir;
+        case 'status': return ((STATUS_RANK[a.contractStatus] ?? 99) - (STATUS_RANK[b.contractStatus] ?? 99)) * dir;
         case 'compliance': return compareScoresUnassessedLast(a.complianceScore ?? -1, b.complianceScore ?? -1, dir);
         case 'readiness': return compareScoresUnassessedLast(a.readiness?.score ?? -1, b.readiness?.score ?? -1, dir);
         case 'blast': return ((a.blastRadius || 0) - (b.blastRadius || 0)) * dir;
