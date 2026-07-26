@@ -339,19 +339,8 @@ jobs:
             --config /dev/null:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml \
             artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
 
-  # pacto-publishes: k8s-docs
-  # Canonical publisher for the kubernetes integration docs. Doc generation is a
-  # later milestone; this job runs the real generator and carries the marker so
-  # the one-publisher gate has a single owner for the k8s-docs unit.
-  k8s-docs:
-    needs: detect
-    if: needs.detect.outputs.release == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7.0.0
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - run: make docs-generate
+  # NOTE: the k8s-docs release unit is published by the "Deploy docs" workflow
+  # (.github/workflows/docs.yml), which carries the single publisher marker for it.
+  # The Kubernetes integration docs are assembled into the one mkdocs site and
+  # shipped by that mike deploy — there is no standalone k8s docs artifact, so there
+  # is deliberately no k8s-docs job here (no discard-only placeholder).

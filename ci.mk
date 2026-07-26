@@ -75,12 +75,17 @@ docs-serve:
 # release/release-manifest.json). Integration docs carry their OWN version stamp in
 # the generated compatibility table, so a Kubernetes-only release re-runs this with
 # the SAME core version and regenerated integration docs: the version selector entry
-# is unchanged, only the integration content + compatibility badge move. Requires a
-# gh-pages branch (mike manages it); run after docs-generate.
+# is unchanged, only the integration content + compatibility badge move.
+#
+# mike commits the built site to the gh-pages branch (under <version>/, updating the
+# `latest` alias + versions.json) and pushes it. GitHub Pages must be configured to
+# serve from that branch (Settings > Pages > "Deploy from a branch: gh-pages /root");
+# mike creates gh-pages on first run. The WASM demo is included when built into
+# docs/demo/ first (the deploy workflow folds it there; locally run `make docs-build`).
 docs-deploy: docs-generate
 	@ver=$$(python3 -c "import json;print(json.load(open('release/release-manifest.json'))['units']['core']['version'])"); \
-	echo "==> mike deploy --update-aliases $$ver latest"; \
-	mike deploy --update-aliases "$$ver" latest
+	echo "==> mike deploy --push --update-aliases $$ver latest"; \
+	mike deploy --push --update-aliases "$$ver" latest
 
 # Full documentation gate: regenerate from scratch, prove zero drift and zero
 # second-run diff, strict build, and validate every fenced contract / CR example /

@@ -33,25 +33,35 @@ on:
     types: [published]
   workflow_dispatch:
 
+# mike commits the built site to the gh-pages branch and pushes it, so the deploy
+# needs write access to repository contents (not the Pages upload API).
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
+# Serialize deploys: two concurrent `mike deploy --push` runs would race on the
+# gh-pages branch.
 concurrency:
-  group: pages
+  group: docs-deploy
   cancel-in-progress: false
 
 jobs:
-  build:
+  # pacto-publishes: k8s-docs
+  # Canonical publisher for the k8s-docs release unit. The Kubernetes integration
+  # docs are assembled into this one site by mkdocs_integration_hook.py, so the
+  # site deploy IS where they are published — there is no separate k8s docs site.
+  # The versioned site is published to the gh-pages branch by mike; GitHub Pages
+  # must serve from that branch (Settings > Pages > "Deploy from a branch:
+  # gh-pages / (root)"). mike creates gh-pages on its first run.
+  deploy:
     runs-on: ubuntu-latest
     # On the workflow_run trigger, only deploy when the Release workflow actually
     # succeeded (skip cancelled/failed release runs). All other triggers proceed.
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v7.0.0
-        # Full history + tags so the demo build's `git describe` resolves the
-        # real Pacto version to bake into the dashboard (shown in the navbar).
+        # Full history + tags so the demo build's `git describe` resolves the real
+        # Pacto version to bake into the dashboard navbar, and so mike has the
+        # gh-pages history it appends each versioned deploy to.
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v6
@@ -60,12 +70,6 @@ jobs:
           cache: pip
           cache-dependency-path: docs/requirements.txt
       - run: pip install -r docs/requirements.txt
-      # --strict so a broken link/anchor or orphan page fails the deploy rather
-      # than silently shipping. Same gate the PR "Docs check" runs.
-      - run: mkdocs build --strict
-      # Build the in-browser (WebAssembly) dashboard demo and fold it into the
-      # same Pages artifact at /demo/ (two Pages deploys in one repo
-      # conflict; one upload below publishes both docs and demo).
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -93,21 +97,20 @@ jobs:
             echo "::error::Demo navbar version '$baked' != latest release '$latest' — stale demo deploy."
             exit 1
           fi
+      # Fold the demo into the docs tree so mike's internal `mkdocs build` copies it
+      # into every versioned deploy at /demo/.
       - name: Fold the demo into the docs site
         run: |
-          mkdir -p site/demo
-          cp -r examples/demo/dist/. site/demo/
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: site/
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v5
+          mkdir -p docs/demo
+          cp -r examples/demo/dist/. docs/demo/
+      # Strict gate before publishing: mike's internal build is not --strict, so run
+      # the same strict build the PR "Docs check" enforces against a throwaway dir.
+      - name: Strict docs build gate
+        run: mkdocs build --strict --site-dir "$(mktemp -d)"
+      # Publish the versioned site to gh-pages: mike deploy --push the core version
+      # + the `latest` alias, so the Material version selector has data.
+      - name: Deploy versioned docs with mike
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          make docs-deploy
