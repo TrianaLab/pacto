@@ -1058,11 +1058,20 @@ func handleHealthProbeResult(
 ) (evidence.Observation, []ObservationWindowUpdate) {
 	windowKey := fmt.Sprintf("capability/%s", assertionKey)
 
+	// A satisfied/positive health observation must CLEAR any stale negative window (mirrors the interface and
+	// dependency dimensions), so that after recovery a later single declared-path 404 starts a FRESH window and
+	// is windowed as Unknown, never treated as beyond-window -> premature CAPABILITY_ABSENT (I7).
+	clearWindow := []ObservationWindowUpdate{{
+		Kind:                    kindCapability,
+		Subject:                 assertionKey,
+		FirstObservedNegativeAt: nil,
+	}}
+
 	if result.Reachable {
 		// Probe succeeded.
 		if result.StatusCode >= 200 && result.StatusCode < 400 {
-			// 2xx/3xx -> satisfied (Tier A).
-			return evidence.NewCapabilityObserved(subj, true, prov), nil
+			// 2xx/3xx -> satisfied (Tier A) -> clear any stale negative window.
+			return evidence.NewCapabilityObserved(subj, true, prov), clearWindow
 		}
 
 		if result.StatusCode == 404 {
@@ -1098,8 +1107,8 @@ func handleHealthProbeResult(
 		hasReadinessProbe, podReady := obs.checkReadinessProbeFallbackFromInput(ctx, input, owningServicePort)
 
 		if hasReadinessProbe && podReady {
-			// Tier B satisfied (lower confidence).
-			return evidence.NewCapabilityObserved(subj, true, prov), nil
+			// Tier B satisfied (lower confidence) -> clear any stale negative window.
+			return evidence.NewCapabilityObserved(subj, true, prov), clearWindow
 		}
 		if !hasReadinessProbe {
 			// No usable Tier-B evidence (liveness-only / no-probe / tcpSocket / exec / unresolvable target)

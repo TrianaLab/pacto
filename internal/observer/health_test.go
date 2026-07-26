@@ -311,8 +311,16 @@ func TestObserveHealthDim_TierB_ReadinessProbe_Satisfied(t *testing.T) {
 		t.Error("expected Present=true for tier B satisfied")
 	}
 
-	if len(updates) != 0 {
-		t.Errorf("expected no window updates for satisfied, got %d", len(updates))
+	// A satisfied Tier-B observation must emit a window-CLEARING update (nil FirstObservedNegativeAt) so a
+	// stale negative window from a prior 404 is deleted on recovery (I7).
+	if len(updates) != 1 {
+		t.Fatalf("expected 1 window-clearing update for tier B satisfied, got %d", len(updates))
+	}
+	if updates[0].Kind != "capability" || updates[0].Subject != "health" {
+		t.Errorf("expected capability/health window update, got %s/%s", updates[0].Kind, updates[0].Subject)
+	}
+	if updates[0].FirstObservedNegativeAt != nil {
+		t.Errorf("expected nil FirstObservedNegativeAt (clearing) for tier B satisfied, got %v", updates[0].FirstObservedNegativeAt)
 	}
 }
 
@@ -1168,8 +1176,16 @@ func TestHandleHealthProbeResult_2xx_Satisfied(t *testing.T) {
 		t.Error("expected Present=true for 2xx")
 	}
 
-	if len(updates) != 0 {
-		t.Errorf("expected no window updates for 2xx, got %d", len(updates))
+	// A satisfied 2xx must emit a window-CLEARING update (nil FirstObservedNegativeAt) so a stale negative
+	// window from a prior 404 is deleted on recovery (I7).
+	if len(updates) != 1 {
+		t.Fatalf("expected 1 window-clearing update for 2xx, got %d", len(updates))
+	}
+	if updates[0].Kind != "capability" || updates[0].Subject != "health" {
+		t.Errorf("expected capability/health window update, got %s/%s", updates[0].Kind, updates[0].Subject)
+	}
+	if updates[0].FirstObservedNegativeAt != nil {
+		t.Errorf("expected nil FirstObservedNegativeAt (clearing) for 2xx, got %v", updates[0].FirstObservedNegativeAt)
 	}
 }
 

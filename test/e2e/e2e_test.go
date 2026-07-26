@@ -545,18 +545,24 @@ func TestHealth(t *testing.T) {
 		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
 		requireFinding(t, p, "CAPABILITY_ABSENT")
 
-		// Health path starts serving 2xx -> status recovers and the confirmed CAPABILITY_ABSENT clears.
-		//
-		// Unlike the interface/dependency/configuration recovery cases, this does NOT assert the observation
-		// window slice is emptied: the health dimension's satisfied paths intentionally emit NO window-reset
-		// update (a Tier-A 2xx returns no window update at all), a design locked by internal/observer's
-		// TestHandleHealthProbeResult_2xx_Satisfied and TestObserveHealthDim_TierB_ReadinessProbe_Satisfied.
-		// The stale capability/health window is inert while the probe stays healthy, so recovery is asserted on
-		// the externally-observable outcomes — aggregate status Compliant and the violation finding cleared.
+		// Health path starts serving 2xx -> status recovers, the confirmed CAPABILITY_ABSENT clears, and the
+		// satisfied path emits a window-CLEARING update so the stale capability/health window is DELETED (I7) —
+		// exactly like the interface/dependency/configuration recovery cases.
 		flip(okHealth)
 		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
 		requireNoFinding(t, p, "CAPABILITY_ABSENT")
+		if len(p.Status.ObservationWindows) != 0 {
+			t.Fatalf("expected health window reset after recovery, got %+v", p.Status.ObservationWindows)
+		}
+
+		// I7 proof: a single declared-path 404 AFTER recovery must start a FRESH window and be windowed as
+		// Unknown (EVIDENCE_INSUFFICIENT), NOT immediately confirmed CAPABILITY_ABSENT off the stale window.
+		flip(status404)
+		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireNoFinding(t, p, "CAPABILITY_ABSENT")
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 	})
 
 	t.Run("service_get_error_unknown_COLLECTION_FAILED", func(t *testing.T) {
