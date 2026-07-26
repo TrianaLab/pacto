@@ -50,7 +50,7 @@ jobs:
             chmod +x "${GOBIN}/${plugin}"
           done
 
-      - uses: trianalab/pacto-actions@v1
+      - uses: trianalab/pacto-actions@v1.7.0
         if: github.event_name == 'release'
         with:
           command: setup

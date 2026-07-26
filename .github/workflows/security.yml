@@ -41,7 +41,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
       # With -format sarif, govulncheck always exits 0 (findings live in the
       # SARIF), so gating happens in the "Fail on ..." step below.
       - name: Run govulncheck (SARIF)

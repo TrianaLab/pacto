@@ -109,10 +109,9 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v5
       - name: Install helm-docs
-        run: |
-          HELM_DOCS_VERSION=1.14.2
-          curl -sSL "https://github.com/norwoodj/helm-docs/releases/download/v${HELM_DOCS_VERSION}/helm-docs_${HELM_DOCS_VERSION}_Linux_x86_64.tar.gz" | tar xz
-          sudo mv helm-docs /usr/local/bin/
+        # go install verifies the module checksum via GOSUMDB — no unchecksummed
+        # curl | tar of a release tarball.
+        run: go install github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2
       - run: make ci-integration-kubernetes
 
   ci-e2e-envtest:

@@ -144,7 +144,7 @@ ci-vet:
 
 ci-cyclo:
 	@echo "==> Checking cyclomatic complexity..."
-	go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+	go install github.com/fzipp/gocyclo/cmd/gocyclo@v0.6.0
 	gocyclo -over 15 $$(find . -name '*.go' ! -path './vendor/*' ! -path './integrations/*' ! -path './tests/*' ! -name 'zz_generated*.go' ! -path './release/*')
 
 ci-lint:
