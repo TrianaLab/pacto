@@ -6,9 +6,10 @@
 // deterministic publish ORDER that keeps every published module resolvable.
 //
 // Pure + deterministic: running it twice produces a byte-identical plan.
-import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const unitsDir = join(root, 'release', 'units');
@@ -88,7 +89,82 @@ function stable(v) {
   return v;
 }
 
-const plan = buildPlan(readUnits());
+// buildTransaction — the release-ready plan (release/DESIGN-release-safety.md).
+// It is the ONLY source of release intent: publishing keys off `ready` +
+// `changedUnits`, never off a file diff. `changedUnits` is every unit whose
+// new version (from the just-bumped release/units) differs from the previous
+// version recorded in the on-disk release-manifest.json — so a feature merge
+// that bumps nothing yields an empty, not-ready transaction and publishes
+// nothing. Fully deterministic: no clock, no randomness.
+function readPrevVersions() {
+  const p = join(root, 'release', 'release-manifest.json');
+  if (!existsSync(p)) return {};
+  const m = JSON.parse(readFileSync(p, 'utf8'));
+  const out = {};
+  for (const [unit, v] of Object.entries(m.units || {})) out[unit] = v.version;
+  return out;
+}
+
+function buildTransaction(plan, units, prev) {
+  const newVersions = {};
+  const expectedTags = {};
+  const expectedCoordinates = {};
+  const unitGroup = {};
+  for (const [groupName, g] of Object.entries(plan.groups)) {
+    for (const a of g.artifacts) {
+      newVersions[a.unit] = String(g.version);
+      expectedTags[a.unit] = a.tag ?? a.release ?? a.chartVersion ??
+        (a.version != null ? String(a.version) : String(g.version));
+      expectedCoordinates[a.unit] = a.coordinate ?? units[a.unit]?.coordinate ?? null;
+      unitGroup[a.unit] = groupName;
+    }
+  }
+  // A unit is changed iff its version moved (or it is brand new).
+  const changedUnits = Object.keys(newVersions)
+    .filter((u) => prev[u] !== newVersions[u])
+    .sort();
+  const changedGroups = [...new Set(changedUnits.map((u) => unitGroup[u]))].sort();
+  const previousVersions = {};
+  for (const u of Object.keys(newVersions)) previousVersions[u] = prev[u] ?? null;
+
+  const sha16 = (obj) => createHash('sha256')
+    .update(JSON.stringify(stable(obj))).digest('hex').slice(0, 16);
+  const manifestSha = createHash('sha256')
+    .update(JSON.stringify(stable(newVersions))).digest('hex');
+  const transactionId = changedUnits.length
+    ? sha16({ changedUnits, newVersions, previousVersions }) : '';
+
+  const units_ = {};
+  for (const u of changedUnits) units_[u] = { status: 'pending' };
+
+  return stable({
+    schema: 'pacto-release-transaction/v1',
+    ready: changedUnits.length > 0,
+    transactionId,
+    sourceSha: '',                 // filled at release time = GITHUB_SHA
+    manifestSha,
+    changedGroups,
+    changedUnits,
+    previousVersions,
+    newVersions,
+    expectedTags,
+    expectedCoordinates,
+    dependencyOrder: plan.publishOrder,
+    units: units_,
+  });
+}
+
+const units = readUnits();
+const plan = buildPlan(units);
 const outPath = join(root, 'release', 'release-plan.json');
 writeFileSync(outPath, JSON.stringify(stable(plan), null, 2) + '\n');
 console.log(`wrote ${outPath} (core v${plan.groups.core.version}, kubernetes v${plan.groups.kubernetes.version})`);
+
+// The transaction is written only with --transaction (the release:version path),
+// so standalone plan / artifact-drift / dry-run runs never clobber it.
+if (process.argv.includes('--transaction')) {
+  const txn = buildTransaction(plan, units, readPrevVersions());
+  const txnPath = join(root, 'release', 'release-transaction.json');
+  writeFileSync(txnPath, JSON.stringify(txn, null, 2) + '\n');
+  console.log(`wrote ${txnPath} (ready=${txn.ready}, changedUnits=[${txn.changedUnits.join(',')}])`);
+}

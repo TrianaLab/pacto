@@ -55,6 +55,7 @@ ci-e2e-kind:
 ci-oci:
 	go test ./pkg/oci/...
 	node --test release/scripts/publish.test.mjs
+	node --test release/orchestrator/*.test.mjs
 
 # Regenerate every generated doc across the workspace. Core CLI reference first,
 # then every discovered integration's own generator (via its integration.yaml

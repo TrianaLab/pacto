@@ -1,0 +1,66 @@
+{
+  "changedGroups": [],
+  "changedUnits": [],
+  "dependencyOrder": [
+    "core:go-module",
+    "core:dashboard-image",
+    "core:dashboard-contract-bundle",
+    "core:cli",
+    "core:demo-bundles",
+    "kubernetes:go-mod-pin",
+    "kubernetes:go-module",
+    "kubernetes:operator-image",
+    "kubernetes:operator-chart",
+    "kubernetes:docs"
+  ],
+  "expectedCoordinates": {
+    "cli": "github.com/trianalab/pacto releases",
+    "core": "github.com/trianalab/pacto/v2",
+    "dashboard-contract-bundle": "ghcr.io/trianalab/pactos/pacto-dashboard",
+    "dashboard-image": "ghcr.io/trianalab/pacto-dashboard",
+    "demo-bundles": "ghcr.io/trianalab/pacto-demo",
+    "k8s-docs": "mkdocs:integrations/kubernetes",
+    "k8s-module": "github.com/trianalab/pacto/integrations/kubernetes",
+    "operator-chart": "ghcr.io/trianalab/pacto-operator/charts/pacto-operator",
+    "operator-image": "ghcr.io/trianalab/pacto-operator/pacto-controller"
+  },
+  "expectedTags": {
+    "cli": "v2.7.0",
+    "core": "v2.7.0",
+    "dashboard-contract-bundle": "2.7.0",
+    "dashboard-image": "2.7.0",
+    "demo-bundles": "2.7.0",
+    "k8s-docs": "4.7.0",
+    "k8s-module": "integrations/kubernetes/v4.7.0",
+    "operator-chart": "4.7.0",
+    "operator-image": "4.7.0"
+  },
+  "manifestSha": "3bb5f93170489c41b181893a08449d4fa82884dfd79831de97111f1d8105e63c",
+  "newVersions": {
+    "cli": "2.7.0",
+    "core": "2.7.0",
+    "dashboard-contract-bundle": "2.7.0",
+    "dashboard-image": "2.7.0",
+    "demo-bundles": "2.7.0",
+    "k8s-docs": "4.7.0",
+    "k8s-module": "4.7.0",
+    "operator-chart": "4.7.0",
+    "operator-image": "4.7.0"
+  },
+  "previousVersions": {
+    "cli": "2.7.0",
+    "core": "2.7.0",
+    "dashboard-contract-bundle": "2.7.0",
+    "dashboard-image": "2.7.0",
+    "demo-bundles": "2.7.0",
+    "k8s-docs": "4.7.0",
+    "k8s-module": "4.7.0",
+    "operator-chart": "4.7.0",
+    "operator-image": "4.7.0"
+  },
+  "ready": false,
+  "schema": "pacto-release-transaction/v1",
+  "sourceSha": "",
+  "transactionId": "",
+  "units": {}
+}
