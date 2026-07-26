@@ -74,6 +74,9 @@ Controller arguments derived from values
 {{- if .Values.controller.watchNamespace }}
 - --watch-namespace={{ .Values.controller.watchNamespace }}
 {{- end }}
+{{- if .Values.controller.stabilizationWindow }}
+- --stabilization-window={{ .Values.controller.stabilizationWindow }}
+{{- end }}
 {{- if .Values.dashboard.enabled }}
 - --enable-dashboard
 {{- if .Values.dashboard.ociSecrets }}

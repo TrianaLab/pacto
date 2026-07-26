@@ -69,6 +69,11 @@ controller:
   # Empty string (default) means cluster-wide: the controller watches all namespaces.
   # The dashboard inherits this scope automatically.
   watchNamespace: ""
+  # -- Stabilization window: how long a sustained NEGATIVE observation must persist
+  # before it converts to a confirmed violation (a transient blip reads Unknown
+  # meanwhile). Empty string uses the controller default (2m). Accepts a Go
+  # duration (e.g. "30s", "5m").
+  stabilizationWindow: ""
 
 leaderElection:
   # -- Enable leader election for HA deployments

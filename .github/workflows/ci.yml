@@ -34,6 +34,7 @@ jobs:
       dashboard: ${{ steps.filter.outputs.dashboard }}
       kubernetes: ${{ steps.filter.outputs.kubernetes }}
       release: ${{ steps.filter.outputs.release }}
+      e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3
@@ -55,6 +56,17 @@ jobs:
               - '.github/workflows/**'
               # The demo-ref gate (tests/release) guards the demo bundles, so run the
               # artifact-drift leg when they change too.
+              - 'examples/demo/**'
+            # The heavy release-formal-verification legs (kind e2e + real release
+            # dry-run) run for anything that can affect release execution or the
+            # operator, and are skipped only for truly unrelated changes (docs-only).
+            e2e:
+              - 'release/**'
+              - '.github/workflows/**'
+              - 'integrations/kubernetes/**'
+              - 'go.work'
+              - 'go.mod'
+              - '**/Dockerfile'
               - 'examples/demo/**'
 
   ci-static:
@@ -147,21 +159,47 @@ jobs:
         env:
           PACTO_STAGING_REGISTRY: localhost:5001
 
-  # Heavy legs that are too slow to gate every PR: they run on the nightly schedule
-  # and on manual dispatch so they stay exercised and never bit-rot. NOT part of the
-  # required aggregate. E2E is Pacto's formal verification — keep it real.
+  # Operator image build with the EXACT production build-push context + file
+  # (context: repo root, file: integrations/kubernetes/Dockerfile) — a dedicated
+  # check so a broken production context is caught without relying on the kind
+  # script (release-safety item 7). push: false.
+  operator-build:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Build operator image (production context, no push)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: integrations/kubernetes/Dockerfile
+          push: false
+          build-args: VERSION=ci-context-test
+
+  # Pacto's formal verification. These are the real heavy legs — REQUIRED, and run
+  # on any change that can affect release execution or the operator (the `e2e` path
+  # filter), plus the nightly schedule + manual dispatch. Skipped only for truly
+  # unrelated (docs-only) PRs.
   ci-e2e-kind:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      - name: Install kind (checksum-verified via GOSUMDB)
+        run: go install sigs.k8s.io/kind@v0.30.0
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - run: make ci-e2e-kind
 
   release-dry-run:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -175,6 +213,10 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
+      - name: Install crane (checksum-verified via GOSUMDB)
+        run: go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - run: make release-dry-run
 
   # Cross-cutting architecture + release gates (tests/architecture + tests/release).
@@ -220,6 +262,9 @@ jobs:
       - ci-e2e-envtest
       - ci-oci
       - artifact-drift
+      - operator-build
+      - ci-e2e-kind
+      - release-dry-run
     runs-on: ubuntu-latest
     steps:
       - name: Verify no required leg failed

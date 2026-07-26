@@ -45,11 +45,13 @@ ci-integration-kubernetes:
 ci-e2e-envtest:
 	$(MAKE) -C integrations/kubernetes test-e2e
 
-# Kind-backed acceptance. ponytail: cluster provisioning is a later milestone;
-# envtest (ci-e2e-envtest) is the real gate today. This only ensures a Kind
-# cluster exists so later e2e work can attach.
+# Kind-backed acceptance — Pacto's formal verification against a real cluster:
+# build the operator image via the monorepo Dockerfile, install the packaged
+# chart, drive a real Compliant -> Unknown -> Compliant reconcile, upgrade from
+# the previous published chart, then uninstall. Runs the exact image + chart the
+# release simulation builds.
 ci-e2e-kind:
-	$(MAKE) -C integrations/kubernetes setup-test-e2e
+	bash tests/e2e/kind/run.sh
 
 # OCI leg: the public oci package tests + the staging release-publisher tests.
 ci-oci:
@@ -118,10 +120,13 @@ artifact-drift:
 
 # Staging release dry-run: regenerate the plan, then preflight the publisher
 # (plan/manifest publish-integrity refusals) WITHOUT contacting any registry.
+# Real release simulation: builds the real artifacts + pushes them to a disposable
+# local registry via the shared adapters production uses, and proves digest
+# idempotency, fail-closed immutability + resume. No production coordinate. The
+# synthetic publish.mjs remains a narrow unit-test fixture (ci-oci), not the
+# release evidence.
 release-dry-run:
-	node release/scripts/build-release-plan.mjs
-	bash release/scripts/verify-standalone.sh
-	node release/scripts/publish.mjs --dry-run
+	bash release/orchestrator/dry-run.sh
 
 ci-test:
 	@echo "==> Running unit tests with race detector and coverage..."

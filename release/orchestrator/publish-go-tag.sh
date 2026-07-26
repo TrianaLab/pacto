@@ -10,12 +10,15 @@ SHA="${2:?sha required}"
 ORIGIN="${PACTO_TAG_REMOTE:-origin}"
 
 # Both the direct ref (lightweight tag) and the peeled ref (annotated tag).
-mapfile -t refs < <(git ls-remote --tags "$ORIGIN" "refs/tags/${TAG}" "refs/tags/${TAG}^{}" | awk '{print $1}')
-if [ "${#refs[@]}" -gt 0 ]; then
-  for r in "${refs[@]}"; do
+# Portable across bash 3.2 (macOS) + 4+; mapfile is bash 4-only.
+refs=""
+while IFS= read -r line; do [ -n "$line" ] && refs="${refs}${line} "; done < <(
+  git ls-remote --tags "$ORIGIN" "refs/tags/${TAG}" "refs/tags/${TAG}^{}" | awk '{print $1}')
+if [ -n "$refs" ]; then
+  for r in $refs; do
     if [ "$r" = "$SHA" ]; then echo "tag ${TAG} already at ${SHA} — nothing to do"; exit 0; fi
   done
-  echo "::error::tag ${TAG} already exists at ${refs[*]}, expected ${SHA} — refusing to move an immutable tag"
+  echo "::error::tag ${TAG} already exists at ${refs}, expected ${SHA} — refusing to move an immutable tag"
   exit 1
 fi
 git tag "${TAG}" "${SHA}"
