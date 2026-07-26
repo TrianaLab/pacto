@@ -30,7 +30,7 @@ func formatResult(cmd *cobra.Command, format string, result any, textFn, markdow
 
 func printInitResult(cmd *cobra.Command, result *app.InitResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
-		revealInit(cmd.OutOrStdout(), initLines(result))
+		revealInit(cmd, cmd.OutOrStdout(), initLines(result))
 		return nil
 	}, nil)
 }

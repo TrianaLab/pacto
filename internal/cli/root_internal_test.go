@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v2/internal/app"
 	"github.com/trianalab/pacto/v2/internal/update"
 )
@@ -42,30 +43,38 @@ func TestBannerOnRootHelpTTY(t *testing.T) {
 	}
 }
 
-func TestNoAnimFlagSetsAnimDisabled(t *testing.T) {
-	animDisabled = false
-	t.Cleanup(func() { animDisabled = false })
+func TestNoAnimFlagDisablesOnContext(t *testing.T) {
 	root := NewRootCommand(nil, VersionInfo{Version: "dev"})
-	root.SetArgs([]string{"--no-anim", "version"})
+	var enabled bool
+	probe := &cobra.Command{Use: "probe", RunE: func(cmd *cobra.Command, _ []string) error {
+		enabled = animationsEnabled(cmd)
+		return nil
+	}}
+	root.AddCommand(probe)
+	root.SetArgs([]string{"--no-anim", "probe"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !animDisabled {
-		t.Fatal("--no-anim should set animDisabled in PreRun")
+	if enabled {
+		t.Fatal("--no-anim should disable animations for the running command")
 	}
 }
 
-func TestPactoNoAnimEnvSetsAnimDisabled(t *testing.T) {
-	animDisabled = false
-	t.Cleanup(func() { animDisabled = false })
+func TestPactoNoAnimEnvSetsContext(t *testing.T) {
 	t.Setenv("PACTO_NO_ANIM", "1")
 	root := NewRootCommand(nil, VersionInfo{Version: "dev"})
-	root.SetArgs([]string{"version"})
+	var disabled bool
+	probe := &cobra.Command{Use: "probe", RunE: func(cmd *cobra.Command, _ []string) error {
+		disabled = animDisabledFromCmd(cmd)
+		return nil
+	}}
+	root.AddCommand(probe)
+	root.SetArgs([]string{"probe"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !animDisabled {
-		t.Fatal("PACTO_NO_ANIM env should set animDisabled via viper")
+	if !disabled {
+		t.Fatal("PACTO_NO_ANIM env should set no-anim via viper into the command context")
 	}
 }
 

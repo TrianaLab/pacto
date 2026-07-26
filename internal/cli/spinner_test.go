@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"strings"
@@ -55,10 +56,9 @@ func TestStartSpinnerNoopWhenNotTTY(t *testing.T) {
 
 func TestStartSpinnerNoopWhenAnimDisabled(t *testing.T) {
 	withTTY(t, true)
-	animDisabled = true
-	t.Cleanup(func() { animDisabled = false })
 	var buf bytes.Buffer
 	cmd := &cobra.Command{}
+	cmd.SetContext(withAnimDisabled(context.Background(), true))
 	cmd.SetErr(&buf)
 	sp := startSpinner(cmd, "text", "Pulling")
 	sp.Stop()
@@ -154,18 +154,17 @@ func TestAnimate(t *testing.T) {
 	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
 	t.Setenv("PACTO_NO_ANIM", "")
-	animDisabled = false
-	t.Cleanup(func() { animDisabled = false })
-	if !animate(&bytes.Buffer{}) {
+	cmd := &cobra.Command{} // no context set -> not disabled (nil-ctx path)
+	if !animate(cmd, &bytes.Buffer{}) {
 		t.Fatal("should animate on TTY")
 	}
-	animDisabled = true
-	if animate(&bytes.Buffer{}) {
-		t.Fatal("animDisabled must disable")
+	cmd.SetContext(withAnimDisabled(context.Background(), true))
+	if animate(cmd, &bytes.Buffer{}) {
+		t.Fatal("--no-anim must disable")
 	}
-	animDisabled = false
+	cmd.SetContext(withAnimDisabled(context.Background(), false))
 	t.Setenv("PACTO_NO_ANIM", "1")
-	if animate(&bytes.Buffer{}) {
+	if animate(cmd, &bytes.Buffer{}) {
 		t.Fatal("PACTO_NO_ANIM must disable")
 	}
 }

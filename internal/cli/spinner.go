@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -28,21 +29,40 @@ func useColor(w io.Writer) bool {
 	return os.Getenv("NO_COLOR") == "" && isTerminal(w)
 }
 
-// Animation gate. Set once in PersistentPreRunE; read directly on the help path.
-var animDisabled bool
+// animDisabledKey carries the resolved --no-anim decision on the command
+// context. It is set once per invocation in the root PersistentPreRunE, so it is
+// per-command state — never a package global — and concurrent in-process
+// Execute calls cannot race on it.
+type animDisabledKey struct{}
+
+// withAnimDisabled returns ctx carrying the --no-anim decision for one command.
+func withAnimDisabled(ctx context.Context, disabled bool) context.Context {
+	return context.WithValue(ctx, animDisabledKey{}, disabled)
+}
+
+// animDisabledFromCmd reads the --no-anim decision off cmd's context. It is
+// false when unset (a bare command, or a path that skipped PersistentPreRunE).
+func animDisabledFromCmd(cmd *cobra.Command) bool {
+	ctx := cmd.Context()
+	if ctx == nil {
+		return false
+	}
+	disabled, _ := ctx.Value(animDisabledKey{}).(bool)
+	return disabled
+}
 
 // animationsEnabled reports whether motion is allowed at all (--no-anim flag and
 // PACTO_NO_ANIM env both off). It does NOT consider color or TTY — callers add
 // those. This governs the spinner (motion regardless of color); animate adds
 // color on top for color-only reveals.
-func animationsEnabled() bool {
-	return !animDisabled && os.Getenv("PACTO_NO_ANIM") == ""
+func animationsEnabled(cmd *cobra.Command) bool {
+	return !animDisabledFromCmd(cmd) && os.Getenv("PACTO_NO_ANIM") == ""
 }
 
 // animate reports whether a colored animation should play on w: motion enabled
 // AND color enabled (TTY + NO_COLOR unset).
-func animate(w io.Writer) bool {
-	return animationsEnabled() && useColor(w)
+func animate(cmd *cobra.Command, w io.Writer) bool {
+	return animationsEnabled(cmd) && useColor(w)
 }
 
 const (
@@ -95,7 +115,7 @@ type spinner struct {
 // CI logs stay clean.
 func startSpinner(cmd *cobra.Command, format, label string) *spinner {
 	w := cmd.ErrOrStderr()
-	if format != "text" || !isTerminal(w) || !animationsEnabled() {
+	if format != "text" || !isTerminal(w) || !animationsEnabled(cmd) {
 		return &spinner{}
 	}
 	s := &spinner{

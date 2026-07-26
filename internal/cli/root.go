@@ -75,7 +75,9 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 			}
 		}
 
-		animDisabled = v.GetBool("no-anim")
+		// Carry the --no-anim decision on the command context (per-invocation),
+		// so concurrent in-process Execute calls never race on shared state.
+		cmd.SetContext(withAnimDisabled(cmd.Context(), v.GetBool("no-anim")))
 
 		// Start async update check
 		if info.Version != "dev" && os.Getenv("PACTO_NO_UPDATE_CHECK") != "1" {
