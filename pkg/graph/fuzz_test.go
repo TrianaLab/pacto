@@ -62,31 +62,25 @@ func reachableCyclic(deps [][]int, start int) bool {
 }
 
 // FuzzResolveGraph feeds arbitrary directed graphs (adjacency from the fuzz bytes)
-// into the recursive resolver and asserts the resolver's SAFETY guarantees, all of
-// which hold deterministically:
+// into the recursive resolver and asserts the resolver's guarantees, all of which
+// hold deterministically regardless of concurrent scheduling:
 //
 //   - Termination: the fuzz harness times out on any hang; a cyclic graph must not
 //     loop forever (dedup guarantees this).
 //   - Single-flight dedup: no node is fetched more than once.
-//   - Cycle soundness: every reported cycle is a genuine repeated-ref path, and an
-//     acyclic graph reports zero cycles (no false positives).
-//
-// It deliberately does NOT assert cycle-detection COMPLETENESS. Completeness is
-// order-sensitive under concurrent sibling resolution: a cycle split across two
-// concurrently-resolved branches (e.g. 2->3 and 3->2 discovered on separate
-// branches) can have each node deduped as "Shared" before the other branch
-// explores its back-edge, so the cycle may go unreported. This is a benign
-// limitation — the closure still resolves to a finite, correct set and terminates
-// — but it means len(Cycles)>0 is not equivalent to the static cycle verdict.
-// Discovered by this fuzz target; see the split-cycle corpus entry. Fixing it
-// requires a deterministic post-resolution cycle pass (a resolver change tracked
-// as a follow-up), not a change here.
+//   - Cycle soundness: every reported cycle is a genuine repeated-ref path.
+//   - Cycle completeness: cycles are reported IFF a cycle is reachable from the
+//     root. detectCycles runs a deterministic post-resolution DFS over the final
+//     graph, so a cycle split across two concurrently-resolved branches (e.g. 2->3
+//     and 3->2 on separate branches, once deduped to Shared edges) is still
+//     reported. This target originally documented that gap; the biconditional
+//     below now pins the fix.
 func FuzzResolveGraph(f *testing.F) {
 	f.Add([]byte{0, 1, 1, 2})                   // 0->1->2 chain
 	f.Add([]byte{0, 1, 1, 0})                   // 0->1->0 cycle
 	f.Add([]byte{0, 0})                         // self loop
 	f.Add([]byte{0, 1, 0, 2, 1, 3, 2, 3})       // diamond over n3
-	f.Add([]byte{0, 1, 0, 3, 1, 2, 2, 3, 3, 2}) // split cycle 2<->3 (may go unreported)
+	f.Add([]byte{0, 1, 0, 3, 1, 2, 2, 3, 3, 2}) // split cycle 2<->3 across two branches
 	f.Add([]byte{})
 
 	f.Fuzz(func(t *testing.T, adj []byte) {
@@ -115,9 +109,12 @@ func FuzzResolveGraph(f *testing.F) {
 			}
 		}
 
-		// Soundness (safe direction): an acyclic graph must report no cycles.
-		if !reachableCyclic(deps, 0) && len(res.Cycles) > 0 {
-			t.Fatalf("false cycle on acyclic graph: deps=%v cycles=%v", deps, res.Cycles)
+		// Soundness AND completeness: cycles are reported IFF a cycle is reachable
+		// from the root. The resolver only fetches root-reachable nodes, so the
+		// resolved closure is exactly that subgraph — its cyclicity must match the
+		// static verdict, independent of concurrent traversal order.
+		if got, want := len(res.Cycles) > 0, reachableCyclic(deps, 0); got != want {
+			t.Fatalf("cycle report mismatch: reported=%v reachableCyclic=%v deps=%v cycles=%v", got, want, deps, res.Cycles)
 		}
 	})
 }

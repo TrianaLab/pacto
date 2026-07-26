@@ -269,6 +269,68 @@ func conflictStore() *testutil.MockBundleStore {
 	}
 }
 
+// splitCycleStore serves the concurrent split-cycle graph:
+// root -> a, root -> c; a -> b; b -> c; c -> b. The b<->c back-edge is split
+// across the two sibling branches under root, which resolve concurrently.
+func splitCycleStore() *testutil.MockBundleStore {
+	return &testutil.MockBundleStore{
+		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
+		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+			dep := func(name, r string) contract.Dependency {
+				return contract.Dependency{Name: name, Ref: r, Compatibility: "^1.0.0", Required: true}
+			}
+			switch ref {
+			case "ghcr.io/acme/a:1.0.0":
+				return &contract.Bundle{Contract: &contract.Contract{
+					Service:      contract.Service{Name: "a", Version: "1.0.0"},
+					Dependencies: []contract.Dependency{dep("b", "oci://ghcr.io/acme/b:1.0.0")},
+				}}, nil
+			case "ghcr.io/acme/b:1.0.0":
+				return &contract.Bundle{Contract: &contract.Contract{
+					Service:      contract.Service{Name: "b", Version: "1.0.0"},
+					Dependencies: []contract.Dependency{dep("c", "oci://ghcr.io/acme/c:1.0.0")},
+				}}, nil
+			case "ghcr.io/acme/c:1.0.0":
+				return &contract.Bundle{Contract: &contract.Contract{
+					Service:      contract.Service{Name: "c", Version: "1.0.0"},
+					Dependencies: []contract.Dependency{dep("b", "oci://ghcr.io/acme/b:1.0.0")},
+				}}, nil
+			}
+			return nil, fmt.Errorf("unexpected ref %q", ref)
+		},
+	}
+}
+
+func splitCycleRootBundle() *contract.Bundle {
+	return &contract.Bundle{Contract: &contract.Contract{
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Name: "a", Ref: "oci://ghcr.io/acme/a:1.0.0", Compatibility: "^1.0.0", Required: true},
+			{Name: "c", Ref: "oci://ghcr.io/acme/c:1.0.0", Compatibility: "^1.0.0", Required: true},
+		},
+	}}
+}
+
+// TestBuildLockSplitCycleFailsClosed is the regression test for the concurrent
+// split-cycle defect: the b<->c cycle is discovered across two sibling branches
+// that resolve concurrently, so the inline path-check could dedup it to Shared
+// edges and let the lock build "successfully". The deterministic post-resolution
+// cycle pass must mark a back-edge so buildLock fails closed with
+// LOCK_UNRESOLVED — on every run, not by scheduling luck.
+func TestBuildLockSplitCycleFailsClosed(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		s := NewService(splitCycleStore(), nil)
+		_, err := s.buildLock(context.Background(), "testdata/root", splitCycleRootBundle(), nil)
+		var ue *lock.UnresolvedError
+		if !errors.As(err, &ue) {
+			t.Fatalf("run %d: expected *lock.UnresolvedError for split cycle, got %v", i, err)
+		}
+		if !strings.Contains(ue.Reason, "cycle detected") {
+			t.Fatalf("run %d: unresolved reason not a cycle: %q", i, ue.Reason)
+		}
+	}
+}
+
 // TestBuildLockUnresolvedFailedEdge covers a required dep whose fetch fails:
 // the graph records Error and a nil Node, and buildLock must fail closed.
 func TestBuildLockUnresolvedFailedEdge(t *testing.T) {

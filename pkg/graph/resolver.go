@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"log/slog"
 	"slices"
+	"sort"
+	"strings"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -78,7 +80,6 @@ type resolver struct {
 	visited map[string]*Node
 	errors  map[string]string
 	pending map[string]chan struct{}
-	cycles  [][]string
 }
 
 // Resolve builds the dependency graph starting from the given contract.
@@ -120,11 +121,16 @@ func ResolveWithOptions(ctx context.Context, c *contract.Contract, fetcher Contr
 	}
 
 	conflicts := detectConflicts(root)
-	slog.Debug("graph resolution complete", "root", c.Service.Name, "cycles", len(r.cycles), "conflicts", len(conflicts))
+	// Cycle reporting runs as a deterministic post-resolution pass over the
+	// fully-built graph, not inline during concurrent fetching: sibling deps
+	// resolve in parallel, so a split cycle can be deduped away before any
+	// branch explores its back-edge (see detectCycles).
+	cycles := r.detectCycles(root)
+	slog.Debug("graph resolution complete", "root", c.Service.Name, "cycles", len(cycles), "conflicts", len(conflicts))
 
 	return &Result{
 		Root:      root,
-		Cycles:    r.cycles,
+		Cycles:    cycles,
 		Conflicts: conflicts,
 	}
 }
@@ -198,9 +204,11 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, pat
 
 	r.mu.Lock()
 	if slices.Contains(path, dep.Ref) {
-		cyclePath := append(append([]string{}, path...), dep.Ref)
-		r.cycles = append(r.cycles, cyclePath)
 		r.mu.Unlock()
+		// Structural early-cut: never fetch a back-edge to an ancestor. This keeps
+		// the graph shape stable (and avoids refetching the root's own ref) and
+		// terminates this branch. The complete, deterministic cycle SET is derived
+		// afterwards by detectCycles; this per-edge mark is idempotent with it.
 		edge.Error = fmt.Sprintf("cycle detected: %s", dep.Ref)
 		return edge
 	}
@@ -281,4 +289,70 @@ func (r *resolver) failEdge(ref string, ch chan struct{}, errMsg string) {
 	delete(r.pending, ref)
 	r.mu.Unlock()
 	close(ch)
+}
+
+// detectCycles reports every dependency cycle in the fully-resolved graph via a
+// single deterministic DFS, independent of the concurrent order that built it.
+//
+// The inline path-check in resolveEdge cannot see split cycles: sibling deps
+// resolve in parallel, so a cycle spread across two branches (e.g. 2->3 on one,
+// 3->2 on another) can have both nodes deduped to Shared edges before either
+// branch explores its back-edge, leaving the cycle unreported. This pass instead
+// walks the FINAL graph — every edge (Shared included) still records its target
+// ref — so it sees the whole closure.
+//
+// Nodes are keyed by ref; the root is keyed by its service name to match the
+// inline path[0] semantics (a dep ref equal to the root name is a cycle back to
+// the root). Every fetched node is reachable from the root through dependency
+// edges, so one DFS from the root covers the closure. Each back-edge (an edge to
+// a node still on the stack) records one cycle and is marked with the same
+// "cycle detected: <ref>" error the inline check sets, so buildLock still fails
+// closed with LOCK_UNRESOLVED. The cycle set is sorted for a stable, order-
+// independent result.
+func (r *resolver) detectCycles(root *Node) [][]string {
+	nodeByKey := make(map[string]*Node, len(r.visited)+1)
+	for ref, n := range r.visited {
+		nodeByKey[ref] = n
+	}
+	nodeByKey[root.Name] = root // root participates by name (matches inline path[0])
+
+	const (
+		white = iota
+		gray
+		black
+	)
+	color := make(map[string]int, len(nodeByKey))
+	var stack []string
+	var cycles [][]string
+
+	var dfs func(key string, n *Node)
+	dfs = func(key string, n *Node) {
+		color[key] = gray
+		stack = append(stack, key)
+		for i := range n.Dependencies {
+			e := &n.Dependencies[i]
+			if e.Type != EdgeDependency {
+				continue
+			}
+			switch color[e.Ref] {
+			case gray:
+				if e.Error == "" {
+					e.Error = fmt.Sprintf("cycle detected: %s", e.Ref)
+				}
+				cycles = append(cycles, append(slices.Clone(stack), e.Ref))
+			case white:
+				if cn, ok := nodeByKey[e.Ref]; ok {
+					dfs(e.Ref, cn)
+				}
+			}
+		}
+		stack = stack[:len(stack)-1]
+		color[key] = black
+	}
+	dfs(root.Name, root)
+
+	sort.Slice(cycles, func(i, j int) bool {
+		return strings.Join(cycles[i], "\x00") < strings.Join(cycles[j], "\x00")
+	})
+	return cycles
 }

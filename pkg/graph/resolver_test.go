@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -205,6 +206,69 @@ func TestResolve_CycleDetection(t *testing.T) {
 
 	if len(result.Cycles) != 1 {
 		t.Fatalf("expected 1 cycle, got %d", len(result.Cycles))
+	}
+}
+
+// hasCycleEdge reports whether any edge in the resolved graph is marked with a
+// "cycle detected" error — the same signal buildLock's firstFailedEdge uses to
+// fail closed with LOCK_UNRESOLVED.
+func hasCycleEdge(n *Node) bool {
+	for _, e := range n.Dependencies {
+		if strings.HasPrefix(e.Error, "cycle detected:") {
+			return true
+		}
+		if e.Node != nil && hasCycleEdge(e.Node) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestResolve_SplitCycleReportedDeterministically pins the fix for the concurrent
+// split-cycle defect. Graph: root(n0) -> n1, n0 -> n3; n1 -> n2; n2 -> n3;
+// n3 -> n2. The 2<->3 back-edge is split across two concurrently-resolved
+// branches (the n1 branch reaches n2->n3, the n3 branch reaches n2 directly), so
+// the inline path-check can dedup both nodes to Shared edges before either branch
+// explores the back-edge. The deterministic post-resolution pass must still
+// report the cycle and mark a back-edge on every run — not just when scheduling
+// happens to line up.
+func TestResolve_SplitCycleReportedDeterministically(t *testing.T) {
+	deps := [][]int{{1, 3}, {2}, {3}, {2}, nil, nil}
+	for i := 0; i < 50; i++ {
+		ff := &fuzzFetcher{deps: deps, counts: map[int]int{}}
+		res := ResolveWithOptions(context.Background(), fuzzContract(0, deps[0]), ff, ResolveOptions{})
+		if len(res.Cycles) == 0 {
+			t.Fatalf("run %d: split cycle 2<->3 not reported", i)
+		}
+		if !hasCycleEdge(res.Root) {
+			t.Fatalf("run %d: no edge marked with a cycle error (buildLock would not fail closed)", i)
+		}
+	}
+}
+
+// TestResolve_MultipleCyclesDeterministic covers the sorted, order-independent
+// cycle set: root -> n1 (self-loop), root -> n3 (self-loop) yields two cycles.
+// The reported set must be identical and sorted on every run.
+func TestResolve_MultipleCyclesDeterministic(t *testing.T) {
+	deps := [][]int{{1, 3}, {1}, nil, {3}, nil, nil}
+	var want [][]string
+	for i := 0; i < 50; i++ {
+		ff := &fuzzFetcher{deps: deps, counts: map[int]int{}}
+		res := ResolveWithOptions(context.Background(), fuzzContract(0, deps[0]), ff, ResolveOptions{})
+		if len(res.Cycles) != 2 {
+			t.Fatalf("run %d: expected 2 cycles, got %d: %v", i, len(res.Cycles), res.Cycles)
+		}
+		if i == 0 {
+			want = res.Cycles
+			// Sorted ascending by joined path.
+			if strings.Join(want[0], ",") > strings.Join(want[1], ",") {
+				t.Fatalf("cycles not sorted: %v", want)
+			}
+			continue
+		}
+		if fmt.Sprint(res.Cycles) != fmt.Sprint(want) {
+			t.Fatalf("run %d: nondeterministic cycle set: got %v want %v", i, res.Cycles, want)
+		}
 	}
 }
 
