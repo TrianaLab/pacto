@@ -4,12 +4,79 @@
 
 BUNDLE_DIR := pactos/pacto-dashboard
 
-.PHONY: ci ci-static ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
+.PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
+       ci-e2e-envtest ci-e2e-kind ci-oci docs-generate docs-check artifact-drift release-dry-run \
+       ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
-ci: ci-static ci-ui ci-test e2e gen-bundle
+# ── Monorepo CI matrix (go.work) ─────────────────────────────────────
+# The root aggregate. Every leg delegates to the REAL underlying gate across the
+# workspace modules. This is what CONTRIBUTING tells contributors to run and what
+# .github/workflows/ci.yml requires.
+ci: ci-static ci-engine ci-dashboard ci-integration-kubernetes ci-e2e-envtest ci-oci
 
-ci-static: ci-fmt ci-vet ci-cyclo ci-lint ci-docs ci-ui-drift
+# Static leg: engine + kubernetes integration static gates.
+ci-static: ci-static-engine
+	$(MAKE) -C integrations/kubernetes ci-static
+
+# Engine static gates (fmt, vet, cyclo, lint, CLI docs drift, UI build drift).
+ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint ci-docs ci-ui-drift
+
+# Engine leg: unit tests (100% coverage gate) + engine e2e.
+ci-engine: ci-test e2e
+
+# Dashboard leg: frontend lint + tests.
+ci-dashboard: ci-ui
+
+# Kubernetes integration leg: envtest-backed unit/integration tests + chart CI.
+ci-integration-kubernetes:
+	$(MAKE) -C integrations/kubernetes ci-test
+	$(MAKE) -C integrations/kubernetes ci-chart
+
+# Operator acceptance matrix against envtest (no cluster required).
+ci-e2e-envtest:
+	$(MAKE) -C integrations/kubernetes test-e2e
+
+# Kind-backed acceptance. ponytail: cluster provisioning is a later milestone;
+# envtest (ci-e2e-envtest) is the real gate today. This only ensures a Kind
+# cluster exists so later e2e work can attach.
+ci-e2e-kind:
+	$(MAKE) -C integrations/kubernetes setup-test-e2e
+
+# OCI leg: the public oci package tests + the staging release-publisher tests.
+ci-oci:
+	go test ./pkg/oci/...
+	node --test release/scripts/publish.test.mjs
+
+# Regenerate every generated doc across the workspace.
+docs-generate: gen-cli-docs
+	$(MAKE) -C integrations/kubernetes api-docs
+
+# Fail if any generated doc is out of date.
+docs-check: ci-docs
+	$(MAKE) -C integrations/kubernetes api-docs-check
+
+# artifact-drift = one-publisher-per-artifact gate + apply-release-plan
+# idempotency (re-applying the plan must not mutate any tracked release-state file).
+artifact-drift:
+	@echo "==> one-publisher-per-artifact gate..."
+	go test ./tests/release/...
+	@echo "==> apply-release-plan idempotency..."
+	node release/scripts/build-release-plan.mjs
+	node release/scripts/apply-release-plan.mjs
+	@git diff --quiet -- release/release-manifest.json release/release-plan.json \
+		integrations/kubernetes/go.mod integrations/kubernetes/integration.yaml \
+		integrations/kubernetes/charts/pacto-operator/Chart.yaml \
+		integrations/kubernetes/charts/pacto-operator/values.yaml \
+		integrations/kubernetes/charts/pacto-operator/README.md \
+		|| { echo "artifact drift: apply-release-plan is not idempotent (re-run mutated tracked files)"; exit 1; }
+	@echo "    artifact-drift: OK"
+
+# Staging release dry-run: regenerate the plan, then preflight the publisher
+# (plan/manifest publish-integrity refusals) WITHOUT contacting any registry.
+release-dry-run:
+	node release/scripts/build-release-plan.mjs
+	node release/scripts/publish.mjs --dry-run
 
 ci-test:
 	@echo "==> Running unit tests with race detector and coverage..."

@@ -1,5 +1,11 @@
 name: CI
 
+# Aggregate CI for the go.work monorepo. Every leg of the release-critical
+# matrix (engine, dashboard, kubernetes integration, OCI publisher, docs) runs
+# here through the root Makefile so local `make ci` and this pipeline stay in
+# lockstep. Path filters below only OPTIMIZE the heavy legs — the `required`
+# aggregate job always runs so branch protection has one stable required check.
+
 on:
   push:
     branches:
@@ -13,8 +19,38 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  static:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      engine: ${{ steps.filter.outputs.engine }}
+      dashboard: ${{ steps.filter.outputs.dashboard }}
+      kubernetes: ${{ steps.filter.outputs.kubernetes }}
+      release: ${{ steps.filter.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            engine:
+              - '!(integrations/**)'
+              - 'go.work'
+            dashboard:
+              - 'pkg/dashboard/**'
+            kubernetes:
+              - 'integrations/kubernetes/**'
+              - 'go.work'
+            release:
+              - 'release/**'
+              - '.github/workflows/**'
+
+  ci-static:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
@@ -23,13 +59,15 @@ jobs:
           target: ci-static
           golangci-lint: 'true'
 
-  unit-test:
+  ci-engine:
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: ./.github/actions/ci
         with:
-          target: ci-test
+          target: ci-engine
       - name: Upload results to Codecov
         if: github.event_name == 'push'
         uses: codecov/codecov-action@v7.0.0
@@ -38,7 +76,9 @@ jobs:
           files: coverage.out
           fail_ci_if_error: true
 
-  frontend-test:
+  ci-dashboard:
+    needs: changes
+    if: needs.changes.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
@@ -47,12 +87,97 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
-      - run: make ci-ui
+      - run: make ci-dashboard
 
-  e2e:
+  ci-integration-kubernetes:
+    needs: changes
+    if: needs.changes.outputs.kubernetes == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
-      - uses: ./.github/actions/ci
+      - uses: actions/setup-go@v7
         with:
-          target: e2e
+          go-version-file: go.mod
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+      - name: Install helm-docs
+        run: |
+          HELM_DOCS_VERSION=1.14.2
+          curl -sSL "https://github.com/norwoodj/helm-docs/releases/download/v${HELM_DOCS_VERSION}/helm-docs_${HELM_DOCS_VERSION}_Linux_x86_64.tar.gz" | tar xz
+          sudo mv helm-docs /usr/local/bin/
+      - run: make ci-integration-kubernetes
+
+  ci-e2e-envtest:
+    needs: changes
+    if: needs.changes.outputs.kubernetes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: make ci-e2e-envtest
+
+  ci-oci:
+    needs: changes
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5001:5000
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Install ORAS
+        uses: oras-project/setup-oras@v2
+      - run: make ci-oci
+        env:
+          PACTO_STAGING_REGISTRY: localhost:5001
+
+  artifact-drift:
+    needs: changes
+    if: needs.changes.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: make artifact-drift
+
+  # Single required status for branch protection: green only when every leg that
+  # ran succeeded. Skipped (path-filtered) legs do not count as failures.
+  required:
+    if: always()
+    needs:
+      - changes
+      - ci-static
+      - ci-engine
+      - ci-dashboard
+      - ci-integration-kubernetes
+      - ci-e2e-envtest
+      - ci-oci
+      - artifact-drift
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify no required leg failed
+        run: |
+          results='${{ join(needs.*.result, ' ') }}'
+          echo "leg results: $results"
+          for r in $results; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "a required CI leg did not pass"
+              exit 1
+            fi
+          done
+          echo "all required CI legs passed"

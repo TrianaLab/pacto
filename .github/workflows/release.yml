@@ -1,65 +1,326 @@
-name: Build and publish release binaries
+name: Release
+
+# Changesets-driven release for the go.work monorepo. ONE canonical publisher
+# per artifact (see the `pacto-publishes:` marker on each job — the
+# tests/release one-publisher gate enforces exactly one publisher per release
+# unit). Versions come from release/release-manifest.json (the deterministic
+# release plan), NOT `go list -m`, which returns empty under a same-repo
+# workspace.
+#
+# Flow:
+#   * A feature PR carries a changeset. On merge to main the `changesets` job
+#     opens/updates a "Version Packages" PR (npm run release:version bumps the
+#     release units, regenerates the plan + manifest, and applies release state).
+#   * Merging that PR lands the version bump on main; `detect` sees
+#     release-manifest.json change and fans out to the per-artifact publishers.
+#
+# Triggered only on push to main + manual dispatch, so secrets are NEVER exposed
+# to forked pull requests.
 
 on:
-  release:
-    types: [published]
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build:
+  changesets:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - name: Open or update the Version Packages PR
+        uses: changesets/action@v1.9.0
+        with:
+          version: npm run release:version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.decide.outputs.release }}
+      core_version: ${{ steps.versions.outputs.core }}
+      k8s_version: ${{ steps.versions.outputs.k8s }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 2
+      - name: Decide whether a release landed
+        id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only HEAD^ HEAD | grep -qx 'release/release-manifest.json'; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Read + validate versions from the release manifest
+        id: versions
+        if: steps.decide.outputs.release == 'true'
+        run: |
+          core=$(jq -r '.units.core.version' release/release-manifest.json)
+          k8s=$(jq -r '.units["k8s-module"].version' release/release-manifest.json)
+          # Validate BEFORE any downstream shell/tag use — reject anything that is
+          # not a bare semver core, so a poisoned manifest cannot inject shell.
+          for v in "$core" "$k8s"; do
+            case "$v" in
+              *[!0-9.]*|''|.*|*.) echo "invalid version '$v' in release-manifest.json" >&2; exit 1 ;;
+            esac
+            echo "$v" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+' || { echo "not semver: '$v'" >&2; exit 1; }
+          done
+          echo "core=$core" >> "$GITHUB_OUTPUT"
+          echo "k8s=$k8s" >> "$GITHUB_OUTPUT"
+
+  # pacto-publishes: core
+  # Canonical publisher for the core Go module (github.com/trianalab/pacto/v2):
+  # the tag v<core> + the GitHub Release that anchors the module version.
+  core:
+    needs: detect
+    if: needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Tag + create the core module release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ needs.detect.outputs.core_version }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists — nothing to do"
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes --target "$GITHUB_SHA"
+          fi
+
+  # pacto-publishes: cli
+  # Canonical publisher for the CLI binaries — built for every OS/arch and
+  # attached to the core GitHub Release created above.
+  cli:
+    needs: [detect, core]
+    if: needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     strategy:
       matrix:
         goos: [linux, darwin, windows]
         goarch: [amd64, arm64]
-
     steps:
       - uses: actions/checkout@v7.0.0
-
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-
       - name: Build binary
+        env:
+          TAG: v${{ needs.detect.outputs.core_version }}
         run: |
           mkdir -p dist
           output=pacto_${{ matrix.goos }}_${{ matrix.goarch }}
           if [ "${{ matrix.goos }}" = "windows" ]; then output=$output.exe; fi
-          tag="${{ github.event.release.tag_name }}"
-          commit="${{ github.sha }}"
           date="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
-            go build -ldflags "-s -w -X main.version=$tag -X main.gitCommit=$commit -X main.buildDate=$date" \
-            -o dist/$output ./cmd/pacto
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: pacto_${{ matrix.goos }}_${{ matrix.goarch }}
-          path: dist/
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.event.release.tag_name, 'v')
-
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: dist
-          merge-multiple: true
-
-      - name: Generate checksums
-        run: |
-          cd dist
-          sha256sum * > checksums.txt
-
-      - name: Publish to GitHub Release
+            go build -ldflags "-s -w -X main.version=$TAG -X main.gitCommit=$GITHUB_SHA -X main.buildDate=$date" \
+            -o "dist/$output" ./cmd/pacto
+      - name: Upload binary to the release
         uses: softprops/action-gh-release@v3.0.2
         with:
+          tag_name: v${{ needs.detect.outputs.core_version }}
           files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # pacto-publishes: dashboard-image
+  # Canonical publisher for ghcr.io/trianalab/pacto-dashboard.
+  dashboard-image:
+    needs: detect
+    if: needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: docker/setup-buildx-action@v4.2.0
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}
+          build-args: |
+            VERSION=v${{ needs.detect.outputs.core_version }}
+            GIT_COMMIT=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.title=pacto-dashboard
+            org.opencontainers.image.version=${{ needs.detect.outputs.core_version }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign
+        run: |
+          digest=$(docker buildx imagetools inspect \
+            "ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}" \
+            --format '{{json .Manifest.Digest}}' | tr -d '"')
+          cosign sign --yes "ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}@${digest}"
+
+  # pacto-publishes: k8s-module
+  # Canonical publisher for the kubernetes integration Go module tag
+  # (integrations/kubernetes/v<k8s>).
+  k8s-module:
+    needs: [detect, core]
+    if: needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Tag the integration module
+        env:
+          TAG: integrations/kubernetes/v${{ needs.detect.outputs.k8s_version }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "tag $TAG already exists — nothing to do"
+          else
+            git tag "$TAG" "$GITHUB_SHA"
+            git push origin "$TAG"
+          fi
+
+  # pacto-publishes: operator-image
+  # Canonical publisher for ghcr.io/trianalab/pacto-operator/pacto-controller.
+  # DASHBOARD_IMAGE is derived from the release manifest (detect.core_version),
+  # NOT `go list -m`, which returns empty under the go.work workspace.
+  operator-image:
+    needs: detect
+    if: needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      id-token: write
+    defaults:
+      run:
+        working-directory: integrations/kubernetes
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: docker/setup-buildx-action@v4.2.0
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: integrations/kubernetes
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/trianalab/pacto-operator/pacto-controller:${{ needs.detect.outputs.k8s_version }}
+          build-args: |
+            VERSION=v${{ needs.detect.outputs.k8s_version }}
+            GIT_COMMIT=${{ github.sha }}
+            DASHBOARD_IMAGE=ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}
+          labels: |
+            org.opencontainers.image.title=pacto-controller
+            org.opencontainers.image.version=${{ needs.detect.outputs.k8s_version }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign
+        working-directory: .
+        run: |
+          img=ghcr.io/trianalab/pacto-operator/pacto-controller:${{ needs.detect.outputs.k8s_version }}
+          digest=$(docker buildx imagetools inspect "$img" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false "${img}@${digest}"
+
+  # pacto-publishes: operator-chart
+  # Canonical publisher for ghcr.io/trianalab/pacto-operator/charts/pacto-operator
+  # (+ Artifact Hub metadata). Chart version/appVersion already pinned by
+  # apply-release-plan; this job only packages and pushes.
+  operator-chart:
+    needs: [detect, operator-image]
+    if: needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      id-token: write
+    defaults:
+      run:
+        working-directory: integrations/kubernetes
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+      - name: Install ORAS
+        uses: oras-project/setup-oras@v2
+      - name: Log in to GHCR (Helm)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username ${{ github.actor }} --password-stdin
+      - name: Log in to GHCR (Cosign/ORAS)
+        uses: docker/login-action@v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Package, push, sign chart + Artifact Hub metadata
+        env:
+          VERSION: ${{ needs.detect.outputs.k8s_version }}
+        run: |
+          helm package charts/pacto-operator
+          out=$(helm push "pacto-operator-${VERSION}.tgz" oci://ghcr.io/trianalab/pacto-operator/charts 2>&1)
+          echo "$out"
+          digest=$(echo "$out" | grep -oE 'sha256:[a-f0-9]+')
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
+            "ghcr.io/trianalab/pacto-operator/charts/pacto-operator:${VERSION}@${digest}"
+          oras push ghcr.io/trianalab/pacto-operator/charts/pacto-operator:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml \
+            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
+
+  # pacto-publishes: k8s-docs
+  # Canonical publisher for the kubernetes integration docs. Doc generation is a
+  # later milestone; this job runs the real generator and carries the marker so
+  # the one-publisher gate has a single owner for the k8s-docs unit.
+  k8s-docs:
+    needs: detect
+    if: needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: make docs-generate

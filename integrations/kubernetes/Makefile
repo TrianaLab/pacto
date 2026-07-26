@@ -31,11 +31,19 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-# Dashboard image — derived from the Pacto library version in go.mod.
-# The operator owns the dashboard deployment lifecycle; users do not choose the image.
-# NOTE: the module path is /v2 (Go major-version suffix) — querying the bare
-# github.com/trianalab/pacto returns empty and bakes an untagged dashboard image.
+# Dashboard image tag. The monorepo release manifest is the single source of
+# truth for published versions. `go list -m github.com/trianalab/pacto/v2`
+# returns empty under the same-repo go.work workspace (it resolves to the
+# workspace copy, which has no version), so it CANNOT supply the release tag and
+# would bake an untagged dashboard image. Use the release manifest when present
+# (monorepo), and fall back to go list only for a standalone operator checkout,
+# where the module genuinely has a resolved version.
+PACTO_MANIFEST := $(firstword $(wildcard ../../release/release-manifest.json release/release-manifest.json))
+ifneq ($(PACTO_MANIFEST),)
+PACTO_VERSION := $(shell node -e 'const fs=require("fs");process.stdout.write(JSON.parse(fs.readFileSync("$(PACTO_MANIFEST)","utf8")).units["dashboard-image"].version)')
+else
 PACTO_VERSION := $(shell echo '$(call gomodver,github.com/trianalab/pacto/v2)' | sed 's/^v//')
+endif
 DASHBOARD_IMG := ghcr.io/trianalab/pacto-dashboard:$(PACTO_VERSION)
 
 # Ldflags for version injection
