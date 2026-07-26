@@ -105,6 +105,14 @@ otherwise repin an unchanged core).
 Changesets is already installed, gives the intent layer and cleanly hands its
 computed versions to the custom mechanism layer.
 
+### Changelog in the docs
+
+The Changesets-generated `release/units/*/CHANGELOG.md` files are surfaced on the
+docs site as a single **Changelog** page, assembled at build time by
+`release/scripts/mkdocs_integration_hook.py` (one section per release unit, core
+first) — injected as virtual content, so nothing is written to the tree and the
+page always reflects the current release history.
+
 ## Consequences
 
 - One reviewed source change, one computed version graph, one release plan file.
