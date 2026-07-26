@@ -1,0 +1,32 @@
+# PROOF 1 - release-unit discovery (all 7 units, both fixed groups)
+# changesets CLI: 2.27.11
+
+$ cat .changeset/zz-core.md
+---
+"@pacto/core": minor
+---
+
+test: discover core units
+
+$ cat .changeset/zz-k8s.md
+---
+"@pacto/k8s-module": minor
+---
+
+test: discover kubernetes units
+
+$ changeset status --verbose
+🦋  info Running release would release NO packages as a patch
+🦋  ---
+🦋  info Packages to be bumped at minor
+🦋  - @pacto/core 2.8.0
+🦋    - .changeset/zz-core.md
+🦋  - @pacto/k8s-module 4.8.0
+🦋    - .changeset/zz-k8s.md
+🦋  - @pacto/cli 2.8.0
+🦋  - @pacto/dashboard-image 2.8.0
+🦋  - @pacto/operator-image 4.8.0
+🦋  - @pacto/operator-chart 4.8.0
+🦋  - @pacto/k8s-docs 4.8.0
+🦋  ---
+🦋  info Running release would release NO packages as a major
