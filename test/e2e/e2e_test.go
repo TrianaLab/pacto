@@ -364,6 +364,64 @@ func TestInterfaces(t *testing.T) {
 		requireNoIP(t, p)
 	})
 
+	t.Run("bound_service_notfound_unknown_EVIDENCE_MISSING", func(t *testing.T) {
+		// A bound interface whose backing Service is absent -> the observer emits NO observation, so the engine
+		// infers EVIDENCE_MISSING (spec section 7.3, mirroring the workload dimension). Honest Unknown, never a
+		// false INTERFACE_ABSENT.
+		ns := newNamespace(t)
+		// no createService("svc") -> Service GET returns NotFound
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+			Target:      ifaceTarget,
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_MISSING")
+		requireNoFinding(t, p, "INTERFACE_ABSENT")
+	})
+
+	t.Run("service_get_error_unknown_COLLECTION_FAILED", func(t *testing.T) {
+		// The interface dimension reads the backing Service to count ready endpoints; a non-NotFound API error
+		// on that GET -> the interface dimension is Failed -> COLLECTION_FAILED, service Unknown (never a
+		// violation on a collection gap).
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+			Target:      ifaceTarget,
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{cl: faultClient{Client: k8sClient, failServiceName: "svc"}}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown) // Unknown, not NonCompliant
+		requireFinding(t, p, "COLLECTION_FAILED")
+		requireNoFinding(t, p, "INTERFACE_ABSENT")
+	})
+
+	t.Run("zero_ready_window_recovery_compliant", func(t *testing.T) {
+		// Zero-ready sustained beyond the window -> confirmed INTERFACE_ABSENT; a ready endpoint then resets the
+		// window and recovers to Compliant (spec section 7.3 recovery path).
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 0)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+			Target:      ifaceTarget,
+		})
+		reconcile(t, "p", ns, reconcileOpts{}) // seed window (within -> Unknown)
+		backdateWindows(t, "p", ns)
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireFinding(t, p, "INTERFACE_ABSENT")
+
+		// Endpoint becomes ready -> window resets and status recovers.
+		setEndpointSliceReady(t, ns, "svc", port)
+		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		if len(p.Status.ObservationWindows) != 0 {
+			t.Fatalf("expected window reset after recovery, got %+v", p.Status.ObservationWindows)
+		}
+	})
+
 	t.Run("no_binding_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
@@ -472,6 +530,51 @@ func TestHealth(t *testing.T) {
 		requireFinding(t, p, "CAPABILITY_ABSENT")
 	})
 
+	t.Run("declared_path_404_window_recovery_compliant", func(t *testing.T) {
+		// A declared-path 404 sustained beyond the window -> confirmed CAPABILITY_ABSENT; a 2xx then resets the
+		// window and recovers to Compliant (spec section 7.4 recovery path).
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		flip := startSwitchableProbeServer(t, ns, "svc", port, status404)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		reconcile(t, "p", ns, reconcileOpts{}) // 404 within window -> Unknown
+		backdateWindows(t, "p", ns)
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireFinding(t, p, "CAPABILITY_ABSENT")
+
+		// Health path starts serving 2xx -> status recovers and the confirmed CAPABILITY_ABSENT clears.
+		//
+		// Unlike the interface/dependency/configuration recovery cases, this does NOT assert the observation
+		// window slice is emptied: the health dimension's satisfied paths intentionally emit NO window-reset
+		// update (a Tier-A 2xx returns no window update at all), a design locked by internal/observer's
+		// TestHandleHealthProbeResult_2xx_Satisfied and TestObserveHealthDim_TierB_ReadinessProbe_Satisfied.
+		// The stale capability/health window is inert while the probe stays healthy, so recovery is asserted on
+		// the externally-observable outcomes — aggregate status Compliant and the violation finding cleared.
+		flip(okHealth)
+		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireNoFinding(t, p, "CAPABILITY_ABSENT")
+	})
+
+	t.Run("service_get_error_unknown_COLLECTION_FAILED", func(t *testing.T) {
+		// The health path resolves the probe target by reading the backing Service; a non-NotFound API error on
+		// that GET -> the health dimension is Failed -> COLLECTION_FAILED, service Unknown (never a violation on
+		// a collection gap).
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1)
+		startProbeServer(t, ns, "svc", port, okHealth)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{cl: faultClient{Client: k8sClient, failServiceName: "svc"}}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown) // Unknown, not NonCompliant
+		requireFinding(t, p, "COLLECTION_FAILED")
+		requireNoFinding(t, p, "CAPABILITY_ABSENT")
+	})
+
 	t.Run("probe_5xx_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
@@ -563,6 +666,53 @@ func TestMetrics(t *testing.T) {
 		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+	})
+
+	t.Run("reachable_non200_never_window_never_violation", func(t *testing.T) {
+		// INVARIANT LOCK (spec section 7.5 / Refinement D): metrics has NO reliable operator-side negative, so a
+		// reachable non-200 is EVIDENCE_INSUFFICIENT (Unknown) forever — it must NEVER open a stabilization
+		// window and NEVER advance to CAPABILITY_ABSENT. A regression that added metrics windowing would seed a
+		// window on the first negative (failing the len==0 assertion below); one that added a metrics violation
+		// would flip the sustained negative to NonCompliant (failing the second-cycle status assertion).
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1) // interface availability satisfied -> no interface window
+		startProbeServer(t, ns, "svc", port, status404)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
+
+		// Cycle 1: first reachable-404 negative.
+		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+		requireNoFinding(t, p, "CAPABILITY_ABSENT")
+		if len(p.Status.ObservationWindows) != 0 {
+			t.Fatalf("metrics reachable non-200 must NOT open a window, got %+v", p.Status.ObservationWindows)
+		}
+
+		// Cycle 2: sustained negative stays Unknown with still no window (no path to a confirmed violation).
+		p = reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
+		requireNoFinding(t, p, "CAPABILITY_ABSENT")
+		if len(p.Status.ObservationWindows) != 0 {
+			t.Fatalf("sustained metrics non-200 must still carry NO window, got %+v", p.Status.ObservationWindows)
+		}
+	})
+
+	t.Run("transport_error_unknown_COLLECTION_FAILED", func(t *testing.T) {
+		// A transport error reaching the discovered scrape target (connection refused) -> the metrics dimension
+		// is Failed -> COLLECTION_FAILED, service Unknown (never a violation on a collection gap).
+		ns := newNamespace(t)
+		createService(t, ns, "svc", port)
+		createEndpointSlice(t, ns, "svc", port, 1) // interface availability satisfied
+		pointAtClosedPort(t, ns, "svc", port)      // scrape probe gets connection-refused
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
+		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown) // Unknown, not NonCompliant
+		requireFinding(t, p, "COLLECTION_FAILED")
+		requireNoFinding(t, p, "CAPABILITY_ABSENT")
 	})
 
 	t.Run("disabled_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
@@ -923,6 +1073,24 @@ func TestConfigurations(t *testing.T) {
 		}
 	})
 
+	t.Run("optional_present_nonconformant_warning_CONFIGURATION_MISMATCH", func(t *testing.T) {
+		// An OPTIONAL configuration that is present but violates its schema is a genuine contradiction, but on an
+		// optional assertion it degrades to Warning (not NonCompliant): the finding surfaces at warning severity
+		// and the service status is Warning.
+		ns := newNamespace(t)
+		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: 123\n"}) // level int, schema wants string
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(false, configSchema)}, // required: false
+			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusWarning) // optional contradiction -> Warning, not Error
+		f := findFinding(p, "CONFIGURATION_MISMATCH")
+		if f == nil || f.Severity != "warning" {
+			t.Fatalf("expected optional CONFIGURATION_MISMATCH at warning severity, got %+v", f)
+		}
+	})
+
 	t.Run("bound_configmap_missing_beyond_window_noncompliant_CONFIGURATION_ABSENT", func(t *testing.T) {
 		ns := newNamespace(t)
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
@@ -934,6 +1102,29 @@ func TestConfigurations(t *testing.T) {
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
 		requireFinding(t, p, "CONFIGURATION_ABSENT")
+	})
+
+	t.Run("bound_configmap_window_recovery_compliant", func(t *testing.T) {
+		// A bound ConfigMap absent beyond the window -> confirmed CONFIGURATION_ABSENT; creating a present +
+		// conformant ConfigMap then resets the window and recovers to Compliant (spec section 7.7 recovery path).
+		ns := newNamespace(t)
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
+		})
+		reconcile(t, "p", ns, reconcileOpts{}) // absent within window -> Unknown
+		backdateWindows(t, "p", ns)
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireFinding(t, p, "CONFIGURATION_ABSENT")
+
+		// The bound ConfigMap appears with conformant content -> window resets and status recovers.
+		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
+		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		if len(p.Status.ObservationWindows) != 0 {
+			t.Fatalf("expected window reset after recovery, got %+v", p.Status.ObservationWindows)
+		}
 	})
 
 	t.Run("no_binding_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {

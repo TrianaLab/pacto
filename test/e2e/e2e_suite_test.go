@@ -31,6 +31,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -484,6 +485,20 @@ func startProbeServer(t *testing.T, ns, svc string, port int32, h http.HandlerFu
 	authority := fmt.Sprintf("%s.%s.svc:%d", svc, ns, port)
 	probeRedirects.Store(authority, srv.Listener.Addr().String())
 	t.Cleanup(func() { probeRedirects.Delete(authority) })
+}
+
+// startSwitchableProbeServer stands up a real probe server whose handler can be swapped at runtime, so a
+// window-recovery case can serve a sustained negative (e.g. 404) and then flip to healthy (2xx) between
+// reconciles. Returns a setter for the live handler. The handler is read under an atomic pointer because the
+// httptest server serves each request on its own goroutine.
+func startSwitchableProbeServer(t *testing.T, ns, svc string, port int32, initial http.HandlerFunc) func(http.HandlerFunc) {
+	t.Helper()
+	var h atomic.Pointer[http.HandlerFunc]
+	h.Store(&initial)
+	startProbeServer(t, ns, svc, port, func(w http.ResponseWriter, r *http.Request) {
+		(*h.Load())(w, r)
+	})
+	return func(next http.HandlerFunc) { h.Store(&next) }
 }
 
 // pointAtClosedPort redirects the in-cluster authority to a closed port, so the genuine prober gets an
