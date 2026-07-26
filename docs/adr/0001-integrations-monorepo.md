@@ -80,6 +80,10 @@ uses the path-prefixed tag `integrations/kubernetes/vA.B.C` (Go's nested-module
 tag convention). Public OCI/chart coordinates are preserved from the operator repo
 (see the artifact pipeline ledger).
 
+## Version continuity (from inventory)
+
+Historical public versions preserved: core Go module `v2.7.0` (latest), operator image + chart `v4.7.0` (latest). The k8s integration release group continues the operator `v4.x` line (image + chart + integration module), NOT reset to 0.x. Core continues `v2.x`. Bare-`vX.Y.Z` tag collision (engine v2 vs operator v4) is resolved by path-prefixed nested-module tags.
+
 ## Consequences
 
 - One coherent source tree, one reviewed change, one CI result, one release plan.
