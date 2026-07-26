@@ -1,0 +1,24 @@
+# Anti-flake proof — operator critical suites (envtest)
+# Date: 2026-07-26T13:12:53Z
+# Go: go version go1.26.5 darwin/arm64
+#
+# internal/controller is a Ginkgo suite (rejects go test -count>1), so it is run
+# as 10 fresh 'go test -race -count=1' invocations — a stronger anti-flake check
+# (fresh envtest control plane + scheduling per run). It now includes the
+# 'Concurrent reconciliation' spec (12 CRs created at once, all must converge).
+# internal/observer is plain testing, run with -race -count=10.
+
+== internal/controller: 10x fresh -race runs (incl. concurrent reconcile) ==
+run 1: ok  	github.com/trianalab/pacto/integrations/kubernetes/internal/controller	12.366s
+run 2: ok  	github.com/trianalab/pacto/integrations/kubernetes/internal/controller	11.603s
+run 3: ok  	github.com/trianalab/pacto/integrations/kubernetes/internal/controller	11.777s
+run 4: ok  	github.com/trianalab/pacto/integrations/kubernetes/internal/controller	11.795s
+run 5: ok  	github.com/trianalab/pacto/integrations/kubernetes/internal/controller	11.890s
+run 6: ok  	github.com/trianalab/pacto/integrations/kubernetes/internal/controller	12.021s
+run 7: ok  	github.com/trianalab/pacto/integrations/kubernetes/internal/controller	11.796s
+run 8: ok  	github.com/trianalab/pacto/integrations/kubernetes/internal/controller	11.851s
+run 9: ok  	github.com/trianalab/pacto/integrations/kubernetes/internal/controller	12.640s
+run 10: ok  	github.com/trianalab/pacto/integrations/kubernetes/internal/controller	11.940s
+
+== internal/observer: -race -count=10 ==
+ok  	github.com/trianalab/pacto/integrations/kubernetes/internal/observer	12.863s
