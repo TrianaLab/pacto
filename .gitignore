@@ -13,6 +13,9 @@ pacto
 coverage.out
 coverage.html
 
+# Local Go build cache (created when GOCACHE points into the tree)
+.gocache/
+
 # MkDocs build output
 /site/
 
