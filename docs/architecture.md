@@ -122,8 +122,7 @@ Also includes **runtime validation** (`ValidateRuntime`) -- a foundational abstr
 
 Compares two contracts and classifies every change using a deterministic rule table. Sub-analyzers handle specific sections:
 
-- `contract.go` -- service identity, scaling
-- `runtime.go` -- workload, state, lifecycle, health
+- `contract.go` -- service identity, workload, state, capabilities
 - `interfaces.go` -- interface additions/removals/changes, configuration and policy diffing
 - `dependency.go` -- dependency list changes
 - `openapi.go` -- deep OpenAPI diff (paths, methods, parameters, request bodies, responses)
@@ -262,7 +261,7 @@ Sources are divided into two categories with different roles:
 
 **Contract sources** (`local`, `oci`, `cache`) provide the authoritative service definition -- interfaces, configuration, dependencies, version, owner. Exactly one contract snapshot wins per service. Priority: `local` > `oci` > `cache` (explicit dev intent wins over the registry baseline, which wins over the offline disk cache). `cache` only participates when no live `oci` source is configured.
 
-**Runtime source** (`k8s`) enriches the contract with live cluster state -- contract status, conditions, endpoints, resources, ports, scaling, insights, checks. Runtime data **never overrides contract content** (config and policy *content* always comes from the declared contract). The `enrichWithRuntime()` function in `source_resolver.go` enforces this boundary: it copies k8s-specific fields but preserves contract fields. The one computed exception is the `Validation` summary, which is derived (not declarable) and is recomputed from runtime state when k8s data is present — `computeSectionMeta` attributes that section to `k8s` in the section provenance.
+**Runtime source** (`k8s`) enriches the contract with live cluster state -- contract status, conditions, endpoints, resources, observed runtime and readiness. Runtime data **never overrides contract content** (config and policy *content* always comes from the declared contract). The `enrichWithRuntime()` function in `source_resolver.go` enforces this boundary: it copies k8s-specific fields but preserves contract fields. The one computed exception is the `Validation` summary, which is derived (not declarable) and is recomputed from runtime state when k8s data is present — `computeSectionMeta` attributes that section to `k8s` in the section provenance.
 
 ### Resolution model
 
@@ -336,7 +335,7 @@ provenance table — the dashboard and operator attribute fields identically:
 
 | Field / section | Authority | Notes |
 |-----------------|-----------|-------|
-| interfaces, configurations, policies, dependencies, runtime declaration, readiness, scaling, metadata | Declared contract (`local` > `oci` > `cache`) | Config & policy **content** always comes from the declared contract — even for reference-only contracts (the operator extracts schema content into status). |
+| interfaces, configurations, policies, dependencies, workload, state, capabilities, readiness, metadata | Declared contract (`local` > `oci` > `cache`) | Config & policy **content** always comes from the declared contract — even for reference-only contracts (the operator extracts schema content into status). |
 | `version` | k8s overrides contract when deployed | `OverriddenBy: "k8s"`. |
 | `owner` | k8s overrides contract when deployed | `OverriddenBy: "k8s"`. |
 | namespace, `resolvedRef` | k8s only | Deployed-state fields; absent off-cluster. |

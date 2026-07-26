@@ -85,13 +85,14 @@ Pacto writes a JSON object to the plugin's stdin:
 {
   "protocolVersion": "1",
   "contract": {
-    "pactoVersion": "1.2",
+    "pactoVersion": "2.0",
     "service": {
       "name": "my-service",
       "version": "1.0.0"
     },
     "interfaces": [...],
-    "runtime": {...},
+    "workload": "service",
+    "state": {...},
     ...
   },
   "bundleDir": "/path/to/bundle",

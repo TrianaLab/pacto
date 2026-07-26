@@ -3,62 +3,50 @@
 A Pacto contract for NGINX — a stateless reverse proxy and web server.
 
 ```yaml
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: nginx
   version: 1.27.3
   owner:
     team: networking
-  image:
-    ref: docker.io/library/nginx:1.27.3
-    private: false
 
 interfaces:
-  - name: http
-    type: http
-    port: 80
-    visibility: public
-
-  - name: https
-    type: http
-    port: 443
+  - name: proxy
+    type: openapi
+    ref: interfaces/openapi.yaml
     visibility: public
 
   - name: metrics
-    type: http
-    port: 9113
+    type: openapi
+    ref: interfaces/metrics.yaml
     visibility: internal
 
 configurations:
   - name: default
     schema: configuration/schema.json
+    required: true
 
-runtime:
-  workload: service
+workload: service
 
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-
-  health:
-    interface: http
-    path: /health
-
-  metrics:
-    interface: metrics
-    path: /metrics
-
-scaling:
-  min: 2
-  max: 20
+capabilities:
+  - type: health
+    binding:
+      type: http
+      interface: proxy
+      path: /health
+  - type: metrics
+    binding:
+      type: http
+      interface: metrics
+      path: /metrics
 
 metadata:
   tier: critical
@@ -67,10 +55,10 @@ metadata:
 
 ### Key decisions
 
-See the [contract reference](../contract-reference/sections.md#runtime) for what each enum value means; the notes below cover why NGINX picks these.
+See the [state reference](../contract-reference/sections.md#state) for what each enum value means; the notes below cover why NGINX picks these.
 
 - **`state.type: stateless`** — any instance can serve any request
 - **`durability: ephemeral`** — no persistent storage needed
-- **`upgradeStrategy: rolling`** — stateless replicas update without dropping connections
-- **`scaling: min 2, max 20`** — high availability with headroom for traffic spikes
-- **`visibility: public`** — the HTTP and HTTPS interfaces are externally reachable
+- **`visibility: public`** — the `proxy` interface is externally reachable; HTTP/HTTPS termination and ports are a deployment concern, not part of the contract
+- **Capabilities over ports** — health and metrics are declared as [capabilities](../contract-reference/sections.md#capabilities) bound to the declared interfaces
+- **No replica scaling** — v2 has no `scaling` section; high availability and autoscaling are deployment concerns

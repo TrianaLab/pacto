@@ -3,31 +3,28 @@
 A Pacto contract for a gRPC microservice — a user service exposing a Protocol Buffer API with internal visibility.
 
 ```yaml
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: user-service
   version: 3.2.0
   owner:
     team: identity
-  image:
-    ref: ghcr.io/acme/user-service:3.2.0
-    private: true
 
 interfaces:
   - name: grpc-api
     type: grpc
-    port: 9090
+    ref: interfaces/user-service.yaml
     visibility: internal
-    contract: interfaces/user-service.proto
 
   - name: metrics
-    type: http
-    port: 9102
+    type: openapi
+    ref: interfaces/metrics.yaml
     visibility: internal
 
 configurations:
   - name: default
+    required: true
     schema: configuration/schema.json
     values:
       DB_HOST: user-db.internal
@@ -41,30 +38,22 @@ dependencies:
     required: true
     compatibility: "^16.0.0"
 
-runtime:
-  workload: service
+workload: service
 
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 15
-
-  health:
-    interface: grpc-api
-
-  metrics:
-    interface: metrics
-    path: /metrics
-
-scaling:
-  min: 3
-  max: 12
+capabilities:
+  - type: health
+  - type: metrics
+    binding:
+      type: http
+      interface: metrics
+      path: /metrics
 
 metadata:
   tier: critical
@@ -72,7 +61,7 @@ metadata:
 
 ### Key decisions
 
-- **`type: grpc` with `contract`** — the `.proto` file is bundled in the OCI artifact, so the API contract travels with the service version (see [interfaces](../contract-reference/sections.md#interfaces) for the supported types)
-- **Health on gRPC** — a `grpc` health interface needs no `path`; the service is expected to implement the [gRPC Health Checking Protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md) (see [runtime.health](../contract-reference/sections.md#runtimehealth))
-- **Separate metrics port** — the gRPC port serves application traffic while a separate HTTP port exposes Prometheus metrics
+- **`type: grpc`** — the gRPC service descriptor is bundled in the OCI artifact, so the API contract travels with the service version. The `ref` file must parse as JSON or YAML (see [interface types](../contract-reference/sections.md#interface-types))
+- **Health as a capability with no binding** — a `health` capability without an HTTP binding declares the service implements the [gRPC Health Checking Protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md) rather than an HTTP probe (see [capabilities](../contract-reference/sections.md#capabilities))
+- **Metrics over HTTP** — the gRPC interface serves application traffic while the `metrics` capability binds to a separate HTTP interface exposing Prometheus metrics
 - **`stateless`** — the service itself holds no state; data lives in PostgreSQL (the `postgres` dependency resolves to the [PostgreSQL example](postgresql.md))

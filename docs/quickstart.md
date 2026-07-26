@@ -26,7 +26,7 @@ Created my-service/
   my-service/configuration/
 ```
 
-This scaffolds a bundle with a valid contract, a placeholder OpenAPI spec and a configuration JSON Schema. Only `pacto.yaml` is required — if your service doesn't use them, remove the `interfaces/` and `configuration/` directories along with the `interfaces:`/`configurations:` sections and any fields that reference them (the scaffold's `runtime.health.interface` and `runtime.metrics.interface` both point at the `api` interface) in `pacto.yaml` (deleting the directories alone breaks validation).
+This scaffolds a bundle with a valid contract, a placeholder OpenAPI spec and a configuration JSON Schema. Only `pacto.yaml` is required — if your service doesn't use them, remove the `interfaces/` and `configuration/` directories along with the `interfaces:`/`configurations:` sections in `pacto.yaml` (deleting the directories alone breaks validation). The scaffold's `health` and `metrics` capabilities are declared without an interface binding, so they need no changes.
 
 These are standard formats — OpenAPI for interfaces, JSON Schema for configuration — so you can drop in the interface files you already own (for example your Helm chart's `values.schema.json`) instead of authoring new ones. Pacto composes the interfaces you already have rather than inventing a config language.
 
@@ -37,14 +37,14 @@ $ pacto validate my-service
 my-service is valid
 ```
 
-Validation runs four layers — structural, cross-field, semantic and policy enforcement. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
+Validation runs three layers — structural, cross-field and policy enforcement. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
 
 ## 4. Customize your contract
 
 Edit `my-service/pacto.yaml` to match your service. A minimal contract only requires `pactoVersion` and `service`:
 
 ```yaml
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: my-service
@@ -53,19 +53,19 @@ service:
     team: backend
 ```
 
-Add sections as needed — interfaces, runtime semantics, dependencies, configuration, policy, scaling, readiness. See the [Contract Reference](contract-reference/index.md) for every available field.
+Add sections as needed — interfaces, workload, state, capabilities, dependencies, configuration, policy, readiness. See the [Contract Reference](contract-reference/index.md) for every available field.
 
-## 5. Add readiness (optional, v1.2)
+## 5. Add readiness (optional)
 
-The `readiness` section declares operational readiness state for the service. It requires `pactoVersion: "1.2"` — declaring it under `1.0` or `1.1` is rejected at validation. Add at least one check with a status:
+The `readiness` section declares operational readiness state for the service. It is a `pactoVersion: "2.0"` feature. Add at least one claim with a status:
 
 ```yaml
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 readiness:
   expires: 2099-12-31
   minScore: 80
-  checks:
+  claims:
     - id: dashboard
       type: url
       status: done
@@ -73,7 +73,7 @@ readiness:
       weight: 20
       evidence: https://grafana.example.com/d/service-dashboard
       description: Grafana dashboard exists
-    
+
     - id: runbook
       type: document
       status: partial
@@ -89,7 +89,7 @@ Then run the opt-in readiness gate:
 $ pacto validate my-service --readiness
 ```
 
-The gate derives a score from check statuses and weights, comparing it against `minScore`. The result is time-dependent (expired assessments score 0), so plain `pacto validate` does not enforce it. See [Contract Reference](contract-reference/sections.md#readiness) for the full scoring and gate semantics.
+The gate derives a score from claim statuses and weights, comparing it against `minScore`. The result is time-dependent (expired assessments score 0), so plain `pacto validate` does not enforce it. See [Contract Reference](contract-reference/sections.md#readiness) for the full scoring and gate semantics.
 
 ## 6. Pack and push
 
@@ -118,18 +118,21 @@ $ pacto pull oci://ghcr.io/your-org/my-service-pacto:1.0.0
 $ pacto explain my-service
 Service: my-service@1.0.0
 Owner: backend
-Pacto Version: 1.2
+Pacto Version: 2.0
 
-Runtime:
-  Workload: service
-  State: stateless
+Workload: service
+
+State:
+  Type: stateless
   Persistence: local/ephemeral
   Data Criticality: low
 
-Interfaces (1):
-  - api (http, port 8080, internal)
+Capabilities (2):
+  - health
+  - metrics
 
-Scaling: 1-3
+Interfaces (1):
+  - api (openapi: interfaces/openapi.yaml, internal)
 
 # Serve an interactive documentation site
 $ pacto doc my-service --serve
@@ -138,15 +141,15 @@ Serving documentation at http://127.0.0.1:8484
 
 ## 8. Detect breaking changes
 
-Make a change to your contract (e.g. modify a port number) and diff it against the version you just pushed:
+Make a change to your contract (e.g. remove an endpoint from the OpenAPI spec) and diff it against the version you just pushed:
 
 ```bash
-# Edit your contract — change the port in pacto.yaml
+# Edit your contract — remove the /users path from interfaces/openapi.yaml
 # Then diff against the published version
 $ pacto diff oci://ghcr.io/your-org/my-service-pacto:1.0.0 my-service
 Classification: BREAKING
 Changes (1):
-  [BREAKING] interfaces.port (modified): interfaces.port modified [8080 -> 9090]
+  [BREAKING] openapi.paths[/users] (removed): API path /users removed [- /users]
 ```
 
 Exit code is non-zero when breaking changes are detected — use this in CI to gate merges. See [Detecting breaking changes](developers.md#detecting-breaking-changes) and the official [GitHub Actions](github-actions.md) integration for wiring this into CI.

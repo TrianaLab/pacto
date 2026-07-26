@@ -39,6 +39,7 @@ This generates `config.schema.json`. Reference it in your contract:
 ```yaml
 configurations:
   - name: default
+    required: true
     schema: config.schema.json
 ```
 
@@ -48,6 +49,7 @@ When you define your own configuration schema, you are declaring **what your ser
 configurations:
   - name: platform
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
+    required: true
 ```
 
 See [Configuration Schema Ownership Models](contract-reference/sections.md#configuration-schema-ownership-models) for details.
@@ -70,10 +72,9 @@ Then reference the generated spec in your contract:
 ```yaml
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: interfaces/openapi.yaml
     visibility: public
-    contract: interfaces/openapi.yaml
 ```
 
 Both plugins are installed automatically with Pacto. See the [Official plugins](plugins.md#official-plugins) section for details.
@@ -85,40 +86,41 @@ List every boundary your service exposes. Services with no network interfaces (e
 ```yaml
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: interfaces/openapi.yaml
     visibility: public
-    contract: interfaces/openapi.yaml
 
   - name: events
-    type: event
+    type: asyncapi
+    ref: interfaces/events.yaml
     visibility: internal
-    contract: interfaces/events.yaml
 ```
 
-Include the actual interface files (OpenAPI specs, protobuf definitions, event schemas) in the bundle. Pacto references these definitions as-is — it composes the interface contracts you already publish rather than asking you to describe them a second time.
+Include the actual interface files (OpenAPI documents, AsyncAPI documents, gRPC service descriptors) in the bundle. Pacto references these definitions as-is — it composes the interface contracts you already publish rather than asking you to describe them a second time.
 
-### 4. Define your runtime semantics (optional)
+### 4. Define your workload and state (optional)
 
 This is where you tell the platform *how* your service behaves — not how to deploy it, but what it *is*:
 
 ```yaml
-runtime:
-  workload: service
+workload: service
 
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 
-  health:
-    interface: api
-    path: /health
+capabilities:
+  - type: health
+    binding:
+      type: http
+      interface: api
+      path: /health
 ```
 
-Choose your `workload` (`service` vs `job`/`scheduled`), `state.type` (`stateless`/`stateful`/`hybrid`) and `dataCriticality`; these determine how platforms provision infrastructure for your service. See [runtime.state](contract-reference/sections.md#runtimestate) in the Contract Reference for the full explanation.
+Choose your `workload` (`service` vs `job`/`scheduled`), `state.type` (`stateless`/`stateful`/`hybrid`) and `dataCriticality`; these determine how platforms provision infrastructure for your service. Declare `health` and `metrics` as [capabilities](contract-reference/sections.md#capabilities). See [state](contract-reference/sections.md#state) in the Contract Reference for the full explanation.
 
 ### 5. Declare dependencies
 
@@ -127,7 +129,7 @@ If your service depends on other Pacto-enabled services:
 ```yaml
 dependencies:
   - name: auth
-    ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123
+    ref: oci://ghcr.io/acme/auth-pacto@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     required: true
     compatibility: "^2.0.0"
 
@@ -170,51 +172,25 @@ policies:
     ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
 ```
 
-A policy is a JSON Schema that validates the contract itself — enforcing organizational standards like requiring health endpoints or mandating specific ports. See [policies](contract-reference/sections.md#policies) in the Contract Reference for details.
+A policy is a JSON Schema that validates the contract itself — enforcing organizational standards like requiring a health capability or a declared owner. See [policies](contract-reference/sections.md#policies) in the Contract Reference for details.
 
-### 7. Reference your Helm chart (optional)
-
-If your service is deployed via a Helm chart, reference it in the contract:
-
-```yaml
-service:
-  name: my-service
-  version: 1.0.0
-  chart:
-    ref: oci://ghcr.io/acme/my-chart
-    version: 1.0.0
-```
-
-During development, you can use a local chart path:
-
-```yaml
-service:
-  chart:
-    ref: ./charts/my-chart
-    version: 1.0.0
-```
-
-!!! warning
-    Local chart references are rejected by `pacto push`. Switch to an OCI reference before publishing.
-
-### 8. Validate before pushing
+### 7. Validate before pushing
 
 ```bash
 pacto validate my-service
 ```
 
-Validation catches errors in four layers:
+Validation catches errors in three layers:
 
 1. **Structural** — missing fields, wrong types, invalid enum values
 2. **Cross-field** — interface references match, state invariants hold, files exist
-3. **Semantic** — strategy consistency warnings
-4. **Policy enforcement** — referenced policies are resolved and enforced
+3. **Policy enforcement** — referenced policies are resolved and enforced
 
 See [Validation layers](contract-reference/validation.md#validation-layers) for the full rules and error codes.
 
-To also enforce the readiness gate — the `readiness:` block `pacto init` scaffolds into your contract — run `pacto validate --readiness`. It fails if the derived readiness score is below `minScore`. Plain `pacto validate` does not enforce it because the gate is time-dependent (check expiry is compared against the run time). See [Contract Reference — readiness](contract-reference/sections.md#readiness).
+To also enforce the readiness gate — the `readiness:` block `pacto init` scaffolds into your contract — run `pacto validate --readiness`. It fails if the derived readiness score is below `minScore`. Plain `pacto validate` does not enforce it because the gate is time-dependent (the assessment's expiry is compared against the run time). See [Contract Reference — readiness](contract-reference/sections.md#readiness).
 
-### 9. Pack and push
+### 8. Pack and push
 
 ```bash
 pacto pack my-service
@@ -266,14 +242,7 @@ Each common shape has a ready-made worked example you can copy:
 | API with local cache | `hybrid` | [hybrid-cache](examples/hybrid-cache.md) |
 | Scheduled job | `stateless` (workload `scheduled`) | [cron-worker](examples/cron-worker.md) |
 
-See [runtime.state](contract-reference/sections.md#runtimestate) for the full field spec.
-
-Use `scaling.replicas` instead of `min`/`max` when the service should always run an exact number of instances:
-
-```yaml
-scaling:
-  replicas: 1
-```
+See [state](contract-reference/sections.md#state) for the full field spec.
 
 ---
 
@@ -285,8 +254,8 @@ Before releasing a new version, diff against the previous one:
 $ pacto diff oci://ghcr.io/acme/my-service-pacto:1.0.0 my-service
 Classification: BREAKING
 Changes (2):
-  [BREAKING] interfaces (removed): metrics [- metrics]
   [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 1.1.0]
+  [BREAKING] interfaces (removed): interfaces removed [- metrics]
 ```
 
 Wire `pacto diff` into CI to block merges that introduce breaking changes — see the official [Pacto CLI action](github-actions.md).

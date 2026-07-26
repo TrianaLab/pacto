@@ -2,23 +2,15 @@
 
 ## `pactoVersion`
 
-The contract specification version. Supported values are `"1.0"`, `"1.1"` and `"1.2"`.
+The contract specification version. The only supported value is `"2.0"`.
 
 ```yaml
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 ```
 
-Each version is validated against its own JSON Schema, selected by the declared
-`pactoVersion`. An unrecognized version is a hard error (`UNSUPPORTED_PACTO_VERSION`).
-
-| Version | Adds |
-|---------|------|
-| `1.0`   | The base contract (service, interfaces, configurations, policies, dependencies, runtime, scaling, metadata). Object-only `owner` (string form removed). |
-| `1.1`   | Object-only `owner` inherited from `1.0`. Everything from `1.0` remains valid. No readiness. |
-| `1.2`   | Redesigned [`readiness`](#readiness) — per-check `status` + `category`, assessment-level `expires`, `partialCredit`, `history[]`. Object-only `owner` inherited from `1.0`. Everything from `1.0` and `1.1` remains valid. |
-
-Existing `1.0` and `1.1` contracts continue to validate unchanged. The `readiness` section
-is only accepted under `pactoVersion: "1.2"`; declaring it under `1.0` or `1.1` is rejected.
+Every contract is validated against the single tracked JSON Schema,
+[`pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json).
+Any other value is a hard error (`UNSUPPORTED_PACTO_VERSION`).
 
 ---
 
@@ -31,27 +23,10 @@ Identifies the service.
 | `name` | string | Yes | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` |
 | `version` | string | Yes | Valid semver (e.g., `2.1.0`) |
 | `owner` | [OwnerInfo](#ownerinfo) | No | Object only (string form removed) |
-| `image` | [Image](#image) | No | |
-| `chart` | [Chart](#chart) | No | |
 
-### Image
-
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `ref` | string | Yes | Non-empty. Valid OCI image reference |
-| `private` | boolean | No | |
-
-### Chart
-
-Optional Helm chart reference for deploying the service.
-
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `ref` | string | Yes | Non-empty. Local path (e.g. `./charts/my-chart`) or OCI reference (e.g. `oci://ghcr.io/org/chart`) |
-| `version` | string | Yes | Non-empty. Valid semver |
-
-!!! warning
-    Local chart references are only allowed during development. `pacto push` rejects contracts with local chart references — use an OCI reference before publishing.
+`service` carries identity only — there is no `image` or `chart` field. How a
+service is built and deployed is a delivery concern that lives outside the
+contract.
 
 ### OwnerInfo
 
@@ -104,26 +79,25 @@ This key is used consistently across the owners aggregation view (`#/owners`), o
 
 ## `interfaces`
 
-Declares the service's communication boundaries. Optional — a service with no network interfaces (e.g. a batch job or shared library) may omit this section entirely. The `contract` field points at the interface definition you already publish — an OpenAPI spec, a `.proto` or an event schema — so Pacto references your existing interface rather than redefining it.
+Declares the service's communication boundaries. Optional — a service with no network interfaces (e.g. a batch job or shared library) may omit this section entirely. The `ref` field points at the spec you already publish — an OpenAPI document, an AsyncAPI document or a gRPC service descriptor — so Pacto references your existing interface rather than redefining it.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Non-empty. Must be unique across interfaces |
-| `type` | string | Yes | Enum: `http`, `grpc`, `event` |
-| `port` | integer | Conditional | Range: 1-65535. Required for `http` and `grpc` |
+| `type` | string | Yes | Enum: `openapi`, `asyncapi`, `grpc` |
+| `ref` | string | Yes | Non-empty. Path to the spec file within the bundle |
 | `visibility` | string | No | Enum: `public`, `internal`. Default: `internal` |
-| `contract` | string | Conditional | Non-empty. Required for `grpc` and `event` |
 
-### Conditional requirements
+### Interface types
 
-| Interface type | Required fields |
+| Value | Spec kind |
 |---|---|
-| `http` | `port` |
-| `grpc` | `port`, `contract` |
-| `event` | `contract` |
+| `openapi` | OpenAPI document for HTTP/REST traffic |
+| `asyncapi` | AsyncAPI document for event-driven communication |
+| `grpc` | gRPC service descriptor |
 
 !!! note
-    Interface names must be unique within a contract. The `contract` field for `http` interfaces is optional but recommended (typically an OpenAPI spec).
+    Interface names must be unique within a contract. Every interface requires a `ref` (`INTERFACE_REF_REQUIRED` otherwise), and the referenced file must exist in the bundle and parse as JSON or YAML (`FILE_NOT_FOUND` / `INVALID_INTERFACE_SPEC` otherwise). There is no `port` field — ports are a deployment concern. Health and metrics endpoints are declared as [capabilities](#capabilities), not interfaces.
 
 ---
 
@@ -136,6 +110,7 @@ The `configurations` section is an array of named configuration entries:
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Non-empty identifier for the configuration entry |
+| `required` | boolean | Yes | Whether the configuration is mandatory. `true` = its confirmed absence at runtime is a violation; `false` = optional. Has no default — every entry must set it |
 | `schema` | string | Conditional | Non-empty. Must reference a file in the bundle. Required if `ref` is not set |
 | `ref` | string | Conditional | Non-empty. OCI or local reference to another Pacto contract. Required if `schema` is not set |
 | `values` | object | No | Must conform to the schema defined in `schema` |
@@ -157,6 +132,7 @@ Instead of vendoring a configuration schema into the bundle, you can reference a
 configurations:
   - name: platform
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
+    required: true
 ```
 
 This enables centralized configuration management — a platform team publishes a single configuration contract, and all services reference it. The reference supports recursive resolution: if the referenced contract itself has a `configurations[].ref`, Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
@@ -177,6 +153,7 @@ Secrets should never be stored as literal values in a contract. Instead, use a r
 ```yaml
 configurations:
   - name: default
+    required: true
     schema: configuration/schema.json
     values:
         DB_HOST: prod-db.internal
@@ -213,6 +190,7 @@ When a service defines its own configuration schema, the schema expresses **what
 ```yaml
 configurations:
   - name: default
+    required: true
     schema: configuration/schema.json
 ```
 
@@ -229,6 +207,7 @@ There are two approaches for distributing platform schemas:
 ```yaml
 configurations:
   - name: platform
+    required: true
     schema: configuration/platform-schema.json
 ```
 
@@ -238,6 +217,7 @@ configurations:
 configurations:
   - name: platform
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
+    required: true
 ```
 
 All services share a common configuration vocabulary the platform team controls and validates centrally — whether referenced via OCI or vendored locally. See [Platform engineers](../platform-engineers.md) and [Composition patterns](../patterns/index.md) for the platform-as-a-product recipe.
@@ -276,7 +256,7 @@ To define a policy, create a JSON Schema that describes constraints on `pacto.ya
 
 ```yaml
 # pacto.yaml — a policy contract
-pactoVersion: "1.0"
+pactoVersion: "2.0"
 service:
   name: platform-policy
   version: 1.0.0
@@ -287,27 +267,27 @@ policies:
     schema: policy/schema.json
 ```
 
-Example policy schema (`policy/schema.json`) requiring all contracts to have a health check:
+Example policy schema (`policy/schema.json`) requiring every contract to declare an owner:
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["runtime"],
+  "required": ["service"],
   "properties": {
-    "runtime": {
+    "service": {
       "type": "object",
-      "required": ["health"],
-      "properties": {
-        "health": {
-          "type": "object",
-          "required": ["interface", "path"]
-        }
-      }
+      "required": ["owner"]
     }
   }
 }
 ```
+
+A policy schema validates the contract itself, so it can require any contract
+field — for example a [health capability](#capabilities) via a `capabilities`
+`contains` rule, or a [readiness](#readiness) gate. A contract is always checked
+against its own inline `schema` policies, so this policy contract satisfies the
+rule above by declaring `service.owner`.
 
 ### Policy as a contract consumer
 
@@ -357,11 +337,11 @@ Declares dependencies on other services via their Pacto contracts.
 |-------|------|----------|-------------|
 | `name` | string | Yes | Non-empty identifier for the dependency |
 | `ref` | string | Yes | Non-empty. OCI reference (`oci://...`) or local path (`file://...` or bare path) |
-| `required` | boolean | No | Default: `false` |
+| `required` | boolean | Yes | Whether the dependency is mandatory. Has no default — every entry must set it |
 | `compatibility` | string | Yes | Non-empty. Valid semver constraint |
 
 !!! note
-    `required` is informational. Pacto itself does not act on it — it is metadata for downstream consumers (the dashboard uses it to compute blast radius; deployment tooling may use it to gate rollout). Treat it as a declaration of *intent*, not a deployment-time guard.
+    `required` is mandatory (no default) — every dependency must declare it. `true` means the service cannot function without the dependency; `false` means it degrades gracefully when the dependency is unavailable. It is a declaration of *intent* that downstream consumers act on (the dashboard uses it to compute blast radius; deployment tooling may use it to gate rollout), not a deployment-time guard Pacto itself enforces.
 
 ### Dependency reference schemes
 
@@ -375,7 +355,7 @@ Declares dependencies on other services via their Pacto contracts.
 When an `oci://` reference omits the tag, pacto queries the registry for available tags and selects the highest semver version that satisfies the `compatibility` constraint. For example, with `compatibility: "^2.0.0"` and available tags `1.0.0`, `2.0.0`, `2.3.0`, `3.0.0`, pacto resolves to `2.3.0`. Tag listings are cached in memory for the duration of the command, so multiple dependencies pointing to the same repository only trigger a single registry query.
 
 !!! note
-    Validation rejects OCI references whose tag or digest is malformed. Tags must follow the OCI tag grammar (`[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`), and digests must be well-formed (`sha256:<64 hex>` or `sha512:<128 hex>`). The same check applies to `service.image.ref`, `service.chart.ref`, and config/policy refs.
+    Validation rejects OCI references whose tag or digest is malformed. Tags must follow the OCI tag grammar (`[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`), and digests must be well-formed (`sha256:<64 hex>` or `sha512:<128 hex>`). The same check applies to config and policy refs.
 
 ### Compatibility constraint examples
 
@@ -403,21 +383,9 @@ Pacto uses [Masterminds/semver](https://github.com/Masterminds/semver#checking-v
 
 ---
 
-## `runtime`
+## `workload`
 
-Describes how the service behaves at runtime. This section is what lets platforms make informed deployment decisions without guessing. Optional — a minimal contract (e.g. a lightweight dependency declaration) may omit it entirely.
-
-| Field | Type | Required |
-|-------|------|----------|
-| `workload` | string | Yes |
-| `state` | [State](#runtimestate) | Yes |
-| `lifecycle` | [Lifecycle](#runtimelifecycle) | No |
-| `health` | [Health](#runtimehealth) | No |
-| `metrics` | [Metrics](#runtimemetrics) | No |
-
-### `runtime.workload`
-
-A plain string describing the workload type. Enum: `service`, `job`, `scheduled`.
+Top-level string describing the execution pattern of the workload. Optional. Enum: `service`, `job`, `scheduled`.
 
 | Value | Description |
 |-------|-------------|
@@ -425,9 +393,15 @@ A plain string describing the workload type. Enum: `service`, `job`, `scheduled`
 | `job` | A one-shot task that runs to completion and then exits |
 | `scheduled` | A task that runs on a recurring schedule (e.g. cron) |
 
-### `runtime.state`
+```yaml
+workload: service
+```
 
-Instead of platforms guessing whether a service needs persistent storage, stable network identity or special upgrade procedures, the contract declares it explicitly.
+---
+
+## `state`
+
+Top-level section declaring how the service manages state. Optional — a minimal contract (e.g. a lightweight dependency declaration) may omit it entirely. Instead of platforms guessing whether a service needs persistent storage or stable network identity, the contract declares it explicitly.
 
 | Field | Type | Required | Enum values |
 |-------|------|----------|-------------|
@@ -455,7 +429,7 @@ The combination of `state.type`, `persistence.scope` and `persistence.durability
 | `medium` | Loss has moderate impact. May require manual recovery. |
 | `high` | Loss has severe business impact. Must be prevented. Implies backups, replication, stricter disruption budgets. |
 
-#### Persistence
+### Persistence
 
 | Field | Type | Required | Enum values |
 |-------|------|----------|-------------|
@@ -467,110 +441,97 @@ The combination of `state.type`, `persistence.scope` and `persistence.durability
 - **`ephemeral`** — data can be lost on restart without impact. Caches, temp files, reconstructible state.
 - **`persistent`** — data must survive restarts. Requires durable storage.
 
-#### State invariants
+### State invariants
 
 | Condition | Constraint |
 |---|---|
 | `type: stateless` | `durability` must be `ephemeral` |
-| `durability: persistent` | `type` must be `stateful` or `hybrid` |
 
-These invariants are enforced by both the JSON Schema and cross-field validation. A stateless service with persistent storage is a contradiction — validation catches it.
-
-### `runtime.lifecycle`
-
-Optional. Describes upgrade and shutdown behavior.
-
-| Field | Type | Required | Enum values / Constraints |
-|-------|------|----------|-------------|
-| `upgradeStrategy` | string | No | `rolling`, `recreate`, `ordered` |
-| `gracefulShutdownSeconds` | integer | No | Minimum: 0 |
-
-### `runtime.health`
-
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `interface` | string | Yes | Must reference a declared `http` or `grpc` interface |
-| `path` | string | Conditional | Required when health interface is `http` |
-| `initialDelaySeconds` | integer | No | Minimum: 0 |
-
-### `runtime.metrics`
-
-Optional. Tells the platform where to scrape metrics from the service (e.g. Prometheus endpoint).
-
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `interface` | string | Yes | Must reference a declared `http` or `grpc` interface |
-| `path` | string | Conditional | Required when metrics interface is `http` |
+A stateless service with persistent storage is a contradiction — the JSON Schema catches it.
 
 ```yaml
-runtime:
-  metrics:
-    interface: api
-    path: /metrics
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
 ```
 
 ---
 
-## `scaling`
+## `capabilities`
 
-Optional. Defines replica count as either an exact number or a min/max range. Uses one of two mutually exclusive forms.
-
-### Fixed replica count
+Optional. Declares standard observability capabilities (`health`, `metrics`) or custom `extension` capabilities. Health and metrics endpoints are capabilities, not interfaces — this is where you tell the platform a service exposes them.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `replicas` | integer | Yes | Minimum: 0. Mutually exclusive with `min`/`max` |
+| `type` | string | Yes | Enum: `health`, `metrics`, `extension` |
+| `ref` | string | Conditional | Required for `extension` only. A namespaced identifier (e.g. `example.com/custom`). Not allowed for `health`/`metrics` |
+| `binding` | [Binding](#capability-binding) | No | Standard types only (`health`/`metrics`). Binds the endpoint to a declared interface. Not allowed for `extension` |
 
-```yaml
-scaling:
-  replicas: 3
-```
+### Capability binding
 
-### Auto-scaling range
+Binds a standard capability endpoint to a declared interface. Only the `http` binding transport is implemented this release.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `min` | integer | Yes | Minimum: 0. Mutually exclusive with `replicas` |
-| `max` | integer | Yes | Minimum: 0. Must be >= `min`. Mutually exclusive with `replicas` |
+| `type` | string | Yes | Enum: `http` |
+| `interface` | string | Yes | Must match a declared `interfaces[].name` (`CAPABILITY_INTERFACE_UNKNOWN` otherwise) |
+| `path` | string | No | Application path on the interface. Must start with a single `/` and carry no scheme/host/fragment (`CAPABILITY_PATH_INVALID` otherwise) |
 
 ```yaml
-scaling:
-  min: 2
-  max: 10
+capabilities:
+  - type: health
+    binding:
+      type: http
+      interface: rest-api
+      path: /health
+  - type: metrics
+    binding:
+      type: http
+      interface: rest-api
+      path: /metrics
+  - type: extension
+    ref: example.com/tracing
 ```
 
-**How the two forms relate.** `replicas` is shorthand: at parse time `min` and
-`max` are also set to `replicas` so state-based tooling (operator, dashboard)
-reads a `min`/`max` range. `pacto diff` still distinguishes the forms: two
-replicas-form contracts report a `scaling.replicas` change; switching between
-forms reports a whole-`scaling` change.
+A `health` or `metrics` capability may be declared with no binding when the endpoint is not addressed over a declared HTTP interface (e.g. a gRPC health check). An `extension` capability requires a namespaced `ref` and must not declare a binding.
 
-!!! warning
-    Scaling must not be applied to `job` workloads.
+---
 
-!!! note "`0` is not scale-to-zero"
-    The JSON Schema declares `minimum: 0` for `min`/`max`/`replicas`, but `min`
-    and `max` are plain (non-pointer) integers internally, so an explicit `0` is
-    indistinguishable from an omitted value. The operator and dashboard treat
-    `0` bounds as "unset" and drop them — Pacto does not model scale-to-zero.
-    Use `min: 1` if you need an explicit lower bound to be reported.
+## `verification`
+
+Optional. Declares author-required verification beyond structural validity, in a platform-agnostic way. This release supports interface contract-conformance opt-in only.
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `conformance` | string[] | No | Names of `interfaces[]` whose running API must be verified to conform to the declared spec. Each name must match a declared interface (`VERIFICATION_INTERFACE_UNKNOWN` otherwise) |
+
+```yaml
+verification:
+  conformance:
+    - rest-api
+```
+
+With no evaluator shipped this release, each listed interface resolves to `EXTENSION_EVALUATOR_UNAVAILABLE` (Unknown) at runtime rather than failing the contract.
 
 ---
 
 ## `readiness`
 
-Optional. **Requires `pactoVersion: "1.2"`.** Declares operational readiness
-state for the service in a provider-neutral way. Each check has a completion status,
+Optional. A `pactoVersion: "2.0"` feature. Declares operational readiness
+state for the service in a provider-neutral way. Each claim has a completion status,
 optional category and weight. The assessment includes an expiry date and scoring
-configuration. Pacto computes a readiness score from check statuses and weights.
+configuration. Pacto computes a readiness score from claim statuses and weights.
 
 ```yaml
 readiness:
   expires: "2027-06-30"  # assessment-level expiry (YYYY-MM-DD)
   minScore: 80           # gate: the derived score must be >= this (omitted ⇒ 100)
-  partialCredit: 0.5     # weight multiplier for partial checks (omitted ⇒ 0.5)
-  
-  checks:
+  partialCredit: 0.5     # weight multiplier for partial claims (omitted ⇒ 0.5)
+
+  claims:
     - id: dashboard
       type: url
       status: done
@@ -610,26 +571,26 @@ readiness:
       description: Initial readiness assessment
 ```
 
-`readiness.expires`, `readiness.checks[]` and per-check `status` are required when `readiness`
+`readiness.expires`, `readiness.claims[]` and per-claim `status` are required when `readiness`
 is present. `readiness.minScore`, `readiness.partialCredit` and `readiness.history[]` are optional.
 
 **`readiness` fields:**
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `expires` | string | Yes | Assessment-level expiry as a strict `YYYY-MM-DD` date. If the current date is past this date, ALL checks earn 0 weight regardless of status. Parsing is exact round-trip: zero-padded fields required and the value must re-serialize unchanged, so `2026-1-1`, RFC 3339 timestamps and impossible dates (e.g. `2026-02-30`) are rejected. |
+| `expires` | string | Yes | Assessment-level expiry as a strict `YYYY-MM-DD` date. If the current date is past this date, ALL claims earn 0 weight regardless of status. Parsing is exact round-trip: zero-padded fields required and the value must re-serialize unchanged, so `2026-1-1`, RFC 3339 timestamps and impossible dates (e.g. `2026-02-30`) are rejected. |
 | `minScore` | integer | No | Gate threshold on the same 0–100 scale as the score. Omitted ⇒ `100` (full compliance required). Enforced by `pacto validate --readiness` and the operator. |
-| `partialCredit` | number | No | Multiplier for `partial` status checks (0.0–1.0). Omitted ⇒ `0.5` (half credit). |
-| `checks` | [Check](#check-fields)[] | Yes | At least one check. |
+| `partialCredit` | number | No | Multiplier for `partial` status claims (0.0–1.0). Omitted ⇒ `0.5` (half credit). |
+| `claims` | [Claim](#claim-fields)[] | Yes | At least one claim. |
 | `history` | [HistoryEntry](#history-entry)[] | No | Audit trail of readiness assessment changes. |
 
-### Check fields
+### Claim fields
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `id` | string | Yes | Stable readiness requirement id. Pattern: `^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`. Unique within the contract. Policies usually target this field. |
 | `type` | string | Yes | Enum: `url`, `document`, `ticket`, `report`, `artifact`, `identifier`, `other`. Evidence type. |
-| `status` | string | Yes | Enum: `done`, `partial`, `not-done`, `deferred`. Completion state for the check. |
+| `status` | string | Yes | Enum: `done`, `partial`, `not-done`, `deferred`. Completion state for the claim. |
 | `category` | string | No | Enum: `architecture`, `testing`, `code-quality`, `observability`, `security`, `documentation`, `infrastructure`, `ci-cd`, `deployment`, `resilience`, `backup-recovery`, `incident-response`, `compliance`, `other`. Categorizes the requirement type. |
 | `weight` | integer | Yes | Contribution to the readiness score. Range `0`–`100`. |
 | `evidence` | string | Yes | Evidence location (URL, file path, ticket ID, etc.). Non-empty. |
@@ -644,9 +605,9 @@ is present. `readiness.minScore`, `readiness.partialCredit` and `readiness.histo
 | `author` | string | Yes | Person or system that made the change. Non-blank. |
 | `description` | string | Yes | Description of what changed. |
 
-The service owner is declared at the contract level, so readiness checks carry no
-per-check owner. The readiness score is **not** stored in the contract — it is
-computed by tooling (`pacto explain`, the dashboard and the operator) from check
+The service owner is declared at the contract level, so readiness claims carry no
+per-claim owner. The readiness score is **not** stored in the contract — it is
+computed by tooling (`pacto explain`, the dashboard and the operator) from claim
 statuses, weights, the assessment expiry and the current time.
 
 ### Readiness score and gate
@@ -656,19 +617,19 @@ If assessment is expired (today > readiness.expires):
   score = 0
 
 Otherwise:
-  earnedWeight = sum of earned weights for all in-scope checks
-    - deferred checks: excluded from both numerator and denominator
+  earnedWeight = sum of earned weights for all in-scope claims
+    - deferred claims: excluded from both numerator and denominator
     - done: full weight
     - partial: round(weight × partialCredit)
     - not-done: 0
-  
-  totalWeight = sum of weights for all in-scope checks (excluding deferred)
+
+  totalWeight = sum of weights for all in-scope claims (excluding deferred)
   score = round(earnedWeight / totalWeight × 100)
 
 passing = score >= minScore          # minScore defaults to 100
 ```
 
-**Worked example.** Using the four checks from the example above (weights `20`, `15`, `25`, `10`):
+**Worked example.** Using the four claims from the example above (weights `20`, `15`, `25`, `10`):
 - `legacy-cleanup` has `status: deferred` → excluded from both numerator and denominator
 - In-scope weights: `20 + 15 + 25 = 60` (total)
 - `dashboard` (`done`, weight `20`) → earns `20`
@@ -677,20 +638,20 @@ passing = score >= minScore          # minScore defaults to 100
 - Earned weight: `20 + 8 + 0 = 28`
 - Score: `round(28 / 60 × 100) = round(46.7) = 47`
 
-If the assessment is expired (current date past `readiness.expires`), the score is `0` regardless of individual check statuses.
+If the assessment is expired (current date past `readiness.expires`), the score is `0` regardless of individual claim statuses.
 
 **Weights are relative.** Only the *ratio* of weights matters — the score
 normalizes by `totalWeight`, so a `weight` of `20` reads as "20%" only when the
 weights sum to 100. They can sum to anything; making them sum to 100 just makes
 each read as a percentage directly. `pacto explain` and the dashboard show each
-check's normalized contribution so you never have to do the math.
+claim's normalized contribution so you never have to do the math.
 
-**Deferred checks** are excluded entirely from scoring. Use `status: deferred` for
+**Deferred claims** are excluded entirely from scoring. Use `status: deferred` for
 post-launch cleanup tasks or requirements that don't apply to the current service stage.
 
 **The gate (`minScore`)** turns the score from informational into actionable. It
 is a readiness threshold: with `minScore: 80` you require 80% weighted completion;
-checks below that threshold fail the gate. The gate is evaluated by tooling, not
+a score below that threshold fails the gate. The gate is evaluated by tooling, not
 baked into contract validity:
 
 - `pacto explain` shows `Gate: PASS/FAIL (score N / minScore M)`.
@@ -706,9 +667,9 @@ policies, the threshold bar lives here.
 
 ### Enforcing readiness with policies
 
-The base schema never requires a specific check. Organizational standards are
+The base schema never requires a specific claim. Organizational standards are
 expressed as [policies](#policies) using standard JSON Schema. For example, to
-require a `dashboard` check with `status: done`, `category: observability` and `weight >= 20`:
+require a `dashboard` claim with `status: done`, `category: observability` and `weight >= 20`:
 
 ```json
 {
@@ -717,9 +678,9 @@ require a `dashboard` check with `status: done`, `category: observability` and `
   "properties": {
     "readiness": {
       "type": "object",
-      "required": ["checks"],
+      "required": ["claims"],
       "properties": {
-        "checks": {
+        "claims": {
           "type": "array",
           "contains": {
             "type": "object",
@@ -738,7 +699,7 @@ require a `dashboard` check with `status: done`, `category: observability` and `
 }
 ```
 
-Combine multiple `contains` under `allOf` to require several checks (e.g.
+Combine multiple `contains` under `allOf` to require several claims (e.g.
 `dashboard` + `runbook` + `security-review`). Constraints JSON Schema cannot
 express — such as "total weight must equal 100" — are left to a future policy
 engine.

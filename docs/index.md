@@ -3,6 +3,8 @@ template: home.html
 ---
 
 ```yaml title="pacto.yaml"
+pactoVersion: "2.0"
+
 service:
   name: payments-api
   version: 2.1.0
@@ -10,24 +12,30 @@ service:
 
 interfaces:
   - name: rest-api
-    type: http
-    port: 8080
+    type: openapi
+    ref: interfaces/openapi.yaml
+    visibility: public
 
 dependencies:
-  - ref: oci://ghcr.io/acme/auth
+  - name: auth
+    ref: oci://ghcr.io/acme/auth-pacto:2.0.0
+    required: true
     compatibility: "^2.0.0"
 
-runtime:
-  state:  { type: stateful }
-  health: { path: /health }
+workload: service
+
+state:
+  type: stateful
+  persistence: { scope: shared, durability: persistent }
+  dataCriticality: high
 ```
 
 !!! success "One file, checked and shipped"
-    Everything above is validated (structure, cross-references, semantics and policy), versioned with semver, and distributed as an OCI artifact.
+    Everything above is validated (structure, cross-references and policy), versioned with semver, and distributed as an OCI artifact.
 
 ## What is Pacto?
 
-Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs to know about a service — interfaces, runtime behavior, dependencies, configuration, and scaling — in one YAML file that machines can validate and tooling can consume.
+Pacto (/ˈpak.to/ — Spanish for *pact*) captures everything a platform needs to know about a service — interfaces, runtime behavior, dependencies, configuration, and capabilities — in one YAML file that machines can validate and tooling can consume.
 
 Pacto doesn't invent a new configuration language. An interface is a JSON Schema, OpenAPI spec or protobuf definition you already maintain — Pacto composes the interfaces you already have instead of redefining them. On top of that it adds what no single schema can express: how interfaces relate, what they depend on and how they change over time. *JSON Schema describes an interface; Pacto describes the relationships between interfaces and how they change over time.*
 
@@ -71,9 +79,9 @@ The consequences:
 
 ## The solution: one operational contract
 
-Pacto replaces those six fragmented sources with the single file shown at the top of this page — interfaces, dependencies, runtime behavior, configuration and scaling — validated by tooling and versioned in a registry. Only `pactoVersion` and `service` are required; every other section is opt-in, so a contract stays as small as the service needs.
+Pacto replaces those six fragmented sources with the single file shown at the top of this page — interfaces, dependencies, runtime behavior, configuration and capabilities — validated by tooling and versioned in a registry. Only `pactoVersion` and `service` are required; every other section is opt-in, so a contract stays as small as the service needs.
 
-See the [contract reference](contract-reference/index.md) for every field, including the [`readiness`](contract-reference/sections.md#readiness) section (requires `pactoVersion: "1.2"`).
+See the [contract reference](contract-reference/index.md) for every field, including the [`readiness`](contract-reference/sections.md#readiness) section (a `pactoVersion: "2.0"` feature).
 
 ---
 
@@ -93,7 +101,7 @@ Pacto earns its keep when operational knowledge is scattered, implicit, or outda
 
 ```
 1. Developer writes a pacto.yaml alongside their code
-2. pacto validate checks it (structure, cross-references, semantics, policy)
+2. pacto validate checks it (structure, cross-references, policy)
 3. pacto push ships the contract to an OCI registry as a versioned artifact
 4. pacto dashboard explores contracts, graphs, versions, and diffs visually
 5. The Kubernetes operator verifies runtime stays faithful to the contract
@@ -113,9 +121,9 @@ graph LR
 
         subgraph Sections["Contract Sections <i>(all optional)</i>"]
             direction TB
-            Interfaces["Interfaces<br/>HTTP · gRPC · ports · visibility"]
+            Interfaces["Interfaces<br/>openapi · asyncapi · grpc · visibility"]
             Dependencies["Dependencies<br/>oci://auth:2.0.0 · oci://db:1.0.0"]
-            Runtime["Runtime<br/>state · health · lifecycle · scaling"]
+            Runtime["Runtime<br/>workload · state · capabilities"]
             Config["Configuration<br/>schema.json"]
             Policy["Policy<br/>schema.json"]
         end
@@ -139,7 +147,7 @@ A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required
 
 ## Key capabilities
 
-- **4-layer validation** — structural (JSON Schema), cross-field (port references, interface names), semantic (state vs. persistence consistency), and policy enforcement
+- **3-layer validation** — structural (JSON Schema), cross-field (reference and consistency checks including state vs. persistence), and policy enforcement
 - **Breaking change detection** — `pacto diff` compares two contract versions field-by-field *and* resolves both dependency trees to show the full blast radius
 - **Dependency graph resolution** — recursively resolve transitive dependencies from OCI registries; sibling deps are fetched in parallel
 - **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor); bundles are cached locally for fast repeated operations
@@ -147,7 +155,7 @@ A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
 - **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
 - **Contract exploration dashboard** — `pacto dashboard` launches a web UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, readiness and diffs across local, OCI, and Kubernetes sources
-- **Runtime fidelity verification** — the optional [Kubernetes Operator](operator.md) continuously checks that deployed services match their contracts — port alignment, workload existence, health endpoint reachability, and more
+- **Runtime fidelity verification** — the optional [Kubernetes Operator](operator.md) continuously checks that deployed services match their contracts — workload alignment, state model, capability reachability, and more
 - **AI assistant integration** — `pacto mcp` exposes contract create, edit, validate and schema operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor and GitHub Copilot
 
 ---
@@ -161,8 +169,8 @@ $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
              oci://ghcr.io/acme/payments-api-pacto:2.0.0
 Classification: BREAKING
 Changes (4):
-  [BREAKING] runtime.state.type (modified): runtime.state.type modified [stateless -> stateful]
-  [BREAKING] runtime.state.persistence.durability (modified): ... [ephemeral -> persistent]
+  [BREAKING] state.type (modified): state.type modified [stateless -> stateful]
+  [BREAKING] state.persistence.durability (modified): ... [ephemeral -> persistent]
   [BREAKING] interfaces (removed): interfaces removed [- metrics]
   [BREAKING] dependencies (removed): dependencies removed [- redis]
 

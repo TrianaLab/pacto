@@ -20,15 +20,12 @@ Any change not matched by a specific rule below defaults to **POTENTIAL_BREAKING
 | `service.owner.team` | Added / Modified / Removed | NON_BREAKING |
 | `service.owner.dri` | Added / Modified / Removed | NON_BREAKING |
 | `service.owner.contacts[]` | Added / Modified / Removed | NON_BREAKING |
-| `service.image` | Added / Modified / Removed | NON_BREAKING |
-| `service.chart` | Added / Modified / Removed | NON_BREAKING |
 
 The owner block is compared field by field, so changing a `dri` or adding a
 contact while the `team` is unchanged surfaces the specific change rather than an
 opaque whole-owner modification. Contacts are keyed by `type:value`; a `purpose`
-change on an existing contact is a modification. The `service.image` comparison
-includes the `private` flag, so toggling image privacy is reported even when the
-`ref` is unchanged.
+change on an existing contact is a modification. `service` carries identity only —
+there is no `image` or `chart` field to diff.
 
 ## Interfaces
 
@@ -37,11 +34,10 @@ includes the `private` flag, so toggling image privacy is reported even when the
 | `interfaces` | Added | NON_BREAKING |
 | `interfaces` | Removed | **BREAKING** |
 | `interfaces.type` | Modified | **BREAKING** |
-| `interfaces.port` | Modified | **BREAKING** |
-| `interfaces.port` | Added | POTENTIAL_BREAKING |
-| `interfaces.port` | Removed | **BREAKING** |
+| `interfaces.ref` | Modified | POTENTIAL_BREAKING |
 | `interfaces.visibility` | Modified | POTENTIAL_BREAKING |
-| `interfaces.contract` | Modified | POTENTIAL_BREAKING |
+
+Interfaces are keyed by `name`. The `type` enum is `openapi`/`asyncapi`/`grpc`; there is no `port` field in v2, and the spec pointer is `ref` (not `contract`).
 
 ## Configurations
 
@@ -70,48 +66,31 @@ consumer-facing contract surface, so value changes are diffed key by key (e.g.
 | `policies[].ref` | Modified | POTENTIAL_BREAKING |
 | `policies[].ref` | Removed | POTENTIAL_BREAKING |
 
-## Runtime
+## Workload and state
 
 | Field | Change | Classification |
 |-------|--------|----------------|
-| `runtime.workload` | Modified | **BREAKING** |
-| `runtime.state.type` | Modified | **BREAKING** |
-| `runtime.state.persistence.scope` | Modified | **BREAKING** |
-| `runtime.state.persistence.durability` | Modified | **BREAKING** |
-| `runtime.state.dataCriticality` | Modified | POTENTIAL_BREAKING |
-| `runtime.lifecycle.upgradeStrategy` | Added | NON_BREAKING |
-| `runtime.lifecycle.upgradeStrategy` | Modified | POTENTIAL_BREAKING |
-| `runtime.lifecycle.upgradeStrategy` | Removed | POTENTIAL_BREAKING |
-| `runtime.lifecycle.gracefulShutdownSeconds` | Added / Modified / Removed | NON_BREAKING |
-| `runtime.health.interface` | Added | NON_BREAKING |
-| `runtime.health.interface` | Modified | POTENTIAL_BREAKING |
-| `runtime.health.interface` | Removed | POTENTIAL_BREAKING |
-| `runtime.health.path` | Added | NON_BREAKING |
-| `runtime.health.path` | Modified | POTENTIAL_BREAKING |
-| `runtime.health.path` | Removed | POTENTIAL_BREAKING |
-| `runtime.health.initialDelaySeconds` | Added / Modified / Removed | NON_BREAKING |
-| `runtime.metrics.interface` | Added | NON_BREAKING |
-| `runtime.metrics.interface` | Modified | POTENTIAL_BREAKING |
-| `runtime.metrics.interface` | Removed | POTENTIAL_BREAKING |
-| `runtime.metrics.path` | Added | NON_BREAKING |
-| `runtime.metrics.path` | Modified | POTENTIAL_BREAKING |
-| `runtime.metrics.path` | Removed | POTENTIAL_BREAKING |
+| `workload` | Modified | **BREAKING** |
+| `workload` | Added / Removed | NON_BREAKING |
+| `state.type` | Modified | **BREAKING** |
+| `state.persistence.scope` | Modified | **BREAKING** |
+| `state.persistence.durability` | Modified | **BREAKING** |
+| `state.dataCriticality` | Modified | POTENTIAL_BREAKING |
+| `state.dataCriticality` | Added / Removed | NON_BREAKING |
 
-Adding a `health` or `metrics` block (or one of its fields) is a new capability
-and classifies as `NON_BREAKING`; removing the `interface`/`path` loses a runtime
-check and classifies as `POTENTIAL_BREAKING`. `initialDelaySeconds` is always
-`NON_BREAKING`. Health and metrics are compared field by field — a whole-block
-add or remove surfaces as the corresponding per-field changes.
+`workload` and `state` are top-level sections in v2. There is no `runtime`,
+`lifecycle` or `scaling` section to diff — those fields were removed.
 
-## Scaling
+## Capabilities
 
 | Field | Change | Classification |
 |-------|--------|----------------|
-| `scaling` | Added | NON_BREAKING |
-| `scaling` | Removed | POTENTIAL_BREAKING |
-| `scaling.replicas` | Modified | POTENTIAL_BREAKING |
-| `scaling.min` | Modified | POTENTIAL_BREAKING |
-| `scaling.max` | Modified | NON_BREAKING |
+| `capabilities` | Added | NON_BREAKING |
+| `capabilities` | Removed | POTENTIAL_BREAKING |
+
+Capabilities (`health`, `metrics`, `extension`) are compared as a set. Adding a
+capability is a new signal (`NON_BREAKING`); removing one loses an observability
+guarantee (`POTENTIAL_BREAKING`).
 
 ## Dependencies
 
@@ -195,15 +174,15 @@ Schema files referenced by `configurations[].schema`, `policies[].schema`, or th
 | `readiness.expires` | Added / Modified / Removed | NON_BREAKING |
 | `readiness.minScore` | Added / Modified / Removed | NON_BREAKING |
 | `readiness.partialCredit` | Added / Modified / Removed | NON_BREAKING |
-| `readiness.checks[]` | Added / Modified / Removed | NON_BREAKING |
+| `readiness.claims[]` | Added / Modified / Removed | NON_BREAKING |
 
 All readiness changes are classified as `NON_BREAKING` — readiness tracks operational
 maturity and does not affect runtime compatibility. Adding or removing the whole
 `readiness` block surfaces as a single `readiness` change; otherwise the gate
-fields (`expires`, `minScore`, `partialCredit`) are compared individually. Checks
-are keyed by `id`, and a check whose `status`, `weight`, `evidence` or any other
-field changed is reported as a modification of that check (e.g.
-`readiness.checks[dashboard]`). The `readiness.history` revision log is not diffed:
+fields (`expires`, `minScore`, `partialCredit`) are compared individually. Claims
+are keyed by `id`, and a claim whose `status`, `weight`, `evidence` or any other
+field changed is reported as a modification of that claim (e.g.
+`readiness.claims[dashboard]`). The `readiness.history` revision log is not diffed:
 it is an append-only changelog that changes on every release and would only add
 noise.
 

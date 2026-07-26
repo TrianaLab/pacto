@@ -113,11 +113,9 @@ configurations:
       DB_PORT: 5432
       DB_PASSWORD: dev-password
       LOG_LEVEL: debug
-scaling:
-  replicas: 1
 ```
 
-`staging.yaml` and `production.yaml` follow the same shape, differing only in host, secret reference and scaling bounds. Apply one per command with `-f`:
+`staging.yaml` and `production.yaml` follow the same shape, differing only in host and secret reference. Apply one per command with `-f`:
 
 ```bash
 pacto validate my-service -f values/dev.yaml

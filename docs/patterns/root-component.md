@@ -5,8 +5,8 @@
 **Primitives.**
 
 - **Multiple bundles in one repo**, each with its own `pacto.yaml`
-- **Root contract** — declares the application boundary, owns `service.chart`, lists components as `dependencies[]`
-- **Component contracts** — declare runtime, interfaces, and configurations for a single deployable. They do **not** set `service.chart`
+- **Root contract** — declares the application boundary and lists components as `dependencies[]`
+- **Component contracts** — declare workload, state, interfaces, and configurations for a single deployable
 
 **Layout.**
 
@@ -18,9 +18,9 @@ my-service/
 │       └── values.yaml
 └── pactos/
     ├── my-service-root/
-    │   └── pacto.yaml                      # service.chart, components as deps
+    │   └── pacto.yaml                      # components as deps
     ├── my-service-api/
-    │   ├── pacto.yaml                      # runtime, configurations
+    │   ├── pacto.yaml                      # workload, state, configurations
     │   └── overrides/
     │       └── values.<env>.yaml
     └── my-service-worker/
@@ -32,16 +32,13 @@ my-service/
 **Root contract.**
 
 ```yaml
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: my-service-root
   version: 1.2.0
   owner:
     team: example
-  chart:
-    ref: oci://ghcr.io/example/charts/my-service
-    version: 1.2.0
 
 dependencies:
   # Components — built from this repo, not deployed independently
@@ -64,7 +61,7 @@ dependencies:
 **Component contract.**
 
 ```yaml
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: my-service-api
@@ -72,31 +69,36 @@ service:
   owner:
     team: example
 
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
-
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: interfaces/openapi.yaml
     visibility: internal
+
+workload: service
+
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+
+capabilities:
+  - type: health
+    binding:
+      type: http
+      interface: api
+      path: /health
 
 configurations:
   - name: deployment
     ref: oci://ghcr.io/example/pactos/platform-service:2.0.0
+    required: true
 ```
 
-**Why this works.** A one-component repo pays almost nothing for this layout, and adding a second component is one new bundle dir plus one root dependency. The root maps to a single deployment unit; each component is validated and versioned independently. The root is a lean aggregator — it carries only `service`, `chart` and `dependencies[]` (plus any `policies`), deliberately omitting `runtime`, `interfaces` and `configurations`. Your own tooling can distinguish a root from a component by naming convention (e.g. a `-root` suffix) or structurally — `dependencies[]` present, `configurations` absent — since Pacto itself does not key off the name.
+**Why this works.** A one-component repo pays almost nothing for this layout, and adding a second component is one new bundle dir plus one root dependency. The root maps to a single deployment unit; each component is validated and versioned independently. The root is a lean aggregator — it carries only `service` and `dependencies[]` (plus any `policies`), deliberately omitting `workload`, `state`, `interfaces` and `configurations`. Your own tooling can distinguish a root from a component by naming convention (e.g. a `-root` suffix) or structurally — `dependencies[]` present, `configurations` absent — since Pacto itself does not key off the name.
 
-**Cross-links:** [`service.chart`](../contract-reference/sections.md#chart) · [`dependencies`](../contract-reference/sections.md#dependencies)
+**Cross-links:** [`workload`](../contract-reference/sections.md#workload) · [`dependencies`](../contract-reference/sections.md#dependencies)
 
 ---

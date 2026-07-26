@@ -25,35 +25,33 @@ The operator does **not** modify workloads, restart pods, or change any cluster 
 
 ## What the operator validates today
 
-The operator checks runtime alignment across these dimensions:
+The operator compares the declared contract against observed cluster state and emits typed findings across these dimensions:
 
-| Check | What it compares |
-|-------|-----------------|
-| **Service existence** | Does a Kubernetes Service exist for the declared service? |
-| **Workload existence** | Does a Deployment, StatefulSet, or Job exist matching the declared workload type? |
-| **Port alignment** | Do the ports exposed by the Kubernetes Service match the ports declared in the contract's interfaces? Reports missing and unexpected ports. |
-| **Workload kind** | Does the observed workload kind (Deployment/StatefulSet) match the declared `runtime.workload` + `runtime.state.type`? |
-| **Container image** | Does the running container image match the contract's `service.image.ref`? (surfaced in operator status as `imageRef`) |
-| **Upgrade strategy** | Does the Deployment/StatefulSet strategy match `runtime.lifecycle.upgradeStrategy`? |
-| **Graceful shutdown** | Does `terminationGracePeriodSeconds` match `runtime.lifecycle.gracefulShutdownSeconds`? |
-| **State model** | Does the observed storage (PVCs, emptyDir) align with `runtime.state.persistence`? |
-| **Health endpoint** | Is the declared `runtime.health.path` reachable and returning a healthy response? |
-| **Metrics endpoint** | Is the declared `runtime.metrics.path` reachable? |
-| **Scaling** | Do actual replica counts align with declared `scaling.min` / `scaling.max` / `scaling.replicas`? |
+| Dimension | What it compares | Finding on drift |
+|-------|-----------------|------------------|
+| **Workload type** | Does the observed workload kind (Deployment/StatefulSet/Job/CronJob/ReplicaSet) match the declared top-level `workload` and `state.type`? | `WORKLOAD_MISMATCH` |
+| **State model** | Does the observed storage (PVCs, volumes) align with `state.persistence`? | `PERSISTENCE_MISMATCH` |
+| **Interfaces** | Are the declared `interfaces` available on the running workload? | `INTERFACE_ABSENT` |
+| **Capabilities** | Are the declared `capabilities` (`health`, `metrics`) observable on the running workload? | `CAPABILITY_ABSENT` |
+| **Dependencies** | Are the declared `dependencies` reachable? | `DEPENDENCY_UNREACHABLE` |
+| **Configuration** | Is each declared `configurations` scope present, and do observed values match the schema? | `CONFIGURATION_ABSENT` / `CONFIGURATION_MISMATCH` |
+
+Severity is derived from the declaration, not hard-coded per check: a `required` element that is confirmed absent is an **error**, an optional one is a **warning**, and an element that cannot be observed this cycle yields an **Unknown** finding (`EVIDENCE_MISSING` and the rest of the uncertainty family). The operator also records observed runtime facts (workload kind, strategy, container images, storage) in `status.observedRuntime` for context, but it does not assert image, upgrade-strategy or shutdown timing into findings.
 
 A few checks have deliberately shallow semantics worth calling out:
 
-- **Health and metrics endpoints** are tested for *reachability and basic structure* — the health probe expects a healthy HTTP response, and the metrics probe looks for Prometheus exposition markers (`# HELP` / `# TYPE`). Neither validates the response body against the declared OpenAPI/format.
-- **Port alignment** matches by port **number** between the contract's interface ports and the Kubernetes Service ports.
-- **Scaling** compares observed replica bounds against `scaling.min`/`max`/`replicas`. Because the contract models `min`/`max` as plain integers, an explicit `0` is indistinguishable from "unset" and is treated as unset — so a declared lower bound of `0` is not reported (see the [scaling reference](contract-reference/sections.md#scaling)).
+- **Health and metrics capabilities** are tested for *reachability and basic structure* — the health probe expects a healthy HTTP response, and the metrics probe looks for Prometheus exposition markers (`# HELP` / `# TYPE`). Neither validates the response body against the declared OpenAPI/format.
+- **Configuration** matching compares observed ConfigMap values against each scope's JSON Schema; it does not resolve `secret://` references.
 
-Each check produces a structured condition on the CRD status with a type, status, reason, and severity. The operator aggregates these into a contract status:
+Each finding carries a code, subject and severity. The operator aggregates them into one of seven contract statuses (worst-first): if the contract fails structural validation it is **Invalid**; otherwise any error-severity finding makes it **NonCompliant**, else any Unknown finding makes it **Unknown**, else any warning makes it **Warning**, else **Compliant**. Two statuses sit outside that runtime ladder:
 
-- **Compliant** — all checks pass
-- **Warning** — some checks fail (warnings or errors)
-- **NonCompliant** — the contract itself has validation errors
+- **Invalid** — structural validation failed, or the artifact was malformed and could not be parsed
+- **NonCompliant** — a confirmed contract-vs-runtime violation (an error-severity finding)
+- **Warning** — only warning-severity findings
+- **Unknown** — evidence was insufficient to decide (e.g. the element could not be observed this cycle), or status is not yet determined
+- **Compliant** — every required assertion is satisfied
 - **Reference** — no target workload (the contract is a shared definition, not a deployed service)
-- **Unknown** — contract status has not been determined yet
+- **NotEvaluated** — a valid, targeted contract for which the dashboard has no runtime source (offline OCI/local view); the reconciler itself does not emit this status
 
 If the operator cannot **observe** the cluster at all (the observation step
 itself fails, as opposed to "resources don't exist"), it does not report a
@@ -84,7 +82,7 @@ found" result.
 
 ## Readiness status
 
-In addition to runtime compliance, the operator evaluates a contract's declared **readiness** — a `pactoVersion: "1.2"` feature. Readiness is a **separate dimension** from contract compliance: a low readiness score never changes `ContractStatus`. See the [Contract Reference](contract-reference/sections.md#readiness) for the scoring model (weights, `expires`, `minScore` and `partialCredit` defaults).
+In addition to runtime compliance, the operator evaluates a contract's declared **readiness** — a `pactoVersion: "2.0"` feature. Readiness is a **separate dimension** from contract compliance: a low readiness score never changes `ContractStatus`. See the [Contract Reference](contract-reference/sections.md#readiness) for the scoring model (weights, `expires`, `minScore` and `partialCredit` defaults).
 
 When a contract declares `readiness`, the operator writes the derived assessment to `status.readiness`:
 
@@ -96,8 +94,8 @@ It also sets a single aggregate condition, **`ReadinessSatisfied`** (the gate: `
 | Status | Reason | Meaning |
 |--------|--------|---------|
 | `True`  | `Satisfied`     | the readiness score meets `minScore` |
-| `False` | `BelowMinScore` | the score is below `minScore` (e.g. assessment expired or too many not-done checks) |
-| `False` | `Invalid`       | the assessment `expires` date is unparseable |
+| `False` | `Expired`       | the assessment `expires` date has passed, so every claim earns zero weight |
+| `False` | `BelowMinScore` | the score is below `minScore` (e.g. too many not-done claims) |
 
 On gate transitions the operator emits events sparingly: a `Warning` / `ReadinessGateUnmet` when the gate first drops and a `Normal` / `ReadinessRecovered` when it is met again. Contracts that declare no readiness get neither `status.readiness` nor the condition.
 
@@ -119,12 +117,12 @@ The same gate can be enforced at build time: authors run `pacto validate --readi
 
 When `pacto dashboard` detects a Kubernetes cluster with the Pacto CRD installed, it uses the operator's status data as the **k8s** runtime source. This provides:
 
-- Live contract status (Compliant / Warning / NonCompliant / Reference / Unknown)
-- Derived readiness (overall score plus per-check done/partial/not-done/deferred status and earned weight; the whole assessment carries a single expiry) as a separate dimension
+- Live contract status (Compliant / Warning / NonCompliant / Reference / Unknown / Invalid / NotEvaluated)
+- Derived readiness (overall score plus per-claim done/partial/not-done/deferred status and earned weight; the whole assessment carries a single expiry) as a separate dimension
 - Reconciliation conditions with timestamps
 - Endpoint health and metrics reachability results
 - Resource existence checks (Service, Workload)
-- Port alignment details (expected vs. observed)
+- Interface and capability availability details (declared vs. observed)
 - Observed runtime state (workload kind, strategy, images, storage)
 - Declared **configuration and policy content** — the operator extracts each scope's schema properties (and the policy schema's title/description) into status, so the dashboard renders config/policy details even for reference-only contracts with no OCI source available to it
 - Contract-vs-runtime comparison rows

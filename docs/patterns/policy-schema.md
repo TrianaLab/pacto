@@ -1,6 +1,6 @@
 # Platform-published policy + schema contract
 
-**Problem.** As a platform team you want to enforce contract structure rules ("every service must declare an owner and a health endpoint") *and* publish the schema that validates deployment values for your standard chart. You want both to live in one versioned artifact that every service references — so updates propagate via a version bump, not a wiki announcement.
+**Problem.** As a platform team you want to enforce contract structure rules ("every service must declare an owner and its workload type") *and* publish the schema that validates deployment values for your standard chart. You want both to live in one versioned artifact that every service references — so updates propagate via a version bump, not a wiki announcement.
 
 **Primitives.**
 
@@ -11,7 +11,7 @@
 
 ```yaml
 # pactos/platform-service/pacto.yaml
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: platform-service
@@ -19,12 +19,15 @@ service:
   owner:
     team: platform
 
+workload: service
+
 policies:
   - name: platform-policy
-    schema: policy/schema.json     # requires owner, runtime.health, runtime.workload
+    schema: policy/schema.json     # requires service.owner and workload
 
 configurations:
   - name: deployment
+    required: true
     schema: configuration/schema.json   # the standard chart's values.schema.json
 ```
 
@@ -39,6 +42,7 @@ policies:
 configurations:
   - name: deployment
     ref: oci://ghcr.io/example/pactos/platform-service:2.0.0
+    required: true
 ```
 
 **Mix and match.** Teams using the platform's standard chart reference both. Teams that ship their own chart (a third-party Keycloak chart, a custom operator) still reference the policy — contract structure rules are universal — but vendor their own configuration schema locally. The moment a team needs inline or override `values`, it must vendor the schema: a `ref`-ed config is schema-only (see [Configuration Schema Ownership Models](../contract-reference/sections.md#configuration-schema-ownership-models)).
@@ -50,6 +54,7 @@ policies:
 
 configurations:
   - name: deployment
+    required: true
     schema: configuration/values.schema.json   # vendored from their chart
 ```
 
