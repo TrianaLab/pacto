@@ -1,4 +1,7 @@
-# Build the manager binary
+# syntax=docker/dockerfile:1
+# Monorepo-aware build: context is the repository ROOT so the operator module
+# resolves the engine (github.com/trianalab/pacto/v2) through the workspace
+# (go.work) instead of a published tag — no replace, no unreleased-tag dependency.
 FROM golang:1.26.5 AS builder
 ARG TARGETOS
 ARG TARGETARCH
@@ -8,32 +11,26 @@ ARG BUILD_DATE=unknown
 ARG DASHBOARD_IMAGE=
 
 WORKDIR /workspace
-# Copy the Go Modules manifests
-COPY go.mod go.mod
-COPY go.sum go.sum
-# cache deps before building and copying source so that we don't need to re-download as much
-# and so that source changes don't invalidate our downloaded layer
-RUN go mod download
-
-# Copy the Go source
-COPY api/ api/
-COPY cmd/ cmd/
+# Workspace + both module manifests first (cache-friendly).
+COPY go.work ./
+COPY go.mod go.sum ./
+COPY integrations/kubernetes/go.mod integrations/kubernetes/go.sum integrations/kubernetes/
+RUN go work sync && go mod download all
+# Source (only the engine core packages the operator needs + the integration).
+COPY pkg/ pkg/
 COPY internal/ internal/
-
-# Build with version metadata injected via ldflags
+COPY integrations/kubernetes/ integrations/kubernetes/
+# Build the operator via the workspace; go.work resolves pacto/v2 locally.
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
     -ldflags "-s -w \
       -X main.version=${VERSION} \
       -X main.gitCommit=${GIT_COMMIT} \
       -X main.buildDate=${BUILD_DATE} \
       -X main.dashboardImage=${DASHBOARD_IMAGE}" \
-    -o manager cmd/main.go
+    -o manager ./integrations/kubernetes/cmd
 
-# Use distroless as minimal base image to package the manager binary
-# Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
-
 ENTRYPOINT ["/manager"]
