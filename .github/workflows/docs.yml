@@ -6,6 +6,11 @@ on:
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
+      # Integration docs are assembled into this site by the mkdocs hook, so a
+      # change to an integration's docs (authored or generated) must redeploy.
+      - 'integrations/**/docs/**'
+      - 'integrations/**/integration.yaml'
+      - 'release/scripts/mkdocs_integration_hook.py'
       - 'examples/demo/**'
       # The demo embeds the dashboard UI + engine, so redeploy when they change.
       - 'pkg/dashboard/**'

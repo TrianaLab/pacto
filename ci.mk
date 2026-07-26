@@ -48,13 +48,37 @@ ci-oci:
 	go test ./pkg/oci/...
 	node --test release/scripts/publish.test.mjs
 
-# Regenerate every generated doc across the workspace.
+# Regenerate every generated doc across the workspace. Core CLI reference first,
+# then every discovered integration's own generator (via its integration.yaml
+# documentation.generateCommand) so a future integration is picked up with no
+# change here.
 docs-generate: gen-cli-docs
-	$(MAKE) -C integrations/kubernetes api-docs
+	@for m in integrations/*/integration.yaml; do \
+		[ -f "$$m" ] || continue; \
+		cmd=$$(python3 -c "import yaml,sys; d=yaml.safe_load(open('$$m')) or {}; print((d.get('documentation') or {}).get('generateCommand',''))"); \
+		[ -n "$$cmd" ] && { echo "==> $$cmd"; eval "$$cmd"; }; \
+	done
 
-# Fail if any generated doc is out of date.
-docs-check: ci-docs
-	$(MAKE) -C integrations/kubernetes api-docs-check
+# Preview the assembled site locally (the hook assembles integration docs at build time).
+docs-serve:
+	mkdocs serve
+
+# Publish the versioned site with mike. The site version tracks Pacto CORE (from
+# release/release-manifest.json). Integration docs carry their OWN version stamp in
+# the generated compatibility table, so a Kubernetes-only release re-runs this with
+# the SAME core version and regenerated integration docs: the version selector entry
+# is unchanged, only the integration content + compatibility badge move. Requires a
+# gh-pages branch (mike manages it); run after docs-generate.
+docs-deploy: docs-generate
+	@ver=$$(python3 -c "import json;print(json.load(open('release/release-manifest.json'))['units']['core']['version'])"); \
+	echo "==> mike deploy --update-aliases $$ver latest"; \
+	mike deploy --update-aliases "$$ver" latest
+
+# Full documentation gate: regenerate from scratch, prove zero drift and zero
+# second-run diff, strict build, and validate every fenced contract / CR example /
+# flag / chart / artifact coordinate against the real sources. See docs_check.py.
+docs-check:
+	python3 release/scripts/docs_check.py
 
 # artifact-drift = one-publisher-per-artifact gate + apply-release-plan
 # idempotency (re-applying the plan must not mutate any tracked release-state file).

@@ -11,13 +11,18 @@ on:
       - 'mkdocs.yml'
       - 'overrides/**'
       - 'MANIFEST.md'
+      - 'integrations/**/docs/**'
+      - 'integrations/**/integration.yaml'
+      - 'release/scripts/gen_integration_docs.py'
+      - 'release/scripts/mkdocs_integration_hook.py'
+      - 'release/scripts/docs_check.py'
       - '.github/workflows/docs-check.yml'
 
 permissions:
   contents: read
 
 jobs:
-  strict-build:
+  docs-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
@@ -27,5 +32,13 @@ jobs:
           cache: pip
           cache-dependency-path: docs/requirements.txt
       - run: pip install -r docs/requirements.txt
-      - name: Build docs (strict — fails on broken links, anchors, or orphan pages)
-        run: mkdocs build --strict
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+      # Full documentation gate: regenerate + zero-drift + strict build + validate
+      # every fenced contract / CR example / flag / chart / artifact coordinate, and
+      # prove docs-generate is deterministic (twice = no diff). See docs_check.py.
+      - name: Docs check
+        run: make docs-check

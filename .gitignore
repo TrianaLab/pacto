@@ -16,6 +16,10 @@ coverage.html
 # MkDocs build output
 /site/
 
+# Python tooling caches (release/scripts docs generator + checker)
+__pycache__/
+*.pyc
+
 # Local docs preview build of the WASM demo (CI builds it into site/demo)
 /docs/demo/
 
