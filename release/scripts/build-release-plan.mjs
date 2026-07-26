@@ -26,6 +26,17 @@ function readUnits() {
 function buildPlan(u) {
   const core = u['core'].version;             // e.g. 2.7.0
   const k8s = u['k8s-module'].version;        // e.g. 4.7.0
+  // The core Go module path carries its major (github.com/trianalab/pacto/vN).
+  // The published core version must therefore be on that major. Until the first
+  // vN release is published, the unit version still reads the last-published
+  // vN-1 (changesets bumps it to vN.0.0 at release time), so derive the pin +
+  // compatibility from the PATH major, not the un-bumped unit version — this
+  // keeps the go.work dev build + apply-release-plan on a valid vN and lands
+  // exactly on vN.0.0 when the major changeset applies.
+  const pathMajor = Number((u['core'].coordinate.match(/\/v(\d+)$/) || [, core.split('.')[0]])[1]);
+  const coreMajor = Number(core.split('.')[0]);
+  const pinVersion = pathMajor > coreMajor ? `v${pathMajor}.0.0` : `v${core}`;
+  const compatMajor = Math.max(pathMajor, coreMajor);
   // Fixed groups: core line and k8s line move as a unit.
   const plan = {
     schema: 'pacto-release-plan/v1',
@@ -54,7 +65,7 @@ function buildPlan(u) {
         version: k8s,
         tags: [`integrations/kubernetes/v${k8s}`],            // nested-module tag
         // Release state: the integration go.mod pins the published core, NO replace.
-        goModPin: { module: u['core'].coordinate, version: `v${core}` },
+        goModPin: { module: u['core'].coordinate, version: pinVersion },
         // Fail-closed: apply-release-plan asserts no replace directive survives into
         // release state (it never strips one — a stray replace is a mistake to surface,
         // not silently rewrite). Dev builds resolve via go.work, so none should exist.
@@ -65,7 +76,7 @@ function buildPlan(u) {
           { unit: 'operator-chart', kind: 'helm-chart', coordinate: u['operator-chart'].coordinate, chartVersion: k8s, appVersion: k8s, defaultImageTag: k8s },
           { unit: 'k8s-docs', kind: 'docs', version: k8s },
         ],
-        compatibility: { pactoCore: `>=${core.split('.')[0]}.0.0` },
+        compatibility: { pactoCore: `>=${compatMajor}.0.0` },
       },
     },
     // Deterministic publish order: core module FIRST (so the k8s module's pin

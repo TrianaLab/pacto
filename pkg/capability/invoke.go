@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/openapi"
+	"github.com/trianalab/pacto/v3/pkg/openapi"
 )
 
 // defaultClient is used when the caller does not supply one. It deliberately

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	msemver "github.com/Masterminds/semver/v3"
-	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // FuzzHasExplicitTag proves OCI-reference tag detection is total (never panics)

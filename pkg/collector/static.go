@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/evidence"
+	"github.com/trianalab/pacto/v3/pkg/evidence"
 )
 
 // StaticCollector is a reference collector built from preset observations.

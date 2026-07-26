@@ -12,8 +12,8 @@ import (
 	"testing/fstest"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/openapi"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/openapi"
 )
 
 // capSpec exercises every toolDesc branch and the write gate.

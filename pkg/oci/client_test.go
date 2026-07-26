@@ -20,8 +20,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 func newTestClient(t *testing.T) (*oci.Client, string) {

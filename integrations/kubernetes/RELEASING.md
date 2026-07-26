@@ -1,7 +1,7 @@
 # Releasing
 
 The operator depends on the [Pacto engine](https://github.com/TrianaLab/pacto)
-module `github.com/trianalab/pacto/v2`. Releasing the operator is therefore a
+module `github.com/trianalab/pacto/v3`. Releasing the operator is therefore a
 **cross-repo, engine-first** procedure: the engine version the operator imports
 must be published *before* the operator is released.
 
@@ -11,8 +11,8 @@ must be published *before* the operator is released.
 `replace` that points at a sibling checkout:
 
 ```
-require github.com/trianalab/pacto/v2 vX.Y.Z
-replace github.com/trianalab/pacto/v2 => ../pacto
+require github.com/trianalab/pacto/v3 vX.Y.Z
+replace github.com/trianalab/pacto/v3 => ../pacto
 ```
 
 The `replace` makes the build use the local `../pacto` working copy instead of
@@ -45,7 +45,7 @@ valid pin for this operator.
    version, then `go mod tidy`:
 
    ```bash
-   go mod edit -require github.com/trianalab/pacto/v2@<engine-tag>
+   go mod edit -require github.com/trianalab/pacto/v3@<engine-tag>
    go mod tidy
    ```
 

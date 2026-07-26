@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 func TestParseError_Error_WithPath(t *testing.T) {

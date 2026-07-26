@@ -1,9 +1,19 @@
 ---
-"@pacto/core": minor
-"@pacto/cli": minor
-"@pacto/dashboard-image": minor
+"@pacto/core": major
+"@pacto/cli": major
+"@pacto/dashboard-image": major
+"@pacto/dashboard-contract-bundle": major
+"@pacto/demo-bundles": major
 ---
 
-Core adds pkg/evidence + pkg/finding + the pure Evaluate API (Pacto 2.0 compliance
-model), consumed by the Kubernetes integration. The core line must publish a
-version containing them before the integration can pin it.
+Pacto 2.0 — breaking contract-model, engine and module-path changes.
+
+- The Go module path becomes `github.com/trianalab/pacto/v3` (was `.../v2`).
+  Consumers must update their import paths.
+- The contract schema is v2 only (`pactoVersion "2.0"`); v1 fields
+  (`runtime.*`, interface `port`, `scaling`, `service.image`) are removed.
+- New pure engine: `pkg/evidence` + `pkg/finding` + `Evaluate(contract,
+  evidence)`; `ValidateRuntime` and the v1 declaration-side runtime types are
+  gone.
+- Releasing is driven by an explicit release transaction, not a manifest-file
+  diff (see `release/DESIGN-release-safety.md`).

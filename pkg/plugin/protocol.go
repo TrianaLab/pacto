@@ -1,6 +1,6 @@
 package plugin
 
-import "github.com/trianalab/pacto/v2/pkg/contract"
+import "github.com/trianalab/pacto/v3/pkg/contract"
 
 // ProtocolVersion is the current plugin protocol version.
 const ProtocolVersion = "1"

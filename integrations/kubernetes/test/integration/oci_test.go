@@ -27,8 +27,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/internal/loader"
 )

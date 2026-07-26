@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/internal/testutil"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/lock"
+	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/lock"
 )
 
 // rootBundleWithDep returns a local root contract that declares one OCI dep.

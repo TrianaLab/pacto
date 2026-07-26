@@ -24,11 +24,19 @@ its officially maintained integrations, while keeping **independently versioned,
 independently published, standalone-consumable** components.
 
 - **Separate Go modules**, not one module:
-  - root module `github.com/trianalab/pacto/v2` — platform-neutral core + CLI + dashboard.
+  - root module `github.com/trianalab/pacto/v3` — platform-neutral core + CLI + dashboard.
   - nested module `github.com/trianalab/pacto/integrations/kubernetes` — collector + operator host.
 - **Root `go.work`** ties the modules for local development, CI and release *builds*
-  only. Committed *release state* pins a real published core version in the
-  integration `go.mod` with **no `replace`**.
+  only. The integration `go.mod` carries a normal `require` on the core with
+  **no `replace`**; `go.work` resolves it to the local source.
+  - Cross-major transition: when the core moves to a new major whose first
+    version is not yet published (e.g. `v3.0.0` on `github.com/trianalab/pacto/v3`),
+    `go.work` cannot build the module graph from an unpublished `require`. A
+    dev-only *versioned* workspace replace (`replace github.com/trianalab/pacto/v3
+    v3.0.0 => .` in `go.work`, never in any module's `go.mod`) resolves it. It is
+    absent under `GOWORK=off`, so the published integration `go.mod` still has no
+    replace, and the release publishes the core `v3.0.0` first so the require
+    resolves for real (proven by the standalone smoke test below).
 - The imported operator was history-preserved (subtree import at operator SHA
   `199de04`; every operator commit remains an ancestor and traceable to
   `TrianaLab/pacto-operator`).

@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/v2/internal/app"
-	pactomcp "github.com/trianalab/pacto/v2/internal/mcp"
+	"github.com/trianalab/pacto/v3/internal/app"
+	pactomcp "github.com/trianalab/pacto/v3/internal/mcp"
 )
 
 // TestMCPCapabilityInvokesLiveEndpoint exercises the full agent-capability path:

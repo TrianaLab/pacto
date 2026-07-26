@@ -5,7 +5,7 @@ import (
 	"io/fs"
 	"strings"
 
-	"github.com/trianalab/pacto/v2/pkg/lock"
+	"github.com/trianalab/pacto/v3/pkg/lock"
 )
 
 // Drift status values for a locked dependency edge.

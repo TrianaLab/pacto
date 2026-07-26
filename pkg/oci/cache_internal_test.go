@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 func TestCachePath_TraversalBlocked(t *testing.T) {

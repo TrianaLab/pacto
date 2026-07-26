@@ -16,8 +16,8 @@ import (
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/internal/metrics"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/readiness"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/readiness"
 )
 
 // readinessClock is the clock used to derive readiness freshness. It is a

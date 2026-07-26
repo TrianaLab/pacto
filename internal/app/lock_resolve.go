@@ -3,8 +3,8 @@ package app
 import (
 	"context"
 
-	"github.com/trianalab/pacto/v2/pkg/graph"
-	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // resolveDigest resolves a bare OCI location under a constraint to a concrete

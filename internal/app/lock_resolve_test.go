@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/internal/testutil"
-	"github.com/trianalab/pacto/v2/pkg/graph"
+	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v3/pkg/graph"
 )
 
 func TestResolveDigest(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 func minimalContract() *contract.Contract {

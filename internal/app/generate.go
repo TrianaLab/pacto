@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/trianalab/pacto/v2/pkg/override"
-	"github.com/trianalab/pacto/v2/pkg/plugin"
+	"github.com/trianalab/pacto/v3/pkg/override"
+	"github.com/trianalab/pacto/v3/pkg/plugin"
 )
 
 // PluginRunner abstracts plugin execution so the app layer does not depend

@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 func TestStaticKeychain_ReturnsCredentials(t *testing.T) {

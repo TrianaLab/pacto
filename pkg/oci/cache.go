@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // pullCacheMaxEntries bounds the in-memory pulled-bundle cache. Long-running

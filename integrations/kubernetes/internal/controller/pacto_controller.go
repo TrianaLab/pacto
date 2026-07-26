@@ -37,11 +37,11 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/internal/loader"
 	"github.com/trianalab/pacto/integrations/kubernetes/internal/metrics"
 	"github.com/trianalab/pacto/integrations/kubernetes/internal/observer"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/finding"
-	"github.com/trianalab/pacto/v2/pkg/oci"
-	"github.com/trianalab/pacto/v2/pkg/schemax"
-	"github.com/trianalab/pacto/v2/pkg/validation"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/schemax"
+	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
 // ContractLoader abstracts contract loading and tag listing.

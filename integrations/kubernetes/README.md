@@ -391,7 +391,7 @@ make undeploy-local                # Remove from current kube context
 
 These targets work with any local Kubernetes distribution (Docker Desktop, minikube, Kind, etc.). If you use Kind, run `make kind-load` first so the image is available inside the cluster, or use `make deploy-kind` which combines both steps.
 
-> **Engine dependency.** The operator depends on the [Pacto engine](https://github.com/TrianaLab/pacto) module `github.com/trianalab/pacto/v2`. On the development branch `go.mod` carries a `replace ... => ../pacto` so the build uses a sibling engine checkout (toggle with `make pacto-local` / `make pacto-remote`). This is a dev-only convenience — clone the engine as `../pacto` for co-development, and see [RELEASING.md](RELEASING.md) for the engine-first release procedure that drops the replace.
+> **Engine dependency.** The operator depends on the [Pacto engine](https://github.com/TrianaLab/pacto) module `github.com/trianalab/pacto/v3`. On the development branch `go.mod` carries a `replace ... => ../pacto` so the build uses a sibling engine checkout (toggle with `make pacto-local` / `make pacto-remote`). This is a dev-only convenience — clone the engine as `../pacto` for co-development, and see [RELEASING.md](RELEASING.md) for the engine-first release procedure that drops the replace.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
 

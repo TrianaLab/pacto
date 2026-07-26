@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/internal/app"
-	"github.com/trianalab/pacto/v2/internal/cli"
-	"github.com/trianalab/pacto/v2/internal/testutil"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/lock"
+	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/internal/cli"
+	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/lock"
 )
 
 func TestLockCommandWritesFile(t *testing.T) {

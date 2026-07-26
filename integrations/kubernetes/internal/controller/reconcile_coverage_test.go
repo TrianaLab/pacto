@@ -13,7 +13,7 @@ import (
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/internal/loader"
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

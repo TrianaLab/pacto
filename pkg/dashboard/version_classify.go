@@ -1,8 +1,8 @@
 package dashboard
 
 import (
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/diff"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/diff"
 )
 
 // BundlePair associates a version tag with its parsed bundle for classification.

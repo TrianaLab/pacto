@@ -3,7 +3,7 @@ package collector
 import (
 	"context"
 
-	"github.com/trianalab/pacto/v2/pkg/evidence"
+	"github.com/trianalab/pacto/v3/pkg/evidence"
 )
 
 // Collector produces evidence by observing a real system.

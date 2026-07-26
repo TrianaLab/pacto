@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
-	"github.com/trianalab/pacto/v2/internal/app"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
-	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // dummyStore satisfies oci.BundleStore for CLI tests.

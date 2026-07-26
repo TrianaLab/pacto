@@ -3,7 +3,7 @@ package contract_test
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // hex64 is a syntactically valid 64-char lowercase hex sha256 digest body.

@@ -20,8 +20,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	pactoapi "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/evidence"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/evidence"
 )
 
 func TestObserveDependenciesDim(t *testing.T) {

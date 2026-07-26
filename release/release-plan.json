@@ -3,7 +3,7 @@
     "core": {
       "artifacts": [
         {
-          "coordinate": "github.com/trianalab/pacto/v2",
+          "coordinate": "github.com/trianalab/pacto/v3",
           "kind": "go-module",
           "tag": "v2.7.0",
           "unit": "core"
@@ -67,11 +67,11 @@
       ],
       "assertNoReplace": true,
       "compatibility": {
-        "pactoCore": ">=2.0.0"
+        "pactoCore": ">=3.0.0"
       },
       "goModPin": {
-        "module": "github.com/trianalab/pacto/v2",
-        "version": "v2.7.0"
+        "module": "github.com/trianalab/pacto/v3",
+        "version": "v3.0.0"
       },
       "tags": [
         "integrations/kubernetes/v4.7.0"

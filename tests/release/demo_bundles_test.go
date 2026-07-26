@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/graph"
 )
 
 // ownedDemoCoordinate returns the coordinate of the `demo-bundles` release unit,

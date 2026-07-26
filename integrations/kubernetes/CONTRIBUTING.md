@@ -33,8 +33,8 @@ By participating in this project, you agree to treat all contributors with respe
 
    > **Engine sibling checkout.** The operator depends on the
    > [Pacto engine](https://github.com/TrianaLab/pacto) module
-   > `github.com/trianalab/pacto/v2`. On the development branch `go.mod` carries
-   > a `replace github.com/trianalab/pacto/v2 => ../pacto` so the build uses a
+   > `github.com/trianalab/pacto/v3`. On the development branch `go.mod` carries
+   > a `replace github.com/trianalab/pacto/v3 => ../pacto` so the build uses a
    > sibling engine checkout. Clone the engine next to this repo (as `../pacto`)
    > for co-development. The operator imports engine packages (`pkg/evidence`,
    > `pkg/finding`) that may be newer than the pinned engine tag, so with the

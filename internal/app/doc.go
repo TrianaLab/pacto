@@ -7,11 +7,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
-	"github.com/trianalab/pacto/v2/pkg/doc"
-	"github.com/trianalab/pacto/v2/pkg/graph"
-	"github.com/trianalab/pacto/v2/pkg/override"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/doc"
+	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/override"
 )
 
 // generateDoc is the function used to generate documentation. It is a variable

@@ -13,10 +13,10 @@ import (
 	"path"
 	"sort"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
-	"github.com/trianalab/pacto/v2/pkg/semver"
-	"github.com/trianalab/pacto/v2/pkg/validation"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/semver"
+	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
 const contractFile = "pacto.yaml"

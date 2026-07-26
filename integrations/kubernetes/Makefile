@@ -32,7 +32,7 @@ GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 # Dashboard image tag. The monorepo release manifest is the single source of
-# truth for published versions. `go list -m github.com/trianalab/pacto/v2`
+# truth for published versions. `go list -m github.com/trianalab/pacto/v3`
 # returns empty under the same-repo go.work workspace (it resolves to the
 # workspace copy, which has no version), so it CANNOT supply the release tag and
 # would bake an untagged dashboard image. Use the release manifest when present
@@ -42,7 +42,7 @@ PACTO_MANIFEST := $(firstword $(wildcard ../../release/release-manifest.json rel
 ifneq ($(PACTO_MANIFEST),)
 PACTO_VERSION := $(shell node -e 'const fs=require("fs");process.stdout.write(JSON.parse(fs.readFileSync("$(PACTO_MANIFEST)","utf8")).units["dashboard-image"].version)')
 else
-PACTO_VERSION := $(shell echo '$(call gomodver,github.com/trianalab/pacto/v2)' | sed 's/^v//')
+PACTO_VERSION := $(shell echo '$(call gomodver,github.com/trianalab/pacto/v3)' | sed 's/^v//')
 endif
 DASHBOARD_IMG := ghcr.io/trianalab/pacto-dashboard:$(PACTO_VERSION)
 
@@ -148,8 +148,8 @@ undeploy-local: undeploy ## Remove the operator from the current kube context.
 
 .PHONY: pacto-local
 pacto-local: ## Use the local ../pacto checkout as the pacto dependency (for co-development).
-	@if ! grep -q 'replace github.com/trianalab/pacto/v2 =>' go.mod; then \
-		go mod edit -replace github.com/trianalab/pacto/v2=../pacto && \
+	@if ! grep -q 'replace github.com/trianalab/pacto/v3 =>' go.mod; then \
+		go mod edit -replace github.com/trianalab/pacto/v3=../pacto && \
 		echo "✓ Switched to local pacto (../pacto)"; \
 	else \
 		echo "Already using local pacto"; \
@@ -157,10 +157,10 @@ pacto-local: ## Use the local ../pacto checkout as the pacto dependency (for co-
 
 .PHONY: pacto-remote
 pacto-remote: ## Switch back to the released pacto module (removes local replace).
-	@if grep -q 'replace github.com/trianalab/pacto/v2 =>' go.mod; then \
-		go mod edit -dropreplace github.com/trianalab/pacto/v2 && \
+	@if grep -q 'replace github.com/trianalab/pacto/v3 =>' go.mod; then \
+		go mod edit -dropreplace github.com/trianalab/pacto/v3 && \
 		go mod tidy && \
-		echo "✓ Switched to remote pacto ($$(go list -m -f '{{.Version}}' github.com/trianalab/pacto/v2))"; \
+		echo "✓ Switched to remote pacto ($$(go list -m -f '{{.Version}}' github.com/trianalab/pacto/v3))"; \
 	else \
 		echo "Already using remote pacto"; \
 	fi

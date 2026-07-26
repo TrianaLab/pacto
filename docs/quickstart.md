@@ -11,7 +11,7 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 Or via Go:
 
 ```bash
-go install github.com/trianalab/pacto/v2/cmd/pacto@latest
+go install github.com/trianalab/pacto/v3/cmd/pacto@latest
 ```
 
 See [Installation](installation.md) for more options.

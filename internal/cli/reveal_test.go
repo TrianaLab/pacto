@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/trianalab/pacto/v3/internal/app"
 )
 
 func TestBannerStatic(t *testing.T) {

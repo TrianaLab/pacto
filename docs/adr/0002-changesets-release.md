@@ -19,7 +19,7 @@ not solve ordering — the tested version/tag/publish sequence does.
 
 Pacto's release units are not npm packages. They are:
 
-- Go modules (`github.com/trianalab/pacto/v2`, `.../integrations/kubernetes`)
+- Go modules (`github.com/trianalab/pacto/v3`, `.../integrations/kubernetes`)
 - OCI images (dashboard, operator controller)
 - a Helm chart (`pacto-operator`)
 - OCI-distributed contract/demo bundles

@@ -3,7 +3,7 @@ package validation
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/finding"
+	"github.com/trianalab/pacto/v3/pkg/finding"
 )
 
 func TestValidationResult_Findings(t *testing.T) {

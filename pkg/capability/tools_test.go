@@ -3,7 +3,7 @@ package capability
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/openapi"
+	"github.com/trianalab/pacto/v3/pkg/openapi"
 )
 
 func sampleDoc() *openapi.Doc {

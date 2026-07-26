@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-const modulePrefix = "github.com/trianalab/pacto/v2/"
+const modulePrefix = "github.com/trianalab/pacto/v3/"
 
 // allowedInternal is the engine's internal-import ALLOWLIST. Any import under the
 // module prefix that is not listed here fails the test. pkg/graph is allowed

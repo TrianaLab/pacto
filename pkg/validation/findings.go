@@ -1,6 +1,6 @@
 package validation
 
-import "github.com/trianalab/pacto/v2/pkg/finding"
+import "github.com/trianalab/pacto/v3/pkg/finding"
 
 // Findings projects the layered ValidationResult into typed, severity-tagged
 // findings. It is additive: ValidationResult is unchanged and remains the

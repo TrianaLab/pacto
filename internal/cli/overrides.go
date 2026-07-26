@@ -2,7 +2,7 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v2/pkg/override"
+	"github.com/trianalab/pacto/v3/pkg/override"
 )
 
 // optionalArg returns args[0] if present, otherwise "".

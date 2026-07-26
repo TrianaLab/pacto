@@ -3,8 +3,8 @@ package dashboard
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	depgraph "github.com/trianalab/pacto/v2/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	depgraph "github.com/trianalab/pacto/v3/pkg/graph"
 )
 
 func TestExtractServiceNameFromRef_PlainName(t *testing.T) {

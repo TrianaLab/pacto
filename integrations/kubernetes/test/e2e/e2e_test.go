@@ -24,8 +24,8 @@ import (
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/internal/loader"
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
-	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // port is the Service port every fixture uses; the collector resolves probe targets to it.

@@ -8,7 +8,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
 )
 
 func TestBuildStaticExport(t *testing.T) {

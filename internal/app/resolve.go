@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/graph"
-	"github.com/trianalab/pacto/v2/pkg/ignore"
-	"github.com/trianalab/pacto/v2/pkg/oci"
-	"github.com/trianalab/pacto/v2/pkg/override"
-	"github.com/trianalab/pacto/v2/pkg/validation"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/ignore"
+	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/override"
+	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
 // DefaultContractPath is the default filename looked up when no path is given.

@@ -12,7 +12,7 @@ import (
 	"syscall/js"
 
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
 )
 
 // embeddedBundles holds the demo contracts baked into the wasm binary at build

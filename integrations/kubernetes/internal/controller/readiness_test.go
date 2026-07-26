@@ -17,8 +17,8 @@ import (
 	"k8s.io/client-go/tools/record"
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/readiness"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/readiness"
 )
 
 var readinessNow = time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)

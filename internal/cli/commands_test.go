@@ -10,12 +10,12 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v2/internal/app"
-	"github.com/trianalab/pacto/v2/internal/cli"
-	"github.com/trianalab/pacto/v2/internal/testutil"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/oci"
-	"github.com/trianalab/pacto/v2/pkg/plugin"
+	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/internal/cli"
+	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/plugin"
 )
 
 func TestPackCommand(t *testing.T) {

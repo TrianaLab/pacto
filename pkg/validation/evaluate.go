@@ -3,9 +3,9 @@ package validation
 import (
 	"fmt"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/evidence"
-	"github.com/trianalab/pacto/v2/pkg/finding"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v3/pkg/finding"
 )
 
 // Coverage reports how many of the contract's REQUIRED assertions were actually evaluated

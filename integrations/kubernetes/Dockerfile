@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Monorepo-aware build: context is the repository ROOT so the operator module
-# resolves the engine (github.com/trianalab/pacto/v2) through the workspace
+# resolves the engine (github.com/trianalab/pacto/v3) through the workspace
 # (go.work) instead of a published tag — no replace, no unreleased-tag dependency.
 FROM golang:1.26.5 AS builder
 ARG TARGETOS

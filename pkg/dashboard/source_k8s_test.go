@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // ---------------------------------------------------------------------------

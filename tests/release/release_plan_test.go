@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -110,10 +111,30 @@ func TestReleasePlanVersionPropagation(t *testing.T) {
 	} else if a.ChartVersion != k8s.Version || a.AppVersion != k8s.Version || a.DefaultImageTag != k8s.Version {
 		t.Errorf("operator-chart trio = (%q,%q,%q), want all %s", a.ChartVersion, a.AppVersion, a.DefaultImageTag, k8s.Version)
 	}
-	if k8s.GoModPin == nil || k8s.GoModPin.Version != "v"+core.Version {
-		t.Errorf("k8s goModPin = %+v, want version v%s (the published core)", k8s.GoModPin, core.Version)
+	// The core Go module path carries its major (…/pacto/vN). The pin +
+	// compatibility track that PATH major — v<N>.0.0 until the first vN release is
+	// published, then the unit version — not the last-published (vN-1) unit
+	// version. This is what lets a cross-major bump build under go.work and land on
+	// v<N>.0.0 when the major changeset applies.
+	coreArt, _ := artifactByUnit(core, "core")
+	majorOf := func(v string) int { n, _ := strconv.Atoi(strings.SplitN(v, ".", 2)[0]); return n }
+	pathMajor := majorOf(core.Version)
+	if m := regexp.MustCompile(`/v(\d+)$`).FindStringSubmatch(coreArt.Coordinate); m != nil {
+		pathMajor, _ = strconv.Atoi(m[1])
 	}
-	if wantCompat := ">=" + strings.SplitN(core.Version, ".", 2)[0] + ".0.0"; k8s.Compatibility == nil || k8s.Compatibility.PactoCore != wantCompat {
+	unitMajor := majorOf(core.Version)
+	wantPin := "v" + core.Version
+	if pathMajor > unitMajor {
+		wantPin = fmt.Sprintf("v%d.0.0", pathMajor)
+	}
+	if k8s.GoModPin == nil || k8s.GoModPin.Version != wantPin {
+		t.Errorf("k8s goModPin = %+v, want version %s", k8s.GoModPin, wantPin)
+	}
+	compatMajor := pathMajor
+	if unitMajor > compatMajor {
+		compatMajor = unitMajor
+	}
+	if wantCompat := fmt.Sprintf(">=%d.0.0", compatMajor); k8s.Compatibility == nil || k8s.Compatibility.PactoCore != wantCompat {
 		t.Errorf("k8s compatibility = %+v, want pactoCore %s", k8s.Compatibility, wantCompat)
 	}
 

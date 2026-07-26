@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v2/internal/app"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/diff"
-	"github.com/trianalab/pacto/v2/pkg/graph"
-	"github.com/trianalab/pacto/v2/pkg/sbom"
+	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/diff"
+	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/sbom"
 )
 
 type errWriter struct{}

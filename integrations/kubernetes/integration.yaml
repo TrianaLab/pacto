@@ -33,4 +33,4 @@ releaseUnits:
     versionedWith: operator-chart
 group: kubernetes            # fixed release group (module + image + chart + docs bump together)
 compatibility:
-  pactoCore: ">=2.0.0"       # engine module versions this integration supports
+  pactoCore: ">=3.0.0"       # engine module versions this integration supports

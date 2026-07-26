@@ -1,4 +1,4 @@
-module github.com/trianalab/pacto/v2
+module github.com/trianalab/pacto/v3
 
 go 1.26.5
 

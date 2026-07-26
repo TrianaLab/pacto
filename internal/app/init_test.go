@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/validation"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
 func TestInit_ReadOnlyDir(t *testing.T) {

@@ -3,7 +3,7 @@ package diff
 import (
 	"fmt"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // intPtrChanged returns true if two int pointers differ.

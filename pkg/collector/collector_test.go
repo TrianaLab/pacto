@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/evidence"
+	"github.com/trianalab/pacto/v3/pkg/evidence"
 )
 
 func TestStaticCollector(t *testing.T) {

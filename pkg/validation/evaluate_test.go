@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/evidence"
-	"github.com/trianalab/pacto/v2/pkg/finding"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v3/pkg/finding"
 )
 
 func prov() evidence.Provenance {

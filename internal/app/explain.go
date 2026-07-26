@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/override"
-	"github.com/trianalab/pacto/v2/pkg/readiness"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/override"
+	"github.com/trianalab/pacto/v3/pkg/readiness"
 )
 
 // timeNow is the clock used to derive readiness freshness. It is a variable so

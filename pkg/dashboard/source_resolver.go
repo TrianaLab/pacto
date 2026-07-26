@@ -7,7 +7,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/trianalab/pacto/v2/pkg/semver"
+	"github.com/trianalab/pacto/v3/pkg/semver"
 )
 
 // ResolvedSource implements DataSource by combining a contract source

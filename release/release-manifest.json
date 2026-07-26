@@ -9,7 +9,7 @@
     },
     "core": {
       "artifactKind": "go-module",
-      "coordinate": "github.com/trianalab/pacto/v2",
+      "coordinate": "github.com/trianalab/pacto/v3",
       "tag": "v2.7.0",
       "version": "2.7.0"
     },

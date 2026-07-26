@@ -5,11 +5,11 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
-	"github.com/trianalab/pacto/v2/pkg/graph"
-	"github.com/trianalab/pacto/v2/pkg/sbom"
-	"github.com/trianalab/pacto/v2/pkg/schemax"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/sbom"
+	"github.com/trianalab/pacto/v3/pkg/schemax"
 )
 
 // ── Task 4: header / overview / runtime ────────────────────────────────

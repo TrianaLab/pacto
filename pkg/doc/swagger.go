@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 
 	"gopkg.in/yaml.v3"
 )

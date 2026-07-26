@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/lock"
+	"github.com/trianalab/pacto/v3/pkg/lock"
 )
 
 // readLock parses the pacto.lock written next to a local contract dir.

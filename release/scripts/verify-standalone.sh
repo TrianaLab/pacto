@@ -26,12 +26,12 @@ echo "next published core version (from pending changesets): v${NEXT}"
 git -C "$ROOT" tag -f "v${NEXT}" HEAD >/dev/null 2>&1   # reproducible local staging tag (deleted at end)
 TMPGIT="$(mktemp)"; printf '[url "file://%s"]\n\tinsteadOf = https://github.com/trianalab/pacto\n' "$ROOT" > "$TMPGIT"
 WORK="$(mktemp -d)"; mkdir -p "$WORK/op"; tar -C "$ROOT/integrations/kubernetes" --exclude=bin --exclude=.github --exclude=node_modules -cf - . | tar -C "$WORK/op" -xf -
-perl -i -pe "s{github.com/trianalab/pacto/v2 v[0-9][0-9.]*}{github.com/trianalab/pacto/v2 v${NEXT}}" "$WORK/op/go.mod"
+perl -i -pe "s{github.com/trianalab/pacto/v3 v[0-9][0-9.]*}{github.com/trianalab/pacto/v3 v${NEXT}}" "$WORK/op/go.mod"
 [ "$(grep -c '^replace' "$WORK/op/go.mod")" = "0" ] || { echo "ERROR: replace directive present in release state"; exit 1; }
 cd "$WORK/op"
 export GIT_CONFIG_GLOBAL="$TMPGIT" GIT_CONFIG_SYSTEM=/dev/null GOWORK=off GOFLAGS=-mod=mod \
        GOPROXY=direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' GOMODCACHE="$(mktemp -d)"
-echo "go mod download (external, GOWORK=off)..."; go mod download github.com/trianalab/pacto/v2
+echo "go mod download (external, GOWORK=off)..."; go mod download github.com/trianalab/pacto/v3
 echo "go build ./... (standalone operator, no go.work, no replace)..."
 go build ./... && go build -o /dev/null ./cmd
 echo "STANDALONE-VERIFY OK: operator module builds against published core v${NEXT}, GOWORK=off, replace=0"

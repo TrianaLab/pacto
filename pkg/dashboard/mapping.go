@@ -8,16 +8,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/capability"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/diff"
-	"github.com/trianalab/pacto/v2/pkg/graph"
-	"github.com/trianalab/pacto/v2/pkg/openapi"
-	"github.com/trianalab/pacto/v2/pkg/readiness"
-	"github.com/trianalab/pacto/v2/pkg/sbom"
-	"github.com/trianalab/pacto/v2/pkg/schemax"
-	"github.com/trianalab/pacto/v2/pkg/skills"
-	"github.com/trianalab/pacto/v2/pkg/validation"
+	"github.com/trianalab/pacto/v3/pkg/capability"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/diff"
+	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/openapi"
+	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v3/pkg/sbom"
+	"github.com/trianalab/pacto/v3/pkg/schemax"
+	"github.com/trianalab/pacto/v3/pkg/skills"
+	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
 // timeNow is the clock used to derive readiness freshness. It is a variable so

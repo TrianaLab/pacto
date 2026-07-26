@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // LoadResult contains the parsed contract, raw bytes, and bundle filesystem.

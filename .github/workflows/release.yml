@@ -90,7 +90,7 @@ jobs:
           echo "k8s=$k8s" >> "$GITHUB_OUTPUT"
 
   # pacto-publishes: core
-  # Canonical publisher for the core Go module (github.com/trianalab/pacto/v2):
+  # Canonical publisher for the core Go module (github.com/trianalab/pacto/v3):
   # the tag v<core> + the GitHub Release that anchors the module version.
   core:
     needs: detect

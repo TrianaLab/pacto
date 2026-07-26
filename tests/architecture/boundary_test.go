@@ -22,15 +22,15 @@ import (
 // k8s runtime source (client-go) and so is intentionally excluded. Everything
 // here MUST remain consumable by an external collector without pulling k8s.
 var corePackages = []string{
-	"github.com/trianalab/pacto/v2/pkg/contract/...",
-	"github.com/trianalab/pacto/v2/pkg/evidence/...",
-	"github.com/trianalab/pacto/v2/pkg/finding/...",
-	"github.com/trianalab/pacto/v2/pkg/graph/...",
-	"github.com/trianalab/pacto/v2/pkg/oci/...",
-	"github.com/trianalab/pacto/v2/pkg/readiness/...",
-	"github.com/trianalab/pacto/v2/pkg/schemax/...",
-	"github.com/trianalab/pacto/v2/pkg/semver/...",
-	"github.com/trianalab/pacto/v2/pkg/validation/...",
+	"github.com/trianalab/pacto/v3/pkg/contract/...",
+	"github.com/trianalab/pacto/v3/pkg/evidence/...",
+	"github.com/trianalab/pacto/v3/pkg/finding/...",
+	"github.com/trianalab/pacto/v3/pkg/graph/...",
+	"github.com/trianalab/pacto/v3/pkg/oci/...",
+	"github.com/trianalab/pacto/v3/pkg/readiness/...",
+	"github.com/trianalab/pacto/v3/pkg/schemax/...",
+	"github.com/trianalab/pacto/v3/pkg/semver/...",
+	"github.com/trianalab/pacto/v3/pkg/validation/...",
 }
 
 // forbiddenPrefixes are import-path prefixes a core package may never reach.
