@@ -16,7 +16,7 @@ maintainers:
     url: https://edudiaz.dev
     email: edudiazasencio@gmail.com
 sources:
-  - https://github.com/TrianaLab/pacto-operator
+  - https://github.com/TrianaLab/pacto/tree/main/integrations/kubernetes
   - https://github.com/TrianaLab/pacto
 annotations:
   artifacthub.io/images: |

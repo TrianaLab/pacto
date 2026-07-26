@@ -25,7 +25,7 @@
 
 ## Overview
 
-This chart deploys the [Pacto Operator](https://github.com/TrianaLab/pacto-operator) — a Kubernetes operator that validates running workloads against declared [Pacto](https://github.com/TrianaLab/pacto) service contracts.
+This chart deploys the [Pacto Operator](https://github.com/TrianaLab/pacto/tree/main/integrations/kubernetes) — a Kubernetes operator that validates running workloads against declared [Pacto](https://github.com/TrianaLab/pacto) service contracts.
 
 What the chart installs:
 
@@ -73,7 +73,7 @@ helm install pacto-operator oci://ghcr.io/trianalab/charts/pacto-operator \
 
 - The chart version tracks the operator version. A chart upgrade includes the corresponding controller update.
 - CRDs are managed via the `crds/` directory. Helm installs CRDs before other resources but does **not** upgrade or delete them automatically. To update CRDs, apply them manually: `kubectl apply -f charts/pacto-operator/crds/`.
-- See the [release notes](https://github.com/TrianaLab/pacto-operator/releases) for breaking changes between versions.
+- See the [release notes](https://github.com/TrianaLab/pacto/releases) for breaking changes between versions.
 
 ## CRDs
 

@@ -14,7 +14,7 @@ If you discover a security vulnerability in the Pacto Operator, please report it
 
 ### How to Report
 
-1. **Email:** Send a detailed report to the maintainers via [GitHub Security Advisories](https://github.com/TrianaLab/pacto-operator/security/advisories/new).
+1. **Email:** Send a detailed report to the maintainers via [GitHub Security Advisories](https://github.com/TrianaLab/pacto/security/advisories/new).
 2. Include the following in your report:
    - A description of the vulnerability
    - Steps to reproduce the issue

@@ -68,7 +68,7 @@ func loadWorkflows(t *testing.T, root string) []workflow {
 	}
 	var out []workflow
 	for _, e := range entries {
-		if e.IsDir() || !(strings.HasSuffix(e.Name(), ".yml") || strings.HasSuffix(e.Name(), ".yaml")) {
+		if e.IsDir() || (!strings.HasSuffix(e.Name(), ".yml") && !strings.HasSuffix(e.Name(), ".yaml")) {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, e.Name()))

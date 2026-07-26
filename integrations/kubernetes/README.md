@@ -1,6 +1,6 @@
-[![CI](https://github.com/TrianaLab/pacto-operator/actions/workflows/ci.yml/badge.svg)](https://github.com/TrianaLab/pacto-operator/actions/workflows/ci.yml)
+[![CI](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml/badge.svg)](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/TrianaLab/pacto-operator/graph/badge.svg?token=uMQvuK30Up)](https://codecov.io/gh/TrianaLab/pacto-operator)
-[![GitHub Release](https://img.shields.io/github/v/release/TrianaLab/pacto-operator)](https://github.com/TrianaLab/pacto-operator/releases/latest)
+[![GitHub Release](https://img.shields.io/github/v/release/TrianaLab/pacto)](https://github.com/TrianaLab/pacto/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pacto-operator)](https://artifacthub.io/packages/search?repo=pacto-operator)
 

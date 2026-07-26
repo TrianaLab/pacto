@@ -79,7 +79,7 @@ By participating in this project, you agree to treat all contributors with respe
 
 ### Reporting Bugs
 
-[Open an issue](https://github.com/TrianaLab/pacto-operator/issues/new?template=bug_report.yml) using the bug report template. Include:
+[Open an issue](https://github.com/TrianaLab/pacto/issues/new?template=bug_report.yml) using the bug report template. Include:
 
 - Steps to reproduce the issue
 - Expected vs. actual behavior
@@ -88,7 +88,7 @@ By participating in this project, you agree to treat all contributors with respe
 
 ### Suggesting Features
 
-[Open a feature request](https://github.com/TrianaLab/pacto-operator/issues/new?template=feature_request.yml) using the feature request template. Describe the problem you're trying to solve and the solution you'd like to see.
+[Open a feature request](https://github.com/TrianaLab/pacto/issues/new?template=feature_request.yml) using the feature request template. Describe the problem you're trying to solve and the solution you'd like to see.
 
 ### Submitting Changes
 
@@ -157,7 +157,7 @@ Once the engine dependency is in order, releases are automated. When a PR is mer
 
 ## Questions?
 
-If you're unsure about anything, feel free to [open a discussion](https://github.com/TrianaLab/pacto-operator/issues) or ask in your pull request.
+If you're unsure about anything, feel free to [open a discussion](https://github.com/TrianaLab/pacto/issues) or ask in your pull request.
 
 ## License
 
