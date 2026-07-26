@@ -36,6 +36,11 @@ function buildPlan(u) {
           { unit: 'core', kind: 'go-module', coordinate: u['core'].coordinate, tag: `v${core}` },
           { unit: 'cli', kind: 'binaries', release: `v${core}` },
           { unit: 'dashboard-image', kind: 'oci-image', coordinate: u['dashboard-image'].coordinate, tag: core },
+          // Dashboard CONTRACT BUNDLE (pactos/pacto-dashboard) — the OCI-distributed
+          // pacto contract for the dashboard service, published by .github/workflows/
+          // pacto.yml. Distinct coordinate from the dashboard IMAGE above; owned here
+          // so the one-publisher gate covers it and its version tracks the core line.
+          { unit: 'dashboard-contract-bundle', kind: 'oci-image', coordinate: u['dashboard-contract-bundle'].coordinate, tag: core },
           // Demo OCI contract bundles (examples/demo/bundles) publish as a single
           // owned namespace. The per-bundle tags are the contract versions; this
           // unit tag tracks the core line so ownership + version move together. The
@@ -62,7 +67,8 @@ function buildPlan(u) {
     // Deterministic publish order: core module FIRST (so the k8s module's pin
     // resolves), then k8s group. Every step leaves published modules resolvable.
     publishOrder: [
-      'core:go-module', 'core:dashboard-image', 'core:cli', 'core:demo-bundles',
+      'core:go-module', 'core:dashboard-image', 'core:dashboard-contract-bundle',
+      'core:cli', 'core:demo-bundles',
       'kubernetes:go-mod-pin', 'kubernetes:go-module', 'kubernetes:operator-image',
       'kubernetes:operator-chart', 'kubernetes:docs',
     ],

@@ -20,6 +20,12 @@
           "unit": "dashboard-image"
         },
         {
+          "coordinate": "ghcr.io/trianalab/pactos/pacto-dashboard",
+          "kind": "oci-image",
+          "tag": "2.7.0",
+          "unit": "dashboard-contract-bundle"
+        },
+        {
           "coordinate": "ghcr.io/trianalab/pacto-demo",
           "kind": "oci-image",
           "tag": "2.7.0",
@@ -76,6 +82,7 @@
   "publishOrder": [
     "core:go-module",
     "core:dashboard-image",
+    "core:dashboard-contract-bundle",
     "core:cli",
     "core:demo-bundles",
     "kubernetes:go-mod-pin",

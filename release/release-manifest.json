@@ -13,6 +13,12 @@
       "tag": "v2.7.0",
       "version": "2.7.0"
     },
+    "dashboard-contract-bundle": {
+      "artifactKind": "oci-image",
+      "coordinate": "ghcr.io/trianalab/pactos/pacto-dashboard",
+      "tag": "2.7.0",
+      "version": "2.7.0"
+    },
     "dashboard-image": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto-dashboard",

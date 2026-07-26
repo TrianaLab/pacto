@@ -93,6 +93,12 @@ jobs:
           pacto doc ./pactos/pacto-dashboard \
             --set service.version=0.0.0-pr.${{ github.event.pull_request.number }}
 
+  # pacto-publishes: dashboard-contract-bundle
+  # Canonical (single) publisher for the dashboard CONTRACT BUNDLE coordinate
+  # oci://ghcr.io/trianalab/pactos/pacto-dashboard. This is the OCI-distributed
+  # pacto contract for the dashboard service — a separate coordinate from the
+  # dashboard container image unit that release.yml publishes. The tests/release
+  # one-publisher gate enforces exactly one publisher for this unit.
   publish:
     if: >-
       github.event_name == 'release' ||
