@@ -669,7 +669,7 @@ spec:
                     type: integer
                   workloadKind:
                     description: WorkloadKind is the actual Kubernetes resource kind
-                      (Deployment, StatefulSet, Job, CronJob).
+                      (Deployment, StatefulSet, ReplicaSet, Job, CronJob).
                     type: string
                 required:
                 - hasEmptyDir

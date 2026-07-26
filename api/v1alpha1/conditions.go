@@ -91,7 +91,11 @@ const (
 	ContractStatusUnknown      = "Unknown"
 	// ContractStatusInvalid means structural validation failed OR a malformed artifact could not be parsed.
 	ContractStatusInvalid = "Invalid"
-	// ContractStatusNotEvaluated means a valid contract with a target had no runtime evidence this cycle.
+	// ContractStatusNotEvaluated is a reserved enum value that the operator does not currently emit:
+	// no reconciler path assigns it. A valid, targeted contract with no runtime evidence yields
+	// SeverityUnknown findings and resolves to ContractStatusUnknown (see summarizeFindings), not
+	// NotEvaluated. The value exists for CRD and metrics parity with the engine dashboard, which uses
+	// it for offline OCI or local sources that were never runtime-evaluated.
 	ContractStatusNotEvaluated = "NotEvaluated"
 )
 

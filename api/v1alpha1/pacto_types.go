@@ -468,7 +468,7 @@ type PolicyInfo struct {
 
 // ObservedRuntime describes the actual runtime state observed from the cluster (lean evidence view).
 type ObservedRuntime struct {
-	// WorkloadKind is the actual Kubernetes resource kind (Deployment, StatefulSet, Job, CronJob).
+	// WorkloadKind is the actual Kubernetes resource kind (Deployment, StatefulSet, ReplicaSet, Job, CronJob).
 	// +optional
 	WorkloadKind string `json:"workloadKind,omitempty"`
 
