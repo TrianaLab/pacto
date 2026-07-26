@@ -30,7 +30,7 @@ This chart deploys the [Pacto Operator](https://github.com/TrianaLab/pacto-opera
 What the chart installs:
 
 - Controller `Deployment` with health and readiness probes
-- `ServiceAccount`, `ClusterRole`, and `ClusterRoleBinding` for RBAC
+- RBAC: a `ServiceAccount`, a cluster-scoped `ClusterRole` + `ClusterRoleBinding` (the manager role) and a namespaced leader-election `Role` + `RoleBinding`
 - Metrics `Service` on port 8443 (HTTPS by default with the chart's `metrics.secure=true`; see [Metrics and Observability](#metrics-and-observability))
 - CRDs: `Pacto` and `PactoRevision` (from the `crds/` directory)
 - Optional: Prometheus `ServiceMonitor`
@@ -124,12 +124,12 @@ The dashboard is **enabled by default**. The operator manages the dashboard Depl
 
 The dashboard image is **injected into the controller binary at build time via ldflags** (a `dashboardImage` variable in the `cmd` package), which couples the dashboard version to the Pacto library the controller was built against. It is **not** overridable through Helm values or any runtime flag. If the dashboard is enabled but the binary was built without this ldflag (so `dashboardImage` is empty), the controller fails to start — the dashboard cannot be deployed from a binary that lacks an embedded image reference.
 
-The chart creates a separate exposure Service (`<release>-pacto-operator-dashboard`) with configurable type, plus optional Ingress and HTTPRoute resources. The operator owns the lifecycle; the chart owns the networking. These are distinct concerns:
+The chart creates a separate exposure Service (`pacto-operator-dashboard` for the documented `pacto-operator` release; the name is `<fullname>-dashboard`) with configurable type, plus optional Ingress and HTTPRoute resources. The operator owns the lifecycle; the chart owns the networking. These are distinct concerns:
 
 | Resource | Managed by | Purpose |
 |----------|-----------|---------|
 | `pacto-dashboard` Service | Operator | Internal ClusterIP on port 3000, always present when dashboard is enabled |
-| `<release>-pacto-operator-dashboard` Service | Chart | Configurable type (ClusterIP/NodePort/LoadBalancer) on port 3000 (`dashboard.service.port`), backend for Ingress/HTTPRoute |
+| `pacto-operator-dashboard` Service (`<fullname>-dashboard`) | Chart | Configurable type (ClusterIP/NodePort/LoadBalancer) on port 3000 (`dashboard.service.port`), backend for Ingress/HTTPRoute |
 | Ingress | Chart | Optional, references the chart-managed Service |
 | HTTPRoute | Chart | Optional, references the chart-managed Service. When `rules` is empty, a catch-all rule routes all traffic to the dashboard |
 
@@ -237,7 +237,7 @@ dashboard:
 **Port-forward** (default, no extra config):
 
 ```bash
-kubectl port-forward svc/<release>-pacto-operator-dashboard 3000:3000 -n pacto-operator-system
+kubectl port-forward svc/pacto-operator-dashboard 3000:3000 -n pacto-operator-system
 ```
 
 **NodePort**:
