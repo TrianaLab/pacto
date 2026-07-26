@@ -15,6 +15,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | Key | Default | Description |
 | --- | --- | --- |
 | `affinity` | `{}` | Affinity rules for the controller pod |
+| `controller.stabilizationWindow` | `""` | Stabilization window: how long a sustained NEGATIVE observation must persist before it converts to a confirmed violation (a transient blip reads Unknown meanwhile). Empty string uses the controller default (2m). Accepts a Go duration (e.g. "30s", "5m"). |
 | `controller.watchNamespace` | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
 | `dashboard.enabled` | `true` | Enable the operator-managed dashboard deployment. The dashboard image is controlled by the operator and derived from the bundled Pacto library version. It is not user-configurable. |
 | `dashboard.httpRoute.enabled` | `false` | Enable Gateway API HTTPRoute for the dashboard |
