@@ -1,0 +1,7 @@
+KIND e2e (packaged chart pacto-operator-4.7.0.tgz + monorepo go.work image, cluster pacto-mono):
+- helm install (real image, pullPolicy Never): controller pod 1/1 Running; CRDs pactos+pactorevisions applied; RBAC OK.
+- A) Compliant: Deployment orders present + workload matches -> contractStatus=Compliant, evaluationCoverage={evaluated:1,required:1}.
+- B) Break: delete workload -> contractStatus=Unknown + finding EVIDENCE_MISSING (real reconcile).
+- C) Recover: recreate workload -> contractStatus=Compliant. Controller logs confirm "Reconciliation complete ... contractStatus: Compliant".
+- helm upgrade (--reuse-values) OK; helm uninstall clean (no pods remain).
+Unique-vs-envtest value proven: packaged chart, real image, RBAC, controller process, chart install/upgrade/uninstall. Full per-dimension state matrix is envtest-proven (operator make test-e2e, 91 subtests).
