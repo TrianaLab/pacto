@@ -27,6 +27,15 @@ import (
 // are safe to run alongside t.Parallel() subtests.
 var chdirMu sync.Mutex
 
+// cliExecMu serialises root.Execute() across parallel tests. The CLI writes
+// process-global state during PersistentPreRunE (e.g. internal/cli.animDisabled),
+// which is shared by every invocation, so two commands executing concurrently
+// race on it. Holding this mutex for the duration of each Execute keeps the
+// t.Parallel() tests race-free while still letting their setup/IO run in
+// parallel. Always acquired inside chdirMu/xdgMu (never the reverse), so no
+// lock-ordering cycle exists.
+var cliExecMu sync.Mutex
+
 // inDir changes the working directory to dir for the duration of the current
 // test/subtest. It acquires chdirMu so that parallel tests never race on CWD.
 func inDir(t *testing.T, dir string) {
@@ -99,7 +108,9 @@ func runCommandWithVersion(t *testing.T, reg *testRegistry, version string, args
 	root.SetErr(&out)
 	root.SetArgs(args)
 
+	cliExecMu.Lock()
 	err := root.Execute()
+	cliExecMu.Unlock()
 	return out.String(), err
 }
 
@@ -124,7 +135,9 @@ func runCommandWithCancelledCtx(t *testing.T, reg *testRegistry, args ...string)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
+	cliExecMu.Lock()
 	err := root.ExecuteContext(ctx)
+	cliExecMu.Unlock()
 	return out.String(), err
 }
 
