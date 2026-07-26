@@ -11,6 +11,19 @@ on:
       - 'integrations/**/docs/**'
       - 'integrations/**/integration.yaml'
       - 'release/scripts/mkdocs_integration_hook.py'
+      # `make docs-deploy` regenerates the integration + CLI docs from these
+      # cross-module sources before mike publishes, so a change to any of them must
+      # redeploy the site (same inputs docs-check guards on PRs).
+      - 'release/scripts/gen_integration_docs.py'
+      - 'integrations/**/api/**'
+      - 'integrations/**/config/crd/**'
+      - 'integrations/**/config/rbac/**'
+      - 'integrations/**/charts/**'
+      - 'integrations/**/cmd/**'
+      - 'integrations/**/internal/observer/**'
+      - 'pkg/evidence/**'
+      - 'pkg/finding/**'
+      - 'release/release-manifest.json'
       - 'examples/demo/**'
       # The demo embeds the dashboard UI + engine, so redeploy when they change.
       - 'pkg/dashboard/**'

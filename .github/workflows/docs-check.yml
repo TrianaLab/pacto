@@ -17,6 +17,18 @@ on:
       - 'release/scripts/mkdocs_integration_hook.py'
       - 'release/scripts/docs_check.py'
       - '.github/workflows/docs-check.yml'
+      # Generated docs are regenerated from these cross-module sources, so a change
+      # to any of them can drift the committed docs. docs-check must run to catch it
+      # (see release/scripts/gen_integration_docs.py + docs_check.py for the inputs).
+      - 'integrations/**/api/**'
+      - 'integrations/**/config/crd/**'
+      - 'integrations/**/config/rbac/**'
+      - 'integrations/**/charts/**'
+      - 'integrations/**/cmd/**'
+      - 'integrations/**/internal/observer/**'
+      - 'pkg/evidence/**'
+      - 'pkg/finding/**'
+      - 'release/release-manifest.json'
 
 permissions:
   contents: read
