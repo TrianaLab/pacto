@@ -54,7 +54,7 @@ in CI via `make ci-gates` (a dedicated `ci-gates` job plus the `ci` aggregate):
 The platform-neutral engine packages the integration consumes — `pkg/contract`,
 `pkg/evidence`, `pkg/finding`, `pkg/graph`, `pkg/oci`, `pkg/readiness`,
 `pkg/schemax`, `pkg/semver`, `pkg/validation` — must never import `k8s.io/*`,
-`sigs.k8s.io/*`, or any `integrations/*` package (transitively). The gate is the
+`sigs.k8s.io/*` or any `integrations/*` package (transitively). The gate is the
 integration's full `v2/pkg/...` import closure minus `pkg/dashboard`, which
 intentionally embeds a `client-go` runtime source. It fails the build on any
 violation, so external/third-party collectors can consume the core without

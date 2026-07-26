@@ -61,13 +61,13 @@ publish them in a safe order*.
    coordinate, tag (including the nested-module path tag
    `integrations/kubernetes/vA.B.C`), the release-state `goModPin`
    (published core, no replace) with `assertNoReplace: true`, the
-   `compatibility.pactoCore` range, and a deterministic `publishOrder` (core
+   `compatibility.pactoCore` range and a deterministic `publishOrder` (core
    first, so the integration's pin resolves).
 3. `release/scripts/apply-release-plan.mjs` idempotently mutates the working tree
    into release state — pins the integration `go.mod` to the published core and
    fail-closes if any `replace` survives (`assertNoReplace`), sets the chart
    `version`/`appVersion` + Artifact Hub image tag, the `integration.yaml`
-   compatibility, and the chart README install pins — then writes
+   compatibility and the chart README install pins — then writes
    `release/release-manifest.json`. Re-running produces a byte-identical tree.
 
 `npm run release:publish` = `release/scripts/publish.mjs` publishes each unit to
@@ -87,7 +87,7 @@ published module resolvable outside the workspace.
 `release/scripts/verify-standalone.sh` proves standalone consumability before any
 publish: it computes the NEXT core version from pending changesets (the version
 that will actually contain `pkg/evidence` + `pkg/finding`), repins a throwaway
-copy of the integration module to it, asserts zero `replace`, and runs
+copy of the integration module to it, asserts zero `replace` and runs
 `GOWORK=off GOFLAGS=-mod=mod go build ./...` in a throwaway module cache with no
 network and no publish. It fails if no core bump is pending (a release would
 otherwise repin an unchanged core).
@@ -102,7 +102,7 @@ otherwise repin an unchanged core).
 - **Fully custom**: rebuilds the version graph, changelog and PR flow Changesets
   already gives for free.
 
-Changesets is already installed, gives the intent layer, and cleanly hands its
+Changesets is already installed, gives the intent layer and cleanly hands its
 computed versions to the custom mechanism layer.
 
 ## Consequences

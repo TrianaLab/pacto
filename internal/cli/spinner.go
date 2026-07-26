@@ -41,7 +41,7 @@ func withAnimDisabled(ctx context.Context, disabled bool) context.Context {
 }
 
 // animDisabledFromCmd reads the --no-anim decision off cmd's context. It is
-// false when unset (a bare command, or a path that skipped PersistentPreRunE).
+// false when unset (a bare command or a path that skipped PersistentPreRunE).
 func animDisabledFromCmd(cmd *cobra.Command) bool {
 	ctx := cmd.Context()
 	if ctx == nil {
