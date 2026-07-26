@@ -1,0 +1,212 @@
+##
+## Root Pacto CR — single entry point for the entire platform demo.
+## The operator resolves the full dependency graph from this contract.
+## PactoRevisions are created automatically for each resolved version.
+##
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: pacto-demo
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: pacto-demo
+    pacto.trianalab.com/service: pacto-demo
+spec:
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/pacto-demo
+---
+##
+## Per-service Pacto CRs — enable runtime validation against live workloads.
+## Contracts are resolved from OCI artifacts published in ghcr.io/trianalab/pacto-demo.
+##
+
+## frontend — public web UI, depends on api-gateway
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: frontend
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: frontend
+    pacto.trianalab.com/service: frontend
+spec:
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/frontend
+  target:
+    serviceName: frontend
+    workloadRef:
+      name: frontend
+      kind: Deployment
+---
+## api-gateway — public edge proxy, routes to domain services
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: api-gateway
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: api-gateway
+    pacto.trianalab.com/service: api-gateway
+spec:
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/api-gateway
+  target:
+    serviceName: api-gateway
+    workloadRef:
+      name: api-gateway
+      kind: Deployment
+---
+## auth-service — identity and access management
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: auth-service
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: auth-service
+    pacto.trianalab.com/service: auth-service
+spec:
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/auth-service
+  target:
+    serviceName: auth-service
+    workloadRef:
+      name: auth-service
+      kind: Deployment
+---
+## orders-service — order lifecycle management
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: orders-service
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: orders-service
+    pacto.trianalab.com/service: orders-service
+spec:
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/orders-service
+  target:
+    serviceName: orders-service
+    workloadRef:
+      name: orders-service
+      kind: Deployment
+---
+## payments-service — payment processing (INTENTIONAL DRIFT)
+##
+## The payments team published contract v2.0.0 (new payment intents API,
+## breaking change from v1.x charges API), but the deployment still runs
+## the old image. This is the demo's primary failure: contract drift.
+##
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: payments-service
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: payments-service
+    pacto.trianalab.com/service: payments-service
+spec:
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/payments-service
+  target:
+    serviceName: payments-service
+    workloadRef:
+      name: payments-service
+      kind: Deployment
+---
+## fraud-service — real-time fraud scoring
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: fraud-service
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: fraud-service
+    pacto.trianalab.com/service: fraud-service
+spec:
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/fraud-service
+  target:
+    serviceName: fraud-service
+    workloadRef:
+      name: fraud-service
+      kind: Deployment
+---
+## postgresql — primary relational database
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: postgresql
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: postgresql
+    pacto.trianalab.com/service: postgresql
+spec:
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/postgresql
+  target:
+    serviceName: postgresql
+    workloadRef:
+      name: postgresql
+      kind: StatefulSet
+---
+## redis — in-memory cache and session store
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: redis
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: redis
+    pacto.trianalab.com/service: redis
+spec:
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/redis
+  target:
+    serviceName: redis
+    workloadRef:
+      name: redis
+      kind: StatefulSet
+---
+## notification-worker — scheduled batch processor (CronJob, no Service)
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: notification-worker
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: notification-worker
+    pacto.trianalab.com/service: notification-worker
+spec:
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/notification-worker
+  target:
+    workloadRef:
+      name: notification-worker
+      kind: CronJob
+---
+## External services — definition-only, no workloads, no targets
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: stripe-api
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: stripe-api
+    pacto.trianalab.com/service: stripe-api
+spec:
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/stripe-api
+---
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: email-provider
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: email-provider
+    pacto.trianalab.com/service: email-provider
+spec:
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/email-provider

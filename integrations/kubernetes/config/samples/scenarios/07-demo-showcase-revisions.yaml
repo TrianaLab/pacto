@@ -1,0 +1,145 @@
+# Scenario 07: Version history for payments-service
+#
+# Three PactoRevisions tell the evolution story:
+#
+#   v1.0.0 (Jan 2026)  — Baseline Charges API
+#   v1.1.0 (Feb 2026)  — Non-breaking: adds webhook support
+#   v2.0.0 (Mar 2026)  — BREAKING: replaces Charges with Payment Intents
+#
+# The breaking change in v2.0.0 is designed to be immediately obvious:
+#
+#   REMOVED  POST /charges              → use POST /payment-intents
+#   REMOVED  GET  /charges/{id}         → use GET  /payment-intents/{id}
+#   REMOVED  config: STRIPE_API_KEY     → renamed to STRIPE_SECRET_KEY
+#   REMOVED  field: amount_cents        → replaced by amount + currency
+#   ADDED    POST /payment-intents      (new endpoint)
+#   ADDED    GET  /payment-intents/{id} (new endpoint)
+#   ADDED    config: WEBHOOK_SIGNING_SECRET (required)
+#   ADDED    config: CURRENCY_DEFAULT   (new)
+#   ADDED    field: currency            (ISO 4217, required)
+---
+# ── v1.0.0 ── Baseline release (Jan 2026) ──────────────────────────────
+#
+# The original Charges API. Simple request model:
+#   POST /charges        { amount_cents, source, description }
+#   GET  /charges/{id}   → ChargeObject
+#   POST /refunds        { charge_id, amount_cents }
+#
+# Config: STRIPE_API_KEY, DATABASE_URL, IDEMPOTENCY_TTL_HOURS
+#
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: PactoRevision
+metadata:
+  name: payments-service-1-0-0-a1b2c3d
+  namespace: demo
+  labels:
+    pacto.trianalab.io/pacto: payments-service
+    pacto.trianalab.io/version: "1.0.0"
+    pacto.trianalab.io/layer: domain
+  annotations:
+    pacto.trianalab.io/changelog: "Initial release. Charges API with Stripe integration."
+spec:
+  pactoRef: payments-service
+  version: "1.0.0"
+  serviceName: payments-service
+  source:
+    inline: true
+status:
+  resolved: true
+  contractHash: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  conditions:
+    - type: Resolved
+      status: "True"
+      lastTransitionTime: "2026-01-15T10:00:00Z"
+      reason: InlineResolved
+      message: "Contract resolved from inline source"
+---
+# ── v1.1.0 ── Non-breaking addition (Feb 2026) ─────────────────────────
+#
+# Backward-compatible. All v1.0.0 endpoints preserved.
+#
+# Added:
+#   POST /webhooks/stripe   (receive Stripe webhook events)
+#   config: WEBHOOK_SECRET  (optional, for webhook signature verification)
+#
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: PactoRevision
+metadata:
+  name: payments-service-1-1-0-d4e5f6a
+  namespace: demo
+  labels:
+    pacto.trianalab.io/pacto: payments-service
+    pacto.trianalab.io/version: "1.1.0"
+    pacto.trianalab.io/layer: domain
+  annotations:
+    pacto.trianalab.io/changelog: "Added webhook support. Non-breaking — all v1.0 endpoints preserved."
+    pacto.trianalab.io/compatibility: NON_BREAKING
+spec:
+  pactoRef: payments-service
+  version: "1.1.0"
+  serviceName: payments-service
+  source:
+    inline: true
+status:
+  resolved: true
+  contractHash: "sha256:7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+  conditions:
+    - type: Resolved
+      status: "True"
+      lastTransitionTime: "2026-02-20T14:30:00Z"
+      reason: InlineResolved
+      message: "Contract resolved from inline source"
+---
+# ── v2.0.0 ── BREAKING CHANGE (Mar 2026) ───────────────────────────────
+#
+# Major migration from Charges API to Payment Intents API.
+# This is a BREAKING change — consumers on v1.x must migrate.
+#
+# Removed endpoints:
+#   POST /charges          ← REMOVED (was the primary payment endpoint)
+#   GET  /charges/{id}     ← REMOVED
+#
+# Added endpoints:
+#   POST /payment-intents         { amount, currency, payment_method }
+#   GET  /payment-intents/{id}    → PaymentIntentObject
+#
+# Removed config:
+#   STRIPE_API_KEY         ← REMOVED (renamed)
+#
+# Added config:
+#   STRIPE_SECRET_KEY      (renamed from STRIPE_API_KEY)
+#   WEBHOOK_SIGNING_SECRET (now required, was optional WEBHOOK_SECRET)
+#   CURRENCY_DEFAULT       (new — default currency for payment intents)
+#
+# Schema changes:
+#   amount_cents (integer) ← REMOVED
+#   amount (integer)       → new field (amount in smallest currency unit)
+#   currency (string)      → new required field (ISO 4217)
+#
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: PactoRevision
+metadata:
+  name: payments-service-2-0-0-b7c8d9e
+  namespace: demo
+  labels:
+    pacto.trianalab.io/pacto: payments-service
+    pacto.trianalab.io/version: "2.0.0"
+    pacto.trianalab.io/layer: domain
+  annotations:
+    pacto.trianalab.io/changelog: "Migrated from Charges API to Payment Intents. BREAKING — POST /charges removed, config keys renamed."
+    pacto.trianalab.io/compatibility: BREAKING
+spec:
+  pactoRef: payments-service
+  version: "2.0.0"
+  serviceName: payments-service
+  source:
+    inline: true
+status:
+  resolved: true
+  contractHash: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+  conditions:
+    - type: Resolved
+      status: "True"
+      lastTransitionTime: "2026-03-10T09:15:00Z"
+      reason: InlineResolved
+      message: "Contract resolved from inline source"

@@ -1,0 +1,29 @@
+name: Validate PR title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check conventional commit format
+        run: |
+          title="${{ github.event.pull_request.title }}"
+          pattern='^(feat|fix|docs|chore|refactor|test|ci|perf|build|style)(\(.+\))?\!?: .+'
+          if [[ ! "$title" =~ $pattern ]]; then
+            echo "::error::PR title must follow conventional commit format:"
+            echo "::error::  <type>[optional scope][!]: <description>"
+            echo "::error::Allowed types: feat, fix, docs, chore, refactor, test, ci, perf, build, style"
+            echo "::error::Add '!' before ':' for breaking changes (e.g., 'feat!: redesign API')"
+            echo "::error::Got: '$title'"
+            exit 1
+          fi
+          echo "PR title is valid: $title"

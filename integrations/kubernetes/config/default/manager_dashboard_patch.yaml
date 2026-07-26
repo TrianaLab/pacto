@@ -1,0 +1,4 @@
+# This patch adds --enable-dashboard to the controller manager args.
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --enable-dashboard

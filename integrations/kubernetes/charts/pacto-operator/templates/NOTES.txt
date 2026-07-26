@@ -1,0 +1,30 @@
+Pacto Operator has been installed.
+
+1. Verify the controller is running:
+
+   kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "pacto-operator.name" . }}
+
+2. Install a Pacto contract:
+
+   kubectl apply -f - <<EOF
+   apiVersion: pacto.trianalab.io/v1alpha1
+   kind: Pacto
+   metadata:
+     name: my-service
+   spec:
+     contractRef:
+       oci: your-registry/your-contract
+     target:
+       serviceName: my-service
+   EOF
+
+3. Check contract status:
+
+   kubectl get pactos
+
+{{- if .Values.dashboard.enabled }}
+
+4. Dashboard is enabled. Access it via:
+
+   kubectl port-forward -n {{ .Release.Namespace }} svc/pacto-dashboard 3000:3000
+{{- end }}

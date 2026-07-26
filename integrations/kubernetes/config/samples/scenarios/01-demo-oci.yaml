@@ -1,0 +1,45 @@
+# Scenario 01: Real OCI contracts from the pacto-demo registry.
+#
+# These use actual contracts published to ghcr.io/trianalab/pacto-demo.
+# Each bundle contains pacto.yaml, OpenAPI specs, config schemas, and metadata.
+#
+# Dependency chain:
+#   api (public gateway :8080) → inference (ML :8082) → runtime (model execution :8081)
+#
+# Prerequisites: push contracts first — cd ../pacto-demo && make push
+---
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: api
+  namespace: default
+spec:
+  target:
+    serviceName: api
+  checkIntervalSeconds: 60
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/api
+---
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: inference
+  namespace: default
+spec:
+  target:
+    serviceName: inference
+  checkIntervalSeconds: 60
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/inference
+---
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: runtime
+  namespace: default
+spec:
+  target:
+    serviceName: runtime
+  checkIntervalSeconds: 60
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/runtime

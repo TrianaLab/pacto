@@ -1,0 +1,12 @@
+# Default Pacto sample — OCI-based contract from pacto-demo.
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: api
+  namespace: default
+spec:
+  target:
+    serviceName: api
+  checkIntervalSeconds: 60
+  contractRef:
+    oci: ghcr.io/trianalab/pacto-demo/api

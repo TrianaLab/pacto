@@ -1,0 +1,1019 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: pactos.pacto.trianalab.io
+spec:
+  group: pacto.trianalab.io
+  names:
+    kind: Pacto
+    listKind: PactoList
+    plural: pactos
+    singular: pacto
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.contractStatus
+      name: Status
+      type: string
+    - jsonPath: .spec.target.serviceName
+      name: Service
+      type: string
+    - jsonPath: .status.contractVersion
+      name: Version
+      type: string
+    - jsonPath: .status.summary.errorCount
+      name: Errors
+      type: integer
+    - jsonPath: .status.summary.warningCount
+      name: Warnings
+      type: integer
+    - jsonPath: .status.lastReconciledAt
+      name: Last Reconciled
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Pacto is the Schema for the pactos API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of Pacto.
+            properties:
+              checkIntervalSeconds:
+                default: 300
+                description: |-
+                  CheckIntervalSeconds controls how often the reconciler re-checks compliance.
+                  Defaults to 300 (5 minutes).
+                format: int32
+                minimum: 30
+                type: integer
+              contractRef:
+                description: ContractRef specifies where to find the Pacto contract.
+                properties:
+                  inline:
+                    description: Inline allows specifying the contract YAML directly
+                      (for testing/dev).
+                    type: string
+                  oci:
+                    description: |-
+                      OCI is the OCI registry reference for the contract bundle.
+                      Three forms are supported:
+                        - Unversioned (ghcr.io/org/service-pacto): tracks the latest semver tag.
+                        - Tagged (ghcr.io/org/service-pacto:1.2.3): pinned to that exact tag.
+                        - Digest (ghcr.io/org/service-pacto@sha256:...): immutable, exact reference.
+                    type: string
+                  pullSecretRef:
+                    description: |-
+                      PullSecretRef is the name of a Secret in the same namespace containing
+                      OCI registry credentials. Supported secret types:
+                        - Opaque with "token" key (bearer token)
+                        - Opaque with "username"+"password" keys (basic auth)
+                        - kubernetes.io/dockerconfigjson (standard Docker registry auth)
+                    type: string
+                type: object
+              overrides:
+                description: |-
+                  Overrides specifies partial configuration overrides to apply on top of the resolved contract.
+                  This enables environment-specific tuning without duplicating the entire contract inline.
+                  Semantics mirror the Pacto CLI --set / -f override model.
+                properties:
+                  configurations:
+                    description: |-
+                      Configurations lists per-scope configuration value overrides.
+                      Each entry is matched by name to a configurations[] entry in the resolved contract.
+                    items:
+                      description: ConfigurationOverride specifies value overrides
+                        for a single named configuration scope.
+                      properties:
+                        name:
+                          description: Name identifies the configuration scope to
+                            override (must match a configurations[] entry in the contract).
+                          minLength: 1
+                          type: string
+                        values:
+                          additionalProperties:
+                            type: string
+                          description: |-
+                            Values contains the configuration key-value pairs to merge into the resolved contract.
+                            These values take precedence over the values declared in the contract.
+                          minProperties: 1
+                          type: object
+                      required:
+                      - name
+                      - values
+                      type: object
+                    type: array
+                type: object
+              target:
+                description: |-
+                  Target specifies which Kubernetes resources to observe.
+                  When omitted, the Pacto acts as a reference-only contract (no runtime validation).
+                properties:
+                  configBindings:
+                    description: ConfigBindings maps contract configurations to the
+                      concrete ConfigMap/Secret backing each (B7).
+                    items:
+                      description: ConfigBinding maps a contract configuration to
+                        the concrete Kubernetes object backing it (B7).
+                      properties:
+                        configuration:
+                          description: Configuration is the contract configurations[].name
+                            this binding backs.
+                          type: string
+                        format:
+                          description: Format of the value at Key. Required with Key
+                            for ConfigMap conformance.
+                          enum:
+                          - yaml
+                          - json
+                          type: string
+                        key:
+                          description: Key names the single ConfigMap/Secret key to
+                            decode and validate. Omit for existence-only.
+                          type: string
+                        kind:
+                          description: Kind of the backing object.
+                          enum:
+                          - ConfigMap
+                          - Secret
+                          type: string
+                        name:
+                          description: Name of the backing ConfigMap/Secret in the
+                            Pacto's namespace.
+                          type: string
+                      required:
+                      - configuration
+                      - kind
+                      - name
+                      type: object
+                    type: array
+                  interfaceBindings:
+                    description: |-
+                      InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes
+                      deployment knowledge — lives on the CR, NOT the platform-agnostic contract.
+                    items:
+                      description: InterfaceBinding maps a contract interface to the
+                        Service port that serves it (B4).
+                      properties:
+                        interface:
+                          description: Interface is the contract interfaces[].name
+                            this binding resolves.
+                          type: string
+                        servicePort:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: ServicePort is the Service port name or number
+                            that serves the interface.
+                          x-kubernetes-int-or-string: true
+                      required:
+                      - interface
+                      - servicePort
+                      type: object
+                    type: array
+                  serviceName:
+                    description: ServiceName is the name of the Kubernetes Service
+                      to observe.
+                    type: string
+                  workloadRef:
+                    description: |-
+                      WorkloadRef identifies the workload (Deployment, StatefulSet, ReplicaSet, Job, or CronJob).
+                      If omitted, defaults to name=serviceName, kind=Deployment.
+                    properties:
+                      kind:
+                        description: |-
+                          Kind of the workload resource. Left unspecified (empty) unless the author sets it explicitly;
+                          WORKLOAD_MISMATCH only fires when BOTH name AND kind were explicit (AR7). No default is applied here
+                          so the collector can distinguish "author asserted kind X" from "kind was defaulted for the GET".
+                        enum:
+                        - Deployment
+                        - StatefulSet
+                        - ReplicaSet
+                        - Job
+                        - CronJob
+                        type: string
+                      name:
+                        description: Name of the workload resource.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+            required:
+            - contractRef
+            type: object
+          status:
+            description: status defines the observed state of Pacto.
+            properties:
+              capabilities:
+                description: Capabilities lists the declared capabilities from the
+                  contract.
+                items:
+                  description: CapabilityInfo describes a declared capability.
+                  properties:
+                    ref:
+                      description: Ref is the capability reference (OCI URI or local
+                        path).
+                      type: string
+                    type:
+                      description: Type is the capability type (e.g. "database", "cache").
+                      type: string
+                  required:
+                  - type
+                  type: object
+                type: array
+              conditions:
+                description: Conditions represent aggregated state (ContractValid,
+                  RuntimeObserved, etc.).
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              configurations:
+                description: |-
+                  Configurations lists the contract's named configuration scopes.
+                  Each entry corresponds to one configurations[] entry in the contract.
+                items:
+                  description: ConfigurationInfo describes a single named configuration
+                    scope from the contract.
+                  properties:
+                    hasSchema:
+                      description: HasSchema indicates whether a JSON Schema file
+                        is bundled.
+                      type: boolean
+                    name:
+                      description: Name is the configuration scope name (required,
+                        unique within contract).
+                      type: string
+                    overriddenKeys:
+                      description: |-
+                        OverriddenKeys lists configuration keys whose values were overridden
+                        by spec.overrides.configurations. Empty when no overrides apply.
+                      items:
+                        type: string
+                      type: array
+                    properties:
+                      description: |-
+                        Properties lists the configuration's declared keys with their type and
+                        default/value, extracted from the bundled schema (or literal values), so
+                        consumers can render configuration content without re-reading the bundle.
+                      items:
+                        description: |-
+                          SchemaProperty is a flattened key from a configuration or policy schema
+                          (or a configuration values map), suitable for display by consumers.
+                        properties:
+                          key:
+                            description: Key is the property name (dot-notation for
+                              nested objects).
+                            type: string
+                          type:
+                            description: Type is the JSON Schema type of the property.
+                            type: string
+                          value:
+                            description: Value is the default (for schema properties)
+                              or the literal value.
+                            type: string
+                        required:
+                        - key
+                        type: object
+                      type: array
+                    ref:
+                      description: Ref is the external OCI reference for the configuration
+                        schema, if used.
+                      type: string
+                    secretKeys:
+                      description: SecretKeys lists configuration keys whose values
+                        reference secrets.
+                      items:
+                        type: string
+                      type: array
+                    valueKeys:
+                      description: ValueKeys lists the declared configuration value
+                        keys.
+                      items:
+                        type: string
+                      type: array
+                  required:
+                  - hasSchema
+                  - name
+                  type: object
+                type: array
+              contract:
+                description: Contract exposes parsed contract metadata.
+                properties:
+                  owner:
+                    description: |-
+                      Owner contains the structured ownership metadata from the contract
+                      (team, DRI, and contacts).
+                    minProperties: 1
+                    properties:
+                      contacts:
+                        description: Contacts lists provider-neutral contact points.
+                        items:
+                          description: OwnerContact is a provider-neutral contact
+                            point for service ownership.
+                          properties:
+                            purpose:
+                              description: Purpose describes what this contact is
+                                used for (e.g. escalation, support, oncall).
+                              type: string
+                            type:
+                              description: Type is the contact channel type (e.g.
+                                email, chat, oncall).
+                              type: string
+                            value:
+                              description: Value is the contact address or identifier.
+                              type: string
+                          required:
+                          - type
+                          - value
+                          type: object
+                        type: array
+                      dri:
+                        description: DRI is the directly responsible individual.
+                        type: string
+                      team:
+                        description: Team is the owning team name.
+                        type: string
+                    type: object
+                  ownerDisplay:
+                    description: |-
+                      OwnerDisplay is the canonical display string derived from owner metadata.
+                      Precedence: team > DRI.
+                      Useful for printer columns, dashboards, and backward-compatible consumers.
+                    type: string
+                  resolvedRef:
+                    description: |-
+                      ResolvedRef is the fully-resolved OCI reference (with tag/digest).
+                      Empty for inline contracts.
+                    type: string
+                  serviceName:
+                    description: ServiceName is the service name declared in the contract.
+                    type: string
+                  version:
+                    description: Version is the semver version from the contract.
+                    type: string
+                required:
+                - serviceName
+                - version
+                type: object
+              contractStatus:
+                description: |-
+                  ContractStatus is the high-level contract compliance state.
+                  This reflects contract validation/compliance and is NOT runtime health.
+                enum:
+                - Compliant
+                - Warning
+                - NonCompliant
+                - Reference
+                - Unknown
+                - Invalid
+                - NotEvaluated
+                type: string
+              contractVersion:
+                description: |-
+                  ContractVersion is the version from the parsed contract.
+                  Kept for backward compatibility and simple access via JSONPath.
+                type: string
+              currentRevision:
+                description: CurrentRevision is the name of the active PactoRevision.
+                type: string
+              dependencies:
+                description: Dependencies lists the declared dependencies from the
+                  contract.
+                items:
+                  description: DependencyInfo describes a declared dependency.
+                  properties:
+                    compatibility:
+                      description: Compatibility is the semver constraint for the
+                        dependency.
+                      type: string
+                    name:
+                      description: Name is the dependency name (required, unique within
+                        contract).
+                      type: string
+                    ref:
+                      description: Ref is the dependency reference (OCI URI).
+                      type: string
+                    required:
+                      description: Required indicates whether this dependency is mandatory.
+                      type: boolean
+                  required:
+                  - name
+                  - ref
+                  - required
+                  type: object
+                type: array
+              evaluationCoverage:
+                description: |-
+                  EvaluationCoverage reports how many required assertions were evaluated (metadata; never affects
+                  ContractStatus).
+                properties:
+                  evaluated:
+                    description: Evaluated is the number of required assertions with
+                      a conclusive (Observed) observation.
+                    format: int32
+                    type: integer
+                  required:
+                    description: Required is the total number of required assertions
+                      the contract declares.
+                    format: int32
+                    type: integer
+                required:
+                - evaluated
+                - required
+                type: object
+              findings:
+                description: |-
+                  Findings is the list of typed conclusions from the Pacto engine.
+                  Includes both contract-only findings (structural/semantic) and
+                  evidence-based findings (runtime drift).
+                items:
+                  description: FindingStatus is a typed conclusion emitted by the
+                    Pacto engine.
+                  properties:
+                    category:
+                      description: Category groups related codes (e.g. RuntimeDrift,
+                        PolicyViolation).
+                      type: string
+                    code:
+                      description: Code is the stable finding identifier (e.g. WORKLOAD_MISMATCH).
+                      type: string
+                    contractPath:
+                      description: ContractPath is the YAML path to the relevant contract
+                        field.
+                      type: string
+                    evidenceRefs:
+                      description: EvidenceRefs links the finding to supporting evidence.
+                      items:
+                        description: EvidenceRefStatus links a finding to the evidence
+                          that supports it.
+                        properties:
+                          observedAt:
+                            description: ObservedAt is the ISO8601 timestamp when
+                              the evidence was collected.
+                            type: string
+                          source:
+                            description: Source is the evidence source (e.g. "k8s").
+                            type: string
+                        required:
+                        - observedAt
+                        - source
+                        type: object
+                      type: array
+                    message:
+                      description: Message is a human-readable description.
+                      type: string
+                    severity:
+                      description: Severity is error, warning, info, or unknown.
+                      enum:
+                      - error
+                      - warning
+                      - info
+                      - unknown
+                      type: string
+                    subject:
+                      description: Subject identifies what the finding is about.
+                      type: string
+                  required:
+                  - category
+                  - code
+                  - message
+                  - severity
+                  type: object
+                type: array
+              interfaces:
+                description: Interfaces lists the parsed interfaces from the contract.
+                items:
+                  description: InterfaceInfo describes a single interface declared
+                    in the contract.
+                  properties:
+                    name:
+                      description: Name is the interface name.
+                      type: string
+                    ref:
+                      description: Ref is the bundle-relative path to the interface
+                        specification file.
+                      type: string
+                    type:
+                      description: 'Type is the interface type: openapi, asyncapi,
+                        or grpc.'
+                      enum:
+                      - openapi
+                      - asyncapi
+                      - grpc
+                      type: string
+                    visibility:
+                      description: 'Visibility is the declared visibility: public
+                        or internal.'
+                      type: string
+                  required:
+                  - name
+                  - type
+                  type: object
+                type: array
+              lastReconciledAt:
+                description: LastReconciledAt is when the last reconciliation completed.
+                format: date-time
+                type: string
+              metadata:
+                additionalProperties:
+                  type: string
+                description: Metadata contains arbitrary key-value pairs from the
+                  contract's metadata section.
+                type: object
+              observationWindows:
+                description: |-
+                  ObservationWindows tracks per-assertion negative-observation streaks for time-based stabilization
+                  (B5). Operator-owned temporal state; the pure engine never sees it.
+                items:
+                  description: |-
+                    ObservationWindow tracks the first sustained NEGATIVE observation for one assertion, so a transient
+                    negative reads Unknown (stabilizing) and only a sustained one converts to a confirmed violation (B5).
+                  properties:
+                    firstObservedNegativeAt:
+                      description: FirstObservedNegativeAt is when the current negative
+                        streak began.
+                      format: date-time
+                      type: string
+                    kind:
+                      description: 'Kind is the assertion dimension: interface | dependency
+                        | configuration | capability.'
+                      type: string
+                    subject:
+                      description: Subject is the assertion identity (interface/dependency/configuration
+                        name, or capability key).
+                      type: string
+                  required:
+                  - firstObservedNegativeAt
+                  - kind
+                  - subject
+                  type: object
+                type: array
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              observedRuntime:
+                description: |-
+                  ObservedRuntime describes the actual runtime state observed from the cluster.
+                  Only populated when a target workload exists. This is a lean evidence view.
+                properties:
+                  containerImages:
+                    description: ContainerImages lists the container images from the
+                      pod spec.
+                    items:
+                      type: string
+                    type: array
+                  deploymentStrategy:
+                    description: DeploymentStrategy is the observed strategy (RollingUpdate,
+                      Recreate). Empty for non-Deployments.
+                    type: string
+                  hasEmptyDir:
+                    description: HasEmptyDir indicates whether the workload uses emptyDir
+                      volumes.
+                    type: boolean
+                  hasPVC:
+                    description: HasPVC indicates whether the workload uses PersistentVolumeClaims.
+                    type: boolean
+                  healthProbeInitialDelaySeconds:
+                    description: HealthProbeInitialDelaySeconds is the observed initialDelaySeconds
+                      from the first container's probe.
+                    format: int32
+                    type: integer
+                  podManagementPolicy:
+                    description: PodManagementPolicy is the observed pod management
+                      policy (OrderedReady, Parallel). Empty for non-StatefulSets.
+                    type: string
+                  terminationGracePeriodSeconds:
+                    description: TerminationGracePeriodSeconds is the observed terminationGracePeriodSeconds
+                      from the pod spec.
+                    format: int64
+                    type: integer
+                  workloadKind:
+                    description: WorkloadKind is the actual Kubernetes resource kind
+                      (Deployment, StatefulSet, ReplicaSet, Job, CronJob).
+                    type: string
+                required:
+                - hasEmptyDir
+                - hasPVC
+                type: object
+              policies:
+                description: |-
+                  Policies lists the contract's declared policy sources (metadata only).
+                  Each entry describes a local schema or external ref; the operator does not
+                  resolve or enforce ref-based policies at runtime.
+                items:
+                  description: |-
+                    PolicyInfo describes a single named policy source from the contract.
+                    Each policy provides either a local JSON Schema file or a reference to an
+                    external contract whose bundle contains the policy schema.
+                  properties:
+                    description:
+                      description: Description is the policy schema's declared description,
+                        if any.
+                      type: string
+                    hasSchema:
+                      description: HasSchema indicates whether a policy schema file
+                        is bundled.
+                      type: boolean
+                    name:
+                      description: Name is the policy name (required, unique within
+                        contract).
+                      type: string
+                    properties:
+                      description: |-
+                        Properties lists the policy schema's keys with their type and default, so
+                        consumers can render policy content without re-reading the bundle.
+                      items:
+                        description: |-
+                          SchemaProperty is a flattened key from a configuration or policy schema
+                          (or a configuration values map), suitable for display by consumers.
+                        properties:
+                          key:
+                            description: Key is the property name (dot-notation for
+                              nested objects).
+                            type: string
+                          type:
+                            description: Type is the JSON Schema type of the property.
+                            type: string
+                          value:
+                            description: Value is the default (for schema properties)
+                              or the literal value.
+                            type: string
+                        required:
+                        - key
+                        type: object
+                      type: array
+                    ref:
+                      description: Ref is the external OCI reference for the policy
+                        schema, if used.
+                      type: string
+                    schema:
+                      description: Schema is the bundle-relative path to the policy
+                        schema file, if local.
+                      type: string
+                    title:
+                      description: Title is the policy schema's declared title, if
+                        any.
+                      type: string
+                  required:
+                  - hasSchema
+                  - name
+                  type: object
+                type: array
+              readiness:
+                description: |-
+                  Readiness is the derived operational readiness assessment of the contract.
+                  It is computed from the contract's declared readiness claims and the current
+                  time. It is a separate dimension from contract compliance and does NOT affect
+                  ContractStatus. Absent when the contract declares no readiness.
+                properties:
+                  claims:
+                    description: Claims is the derived per-claim readiness status.
+                    items:
+                      description: ClaimStatus is the derived state of a single readiness
+                        claim.
+                      properties:
+                        category:
+                          description: Category is the software-domain category (security,
+                            documentation, observability, etc.).
+                          type: string
+                        description:
+                          description: Description is the optional human-readable
+                            explanation.
+                          type: string
+                        earnedWeight:
+                          description: EarnedWeight is the weight this check contributed
+                            toward the score.
+                          format: int32
+                          type: integer
+                        evidence:
+                          description: Evidence is the declared pointer to the evidence.
+                          type: string
+                        excluded:
+                          description: Excluded reports whether the check is excluded
+                            from scoring (deferred).
+                          type: boolean
+                        id:
+                          description: ID is the readiness requirement identifier
+                            (e.g. dashboard, runbook).
+                          type: string
+                        status:
+                          description: Status is the declared completion status.
+                          enum:
+                          - done
+                          - partial
+                          - not-done
+                          - deferred
+                          type: string
+                        type:
+                          description: Type classifies the evidence pointer (url,
+                            document, ticket, report, artifact, identifier, other).
+                          type: string
+                        weight:
+                          description: Weight is the declared contribution to the
+                            readiness score (0-100).
+                          format: int32
+                          type: integer
+                      required:
+                      - id
+                      - status
+                      - type
+                      - weight
+                      type: object
+                    type: array
+                  daysRemaining:
+                    description: DaysRemaining is the number of whole days until expiry
+                      (nil when expired).
+                    format: int32
+                    type: integer
+                  deferredCount:
+                    description: DeferredCount is the number of checks declared deferred
+                      (excluded from scoring).
+                    format: int32
+                    type: integer
+                  doneCount:
+                    description: DoneCount is the number of checks declared done.
+                    format: int32
+                    type: integer
+                  earnedWeight:
+                    description: EarnedWeight is the weight earned toward the score.
+                    format: int32
+                    type: integer
+                  expired:
+                    description: Expired reports whether the assessment has expired;
+                      when true every in-scope check earns 0.
+                    type: boolean
+                  expires:
+                    description: Expires is the assessment-level expiry boundary (YYYY-MM-DD).
+                    type: string
+                  minScore:
+                    description: MinScore is the gate threshold (the declared readiness.minScore,
+                      or 100 when omitted).
+                    format: int32
+                    type: integer
+                  notDoneCount:
+                    description: NotDoneCount is the number of checks declared not-done.
+                    format: int32
+                    type: integer
+                  partialCount:
+                    description: PartialCount is the number of checks declared partial.
+                    format: int32
+                    type: integer
+                  passing:
+                    description: Passing reports whether the gate is met (not expired
+                      and Score >= MinScore).
+                    type: boolean
+                  revisions:
+                    description: Revisions is the declared readiness revision history.
+                    items:
+                      description: ReadinessRevisionStatus is one declared readiness
+                        revision-history entry.
+                      properties:
+                        author:
+                          description: Author is who performed the assessment.
+                          type: string
+                        date:
+                          description: Date is the date the revision was assessed
+                            (YYYY-MM-DD).
+                          type: string
+                        description:
+                          description: Description summarizes what changed or was
+                            observed.
+                          type: string
+                        version:
+                          description: Version is the service version assessed in
+                            this revision.
+                          type: string
+                      required:
+                      - author
+                      - date
+                      - description
+                      - version
+                      type: object
+                    type: array
+                  score:
+                    description: Score is the percentage of in-scope weight earned
+                      (0-100).
+                    format: int32
+                    type: integer
+                  totalWeight:
+                    description: TotalWeight is the sum of in-scope (non-deferred)
+                      check weights.
+                    format: int32
+                    type: integer
+                type: object
+              resolutionPolicy:
+                description: |-
+                  ResolutionPolicy describes how the OCI reference was resolved.
+                  Latest: unversioned ref, operator tracks the highest semver tag.
+                  PinnedTag: ref includes an explicit tag, used as-is.
+                  PinnedDigest: ref includes a digest, used as-is (immutable).
+                  Empty for inline contracts.
+                enum:
+                - Latest
+                - PinnedTag
+                - PinnedDigest
+                type: string
+              resources:
+                description: Resources describes the existence of target Kubernetes
+                  resources.
+                properties:
+                  service:
+                    description: Service describes the target Service.
+                    properties:
+                      exists:
+                        description: Exists indicates whether the resource was found
+                          in the cluster.
+                        type: boolean
+                      kind:
+                        description: Kind of the resource (only set for workloads).
+                        type: string
+                      name:
+                        description: Name of the resource.
+                        type: string
+                    required:
+                    - exists
+                    - name
+                    type: object
+                  workload:
+                    description: Workload describes the target workload (Deployment/StatefulSet/ReplicaSet).
+                    properties:
+                      exists:
+                        description: Exists indicates whether the resource was found
+                          in the cluster.
+                        type: boolean
+                      kind:
+                        description: Kind of the resource (only set for workloads).
+                        type: string
+                      name:
+                        description: Name of the resource.
+                        type: string
+                    required:
+                    - exists
+                    - name
+                    type: object
+                type: object
+              summary:
+                description: Summary provides severity-based finding counts.
+                properties:
+                  errorCount:
+                    description: ErrorCount is the number of error-severity findings.
+                    format: int32
+                    type: integer
+                  infoCount:
+                    description: InfoCount is the number of info-severity findings.
+                    format: int32
+                    type: integer
+                  unknownCount:
+                    description: UnknownCount is the number of unknown-severity findings
+                      (a required assertion could not be evaluated).
+                    format: int32
+                    type: integer
+                  warningCount:
+                    description: WarningCount is the number of warning-severity findings.
+                    format: int32
+                    type: integer
+                required:
+                - errorCount
+                - infoCount
+                - unknownCount
+                - warningCount
+                type: object
+              validation:
+                description: Validation describes the structural validation outcome
+                  of the contract.
+                properties:
+                  errors:
+                    description: Errors lists structural validation errors.
+                    items:
+                      description: ValidationIssue describes a single validation error
+                        or warning.
+                      properties:
+                        code:
+                          description: Code is a machine-readable error code.
+                          type: string
+                        message:
+                          description: Message is a human-readable description of
+                            the issue.
+                          type: string
+                        path:
+                          description: Path is the JSON path to the invalid field.
+                          type: string
+                      required:
+                      - message
+                      type: object
+                    type: array
+                  valid:
+                    description: Valid indicates whether the contract passed structural
+                      validation.
+                    type: boolean
+                  warnings:
+                    description: Warnings lists structural validation warnings.
+                    items:
+                      description: ValidationIssue describes a single validation error
+                        or warning.
+                      properties:
+                        code:
+                          description: Code is a machine-readable error code.
+                          type: string
+                        message:
+                          description: Message is a human-readable description of
+                            the issue.
+                          type: string
+                        path:
+                          description: Path is the JSON path to the invalid field.
+                          type: string
+                      required:
+                      - message
+                      type: object
+                    type: array
+                required:
+                - valid
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

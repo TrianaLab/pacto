@@ -1,0 +1,85 @@
+# Scenario 06: Error scenarios — invalid contracts and missing targets.
+#
+# These produce Warning/NonCompliant contract statuses to verify the operator handles
+# failures correctly and the dashboard displays useful error information.
+---
+# ghost-service — target does not exist in the cluster.
+# The operator will set contractStatus=NonCompliant with ServiceExists=False.
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: ghost-service
+  namespace: default
+spec:
+  target:
+    serviceName: ghost-service
+  checkIntervalSeconds: 60
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: ghost-service
+        version: "1.0.0"
+        owner: team/devops
+      interfaces:
+        - name: http-api
+          type: http
+          port: 8080
+          visibility: public
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: low
+---
+# bad-contract — malformed version string.
+# The operator will set contractStatus=NonCompliant with ContractValid=False.
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: bad-contract
+  namespace: default
+spec:
+  target:
+    serviceName: redis
+  checkIntervalSeconds: 60
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: bad-contract
+        version: "not-semver"
+---
+# port-mismatch — contract declares port 9999 but the service exposes 8080.
+# The operator will set contractStatus=Warning with PortsValid=False.
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: port-mismatch
+  namespace: default
+spec:
+  target:
+    serviceName: frontend
+  checkIntervalSeconds: 60
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: port-mismatch
+        version: "1.0.0"
+      interfaces:
+        - name: http-api
+          type: http
+          port: 9999
+          visibility: public
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: low

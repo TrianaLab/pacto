@@ -1,0 +1,182 @@
+# Scenario 03: Stateful infrastructure services.
+#
+# Covers: stateful workloads, persistent storage, ordered/recreate upgrade
+# strategies, high data criticality, fixed replicas, gRPC interfaces
+# (wire protocols), multiple interfaces per service, metrics endpoints.
+#
+# Services:
+#   postgresql — stateful database, ordered upgrades, high criticality
+#   redis — stateful cache, ordered upgrades, medium criticality
+#   rabbitmq — stateful message broker, ordered upgrades, high criticality
+---
+# postgresql — relational database with persistent local storage
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: postgresql
+  namespace: default
+spec:
+  target:
+    serviceName: postgresql
+    workloadRef:
+      name: postgresql
+      kind: Deployment
+  checkIntervalSeconds: 120
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: postgresql
+        version: "16.4.0"
+        owner: infra/databases
+        image:
+          ref: docker.io/library/postgres:16.4
+      interfaces:
+        - name: sql
+          type: grpc
+          port: 5432
+          visibility: internal
+          contract: openapi.yaml
+        - name: metrics
+          type: http
+          port: 9187
+          visibility: internal
+      runtime:
+        workload: service
+        state:
+          type: stateful
+          persistence:
+            scope: local
+            durability: persistent
+          dataCriticality: high
+        lifecycle:
+          upgradeStrategy: ordered
+          gracefulShutdownSeconds: 60
+        health:
+          interface: metrics
+          path: /health
+        metrics:
+          interface: metrics
+          path: /metrics
+      scaling:
+        replicas: 1
+      metadata:
+        tier: critical
+        backup: required
+        storage-class: ssd
+---
+# redis — in-memory cache with optional persistence
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: redis
+  namespace: default
+spec:
+  target:
+    serviceName: redis
+    workloadRef:
+      name: redis
+      kind: Deployment
+  checkIntervalSeconds: 120
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: redis
+        version: "7.4.0"
+        owner: infra/caching
+        image:
+          ref: docker.io/library/redis:7.4
+      interfaces:
+        - name: resp
+          type: grpc
+          port: 6379
+          visibility: internal
+          contract: openapi.yaml
+        - name: metrics
+          type: http
+          port: 9121
+          visibility: internal
+      runtime:
+        workload: service
+        state:
+          type: stateful
+          persistence:
+            scope: local
+            durability: persistent
+          dataCriticality: medium
+        lifecycle:
+          upgradeStrategy: ordered
+          gracefulShutdownSeconds: 30
+        health:
+          interface: metrics
+          path: /health
+        metrics:
+          interface: metrics
+          path: /metrics
+      scaling:
+        replicas: 1
+      metadata:
+        tier: high
+        eviction-policy: allkeys-lru
+---
+# rabbitmq — message broker with management UI and clustering
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: rabbitmq
+  namespace: default
+spec:
+  target:
+    serviceName: rabbitmq
+    workloadRef:
+      name: rabbitmq
+      kind: Deployment
+  checkIntervalSeconds: 120
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: rabbitmq
+        version: "3.13.7"
+        owner: infra/messaging
+        image:
+          ref: docker.io/library/rabbitmq:3.13-management
+      interfaces:
+        - name: amqp
+          type: grpc
+          port: 5672
+          visibility: internal
+          contract: openapi.yaml
+        - name: management
+          type: http
+          port: 15672
+          visibility: internal
+        - name: metrics
+          type: http
+          port: 15692
+          visibility: internal
+      runtime:
+        workload: service
+        state:
+          type: stateful
+          persistence:
+            scope: local
+            durability: persistent
+          dataCriticality: high
+        lifecycle:
+          upgradeStrategy: ordered
+          gracefulShutdownSeconds: 120
+        health:
+          interface: management
+          path: /api/health/checks/alarms
+        metrics:
+          interface: metrics
+          path: /metrics
+      scaling:
+        min: 3
+        max: 5
+      metadata:
+        tier: critical
+        cluster: required
+        quorum-queues: enabled

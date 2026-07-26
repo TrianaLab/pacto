@@ -1,0 +1,161 @@
+# Scenario 04: Platform standards via definition-only contracts.
+#
+# Covers: reference (definition-only) contracts, cross-contract references
+# for configurations and policies, policies as JSON Schema that validate contracts,
+# shared config schemas adopted by multiple services.
+#
+# Topology:
+#   platform-config (definition) — shared configuration schema + defaults
+#   platform-policy (definition) — shared policy rules (JSON Schema)
+#   payment-gateway (definition) — external API contract
+#   billing-api ──configurations.ref──→ platform-config
+#               ──policies.ref──→ platform-policy
+#               ──dep──→ payment-gateway
+---
+# platform-config — shared configuration schema for all services.
+# Defines standard config keys (observability, health, etc.) with a JSON Schema
+# and default values. Services adopt this schema via configurations[].ref.
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: platform-config
+  namespace: default
+spec:
+  checkIntervalSeconds: 600
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: platform-config
+        version: "1.0.0"
+        owner: team/platform
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            LOG_LEVEL: info
+            LOG_FORMAT: json
+            TRACING_ENABLED: true
+            TRACING_ENDPOINT: http://jaeger:14268/api/traces
+            METRICS_PORT: 9090
+            HEALTH_PATH: /health
+            READINESS_PATH: /ready
+      metadata:
+        description: Shared configuration schema for platform services
+---
+# platform-policy — shared policy that validates contracts themselves.
+# Defines a JSON Schema applied to pacto.yaml to enforce org standards:
+# e.g., all services must declare health checks and an owner.
+# Services adopt this policy via policies[].ref.
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: platform-policy
+  namespace: default
+spec:
+  checkIntervalSeconds: 600
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: platform-policy
+        version: "2.0.0"
+        owner: team/platform
+      policies:
+        - name: platform-policy
+          ref: oci://ghcr.io/acme/platform-policy-pacto:2.0.0
+      metadata:
+        description: Enforces org standards (health checks, owner required)
+---
+# payment-gateway — external payment API (Stripe-like).
+# Definition-only: represents an external service not running in the cluster.
+# Services that depend on this gateway reference it via dependencies.
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: payment-gateway
+  namespace: default
+spec:
+  checkIntervalSeconds: 600
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: payment-gateway
+        version: "4.2.0"
+        owner: external
+      interfaces:
+        - name: charges-api
+          type: http
+          port: 443
+          visibility: public
+        - name: webhooks
+          type: http
+          port: 443
+          visibility: public
+---
+# billing-api — adopts platform config and policy via cross-contract references.
+# Demonstrates a service that inherits organizational standards from definitions.
+# configurations[].ref → platform-config (inherits config schema)
+# policies[].ref → platform-policy (inherits policy rules)
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: billing-api
+  namespace: default
+spec:
+  target:
+    serviceName: billing-api
+  checkIntervalSeconds: 60
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: billing-api
+        version: "1.2.0"
+        owner: team/billing
+        image:
+          ref: ghcr.io/acme/billing-api:1.2.0
+      interfaces:
+        - name: http-api
+          type: http
+          port: 8080
+          visibility: internal
+        - name: billing-events
+          type: event
+          visibility: internal
+          contract: openapi.yaml
+      configurations:
+        - name: default
+          ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
+      policies:
+        - name: platform-policy
+          ref: oci://ghcr.io/acme/platform-policy-pacto:2.0.0
+      dependencies:
+        - name: payment-gateway
+          ref: oci://ghcr.io/acme/payment-gateway-pacto
+          required: true
+          compatibility: "^4.0.0"
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: high
+        lifecycle:
+          upgradeStrategy: rolling
+          gracefulShutdownSeconds: 30
+        health:
+          interface: http-api
+          path: /health
+        metrics:
+          interface: http-api
+          path: /metrics
+      scaling:
+        min: 1
+        max: 8
+      metadata:
+        team: billing
+        tier: standard

@@ -1,0 +1,5 @@
+resources:
+  - namespace.yaml
+  - services.yaml
+  - workloads.yaml
+  - pacto.yaml

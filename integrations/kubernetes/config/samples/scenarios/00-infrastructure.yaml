@@ -1,0 +1,759 @@
+# Infrastructure — Kubernetes Services and Deployments for all scenarios.
+# Apply first: kubectl apply -f config/samples/scenarios/00-infrastructure.yaml
+#
+# Services are simulated with nginx — the operator only checks that the
+# Service and Deployment (or StatefulSet) exist and expose the declared ports.
+---
+# ============================================================================
+# Scenario 01: pacto-demo OCI services
+# ============================================================================
+# --- api (public gateway, port 8080) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: default
+spec:
+  selector:
+    app: api
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: nginx:latest
+          ports:
+            - containerPort: 8080
+---
+# --- inference (ML processing, port 8082) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference
+  namespace: default
+spec:
+  selector:
+    app: inference
+  ports:
+    - port: 8082
+      targetPort: 8082
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inference
+  template:
+    metadata:
+      labels:
+        app: inference
+    spec:
+      containers:
+        - name: inference
+          image: nginx:latest
+          ports:
+            - containerPort: 8082
+---
+# --- runtime (model execution, port 8081) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: runtime
+  namespace: default
+spec:
+  selector:
+    app: runtime
+  ports:
+    - port: 8081
+      targetPort: 8081
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runtime
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: runtime
+  template:
+    metadata:
+      labels:
+        app: runtime
+    spec:
+      containers:
+        - name: runtime
+          image: nginx:latest
+          ports:
+            - containerPort: 8081
+---
+# ============================================================================
+# Scenario 07: Demo Showcase (namespace: demo)
+# All demo resources live in the "demo" namespace to avoid collisions.
+# ============================================================================
+# --- Namespace ---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+# --- postgresql (port 5432 + metrics 9187) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  namespace: demo
+spec:
+  selector:
+    app: postgresql
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: tcp-postgres
+    - port: 9187
+      targetPort: 9187
+      name: http-metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql
+  template:
+    metadata:
+      labels:
+        app: postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: nginx:latest
+          ports:
+            - containerPort: 5432
+            - containerPort: 9187
+---
+# --- redis (port 6379 + metrics 9121) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: demo
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: tcp-redis
+    - port: 9121
+      targetPort: 9121
+      name: http-metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: nginx:latest
+          ports:
+            - containerPort: 6379
+            - containerPort: 9121
+---
+# --- api-gateway (port 8080) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: demo
+spec:
+  selector:
+    app: api-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: nginx:latest
+          ports:
+            - containerPort: 8080
+---
+# --- auth-service (port 8080) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: demo
+spec:
+  selector:
+    app: auth-service
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+        - name: auth-service
+          image: nginx:latest
+          ports:
+            - containerPort: 8080
+---
+# --- orders-service (port 8080) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-service
+  namespace: demo
+spec:
+  selector:
+    app: orders-service
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-service
+  namespace: demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: orders-service
+  template:
+    metadata:
+      labels:
+        app: orders-service
+    spec:
+      containers:
+        - name: orders-service
+          image: nginx:latest
+          ports:
+            - containerPort: 8080
+---
+# --- payments-service (port 8080) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments-service
+  namespace: demo
+spec:
+  selector:
+    app: payments-service
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-service
+  namespace: demo
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: payments-service
+  template:
+    metadata:
+      labels:
+        app: payments-service
+    spec:
+      containers:
+        - name: payments-service
+          image: nginx:latest
+          ports:
+            - containerPort: 8080
+---
+# --- frontend (port 3000) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: demo
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: nginx:latest
+          ports:
+            - containerPort: 3000
+---
+# ============================================================================
+# Scenario 02: E-commerce microservices
+# ============================================================================
+# --- order-service (port 8080) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+  namespace: default
+spec:
+  selector:
+    app: order-service
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      containers:
+        - name: order-service
+          image: nginx:latest
+          ports:
+            - containerPort: 8080
+---
+# --- payment-service (port 8080) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  namespace: default
+spec:
+  selector:
+    app: payment-service
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+    spec:
+      containers:
+        - name: payment-service
+          image: nginx:latest
+          ports:
+            - containerPort: 8080
+---
+# --- user-service (gRPC 9090 + health HTTP 8080) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: default
+spec:
+  selector:
+    app: user-service
+  ports:
+    - port: 9090
+      targetPort: 9090
+      name: grpc
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: nginx:latest
+          ports:
+            - containerPort: 9090
+            - containerPort: 8080
+---
+# --- frontend (port 3000) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: default
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: nginx:latest
+          ports:
+            - containerPort: 3000
+---
+# ============================================================================
+# Scenario 03: Stateful infrastructure
+# ============================================================================
+# --- postgresql (port 5432 + metrics 9187) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  namespace: default
+spec:
+  selector:
+    app: postgresql
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: tcp-postgres
+    - port: 9187
+      targetPort: 9187
+      name: http-metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql
+  template:
+    metadata:
+      labels:
+        app: postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: nginx:latest
+          ports:
+            - containerPort: 5432
+            - containerPort: 9187
+---
+# --- redis (port 6379 + metrics 9121) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: default
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: tcp-redis
+    - port: 9121
+      targetPort: 9121
+      name: http-metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: nginx:latest
+          ports:
+            - containerPort: 6379
+            - containerPort: 9121
+---
+# --- rabbitmq (AMQP 5672 + management 15672 + metrics 15692) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: default
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+    - port: 5672
+      targetPort: 5672
+      name: tcp-amqp
+    - port: 15672
+      targetPort: 15672
+      name: http-management
+    - port: 15692
+      targetPort: 15692
+      name: http-metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: nginx:latest
+          ports:
+            - containerPort: 5672
+            - containerPort: 15672
+            - containerPort: 15692
+---
+# ============================================================================
+# Scenario 05: Advanced patterns
+# ============================================================================
+# --- product-catalog (hybrid state, port 8080 + metrics 9090) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-catalog
+  namespace: default
+spec:
+  selector:
+    app: product-catalog
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+    - port: 9090
+      targetPort: 9090
+      name: http-metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-catalog
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: product-catalog
+  template:
+    metadata:
+      labels:
+        app: product-catalog
+    spec:
+      containers:
+        - name: product-catalog
+          image: nginx:latest
+          ports:
+            - containerPort: 8080
+            - containerPort: 9090
+---
+# --- notification-worker (event consumer, health port 8080) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-worker
+  namespace: default
+spec:
+  selector:
+    app: notification-worker
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-worker
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notification-worker
+  template:
+    metadata:
+      labels:
+        app: notification-worker
+    spec:
+      containers:
+        - name: notification-worker
+          image: nginx:latest
+          ports:
+            - containerPort: 8080
+---
+# --- billing-api (references platform standards, port 8080) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: billing-api
+  namespace: default
+spec:
+  selector:
+    app: billing-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-api
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: billing-api
+  template:
+    metadata:
+      labels:
+        app: billing-api
+    spec:
+      containers:
+        - name: billing-api
+          image: nginx:latest
+          ports:
+            - containerPort: 8080
