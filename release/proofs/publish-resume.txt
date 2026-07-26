@@ -1,7 +1,7 @@
 # PROOF - resumable: rerun resumes from the first non-complete ledger entry
 
-target: localhost:5001/pacto-test-resume-1785067032083
+target: localhost:5001/pacto-test-resume-1785076553977
 
-RUN 1 (fresh):            planned=7 built=7 verified=7 published=7 failed=0 resumable=0 complete=7
+RUN 1 (fresh):            planned=8 built=8 verified=8 published=8 failed=0 resumable=0 complete=8
 crash simulated: operator-chart -> built, k8s-docs -> verified (still on registry)
-RUN 2 (resume + verify):  planned=7 built=7 verified=7 published=0 failed=0 resumable=2 complete=7   <- resumable=2, published=0, complete=7
+RUN 2 (resume + verify):  planned=8 built=8 verified=8 published=0 failed=0 resumable=2 complete=8   <- resumable=2, published=0, complete=8

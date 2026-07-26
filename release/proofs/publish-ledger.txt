@@ -2,12 +2,12 @@
 
 {
   "schema": "pacto-release-ledger/v1",
-  "target": "localhost:5001/pacto-test-idem-1785067030932",
+  "target": "localhost:5001/pacto-test-idem-1785076552632",
   "artifacts": {
     "core": {
       "unit": "core",
       "kind": "go-module",
-      "ref": "localhost:5001/pacto-test-idem-1785067030932/gomod/github.com/trianalab/pacto/v2:v2.7.0",
+      "ref": "localhost:5001/pacto-test-idem-1785076552632/gomod/github.com/trianalab/pacto/v2:v2.7.0",
       "contentDigest": "sha256:2af53bf4728f7cc8a3618273ab463566a7e3c0e36436704b1f3f81873319e1b2",
       "state": "complete",
       "result": "published"
@@ -15,7 +15,7 @@
     "dashboard-image": {
       "unit": "dashboard-image",
       "kind": "oci-image",
-      "ref": "localhost:5001/pacto-test-idem-1785067030932/trianalab/pacto-dashboard:2.7.0",
+      "ref": "localhost:5001/pacto-test-idem-1785076552632/trianalab/pacto-dashboard:2.7.0",
       "contentDigest": "sha256:172d0824edb3199de37b8e07567b34ee9730403715f2666d9ff03b6ae1161842",
       "state": "complete",
       "result": "published"
@@ -23,15 +23,23 @@
     "cli": {
       "unit": "cli",
       "kind": "binaries",
-      "ref": "localhost:5001/pacto-test-idem-1785067030932/releases/github.com/trianalab/pacto/releases:v2.7.0",
+      "ref": "localhost:5001/pacto-test-idem-1785076552632/releases/github.com/trianalab/pacto/releases:v2.7.0",
       "contentDigest": "sha256:8ef0614de4df1b89216cfeac30ac7f23484c2312bf44636a736d576de2d7eab2",
+      "state": "complete",
+      "result": "published"
+    },
+    "demo-bundles": {
+      "unit": "demo-bundles",
+      "kind": "oci-image",
+      "ref": "localhost:5001/pacto-test-idem-1785076552632/trianalab/pacto-demo:2.7.0",
+      "contentDigest": "sha256:a61d47323345414ed96fa5ef9ac808f793df3eef9461bf2fc7b8abd84a7ba8d3",
       "state": "complete",
       "result": "published"
     },
     "k8s-module": {
       "unit": "k8s-module",
       "kind": "go-module",
-      "ref": "localhost:5001/pacto-test-idem-1785067030932/gomod/github.com/trianalab/pacto/integrations/kubernetes:integrations-kubernetes-v4.7.0",
+      "ref": "localhost:5001/pacto-test-idem-1785076552632/gomod/github.com/trianalab/pacto/integrations/kubernetes:integrations-kubernetes-v4.7.0",
       "contentDigest": "sha256:1addcdaa68b651449dcb013a1d9d09121956db3b814e15d56888fc2960dd9732",
       "state": "complete",
       "result": "published"
@@ -39,7 +47,7 @@
     "operator-image": {
       "unit": "operator-image",
       "kind": "oci-image",
-      "ref": "localhost:5001/pacto-test-idem-1785067030932/trianalab/pacto-operator/pacto-controller:4.7.0",
+      "ref": "localhost:5001/pacto-test-idem-1785076552632/trianalab/pacto-operator/pacto-controller:4.7.0",
       "contentDigest": "sha256:f3a25a09fccd1d925ca40e87cf588a3797ba893b3378c1c590c1d5d1292110b9",
       "state": "complete",
       "result": "published"
@@ -47,7 +55,7 @@
     "operator-chart": {
       "unit": "operator-chart",
       "kind": "helm-chart",
-      "ref": "localhost:5001/pacto-test-idem-1785067030932/trianalab/pacto-operator/charts/pacto-operator:4.7.0",
+      "ref": "localhost:5001/pacto-test-idem-1785076552632/trianalab/pacto-operator/charts/pacto-operator:4.7.0",
       "contentDigest": "sha256:eefc171a9e7b1185b0948c4cf1bdbff4adbda0f2c5344bf105afedda10d2cf33",
       "state": "complete",
       "result": "published"
@@ -55,19 +63,19 @@
     "k8s-docs": {
       "unit": "k8s-docs",
       "kind": "docs",
-      "ref": "localhost:5001/pacto-test-idem-1785067030932/docs/mkdocs/integrations/kubernetes:4.7.0",
+      "ref": "localhost:5001/pacto-test-idem-1785076552632/docs/mkdocs/integrations/kubernetes:4.7.0",
       "contentDigest": "sha256:89f5e790b5be6f43691f68685252e94bf8986cde1992e328b8457545471d584e",
       "state": "complete",
       "result": "published"
     }
   },
   "counts": {
-    "planned": 7,
-    "built": 7,
-    "verified": 7,
-    "published": 7,
+    "planned": 8,
+    "built": 8,
+    "verified": 8,
+    "published": 8,
     "failed": 0,
     "resumable": 0,
-    "complete": 7
+    "complete": 8
   }
 }

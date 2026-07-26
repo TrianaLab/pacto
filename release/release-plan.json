@@ -18,6 +18,12 @@
           "kind": "oci-image",
           "tag": "2.7.0",
           "unit": "dashboard-image"
+        },
+        {
+          "coordinate": "ghcr.io/trianalab/pacto-demo",
+          "kind": "oci-image",
+          "tag": "2.7.0",
+          "unit": "demo-bundles"
         }
       ],
       "tags": [
@@ -71,6 +77,7 @@
     "core:go-module",
     "core:dashboard-image",
     "core:cli",
+    "core:demo-bundles",
     "kubernetes:go-mod-pin",
     "kubernetes:go-module",
     "kubernetes:operator-image",

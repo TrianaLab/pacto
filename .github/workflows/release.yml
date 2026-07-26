@@ -192,6 +192,41 @@ jobs:
             --format '{{json .Manifest.Digest}}' | tr -d '"')
           cosign sign --yes "ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}@${digest}"
 
+  # pacto-publishes: demo-bundles
+  # Canonical (single) publisher for the demo OCI contract bundles namespace
+  # ghcr.io/trianalab/pacto-demo/<service>. The demo bundles (examples/demo/bundles)
+  # are the v2 contracts the WASM demo embeds; publishing them here keeps live
+  # `pacto validate`/`lock` on those bundles resolving to the monorepo-owned v2
+  # artifacts instead of a stale, unowned coordinate. The republish script defaults
+  # to a disposable staging registry and refuses a production coordinate unless
+  # PACTO_ALLOW_PROD=1, which only this canonical publisher sets.
+  demo-bundles:
+    needs: [detect, core]
+    if: needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install ORAS
+        uses: oras-project/setup-oras@v2
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish demo bundles to the production coordinate
+        env:
+          PACTO_DEMO_REGISTRY: ghcr.io/trianalab/pacto-demo
+          PACTO_ALLOW_PROD: '1'
+          PACTO_REGISTRY_USERNAME: ${{ github.actor }}
+          PACTO_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: release/scripts/publish-demo-bundles.sh --push
+
   # pacto-publishes: k8s-module
   # Canonical publisher for the kubernetes integration Go module tag
   # (integrations/kubernetes/v<k8s>).

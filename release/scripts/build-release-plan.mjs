@@ -36,6 +36,12 @@ function buildPlan(u) {
           { unit: 'core', kind: 'go-module', coordinate: u['core'].coordinate, tag: `v${core}` },
           { unit: 'cli', kind: 'binaries', release: `v${core}` },
           { unit: 'dashboard-image', kind: 'oci-image', coordinate: u['dashboard-image'].coordinate, tag: core },
+          // Demo OCI contract bundles (examples/demo/bundles) publish as a single
+          // owned namespace. The per-bundle tags are the contract versions; this
+          // unit tag tracks the core line so ownership + version move together. The
+          // maintainer publishes to the production coordinate; the PR proof pushes
+          // to a staging registry (release/scripts/publish-demo-bundles.sh).
+          { unit: 'demo-bundles', kind: 'oci-image', coordinate: u['demo-bundles'].coordinate, tag: core },
         ],
       },
       kubernetes: {
@@ -56,7 +62,7 @@ function buildPlan(u) {
     // Deterministic publish order: core module FIRST (so the k8s module's pin
     // resolves), then k8s group. Every step leaves published modules resolvable.
     publishOrder: [
-      'core:go-module', 'core:dashboard-image', 'core:cli',
+      'core:go-module', 'core:dashboard-image', 'core:cli', 'core:demo-bundles',
       'kubernetes:go-mod-pin', 'kubernetes:go-module', 'kubernetes:operator-image',
       'kubernetes:operator-chart', 'kubernetes:docs',
     ],

@@ -1,0 +1,6 @@
+{
+  "name": "@pacto/demo-bundles",
+  "version": "2.7.0",
+  "private": true,
+  "pacto": { "releaseUnit": "demo-bundles", "kind": "oci-image", "coordinate": "ghcr.io/trianalab/pacto-demo" }
+}

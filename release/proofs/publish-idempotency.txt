@@ -1,15 +1,16 @@
 # PROOF - digest-aware idempotency (rerun = zero re-publish)
 
-target: localhost:5001/pacto-test-idem-1785067030932
+target: localhost:5001/pacto-test-idem-1785076552632
 
-RUN 1 (fresh):  planned=7 built=7 verified=7 published=7 failed=0 resumable=0 complete=7
-RUN 2 (rerun):  planned=7 built=7 verified=7 published=0 failed=0 resumable=0 complete=7   <- published=0, all already-published
+RUN 1 (fresh):  planned=8 built=8 verified=8 published=8 failed=0 resumable=0 complete=8
+RUN 2 (rerun):  planned=8 built=8 verified=8 published=0 failed=0 resumable=0 complete=8   <- published=0, all already-published
 
 # publish order (release-plan.publishOrder, core module first):
-  OK core             localhost:5001/pacto-test-idem-1785067030932/gomod/github.com/trianalab/pacto/v2:v2.7.0
-  OK dashboard-image  localhost:5001/pacto-test-idem-1785067030932/trianalab/pacto-dashboard:2.7.0
-  OK cli              localhost:5001/pacto-test-idem-1785067030932/releases/github.com/trianalab/pacto/releases:v2.7.0
-  OK k8s-module       localhost:5001/pacto-test-idem-1785067030932/gomod/github.com/trianalab/pacto/integrations/kubernetes:integrations-kubernetes-v4.7.0
-  OK operator-image   localhost:5001/pacto-test-idem-1785067030932/trianalab/pacto-operator/pacto-controller:4.7.0
-  OK operator-chart   localhost:5001/pacto-test-idem-1785067030932/trianalab/pacto-operator/charts/pacto-operator:4.7.0
-  OK k8s-docs         localhost:5001/pacto-test-idem-1785067030932/docs/mkdocs/integrations/kubernetes:4.7.0
+  OK core             localhost:5001/pacto-test-idem-1785076552632/gomod/github.com/trianalab/pacto/v2:v2.7.0
+  OK dashboard-image  localhost:5001/pacto-test-idem-1785076552632/trianalab/pacto-dashboard:2.7.0
+  OK cli              localhost:5001/pacto-test-idem-1785076552632/releases/github.com/trianalab/pacto/releases:v2.7.0
+  OK demo-bundles     localhost:5001/pacto-test-idem-1785076552632/trianalab/pacto-demo:2.7.0
+  OK k8s-module       localhost:5001/pacto-test-idem-1785076552632/gomod/github.com/trianalab/pacto/integrations/kubernetes:integrations-kubernetes-v4.7.0
+  OK operator-image   localhost:5001/pacto-test-idem-1785076552632/trianalab/pacto-operator/pacto-controller:4.7.0
+  OK operator-chart   localhost:5001/pacto-test-idem-1785076552632/trianalab/pacto-operator/charts/pacto-operator:4.7.0
+  OK k8s-docs         localhost:5001/pacto-test-idem-1785076552632/docs/mkdocs/integrations/kubernetes:4.7.0

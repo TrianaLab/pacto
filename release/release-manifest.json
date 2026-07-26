@@ -19,6 +19,12 @@
       "tag": "2.7.0",
       "version": "2.7.0"
     },
+    "demo-bundles": {
+      "artifactKind": "oci-image",
+      "coordinate": "ghcr.io/trianalab/pacto-demo",
+      "tag": "2.7.0",
+      "version": "2.7.0"
+    },
     "k8s-docs": {
       "artifactKind": "docs",
       "coordinate": "mkdocs:integrations/kubernetes",
