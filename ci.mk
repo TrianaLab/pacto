@@ -5,7 +5,7 @@
 BUNDLE_DIR := pactos/pacto-dashboard
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
-       ci-e2e-envtest ci-e2e-kind ci-oci docs-generate docs-check artifact-drift release-dry-run \
+       ci-e2e-envtest ci-e2e-kind ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
        ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
@@ -13,7 +13,15 @@ BUNDLE_DIR := pactos/pacto-dashboard
 # The root aggregate. Every leg delegates to the REAL underlying gate across the
 # workspace modules. This is what CONTRIBUTING tells contributors to run and what
 # .github/workflows/ci.yml requires.
-ci: ci-static ci-engine ci-dashboard ci-integration-kubernetes ci-e2e-envtest ci-oci
+ci: ci-static ci-gates ci-engine ci-dashboard ci-integration-kubernetes ci-e2e-envtest ci-oci
+
+# Cross-cutting architecture + release gates. tests/architecture is the import-
+# boundary gate (core must stay k8s-free); tests/release holds the one-publisher,
+# demo-ref and release-plan gates. Both live under /tests/, which ci-test EXCLUDES
+# (grep -v /tests/), so they get their own leg here and an ALWAYS-run CI job — a
+# gate that never runs is not a gate.
+ci-gates:
+	go test ./tests/architecture/... ./tests/release/...
 
 # Static leg: engine + kubernetes integration static gates.
 ci-static: ci-static-engine

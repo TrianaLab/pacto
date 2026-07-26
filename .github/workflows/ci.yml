@@ -140,6 +140,20 @@ jobs:
         env:
           PACTO_STAGING_REGISTRY: localhost:5001
 
+  # Cross-cutting architecture + release gates (tests/architecture + tests/release).
+  # These live under /tests/ which the ci-engine coverage run EXCLUDES, so without
+  # this leg the import-boundary, one-publisher and demo-ref gates never run in CI.
+  # No path filter: it ALWAYS runs so a gate can never be silently skipped-green.
+  ci-gates:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: make ci-gates
+
   artifact-drift:
     needs: changes
     if: needs.changes.outputs.release == 'true'
@@ -162,6 +176,7 @@ jobs:
     needs:
       - changes
       - ci-static
+      - ci-gates
       - ci-engine
       - ci-dashboard
       - ci-integration-kubernetes
