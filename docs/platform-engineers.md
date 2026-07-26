@@ -197,7 +197,7 @@ See [The platform-published policy + schema contract](patterns/policy-schema.md)
 !!! warning "Where refs are enforced"
     Ref-based policies are enforced by `pacto validate` and `pacto push` (fail-closed — an unresolvable ref is a hard `POLICY_REF_UNRESOLVED` error, which is how push blocks non-compliant publishes). `pacto pack` and the operator run local-only validation: they enforce only inline `schema` policies and emit a `POLICY_REF_NOT_ENFORCED` warning for refs.
 
-See [Layer 4: Policy enforcement](contract-reference/validation.md#layer-4-policy-enforcement) for the resolution semantics (recursive N-hop, cycle detection, error codes) and [policies](contract-reference/sections.md#policies) for the full specification.
+See [Layer 3: Policy enforcement](contract-reference/validation.md#layer-3-policy-enforcement) for the resolution semantics (recursive N-hop, cycle detection, error codes) and [policies](contract-reference/sections.md#policies) for the full specification.
 
 !!! info
     Configuration and policy are complementary:
@@ -291,4 +291,4 @@ See [Dashboard architecture](architecture.md#dashboard-architecture) for the sou
 - **Use markdown output for PR comments.** `pacto diff --output-format markdown` renders changes as tables with old/new values — pipe it into `gh pr comment` for rich CI feedback.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
 - **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface](mcp-integration.md) — useful for ad-hoc inspection, dependency analysis, and contract generation.
-- **Close the loop with the operator.** The [Kubernetes Operator](operator.md) continuously verifies that deployed services match their contracts — port alignment, workload existence, health endpoint reachability, and more. Combined with the dashboard, you get a complete view: contract truth from OCI + runtime truth from the operator.
+- **Close the loop with the operator.** The [Kubernetes Operator](integrations/kubernetes/overview.md) continuously verifies that deployed services match their contracts — port alignment, workload existence, health endpoint reachability, and more. Combined with the dashboard, you get a complete view: contract truth from OCI + runtime truth from the operator.

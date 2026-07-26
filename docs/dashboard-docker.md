@@ -65,7 +65,7 @@ The dashboard auto-detects available data sources at startup. See the [source mo
 
 - **oci**: Enabled when `PACTO_DASHBOARD_REPO` is set, or auto-discovered from K8s `resolvedRef` fields. Provides contract bundles, version history, interfaces and diffs. (On-disk cache at `/home/pacto/.cache/pacto/oci/` is used internally — see [architecture](architecture.md#source-model).)
 - **cache**: The on-disk OCI cache is internal to the OCI source; it surfaces as a distinct `cache` source only as an offline baseline when no registry is configured and the cache has entries.
-- **k8s**: Enabled when a valid kubeconfig is mounted or when running inside a Kubernetes cluster (in-cluster config). Provides runtime state from the [Pacto operator](operator.md).
+- **k8s**: Enabled when a valid kubeconfig is mounted or when running inside a Kubernetes cluster (in-cluster config). Provides runtime state from the [Pacto operator](integrations/kubernetes/overview.md).
 - **local**: Enabled when a `pacto.yaml` is found in the working directory (mount via volume).
 
 ### Kubernetes + OCI hybrid mode

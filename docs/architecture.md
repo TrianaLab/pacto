@@ -63,7 +63,7 @@ graph TD
     class APP,CLI,LOG,MCP,MAIN,UPDATE internal
 ```
 
-Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator](operator.md).
+Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator](integrations/kubernetes/overview.md).
 
 ---
 
@@ -116,7 +116,7 @@ flowchart LR
 
 Each layer short-circuits -- if it produces errors, subsequent layers are skipped. See [Validation layers](contract-reference/validation.md#validation-layers) for the per-layer rules and error codes.
 
-Also includes **runtime validation** (`ValidateRuntime`) -- a foundational abstraction for comparing a contract's declared state against observed runtime conditions. This is consumed by the [Kubernetes Operator](operator.md) without introducing platform-specific dependencies into the core library.
+Also includes **runtime validation** (`ValidateRuntime`) -- a foundational abstraction for comparing a contract's declared state against observed runtime conditions. This is consumed by the [Kubernetes Operator](integrations/kubernetes/overview.md) without introducing platform-specific dependencies into the core library.
 
 ### `pkg/diff` -- Change classifier
 

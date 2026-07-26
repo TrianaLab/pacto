@@ -155,7 +155,7 @@ A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
 - **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
 - **Contract exploration dashboard** — `pacto dashboard` launches a web UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, readiness and diffs across local, OCI, and Kubernetes sources
-- **Runtime fidelity verification** — the optional [Kubernetes Operator](operator.md) continuously checks that deployed services match their contracts — workload alignment, state model, capability reachability, and more
+- **Runtime fidelity verification** — the optional [Kubernetes Operator](integrations/kubernetes/overview.md) continuously checks that deployed services match their contracts — workload alignment, state model, capability reachability, and more
 - **AI assistant integration** — `pacto mcp` exposes contract create, edit, validate and schema operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor and GitHub Copilot
 
 ---
