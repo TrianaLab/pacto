@@ -1,0 +1,89 @@
+# ADR 0001 — Pacto first-party integrations monorepo
+
+Status: Accepted (supersedes the paired-repo release model)
+Date: 2026-07-26
+
+## Context
+
+Pacto shipped as two repositories: `TrianaLab/pacto` (contract model, pure engine,
+CLI, dashboard) and `TrianaLab/pacto-operator` (Kubernetes collector + operator).
+The paired release audit ended with **DO NOT MERGE as an atomic pair** because the
+operator depends on unreleased engine packages (`pkg/evidence`, `pkg/finding`,
+absent from the latest engine tag `v2.7.0`) and builds only through a dev-only
+`replace ../pacto`. The required release order was:
+
+    merge engine -> tag/publish engine -> repin operator go.mod -> remove replace
+    -> rerun operator CI -> merge and release operator
+
+That ordering is a structural blocker, not documentation friction.
+
+## Decision
+
+Adopt a single repository, `TrianaLab/pacto`, as the canonical home of Pacto and
+its officially maintained integrations, while keeping **independently versioned,
+independently published, standalone-consumable** components.
+
+- **Separate Go modules**, not one module:
+  - root module `github.com/trianalab/pacto/v2` — platform-neutral core + CLI + dashboard.
+  - nested module `github.com/trianalab/pacto/integrations/kubernetes` — collector + operator host.
+- **Root `go.work`** ties the modules for local development, CI and release *builds*
+  only. Committed *release state* pins a real published core version in the
+  integration `go.mod` with **no `replace`**.
+- The imported operator was history-preserved (subtree import at operator SHA
+  `199de04`; every operator commit remains an ancestor and traceable to
+  `TrianaLab/pacto-operator`).
+
+### Why this eliminates the blocker (not hides it)
+
+`go.work` makes *source development atomic* (one commit builds everything). The
+release layer (ADR 0002 / Changesets) computes a new core version, tags+publishes
+the core module first, then bumps the integration `go.mod` to that version and
+publishes the integration — so every published module resolves outside the
+workspace. An external-consumer smoke test builds the integration module from a
+temporary module with `GOFLAGS=-mod=mod` and **no `go.work`** to prove
+standalone consumability. Moving files alone does not solve ordering; the tested
+version/tag/publish sequence does.
+
+## Architecture boundaries (enforced)
+
+Dependency direction, enforced by `tests/architecture/boundary_test.go`:
+
+    k8s operator -> k8s collector -> Pacto evidence/evaluation APIs -> Pacto core
+
+`pkg/contract`, `pkg/evidence`, `pkg/finding`, `pkg/validation` must never import
+`k8s.io/*`, `sigs.k8s.io/*`, or any `integrations/*` package (transitively). The
+gate fails the build on any violation, so external/third-party collectors can
+consume the core without pulling Kubernetes.
+
+The Kubernetes **collector** (Kubernetes -> Evidence translation) is separated
+from the operator **host** (reconciliation, CRDs, status, temporal windows,
+deployment); the collector is testable without starting a controller manager.
+
+## Release units and tag policy
+
+| Release unit | Kind | Tag / coordinate |
+|---|---|---|
+| Pacto core module | Go module | `vX.Y.Z` (root) |
+| Pacto CLI | binaries + checksums | GitHub Release `vX.Y.Z` |
+| Pacto dashboard | OCI image | `ghcr.io/trianalab/pacto-dashboard:X.Y.Z` |
+| K8s integration module | Go module | `integrations/kubernetes/vA.B.C` |
+| Operator image | OCI image | `ghcr.io/trianalab/pacto-operator/pacto-controller:A.B.C` |
+| Operator chart | Helm/OCI | `pacto-operator` chart `version=A.B.C`, `appVersion=A.B.C` |
+| K8s integration docs | MkDocs (mike) | integration version A.B.C |
+| Demo OCI bundles | OCI | existing demo coordinates |
+
+**Fixed groups:** {core, CLI, dashboard image} version together; {k8s module,
+operator image, chart, k8s docs} version together. Future first-party
+integrations are versioned independently unless a real dependency forces grouping.
+Go multi-module tag policy: the core uses `vX.Y.Z`; the nested integration module
+uses the path-prefixed tag `integrations/kubernetes/vA.B.C` (Go's nested-module
+tag convention). Public OCI/chart coordinates are preserved from the operator repo
+(see the artifact pipeline ledger).
+
+## Consequences
+
+- One coherent source tree, one reviewed change, one CI result, one release plan.
+- Independent public versions preserved (historical continuity — the operator is
+  NOT reset to 0.1.0 because its source moved).
+- The old `TrianaLab/pacto-operator` repo is archived only *after* a staging
+  release simulation proves the new pipeline (see cutover checklist).
