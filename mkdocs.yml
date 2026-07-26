@@ -157,6 +157,7 @@ nav:
   - Examples:
       - Overview: examples/index.md
       - Live dashboard demo: examples/dashboard-demo.md
+      - Compliance scenarios (where proven): examples/compliance-scenarios.md
       - Cron worker: examples/cron-worker.md
       - Event processor: examples/event-processor.md
       - gRPC service: examples/grpc-service.md
