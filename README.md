@@ -357,7 +357,7 @@ cosign verify \
 - Go 1.26+
 - Docker
 - kubectl
-- [Kind](https://kind.sigs.k8s.io/) (for local Kubernetes and e2e tests)
+- [Kind](https://kind.sigs.k8s.io/) (optional — for deploying to a local Kubernetes cluster)
 - make
 
 ### Build and test
@@ -366,11 +366,11 @@ cosign verify \
 make build        # Build the controller binary
 make test         # Run unit/integration tests (envtest)
 make ci           # Run static checks + unit tests + chart validation (no cluster required)
-make test-e2e     # Run e2e tests (requires Kind — creates and tears down a cluster)
+make test-e2e     # Run the e2e acceptance suite (envtest — no cluster required)
 make lint         # Run golangci-lint
 ```
 
-`make ci` mirrors the CI pipeline's `static`, `unit-test`, and `chart` jobs. The `e2e` job requires a Kind cluster and runs separately via `make test-e2e`.
+`make ci` mirrors the CI pipeline's `static`, `unit-test`, and `chart` jobs. The `e2e` job runs separately via `make test-e2e`, which spins up an envtest control plane (no cluster required).
 
 ### Local development
 
