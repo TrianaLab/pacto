@@ -52,9 +52,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
-	"github.com/trianalab/pacto-operator/internal/controller"
-	"github.com/trianalab/pacto-operator/internal/loader"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/internal/controller"
+	"github.com/trianalab/pacto/integrations/kubernetes/internal/loader"
 	"github.com/trianalab/pacto/v2/pkg/dashboard"
 )
 

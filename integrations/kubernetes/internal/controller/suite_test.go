@@ -27,8 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
-	"github.com/trianalab/pacto-operator/internal/loader"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/internal/loader"
 	// +kubebuilder:scaffold:imports
 )
 

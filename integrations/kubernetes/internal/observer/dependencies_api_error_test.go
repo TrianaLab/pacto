@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	pactoapi "github.com/trianalab/pacto-operator/api/v1alpha1"
+	pactoapi "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/evidence"
 )

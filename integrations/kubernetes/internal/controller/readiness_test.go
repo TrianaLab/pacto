@@ -16,7 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 
-	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/readiness"
 )

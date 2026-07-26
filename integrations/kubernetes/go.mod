@@ -1,4 +1,4 @@
-module github.com/trianalab/pacto-operator
+module github.com/trianalab/pacto/integrations/kubernetes
 
 go 1.26.5
 
@@ -115,4 +115,3 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/trianalab/pacto/v2 => ../pacto

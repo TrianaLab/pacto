@@ -14,8 +14,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
-	"github.com/trianalab/pacto-operator/internal/metrics"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/internal/metrics"
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/readiness"
 )

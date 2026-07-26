@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
-	"github.com/trianalab/pacto-operator/internal/loader"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/internal/loader"
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/finding"
 	appsv1 "k8s.io/api/apps/v1"

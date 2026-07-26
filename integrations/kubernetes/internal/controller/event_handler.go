@@ -10,7 +10,7 @@ package controller
 import (
 	"context"
 
-	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"

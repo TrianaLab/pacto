@@ -20,7 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/trianalab/pacto-operator/internal/prober"
+	"github.com/trianalab/pacto/integrations/kubernetes/internal/prober"
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/evidence"
 )
