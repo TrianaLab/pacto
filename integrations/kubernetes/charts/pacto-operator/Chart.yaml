@@ -2,8 +2,8 @@ apiVersion: v2
 name: pacto-operator
 description: Kubernetes operator for Pacto service contract validation
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 4.7.0
+appVersion: "4.7.0"
 keywords:
   - pacto
   - operator
@@ -18,3 +18,7 @@ maintainers:
 sources:
   - https://github.com/TrianaLab/pacto-operator
   - https://github.com/TrianaLab/pacto
+annotations:
+  artifacthub.io/images: |
+    - name: pacto-controller
+      image: ghcr.io/trianalab/pacto-operator/pacto-controller:4.7.0
