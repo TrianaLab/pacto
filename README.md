@@ -39,7 +39,7 @@ flowchart LR
     OP -. runtime state .-> DASH
 ```
 
-No sidecars and no central control plane: the CLI uses your existing OCI registry, the [operator](https://github.com/TrianaLab/pacto-operator) watches CRDs and the dashboard merges every source — local, OCI, Kubernetes and cache — into one view.
+No sidecars and no central control plane: the CLI uses your existing OCI registry, the [operator](https://trianalab.github.io/pacto/integrations/kubernetes/overview/) watches CRDs and the dashboard merges every source — local, OCI, Kubernetes and cache — into one view.
 
 ---
 
@@ -110,7 +110,7 @@ Everything a contract enables, from one artifact:
 - **SBOM inventory** — SPDX / CycloneDX package inventory and package-level diffs across versions
 - **Operational docs** — `pacto doc` renders Markdown, an offline dashboard-grade HTML site or an interactive Swagger/Scalar API explorer
 - **Readiness scoring** — operational-readiness assessment per service, surfaced in the fleet view
-- **Runtime verification** — with the [operator](https://github.com/TrianaLab/pacto-operator), whether deployed workloads still match their contract
+- **Runtime verification** — with the [operator](https://trianalab.github.io/pacto/integrations/kubernetes/overview/), whether deployed workloads still match their contract
 - **OCI distribution** — push/pull to GHCR, ECR, ACR, Docker Hub and Harbor with local caching; signable with cosign or Notary
 - **Reproducibility and supply chain** — `pacto.lock` for pinned resolution, gitignore-style `.pactoignore` for packaging
 - **Extensibility** — out-of-process plugins generate deployment artifacts; `pacto mcp` exposes contract operations to Claude, Cursor and Copilot

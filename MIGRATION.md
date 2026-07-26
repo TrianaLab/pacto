@@ -474,7 +474,7 @@ readiness:
 - **Contract model**: `pkg/contract/contract.go` (Go types)
 - **Findings and evidence**: `pkg/finding/finding.go`, `pkg/evidence/evidence.go`
 - **Evaluation model**: `pkg/validation/evaluate.go` (pure `Evaluate(contract, evidence) -> (findings, coverage)`)
-- **Operator integration**: pacto-operator repo, `api/v1alpha1/pacto_types.go`
+- **Operator integration**: `integrations/kubernetes/api/v1alpha1/pacto_types.go`
 
 ## No Automated Migration Tool
 
