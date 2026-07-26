@@ -211,14 +211,10 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: Install ORAS
-        uses: oras-project/setup-oras@v2
-      - name: Log in to GHCR
-        uses: docker/login-action@v4.4.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # No ORAS / docker login: publish-demo-bundles.sh pushes via `go run
+      # ./publishbundles`, which authenticates from PACTO_REGISTRY_USERNAME/PASSWORD
+      # below (the pacto OCI keychain), not the docker credential store. Production
+      # mode does not use the pacto binary, so nothing to build here either.
       - name: Publish demo bundles to the production coordinate
         env:
           PACTO_DEMO_REGISTRY: ghcr.io/trianalab/pacto-demo

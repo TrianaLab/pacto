@@ -56,7 +56,12 @@ else
   PROD=0
 fi
 
-command -v "$PACTO_BIN" >/dev/null 2>&1 || { echo "pacto binary not found at $PACTO_BIN (build: go build -o /tmp/pacto ./cmd/pacto)" >&2; exit 1; }
+# The pacto binary is only used by the staging proof (offline-lock regen + live
+# resolution checks). Production mode pushes via `go run ./publishbundles` and
+# never touches it, so only require it in staging.
+if [ "$PROD" = "0" ]; then
+  command -v "$PACTO_BIN" >/dev/null 2>&1 || { echo "pacto binary not found at $PACTO_BIN (build: go build -o /tmp/pacto ./cmd/pacto)" >&2; exit 1; }
+fi
 
 export PACTO_NO_UPDATE_CHECK=1
 # Hermetic cache so resolution can never fall back to a previously-cached ghcr pull.
