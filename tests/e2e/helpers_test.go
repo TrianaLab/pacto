@@ -27,6 +27,22 @@ import (
 // are safe to run alongside t.Parallel() subtests.
 var chdirMu sync.Mutex
 
+// cliExecMu serialises root.Execute() across parallel tests. The --no-anim
+// decision is now per-command (carried on cmd.Context(), no longer a package
+// global), but the CLI still writes ONE process-global during a run: the slog
+// default logger. internal/cli.NewRootCommand's PersistentPreRunE calls
+// logger.Setup -> slog.SetDefault, pointing the global logger at THIS command's
+// stderr, and the app layer logs through slog.Default() (~40 call sites, e.g.
+// internal/app.Service.Validate). Two commands executing concurrently — one with
+// --verbose (which raises the global level to Debug) and another whose app code
+// calls slog.Debug — race on the first command's output buffer. Holding this
+// mutex for the duration of each Execute keeps the t.Parallel() tests race-free
+// while their setup/IO still run in parallel. De-globalling slog (per-command
+// logger threaded through context to every app call site) is a larger follow-up.
+// Always acquired inside chdirMu/xdgMu (never the reverse), so no lock-ordering
+// cycle exists.
+var cliExecMu sync.Mutex
+
 // inDir changes the working directory to dir for the duration of the current
 // test/subtest. It acquires chdirMu so that parallel tests never race on CWD.
 func inDir(t *testing.T, dir string) {
@@ -99,7 +115,9 @@ func runCommandWithVersion(t *testing.T, reg *testRegistry, version string, args
 	root.SetErr(&out)
 	root.SetArgs(args)
 
+	cliExecMu.Lock()
 	err := root.Execute()
+	cliExecMu.Unlock()
 	return out.String(), err
 }
 
@@ -124,7 +142,9 @@ func runCommandWithCancelledCtx(t *testing.T, reg *testRegistry, args ...string)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
+	cliExecMu.Lock()
 	err := root.ExecuteContext(ctx)
+	cliExecMu.Unlock()
 	return out.String(), err
 }
 
