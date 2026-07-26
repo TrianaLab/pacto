@@ -54,7 +54,10 @@ function buildPlan(u) {
         tags: [`integrations/kubernetes/v${k8s}`],            // nested-module tag
         // Release state: the integration go.mod pins the published core, NO replace.
         goModPin: { module: u['core'].coordinate, version: `v${core}` },
-        dropReplace: true,
+        // Fail-closed: apply-release-plan asserts no replace directive survives into
+        // release state (it never strips one — a stray replace is a mistake to surface,
+        // not silently rewrite). Dev builds resolve via go.work, so none should exist.
+        assertNoReplace: true,
         artifacts: [
           { unit: 'k8s-module', kind: 'go-module', coordinate: u['k8s-module'].coordinate, tag: `integrations/kubernetes/v${k8s}` },
           { unit: 'operator-image', kind: 'oci-image', coordinate: u['operator-image'].coordinate, tag: k8s },

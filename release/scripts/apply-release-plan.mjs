@@ -25,6 +25,7 @@ const imageTag = chart.defaultImageTag;       // e.g. 4.7.0
 const opImageCoord = opImage.coordinate;      // ghcr.io/.../pacto-controller
 const compat = k8s.compatibility.pactoCore;   // e.g. >=2.0.0
 const pin = k8s.goModPin;                      // { module, version:"v2.7.0" }
+const assertNoReplace = k8s.assertNoReplace;   // release state must carry no replace
 
 // Matches a semver core, optionally with a prerelease suffix.
 const SEMVER = String.raw`\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?`;
@@ -42,15 +43,20 @@ function assert(cond, msg) {
   if (!cond) { console.error(`apply-release-plan: FAIL — ${msg}`); process.exit(1); }
 }
 
-// ---- 1. integration go.mod: pin published core, assert NO replace remains ----
+// ---- 1. integration go.mod: pin published core; fail closed on any replace ----
+// assertNoReplace declares the release-state invariant: a replace directive must
+// NOT survive into a published go.mod. This is enforcement, not removal — a stray
+// replace is a mistake to surface loudly, never something to silently rewrite.
 {
   const rel = 'integrations/kubernetes/go.mod';
   const after = edit(rel, (s) =>
     s.replace(new RegExp(`${esc(pin.module)} v${SEMVER}`), `${pin.module} ${pin.version}`));
   assert(after.includes(`${pin.module} ${pin.version}`),
     `${rel}: core require not pinned to ${pin.version}`);
-  assert(!/^\s*replace(\s|\()/m.test(after),
-    `${rel}: a replace directive is present — release state must have none`);
+  if (assertNoReplace) {
+    assert(!/^\s*replace(\s|\()/m.test(after),
+      `${rel}: a replace directive is present — release state must have none`);
+  }
 }
 
 // ---- 2. operator chart Chart.yaml: version, appVersion, artifacthub image ----

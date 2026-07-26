@@ -65,10 +65,10 @@
           "version": "4.7.0"
         }
       ],
+      "assertNoReplace": true,
       "compatibility": {
         "pactoCore": ">=2.0.0"
       },
-      "dropReplace": true,
       "goModPin": {
         "module": "github.com/trianalab/pacto/v2",
         "version": "v2.7.0"
