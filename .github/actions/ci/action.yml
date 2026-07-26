@@ -17,18 +17,18 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-go@v6.3.0
+    - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
       with:
         go-version-file: go.mod
 
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
       if: inputs.node == 'true'
       with:
         node-version: '22'
         cache: 'npm'
         cache-dependency-path: pkg/dashboard/frontend/package-lock.json
 
-    - uses: actions/cache@v5.0.3
+    - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
       with:
         path: |
           ~/.cache/go-build
@@ -43,7 +43,7 @@ runs:
 
     - name: Install golangci-lint
       if: inputs.golangci-lint == 'true'
-      uses: golangci/golangci-lint-action@v9.2.0
+      uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
       with:
         install-only: true
 
