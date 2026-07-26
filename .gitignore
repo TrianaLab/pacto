@@ -25,6 +25,10 @@ TODO.md
 # Config
 config.yaml
 
+# Node (Changesets release tooling)
+/node_modules/
+release/units/*/node_modules/
+
 # Generated bundle artifacts (created by make targets / pacto generate)
 pactos/*/interfaces/openapi.json
 pactos/*/configuration/schema.json
