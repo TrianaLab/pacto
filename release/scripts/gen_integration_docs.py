@@ -10,7 +10,7 @@ Source-of-truth map (page -> inputs):
   crd-reference.md         <- config/crd/bases/*.yaml (authoritative OpenAPI v3 schema)
   helm-reference.md        <- charts/pacto-operator/values.yaml + Chart.yaml
   rbac.md                  <- config/rbac/role.yaml + config/rbac/metrics-observation/
-  operator-configuration.md<- `go run ./cmd --help` (real output) + cmd/main.go env vars
+  operator-configuration.md<- `go run ./integrations/kubernetes/cmd --help` (real output) + cmd/main.go env vars
   contract-bindings.md     <- CRD target/contractRef/overrides fields + pacto CLI validation
   runtime-observations.md  <- internal/observer/runtime.go + pkg/evidence + pkg/finding + api enums
   artifact-hub.md          <- release/release-manifest.json + artifacthub-repo.yml + Chart.yaml
@@ -299,7 +299,7 @@ def gen_rbac(k8s: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Operator configuration  <-  `go run ./cmd --help` + cmd/main.go env vars
+# Operator configuration  <-  `go run ./integrations/kubernetes/cmd --help` + cmd/main.go env vars
 # ---------------------------------------------------------------------------
 
 def controller_help(repo_root: str) -> str:

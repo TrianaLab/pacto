@@ -44,7 +44,7 @@ drift silently:
 | `crd-reference.md` | `config/crd/bases/*.yaml` (OpenAPI v3 schema) |
 | `helm-reference.md` | `charts/pacto-operator/values.yaml` + `Chart.yaml` |
 | `rbac.md` | `config/rbac/role.yaml` + `config/rbac/metrics-observation/servicemonitor_rbac.yaml` |
-| `operator-configuration.md` | `go run ./cmd --help` (real output) + `cmd/main.go` env vars |
+| `operator-configuration.md` | `go run ./integrations/kubernetes/cmd --help` (real output) + `cmd/main.go` env vars |
 | `contract-bindings.md` | `Pacto` CRD `contractRef`/`target`/`overrides` fields |
 | `runtime-observations.md` | `internal/observer/runtime.go` + `pkg/evidence` + `pkg/finding/codes.go` + `api/v1alpha1` enums |
 | `artifact-hub.md` | `release/release-manifest.json` + `artifacthub-repo.yml` + `Chart.yaml` |
