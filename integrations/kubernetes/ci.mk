@@ -19,7 +19,7 @@ ci-test: envtest setup-envtest
 	fi
 	@echo "    total coverage: 100.0%"
 
-ci-chart: helm-lint helm-template helm-unittest helm-schema helm-docs-check api-docs-check
+ci-chart: helm-lint helm-template helm-unittest helm-schema helm-docs-check docs-generate-check
 
 ci-fmt:
 	@echo "==> Checking formatting..."
@@ -65,8 +65,8 @@ helm-docs-check: ## Check that helm-docs output matches committed README.
 	@git diff --exit-code charts/pacto-operator/README.md || \
 		{ echo "Error: Helm chart README is out of date. Run 'make helm-docs' and commit." >&2; exit 1; }
 
-.PHONY: api-docs-check
-api-docs-check: api-docs ## Check that API reference docs match committed output.
-	@echo "==> Checking API docs drift..."
-	@git diff --exit-code docs/api-reference.md || \
-		{ echo "Error: API reference docs are out of date. Run 'make api-docs' and commit." >&2; exit 1; }
+.PHONY: docs-generate-check
+docs-generate-check: docs-generate ## Check that generated reference docs match committed output.
+	@echo "==> Checking generated docs drift..."
+	@git diff --exit-code docs/generated/ || \
+		{ echo "Error: Generated reference docs are out of date. Run 'make docs-generate' and commit." >&2; exit 1; }

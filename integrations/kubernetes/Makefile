@@ -273,9 +273,9 @@ helm-docs: ## Generate Helm chart documentation with helm-docs.
 	@command -v helm-docs >/dev/null 2>&1 || { echo "helm-docs not installed: go install github.com/norwoodj/helm-docs/cmd/helm-docs@latest"; exit 1; }
 	helm-docs --chart-search-root charts
 
-.PHONY: api-docs
-api-docs: crd-ref-docs ## Generate CRD API reference documentation.
-	"$(CRD_REF_DOCS)" --source-path=./api/v1alpha1 --config=./hack/api-docs-config.yaml --renderer=markdown --output-path=./docs/api-reference.md
+.PHONY: docs-generate
+docs-generate: ## Regenerate this integration's reference docs from real sources.
+	python3 ../../release/scripts/gen_integration_docs.py --integration-dir .
 
 .PHONY: helm-lint
 helm-lint: ## Lint the Helm chart.
