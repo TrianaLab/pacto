@@ -8,7 +8,7 @@
 
 **Pacto is to service operations what OpenAPI is to HTTP APIs.**
 
-A service's operational behavior — interfaces, dependencies, runtime semantics, configuration, scaling and readiness — is scattered across Helm values, wikis and dashboards, and drifts from what's actually running. Pacto captures it once in a validated, versioned contract (`pacto.yaml`), distributes it through your existing OCI registry and lets `pacto diff` catch breaking changes while the operator catches runtime drift. It doesn't replace OpenAPI, Helm, Terraform, Backstage or Kubernetes — it adds the operational contract layer between them, composing the interfaces you already own and adding what no single one does: ownership, dependencies, compatibility and readiness over time.
+A service's operational behavior — interfaces, dependencies, runtime semantics, configuration and readiness — is scattered across Helm values, wikis and dashboards, and drifts from what's actually running. Pacto captures it once in a validated, versioned contract (`pacto.yaml`), distributes it through your existing OCI registry and lets `pacto diff` catch breaking changes while the operator catches runtime drift. It doesn't replace OpenAPI, Helm, Terraform, Backstage or Kubernetes — it adds the operational contract layer between them, composing the interfaces you already own and adding what no single one does: ownership, dependencies, compatibility and readiness over time.
 
 **[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)** · **[Live demo](https://trianalab.github.io/pacto/demo/)**
 
@@ -48,7 +48,7 @@ No sidecars and no central control plane: the CLI uses your existing OCI registr
 ```bash
 # Author and publish a contract (install is below)
 pacto init my-service && cd my-service       # scaffold a contract bundle
-pacto validate .                             # 4-layer validation
+pacto validate .                             # 3-layer validation
 pacto push oci://ghcr.io/acme/svc-pacto      # tag inferred from service.version
 
 # Catch breaking changes in CI
@@ -63,7 +63,7 @@ The [Quickstart](https://trianalab.github.io/pacto/quickstart) goes from zero to
 ## What a contract captures
 
 ```yaml
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: payments-api
@@ -74,35 +74,33 @@ service:
 
 interfaces:
   - name: rest-api
-    type: http
-    port: 8080
+    type: openapi
+    ref: interfaces/openapi.yaml   # points at your existing OpenAPI spec
     visibility: public
-    contract: interfaces/openapi.yaml   # points at your existing OpenAPI spec
 
 dependencies:
   - name: auth
-    ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123
+    ref: oci://ghcr.io/acme/auth-pacto:2.0.0
     required: true
     compatibility: "^2.0.0"
 ```
 
-Only `pactoVersion` and `service` are required — everything else (runtime semantics, scaling, configuration, policies and readiness) is opt-in. Each interface's `contract` points at a schema you already own, so a contract composes your interfaces rather than redefining them. See the [Contract Reference](https://trianalab.github.io/pacto/contract-reference) for the full schema.
+Only `pactoVersion` and `service` are required — everything else (runtime semantics, configuration, policies and readiness) is opt-in. Each interface's `ref` points at a schema you already own, so a contract composes your interfaces rather than redefining them. See the [Contract Reference](https://trianalab.github.io/pacto/contract-reference) for the full schema.
 
 ---
 
 ## What you get
 
-Bump a version, move a port, remove an endpoint, drop a config property — `pacto diff` classifies it and fails CI before the merge:
+Bump a version, remove an endpoint, drop a config property — `pacto diff` classifies each and fails CI before the merge:
 
 ```console
 $ pacto diff oci://ghcr.io/acme/svc:1.0 oci://ghcr.io/acme/svc:2.0
 Classification: BREAKING
-Changes (4):
+Changes (3):
   [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 2.0.0]
-  [BREAKING] interfaces.port (modified): interfaces.port modified [8081 -> 9090]
   [BREAKING] openapi.paths[/predict] (removed): API path /predict removed [- /predict]
   [POTENTIAL_BREAKING] schema.properties.model_path (removed): schema.properties.model_path removed [- map[type:string]]
-Error: breaking changes detected             # non-zero exit gates the merge
+breaking changes detected                    # printed to stderr; non-zero exit gates the merge
 ```
 
 Everything a contract enables, from one artifact:
