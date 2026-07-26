@@ -25,7 +25,7 @@ jobs:
   bundle:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
 
       - uses: actions/setup-go@v7
         with:
@@ -100,7 +100,7 @@ jobs:
     needs: bundle
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
 
       - uses: trianalab/pacto-actions@v1
         with:

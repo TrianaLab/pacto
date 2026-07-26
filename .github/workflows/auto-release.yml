@@ -54,7 +54,7 @@ jobs:
             echo "type=skip" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
         if: steps.bump.outputs.type != 'skip'
         with:
           fetch-depth: 0
@@ -112,7 +112,7 @@ jobs:
         goarch: [amd64, arm64]
 
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
 
       - uses: actions/setup-go@v7
         with:
@@ -177,7 +177,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
 
       - name: Extract version
         id: meta

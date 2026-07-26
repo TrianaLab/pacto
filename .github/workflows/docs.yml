@@ -44,7 +44,7 @@ jobs:
     # succeeded (skip cancelled/failed release runs). All other triggers proceed.
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
         # Full history + tags so the demo build's `git describe` resolves the
         # real Pacto version to bake into the dashboard (shown in the navbar).
         with:
