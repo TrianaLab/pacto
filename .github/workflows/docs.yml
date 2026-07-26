@@ -16,17 +16,17 @@ on:
       - 'pkg/dashboard/**'
       - '.github/workflows/docs.yml'
   # The demo bakes in the Pacto version via `git describe` at build time. The
-  # merge-to-main push above runs ~seconds BEFORE Auto release creates the tag,
-  # so it bakes the PREVIOUS version. We must redeploy once the new tag exists.
+  # merge-to-main push above runs ~seconds BEFORE the Release workflow creates the
+  # tag, so it bakes the PREVIOUS version. We must redeploy once the new tag exists.
   #
-  # Auto release creates the GitHub release with the default GITHUB_TOKEN, and
-  # GitHub does NOT fire the `release` event for token-created releases (anti-
+  # The Release workflow creates the GitHub release with the default GITHUB_TOKEN,
+  # and GitHub does NOT fire the `release` event for token-created releases (anti-
   # recursion) — so an `on: release` trigger never runs for our automated tags.
-  # Instead, redeploy when the "Auto release" workflow itself COMPLETES: by then
-  # the tag exists and `git describe` resolves it. `workflow_run` is not subject
-  # to the token restriction.
+  # Instead, redeploy when the "Release" workflow itself COMPLETES: by then the tag
+  # exists and `git describe` resolves it. `workflow_run` is not subject to the
+  # token restriction.
   workflow_run:
-    workflows: ["Auto release"]
+    workflows: ["Release"]
     types: [completed]
   # Still covers releases published manually by a human (those DO fire `release`).
   release:
@@ -45,7 +45,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # On the workflow_run trigger, only deploy when Auto release actually
+    # On the workflow_run trigger, only deploy when the Release workflow actually
     # succeeded (skip cancelled/failed release runs). All other triggers proceed.
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
