@@ -1,7 +1,7 @@
 # PROOF - (a) immutable-version-violation: same version, different bytes -> REFUSE
 
-ref:            localhost:5001/pacto-test-immutable-1785066810693/gomod/github.com/trianalab/pacto/v2:v2.7.0
+ref:            localhost:5001/pacto-test-immutable-1785067031513/gomod/github.com/trianalab/pacto/v2:v2.7.0
 expected bytes: sha256:2af53bf4728f7cc8a3618273ab463566a7e3c0e36436704b1f3f81873319e1b2
 remote bytes:   sha256:c2bf9aec11cb783f380aecaece800d6ccebab008c99613dde9edd1dd88020681   <- different
 
-refusal: [immutable-version-violation] localhost:5001/pacto-test-immutable-1785066810693/gomod/github.com/trianalab/pacto/v2:v2.7.0 is already published with a different digest (sha256:c2bf9aec11cb783f380aecaece800d6ccebab008c99613dde9edd1dd88020681); refusing to overwrite immutable version with sha256:2af53bf4728f7cc8a3618273ab463566a7e3c0e36436704b1f3f81873319e1b2
+refusal: [immutable-version-violation] localhost:5001/pacto-test-immutable-1785067031513/gomod/github.com/trianalab/pacto/v2:v2.7.0 is already published with a different digest (sha256:c2bf9aec11cb783f380aecaece800d6ccebab008c99613dde9edd1dd88020681); refusing to overwrite immutable version with sha256:2af53bf4728f7cc8a3618273ab463566a7e3c0e36436704b1f3f81873319e1b2
