@@ -5,37 +5,37 @@
         {
           "coordinate": "github.com/trianalab/pacto/v3",
           "kind": "go-module",
-          "tag": "v2.7.0",
+          "tag": "v3.0.0",
           "unit": "core"
         },
         {
           "kind": "binaries",
-          "release": "v2.7.0",
+          "release": "v3.0.0",
           "unit": "cli"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto-dashboard",
           "kind": "oci-image",
-          "tag": "2.7.0",
+          "tag": "3.0.0",
           "unit": "dashboard-image"
         },
         {
           "coordinate": "ghcr.io/trianalab/pactos/pacto-dashboard",
           "kind": "oci-image",
-          "tag": "2.7.0",
+          "tag": "3.0.0",
           "unit": "dashboard-contract-bundle"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto-demo",
           "kind": "oci-image",
-          "tag": "2.7.0",
+          "tag": "3.0.0",
           "unit": "demo-bundles"
         }
       ],
       "tags": [
-        "v2.7.0"
+        "v3.0.0"
       ],
-      "version": "2.7.0"
+      "version": "3.0.0"
     },
     "kubernetes": {
       "artifacts": [
@@ -48,21 +48,21 @@
         {
           "coordinate": "ghcr.io/trianalab/pacto-operator/pacto-controller",
           "kind": "oci-image",
-          "tag": "4.7.0",
+          "tag": "5.0.0",
           "unit": "operator-image"
         },
         {
-          "appVersion": "4.7.0",
-          "chartVersion": "4.7.0",
+          "appVersion": "5.0.0",
+          "chartVersion": "5.0.0",
           "coordinate": "ghcr.io/trianalab/pacto-operator/charts/pacto-operator",
-          "defaultImageTag": "4.7.0",
+          "defaultImageTag": "5.0.0",
           "kind": "helm-chart",
           "unit": "operator-chart"
         },
         {
           "kind": "docs",
           "unit": "k8s-docs",
-          "version": "4.7.0"
+          "version": "5.0.0"
         }
       ],
       "assertNoReplace": true,
@@ -76,7 +76,7 @@
       "tags": [
         "integrations/kubernetes/v5.0.0"
       ],
-      "version": "4.7.0"
+      "version": "5.0.0"
     }
   },
   "publishOrder": [

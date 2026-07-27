@@ -1,6 +1,10 @@
 {
   "name": "@pacto/cli",
-  "version": "2.7.0",
+  "version": "3.0.0",
   "private": true,
-  "pacto": { "releaseUnit": "cli", "kind": "binaries", "coordinate": "github.com/trianalab/pacto releases" }
+  "pacto": {
+    "releaseUnit": "cli",
+    "kind": "binaries",
+    "coordinate": "github.com/trianalab/pacto releases"
+  }
 }

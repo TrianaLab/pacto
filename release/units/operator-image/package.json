@@ -1,6 +1,10 @@
 {
   "name": "@pacto/operator-image",
-  "version": "4.7.0",
+  "version": "5.0.0",
   "private": true,
-  "pacto": { "releaseUnit": "operator-image", "kind": "oci-image", "coordinate": "ghcr.io/trianalab/pacto-operator/pacto-controller" }
+  "pacto": {
+    "releaseUnit": "operator-image",
+    "kind": "oci-image",
+    "coordinate": "ghcr.io/trianalab/pacto-operator/pacto-controller"
+  }
 }
