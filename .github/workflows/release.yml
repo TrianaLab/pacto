@@ -248,43 +248,32 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Install ORAS
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
-      - name: Verify against the ledger (fail-closed on a conflicting digest)
-        id: v
-        run: |
-          want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" dashboard-image)"
-          state="$(bash release/orchestrator/verify-oci.sh "ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}" "$want")"
-          echo "state=$state" >> "$GITHUB_OUTPUT"
-      - name: Build and push
-        if: steps.v.outputs.state == 'absent'
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}
-          build-args: |
-            VERSION=v${{ needs.detect.outputs.core_version }}
-            GIT_COMMIT=${{ needs.detect.outputs.source_sha }}
-          labels: |
-            org.opencontainers.image.title=pacto-dashboard
-            org.opencontainers.image.version=${{ needs.detect.outputs.core_version }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ needs.detect.outputs.source_sha }}
       - name: Install Cosign
-        if: steps.v.outputs.state == 'absent'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - name: Sign
-        if: steps.v.outputs.state == 'absent'
+      - name: Publish + sign the dashboard image (shared adapter)
+        env:
+          REF: ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}
+          VER: ${{ needs.detect.outputs.core_version }}
+          SRC: ${{ needs.detect.outputs.source_sha }}
+          PACTO_EXPECT_REVISION: ${{ needs.detect.outputs.source_sha }}
+          PACTO_EXPECT_VERSION: ${{ needs.detect.outputs.core_version }}
         run: |
-          digest=$(docker buildx imagetools inspect \
-            "ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}" \
-            --format '{{json .Manifest.Digest}}' | tr -d '"')
-          cosign sign --yes "ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}@${digest}"
-      - name: Record in the ledger
-        if: steps.v.outputs.state == 'absent'
-        run: |
-          ref="ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}"
-          bash release/orchestrator/ledger.sh record "$PACTO_RELEASE_TXN" dashboard-image "ghcr.io/trianalab/pacto-dashboard" "${{ needs.detect.outputs.core_version }}" "$(crane digest "$ref")" complete
+          # The SAME shared adapter staging uses (publish-oci-unit.sh): verify ->
+          # absent build+push / identical skip / adopt (crash window) / conflict fail
+          # -> record. No inline state transitions duplicated in YAML. cosign signs
+          # only when we actually published or adopted (not on an idempotent skip).
+          out="$(bash release/orchestrator/publish-oci-unit.sh dashboard-image "$REF" "$VER" -- \
+            docker buildx build --push --platform linux/amd64,linux/arm64 \
+              --build-arg "VERSION=v$VER" --build-arg "GIT_COMMIT=$SRC" \
+              --label org.opencontainers.image.title=pacto-dashboard \
+              --label "org.opencontainers.image.version=$VER" \
+              --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+              --label "org.opencontainers.image.revision=$SRC" \
+              -t "$REF" .)"
+          echo "$out"
+          case "$out" in
+            *"published + recorded"*|*"adopt"*) cosign sign --yes "${REF}@$(crane digest "$REF")" ;;
+          esac
 
   # pacto-publishes: dashboard-contract-bundle
   # The OCI-distributed pacto CONTRACT for the dashboard service. Folded into the
@@ -323,32 +312,22 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify against the ledger (fail-closed on a conflicting digest)
-        id: v
+      # Build + validate the bundle (prep), then publish through the SAME shared
+      # adapter staging uses — verify / absent-push / identical-skip / conflict-fail
+      # / record — instead of inline state transitions.
+      - name: Build + validate the dashboard contract bundle
         run: |
-          want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" dashboard-contract-bundle)"
-          state="$(bash release/orchestrator/verify-oci.sh "ghcr.io/trianalab/pactos/pacto-dashboard:${{ needs.detect.outputs.core_version }}" "$want")"
-          echo "state=$state" >> "$GITHUB_OUTPUT"
-      - name: Build the dashboard contract bundle
-        if: steps.v.outputs.state == 'absent'
-        run: make gen-bundle
-      - name: Validate the contract
-        if: steps.v.outputs.state == 'absent'
-        run: go run ./cmd/pacto validate ./pactos/pacto-dashboard --set service.version=${{ needs.detect.outputs.core_version }}
-      - name: Push the contract bundle (exact version + source SHA)
-        if: steps.v.outputs.state == 'absent'
+          make gen-bundle
+          go run ./cmd/pacto validate ./pactos/pacto-dashboard --set service.version=${{ needs.detect.outputs.core_version }}
+      - name: Publish the contract bundle (shared adapter)
         env:
+          REF: ghcr.io/trianalab/pactos/pacto-dashboard:${{ needs.detect.outputs.core_version }}
+          VER: ${{ needs.detect.outputs.core_version }}
           PACTO_REGISTRY_USERNAME: ${{ github.actor }}
           PACTO_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          go run ./cmd/pacto push \
-            oci://ghcr.io/trianalab/pactos/pacto-dashboard:${{ needs.detect.outputs.core_version }} \
-            ./pactos/pacto-dashboard --set service.version=${{ needs.detect.outputs.core_version }}
-      - name: Record in the ledger
-        if: steps.v.outputs.state == 'absent'
-        run: |
-          ref="ghcr.io/trianalab/pactos/pacto-dashboard:${{ needs.detect.outputs.core_version }}"
-          bash release/orchestrator/ledger.sh record "$PACTO_RELEASE_TXN" dashboard-contract-bundle "ghcr.io/trianalab/pactos/pacto-dashboard" "${{ needs.detect.outputs.core_version }}" "$(crane digest "$ref")" complete
+          bash release/orchestrator/publish-oci-unit.sh dashboard-contract-bundle "$REF" "$VER" -- \
+            go run ./cmd/pacto push "oci://$REF" ./pactos/pacto-dashboard --set service.version="$VER"
 
   # pacto-publishes: demo-bundles
   # demo-bundles is a MULTI-artifact unit (one immutable tag per demo service),
@@ -455,45 +434,36 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Install ORAS
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
-      - name: Verify against the ledger (fail-closed on a conflicting digest)
-        id: v
-        run: |
-          want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" operator-image)"
-          state="$(bash release/orchestrator/verify-oci.sh "ghcr.io/trianalab/pacto-operator/pacto-controller:${{ needs.detect.outputs.k8s_version }}" "$want")"
-          echo "state=$state" >> "$GITHUB_OUTPUT"
-      - name: Build and push
-        if: steps.v.outputs.state == 'absent'
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          file: integrations/kubernetes/Dockerfile
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/trianalab/pacto-operator/pacto-controller:${{ needs.detect.outputs.k8s_version }}
-          build-args: |
-            VERSION=v${{ needs.detect.outputs.k8s_version }}
-            GIT_COMMIT=${{ needs.detect.outputs.source_sha }}
-            DASHBOARD_IMAGE=ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}
-            RELEASE_BUILD=1
-          labels: |
-            org.opencontainers.image.title=pacto-controller
-            org.opencontainers.image.version=${{ needs.detect.outputs.k8s_version }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ needs.detect.outputs.source_sha }}
       - name: Install Cosign
-        if: steps.v.outputs.state == 'absent'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - name: Sign
-        if: steps.v.outputs.state == 'absent'
+      - name: Publish + sign the operator image (shared adapter)
+        env:
+          REF: ghcr.io/trianalab/pacto-operator/pacto-controller:${{ needs.detect.outputs.k8s_version }}
+          VER: ${{ needs.detect.outputs.k8s_version }}
+          SRC: ${{ needs.detect.outputs.source_sha }}
+          DASH: ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}
+          PACTO_EXPECT_REVISION: ${{ needs.detect.outputs.source_sha }}
+          PACTO_EXPECT_VERSION: ${{ needs.detect.outputs.k8s_version }}
         run: |
-          img=ghcr.io/trianalab/pacto-operator/pacto-controller:${{ needs.detect.outputs.k8s_version }}
-          digest=$(docker buildx imagetools inspect "$img" --format '{{json .Manifest.Digest}}' | tr -d '"')
-          cosign sign --yes --new-bundle-format=false --use-signing-config=false "${img}@${digest}"
-      - name: Record in the ledger
-        if: steps.v.outputs.state == 'absent'
-        run: |
-          ref="ghcr.io/trianalab/pacto-operator/pacto-controller:${{ needs.detect.outputs.k8s_version }}"
-          bash release/orchestrator/ledger.sh record "$PACTO_RELEASE_TXN" operator-image "ghcr.io/trianalab/pacto-operator/pacto-controller" "${{ needs.detect.outputs.k8s_version }}" "$(crane digest "$ref")" complete
+          # Same shared adapter as staging; RELEASE_BUILD=1 builds the operator
+          # standalone against the published core. Operator + chart use cosign's
+          # legacy bundle format (Artifact Hub indexes the .sig tag), unlike the
+          # dashboard image — keep that flag difference. Sign only on publish/adopt.
+          out="$(bash release/orchestrator/publish-oci-unit.sh operator-image "$REF" "$VER" -- \
+            docker buildx build --push --platform linux/amd64,linux/arm64 \
+              --file integrations/kubernetes/Dockerfile \
+              --build-arg "VERSION=v$VER" --build-arg "GIT_COMMIT=$SRC" \
+              --build-arg "DASHBOARD_IMAGE=$DASH" --build-arg RELEASE_BUILD=1 \
+              --label org.opencontainers.image.title=pacto-controller \
+              --label "org.opencontainers.image.version=$VER" \
+              --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+              --label "org.opencontainers.image.revision=$SRC" \
+              -t "$REF" .)"
+          echo "$out"
+          case "$out" in
+            *"published + recorded"*|*"adopt"*)
+              cosign sign --yes --new-bundle-format=false --use-signing-config=false "${REF}@$(crane digest "$REF")" ;;
+          esac
 
   # pacto-publishes: operator-chart
   operator-chart:
