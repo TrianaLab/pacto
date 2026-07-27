@@ -200,6 +200,8 @@ nav:
       - Dashboard container: dashboard-docker.md
   - Architecture:
       - Overview: architecture.md
+  - Maintainers:
+      - Release architecture: maintainers/releases.md
   # changelog.md is assembled at build time from release/units/*/CHANGELOG.md
   # by release/scripts/mkdocs_integration_hook.py (Changesets-generated history).
   - Changelog: changelog.md
