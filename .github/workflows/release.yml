@@ -45,6 +45,9 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      # changesets runs push-only, opens the Version PR, and publishes nothing —
+      # it is not a release publisher and not part of recovery, so it uses the
+      # normal checkout (the pushed commit).
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
@@ -124,11 +127,15 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # Recovery-safe: build the EXACT transaction source commit, not the branch
+          # HEAD at dispatch time (on push these are the same commit).
+          ref: ${{ needs.detect.outputs.source_sha }}
           fetch-depth: 0
       - name: Tag the core module (immutable)
         env:
           TAG: v${{ needs.detect.outputs.core_version }}
-        run: bash release/orchestrator/publish-go-tag.sh "$TAG" "$GITHUB_SHA"
+          SRC: ${{ needs.detect.outputs.source_sha }}
+        run: bash release/orchestrator/publish-go-tag.sh "$TAG" "$SRC"
 
   # Core-readiness barrier for the Kubernetes line. Always runs for a release so
   # the Kubernetes publishers have a stable dependency even when core is unchanged
@@ -142,6 +149,9 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # Recovery-safe: build the EXACT transaction source commit, not the branch
+          # HEAD at dispatch time (on push these are the same commit).
+          ref: ${{ needs.detect.outputs.source_sha }}
           fetch-depth: 0
       - name: Verify core is ready for the Kubernetes line
         env:
@@ -176,6 +186,8 @@ jobs:
       PACTO_ALLOW_PROD: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.detect.outputs.source_sha }}
       - name: Install crane
         run: |
           go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
@@ -198,7 +210,11 @@ jobs:
           # jq: sorted-key compact JSON of {unit: version}, hashed with no newline.
           MSHA="$(jq -cS '.units | map_values(.version)' release/release-manifest.json | tr -d '\n' | sha256sum | cut -d' ' -f1)"
           if [ -n "$(bash release/orchestrator/ledger.sh get "$TXN")" ]; then
-            echo "ledger $TXN already exists — resuming, not re-initializing"
+            # Resume: the existing ledger must describe THIS exact transaction —
+            # matching transactionId + sourceSha + manifestSha — else fail closed.
+            # (manifest read from the source_sha checkout, so MSHA is the source's.)
+            echo "ledger $TXN exists — validating metadata before resume"
+            bash release/orchestrator/ledger.sh verify "$TXN" "$SHA" "$MSHA"
           else
             bash release/orchestrator/ledger.sh init "$TXN" "$SHA" "$MSHA"
           fi
@@ -217,6 +233,8 @@ jobs:
       PACTO_ALLOW_PROD: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.detect.outputs.source_sha }}
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: Log in to GHCR
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
@@ -246,12 +264,12 @@ jobs:
           tags: ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}
           build-args: |
             VERSION=v${{ needs.detect.outputs.core_version }}
-            GIT_COMMIT=${{ github.sha }}
+            GIT_COMMIT=${{ needs.detect.outputs.source_sha }}
           labels: |
             org.opencontainers.image.title=pacto-dashboard
             org.opencontainers.image.version=${{ needs.detect.outputs.core_version }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ needs.detect.outputs.source_sha }}
       - name: Install Cosign
         if: steps.v.outputs.state == 'absent'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -286,6 +304,8 @@ jobs:
       PACTO_ALLOW_PROD: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.detect.outputs.source_sha }}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -348,6 +368,8 @@ jobs:
       PACTO_ALLOW_PROD: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.detect.outputs.source_sha }}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -391,11 +413,15 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # Recovery-safe: build the EXACT transaction source commit, not the branch
+          # HEAD at dispatch time (on push these are the same commit).
+          ref: ${{ needs.detect.outputs.source_sha }}
           fetch-depth: 0
       - name: Tag the integration module (immutable)
         env:
           TAG: integrations/kubernetes/v${{ needs.detect.outputs.k8s_version }}
-        run: bash release/orchestrator/publish-go-tag.sh "$TAG" "$GITHUB_SHA"
+          SRC: ${{ needs.detect.outputs.source_sha }}
+        run: bash release/orchestrator/publish-go-tag.sh "$TAG" "$SRC"
 
   # pacto-publishes: operator-image
   # Root build context (context: .) so the monorepo-aware Dockerfile can COPY
@@ -414,6 +440,8 @@ jobs:
       PACTO_ALLOW_PROD: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.detect.outputs.source_sha }}
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: Log in to GHCR
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
@@ -444,14 +472,14 @@ jobs:
           tags: ghcr.io/trianalab/pacto-operator/pacto-controller:${{ needs.detect.outputs.k8s_version }}
           build-args: |
             VERSION=v${{ needs.detect.outputs.k8s_version }}
-            GIT_COMMIT=${{ github.sha }}
+            GIT_COMMIT=${{ needs.detect.outputs.source_sha }}
             DASHBOARD_IMAGE=ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}
             RELEASE_BUILD=1
           labels: |
             org.opencontainers.image.title=pacto-controller
             org.opencontainers.image.version=${{ needs.detect.outputs.k8s_version }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ needs.detect.outputs.source_sha }}
       - name: Install Cosign
         if: steps.v.outputs.state == 'absent'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -484,6 +512,8 @@ jobs:
       PACTO_ALLOW_PROD: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.detect.outputs.source_sha }}
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - name: Install Cosign
@@ -510,7 +540,10 @@ jobs:
           want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" operator-chart)"
           state="$(bash release/orchestrator/verify-oci.sh "ghcr.io/trianalab/pacto-operator/charts/pacto-operator:${{ needs.detect.outputs.k8s_version }}" "$want")"
           echo "state=$state" >> "$GITHUB_OUTPUT"
-      - name: Package, push, sign chart + Artifact Hub metadata
+      # Item 8: the IMMUTABLE chart and the MUTABLE Artifact Hub alias are separate
+      # publication results. Package + push + RECORD the chart digest immediately
+      # (record right after push closes the push-before-record window), then sign.
+      - name: Package + push + record the immutable chart, then sign
         if: steps.v.outputs.state == 'absent'
         env:
           VERSION: ${{ needs.detect.outputs.k8s_version }}
@@ -519,24 +552,28 @@ jobs:
           out=$(helm push "pacto-operator-${VERSION}.tgz" oci://ghcr.io/trianalab/pacto-operator/charts 2>&1)
           echo "$out"
           digest=$(echo "$out" | grep -oE 'sha256:[a-f0-9]+')
+          [ -n "$digest" ] || { echo "::error::no chart digest from helm push"; exit 1; }
+          # Record the immutable chart digest NOW, before the mutable metadata step,
+          # so an Artifact Hub failure can never leave a published-but-unrecorded chart.
+          bash "$GITHUB_WORKSPACE/release/orchestrator/ledger.sh" record "$PACTO_RELEASE_TXN" \
+            operator-chart "ghcr.io/trianalab/pacto-operator/charts/pacto-operator" "$VERSION" "$digest" complete
           cosign sign --yes --new-bundle-format=false --use-signing-config=false \
             "ghcr.io/trianalab/pacto-operator/charts/pacto-operator:${VERSION}@${digest}"
-          # The artifacthub.io tag is an intentional MUTABLE repo-level alias (NOT
-          # an immutable SemVer chart version): Artifact Hub reads repository
-          # ownership from this one well-known tag, so re-pushing + round-tripping
-          # the SAME metadata every release is expected to match byte-for-byte.
+      # The artifacthub.io tag is an intentional MUTABLE repo-level alias (NOT an
+      # immutable SemVer chart version): Artifact Hub reads repository ownership from
+      # this one well-known tag, so re-pushing + round-tripping the SAME metadata is
+      # expected to match byte-for-byte. Runs on absent OR identical, so a clean
+      # resume still refreshes + verifies the alias; a failure here never wedges the
+      # already-recorded immutable chart.
+      - name: Publish + verify Artifact Hub metadata (mutable alias)
+        if: steps.v.outputs.state == 'absent' || steps.v.outputs.state == 'identical'
+        run: |
           oras push ghcr.io/trianalab/pacto-operator/charts/pacto-operator:artifacthub.io \
             --config /dev/null:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml \
             artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
           bash "$GITHUB_WORKSPACE/release/orchestrator/verify-artifacthub.sh" \
             ghcr.io/trianalab/pacto-operator/charts/pacto-operator:artifacthub.io \
             artifacthub-repo.yml
-      - name: Record in the ledger
-        if: steps.v.outputs.state == 'absent'
-        working-directory: .
-        run: |
-          ref="ghcr.io/trianalab/pacto-operator/charts/pacto-operator:${{ needs.detect.outputs.k8s_version }}"
-          bash release/orchestrator/ledger.sh record "$PACTO_RELEASE_TXN" operator-chart "ghcr.io/trianalab/pacto-operator/charts/pacto-operator" "${{ needs.detect.outputs.k8s_version }}" "$(crane digest "$ref")" complete
 
   # pacto-publishes: k8s-docs
   # The versioned docs site. A transaction unit (not an independent trigger): it
@@ -556,6 +593,9 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # Recovery-safe: build the EXACT transaction source commit, not the branch
+          # HEAD at dispatch time (on push these are the same commit).
+          ref: ${{ needs.detect.outputs.source_sha }}
           fetch-depth: 0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
@@ -598,6 +638,9 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # Recovery-safe: build the EXACT transaction source commit, not the branch
+          # HEAD at dispatch time (on push these are the same commit).
+          ref: ${{ needs.detect.outputs.source_sha }}
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -607,9 +650,11 @@ jobs:
       - name: Build reproducible binaries + checksums + SBOM
         env:
           TAG: v${{ needs.detect.outputs.core_version }}
-        run: bash release/orchestrator/build-cli.sh "$TAG" "$GITHUB_SHA"
+          SRC: ${{ needs.detect.outputs.source_sha }}
+        run: bash release/orchestrator/build-cli.sh "$TAG" "$SRC"
       - name: Create the GitHub Release with verified assets (last)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: v${{ needs.detect.outputs.core_version }}
-        run: bash release/orchestrator/finalize-release.sh "$TAG" "$GITHUB_SHA"
+          SRC: ${{ needs.detect.outputs.source_sha }}
+        run: bash release/orchestrator/finalize-release.sh "$TAG" "$SRC"
