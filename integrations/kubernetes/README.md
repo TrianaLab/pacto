@@ -1,5 +1,4 @@
 [![CI](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml/badge.svg)](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/TrianaLab/pacto-operator/graph/badge.svg?token=uMQvuK30Up)](https://codecov.io/gh/TrianaLab/pacto-operator)
 [![GitHub Release](https://img.shields.io/github/v/release/TrianaLab/pacto)](https://github.com/TrianaLab/pacto/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pacto-operator)](https://artifacthub.io/packages/search?repo=pacto-operator)
@@ -335,7 +334,7 @@ Verify the controller image:
 ```bash
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp 'github\.com/TrianaLab/pacto-operator' \
+  --certificate-identity-regexp 'github\.com/TrianaLab/pacto/\.github/workflows/release\.yml' \
   ghcr.io/trianalab/pacto-operator/pacto-controller:<version>
 ```
 
@@ -344,7 +343,7 @@ Verify the Helm chart:
 ```bash
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp 'github\.com/TrianaLab/pacto-operator' \
+  --certificate-identity-regexp 'github\.com/TrianaLab/pacto/\.github/workflows/release\.yml' \
   ghcr.io/trianalab/charts/pacto-operator:<version>
 ```
 
@@ -391,9 +390,9 @@ make undeploy-local                # Remove from current kube context
 
 These targets work with any local Kubernetes distribution (Docker Desktop, minikube, Kind, etc.). If you use Kind, run `make kind-load` first so the image is available inside the cluster, or use `make deploy-kind` which combines both steps.
 
-> **Engine dependency.** The operator depends on the [Pacto engine](https://github.com/TrianaLab/pacto) module `github.com/trianalab/pacto/v3`. On the development branch `go.mod` carries a `replace ... => ../pacto` so the build uses a sibling engine checkout (toggle with `make pacto-local` / `make pacto-remote`). This is a dev-only convenience — clone the engine as `../pacto` for co-development, and see [RELEASING.md](RELEASING.md) for the engine-first release procedure that drops the replace.
+> **Engine dependency.** The operator is a nested Go module (`github.com/trianalab/pacto/integrations/kubernetes/v5`) that depends on the Pacto engine module `github.com/trianalab/pacto/v3`. It is resolved against the engine through the monorepo root `go.work` — there is no sibling checkout or `go.mod` replace to manage.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
+See the repository-root [CONTRIBUTING.md](/CONTRIBUTING.md) for the full development guide. Releases are transaction-driven Changesets managed at the repo root — see [`release/`](/release).
 
 ---
 

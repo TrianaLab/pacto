@@ -144,27 +144,6 @@ deploy-with-dashboard-args: manifests kustomize
 .PHONY: undeploy-local
 undeploy-local: undeploy ## Remove the operator from the current kube context.
 
-##@ Development — Dependency Management
-
-.PHONY: pacto-local
-pacto-local: ## Use the local ../pacto checkout as the pacto dependency (for co-development).
-	@if ! grep -q 'replace github.com/trianalab/pacto/v3 =>' go.mod; then \
-		go mod edit -replace github.com/trianalab/pacto/v3=../pacto && \
-		echo "✓ Switched to local pacto (../pacto)"; \
-	else \
-		echo "Already using local pacto"; \
-	fi
-
-.PHONY: pacto-remote
-pacto-remote: ## Switch back to the released pacto module (removes local replace).
-	@if grep -q 'replace github.com/trianalab/pacto/v3 =>' go.mod; then \
-		go mod edit -dropreplace github.com/trianalab/pacto/v3 && \
-		go mod tidy && \
-		echo "✓ Switched to remote pacto ($$(go list -m -f '{{.Version}}' github.com/trianalab/pacto/v3))"; \
-	else \
-		echo "Already using remote pacto"; \
-	fi
-
 ##@ Development — Common
 
 .PHONY: manifests

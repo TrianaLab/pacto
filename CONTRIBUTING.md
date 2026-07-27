@@ -170,6 +170,30 @@ The `make ci` target runs all quality gates in order:
 - Run `make docs` to preview the documentation site locally.
 - CLI reference docs are auto-generated. Run `make gen-cli-docs` if you add or change CLI commands.
 
+### Operator (Kubernetes integration)
+
+The Kubernetes operator is a nested Go module under `integrations/kubernetes/`, resolved against the engine through the root `go.work` — there is no separate engine checkout to clone. Its dev commands run from that directory and additionally require [Docker](https://docs.docker.com/get-docker/), [kubectl](https://kubernetes.io/docs/tasks/tools/) and [Kind](https://kind.sigs.k8s.io/):
+
+```bash
+cd integrations/kubernetes
+make ci             # static checks + envtest tests + Helm chart validation
+make test           # unit/integration tests (controller-runtime envtest)
+make test-e2e       # e2e acceptance matrix against envtest
+make lint           # golangci-lint
+```
+
+Deploy to a local cluster:
+
+```bash
+make install        # install CRDs via kustomize
+make run            # run the controller against your current kube context
+make helm-install   # build image + helm install (CRDs included)
+make helm-upgrade   # rebuild + upgrade the existing release
+make helm-uninstall # remove the release
+```
+
+The operator's `make ci` adds a Helm chart gate (`ci-chart`: helm lint, template rendering, unit tests, schema validation, docs drift) on top of the standard fmt/vet/lint/test gates.
+
 ## Pull Request Process
 
 1. Run `make ci` locally and ensure it passes.

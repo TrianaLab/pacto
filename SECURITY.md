@@ -30,6 +30,7 @@ If you discover a security vulnerability in Pacto, please report it responsibly.
 ## Security Practices
 
 - The core CLI runs at **build time and CI time** — it has no runtime agents, sidecars, or persistent infrastructure. The optional [Kubernetes Operator](https://github.com/TrianaLab/pacto/tree/main/integrations/kubernetes) adds runtime compliance.
+- The operator observes cluster state **read-only and non-intrusively** — it never modifies your workloads. It runs with **least-privilege RBAC** and ships as a **distroless, non-root** image.
 - Contracts are distributed as **OCI artifacts** through standard container registries.
 - All dependencies are kept up to date and monitored for known vulnerabilities.
 
@@ -41,6 +42,7 @@ The following are in scope for security reports:
 - Official plugins (e.g., `pacto-plugin-schema-infer`)
 - OCI artifact push/pull operations
 - Contract validation logic
+- The Kubernetes operator: controller, CRD definitions, RBAC permissions and Helm chart defaults
 
 The following are **out of scope**:
 
