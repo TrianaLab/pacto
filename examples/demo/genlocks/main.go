@@ -27,11 +27,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/graph"
-	"github.com/trianalab/pacto/v2/pkg/ignore"
-	"github.com/trianalab/pacto/v2/pkg/lock"
-	"github.com/trianalab/pacto/v2/pkg/semver"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/ignore"
+	"github.com/trianalab/pacto/v3/pkg/lock"
+	"github.com/trianalab/pacto/v3/pkg/semver"
 )
 
 const (

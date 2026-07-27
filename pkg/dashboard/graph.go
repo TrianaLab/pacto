@@ -3,8 +3,8 @@ package dashboard
 import (
 	"strings"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	depgraph "github.com/trianalab/pacto/v2/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	depgraph "github.com/trianalab/pacto/v3/pkg/graph"
 )
 
 // DependentInfo describes a service that depends on another service.
@@ -61,28 +61,10 @@ type GlobalGraph struct {
 }
 
 // buildRefAliases builds a mapping from OCI repo names to contract service names.
-// For example, if service "my-service" has imageRef "ghcr.io/org/my-service-pacto:1.0.0",
-// this maps "my-service-pacto" -> "my-service".
+// With v2, image/chart fields are removed, so this returns an empty map.
+// The fallback stripPactoSuffix heuristic handles the common "-pacto" OCI suffix.
 func buildRefAliases(index map[string]*ServiceDetails) map[string]string {
-	aliases := make(map[string]string)
-	for name, d := range index {
-		if d == nil {
-			continue
-		}
-		if d.ImageRef != "" {
-			refName := extractServiceNameFromRef(d.ImageRef)
-			if refName != name {
-				aliases[refName] = name
-			}
-		}
-		if d.ChartRef != "" {
-			refName := extractServiceNameFromRef(d.ChartRef)
-			if refName != name {
-				aliases[refName] = name
-			}
-		}
-	}
-	return aliases
+	return make(map[string]string)
 }
 
 // stripPactoSuffix removes the conventional "-pacto" suffix from OCI repo names.

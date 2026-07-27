@@ -44,21 +44,38 @@ func LookupValidation(conditionType string) ValidationCatalogEntry {
 
 // ComputeCompliance computes the compliance status and score from contract status and conditions.
 func ComputeCompliance(cs ContractStatus, conditions []Condition) *ComplianceInfo {
-	info := &ComplianceInfo{}
-
-	if cs == StatusReference {
-		info.Status = ComplianceReference
+	if info := shortCircuitCompliance(cs); info != nil {
 		return info
 	}
 
-	if cs == StatusNonCompliant {
-		info.Status = ComplianceError
+	counts := countConditions(conditions)
+	info := &ComplianceInfo{Summary: &counts}
+
+	if len(conditions) > 0 {
+		score := int(math.Round(float64(counts.Passed) / float64(counts.Total) * 100))
+		info.Score = &score
 	}
 
+	info.Status = determineComplianceStatus(counts.Errors, counts.Unknown, counts.Warnings, cs)
+	return info
+}
+
+// shortCircuitCompliance returns early results for non-runtime-evaluated states.
+func shortCircuitCompliance(cs ContractStatus) *ComplianceInfo {
+	switch cs {
+	case StatusReference, StatusNotEvaluated:
+		return &ComplianceInfo{Status: ComplianceReference}
+	case StatusInvalid:
+		return &ComplianceInfo{Status: ComplianceError}
+	default:
+		return nil
+	}
+}
+
+// countConditions tallies condition outcomes by severity.
+func countConditions(conditions []Condition) ComplianceCounts {
 	total := len(conditions)
-	passed := 0
-	errors := 0
-	warnings := 0
+	passed, errors, warnings, unknown := 0, 0, 0, 0
 
 	for _, c := range conditions {
 		severity := c.Severity
@@ -74,49 +91,44 @@ func ComputeCompliance(cs ContractStatus, conditions []Condition) *ComplianceInf
 			} else {
 				errors++
 			}
+		case "Unknown":
+			unknown++
 		}
 	}
 
-	failed := total - passed
-	info.Summary = &ComplianceCounts{
-		Total:    total,
-		Passed:   passed,
-		Failed:   failed,
-		Errors:   errors,
-		Warnings: warnings,
+	return ComplianceCounts{
+		Total:            total,
+		Passed:           passed,
+		Failed:           errors + warnings, // Unknown is inconclusive, not a violation
+		Errors:           errors,
+		Warnings:         warnings,
+		Unknown:          unknown,
+		RuntimeEvaluated: passed + warnings + errors + unknown,
+		Conclusive:       passed + warnings + errors,
 	}
+}
 
-	if total > 0 {
-		score := int(math.Round(float64(passed) / float64(total) * 100))
-		info.Score = &score
+// determineComplianceStatus derives the final status from counts and contract status.
+func determineComplianceStatus(errors, unknown, warnings int, cs ContractStatus) ComplianceStatus {
+	switch {
+	case errors > 0 || cs == StatusNonCompliant:
+		return ComplianceError
+	case unknown > 0 || cs == StatusUnknown:
+		return ComplianceUnknown
+	case warnings > 0 || cs == StatusWarning:
+		return ComplianceWarning
+	default:
+		return ComplianceOK
 	}
-
-	// Determine status from conditions if not already set by contract status.
-	if info.Status == "" {
-		switch {
-		case errors > 0:
-			info.Status = ComplianceError
-		case warnings > 0:
-			info.Status = ComplianceWarning
-		default:
-			info.Status = ComplianceOK
-		}
-	}
-
-	return info
 }
 
 // ComputeRuntimeDiff builds the semantic contract-vs-runtime comparison rows.
-func ComputeRuntimeDiff(runtime *RuntimeInfo, observed *ObservedRuntime) []RuntimeDiffRow {
-	if runtime == nil && observed == nil {
+func ComputeRuntimeDiff(workload string, state *StateInfo, observed *ObservedRuntime) []RuntimeDiffRow {
+	if state == nil && observed == nil {
 		return nil
 	}
 
 	var rows []RuntimeDiffRow
-	rt := runtime
-	if rt == nil {
-		rt = &RuntimeInfo{}
-	}
 	obs := observed
 	if obs == nil {
 		obs = &ObservedRuntime{}
@@ -125,53 +137,22 @@ func ComputeRuntimeDiff(runtime *RuntimeInfo, observed *ObservedRuntime) []Runti
 	// Workload Type
 	rows = append(rows, diffRow(
 		"Workload Type",
-		"runtime.workload",
-		mapWorkloadToDeclared(rt.Workload),
+		"workload",
+		mapWorkloadToDeclared(workload),
 		obs.WorkloadKind,
 	))
 
-	// Upgrade Strategy
-	rows = append(rows, diffRow(
-		"Upgrade Strategy",
-		"runtime.lifecycle.upgradeStrategy",
-		rt.UpgradeStrategy,
-		obs.DeploymentStrategy,
-	))
-
-	// Graceful Shutdown
-	rows = append(rows, diffRow(
-		"Graceful Shutdown",
-		"runtime.lifecycle.gracefulShutdownSeconds",
-		intPtrToString(rt.GracefulShutdownSeconds),
-		intPtrToString(obs.TerminationGracePeriodSeconds),
-	))
-
-	// Container Image
-	declaredImage := ""
-	observedImages := strings.Join(obs.ContainerImages, ", ")
-	rows = append(rows, diffRow(
-		"Container Image",
-		"service.image",
-		declaredImage,
-		observedImages,
-	))
-
 	// State / Storage
-	declaredState := rt.StateType
+	declaredState := ""
+	if state != nil {
+		declaredState = state.Type
+	}
 	observedState := storageState(obs)
 	rows = append(rows, diffRow(
 		"State / Storage",
-		"runtime.state.type",
+		"state.type",
 		declaredState,
 		observedState,
-	))
-
-	// Health Probe Delay
-	rows = append(rows, diffRow(
-		"Health Probe Delay",
-		"runtime.health",
-		"",
-		intPtrToString(obs.HealthProbeInitialDelay),
 	))
 
 	return rows

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "access": "restricted",
+  "baseBranch": "main",
+  "fixed": [
+    ["@pacto/core", "@pacto/cli", "@pacto/dashboard-image", "@pacto/demo-bundles", "@pacto/dashboard-contract-bundle"],
+    ["@pacto/k8s-module", "@pacto/operator-image", "@pacto/operator-chart", "@pacto/k8s-docs"]
+  ],
+  "linked": [],
+  "updateInternalDependencies": "patch",
+  "ignore": []
+}

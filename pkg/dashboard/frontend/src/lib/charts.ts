@@ -580,7 +580,19 @@ export function renderTreemap(
   const radius = parseFloat(getComputedStyle(container).getPropertyValue('--chart-radius')) || 6;
 
   const width = container.clientWidth || 600;
+  // Reserve a dedicated band below the tiles for the legend so it never
+  // overlaps a coloured tile (which destroyed its contrast).
+  const statusesPresent = [...new Set(data.map((d) => d.status))].filter(Boolean);
+  const statusLegendData = [
+    { label: 'Compliant', color: pal.ok, status: 'Compliant' },
+    { label: 'Warning', color: pal.warn, status: 'Warning' },
+    { label: 'Non-Compliant', color: pal.err, status: 'NonCompliant' },
+    { label: 'Reference', color: pal.info, status: 'Reference' },
+    { label: 'Unknown', color: pal.neutral, status: 'Unknown' },
+  ].filter((d) => statusesPresent.includes(d.status));
+  const legendH = statusLegendData.length > 0 ? 24 : 0;
   const height = 260;
+  const treemapHeight = height - legendH;
 
   const svg = d3.select(container)
     .append('svg')
@@ -598,7 +610,7 @@ export function renderTreemap(
     .sum((d) => d.value || 0);
 
   const treemap = d3.treemap<TreemapDatum>()
-    .size([width, height])
+    .size([width, treemapHeight])
     .paddingInner(2);
 
   treemap(root);
@@ -660,18 +672,10 @@ export function renderTreemap(
   // Enter animation: fade in
   animateIn(tiles.selectAll('rect'), { attr: 'opacity', from: 0, to: () => 1 });
 
-  // Status legend
-  const statusesPresent = [...new Set(data.map((d) => d.status))].filter(Boolean);
-  const statusLegendData = [
-    { label: 'Compliant', color: pal.ok, status: 'Compliant' },
-    { label: 'Warning', color: pal.warn, status: 'Warning' },
-    { label: 'Non-Compliant', color: pal.err, status: 'NonCompliant' },
-    { label: 'Reference', color: pal.info, status: 'Reference' },
-    { label: 'Unknown', color: pal.neutral, status: 'Unknown' },
-  ].filter((d) => statusesPresent.includes(d.status));
-
+  // Status legend — rendered in the reserved band BELOW the tiles (never over
+  // a coloured tile) with full-contrast text so it stays readable in both themes.
   if (statusLegendData.length > 0) {
-    const legend = svg.append('g').attr('transform', `translate(12, ${height - 20})`);
+    const legend = svg.append('g').attr('transform', `translate(12, ${treemapHeight + legendH / 2})`);
     let legendX = 0;
     const swatch = 8;
     const swatchGap = 6;
@@ -681,15 +685,15 @@ export function renderTreemap(
       const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
       item.append('circle')
         .attr('cx', swatch / 2)
-        .attr('cy', -swatch / 2)
+        .attr('cy', 0)
         .attr('r', swatch / 2)
         .attr('fill', d.color);
       item.append('text')
         .attr('x', swatch + swatchGap)
         .attr('dominant-baseline', 'middle')
         .style('font-size', 'var(--text-xs)')
-        .style('font-weight', '500')
-        .style('fill', 'var(--c-text-3)')
+        .style('font-weight', '600')
+        .style('fill', 'var(--c-text)')
         .text(d.label);
       legendX += swatch + swatchGap + d.label.length * charW + itemGap;
     });

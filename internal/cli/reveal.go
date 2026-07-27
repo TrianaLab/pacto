@@ -6,7 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/spf13/cobra"
+	"github.com/trianalab/pacto/v3/internal/app"
 )
 
 // revealStagger is a var so tests shrink it to ~1ms. ~300ms total / lines.
@@ -53,8 +54,8 @@ func initLines(r *app.InitResult) []string {
 }
 
 // revealInit prints lines[0] as-is (header), then lines[1:] each as scaffolded
-// items. animate(w) → staggered "  ✓ <path>"; else verbatim (byte-identical).
-func revealInit(w io.Writer, lines []string) {
+// items. animate → staggered "  ✓ <path>"; else verbatim (byte-identical).
+func revealInit(cmd *cobra.Command, w io.Writer, lines []string) {
 	if len(lines) == 0 {
 		return
 	}
@@ -62,7 +63,7 @@ func revealInit(w io.Writer, lines []string) {
 	// Print header
 	_, _ = fmt.Fprintln(w, lines[0])
 
-	if animate(w) {
+	if animate(cmd, w) {
 		// Animated path: stagger items with checkmarks
 		for _, item := range lines[1:] {
 			time.Sleep(revealStagger)

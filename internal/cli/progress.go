@@ -26,7 +26,7 @@ func progressLabel(base string, done int64) string {
 func startSpinnerCounted(cmd *cobra.Command, format, base string) (*spinner, *atomic.Int64) {
 	var n atomic.Int64
 	w := cmd.ErrOrStderr()
-	if format != "text" || !isTerminal(w) || !animationsEnabled() {
+	if format != "text" || !isTerminal(w) || !animationsEnabled(cmd) {
 		return &spinner{}, &n
 	}
 	s := &spinner{

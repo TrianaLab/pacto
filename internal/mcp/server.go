@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/trianalab/pacto/v3/internal/app"
 )
 
 // baseInstructions describe the always-present contract-authoring tools.

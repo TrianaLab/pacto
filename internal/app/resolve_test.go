@@ -9,8 +9,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/override"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/override"
 )
 
 func TestLoadLocalBundleAppliesPactoignore(t *testing.T) {
@@ -24,7 +24,7 @@ func TestLoadLocalBundleAppliesPactoignore(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("pacto.yaml", "pactoVersion: \"1.0\"\nservice:\n  name: s\n  version: \"1.0.0\"\n")
+	write("pacto.yaml", "pactoVersion: \"2.0\"\nservice:\n  name: s\n  version: \"1.0.0\"\n")
 	write(".pactoignore", "*.secret\nbuild/\n")
 	write("keep.txt", "ok")
 	write("token.secret", "nope")
@@ -76,7 +76,7 @@ func TestLoadLocalBundleIgnoreLoadError(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("pacto.yaml", "pactoVersion: \"1.0\"\nservice:\n  name: s\n  version: \"1.0.0\"\n")
+	write("pacto.yaml", "pactoVersion: \"2.0\"\nservice:\n  name: s\n  version: \"1.0.0\"\n")
 	write(".pactoignore", "*.tmp\n")
 
 	// Make .pactoignore unreadable to trigger ignore.Load error.
@@ -482,16 +482,19 @@ func TestApplyOverrides_SchemaViolation(t *testing.T) {
 	// validation even though Go struct unmarshalling would accept it.
 	bundle := testBundle()
 	_, err := applyOverrides(bundle, override.Overrides{
-		SetValues: []string{"runtime.state.type=invalid-enum"},
+		SetValues: []string{"state.type=invalid-enum"},
 	})
 	if err == nil {
 		t.Error("expected error for invalid enum override")
+	}
+	if !strings.Contains(err.Error(), "overrides produce an invalid contract") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }
 
 func TestLoadAndValidateLocal_Success(t *testing.T) {
 	dir := writeTestBundle(t)
-	c, rawYAML, bundleFS, err := loadAndValidateLocal(dir, override.Overrides{})
+	c, rawYAML, bundleFS, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -507,7 +510,7 @@ func TestLoadAndValidateLocal_Success(t *testing.T) {
 }
 
 func TestLoadAndValidateLocal_FileNotFound(t *testing.T) {
-	_, _, _, err := loadAndValidateLocal("/nonexistent/dir", override.Overrides{})
+	_, _, _, err := loadAndValidateLocal(context.Background(), "/nonexistent/dir", override.Overrides{})
 	if err == nil {
 		t.Error("expected error for nonexistent directory")
 	}
@@ -521,7 +524,7 @@ func TestLoadAndValidateLocal_UnreadableFile(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(pactoPath, 0644) })
 
-	_, _, _, err := loadAndValidateLocal(dir, override.Overrides{})
+	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{})
 	if err == nil {
 		t.Error("expected error when pacto.yaml is unreadable")
 	}
@@ -529,7 +532,7 @@ func TestLoadAndValidateLocal_UnreadableFile(t *testing.T) {
 
 func TestLoadAndValidateLocal_InvalidContract(t *testing.T) {
 	dir := writeUnparseableBundle(t)
-	_, _, _, err := loadAndValidateLocal(dir, override.Overrides{})
+	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{})
 	if err == nil {
 		t.Error("expected error for invalid contract")
 	}
@@ -537,7 +540,7 @@ func TestLoadAndValidateLocal_InvalidContract(t *testing.T) {
 
 func TestLoadAndValidateLocal_OverrideError(t *testing.T) {
 	dir := writeTestBundle(t)
-	_, _, _, err := loadAndValidateLocal(dir, override.Overrides{
+	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{
 		SetValues: []string{"no-equals"},
 	})
 	if err == nil {
@@ -547,7 +550,7 @@ func TestLoadAndValidateLocal_OverrideError(t *testing.T) {
 
 func TestLoadAndValidateLocal_ValidationFails(t *testing.T) {
 	dir := writeInvalidBundle(t)
-	_, _, _, err := loadAndValidateLocal(dir, override.Overrides{})
+	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{})
 	if err == nil {
 		t.Error("expected error for invalid bundle")
 	}
@@ -609,28 +612,27 @@ func TestLoadAndValidateFull_ValidationFails(t *testing.T) {
 
 func TestLoadAndValidateFull_PolicyRefUnresolved(t *testing.T) {
 	dir := t.TempDir()
-	content := []byte(`pactoVersion: "1.0"
+	content := []byte(`pactoVersion: "2.0"
 service:
   name: test-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: openapi.yaml
 policies:
   - name: org
     ref: oci://ghcr.io/acme/policy:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `)
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
 		t.Fatal(err)
@@ -645,30 +647,32 @@ runtime:
 
 func TestLoadAndValidateFull_PolicyRefResolved(t *testing.T) {
 	dir := t.TempDir()
-	content := []byte(`pactoVersion: "1.0"
+	content := []byte(`pactoVersion: "2.0"
 service:
   name: test-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: openapi.yaml
 policies:
   - name: org
     ref: oci://ghcr.io/acme/policy:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `)
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "openapi.yaml"), []byte("openapi: \"3.0.0\"\ninfo:\n  title: API\n  version: 1.0.0\npaths: {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -679,7 +683,7 @@ runtime:
 			return &contract.Bundle{
 				Contract: &contract.Contract{},
 				FS: fstest.MapFS{
-					"pacto.yaml":         &fstest.MapFile{Data: []byte(`pactoVersion: "1.0"`)},
+					"pacto.yaml":         &fstest.MapFile{Data: []byte(`pactoVersion: "2.0"`)},
 					"policy/schema.json": &fstest.MapFile{Data: policySchema},
 				},
 			}, nil
@@ -697,28 +701,27 @@ runtime:
 
 func TestLoadAndValidateFull_PolicyViolation(t *testing.T) {
 	dir := t.TempDir()
-	content := []byte(`pactoVersion: "1.0"
+	content := []byte(`pactoVersion: "2.0"
 service:
   name: test-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: openapi.yaml
 policies:
   - name: org
     ref: oci://ghcr.io/acme/policy:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `)
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
 		t.Fatal(err)
@@ -731,7 +734,7 @@ runtime:
 			return &contract.Bundle{
 				Contract: &contract.Contract{},
 				FS: fstest.MapFS{
-					"pacto.yaml":         &fstest.MapFile{Data: []byte(`pactoVersion: "1.0"`)},
+					"pacto.yaml":         &fstest.MapFile{Data: []byte(`pactoVersion: "2.0"`)},
 					"policy/schema.json": &fstest.MapFile{Data: policySchema},
 				},
 			}, nil

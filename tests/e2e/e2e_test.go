@@ -36,5 +36,11 @@ func TestMain(m *testing.M) {
 	testPluginDir = tmpBin
 	os.Setenv("PATH", tmpBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
+	// Disable the per-command auto update check: it spawns a network call in
+	// PersistentPreRunE that makes the parallel suite slow and network-dependent.
+	// No test asserts on the update notification; the `update` command itself is
+	// exercised directly (TestUpdateCommand), unaffected by this.
+	os.Setenv("PACTO_NO_UPDATE_CHECK", "1")
+
 	os.Exit(m.Run())
 }

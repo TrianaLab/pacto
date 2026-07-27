@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/trianalab/pacto/v2/pkg/openapi"
+	"github.com/trianalab/pacto/v3/pkg/openapi"
 )
 
 // Tool is a single agent-invocable operation derived from an OpenAPI operation.

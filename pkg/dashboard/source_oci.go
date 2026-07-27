@@ -4,15 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/oci"
-	"github.com/trianalab/pacto/v2/pkg/semver"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/semver"
 )
 
 // ociRediscoverInterval controls how often background discovery re-runs
@@ -225,7 +225,7 @@ func (s *OCISource) discoverAndPrefetch(ctx context.Context) {
 
 		name := s.discoverRepo(ctx, repo)
 		if name == "" {
-			slog.Info("OCI dependency not resolved (will appear as external)", "repo", repo)
+			logging.LoggerFromContext(ctx).Info("OCI dependency not resolved (will appear as external)", "repo", repo)
 			continue
 		}
 		// Collect deps from the newly discovered service.
@@ -263,12 +263,12 @@ func (s *OCISource) prefetchVersions(ctx context.Context) {
 		for _, tag := range semver.Filter(tags) {
 			ref := repo + ":" + tag
 			if _, err := s.store.Pull(ctx, ref); err != nil {
-				slog.Debug("OCI prefetch version failed", "ref", ref, "error", err)
+				logging.LoggerFromContext(ctx).Debug("OCI prefetch version failed", "ref", ref, "error", err)
 			}
 		}
 	}
 
-	slog.Debug("OCI background discovery complete", "services", len(repos))
+	logging.LoggerFromContext(ctx).Debug("OCI background discovery complete", "services", len(repos))
 }
 
 // discoverRepo pulls the latest bundle from a repo and registers it.
@@ -280,19 +280,19 @@ func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 	}
 	tags, err := s.store.ListTags(ctx, repo)
 	if err != nil {
-		logOCIError("OCI ListTags failed", "repo", repo, err)
+		logOCIError(ctx, "OCI ListTags failed", "repo", repo, err)
 		s.recordFailure(repo, classifyOCIError(err))
 		return ""
 	}
 	if len(tags) == 0 {
-		slog.Warn("OCI repo has no tags", "repo", repo)
+		logging.LoggerFromContext(ctx).Warn("OCI repo has no tags", "repo", repo)
 		s.recordFailure(repo, "no_semver_tags")
 		return ""
 	}
 
 	latest := semver.Latest(tags)
 	if latest == "" {
-		slog.Warn("OCI repo has no semver tags", "repo", repo)
+		logging.LoggerFromContext(ctx).Warn("OCI repo has no semver tags", "repo", repo)
 		s.recordFailure(repo, "no_semver_tags")
 		return ""
 	}
@@ -300,7 +300,7 @@ func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 
 	bundle, err := s.store.Pull(ctx, ref)
 	if err != nil {
-		logOCIError("OCI Pull failed", "ref", ref, err)
+		logOCIError(ctx, "OCI Pull failed", "ref", ref, err)
 		s.recordFailure(repo, classifyOCIError(err))
 		return ""
 	}
@@ -323,7 +323,7 @@ func (s *OCISource) discoverRepo(ctx context.Context, repo string) string {
 	if cb != nil {
 		cb()
 	}
-	slog.Info("OCI service discovered", "name", name, "repo", repo)
+	logging.LoggerFromContext(ctx).Info("OCI service discovered", "name", name, "repo", repo)
 
 	return name
 }
@@ -438,7 +438,7 @@ func (s *OCISource) GetDiff(ctx context.Context, a, b Ref) (*DiffResult, error) 
 	if err != nil {
 		return nil, fmt.Errorf("pulling %v: %w", b, err)
 	}
-	return ComputeDiff(a, b, bundleA, bundleB), nil
+	return ComputeDiff(ctx, a, b, bundleA, bundleB), nil
 }
 
 // GetServiceVersion returns details for a specific ref by pulling that exact
@@ -576,12 +576,13 @@ func (s *OCISource) UnresolvedReason(depRef string) string {
 
 // logOCIError logs an OCI operation error at the appropriate level.
 // Auth errors are logged at ERROR (actionable), others at WARN.
-func logOCIError(msg, key, val string, err error) {
+func logOCIError(ctx context.Context, msg, key, val string, err error) {
+	lg := logging.LoggerFromContext(ctx)
 	var authErr *oci.AuthenticationError
 	if errors.As(err, &authErr) {
-		slog.Error(msg, key, val, "error", err)
+		lg.Error(msg, key, val, "error", err)
 	} else {
-		slog.Warn(msg, key, val, "error", err)
+		lg.Warn(msg, key, val, "error", err)
 	}
 }
 
@@ -614,7 +615,7 @@ func RepoProviderFromSource(src DataSource) func(ctx context.Context) []string {
 func discoverOCIReposFromSource(ctx context.Context, src DataSource) ([]string, error) {
 	services, err := src.ListServices(ctx)
 	if err != nil {
-		slog.Warn("OCI repo discovery: failed to list services", "error", err)
+		logging.LoggerFromContext(ctx).Warn("OCI repo discovery: failed to list services", "error", err)
 		return nil, err
 	}
 
@@ -627,9 +628,6 @@ func discoverOCIReposFromSource(ctx context.Context, src DataSource) ([]string, 
 			continue
 		}
 		ref := d.ResolvedRef
-		if ref == "" {
-			ref = d.ImageRef
-		}
 		if ref == "" {
 			continue
 		}

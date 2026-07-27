@@ -9,7 +9,7 @@ import (
 
 func writeLocalPactoYAML(t *testing.T, dir, name, version string) {
 	t.Helper()
-	yaml := `pactoVersion: "1.0"
+	yaml := `pactoVersion: "2.0"
 service:
   name: ` + name + `
   version: ` + version + `

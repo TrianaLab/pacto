@@ -6,12 +6,13 @@
 package diff
 
 import (
+	"context"
 	"encoding/json"
 	"io/fs"
-	"log/slog"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/sbom"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/sbom"
 )
 
 // Classification represents the severity of a change.
@@ -90,11 +91,11 @@ type Result struct {
 // Compare compares two contracts and produces a classified diff result.
 // oldFS and newFS provide access to referenced files (OpenAPI specs, JSON Schemas)
 // within each contract's bundle. Either may be nil if file-level diffs are not needed.
-func Compare(old, new *contract.Contract, oldFS, newFS fs.FS) *Result {
+// ctx carries the logger used for informational SBOM-parse diagnostics.
+func Compare(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.FS) *Result {
 	var changes []Change
 
 	changes = append(changes, diffContract(old, new)...)
-	changes = append(changes, diffRuntime(old, new)...)
 	changes = append(changes, diffDependencies(old, new)...)
 	changes = append(changes, diffInterfaces(old, new, oldFS, newFS)...)
 	changes = append(changes, diffConfiguration(old, new, oldFS, newFS)...)
@@ -111,21 +112,21 @@ func Compare(old, new *contract.Contract, oldFS, newFS fs.FS) *Result {
 	return &Result{
 		Classification: overall,
 		Changes:        changes,
-		SBOMDiff:       diffSBOM(oldFS, newFS),
+		SBOMDiff:       diffSBOM(ctx, oldFS, newFS),
 	}
 }
 
 // diffSBOM compares SBOM documents from both bundle filesystems.
 // SBOM changes are informational and do not affect the classification.
-func diffSBOM(oldFS, newFS fs.FS) *sbom.Result {
+func diffSBOM(ctx context.Context, oldFS, newFS fs.FS) *sbom.Result {
 	oldDoc, err := sbom.ParseFromFS(oldFS)
 	if err != nil {
-		slog.Debug("failed to parse old SBOM", "error", err)
+		logging.LoggerFromContext(ctx).Debug("failed to parse old SBOM", "error", err)
 		return nil
 	}
 	newDoc, err := sbom.ParseFromFS(newFS)
 	if err != nil {
-		slog.Debug("failed to parse new SBOM", "error", err)
+		logging.LoggerFromContext(ctx).Debug("failed to parse new SBOM", "error", err)
 		return nil
 	}
 

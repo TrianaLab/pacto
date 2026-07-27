@@ -1,0 +1,43 @@
+suite: rbac tests
+templates:
+  - templates/clusterrole.yaml
+tests:
+  - it: should create a ClusterRole
+    asserts:
+      - isKind:
+          of: ClusterRole
+
+  - it: should include dashboard RBAC by default
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [rbac.authorization.k8s.io]
+            resources: [clusterroles, clusterrolebindings]
+            verbs: [create, delete, get, list, patch, update, watch]
+        any: true
+
+  - it: should not include dashboard RBAC when dashboard is disabled
+    set:
+      dashboard.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [rbac.authorization.k8s.io]
+            resources: [clusterroles, clusterrolebindings]
+            verbs: [create, delete, get, list, patch, update, watch]
+        any: true
+
+  - it: should always include narrow dashboard teardown RBAC when disabled
+    set:
+      dashboard.enabled: false
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [rbac.authorization.k8s.io]
+            resources: [clusterroles, clusterrolebindings]
+            verbs: [get, delete]
+            resourceNames: [pacto-dashboard]
+        any: true

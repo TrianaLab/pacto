@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // ---------------------------------------------------------------------------
@@ -356,9 +356,7 @@ func assertDetailsServiceFields(t *testing.T, d *ServiceDetails) {
 	if d.ContractStatus != StatusCompliant {
 		t.Errorf("contractStatus: got %q", d.ContractStatus)
 	}
-	if d.ImageRef != "ghcr.io/org/billing:1.2.3" {
-		t.Errorf("imageRef: got %q", d.ImageRef)
-	}
+	// ImageRef removed in v2
 	if d.Metadata["team"] != "platform" {
 		t.Errorf("metadata team: got %q", d.Metadata["team"])
 	}
@@ -373,7 +371,8 @@ func assertDetailsInterfaces(t *testing.T, d *ServiceDetails) {
 		t.Fatalf("expected 1 interface, got %d", len(d.Interfaces))
 	}
 	iface := d.Interfaces[0]
-	if iface.Name != "http" || iface.Type != "http" || *iface.Port != 8080 || iface.Visibility != "public" || !iface.HasContractFile {
+	// Port removed in v2
+	if iface.Name != "http" || iface.Type != "http" || iface.Visibility != "public" || !iface.HasContractFile {
 		t.Errorf("interface mismatch: %+v", iface)
 	}
 }
@@ -425,25 +424,18 @@ func assertDetailsDeps(t *testing.T, d *ServiceDetails) {
 
 func assertDetailsRuntime(t *testing.T, d *ServiceDetails) {
 	t.Helper()
-	if d.Runtime == nil {
-		t.Fatal("expected runtime")
+	// Runtime is not in v2 model; provisionally check Workload + State
+	if d.Workload != "service" {
+		t.Errorf("workload: got %q, want service", d.Workload)
 	}
-	if d.Runtime.Workload != "service" || d.Runtime.StateType != "stateless" || d.Runtime.HealthPath != "/healthz" {
-		t.Errorf("runtime mismatch: %+v", d.Runtime)
-	}
-	if d.Runtime.GracefulShutdownSeconds == nil || *d.Runtime.GracefulShutdownSeconds != 30 {
-		t.Errorf("graceful shutdown: %v", d.Runtime.GracefulShutdownSeconds)
+	if d.State == nil || d.State.Type != "stateless" {
+		t.Errorf("state: got %+v", d.State)
 	}
 }
 
 func assertDetailsScaling(t *testing.T, d *ServiceDetails) {
 	t.Helper()
-	if d.Scaling == nil {
-		t.Fatal("expected scaling")
-	}
-	if *d.Scaling.Replicas != 3 || *d.Scaling.Min != 1 || *d.Scaling.Max != 5 {
-		t.Errorf("scaling mismatch: %+v", d.Scaling)
-	}
+	// Scaling removed in v2 model
 }
 
 func assertDetailsValidation(t *testing.T, d *ServiceDetails) {
@@ -541,11 +533,6 @@ func assertDetailsChecksSummary(t *testing.T, d *ServiceDetails) {
 
 func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	t.Helper()
-	port := 8080
-	replicas := 3
-	minR := 1
-	maxR := 5
-	graceful := 30
 	healthy := true
 	statusCode := 200
 	latency := int64(42)
@@ -555,14 +542,14 @@ func buildComprehensiveK8sDetails(t *testing.T) *ServiceDetails {
 	r.Status.ContractStatus = "Compliant"
 	r.Status.ContractVersion = "1.2.3"
 	r.Status.LastReconciledAt = time.Now().Add(-5 * time.Minute).Format(time.RFC3339)
-	r.Status.Contract = &k8sContractInfo{ServiceName: "billing", Version: "1.0.0", Owner: contract.Owner{Team: "payments"}, ImageRef: "ghcr.io/org/billing:1.2.3", ResolvedRef: "sha256:abc"}
+	r.Status.Contract = &k8sContractInfo{ServiceName: "billing", Version: "1.0.0", Owner: contract.Owner{Team: "payments"}, ResolvedRef: "sha256:abc"}
+	r.Status.Workload = "service"
+	r.Status.State = &k8sState{Type: "stateless", PersistenceScope: "local", PersistenceDurability: "ephemeral", DataCriticality: "low"}
 	r.Status.Metadata = map[string]string{"team": "platform", "env": "prod"}
-	r.Status.Interfaces = flexSlice[k8sInterface]{{Name: "http", Type: "http", Port: &port, Visibility: "public", HasContractFile: true}}
+	r.Status.Interfaces = flexSlice[k8sInterface]{{Name: "http", Type: "http", Visibility: "public", HasContractFile: true}}
 	r.Status.Configurations = flexSlice[k8sConfig]{{Name: "default", HasSchema: true, Ref: "config-ref", ValueKeys: []string{"key1"}, SecretKeys: []string{"secret1"}}}
 	r.Status.Policies = flexSlice[k8sPolicy]{{Name: "security", HasSchema: true, Schema: "policy.json", Ref: "policy-ref"}}
 	r.Status.Dependencies = flexSlice[k8sDependency]{{Name: "auth", Ref: "auth@^1.0.0", Required: true, Compatibility: "strict"}}
-	r.Status.Runtime = &k8sRuntime{Workload: "service", StateType: "stateless", PersistenceScope: "none", PersistenceDurability: "ephemeral", DataCriticality: "low", UpgradeStrategy: "rolling", GracefulShutdownSeconds: &graceful, HealthInterface: "http", HealthPath: "/healthz", MetricsInterface: "http", MetricsPath: "/metrics"}
-	r.Status.Scaling = &k8sScaling{Replicas: &replicas, Min: &minR, Max: &maxR}
 	days := int32(206)
 	r.Status.Readiness = &k8sReadiness{
 		Score: 71, MinScore: 80, Passing: false, TotalWeight: 85, EarnedWeight: 60, PartialCredit: 0.5,
@@ -1479,4 +1466,33 @@ func mustJSON(t *testing.T, v any) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestK8s_serviceDetailsFromK8sStatus_EvaluationCoverage(t *testing.T) {
+	payload := `{
+		"metadata": {"name": "svc", "namespace": "prod"},
+		"status": {
+			"contractStatus": "Unknown",
+			"evaluationCoverage": {
+				"evaluated": 3,
+				"required": 5
+			}
+		}
+	}`
+	var r pactoResource
+	if err := json.Unmarshal([]byte(payload), &r); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	details := serviceDetailsFromK8sStatus(&r)
+
+	if details.EvaluationCoverage == nil {
+		t.Fatal("expected evaluationCoverage to be set")
+	}
+	if details.EvaluationCoverage.Evaluated != 3 {
+		t.Errorf("expected Evaluated=3, got %d", details.EvaluationCoverage.Evaluated)
+	}
+	if details.EvaluationCoverage.Required != 5 {
+		t.Errorf("expected Required=5, got %d", details.EvaluationCoverage.Required)
+	}
 }

@@ -4,12 +4,163 @@
 
 BUNDLE_DIR := pactos/pacto-dashboard
 
-.PHONY: ci ci-static ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
+.PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
+       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
+       verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
-ci: ci-static ci-ui ci-test e2e gen-bundle
+# ── Monorepo CI matrix (go.work) ─────────────────────────────────────
+# The root aggregate. Every leg delegates to the REAL underlying gate across the
+# workspace modules. This is what CONTRIBUTING tells contributors to run and what
+# .github/workflows/ci.yml requires.
+ci: ci-static ci-gates ci-engine ci-dashboard ci-integration-kubernetes ci-e2e-envtest ci-oci
 
-ci-static: ci-fmt ci-vet ci-cyclo ci-lint ci-docs ci-ui-drift
+# Cross-cutting architecture + release gates. tests/architecture is the import-
+# boundary gate (core must stay k8s-free); tests/release holds the one-publisher,
+# demo-ref and release-plan gates. Both live under /tests/, which ci-test EXCLUDES
+# (grep -v /tests/), so they get their own leg here and an ALWAYS-run CI job — a
+# gate that never runs is not a gate.
+ci-gates:
+	go test ./tests/architecture/... ./tests/release/...
+
+# Static leg: engine + kubernetes integration static gates.
+ci-static: ci-static-engine
+	$(MAKE) -C integrations/kubernetes ci-static
+
+# Engine static gates (fmt, vet, cyclo, lint, CLI docs drift, UI build drift).
+ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint ci-docs ci-ui-drift
+
+# Engine leg: unit tests (100% coverage gate) + engine e2e.
+ci-engine: ci-test e2e
+
+# Dashboard leg: frontend lint + tests.
+ci-dashboard: ci-ui
+
+# Kubernetes integration leg: envtest-backed unit/integration tests + chart CI.
+ci-integration-kubernetes:
+	$(MAKE) -C integrations/kubernetes ci-test
+	$(MAKE) -C integrations/kubernetes ci-chart
+
+# Operator acceptance matrix against envtest (no cluster required).
+ci-e2e-envtest:
+	$(MAKE) -C integrations/kubernetes test-e2e
+
+# Kind-backed acceptance — Pacto's formal verification against a real cluster:
+# build the operator image via the monorepo Dockerfile, install the packaged
+# chart, drive a real Compliant -> Unknown -> Compliant reconcile, upgrade from
+# the previous published chart, then uninstall. Runs the exact image + chart the
+# release simulation builds.
+# The required kind leg runs the main reconcile e2e (dashboard enabled), the
+# dashboard-modes acceptance: prove the operator does not
+# crashloop when the dashboard is disabled, and the v4->v5 upgrade acceptance
+#: a REAL cross-major chart + CRD migration (install the
+# published v4 chart + its v4 CRDs, server-side apply the new CRDs, helm upgrade to
+# the v5 chart, prove existing resources survive). dashboard-modes + upgrade run
+# first (fast guards); run.sh then covers the full enabled reconcile cycle.
+ci-e2e-kind: ci-e2e-kind-dashboard ci-e2e-kind-upgrade
+	bash tests/e2e/kind/run.sh
+
+ci-e2e-kind-dashboard:
+	bash tests/e2e/kind/dashboard-modes.sh
+
+ci-e2e-kind-upgrade:
+	bash tests/e2e/kind/v4-to-v5-upgrade.sh
+
+# OCI leg: the public oci package tests + the staging release-publisher tests.
+ci-oci:
+	go test ./pkg/oci/...
+	node --test release/orchestrator/*.test.mjs
+
+# Integration test for the version command: runs the REAL `npm run release:version`
+# in a throwaway clone with pending changesets and proves it emits a ready
+# transaction detect.mjs acts on. Needs node_modules (the CI job runs npm ci).
+ci-release-version:
+	bash release/orchestrator/test-release-version.sh
+
+# Regenerate every generated doc across the workspace. Core CLI reference first,
+# then every discovered integration's own generator (via its integration.yaml
+# documentation.generateCommand) so a future integration is picked up with no
+# change here.
+docs-generate: gen-cli-docs
+	@for m in integrations/*/integration.yaml; do \
+		[ -f "$$m" ] || continue; \
+		cmd=$$(python3 -c "import yaml,sys; d=yaml.safe_load(open('$$m')) or {}; print((d.get('documentation') or {}).get('generateCommand',''))"); \
+		[ -n "$$cmd" ] && { echo "==> $$cmd"; eval "$$cmd"; }; \
+	done
+
+# Preview the assembled site locally (the hook assembles integration docs at build time).
+docs-serve:
+	mkdocs serve
+
+# Publish the versioned site with mike. The site version tracks Pacto CORE (from
+# release/release-manifest.json). Integration docs carry their OWN version stamp in
+# the generated compatibility table, so a Kubernetes-only release re-runs this with
+# the SAME core version and regenerated integration docs: the version selector entry
+# is unchanged, only the integration content + compatibility badge move.
+#
+# mike commits the built site to the gh-pages branch (under <version>/, updating the
+# `latest` alias + versions.json) and pushes it. GitHub Pages must be configured to
+# serve from that branch (Settings > Pages > "Deploy from a branch: gh-pages /root");
+# mike creates gh-pages on first run. The WASM demo is included when built into
+# docs/demo/ first (the deploy workflow folds it there; locally run `make docs-build`).
+# Docs deploy is a release-transaction unit: release.yml passes the EXACT released core version via PACTO_DOCS_CORE_VERSION
+# so the versioned snapshot never depends on "latest release" guessing. The
+# non-release docs.yml push path leaves it unset and falls back to the committed
+# manifest (redeploying the current core version's docs). A k8s-only release keeps
+# the same core version and refreshes the integration docs inside that snapshot.
+# RELEASE docs deploy (release.yml, unit k8s-docs): publish the EXACT released core
+# version and move the `latest` alias + default. Only a release transaction may
+# touch a stable version or latest.
+docs-deploy: docs-generate
+	@ver=$${PACTO_DOCS_CORE_VERSION:-$$(python3 -c "import json;print(json.load(open('release/release-manifest.json'))['units']['core']['version'])")}; \
+	echo "==> mike deploy --push --update-aliases $$ver latest (release)"; \
+	mike deploy --push --update-aliases "$$ver" latest; \
+	mike set-default --push latest
+
+# DEV docs deploy (docs.yml, non-release main-push): publish an unreleased `next`
+# snapshot ONLY. It must NEVER move `latest` or write into a released version slot,
+# so merging a breaking PR before its version PR releases cannot mislabel the stable
+# docs. The Material version selector shows `next` alongside the released versions.
+docs-deploy-dev: docs-generate
+	@echo "==> mike deploy --push next (unreleased dev snapshot; no alias move, no released slot)"; \
+	mike deploy --push --title "next (unreleased)" next
+
+# Full documentation gate: regenerate from scratch, prove zero drift and zero
+# second-run diff, strict build, and validate every fenced contract / CR example /
+# flag / chart / artifact coordinate against the real sources. See docs_check.py.
+docs-check:
+	python3 release/scripts/docs_check.py
+
+# artifact-drift = one-publisher-per-artifact gate + apply-release-plan
+# idempotency (re-applying the plan must not mutate any tracked release-state file).
+artifact-drift:
+	@echo "==> one-publisher-per-artifact gate..."
+	go test ./tests/release/...
+	@echo "==> apply-release-plan idempotency..."
+	node release/scripts/build-release-plan.mjs
+	node release/scripts/apply-release-plan.mjs
+	@git diff --quiet -- release/release-manifest.json release/release-plan.json \
+		integrations/kubernetes/go.mod integrations/kubernetes/integration.yaml \
+		integrations/kubernetes/charts/pacto-operator/Chart.yaml \
+		integrations/kubernetes/charts/pacto-operator/values.yaml \
+		integrations/kubernetes/charts/pacto-operator/README.md \
+		|| { echo "artifact drift: apply-release-plan is not idempotent (re-run mutated tracked files)"; exit 1; }
+	@echo "    artifact-drift: OK"
+
+# Staging release dry-run — the real release simulation: builds the real artifacts
+# and pushes them to a disposable local registry via the SAME shared adapters
+# production uses, proving digest idempotency, fail-closed immutability + resume.
+# No production coordinate. This is the single staging evidence path.
+release-dry-run:
+	bash release/orchestrator/dry-run.sh
+
+# External-consumer proof for the Kubernetes integration Go module: a throwaway
+# module `go get`s github.com/trianalab/pacto/integrations/kubernetes/v5@v5.0.0 and
+# builds it with GOWORK=off and no replace, proving the /v5 semantic-import path is
+# valid Go and consumable by outside users. Local staging tags only, no publish.
+# Also invoked by release/orchestrator/dry-run.sh after the core verify-standalone.
+verify-k8s-standalone:
+	bash release/orchestrator/verify-k8s-standalone.sh
 
 ci-test:
 	@echo "==> Running unit tests with race detector and coverage..."
@@ -23,6 +174,8 @@ ci-test:
 	@echo "    total coverage: 100.0%"
 	@echo "==> Running example tests (no coverage gate)..."
 	@go test -race ./examples/...
+	@echo "==> Validating demo contracts (offline, full validator over the closure)..."
+	@$(MAKE) -C examples/demo validate
 
 ci-ui:
 	@echo "==> Running frontend lint & tests..."
@@ -38,8 +191,8 @@ ci-vet:
 
 ci-cyclo:
 	@echo "==> Checking cyclomatic complexity..."
-	go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
-	gocyclo -over 15 $$(find . -name '*.go' ! -path './vendor/*')
+	go install github.com/fzipp/gocyclo/cmd/gocyclo@v0.6.0
+	gocyclo -over 15 $$(find . -name '*.go' ! -path './vendor/*' ! -path './integrations/*' ! -path './tests/*' ! -name 'zz_generated*.go' ! -path './release/*')
 
 ci-lint:
 	@echo "==> Running linter..."

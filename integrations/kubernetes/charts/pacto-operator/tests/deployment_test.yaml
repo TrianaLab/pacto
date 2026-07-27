@@ -1,0 +1,138 @@
+suite: deployment tests
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: should create a Deployment
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.replicas
+          value: 1
+
+  - it: should use the default image
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "ghcr.io/trianalab/pacto-operator/pacto-controller:.*"
+
+  - it: should set security context
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+
+  - it: should set POD_NAMESPACE from downward API
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+
+  - it: should include leader-elect arg
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--leader-elect=true"
+
+  - it: should include dashboard args when enabled
+    set:
+      dashboard.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-dashboard"
+
+  - it: should not include dashboard args when disabled
+    set:
+      dashboard.enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-dashboard"
+
+  - it: should not include watch-namespace by default (cluster-wide)
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--watch-namespace="
+        any: true
+
+  - it: should include watch-namespace when set
+    set:
+      controller.watchNamespace: production
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--watch-namespace=production"
+
+  - it: should use custom image tag
+    set:
+      image.tag: "v1.2.3"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/trianalab/pacto-operator/pacto-controller:v1.2.3"
+
+  - it: should disable leader election
+    set:
+      leaderElection.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--leader-elect=false"
+
+  - it: should disable metrics bind address when metrics disabled
+    set:
+      metrics.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--metrics-bind-address=0"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--metrics-secure=true"
+
+  - it: should include dashboard OCI secret arg
+    set:
+      dashboard.enabled: true
+      dashboard.ociSecret: my-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oci-secret=my-secret"
+
+  - it: should include dashboard OCI secrets arg when list is set
+    set:
+      dashboard.enabled: true
+      dashboard.ociSecrets:
+        - ghcr-creds
+        - ecr-creds
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oci-secrets=ghcr-creds,ecr-creds"
+
+  - it: should prefer ociSecrets over ociSecret
+    set:
+      dashboard.enabled: true
+      dashboard.ociSecret: old-secret
+      dashboard.ociSecrets:
+        - new-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oci-secrets=new-secret"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oci-secret=old-secret"
+

@@ -1,0 +1,144 @@
+##
+## Kubernetes Services — ports match contract interfaces
+##
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: frontend
+    pacto.trianalab.com/service: frontend
+spec:
+  selector:
+    app.kubernetes.io/name: frontend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: api-gateway
+    pacto.trianalab.com/service: api-gateway
+spec:
+  selector:
+    app.kubernetes.io/name: api-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: auth-service
+    pacto.trianalab.com/service: auth-service
+spec:
+  selector:
+    app.kubernetes.io/name: auth-service
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: 9091
+      targetPort: grpc
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-service
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: orders-service
+    pacto.trianalab.com/service: orders-service
+spec:
+  selector:
+    app.kubernetes.io/name: orders-service
+  ports:
+    - name: http
+      port: 8082
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments-service
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: payments-service
+    pacto.trianalab.com/service: payments-service
+spec:
+  selector:
+    app.kubernetes.io/name: payments-service
+  ports:
+    - name: http
+      port: 8083
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-service
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: fraud-service
+    pacto.trianalab.com/service: fraud-service
+spec:
+  selector:
+    app.kubernetes.io/name: fraud-service
+  ports:
+    - name: http
+      port: 8084
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: postgresql
+    pacto.trianalab.com/service: postgresql
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: postgresql
+  ports:
+    - name: tcp-postgres
+      port: 5432
+      targetPort: tcp-postgres
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: redis
+    pacto.trianalab.com/service: redis
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: redis
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: tcp-redis
+      protocol: TCP

@@ -3,10 +3,10 @@ package app
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
-	"github.com/trianalab/pacto/v2/pkg/oci"
-	"github.com/trianalab/pacto/v2/pkg/override"
+	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/override"
 )
 
 // PackOptions holds options for the pack command.
@@ -24,16 +24,16 @@ type PackResult struct {
 }
 
 // Pack validates a contract bundle and produces a tar.gz archive.
-func (s *Service) Pack(_ context.Context, opts PackOptions) (*PackResult, error) {
+func (s *Service) Pack(ctx context.Context, opts PackOptions) (*PackResult, error) {
 	path := defaultPath(opts.Path)
 
-	slog.Debug("loading and validating local contract", "path", path)
-	c, _, bundleFS, err := loadAndValidateLocal(path, opts.Overrides)
+	logging.LoggerFromContext(ctx).Debug("loading and validating local contract", "path", path)
+	c, _, bundleFS, err := loadAndValidateLocal(ctx, path, opts.Overrides)
 	if err != nil {
 		return nil, err
 	}
 
-	slog.Debug("creating tar.gz archive", "name", c.Service.Name, "version", c.Service.Version)
+	logging.LoggerFromContext(ctx).Debug("creating tar.gz archive", "name", c.Service.Name, "version", c.Service.Version)
 	data, err := oci.BundleToTarGz(bundleFS)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create archive: %w", err)
@@ -44,7 +44,7 @@ func (s *Service) Pack(_ context.Context, opts PackOptions) (*PackResult, error)
 		output = fmt.Sprintf("%s-%s.tar.gz", c.Service.Name, c.Service.Version)
 	}
 
-	slog.Debug("writing archive", "output", output)
+	logging.LoggerFromContext(ctx).Debug("writing archive", "output", output)
 	if err := writeFileFn(output, data, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write %s: %w", output, err)
 	}

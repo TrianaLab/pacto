@@ -1,0 +1,149 @@
+# PrometheusRule: Pacto contract compliance alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: pacto-alerts
+  namespace: system
+spec:
+  groups:
+    # --- Critical: contract-breaking issues requiring immediate attention ---
+    - name: pacto.critical
+      rules:
+        - alert: PactoContractNonCompliant
+          expr: pacto_contract_status{status="NonCompliant"} == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pacto {{ $labels.name }} is non-compliant with its contract"
+            description: >-
+              Pacto {{ $labels.name }} in namespace {{ $labels.namespace }}
+              has been non-compliant with its contract for more than 5 minutes.
+
+        - alert: PactoContractValidationErrors
+          expr: pacto_contract_validation_errors > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Service {{ $labels.service }} has {{ $value }} contract validation error(s)"
+            description: >-
+              Service {{ $labels.service }} in namespace {{ $labels.namespace }}
+              has {{ $value }} error-severity validation failure(s).
+              Check the Pacto CR status for details.
+
+        - alert: PactoWorkloadTypeMismatch
+          expr: pacto_contract_validation_result{check="WorkloadTypeMatch"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Service {{ $labels.service }} workload type does not match contract"
+            description: >-
+              The Kubernetes workload kind for {{ $labels.service }} in
+              {{ $labels.namespace }} does not match what the contract declares
+              (e.g., Deployment vs StatefulSet).
+
+        - alert: PactoStateModelMismatch
+          expr: pacto_contract_validation_result{check="StateModelMatch"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Service {{ $labels.service }} state model does not match contract"
+            description: >-
+              The storage configuration for {{ $labels.service }} in
+              {{ $labels.namespace }} does not match the contract's state model
+              (e.g., stateful service missing PVC).
+
+        - alert: PactoImageMismatch
+          expr: pacto_contract_validation_result{check="ImageMatch"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Service {{ $labels.service }} container image does not match contract"
+            description: >-
+              The running container image for {{ $labels.service }} in
+              {{ $labels.namespace }} does not match the image declared in its contract.
+
+    # --- Warning: lifecycle/operational drift ---
+    - name: pacto.warning
+      rules:
+        - alert: PactoContractValidationWarnings
+          expr: pacto_contract_validation_warnings > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Service {{ $labels.service }} has {{ $value }} contract validation warning(s)"
+            description: >-
+              Service {{ $labels.service }} in namespace {{ $labels.namespace }}
+              has {{ $value }} warning-severity validation issue(s).
+              These indicate lifecycle or operational drift from the contract.
+
+        - alert: PactoUpgradeStrategyDrift
+          expr: pacto_contract_validation_result{check="UpgradeStrategyMatch"} == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Service {{ $labels.service }} upgrade strategy does not match contract"
+            description: >-
+              The deployment strategy for {{ $labels.service }} in
+              {{ $labels.namespace }} does not match the contract's declared
+              upgrade strategy (e.g., rolling vs recreate).
+
+        - alert: PactoGracefulShutdownDrift
+          expr: pacto_contract_validation_result{check="GracefulShutdownMatch"} == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Service {{ $labels.service }} graceful shutdown period does not match contract"
+            description: >-
+              The terminationGracePeriodSeconds for {{ $labels.service }} in
+              {{ $labels.namespace }} does not match the contract's declared
+              gracefulShutdownSeconds.
+
+        - alert: PactoHealthTimingDrift
+          expr: pacto_contract_validation_result{check="HealthTimingMatch"} == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Service {{ $labels.service }} health probe timing does not match contract"
+            description: >-
+              The health probe initialDelaySeconds for {{ $labels.service }} in
+              {{ $labels.namespace }} does not match the contract declaration.
+
+    # --- Fleet: aggregate alerts across all services ---
+    - name: pacto.fleet
+      rules:
+        - alert: PactoFleetComplianceDropped
+          expr: >-
+            (count(pacto_contract_status{status="Compliant"} == 1) /
+             count(pacto_contract_status{status="Compliant"})) < 0.9
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Fleet contract compliance dropped below 90%"
+            description: >-
+              Less than 90% of Pacto contracts are currently Compliant.
+              Review the pacto_contract_status metric for per-contract details.
+
+        - alert: PactoFleetHighErrorRate
+          expr: sum(pacto_contract_validation_errors) > 5
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value }} total contract validation errors across the fleet"
+            description: >-
+              The total number of error-severity contract validation failures
+              across all services exceeds 5. This may indicate a systemic
+              configuration issue.

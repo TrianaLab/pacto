@@ -201,6 +201,38 @@ describe('ServicesTable — columns and click-to-filter', () => {
     unmount(component);
   });
 
+  it('renders a coverage badge when the service carries evaluationCoverage', () => {
+    const component = mount(ServicesTable, {
+      target,
+      props: {
+        services: [
+          { name: 'svc-a', checksPassed: 4, checksTotal: 5, evaluationCoverage: { evaluated: 4, required: 5 } },
+        ],
+      },
+    });
+
+    const badge = target.querySelector('.eval-badge');
+    expect(badge).toBeTruthy();
+    expect(badge?.textContent).toContain('4/5');
+
+    unmount(component);
+  });
+
+  it('omits the coverage badge when the service was not runtime-evaluated (no evaluationCoverage)', () => {
+    const component = mount(ServicesTable, {
+      target,
+      props: {
+        services: [
+          { name: 'svc-a', checksPassed: 4, checksTotal: 5 },
+        ],
+      },
+    });
+
+    expect(target.querySelector('.eval-badge')).toBeNull();
+
+    unmount(component);
+  });
+
   it('renders source dots', () => {
     const component = mount(ServicesTable, {
       target,

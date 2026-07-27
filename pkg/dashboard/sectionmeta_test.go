@@ -3,7 +3,7 @@ package dashboard
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 func sectionState(d *ServiceDetails, id string) SectionInfo { return d.SectionMeta[id] }
@@ -12,12 +12,14 @@ func TestComputeSectionMeta_BundleWithRuntime(t *testing.T) {
 	d := &ServiceDetails{
 		Interfaces:      []InterfaceInfo{{Name: "http"}},
 		Configurations:  []ConfigurationInfo{{Name: "app"}},
-		Runtime:         &RuntimeInfo{Workload: "service"},
+		Workload:        "service",
+		State:           &StateInfo{Type: "stateless"},
 		Validation:      &ValidationInfo{Errors: []ValidationIssue{{Code: "E1"}}},
 		ObservedRuntime: &ObservedRuntime{},
 		Conditions:      []Condition{{Type: "Ready"}},
 		Docs:            []DocInfo{{Path: "docs/x.md"}},
-		Capabilities:    []CapabilityTool{{Name: "getX", Method: "GET", Path: "/x"}},
+		Capabilities:    []CapabilityInfo{{Type: "health"}},
+		Tools:           []CapabilityTool{{Name: "getX", Method: "GET", Path: "/x"}},
 	}
 	d.ContractStatus = StatusCompliant
 	computeSectionMeta(d, "oci", true)

@@ -3,8 +3,8 @@ package dashboard
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	depgraph "github.com/trianalab/pacto/v2/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	depgraph "github.com/trianalab/pacto/v3/pkg/graph"
 )
 
 func TestExtractServiceNameFromRef_PlainName(t *testing.T) {
@@ -474,27 +474,21 @@ func TestBuildRefAliases_Empty(t *testing.T) {
 func TestBuildRefAliases_WithImageAndChart(t *testing.T) {
 	index := map[string]*ServiceDetails{
 		"my-svc": {
-			Service:  Service{Name: "my-svc"},
-			ImageRef: "ghcr.io/org/my-svc-image:1.0.0",
-			ChartRef: "oci://ghcr.io/org/my-svc-chart:1.0.0",
+			Service: Service{Name: "my-svc"},
 		},
 		"nil-svc": nil,
 	}
 	aliases := buildRefAliases(index)
-	// "my-svc-image" -> "my-svc" and "my-svc-chart" -> "my-svc"
-	if aliases["my-svc-image"] != "my-svc" {
-		t.Errorf("expected alias 'my-svc-image' -> 'my-svc', got %q", aliases["my-svc-image"])
-	}
-	if aliases["my-svc-chart"] != "my-svc" {
-		t.Errorf("expected alias 'my-svc-chart' -> 'my-svc', got %q", aliases["my-svc-chart"])
+	// No ImageRef/ChartRef fields in v2 model
+	if len(aliases) != 0 {
+		t.Errorf("expected 0 aliases, got %d", len(aliases))
 	}
 }
 
 func TestBuildRefAliases_SameNameNoAlias(t *testing.T) {
 	index := map[string]*ServiceDetails{
 		"api": {
-			Service:  Service{Name: "api"},
-			ImageRef: "ghcr.io/org/api:1.0.0", // extractServiceNameFromRef returns "api" == name
+			Service: Service{Name: "api"},
 		},
 	}
 	aliases := buildRefAliases(index)
@@ -564,38 +558,36 @@ func TestDepRefMatchesName_PactoSuffix(t *testing.T) {
 }
 
 func TestComputeBlastRadius_WithAliases(t *testing.T) {
-	// svc-b depends on "ghcr.io/org/svc-a-image:1.0.0" which should resolve to "svc-a" via alias.
+	// svc-b depends on "svc-a" (direct ref in v2)
 	index := map[string]*ServiceDetails{
 		"svc-a": {
-			Service:  Service{Name: "svc-a"},
-			ImageRef: "ghcr.io/org/svc-a-image:1.0.0",
+			Service: Service{Name: "svc-a"},
 		},
 		"svc-b": {
 			Service:      Service{Name: "svc-b"},
-			Dependencies: []DependencyInfo{{Ref: "ghcr.io/org/svc-a-image:1.0.0", Required: true}},
+			Dependencies: []DependencyInfo{{Ref: "svc-a", Required: true}},
 		},
 	}
 	aliases := buildRefAliases(index)
 	got := computeBlastRadius("svc-a", index, aliases)
 	if got != 1 {
-		t.Errorf("expected blast radius 1 (svc-b depends on svc-a via alias), got %d", got)
+		t.Errorf("expected blast radius 1 (svc-b depends on svc-a), got %d", got)
 	}
 }
 
 func TestBuildGlobalGraph_WithOCIRefAliases(t *testing.T) {
-	// Test that buildGlobalGraph correctly resolves OCI ref aliases.
+	// Test that buildGlobalGraph correctly resolves refs.
 	services := []Service{
 		{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 		{Name: "svc-b", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 	}
 	index := map[string]*ServiceDetails{
 		"svc-a": {
-			Service:  Service{Name: "svc-a", Version: "1.0.0"},
-			ImageRef: "ghcr.io/org/svc-a-img:1.0.0",
+			Service: Service{Name: "svc-a", Version: "1.0.0"},
 		},
 		"svc-b": {
 			Service:      Service{Name: "svc-b", Version: "1.0.0"},
-			Dependencies: []DependencyInfo{{Ref: "ghcr.io/org/svc-a-img:1.0.0", Required: true}},
+			Dependencies: []DependencyInfo{{Ref: "svc-a", Required: true}},
 		},
 	}
 
@@ -604,7 +596,7 @@ func TestBuildGlobalGraph_WithOCIRefAliases(t *testing.T) {
 		t.Fatal("expected non-nil graph")
 	}
 
-	// svc-b should have an edge to svc-a (resolved via alias)
+	// svc-b should have an edge to svc-a
 	var svcB *GraphNodeData
 	for i := range graph.Nodes {
 		if graph.Nodes[i].ID == "svc-b" {
@@ -619,10 +611,10 @@ func TestBuildGlobalGraph_WithOCIRefAliases(t *testing.T) {
 		t.Fatalf("expected 1 edge on svc-b, got %d", len(svcB.Edges))
 	}
 	if svcB.Edges[0].TargetID != "svc-a" {
-		t.Errorf("expected edge target 'svc-a' (via alias), got %q", svcB.Edges[0].TargetID)
+		t.Errorf("expected edge target 'svc-a', got %q", svcB.Edges[0].TargetID)
 	}
 	if !svcB.Edges[0].Resolved {
-		t.Error("expected edge to be resolved via alias")
+		t.Error("expected edge to be resolved")
 	}
 }
 
@@ -853,7 +845,7 @@ func TestGlobalGraphFromResult_RootOnly(t *testing.T) {
 	gr := &depgraph.Result{Root: &depgraph.Node{
 		Name:     "root-svc",
 		Version:  "1.0.0",
-		Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "root-svc", Version: "1.0.0"}},
+		Contract: &contract.Contract{Service: contract.Service{Name: "root-svc", Version: "1.0.0"}},
 	}}
 
 	g := GlobalGraphFromResult(gr, root)
@@ -877,12 +869,12 @@ func TestGlobalGraphFromResult_RootWithDep(t *testing.T) {
 	depNode := &depgraph.Node{
 		Name:     "dep-svc",
 		Version:  "2.0.0",
-		Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "dep-svc", Version: "2.0.0"}},
+		Contract: &contract.Contract{Service: contract.Service{Name: "dep-svc", Version: "2.0.0"}},
 	}
 	gr := &depgraph.Result{Root: &depgraph.Node{
 		Name:         "root-svc",
 		Version:      "1.0.0",
-		Contract:     &contract.Contract{Service: contract.ServiceIdentity{Name: "root-svc", Version: "1.0.0"}},
+		Contract:     &contract.Contract{Service: contract.Service{Name: "root-svc", Version: "1.0.0"}},
 		Dependencies: []depgraph.Edge{{Ref: "dep-svc", Node: depNode}},
 	}}
 
@@ -920,12 +912,12 @@ func TestGlobalGraphFromResult_DedupeSharedName(t *testing.T) {
 	dupNode := &depgraph.Node{
 		Name:     "svc",
 		Version:  "9.9.9",
-		Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "svc", Version: "9.9.9"}},
+		Contract: &contract.Contract{Service: contract.Service{Name: "svc", Version: "9.9.9"}},
 	}
 	gr := &depgraph.Result{Root: &depgraph.Node{
 		Name:         "svc",
 		Version:      "1.0.0",
-		Contract:     &contract.Contract{Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"}},
+		Contract:     &contract.Contract{Service: contract.Service{Name: "svc", Version: "1.0.0"}},
 		Dependencies: []depgraph.Edge{{Ref: "svc", Node: dupNode}},
 	}}
 
@@ -950,7 +942,7 @@ func TestGlobalGraphFromResult_NilEdgeNodeAndNoContractDep(t *testing.T) {
 	gr := &depgraph.Result{Root: &depgraph.Node{
 		Name:     "root-svc",
 		Version:  "1.0.0",
-		Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "root-svc", Version: "1.0.0"}},
+		Contract: &contract.Contract{Service: contract.Service{Name: "root-svc", Version: "1.0.0"}},
 		Dependencies: []depgraph.Edge{
 			{Ref: "missing", Node: nil},       // skipped by the nil guard
 			{Ref: "stub-dep", Node: stubNode}, // default branch: status Unknown

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 var refNow = time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
@@ -12,8 +12,8 @@ var refNow = time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 func ptrInt(i int) *int       { return &i }
 func ptrF(f float64) *float64 { return &f }
 
-func mk(expires string, ms *int, pc *float64, checks ...contract.ReadinessCheck) *contract.Readiness {
-	return &contract.Readiness{MinScore: ms, Expires: expires, PartialCredit: pc, Checks: checks}
+func mk(expires string, ms *int, pc *float64, claims ...contract.ReadinessClaim) *contract.Readiness {
+	return &contract.Readiness{MinScore: ms, Expires: expires, PartialCredit: pc, Claims: claims}
 }
 
 func TestEvaluate_NilAndEmpty(t *testing.T) {
@@ -27,10 +27,10 @@ func TestEvaluate_NilAndEmpty(t *testing.T) {
 
 func TestEvaluate_ScoringWithStatuses(t *testing.T) {
 	r := mk("2026-12-31", ptrInt(80), nil,
-		contract.ReadinessCheck{ID: "a", Type: "url", Status: contract.StatusDone, Evidence: "e", Weight: 30},
-		contract.ReadinessCheck{ID: "b", Type: "url", Status: contract.StatusPartial, Evidence: "e", Weight: 20},
-		contract.ReadinessCheck{ID: "c", Type: "url", Status: contract.StatusNotDone, Evidence: "e", Weight: 10},
-		contract.ReadinessCheck{ID: "d", Type: "url", Status: contract.StatusDeferred, Evidence: "e", Weight: 40},
+		contract.ReadinessClaim{ID: "a", Type: "url", Status: contract.StatusDone, Evidence: "e", Weight: 30},
+		contract.ReadinessClaim{ID: "b", Type: "url", Status: contract.StatusPartial, Evidence: "e", Weight: 20},
+		contract.ReadinessClaim{ID: "c", Type: "url", Status: contract.StatusNotDone, Evidence: "e", Weight: 10},
+		contract.ReadinessClaim{ID: "d", Type: "url", Status: contract.StatusDeferred, Evidence: "e", Weight: 40},
 	)
 	got := Evaluate(r, refNow)
 	if got.TotalWeight != 60 {
@@ -52,9 +52,9 @@ func TestEvaluate_ScoringWithStatuses(t *testing.T) {
 
 func TestEvaluate_PassingGate(t *testing.T) {
 	r := mk("2026-12-31", ptrInt(80), nil,
-		contract.ReadinessCheck{ID: "a", Type: "url", Status: contract.StatusDone, Evidence: "e", Weight: 30},
-		contract.ReadinessCheck{ID: "b", Type: "url", Status: contract.StatusPartial, Evidence: "e", Weight: 20},
-		contract.ReadinessCheck{ID: "d", Type: "url", Status: contract.StatusDeferred, Evidence: "e", Weight: 40},
+		contract.ReadinessClaim{ID: "a", Type: "url", Status: contract.StatusDone, Evidence: "e", Weight: 30},
+		contract.ReadinessClaim{ID: "b", Type: "url", Status: contract.StatusPartial, Evidence: "e", Weight: 20},
+		contract.ReadinessClaim{ID: "d", Type: "url", Status: contract.StatusDeferred, Evidence: "e", Weight: 40},
 	)
 	got := Evaluate(r, refNow) // total 50, earned 40 -> 80
 	if got.Score != 80 || !got.Passing {
@@ -64,7 +64,7 @@ func TestEvaluate_PassingGate(t *testing.T) {
 
 func TestEvaluate_CustomPartialCredit(t *testing.T) {
 	r := mk("2026-12-31", ptrInt(0), ptrF(0.25),
-		contract.ReadinessCheck{ID: "b", Type: "url", Status: contract.StatusPartial, Evidence: "e", Weight: 40},
+		contract.ReadinessClaim{ID: "b", Type: "url", Status: contract.StatusPartial, Evidence: "e", Weight: 40},
 	)
 	got := Evaluate(r, refNow)
 	if got.EarnedWeight != 10 || got.Score != 25 { // round(40*0.25)=10, 10/40
@@ -74,7 +74,7 @@ func TestEvaluate_CustomPartialCredit(t *testing.T) {
 
 func TestEvaluate_Expired(t *testing.T) {
 	r := mk("2026-01-01", ptrInt(50), nil,
-		contract.ReadinessCheck{ID: "a", Type: "url", Status: contract.StatusDone, Evidence: "e", Weight: 100},
+		contract.ReadinessClaim{ID: "a", Type: "url", Status: contract.StatusDone, Evidence: "e", Weight: 100},
 	)
 	got := Evaluate(r, refNow)
 	if !got.Expired || got.Score != 0 || got.Passing {
@@ -84,7 +84,7 @@ func TestEvaluate_Expired(t *testing.T) {
 
 func TestEvaluate_InclusiveExpiryAndDays(t *testing.T) {
 	r := mk("2026-06-08", ptrInt(0), nil,
-		contract.ReadinessCheck{ID: "a", Type: "url", Status: contract.StatusDone, Evidence: "e", Weight: 10},
+		contract.ReadinessClaim{ID: "a", Type: "url", Status: contract.StatusDone, Evidence: "e", Weight: 10},
 	)
 	got := Evaluate(r, refNow) // expires today -> still current
 	if got.Expired {
@@ -97,7 +97,7 @@ func TestEvaluate_InclusiveExpiryAndDays(t *testing.T) {
 
 func TestEvaluate_InvalidExpiresFailsClosed(t *testing.T) {
 	r := mk("2026-13-40", ptrInt(0), nil,
-		contract.ReadinessCheck{ID: "a", Type: "url", Status: contract.StatusDone, Evidence: "e", Weight: 10},
+		contract.ReadinessClaim{ID: "a", Type: "url", Status: contract.StatusDone, Evidence: "e", Weight: 10},
 	)
 	got := Evaluate(r, refNow)
 	if !got.Expired || got.Score != 0 {
@@ -107,7 +107,7 @@ func TestEvaluate_InvalidExpiresFailsClosed(t *testing.T) {
 
 func TestEvaluate_AllDeferred(t *testing.T) {
 	r := mk("2026-12-31", ptrInt(100), nil,
-		contract.ReadinessCheck{ID: "a", Type: "url", Status: contract.StatusDeferred, Evidence: "e", Weight: 50},
+		contract.ReadinessClaim{ID: "a", Type: "url", Status: contract.StatusDeferred, Evidence: "e", Weight: 50},
 	)
 	got := Evaluate(r, refNow)
 	if got.TotalWeight != 0 || got.Score != 0 || got.Passing {
@@ -117,7 +117,7 @@ func TestEvaluate_AllDeferred(t *testing.T) {
 
 func TestEvaluate_Defaults(t *testing.T) {
 	// No minScore, no partialCredit: defaults are 100 and 0.5.
-	r := &contract.Readiness{Expires: "2026-12-31", Checks: []contract.ReadinessCheck{
+	r := &contract.Readiness{Expires: "2026-12-31", Claims: []contract.ReadinessClaim{
 		{ID: "a", Type: "url", Status: contract.StatusPartial, Evidence: "e", Weight: 40},
 	}}
 	got := Evaluate(r, refNow)
@@ -137,8 +137,8 @@ func TestEvaluate_Defaults(t *testing.T) {
 
 func TestEvaluate_CheckResultFields(t *testing.T) {
 	r := mk("2026-12-31", ptrInt(0), nil,
-		contract.ReadinessCheck{ID: "a", Type: "url", Category: contract.CategorySecurity, Status: contract.StatusDone, Evidence: "e", Description: "d", Weight: 30},
-		contract.ReadinessCheck{ID: "b", Type: "url", Status: contract.StatusDeferred, Evidence: "e2", Weight: 40},
+		contract.ReadinessClaim{ID: "a", Type: "url", Category: contract.CategorySecurity, Status: contract.StatusDone, Evidence: "e", Description: "d", Weight: 30},
+		contract.ReadinessClaim{ID: "b", Type: "url", Status: contract.StatusDeferred, Evidence: "e2", Weight: 40},
 	)
 	got := Evaluate(r, refNow)
 	if len(got.Checks) != 2 {

@@ -1,7 +1,9 @@
 .git
-.github
-docs
-tests
-coverage.*
-*.md
-!README.md
+**/node_modules
+.gocache
+**/bin
+site
+**/.svelte-kit
+pkg/dashboard/frontend/node_modules
+release/proofs
+*.log

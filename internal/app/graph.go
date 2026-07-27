@@ -3,13 +3,13 @@ package app
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/graph"
-	"github.com/trianalab/pacto/v2/pkg/oci"
-	"github.com/trianalab/pacto/v2/pkg/override"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/override"
 )
 
 // GraphOptions holds options for the graph command.
@@ -30,7 +30,7 @@ type GraphResult = graph.Result
 func (s *Service) Graph(ctx context.Context, opts GraphOptions) (*GraphResult, error) {
 	ref := defaultPath(opts.Path)
 
-	slog.Debug("resolving contract for graph", "ref", ref)
+	logging.LoggerFromContext(ctx).Debug("resolving contract for graph", "ref", ref)
 	bundle, err := s.resolveBundleWithOverrides(ctx, ref, opts.Overrides)
 	if err != nil {
 		return nil, err
@@ -40,14 +40,14 @@ func (s *Service) Graph(ctx context.Context, opts GraphOptions) (*GraphResult, e
 		return nil, err
 	}
 
-	slog.Debug("resolving dependency graph", "name", bundle.Contract.Service.Name)
+	logging.LoggerFromContext(ctx).Debug("resolving dependency graph", "name", bundle.Contract.Service.Name)
 	fetcher := s.newDepFetcher(ref)
 	result := graph.ResolveWithOptions(ctx, bundle.Contract, fetcher, graph.ResolveOptions{
 		IncludeReferences: opts.IncludeReferences,
 		OnlyReferences:    opts.OnlyReferences,
 		OnResolved:        opts.OnDepResolved,
 	})
-	slog.Debug("graph resolution complete", "dependencies", len(result.Root.Dependencies), "cycles", len(result.Cycles), "conflicts", len(result.Conflicts))
+	logging.LoggerFromContext(ctx).Debug("graph resolution complete", "dependencies", len(result.Root.Dependencies), "cycles", len(result.Cycles), "conflicts", len(result.Conflicts))
 	return result, nil
 }
 
@@ -81,13 +81,13 @@ func (s *Service) newDepFetcher(baseRef string) graph.ContractFetcher {
 func (f *depFetcher) Fetch(ctx context.Context, dep contract.Dependency) (*contract.Bundle, error) {
 	parsed := graph.ParseDependencyRef(dep.Ref)
 	if parsed.IsLocal() {
-		slog.Debug("fetching local dependency", "ref", dep.Ref)
+		logging.LoggerFromContext(ctx).Debug("fetching local dependency", "ref", dep.Ref)
 		return f.fetchLocal(parsed)
 	}
 	if f.store == nil {
 		return nil, fmt.Errorf("OCI store not configured (cannot fetch %s)", dep.Ref)
 	}
-	slog.Debug("fetching OCI dependency", "ref", dep.Ref, "compatibility", dep.Compatibility)
+	logging.LoggerFromContext(ctx).Debug("fetching OCI dependency", "ref", dep.Ref, "compatibility", dep.Compatibility)
 	location, err := oci.ResolveRef(ctx, f.store, parsed.Location, dep.Compatibility)
 	if err != nil {
 		return nil, err

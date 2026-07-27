@@ -3,9 +3,10 @@ package app
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
+
+	"github.com/trianalab/pacto/v3/pkg/logging"
 )
 
 // InitOptions holds options for the init command.
@@ -19,7 +20,7 @@ type InitResult struct {
 	Path string
 }
 
-const defaultContract = `pactoVersion: "1.2"
+const defaultContract = `pactoVersion: "2.0"
 
 service:
   name: %s
@@ -31,20 +32,17 @@ service:
       - type: email
         value: my-team@example.com
         purpose: ownership
-  image:
-    ref: ghcr.io/my-org/%s:0.1.0
-    private: false
 
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: interfaces/openapi.yaml
     visibility: internal
-    contract: interfaces/openapi.yaml
 
 configurations:
   - name: default
     schema: configuration/schema.json
+    required: true
 
 # dependencies:
 #   - name: other-service
@@ -52,28 +50,18 @@ configurations:
 #     required: true
 #     compatibility: "^1.0.0"
 
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-  health:
-    interface: api
-    path: /health
-    initialDelaySeconds: 5
-  metrics:
-    interface: api
-    path: /metrics
+workload: service
 
-scaling:
-  min: 1
-  max: 3
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+
+capabilities:
+  - type: health
+  - type: metrics
 
 readiness:
   minScore: 80
@@ -84,7 +72,7 @@ readiness:
       version: 0.1.0
       author: my.handle
       description: Initial readiness assessment
-  checks:
+  claims:
     - id: runbook
       type: document
       category: documentation
@@ -125,12 +113,12 @@ const defaultConfigSchema = `{
 `
 
 // Init scaffolds a new pacto project directory with the full bundle structure.
-func (s *Service) Init(_ context.Context, opts InitOptions) (*InitResult, error) {
+func (s *Service) Init(ctx context.Context, opts InitOptions) (*InitResult, error) {
 	name := opts.Name
 	if name == "" {
 		return nil, fmt.Errorf("service name is required")
 	}
-	slog.Debug("initializing new pacto project", "name", name)
+	logging.LoggerFromContext(ctx).Debug("initializing new pacto project", "name", name)
 
 	dir := name
 
@@ -152,7 +140,7 @@ func (s *Service) Init(_ context.Context, opts InitOptions) (*InitResult, error)
 
 	// Write pacto.yaml.
 	pactoPath := filepath.Join(dir, "pacto.yaml")
-	content := fmt.Sprintf(defaultContract, name, name)
+	content := fmt.Sprintf(defaultContract, name)
 	if err := writeFileFn(pactoPath, []byte(content), 0644); err != nil {
 		return nil, fmt.Errorf("failed to write pacto.yaml: %w", err)
 	}

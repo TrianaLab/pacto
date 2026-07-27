@@ -3,11 +3,11 @@ package oci
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 )
 
 // TagLister can list available tags for an OCI repository.
@@ -68,10 +68,10 @@ func BestTag(tags []string, constraint string) (string, error) {
 // an explicit tag or digest, it is returned unchanged.
 func ResolveRef(ctx context.Context, lister TagLister, ref, constraint string) (string, error) {
 	if HasExplicitTag(ref) {
-		slog.Debug("reference has explicit tag", "ref", ref)
+		logging.LoggerFromContext(ctx).Debug("reference has explicit tag", "ref", ref)
 		return ref, nil
 	}
-	slog.Debug("resolving best tag for reference", "ref", ref, "constraint", constraint)
+	logging.LoggerFromContext(ctx).Debug("resolving best tag for reference", "ref", ref, "constraint", constraint)
 	tags, err := lister.ListTags(ctx, ref)
 	if err != nil {
 		return "", err
@@ -80,6 +80,6 @@ func ResolveRef(ctx context.Context, lister TagLister, ref, constraint string) (
 	if err != nil {
 		return "", err
 	}
-	slog.Debug("resolved tag", "ref", ref, "tag", tag)
+	logging.LoggerFromContext(ctx).Debug("resolved tag", "ref", ref, "tag", tag)
 	return ref + ":" + tag, nil
 }

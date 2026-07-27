@@ -1,0 +1,149 @@
+suite: dashboard tests
+templates:
+  - templates/dashboard-service.yaml
+  - templates/dashboard-ingress.yaml
+  - templates/dashboard-httproute.yaml
+tests:
+  # --- Service ---
+  - it: should create a dashboard Service by default
+    template: templates/dashboard-service.yaml
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports[0].port
+          value: 3000
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/component: dashboard
+            app.kubernetes.io/name: pacto-dashboard
+
+  - it: should not create a dashboard Service when dashboard is disabled
+    template: templates/dashboard-service.yaml
+    set:
+      dashboard.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should use NodePort type
+    template: templates/dashboard-service.yaml
+    set:
+      dashboard.service.type: NodePort
+      dashboard.service.nodePort: 30300
+    asserts:
+      - equal:
+          path: spec.type
+          value: NodePort
+      - equal:
+          path: spec.ports[0].nodePort
+          value: 30300
+
+  - it: should use LoadBalancer type
+    template: templates/dashboard-service.yaml
+    set:
+      dashboard.service.type: LoadBalancer
+    asserts:
+      - equal:
+          path: spec.type
+          value: LoadBalancer
+
+  # --- Ingress ---
+  - it: should not create Ingress by default
+    template: templates/dashboard-ingress.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create Ingress when enabled
+    template: templates/dashboard-ingress.yaml
+    set:
+      dashboard.ingress.enabled: true
+      dashboard.ingress.className: nginx
+      dashboard.ingress.hosts:
+        - host: pacto.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+    asserts:
+      - isKind:
+          of: Ingress
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+      - equal:
+          path: spec.rules[0].host
+          value: pacto.example.com
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.name
+          value: RELEASE-NAME-pacto-operator-dashboard
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.number
+          value: 3000
+
+  - it: should not create Ingress when dashboard is disabled
+    template: templates/dashboard-ingress.yaml
+    set:
+      dashboard.enabled: false
+      dashboard.ingress.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should include Ingress TLS
+    template: templates/dashboard-ingress.yaml
+    set:
+      dashboard.ingress.enabled: true
+      dashboard.ingress.tls:
+        - secretName: pacto-tls
+          hosts:
+            - pacto.example.com
+    asserts:
+      - equal:
+          path: spec.tls[0].secretName
+          value: pacto-tls
+
+  # --- HTTPRoute ---
+  - it: should not create HTTPRoute by default
+    template: templates/dashboard-httproute.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create HTTPRoute when enabled with default catch-all rule
+    template: templates/dashboard-httproute.yaml
+    set:
+      dashboard.httpRoute.enabled: true
+      dashboard.httpRoute.parentRefs:
+        - name: main-gateway
+          namespace: gateway-system
+      dashboard.httpRoute.hostnames:
+        - pacto.example.com
+    asserts:
+      - isKind:
+          of: HTTPRoute
+      - equal:
+          path: spec.parentRefs[0].name
+          value: main-gateway
+      - equal:
+          path: spec.hostnames[0]
+          value: pacto.example.com
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: RELEASE-NAME-pacto-operator-dashboard
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 3000
+
+  - it: should not create HTTPRoute when dashboard is disabled
+    template: templates/dashboard-httproute.yaml
+    set:
+      dashboard.enabled: false
+      dashboard.httpRoute.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0

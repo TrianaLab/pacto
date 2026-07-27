@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/internal/app"
-	"github.com/trianalab/pacto/v2/internal/testutil"
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
 )
 
 // TestDocCommand_BuildExportError exercises the otherwise-unreachable

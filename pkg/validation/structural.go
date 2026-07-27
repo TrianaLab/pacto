@@ -9,32 +9,22 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-//go:embed schema/pacto-v1.0.schema.json
-var schemaV10Bytes []byte
+//go:embed schema/pacto-v2.0.schema.json
+var schemaV20Bytes []byte
 
-//go:embed schema/pacto-v1.1.schema.json
-var schemaV11Bytes []byte
+// SchemaBytes returns the raw embedded JSON Schema bytes for the supported
+// version (2.0). This is used by the doc package to extract field descriptions.
+func SchemaBytes() []byte { return schemaV20Bytes }
 
-//go:embed schema/pacto-v1.2.schema.json
-var schemaV12Bytes []byte
-
-// SchemaBytes returns the raw embedded JSON Schema bytes for the latest
-// supported version (1.2). This is used by the doc package to extract field
-// descriptions; v1.2 is a superset of v1.0/v1.1, so it carries every description.
-func SchemaBytes() []byte { return schemaV12Bytes }
-
-// supportedSchemaVersions lists the supported pactoVersion values in ascending
-// order. It drives both schema compilation and the unsupported-version message.
-var supportedSchemaVersions = []string{"1.0", "1.1", "1.2"}
+// supportedSchemaVersions lists the supported pactoVersion values.
+var supportedSchemaVersions = []string{"2.0"}
 
 // compiledSchemas maps each supported pactoVersion to its compiled JSON Schema.
 var compiledSchemas map[string]*jsonschema.Schema
 
 func init() {
 	compiledSchemas = map[string]*jsonschema.Schema{
-		"1.0": mustCompileSchema(schemaV10Bytes),
-		"1.1": mustCompileSchema(schemaV11Bytes),
-		"1.2": mustCompileSchema(schemaV12Bytes),
+		"2.0": mustCompileSchema(schemaV20Bytes),
 	}
 }
 

@@ -3,11 +3,11 @@ package dashboard
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sort"
 	"sync"
 
-	"github.com/trianalab/pacto/v2/pkg/semver"
+	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/semver"
 )
 
 // ResolvedSource implements DataSource by combining a contract source
@@ -64,7 +64,7 @@ func (r *ResolvedSource) sources() ([]namedContractSource, *runtimeSourceEntry, 
 
 // logSourceError logs a source error only when the message changes,
 // preventing repeated identical warnings from flooding the terminal.
-func (r *ResolvedSource) logSourceError(sourceType string, err error) {
+func (r *ResolvedSource) logSourceError(ctx context.Context, sourceType string, err error) {
 	msg := err.Error()
 	r.mu.Lock()
 	if r.lastSourceErr == nil {
@@ -74,7 +74,7 @@ func (r *ResolvedSource) logSourceError(sourceType string, err error) {
 	r.lastSourceErr[sourceType] = msg
 	r.mu.Unlock()
 	if msg != prev {
-		slog.Warn("source ListServices failed", "source", sourceType, "error", err)
+		logging.LoggerFromContext(ctx).Warn("source ListServices failed", "source", sourceType, "error", err)
 	}
 }
 
@@ -220,7 +220,7 @@ func (r *ResolvedSource) ListServices(ctx context.Context) ([]Service, error) {
 	for range all {
 		res := <-results
 		if res.err != nil {
-			r.logSourceError(res.sourceType, res.err)
+			r.logSourceError(ctx, res.sourceType, res.err)
 			continue
 		}
 		for _, svc := range res.services {
@@ -331,8 +331,10 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 // dependencies) but DOES override Version and Owner because the operator is
 // the authoritative source of the currently deployed/effective version.
 func enrichWithRuntime(contract *ServiceDetails, runtime *ServiceDetails) {
-	// Contract status: k8s is authoritative when present.
-	if runtime.ContractStatus != StatusUnknown && runtime.ContractStatus != "" {
+	// Contract status: AR6 — override whenever RuntimeEvaluated (runtimeDetails != nil),
+	// regardless of the runtime status value, so a genuinely runtime-observed Unknown
+	// overrides a NotEvaluated base.
+	if runtime.ContractStatus != "" {
 		contract.ContractStatus = runtime.ContractStatus
 	}
 
@@ -350,17 +352,27 @@ func enrichWithRuntime(contract *ServiceDetails, runtime *ServiceDetails) {
 
 // enrichRuntimeFields copies runtime-only struct/slice fields from k8s.
 func enrichRuntimeFields(contract *ServiceDetails, runtime *ServiceDetails) {
-	// Declared Runtime and Scaling stay from the contract base (the contract is
-	// authoritative for what the service SHOULD be). The operator's observed/
-	// effective values live in ObservedRuntime + RuntimeDiff below, so the two
-	// are never conflated. Only fill the declared blocks when the contract base
-	// had none (e.g. a k8s-only service whose declared values come from status).
-	if contract.Runtime == nil && runtime.Runtime != nil {
-		contract.Runtime = runtime.Runtime
+	// Declared workload, state, capabilities: only fill when contract base is empty.
+	fillDeclaredFields(contract, runtime)
+	// Runtime-only fields: always set from k8s when present.
+	fillRuntimeOnlyFields(contract, runtime)
+}
+
+// fillDeclaredFields fills contract-authoritative fields only when empty.
+func fillDeclaredFields(contract *ServiceDetails, runtime *ServiceDetails) {
+	if contract.Workload == "" && runtime.Workload != "" {
+		contract.Workload = runtime.Workload
 	}
-	if contract.Scaling == nil && runtime.Scaling != nil {
-		contract.Scaling = runtime.Scaling
+	if contract.State == nil && runtime.State != nil {
+		contract.State = runtime.State
 	}
+	if len(contract.Capabilities) == 0 && len(runtime.Capabilities) > 0 {
+		contract.Capabilities = runtime.Capabilities
+	}
+}
+
+// fillRuntimeOnlyFields unconditionally copies runtime fields when present.
+func fillRuntimeOnlyFields(contract *ServiceDetails, runtime *ServiceDetails) {
 	if runtime.Resources != nil {
 		contract.Resources = runtime.Resources
 	}
@@ -387,6 +399,9 @@ func enrichRuntimeFields(contract *ServiceDetails, runtime *ServiceDetails) {
 	}
 	if len(runtime.RuntimeDiff) > 0 {
 		contract.RuntimeDiff = runtime.RuntimeDiff
+	}
+	if runtime.EvaluationCoverage != nil {
+		contract.EvaluationCoverage = runtime.EvaluationCoverage
 	}
 }
 

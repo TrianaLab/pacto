@@ -1,0 +1,35 @@
+# Additive RBAC for the metrics-observation feature (spec section 9.10 / AR8).
+# This is a SEPARATE ClusterRole (never a patch of manager-role, whose rules are an atomic list a
+# strategic merge would wipe), plus its binding to the controller-manager service account. Apply it
+# ALONGSIDE the base rbac when the feature is enabled; the base reconciler grants are untouched.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: metrics-observation-role
+rules:
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - servicemonitors
+  - podmonitors
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: metrics-observation-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: metrics-observation-role
+subjects:
+- kind: ServiceAccount
+  name: controller-manager
+  namespace: system

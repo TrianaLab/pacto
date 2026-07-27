@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v2/internal/app"
-	pactomcp "github.com/trianalab/pacto/v2/internal/mcp"
+	"github.com/trianalab/pacto/v3/internal/app"
+	pactomcp "github.com/trianalab/pacto/v3/internal/mcp"
 )
 
 func TestMCPCommand_Help(t *testing.T) {
@@ -143,14 +143,14 @@ func TestBuildMCPServer_RegisterError(t *testing.T) {
 func writeCapabilityBundle(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	pactoYAML := `pactoVersion: "1.0"
+	pactoYAML := `pactoVersion: "2.0"
 service:
   name: demo
   version: 1.0.0
 interfaces:
   - name: http
-    type: http
-    contract: interfaces/openapi.json
+    type: openapi
+    ref: interfaces/openapi.json
 `
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(pactoYAML), 0o644); err != nil {
 		t.Fatal(err)

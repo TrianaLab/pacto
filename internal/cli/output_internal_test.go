@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v2/internal/app"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/diff"
-	"github.com/trianalab/pacto/v2/pkg/graph"
-	"github.com/trianalab/pacto/v2/pkg/sbom"
+	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/diff"
+	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/sbom"
 )
 
 type errWriter struct{}
@@ -344,28 +344,30 @@ func TestPrintGraphResult_WithDepsAndCyclesAndConflicts(t *testing.T) {
 
 func TestPrintExplainResult_Full(t *testing.T) {
 	cmd, buf := testCmd()
-	port := 8080
 	result := &app.ExplainResult{
 		Name:         "svc",
 		Version:      "1.0.0",
 		Owner:        contract.Owner{Team: "team/platform"},
-		PactoVersion: "1.0",
-		Runtime: app.ExplainRuntime{
-			WorkloadType:    "service",
-			StateType:       "stateless",
+		PactoVersion: "2.0",
+		Workload:     "service",
+		State: &app.ExplainState{
+			Type:            "stateless",
 			Scope:           "local",
 			Durability:      "ephemeral",
 			DataCriticality: "low",
 		},
+		Capabilities: []app.ExplainCapability{
+			{Type: "health"},
+			{Type: "extension", Ref: "custom.io/capability"},
+		},
 		Interfaces: []app.ExplainInterface{
-			{Name: "api", Type: "http", Port: &port, Visibility: "internal"},
-			{Name: "events", Type: "grpc"},
+			{Name: "api", Type: "openapi", Ref: "openapi.yaml", Visibility: "internal"},
+			{Name: "events", Type: "grpc", Ref: "service.proto"},
 		},
 		Dependencies: []app.ExplainDependency{
-			{Ref: "ghcr.io/dep:1.0.0", Required: true, Compatibility: "^1.0.0"},
-			{Ref: "ghcr.io/opt:2.0.0", Required: false, Compatibility: "^2.0.0"},
+			{Name: "dep", Ref: "ghcr.io/dep:1.0.0", Required: true, Compatibility: "^1.0.0"},
+			{Name: "opt", Ref: "ghcr.io/opt:2.0.0", Required: false, Compatibility: "^2.0.0"},
 		},
-		Scaling: &contract.Scaling{Min: 1, Max: 3},
 	}
 	if err := printExplainResult(cmd, result, "text"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -377,14 +379,14 @@ func TestPrintExplainResult_Full(t *testing.T) {
 	if !strings.Contains(out, "Owner: team/platform") {
 		t.Errorf("expected owner, got %q", out)
 	}
-	if !strings.Contains(out, "port 8080") {
-		t.Errorf("expected port, got %q", out)
+	if !strings.Contains(out, "openapi.yaml") {
+		t.Errorf("expected ref, got %q", out)
 	}
 	if !strings.Contains(out, "internal") {
 		t.Errorf("expected visibility, got %q", out)
 	}
-	if !strings.Contains(out, "events (grpc)") {
-		t.Errorf("expected grpc interface without port, got %q", out)
+	if !strings.Contains(out, "events (grpc: service.proto") {
+		t.Errorf("expected grpc interface with ref, got %q", out)
 	}
 	if !strings.Contains(out, "required") {
 		t.Errorf("expected required dep, got %q", out)
@@ -392,8 +394,8 @@ func TestPrintExplainResult_Full(t *testing.T) {
 	if !strings.Contains(out, "optional") {
 		t.Errorf("expected optional dep, got %q", out)
 	}
-	if !strings.Contains(out, "Scaling: 1-3") {
-		t.Errorf("expected scaling, got %q", out)
+	if !strings.Contains(out, "Capabilities") {
+		t.Errorf("expected capabilities section, got %q", out)
 	}
 }
 
@@ -402,11 +404,8 @@ func TestPrintExplainResult_Minimal(t *testing.T) {
 	result := &app.ExplainResult{
 		Name:         "svc",
 		Version:      "1.0.0",
-		PactoVersion: "1.0",
-		Runtime: app.ExplainRuntime{
-			WorkloadType: "service",
-			StateType:    "stateless",
-		},
+		PactoVersion: "2.0",
+		Workload:     "service",
 	}
 	if err := printExplainResult(cmd, result, "text"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -418,8 +417,8 @@ func TestPrintExplainResult_Minimal(t *testing.T) {
 	if strings.Contains(out, "Interfaces") {
 		t.Errorf("did not expect Interfaces section, got %q", out)
 	}
-	if strings.Contains(out, "Scaling") {
-		t.Errorf("did not expect Scaling section, got %q", out)
+	if strings.Contains(out, "State:") {
+		t.Errorf("did not expect State section, got %q", out)
 	}
 }
 

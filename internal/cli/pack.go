@@ -3,7 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/trianalab/pacto/v3/internal/app"
 )
 
 func newPackCommand(svc *app.Service, v *viper.Viper) *cobra.Command {

@@ -22,7 +22,10 @@
     {:else}
       <span class="metric-value text-dim">—</span>
     {/if}
-    <span class="metric-sub">{metrics.compliant} of {metrics.assessed} assessed</span>
+    <span class="metric-sub">{metrics.compliant} of {metrics.assessed} assessed · {metrics.unknown} unknown</span>
+    {#if metrics.evaluationCoverage.required > 0}
+      <span class="metric-sub metric-coverage" data-tip="Required assertions actually evaluated across the fleet — metadata, does not change the percentage">coverage: {metrics.evaluationCoverage.evaluated} of {metrics.evaluationCoverage.required} evaluated</span>
+    {/if}
   </button>
 
   <!-- Needs attention -->
@@ -37,7 +40,7 @@
     <span class="metric-head">Needs attention</span>
     <span class="metric-value">{metrics.needsAttention}</span>
     <span class="metric-sub">
-      {#if metrics.needsAttention === 0}all clear{:else}{metrics.nonCompliant} non-compliant · {metrics.warning} warning{metrics.warning !== 1 ? 's' : ''}{/if}
+      {#if metrics.needsAttention === 0}all clear{:else}{metrics.nonCompliant} non-compliant · {metrics.warning} warning{metrics.warning !== 1 ? 's' : ''}{#if metrics.invalid > 0} · {metrics.invalid} invalid{/if}{/if}
     </span>
   </button>
 

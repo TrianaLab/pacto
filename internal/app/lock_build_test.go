@@ -9,16 +9,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/internal/testutil"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/lock"
+	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/lock"
 )
 
 // rootBundleWithDep returns a local root contract that declares one OCI dep.
 func rootBundleWithDep() *contract.Bundle {
 	c := &contract.Contract{
-		PactoVersion: "1.0",
-		Service:      contract.ServiceIdentity{Name: "root", Version: "2.1.0"},
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "root", Version: "2.1.0"},
 		Dependencies: []contract.Dependency{
 			{Name: "auth", Ref: "oci://ghcr.io/acme/auth", Compatibility: "^1.0.0", Required: true},
 		},
@@ -27,7 +27,7 @@ func rootBundleWithDep() *contract.Bundle {
 }
 
 func TestBuildLockCapturesDigest(t *testing.T) {
-	authContract := &contract.Contract{Service: contract.ServiceIdentity{Name: "auth", Version: "1.2.0"}}
+	authContract := &contract.Contract{Service: contract.Service{Name: "auth", Version: "1.2.0"}}
 	store := &testutil.MockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.2.0"}, nil },
 		ResolveFn:  func(_ context.Context, _ string) (string, error) { return "sha256:authdigest", nil },
@@ -71,14 +71,14 @@ func TestBuildLockDependsOn(t *testing.T) {
 			switch ref {
 			case "ghcr.io/acme/auth:1.0.0":
 				return &contract.Bundle{Contract: &contract.Contract{
-					Service: contract.ServiceIdentity{Name: "auth", Version: "1.0.0"},
+					Service: contract.Service{Name: "auth", Version: "1.0.0"},
 					Dependencies: []contract.Dependency{
 						{Name: "db", Ref: "oci://ghcr.io/acme/db:2.0.0", Compatibility: "^2.0.0", Required: true},
 					},
 				}}, nil
 			case "ghcr.io/acme/db:2.0.0":
 				return &contract.Bundle{Contract: &contract.Contract{
-					Service: contract.ServiceIdentity{Name: "db", Version: "2.0.0"},
+					Service: contract.Service{Name: "db", Version: "2.0.0"},
 				}}, nil
 			}
 			return nil, fmt.Errorf("unexpected ref %q", ref)
@@ -86,7 +86,7 @@ func TestBuildLockDependsOn(t *testing.T) {
 	}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Name: "auth", Ref: "oci://ghcr.io/acme/auth:1.0.0", Compatibility: "^1.0.0", Required: true},
 		},
@@ -119,7 +119,7 @@ func TestBuildLockLocalDep(t *testing.T) {
 	store := &testutil.MockBundleStore{}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Name: "local-dep", Ref: dir, Compatibility: "", Required: true},
 		},
@@ -153,18 +153,18 @@ func TestBuildLockReferences(t *testing.T) {
 		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
 		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
 			if strings.Contains(ref, "/cfg") {
-				return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "cfg", Version: "1.0.0"}}}, nil
+				return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "cfg", Version: "1.0.0"}}}, nil
 			}
-			return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "sec", Version: "2.0.0"}}}, nil
+			return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "sec", Version: "2.0.0"}}}, nil
 		},
 	}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
+		Configurations: []contract.Configuration{
 			{Name: "cfg", Ref: "oci://ghcr.io/acme/cfg:1.0.0"},
 		},
-		Policies: []contract.PolicySource{
+		Policies: []contract.Policy{
 			{Name: "sec", Ref: "oci://ghcr.io/acme/sec:2.0.0"},
 		},
 	}}
@@ -197,8 +197,8 @@ func TestBuildLockLocalReference(t *testing.T) {
 	store := &testutil.MockBundleStore{}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
+		Configurations: []contract.Configuration{
 			{Name: "localcfg", Ref: dir},
 		},
 	}}
@@ -232,7 +232,7 @@ func TestBuildLockConflict(t *testing.T) {
 // service at incompatible pinned versions, producing a graph conflict.
 func conflictRootBundle() *contract.Bundle {
 	return &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Name: "a", Ref: "oci://ghcr.io/acme/a:1.0.0", Compatibility: "^1.0.0", Required: true},
 			{Name: "b", Ref: "oci://ghcr.io/acme/b:1.0.0", Compatibility: "^1.0.0", Required: true},
@@ -247,25 +247,87 @@ func conflictStore() *testutil.MockBundleStore {
 			switch ref {
 			case "ghcr.io/acme/a:1.0.0":
 				return &contract.Bundle{Contract: &contract.Contract{
-					Service: contract.ServiceIdentity{Name: "a", Version: "1.0.0"},
+					Service: contract.Service{Name: "a", Version: "1.0.0"},
 					Dependencies: []contract.Dependency{
 						{Name: "shared", Ref: "oci://ghcr.io/acme/shared:2.0.0", Compatibility: "^2.0.0", Required: true},
 					},
 				}}, nil
 			case "ghcr.io/acme/b:1.0.0":
 				return &contract.Bundle{Contract: &contract.Contract{
-					Service: contract.ServiceIdentity{Name: "b", Version: "1.0.0"},
+					Service: contract.Service{Name: "b", Version: "1.0.0"},
 					Dependencies: []contract.Dependency{
 						{Name: "shared", Ref: "oci://ghcr.io/acme/shared:3.0.0", Compatibility: "^3.0.0", Required: true},
 					},
 				}}, nil
 			case "ghcr.io/acme/shared:2.0.0":
-				return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "shared", Version: "2.0.0"}}}, nil
+				return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "shared", Version: "2.0.0"}}}, nil
 			case "ghcr.io/acme/shared:3.0.0":
-				return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "shared", Version: "3.0.0"}}}, nil
+				return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "shared", Version: "3.0.0"}}}, nil
 			}
 			return nil, fmt.Errorf("unexpected ref %q", ref)
 		},
+	}
+}
+
+// splitCycleStore serves the concurrent split-cycle graph:
+// root -> a, root -> c; a -> b; b -> c; c -> b. The b<->c back-edge is split
+// across the two sibling branches under root, which resolve concurrently.
+func splitCycleStore() *testutil.MockBundleStore {
+	return &testutil.MockBundleStore{
+		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
+		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+			dep := func(name, r string) contract.Dependency {
+				return contract.Dependency{Name: name, Ref: r, Compatibility: "^1.0.0", Required: true}
+			}
+			switch ref {
+			case "ghcr.io/acme/a:1.0.0":
+				return &contract.Bundle{Contract: &contract.Contract{
+					Service:      contract.Service{Name: "a", Version: "1.0.0"},
+					Dependencies: []contract.Dependency{dep("b", "oci://ghcr.io/acme/b:1.0.0")},
+				}}, nil
+			case "ghcr.io/acme/b:1.0.0":
+				return &contract.Bundle{Contract: &contract.Contract{
+					Service:      contract.Service{Name: "b", Version: "1.0.0"},
+					Dependencies: []contract.Dependency{dep("c", "oci://ghcr.io/acme/c:1.0.0")},
+				}}, nil
+			case "ghcr.io/acme/c:1.0.0":
+				return &contract.Bundle{Contract: &contract.Contract{
+					Service:      contract.Service{Name: "c", Version: "1.0.0"},
+					Dependencies: []contract.Dependency{dep("b", "oci://ghcr.io/acme/b:1.0.0")},
+				}}, nil
+			}
+			return nil, fmt.Errorf("unexpected ref %q", ref)
+		},
+	}
+}
+
+func splitCycleRootBundle() *contract.Bundle {
+	return &contract.Bundle{Contract: &contract.Contract{
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Name: "a", Ref: "oci://ghcr.io/acme/a:1.0.0", Compatibility: "^1.0.0", Required: true},
+			{Name: "c", Ref: "oci://ghcr.io/acme/c:1.0.0", Compatibility: "^1.0.0", Required: true},
+		},
+	}}
+}
+
+// TestBuildLockSplitCycleFailsClosed is the regression test for the concurrent
+// split-cycle defect: the b<->c cycle is discovered across two sibling branches
+// that resolve concurrently, so the inline path-check could dedup it to Shared
+// edges and let the lock build "successfully". The deterministic post-resolution
+// cycle pass must mark a back-edge so buildLock fails closed with
+// LOCK_UNRESOLVED — on every run, not by scheduling luck.
+func TestBuildLockSplitCycleFailsClosed(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		s := NewService(splitCycleStore(), nil)
+		_, err := s.buildLock(context.Background(), "testdata/root", splitCycleRootBundle(), nil)
+		var ue *lock.UnresolvedError
+		if !errors.As(err, &ue) {
+			t.Fatalf("run %d: expected *lock.UnresolvedError for split cycle, got %v", i, err)
+		}
+		if !strings.Contains(ue.Reason, "cycle detected") {
+			t.Fatalf("run %d: unresolved reason not a cycle: %q", i, ue.Reason)
+		}
 	}
 }
 
@@ -279,7 +341,7 @@ func TestBuildLockUnresolvedFailedEdge(t *testing.T) {
 	}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Name: "auth", Ref: "oci://ghcr.io/acme/auth:1.0.0", Compatibility: "^1.0.0", Required: true},
 		},
@@ -299,7 +361,7 @@ func TestBuildLockUnresolvedFailedEdge(t *testing.T) {
 func TestBuildLockUnresolvedDigestError(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
-			return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "auth", Version: "1.0.0"}}}, nil
+			return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "auth", Version: "1.0.0"}}}, nil
 		},
 		ResolveFn: func(_ context.Context, _ string) (string, error) {
 			return "", fmt.Errorf("manifest not found")
@@ -307,7 +369,7 @@ func TestBuildLockUnresolvedDigestError(t *testing.T) {
 	}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Name: "auth", Ref: "oci://ghcr.io/acme/auth:1.0.0", Compatibility: "^1.0.0", Required: true},
 		},
@@ -329,8 +391,8 @@ func TestBuildLockUnresolvedReferenceDigestError(t *testing.T) {
 	}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
-		Policies: []contract.PolicySource{
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
+		Policies: []contract.Policy{
 			{Name: "sec", Ref: "oci://ghcr.io/acme/sec:2.0.0"},
 		},
 	}}
@@ -347,7 +409,7 @@ func TestBuildLockUnresolvedReferenceLoadError(t *testing.T) {
 	store := &testutil.MockBundleStore{}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			// Non-existent local path so loadLocalBundle fails -> failed edge.
 			{Name: "missing-local", Ref: "/nonexistent/path/xyz", Compatibility: "", Required: true},
@@ -378,7 +440,7 @@ func TestBuildLockUnresolvedHashError(t *testing.T) {
 	store := &testutil.MockBundleStore{}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Name: "local-dep", Ref: dir, Compatibility: "", Required: true},
 		},
@@ -399,7 +461,7 @@ func TestBuildLockTransitiveFailure(t *testing.T) {
 			switch ref {
 			case "ghcr.io/acme/auth:1.0.0":
 				return &contract.Bundle{Contract: &contract.Contract{
-					Service: contract.ServiceIdentity{Name: "auth", Version: "1.0.0"},
+					Service: contract.Service{Name: "auth", Version: "1.0.0"},
 					Dependencies: []contract.Dependency{
 						{Name: "db", Ref: "oci://ghcr.io/acme/db:2.0.0", Compatibility: "^2.0.0", Required: true},
 					},
@@ -412,7 +474,7 @@ func TestBuildLockTransitiveFailure(t *testing.T) {
 	}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Name: "auth", Ref: "oci://ghcr.io/acme/auth:1.0.0", Compatibility: "^1.0.0", Required: true},
 		},
@@ -441,16 +503,16 @@ func TestBuildLockSecondEntryDigestError(t *testing.T) {
 		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
 			switch ref {
 			case "ghcr.io/acme/a:1.0.0":
-				return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "a", Version: "1.0.0"}}}, nil
+				return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "a", Version: "1.0.0"}}}, nil
 			case "ghcr.io/acme/b:1.0.0":
-				return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "b", Version: "1.0.0"}}}, nil
+				return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "b", Version: "1.0.0"}}}, nil
 			}
 			return nil, fmt.Errorf("unexpected ref %q", ref)
 		},
 	}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{
 			{Name: "a", Ref: "oci://ghcr.io/acme/a:1.0.0", Compatibility: "^1.0.0", Required: true},
 			{Name: "b", Ref: "oci://ghcr.io/acme/b:1.0.0", Compatibility: "^1.0.0", Required: true},
@@ -469,8 +531,8 @@ func TestBuildLockLocalReferenceLoadError(t *testing.T) {
 	store := &testutil.MockBundleStore{}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
+		Configurations: []contract.Configuration{
 			{Name: "badcfg", Ref: "/nonexistent/ref/path"},
 		},
 	}}
@@ -497,8 +559,8 @@ func TestBuildLockLocalReferenceHashError(t *testing.T) {
 	store := &testutil.MockBundleStore{}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
-		Configurations: []contract.ConfigurationSource{
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
+		Configurations: []contract.Configuration{
 			{Name: "localcfg", Ref: dir},
 		},
 	}}
@@ -511,9 +573,9 @@ func TestBuildLockLocalReferenceHashError(t *testing.T) {
 
 // policyRefContract returns a contract named n declaring the given policy refs.
 func policyRefContract(name, version string, policyRefs ...string) *contract.Contract {
-	c := &contract.Contract{Service: contract.ServiceIdentity{Name: name, Version: version}}
+	c := &contract.Contract{Service: contract.Service{Name: name, Version: version}}
 	for _, r := range policyRefs {
-		c.Policies = append(c.Policies, contract.PolicySource{Name: name + "-pol", Ref: r})
+		c.Policies = append(c.Policies, contract.Policy{Name: name + "-pol", Ref: r})
 	}
 	return c
 }
@@ -606,8 +668,8 @@ func TestBuildReferenceClosureLocalAtRoot(t *testing.T) {
 	store := &testutil.MockBundleStore{}
 	s := NewService(store, nil)
 	root := &contract.Contract{
-		Service:        contract.ServiceIdentity{Name: "root", Version: "0.1.0"},
-		Configurations: []contract.ConfigurationSource{{Name: "localcfg", Ref: "bundle"}},
+		Service:        contract.Service{Name: "root", Version: "0.1.0"},
+		Configurations: []contract.Configuration{{Name: "localcfg", Ref: "bundle"}},
 	}
 	refs, err := s.buildReferenceClosure(context.Background(), root, parent)
 	if err != nil {
@@ -662,13 +724,13 @@ func TestBuildLockOCIRootReferenceBaseDir(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
-			return &contract.Bundle{Contract: &contract.Contract{Service: contract.ServiceIdentity{Name: "sec", Version: "2.0.0"}}}, nil
+			return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "sec", Version: "2.0.0"}}}, nil
 		},
 	}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
-		Service: contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
-		Policies: []contract.PolicySource{
+		Service: contract.Service{Name: "root", Version: "1.0.0"},
+		Policies: []contract.Policy{
 			{Name: "sec", Ref: "oci://ghcr.io/acme/sec:2.0.0"},
 		},
 	}}
@@ -721,16 +783,16 @@ func TestBuildReferenceClosureLocalTransitive(t *testing.T) {
 	}
 
 	// q: a leaf policy bundle.
-	writeBundleYAML(filepath.Join(rootDir, "q"), "pactoVersion: \"1.0\"\nservice:\n  name: q\n  version: \"3.1.0\"\n")
+	writeBundleYAML(filepath.Join(rootDir, "q"), "pactoVersion: \"2.0\"\nservice:\n  name: q\n  version: \"3.1.0\"\n")
 	// p: a policy bundle that references q via a path relative to p's own dir.
 	writeBundleYAML(filepath.Join(rootDir, "p"),
-		"pactoVersion: \"1.0\"\nservice:\n  name: p\n  version: \"2.0.0\"\npolicies:\n  - name: from-p\n    ref: ../q\n")
+		"pactoVersion: \"2.0\"\nservice:\n  name: p\n  version: \"2.0.0\"\npolicies:\n  - name: from-p\n    ref: ../q\n")
 
 	s := NewService(&testutil.MockBundleStore{}, nil)
 	// root references p locally; baseDir is rootDir so "p" resolves to rootDir/p.
 	root := &contract.Contract{
-		Service:  contract.ServiceIdentity{Name: "root", Version: "1.0.0"},
-		Policies: []contract.PolicySource{{Name: "from-root", Ref: "p"}},
+		Service:  contract.Service{Name: "root", Version: "1.0.0"},
+		Policies: []contract.Policy{{Name: "from-root", Ref: "p"}},
 	}
 	refs, err := s.buildReferenceClosure(context.Background(), root, rootDir)
 	if err != nil {

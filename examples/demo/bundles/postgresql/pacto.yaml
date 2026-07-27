@@ -1,5 +1,4 @@
-pactoVersion: "1.0"
-
+pactoVersion: '2.0'
 service:
   name: postgresql
   version: 16.0.0
@@ -7,33 +6,22 @@ service:
     team: infra-data
     dri: carlos.silva
     contacts:
-      - type: email
-        value: infra-data@acme.com
-        purpose: escalation
-      - type: chat
-        value: "#infra-data"
-        purpose: support
-      - type: oncall
-        value: infra-data-oncall
-        purpose: oncall
-  image:
-    ref: docker.io/library/postgres:16
-
-runtime:
-  workload: service
-  state:
-    type: stateful
-    persistence:
-      scope: shared
-      durability: persistent
-    dataCriticality: high
-  lifecycle:
-    upgradeStrategy: ordered
-    gracefulShutdownSeconds: 120
-
-scaling:
-  replicas: 1
-
+    - type: email
+      value: infra-data@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#infra-data'
+      purpose: support
+    - type: oncall
+      value: infra-data-oncall
+      purpose: oncall
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
 metadata:
   tier: infra
   category: storage
@@ -43,7 +31,7 @@ metadata:
   protocol: postgresql
   repo: github.com/trianalab/pacto-demo/postgresql
   tags:
-    - database
-    - relational
-    - persistence
-    - infrastructure
+  - database
+  - relational
+  - persistence
+  - infrastructure

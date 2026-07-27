@@ -1,31 +1,17 @@
-pactoVersion: "1.2"
-
+pactoVersion: "2.0"
 service:
-  name: payment-api
-  version: 1.4.0
-  owner:
-    team: payments-team
-
-interfaces:
-  - name: http
-    type: http
-    port: 8080
-
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: http
-    path: /health
-
+  name: my-service
+  version: 1.0.0
 readiness:
+  minScore: 80
   expires: 2099-12-31
-  checks:
+  partialCredit: 0.5
+  history:
+    - date: 2026-06-21
+      version: 2.1.0
+      author: ed
+      description: initial
+  claims:
     - id: dashboard
       type: url
       category: observability
@@ -33,15 +19,15 @@ readiness:
       evidence: https://grafana.company.com/payment-api
       weight: 20
       description: Main production dashboard
-
     - id: runbook
       type: document
+      category: documentation
       status: partial
-      evidence: docs/runbooks/payment-api.md
+      evidence: docs/runbook.md
       weight: 15
-
-    - id: security-review
+    - id: backup
       type: ticket
-      status: done
-      evidence: SEC-1842
+      category: backup-recovery
+      status: not-done
+      evidence: OPS-456
       weight: 25

@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v2/internal/app"
+	"github.com/spf13/cobra"
+	"github.com/trianalab/pacto/v3/internal/app"
 )
 
 func TestBannerStatic(t *testing.T) {
@@ -43,7 +44,7 @@ func TestInitLines(t *testing.T) {
 func TestRevealInitOffTTY(t *testing.T) {
 	withTTY(t, false)
 	var buf bytes.Buffer
-	revealInit(&buf, initLines(&app.InitResult{Dir: "svc", Path: "svc/pacto.yaml"}))
+	revealInit(&cobra.Command{}, &buf, initLines(&app.InitResult{Dir: "svc", Path: "svc/pacto.yaml"}))
 	if buf.String() != "Created svc/\n  svc/pacto.yaml\n  svc/interfaces/\n  svc/configuration/\n" {
 		t.Fatalf("off-TTY init must be byte-identical: %q", buf.String())
 	}
@@ -53,13 +54,11 @@ func TestRevealInitTTY(t *testing.T) {
 	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
 	t.Setenv("PACTO_NO_ANIM", "")
-	animDisabled = false
-	t.Cleanup(func() { animDisabled = false })
 	orig := revealStagger
 	revealStagger = time.Millisecond
 	t.Cleanup(func() { revealStagger = orig })
 	var buf bytes.Buffer
-	revealInit(&buf, initLines(&app.InitResult{Dir: "svc", Path: "svc/pacto.yaml"}))
+	revealInit(&cobra.Command{}, &buf, initLines(&app.InitResult{Dir: "svc", Path: "svc/pacto.yaml"}))
 	if !strings.Contains(buf.String(), "✓") || !strings.Contains(buf.String(), "\033[32m") {
 		t.Fatal("TTY init should show green ✓")
 	}
@@ -67,7 +66,7 @@ func TestRevealInitTTY(t *testing.T) {
 
 func TestRevealInitEmptyLines(t *testing.T) {
 	var buf bytes.Buffer
-	revealInit(&buf, []string{})
+	revealInit(&cobra.Command{}, &buf, []string{})
 	if buf.Len() != 0 {
 		t.Fatal("empty lines should produce no output")
 	}

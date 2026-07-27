@@ -18,7 +18,7 @@ var rules = map[classificationKey]Classification{
 	{"pactoVersion", Added}:    NonBreaking,
 	{"pactoVersion", Removed}:  NonBreaking,
 
-	// Service identity
+	// Service identity (no image/chart in v2)
 	{"service.name", Modified}:           Breaking,
 	{"service.version", Modified}:        NonBreaking,
 	{"service.owner.team", Modified}:     NonBreaking,
@@ -30,14 +30,25 @@ var rules = map[classificationKey]Classification{
 	{"service.owner.contacts", Modified}: NonBreaking,
 	{"service.owner.contacts", Added}:    NonBreaking,
 	{"service.owner.contacts", Removed}:  NonBreaking,
-	{"service.image", Modified}:          NonBreaking,
-	{"service.image", Added}:             NonBreaking,
-	{"service.image", Removed}:           NonBreaking,
-	{"service.chart", Modified}:          NonBreaking,
-	{"service.chart", Added}:             NonBreaking,
-	{"service.chart", Removed}:           NonBreaking,
 
-	// Readiness — operational maturity, never consumer-facing.
+	// Workload (top-level in v2)
+	{"workload", Modified}: Breaking,
+	{"workload", Added}:    NonBreaking,
+	{"workload", Removed}:  NonBreaking,
+
+	// State (top-level in v2)
+	{"state.type", Modified}:                   Breaking,
+	{"state.persistence.scope", Modified}:      Breaking,
+	{"state.persistence.durability", Modified}: Breaking,
+	{"state.dataCriticality", Modified}:        PotentialBreaking,
+	{"state.dataCriticality", Added}:           NonBreaking,
+	{"state.dataCriticality", Removed}:         NonBreaking,
+
+	// Capabilities (v2: health/metrics/extension)
+	{"capabilities", Added}:   NonBreaking,
+	{"capabilities", Removed}: PotentialBreaking,
+
+	// Readiness — operational maturity, never consumer-facing (claims not checks)
 	{"readiness", Added}:                  NonBreaking,
 	{"readiness", Removed}:                NonBreaking,
 	{"readiness.minScore", Modified}:      NonBreaking,
@@ -49,21 +60,16 @@ var rules = map[classificationKey]Classification{
 	{"readiness.partialCredit", Modified}: NonBreaking,
 	{"readiness.partialCredit", Added}:    NonBreaking,
 	{"readiness.partialCredit", Removed}:  NonBreaking,
-	{"readiness.checks", Added}:           NonBreaking,
-	{"readiness.checks", Removed}:         NonBreaking,
-	{"readiness.checks", Modified}:        NonBreaking,
+	{"readiness.claims", Added}:           NonBreaking,
+	{"readiness.claims", Removed}:         NonBreaking,
+	{"readiness.claims", Modified}:        NonBreaking,
 
-	// Interfaces
-	{"interfaces", Added}:   NonBreaking,
-	{"interfaces", Removed}: Breaking,
-
-	// Interface fields (when an existing interface is modified)
+	// Interfaces (no port in v2; ref instead of contract)
+	{"interfaces", Added}:               NonBreaking,
+	{"interfaces", Removed}:             Breaking,
 	{"interfaces.type", Modified}:       Breaking,
-	{"interfaces.port", Modified}:       Breaking,
-	{"interfaces.port", Added}:          PotentialBreaking,
-	{"interfaces.port", Removed}:        Breaking,
+	{"interfaces.ref", Modified}:        PotentialBreaking,
 	{"interfaces.visibility", Modified}: PotentialBreaking,
-	{"interfaces.contract", Modified}:   PotentialBreaking,
 
 	// Configurations (name-indexed)
 	{"configurations", Added}:           NonBreaking,
@@ -82,50 +88,6 @@ var rules = map[classificationKey]Classification{
 	{"policies.ref", Modified}:    PotentialBreaking,
 	{"policies.ref", Added}:       NonBreaking,
 	{"policies.ref", Removed}:     PotentialBreaking,
-
-	// Runtime — workload
-	{"runtime.workload", Modified}: Breaking,
-
-	// Runtime — state
-	{"runtime.state.type", Modified}:                   Breaking,
-	{"runtime.state.persistence.scope", Modified}:      Breaking,
-	{"runtime.state.persistence.durability", Modified}: Breaking,
-	{"runtime.state.dataCriticality", Modified}:        PotentialBreaking,
-
-	// Runtime — lifecycle
-	{"runtime.lifecycle.upgradeStrategy", Modified}:         PotentialBreaking,
-	{"runtime.lifecycle.upgradeStrategy", Added}:            NonBreaking,
-	{"runtime.lifecycle.upgradeStrategy", Removed}:          PotentialBreaking,
-	{"runtime.lifecycle.gracefulShutdownSeconds", Modified}: NonBreaking,
-	{"runtime.lifecycle.gracefulShutdownSeconds", Added}:    NonBreaking,
-	{"runtime.lifecycle.gracefulShutdownSeconds", Removed}:  NonBreaking,
-
-	// Runtime — health (adding a health declaration is a new capability;
-	// removing one loses a runtime check, so potentially breaking).
-	{"runtime.health.interface", Modified}:           PotentialBreaking,
-	{"runtime.health.interface", Added}:              NonBreaking,
-	{"runtime.health.interface", Removed}:            PotentialBreaking,
-	{"runtime.health.path", Modified}:                PotentialBreaking,
-	{"runtime.health.path", Added}:                   NonBreaking,
-	{"runtime.health.path", Removed}:                 PotentialBreaking,
-	{"runtime.health.initialDelaySeconds", Modified}: NonBreaking,
-	{"runtime.health.initialDelaySeconds", Added}:    NonBreaking,
-	{"runtime.health.initialDelaySeconds", Removed}:  NonBreaking,
-
-	// Runtime — metrics
-	{"runtime.metrics.interface", Modified}: PotentialBreaking,
-	{"runtime.metrics.interface", Added}:    NonBreaking,
-	{"runtime.metrics.interface", Removed}:  PotentialBreaking,
-	{"runtime.metrics.path", Modified}:      PotentialBreaking,
-	{"runtime.metrics.path", Added}:         NonBreaking,
-	{"runtime.metrics.path", Removed}:       PotentialBreaking,
-
-	// Scaling
-	{"scaling.replicas", Modified}: PotentialBreaking,
-	{"scaling.min", Modified}:      PotentialBreaking,
-	{"scaling.max", Modified}:      NonBreaking,
-	{"scaling", Added}:             NonBreaking,
-	{"scaling", Removed}:           PotentialBreaking,
 
 	// Dependencies (name-indexed)
 	{"dependencies", Added}:                  NonBreaking,

@@ -1,5 +1,5 @@
 [![CI](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml/badge.svg)](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml)
-[![PkgGoDev](https://pkg.go.dev/badge/github.com/trianalab/pacto/v2)](https://pkg.go.dev/github.com/trianalab/pacto/v2)
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/trianalab/pacto/v3)](https://pkg.go.dev/github.com/trianalab/pacto/v3)
 [![codecov](https://codecov.io/github/TrianaLab/pacto/graph/badge.svg?token=p3AJpP3BbO)](https://codecov.io/github/TrianaLab/pacto)
 [![GitHub Release](https://img.shields.io/github/v/release/TrianaLab/pacto)](https://github.com/TrianaLab/pacto/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -8,7 +8,7 @@
 
 **Pacto is to service operations what OpenAPI is to HTTP APIs.**
 
-A service's operational behavior — interfaces, dependencies, runtime semantics, configuration, scaling and readiness — is scattered across Helm values, wikis and dashboards, and drifts from what's actually running. Pacto captures it once in a validated, versioned contract (`pacto.yaml`), distributes it through your existing OCI registry and lets `pacto diff` catch breaking changes while the operator catches runtime drift. It doesn't replace OpenAPI, Helm, Terraform, Backstage or Kubernetes — it adds the operational contract layer between them, composing the interfaces you already own and adding what no single one does: ownership, dependencies, compatibility and readiness over time.
+A service's operational behavior — interfaces, dependencies, runtime semantics, configuration and readiness — is scattered across Helm values, wikis and dashboards, and drifts from what's actually running. Pacto captures it once in a validated, versioned contract (`pacto.yaml`), distributes it through your existing OCI registry and lets `pacto diff` catch breaking changes while the operator catches runtime drift. It doesn't replace OpenAPI, Helm, Terraform, Backstage or Kubernetes — it adds the operational contract layer between them, composing the interfaces you already own and adding what no single one does: ownership, dependencies, compatibility and readiness over time.
 
 **[Documentation](https://trianalab.github.io/pacto)** · **[Quickstart](https://trianalab.github.io/pacto/quickstart)** · **[Specification](https://trianalab.github.io/pacto/contract-reference)** · **[Examples](https://trianalab.github.io/pacto/examples)** · **[Live demo](https://trianalab.github.io/pacto/demo/)**
 
@@ -27,19 +27,37 @@ flowchart LR
     R --> P["Platforms and tools<br/>CI · Kubernetes · Backstage · Crossplane"]
 ```
 
-Pacto composes the interfaces you already own into one versioned contract, distributes it like a container image and lets whatever runs your services read it instead of reverse-engineering it.
+Pacto composes the interfaces you already own into one versioned contract, distributes it like a container image and lets whatever consumes your services — platforms, CI, runtime controllers and increasingly autonomous agents — read it instead of reverse-engineering it.
 
-## The three tools
+## Architecture: declaration, evidence, evaluation
+
+Underneath the products is one model. The contract **declares** intent; a **collector** observes a running environment and emits **Evidence**; the pure engine **evaluates** `Contract × Evidence` into Findings; consumers surface or act on them.
+
+```mermaid
+flowchart TB
+    A["Author intent<br/>pacto.yaml"] --> C["Contract"]
+    R["Running environment"] --> COL["Collector"]
+    COL --> E["EvidenceSet"]
+    C --> EV["Evaluate"]
+    E --> EV
+    EV --> OUT["Findings + Coverage"]
+```
+
+The stable extension boundary is the **`EvidenceSet`**, not a collector interface: a collector is any component that produces a valid `EvidenceSet` the engine can evaluate. The **Kubernetes collector** is the first shipped integration; other collectors may live inside or outside this monorepo. Pacto is *modular through a stable Evidence schema* — not a dynamically pluggable collector runtime. See [Collectors and the evidence boundary](https://trianalab.github.io/pacto/collectors/).
+
+## The tools
+
+The CLI, dashboard and Kubernetes operator are products built on that model — not the architecture itself. The operator is the *host* around the Kubernetes collector; the engine never queries Kubernetes.
 
 ```mermaid
 flowchart LR
     CLI["CLI · design-time and CI<br/>init · validate · diff · doc · push"] --> R[(OCI registry)]
     R --> DASH["Dashboard · anytime<br/>graph · ownership · SBOM · readiness · docs"]
-    R --> OP["Operator · in-cluster<br/>track · verify runtime fidelity"]
+    R --> OP["Operator · in-cluster<br/>hosts the Kubernetes collector · track · verify"]
     OP -. runtime state .-> DASH
 ```
 
-No sidecars and no central control plane: the CLI uses your existing OCI registry, the [operator](https://github.com/TrianaLab/pacto-operator) watches CRDs and the dashboard merges every source — local, OCI, Kubernetes and cache — into one view.
+No sidecars and no central control plane: the CLI uses your existing OCI registry, the [operator](https://trianalab.github.io/pacto/integrations/kubernetes/overview/) watches CRDs and the dashboard merges every source — local, OCI, Kubernetes and cache — into one view.
 
 ---
 
@@ -48,7 +66,7 @@ No sidecars and no central control plane: the CLI uses your existing OCI registr
 ```bash
 # Author and publish a contract (install is below)
 pacto init my-service && cd my-service       # scaffold a contract bundle
-pacto validate .                             # 4-layer validation
+pacto validate .                             # 3-layer validation
 pacto push oci://ghcr.io/acme/svc-pacto      # tag inferred from service.version
 
 # Catch breaking changes in CI
@@ -63,7 +81,7 @@ The [Quickstart](https://trianalab.github.io/pacto/quickstart) goes from zero to
 ## What a contract captures
 
 ```yaml
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: payments-api
@@ -74,35 +92,33 @@ service:
 
 interfaces:
   - name: rest-api
-    type: http
-    port: 8080
+    type: openapi
+    ref: interfaces/openapi.yaml   # points at your existing OpenAPI spec
     visibility: public
-    contract: interfaces/openapi.yaml   # points at your existing OpenAPI spec
 
 dependencies:
   - name: auth
-    ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123
+    ref: oci://ghcr.io/acme/auth-pacto:2.0.0
     required: true
     compatibility: "^2.0.0"
 ```
 
-Only `pactoVersion` and `service` are required — everything else (runtime semantics, scaling, configuration, policies and readiness) is opt-in. Each interface's `contract` points at a schema you already own, so a contract composes your interfaces rather than redefining them. See the [Contract Reference](https://trianalab.github.io/pacto/contract-reference) for the full schema.
+Only `pactoVersion` and `service` are required — everything else (runtime semantics, configuration, policies and readiness) is opt-in. Each interface's `ref` points at a schema you already own, so a contract composes your interfaces rather than redefining them. See the [Contract Reference](https://trianalab.github.io/pacto/contract-reference) for the full schema.
 
 ---
 
 ## What you get
 
-Bump a version, move a port, remove an endpoint, drop a config property — `pacto diff` classifies it and fails CI before the merge:
+Bump a version, remove an endpoint, drop a config property — `pacto diff` classifies each and fails CI before the merge:
 
 ```console
 $ pacto diff oci://ghcr.io/acme/svc:1.0 oci://ghcr.io/acme/svc:2.0
 Classification: BREAKING
-Changes (4):
+Changes (3):
   [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 2.0.0]
-  [BREAKING] interfaces.port (modified): interfaces.port modified [8081 -> 9090]
   [BREAKING] openapi.paths[/predict] (removed): API path /predict removed [- /predict]
   [POTENTIAL_BREAKING] schema.properties.model_path (removed): schema.properties.model_path removed [- map[type:string]]
-Error: breaking changes detected             # non-zero exit gates the merge
+breaking changes detected                    # printed to stderr; non-zero exit gates the merge
 ```
 
 Everything a contract enables, from one artifact:
@@ -112,7 +128,7 @@ Everything a contract enables, from one artifact:
 - **SBOM inventory** — SPDX / CycloneDX package inventory and package-level diffs across versions
 - **Operational docs** — `pacto doc` renders Markdown, an offline dashboard-grade HTML site or an interactive Swagger/Scalar API explorer
 - **Readiness scoring** — operational-readiness assessment per service, surfaced in the fleet view
-- **Runtime verification** — with the [operator](https://github.com/TrianaLab/pacto-operator), whether deployed workloads still match their contract
+- **Runtime verification** — with the [operator](https://trianalab.github.io/pacto/integrations/kubernetes/overview/), whether deployed workloads still match their contract
 - **OCI distribution** — push/pull to GHCR, ECR, ACR, Docker Hub and Harbor with local caching; signable with cosign or Notary
 - **Reproducibility and supply chain** — `pacto.lock` for pinned resolution, gitignore-style `.pactoignore` for packaging
 - **Extensibility** — out-of-process plugins generate deployment artifacts; `pacto mcp` exposes contract operations to Claude, Cursor and Copilot
@@ -156,7 +172,7 @@ See [MANIFEST.md](MANIFEST.md) for the full rationale.
 curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
 
 # Go
-go install github.com/trianalab/pacto/v2/cmd/pacto@latest
+go install github.com/trianalab/pacto/v3/cmd/pacto@latest
 
 # From source
 git clone https://github.com/TrianaLab/pacto.git && cd pacto && make build
@@ -174,7 +190,7 @@ Full documentation at **[trianalab.github.io/pacto](https://trianalab.github.io/
 | [For Platform Engineers](https://trianalab.github.io/pacto/platform-engineers) | Consume contracts for deployment, policies and graphs |
 | [CLI Reference](https://trianalab.github.io/pacto/cli-reference) | All commands, flags and output formats |
 | [Dashboard](https://trianalab.github.io/pacto/dashboard-docker) | Deploy the dashboard container alongside the operator |
-| [Kubernetes Operator](https://trianalab.github.io/pacto/operator) | Runtime contract tracking and verification |
+| [Kubernetes Operator](https://trianalab.github.io/pacto/integrations/kubernetes/overview/) | Runtime contract tracking and verification |
 | [MCP Integration](https://trianalab.github.io/pacto/mcp-integration) | Connect AI tools (Claude, Cursor, Copilot) to Pacto via MCP |
 | [Plugin Development](https://trianalab.github.io/pacto/plugins) | Build plugins to generate artifacts from contracts |
 | [Examples](https://trianalab.github.io/pacto/examples) | PostgreSQL, Redis, RabbitMQ, NGINX, gRPC and more |

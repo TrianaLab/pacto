@@ -1,5 +1,4 @@
-pactoVersion: "1.2"
-
+pactoVersion: '2.0'
 service:
   name: auth-service
   version: 1.0.0
@@ -7,67 +6,104 @@ service:
     team: identity-team
     dri: erik.nilsson
     contacts:
-      - type: email
-        value: identity-team@acme.com
-        purpose: escalation
-      - type: chat
-        value: "#identity-team"
-        purpose: support
-      - type: oncall
-        value: identity-team-oncall
-        purpose: oncall
-  image:
-    ref: ghcr.io/trianalab/pacto-demo/auth-service
-
+    - type: email
+      value: identity-team@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#identity-team'
+      purpose: support
+    - type: oncall
+      value: identity-team-oncall
+      purpose: oncall
 interfaces:
-  - name: http
-    type: http
-    port: 8081
-    visibility: internal
-  - name: grpc
-    type: grpc
-    port: 9091
-    visibility: internal
-    contract: interfaces/auth.proto
-
+- name: grpc
+  type: grpc
+  ref: interfaces/auth.yaml
+  visibility: internal
 configurations:
-  - name: platform
-    ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
-  - name: app
-    schema: configuration/schema.json
-    values:
-      OTEL_SERVICE_NAME: auth-service
-      JWT_ISSUER: https://auth.platform.internal
-      JWT_EXPIRY_SECONDS: 3600
-      SESSION_STORE: redis
-      BCRYPT_COST: 12
-
+- name: platform
+  ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  required: true
+- name: app
+  schema: configuration/schema.json
+  values:
+    OTEL_SERVICE_NAME: auth-service
+    JWT_ISSUER: https://auth.platform.internal
+    JWT_EXPIRY_SECONDS: 3600
+    SESSION_STORE: redis
+    BCRYPT_COST: 12
+  required: true
 policies:
-  - name: http-security
-    ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
-
+- name: http-security
+  ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
 dependencies:
-  - name: redis
-    ref: oci://ghcr.io/trianalab/pacto-demo/redis
-    required: true
-    compatibility: "^7.0.0"
-
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: high
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-
-scaling:
-  min: 2
-  max: 4
-
+- name: redis
+  ref: oci://ghcr.io/trianalab/pacto-demo/redis
+  required: true
+  compatibility: ^7.0.0
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: high
+readiness:
+  minScore: 85
+  expires: '2027-06-30'
+  partialCredit: 0.5
+  history:
+  - date: '2026-05-20'
+    version: 1.0.0
+    author: erik.nilsson
+    description: Initial readiness assessment for identity service
+  - date: '2026-06-10'
+    version: 1.0.0
+    author: erik.nilsson
+    description: Added incident response and compliance checks
+  claims:
+  - id: observability-dashboard
+    type: url
+    category: observability
+    status: done
+    evidence: https://grafana.acme.com/d/auth-service
+    weight: 30
+    description: Grafana dashboard for auth service metrics
+  - id: security-review
+    type: ticket
+    category: security
+    status: done
+    evidence: SEC-2156
+    weight: 40
+    description: Annual security audit for JWT and session management
+  - id: runbook
+    type: document
+    category: documentation
+    status: done
+    evidence: docs/runbooks/auth-service.md
+    weight: 20
+    description: On-call runbook for identity incidents
+  - id: load-test
+    type: report
+    category: testing
+    status: done
+    evidence: https://k6.acme.com/auth-service-load-2026-05
+    weight: 30
+    description: Peak load testing for authentication flows
+  - id: dr-plan
+    type: document
+    category: incident-response
+    status: done
+    evidence: docs/dr/auth-service-recovery.md
+    weight: 25
+    description: Disaster recovery plan for identity service
+  - id: compliance-sox
+    type: ticket
+    category: compliance
+    status: done
+    evidence: COMP-891
+    weight: 25
+    description: SOX compliance audit for authentication controls
 metadata:
   tier: domain
   category: identity
@@ -76,65 +112,8 @@ metadata:
   language: go
   repo: github.com/trianalab/pacto-demo/auth-service
   tags:
-    - authentication
-    - authorization
-    - jwt
-    - sessions
-    - identity
-
-readiness:
-  minScore: 85
-  expires: "2027-06-30"
-  partialCredit: 0.5
-  history:
-    - date: "2026-05-20"
-      version: 1.0.0
-      author: erik.nilsson
-      description: Initial readiness assessment for identity service
-    - date: "2026-06-10"
-      version: 1.0.0
-      author: erik.nilsson
-      description: Added incident response and compliance checks
-  checks:
-    - id: observability-dashboard
-      type: url
-      category: observability
-      status: done
-      evidence: https://grafana.acme.com/d/auth-service
-      weight: 30
-      description: Grafana dashboard for auth service metrics
-    - id: security-review
-      type: ticket
-      category: security
-      status: done
-      evidence: SEC-2156
-      weight: 40
-      description: Annual security audit for JWT and session management
-    - id: runbook
-      type: document
-      category: documentation
-      status: done
-      evidence: docs/runbooks/auth-service.md
-      weight: 20
-      description: On-call runbook for identity incidents
-    - id: load-test
-      type: report
-      category: testing
-      status: done
-      evidence: https://k6.acme.com/auth-service-load-2026-05
-      weight: 30
-      description: Peak load testing for authentication flows
-    - id: dr-plan
-      type: document
-      category: incident-response
-      status: done
-      evidence: docs/dr/auth-service-recovery.md
-      weight: 25
-      description: Disaster recovery plan for identity service
-    - id: compliance-sox
-      type: ticket
-      category: compliance
-      status: done
-      evidence: COMP-891
-      weight: 25
-      description: SOX compliance audit for authentication controls
+  - authentication
+  - authorization
+  - jwt
+  - sessions
+  - identity

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/sbom"
-	"github.com/trianalab/pacto/v2/pkg/schemax"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/sbom"
+	"github.com/trianalab/pacto/v3/pkg/schemax"
 )
 
 // ContractStatus represents the contract compliance status of a service.
@@ -21,13 +21,15 @@ const (
 	StatusNonCompliant ContractStatus = "NonCompliant"
 	StatusUnknown      ContractStatus = "Unknown"
 	StatusReference    ContractStatus = "Reference"
+	StatusInvalid      ContractStatus = "Invalid"
+	StatusNotEvaluated ContractStatus = "NotEvaluated"
 )
 
-// NormalizeContractStatus maps any non-standard status to one of the five
-// canonical contract statuses.
+// NormalizeContractStatus maps any non-standard status to one of the canonical
+// contract statuses.
 func NormalizeContractStatus(s ContractStatus) ContractStatus {
 	switch s {
-	case StatusCompliant, StatusWarning, StatusNonCompliant, StatusUnknown, StatusReference:
+	case StatusCompliant, StatusWarning, StatusNonCompliant, StatusUnknown, StatusReference, StatusInvalid, StatusNotEvaluated:
 		return s
 	default:
 		return StatusUnknown
@@ -42,7 +44,14 @@ const (
 	ComplianceWarning   ComplianceStatus = "WARNING"
 	ComplianceError     ComplianceStatus = "ERROR"
 	ComplianceReference ComplianceStatus = "REFERENCE"
+	ComplianceUnknown   ComplianceStatus = "UNKNOWN"
 )
+
+// EvaluationCoverage reports how many required assertions were evaluated.
+type EvaluationCoverage struct {
+	Evaluated int `json:"evaluated"` // required assertions with Outcome == Observed
+	Required  int `json:"required"`  // total required assertions
+}
 
 // ComplianceInfo holds the computed compliance state for a service.
 type ComplianceInfo struct {
@@ -58,6 +67,10 @@ type ComplianceCounts struct {
 	Failed   int `json:"failed"`
 	Errors   int `json:"errors"`
 	Warnings int `json:"warnings"`
+	Unknown  int `json:"unknown"`
+	// Secondary metrics per B-2 ruling (informational, distinguish failure from uncertainty).
+	RuntimeEvaluated int `json:"runtimeEvaluated"` // Compliant + Warning + NonCompliant + Unknown
+	Conclusive       int `json:"conclusive"`       // Compliant + Warning + NonCompliant
 }
 
 // ReadinessInfo is the derived readiness assessment surfaced in the dashboard.
@@ -148,8 +161,6 @@ type ServiceDetails struct {
 	Service
 
 	Namespace string            `json:"namespace,omitempty"`
-	ImageRef  string            `json:"imageRef,omitempty"`
-	ChartRef  string            `json:"chartRef,omitempty"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
 
 	// Contract references from operator.
@@ -164,14 +175,15 @@ type ServiceDetails struct {
 	Interfaces     []InterfaceInfo     `json:"interfaces,omitempty"`
 	Configurations []ConfigurationInfo `json:"configurations,omitempty"`
 	Dependencies   []DependencyInfo    `json:"dependencies,omitempty"`
-	Runtime        *RuntimeInfo        `json:"runtime,omitempty"`
-	Scaling        *ScalingInfo        `json:"scaling,omitempty"`
+	Workload       string              `json:"workload,omitempty"`
+	State          *StateInfo          `json:"state,omitempty"`
+	Capabilities   []CapabilityInfo    `json:"capabilities,omitempty"`
 	Policies       []PolicyInfo        `json:"policies,omitempty"`
 
-	// Capabilities are agent-invocable tools derived from the http interfaces'
-	// OpenAPI operations. Populated by bundle-backed sources (local/OCI/cache);
+	// Tools are agent-invocable capabilities derived from openapi interfaces'
+	// operations. Populated by bundle-backed sources (local/OCI/cache);
 	// empty for k8s-only services (no bundle FS to parse).
-	Capabilities []CapabilityTool `json:"capabilities,omitempty"`
+	Tools []CapabilityTool `json:"tools,omitempty"`
 
 	// Skills are optional domain-knowledge documents (skills/*.md) shipped in the
 	// bundle. Populated by bundle-backed sources; empty for k8s-only services.
@@ -185,6 +197,10 @@ type ServiceDetails struct {
 
 	// Compliance is the computed compliance assessment.
 	Compliance *ComplianceInfo `json:"compliance,omitempty"`
+
+	// EvaluationCoverage reports how many required assertions were evaluated.
+	// Metadata only, never changes compliance status.
+	EvaluationCoverage *EvaluationCoverage `json:"evaluationCoverage,omitempty"`
 
 	// Readiness is the derived operational readiness assessment. It is a separate
 	// dimension from contract compliance and does not affect compliance status.
@@ -302,8 +318,7 @@ type SkillInfo struct {
 // InterfaceInfo describes a single service interface.
 type InterfaceInfo struct {
 	Name            string              `json:"name"`
-	Type            string              `json:"type"` // http, grpc, event
-	Port            *int                `json:"port,omitempty"`
+	Type            string              `json:"type"` // openapi, asyncapi, grpc
 	Visibility      string              `json:"visibility,omitempty"`
 	HasContractFile bool                `json:"hasContractFile,omitempty"`
 	ContractFile    string              `json:"contractFile,omitempty"`
@@ -383,26 +398,18 @@ type LockRefInfo struct {
 	ContentHash string `json:"contentHash,omitempty"`
 }
 
-// RuntimeInfo describes runtime behavior.
-type RuntimeInfo struct {
-	Workload                string `json:"workload"` // service, job, scheduled
-	StateType               string `json:"stateType,omitempty"`
-	PersistenceScope        string `json:"persistenceScope,omitempty"`
-	PersistenceDurability   string `json:"persistenceDurability,omitempty"`
-	DataCriticality         string `json:"dataCriticality,omitempty"`
-	UpgradeStrategy         string `json:"upgradeStrategy,omitempty"`
-	GracefulShutdownSeconds *int   `json:"gracefulShutdownSeconds,omitempty"`
-	HealthInterface         string `json:"healthInterface,omitempty"`
-	HealthPath              string `json:"healthPath,omitempty"`
-	MetricsInterface        string `json:"metricsInterface,omitempty"`
-	MetricsPath             string `json:"metricsPath,omitempty"`
+// StateInfo describes the state semantics of the service.
+type StateInfo struct {
+	Type                  string `json:"type"`
+	PersistenceScope      string `json:"persistenceScope,omitempty"`
+	PersistenceDurability string `json:"persistenceDurability,omitempty"`
+	DataCriticality       string `json:"dataCriticality,omitempty"`
 }
 
-// ScalingInfo describes scaling parameters.
-type ScalingInfo struct {
-	Replicas *int `json:"replicas,omitempty"`
-	Min      *int `json:"min,omitempty"`
-	Max      *int `json:"max,omitempty"`
+// CapabilityInfo describes a service capability.
+type CapabilityInfo struct {
+	Type string `json:"type"`
+	Ref  string `json:"ref,omitempty"`
 }
 
 // PolicyInfo describes an attached policy (JSON Schema constraint).
@@ -587,8 +594,12 @@ func (d *ServiceDetails) GenerateInsights() {
 	var ins []Insight
 
 	switch d.ContractStatus {
+	case StatusInvalid:
+		ins = append(ins, Insight{Severity: "critical", Title: "Contract is malformed", Description: "The contract failed structural validation and cannot be evaluated."})
 	case StatusNonCompliant:
 		ins = append(ins, Insight{Severity: "critical", Title: "Contract is non-compliant", Description: "One or more critical validation checks have failed."})
+	case StatusUnknown:
+		ins = append(ins, Insight{Severity: "warning", Title: "Contract evaluation inconclusive", Description: "A required assertion could not be verified."})
 	case StatusWarning:
 		ins = append(ins, Insight{Severity: "warning", Title: "Contract has warnings", Description: "Some validation checks are failing."})
 	}
@@ -673,6 +684,10 @@ type ServiceListEntry struct {
 	ComplianceWarns  int              `json:"complianceWarnings"`
 	TopInsight       string           `json:"topInsight,omitempty"`
 	UpdateAvailable  bool             `json:"updateAvailable,omitempty"`
+	// EvaluationCoverage feeds the list's compact coverage badge (E of R required
+	// assertions evaluated). Metadata only, never changes status. Nil when the
+	// service was not runtime-evaluated.
+	EvaluationCoverage *EvaluationCoverage `json:"evaluationCoverage,omitempty"`
 	// Readiness is the derived operational readiness assessment, carried on the
 	// list entry so the aggregated readiness overview can summarize, sort, and
 	// filter every service from a single /api/services call (mirroring how the

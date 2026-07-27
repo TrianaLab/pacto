@@ -10,12 +10,12 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v2/internal/app"
-	"github.com/trianalab/pacto/v2/internal/cli"
-	"github.com/trianalab/pacto/v2/internal/testutil"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/oci"
-	"github.com/trianalab/pacto/v2/pkg/plugin"
+	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/internal/cli"
+	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/plugin"
 )
 
 func TestPackCommand(t *testing.T) {
@@ -275,13 +275,13 @@ func TestGraphCommand_Error(t *testing.T) {
 // callback (OnDepResolved -> count.Add) by resolving a real OCI dependency.
 func TestGraphCommand_ResolvesDependency(t *testing.T) {
 	dir := t.TempDir()
-	yaml := "pactoVersion: \"1.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n"
+	yaml := "pactoVersion: \"2.0\"\nservice:\n  name: root\n  version: \"2.1.0\"\ndependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	auth := &contract.Contract{
-		PactoVersion: "1.0",
-		Service:      contract.ServiceIdentity{Name: "auth", Version: "1.2.0"},
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "auth", Version: "1.2.0"},
 	}
 	store := &testutil.MockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.2.0"}, nil },
@@ -348,18 +348,17 @@ func TestExplainCommand_Error(t *testing.T) {
 	}
 }
 
-func TestExplainCommand_ScalingReplicas(t *testing.T) {
+func TestExplainCommand_Workload(t *testing.T) {
 	dir := t.TempDir()
 	bundleDir := filepath.Join(dir, "bundle")
 	if err := os.MkdirAll(bundleDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	yaml := []byte(`pactoVersion: "1.0"
+	yaml := []byte(`pactoVersion: "2.0"
 service:
   name: test-svc
   version: "1.0.0"
-scaling:
-  replicas: 3
+workload: job
 `)
 	if err := os.WriteFile(filepath.Join(bundleDir, "pacto.yaml"), yaml, 0644); err != nil {
 		t.Fatal(err)
@@ -374,8 +373,8 @@ scaling:
 	if err := root.Execute(); err != nil {
 		t.Fatalf("explain failed: %v", err)
 	}
-	if !strings.Contains(out.String(), "3 replicas") {
-		t.Errorf("expected '3 replicas' in output, got %q", out.String())
+	if !strings.Contains(out.String(), "Workload: job") {
+		t.Errorf("expected 'Workload: job' in output, got %q", out.String())
 	}
 }
 
@@ -538,16 +537,16 @@ func TestDiffCommand_Breaking(t *testing.T) {
 func TestValidateCommand_Error(t *testing.T) {
 	store := &testutil.MockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
-			port := 8080
 			return &contract.Bundle{
 				Contract: &contract.Contract{
-					PactoVersion: "1.0",
-					Service:      contract.ServiceIdentity{Name: "test-svc", Version: "1.0.0"},
-					Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
-					Runtime: &contract.Runtime{
-						Workload: "service",
-						State:    contract.State{Type: "stateless", Persistence: contract.Persistence{Scope: "local", Durability: "ephemeral"}, DataCriticality: "low"},
-						Health:   &contract.Health{Interface: "api", Path: "/health"},
+					PactoVersion: "2.0",
+					Service:      contract.Service{Name: "test-svc", Version: "1.0.0"},
+					Interfaces:   []contract.Interface{{Name: "api", Type: contract.InterfaceTypeOpenAPI, Ref: "openapi.yaml"}},
+					Workload:     contract.WorkloadService,
+					State: &contract.State{
+						Type:            contract.StateStateless,
+						Persistence:     contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral},
+						DataCriticality: contract.DataCriticalityLow,
 					},
 				},
 				FS: fstest.MapFS{}, // empty FS, missing pacto.yaml
@@ -567,26 +566,17 @@ func TestValidateCommand_Error(t *testing.T) {
 
 func TestValidateCommand_InvalidContract(t *testing.T) {
 	dir := t.TempDir()
-	// Valid YAML but fails validation (health interface not found)
-	content := []byte(`pactoVersion: "1.0"
+	// Valid YAML but fails validation (schema violation)
+	content := []byte(`pactoVersion: "2.0"
 service:
   name: bad-svc
   version: "1.0.0"
-interfaces:
-  - name: api
-    type: http
-    port: 8080
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: nonexistent
-    path: /health
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: persistent
+  dataCriticality: low
 `)
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
 		t.Fatal(err)
@@ -889,21 +879,19 @@ func TestDocCommand_UIOutputMutuallyExclusive(t *testing.T) {
 }
 
 func TestDocCommand_UINoSpecs(t *testing.T) {
-	// Create a bundle with no HTTP interfaces (only gRPC).
+	// Create a bundle with no OpenAPI interfaces (only gRPC).
 	store := &testutil.MockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
 			return &contract.Bundle{
 				Contract: &contract.Contract{
-					PactoVersion: "1.0",
-					Service:      contract.ServiceIdentity{Name: "grpc-svc", Version: "1.0.0"},
-					Interfaces:   []contract.Interface{{Name: "api", Type: "grpc", Contract: "service.proto"}},
-					Runtime: &contract.Runtime{
-						Workload: "service",
-						State: contract.State{
-							Type:            "stateless",
-							Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-							DataCriticality: "low",
-						},
+					PactoVersion: "2.0",
+					Service:      contract.Service{Name: "grpc-svc", Version: "1.0.0"},
+					Interfaces:   []contract.Interface{{Name: "api", Type: contract.InterfaceTypeGRPC, Ref: "service.proto"}},
+					Workload:     contract.WorkloadService,
+					State: &contract.State{
+						Type:            contract.StateStateless,
+						Persistence:     contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral},
+						DataCriticality: contract.DataCriticalityLow,
 					},
 				},
 				FS: fstest.MapFS{},
@@ -916,7 +904,7 @@ func TestDocCommand_UINoSpecs(t *testing.T) {
 
 	err := root.Execute()
 	if err == nil {
-		t.Error("expected error when no HTTP interfaces found")
+		t.Error("expected error when no OpenAPI interfaces found")
 	}
 	if !strings.Contains(err.Error(), "no HTTP interfaces") {
 		t.Errorf("expected 'no HTTP interfaces' error, got: %v", err)

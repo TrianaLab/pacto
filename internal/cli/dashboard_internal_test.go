@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
-	"github.com/trianalab/pacto/v2/internal/app"
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
-	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // dummyStore satisfies oci.BundleStore for CLI tests.
@@ -84,7 +84,7 @@ func TestNewDashboardCommand_NoSources(t *testing.T) {
 
 func TestNewDashboardCommand_WithLocalSource(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "1.0"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.0"
 service:
   name: test-svc
   version: 1.0.0
@@ -95,7 +95,7 @@ service:
 	// Prevent real K8s client creation.
 	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
 
-	svc := app.NewService(dummyStore{}, nil)
+	svc := app.NewService(dummyStoreWithCacheDir{cacheDir: "/tmp/test-cache"}, nil)
 	v := viper.New()
 	cmd := newDashboardCommand(svc, v, "test")
 	cmd.SetArgs([]string{dir, "--port", "0", "--diagnostics"})
@@ -123,7 +123,7 @@ service:
 
 func TestNewDashboardCommand_WithOCISource(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "1.0"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.0"
 service:
   name: oci-wiring-svc
   version: 1.0.0
@@ -135,7 +135,7 @@ service:
 
 	// Create a cache dir with a real bundle to exercise SetCache wiring.
 	bundlePath := filepath.Join(dir, ".cache", "pacto", "oci", "ghcr.io", "org", "cached", "1.0.0", "bundle.tar.gz")
-	writeTestBundleTarGz(t, bundlePath, `pactoVersion: "1.0"
+	writeTestBundleTarGz(t, bundlePath, `pactoVersion: "2.0"
 service:
   name: cached-svc
   version: 1.0.0
@@ -168,7 +168,7 @@ func TestNewDashboardCommand_DefaultDir(t *testing.T) {
 	// When no dir arg is provided, it defaults to ".".
 	// Create a temp dir with pacto.yaml and chdir into it.
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "1.0"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.0"
 service:
   name: default-dir-svc
   version: 1.0.0
@@ -299,7 +299,7 @@ func TestNewDashboardCommand_OCIPositionalArgsOverrideEnv(t *testing.T) {
 
 func TestNewDashboardCommand_HostFlag(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "1.0"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.0"
 service:
   name: host-test
   version: 1.0.0
@@ -599,6 +599,14 @@ func (s *enrichStore) ListTags(_ context.Context, _ string) ([]string, error) {
 	return s.tags, nil
 }
 
+// enrichStoreForCacheDir implements oci.BundleStore with CacheDir() for cache resolution.
+type enrichStoreForCacheDir struct {
+	enrichStore
+	cacheDir string
+}
+
+func (s *enrichStoreForCacheDir) CacheDir() string { return s.cacheDir }
+
 func TestTryOCIEnrichment_SucceedsOnFirstTry(t *testing.T) {
 	k8sData := `{"items": [
 		{"metadata": {"name": "svc", "namespace": "default"},
@@ -610,7 +618,7 @@ func TestTryOCIEnrichment_SucceedsOnFirstTry(t *testing.T) {
 		bundle: &contract.Bundle{
 			Contract: &contract.Contract{
 				PactoVersion: "1.0",
-				Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+				Service:      contract.Service{Name: "svc", Version: "1.0.0"},
 			},
 		},
 	}
@@ -664,7 +672,7 @@ func TestWireOCIEnrichment_Success(t *testing.T) {
 		bundle: &contract.Bundle{
 			Contract: &contract.Contract{
 				PactoVersion: "1.0",
-				Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+				Service:      contract.Service{Name: "svc", Version: "1.0.0"},
 			},
 		},
 	}
@@ -796,17 +804,19 @@ func TestCacheDirResolution_FromBundleStore(t *testing.T) {
 	// When cache-dir is not set via viper (always the case — no such flag),
 	// the dashboard should resolve it from BundleStore.CacheDir().
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "1.0"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.0"
 service:
   name: cachedir-test
   version: 1.0.0
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
+
 	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
 
-	cacheDir := filepath.Join(dir, "test-cache-dir")
-	svc := app.NewService(dummyStoreWithCacheDir{cacheDir: cacheDir}, nil)
+	cacheDir := filepath.Join(dir, "cache")
+	store := &enrichStoreForCacheDir{cacheDir: cacheDir}
+	svc := app.NewService(store, nil)
 	v := viper.New()
 	cmd := newDashboardCommand(svc, v, "test")
 	cmd.SetArgs([]string{dir, "--port", "0"})
@@ -821,11 +831,46 @@ service:
 
 	_ = cmd.Execute()
 
-	// The test succeeds if the command runs without panic.
-	// The real validation is that cacheDir is resolved and passed through.
-	// We verify by confirming the command reached the "running" stage.
 	stderr := errBuf.String()
 	if !strings.Contains(stderr, "local") {
 		t.Errorf("expected stderr to mention 'local', got:\n%s", stderr)
 	}
+}
+
+func TestWireOCICache_BothPresent(t *testing.T) {
+	k8sClient := &cliMockK8sClient{listJSON: []byte(`{"items":[]}`)}
+	cacheSource := &dashboard.CacheSource{}
+	ociSource := dashboard.NewOCISource(dummyStore{}, nil)
+
+	result := &dashboard.DetectResult{
+		K8s:   dashboard.NewK8sSource(k8sClient, "", "pactos"),
+		OCI:   ociSource,
+		Cache: cacheSource,
+	}
+
+	wireOCICache(result)
+	// No error = success. The wiring is internal and not observable.
+}
+
+func TestWireOCICache_NoK8s(t *testing.T) {
+	cacheSource := &dashboard.CacheSource{}
+	ociSource := dashboard.NewOCISource(dummyStore{}, nil)
+
+	result := &dashboard.DetectResult{
+		OCI:   ociSource,
+		Cache: cacheSource,
+	}
+
+	wireOCICache(result)
+	// No error = success.
+}
+
+func TestWireOCICache_NoOCI(t *testing.T) {
+	k8sClient := &cliMockK8sClient{listJSON: []byte(`{"items":[]}`)}
+	result := &dashboard.DetectResult{
+		K8s: dashboard.NewK8sSource(k8sClient, "", "pactos"),
+	}
+
+	wireOCICache(result)
+	// No error = success. Function should be a no-op when OCI is nil.
 }

@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/trianalab/pacto/v2/pkg/override"
-	"github.com/trianalab/pacto/v2/pkg/plugin"
+	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/override"
+	"github.com/trianalab/pacto/v3/pkg/plugin"
 )
 
 // PluginRunner abstracts plugin execution so the app layer does not depend
@@ -44,13 +44,13 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 
 	ref := defaultPath(opts.Path)
 
-	slog.Debug("resolving contract for generation", "ref", ref, "plugin", opts.Plugin)
+	logging.LoggerFromContext(ctx).Debug("resolving contract for generation", "ref", ref, "plugin", opts.Plugin)
 	bundle, err := s.resolveBundleWithOverrides(ctx, ref, opts.Overrides)
 	if err != nil {
 		return nil, err
 	}
 
-	slog.Debug("preparing bundle directory")
+	logging.LoggerFromContext(ctx).Debug("preparing bundle directory")
 	bundleDir, cleanup, err := prepareBundleDir(ref, bundle.FS)
 	if err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 		return nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	slog.Debug("invoking plugin", "plugin", opts.Plugin, "bundleDir", bundleDir, "outputDir", outputDir)
+	logging.LoggerFromContext(ctx).Debug("invoking plugin", "plugin", opts.Plugin, "bundleDir", bundleDir, "outputDir", outputDir)
 	resp, err := s.PluginRunner.Run(ctx, opts.Plugin, plugin.GenerateRequest{
 		ProtocolVersion: plugin.ProtocolVersion,
 		Contract:        bundle.Contract,
@@ -90,7 +90,7 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 		}
 	}
 
-	slog.Debug("plugin execution complete", "plugin", opts.Plugin, "files", len(resp.Files))
+	logging.LoggerFromContext(ctx).Debug("plugin execution complete", "plugin", opts.Plugin, "files", len(resp.Files))
 	return &GenerateResult{
 		Plugin:     opts.Plugin,
 		OutputDir:  outputDir,

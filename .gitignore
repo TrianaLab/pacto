@@ -13,8 +13,15 @@ pacto
 coverage.out
 coverage.html
 
+# Local Go build cache (created when GOCACHE points into the tree)
+.gocache/
+
 # MkDocs build output
 /site/
+
+# Python tooling caches (release/scripts docs generator + checker)
+__pycache__/
+*.pyc
 
 # Local docs preview build of the WASM demo (CI builds it into site/demo)
 /docs/demo/
@@ -25,8 +32,17 @@ TODO.md
 # Config
 config.yaml
 
+# Node (Changesets release tooling)
+/node_modules/
+release/units/*/node_modules/
+
 # Generated bundle artifacts (created by make targets / pacto generate)
 pactos/*/interfaces/openapi.json
 pactos/*/configuration/schema.json
 pactos/*/sbom/
 .superpowers/
+
+# runtime-regenerated publisher proof transcripts (non-deterministic namespaces)
+release/proofs/
+.mono-*.workflow.js
+.pr-body.md

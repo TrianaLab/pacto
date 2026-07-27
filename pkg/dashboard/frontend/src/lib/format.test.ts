@@ -47,14 +47,17 @@ import {
   shortDigest,
   driftBadgeClass,
   driftBadgeLabel,
+  evaluationCoverageLabel,
 } from './format.ts';
 
 describe('statusClass', () => {
   it('maps Compliant to ok', () => expect(statusClass('Compliant')).toBe('ok'));
   it('maps Warning to warn', () => expect(statusClass('Warning')).toBe('warn'));
   it('maps NonCompliant to err', () => expect(statusClass('NonCompliant')).toBe('err'));
-  it('maps Unknown to neutral', () => expect(statusClass('Unknown')).toBe('neutral'));
+  it('maps Invalid to err', () => expect(statusClass('Invalid')).toBe('err'));
+  it('maps Unknown to info (distinct, not neutral)', () => expect(statusClass('Unknown')).toBe('info'));
   it('maps Reference to reference', () => expect(statusClass('Reference')).toBe('reference'));
+  it('maps NotEvaluated to neutral', () => expect(statusClass('NotEvaluated')).toBe('neutral'));
   it('maps undefined to neutral', () => expect(statusClass(undefined)).toBe('neutral'));
 });
 
@@ -71,6 +74,7 @@ describe('complianceStatusClass', () => {
   it('maps OK to score-ok', () => expect(complianceStatusClass('OK')).toBe('score-ok'));
   it('maps WARNING to score-warn', () => expect(complianceStatusClass('WARNING')).toBe('score-warn'));
   it('maps ERROR to score-err', () => expect(complianceStatusClass('ERROR')).toBe('score-err'));
+  it('maps UNKNOWN to score-info', () => expect(complianceStatusClass('UNKNOWN')).toBe('score-info'));
   it('returns empty string for unknown', () => expect(complianceStatusClass('other')).toBe(''));
 });
 
@@ -300,7 +304,7 @@ describe('aggregateByOwner', () => {
   it('computes compliance as the share of assessed services that are compliant', () => {
     const result = aggregateByOwner(services);
     const teamA = result.find((r) => r.key === 'team-a')!;
-    // 2 compliant of 3 assessed (2 Compliant + 1 Warning) → 67
+    // 2 compliant of 3 assessed (2 Compliant + 1 Warning + 0 Unknown/Invalid) → 67
     expect(teamA.compliancePercent).toBe(67);
   });
 
@@ -324,7 +328,7 @@ describe('aggregateByOwner', () => {
   it('produces chart-ready segments that sum to total services', () => {
     const result = aggregateByOwner(services);
     for (const agg of result) {
-      const segTotal = agg.compliant + agg.warning + agg.nonCompliant + agg.reference + agg.unknown;
+      const segTotal = agg.compliant + agg.warning + agg.nonCompliant + agg.reference + agg.unknown + agg.invalid + agg.notEvaluated;
       expect(segTotal).toBe(agg.services);
     }
   });
@@ -335,6 +339,36 @@ describe('aggregateByOwner', () => {
       const segTotal = agg.ready + agg.partial + agg.notReady + agg.notConfigured;
       expect(segTotal).toBe(agg.services);
     }
+  });
+
+  it('includes invalid and notEvaluated in the bucket sum invariant', () => {
+    const svc = [
+      { name: 'a', owner: { team: 't' }, contractStatus: 'Compliant', blastRadius: 0 },
+      { name: 'b', owner: { team: 't' }, contractStatus: 'Invalid', blastRadius: 0 },
+      { name: 'c', owner: { team: 't' }, contractStatus: 'Unknown', blastRadius: 0 },
+      { name: 'd', owner: { team: 't' }, contractStatus: 'NotEvaluated', blastRadius: 0 },
+    ];
+    const result = aggregateByOwner(svc);
+    const team = result.find((r) => r.key === 't')!;
+    const segTotal = team.compliant + team.warning + team.nonCompliant + team.reference + team.unknown + team.invalid + team.notEvaluated;
+    expect(segTotal).toBe(team.services);
+  });
+
+  it('computes runtimeEvaluated and conclusive per owner (Unknown counts toward evaluated, not conclusive)', () => {
+    const svc = [
+      { name: 'a', owner: { team: 't' }, contractStatus: 'Compliant', blastRadius: 0 },
+      { name: 'b', owner: { team: 't' }, contractStatus: 'Warning', blastRadius: 0 },
+      { name: 'c', owner: { team: 't' }, contractStatus: 'NonCompliant', blastRadius: 0 },
+      { name: 'd', owner: { team: 't' }, contractStatus: 'Unknown', blastRadius: 0 },
+      { name: 'e', owner: { team: 't' }, contractStatus: 'Reference', blastRadius: 0 },
+      { name: 'f', owner: { team: 't' }, contractStatus: 'NotEvaluated', blastRadius: 0 },
+    ];
+    const team = aggregateByOwner(svc).find((r) => r.key === 't')!;
+    // runtimeEvaluated = compliant + warning + nonCompliant + unknown (Reference/NotEvaluated excluded)
+    expect(team.runtimeEvaluated).toBe(4);
+    // conclusive = compliant + warning + nonCompliant (Unknown excluded)
+    expect(team.conclusive).toBe(3);
+    expect(team.runtimeEvaluated - team.conclusive).toBe(team.unknown);
   });
 
   it('counts per-owner readiness buckets (unknown → notConfigured)', () => {
@@ -625,6 +659,18 @@ describe('worstStatus', () => {
     expect(worstStatus(['Compliant', 'Warning', 'Compliant'])).toBe('Warning');
     expect(worstStatus(['Compliant', 'NonCompliant', 'Warning'])).toBe('NonCompliant');
     expect(worstStatus(['Compliant', 'Compliant'])).toBe('Compliant');
+  });
+  it('ranks Invalid above NonCompliant', () => {
+    expect(worstStatus(['Invalid', 'NonCompliant'])).toBe('Invalid');
+  });
+  it('ranks Unknown above Warning', () => {
+    expect(worstStatus(['Unknown', 'Warning'])).toBe('Unknown');
+  });
+  it('ranks NotEvaluated as neutral (lowest, like Reference)', () => {
+    // Warning (severity 2) beats NotEvaluated (severity 0)
+    expect(worstStatus(['Warning', 'NotEvaluated'])).toBe('Warning');
+    // Reference and Compliant both have severity 0; first encountered wins (uses >, not >=)
+    expect(worstStatus(['Compliant', 'Reference'])).toBe('Compliant');
   });
 });
 
@@ -1056,13 +1102,13 @@ describe('summarizeFleet', () => {
     expect(s.nonCompliant).toBe(1);
     expect(s.reference).toBe(1);
     expect(s.unknown).toBe(1);
-    expect(s.assessed).toBe(4); // compliant + warning + nonCompliant
-    expect(s.needsAttention).toBe(2); // warning + nonCompliant
-    expect(s.compliancePercent).toBe(50); // 2/4
+    expect(s.assessed).toBe(5); // compliant + warning + nonCompliant + unknown (B-2 ruling)
+    expect(s.needsAttention).toBe(2); // warning + nonCompliant (Unknown NOT included)
+    expect(s.compliancePercent).toBe(40); // 2/5 (Unknown in denominator)
     expect(s.highImpact).toBe(2); // blast >= 3
   });
-  it('returns compliancePercent -1 when nothing is assessed (reference/unknown only)', () => {
-    const s = summarizeFleet([{ contractStatus: 'Reference' }, { contractStatus: 'Unknown' }]);
+  it('returns compliancePercent -1 when nothing is assessed (reference/notEvaluated only)', () => {
+    const s = summarizeFleet([{ contractStatus: 'Reference' }, { contractStatus: 'NotEvaluated' }]);
     expect(s.assessed).toBe(0);
     expect(s.compliancePercent).toBe(-1);
     expect(s.needsAttention).toBe(0);
@@ -1096,7 +1142,7 @@ describe('summarize', () => {
     expect(m.warning).toBe(1);
     expect(m.nonCompliant).toBe(1);
     expect(m.reference).toBe(1);
-    expect(m.assessed).toBe(3);
+    expect(m.assessed).toBe(3); // compliant + warning + nonCompliant (no unknown/invalid in this test)
     expect(m.needsAttention).toBe(2);
     expect(m.compliancePercent).toBe(33); // 1/3
     expect(m.highImpact).toBe(2); // >= 3
@@ -1240,5 +1286,147 @@ describe('breakableIdentifierHtml', () => {
     const html = breakableIdentifierHtml('a<b>&c');
     expect(html).toContain('&lt;b&gt;&amp;');
     expect(html).not.toContain('<b>');
+  });
+});
+
+// ── B-2 ruling: Unknown in denominator, distinct from needsAttention ──
+
+describe('evaluationCoverageLabel', () => {
+  it('renders "E of R" when runtime-evaluated with coverage', () => {
+    expect(evaluationCoverageLabel({ runtimeEvaluated: true, evaluationCoverage: { evaluated: 4, required: 5 } })).toBe('4 of 5');
+  });
+  it('is omitted when the service was not runtime-evaluated', () => {
+    expect(evaluationCoverageLabel({ runtimeEvaluated: false, evaluationCoverage: { evaluated: 4, required: 5 } })).toBe('');
+  });
+  it('is omitted when there is no coverage even if runtime-evaluated', () => {
+    expect(evaluationCoverageLabel({ runtimeEvaluated: true })).toBe('');
+  });
+  it('is omitted for null/undefined input', () => {
+    expect(evaluationCoverageLabel(null)).toBe('');
+    expect(evaluationCoverageLabel(undefined)).toBe('');
+  });
+});
+
+describe('summarize B-2 ruling', () => {
+  it('all-Unknown fleet reads 0%, NOT N/A', () => {
+    const services = [
+      { contractStatus: 'Unknown', blastRadius: 0 },
+      { contractStatus: 'Unknown', blastRadius: 0 },
+    ];
+    const m = summarize(services);
+    expect(m.unknown).toBe(2);
+    expect(m.assessed).toBe(2); // Unknown IS in the denominator
+    expect(m.compliancePercent).toBe(0); // 0/2 = 0%, not -1
+  });
+
+  it('1 Compliant + 99 Unknown reads 1%, NOT 100%', () => {
+    const services = [
+      { contractStatus: 'Compliant', blastRadius: 0 },
+      ...Array.from({ length: 99 }, () => ({ contractStatus: 'Unknown', blastRadius: 0 })),
+    ];
+    const m = summarize(services);
+    expect(m.compliant).toBe(1);
+    expect(m.unknown).toBe(99);
+    expect(m.assessed).toBe(100); // 1 + 99
+    expect(m.compliancePercent).toBe(1); // 1/100 = 1%
+  });
+
+  it('Unknown NOT in needsAttention (surfaced separately)', () => {
+    const services = [
+      { contractStatus: 'Unknown', blastRadius: 0 },
+      { contractStatus: 'Warning', blastRadius: 0 },
+      { contractStatus: 'NonCompliant', blastRadius: 0 },
+      { contractStatus: 'Invalid', blastRadius: 0 },
+    ];
+    const m = summarize(services);
+    expect(m.unknown).toBe(1);
+    expect(m.needsAttention).toBe(3); // warning + nonCompliant + invalid (Unknown NOT included)
+  });
+
+  it('Reference and NotEvaluated excluded from denominator', () => {
+    const services = [
+      { contractStatus: 'Compliant', blastRadius: 0 },
+      { contractStatus: 'Reference', blastRadius: 0 },
+      { contractStatus: 'NotEvaluated', blastRadius: 0 },
+    ];
+    const m = summarize(services);
+    expect(m.assessed).toBe(1); // only Compliant
+    expect(m.compliancePercent).toBe(100); // 1/1
+  });
+
+  it('empty denominator (only Reference/NotEvaluated) -> -1 N/A sentinel', () => {
+    const services = [
+      { contractStatus: 'Reference', blastRadius: 0 },
+      { contractStatus: 'NotEvaluated', blastRadius: 0 },
+    ];
+    const m = summarize(services);
+    expect(m.assessed).toBe(0);
+    expect(m.compliancePercent).toBe(-1); // N/A sentinel
+  });
+
+  it('Invalid counts in the denominator (assessed-but-failed)', () => {
+    const services = [
+      { contractStatus: 'Compliant', blastRadius: 0 },
+      { contractStatus: 'Invalid', blastRadius: 0 },
+    ];
+    const m = summarize(services);
+    expect(m.assessed).toBe(2); // Compliant + Invalid
+    expect(m.compliancePercent).toBe(50); // 1/2
+    expect(m.needsAttention).toBe(1); // Invalid IS in needsAttention
+  });
+
+  it('sums fleet evaluationCoverage across services that carry it', () => {
+    const services = [
+      { contractStatus: 'Compliant', evaluationCoverage: { evaluated: 4, required: 5 } },
+      { contractStatus: 'Unknown', evaluationCoverage: { evaluated: 1, required: 3 } },
+      { contractStatus: 'Reference' }, // no coverage — ignored
+    ];
+    const m = summarize(services);
+    expect(m.evaluationCoverage.evaluated).toBe(5); // 4 + 1
+    expect(m.evaluationCoverage.required).toBe(8); // 5 + 3
+  });
+
+  it('fleet evaluationCoverage is zero when no service carries it', () => {
+    const m = summarize([{ contractStatus: 'Unknown' }]);
+    expect(m.evaluationCoverage).toEqual({ evaluated: 0, required: 0 });
+  });
+
+  it('secondary conclusive/runtimeEvaluated metrics (NEW)', () => {
+    const services = [
+      { contractStatus: 'Compliant', blastRadius: 0 },
+      { contractStatus: 'Warning', blastRadius: 0 },
+      { contractStatus: 'NonCompliant', blastRadius: 0 },
+      { contractStatus: 'Unknown', blastRadius: 0 },
+      { contractStatus: 'Invalid', blastRadius: 0 },
+      { contractStatus: 'Reference', blastRadius: 0 },
+    ];
+    const m = summarize(services);
+    expect(m.runtimeEvaluated).toBe(4); // Compliant + Warning + NonCompliant + Unknown
+    expect(m.conclusive).toBe(3); // Compliant + Warning + NonCompliant (Unknown excluded)
+  });
+
+  it('bucket sum invariant includes invalid + unknown + notEvaluated', () => {
+    const services = [
+      { contractStatus: 'Compliant', blastRadius: 0 },
+      { contractStatus: 'Warning', blastRadius: 0 },
+      { contractStatus: 'NonCompliant', blastRadius: 0 },
+      { contractStatus: 'Invalid', blastRadius: 0 },
+      { contractStatus: 'Unknown', blastRadius: 0 },
+      { contractStatus: 'Reference', blastRadius: 0 },
+      { contractStatus: 'NotEvaluated', blastRadius: 0 },
+    ];
+    const m = summarize(services);
+    const bucketSum = m.compliant + m.warning + m.nonCompliant + m.invalid + m.unknown + m.reference + m.notEvaluated;
+    expect(bucketSum).toBe(m.total);
+  });
+
+  it('owner compliancePercent uses the same B-2 denominator', () => {
+    const services = [
+      { name: 'a', owner: { team: 't' }, contractStatus: 'Compliant', blastRadius: 0 },
+      { name: 'b', owner: { team: 't' }, contractStatus: 'Unknown', blastRadius: 0 },
+    ];
+    const m = summarize(services);
+    const team = m.byOwner.find((o) => o.key === 't')!;
+    expect(team.compliancePercent).toBe(50); // 1/(1+1) = 50%, Unknown in denominator
   });
 });

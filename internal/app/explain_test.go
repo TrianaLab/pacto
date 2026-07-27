@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // writeReadinessBundle writes a pactoVersion 1.2 bundle with a readiness section
@@ -15,7 +15,7 @@ import (
 func writeReadinessBundle(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	content := []byte(`pactoVersion: "1.2"
+	content := []byte(`pactoVersion: "2.0"
 service:
   name: payment-api
   version: "1.4.0"
@@ -23,19 +23,17 @@ service:
     team: payments-team
 interfaces:
   - name: api
-    type: http
-    port: 8080
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    type: openapi
+    ref: openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 readiness:
   expires: "2026-01-15"
   history:
@@ -43,7 +41,7 @@ readiness:
       version: "2.1.0"
       author: ed
       description: initial assessment
-  checks:
+  claims:
     - id: dashboard
       type: url
       status: done
@@ -57,6 +55,9 @@ readiness:
       weight: 40
 `)
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "openapi.yaml"), []byte("openapi: \"3.0.0\"\ninfo:\n  title: API\n  version: 1.0.0\npaths: {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -139,11 +140,11 @@ func TestExplain_Local(t *testing.T) {
 	if result.Version != "1.0.0" {
 		t.Errorf("expected Version=1.0.0, got %s", result.Version)
 	}
-	if result.PactoVersion != "1.0" {
-		t.Errorf("expected PactoVersion=1.0, got %s", result.PactoVersion)
+	if result.PactoVersion != "2.0" {
+		t.Errorf("expected PactoVersion=2.0, got %s", result.PactoVersion)
 	}
-	if result.Runtime.WorkloadType != "service" {
-		t.Errorf("expected WorkloadType=service, got %s", result.Runtime.WorkloadType)
+	if result.Workload != "service" {
+		t.Errorf("expected Workload=service, got %s", result.Workload)
 	}
 }
 
@@ -161,11 +162,11 @@ func TestExplain_WithInterfaces(t *testing.T) {
 	if iface.Name != "api" {
 		t.Errorf("expected interface Name=api, got %s", iface.Name)
 	}
-	if iface.Type != "http" {
-		t.Errorf("expected interface Type=http, got %s", iface.Type)
+	if iface.Type != "openapi" {
+		t.Errorf("expected interface Type=openapi, got %s", iface.Type)
 	}
-	if iface.Port == nil || *iface.Port != 8080 {
-		t.Errorf("expected interface Port=8080, got %v", iface.Port)
+	if iface.Ref != "openapi.yaml" {
+		t.Errorf("expected interface Ref=openapi.yaml, got %s", iface.Ref)
 	}
 }
 

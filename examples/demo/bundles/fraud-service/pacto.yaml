@@ -1,5 +1,4 @@
-pactoVersion: "1.2"
-
+pactoVersion: '2.0'
 service:
   name: fraud-service
   version: 1.0.0
@@ -7,61 +6,89 @@ service:
     team: payments-team
     dri: james.wilson
     contacts:
-      - type: email
-        value: payments-team@acme.com
-        purpose: escalation
-      - type: chat
-        value: "#payments-team"
-        purpose: support
-      - type: oncall
-        value: payments-oncall
-        purpose: oncall
-  image:
-    ref: ghcr.io/trianalab/pacto-demo/fraud-service
-
-interfaces:
-  - name: http
-    type: http
-    port: 8084
-    visibility: internal
-
+    - type: email
+      value: payments-team@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#payments-team'
+      purpose: support
+    - type: oncall
+      value: payments-oncall
+      purpose: oncall
 configurations:
-  - name: platform
-    ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
-  - name: app
-    schema: configuration/schema.json
-    values:
-      LOG_LEVEL: info
-      RISK_THRESHOLD: 0.7
-      MODEL_VERSION: v2.3.1
-      REDIS_URL: redis://redis:6379/2
-
+- name: platform
+  ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  required: true
+- name: app
+  schema: configuration/schema.json
+  values:
+    LOG_LEVEL: info
+    RISK_THRESHOLD: 0.7
+    MODEL_VERSION: v2.3.1
+    REDIS_URL: redis://redis:6379/2
+  required: true
 policies:
-  - name: http-security
-    ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
-
+- name: http-security
+  ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
 dependencies:
-  - name: redis
-    ref: oci://ghcr.io/trianalab/pacto-demo/redis
-    required: true
-    compatibility: "^7.0.0"
-
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-
-scaling:
-  min: 2
-  max: 4
-
+- name: redis
+  ref: oci://ghcr.io/trianalab/pacto-demo/redis
+  required: true
+  compatibility: ^7.0.0
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+readiness:
+  minScore: 75
+  expires: '2027-03-15'
+  partialCredit: 0.5
+  claims:
+  - id: ml-dashboard
+    type: url
+    category: observability
+    status: done
+    evidence: https://grafana.acme.com/d/fraud-ml-metrics
+    weight: 25
+    description: ML model performance metrics dashboard
+  - id: model-eval
+    type: report
+    category: testing
+    status: partial
+    evidence: https://mlflow.acme.com/fraud-model-v2.3.1
+    weight: 30
+    description: Model evaluation report (pending retraining)
+  - id: security-review
+    type: ticket
+    category: security
+    status: done
+    evidence: SEC-2102
+    weight: 35
+    description: Security review for fraud detection system
+  - id: runbook
+    type: document
+    category: documentation
+    status: partial
+    evidence: docs/runbooks/fraud-service.md
+    weight: 20
+    description: On-call runbook (missing model rollback procedure)
+  - id: chaos-testing
+    type: report
+    category: resilience
+    status: done
+    evidence: https://chaos.acme.com/fraud-service-2026-04
+    weight: 25
+    description: Chaos engineering tests for ML service resilience
+  - id: backup-restore
+    type: document
+    category: backup-recovery
+    status: partial
+    evidence: docs/ops/fraud-backup.md
+    weight: 15
+    description: Backup and restore for model artifacts (partial coverage)
 metadata:
   tier: domain
   category: payments
@@ -70,55 +97,7 @@ metadata:
   language: go
   repo: github.com/trianalab/pacto-demo/fraud-service
   tags:
-    - fraud-detection
-    - risk-scoring
-    - ml
-    - payments
-
-readiness:
-  minScore: 75
-  expires: "2027-03-15"
-  partialCredit: 0.5
-  checks:
-    - id: ml-dashboard
-      type: url
-      category: observability
-      status: done
-      evidence: https://grafana.acme.com/d/fraud-ml-metrics
-      weight: 25
-      description: ML model performance metrics dashboard
-    - id: model-eval
-      type: report
-      category: testing
-      status: partial
-      evidence: https://mlflow.acme.com/fraud-model-v2.3.1
-      weight: 30
-      description: Model evaluation report (pending retraining)
-    - id: security-review
-      type: ticket
-      category: security
-      status: done
-      evidence: SEC-2102
-      weight: 35
-      description: Security review for fraud detection system
-    - id: runbook
-      type: document
-      category: documentation
-      status: partial
-      evidence: docs/runbooks/fraud-service.md
-      weight: 20
-      description: On-call runbook (missing model rollback procedure)
-    - id: chaos-testing
-      type: report
-      category: resilience
-      status: done
-      evidence: https://chaos.acme.com/fraud-service-2026-04
-      weight: 25
-      description: Chaos engineering tests for ML service resilience
-    - id: backup-restore
-      type: document
-      category: backup-recovery
-      status: partial
-      evidence: docs/ops/fraud-backup.md
-      weight: 15
-      description: Backup and restore for model artifacts (partial coverage)
+  - fraud-detection
+  - risk-scoring
+  - ml
+  - payments

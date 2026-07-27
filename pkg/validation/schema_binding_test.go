@@ -1,0 +1,118 @@
+package validation_test
+
+import (
+	"testing"
+
+	"github.com/trianalab/pacto/v3/pkg/validation"
+)
+
+const schemaBase = `pactoVersion: "2.0"
+service:
+  name: orders
+  version: "1.0.0"
+interfaces:
+  - name: public-api
+    type: openapi
+    ref: interfaces/openapi.yaml
+`
+
+func TestSchema_CapabilityBinding_Valid(t *testing.T) {
+	data := []byte(schemaBase + `capabilities:
+  - type: health
+    binding:
+      type: http
+      interface: public-api
+      path: /healthz
+  - type: extension
+    ref: example.com/custom
+`)
+	r := validation.ValidateStructuralRaw(data)
+	if hasErrorCode(r, "SCHEMA_VIOLATION") {
+		t.Errorf("valid discriminated binding must pass schema, got %+v", r.Errors)
+	}
+}
+
+// Item 2: the binding transport enum is a CLOSED set — http only. A non-http
+// transport (e.g. grpc, added "for symmetry") must fail structural validation, so
+// an unimplemented transport can never be advertised as if it were supported.
+func TestSchema_CapabilityBinding_UnknownTransportRejected(t *testing.T) {
+	data := []byte(schemaBase + `capabilities:
+  - type: health
+    binding:
+      type: grpc
+      interface: public-api
+      path: /healthz
+`)
+	r := validation.ValidateStructuralRaw(data)
+	if !hasErrorCode(r, "SCHEMA_VIOLATION") {
+		t.Errorf("a non-http binding transport must fail structural validation (enum is http-only), got %+v", r.Errors)
+	}
+}
+
+// Item 2: a health/metrics capability with no binding is a valid declaration (for
+// another collector to verify); the Kubernetes collector reports it Unsupported.
+func TestSchema_CapabilityBinding_UnboundHealthValid(t *testing.T) {
+	data := []byte(schemaBase + `capabilities:
+  - type: health
+`)
+	r := validation.ValidateStructuralRaw(data)
+	if hasErrorCode(r, "SCHEMA_VIOLATION") {
+		t.Errorf("an unbound health capability must be structurally valid, got %+v", r.Errors)
+	}
+}
+
+func TestSchema_ExtensionWithBinding_Rejected(t *testing.T) {
+	data := []byte(schemaBase + `capabilities:
+  - type: extension
+    ref: example.com/custom
+    binding:
+      type: http
+      interface: public-api
+`)
+	if r := validation.ValidateStructuralRaw(data); !hasErrorCode(r, "SCHEMA_VIOLATION") {
+		t.Errorf("extension+binding must be rejected, got %+v", r.Errors)
+	}
+}
+
+func TestSchema_HealthWithRef_Rejected(t *testing.T) {
+	data := []byte(schemaBase + `capabilities:
+  - type: health
+    ref: example.com/custom
+`)
+	if r := validation.ValidateStructuralRaw(data); !hasErrorCode(r, "SCHEMA_VIOLATION") {
+		t.Errorf("health+ref must be rejected, got %+v", r.Errors)
+	}
+}
+
+func TestSchema_BindingBadTransport_Rejected(t *testing.T) {
+	data := []byte(schemaBase + `capabilities:
+  - type: health
+    binding:
+      type: grpc
+      interface: public-api
+`)
+	if r := validation.ValidateStructuralRaw(data); !hasErrorCode(r, "SCHEMA_VIOLATION") {
+		t.Errorf("binding transport grpc must be rejected this release, got %+v", r.Errors)
+	}
+}
+
+func TestSchema_ConfigurationMissingRequired_Rejected(t *testing.T) {
+	data := []byte(schemaBase + `configurations:
+  - name: app
+    schema: configuration/app.schema.json
+`)
+	if r := validation.ValidateStructuralRaw(data); !hasErrorCode(r, "SCHEMA_VIOLATION") {
+		t.Errorf("configuration without required must be rejected, got %+v", r.Errors)
+	}
+}
+
+func TestSchema_DependencyMissingRequired_Rejected(t *testing.T) {
+	data := []byte(schemaBase + `dependencies:
+  - name: db
+    ref: oci://ghcr.io/acme/db@sha256:abc
+    compatibility: ^1.0.0
+`)
+	if r := validation.ValidateStructuralRaw(data); !hasErrorCode(r, "SCHEMA_VIOLATION") {
+		t.Errorf("dependency without required must be rejected, got %+v", r.Errors)
+	}
+}

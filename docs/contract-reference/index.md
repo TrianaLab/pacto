@@ -1,15 +1,15 @@
-# Contract Reference (v1.2)
-A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface — interfaces, dependencies, runtime behavior, configuration, scaling and readiness. This page covers every section, field, validation rule and change classification rule.
+# Contract Reference (v2.0)
+A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface — interfaces, dependencies, runtime behavior, configuration, capabilities and readiness. This page covers every section, field, validation rule and change classification rule.
 
 Each `interfaces`, `configurations` and `policies` entry points at a schema you already have — an OpenAPI spec, a protobuf or event definition, a JSON Schema — so a contract composes the interfaces you already own rather than inventing a new configuration language. On top of that it adds what no single schema can express: ownership, dependencies, compatibility, readiness and how they change over time.
 
+Every section below contributes one piece of a service's machine-readable operational meaning. The contract states stable *intent* — what the service is, independent of any orchestrator. What deliberately stays **outside** the contract: how the service is built, scheduled, scaled and wired (delivery concerns owned by the platform — which is why there is no port, scaling, image or lifecycle field), and what the service looks like at runtime (an observation, gathered as [evidence](../architecture.md#declaration-versus-observation) and evaluated against the contract, never baked into the declaration). This separation is what lets one contract be validated at authoring time, diffed in CI and verified against a running system without depending on how any of those systems work.
+
 ---
 
-The canonical JSON Schemas are available per version:
-[`schema/pacto-v1.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.0.schema.json),
-[`schema/pacto-v1.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.1.schema.json) and
-[`schema/pacto-v1.2.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v1.2.schema.json).
-The schema is selected by the contract's [`pactoVersion`](sections.md#pactoversion).
+The canonical JSON Schema is
+[`schema/pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json).
+It is the single tracked schema and applies to every contract, which must declare [`pactoVersion: "2.0"`](sections.md#pactoversion).
 
 ---
 
@@ -90,7 +90,7 @@ Generate with any standard tool ([Syft](https://github.com/anchore/syft), [Trivy
 ## Full example
 
 ```yaml
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: payments-api
@@ -98,42 +98,35 @@ service:
   owner:
     team: payments
     dri: alice
-  image:
-    ref: ghcr.io/acme/payments-api:2.1.0
-    private: true
-  chart:
-    ref: oci://ghcr.io/acme/payments-chart
-    version: 2.1.0
 
 interfaces:
   - name: rest-api
-    type: http
-    port: 8080
+    type: openapi
+    ref: interfaces/openapi.yaml
     visibility: public
-    contract: interfaces/openapi.yaml
 
   - name: grpc-api
     type: grpc
-    port: 9090
+    ref: interfaces/service.yaml
     visibility: internal
-    contract: interfaces/service.proto
 
   - name: order-events
-    type: event
+    type: asyncapi
+    ref: interfaces/events.yaml
     visibility: internal
-    contract: interfaces/events.yaml
 
 configurations:
   - name: default
     schema: configuration/schema.json
+    required: true
 
 policies:
   - name: platform-policy
-    ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
+    schema: policy/schema.json
 
 dependencies:
   - name: auth
-    ref: oci://ghcr.io/acme/auth-pacto@sha256:abc123def456
+    ref: oci://ghcr.io/acme/auth-pacto@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     required: true
     compatibility: "^2.0.0"
 
@@ -142,32 +135,26 @@ dependencies:
     required: false
     compatibility: "~1.0.0"
 
-runtime:
-  workload: service
+workload: service
 
-  state:
-    type: stateful
-    persistence:
-      scope: local
-      durability: persistent
-    dataCriticality: high
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
 
-  lifecycle:
-    upgradeStrategy: ordered
-    gracefulShutdownSeconds: 30
-
-  health:
-    interface: rest-api
-    path: /health
-    initialDelaySeconds: 15
-
-  metrics:
-    interface: rest-api
-    path: /metrics
-
-scaling:
-  min: 2
-  max: 10
+capabilities:
+  - type: health
+    binding:
+      type: http
+      interface: rest-api
+      path: /health
+  - type: metrics
+    binding:
+      type: http
+      interface: rest-api
+      path: /metrics
 
 metadata:
   team: payments
@@ -178,10 +165,10 @@ metadata:
 
 ## Minimal contract
 
-Only `pactoVersion` and `service` are required. All other sections — `interfaces`, `runtime`, `configurations`, `policies`, `dependencies`, `scaling`, and `metadata` — are optional:
+Only `pactoVersion` and `service` are required. All other sections — `interfaces`, `configurations`, `policies`, `dependencies`, `workload`, `state`, `capabilities`, `readiness`, `verification`, and `metadata` — are optional:
 
 ```yaml
-pactoVersion: "1.0"
+pactoVersion: "2.0"
 
 service:
   name: my-library

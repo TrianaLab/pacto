@@ -28,7 +28,7 @@ func computeSectionMeta(d *ServiceDetails, contractSource string, runtimeEvaluat
 	meta[SectionPolicies] = defSection(len(d.Policies) > 0, defSource)
 	meta[SectionDependencies] = defSection(len(d.Dependencies) > 0, defSource)
 	meta[SectionReadiness] = defSection(d.Readiness != nil && len(d.Readiness.Checks) > 0, defSource)
-	meta[SectionRuntime] = defSection(d.Runtime != nil, defSource)
+	meta[SectionRuntime] = defSection(d.Workload != "" || d.State != nil, defSource)
 
 	// Validation is computed for every contract; "empty" means valid (no issues).
 	hasIssues := d.Validation != nil && (len(d.Validation.Errors) > 0 || len(d.Validation.Warnings) > 0)
@@ -48,14 +48,14 @@ func computeSectionMeta(d *ServiceDetails, contractSource string, runtimeEvaluat
 		meta[SectionDocs] = SectionInfo{State: SectionUnavailable, Reason: "documentation requires a contract bundle (not available from the cluster)"}
 	}
 
-	// Capabilities (derived agent tools + skills) are bundle-only, like docs.
+	// Capabilities (contract-declared) + Tools (derived from openapi) + Skills (docs) are bundle-only, like docs.
 	switch {
-	case len(d.Capabilities) > 0 || len(d.Skills) > 0:
+	case len(d.Capabilities) > 0 || len(d.Tools) > 0 || len(d.Skills) > 0:
 		meta[SectionCapabilities] = SectionInfo{State: SectionPresent, Source: defSource}
 	case hasBundle:
-		meta[SectionCapabilities] = SectionInfo{State: SectionEmpty, Source: defSource, Reason: "no http/OpenAPI interface or skills/*.md in this contract bundle"}
+		meta[SectionCapabilities] = SectionInfo{State: SectionEmpty, Source: defSource, Reason: "no capabilities, openapi interfaces, or skills/*.md in this contract bundle"}
 	default:
-		meta[SectionCapabilities] = SectionInfo{State: SectionUnavailable, Reason: "agent capabilities require a contract bundle (not available from the cluster)"}
+		meta[SectionCapabilities] = SectionInfo{State: SectionUnavailable, Reason: "capabilities require a contract bundle (not available from the cluster)"}
 	}
 
 	// Runtime-only sections come from the operator and apply only to deployed

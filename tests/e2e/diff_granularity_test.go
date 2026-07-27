@@ -21,20 +21,19 @@ func diffGranularityBundle(t *testing.T, name, contractYAML string) string {
 func TestDiffFieldGranularity(t *testing.T) {
 	t.Parallel()
 
-	const ownerBase = `pactoVersion: "1.1"
+	const ownerBase = `pactoVersion: "2.0"
 service:
   name: granular-svc
   version: 1.0.0
   owner:
     team: foundations-team
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 
 	// Reproduces the reported bug: a contact added while the team is unchanged
@@ -42,7 +41,7 @@ runtime:
 	t.Run("owner contact added is granular", func(t *testing.T) {
 		t.Parallel()
 		v1 := diffGranularityBundle(t, "owner-v1", ownerBase)
-		v2 := diffGranularityBundle(t, "owner-v2", `pactoVersion: "1.1"
+		v2 := diffGranularityBundle(t, "owner-v2", `pactoVersion: "2.0"
 service:
   name: granular-svc
   version: 1.0.0
@@ -51,14 +50,13 @@ service:
     contacts:
       - type: slack
         value: "#foundations"
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `)
 		output, _ := runCommand(t, nil, "diff", v1, v2)
 
@@ -71,20 +69,19 @@ runtime:
 	t.Run("owner team modified", func(t *testing.T) {
 		t.Parallel()
 		v1 := diffGranularityBundle(t, "team-v1", ownerBase)
-		v2 := diffGranularityBundle(t, "team-v2", `pactoVersion: "1.1"
+		v2 := diffGranularityBundle(t, "team-v2", `pactoVersion: "2.0"
 service:
   name: granular-svc
   version: 1.0.0
   owner:
     team: platform-team
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `)
 		output, _ := runCommand(t, nil, "diff", v1, v2)
 
@@ -93,59 +90,67 @@ runtime:
 		assertContains(t, output, "platform-team")
 	})
 
-	t.Run("pactoVersion change detected", func(t *testing.T) {
+	// v2 pins pactoVersion to a single value ("2.0"), so a pactoVersion delta
+	// between two parseable contracts is unobservable. The equivalent contract-
+	// level scalar diff is a state.type change (stateless -> stateful).
+	t.Run("state type change detected", func(t *testing.T) {
 		t.Parallel()
-		v1 := diffGranularityBundle(t, "pv-v1", ownerBase)
-		v2 := diffGranularityBundle(t, "pv-v2", `pactoVersion: "1.2"
+		v1 := diffGranularityBundle(t, "state-v1", ownerBase)
+		v2 := diffGranularityBundle(t, "state-v2", `pactoVersion: "2.0"
 service:
   name: granular-svc
   version: 1.0.0
   owner:
     team: foundations-team
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
 `)
 		output, _ := runCommand(t, nil, "diff", v1, v2)
 
-		assertContains(t, output, "pactoVersion")
+		assertContains(t, output, "state.type")
 		assertNotContains(t, output, "No changes detected")
 	})
 
-	t.Run("image private toggle detected", func(t *testing.T) {
+	// v2 has no service.image; the equivalent granular per-field toggle is an
+	// interface visibility flip (public <-> internal), which must surface as a
+	// granular interfaces.visibility change rather than an opaque interface diff.
+	t.Run("interface visibility toggle detected", func(t *testing.T) {
 		t.Parallel()
-		base := `pactoVersion: "1.1"
+		base := `pactoVersion: "2.0"
 service:
   name: granular-svc
   version: 1.0.0
   owner:
     team: foundations-team
-  image:
-    ref: ghcr.io/acme/granular-svc:1.0.0
+interfaces:
+  - name: api
+    type: grpc
+    ref: interfaces/api.json
 `
-		v1 := diffGranularityBundle(t, "img-v1", base+"    private: false\n"+ownerRuntime)
-		v2 := diffGranularityBundle(t, "img-v2", base+"    private: true\n"+ownerRuntime)
+		v1 := diffGranularityBundle(t, "vis-v1", base+"    visibility: public\n"+ownerRuntime)
+		v2 := diffGranularityBundle(t, "vis-v2", base+"    visibility: internal\n"+ownerRuntime)
 		output, _ := runCommand(t, nil, "diff", v1, v2)
 
-		assertContains(t, output, "service.image")
-		assertContains(t, output, "private")
+		assertContains(t, output, "interfaces.visibility")
+		assertContains(t, output, "public")
+		assertContains(t, output, "internal")
 	})
 }
 
-// ownerRuntime is the shared runtime block appended to image-toggle contracts.
-const ownerRuntime = `runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+// ownerRuntime is the shared top-level workload+state block appended to the
+// interface-toggle contracts.
+const ownerRuntime = `workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 
 // TestDiffReadinessGranularity verifies readiness changes surface in the diff,
@@ -157,33 +162,24 @@ func TestDiffReadinessGranularity(t *testing.T) {
 
 	// Same contract with the dashboard check regressed done -> not-done and the
 	// gate lowered.
-	const regressed = `pactoVersion: "1.2"
+	const regressed = `pactoVersion: "2.0"
 service:
   name: readiness-svc
   version: 1.0.0
   owner:
     team: readiness
-interfaces:
-  - name: api
-    type: http
-    port: 8080
-    visibility: internal
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 readiness:
   expires: "2099-12-31"
   minScore: 70
   partialCredit: 0.5
-  checks:
+  claims:
     - id: dashboard
       type: url
       evidence: https://grafana.example.com/d/readiness-svc
@@ -203,7 +199,7 @@ readiness:
 
 	output, _ := runCommand(t, nil, "diff", v1, v2)
 
-	assertContains(t, output, "readiness.checks[dashboard]")
+	assertContains(t, output, "readiness.claims[dashboard]")
 	assertContains(t, output, "readiness.minScore")
 	assertNotContains(t, output, "No changes detected")
 }
@@ -213,7 +209,7 @@ readiness:
 func TestDiffConfigValuesGranularity(t *testing.T) {
 	t.Parallel()
 
-	base := `pactoVersion: "1.1"
+	base := `pactoVersion: "2.0"
 service:
   name: cfgvals-svc
   version: 1.0.0
@@ -222,16 +218,16 @@ service:
 configurations:
   - name: app
     schema: configuration/schema.json
+    required: true
     values:
       replicas: %d
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	v1 := diffGranularityBundle(t, "cfgvals-v1", fmt.Sprintf(base, 1))
 	v2 := diffGranularityBundle(t, "cfgvals-v2", fmt.Sprintf(base, 3))

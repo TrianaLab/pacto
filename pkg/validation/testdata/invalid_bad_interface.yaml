@@ -1,0 +1,12 @@
+pactoVersion: "2.0"
+
+service:
+  name: bad-iface
+  version: 1.0.0
+  owner:
+    team: platform
+
+interfaces:
+  - name: api
+    type: http
+    ref: interfaces/spec.yaml

@@ -1,15 +1,17 @@
 # Validation layers
 
-Pacto validates contracts through four successive layers. Each layer short-circuits — if it fails, subsequent layers are skipped.
+Pacto validates contracts through three successive layers. Each layer short-circuits — if it fails, subsequent layers are skipped.
 
 ## Layer 1: Structural (JSON Schema)
 
-Validates against the embedded JSON Schema:
+Validates against the embedded `pacto-v2.0.schema.json`:
 - Field types match
-- Required fields are present
-- Enum values are valid
-- Conditional requirements are met (`http` needs `port`, etc.)
-- State invariants are enforced (`stateless` needs `ephemeral`)
+- Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
+- Enum values are valid (e.g. interface `type` is `openapi`/`asyncapi`/`grpc`)
+- Discriminated shapes hold — a `configurations[]` entry has exactly one of `schema`/`ref`; a `capabilities[]` `extension` requires a namespaced `ref` while `health`/`metrics` must not set `ref`
+- State invariants are enforced (`stateless` requires `ephemeral` durability)
+
+Structural failures report `SCHEMA_VIOLATION` (or `YAML_PARSE_ERROR` for malformed YAML, `UNSUPPORTED_PACTO_VERSION` for a `pactoVersion` other than `"2.0"`).
 
 ## Layer 2: Cross-field
 
@@ -22,32 +24,22 @@ Validates semantic references and consistency:
 | Configuration names are unique | `DUPLICATE_CONFIGURATION_NAME` |
 | Policy names are unique | `DUPLICATE_POLICY_NAME` |
 | Dependency names are unique | `DUPLICATE_DEPENDENCY_NAME` |
-| `http`/`grpc` interfaces have `port` | `PORT_REQUIRED` |
-| `event` interfaces with `port` set | `PORT_IGNORED` (warning) |
-| `grpc`/`event` interfaces have `contract` | `CONTRACT_REQUIRED` |
-| `health.interface` matches a declared interface | `HEALTH_INTERFACE_NOT_FOUND` |
-| Health interface is not `event` type | `HEALTH_INTERFACE_INVALID` |
-| `health.path` required for `http` health interface | `HEALTH_PATH_REQUIRED` |
-| `health.path` on `grpc` health interface is ignored | `HEALTH_PATH_IGNORED` (warning) |
-| `metrics.interface` matches a declared interface | `METRICS_INTERFACE_NOT_FOUND` |
-| Metrics interface is not `event` type | `METRICS_INTERFACE_INVALID` |
-| `metrics.path` required for `http` metrics interface | `METRICS_PATH_REQUIRED` |
-| `metrics.path` on `grpc` metrics interface is ignored | `METRICS_PATH_IGNORED` (warning) |
-| Referenced files exist in the bundle | `FILE_NOT_FOUND` |
+| Interface `type` is `openapi`/`asyncapi`/`grpc` | `INVALID_INTERFACE_TYPE` |
+| Interface has a non-empty `ref` | `INTERFACE_REF_REQUIRED` |
+| Interface spec file exists in the bundle | `FILE_NOT_FOUND` |
+| Interface spec file parses as JSON/YAML | `INVALID_INTERFACE_SPEC` |
+| Capability `type` is `health`/`metrics`/`extension` | `INVALID_CAPABILITY_TYPE` |
+| `extension` capability has a namespaced `ref` | `CAPABILITY_REF_REQUIRED` |
+| `extension` capability `ref` is well-formed | `CAPABILITY_REF_INVALID` |
+| Standard capability type is not declared twice | `DUPLICATE_CAPABILITY` |
+| `capabilities[].binding.interface` matches a declared interface | `CAPABILITY_INTERFACE_UNKNOWN` |
+| `capabilities[].binding.path` is a safe application path | `CAPABILITY_PATH_INVALID` |
 | OCI dependency refs (`oci://`) are valid OCI references | `INVALID_OCI_REF` |
 | Compatibility ranges are valid semver constraints | `INVALID_COMPATIBILITY` |
 | Compatibility range is empty | `EMPTY_COMPATIBILITY` |
 | OCI dependency uses tag instead of digest | `TAG_NOT_DIGEST` (warning) |
-| `image.ref` is a valid OCI reference | `INVALID_IMAGE_REF` |
-| `chart.ref` (OCI) is a valid OCI reference | `INVALID_CHART_REF` |
-| `chart.version` is valid semver | `INVALID_CHART_VERSION` |
 | `configurations[].ref` is not a valid OCI reference | `INVALID_CONFIG_REF` |
 | `configurations[].values` without a schema | `VALUES_WITHOUT_SCHEMA` |
-| `readiness.checks[].id` are unique within the contract | `DUPLICATE_READINESS_ID` |
-| `readiness.checks[].evidence` is not blank/whitespace | `EMPTY_READINESS_EVIDENCE` |
-| `readiness.checks[].description` (when present) is not blank | `EMPTY_READINESS_DESCRIPTION` |
-| `readiness.expires` is a strict `YYYY-MM-DD` date | `INVALID_READINESS_EXPIRES` |
-| `readiness.history[].{date,version,author,description}` are valid/non-blank | `INVALID_READINESS_REVISION` |
 | `configurations[].schema` file is not valid JSON | `INVALID_CONFIG_JSON` |
 | `configurations[].schema` file is not valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
 | `configurations[].values` don't match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
@@ -55,20 +47,15 @@ Validates semantic references and consistency:
 | `policies[].schema` file is not valid JSON | `INVALID_POLICY_JSON` |
 | `policies[].schema` file is not valid JSON Schema | `INVALID_POLICY_SCHEMA` |
 | `policies[].ref` is not a valid OCI reference | `INVALID_POLICY_REF` |
-| `interfaces[].contract` (YAML) file is not valid YAML | `INVALID_CONTRACT_FILE` |
-| `scaling.min` <= `scaling.max` | `SCALING_MIN_EXCEEDS_MAX` |
-| Job workloads cannot have scaling | `JOB_SCALING_NOT_ALLOWED` |
+| `policies[].target` is `contract` | `UNSUPPORTED_POLICY_TARGET` |
+| `readiness.claims[].id` are unique within the contract | `DUPLICATE_READINESS_ID` |
+| `readiness.claims[].evidence` is not blank/whitespace | `EMPTY_READINESS_EVIDENCE` |
+| `readiness.claims[].description` (when present) is not blank | `EMPTY_READINESS_DESCRIPTION` |
+| `readiness.expires` is a strict `YYYY-MM-DD` date | `INVALID_READINESS_EXPIRES` |
+| `readiness.history[].{date,version,author,description}` are valid/non-blank | `INVALID_READINESS_REVISION` |
 | Stateless + persistent is invalid | `STATELESS_PERSISTENT_CONFLICT` |
 
-## Layer 3: Semantic
-
-Validates cross-concern consistency:
-
-| Rule | Code | Type |
-|---|---|---|
-| `ordered` upgrade strategy with `stateless` state | `UPGRADE_STRATEGY_STATE_MISMATCH` | Warning |
-
-## Layer 4: Policy enforcement
+## Layer 3: Policy enforcement
 
 Resolves and enforces all declared policies against the contract. Policies are applied with strict **AND semantics** — the contract must satisfy every resolved policy. Contradictory policies naturally fail; no precedence or override logic is applied.
 

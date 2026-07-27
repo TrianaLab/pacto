@@ -7,6 +7,25 @@ runs client-side with no backend and no live registry.
 
 **Live site:** https://trianalab.github.io/pacto/demo/
 
+## Scope: what this demo is (and is not)
+
+This is an **offline contract, graph and dashboard showcase**. Everything you see —
+the fleet, the dependency graph, version history, version diff and readiness — is
+derived from static contracts compiled into the page. It runs with no backend, no
+live registry and no Kubernetes.
+
+It is **not** a Kubernetes runtime compliance demonstration. There is no operator,
+no reconciliation and no runtime 4-state evaluation (Compliant / NonCompliant /
+Unknown / Invalid) here — those need a live cluster observing real workloads.
+
+For the runtime compliance story, see the real end-to-end journeys, which reconcile
+a contract on a live cluster and drive its status through a Compliant → Unknown →
+Compliant transition:
+
+- kind acceptance harness: [`tests/e2e/kind/run.sh`](../../tests/e2e/kind/run.sh)
+- operator envtest acceptance suite: `make -C integrations/kubernetes test-e2e`
+- scenario-to-proof map: [`docs/examples/compliance-scenarios.md`](../../docs/examples/compliance-scenarios.md)
+
 ## How it works
 
 ```

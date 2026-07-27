@@ -36,25 +36,25 @@ jobs:
       security-events: write # upload SARIF to the Security tab
       actions: read # required by upload-sarif in some configurations
     steps:
-      - uses: actions/checkout@v7.0.0
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
       # With -format sarif, govulncheck always exits 0 (findings live in the
       # SARIF), so gating happens in the "Fail on ..." step below.
       - name: Run govulncheck (SARIF)
         run: govulncheck -format sarif ./... > govulncheck.sarif
       - name: Upload SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
         with:
           sarif_file: govulncheck.sarif
           category: govulncheck
       - name: Upload SARIF artifact
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: govulncheck-sarif
           path: govulncheck.sarif
@@ -76,7 +76,7 @@ jobs:
       security-events: write
       actions: read
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build image
         run: docker build -t local/scan:${{ github.sha }} .
       - name: Install Trivy
@@ -86,7 +86,7 @@ jobs:
       # Rolling cache: the unique key always saves a fresh DB, restore-keys
       # restores the most recent one so Trivy skips the full DB download.
       - name: Cache Trivy vulnerability DB
-        uses: actions/cache@v6.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.trivy-cache
           key: trivy-db-${{ github.run_id }}
@@ -103,13 +103,13 @@ jobs:
             "local/scan:${{ github.sha }}"
       - name: Upload SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
         with:
           sarif_file: trivy.sarif
           category: trivy-image
       - name: Upload SARIF artifact
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: trivy-sarif
           path: trivy.sarif
@@ -128,7 +128,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Download SARIF artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: sarif
       - name: Build summary
@@ -166,7 +166,7 @@ jobs:
           } > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
       - name: Upsert PR comment
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const fs = require('fs');

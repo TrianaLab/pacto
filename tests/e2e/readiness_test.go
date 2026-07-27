@@ -8,36 +8,27 @@ import (
 	"testing"
 )
 
-// readinessContractYAML is a pactoVersion 1.2 contract with v1.2 readiness:
-// per-check status (done/not-done), top-level expires (far-future = current),
+// readinessContractYAML is a pactoVersion 2.0 contract with v2 readiness:
+// per-claim status (done/not-done), top-level expires (far-future = current),
 // category, minScore, partialCredit. Deterministic regardless of when suite runs.
-const readinessContractYAML = `pactoVersion: "1.2"
+const readinessContractYAML = `pactoVersion: "2.0"
 service:
   name: readiness-svc
   version: 1.0.0
   owner:
     team: readiness
-interfaces:
-  - name: api
-    type: http
-    port: 8080
-    visibility: internal
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 readiness:
   expires: "2099-12-31"
   minScore: 80
   partialCredit: 0.5
-  checks:
+  claims:
     - id: dashboard
       type: url
       evidence: https://grafana.example.com/d/readiness-svc
@@ -75,7 +66,7 @@ func TestReadinessExplain(t *testing.T) {
 		if err != nil {
 			t.Fatalf("explain failed: %v\n%s", err, out)
 		}
-		assertContains(t, out, "Pacto Version: 1.2")
+		assertContains(t, out, "Pacto Version: 2.0")
 		assertContains(t, out, "Readiness:")
 		// Score = 60 (done) + 0 (not-done, no partial) = 60. minScore 80 → gate fails.
 		assertContains(t, out, "Gate: FAIL (score 60 / minScore 80)")
@@ -160,14 +151,14 @@ func TestReadinessValidateGate(t *testing.T) {
 	t.Run("--readiness fails when assessment expired", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "expired-assessment")
-		yaml := `pactoVersion: "1.2"
+		yaml := `pactoVersion: "2.0"
 service:
   name: expired-svc
   version: 1.0.0
 readiness:
   expires: "2020-01-01"
   minScore: 50
-  checks:
+  claims:
     - id: dashboard
       type: url
       evidence: https://grafana.example.com/d/expired-svc
@@ -185,14 +176,14 @@ readiness:
 	t.Run("--readiness passes when score meets minScore and current", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "passing-gate")
-		yaml := `pactoVersion: "1.2"
+		yaml := `pactoVersion: "2.0"
 service:
   name: passing-svc
   version: 1.0.0
 readiness:
   expires: "2099-12-31"
   minScore: 60
-  checks:
+  claims:
     - id: dashboard
       type: url
       evidence: https://grafana.example.com/d/passing-svc
@@ -253,7 +244,7 @@ func TestReadinessOCIRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("explain on pulled bundle failed: %v\n%s", err, out)
 	}
-	assertContains(t, out, "Pacto Version: 1.2")
+	assertContains(t, out, "Pacto Version: 2.0")
 	assertContains(t, out, "Readiness:")
 	assertContains(t, out, "Gate: FAIL (score 60 / minScore 80)")
 	assertContains(t, out, "Earned Weight: 60")
@@ -290,13 +281,13 @@ func TestReadinessValidate(t *testing.T) {
 	t.Run("duplicate readiness id rejected", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "dup-id")
-		yaml := `pactoVersion: "1.2"
+		yaml := `pactoVersion: "2.0"
 service:
   name: dup-svc
   version: 1.0.0
 readiness:
   expires: "2099-12-31"
-  checks:
+  claims:
     - id: dashboard
       type: url
       evidence: https://x
@@ -311,19 +302,19 @@ readiness:
 		path := writeBundleDir(t, dir, yaml, nil)
 		out, _ := runCommand(t, nil, "validate", path)
 		assertContains(t, out, "DUPLICATE_READINESS_ID")
-		assertContains(t, out, "readiness.checks[1].id")
+		assertContains(t, out, "readiness.claims[1].id")
 	})
 
 	t.Run("invalid expires date rejected", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "bad-date")
-		yaml := `pactoVersion: "1.2"
+		yaml := `pactoVersion: "2.0"
 service:
   name: bad-date-svc
   version: 1.0.0
 readiness:
   expires: not-a-date
-  checks:
+  claims:
     - id: dashboard
       type: url
       evidence: https://x
@@ -335,12 +326,14 @@ readiness:
 		assertContains(t, out, "INVALID_READINESS_EXPIRES")
 	})
 
-	t.Run("readiness rejected under pactoVersion 1.0", func(t *testing.T) {
+	t.Run("v1 readiness checks field rejected under 2.0", func(t *testing.T) {
 		t.Parallel()
-		dir := filepath.Join(t.TempDir(), "v10-readiness")
-		yaml := `pactoVersion: "1.0"
+		// v2 renamed readiness.checks -> readiness.claims; the removed v1 `checks`
+		// field must be rejected (clean break), where it was tolerated under v1.
+		dir := filepath.Join(t.TempDir(), "v1-checks-readiness")
+		yaml := `pactoVersion: "2.0"
 service:
-  name: v10-svc
+  name: v1-checks-svc
   version: 1.0.0
 readiness:
   expires: "2099-12-31"
@@ -354,22 +347,27 @@ readiness:
 		path := writeBundleDir(t, dir, yaml, nil)
 		out, err := runCommand(t, nil, "validate", path)
 		if err == nil {
-			t.Fatalf("expected validation failure for readiness under 1.0, got:\n%s", out)
+			t.Fatalf("expected validation failure for v1 readiness checks under 2.0, got:\n%s", out)
 		}
 		assertNotContains(t, out, "is valid")
 	})
 
 	t.Run("unsupported pactoVersion rejected", func(t *testing.T) {
 		t.Parallel()
+		// Under the v2 clean break only "2.0" is supported; any other version is
+		// rejected at parse time before schema validation.
 		dir := filepath.Join(t.TempDir(), "bad-version")
-		yaml := `pactoVersion: "2.0"
+		yaml := `pactoVersion: "3.0"
 service:
   name: bad-version-svc
   version: 1.0.0
 `
 		path := writeBundleDir(t, dir, yaml, nil)
-		out, _ := runCommand(t, nil, "validate", path)
-		assertContains(t, out, "UNSUPPORTED_PACTO_VERSION")
+		out, err := runCommand(t, nil, "validate", path)
+		if err == nil {
+			t.Fatalf("expected validation failure for unsupported pactoVersion, got:\n%s", out)
+		}
+		assertContains(t, out, "unsupported pactoVersion")
 	})
 }
 
@@ -383,9 +381,9 @@ func TestReadinessPolicyEnforcement(t *testing.T) {
   "properties": {
     "readiness": {
       "type": "object",
-      "required": ["checks"],
+      "required": ["claims"],
       "properties": {
-        "checks": {
+        "claims": {
           "type": "array",
           "contains": {
             "type": "object",
@@ -405,7 +403,7 @@ func TestReadinessPolicyEnforcement(t *testing.T) {
 	t.Run("contract satisfying readiness policy is valid", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "policy-ok")
-		yaml := `pactoVersion: "1.2"
+		yaml := `pactoVersion: "2.0"
 service:
   name: policy-ok-svc
   version: 1.0.0
@@ -414,7 +412,7 @@ policies:
     schema: policy/schema.json
 readiness:
   expires: "2099-12-31"
-  checks:
+  claims:
     - id: dashboard
       type: url
       evidence: https://x
@@ -433,7 +431,7 @@ readiness:
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "policy-bad")
 		// Dashboard present but weight 10 (< 20) → violates the policy.
-		yaml := `pactoVersion: "1.2"
+		yaml := `pactoVersion: "2.0"
 service:
   name: policy-bad-svc
   version: 1.0.0
@@ -442,7 +440,7 @@ policies:
     schema: policy/schema.json
 readiness:
   expires: "2099-12-31"
-  checks:
+  claims:
     - id: dashboard
       type: url
       evidence: https://x

@@ -5,13 +5,68 @@ Pacto follows a layered architecture where dependencies flow predominantly in on
 
 ## Conceptual model
 
-A Pacto contract describes the relationships between a service's interfaces and how they change over time — ownership, dependencies, compatibility, readiness and lifecycle. A single JSON Schema describes one interface in isolation and structurally cannot express how interfaces relate or evolve; that relational and temporal layer is Pacto's differentiator. It is why the core splits into `pkg/graph` (dependencies), `pkg/diff` (compatibility and change over time) and `pkg/validation` (enforcement).
+A Pacto contract describes the relationships between a service's interfaces and how they change over time — ownership, dependencies, compatibility and readiness. A single JSON Schema describes one interface in isolation and structurally cannot express how interfaces relate or evolve; that relational and temporal layer is Pacto's differentiator. It is why the core splits into `pkg/graph` (dependencies), `pkg/diff` (compatibility and change over time) and `pkg/validation` (structural enforcement and evidence evaluation).
 
 Underneath, Pacto composes the interfaces you already have rather than inventing a configuration language. An interface is a JSON Schema, OpenAPI spec or event schema — a service's config interface is its config JSON Schema, an API interface is its OpenAPI document. Where an interface is already owned by another system, Pacto composes it instead of reinventing it. Composition is the on-ramp; the operational contract is the differentiator.
 
 > This mirrors the classic split between *interfaces* (configuration schema) and *requirements* (dependencies): composition covers the interfaces half, dependencies and compatibility cover the requirements half.
 
 In one line: **JSON Schema describes an interface; Pacto describes the relationships between interfaces and how they change over time.**
+
+### Declaration versus observation
+
+The contract is stable author *intent*: what a service is operationally, independent of any orchestrator. What a service actually looks like at runtime is an *observation*, and it lives entirely outside the declared contract. The V2 core is built around that separation. The `Contract` type (`pkg/contract`) carries only intent — there is no `runtime` block, no port, no scaling and no image field; those are delivery and observation concerns owned by integrations. Runtime facts are carried by a separate `EvidenceSet` (`pkg/evidence`), produced by a collector, and the engine reasons over the two together.
+
+### The engine: `Evaluate(contract, evidence)`
+
+The heart of V2 is a pure function (`pkg/validation/evaluate.go`):
+
+```text
+Evaluate(contract.Contract, evidence.EvidenceSet) -> ([]finding.Finding, Coverage)
+```
+
+It is stateless and dependency-light: it reads a collector-stamped `Outcome` on each observation and applies no temporal, network or Kubernetes logic. For each required assertion in the contract (an interface's availability, a capability, a required dependency or configuration, the workload, persistence) it looks for a matching observation and produces exactly one of three results:
+
+- **Confirmed violation** — a matching observation has `Outcome=Observed` and its payload contradicts the contract. Emits an `error` finding in the `RuntimeDrift` category (for example `CONFIGURATION_ABSENT`, `CONFIGURATION_MISMATCH`, `INTERFACE_ABSENT`, `DEPENDENCY_UNREACHABLE`).
+- **Uncertainty** — no usable observation exists (missing, `Unsupported`, `Failed`, `Stale` or `Insufficient`). Emits an `unknown` finding in the `Inconclusive` category (for example `EVIDENCE_MISSING`, `COLLECTION_FAILED`). A required assertion Pacto cannot observe is never silently treated as a pass.
+- **Satisfied** — a matching `Observed` observation is consistent with the contract. No finding.
+
+`Coverage` reports how many required assertions were actually evaluated versus declared. It is explanatory metadata and never changes the aggregate compliance state: an inability to observe is not a violation.
+
+The compliance model consumers derive from these findings has four substantive states — **Compliant**, **NonCompliant**, **Unknown** and **Invalid** — plus the informational **Warning**, **Reference** (the contract declares no runtime target) and **NotEvaluated** (a target exists but no evidence is available yet). The guiding rule: a confirmed contradiction is an error; an inability to observe is Unknown, not a contradiction. See [Compliance scenarios](examples/compliance-scenarios.md) for where each state is exercised.
+
+### Separation of concerns
+
+The V2 model keeps eight roles distinct. Some are first-class Go types; where a concept is useful but not a first-class type, this is stated explicitly.
+
+| Concept | Where it lives | First-class type? |
+|---|---|---|
+| **Contract** — declared operational intent | `pkg/contract` `Contract` | Yes |
+| **Bundle** — the contract plus the interface/config/policy/skill files it composes | `pkg/contract` `Bundle` (a `Contract` + `fs.FS`) | Yes |
+| **Interface** — a composed spec (OpenAPI, AsyncAPI, gRPC) the service exposes | `pkg/contract` `Interface` (references a file in the bundle) | Yes |
+| **Capability (contract)** — a declared observability capability: `health`, `metrics` or a namespaced `extension` | `pkg/contract` `Capability` | Yes |
+| **Generated tool / skill** — an agent-facing *projection* of a bundle, not part of the domain model | `pkg/capability` `BuildTools` (tools from an OpenAPI interface); `pkg/skills` (`skills/*.md`) | Projection, not a contract type |
+| **Policy** — a JSON Schema that validates the contract itself | `pkg/contract` `Policy`; resolved and enforced in `pkg/validation` | Yes |
+| **Evidence** — a runtime observation, external to the contract | `pkg/evidence` `Observation` / `EvidenceSet` | Yes |
+| **Evaluation result** — typed findings plus coverage | `pkg/finding` `Finding`; `pkg/validation` `Coverage` | Yes |
+| **Collector** — turns a real system into evidence | any component producing a valid `EvidenceSet` (`pkg/evidence`); the first-party one is the Kubernetes collector (`integrations/kubernetes`) | No core interface — Evidence is the boundary |
+| **Plugin / controller / external actor** — interprets a contract and acts through existing tools | `pkg/plugin` (out-of-process); controllers live in `integrations/*` | Boundary, not core logic |
+
+Two clarifications the naming can obscure:
+
+- **Generated tools are not the contract's `capabilities`.** The contract `capabilities` section declares observability endpoints (`health`/`metrics`/`extension`). Separately, `pkg/capability` *derives* agent-callable tools from a bundle's OpenAPI interface. A generated tool is a projection of an interface; it is not a new capability Pacto invents, and it is not the `capabilities` domain type.
+- **The engine does not observe or act.** It only reasons over `Contract` and `EvidenceSet`. Observing reality is a collector's job; performing actions is an external actor's job; deciding whether an action is *permitted* is a runtime control's job (OPA, Kyverno, admission, IAM). Pacto supplies the structured operational meaning those systems interpret and verify against — it is not one of them.
+
+### The operational control loop
+
+These roles compose into a loop that a platform or an agent can drive. Steps 1, 2, 5 and 6 are implemented in this codebase (the CLI, the dashboard, the collector and `Evaluate`); steps 3 and 4 are performed by external systems Pacto integrates with, not by Pacto itself.
+
+1. **Declare.** A contract states the service's identity, interfaces, capabilities, configuration, dependencies and policies — its operational intent.
+2. **Read.** A platform, a controller or an agent inspects the contract (`pacto explain`, the dashboard API, or generated tools over MCP) to learn what the service is and what it can do.
+3. **Constrain.** External controls — policies, permissions, admission, IAM — decide which actions are allowed. Pacto validates a contract against policy schemas; it does not grant runtime permissions.
+4. **Act.** Controllers, deploy systems, plugins or agents perform actions through existing infrastructure and tools.
+5. **Observe.** Collectors obtain runtime evidence from the real system and produce a `pkg/evidence` `EvidenceSet` (the Kubernetes collector is the first shipped one).
+6. **Evaluate.** `Evaluate(contract, evidence)` reports whether observed reality is consistent with the declared contract, producing typed findings and coverage.
 
 ---
 
@@ -27,8 +82,13 @@ graph TD
     CLI --> MCP[internal/mcp<br/>MCP Server]
     CLI --> UPDATE[internal/update<br/>Update Checker]
     MCP --> APP
+    MCP --> CAP[pkg/capability<br/>Agent Tools]
+    MCP --> SKILL[pkg/skills<br/>Bundle Skills]
+    DASH --> CAP
     CLI --> APP[internal/app<br/>Application Services]
-    APP --> VAL[pkg/validation<br/>Four-Layer Validator]
+    APP --> VAL[pkg/validation<br/>Validator + Evaluate]
+    VAL --> FIND[pkg/finding<br/>Findings]
+    VAL --> EVID[pkg/evidence<br/>Evidence]
     APP --> DIFF[pkg/diff<br/>Change Classifier]
     APP --> GRAPH[pkg/graph<br/>Dependency Resolver]
     APP --> OCI[pkg/oci<br/>OCI Adapter]
@@ -59,11 +119,11 @@ graph TD
 
     classDef pkg fill:#e0f0ff,stroke:#4a90d9
     classDef internal fill:#fff3e0,stroke:#e6a23c
-    class CONTRACT,VAL,DIFF,GRAPH,PLUG,DOC,SBOM,OVER,DASH,OCI,LOCK,IGN pkg
+    class CONTRACT,VAL,DIFF,GRAPH,PLUG,DOC,SBOM,OVER,DASH,OCI,LOCK,IGN,FIND,EVID,CAP,SKILL pkg
     class APP,CLI,LOG,MCP,MAIN,UPDATE internal
 ```
 
-Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator](operator.md).
+Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator](integrations/kubernetes/overview.md). So are the engine packages the operator consumes — `pkg/contract`, `pkg/evidence`, `pkg/finding` and `pkg/validation` — none of which import Kubernetes (enforced by the import-boundary gate `tests/architecture/boundary_test.go`). A collector feeds the engine by producing a `pkg/evidence` `EvidenceSet`; there is no core collector interface to implement.
 
 ---
 
@@ -97,11 +157,12 @@ Test infrastructure lives in `internal/testutil`, which provides shared mocks an
 
 The root public package. Contains pure Go types and logic with **zero I/O and zero framework dependencies**. Imports nothing from the project.
 
-- `Contract`, `ServiceIdentity`, `Interface`, `Runtime`, `State`, `ConfigurationSource`, `PolicySource`, etc.
+- `Contract` -- the root aggregate. Top-level `Service`, `Interfaces`, `Configurations`, `Dependencies`, `State`, `Workload` (a string), `Capabilities`, `Policies`, `Readiness`, `Verification`, `Metadata`, `Extensions`. There is no `Runtime` wrapper and no port/scaling/image field — those are delivery and observation concerns, external to the declared contract.
+- `Service`, `Interface`, `Configuration`, `Policy`, `Dependency`, `Capability`, `State` -- the section types (the V2 model; `ServiceIdentity`/`Runtime`/`ConfigurationSource`/`PolicySource` from v1 no longer exist)
 - `Parse()` -- YAML deserialization
+- `Bundle` -- `Contract` + `fs.FS` (the contract plus the files it composes)
 - `OCIReference` -- OCI reference parsing
 - `Range` -- Semver constraint evaluation
-- `Bundle` -- Contract + file system
 
 ### `pkg/validation` -- Validation engine
 
@@ -114,16 +175,35 @@ flowchart LR
     C --> D[Layer 4<br/>Policy<br/>Enforcement]
 ```
 
-Each layer short-circuits -- if it produces errors, subsequent layers are skipped. See [Validation layers](contract-reference/validation.md#validation-layers) for the per-layer rules and error codes.
+Each layer short-circuits -- if it produces errors, subsequent layers are skipped. See [Validation layers](contract-reference/validation.md#validation-layers) for the per-layer rules and error codes. `Validate()` resolves policies locally (used by pack/push); `ValidateWithResolver()` resolves referenced policy contracts recursively (used by the validate command).
 
-Also includes **runtime validation** (`ValidateRuntime`) -- a foundational abstraction for comparing a contract's declared state against observed runtime conditions. This is consumed by the [Kubernetes Operator](operator.md) without introducing platform-specific dependencies into the core library.
+This package also holds the runtime evaluator, `Evaluate(contract, evidence) -> ([]finding.Finding, Coverage)` (`evaluate.go`) — the pure function described under [The engine](#the-engine-evaluatecontract-evidence). It compares declared intent against a collector-produced `evidence.EvidenceSet` and returns typed findings plus coverage. It is stateless and free of platform dependencies, so the [Kubernetes operator](integrations/kubernetes/overview.md) consumes it without pulling k8s types into the core library. Structural validation and runtime evaluation are distinct: the four layers above decide whether a contract is *valid*; `Evaluate` decides whether a valid contract *matches observed reality*.
+
+### `pkg/evidence` -- Runtime observation model
+
+The external-facts half of the engine. Defines a discriminated `Observation` carrying an `Outcome` (`Observed`, `Unsupported`, `Failed`, `Stale`, `Insufficient`) and a typed payload that is present iff `Outcome == Observed`. Assertion identity lives on `SubjectRef`, so a non-`Observed` observation is still attributable. An `EvidenceSet` is a timestamped, provenance-stamped collection of observations about one service. Constructors (`NewCapabilityObserved`, `NewInterfaceObserved`, …) and JSON marshaling enforce the "Observed implies exactly one payload" invariant at every boundary. Evidence is produced by collectors and consumed by `Evaluate`; it is never part of the declared contract.
+
+### `pkg/finding` -- Evaluation result model
+
+A pure data package with zero external dependencies: no knowledge of collectors, reporters, k8s, OCI or persistence. Defines `Finding` (a typed conclusion with `Code`, `Severity`, `Category`, `Subject`, `ContractPath`, `Message` and optional `EvidenceRefs`), the severity ladder (`error`/`warning`/`info`/`unknown`) and the code registry that maps each stable `Code` to a category and default severity. Family 1 codes are confirmed violations (`{RuntimeDrift, error}`); family 2 codes are evidence uncertainty (`{Inconclusive, unknown}`). Reporters at the edge project `Finding` into external shapes (SARIF, PolicyReport); this package never imports them.
+
+### Collectors -- Evidence is the boundary
+
+There is intentionally **no `pkg/collector.Collector` interface**. Different environments need different collector inputs (the Kubernetes collector needs CR bindings and temporal windows; another environment may need build results or cloud resource identifiers), so forcing them through one speculative input signature would either leak platform concepts into the core or be an abstraction only for symmetry. Instead, the stable extension boundary is the **`EvidenceSet`** (`pkg/evidence`): a *collector* is any component that observes a real system and produces a valid, validated `EvidenceSet` that `Evaluate(contract, evidence)` consumes. Concrete collector APIs live in their integrations (the Kubernetes observer in `integrations/kubernetes/internal/observer`); the pure engine never imports them. This is modularity through a stable Evidence schema — not a dynamically pluggable collector runtime.
+
+### `pkg/capability` -- Agent tool projection
+
+Turns a bundle's OpenAPI interface into agent-callable tools: `BuildTools` derives one `Tool` per operation (input schema from parameters and request body; mutating operations gated behind an opt-in) and `Invoke` calls the live service. This is a *projection* of a declared interface, not a contract type — it is distinct from the contract `capabilities` section (which declares `health`/`metrics`/`extension` observability). Consumed by `internal/mcp` and the dashboard; HTTP/OpenAPI-specific today.
+
+### `pkg/skills` -- Bundle domain knowledge
+
+Reads a bundle's optional `skills/*.md` documents — workflows, business rules and operational guidance an interface alone cannot express. Skills are bundle-level knowledge, independent of interface type, and are surfaced to agents alongside generated tools (via `pacto_skill` in the MCP server). Like generated tools, skills are a projection of the bundle, not part of the contract domain model.
 
 ### `pkg/diff` -- Change classifier
 
 Compares two contracts and classifies every change using a deterministic rule table. Sub-analyzers handle specific sections:
 
-- `contract.go` -- service identity, scaling
-- `runtime.go` -- workload, state, lifecycle, health
+- `contract.go` -- service identity, workload, state, capabilities
 - `interfaces.go` -- interface additions/removals/changes, configuration and policy diffing
 - `dependency.go` -- dependency list changes
 - `openapi.go` -- deep OpenAPI diff (paths, methods, parameters, request bodies, responses)
@@ -262,7 +342,7 @@ Sources are divided into two categories with different roles:
 
 **Contract sources** (`local`, `oci`, `cache`) provide the authoritative service definition -- interfaces, configuration, dependencies, version, owner. Exactly one contract snapshot wins per service. Priority: `local` > `oci` > `cache` (explicit dev intent wins over the registry baseline, which wins over the offline disk cache). `cache` only participates when no live `oci` source is configured.
 
-**Runtime source** (`k8s`) enriches the contract with live cluster state -- contract status, conditions, endpoints, resources, ports, scaling, insights, checks. Runtime data **never overrides contract content** (config and policy *content* always comes from the declared contract). The `enrichWithRuntime()` function in `source_resolver.go` enforces this boundary: it copies k8s-specific fields but preserves contract fields. The one computed exception is the `Validation` summary, which is derived (not declarable) and is recomputed from runtime state when k8s data is present — `computeSectionMeta` attributes that section to `k8s` in the section provenance.
+**Runtime source** (`k8s`) enriches the contract with live cluster state -- contract status, conditions, endpoints, resources, observed runtime and readiness. Runtime data **never overrides contract content** (config and policy *content* always comes from the declared contract). The `enrichWithRuntime()` function in `source_resolver.go` enforces this boundary: it copies k8s-specific fields but preserves contract fields. The one computed exception is the `Validation` summary, which is derived (not declarable) and is recomputed from runtime state when k8s data is present — `computeSectionMeta` attributes that section to `k8s` in the section provenance.
 
 ### Resolution model
 
@@ -336,7 +416,7 @@ provenance table — the dashboard and operator attribute fields identically:
 
 | Field / section | Authority | Notes |
 |-----------------|-----------|-------|
-| interfaces, configurations, policies, dependencies, runtime declaration, readiness, scaling, metadata | Declared contract (`local` > `oci` > `cache`) | Config & policy **content** always comes from the declared contract — even for reference-only contracts (the operator extracts schema content into status). |
+| interfaces, configurations, policies, dependencies, workload, state, capabilities, readiness, metadata | Declared contract (`local` > `oci` > `cache`) | Config & policy **content** always comes from the declared contract — even for reference-only contracts (the operator extracts schema content into status). |
 | `version` | k8s overrides contract when deployed | `OverriddenBy: "k8s"`. |
 | `owner` | k8s overrides contract when deployed | `OverriddenBy: "k8s"`. |
 | namespace, `resolvedRef` | k8s only | Deployed-state fields; absent off-cluster. |
@@ -417,13 +497,13 @@ These fields are populated during the service-index cache rebuild in `server.go`
 
 1. **Pure core** -- `pkg/*` packages have zero CLI/Kubernetes dependencies and are reusable from any Go program
 2. **Strict layering** -- CLI → App → Core (`pkg/`) → Domain (`pkg/contract`)
-3. **Observation separated from validation** -- runtime observation (collecting actual state from Kubernetes, CI, etc.) happens outside `pkg/`; validation against observed state happens inside `pkg/validation`
+3. **Declaration separated from observation** -- the contract is stable intent (`pkg/contract`); runtime facts are separate evidence (`pkg/evidence`) collected outside the core by a collector (any component that produces a valid `EvidenceSet`; the Kubernetes collector is the first shipped one). The pure `Evaluate` function in `pkg/validation` reasons over both and never observes or acts itself
 4. **No global state** -- all instances created in the composition root (`main.go`); the only global is `slog.SetDefault()` configured once at startup
 5. **Interface-based** -- engines depend on interfaces (`DataSource`, `BundleStore`, `ContractFetcher`, `PluginRunner`), not concrete implementations
 6. **Out-of-process plugins** -- language-agnostic, version-independent
 7. **Embedded schemas** -- JSON Schema compiled into the binary
 8. **Deterministic validation** -- no configurable rules; same input, same result
-9. **Compose, don't replace** -- an interface is a JSON Schema, OpenAPI or event schema that Pacto composes, not a new config language it invents; the contract adds only the relational and temporal layer (ownership, dependencies, compatibility, readiness, lifecycle) that no single interface owns
+9. **Compose, don't replace** -- an interface is a JSON Schema, OpenAPI or event schema that Pacto composes, not a new config language it invents; the contract adds only the relational and temporal layer (ownership, dependencies, compatibility, readiness) that no single interface owns
 10. **Single service-information model** -- `ServiceDetails` (built by `ServiceDetailsFromBundle`) is the single service-information model consumed by the dashboard server, the `pacto doc` Markdown renderer and the static HTML exporter, so they cannot drift
 
 ---

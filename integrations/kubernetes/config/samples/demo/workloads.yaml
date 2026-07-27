@@ -1,0 +1,447 @@
+##
+## Deployments — stateless services
+##
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: frontend
+    pacto.trianalab.com/service: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: frontend
+        pacto.trianalab.com/service: frontend
+    spec:
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: frontend
+          image: ghcr.io/trianalab/pacto-demo/frontend:latest
+          ports:
+            - containerPort: 3000
+              name: http
+              protocol: TCP
+          env:
+            - name: API_GATEWAY_URL
+              value: "http://api-gateway:8080"
+            - name: NODE_ENV
+              value: "production"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: api-gateway
+    pacto.trianalab.com/service: api-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-gateway
+        pacto.trianalab.com/service: api-gateway
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api-gateway
+          image: ghcr.io/trianalab/pacto-demo/api-gateway:latest
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: AUTH_SERVICE_URL
+              value: "http://auth-service:8081"
+            - name: ORDERS_SERVICE_URL
+              value: "http://orders-service:8082"
+            - name: PAYMENTS_SERVICE_URL
+              value: "http://payments-service:8083"
+            - name: RATE_LIMIT_RPS
+              value: "1000"
+            - name: REQUEST_TIMEOUT_MS
+              value: "5000"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: auth-service
+    pacto.trianalab.com/service: auth-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: auth-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: auth-service
+        pacto.trianalab.com/service: auth-service
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: auth-service
+          image: ghcr.io/trianalab/pacto-demo/auth-service:latest
+          ports:
+            - containerPort: 8081
+              name: http
+              protocol: TCP
+            - containerPort: 9091
+              name: grpc
+              protocol: TCP
+          env:
+            - name: AUTH_DB_URL
+              value: "postgresql://auth:secret@postgresql:5432/auth"
+            - name: REDIS_URL
+              value: "redis://redis:6379/0"
+            - name: JWT_SECRET
+              value: "secret://vault/auth/jwt-secret"
+            - name: TOKEN_EXPIRY_SECONDS
+              value: "3600"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-service
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: orders-service
+    pacto.trianalab.com/service: orders-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orders-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orders-service
+        pacto.trianalab.com/service: orders-service
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: orders-service
+          image: ghcr.io/trianalab/pacto-demo/orders-service:latest
+          ports:
+            - containerPort: 8082
+              name: http
+              protocol: TCP
+          env:
+            - name: ORDERS_DB_URL
+              value: "postgresql://orders:secret@postgresql:5432/orders"
+            - name: PAYMENTS_SERVICE_URL
+              value: "http://payments-service:8083"
+            - name: NOTIFICATION_ENABLED
+              value: "true"
+            - name: ORDER_RETENTION_DAYS
+              value: "365"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-service
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: payments-service
+    pacto.trianalab.com/service: payments-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payments-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: payments-service
+        pacto.trianalab.com/service: payments-service
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: payments-service
+          image: ghcr.io/trianalab/pacto-demo/payments-service:latest
+          ports:
+            - containerPort: 8083
+              name: http
+              protocol: TCP
+          env:
+            - name: PAYMENTS_DB_URL
+              value: "postgresql://payments:secret@postgresql:5432/payments"
+            - name: STRIPE_SECRET_KEY
+              value: "secret://vault/payments/stripe-secret-key"
+            - name: WEBHOOK_SIGNING_SECRET
+              value: "secret://vault/payments/webhook-signing-secret"
+            - name: FRAUD_SERVICE_URL
+              value: "http://fraud-service:8084"
+            - name: IDEMPOTENCY_TTL_HOURS
+              value: "24"
+            - name: PCI_AUDIT_LOG
+              value: "true"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-service
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: fraud-service
+    pacto.trianalab.com/service: fraud-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fraud-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fraud-service
+        pacto.trianalab.com/service: fraud-service
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: fraud-service
+          image: ghcr.io/trianalab/pacto-demo/fraud-service:latest
+          ports:
+            - containerPort: 8084
+              name: http
+              protocol: TCP
+          env:
+            - name: REDIS_URL
+              value: "redis://redis:6379/1"
+            - name: FRAUD_SCORE_THRESHOLD
+              value: "0.7"
+            - name: MODEL_REFRESH_INTERVAL_SECONDS
+              value: "300"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+---
+##
+## StatefulSets — stateful infrastructure
+##
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgresql
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: postgresql
+    pacto.trianalab.com/service: postgresql
+spec:
+  serviceName: postgresql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+  updateStrategy:
+    type: OnDelete
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgresql
+        pacto.trianalab.com/service: postgresql
+    spec:
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: postgresql
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+              name: tcp-postgres
+              protocol: TCP
+          env:
+            - name: POSTGRES_USER
+              value: "pacto"
+            - name: POSTGRES_PASSWORD
+              value: "secret://vault/infra/postgres-password"
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "pacto"]
+            initialDelaySeconds: 30
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "pacto"]
+            initialDelaySeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: redis
+    pacto.trianalab.com/service: redis
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  updateStrategy:
+    type: OnDelete
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        pacto.trianalab.com/service: redis
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: redis
+          image: redis:7
+          ports:
+            - containerPort: 6379
+              name: tcp-redis
+              protocol: TCP
+          env:
+            - name: REDIS_PASSWORD
+              value: "secret://vault/infra/redis-password"
+            - name: REDIS_MAXMEMORY
+              value: "256mb"
+            - name: REDIS_MAXMEMORY_POLICY
+              value: "allkeys-lru"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 15
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+##
+## CronJob — scheduled workload
+##
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: notification-worker
+  namespace: pacto-demo
+  labels:
+    app.kubernetes.io/name: notification-worker
+    pacto.trianalab.com/service: notification-worker
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notification-worker
+        pacto.trianalab.com/service: notification-worker
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: notification-worker
+            pacto.trianalab.com/service: notification-worker
+        spec:
+          restartPolicy: OnFailure
+          terminationGracePeriodSeconds: 60
+          containers:
+            - name: notification-worker
+              image: ghcr.io/trianalab/pacto-demo/notification-worker:latest
+              env:
+                - name: REDIS_URL
+                  value: "redis://redis:6379/2"
+                - name: EMAIL_PROVIDER_API_KEY
+                  value: "secret://vault/notifications/email-api-key"
+                - name: EMAIL_FROM
+                  value: "noreply@pacto-demo.example.com"
+                - name: BATCH_SIZE
+                  value: "100"
+                - name: RETRY_MAX_ATTEMPTS
+                  value: "3"

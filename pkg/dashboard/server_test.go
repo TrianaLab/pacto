@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -13,8 +14,9 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 type mockSource struct {
@@ -647,15 +649,44 @@ func TestCORSMiddleware(t *testing.T) {
 	}
 }
 
+func TestSetLogger(t *testing.T) {
+	s := NewServer(&mockSource{}, fstest.MapFS{})
+
+	custom := slog.New(slog.NewTextHandler(&strings.Builder{}, nil))
+	s.SetLogger(custom)
+	if s.logger != custom {
+		t.Fatal("SetLogger did not store the provided logger")
+	}
+
+	// A nil logger falls back to slog.Default() rather than leaving it unset.
+	s.SetLogger(nil)
+	if s.logger != slog.Default() {
+		t.Fatal("SetLogger(nil) should fall back to slog.Default()")
+	}
+
+	// The middleware carries the stored logger onto the request context so
+	// handlers reach it via logging.LoggerFromContext.
+	s.SetLogger(custom)
+	var got *slog.Logger
+	h := s.corsMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got = logging.LoggerFromContext(r.Context())
+	}))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://dash.local/api/x", nil))
+	if got != custom {
+		t.Fatal("middleware did not inject the server logger into the request context")
+	}
+}
+
 func fetchEnrichedEntries(t *testing.T) []ServiceListEntry {
 	t.Helper()
 	score80 := 80
 	source := newMockWithDetails(map[string]*ServiceDetails{
 		"svc-a": {
-			Service:       Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
-			Dependencies:  []DependencyInfo{{Ref: "svc-b", Required: true}},
-			ChecksSummary: &ChecksSummary{Total: 5, Passed: 3, Failed: 2},
-			Insights:      []Insight{{Severity: "warning", Title: "something wrong"}},
+			Service:            Service{Name: "svc-a", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+			Dependencies:       []DependencyInfo{{Ref: "svc-b", Required: true}},
+			ChecksSummary:      &ChecksSummary{Total: 5, Passed: 3, Failed: 2},
+			EvaluationCoverage: &EvaluationCoverage{Evaluated: 4, Required: 5},
+			Insights:           []Insight{{Severity: "warning", Title: "something wrong"}},
 			Compliance: &ComplianceInfo{
 				Status:  ComplianceWarning,
 				Score:   &score80,
@@ -740,6 +771,26 @@ func TestServerListServices_Enriched(t *testing.T) {
 	// svc-b declares no readiness, so the field is omitted (nil).
 	if svcB.Readiness != nil {
 		t.Errorf("expected svc-b to carry no readiness, got %+v", svcB.Readiness)
+	}
+	// EvaluationCoverage is carried on the list entry so the compact coverage badge
+	// can be fed from a single /api/services call: svc-a carries it (runtime-evaluated),
+	// svc-b omits it (not runtime-evaluated).
+	assertListEvalCoverage(t, svcA, svcB)
+}
+
+// assertListEvalCoverage checks that a runtime-evaluated entry carries evaluationCoverage
+// while a non-evaluated one omits it. Extracted to keep the enriched-list test under the
+// cyclomatic-complexity gate.
+func assertListEvalCoverage(t *testing.T, evaluated, notEvaluated *ServiceListEntry) {
+	t.Helper()
+	if evaluated.EvaluationCoverage == nil {
+		t.Fatalf("expected %s to carry evaluationCoverage on the list entry", evaluated.Name)
+	}
+	if evaluated.EvaluationCoverage.Evaluated != 4 || evaluated.EvaluationCoverage.Required != 5 {
+		t.Errorf("expected evaluationCoverage 4 of 5, got %d of %d", evaluated.EvaluationCoverage.Evaluated, evaluated.EvaluationCoverage.Required)
+	}
+	if notEvaluated.EvaluationCoverage != nil {
+		t.Errorf("expected %s to carry no evaluationCoverage, got %+v", notEvaluated.Name, notEvaluated.EvaluationCoverage)
 	}
 }
 
@@ -1372,12 +1423,19 @@ func TestGetCachedIndex_FreshCacheReturn(t *testing.T) {
 	srv := NewServer(source, fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}})
 
 	// First call builds cache.
-	cached1 := srv.getCachedIndex(context.Background())
-	if len(cached1.services) != 1 {
-		t.Fatalf("expected 1 service, got %d", len(cached1.services))
+	built := srv.getCachedIndex(context.Background())
+	if len(built.services) != 1 {
+		t.Fatalf("expected 1 service, got %d", len(built.services))
 	}
+	// The build kicks off background version enrichment, which replaces the cache
+	// object (with a fresh builtAt) once done. Wait for it to settle so the
+	// fresh-cache assertion is deterministic — otherwise the enrichment races the
+	// two calls below and swaps the object between them.
+	srv.WaitForVersionEnrich()
 
-	// Second call within TTL should return same cache object.
+	// Two calls within TTL return the SAME (settled) cache object — a fresh cache
+	// is reused, not rebuilt.
+	cached1 := srv.getCachedIndex(context.Background())
 	cached2 := srv.getCachedIndex(context.Background())
 	if cached1 != cached2 {
 		t.Error("expected same cache object for fresh cache")
@@ -1703,18 +1761,15 @@ func (s *resolveStore) Pull(_ context.Context, _ string) (*contract.Bundle, erro
 func (s *resolveStore) ListTags(context.Context, string) ([]string, error) { return nil, nil }
 
 func newResolveTestBundle() *contract.Bundle {
-	port := 8080
 	return &contract.Bundle{
 		Contract: &contract.Contract{
-			PactoVersion: "1.0",
-			Service:      contract.ServiceIdentity{Name: "remote-svc", Version: "1.0.0"},
-			Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &port}},
-			Runtime: &contract.Runtime{
-				Workload: "service",
-				State:    contract.State{Type: "stateless", Persistence: contract.Persistence{Scope: "local", Durability: "ephemeral"}, DataCriticality: "low"},
-			},
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: "remote-svc", Version: "1.0.0"},
+			Interfaces:   []contract.Interface{{Name: "api", Type: contract.InterfaceTypeOpenAPI}},
+			Workload:     contract.WorkloadService,
+			State:        &contract.State{Type: contract.StateStateless, Persistence: contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral}, DataCriticality: contract.DataCriticalityLow},
 		},
-		RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: remote-svc\n  version: \"1.0.0\"\ninterfaces:\n  - name: api\n    type: http\n    port: 8080\nruntime:\n  workload: service\n  state:\n    type: stateless\n    persistence:\n      scope: local\n      durability: ephemeral\n    dataCriticality: low\n"),
+		RawYAML: []byte("pactoVersion: \"2.0\"\nservice:\n  name: remote-svc\n  version: \"1.0.0\"\ninterfaces:\n  - name: api\n    type: openapi\nworkload: service\nstate:\n  type: stateless\n  persistence:\n    scope: local\n    durability: ephemeral\n  dataCriticality: low\n"),
 	}
 }
 
@@ -1871,7 +1926,7 @@ func TestServerRefreshCacheSources_OnTheFly(t *testing.T) {
 	cacheDir := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: svc
   version: 1.0.0
@@ -2135,14 +2190,14 @@ func TestNoCache_AllowsSameSessionEnrichment(t *testing.T) {
 
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: svc
   version: 1.0.0
 `)
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/svc/2.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: svc
   version: 2.0.0

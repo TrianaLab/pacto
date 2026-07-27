@@ -1,0 +1,1799 @@
+/*
+Copyright 2026.
+
+Licensed under the MIT License.
+See LICENSE file in the project root for full license text.
+*/
+
+// Package observer reads Kubernetes resources and produces Evidence (Collector).
+package observer
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
+	"gopkg.in/yaml.v3"
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/prober"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/evidence"
+)
+
+const (
+	kindService       = "service"
+	kindDependency    = "dependency"
+	kindCapability    = "capability"
+	kindConfiguration = "configuration"
+
+	workloadDeployment  = "Deployment"
+	workloadStatefulSet = "StatefulSet"
+	workloadReplicaSet  = "ReplicaSet"
+	workloadJob         = "Job"
+	workloadCronJob     = "CronJob"
+
+	resourceSecret    = "Secret"
+	resourceConfigMap = "ConfigMap"
+
+	formatYAML = "yaml"
+
+	promMonitorServiceMonitor = "ServiceMonitor"
+	promMonitorPodMonitor     = "PodMonitor"
+	promDefaultPath           = "/metrics"
+	promScrapeAnnotation      = "true"
+	promGroup                 = "monitoring.coreos.com"
+
+	collectorName  = "k8s-observer"
+	scheduledScope = "scheduled"
+	jobScope       = "job"
+	persistentMode = "persistent"
+	metricsPort    = "metrics"
+)
+
+// InterfaceBinding maps a contract interface to the Service port that serves it (spec section 9.3 / B4).
+type InterfaceBinding struct {
+	Interface   string
+	ServicePort intstr.IntOrString
+}
+
+// ObservationWindowUpdate records updated stabilization state for one assertion.
+type ObservationWindowUpdate struct {
+	Kind                    string
+	Subject                 string
+	FirstObservedNegativeAt *metav1.Time
+}
+
+// CollectInput carries the information the controller passes to Collect. See spec section 9.1.
+type CollectInput struct {
+	Namespace        string
+	ServiceName      string
+	WorkloadName     string
+	WorkloadKind     string
+	ContractRef      string
+	WorkloadExplicit bool
+	Contract         *contract.Contract
+	BundleFS         fs.FS
+
+	InterfaceBindings   []InterfaceBinding
+	ConfigBindings      []unversioned.ConfigBinding
+	StabilizationWindow time.Duration
+	ObservationWindows  map[string]*metav1.Time
+	Now                 time.Time
+
+	EnableMetricsObservation bool
+	// EnableProbing gates the health dimension's active Tier-A HTTP probe (SSRF surface; opt-in).
+	// When false, health uses only passive Tier-B signals (readiness probe + EndpointSlice Ready).
+	EnableProbing bool
+	// EnableInterfaceNameMatchDiscovery lets the interfaces collector resolve an unbound interface's
+	// Service port by matching a Service port named after the interface — positive availability only.
+	EnableInterfaceNameMatchDiscovery bool
+}
+
+// RuntimeSnapshot is the internal state for k8s observations (kept for internal convenience).
+type RuntimeSnapshot struct {
+	ServiceExists  bool
+	WorkloadExists bool
+	WorkloadKind   string
+	ServicePorts   []int32
+	Replicas       *int32
+
+	DeploymentStrategy      string
+	PodManagementPolicy     string
+	TerminationGracePeriod  *int64
+	ContainerImages         []string
+	HasPVC                  bool
+	HasEmptyDir             bool
+	HealthProbeInitialDelay *int32
+
+	// PersistenceClass is the B3 three-bucket classification for the workload's volumes.
+	PersistenceClass persistenceClass
+}
+
+// endpointProber defines the interface for HTTP endpoint probing.
+type endpointProber interface {
+	Probe(ctx context.Context, url string) prober.Result
+}
+
+// Observer is the k8s Collector.
+type Observer struct {
+	client client.Client
+	prober endpointProber
+}
+
+// New creates a new Observer.
+func New(c client.Client) *Observer {
+	return &Observer{
+		client: c,
+		prober: prober.New(5 * time.Second),
+	}
+}
+
+// Collect implements the new per-dimension collection driven by the contract. Spec section 9.1.
+func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.EvidenceSet, []ObservationWindowUpdate) {
+	now := input.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	prov := evidence.Provenance{Collector: collectorName, DetectedAt: now}
+
+	// EvidenceSet.Subject is the runtime TARGET (namespace/service), distinct from per-observation assertion identity.
+	subject := evidence.SubjectRef{Kind: kindService, Name: fmt.Sprintf("%s/%s", input.Namespace, input.ServiceName)}
+	if input.ServiceName == "" && input.WorkloadName != "" {
+		subject.Name = fmt.Sprintf("%s/%s", input.Namespace, input.WorkloadName)
+	}
+
+	var observations []evidence.Observation
+	var windowUpdates []ObservationWindowUpdate
+
+	// Interfaces producer (spec section 7.3 / B1 + B4).
+	if len(input.Contract.Interfaces) > 0 {
+		iObs, iUpdates := o.observeInterfacesDim(ctx, input, prov, now)
+		observations = append(observations, iObs...)
+		windowUpdates = append(windowUpdates, iUpdates...)
+	}
+
+	// Dependencies producer (spec section 7.6).
+	if len(input.Contract.Dependencies) > 0 {
+		dObs, dUpdates := o.observeDependenciesDim(ctx, input, prov, now)
+		observations = append(observations, dObs...)
+		windowUpdates = append(windowUpdates, dUpdates...)
+	}
+
+	// Health producer (spec section 7.4).
+	for _, cap := range input.Contract.Capabilities {
+		if cap.Type == contract.CapabilityHealth {
+			obs, updates := o.observeHealthDim(ctx, input, cap, prov, now)
+			observations = append(observations, obs)
+			windowUpdates = append(windowUpdates, updates...)
+		}
+	}
+
+	// Metrics producer (spec section 7.5).
+	if obs, updates := o.observeMetricsDim(ctx, input, prov, now); obs != nil {
+		observations = append(observations, *obs)
+		windowUpdates = append(windowUpdates, updates...)
+	}
+
+	// Configurations producer (spec section 7.7).
+	if len(input.Contract.Configurations) > 0 {
+		cObs, cUpdates := o.observeConfigurationsDim(ctx, input, prov, now)
+		observations = append(observations, cObs...)
+		windowUpdates = append(windowUpdates, cUpdates...)
+	}
+
+	// Workload producer (spec section 7.1 + AR7).
+	if input.Contract.Workload != "" && input.WorkloadName != "" {
+		if obs := o.observeWorkloadDim(ctx, input, prov); obs != nil {
+			observations = append(observations, *obs)
+		}
+	}
+
+	// Persistence producer (spec section 7.2 / B3).
+	if input.Contract.State != nil && input.Contract.State.Persistence.Durability == persistentMode && input.WorkloadName != "" {
+		if obs := o.observePersistenceDim(ctx, input, prov); obs != nil {
+			observations = append(observations, *obs)
+		}
+	}
+
+	return evidence.EvidenceSet{
+		Subject:      subject,
+		ContractRef:  input.ContractRef,
+		Source:       "k8s",
+		ObservedAt:   now,
+		Observations: observations,
+	}, windowUpdates
+}
+
+// observeWorkloadDim observes the workload dimension. Spec section 7.1 + AR7.
+// Returns nil if NotFound (so engine emits EVIDENCE_MISSING); non-nil for all other cases.
+func (o *Observer) observeWorkloadDim(ctx context.Context, input CollectInput, prov evidence.Provenance) *evidence.Observation {
+	// Subject is the CONTRACT service name, not the k8s target (spec 7.0 rule 1).
+	subj := evidence.SubjectRef{Kind: kindService, Name: input.Contract.Service.Name}
+
+	snapshot := &RuntimeSnapshot{WorkloadKind: input.WorkloadKind}
+	err := o.observeWorkload(ctx, input.Namespace, input.WorkloadName, input.WorkloadKind, snapshot)
+
+	if err != nil {
+		// observe* methods swallow NotFound (return nil), so any error here is non-NotFound.
+		// Non-NotFound API error -> COLLECTION_FAILED.
+		obs, _ := evidence.NewUnobserved(evidence.WorkloadObserved, subj, evidence.Failed, prov)
+		return &obs
+	}
+
+	if !snapshot.WorkloadExists {
+		// Workload NotFound -> emit NO observation (nil) so engine sees obs==nil -> EVIDENCE_MISSING.
+		return nil
+	}
+
+	observedType := mapWorkloadKindToType(input.WorkloadKind)
+
+	// WORKLOAD_MISMATCH is gated on WorkloadExplicit (AR7).
+	if observedType != input.Contract.Workload {
+		if input.WorkloadExplicit {
+			// Both name AND kind were explicitly set -> mismatch is assertable.
+			obs := evidence.NewWorkloadObserved(subj, observedType, prov)
+			return &obs
+		}
+		// Non-explicit kind diff -> EVIDENCE_INSUFFICIENT.
+		obs, _ := evidence.NewUnobserved(evidence.WorkloadObserved, subj, evidence.Insufficient, prov)
+		return &obs
+	}
+
+	// Satisfied.
+	obs := evidence.NewWorkloadObserved(subj, observedType, prov)
+	return &obs
+}
+
+// observePersistenceDim observes the persistence dimension. Spec section 7.2 / B3.
+// Returns nil if NotFound (so engine emits EVIDENCE_MISSING); non-nil for all other cases.
+func (o *Observer) observePersistenceDim(ctx context.Context, input CollectInput, prov evidence.Provenance) *evidence.Observation {
+	subj := evidence.SubjectRef{Kind: kindService, Name: input.Contract.Service.Name}
+
+	snapshot := &RuntimeSnapshot{WorkloadKind: input.WorkloadKind}
+	err := o.observeWorkload(ctx, input.Namespace, input.WorkloadName, input.WorkloadKind, snapshot)
+
+	if err != nil {
+		// observe* methods swallow NotFound (return nil), so any error here is non-NotFound.
+		// Non-NotFound API error -> COLLECTION_FAILED.
+		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Failed, prov)
+		return &obs
+	}
+
+	if !snapshot.WorkloadExists {
+		// Workload NotFound -> emit NO observation (nil) so engine sees obs==nil -> EVIDENCE_MISSING.
+		return nil
+	}
+
+	// Classify volumes via the volumeClassifier (spec 7.2 / B3 three-bucket rule).
+	class := o.classifyPersistence(snapshot)
+
+	switch class {
+	case persistenceDurable:
+		// Persistent storage binding declared -> satisfied.
+		obs := evidence.NewPersistenceObserved(subj, true, prov)
+		return &obs
+	case persistenceEphemeral:
+		// All ephemeral or no volumes -> contradicted.
+		obs := evidence.NewPersistenceObserved(subj, false, prov)
+		return &obs
+	default: // persistenceAmbiguous
+		// Any ambiguous volume -> EVIDENCE_INSUFFICIENT.
+		obs, _ := evidence.NewUnobserved(evidence.PersistenceObserved, subj, evidence.Insufficient, prov)
+		return &obs
+	}
+}
+
+type persistenceClass int
+
+const (
+	persistenceDurable persistenceClass = iota
+	persistenceEphemeral
+	persistenceAmbiguous
+)
+
+// classifyPersistence returns the pre-computed persistence class from the snapshot.
+func (o *Observer) classifyPersistence(snapshot *RuntimeSnapshot) persistenceClass {
+	return snapshot.PersistenceClass
+}
+
+func mapWorkloadKindToType(kind string) string {
+	switch kind {
+	case workloadJob:
+		return jobScope
+	case workloadCronJob:
+		return scheduledScope
+	default:
+		return kindService
+	}
+}
+
+// Observe is kept for controller back-compat (dashboard ObservedRuntime). Will be removed in a future step.
+func (o *Observer) Observe(ctx context.Context, namespace, serviceName, workloadName, workloadKind string) (*RuntimeSnapshot, error) {
+	snapshot := &RuntimeSnapshot{
+		WorkloadKind: workloadKind,
+	}
+
+	// Observe Service (for ServicePorts, ServiceExists)
+	if serviceName != "" {
+		svc := &corev1.Service{}
+		err := o.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: serviceName}, svc)
+		if err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				return nil, fmt.Errorf("failed to get service %s: %w", serviceName, err)
+			}
+		} else {
+			snapshot.ServiceExists = true
+			for _, port := range svc.Spec.Ports {
+				snapshot.ServicePorts = append(snapshot.ServicePorts, port.Port)
+			}
+		}
+	}
+
+	// Observe Workload
+	if workloadName != "" {
+		if err := o.observeWorkload(ctx, namespace, workloadName, workloadKind, snapshot); err != nil {
+			return nil, err
+		}
+	}
+
+	return snapshot, nil
+}
+
+// observeWorkload reads the workload resource and populates extended snapshot fields.
+func (o *Observer) observeWorkload(ctx context.Context, namespace, name, kind string, snap *RuntimeSnapshot) error {
+	key := types.NamespacedName{Namespace: namespace, Name: name}
+
+	switch kind {
+	case workloadDeployment:
+		return o.observeDeployment(ctx, key, snap)
+	case workloadStatefulSet:
+		return o.observeStatefulSet(ctx, key, snap)
+	case workloadReplicaSet:
+		return o.observeReplicaSet(ctx, key, snap)
+	case workloadJob:
+		return o.observeJob(ctx, key, snap)
+	case workloadCronJob:
+		return o.observeCronJob(ctx, key, snap)
+	default:
+		return o.observeDeployment(ctx, key, snap)
+	}
+}
+
+func (o *Observer) observeDeployment(ctx context.Context, key types.NamespacedName, snap *RuntimeSnapshot) error {
+	dep := &appsv1.Deployment{}
+	if err := o.client.Get(ctx, key, dep); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("failed to get Deployment %s: %w", key.Name, err)
+		}
+		return nil
+	}
+	snap.WorkloadExists = true
+	if dep.Spec.Strategy.Type != "" {
+		snap.DeploymentStrategy = string(dep.Spec.Strategy.Type)
+	}
+	if dep.Spec.Replicas != nil {
+		snap.Replicas = dep.Spec.Replicas
+	}
+	o.extractPodTemplateInfo(&dep.Spec.Template.Spec, snap)
+	return nil
+}
+
+func (o *Observer) observeStatefulSet(ctx context.Context, key types.NamespacedName, snap *RuntimeSnapshot) error {
+	sts := &appsv1.StatefulSet{}
+	if err := o.client.Get(ctx, key, sts); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("failed to get StatefulSet %s: %w", key.Name, err)
+		}
+		return nil
+	}
+	snap.WorkloadExists = true
+	snap.PodManagementPolicy = string(sts.Spec.PodManagementPolicy)
+	if sts.Spec.Replicas != nil {
+		snap.Replicas = sts.Spec.Replicas
+	}
+	hasVCT := len(sts.Spec.VolumeClaimTemplates) > 0
+	if hasVCT {
+		snap.HasPVC = true
+		// VolumeClaimTemplates are persistent-binding-declared (spec 7.2).
+		snap.PersistenceClass = persistenceDurable
+	}
+	o.extractPodTemplateInfo(&sts.Spec.Template.Spec, snap)
+	// If VCT declared persistent, don't let pod volumes downgrade it.
+	if hasVCT {
+		snap.PersistenceClass = persistenceDurable
+	}
+	return nil
+}
+
+func (o *Observer) observeReplicaSet(ctx context.Context, key types.NamespacedName, snap *RuntimeSnapshot) error {
+	rs := &appsv1.ReplicaSet{}
+	if err := o.client.Get(ctx, key, rs); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("failed to get ReplicaSet %s: %w", key.Name, err)
+		}
+		return nil
+	}
+	snap.WorkloadExists = true
+	o.extractPodTemplateInfo(&rs.Spec.Template.Spec, snap)
+	return nil
+}
+
+func (o *Observer) observeJob(ctx context.Context, key types.NamespacedName, snap *RuntimeSnapshot) error {
+	job := &batchv1.Job{}
+	if err := o.client.Get(ctx, key, job); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("failed to get Job %s: %w", key.Name, err)
+		}
+		return nil
+	}
+	snap.WorkloadExists = true
+	o.extractPodTemplateInfo(&job.Spec.Template.Spec, snap)
+	return nil
+}
+
+func (o *Observer) observeCronJob(ctx context.Context, key types.NamespacedName, snap *RuntimeSnapshot) error {
+	cj := &batchv1.CronJob{}
+	if err := o.client.Get(ctx, key, cj); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("failed to get CronJob %s: %w", key.Name, err)
+		}
+		return nil
+	}
+	snap.WorkloadExists = true
+	o.extractPodTemplateInfo(&cj.Spec.JobTemplate.Spec.Template.Spec, snap)
+	return nil
+}
+
+// extractPodTemplateInfo reads common fields from a PodSpec into the snapshot.
+func (o *Observer) extractPodTemplateInfo(podSpec *corev1.PodSpec, snap *RuntimeSnapshot) {
+	// Termination grace period
+	snap.TerminationGracePeriod = podSpec.TerminationGracePeriodSeconds
+
+	// Container images
+	for _, c := range podSpec.Containers {
+		snap.ContainerImages = append(snap.ContainerImages, c.Image)
+	}
+
+	// Health probe initial delay (from first container's readiness or liveness probe)
+	if len(podSpec.Containers) > 0 {
+		c := podSpec.Containers[0]
+		if c.ReadinessProbe != nil {
+			delay := c.ReadinessProbe.InitialDelaySeconds
+			snap.HealthProbeInitialDelay = &delay
+		} else if c.LivenessProbe != nil {
+			delay := c.LivenessProbe.InitialDelaySeconds
+			snap.HealthProbeInitialDelay = &delay
+		}
+	}
+
+	// Volume analysis (B3 three-bucket classification, spec section 7.2).
+	hasPersistent := false
+	hasAmbiguous := false
+
+	for _, vol := range podSpec.Volumes {
+		if vol.PersistentVolumeClaim != nil {
+			snap.HasPVC = true
+			hasPersistent = true
+		} else if isExplicitlyEphemeral(&vol) {
+			if vol.EmptyDir != nil {
+				snap.HasEmptyDir = true
+			}
+			// Explicitly ephemeral volume, tracked implicitly by absence of hasPersistent/hasAmbiguous
+		} else {
+			hasAmbiguous = true
+		}
+	}
+
+	// Classify: persistent wins, then ambiguous, then ephemeral (including no volumes).
+	if hasPersistent {
+		snap.PersistenceClass = persistenceDurable
+	} else if hasAmbiguous {
+		snap.PersistenceClass = persistenceAmbiguous
+	} else {
+		// All explicitly ephemeral or no volumes -> ephemeral.
+		snap.PersistenceClass = persistenceEphemeral
+	}
+}
+
+// isExplicitlyEphemeral returns true if the volume is in the B3 explicitly-ephemeral closed set.
+func isExplicitlyEphemeral(vol *corev1.Volume) bool {
+	// Spec section 7.2: emptyDir, projected, configMap, secret, downwardAPI.
+	return vol.EmptyDir != nil ||
+		vol.Projected != nil ||
+		vol.ConfigMap != nil ||
+		vol.Secret != nil ||
+		vol.DownwardAPI != nil
+}
+
+// stabilize applies the stabilization window logic to a single observation (spec section 9.5 / B5). It is a
+// PURE function: given the existing window state, whether the current observation is negative, and the current
+// time, it returns the appropriate Outcome and the updated window state.
+func stabilize(existing *metav1.Time, isNegative bool, now time.Time, window time.Duration) (evidence.Outcome, *metav1.Time) {
+	if !isNegative {
+		// Non-negative observation -> reset the window (nil) and emit Observed (caller will stamp Present=true).
+		return evidence.Observed, nil
+	}
+
+	// isNegative == true
+	if existing == nil {
+		// First negative observation -> start the window.
+		t := metav1.NewTime(now)
+		return evidence.Insufficient, &t
+	}
+
+	// Negative with an existing window -> check if we're beyond the stabilization window.
+	elapsed := now.Sub(existing.Time)
+	if elapsed < window {
+		// Still within the window -> Insufficient (Unknown).
+		return evidence.Insufficient, existing
+	}
+
+	// Beyond the window -> confirmed negative (caller will emit Observed + Present=false).
+	return evidence.Observed, existing
+}
+
+// observeInterfacesDim observes all declared interfaces. Spec section 7.3 / B1 + B4.
+func (o *Observer) observeInterfacesDim(ctx context.Context, input CollectInput, prov evidence.Provenance, now time.Time) ([]evidence.Observation, []ObservationWindowUpdate) {
+	var observations []evidence.Observation
+	var windowUpdates []ObservationWindowUpdate
+
+	for _, iface := range input.Contract.Interfaces {
+		subj := evidence.SubjectRef{Kind: "interface", Name: iface.Name}
+		windowKey := fmt.Sprintf("interface/%s", iface.Name)
+
+		// Find the binding for this interface.
+		binding := findInterfaceBinding(input.InterfaceBindings, iface.Name)
+		if binding == nil {
+			// Optional name-match discovery (spec section 7.3 / B4): resolve an unbound interface's Service
+			// port by matching a port named after the interface — positive availability assist ONLY (INV-4),
+			// never INTERFACE_ABSENT.
+			if input.EnableInterfaceNameMatchDiscovery && o.interfaceSatisfiedByNameMatch(ctx, input, iface.Name) {
+				observations = append(observations, evidence.NewInterfaceObserved(subj, iface.Type, true, prov))
+				continue
+			}
+			// No binding -> OBSERVATION_UNSUPPORTED (spec section 7.3).
+			obs, _ := evidence.NewUnobserved(evidence.InterfaceObserved, subj, evidence.Unsupported, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		// Read the Service + EndpointSlices to determine ready endpoints.
+		readyCount, err := o.countReadyEndpoints(ctx, input.Namespace, input.ServiceName, binding.ServicePort)
+
+		if err != nil {
+			// API error (non-NotFound) -> COLLECTION_FAILED.
+			obs, _ := evidence.NewUnobserved(evidence.InterfaceObserved, subj, evidence.Failed, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		if readyCount == endpointsServiceNotFound {
+			// Bound interface whose Service is NotFound -> emit NO observation so the engine infers
+			// EVIDENCE_MISSING (spec section 7.3, mirroring the workload dimension's NotFound handling).
+			continue
+		}
+
+		if readyCount == endpointsUnmappable {
+			// Selector-less / ExternalName / port-unmappable -> conclusive EVIDENCE_INSUFFICIENT (spec section 7.3).
+			obs, _ := evidence.NewUnobserved(evidence.InterfaceObserved, subj, evidence.Insufficient, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		// We have a mappable port and a ready-endpoint count.
+		isNegative := readyCount == 0
+		existing := input.ObservationWindows[windowKey]
+
+		outcome, updatedWindow := stabilize(existing, isNegative, now, input.StabilizationWindow)
+
+		if outcome == evidence.Observed {
+			// Beyond window (or positive) -> emit Observed with the appropriate Present flag.
+			observations = append(observations, evidence.NewInterfaceObserved(subj, iface.Type, !isNegative, prov))
+		} else {
+			// Insufficient (within window or first negative) -> emit Insufficient.
+			obs, _ := evidence.NewUnobserved(evidence.InterfaceObserved, subj, outcome, prov)
+			observations = append(observations, obs)
+		}
+
+		windowUpdates = append(windowUpdates, ObservationWindowUpdate{
+			Kind:                    "interface",
+			Subject:                 iface.Name,
+			FirstObservedNegativeAt: updatedWindow,
+		})
+	}
+
+	return observations, windowUpdates
+}
+
+// interfaceSatisfiedByNameMatch attempts name-match discovery (spec section 7.3 / B4) for an unbound
+// interface: it resolves the Service port whose Name equals the interface name and reports whether at
+// least one Ready endpoint covers it. Positive-availability assist ONLY (INV-4) — it can only report
+// satisfied, never absent, so a NotFound / unmappable / zero-ready outcome yields false.
+func (o *Observer) interfaceSatisfiedByNameMatch(ctx context.Context, input CollectInput, ifaceName string) bool {
+	readyCount, err := o.countReadyEndpoints(ctx, input.Namespace, input.ServiceName, intstr.FromString(ifaceName))
+	return err == nil && readyCount >= 1
+}
+
+// findInterfaceBinding locates the binding for a given interface name.
+func findInterfaceBinding(bindings []InterfaceBinding, ifaceName string) *InterfaceBinding {
+	for i := range bindings {
+		if bindings[i].Interface == ifaceName {
+			return &bindings[i]
+		}
+	}
+	return nil
+}
+
+// Sentinels for countReadyEndpoints. They distinguish the two non-count outcomes so the interfaces
+// producer can route them to the correct emission (spec section 7.3): a NotFound Service means the engine
+// should infer EVIDENCE_MISSING, whereas an unmappable Service is a conclusive EVIDENCE_INSUFFICIENT.
+const (
+	endpointsServiceNotFound = -1 // the Service does not exist
+	endpointsUnmappable      = -2 // selector-less / ExternalName / port not present in the Service
+)
+
+// countReadyEndpoints reads the Service and EndpointSlices for the given service and port, then returns the
+// count of Ready endpoints covering that port. Returns endpointsServiceNotFound if the Service is NotFound,
+// endpointsUnmappable if the Service is selector-less / ExternalName / the port is absent, or a non-NotFound
+// API error as error.
+func (o *Observer) countReadyEndpoints(ctx context.Context, namespace, serviceName string, servicePort intstr.IntOrString) (int, error) {
+	// Read the Service.
+	svc := &corev1.Service{}
+	err := o.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: serviceName}, svc)
+	if err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return 0, fmt.Errorf("failed to get Service %s: %w", serviceName, err)
+		}
+		// Service NotFound -> distinct from unmappable so the caller can infer EVIDENCE_MISSING.
+		return endpointsServiceNotFound, nil
+	}
+
+	// Check if the Service is selector-backed (not ExternalName).
+	if svc.Spec.Type == corev1.ServiceTypeExternalName || len(svc.Spec.Selector) == 0 {
+		// Selector-less / ExternalName -> unmappable (EVIDENCE_INSUFFICIENT).
+		return endpointsUnmappable, nil
+	}
+
+	// Resolve the service port to a target port number.
+	var targetPort int32
+	found := false
+	for _, p := range svc.Spec.Ports {
+		if matchesServicePort(p, servicePort) {
+			// For counting ready endpoints, we use the service port itself (EndpointSlice ports match service ports).
+			targetPort = p.Port
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Port not found in Service -> unmappable (EVIDENCE_INSUFFICIENT).
+		return endpointsUnmappable, nil
+	}
+
+	// List EndpointSlices for this Service.
+	slices := &discoveryv1.EndpointSliceList{}
+	err = o.client.List(ctx, slices, client.InNamespace(namespace), client.MatchingLabels{
+		discoveryv1.LabelServiceName: serviceName,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to list EndpointSlices for Service %s: %w", serviceName, err)
+	}
+
+	if len(slices.Items) == 0 {
+		// Empty slice list (freshly-created Service) -> zero ready (will be windowed).
+		return 0, nil
+	}
+
+	// Count Ready endpoints covering the target port.
+	readyCount := 0
+	for _, slice := range slices.Items {
+		// Check if this slice has a port matching our target port.
+		hasPort := false
+		for _, slicePort := range slice.Ports {
+			if slicePort.Port != nil && *slicePort.Port == targetPort {
+				hasPort = true
+				break
+			}
+		}
+		if !hasPort {
+			continue
+		}
+
+		// Count ready endpoints in this slice.
+		for _, endpoint := range slice.Endpoints {
+			if endpoint.Conditions.Ready != nil && *endpoint.Conditions.Ready {
+				readyCount++
+			}
+		}
+	}
+
+	return readyCount, nil
+}
+
+// matchesServicePort reports whether a Service port matches the given IntOrString selector.
+func matchesServicePort(p corev1.ServicePort, selector intstr.IntOrString) bool {
+	switch selector.Type {
+	case intstr.Int:
+		return p.Port == selector.IntVal
+	case intstr.String:
+		return p.Name == selector.StrVal
+	default:
+		return false
+	}
+}
+
+// emitDependencyReachability applies stabilization and emits the appropriate observation/window-update.
+// ponytail: dedupe the stabilize-then-emit-Observed-or-Insufficient pattern.
+func emitDependencyReachability(
+	subj evidence.SubjectRef,
+	depName string,
+	isNegative bool,
+	existingWindow *metav1.Time,
+	now time.Time,
+	stabilizationWindow time.Duration,
+	prov evidence.Provenance,
+) (evidence.Observation, ObservationWindowUpdate) {
+	outcome, updatedWindow := stabilize(existingWindow, isNegative, now, stabilizationWindow)
+
+	var obs evidence.Observation
+	if outcome == evidence.Observed {
+		obs = evidence.NewDependencyReachable(subj, !isNegative, prov)
+	} else {
+		obs, _ = evidence.NewUnobserved(evidence.DependencyReachable, subj, outcome, prov)
+	}
+
+	update := ObservationWindowUpdate{
+		Kind:                    kindDependency,
+		Subject:                 depName,
+		FirstObservedNegativeAt: updatedWindow,
+	}
+
+	return obs, update
+}
+
+// observeDependenciesDim observes all declared dependencies. Spec section 7.6 / B5.
+// ponytail: sibling-CR matching + windowed reachability negatives.
+func (o *Observer) observeDependenciesDim(ctx context.Context, input CollectInput, prov evidence.Provenance, now time.Time) ([]evidence.Observation, []ObservationWindowUpdate) {
+	var observations []evidence.Observation
+	var windowUpdates []ObservationWindowUpdate
+
+	for _, dep := range input.Contract.Dependencies {
+		subj := evidence.SubjectRef{Kind: kindDependency, Name: dep.Name}
+		windowKey := fmt.Sprintf("dependency/%s", dep.Name)
+
+		// Resolve the dependency to an in-cluster sibling Pacto CR (spec section 7.6).
+		target, ambiguous, err := o.resolveDependencyToSibling(ctx, input.Namespace, dep)
+
+		if err != nil {
+			// Controller-runtime client error (not a "no match" case) -> COLLECTION_FAILED.
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Failed, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		if ambiguous {
+			// More than one distinct sibling target -> arbitrary pick would be unsafe -> Insufficient (Unknown).
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Insufficient, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		if target == nil {
+			// No reliable sibling match (external / not pacto-managed) -> Unsupported (Unknown), never NonCompliant.
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Unsupported, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		if target.serviceName == "" {
+			// Sibling matched but reference-only (empty spec.target.serviceName) -> Insufficient (Unknown).
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Insufficient, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		// Check if the resolved Service is ExternalName -> Unsupported.
+		svc := &corev1.Service{}
+		err = o.client.Get(ctx, types.NamespacedName{Namespace: target.namespace, Name: target.serviceName}, svc)
+		if err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				// Non-NotFound API error -> COLLECTION_FAILED.
+				obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Failed, prov)
+				observations = append(observations, obs)
+				continue
+			}
+			// Service NotFound -> a negative, apply stabilization.
+			obs, update := emitDependencyReachability(subj, dep.Name, true, input.ObservationWindows[windowKey], now, input.StabilizationWindow, prov)
+			observations = append(observations, obs)
+			windowUpdates = append(windowUpdates, update)
+			continue
+		}
+
+		// Service exists -> check if it's ExternalName.
+		if svc.Spec.Type == corev1.ServiceTypeExternalName {
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Unsupported, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		// Count ready endpoints for the dependency Service (protocol-agnostic, using any port).
+		// Reuse countReadyEndpoints with a dummy port (we count all ready endpoints).
+		readyCount := o.countReadyEndpointsForService(ctx, target.namespace, target.serviceName)
+
+		if readyCount < 0 {
+			// Error listing EndpointSlices -> COLLECTION_FAILED.
+			obs, _ := evidence.NewUnobserved(evidence.DependencyReachable, subj, evidence.Failed, prov)
+			observations = append(observations, obs)
+			continue
+		}
+
+		// We have a reliable ready-endpoint count.
+		isNegative := readyCount == 0
+		obs, update := emitDependencyReachability(subj, dep.Name, isNegative, input.ObservationWindows[windowKey], now, input.StabilizationWindow, prov)
+		observations = append(observations, obs)
+		windowUpdates = append(windowUpdates, update)
+	}
+
+	return observations, windowUpdates
+}
+
+// dependencyTarget is the resolved in-cluster target for a dependency.
+type dependencyTarget struct {
+	namespace   string
+	serviceName string
+}
+
+// resolveDependencyToSibling resolves a contract dependency to an in-cluster Pacto CR (spec section 7.6).
+// Returns (nil, false, nil) when no reliable match exists (external / not pacto-managed); (target, false,
+// nil) for a single match; (nil, true, nil) when the dependency resolves to more than one DISTINCT
+// {namespace, serviceName} target (blue-green with equal resolvedRef, or the same service in two watched
+// namespaces) — an arbitrary pick would risk a wrong verdict, so the caller must treat it as Insufficient.
+// Returns an error only for controller-runtime client failures.
+func (o *Observer) resolveDependencyToSibling(ctx context.Context, _ string, dep contract.Dependency) (*dependencyTarget, bool, error) {
+	// List all Pacto CRs. For single-namespace manager cache, this only sees CRs in the watched namespace(s).
+	var pactoList unversioned.PactoList
+	if err := o.client.List(ctx, &pactoList); err != nil {
+		return nil, false, fmt.Errorf("failed to list Pacto CRs: %w", err)
+	}
+
+	// Match dep.Ref / dep.Compatibility to sibling status.contract (resolvedRef / version), then read the
+	// sibling's spec.target.serviceName + namespace for Service coordinates. Distinct matches are counted
+	// so an ambiguous resolution is never silently collapsed to a first-match-wins pick.
+	var matches []dependencyTarget
+	seen := make(map[dependencyTarget]bool)
+	for _, sibling := range pactoList.Items {
+		if sibling.Status.Contract == nil {
+			continue
+		}
+		if !matchesRef(dep.Ref, sibling.Status.Contract.ResolvedRef) {
+			continue
+		}
+		if dep.Compatibility != "" && !matchesCompatibility(dep.Compatibility, sibling.Status.Contract.Version) {
+			continue
+		}
+		t := dependencyTarget{namespace: sibling.Namespace, serviceName: sibling.Spec.Target.ServiceName}
+		if !seen[t] {
+			seen[t] = true
+			matches = append(matches, t)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		// No matching sibling CR -> external / not pacto-managed.
+		return nil, false, nil
+	case 1:
+		return &matches[0], false, nil
+	default:
+		// Ambiguous multi-match -> caller emits EVIDENCE_INSUFFICIENT (spec section 7.6).
+		return nil, true, nil
+	}
+}
+
+// matchesRef reports whether a dependency ref matches a sibling's resolvedRef.
+// ponytail: base-ref match ignoring tag/digest suffix.
+func matchesRef(depRef, siblingRef string) bool {
+	// Extract the base ref (without tag/digest) from both and compare.
+	// This handles unversioned refs (oci://registry/service-pacto) matching versioned resolvedRefs
+	// (oci://registry/service-pacto:1.2.3 or oci://registry/service-pacto@sha256:...).
+	depBase := stripRefSuffix(depRef)
+	siblingBase := stripRefSuffix(siblingRef)
+	return depBase == siblingBase
+}
+
+// stripRefSuffix removes a trailing :tag or @digest from an OCI ref, ignoring the host:port colon in a
+// registry authority. A '@' digest separator is unambiguous anywhere; a ':' is a tag separator only when
+// it appears AFTER the last '/' (so "oci://registry:5000/payments" keeps its full repo path).
+func stripRefSuffix(ref string) string {
+	if idx := strings.LastIndexByte(ref, '@'); idx >= 0 {
+		return ref[:idx]
+	}
+	if idx := strings.LastIndexByte(ref, ':'); idx > strings.LastIndexByte(ref, '/') {
+		return ref[:idx]
+	}
+	return ref
+}
+
+// matchesCompatibility reports whether a version satisfies a semver compatibility RANGE (spec 7.6).
+// dep.Compatibility is mandatory and its validated form is a range, so every npm-style constraint
+// (^, ~, x-wildcard, exact) resolves through the engine's range parser. An unparseable constraint
+// never matches (fail closed).
+func matchesCompatibility(constraint, version string) bool {
+	r, err := contract.ParseRange(constraint)
+	if err != nil {
+		return false
+	}
+	return r.Contains(version)
+}
+
+// countReadyEndpointsForService counts ready endpoints for a Service (protocol-agnostic, any port).
+// Returns -1 on error (distinct from zero ready).
+// ponytail: reuse EndpointSlice listing logic, count all ready endpoints regardless of port.
+func (o *Observer) countReadyEndpointsForService(ctx context.Context, namespace, serviceName string) int {
+	slices := &discoveryv1.EndpointSliceList{}
+	err := o.client.List(ctx, slices, client.InNamespace(namespace), client.MatchingLabels{
+		discoveryv1.LabelServiceName: serviceName,
+	})
+	if err != nil {
+		// List error -> -1 (distinct from zero ready).
+		return -1
+	}
+
+	if len(slices.Items) == 0 {
+		// Empty slice list (freshly-created Service) -> zero ready (will be windowed).
+		return 0
+	}
+
+	// Count all ready endpoints across all slices (protocol-agnostic).
+	readyCount := 0
+	for _, slice := range slices.Items {
+		for _, endpoint := range slice.Endpoints {
+			if endpoint.Conditions.Ready != nil && *endpoint.Conditions.Ready {
+				readyCount++
+			}
+		}
+	}
+
+	return readyCount
+}
+
+// observeHealthDim observes the health capability (spec section 7.4). Returns exactly one observation and any
+// window updates for the assertion.
+// ponytail: discriminated http binding, tier-A direct probe + tier-B READINESS-fallback, windowed 404.
+func (o *Observer) observeHealthDim(ctx context.Context, input CollectInput, cap contract.Capability, prov evidence.Provenance, now time.Time) (evidence.Observation, []ObservationWindowUpdate) {
+	subj := evidence.SubjectRef{Kind: kindCapability, Name: cap.AssertionKey()} // "health"
+
+	// No binding -> Unsupported.
+	if cap.Binding == nil {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return obs, nil
+	}
+
+	// Non-HTTP binding -> Unsupported (grpc not implemented).
+	if cap.Binding.Type != contract.CapabilityBindingHTTP {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return obs, nil
+	}
+
+	// Resolve the owning interface to its Service port (B4 reuse).
+	binding := findInterfaceBinding(input.InterfaceBindings, cap.Binding.Interface)
+	if binding == nil {
+		// Owning interface has no binding -> Unsupported (cannot resolve probe target).
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return obs, nil
+	}
+
+	// Resolve the Service port number.
+	svc := &corev1.Service{}
+	err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, svc)
+	if err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			// Non-NotFound API error -> Failed.
+			obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Failed, prov)
+			return obs, nil
+		}
+		// Service NotFound -> Unsupported (cannot probe).
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return obs, nil
+	}
+
+	var targetPort int32
+	found := false
+	for _, p := range svc.Spec.Ports {
+		if matchesServicePort(p, binding.ServicePort) {
+			targetPort = p.Port
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Bound port not found in Service -> Unsupported.
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return obs, nil
+	}
+
+	// Tier A: active in-cluster probe (opt-in via EnableProbing — SSRF surface). When disabled, leave the
+	// zero-value (Reachable=false) result so handleHealthProbeResult routes straight to passive Tier-B.
+	var result prober.Result
+	if input.EnableProbing {
+		// SSRF-safe URL via prober.BuildURL — INV-6.
+		probeURL := prober.BuildURL(input.ServiceName, input.Namespace, targetPort, cap.Binding.Path)
+		result = o.prober.Probe(ctx, probeURL)
+	}
+
+	// targetPort is the health capability's OWNING binding port; the Tier-B readiness fallback must check
+	// that same binding, never an arbitrary InterfaceBindings[0].
+	return handleHealthProbeResult(result, subj, cap.AssertionKey(), input, prov, now, o, ctx, targetPort)
+}
+
+// handleHealthProbeResult interprets the prober result and returns the appropriate observation/window-update.
+// Extracted for testability (can test result-handling logic without real HTTP).
+// ponytail: tier-A probe result -> satisfied/404-windowed/insufficient, then tier-B fallback.
+func handleHealthProbeResult(
+	result prober.Result,
+	subj evidence.SubjectRef,
+	assertionKey string,
+	input CollectInput,
+	prov evidence.Provenance,
+	now time.Time,
+	obs *Observer,
+	ctx context.Context,
+	owningServicePort int32,
+) (evidence.Observation, []ObservationWindowUpdate) {
+	windowKey := fmt.Sprintf("capability/%s", assertionKey)
+
+	// A satisfied/positive health observation must CLEAR any stale negative window (mirrors the interface and
+	// dependency dimensions), so that after recovery a later single declared-path 404 starts a FRESH window and
+	// is windowed as Unknown, never treated as beyond-window -> premature CAPABILITY_ABSENT (I7).
+	clearWindow := []ObservationWindowUpdate{{
+		Kind:                    kindCapability,
+		Subject:                 assertionKey,
+		FirstObservedNegativeAt: nil,
+	}}
+
+	if result.Reachable {
+		// Probe succeeded.
+		if result.StatusCode >= 200 && result.StatusCode < 400 {
+			// 2xx/3xx -> satisfied (Tier A) -> clear any stale negative window.
+			return evidence.NewCapabilityObserved(subj, true, prov), clearWindow
+		}
+
+		if result.StatusCode == 404 {
+			// Declared-path 404 -> windowed negative (spec section 7.4).
+			isNegative := true
+			existing := input.ObservationWindows[windowKey]
+			outcome, updatedWindow := stabilize(existing, isNegative, now, input.StabilizationWindow)
+
+			var observation evidence.Observation
+			if outcome == evidence.Observed {
+				// Beyond window -> confirmed absent.
+				observation = evidence.NewCapabilityObserved(subj, false, prov)
+			} else {
+				// Within window -> Insufficient.
+				observation, _ = evidence.NewUnobserved(evidence.CapabilityObserved, subj, outcome, prov)
+			}
+
+			update := ObservationWindowUpdate{
+				Kind:                    kindCapability,
+				Subject:                 assertionKey,
+				FirstObservedNegativeAt: updatedWindow,
+			}
+			return observation, []ObservationWindowUpdate{update}
+		}
+
+		// 5xx/501/405 -> endpoint exists but unhealthy/not-serving-GET -> Insufficient (not absent).
+		observation, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Insufficient, prov)
+		return observation, nil
+	}
+
+	// Active probe unreachable or disabled -> passive Tier B (READINESS-probe fallback).
+	if obs != nil {
+		hasReadinessProbe, podReady := obs.checkReadinessProbeFallbackFromInput(ctx, input, owningServicePort)
+
+		if hasReadinessProbe && podReady {
+			// Tier B satisfied (lower confidence) -> clear any stale negative window.
+			return evidence.NewCapabilityObserved(subj, true, prov), clearWindow
+		}
+		if !hasReadinessProbe {
+			// No usable Tier-B evidence (liveness-only / no-probe / tcpSocket / exec / unresolvable target)
+			// -> EVIDENCE_INSUFFICIENT (spec section 7.4), never COLLECTION_FAILED from missing evidence.
+			observation, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Insufficient, prov)
+			return observation, nil
+		}
+		// hasReadinessProbe && !podReady falls through: a declared readiness probe whose Pod is not Ready.
+	}
+
+	// Readiness probe present but Pod not Ready (or extraction guard obs==nil) -> Failed.
+	observation, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Failed, prov)
+	return observation, nil
+}
+
+// checkReadinessProbeFallbackFromInput resolves the Service and runs the Tier-B readiness fallback against
+// the health capability's OWNING binding port (already resolved by observeHealthDim), never an arbitrary
+// InterfaceBindings[0]. Using the wrong binding's port would check the wrong container and could report
+// SATISFIED when only a sidecar is Ready.
+func (o *Observer) checkReadinessProbeFallbackFromInput(ctx context.Context, input CollectInput, servicePort int32) (bool, bool) {
+	svc := &corev1.Service{}
+	if err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, svc); err != nil {
+		return false, false
+	}
+	return o.checkReadinessProbeFallback(ctx, input, svc, servicePort)
+}
+
+// checkReadinessProbeFallback checks if the workload has an httpGet READINESS probe (not liveness) configured
+// on the container backing the Service target port, and if the Pod is Ready. Returns (hasReadinessProbe, podReady).
+// ponytail: sidecar-safe container selection via Service target port -> pod container port match.
+func (o *Observer) checkReadinessProbeFallback(ctx context.Context, input CollectInput, svc *corev1.Service, servicePort int32) (bool, bool) {
+	podSpec := o.getPodSpec(ctx, input)
+	if podSpec == nil {
+		return false, false
+	}
+
+	targetPort, ok := o.resolveTargetPort(svc, servicePort, podSpec)
+	if !ok {
+		return false, false
+	}
+
+	if !o.hasHTTPGetReadinessProbe(podSpec, targetPort) {
+		return false, false
+	}
+
+	readyCount, err := o.countReadyEndpoints(ctx, input.Namespace, input.ServiceName, intstr.FromInt32(servicePort))
+	if err != nil || readyCount <= 0 {
+		return true, false
+	}
+
+	return true, true
+}
+
+func (o *Observer) getPodSpec(ctx context.Context, input CollectInput) *corev1.PodSpec {
+	snapshot := &RuntimeSnapshot{WorkloadKind: input.WorkloadKind}
+	if err := o.observeWorkload(ctx, input.Namespace, input.WorkloadName, input.WorkloadKind, snapshot); err != nil || !snapshot.WorkloadExists {
+		return nil
+	}
+
+	key := types.NamespacedName{Namespace: input.Namespace, Name: input.WorkloadName}
+	switch input.WorkloadKind {
+	case workloadDeployment:
+		dep := &appsv1.Deployment{}
+		if err := o.client.Get(ctx, key, dep); err == nil {
+			return &dep.Spec.Template.Spec
+		}
+	case workloadStatefulSet:
+		sts := &appsv1.StatefulSet{}
+		if err := o.client.Get(ctx, key, sts); err == nil {
+			return &sts.Spec.Template.Spec
+		}
+	case workloadReplicaSet:
+		rs := &appsv1.ReplicaSet{}
+		if err := o.client.Get(ctx, key, rs); err == nil {
+			return &rs.Spec.Template.Spec
+		}
+	case workloadJob:
+		job := &batchv1.Job{}
+		if err := o.client.Get(ctx, key, job); err == nil {
+			return &job.Spec.Template.Spec
+		}
+	case workloadCronJob:
+		cj := &batchv1.CronJob{}
+		if err := o.client.Get(ctx, key, cj); err == nil {
+			return &cj.Spec.JobTemplate.Spec.Template.Spec
+		}
+	}
+	return nil
+}
+
+func (o *Observer) resolveTargetPort(svc *corev1.Service, servicePort int32, podSpec *corev1.PodSpec) (int32, bool) {
+	for _, p := range svc.Spec.Ports {
+		if p.Port == servicePort {
+			switch p.TargetPort.Type {
+			case intstr.Int:
+				return p.TargetPort.IntVal, true
+			case intstr.String:
+				for _, c := range podSpec.Containers {
+					for _, cp := range c.Ports {
+						if cp.Name == p.TargetPort.StrVal {
+							return cp.ContainerPort, true
+						}
+					}
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+func (o *Observer) hasHTTPGetReadinessProbe(podSpec *corev1.PodSpec, targetPort int32) bool {
+	for _, c := range podSpec.Containers {
+		exposesPort := false
+		for _, cp := range c.Ports {
+			if cp.ContainerPort == targetPort {
+				exposesPort = true
+				break
+			}
+		}
+		if exposesPort && c.ReadinessProbe != nil && c.ReadinessProbe.HTTPGet != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// observeConfigurationsDim observes all declared configurations (spec section 7.7 / B6 Secret + B7 ConfigMap).
+// ponytail: metadata-only Secret GET (INV-5); ConfigMap decode+validate+discard; stabilize() for NotFound negatives.
+func (o *Observer) observeConfigurationsDim(ctx context.Context, input CollectInput, prov evidence.Provenance, now time.Time) ([]evidence.Observation, []ObservationWindowUpdate) {
+	var observations []evidence.Observation
+	var windowUpdates []ObservationWindowUpdate
+
+	for _, cfg := range input.Contract.Configurations {
+		subj := evidence.SubjectRef{Kind: kindConfiguration, Name: cfg.Name}
+		windowKey := "configuration/" + cfg.Name
+
+		// Find binding for this configuration.
+		binding := findConfigBinding(input.ConfigBindings, cfg.Name)
+		if binding == nil {
+			// No binding -> Unsupported (Unknown) for required; optional configs emit nothing per spec.
+			if cfg.Required {
+				obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Unsupported, prov)
+				observations = append(observations, obs)
+			}
+			continue
+		}
+
+		// Route by binding kind.
+		switch binding.Kind {
+		case resourceSecret:
+			obs, updates := o.observeSecretConfiguration(ctx, input, cfg, binding, subj, windowKey, prov, now)
+			observations = append(observations, obs)
+			windowUpdates = append(windowUpdates, updates...)
+		case resourceConfigMap:
+			obs, updates := o.observeConfigMapConfiguration(ctx, input, cfg, binding, subj, windowKey, prov, now)
+			observations = append(observations, obs)
+			windowUpdates = append(windowUpdates, updates...)
+		}
+	}
+
+	return observations, windowUpdates
+}
+
+// findConfigBinding locates the binding for a given configuration name.
+func findConfigBinding(bindings []unversioned.ConfigBinding, cfgName string) *unversioned.ConfigBinding {
+	for i := range bindings {
+		if bindings[i].Configuration == cfgName {
+			return &bindings[i]
+		}
+	}
+	return nil
+}
+
+// observeSecretConfiguration observes a Secret-backed configuration (B6 metadata-only). Spec section 7.7.
+// ponytail: PartialObjectMetadata GET, no .Data read; presence -> Insufficient; NotFound -> windowed.
+func (o *Observer) observeSecretConfiguration(
+	ctx context.Context,
+	input CollectInput,
+	cfg contract.Configuration,
+	binding *unversioned.ConfigBinding,
+	subj evidence.SubjectRef,
+	windowKey string,
+	prov evidence.Provenance,
+	now time.Time,
+) (evidence.Observation, []ObservationWindowUpdate) {
+	// Metadata-only GET (INV-5 — Secret VALUES never enter operator memory).
+	partial := &metav1.PartialObjectMetadata{}
+	partial.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
+	err := o.client.Get(ctx, client.ObjectKey{Namespace: input.Namespace, Name: binding.Name}, partial)
+
+	if err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			// Non-NotFound API error (RBAC-denied / other) -> Failed.
+			obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Failed, prov)
+			return obs, nil
+		}
+		// Secret NotFound -> windowed negative.
+		isNegative := true
+		existing := input.ObservationWindows[windowKey]
+		outcome, updatedWindow := stabilize(existing, isNegative, now, input.StabilizationWindow)
+
+		var obs evidence.Observation
+		if outcome == evidence.Observed {
+			// Beyond window -> confirmed absent (Present=false, Conformant=false -> CONFIGURATION_ABSENT).
+			obs = evidence.NewConfigurationPresent(subj, false, false, prov)
+		} else {
+			// Within window -> Insufficient.
+			obs, _ = evidence.NewUnobserved(evidence.ConfigurationPresent, subj, outcome, prov)
+		}
+
+		update := ObservationWindowUpdate{
+			Kind:                    kindConfiguration,
+			Subject:                 cfg.Name,
+			FirstObservedNegativeAt: updatedWindow,
+		}
+		return obs, []ObservationWindowUpdate{update}
+	}
+
+	// Secret present (metadata-only) -> Insufficient (existence established, conformance unverified).
+	obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
+	// Reset window on positive.
+	update := ObservationWindowUpdate{
+		Kind:                    kindConfiguration,
+		Subject:                 cfg.Name,
+		FirstObservedNegativeAt: nil,
+	}
+	return obs, []ObservationWindowUpdate{update}
+}
+
+// observeConfigMapConfiguration observes a ConfigMap-backed configuration (B7 decode+validate). Spec section 7.7.
+// ponytail: decode key+format, validate against local schema, discard content, emit boolean result only.
+func (o *Observer) observeConfigMapConfiguration(
+	ctx context.Context,
+	input CollectInput,
+	cfg contract.Configuration,
+	binding *unversioned.ConfigBinding,
+	subj evidence.SubjectRef,
+	windowKey string,
+	prov evidence.Provenance,
+	now time.Time,
+) (evidence.Observation, []ObservationWindowUpdate) {
+	// GET the ConfigMap.
+	cm := &corev1.ConfigMap{}
+	err := o.client.Get(ctx, client.ObjectKey{Namespace: input.Namespace, Name: binding.Name}, cm)
+
+	if err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			// Non-NotFound API error -> Failed.
+			obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Failed, prov)
+			return obs, nil
+		}
+		// ConfigMap NotFound -> windowed negative (required scope).
+		isNegative := true
+		existing := input.ObservationWindows[windowKey]
+		outcome, updatedWindow := stabilize(existing, isNegative, now, input.StabilizationWindow)
+
+		var obs evidence.Observation
+		if outcome == evidence.Observed {
+			// Beyond window -> confirmed absent (Present=false, Conformant=false -> CONFIGURATION_ABSENT).
+			obs = evidence.NewConfigurationPresent(subj, false, false, prov)
+		} else {
+			// Within window -> Insufficient.
+			obs, _ = evidence.NewUnobserved(evidence.ConfigurationPresent, subj, outcome, prov)
+		}
+
+		update := ObservationWindowUpdate{
+			Kind:                    kindConfiguration,
+			Subject:                 cfg.Name,
+			FirstObservedNegativeAt: updatedWindow,
+		}
+		return obs, []ObservationWindowUpdate{update}
+	}
+
+	// ConfigMap exists. Without Key+Format -> Insufficient (existence-only, never full-conformance).
+	if binding.Key == "" || binding.Format == "" {
+		obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
+		// Reset window on positive.
+		update := ObservationWindowUpdate{
+			Kind:                    kindConfiguration,
+			Subject:                 cfg.Name,
+			FirstObservedNegativeAt: nil,
+		}
+		return obs, []ObservationWindowUpdate{update}
+	}
+
+	// With Key+Format: decode+validate the named key.
+	content, ok := cm.Data[binding.Key]
+	if !ok {
+		// Key missing in ConfigMap -> Insufficient (parse failure).
+		obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
+		// Reset window on positive (ConfigMap present, just missing key).
+		update := ObservationWindowUpdate{
+			Kind:                    kindConfiguration,
+			Subject:                 cfg.Name,
+			FirstObservedNegativeAt: nil,
+		}
+		return obs, []ObservationWindowUpdate{update}
+	}
+
+	// Parse the content by Format (yaml/json).
+	parsed, parseErr := parseConfigContent(content, binding.Format)
+	if parseErr != nil {
+		// Parse failure -> Insufficient.
+		obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
+		update := ObservationWindowUpdate{
+			Kind:                    kindConfiguration,
+			Subject:                 cfg.Name,
+			FirstObservedNegativeAt: nil,
+		}
+		return obs, []ObservationWindowUpdate{update}
+	}
+
+	// Validate parsed doc against the configuration's LOCAL schema.
+	conforms, err := validateConfigAgainstSchema(parsed, cfg, input.BundleFS)
+	if err != nil {
+		// Schema remote/unresolvable -> Insufficient (collector cannot validate).
+		obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
+		update := ObservationWindowUpdate{
+			Kind:                    kindConfiguration,
+			Subject:                 cfg.Name,
+			FirstObservedNegativeAt: nil,
+		}
+		return obs, []ObservationWindowUpdate{update}
+	}
+
+	// Discard source content (INV-5). Emit only the boolean result.
+	// ConfigMap with key+format, values read+parsed+validated -> (Present, Conformant) per validation result.
+	// Conformant=true (satisfied) or Conformant=false -> CONFIGURATION_MISMATCH.
+	obs := evidence.NewConfigurationPresent(subj, true, conforms, prov)
+	update := ObservationWindowUpdate{
+		Kind:                    kindConfiguration,
+		Subject:                 cfg.Name,
+		FirstObservedNegativeAt: nil,
+	}
+	return obs, []ObservationWindowUpdate{update}
+}
+
+// observeMetricsDim observes the metrics capability (spec section 7.5 / Refinement D). Returns nil if no metrics
+// capability is declared, otherwise exactly one observation. No reliable operator-side negative this release.
+// ponytail: discovery precedence (ServiceMonitor > annotations > named-port > contract), then active probe.
+//
+//nolint:unparam // updates slice always nil — matches observe function signature for consistency
+func (o *Observer) observeMetricsDim(ctx context.Context, input CollectInput, prov evidence.Provenance, _ time.Time) (*evidence.Observation, []ObservationWindowUpdate) {
+	// Find the metrics capability.
+	var metricsCap *contract.Capability
+	for i := range input.Contract.Capabilities {
+		if input.Contract.Capabilities[i].Type == contract.CapabilityMetrics {
+			metricsCap = &input.Contract.Capabilities[i]
+			break
+		}
+	}
+
+	if metricsCap == nil {
+		return nil, nil
+	}
+
+	subj := evidence.SubjectRef{Kind: kindCapability, Name: metricsCap.AssertionKey()} // "metrics"
+
+	// When metrics observation is DISABLED, return Unsupported HONESTLY (no discovery).
+	if !input.EnableMetricsObservation {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
+	// No binding -> Unsupported.
+	if metricsCap.Binding == nil {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
+	// Non-HTTP binding -> Unsupported (grpc not implemented).
+	if metricsCap.Binding.Type != contract.CapabilityBindingHTTP {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
+	// Resolve the owning interface to its Service port (B4 reuse).
+	binding := findInterfaceBinding(input.InterfaceBindings, metricsCap.Binding.Interface)
+	if binding == nil {
+		// Owning interface has no binding -> Unsupported (cannot resolve probe target).
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
+	// Get the Service.
+	svc := &corev1.Service{}
+	err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, svc)
+	if err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			// Non-NotFound API error -> Failed.
+			obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Failed, prov)
+			return &obs, nil
+		}
+		// Service NotFound -> Unsupported (cannot probe).
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
+	// Resolve the interface-bound port number.
+	var boundPort int32
+	found := false
+	for _, p := range svc.Spec.Ports {
+		if matchesServicePort(p, binding.ServicePort) {
+			boundPort = p.Port
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Bound port not found in Service -> Unsupported.
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
+	// Discovery precedence (spec section 7.5): first that yields a path+port wins.
+	target, method := o.discoverMetricsTarget(ctx, input.Namespace, input.ServiceName, svc, metricsCap.Binding.Path, boundPort)
+	if target == nil {
+		// No discovery path succeeded -> Unsupported (Unknown).
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Unsupported, prov)
+		return &obs, nil
+	}
+
+	// Build the probe URL (SSRF-safe via prober.BuildURL — INV-6).
+	probeURL := prober.BuildURL(input.ServiceName, input.Namespace, target.port, target.path)
+
+	// Direct in-cluster probe (metrics has no tier-B fallback).
+	result := o.prober.Probe(ctx, probeURL)
+
+	if !result.Reachable {
+		// Transport error -> Failed.
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Failed, prov)
+		return &obs, nil
+	}
+
+	// Reachable but not 200 -> Insufficient (no reliable negative for metrics).
+	if result.StatusCode != 200 {
+		// 404/410/5xx/401-403 -> Insufficient (Unknown), not a violation.
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Insufficient, prov)
+		return &obs, nil
+	}
+
+	// 200 but body does not parse as Prometheus -> Insufficient.
+	if !result.PrometheusParsed {
+		obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Insufficient, prov)
+		return &obs, nil
+	}
+
+	// 200 + real Prometheus content -> satisfied. Update provenance with discovery method.
+	prov.Collector = fmt.Sprintf("k8s-observer/metrics:%s", method)
+	obs := evidence.NewCapabilityObserved(subj, true, prov)
+	return &obs, nil
+}
+
+// parseConfigContent parses a config value by format (yaml|json). Returns the parsed document as any.
+// ponytail: yaml/json unmarshal into any, return parsed doc for schema validation.
+func parseConfigContent(content, format string) (any, error) {
+	var parsed any
+	var err error
+	switch format {
+	case formatYAML:
+		err = yaml.Unmarshal([]byte(content), &parsed)
+	case "json":
+		err = json.Unmarshal([]byte(content), &parsed)
+	default:
+		return nil, fmt.Errorf("unsupported format: %s", format)
+	}
+	return parsed, err
+}
+
+// validateConfigAgainstSchema validates a parsed config document against the configuration's local schema.
+// Returns (conforms, error). error != nil means schema unresolvable (remote ref / not in bundle).
+// ponytail: reuse pkg/validation compileConfigSchema pattern (santhosh-tekuri/jsonschema/v6), no new dep.
+func validateConfigAgainstSchema(parsed any, cfg contract.Configuration, _ fs.FS) (bool, error) {
+	// Remote ref schema -> cannot resolve -> error (Insufficient).
+	if cfg.Ref != "" {
+		return false, fmt.Errorf("remote ref schema not resolvable locally")
+	}
+	if cfg.Schema == "" {
+		// No schema -> cannot validate -> error.
+		return false, fmt.Errorf("no schema defined")
+	}
+
+	// Parse the schema string into a JSON doc (per pkg/validation/crossfield.go compileConfigSchema pattern).
+	var schemaDoc any
+	if err := json.Unmarshal([]byte(cfg.Schema), &schemaDoc); err != nil {
+		return false, fmt.Errorf("failed to parse schema: %w", err)
+	}
+
+	// Compile the schema.
+	compiler := jsonschema.NewCompiler()
+	compiler.AddResource("mem:///config-schema.json", schemaDoc) //nolint:errcheck
+	compiledSchema, err := compiler.Compile("mem:///config-schema.json")
+	if err != nil {
+		return false, fmt.Errorf("failed to compile schema: %w", err)
+	}
+
+	// Validate the parsed doc.
+	if err := compiledSchema.Validate(parsed); err != nil {
+		// Validation failed -> non-conform.
+		return false, nil
+	}
+
+	// Conforms.
+	return true, nil
+}
+
+// metricsTarget is a discovered scrape target (path+port).
+type metricsTarget struct {
+	path string
+	port int32
+}
+
+// discoverMetricsTarget implements the 4-step precedence (spec section 7.5): ServiceMonitor/PodMonitor >
+// annotations > named-port > contract binding.path. Returns (target, method) or (nil, "") if no path succeeds.
+// ponytail: precedence ladder, first valid path+port wins.
+func (o *Observer) discoverMetricsTarget(ctx context.Context, namespace, serviceName string, service *corev1.Service, contractPath string, boundPort int32) (*metricsTarget, string) {
+	// 1. ServiceMonitor/PodMonitor (unstructured read, extract path+port).
+	if t := o.discoverFromServiceMonitor(ctx, namespace, serviceName, service); t != nil {
+		return t, "servicemonitor"
+	}
+	if t := o.discoverFromPodMonitor(ctx, namespace, service); t != nil {
+		return t, "podmonitor"
+	}
+
+	// 2. prometheus.io annotations (scrape=true + path + port).
+	if t := discoverFromAnnotations(service); t != nil {
+		return t, "annotation"
+	}
+
+	// 3. Named metrics port ("metrics" / "http-metrics").
+	if t := discoverFromNamedPort(service, contractPath); t != nil {
+		return t, "named-port"
+	}
+
+	// 4. Contract binding.path on the bound port (if path is specified).
+	if contractPath == "" {
+		return nil, ""
+	}
+	return &metricsTarget{path: contractPath, port: boundPort}, "probe"
+}
+
+// discoverFromServiceMonitor reads ServiceMonitor CRDs via unstructured (no Go dep on prometheus-operator).
+// Returns path+port from the first matching endpoint, or nil if CRD absent / no match / list error.
+// ponytail: unstructured List + extract endpoint path/port, skip auth fields (INV-5).
+func (o *Observer) discoverFromServiceMonitor(ctx context.Context, namespace, _ string, service *corev1.Service) *metricsTarget {
+	gvk := schema.GroupVersionKind{Group: promGroup, Version: "v1", Kind: promMonitorServiceMonitor}
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(gvk)
+
+	if err := o.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
+		// CRD not installed / NoKindMatchError -> fall through (not Failed).
+		return nil
+	}
+
+	for _, item := range list.Items {
+		// Check if this ServiceMonitor targets the Service via matchLabels.
+		selector, found, _ := unstructured.NestedMap(item.Object, "spec", "selector", "matchLabels")
+		if !found || !labelsMatch(service.Labels, selector) {
+			continue
+		}
+
+		// Extract endpoints[].path + port (INV-5: skip auth fields).
+		endpoints, _, _ := unstructured.NestedSlice(item.Object, "spec", "endpoints")
+		for _, ep := range endpoints {
+			epMap, ok := ep.(map[string]any)
+			if !ok {
+				continue
+			}
+			path, _ := epMap["path"].(string)
+			if path == "" {
+				path = promDefaultPath // default
+			}
+			port := extractPort(epMap)
+			if port > 0 {
+				return &metricsTarget{path: path, port: port}
+			}
+		}
+	}
+	return nil
+}
+
+// discoverFromPodMonitor reads PodMonitor CRDs via unstructured. Returns path+port or nil.
+// ponytail: unstructured List + extract podMetricsEndpoints path/port, skip auth fields.
+func (o *Observer) discoverFromPodMonitor(ctx context.Context, namespace string, service *corev1.Service) *metricsTarget {
+	gvk := schema.GroupVersionKind{Group: promGroup, Version: "v1", Kind: promMonitorPodMonitor}
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(gvk)
+
+	if err := o.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
+		return nil
+	}
+
+	for _, item := range list.Items {
+		// Check selector.matchLabels against Service selector (PodMonitor targets pods).
+		selector, found, _ := unstructured.NestedMap(item.Object, "spec", "selector", "matchLabels")
+		if !found || service.Spec.Selector == nil || !labelsMatch(service.Spec.Selector, selector) {
+			continue
+		}
+
+		// Extract podMetricsEndpoints[].path + port (INV-5: skip auth).
+		endpoints, _, _ := unstructured.NestedSlice(item.Object, "spec", "podMetricsEndpoints")
+		for _, ep := range endpoints {
+			epMap, ok := ep.(map[string]any)
+			if !ok {
+				continue
+			}
+			path, _ := epMap["path"].(string)
+			if path == "" {
+				path = promDefaultPath
+			}
+			port := extractPort(epMap)
+			if port > 0 {
+				return &metricsTarget{path: path, port: port}
+			}
+		}
+	}
+	return nil
+}
+
+// extractPort extracts port from an endpoint map (int64 or string name). Returns 0 if absent/invalid.
+// ponytail: handle port as number or string, safe cast.
+func extractPort(epMap map[string]any) int32 {
+	portVal, ok := epMap["port"]
+	if !ok {
+		return 0
+	}
+	switch v := portVal.(type) {
+	case int64:
+		return int32(v)
+	case string:
+		// Named port in ServiceMonitor/PodMonitor -> cannot resolve to number without pod template.
+		// Treat as unresolved (0) so this path yields nothing.
+		return 0
+	default:
+		return 0
+	}
+}
+
+// labelsMatch reports whether all selector labels are present in target with matching values.
+// ponytail: subset match, selector ⊆ target.
+func labelsMatch(target map[string]string, selector map[string]any) bool {
+	for k, v := range selector {
+		vs, ok := v.(string)
+		if !ok || target[k] != vs {
+			return false
+		}
+	}
+	return true
+}
+
+// discoverFromAnnotations extracts prometheus.io annotations from the Service or Pod. Returns nil if not set.
+// ponytail: scrape=true + path + port from annotations.
+func discoverFromAnnotations(svc *corev1.Service) *metricsTarget {
+	if svc.Annotations == nil {
+		return nil
+	}
+	if svc.Annotations["prometheus.io/scrape"] != promScrapeAnnotation {
+		return nil
+	}
+	path := svc.Annotations["prometheus.io/path"]
+	if path == "" {
+		path = promDefaultPath
+	}
+	portStr := svc.Annotations["prometheus.io/port"]
+	if portStr == "" {
+		return nil
+	}
+	port, err := strconv.ParseInt(portStr, 10, 32)
+	if err != nil || port <= 0 {
+		return nil
+	}
+	return &metricsTarget{path: path, port: int32(port)}
+}
+
+// discoverFromNamedPort finds a Service port named "metrics" or "http-metrics". Returns path+port or nil.
+// ponytail: scan ports for metrics/http-metrics name.
+func discoverFromNamedPort(svc *corev1.Service, fallbackPath string) *metricsTarget {
+	for _, p := range svc.Spec.Ports {
+		if p.Name == metricsPort || p.Name == "http-metrics" {
+			path := fallbackPath
+			if path == "" {
+				path = promDefaultPath
+			}
+			return &metricsTarget{path: path, port: p.Port}
+		}
+	}
+	return nil
+}

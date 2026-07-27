@@ -4,45 +4,399 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
-func validContract() *contract.Contract {
-	port := 8080
+func validV20Contract() *contract.Contract {
 	return &contract.Contract{
-		PactoVersion: "1.0",
-		Service: contract.ServiceIdentity{
+		PactoVersion: "2.0",
+		Service: contract.Service{
 			Name:    "my-svc",
 			Version: "1.0.0",
+			Owner:   contract.Owner{Team: "platform"},
 		},
 		Interfaces: []contract.Interface{
-			{Name: "api", Type: "http", Port: &port, Visibility: "internal"},
-		},
-		Runtime: &contract.Runtime{
-			Workload: "service",
-			State: contract.State{
-				Type:            "stateless",
-				Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-				DataCriticality: "low",
-			},
-			Health: &contract.Health{Interface: "api", Path: "/health"},
+			{Name: "api", Type: "openapi", Ref: "interfaces/openapi.yaml", Visibility: "internal"},
 		},
 	}
 }
 
 func TestValidateServiceVersion_InvalidSemver(t *testing.T) {
-	c := validContract()
+	c := validV20Contract()
 	c.Service.Version = "not-semver"
 	var result ValidationResult
 	validateServiceVersion(c, &result)
 	if result.IsValid() {
 		t.Error("expected error for invalid semver")
 	}
+	if !hasErrorCode(result, "INVALID_SEMVER") {
+		t.Errorf("expected INVALID_SEMVER, got %+v", result.Errors)
+	}
+}
+
+func TestValidateServiceVersion_Valid(t *testing.T) {
+	c := validV20Contract()
+	c.Service.Version = "2.3.4"
+	var result ValidationResult
+	validateServiceVersion(c, &result)
+	if !result.IsValid() {
+		t.Errorf("expected valid semver, got errors: %v", result.Errors)
+	}
+}
+
+func TestValidateInterfaceNamesUnique_Duplicate(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{
+		{Name: "api", Type: "openapi", Ref: "spec1.yaml"},
+		{Name: "api", Type: "asyncapi", Ref: "spec2.yaml"},
+	}
+	var result ValidationResult
+	validateInterfaceNamesUnique(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for duplicate interface names")
+	}
+	if !hasErrorCode(result, "DUPLICATE_INTERFACE_NAME") {
+		t.Errorf("expected DUPLICATE_INTERFACE_NAME, got %+v", result.Errors)
+	}
+}
+
+func TestValidateConfigurationNamesUnique_Duplicate(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{
+		{Name: "app", Schema: "config/app.json"},
+		{Name: "app", Schema: "config/app2.json"},
+	}
+	var result ValidationResult
+	validateConfigurationNamesUnique(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for duplicate config names")
+	}
+	if !hasErrorCode(result, "DUPLICATE_CONFIGURATION_NAME") {
+		t.Errorf("expected DUPLICATE_CONFIGURATION_NAME, got %+v", result.Errors)
+	}
+}
+
+func TestValidatePolicyNamesUnique_Duplicate(t *testing.T) {
+	c := validV20Contract()
+	c.Policies = []contract.Policy{
+		{Name: "security", Schema: "policy/sec.json"},
+		{Name: "security", Schema: "policy/sec2.json"},
+	}
+	var result ValidationResult
+	validatePolicyNamesUnique(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for duplicate policy names")
+	}
+	if !hasErrorCode(result, "DUPLICATE_POLICY_NAME") {
+		t.Errorf("expected DUPLICATE_POLICY_NAME, got %+v", result.Errors)
+	}
+}
+
+func TestValidateDependencyNamesUnique_Duplicate(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{
+		{Name: "cache", Ref: "oci://ghcr.io/acme/redis:1.0.0", Compatibility: "^1.0.0"},
+		{Name: "cache", Ref: "oci://ghcr.io/acme/redis:2.0.0", Compatibility: "^2.0.0"},
+	}
+	var result ValidationResult
+	validateDependencyNamesUnique(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for duplicate dependency names")
+	}
+	if !hasErrorCode(result, "DUPLICATE_DEPENDENCY_NAME") {
+		t.Errorf("expected DUPLICATE_DEPENDENCY_NAME, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaces_ValidTypes(t *testing.T) {
+	types := []string{"openapi", "asyncapi", "grpc"}
+	for _, typ := range types {
+		c := validV20Contract()
+		c.Interfaces = []contract.Interface{{Name: "api", Type: typ, Ref: "spec.yaml"}}
+		var result ValidationResult
+		validateInterfaces(c, nil, &result)
+		if !result.IsValid() {
+			t.Errorf("type %q should be valid, got errors: %v", typ, result.Errors)
+		}
+	}
+}
+
+func TestValidateInterfaces_InvalidType(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "api", Type: "http", Ref: "spec.yaml"}}
+	var result ValidationResult
+	validateInterfaces(c, nil, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid interface type")
+	}
+	if !hasErrorCode(result, "INVALID_INTERFACE_TYPE") {
+		t.Errorf("expected INVALID_INTERFACE_TYPE, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaces_MissingRef(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: ""}}
+	var result ValidationResult
+	validateInterfaces(c, nil, &result)
+	if result.IsValid() {
+		t.Error("expected error for missing ref")
+	}
+	if !hasErrorCode(result, "INTERFACE_REF_REQUIRED") {
+		t.Errorf("expected INTERFACE_REF_REQUIRED, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaces_FileNotFound(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "missing.yaml"}}
+	bundleFS := fstest.MapFS{}
+	var result ValidationResult
+	validateInterfaces(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error for missing spec file")
+	}
+	if !hasErrorCode(result, "FILE_NOT_FOUND") {
+		t.Errorf("expected FILE_NOT_FOUND, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaces_InvalidYAMLSpec(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "bad.yaml"}}
+	bundleFS := fstest.MapFS{
+		"bad.yaml": &fstest.MapFile{Data: []byte("\t\tinvalid:\n\t-broken")},
+	}
+	var result ValidationResult
+	validateInterfaces(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid YAML")
+	}
+	if !hasErrorCode(result, "INVALID_INTERFACE_SPEC") {
+		t.Errorf("expected INVALID_INTERFACE_SPEC, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaces_InvalidJSONSpec(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "bad.json"}}
+	bundleFS := fstest.MapFS{
+		"bad.json": &fstest.MapFile{Data: []byte("{not valid")},
+	}
+	var result ValidationResult
+	validateInterfaces(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid JSON")
+	}
+	if !hasErrorCode(result, "INVALID_INTERFACE_SPEC") {
+		t.Errorf("expected INVALID_INTERFACE_SPEC, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaces_ValidSpecFile(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "spec.yaml"}}
+	bundleFS := fstest.MapFS{
+		"spec.yaml": &fstest.MapFile{Data: []byte("openapi: '3.0.0'\n")},
+	}
+	var result ValidationResult
+	validateInterfaces(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected valid spec file, got errors: %v", result.Errors)
+	}
+}
+
+func TestValidateInterfaces_NilBundleFS(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "spec.yaml"}}
+	var result ValidationResult
+	validateInterfaces(c, nil, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error when bundleFS is nil, got errors: %v", result.Errors)
+	}
+}
+
+func TestValidateCapabilities_BindingInterfaceUnknown(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}}
+	c.Capabilities = []contract.Capability{{Type: "health", Binding: &contract.CapabilityBinding{Type: "http", Interface: "nope", Path: "/healthz"}}}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if !hasErrorCode(result, "CAPABILITY_INTERFACE_UNKNOWN") {
+		t.Errorf("expected CAPABILITY_INTERFACE_UNKNOWN, got %+v", result.Errors)
+	}
+}
+
+func TestValidateCapabilities_BindingInterfaceKnown(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}}
+	c.Capabilities = []contract.Capability{{Type: "health", Binding: &contract.CapabilityBinding{Type: "http", Interface: "public-api", Path: "/healthz"}}}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if hasErrorCode(result, "CAPABILITY_INTERFACE_UNKNOWN") || hasErrorCode(result, "CAPABILITY_PATH_INVALID") {
+		t.Errorf("valid binding must produce no binding errors, got %+v", result.Errors)
+	}
+}
+
+func TestValidateCapabilities_BindingPathInvalid(t *testing.T) {
+	for _, bad := range []string{"//evil.example", "/%2Fevil.example", "/%2f%2fevil.example", "http://evil.example", "https://evil.example", "user@host", "#fragment", "relative/no/slash", "/\x7f"} {
+		c := validV20Contract()
+		c.Interfaces = []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}}
+		c.Capabilities = []contract.Capability{{Type: "health", Binding: &contract.CapabilityBinding{Type: "http", Interface: "public-api", Path: bad}}}
+		var result ValidationResult
+		validateCapabilities(c, &result)
+		if !hasErrorCode(result, "CAPABILITY_PATH_INVALID") {
+			t.Errorf("path %q must be rejected as CAPABILITY_PATH_INVALID, got %+v", bad, result.Errors)
+		}
+	}
+}
+
+func TestValidateCapabilities_BindingPathValid(t *testing.T) {
+	for _, ok := range []string{"/healthz", "/metrics", "/a/b/c"} {
+		c := validV20Contract()
+		c.Interfaces = []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}}
+		c.Capabilities = []contract.Capability{{Type: "health", Binding: &contract.CapabilityBinding{Type: "http", Interface: "public-api", Path: ok}}}
+		var result ValidationResult
+		validateCapabilities(c, &result)
+		if hasErrorCode(result, "CAPABILITY_PATH_INVALID") {
+			t.Errorf("path %q must be accepted, got %+v", ok, result.Errors)
+		}
+	}
+}
+
+func TestValidateCapabilities_DuplicateExtensionRef(t *testing.T) {
+	c := validV20Contract()
+	c.Capabilities = []contract.Capability{
+		{Type: "extension", Ref: "acme.io/backup"},
+		{Type: "extension", Ref: "acme.io/backup"},
+	}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if !hasErrorCode(result, "DUPLICATE_CAPABILITY") {
+		t.Errorf("duplicate extension ref must be DUPLICATE_CAPABILITY, got %+v", result.Errors)
+	}
+}
+
+func TestValidateCapabilities_DistinctExtensionRefs_OK(t *testing.T) {
+	c := validV20Contract()
+	c.Capabilities = []contract.Capability{
+		{Type: "extension", Ref: "acme.io/backup"},
+		{Type: "extension", Ref: "acme.io/security-scan"},
+	}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if hasErrorCode(result, "DUPLICATE_CAPABILITY") {
+		t.Errorf("distinct extension refs must NOT collide, got %+v", result.Errors)
+	}
+}
+
+func TestValidateCapabilities_ValidStandardTypes(t *testing.T) {
+	types := []string{"health", "metrics"}
+	for _, typ := range types {
+		c := validV20Contract()
+		c.Capabilities = []contract.Capability{{Type: typ}}
+		var result ValidationResult
+		validateCapabilities(c, &result)
+		if !result.IsValid() {
+			t.Errorf("capability type %q should be valid, got errors: %v", typ, result.Errors)
+		}
+	}
+}
+
+func TestValidateCapabilities_Extension_Valid(t *testing.T) {
+	c := validV20Contract()
+	c.Capabilities = []contract.Capability{{Type: "extension", Ref: "example.com/custom"}}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if !result.IsValid() {
+		t.Errorf("extension capability should be valid, got errors: %v", result.Errors)
+	}
+}
+
+func TestValidateCapabilities_Extension_MissingRef(t *testing.T) {
+	c := validV20Contract()
+	c.Capabilities = []contract.Capability{{Type: "extension"}}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for extension without ref")
+	}
+	if !hasErrorCode(result, "CAPABILITY_REF_REQUIRED") {
+		t.Errorf("expected CAPABILITY_REF_REQUIRED, got %+v", result.Errors)
+	}
+}
+
+func TestValidateCapabilities_Extension_InvalidRef(t *testing.T) {
+	c := validV20Contract()
+	c.Capabilities = []contract.Capability{{Type: "extension", Ref: "bad-ref"}}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid extension ref")
+	}
+	if !hasErrorCode(result, "CAPABILITY_REF_INVALID") {
+		t.Errorf("expected CAPABILITY_REF_INVALID, got %+v", result.Errors)
+	}
+}
+
+func TestValidateCapabilities_DuplicateStandard(t *testing.T) {
+	c := validV20Contract()
+	c.Capabilities = []contract.Capability{
+		{Type: "health"},
+		{Type: "health"},
+	}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for duplicate health capability")
+	}
+	if !hasErrorCode(result, "DUPLICATE_CAPABILITY") {
+		t.Errorf("expected DUPLICATE_CAPABILITY, got %+v", result.Errors)
+	}
+}
+
+func TestValidateCapabilities_InvalidType(t *testing.T) {
+	c := validV20Contract()
+	c.Capabilities = []contract.Capability{{Type: "monitoring"}}
+	var result ValidationResult
+	validateCapabilities(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid capability type")
+	}
+	if !hasErrorCode(result, "INVALID_CAPABILITY_TYPE") {
+		t.Errorf("expected INVALID_CAPABILITY_TYPE, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaceFiles_FileNotFound(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces[0].Ref = "missing.yaml"
+	bundleFS := fstest.MapFS{}
+	var result ValidationResult
+	validateInterfaceFiles(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error when interface file not found")
+	}
+	if !hasErrorCode(result, "FILE_NOT_FOUND") {
+		t.Errorf("expected FILE_NOT_FOUND, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaceFiles_FileExists(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces[0].Ref = "interfaces/openapi.yaml"
+	bundleFS := fstest.MapFS{
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte("test")},
+	}
+	var result ValidationResult
+	validateInterfaceFiles(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error when file exists, got %v", result.Errors)
+	}
 }
 
 func TestValidateInterfaceFiles_NilBundleFS(t *testing.T) {
-	c := validContract()
-	c.Interfaces[0].Contract = "openapi.yaml"
+	c := validV20Contract()
 	var result ValidationResult
 	validateInterfaceFiles(c, nil, &result)
 	if !result.IsValid() {
@@ -50,812 +404,10 @@ func TestValidateInterfaceFiles_NilBundleFS(t *testing.T) {
 	}
 }
 
-func TestValidateInterfaceFiles_FileNotFound(t *testing.T) {
-	c := validContract()
-	c.Interfaces[0].Contract = "openapi.yaml"
-	bundleFS := fstest.MapFS{}
-	var result ValidationResult
-	validateInterfaceFiles(c, bundleFS, &result)
-	if result.IsValid() {
-		t.Error("expected error when contract file not found")
-	}
-}
-
-func TestValidateInterfaceFiles_FileExists(t *testing.T) {
-	c := validContract()
-	c.Interfaces[0].Contract = "openapi.yaml"
-	bundleFS := fstest.MapFS{
-		"openapi.yaml": &fstest.MapFile{Data: []byte("test")},
-	}
-	var result ValidationResult
-	validateInterfaceFiles(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Error("expected no error when contract file exists")
-	}
-}
-
-func TestValidateInterfaceFiles_EmptyContract(t *testing.T) {
-	c := validContract()
-	c.Interfaces[0].Contract = ""
-	bundleFS := fstest.MapFS{}
-	var result ValidationResult
-	validateInterfaceFiles(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Error("expected no error when contract path is empty")
-	}
-}
-
-func TestValidateConfigFiles_NilConfig(t *testing.T) {
-	c := validContract()
-	c.Configurations = nil
-	var result ValidationResult
-	validateConfigFiles(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for nil config")
-	}
-}
-
-func TestValidateConfigFiles_NilBundleFS(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Schema: "schema.json"},
-	}
-	var result ValidationResult
-	validateConfigFiles(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error when bundleFS is nil")
-	}
-}
-
-func TestValidateConfigFiles_FileNotFound(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Schema: "schema.json"},
-	}
-	bundleFS := fstest.MapFS{}
-	var result ValidationResult
-	validateConfigFiles(c, bundleFS, &result)
-	if result.IsValid() {
-		t.Error("expected error when schema file not found")
-	}
-}
-
-func TestValidateConfigFiles_FileExists(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Schema: "schema.json"},
-	}
-	bundleFS := fstest.MapFS{
-		"schema.json": &fstest.MapFile{Data: []byte("{}")},
-	}
-	var result ValidationResult
-	validateConfigFiles(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Error("expected no error when schema file exists")
-	}
-}
-
-func TestValidateConfigFiles_EmptySchema(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Schema: ""},
-	}
-	var result ValidationResult
-	validateConfigFiles(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for empty schema path")
-	}
-}
-
-func TestValidateDependencyRefs_InvalidOCIRef(t *testing.T) {
-	c := validContract()
-	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://invalid", Compatibility: "^1.0.0"},
-	}
-	var result ValidationResult
-	validateDependencyRefs(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid OCI ref")
-	}
-}
-
-func TestValidateDependencyRefs_NoTagWithCompatibility(t *testing.T) {
-	c := validContract()
-	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc", Compatibility: "^1.0.0"},
-	}
-	var result ValidationResult
-	validateDependencyRefs(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected tagless ref with compatibility to be valid, got errors: %v", result.Errors)
-	}
-}
-
-func TestValidateDependencyRefs_NoTagNoCompatibility(t *testing.T) {
-	c := validContract()
-	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc", Compatibility: ""},
-	}
-	var result ValidationResult
-	validateDependencyRefs(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for empty compatibility")
-	}
-}
-
-func TestValidateDependencyRefs_LocalRef(t *testing.T) {
-	c := validContract()
-	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "file://../local-dep", Compatibility: "^1.0.0"},
-	}
-	var result ValidationResult
-	validateDependencyRefs(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected local ref to be valid, got errors: %v", result.Errors)
-	}
-}
-
-func TestValidateDependencyRefs_TagNotDigestWarning(t *testing.T) {
-	c := validContract()
-	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"},
-	}
-	var result ValidationResult
-	validateDependencyRefs(c, &result)
-	if !hasWarningCode(result, "TAG_NOT_DIGEST") {
-		t.Errorf("expected TAG_NOT_DIGEST warning, got %+v", result.Warnings)
-	}
-}
-
-func TestValidateDependencyRefs_EmptyCompatibility(t *testing.T) {
-	c := validContract()
-	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: ""},
-	}
-	var result ValidationResult
-	validateDependencyRefs(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for empty compatibility")
-	}
-}
-
-func TestValidateDependencyRefs_InvalidCompatibility(t *testing.T) {
-	c := validContract()
-	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "not-a-range"},
-	}
-	var result ValidationResult
-	validateDependencyRefs(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid compatibility range")
-	}
-}
-
-func TestValidateDependencyRefs_Valid(t *testing.T) {
-	c := validContract()
-	c.Dependencies = []contract.Dependency{
-		{Name: "dep1", Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"},
-	}
-	var result ValidationResult
-	validateDependencyRefs(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for valid dependency, got %v", result.Errors)
-	}
-}
-
-func TestValidateStatePersistenceInvariants_Conflict(t *testing.T) {
-	c := validContract()
-	c.Runtime.State.Type = "stateless"
-	c.Runtime.State.Persistence.Durability = "persistent"
-	var result ValidationResult
-	validateStatePersistenceInvariants(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for stateless with persistent durability")
-	}
-}
-
-func TestValidateStatePersistenceInvariants_NoConflict(t *testing.T) {
-	c := validContract()
-	c.Runtime.State.Type = "stateful"
-	c.Runtime.State.Persistence.Durability = "persistent"
-	var result ValidationResult
-	validateStatePersistenceInvariants(c, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for stateful with persistent durability")
-	}
-}
-
-func TestValidateInterfacePorts_EventWithPort(t *testing.T) {
-	c := validContract()
-	port := 8080
-	c.Interfaces = append(c.Interfaces, contract.Interface{
-		Name: "events", Type: "event", Port: &port, Contract: "events.proto",
-	})
-	var result ValidationResult
-	validateInterfacePorts(c, &result)
-	if !hasWarningCode(result, "PORT_IGNORED") {
-		t.Errorf("expected PORT_IGNORED warning for event interface with port, got %+v", result.Warnings)
-	}
-}
-
-func TestValidateInterfaceContracts_GRPCWithoutContract(t *testing.T) {
-	c := validContract()
-	grpcPort := 9090
-	c.Interfaces = append(c.Interfaces, contract.Interface{
-		Name: "grpc", Type: "grpc", Port: &grpcPort,
-	})
-	var result ValidationResult
-	validateInterfaceContracts(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for gRPC interface without contract")
-	}
-}
-
-func TestValidateHealthInterface_EventInterface(t *testing.T) {
-	c := validContract()
-	c.Interfaces = []contract.Interface{
-		{Name: "events", Type: "event", Contract: "events.proto"},
-	}
-	c.Runtime.Health.Interface = "events"
-	var result ValidationResult
-	validateHealthInterface(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for event health interface")
-	}
-}
-
-func TestValidateHealthInterface_GRPCWithPath(t *testing.T) {
-	c := validContract()
-	grpcPort := 9090
-	c.Interfaces = []contract.Interface{
-		{Name: "grpc", Type: "grpc", Port: &grpcPort, Contract: "service.proto"},
-	}
-	c.Runtime.Health = &contract.Health{Interface: "grpc", Path: "/health"}
-	var result ValidationResult
-	validateHealthInterface(c, &result)
-	if !hasWarningCode(result, "HEALTH_PATH_IGNORED") {
-		t.Errorf("expected HEALTH_PATH_IGNORED warning for gRPC interface with path, got %+v", result.Warnings)
-	}
-}
-
-func TestValidateHealthInterface_HTTPWithoutPath(t *testing.T) {
-	c := validContract()
-	c.Runtime.Health = &contract.Health{Interface: "api", Path: ""}
-	var result ValidationResult
-	validateHealthInterface(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for HTTP health interface without path")
-	}
-}
-
-func TestValidateMetricsInterface_NotFound(t *testing.T) {
-	c := validContract()
-	c.Runtime.Metrics = &contract.Metrics{Interface: "nonexistent", Path: "/metrics"}
-	var result ValidationResult
-	validateMetricsInterface(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for metrics interface not found")
-	}
-}
-
-func TestValidateMetricsInterface_EventInterface(t *testing.T) {
-	c := validContract()
-	c.Interfaces = []contract.Interface{
-		{Name: "events", Type: "event", Contract: "events.proto"},
-	}
-	c.Runtime.Metrics = &contract.Metrics{Interface: "events", Path: "/metrics"}
-	var result ValidationResult
-	validateMetricsInterface(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for event metrics interface")
-	}
-}
-
-func TestValidateMetricsInterface_HTTPWithoutPath(t *testing.T) {
-	c := validContract()
-	c.Runtime.Metrics = &contract.Metrics{Interface: "api", Path: ""}
-	var result ValidationResult
-	validateMetricsInterface(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for HTTP metrics interface without path")
-	}
-}
-
-func TestValidateMetricsInterface_GRPCWithPath(t *testing.T) {
-	c := validContract()
-	grpcPort := 9090
-	c.Interfaces = []contract.Interface{
-		{Name: "grpc", Type: "grpc", Port: &grpcPort, Contract: "service.proto"},
-	}
-	c.Runtime.Metrics = &contract.Metrics{Interface: "grpc", Path: "/metrics"}
-	var result ValidationResult
-	validateMetricsInterface(c, &result)
-	if !hasWarningCode(result, "METRICS_PATH_IGNORED") {
-		t.Errorf("expected METRICS_PATH_IGNORED warning for gRPC interface with path, got %+v", result.Warnings)
-	}
-}
-
-func TestValidateMetricsInterface_Valid(t *testing.T) {
-	c := validContract()
-	c.Runtime.Metrics = &contract.Metrics{Interface: "api", Path: "/metrics"}
-	var result ValidationResult
-	validateMetricsInterface(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for valid metrics interface, got %v", result.Errors)
-	}
-}
-
-func TestValidateMetricsInterface_NilRuntime(t *testing.T) {
-	c := validContract()
-	c.Runtime = nil
-	var result ValidationResult
-	validateMetricsInterface(c, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for nil runtime")
-	}
-}
-
-func TestValidateMetricsInterface_NilMetrics(t *testing.T) {
-	c := validContract()
-	c.Runtime.Metrics = nil
-	var result ValidationResult
-	validateMetricsInterface(c, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for nil metrics")
-	}
-}
-
-func TestValidateImageRef_InvalidRef(t *testing.T) {
-	c := validContract()
-	c.Service.Image = &contract.Image{Ref: "invalid"}
-	var result ValidationResult
-	validateImageRef(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid image ref")
-	}
-}
-
-func TestValidateImageRef_NilImage(t *testing.T) {
-	c := validContract()
-	c.Service.Image = nil
-	var result ValidationResult
-	validateImageRef(c, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for nil image")
-	}
-}
-
-func TestValidateUpgradeStrategyConsistency_OrderedStateless(t *testing.T) {
-	c := validContract()
-	c.Runtime.Lifecycle = &contract.Lifecycle{UpgradeStrategy: "ordered"}
-	c.Runtime.State.Type = "stateless"
-	var result ValidationResult
-	validateUpgradeStrategyConsistency(c, &result)
-	if !hasWarningCode(result, "UPGRADE_STRATEGY_STATE_MISMATCH") {
-		t.Errorf("expected UPGRADE_STRATEGY_STATE_MISMATCH warning, got %+v", result.Warnings)
-	}
-}
-
-func TestValidateUpgradeStrategyConsistency_NilLifecycle(t *testing.T) {
-	c := validContract()
-	c.Runtime.Lifecycle = nil
-	var result ValidationResult
-	validateUpgradeStrategyConsistency(c, &result)
-	if len(result.Warnings) != 0 {
-		t.Error("expected no warning for nil lifecycle")
-	}
-}
-
-func TestValidateInterfacePorts_HTTPWithoutPort(t *testing.T) {
-	c := validContract()
-	c.Interfaces = []contract.Interface{
-		{Name: "api", Type: "http", Port: nil},
-	}
-	var result ValidationResult
-	validateInterfacePorts(c, &result)
-	if result.IsValid() {
-		t.Error("expected PORT_REQUIRED error for HTTP interface without port")
-	}
-}
-
-func TestValidateChartRef_NilChart(t *testing.T) {
-	c := validContract()
-	c.Service.Chart = nil
-	var result ValidationResult
-	validateChartRef(c, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for nil chart")
-	}
-}
-
-func TestValidateChartRef_ValidLocal(t *testing.T) {
-	c := validContract()
-	c.Service.Chart = &contract.Chart{Ref: "./charts/my-chart", Version: "1.0.0"}
-	var result ValidationResult
-	validateChartRef(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for valid local chart, got %v", result.Errors)
-	}
-}
-
-func TestValidateChartRef_ValidOCI(t *testing.T) {
-	c := validContract()
-	c.Service.Chart = &contract.Chart{Ref: "oci://ghcr.io/acme/chart", Version: "1.0.0"}
-	var result ValidationResult
-	validateChartRef(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for valid OCI chart, got %v", result.Errors)
-	}
-}
-
-func TestValidateChartRef_InvalidOCIRef(t *testing.T) {
-	c := validContract()
-	c.Service.Chart = &contract.Chart{Ref: "oci://invalid", Version: "1.0.0"}
-	var result ValidationResult
-	validateChartRef(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid OCI chart ref")
-	}
-}
-
-func TestValidateChartRef_InvalidVersion(t *testing.T) {
-	c := validContract()
-	c.Service.Chart = &contract.Chart{Ref: "./charts/my-chart", Version: "not-semver"}
-	var result ValidationResult
-	validateChartRef(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid chart version")
-	}
-}
-
-func TestValidateConfigValues_NoConfig(t *testing.T) {
-	c := validContract()
-	c.Configurations = nil
-	var result ValidationResult
-	validateConfigValues(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for nil config")
-	}
-}
-
-func TestValidateConfigValues_NoValues(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Schema: "schema.json"},
-	}
-	var result ValidationResult
-	validateConfigValues(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for config without values")
-	}
-}
-
-func TestValidateConfigValues_ValuesWithoutSchema(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Values: map[string]any{"key": "val"}},
-	}
-	var result ValidationResult
-	validateConfigValues(c, nil, &result)
-	if result.IsValid() {
-		t.Error("expected error for values without schema")
-	}
-}
-
-func TestValidateConfigValues_NilBundleFS(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{
-			Name:   "default",
-			Schema: "config-schema.json",
-			Values: map[string]any{"key": "val"},
-		},
-	}
-	var result ValidationResult
-	validateConfigValues(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error when bundleFS is nil")
-	}
-}
-
-func TestValidateConfigValues_Valid(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{
-			Name:   "default",
-			Schema: "config-schema.json",
-			Values: map[string]any{"DB_HOST": "localhost"},
-		},
-	}
-	bundleFS := fstest.MapFS{
-		"config-schema.json": &fstest.MapFile{Data: []byte(`{
-			"type": "object",
-			"properties": {
-				"DB_HOST": {"type": "string"}
-			}
-		}`)},
-	}
-	var result ValidationResult
-	validateConfigValues(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for valid config values, got %v", result.Errors)
-	}
-}
-
-func TestValidateConfigValues_SchemaFileNotFound(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{
-			Name:   "default",
-			Schema: "missing-schema.json",
-			Values: map[string]any{"key": "val"},
-		},
-	}
-	bundleFS := fstest.MapFS{}
-	var result ValidationResult
-	validateConfigValues(c, bundleFS, &result)
-	// File-not-found is caught by validateConfigFiles, not here.
-	if !result.IsValid() {
-		t.Error("expected no error for missing schema file (handled elsewhere)")
-	}
-}
-
-func TestValidateConfigValues_InvalidSchemaJSON(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{
-			Name:   "default",
-			Schema: "bad-schema.json",
-			Values: map[string]any{"key": "val"},
-		},
-	}
-	bundleFS := fstest.MapFS{
-		"bad-schema.json": &fstest.MapFile{Data: []byte("not valid json")},
-	}
-	var result ValidationResult
-	// Invalid schema JSON is now caught by validateConfigSchemaContent;
-	// validateConfigValues silently skips when compilation fails.
-	validateConfigValues(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Error("expected no error from validateConfigValues (caught by validateConfigSchemaContent)")
-	}
-}
-
-func TestValidateConfigValues_InvalidSchemaCompile(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{
-			Name:   "default",
-			Schema: "bad-compile.json",
-			Values: map[string]any{"key": "val"},
-		},
-	}
-	// Valid JSON but references a non-existent $ref — should fail compilation.
-	bundleFS := fstest.MapFS{
-		"bad-compile.json": &fstest.MapFile{Data: []byte(`{
-			"type": "object",
-			"properties": {
-				"key": {"$ref": "nonexistent://bad-ref"}
-			}
-		}`)},
-	}
-	var result ValidationResult
-	// Schema compilation errors are now caught by validateConfigSchemaContent;
-	// validateConfigValues silently skips when compilation fails.
-	validateConfigValues(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Error("expected no error from validateConfigValues (caught by validateConfigSchemaContent)")
-	}
-}
-
-func TestValidateConfigValues_InvalidValue(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{
-			Name:   "default",
-			Schema: "config-schema.json",
-			Values: map[string]any{"DB_PORT": "not-a-number"},
-		},
-	}
-	bundleFS := fstest.MapFS{
-		"config-schema.json": &fstest.MapFile{Data: []byte(`{
-			"type": "object",
-			"properties": {
-				"DB_PORT": {"type": "integer"}
-			}
-		}`)},
-	}
-	var result ValidationResult
-	validateConfigValues(c, bundleFS, &result)
-	if result.IsValid() {
-		t.Error("expected error for config value type mismatch")
-	}
-}
-
-func TestValidateConfigValues_ExternalRef(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{
-			Name:   "default",
-			Ref:    "oci://ghcr.io/acme/config-pacto:1.0.0",
-			Values: map[string]any{"key": "val"},
-		},
-	}
-	var result ValidationResult
-	validateConfigValues(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error when using external ref with values")
-	}
-}
-
-func TestValidateConfigRef_NilConfig(t *testing.T) {
-	c := validContract()
-	c.Configurations = nil
-	var result ValidationResult
-	validateConfigRef(c, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for nil config")
-	}
-}
-
-func TestValidateConfigRef_EmptyRef(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Schema: "schema.json"},
-	}
-	var result ValidationResult
-	validateConfigRef(c, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for empty ref")
-	}
-}
-
-func TestValidateConfigRef_ValidOCI(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Ref: "oci://ghcr.io/acme/config-pacto:1.0.0"},
-	}
-	var result ValidationResult
-	validateConfigRef(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for valid OCI ref, got %v", result.Errors)
-	}
-}
-
-func TestValidateConfigRef_InvalidOCI(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Ref: "oci://invalid"},
-	}
-	var result ValidationResult
-	validateConfigRef(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid OCI config ref")
-	}
-}
-
-func TestValidateConfigRef_LocalRef(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Ref: "file://../config"},
-	}
-	var result ValidationResult
-	validateConfigRef(c, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for local config ref")
-	}
-}
-
-func TestValidatePolicyFields_NilPolicy(t *testing.T) {
-	c := validContract()
-	c.Policies = nil
-	var result ValidationResult
-	validatePolicyFields(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for nil policy")
-	}
-}
-
-func TestValidatePolicyFields_EmptyPolicy(t *testing.T) {
-	// Empty policy (no schema, no ref) is caught by structural JSON Schema validation
-	// (oneOf requires schema or ref). The crossfield check does not duplicate this.
-	c := validContract()
-	c.Policies = []contract.PolicySource{{Name: "empty"}}
-	var result ValidationResult
-	validatePolicyFields(c, nil, &result)
-	if !result.IsValid() {
-		t.Errorf("crossfield should not produce error for empty policy (caught by structural), got %v", result.Errors)
-	}
-}
-
-func TestValidatePolicyFields_SchemaFileNotFound(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{{Name: "pol1", Schema: "policy/schema.json"}}
-	bundleFS := fstest.MapFS{}
-	var result ValidationResult
-	validatePolicyFields(c, bundleFS, &result)
-	if result.IsValid() {
-		t.Error("expected error when policy schema file not found")
-	}
-}
-
-func TestValidatePolicyFields_SchemaFileExists(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{{Name: "pol1", Schema: "policy/schema.json"}}
-	bundleFS := fstest.MapFS{
-		"policy/schema.json": &fstest.MapFile{Data: []byte("{}")},
-	}
-	var result ValidationResult
-	validatePolicyFields(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error when policy schema file exists, got %v", result.Errors)
-	}
-}
-
-func TestValidatePolicyFields_SchemaNilBundleFS(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{{Name: "pol1", Schema: "policy/schema.json"}}
-	var result ValidationResult
-	validatePolicyFields(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error when bundleFS is nil")
-	}
-}
-
-func TestValidatePolicyFields_ValidOCIRef(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{{Name: "pol1", Ref: "oci://ghcr.io/acme/policy-pacto:1.0.0"}}
-	var result ValidationResult
-	validatePolicyFields(c, nil, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for valid OCI policy ref, got %v", result.Errors)
-	}
-}
-
-func TestValidatePolicyFields_InvalidOCIRef(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{{Name: "pol1", Ref: "oci://invalid"}}
-	var result ValidationResult
-	validatePolicyFields(c, nil, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid OCI policy ref")
-	}
-}
-
-func TestValidatePolicyFields_LocalRef(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{{Name: "pol1", Ref: "file://../policy"}}
-	var result ValidationResult
-	validatePolicyFields(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for local policy ref")
-	}
-}
-
-func TestValidatePolicyFields_BothSchemaAndRef(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{{
-		Name:   "pol1",
-		Schema: "policy/schema.json",
-		Ref:    "oci://ghcr.io/acme/policy-pacto:1.0.0",
-	}}
-	bundleFS := fstest.MapFS{
-		"policy/schema.json": &fstest.MapFile{Data: []byte("{}")},
-	}
-	var result ValidationResult
-	validatePolicyFields(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for policy with both schema and ref, got %v", result.Errors)
-	}
-}
-
-// --- Interface file content validation ---
-
 func TestValidateInterfaceFileContent_ValidYAML(t *testing.T) {
-	c := validContract()
-	c.Interfaces[0].Contract = "interfaces/openapi.yaml"
+	c := validV20Contract()
 	bundleFS := fstest.MapFS{
-		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte("openapi: '3.0.0'\ninfo:\n  title: test\n  version: '1.0'\n")},
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte("openapi: '3.0.0'\n")},
 	}
 	var result ValidationResult
 	validateInterfaceFileContent(c, bundleFS, &result)
@@ -865,627 +417,439 @@ func TestValidateInterfaceFileContent_ValidYAML(t *testing.T) {
 }
 
 func TestValidateInterfaceFileContent_InvalidYAML(t *testing.T) {
-	c := validContract()
-	c.Interfaces[0].Contract = "interfaces/openapi.yaml"
+	c := validV20Contract()
 	bundleFS := fstest.MapFS{
-		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte(":\ninvalid:\n  - [yaml\n")},
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte("\t\t\tinvalid:\n\t-broken")},
 	}
 	var result ValidationResult
 	validateInterfaceFileContent(c, bundleFS, &result)
 	if result.IsValid() {
-		t.Error("expected INVALID_CONTRACT_FILE error for invalid YAML")
+		t.Error("expected error for invalid YAML")
 	}
-	if result.Errors[0].Code != "INVALID_CONTRACT_FILE" {
-		t.Errorf("expected code INVALID_CONTRACT_FILE, got %s", result.Errors[0].Code)
-	}
-}
-
-func TestValidateInterfaceFileContent_NonYAMLSkipped(t *testing.T) {
-	c := validContract()
-	c.Interfaces[0].Contract = "interfaces/service.proto"
-	bundleFS := fstest.MapFS{
-		"interfaces/service.proto": &fstest.MapFile{Data: []byte("not yaml content")},
-	}
-	var result ValidationResult
-	validateInterfaceFileContent(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for non-YAML file")
+	if !hasErrorCode(result, "INVALID_INTERFACE_SPEC") {
+		t.Errorf("expected INVALID_INTERFACE_SPEC, got %+v", result.Errors)
 	}
 }
 
-func TestValidateInterfaceFileContent_NilBundleFS(t *testing.T) {
-	c := validContract()
-	c.Interfaces[0].Contract = "interfaces/openapi.yaml"
-	var result ValidationResult
-	validateInterfaceFileContent(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error when bundleFS is nil")
-	}
-}
-
-func TestValidateInterfaceFileContent_EmptyContract(t *testing.T) {
-	c := validContract()
-	c.Interfaces[0].Contract = ""
-	var result ValidationResult
-	validateInterfaceFileContent(c, fstest.MapFS{}, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for empty contract path")
-	}
-}
-
-func TestValidateInterfaceFileContent_MissingFileSkipped(t *testing.T) {
-	c := validContract()
-	c.Interfaces[0].Contract = "interfaces/openapi.yaml"
+func TestValidateConfigFiles_FileNotFound(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{{Name: "app", Schema: "config/app.json"}}
 	bundleFS := fstest.MapFS{}
 	var result ValidationResult
-	validateInterfaceFileContent(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for missing file (handled by validateInterfaceFiles)")
+	validateConfigFiles(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error when config schema file not found")
+	}
+	if !hasErrorCode(result, "FILE_NOT_FOUND") {
+		t.Errorf("expected FILE_NOT_FOUND, got %+v", result.Errors)
 	}
 }
 
-// --- Config schema content validation ---
-
-func TestValidateConfigSchemaContent_ValidJSON(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Schema: "config/schema.json"},
-	}
+func TestValidateConfigFiles_FileExists(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{{Name: "app", Schema: "config/app.json"}}
 	bundleFS := fstest.MapFS{
-		"config/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+		"config/app.json": &fstest.MapFile{Data: []byte("{}")},
 	}
 	var result ValidationResult
-	validateConfigSchemaContent(c, bundleFS, &result)
+	validateConfigFiles(c, bundleFS, &result)
 	if !result.IsValid() {
-		t.Errorf("expected no error for valid JSON Schema, got %v", result.Errors)
+		t.Errorf("expected no error when file exists, got %v", result.Errors)
 	}
 }
 
 func TestValidateConfigSchemaContent_InvalidJSON(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Schema: "config/schema.json"},
-	}
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{{Name: "app", Schema: "config/app.json"}}
 	bundleFS := fstest.MapFS{
-		"config/schema.json": &fstest.MapFile{Data: []byte("not json")},
+		"config/app.json": &fstest.MapFile{Data: []byte("not json")},
 	}
 	var result ValidationResult
 	validateConfigSchemaContent(c, bundleFS, &result)
 	if result.IsValid() {
-		t.Error("expected INVALID_CONFIG_JSON error")
+		t.Error("expected error for invalid JSON")
 	}
-	if result.Errors[0].Code != "INVALID_CONFIG_JSON" {
-		t.Errorf("expected code INVALID_CONFIG_JSON, got %s", result.Errors[0].Code)
+	if !hasErrorCode(result, "INVALID_CONFIG_JSON") {
+		t.Errorf("expected INVALID_CONFIG_JSON, got %+v", result.Errors)
 	}
 }
 
 func TestValidateConfigSchemaContent_InvalidSchema(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Schema: "config/schema.json"},
-	}
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{{Name: "app", Schema: "config/app.json"}}
 	bundleFS := fstest.MapFS{
-		"config/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"k":{"$ref":"nonexistent://bad"}}}`)},
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type": 12345}`)},
 	}
 	var result ValidationResult
 	validateConfigSchemaContent(c, bundleFS, &result)
 	if result.IsValid() {
-		t.Error("expected INVALID_CONFIG_SCHEMA error")
+		t.Error("expected error for invalid JSON Schema")
 	}
-	if result.Errors[0].Code != "INVALID_CONFIG_SCHEMA" {
-		t.Errorf("expected code INVALID_CONFIG_SCHEMA, got %s", result.Errors[0].Code)
+	if !hasErrorCode(result, "INVALID_CONFIG_SCHEMA") {
+		t.Errorf("expected INVALID_CONFIG_SCHEMA, got %+v", result.Errors)
 	}
 }
 
-func TestValidateConfigSchemaContent_NilConfig(t *testing.T) {
-	c := validContract()
-	c.Configurations = nil
+func TestValidateConfigRef_InvalidOCI(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{{Name: "app", Ref: "oci://bad"}}
 	var result ValidationResult
-	validateConfigSchemaContent(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for nil config")
+	validateConfigRef(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid OCI ref")
+	}
+	if !hasErrorCode(result, "INVALID_CONFIG_REF") {
+		t.Errorf("expected INVALID_CONFIG_REF, got %+v", result.Errors)
 	}
 }
 
-func TestValidateConfigSchemaContent_EmptySchema(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Schema: ""},
-	}
+func TestValidateConfigRef_ValidOCI(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0.0"}}
 	var result ValidationResult
-	validateConfigSchemaContent(c, nil, &result)
+	validateConfigRef(c, &result)
 	if !result.IsValid() {
-		t.Error("expected no error for empty schema")
+		t.Errorf("expected valid OCI ref, got errors: %v", result.Errors)
 	}
 }
 
-func TestValidateConfigSchemaContent_MissingFileSkipped(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Schema: "missing.json"},
-	}
+func TestValidatePolicyFields_FileNotFound(t *testing.T) {
+	c := validV20Contract()
+	c.Policies = []contract.Policy{{Name: "sec", Schema: "policy/sec.json"}}
 	bundleFS := fstest.MapFS{}
 	var result ValidationResult
-	validateConfigSchemaContent(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for missing file (handled by validateConfigFiles)")
-	}
-}
-
-func TestValidateConfigSchemaContent_WithoutValues(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "default", Schema: "config/schema.json"},
-	}
-	bundleFS := fstest.MapFS{
-		"config/schema.json": &fstest.MapFile{Data: []byte("not json")},
-	}
-	var result ValidationResult
-	validateConfigSchemaContent(c, bundleFS, &result)
+	validatePolicyFields(c, bundleFS, &result)
 	if result.IsValid() {
-		t.Error("expected error even without values — schema must always be valid")
+		t.Error("expected error when policy schema file not found")
+	}
+	if !hasErrorCode(result, "FILE_NOT_FOUND") {
+		t.Errorf("expected FILE_NOT_FOUND, got %+v", result.Errors)
 	}
 }
 
-// --- Policy schema content validation ---
-
-func TestValidatePolicySchemaContent_ValidJSON(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{{Name: "pol1", Schema: "policy/schema.json"}}
-	bundleFS := fstest.MapFS{
-		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
-	}
+func TestValidatePolicyFields_InvalidRef(t *testing.T) {
+	c := validV20Contract()
+	c.Policies = []contract.Policy{{Name: "sec", Ref: "oci://bad"}}
 	var result ValidationResult
-	validatePolicySchemaContent(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for valid policy JSON Schema, got %v", result.Errors)
+	validatePolicyFields(c, nil, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid policy ref")
+	}
+	if !hasErrorCode(result, "INVALID_POLICY_REF") {
+		t.Errorf("expected INVALID_POLICY_REF, got %+v", result.Errors)
 	}
 }
 
 func TestValidatePolicySchemaContent_InvalidJSON(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{{Name: "pol1", Schema: "policy/schema.json"}}
+	c := validV20Contract()
+	c.Policies = []contract.Policy{{Name: "sec", Schema: "policy/sec.json"}}
 	bundleFS := fstest.MapFS{
-		"policy/schema.json": &fstest.MapFile{Data: []byte("not json")},
+		"policy/sec.json": &fstest.MapFile{Data: []byte("not json")},
 	}
 	var result ValidationResult
 	validatePolicySchemaContent(c, bundleFS, &result)
 	if result.IsValid() {
-		t.Error("expected INVALID_POLICY_JSON error")
+		t.Error("expected error for invalid JSON")
 	}
-	if result.Errors[0].Code != "INVALID_POLICY_JSON" {
-		t.Errorf("expected code INVALID_POLICY_JSON, got %s", result.Errors[0].Code)
+	if !hasErrorCode(result, "INVALID_POLICY_JSON") {
+		t.Errorf("expected INVALID_POLICY_JSON, got %+v", result.Errors)
 	}
 }
 
 func TestValidatePolicySchemaContent_InvalidSchema(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{{Name: "pol1", Schema: "policy/schema.json"}}
+	c := validV20Contract()
+	c.Policies = []contract.Policy{{Name: "sec", Schema: "policy/sec.json"}}
 	bundleFS := fstest.MapFS{
-		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"k":{"$ref":"nonexistent://bad"}}}`)},
+		"policy/sec.json": &fstest.MapFile{Data: []byte(`{"type": 12345}`)},
 	}
 	var result ValidationResult
 	validatePolicySchemaContent(c, bundleFS, &result)
 	if result.IsValid() {
-		t.Error("expected INVALID_POLICY_SCHEMA error")
+		t.Error("expected error for invalid JSON Schema")
 	}
-	if result.Errors[0].Code != "INVALID_POLICY_SCHEMA" {
-		t.Errorf("expected code INVALID_POLICY_SCHEMA, got %s", result.Errors[0].Code)
+	if !hasErrorCode(result, "INVALID_POLICY_SCHEMA") {
+		t.Errorf("expected INVALID_POLICY_SCHEMA, got %+v", result.Errors)
 	}
 }
 
-func TestValidatePolicySchemaContent_NilPolicy(t *testing.T) {
-	c := validContract()
-	c.Policies = nil
+func TestValidatePolicyTarget_Contract(t *testing.T) {
+	c := validV20Contract()
+	c.Policies = []contract.Policy{{Name: "sec", Target: "contract", Schema: "policy/sec.json"}}
 	var result ValidationResult
-	validatePolicySchemaContent(c, nil, &result)
+	validatePolicyTarget(c, &result)
 	if !result.IsValid() {
-		t.Error("expected no error for nil policy")
+		t.Errorf("expected contract target to be valid, got errors: %v", result.Errors)
 	}
 }
 
-func TestValidatePolicySchemaContent_EmptySchema(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{{Name: "pol1", Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+func TestValidatePolicyTarget_Unsupported(t *testing.T) {
+	c := validV20Contract()
+	c.Policies = []contract.Policy{{Name: "sec", Target: "runtime", Schema: "policy/sec.json"}}
 	var result ValidationResult
-	validatePolicySchemaContent(c, nil, &result)
-	if !result.IsValid() {
-		t.Error("expected no error for policy with ref only")
-	}
-}
-
-// --- validateJSONSchemaFile guard ---
-
-func TestValidateJSONSchemaFile_NilBundleFS(t *testing.T) {
-	var result ValidationResult
-	validateJSONSchemaFile(nil, "schema.json", "field", "CODE1", "CODE2", &result)
-	if !result.IsValid() {
-		t.Error("expected no error when bundleFS is nil")
-	}
-}
-
-// --- isYAMLFile helper ---
-
-func TestIsYAMLFile(t *testing.T) {
-	tests := []struct {
-		path string
-		want bool
-	}{
-		{"openapi.yaml", true},
-		{"openapi.yml", true},
-		{"openapi.YAML", true},
-		{"schema.json", false},
-		{"service.proto", false},
-		{"noext", false},
-	}
-	for _, tt := range tests {
-		if got := isYAMLFile(tt.path); got != tt.want {
-			t.Errorf("isYAMLFile(%q) = %v, want %v", tt.path, got, tt.want)
-		}
-	}
-}
-
-// --- Tests for multi-configuration form ---
-
-func TestValidateConfigFiles_MultiConfigs(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "app", Schema: "config/app.json"},
-		{Name: "db", Schema: "config/db.json"},
-	}
-	bundleFS := fstest.MapFS{
-		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
-	}
-	var result ValidationResult
-	validateConfigFiles(c, bundleFS, &result)
+	validatePolicyTarget(c, &result)
 	if result.IsValid() {
-		t.Error("expected error for missing db.json")
+		t.Error("expected error for unsupported policy target")
 	}
-	// Check that error path uses configurations[N] form
-	if len(result.Errors) != 1 {
-		t.Fatalf("expected 1 error, got %d", len(result.Errors))
-	}
-	if result.Errors[0].Path != "configurations[1].schema" {
-		t.Errorf("expected path configurations[1].schema, got %s", result.Errors[0].Path)
+	if !hasErrorCode(result, "UNSUPPORTED_POLICY_TARGET") {
+		t.Errorf("expected UNSUPPORTED_POLICY_TARGET, got %+v", result.Errors)
 	}
 }
 
-func TestValidateConfigValues_MultiConfigs(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{
-			Name:   "app",
-			Schema: "config/app.json",
-			Values: map[string]any{"PORT": 8080},
-		},
-		{
-			Name:   "db",
-			Schema: "config/db.json",
-			Values: map[string]any{"HOST": "localhost"},
-		},
+func TestValidateDependencyRefs_InvalidOCI(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{Name: "cache", Ref: "oci://bad", Compatibility: "^1.0.0"}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid OCI ref")
+	}
+	if !hasErrorCode(result, "INVALID_OCI_REF") {
+		t.Errorf("expected INVALID_OCI_REF, got %+v", result.Errors)
+	}
+}
+
+func TestValidateDependencyRefs_TagNotDigestWarning(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{Name: "cache", Ref: "oci://ghcr.io/acme/redis:1.0.0", Compatibility: "^1.0.0"}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if !hasWarningCode(result, "TAG_NOT_DIGEST") {
+		t.Errorf("expected TAG_NOT_DIGEST warning, got %+v", result.Warnings)
+	}
+}
+
+func TestValidateDependencyRefs_DigestOK(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{Name: "cache", Ref: "oci://ghcr.io/acme/redis@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", Compatibility: "^1.0.0"}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if !result.IsValid() {
+		t.Errorf("expected valid digest ref, got errors: %v", result.Errors)
+	}
+	if hasWarningCode(result, "TAG_NOT_DIGEST") {
+		t.Error("expected no TAG_NOT_DIGEST warning for digest ref")
+	}
+}
+
+func TestValidateDependencyRefs_EmptyCompatibility(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{Name: "cache", Ref: "oci://ghcr.io/acme/redis:1.0.0", Compatibility: ""}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for empty compatibility")
+	}
+	if !hasErrorCode(result, "EMPTY_COMPATIBILITY") {
+		t.Errorf("expected EMPTY_COMPATIBILITY, got %+v", result.Errors)
+	}
+}
+
+func TestValidateDependencyRefs_InvalidCompatibility(t *testing.T) {
+	c := validV20Contract()
+	c.Dependencies = []contract.Dependency{{Name: "cache", Ref: "oci://ghcr.io/acme/redis:1.0.0", Compatibility: "not-a-range"}}
+	var result ValidationResult
+	validateDependencyRefs(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid compatibility range")
+	}
+	if !hasErrorCode(result, "INVALID_COMPATIBILITY") {
+		t.Errorf("expected INVALID_COMPATIBILITY, got %+v", result.Errors)
+	}
+}
+
+func TestValidateConfigValues_WithoutSchema(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{{Name: "app", Values: map[string]any{"x": 1}}}
+	var result ValidationResult
+	validateConfigValues(c, nil, &result)
+	if result.IsValid() {
+		t.Error("expected error for values without schema")
+	}
+	if !hasErrorCode(result, "VALUES_WITHOUT_SCHEMA") {
+		t.Errorf("expected VALUES_WITHOUT_SCHEMA, got %+v", result.Errors)
+	}
+}
+
+func TestValidateConfigValues_WithSchema_Valid(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{
+		{Name: "app", Schema: "config/app.json", Values: map[string]any{"replicas": 3}},
 	}
 	bundleFS := fstest.MapFS{
-		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"PORT":{"type":"integer"}}}`)},
-		"config/db.json":  &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"HOST":{"type":"string"}}}`)},
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"replicas":{"type":"integer"}}}`)},
 	}
 	var result ValidationResult
 	validateConfigValues(c, bundleFS, &result)
 	if !result.IsValid() {
-		t.Errorf("expected no error for valid multi-config values, got %v", result.Errors)
+		t.Errorf("expected valid config values, got errors: %v", result.Errors)
 	}
 }
 
-func TestValidateConfigValues_MultiConfigsInvalid(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{
-			Name:   "app",
-			Schema: "config/app.json",
-			Values: map[string]any{"PORT": "not-a-number"},
-		},
+func TestValidateConfigValues_WithSchema_Invalid(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{
+		{Name: "app", Schema: "config/app.json", Values: map[string]any{"replicas": "three"}},
 	}
 	bundleFS := fstest.MapFS{
-		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"PORT":{"type":"integer"}}}`)},
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"replicas":{"type":"integer"}}}`)},
 	}
 	var result ValidationResult
 	validateConfigValues(c, bundleFS, &result)
 	if result.IsValid() {
-		t.Error("expected error for invalid value in multi-config form")
+		t.Error("expected error for config values that don't match schema")
 	}
-	if len(result.Errors) != 1 {
-		t.Fatalf("expected 1 error, got %d", len(result.Errors))
-	}
-	if result.Errors[0].Path != "configurations[0].values" {
-		t.Errorf("expected path configurations[0].values, got %s", result.Errors[0].Path)
+	if !hasErrorCode(result, "CONFIG_VALUES_VALIDATION_FAILED") {
+		t.Errorf("expected CONFIG_VALUES_VALIDATION_FAILED, got %+v", result.Errors)
 	}
 }
 
-func TestValidateConfigFiles_MultiConfigsEmptySchema(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"}, // no schema
+func TestValidateStatePersistenceInvariants_StatelessPersistent(t *testing.T) {
+	c := validV20Contract()
+	c.State = &contract.State{
+		Type:            contract.StateStateless,
+		Persistence:     contract.Persistence{Scope: "local", Durability: contract.DurabilityPersistent},
+		DataCriticality: "low",
 	}
 	var result ValidationResult
-	validateConfigFiles(c, fstest.MapFS{}, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for config without schema, got %v", result.Errors)
-	}
-}
-
-func TestValidateConfigSchemaContent_MultiConfigsEmptySchema(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"}, // no schema
-	}
-	var result ValidationResult
-	validateConfigSchemaContent(c, fstest.MapFS{}, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for config without schema, got %v", result.Errors)
-	}
-}
-
-func TestValidateConfigFiles_MultiConfigsAllFound(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "app", Schema: "config/app.json"},
-		{Name: "db", Schema: "config/db.json"},
-	}
-	bundleFS := fstest.MapFS{
-		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
-		"config/db.json":  &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
-	}
-	var result ValidationResult
-	validateConfigFiles(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no errors when all multi-config files found, got %v", result.Errors)
-	}
-}
-
-func TestValidateConfigRef_MultiConfigs(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0"},
-	}
-	var result ValidationResult
-	validateConfigRef(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for valid OCI ref in multi-config, got %v", result.Errors)
-	}
-}
-
-func TestValidateConfigRef_MultiConfigsInvalidOCI(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "app", Ref: "oci://INVALID REF!!!"},
-	}
-	var result ValidationResult
-	validateConfigRef(c, &result)
+	validateStatePersistenceInvariants(c, &result)
 	if result.IsValid() {
-		t.Error("expected error for invalid OCI ref in multi-config")
+		t.Error("expected error for stateless with persistent durability")
 	}
-	if result.Errors[0].Path != "configurations[0].ref" {
-		t.Errorf("expected path configurations[0].ref, got %s", result.Errors[0].Path)
+	if !hasErrorCode(result, "STATELESS_PERSISTENT_CONFLICT") {
+		t.Errorf("expected STATELESS_PERSISTENT_CONFLICT, got %+v", result.Errors)
 	}
 }
 
-func TestValidateConfigSchemaContent_MultiConfigs(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "app", Schema: "config/app.json"},
-	}
-	bundleFS := fstest.MapFS{
-		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+func TestValidateStatePersistenceInvariants_StatefulPersistent(t *testing.T) {
+	c := validV20Contract()
+	c.State = &contract.State{
+		Type:            contract.StateStateful,
+		Persistence:     contract.Persistence{Scope: "shared", Durability: contract.DurabilityPersistent},
+		DataCriticality: "high",
 	}
 	var result ValidationResult
-	validateConfigSchemaContent(c, bundleFS, &result)
+	validateStatePersistenceInvariants(c, &result)
 	if !result.IsValid() {
-		t.Errorf("expected no error for valid schema in multi-config, got %v", result.Errors)
+		t.Errorf("expected valid stateful+persistent, got errors: %v", result.Errors)
 	}
 }
 
-func TestValidateConfigSchemaContent_MultiConfigsInvalidSchema(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "app", Schema: "config/app.json"},
-	}
-	bundleFS := fstest.MapFS{
-		"config/app.json": &fstest.MapFile{Data: []byte(`{"type": 123}`)},
+func TestValidateReadiness_InvalidExpires(t *testing.T) {
+	c := validV20Contract()
+	c.Readiness = &contract.Readiness{
+		Expires: "2026-1-1",
+		Claims:  []contract.ReadinessClaim{{ID: "a", Type: "url", Status: "done", Evidence: "x", Weight: 10}},
 	}
 	var result ValidationResult
-	validateConfigSchemaContent(c, bundleFS, &result)
+	validateReadiness(c, &result)
 	if result.IsValid() {
-		t.Error("expected error for invalid schema in multi-config")
+		t.Error("expected error for non-canonical date")
 	}
-	if result.Errors[0].Path != "configurations[0].schema" {
-		t.Errorf("expected path configurations[0].schema, got %s", result.Errors[0].Path)
+	if !hasErrorCode(result, "INVALID_READINESS_EXPIRES") {
+		t.Errorf("expected INVALID_READINESS_EXPIRES, got %+v", result.Errors)
 	}
 }
 
-func TestValidateConfigSchemaContent_MultiConfigsMissingFile(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "app", Schema: "config/missing.json"},
+func TestValidateReadiness_ValidExpires(t *testing.T) {
+	c := validV20Contract()
+	c.Readiness = &contract.Readiness{
+		Expires: "2026-12-31",
+		Claims:  []contract.ReadinessClaim{{ID: "a", Type: "url", Status: "done", Evidence: "x", Weight: 10}},
 	}
 	var result ValidationResult
-	validateConfigSchemaContent(c, fstest.MapFS{}, &result)
+	validateReadiness(c, &result)
 	if !result.IsValid() {
-		t.Error("expected no error for missing file (handled by validateConfigFiles)")
+		t.Errorf("expected valid readiness, got errors: %v", result.Errors)
 	}
 }
 
-func TestValidateConfigSchemaContent_MultiConfigsInvalidJSON(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "app", Schema: "config/app.json"},
-	}
-	bundleFS := fstest.MapFS{
-		"config/app.json": &fstest.MapFile{Data: []byte(`not json`)},
-	}
-	var result ValidationResult
-	validateConfigSchemaContent(c, bundleFS, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid JSON in multi-config schema")
-	}
-	if result.Errors[0].Path != "configurations[0].schema" {
-		t.Errorf("expected path configurations[0].schema, got %s", result.Errors[0].Path)
-	}
-}
-
-func TestValidateConfigValues_MultiConfigsWithoutSchema(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{
-			Name:   "app",
-			Values: map[string]any{"PORT": 8080},
+func TestValidateReadiness_DuplicateClaimID(t *testing.T) {
+	c := validV20Contract()
+	c.Readiness = &contract.Readiness{
+		Expires: "2026-12-31",
+		Claims: []contract.ReadinessClaim{
+			{ID: "a", Type: "url", Status: "done", Evidence: "x", Weight: 10},
+			{ID: "a", Type: "ticket", Status: "done", Evidence: "y", Weight: 10},
 		},
 	}
 	var result ValidationResult
-	validateConfigValues(c, fstest.MapFS{}, &result)
+	validateReadiness(c, &result)
 	if result.IsValid() {
-		t.Error("expected VALUES_WITHOUT_SCHEMA for multi-config values without schema")
+		t.Error("expected error for duplicate claim ID")
 	}
-	if result.Errors[0].Path != "configurations[0].values" {
-		t.Errorf("expected path configurations[0].values, got %s", result.Errors[0].Path)
+	if !hasErrorCode(result, "DUPLICATE_READINESS_ID") {
+		t.Errorf("expected DUPLICATE_READINESS_ID, got %+v", result.Errors)
 	}
 }
 
-// --- Duplicate name validation ---
-
-func TestValidateConfigurationNamesUnique_Duplicates(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "app", Schema: "config/app.json"},
-		{Name: "db", Schema: "config/db.json"},
-		{Name: "app", Schema: "config/app2.json"},
+func TestValidateReadiness_EmptyEvidence(t *testing.T) {
+	c := validV20Contract()
+	c.Readiness = &contract.Readiness{
+		Expires: "2026-12-31",
+		Claims:  []contract.ReadinessClaim{{ID: "a", Type: "url", Status: "done", Evidence: "  ", Weight: 10}},
 	}
 	var result ValidationResult
-	validateConfigurationNamesUnique(c, &result)
+	validateReadiness(c, &result)
 	if result.IsValid() {
-		t.Error("expected error for duplicate configuration name")
+		t.Error("expected error for blank evidence")
 	}
-	if len(result.Errors) != 1 {
-		t.Fatalf("expected 1 error, got %d", len(result.Errors))
-	}
-	if result.Errors[0].Code != "DUPLICATE_CONFIGURATION_NAME" {
-		t.Errorf("expected code DUPLICATE_CONFIGURATION_NAME, got %s", result.Errors[0].Code)
-	}
-	if result.Errors[0].Path != "configurations[2].name" {
-		t.Errorf("expected path configurations[2].name, got %s", result.Errors[0].Path)
+	if !hasErrorCode(result, "EMPTY_READINESS_EVIDENCE") {
+		t.Errorf("expected EMPTY_READINESS_EVIDENCE, got %+v", result.Errors)
 	}
 }
 
-func TestValidateConfigurationNamesUnique_NoDuplicates(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{Name: "app", Schema: "config/app.json"},
-		{Name: "db", Schema: "config/db.json"},
+func TestValidateReadiness_BlankDescription(t *testing.T) {
+	c := validV20Contract()
+	c.Readiness = &contract.Readiness{
+		Expires: "2026-12-31",
+		Claims:  []contract.ReadinessClaim{{ID: "a", Type: "url", Status: "done", Evidence: "e", Weight: 10, Description: "   "}},
 	}
 	var result ValidationResult
-	validateConfigurationNamesUnique(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for unique configuration names, got %v", result.Errors)
-	}
-}
-
-func TestValidatePolicyNamesUnique_Duplicates(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{
-		{Name: "security", Schema: "policy/security.json"},
-		{Name: "compliance", Schema: "policy/compliance.json"},
-		{Name: "security", Ref: "oci://ghcr.io/acme/policy:1.0.0"},
-	}
-	var result ValidationResult
-	validatePolicyNamesUnique(c, &result)
+	validateReadiness(c, &result)
 	if result.IsValid() {
-		t.Error("expected error for duplicate policy name")
+		t.Error("expected error for blank description")
 	}
-	if len(result.Errors) != 1 {
-		t.Fatalf("expected 1 error, got %d", len(result.Errors))
-	}
-	if result.Errors[0].Code != "DUPLICATE_POLICY_NAME" {
-		t.Errorf("expected code DUPLICATE_POLICY_NAME, got %s", result.Errors[0].Code)
-	}
-	if result.Errors[0].Path != "policies[2].name" {
-		t.Errorf("expected path policies[2].name, got %s", result.Errors[0].Path)
+	if !hasErrorCode(result, "EMPTY_READINESS_DESCRIPTION") {
+		t.Errorf("expected EMPTY_READINESS_DESCRIPTION, got %+v", result.Errors)
 	}
 }
 
-func TestValidatePolicyNamesUnique_NoDuplicates(t *testing.T) {
-	c := validContract()
-	c.Policies = []contract.PolicySource{
-		{Name: "security", Schema: "policy/security.json"},
-		{Name: "compliance", Schema: "policy/compliance.json"},
+func TestValidateReadiness_InvalidRevisionDate(t *testing.T) {
+	c := validV20Contract()
+	c.Readiness = &contract.Readiness{
+		Expires: "2026-12-31",
+		History: []contract.ReadinessRevision{{Date: "2026-1-1", Version: "1.0.0", Author: "ed", Description: "init"}},
+		Claims:  []contract.ReadinessClaim{{ID: "a", Type: "url", Status: "done", Evidence: "e", Weight: 10}},
 	}
 	var result ValidationResult
-	validatePolicyNamesUnique(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for unique policy names, got %v", result.Errors)
-	}
-}
-
-func TestValidateDependencyNamesUnique_Duplicates(t *testing.T) {
-	c := validContract()
-	c.Dependencies = []contract.Dependency{
-		{Name: "auth", Ref: "oci://ghcr.io/acme/auth@sha256:abc123", Compatibility: "^1.0.0"},
-		{Name: "cache", Ref: "oci://ghcr.io/acme/cache@sha256:def456", Compatibility: "^2.0.0"},
-		{Name: "auth", Ref: "oci://ghcr.io/acme/auth@sha256:xyz789", Compatibility: "^1.1.0"},
-	}
-	var result ValidationResult
-	validateDependencyNamesUnique(c, &result)
+	validateReadiness(c, &result)
 	if result.IsValid() {
-		t.Error("expected error for duplicate dependency name")
+		t.Error("expected error for non-canonical revision date")
 	}
-	if len(result.Errors) != 1 {
-		t.Fatalf("expected 1 error, got %d", len(result.Errors))
-	}
-	if result.Errors[0].Code != "DUPLICATE_DEPENDENCY_NAME" {
-		t.Errorf("expected code DUPLICATE_DEPENDENCY_NAME, got %s", result.Errors[0].Code)
-	}
-	if result.Errors[0].Path != "dependencies[2].name" {
-		t.Errorf("expected path dependencies[2].name, got %s", result.Errors[0].Path)
+	if !hasErrorCode(result, "INVALID_READINESS_REVISION") {
+		t.Errorf("expected INVALID_READINESS_REVISION, got %+v", result.Errors)
 	}
 }
 
-func TestValidateDependencyNamesUnique_NoDuplicates(t *testing.T) {
-	c := validContract()
-	c.Dependencies = []contract.Dependency{
-		{Name: "auth", Ref: "oci://ghcr.io/acme/auth@sha256:abc123", Compatibility: "^1.0.0"},
-		{Name: "cache", Ref: "oci://ghcr.io/acme/cache@sha256:def456", Compatibility: "^2.0.0"},
+func TestValidateReadiness_BlankRevisionFields(t *testing.T) {
+	c := validV20Contract()
+	c.Readiness = &contract.Readiness{
+		Expires: "2026-12-31",
+		History: []contract.ReadinessRevision{{Date: "2026-06-21", Version: "", Author: "ed", Description: "init"}},
+		Claims:  []contract.ReadinessClaim{{ID: "a", Type: "url", Status: "done", Evidence: "e", Weight: 10}},
 	}
 	var result ValidationResult
-	validateDependencyNamesUnique(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for unique dependency names, got %v", result.Errors)
+	validateReadiness(c, &result)
+	if result.IsValid() {
+		t.Error("expected error for blank revision version")
+	}
+	if !hasErrorCode(result, "INVALID_READINESS_REVISION") {
+		t.Errorf("expected INVALID_READINESS_REVISION, got %+v", result.Errors)
 	}
 }
 
-func TestValidateConfigValues_MultiConfigsExternalRef(t *testing.T) {
-	c := validContract()
-	c.Configurations = []contract.ConfigurationSource{
-		{
-			Name:   "app",
-			Ref:    "oci://ghcr.io/acme/config:1.0",
-			Values: map[string]any{"PORT": 8080},
-		},
-	}
-	var result ValidationResult
-	validateConfigValues(c, fstest.MapFS{}, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error for external ref config values, got %v", result.Errors)
-	}
-}
-
-// --- Readiness cross-field validation ---
-
-func readinessContract(checks ...contract.ReadinessCheck) *contract.Contract {
-	c := validContract()
-	c.PactoVersion = "1.2"
-	c.Readiness = &contract.Readiness{Expires: "2099-12-31", Checks: checks}
-	return c
-}
-
-func readinessHasCode(result ValidationResult, code string) bool {
-	for _, e := range result.Errors {
+func hasErrorCode(r ValidationResult, code string) bool {
+	for _, e := range r.Errors {
 		if e.Code == code {
 			return true
 		}
@@ -1493,8 +857,8 @@ func readinessHasCode(result ValidationResult, code string) bool {
 	return false
 }
 
-func hasWarningCode(result ValidationResult, code string) bool {
-	for _, w := range result.Warnings {
+func hasWarningCode(r ValidationResult, code string) bool {
+	for _, w := range r.Warnings {
 		if w.Code == code {
 			return true
 		}
@@ -1502,142 +866,237 @@ func hasWarningCode(result ValidationResult, code string) bool {
 	return false
 }
 
-func TestValidateReadiness_NoReadiness(t *testing.T) {
-	c := validContract() // no readiness section
+func TestValidateInterfaceFiles_EmptyRef(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces[0].Ref = ""
+	bundleFS := fstest.MapFS{}
 	var result ValidationResult
-	validateReadiness(c, &result)
+	validateInterfaceFiles(c, bundleFS, &result)
 	if !result.IsValid() {
-		t.Errorf("expected no error when readiness absent, got %v", result.Errors)
+		t.Errorf("expected no error for empty ref, got %v", result.Errors)
 	}
 }
 
-func TestValidateReadiness_Valid(t *testing.T) {
-	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 60, Description: "Main dashboard"},
-		contract.ReadinessCheck{ID: "runbook", Type: "document", Status: "partial", Evidence: "docs/rb.md", Weight: 40},
-	)
-	c.Readiness.History = []contract.ReadinessRevision{
-		{Date: "2026-06-21", Version: "2.1.0", Author: "ed", Description: "initial"},
-	}
+func TestValidateConfigFiles_EmptySchema(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{{Name: "app", Schema: ""}}
+	bundleFS := fstest.MapFS{}
 	var result ValidationResult
-	validateReadiness(c, &result)
+	validateConfigFiles(c, bundleFS, &result)
 	if !result.IsValid() {
-		t.Errorf("expected valid readiness, got %v", result.Errors)
+		t.Errorf("expected no error for empty schema, got %v", result.Errors)
 	}
 }
 
-func TestValidateReadiness_DuplicateID(t *testing.T) {
-	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 50},
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://y", Weight: 50},
-	)
-	var result ValidationResult
-	validateReadiness(c, &result)
-	if !readinessHasCode(result, "DUPLICATE_READINESS_ID") {
-		t.Errorf("expected DUPLICATE_READINESS_ID, got %v", result.Errors)
+func TestValidateConfigValues_WithRef_Deferred(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{
+		{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0.0", Values: map[string]any{"x": 1}},
 	}
-}
-
-func TestValidateReadiness_BlankEvidence(t *testing.T) {
-	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "   ", Weight: 50},
-	)
 	var result ValidationResult
-	validateReadiness(c, &result)
-	if !readinessHasCode(result, "EMPTY_READINESS_EVIDENCE") {
-		t.Errorf("expected EMPTY_READINESS_EVIDENCE, got %v", result.Errors)
-	}
-}
-
-func TestValidateReadiness_BlankDescription(t *testing.T) {
-	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 50, Description: "   "},
-	)
-	var result ValidationResult
-	validateReadiness(c, &result)
-	if !readinessHasCode(result, "EMPTY_READINESS_DESCRIPTION") {
-		t.Errorf("expected EMPTY_READINESS_DESCRIPTION, got %v", result.Errors)
-	}
-}
-
-func TestValidateReadiness_EmptyDescriptionOK(t *testing.T) {
-	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 50, Description: ""},
-	)
-	var result ValidationResult
-	validateReadiness(c, &result)
+	validateConfigValues(c, nil, &result)
 	if !result.IsValid() {
-		t.Errorf("expected no error for absent description, got %v", result.Errors)
+		t.Errorf("expected values with ref to be deferred, got errors: %v", result.Errors)
 	}
 }
 
-func TestValidateReadiness_InvalidExpires(t *testing.T) {
-	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 50},
-	)
-	c.Readiness.Expires = "not-a-date"
+func TestValidateConfigValues_FileReadError_Silent(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{
+		{Name: "app", Schema: "missing.json", Values: map[string]any{"x": 1}},
+	}
+	bundleFS := fstest.MapFS{}
 	var result ValidationResult
-	validateReadiness(c, &result)
-	if !readinessHasCode(result, "INVALID_READINESS_EXPIRES") {
-		t.Errorf("expected INVALID_READINESS_EXPIRES, got %v", result.Errors)
+	validateConfigValues(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected file-not-found to be skipped (caught elsewhere), got errors: %v", result.Errors)
 	}
 }
 
-func TestValidateReadiness_NonCanonicalExpires(t *testing.T) {
-	// time.Parse is lenient about zero-padding; the strict round-trip check
-	// must reject a non-canonical assessment date like "2026-1-1".
-	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 50},
-	)
-	c.Readiness.Expires = "2026-1-1"
-	var result ValidationResult
-	validateReadiness(c, &result)
-	if !readinessHasCode(result, "INVALID_READINESS_EXPIRES") {
-		t.Errorf("expected INVALID_READINESS_EXPIRES for non-canonical date, got %v", result.Errors)
+func TestValidateConfigValues_InvalidSchema_Silent(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{
+		{Name: "app", Schema: "config/app.json", Values: map[string]any{"x": 1}},
 	}
-}
-
-func TestValidateReadiness_InvalidRevision(t *testing.T) {
-	c := readinessContract(
-		contract.ReadinessCheck{ID: "dashboard", Type: "url", Status: "done", Evidence: "https://x", Weight: 50},
-	)
-	c.Readiness.History = []contract.ReadinessRevision{
-		{Date: "nope", Version: "", Author: "", Description: ""},
+	bundleFS := fstest.MapFS{
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type": 12345}`)},
 	}
 	var result ValidationResult
-	validateReadiness(c, &result)
-	if !readinessHasCode(result, "INVALID_READINESS_REVISION") {
-		t.Errorf("expected INVALID_READINESS_REVISION, got %v", result.Errors)
-	}
-	// All four revision fields are bad, so there should be four revision errors.
-	count := 0
-	for _, e := range result.Errors {
-		if e.Code == "INVALID_READINESS_REVISION" {
-			count++
-		}
-	}
-	if count != 4 {
-		t.Errorf("expected 4 INVALID_READINESS_REVISION errors (date/version/author/description), got %d: %v", count, result.Errors)
+	validateConfigValues(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected invalid schema to be skipped (caught elsewhere), got errors: %v", result.Errors)
 	}
 }
 
-func TestValidateReadiness_AllRules(t *testing.T) {
-	c := &contract.Contract{PactoVersion: "1.2", Readiness: &contract.Readiness{
-		Expires: "2026-13-40",
-		History: []contract.ReadinessRevision{{Date: "nope", Version: "", Author: "", Description: ""}},
-		Checks: []contract.ReadinessCheck{
-			{ID: "dup", Type: "url", Status: "done", Evidence: " ", Weight: 10},
-			{ID: "dup", Type: "url", Status: "done", Evidence: "e", Weight: 10, Description: "  "},
+func TestValidateInterfaceFileContent_NonYAMLSkipped(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces[0].Ref = "interfaces/spec.proto"
+	bundleFS := fstest.MapFS{
+		"interfaces/spec.proto": &fstest.MapFile{Data: []byte("syntax = \"proto3\";")},
+	}
+	var result ValidationResult
+	validateInterfaceFileContent(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected non-YAML to be skipped, got errors: %v", result.Errors)
+	}
+}
+
+func TestValidateInterfaceFileContent_FileReadError_Silent(t *testing.T) {
+	c := validV20Contract()
+	bundleFS := fstest.MapFS{}
+	var result ValidationResult
+	validateInterfaceFileContent(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected file-not-found to be skipped (caught elsewhere), got errors: %v", result.Errors)
+	}
+}
+
+func TestValidateReadiness_AllRevisionFields(t *testing.T) {
+	c := validV20Contract()
+	c.Readiness = &contract.Readiness{
+		Expires: "2026-12-31",
+		History: []contract.ReadinessRevision{
+			{Date: "2026-06-21", Version: "1.0.0", Author: "ed", Description: "init"},
+			{Date: "2026-6-21", Version: "", Author: "", Description: ""},
 		},
-	}}
+		Claims: []contract.ReadinessClaim{{ID: "a", Type: "url", Status: "done", Evidence: "e", Weight: 10}},
+	}
 	var result ValidationResult
 	validateReadiness(c, &result)
-	for _, code := range []string{
-		"INVALID_READINESS_EXPIRES", "INVALID_READINESS_REVISION",
-		"DUPLICATE_READINESS_ID", "EMPTY_READINESS_EVIDENCE", "EMPTY_READINESS_DESCRIPTION",
-	} {
-		if !readinessHasCode(result, code) {
-			t.Fatalf("missing %s in %+v", code, result.Errors)
-		}
+	if result.IsValid() {
+		t.Error("expected errors for bad revision fields")
+	}
+	if !hasErrorCode(result, "INVALID_READINESS_REVISION") {
+		t.Errorf("expected INVALID_READINESS_REVISION, got %+v", result.Errors)
+	}
+}
+
+func TestCompileConfigSchema_InvalidJSON(t *testing.T) {
+	_, err := compileConfigSchema([]byte("not json"))
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestValidateJSONSchemaFile_NoBundleFS(t *testing.T) {
+	var result ValidationResult
+	validateJSONSchemaFile(nil, "schema.json", "field", "CODE_JSON", "CODE_SCHEMA", &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error when bundleFS is nil, got %v", result.Errors)
+	}
+}
+
+func TestValidateJSONSchemaFile_EmptyPath(t *testing.T) {
+	bundleFS := fstest.MapFS{}
+	var result ValidationResult
+	validateJSONSchemaFile(bundleFS, "", "field", "CODE_JSON", "CODE_SCHEMA", &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for empty path, got %v", result.Errors)
+	}
+}
+
+func TestValidateJSONSchemaFile_FileNotFound_Silent(t *testing.T) {
+	bundleFS := fstest.MapFS{}
+	var result ValidationResult
+	validateJSONSchemaFile(bundleFS, "missing.json", "field", "CODE_JSON", "CODE_SCHEMA", &result)
+	if !result.IsValid() {
+		t.Errorf("expected file-not-found to be skipped (caught elsewhere), got %v", result.Errors)
+	}
+}
+
+func TestResolveLocalPolicySchema_NilBundleFS(t *testing.T) {
+	rp := resolveLocalPolicySchema(nil, "policy/sec.json", "origin", 0)
+	if rp != nil {
+		t.Error("expected nil for nil bundleFS")
+	}
+}
+
+func TestResolveLocalPolicySchema_FileNotFound(t *testing.T) {
+	bundleFS := fstest.MapFS{}
+	rp := resolveLocalPolicySchema(bundleFS, "missing.json", "origin", 0)
+	if rp != nil {
+		t.Error("expected nil for missing file")
+	}
+}
+
+func TestResolveLocalPolicySchema_InvalidJSON(t *testing.T) {
+	bundleFS := fstest.MapFS{
+		"policy/sec.json": &fstest.MapFile{Data: []byte("not json")},
+	}
+	rp := resolveLocalPolicySchema(bundleFS, "policy/sec.json", "origin", 0)
+	if rp != nil {
+		t.Error("expected nil for invalid JSON")
+	}
+}
+
+func TestResolveLocalPolicySchema_InvalidSchema(t *testing.T) {
+	bundleFS := fstest.MapFS{
+		"policy/sec.json": &fstest.MapFile{Data: []byte(`{"type": 12345}`)},
+	}
+	rp := resolveLocalPolicySchema(bundleFS, "policy/sec.json", "origin", 0)
+	if rp != nil {
+		t.Error("expected nil for invalid schema")
+	}
+}
+
+func TestCompilePolicySchema_InvalidJSON(t *testing.T) {
+	_, err := compilePolicySchema([]byte("not json"), "mem:///test.json")
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestCompilePolicySchema_AddResourceError(t *testing.T) {
+	_, err := compilePolicySchema([]byte(`{"type": 12345}`), "mem:///test.json")
+	if err == nil {
+		t.Error("expected error for invalid schema")
+	}
+}
+
+func TestValidateConfigValues_NoValues(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{{Name: "app", Schema: "config/app.json"}}
+	bundleFS := fstest.MapFS{
+		"config/app.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+	}
+	var result ValidationResult
+	validateConfigValues(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for config without values, got %v", result.Errors)
+	}
+}
+
+func TestValidateConfigSchemaContent_EmptySchema(t *testing.T) {
+	c := validV20Contract()
+	c.Configurations = []contract.Configuration{{Name: "app", Schema: ""}}
+	bundleFS := fstest.MapFS{}
+	var result ValidationResult
+	validateConfigSchemaContent(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for empty schema, got %v", result.Errors)
+	}
+}
+
+func TestValidateInterfaceFileContent_EmptyRef(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces[0].Ref = ""
+	bundleFS := fstest.MapFS{}
+	var result ValidationResult
+	validateInterfaceFileContent(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for empty ref, got %v", result.Errors)
+	}
+}
+
+func TestValidateSingleConfigValues_NilBundleFS(t *testing.T) {
+	cfg := contract.Configuration{
+		Name:   "app",
+		Schema: "config/app.json",
+		Values: map[string]any{"x": 1},
+	}
+	var result ValidationResult
+	validateSingleConfigValues(cfg, "configurations[0].values", nil, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error when bundleFS is nil, got %v", result.Errors)
 	}
 }

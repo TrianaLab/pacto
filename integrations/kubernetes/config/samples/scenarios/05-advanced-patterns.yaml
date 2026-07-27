@@ -1,0 +1,192 @@
+# Scenario 05: Advanced workload and state patterns.
+#
+# Covers: hybrid state (API with cache), scheduled jobs, event-driven
+# consumers, recreate upgrade strategy, metadata fields.
+#
+# Services:
+#   product-catalog — hybrid state service with local cache (warm-up on start)
+#   notification-worker — event consumer processing messages from RabbitMQ
+#   report-generator — scheduled job (cron) that runs daily
+---
+# product-catalog — hybrid state: serves requests statelessly but maintains
+# a local cache for performance. Cache loss degrades speed but doesn't break.
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: product-catalog
+  namespace: default
+spec:
+  target:
+    serviceName: product-catalog
+  checkIntervalSeconds: 60
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: product-catalog
+        version: "2.0.1"
+        owner: team/catalog
+        image:
+          ref: ghcr.io/acme/product-catalog:2.0.1
+      interfaces:
+        - name: rest-api
+          type: http
+          port: 8080
+          visibility: public
+        - name: metrics
+          type: http
+          port: 9090
+          visibility: internal
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            UPSTREAM_API: https://inventory.internal/api
+            CACHE_MAX_SIZE_MB: 512
+            CACHE_TTL_SECONDS: 3600
+            WARMUP_ON_START: true
+            API_KEY: secret://vault/product-catalog/upstream-api-key
+      runtime:
+        workload: service
+        state:
+          type: hybrid
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: low
+        lifecycle:
+          upgradeStrategy: rolling
+          gracefulShutdownSeconds: 10
+        health:
+          interface: rest-api
+          path: /health
+        metrics:
+          interface: metrics
+          path: /metrics
+      scaling:
+        min: 2
+        max: 6
+      metadata:
+        team: catalog
+        tier: standard
+        cache-strategy: write-through
+---
+# notification-worker — event consumer that processes messages from RabbitMQ.
+# Has an event interface (consumed topics) and a health HTTP interface.
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: notification-worker
+  namespace: default
+spec:
+  target:
+    serviceName: notification-worker
+  checkIntervalSeconds: 60
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: notification-worker
+        version: "1.3.0"
+        owner:
+          team: notifications
+          dri: alice.johnson
+          contacts:
+            - type: email
+              value: notifications@acme.com
+              purpose: escalation
+            - type: chat
+              value: "#notifications"
+              purpose: support
+        image:
+          ref: ghcr.io/acme/notification-worker:1.3.0
+      interfaces:
+        - name: notification-events
+          type: event
+          visibility: internal
+          contract: openapi.yaml
+        - name: health
+          type: http
+          port: 8080
+          visibility: internal
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            BROKER_URL: amqp://rabbitmq:5672
+            BROKER_CREDENTIALS: secret://vault/notification-worker/broker-credentials
+            SMTP_HOST: smtp.example.com
+            SMTP_PORT: 587
+            SMTP_PASSWORD: secret://vault/notification-worker/smtp-password
+            FROM_EMAIL: noreply@example.com
+            MAX_RETRIES: 3
+            DEAD_LETTER_QUEUE: notifications.dlq
+      dependencies:
+        - name: rabbitmq
+          ref: oci://ghcr.io/acme/rabbitmq-pacto
+          required: true
+          compatibility: "^3.13.0"
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: medium
+        lifecycle:
+          upgradeStrategy: recreate
+          gracefulShutdownSeconds: 60
+        health:
+          interface: health
+          path: /health
+        metrics:
+          interface: health
+          path: /metrics
+      scaling:
+        min: 2
+        max: 8
+      metadata:
+        team: notifications
+        tier: standard
+        consumer-group: notification-processing
+---
+# report-generator — scheduled job that runs daily at 2 AM.
+# Workload type "scheduled" means it runs on a cron schedule and exits.
+# No scaling section (validation rejects scaling for jobs).
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: report-generator
+  namespace: default
+spec:
+  checkIntervalSeconds: 600
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: report-generator
+        version: "1.2.0"
+        owner: team/analytics
+        image:
+          ref: ghcr.io/acme/report-generator:1.2.0
+      interfaces:
+        - name: health
+          type: http
+          port: 8080
+          visibility: internal
+      runtime:
+        workload: scheduled
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: low
+        health:
+          interface: health
+          path: /ready
+      metadata:
+        schedule: "0 2 * * *"
+        timeout: 3600
+        team: analytics

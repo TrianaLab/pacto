@@ -23,7 +23,7 @@
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { navigate, serviceUrl, serviceVersionUrl, diffUrl, ownerUrl } from '../lib/router.ts';
-  import { complianceClass, classificationClass, versionPolicyLabel, versionPolicyClass, ownerIsStructured, referencedDocPaths, paginate } from '../lib/format.ts';
+  import { complianceClass, classificationClass, versionPolicyLabel, versionPolicyClass, ownerIsStructured, referencedDocPaths, paginate, evaluationCoverageLabel } from '../lib/format.ts';
   import { versionTimelineData } from '../lib/chartData.ts';
   import StatusBadge from '../components/StatusBadge.svelte';
   import ComplianceScore from '../components/ComplianceScore.svelte';
@@ -155,6 +155,8 @@
   // version is being viewed ("current" when that's the deployed one).
   let baselineLabel = $derived(detail?.version && detail.version !== currentVersion ? detail.version : 'current');
   let insights = $derived(detail?.insights || []);
+  // "E of R" evaluation-coverage label — empty unless runtime-evaluated (see helper).
+  let evalCoverage = $derived(evaluationCoverageLabel(detail));
   let sources = $derived.by(() => {
     const s = detail?.sources || [];
     return s.length ? s : detail?.source ? [detail.source] : [];
@@ -375,6 +377,9 @@
       {/if}
       {#if detail.checksSummary && detail.runtimeEvaluated && detail.contractStatus !== 'Reference'}
         <span class="text-2">{detail.checksSummary.passed}/{detail.checksSummary.total} checks</span>
+      {/if}
+      {#if evalCoverage}
+        <span class="text-2 eval-coverage" data-tip="Required assertions actually evaluated at runtime — metadata, does not change status">Evaluation coverage: {evalCoverage}</span>
       {/if}
       {#if blastRadius > 0}
         <a href="#/graph" class="blast-indicator" class:blast-warn={blastRadius >= 3 && blastRadius < 5} class:blast-high={blastRadius >= 5} data-tip="If this service fails, {blastRadius} other service{blastRadius !== 1 ? 's are' : ' is'} transitively impacted">

@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v2/internal/app"
-	"github.com/trianalab/pacto/v2/internal/cli"
-	"github.com/trianalab/pacto/v2/internal/testutil"
-	"github.com/trianalab/pacto/v2/internal/update"
+	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/internal/cli"
+	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v3/internal/update"
 )
 
 // platformAsset returns the release asset name for the current platform, matching
@@ -126,25 +126,16 @@ func TestValidateFailsOnBrokenContract(t *testing.T) {
 	dir := t.TempDir()
 
 	broken := []byte(`
-pactoVersion: "1.0"
+pactoVersion: "2.0"
 service:
   name: my-svc
   version: "1.0.0"
-interfaces:
-  - name: api
-    type: http
-    port: 8080
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: wrong-name
-    path: /health
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: persistent
+  dataCriticality: low
 `)
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), broken, 0644); err != nil {
 		t.Fatal(err)
@@ -162,8 +153,8 @@ runtime:
 		t.Fatal("expected validate to fail on broken contract")
 	}
 
-	if !strings.Contains(out.String(), "HEALTH_INTERFACE_NOT_FOUND") {
-		t.Errorf("expected HEALTH_INTERFACE_NOT_FOUND in output, got %q", out.String())
+	if !strings.Contains(out.String(), "SCHEMA_VIOLATION") {
+		t.Errorf("expected SCHEMA_VIOLATION in output, got %q", out.String())
 	}
 }
 

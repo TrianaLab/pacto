@@ -1,5 +1,11 @@
 name: CI
 
+# Aggregate CI for the go.work monorepo. Every leg of the release-critical
+# matrix (engine, dashboard, kubernetes integration, OCI publisher, docs) runs
+# here through the root Makefile so local `make ci` and this pipeline stay in
+# lockstep. Path filters below only OPTIMIZE the heavy legs — the `required`
+# aggregate job always runs so branch protection has one stable required check.
+
 on:
   push:
     branches:
@@ -9,50 +15,291 @@ on:
       - main
   schedule:
     - cron: '0 0 * * *'
+  # Lets the heavy nightly legs (kind e2e, release dry-run) be invoked on demand so
+  # they stay exercised between scheduled runs.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  static:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      engine: ${{ steps.filter.outputs.engine }}
+      dashboard: ${{ steps.filter.outputs.dashboard }}
+      kubernetes: ${{ steps.filter.outputs.kubernetes }}
+      release: ${{ steps.filter.outputs.release }}
+      e2e: ${{ steps.filter.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3
+        id: filter
+        with:
+          filters: |
+            engine:
+              # Everything outside the integrations + pure-docs trees is engine code.
+              # Excluding docs/overrides skips the heavy engine leg on docs-only PRs.
+              - '!(integrations|docs|overrides)/**'
+              - 'go.work'
+            dashboard:
+              - 'pkg/dashboard/**'
+            kubernetes:
+              - 'integrations/kubernetes/**'
+              - 'go.work'
+            release:
+              - 'release/**'
+              - '.github/workflows/**'
+              # The demo-ref gate (tests/release) guards the demo bundles, so run the
+              # artifact-drift leg when they change too.
+              - 'examples/demo/**'
+            # The heavy release-formal-verification legs (kind e2e + real release
+            # dry-run) run for anything that can affect release execution or the
+            # operator, and are skipped only for truly unrelated changes (docs-only).
+            e2e:
+              - 'release/**'
+              - '.github/workflows/**'
+              - 'integrations/kubernetes/**'
+              - 'go.work'
+              - 'go.mod'
+              - '**/Dockerfile'
+              - 'examples/demo/**'
+
+  ci-static:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/ci
         with:
           target: ci-static
           golangci-lint: 'true'
 
-  unit-test:
+  ci-engine:
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/ci
         with:
-          target: ci-test
+          target: ci-engine
       - name: Upload results to Codecov
         if: github.event_name == 'push'
-        uses: codecov/codecov-action@v7.0.0
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.out
           fail_ci_if_error: true
 
-  frontend-test:
+  ci-dashboard:
+    needs: changes
+    if: needs.changes.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.0
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
-      - run: make ci-ui
+      - run: make ci-dashboard
 
-  e2e:
+  ci-integration-kubernetes:
+    needs: changes
+    if: needs.changes.outputs.kubernetes == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.0
-      - uses: ./.github/actions/ci
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
-          target: e2e
+          go-version-file: go.mod
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+      - name: Install helm-docs
+        # go install verifies the module checksum via GOSUMDB — no unchecksummed
+        # curl | tar of a release tarball.
+        run: go install github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2
+      - run: make ci-integration-kubernetes
+
+  ci-e2e-envtest:
+    needs: changes
+    if: needs.changes.outputs.kubernetes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - run: make ci-e2e-envtest
+
+  ci-oci:
+    needs: changes
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5001:5000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+      - name: Install ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+      - run: make ci-oci
+        env:
+          PACTO_STAGING_REGISTRY: localhost:5001
+
+  # Operator image build with the EXACT production build-push context + file
+  # (context: repo root, file: integrations/kubernetes/Dockerfile) — a dedicated
+  # check so a broken production context is caught without relying on the kind
+  # script. push: false.
+  operator-build:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Build operator image (production context, no push)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: integrations/kubernetes/Dockerfile
+          push: false
+          build-args: VERSION=ci-context-test
+
+  # Pacto's formal verification. These are the real heavy legs — REQUIRED, and run
+  # on any change that can affect release execution or the operator (the `e2e` path
+  # filter), plus the nightly schedule + manual dispatch. Skipped only for truly
+  # unrelated (docs-only) PRs.
+  ci-e2e-kind:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Install kind (checksum-verified via GOSUMDB)
+        run: go install sigs.k8s.io/kind@v0.30.0
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+      - run: make ci-e2e-kind
+
+  release-dry-run:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        # Full history + tags: verify-standalone.sh stages a local tag and resolves
+        # the published core from this repo (GOWORK=off, no replace, no network).
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+      - name: Install crane (checksum-verified via GOSUMDB)
+        run: go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
+      - name: Install ORAS
+        # The dry-run drives the real durable OCI-backed ledger (ledger.sh), which
+        # stores + reads the ledger as an OCI artifact via oras — exactly as the
+        # production publishers do.
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+      - run: make release-dry-run
+
+  # Cross-cutting architecture + release gates (tests/architecture + tests/release).
+  # These live under /tests/ which the ci-engine coverage run EXCLUDES, so without
+  # this leg the import-boundary, one-publisher and demo-ref gates never run in CI.
+  # No path filter: it ALWAYS runs so a gate can never be silently skipped-green.
+  ci-gates:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - run: make ci-gates
+
+  artifact-drift:
+    needs: changes
+    if: needs.changes.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: make artifact-drift
+
+  # Integration test for the version command: real `npm run release:version` in a
+  # throwaway clone with pending changesets -> ready transaction detect.mjs acts on.
+  release-version-test:
+    needs: changes
+    if: needs.changes.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: make ci-release-version
+
+  # Single required status for branch protection: green only when every leg that
+  # ran succeeded. Skipped (path-filtered) legs do not count as failures.
+  required:
+    if: always()
+    needs:
+      - changes
+      - ci-static
+      - ci-gates
+      - ci-engine
+      - ci-dashboard
+      - ci-integration-kubernetes
+      - ci-e2e-envtest
+      - ci-oci
+      - artifact-drift
+      - operator-build
+      - ci-e2e-kind
+      - release-dry-run
+      - release-version-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify no required leg failed
+        run: |
+          results='${{ join(needs.*.result, ' ') }}'
+          echo "leg results: $results"
+          for r in $results; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "a required CI leg did not pass"
+              exit 1
+            fi
+          done
+          echo "all required CI legs passed"

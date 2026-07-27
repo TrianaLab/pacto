@@ -104,13 +104,18 @@ func TestClassify_Completeness(t *testing.T) {
 		{"service.owner.contacts", Added, NonBreaking},
 		{"service.owner.contacts[slack:#x]", Added, NonBreaking},
 
-		// Lifecycle gracefulShutdownSeconds — operational, NonBreaking for all.
-		{"runtime.lifecycle.gracefulShutdownSeconds", Added, NonBreaking},
-		{"runtime.lifecycle.gracefulShutdownSeconds", Modified, NonBreaking},
-		{"runtime.lifecycle.gracefulShutdownSeconds", Removed, NonBreaking},
+		// State (top-level in v2)
+		{"state.type", Modified, Breaking},
+		{"state.persistence.scope", Modified, Breaking},
+		{"state.dataCriticality", Modified, PotentialBreaking},
 
-		// Scaling replicas — explicit, not relying on the default.
-		{"scaling.replicas", Modified, PotentialBreaking},
+		// Workload (top-level in v2)
+		{"workload", Modified, Breaking},
+		{"workload", Added, NonBreaking},
+
+		// Capabilities
+		{"capabilities", Added, NonBreaking},
+		{"capabilities", Removed, PotentialBreaking},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path+"_"+tt.ct.String(), func(t *testing.T) {

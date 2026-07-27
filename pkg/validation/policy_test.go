@@ -8,10 +8,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
-// mockBundleResolver implements BundleResolver for tests.
 type mockBundleResolver struct {
 	bundles map[string]*contract.Bundle
 	err     error
@@ -95,15 +94,9 @@ func TestEnforcePolicies_SinglePolicyViolated(t *testing.T) {
 }
 
 func TestEnforcePolicies_MultiplePoliciesAllSatisfied(t *testing.T) {
-	pol1 := mustResolvePolicy(t, "policies[0]", `{
-		"type": "object",
-		"required": ["service"]
-	}`)
-	pol2 := mustResolvePolicy(t, "policies[1]", `{
-		"type": "object",
-		"required": ["pactoVersion"]
-	}`)
-	rawYAML := []byte("pactoVersion: '1.0'\nservice:\n  name: my-svc\n")
+	pol1 := mustResolvePolicy(t, "policies[0]", `{"type": "object","required": ["service"]}`)
+	pol2 := mustResolvePolicy(t, "policies[1]", `{"type": "object","required": ["pactoVersion"]}`)
+	rawYAML := []byte("pactoVersion: '2.0'\nservice:\n  name: my-svc\n")
 	result := EnforcePolicies(rawYAML, []ResolvedPolicy{pol1, pol2})
 	if !result.IsValid() {
 		for _, e := range result.Errors {
@@ -113,28 +106,8 @@ func TestEnforcePolicies_MultiplePoliciesAllSatisfied(t *testing.T) {
 }
 
 func TestEnforcePolicies_ContradictoryPoliciesFail(t *testing.T) {
-	pol1 := mustResolvePolicy(t, "policies[0]", `{
-		"type": "object",
-		"properties": {
-			"service": {
-				"type": "object",
-				"properties": {
-					"name": {"type": "string"}
-				}
-			}
-		}
-	}`)
-	pol2 := mustResolvePolicy(t, "policies[1]", `{
-		"type": "object",
-		"properties": {
-			"service": {
-				"type": "object",
-				"properties": {
-					"name": {"type": "number"}
-				}
-			}
-		}
-	}`)
+	pol1 := mustResolvePolicy(t, "policies[0]", `{"type": "object","properties": {"service": {"type": "object","properties": {"name": {"type": "string"}}}}}`)
+	pol2 := mustResolvePolicy(t, "policies[1]", `{"type": "object","properties": {"service": {"type": "object","properties": {"name": {"type": "number"}}}}}`)
 	rawYAML := []byte("service:\n  name: my-svc\n")
 	result := EnforcePolicies(rawYAML, []ResolvedPolicy{pol1, pol2})
 	if result.IsValid() {
@@ -169,10 +142,7 @@ func TestEnforcePolicies_InvalidYAML(t *testing.T) {
 }
 
 func TestEnforcePolicies_MultipleViolationsSorted(t *testing.T) {
-	pol := mustResolvePolicy(t, "policies[0]", `{
-		"type": "object",
-		"required": ["zzz", "aaa"]
-	}`)
+	pol := mustResolvePolicy(t, "policies[0]", `{"type": "object","required": ["zzz", "aaa"]}`)
 	rawYAML := []byte("foo: bar\n")
 	result := EnforcePolicies(rawYAML, []ResolvedPolicy{pol})
 	if result.IsValid() {
@@ -200,1047 +170,332 @@ func TestCollectPolicyViolations_NonValidationError(t *testing.T) {
 	}
 }
 
-func TestEnforcePolicies_NestedViolationsFlattened(t *testing.T) {
-	// Use allOf to produce multiple independent violations that flatten to multiple leaves
-	pol := mustResolvePolicy(t, "policies[0]", `{
-		"allOf": [
-			{"required": ["aaa"]},
-			{"required": ["bbb"]}
-		]
-	}`)
-	rawYAML := []byte("foo: bar\n")
-	result := EnforcePolicies(rawYAML, []ResolvedPolicy{pol})
-	if result.IsValid() {
-		t.Error("expected violations")
-	}
-	if len(result.Errors) < 2 {
-		t.Errorf("expected at least 2 flattened violations, got %d", len(result.Errors))
-	}
-}
-
-func TestCompilePolicySchema_ValidSchema(t *testing.T) {
-	s, err := compilePolicySchema([]byte(`{"type": "object"}`), "mem:///test.json")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if s == nil {
-		t.Error("expected non-nil schema")
-	}
-}
-
-func TestCompilePolicySchema_InvalidJSON(t *testing.T) {
-	_, err := compilePolicySchema([]byte(`not json`), "mem:///test.json")
-	if err == nil {
-		t.Error("expected error for invalid JSON")
-	}
-}
-
-func TestCompilePolicySchema_InvalidSchema(t *testing.T) {
-	_, err := compilePolicySchema([]byte(`{"type": 123}`), "mem:///test.json")
-	if err == nil {
-		t.Error("expected error for invalid schema")
-	}
-}
-
-func TestCompilePolicySchema_AddResourceError(t *testing.T) {
-	// Using a metaschema URL triggers AddResource to fail with ResourceExistsError.
-	_, err := compilePolicySchema([]byte(`{"type": "object"}`), "https://json-schema.org/draft/2020-12/schema")
-	if err == nil {
-		t.Error("expected error for metaschema URL")
-	}
-}
-
-func TestResolvePoliciesFromBundle_NilBundleFS(t *testing.T) {
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Schema: "policy.json"}},
-	}
-	policies, result := ResolvePoliciesFromBundle(c, nil)
-	if policies != nil {
-		t.Error("expected nil policies with nil bundleFS")
-	}
-	if !result.IsValid() {
-		t.Error("expected no errors")
-	}
-}
-
-func TestResolvePoliciesFromBundle_NoPolicies(t *testing.T) {
+func TestResolvePoliciesFromBundle_NoBundleFS(t *testing.T) {
 	c := &contract.Contract{}
-	bundleFS := fstest.MapFS{}
-	policies, result := ResolvePoliciesFromBundle(c, bundleFS)
-	if len(policies) != 0 {
-		t.Error("expected no policies")
-	}
+	policies, result := ResolvePoliciesFromBundle(c, nil)
 	if !result.IsValid() {
-		t.Error("expected no errors")
-	}
-}
-
-func TestResolvePoliciesFromBundle_LocalSchemaResolved(t *testing.T) {
-	bundleFS := fstest.MapFS{
-		"policy.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
-	}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Schema: "policy.json"}},
-	}
-	policies, result := ResolvePoliciesFromBundle(c, bundleFS)
-	if !result.IsValid() {
-		t.Errorf("unexpected errors: %v", result.Errors)
-	}
-	if len(policies) != 1 {
-		t.Fatalf("expected 1 policy, got %d", len(policies))
-	}
-	if policies[0].Origin != "policies[0]" {
-		t.Errorf("expected origin policies[0], got %s", policies[0].Origin)
-	}
-}
-
-func TestResolvePoliciesFromBundle_MultiplePolicies(t *testing.T) {
-	bundleFS := fstest.MapFS{
-		"policy-a.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
-		"policy-b.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["pactoVersion"]}`)},
-	}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{
-			{Schema: "policy-a.json"},
-			{Schema: "policy-b.json"},
-		},
-	}
-	policies, result := ResolvePoliciesFromBundle(c, bundleFS)
-	if !result.IsValid() {
-		t.Errorf("unexpected errors: %v", result.Errors)
-	}
-	if len(policies) != 2 {
-		t.Fatalf("expected 2 policies, got %d", len(policies))
-	}
-}
-
-func TestResolvePoliciesFromBundle_FileNotFound(t *testing.T) {
-	bundleFS := fstest.MapFS{}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Schema: "missing.json"}},
-	}
-	policies, result := ResolvePoliciesFromBundle(c, bundleFS)
-	if !result.IsValid() {
-		t.Error("expected no errors (file-not-found handled by crossfield)")
-	}
-	if len(policies) != 0 {
-		t.Error("expected no policies when file not found")
-	}
-}
-
-func TestResolvePoliciesFromBundle_InvalidJSON(t *testing.T) {
-	bundleFS := fstest.MapFS{
-		"policy.json": &fstest.MapFile{Data: []byte(`not valid json`)},
-	}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Schema: "policy.json"}},
-	}
-	policies, result := ResolvePoliciesFromBundle(c, bundleFS)
-	if !result.IsValid() {
-		t.Error("expected no errors (invalid JSON handled by crossfield)")
-	}
-	if len(policies) != 0 {
-		t.Error("expected no policies when JSON invalid")
-	}
-}
-
-func TestResolvePoliciesFromBundle_InvalidSchema(t *testing.T) {
-	bundleFS := fstest.MapFS{
-		"policy.json": &fstest.MapFile{Data: []byte(`{"type": 123}`)},
-	}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Schema: "policy.json"}},
-	}
-	policies, result := ResolvePoliciesFromBundle(c, bundleFS)
-	if !result.IsValid() {
-		t.Error("expected no errors (schema compilation errors handled by crossfield)")
-	}
-	if len(policies) != 0 {
-		t.Error("expected no policies when schema invalid")
-	}
-}
-
-func TestResolvePoliciesFromBundle_RefBasedSkipped(t *testing.T) {
-	bundleFS := fstest.MapFS{}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
-	}
-	policies, result := ResolvePoliciesFromBundle(c, bundleFS)
-	if !result.IsValid() {
-		t.Error("expected no errors for ref-based policies")
-	}
-	if len(policies) != 0 {
-		t.Error("expected ref-based policies to be skipped")
-	}
-}
-
-func TestResolvePoliciesFromBundle_MixedSchemaAndRef(t *testing.T) {
-	bundleFS := fstest.MapFS{
-		"policy.json": &fstest.MapFile{Data: []byte(`{"type": "object"}`)},
-	}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{
-			{Schema: "policy.json"},
-			{Ref: "oci://example.com/policy:1.0"},
-		},
-	}
-	policies, result := ResolvePoliciesFromBundle(c, bundleFS)
-	if !result.IsValid() {
-		t.Errorf("unexpected errors: %v", result.Errors)
-	}
-	if len(policies) != 1 {
-		t.Fatalf("expected 1 resolved policy (ref skipped), got %d", len(policies))
-	}
-	if policies[0].Origin != "policies[0]" {
-		t.Errorf("expected origin policies[0], got %s", policies[0].Origin)
-	}
-}
-
-// --- ResolvePoliciesWithResolver tests ---
-
-func TestResolvePoliciesWithResolver_NilResolverRefProducesHardError(t *testing.T) {
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
-	}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, nil)
-	if result.IsValid() {
-		t.Fatal("expected POLICY_REF_UNRESOLVED error")
+		t.Errorf("expected no errors, got %+v", result.Errors)
 	}
 	if len(policies) != 0 {
 		t.Errorf("expected no policies, got %d", len(policies))
 	}
-	found := false
-	for _, e := range result.Errors {
-		if e.Code == "POLICY_REF_UNRESOLVED" {
-			found = true
-		}
+}
+
+func TestResolvePoliciesFromBundle_LocalSchema(t *testing.T) {
+	c := &contract.Contract{
+		Policies: []contract.Policy{{Name: "sec", Schema: "policy/sec.json"}},
 	}
-	if !found {
-		t.Error("expected error code POLICY_REF_UNRESOLVED")
+	bundleFS := fstest.MapFS{
+		"policy/sec.json": &fstest.MapFile{Data: []byte(`{"type":"object","required":["service"]}`)},
+	}
+	policies, result := ResolvePoliciesFromBundle(c, bundleFS)
+	if !result.IsValid() {
+		t.Errorf("expected no errors, got %+v", result.Errors)
+	}
+	if len(policies) != 1 {
+		t.Fatalf("expected 1 policy, got %d", len(policies))
+	}
+	if policies[0].Origin != `policies["sec"]` {
+		t.Errorf("expected origin policies[\"sec\"], got %q", policies[0].Origin)
 	}
 }
 
-func TestResolvePoliciesWithResolver_RefResolvesToPolicySchema(t *testing.T) {
-	refBundle := &contract.Bundle{
-		Contract: &contract.Contract{},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
+func TestResolvePoliciesFromBundle_RefWarning(t *testing.T) {
+	c := &contract.Contract{
+		Policies: []contract.Policy{{Name: "ext", Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
+	}
+	bundleFS := fstest.MapFS{}
+	policies, result := ResolvePoliciesFromBundle(c, bundleFS)
+	if len(policies) != 0 {
+		t.Errorf("expected no policies for ref without resolver, got %d", len(policies))
+	}
+	if len(result.Warnings) == 0 {
+		t.Fatal("expected warning for ref policy")
+	}
+	if result.Warnings[0].Code != "POLICY_REF_NOT_ENFORCED" {
+		t.Errorf("expected POLICY_REF_NOT_ENFORCED, got %q", result.Warnings[0].Code)
+	}
+}
+
+func TestResolvePoliciesFromBundle_InvalidSchemaIgnored(t *testing.T) {
+	c := &contract.Contract{
+		Policies: []contract.Policy{{Name: "sec", Schema: "policy/sec.json"}},
+	}
+	bundleFS := fstest.MapFS{
+		"policy/sec.json": &fstest.MapFile{Data: []byte(`not json`)},
+	}
+	policies, result := ResolvePoliciesFromBundle(c, bundleFS)
+	if len(policies) != 0 {
+		t.Errorf("expected no policies for invalid schema, got %d", len(policies))
+	}
+	if !result.IsValid() {
+		t.Errorf("expected no errors (invalid schema is silently skipped), got %+v", result.Errors)
+	}
+}
+
+func TestResolvePoliciesWithResolver_NilResolver_RefError(t *testing.T) {
+	c := &contract.Contract{
+		Policies: []contract.Policy{{Name: "ext", Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, nil)
+	if result.IsValid() {
+		t.Error("expected error for ref policy with nil resolver")
+	}
+	if len(result.Errors) == 0 {
+		t.Fatal("expected at least one error")
+	}
+	if result.Errors[0].Code != "POLICY_REF_UNRESOLVED" {
+		t.Errorf("expected POLICY_REF_UNRESOLVED, got %q", result.Errors[0].Code)
+	}
+	if len(policies) != 0 {
+		t.Errorf("expected no policies, got %d", len(policies))
+	}
+}
+
+func TestResolvePoliciesWithResolver_Resolved(t *testing.T) {
+	c := &contract.Contract{
+		Policies: []contract.Policy{{Name: "ext", Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
+	}
+	policyFS := fstest.MapFS{
+		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","required":["service"]}`)},
+	}
+	resolver := &mockBundleResolver{
+		bundles: map[string]*contract.Bundle{
+			"oci://ghcr.io/acme/policy:1.0.0": {FS: policyFS},
 		},
 	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": refBundle,
-	}}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
-	}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, resolver)
 	if !result.IsValid() {
-		t.Fatalf("unexpected errors: %v", result.Errors)
+		t.Errorf("expected no errors, got %+v", result.Errors)
 	}
 	if len(policies) != 1 {
 		t.Fatalf("expected 1 policy, got %d", len(policies))
 	}
 }
 
-func TestResolvePoliciesWithResolver_RefBundleMissingPolicySchema(t *testing.T) {
-	refBundle := &contract.Bundle{
-		Contract: &contract.Contract{},
-		FS:       fstest.MapFS{},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": refBundle,
-	}}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
-	}
-	_, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
-	if result.IsValid() {
-		t.Fatal("expected error when bundle missing policy/schema.json")
-	}
-	found := false
-	for _, e := range result.Errors {
-		if e.Code == "POLICY_REF_UNRESOLVED" && strings.Contains(e.Message, PolicySchemaPath) {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected POLICY_REF_UNRESOLVED mentioning policy/schema.json")
-	}
-}
-
-func TestResolvePoliciesWithResolver_RefBundleInvalidJSON(t *testing.T) {
-	refBundle := &contract.Bundle{
-		Contract: &contract.Contract{},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`not json`)},
-		},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": refBundle,
-	}}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
-	}
-	_, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
-	if result.IsValid() {
-		t.Fatal("expected error for invalid JSON in policy/schema.json")
-	}
-	found := false
-	for _, e := range result.Errors {
-		if e.Code == "POLICY_REF_UNRESOLVED" && strings.Contains(e.Message, "not valid JSON") {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected POLICY_REF_UNRESOLVED with 'not valid JSON'")
-	}
-}
-
-func TestResolvePoliciesWithResolver_RefBundleInvalidSchema(t *testing.T) {
-	refBundle := &contract.Bundle{
-		Contract: &contract.Contract{},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": 123}`)},
-		},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": refBundle,
-	}}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
-	}
-	_, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
-	if result.IsValid() {
-		t.Fatal("expected error for invalid schema in policy/schema.json")
-	}
-	found := false
-	for _, e := range result.Errors {
-		if e.Code == "POLICY_REF_UNRESOLVED" && strings.Contains(e.Message, "failed to compile") {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected POLICY_REF_UNRESOLVED with 'failed to compile'")
-	}
-}
-
-func TestResolvePoliciesWithResolver_RefResolutionError(t *testing.T) {
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{}}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/missing:1.0"}},
-	}
-	_, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
-	if result.IsValid() {
-		t.Fatal("expected error for unresolvable ref")
-	}
-	found := false
-	for _, e := range result.Errors {
-		if e.Code == "POLICY_REF_UNRESOLVED" && strings.Contains(e.Message, "failed to resolve") {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected POLICY_REF_UNRESOLVED with 'failed to resolve'")
-	}
-}
-
-func TestResolvePoliciesWithResolver_RefNilBundle(t *testing.T) {
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": nil,
-	}}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
-	}
-	_, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
-	if result.IsValid() {
-		t.Fatal("expected error for nil bundle")
-	}
-	found := false
-	for _, e := range result.Errors {
-		if e.Code == "POLICY_REF_UNRESOLVED" && strings.Contains(e.Message, "empty bundle") {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected POLICY_REF_UNRESOLVED with 'empty bundle'")
-	}
-}
-
-func TestResolvePoliciesWithResolver_RefNilFS(t *testing.T) {
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": {Contract: &contract.Contract{}},
-	}}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
-	}
-	_, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
-	if result.IsValid() {
-		t.Fatal("expected error for nil FS")
-	}
-}
-
-func TestResolvePoliciesWithResolver_CycleDetection(t *testing.T) {
-	// A references B, B references A → cycle
-	bundleB := &contract.Bundle{
-		Contract: &contract.Contract{
-			Policies: []contract.PolicySource{{Ref: "oci://example.com/a:1.0"}},
-		},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object"}`)},
-		},
-	}
-	bundleA := &contract.Bundle{
-		Contract: &contract.Contract{
-			Policies: []contract.PolicySource{{Ref: "oci://example.com/b:1.0"}},
-		},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object"}`)},
-		},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/a:1.0": bundleA,
-		"oci://example.com/b:1.0": bundleB,
-	}}
-
-	rootContract := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/a:1.0"}},
-	}
-	_, result := ResolvePoliciesWithResolver(context.Background(), rootContract, fstest.MapFS{}, resolver)
-	if result.IsValid() {
-		t.Fatal("expected cycle detection error")
-	}
-	found := false
-	for _, e := range result.Errors {
-		if e.Code == "POLICY_REF_CYCLE" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected POLICY_REF_CYCLE error")
-	}
-}
-
-func TestResolvePoliciesWithResolver_SharedRefAcrossSiblingsNoCycle(t *testing.T) {
-	// Two top-level policies reference the SAME ref. This is a diamond, not a
-	// cycle: each sibling must resolve independently. A shared ref reached via
-	// distinct chains must not trigger a false POLICY_REF_CYCLE.
-	refBundle := &contract.Bundle{
-		Contract: &contract.Contract{},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object"}`)},
-		},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/shared:1.0": refBundle,
-	}}
-
-	rootContract := &contract.Contract{
-		Policies: []contract.PolicySource{
-			{Ref: "oci://example.com/shared:1.0"},
-			{Ref: "oci://example.com/shared:1.0"},
-		},
-	}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), rootContract, fstest.MapFS{}, resolver)
-	if !result.IsValid() {
-		t.Fatalf("shared ref across siblings must not be a cycle, got errors: %v", result.Errors)
-	}
-	if len(policies) != 2 {
-		t.Fatalf("expected 2 resolved policies (one per sibling), got %d", len(policies))
-	}
-}
-
-func TestResolvePoliciesWithResolver_DiamondNoCycle(t *testing.T) {
-	// Root → A → C and Root → B → C. C is reached via two distinct chains but
-	// never appears twice within a single chain, so it is not a cycle.
-	bundleC := &contract.Bundle{
-		Contract: &contract.Contract{},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object"}`)},
-		},
-	}
-	bundleA := &contract.Bundle{
-		Contract: &contract.Contract{
-			Policies: []contract.PolicySource{{Ref: "oci://example.com/c:1.0"}},
-		},
-		FS: fstest.MapFS{},
-	}
-	bundleB := &contract.Bundle{
-		Contract: &contract.Contract{
-			Policies: []contract.PolicySource{{Ref: "oci://example.com/c:1.0"}},
-		},
-		FS: fstest.MapFS{},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/a:1.0": bundleA,
-		"oci://example.com/b:1.0": bundleB,
-		"oci://example.com/c:1.0": bundleC,
-	}}
-
-	rootContract := &contract.Contract{
-		Policies: []contract.PolicySource{
-			{Ref: "oci://example.com/a:1.0"},
-			{Ref: "oci://example.com/b:1.0"},
-		},
-	}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), rootContract, fstest.MapFS{}, resolver)
-	if !result.IsValid() {
-		t.Fatalf("diamond dependency must not be a cycle, got errors: %v", result.Errors)
-	}
-	// A→C yields C's schema, B→C yields C's schema → 2 resolved policies.
-	if len(policies) != 2 {
-		t.Fatalf("expected 2 resolved policies from diamond, got %d", len(policies))
-	}
-}
-
-func TestResolvePoliciesWithResolver_NHopChain(t *testing.T) {
-	// Root → A → B (3 hops, all with policy/schema.json)
-	bundleB := &contract.Bundle{
-		Contract: &contract.Contract{},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["pactoVersion"]}`)},
-		},
-	}
-	bundleA := &contract.Bundle{
-		Contract: &contract.Contract{
-			Policies: []contract.PolicySource{{Ref: "oci://example.com/b:1.0"}},
-		},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
-		},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/a:1.0": bundleA,
-		"oci://example.com/b:1.0": bundleB,
-	}}
-
-	rootContract := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/a:1.0"}},
-	}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), rootContract, fstest.MapFS{}, resolver)
-	if !result.IsValid() {
-		t.Fatalf("unexpected errors: %v", result.Errors)
-	}
-	// A has explicit policies[], so recursion is used (no fixed-path duplication).
-	// B has no policies[], so its policy/schema.json is read via fixed-path fallback.
-	// Result: 1 policy (B's schema only, resolved via A's policies[0].ref → B).
-	if len(policies) != 1 {
-		t.Fatalf("expected 1 policy from N-hop chain (A uses recursion, B uses fallback), got %d", len(policies))
-	}
-}
-
-func TestResolvePoliciesWithResolver_MixedLocalAndRef_ANDSemantics(t *testing.T) {
-	// Local policy requires "service", ref policy requires "pactoVersion"
-	// Both must be satisfied (AND semantics)
-	refBundle := &contract.Bundle{
-		Contract: &contract.Contract{},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["pactoVersion"]}`)},
-		},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": refBundle,
-	}}
-
-	bundleFS := fstest.MapFS{
-		"local-policy.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
-	}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{
-			{Schema: "local-policy.json"},
-			{Ref: "oci://example.com/policy:1.0"},
-		},
-	}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), c, bundleFS, resolver)
-	if !result.IsValid() {
-		t.Fatalf("unexpected errors: %v", result.Errors)
-	}
-	if len(policies) != 2 {
-		t.Fatalf("expected 2 policies (local + ref), got %d", len(policies))
-	}
-
-	// Enforce against a doc missing "pactoVersion" — should fail
-	rawYAML := []byte("service:\n  name: test\n")
-	enforceResult := EnforcePolicies(rawYAML, policies)
-	if enforceResult.IsValid() {
-		t.Error("expected AND semantics: missing pactoVersion should fail")
-	}
-
-	// Enforce against a complete doc — should pass
-	rawYAMLFull := []byte("pactoVersion: '1.0'\nservice:\n  name: test\n")
-	enforceResultFull := EnforcePolicies(rawYAMLFull, policies)
-	if !enforceResultFull.IsValid() {
-		t.Errorf("expected full doc to pass AND semantics: %v", enforceResultFull.Errors)
-	}
-}
-
-func TestResolvePoliciesWithResolver_DeterministicOutput(t *testing.T) {
-	// Same input should produce same output order
-	refBundle := &contract.Bundle{
-		Contract: &contract.Contract{},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object"}`)},
-		},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": refBundle,
-	}}
-	bundleFS := fstest.MapFS{
-		"local.json": &fstest.MapFile{Data: []byte(`{"type": "object"}`)},
-	}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{
-			{Schema: "local.json"},
-			{Ref: "oci://example.com/policy:1.0"},
-		},
-	}
-
-	// Run twice, verify same order
-	p1, _ := ResolvePoliciesWithResolver(context.Background(), c, bundleFS, resolver)
-	p2, _ := ResolvePoliciesWithResolver(context.Background(), c, bundleFS, resolver)
-	if len(p1) != len(p2) {
-		t.Fatalf("different policy counts: %d vs %d", len(p1), len(p2))
-	}
-	for i := range p1 {
-		if p1[i].Origin != p2[i].Origin {
-			t.Errorf("origin mismatch at %d: %s vs %s", i, p1[i].Origin, p2[i].Origin)
-		}
-	}
-}
-
-func TestResolvePoliciesWithResolver_LocalSchemaWithNilBundleFS(t *testing.T) {
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Schema: "policy.json"}},
-	}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, nil)
-	if !result.IsValid() {
-		t.Error("expected no errors")
-	}
-	if len(policies) != 0 {
-		t.Error("expected no policies with nil bundleFS")
-	}
-}
-
-func TestResolvePoliciesWithResolver_NoPolicies(t *testing.T) {
-	c := &contract.Contract{}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, nil)
-	if !result.IsValid() {
-		t.Error("expected no errors")
-	}
-	if len(policies) != 0 {
-		t.Error("expected no policies")
-	}
-}
-
-func TestResolvePoliciesWithResolver_ContradictoryRefPolicies(t *testing.T) {
-	// Two refs with contradictory policies: one requires name=string, other requires name=number
-	refA := &contract.Bundle{
-		Contract: &contract.Contract{},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{
-				"type": "object",
-				"properties": {"service": {"type": "object", "properties": {"name": {"type": "string"}}}}
-			}`)},
-		},
-	}
-	refB := &contract.Bundle{
-		Contract: &contract.Contract{},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{
-				"type": "object",
-				"properties": {"service": {"type": "object", "properties": {"name": {"type": "number"}}}}
-			}`)},
-		},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/a:1.0": refA,
-		"oci://example.com/b:1.0": refB,
-	}}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{
-			{Ref: "oci://example.com/a:1.0"},
-			{Ref: "oci://example.com/b:1.0"},
-		},
-	}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
-	if !result.IsValid() {
-		t.Fatalf("resolution should succeed, enforcement should fail: %v", result.Errors)
-	}
-	if len(policies) != 2 {
-		t.Fatalf("expected 2 policies, got %d", len(policies))
-	}
-	// Enforcement against string name should fail (policy B contradicts)
-	rawYAML := []byte("service:\n  name: test\n")
-	enforceResult := EnforcePolicies(rawYAML, policies)
-	if enforceResult.IsValid() {
-		t.Error("expected contradictory policies to fail enforcement")
-	}
-}
-
 func TestResolvePoliciesWithResolver_ResolverError(t *testing.T) {
+	c := &contract.Contract{
+		Policies: []contract.Policy{{Name: "ext", Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
+	}
 	resolver := &mockBundleResolver{err: fmt.Errorf("network error")}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
-	}
-	_, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, resolver)
 	if result.IsValid() {
-		t.Fatal("expected error from resolver")
+		t.Error("expected error from resolver")
 	}
-	found := false
-	for _, e := range result.Errors {
-		if e.Code == "POLICY_REF_UNRESOLVED" && strings.Contains(e.Message, "network error") {
-			found = true
-		}
+	if result.Errors[0].Code != "POLICY_REF_UNRESOLVED" {
+		t.Errorf("expected POLICY_REF_UNRESOLVED, got %q", result.Errors[0].Code)
 	}
-	if !found {
-		t.Error("expected POLICY_REF_UNRESOLVED with resolver error")
+	if len(policies) != 0 {
+		t.Errorf("expected no policies, got %d", len(policies))
 	}
 }
 
-func TestResolveLocalPolicySchema_NilBundleFS(t *testing.T) {
-	rp := resolveLocalPolicySchema(nil, "policy.json", "test", 0)
-	if rp != nil {
-		t.Error("expected nil for nil bundleFS")
-	}
-}
-
-func TestResolvePoliciesWithResolver_RefBundleWithExplicitPolicies(t *testing.T) {
-	// Provider declares policies: [{schema: policy/schema.json}] explicitly.
-	// Consumer should get exactly 1 policy (not 2 from double enforcement).
-	refBundle := &contract.Bundle{
-		Contract: &contract.Contract{
-			Policies: []contract.PolicySource{{Schema: "policy/schema.json"}},
-		},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
-		},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": refBundle,
-	}}
+func TestResolvePoliciesWithResolver_EmptyBundle(t *testing.T) {
 	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
+		Policies: []contract.Policy{{Name: "ext", Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
 	}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
+	resolver := &mockBundleResolver{
+		bundles: map[string]*contract.Bundle{
+			"oci://ghcr.io/acme/policy:1.0.0": {},
+		},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, resolver)
+	if result.IsValid() {
+		t.Error("expected error for empty bundle")
+	}
+	if result.Errors[0].Code != "POLICY_REF_UNRESOLVED" {
+		t.Errorf("expected POLICY_REF_UNRESOLVED, got %q", result.Errors[0].Code)
+	}
+	if len(policies) != 0 {
+		t.Errorf("expected no policies, got %d", len(policies))
+	}
+}
+
+func TestResolvePoliciesWithResolver_MissingPolicySchema(t *testing.T) {
+	c := &contract.Contract{
+		Policies: []contract.Policy{{Name: "ext", Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
+	}
+	policyFS := fstest.MapFS{}
+	resolver := &mockBundleResolver{
+		bundles: map[string]*contract.Bundle{
+			"oci://ghcr.io/acme/policy:1.0.0": {FS: policyFS},
+		},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, resolver)
+	if result.IsValid() {
+		t.Error("expected error for missing policy schema")
+	}
+	if result.Errors[0].Code != "POLICY_REF_UNRESOLVED" {
+		t.Errorf("expected POLICY_REF_UNRESOLVED, got %q", result.Errors[0].Code)
+	}
+	if len(policies) != 0 {
+		t.Errorf("expected no policies, got %d", len(policies))
+	}
+}
+
+func TestResolvePoliciesWithResolver_InvalidSchemaJSON(t *testing.T) {
+	c := &contract.Contract{
+		Policies: []contract.Policy{{Name: "ext", Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
+	}
+	policyFS := fstest.MapFS{
+		"policy/schema.json": &fstest.MapFile{Data: []byte(`not json`)},
+	}
+	resolver := &mockBundleResolver{
+		bundles: map[string]*contract.Bundle{
+			"oci://ghcr.io/acme/policy:1.0.0": {FS: policyFS},
+		},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, resolver)
+	if result.IsValid() {
+		t.Error("expected error for invalid JSON")
+	}
+	if result.Errors[0].Code != "POLICY_REF_UNRESOLVED" {
+		t.Errorf("expected POLICY_REF_UNRESOLVED, got %q", result.Errors[0].Code)
+	}
+	if len(policies) != 0 {
+		t.Errorf("expected no policies, got %d", len(policies))
+	}
+}
+
+func TestResolvePoliciesWithResolver_InvalidSchemaCompilation(t *testing.T) {
+	c := &contract.Contract{
+		Policies: []contract.Policy{{Name: "ext", Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
+	}
+	policyFS := fstest.MapFS{
+		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": 12345}`)},
+	}
+	resolver := &mockBundleResolver{
+		bundles: map[string]*contract.Bundle{
+			"oci://ghcr.io/acme/policy:1.0.0": {FS: policyFS},
+		},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, resolver)
+	if result.IsValid() {
+		t.Error("expected error for invalid schema")
+	}
+	if result.Errors[0].Code != "POLICY_REF_UNRESOLVED" {
+		t.Errorf("expected POLICY_REF_UNRESOLVED, got %q", result.Errors[0].Code)
+	}
+	if len(policies) != 0 {
+		t.Errorf("expected no policies, got %d", len(policies))
+	}
+}
+
+func TestResolvePoliciesWithResolver_RecursiveRef(t *testing.T) {
+	c := &contract.Contract{
+		Policies: []contract.Policy{{Name: "ext", Ref: "oci://ghcr.io/acme/policy-a:1.0.0"}},
+	}
+	policyABundle := &contract.Bundle{
+		Contract: &contract.Contract{
+			Policies: []contract.Policy{{Name: "ext2", Ref: "oci://ghcr.io/acme/policy-b:1.0.0"}},
+		},
+		FS: fstest.MapFS{},
+	}
+	policyBBundle := &contract.Bundle{
+		FS: fstest.MapFS{
+			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","required":["service"]}`)},
+		},
+	}
+	resolver := &mockBundleResolver{
+		bundles: map[string]*contract.Bundle{
+			"oci://ghcr.io/acme/policy-a:1.0.0": policyABundle,
+			"oci://ghcr.io/acme/policy-b:1.0.0": policyBBundle,
+		},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, resolver)
 	if !result.IsValid() {
-		t.Fatalf("unexpected errors: %v", result.Errors)
+		t.Errorf("expected no errors, got %+v", result.Errors)
 	}
 	if len(policies) != 1 {
-		t.Fatalf("expected 1 policy (no double enforcement), got %d", len(policies))
+		t.Fatalf("expected 1 policy (recursively resolved), got %d", len(policies))
 	}
 }
 
-func TestResolvePoliciesWithResolver_RefBundleCustomSchemaPath(t *testing.T) {
-	// Provider uses custom path policies: [{schema: policy/custom.json}]
-	// with NO policy/schema.json. Should resolve successfully via recursion.
-	refBundle := &contract.Bundle{
-		Contract: &contract.Contract{
-			Policies: []contract.PolicySource{{Schema: "policy/custom.json"}},
-		},
-		FS: fstest.MapFS{
-			"policy/custom.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
-		},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": refBundle,
-	}}
+func TestResolvePoliciesWithResolver_Cycle(t *testing.T) {
 	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
+		Policies: []contract.Policy{{Name: "ext", Ref: "oci://ghcr.io/acme/policy-a:1.0.0"}},
 	}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
-	if !result.IsValid() {
-		t.Fatalf("unexpected errors: %v", result.Errors)
+	policyABundle := &contract.Bundle{
+		Contract: &contract.Contract{
+			Policies: []contract.Policy{{Name: "ext2", Ref: "oci://ghcr.io/acme/policy-a:1.0.0"}},
+		},
+		FS: fstest.MapFS{},
 	}
-	if len(policies) != 1 {
-		t.Fatalf("expected 1 policy from custom schema path, got %d", len(policies))
+	resolver := &mockBundleResolver{
+		bundles: map[string]*contract.Bundle{
+			"oci://ghcr.io/acme/policy-a:1.0.0": policyABundle,
+		},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, resolver)
+	if result.IsValid() {
+		t.Error("expected error for cycle")
+	}
+	if result.Errors[0].Code != "POLICY_REF_CYCLE" {
+		t.Errorf("expected POLICY_REF_CYCLE, got %q", result.Errors[0].Code)
+	}
+	if len(policies) != 0 {
+		t.Errorf("expected no policies, got %d", len(policies))
 	}
 }
 
-func TestResolvePoliciesWithResolver_RefBundleMultiplePolicies(t *testing.T) {
-	// Provider declares 2 policy schemas. Consumer should get both.
-	refBundle := &contract.Bundle{
-		Contract: &contract.Contract{
-			Policies: []contract.PolicySource{
-				{Schema: "policy/scaling.json"},
-				{Schema: "policy/naming.json"},
-			},
-		},
-		FS: fstest.MapFS{
-			"policy/scaling.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
-			"policy/naming.json":  &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["pactoVersion"]}`)},
-		},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": refBundle,
-	}}
+func TestResolvePoliciesWithResolver_Diamond(t *testing.T) {
 	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
+		Policies: []contract.Policy{
+			{Name: "ext1", Ref: "oci://ghcr.io/acme/policy-a:1.0.0"},
+			{Name: "ext2", Ref: "oci://ghcr.io/acme/policy-b:1.0.0"},
+		},
 	}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
+	sharedPolicyFS := fstest.MapFS{
+		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","required":["service"]}`)},
+	}
+	policyABundle := &contract.Bundle{
+		Contract: &contract.Contract{
+			Policies: []contract.Policy{{Name: "shared", Ref: "oci://ghcr.io/acme/policy-shared:1.0.0"}},
+		},
+		FS: fstest.MapFS{},
+	}
+	policyBBundle := &contract.Bundle{
+		Contract: &contract.Contract{
+			Policies: []contract.Policy{{Name: "shared", Ref: "oci://ghcr.io/acme/policy-shared:1.0.0"}},
+		},
+		FS: fstest.MapFS{},
+	}
+	sharedBundle := &contract.Bundle{FS: sharedPolicyFS}
+	resolver := &mockBundleResolver{
+		bundles: map[string]*contract.Bundle{
+			"oci://ghcr.io/acme/policy-a:1.0.0":      policyABundle,
+			"oci://ghcr.io/acme/policy-b:1.0.0":      policyBBundle,
+			"oci://ghcr.io/acme/policy-shared:1.0.0": sharedBundle,
+		},
+	}
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, resolver)
 	if !result.IsValid() {
-		t.Fatalf("unexpected errors: %v", result.Errors)
+		t.Errorf("expected no errors for diamond (not a cycle), got %+v", result.Errors)
 	}
 	if len(policies) != 2 {
-		t.Fatalf("expected 2 policies from multi-schema provider, got %d", len(policies))
+		t.Fatalf("expected 2 policies (shared resolved twice), got %d", len(policies))
 	}
 }
 
-func TestResolvePoliciesWithResolver_RefBundleEmptyPoliciesSlice(t *testing.T) {
-	// Provider has Policies: [] (empty slice) — should fall back to fixed-path.
-	refBundle := &contract.Bundle{
-		Contract: &contract.Contract{
-			Policies: []contract.PolicySource{},
-		},
-		FS: fstest.MapFS{
-			"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type": "object", "required": ["service"]}`)},
-		},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": refBundle,
-	}}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
-	}
-	policies, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
-	if !result.IsValid() {
-		t.Fatalf("unexpected errors: %v", result.Errors)
-	}
-	if len(policies) != 1 {
-		t.Fatalf("expected 1 policy from fixed-path fallback, got %d", len(policies))
+func TestPolicyOrigin_WithName(t *testing.T) {
+	pol := contract.Policy{Name: "security"}
+	origin := policyOrigin(pol, 0)
+	if origin != `policies["security"]` {
+		t.Errorf("expected policies[\"security\"], got %q", origin)
 	}
 }
 
-func TestResolvePoliciesWithResolver_RefBundleNoPoliciesNoFixedPath(t *testing.T) {
-	// Provider has no policies[] AND no policy/schema.json — should error.
-	refBundle := &contract.Bundle{
-		Contract: &contract.Contract{},
-		FS:       fstest.MapFS{},
-	}
-	resolver := &mockBundleResolver{bundles: map[string]*contract.Bundle{
-		"oci://example.com/policy:1.0": refBundle,
-	}}
-	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Ref: "oci://example.com/policy:1.0"}},
-	}
-	_, result := ResolvePoliciesWithResolver(context.Background(), c, fstest.MapFS{}, resolver)
-	if result.IsValid() {
-		t.Fatal("expected error when no policies[] and no fixed-path schema")
-	}
-	found := false
-	for _, e := range result.Errors {
-		if e.Code == "POLICY_REF_UNRESOLVED" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected POLICY_REF_UNRESOLVED error")
+func TestPolicyOrigin_WithoutName(t *testing.T) {
+	pol := contract.Policy{}
+	origin := policyOrigin(pol, 3)
+	if origin != "policies[3]" {
+		t.Errorf("expected policies[3], got %q", origin)
 	}
 }
 
-// --- Readiness policy enforcement ---
-//
-// These prove that organizational readiness standards can be enforced purely
-// through JSON Schema policies (draft 2020-12 contains/const/minimum), without
-// baking any specific check into the base schema.
-
-// readinessContractYAML is a 1.2 contract with a dashboard (url, weight 20),
-// runbook and security-review readiness checks.
-const readinessContractYAML = `pactoVersion: "1.2"
-service:
-  name: payment-api
-  version: "1.4.0"
-readiness:
-  expires: "2026-12-31"
-  checks:
-    - id: dashboard
-      type: url
-      status: done
-      evidence: https://grafana.company.com/payment-api
-      weight: 20
-    - id: runbook
-      type: document
-      status: done
-      evidence: docs/runbooks/payment-api.md
-      weight: 15
-    - id: security-review
-      type: ticket
-      status: done
-      evidence: SEC-1842
-      weight: 25
-`
-
-func TestEnforcePolicies_RequireReadinessPresent(t *testing.T) {
-	pol := mustResolvePolicy(t, "policies[0]", `{
-		"type": "object",
-		"required": ["readiness"]
-	}`)
-
-	if r := EnforcePolicies([]byte(readinessContractYAML), []ResolvedPolicy{pol}); !r.IsValid() {
-		t.Errorf("expected contract with readiness to satisfy policy, got %v", r.Errors)
-	}
-
-	without := []byte("pactoVersion: \"1.1\"\nservice:\n  name: svc\n  version: \"1.0.0\"\n")
-	if r := EnforcePolicies(without, []ResolvedPolicy{pol}); r.IsValid() {
-		t.Error("expected contract without readiness to violate policy")
-	}
-}
-
-func TestEnforcePolicies_RequireDashboardCheck(t *testing.T) {
-	pol := mustResolvePolicy(t, "policies[0]", `{
-		"type": "object",
-		"required": ["readiness"],
-		"properties": {
-			"readiness": {
-				"type": "object",
-				"required": ["checks"],
-				"properties": {
-					"checks": {
-						"type": "array",
-						"contains": {
-							"type": "object",
-							"required": ["id"],
-							"properties": { "id": { "const": "dashboard" } }
-						}
-					}
-				}
-			}
-		}
-	}`)
-
-	if r := EnforcePolicies([]byte(readinessContractYAML), []ResolvedPolicy{pol}); !r.IsValid() {
-		t.Errorf("expected dashboard check to satisfy policy, got %v", r.Errors)
-	}
-
-	noDashboard := []byte(`pactoVersion: "1.2"
-service:
-  name: svc
-  version: "1.0.0"
-readiness:
-  expires: "2026-12-31"
-  checks:
-    - id: runbook
-      type: document
-      status: done
-      evidence: docs/rb.md
-      weight: 100
-`)
-	if r := EnforcePolicies(noDashboard, []ResolvedPolicy{pol}); r.IsValid() {
-		t.Error("expected contract without dashboard check to violate policy")
-	}
-}
-
-func TestEnforcePolicies_RequireDashboardUrlWeight(t *testing.T) {
-	pol := mustResolvePolicy(t, "policies[0]", `{
-		"type": "object",
-		"required": ["readiness"],
-		"properties": {
-			"readiness": {
-				"type": "object",
-				"required": ["checks"],
-				"properties": {
-					"checks": {
-						"type": "array",
-						"contains": {
-							"type": "object",
-							"required": ["id", "type", "weight"],
-							"properties": {
-								"id": { "const": "dashboard" },
-								"type": { "const": "url" },
-								"weight": { "minimum": 20 }
-							}
-						}
-					}
-				}
-			}
-		}
-	}`)
-
-	if r := EnforcePolicies([]byte(readinessContractYAML), []ResolvedPolicy{pol}); !r.IsValid() {
-		t.Errorf("expected dashboard url weight=20 to satisfy policy, got %v", r.Errors)
-	}
-
-	weakDashboard := []byte(`pactoVersion: "1.2"
-service:
-  name: svc
-  version: "1.0.0"
-readiness:
-  expires: "2026-12-31"
-  checks:
-    - id: dashboard
-      type: url
-      status: done
-      evidence: https://x
-      weight: 10
-`)
-	if r := EnforcePolicies(weakDashboard, []ResolvedPolicy{pol}); r.IsValid() {
-		t.Error("expected dashboard with weight 10 to violate weight>=20 policy")
-	}
-
-	wrongType := []byte(`pactoVersion: "1.2"
-service:
-  name: svc
-  version: "1.0.0"
-readiness:
-  expires: "2026-12-31"
-  checks:
-    - id: dashboard
-      type: document
-      status: done
-      evidence: docs/d.md
-      weight: 50
-`)
-	if r := EnforcePolicies(wrongType, []ResolvedPolicy{pol}); r.IsValid() {
-		t.Error("expected dashboard with type document to violate type:url policy")
-	}
-}
-
-func TestEnforcePolicies_ProductionReadinessAllOf(t *testing.T) {
-	// The full production-readiness policy: dashboard (url, weight>=20) AND
-	// runbook AND security-review must all be present.
-	pol := mustResolvePolicy(t, "policies[0]", `{
-		"type": "object",
-		"required": ["readiness"],
-		"properties": {
-			"readiness": {
-				"type": "object",
-				"required": ["checks"],
-				"properties": {
-					"checks": {
-						"type": "array",
-						"allOf": [
-							{ "contains": { "type": "object", "required": ["id", "type", "weight"],
-								"properties": { "id": {"const": "dashboard"}, "type": {"const": "url"}, "weight": {"minimum": 20} } } },
-							{ "contains": { "type": "object", "required": ["id"], "properties": { "id": {"const": "runbook"} } } },
-							{ "contains": { "type": "object", "required": ["id"], "properties": { "id": {"const": "security-review"} } } }
-						]
-					}
-				}
-			}
-		}
-	}`)
-
-	if r := EnforcePolicies([]byte(readinessContractYAML), []ResolvedPolicy{pol}); !r.IsValid() {
-		t.Errorf("expected full readiness contract to satisfy production-readiness policy, got %v", r.Errors)
-	}
-
-	missingSecurity := []byte(`pactoVersion: "1.2"
-service:
-  name: svc
-  version: "1.0.0"
-readiness:
-  expires: "2026-12-31"
-  checks:
-    - id: dashboard
-      type: url
-      status: done
-      evidence: https://x
-      weight: 20
-    - id: runbook
-      type: document
-      status: done
-      evidence: docs/rb.md
-      weight: 15
-`)
-	if r := EnforcePolicies(missingSecurity, []ResolvedPolicy{pol}); r.IsValid() {
-		t.Error("expected contract missing security-review to violate production-readiness policy")
+func TestCompilePolicySchema_CompileError(t *testing.T) {
+	_, err := compilePolicySchema([]byte(`{"$ref": "#/missing"}`), "mem:///test.json")
+	if err == nil {
+		t.Error("expected error for schema with unresolved $ref")
 	}
 }

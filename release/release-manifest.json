@@ -1,0 +1,59 @@
+{
+  "schema": "pacto-release-manifest/v1",
+  "units": {
+    "cli": {
+      "artifactKind": "binaries",
+      "coordinate": "github.com/trianalab/pacto releases",
+      "tag": "v2.7.0",
+      "version": "2.7.0"
+    },
+    "core": {
+      "artifactKind": "go-module",
+      "coordinate": "github.com/trianalab/pacto/v3",
+      "tag": "v2.7.0",
+      "version": "2.7.0"
+    },
+    "dashboard-contract-bundle": {
+      "artifactKind": "oci-image",
+      "coordinate": "ghcr.io/trianalab/pactos/pacto-dashboard",
+      "tag": "2.7.0",
+      "version": "2.7.0"
+    },
+    "dashboard-image": {
+      "artifactKind": "oci-image",
+      "coordinate": "ghcr.io/trianalab/pacto-dashboard",
+      "tag": "2.7.0",
+      "version": "2.7.0"
+    },
+    "demo-bundles": {
+      "artifactKind": "oci-image",
+      "coordinate": "ghcr.io/trianalab/pacto-demo",
+      "tag": "2.7.0",
+      "version": "2.7.0"
+    },
+    "k8s-docs": {
+      "artifactKind": "docs",
+      "coordinate": "mkdocs:integrations/kubernetes",
+      "tag": "4.7.0",
+      "version": "4.7.0"
+    },
+    "k8s-module": {
+      "artifactKind": "go-module",
+      "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v5",
+      "tag": "integrations/kubernetes/v5.0.0",
+      "version": "4.7.0"
+    },
+    "operator-chart": {
+      "artifactKind": "helm-chart",
+      "coordinate": "ghcr.io/trianalab/pacto-operator/charts/pacto-operator",
+      "tag": "4.7.0",
+      "version": "4.7.0"
+    },
+    "operator-image": {
+      "artifactKind": "oci-image",
+      "coordinate": "ghcr.io/trianalab/pacto-operator/pacto-controller",
+      "tag": "4.7.0",
+      "version": "4.7.0"
+    }
+  }
+}

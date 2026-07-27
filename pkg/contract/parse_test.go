@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 func TestParse_ValidMinimal(t *testing.T) {
@@ -20,8 +20,8 @@ func TestParse_ValidMinimal(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if c.PactoVersion != "1.0" {
-		t.Errorf("expected pactoVersion 1.0, got %s", c.PactoVersion)
+	if c.PactoVersion != "2.0" {
+		t.Errorf("expected pactoVersion 2.0, got %s", c.PactoVersion)
 	}
 	if c.Service.Name != "my-service" {
 		t.Errorf("expected service name my-service, got %s", c.Service.Name)
@@ -32,23 +32,29 @@ func TestParse_ValidMinimal(t *testing.T) {
 	if len(c.Interfaces) != 1 {
 		t.Fatalf("expected 1 interface, got %d", len(c.Interfaces))
 	}
-	if c.Interfaces[0].Port == nil || *c.Interfaces[0].Port != 8080 {
-		t.Error("expected interface port 8080")
+	if c.Interfaces[0].Type != contract.InterfaceTypeOpenAPI {
+		t.Errorf("expected interface type openapi, got %s", c.Interfaces[0].Type)
 	}
-	if c.Runtime.Workload != "service" {
-		t.Errorf("expected workload service, got %s", c.Runtime.Workload)
+	if c.Interfaces[0].Ref != "interfaces/openapi.json" {
+		t.Errorf("expected interface ref interfaces/openapi.json, got %s", c.Interfaces[0].Ref)
 	}
-	if c.Runtime.State.Type != "stateless" {
-		t.Errorf("expected state type stateless, got %s", c.Runtime.State.Type)
+	if c.State == nil {
+		t.Fatal("expected state to be present")
 	}
-	if c.Runtime.State.Persistence.Durability != "ephemeral" {
-		t.Errorf("expected persistence durability ephemeral, got %s", c.Runtime.State.Persistence.Durability)
+	if c.State.Type != "stateless" {
+		t.Errorf("expected state type stateless, got %s", c.State.Type)
 	}
-	if c.Runtime.State.DataCriticality != "low" {
-		t.Errorf("expected dataCriticality low, got %s", c.Runtime.State.DataCriticality)
+	if c.State.Persistence.Durability != "ephemeral" {
+		t.Errorf("expected persistence durability ephemeral, got %s", c.State.Persistence.Durability)
 	}
-	if c.Runtime.Health.Interface != "api" {
-		t.Errorf("expected health interface api, got %s", c.Runtime.Health.Interface)
+	if c.State.DataCriticality != "low" {
+		t.Errorf("expected dataCriticality low, got %s", c.State.DataCriticality)
+	}
+	if len(c.Capabilities) != 1 {
+		t.Fatalf("expected 1 capability, got %d", len(c.Capabilities))
+	}
+	if c.Capabilities[0].Type != contract.CapabilityHealth {
+		t.Errorf("expected capability type health, got %s", c.Capabilities[0].Type)
 	}
 }
 
@@ -70,20 +76,23 @@ func parseFullContract(t *testing.T) *contract.Contract {
 func TestParse_ValidFull_Service(t *testing.T) {
 	c := parseFullContract(t)
 
+	if c.Service.Name != "payments-api" {
+		t.Errorf("expected service name payments-api, got %s", c.Service.Name)
+	}
+	if c.Service.Version != "2.1.0" {
+		t.Errorf("expected service version 2.1.0, got %s", c.Service.Version)
+	}
+	if c.Service.Owner.Team != "Platform" {
+		t.Errorf("expected owner team Platform, got %s", c.Service.Owner.Team)
+	}
+	if c.Service.Owner.DRI != "alice@example.com" {
+		t.Errorf("expected owner dri alice@example.com, got %s", c.Service.Owner.DRI)
+	}
 	if len(c.Interfaces) != 3 {
 		t.Errorf("expected 3 interfaces, got %d", len(c.Interfaces))
 	}
-	if c.Service.Image == nil {
-		t.Fatal("expected image to be present")
-	}
-	if c.Service.Image.Ref != "ghcr.io/acme/payments-api:2.1.0" {
-		t.Errorf("expected image ref, got %s", c.Service.Image.Ref)
-	}
-	if !c.Service.Image.Private {
-		t.Error("expected image to be private")
-	}
-	if len(c.Configurations) == 0 {
-		t.Fatal("expected configurations to be present")
+	if len(c.Configurations) != 1 {
+		t.Errorf("expected 1 configuration, got %d", len(c.Configurations))
 	}
 	if c.Configurations[0].Schema != "configuration/schema.json" {
 		t.Errorf("expected configuration schema, got %s", c.Configurations[0].Schema)
@@ -93,58 +102,71 @@ func TestParse_ValidFull_Service(t *testing.T) {
 	}
 }
 
-func TestParse_ValidFull_Workload(t *testing.T) {
+func TestParse_ValidFull_Interfaces(t *testing.T) {
 	c := parseFullContract(t)
-	if c.Runtime.Workload != "service" {
-		t.Errorf("expected workload service, got %s", c.Runtime.Workload)
+	if c.Interfaces[0].Type != contract.InterfaceTypeOpenAPI {
+		t.Errorf("expected first interface type openapi, got %s", c.Interfaces[0].Type)
+	}
+	if c.Interfaces[1].Type != contract.InterfaceTypeAsyncAPI {
+		t.Errorf("expected second interface type asyncapi, got %s", c.Interfaces[1].Type)
+	}
+	if c.Interfaces[2].Type != contract.InterfaceTypeGRPC {
+		t.Errorf("expected third interface type grpc, got %s", c.Interfaces[2].Type)
+	}
+	if c.Interfaces[0].Visibility != contract.VisibilityPublic {
+		t.Errorf("expected first interface visibility public, got %s", c.Interfaces[0].Visibility)
 	}
 }
 
 func TestParse_ValidFull_State(t *testing.T) {
 	c := parseFullContract(t)
-	if c.Runtime.State.Type != "stateful" {
-		t.Errorf("expected state type stateful, got %s", c.Runtime.State.Type)
+	if c.State == nil {
+		t.Fatal("expected state to be present")
 	}
-	if c.Runtime.State.DataCriticality != "high" {
-		t.Errorf("expected dataCriticality high, got %s", c.Runtime.State.DataCriticality)
+	if c.State.Type != "stateful" {
+		t.Errorf("expected state type stateful, got %s", c.State.Type)
 	}
-	if c.Runtime.State.Persistence.Scope != "local" {
-		t.Errorf("expected persistence scope local, got %s", c.Runtime.State.Persistence.Scope)
+	if c.State.DataCriticality != "high" {
+		t.Errorf("expected dataCriticality high, got %s", c.State.DataCriticality)
 	}
-	if c.Runtime.State.Persistence.Durability != "persistent" {
-		t.Errorf("expected persistence durability persistent, got %s", c.Runtime.State.Persistence.Durability)
+	if c.State.Persistence.Scope != "local" {
+		t.Errorf("expected persistence scope local, got %s", c.State.Persistence.Scope)
 	}
-}
-
-func TestParse_ValidFull_Lifecycle(t *testing.T) {
-	c := parseFullContract(t)
-	if c.Runtime.Lifecycle == nil {
-		t.Fatal("expected lifecycle to be present")
-	}
-	if c.Runtime.Lifecycle.UpgradeStrategy != "ordered" {
-		t.Errorf("expected upgradeStrategy ordered, got %s", c.Runtime.Lifecycle.UpgradeStrategy)
-	}
-	if c.Runtime.Lifecycle.GracefulShutdownSeconds == nil {
-		t.Fatal("expected gracefulShutdownSeconds to be present")
-	}
-	if *c.Runtime.Lifecycle.GracefulShutdownSeconds != 30 {
-		t.Errorf("expected gracefulShutdownSeconds 30, got %d", *c.Runtime.Lifecycle.GracefulShutdownSeconds)
+	if c.State.Persistence.Durability != "persistent" {
+		t.Errorf("expected persistence durability persistent, got %s", c.State.Persistence.Durability)
 	}
 }
 
-func TestParse_ValidFull_HealthAndScaling(t *testing.T) {
+func TestParse_ValidFull_Workload(t *testing.T) {
 	c := parseFullContract(t)
-	if c.Runtime.Health.InitialDelaySeconds == nil {
-		t.Fatal("expected health initialDelaySeconds to be present")
+	if c.Workload != contract.WorkloadService {
+		t.Errorf("expected workload service, got %s", c.Workload)
 	}
-	if *c.Runtime.Health.InitialDelaySeconds != 15 {
-		t.Errorf("expected health initialDelaySeconds 15, got %d", *c.Runtime.Health.InitialDelaySeconds)
+}
+
+func TestParse_ValidFull_Capabilities(t *testing.T) {
+	c := parseFullContract(t)
+	if len(c.Capabilities) != 2 {
+		t.Fatalf("expected 2 capabilities, got %d", len(c.Capabilities))
 	}
-	if c.Scaling == nil {
-		t.Fatal("expected scaling to be present")
+	if c.Capabilities[0].Type != contract.CapabilityHealth {
+		t.Errorf("expected first capability health, got %s", c.Capabilities[0].Type)
 	}
-	if c.Scaling.Min != 2 {
-		t.Errorf("expected scaling min 2, got %d", c.Scaling.Min)
+	if c.Capabilities[1].Type != contract.CapabilityMetrics {
+		t.Errorf("expected second capability metrics, got %s", c.Capabilities[1].Type)
+	}
+}
+
+func TestParse_ValidFull_Policies(t *testing.T) {
+	c := parseFullContract(t)
+	if len(c.Policies) != 1 {
+		t.Fatalf("expected 1 policy, got %d", len(c.Policies))
+	}
+	if c.Policies[0].Name != "security" {
+		t.Errorf("expected policy name security, got %s", c.Policies[0].Name)
+	}
+	if c.Policies[0].Target != contract.PolicyTargetContract {
+		t.Errorf("expected policy target contract, got %s", c.Policies[0].Target)
 	}
 }
 
@@ -165,6 +187,29 @@ func TestParse_MissingPactoVersion(t *testing.T) {
 	}
 	if pe.Path != "pactoVersion" {
 		t.Errorf("expected path pactoVersion, got %s", pe.Path)
+	}
+}
+
+func TestParse_UnsupportedVersion(t *testing.T) {
+	r := strings.NewReader(`
+pactoVersion: "1.0"
+service:
+  name: my-svc
+  version: "1.0.0"
+`)
+	_, err := contract.Parse(r)
+	if err == nil {
+		t.Fatal("expected error for unsupported pactoVersion")
+	}
+	pe, ok := err.(*contract.ParseError)
+	if !ok {
+		t.Fatalf("expected ParseError, got %T", err)
+	}
+	if pe.Path != "pactoVersion" {
+		t.Errorf("expected path pactoVersion, got %s", pe.Path)
+	}
+	if !strings.Contains(pe.Message, "unsupported") || !strings.Contains(pe.Message, "2.0") {
+		t.Errorf("expected unsupported version message, got %s", pe.Message)
 	}
 }
 
@@ -206,24 +251,9 @@ func TestParse_InvalidYAML(t *testing.T) {
 
 func TestParse_MissingServiceVersion(t *testing.T) {
 	r := strings.NewReader(`
-pactoVersion: "1.0"
+pactoVersion: "2.0"
 service:
   name: my-svc
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
-interfaces:
-  - name: api
-    type: http
-    port: 8080
 `)
 	_, err := contract.Parse(r)
 	if err == nil {
@@ -238,33 +268,6 @@ interfaces:
 	}
 }
 
-func TestParse_ScalingReplicasNormalized(t *testing.T) {
-	r := strings.NewReader(`
-pactoVersion: "1.0"
-service:
-  name: my-svc
-  version: "1.0.0"
-scaling:
-  replicas: 3
-`)
-	c, err := contract.Parse(r)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if c.Scaling == nil {
-		t.Fatal("expected scaling to be present")
-	}
-	if c.Scaling.Replicas == nil || *c.Scaling.Replicas != 3 {
-		t.Error("expected replicas=3")
-	}
-	if c.Scaling.Min != 3 {
-		t.Errorf("expected min=3 (normalized), got %d", c.Scaling.Min)
-	}
-	if c.Scaling.Max != 3 {
-		t.Errorf("expected max=3 (normalized), got %d", c.Scaling.Max)
-	}
-}
-
 func TestParse_ValidReadiness(t *testing.T) {
 	f, err := os.Open("testdata/valid_readiness.yaml")
 	if err != nil {
@@ -276,8 +279,8 @@ func TestParse_ValidReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if c.PactoVersion != "1.2" {
-		t.Errorf("expected pactoVersion 1.2, got %s", c.PactoVersion)
+	if c.PactoVersion != "2.0" {
+		t.Errorf("expected pactoVersion 2.0, got %s", c.PactoVersion)
 	}
 	if c.Readiness == nil {
 		t.Fatal("expected readiness to be present")
@@ -285,10 +288,10 @@ func TestParse_ValidReadiness(t *testing.T) {
 	if c.Readiness.Expires != "2099-12-31" {
 		t.Errorf("unexpected assessment expires: %s", c.Readiness.Expires)
 	}
-	if len(c.Readiness.Checks) != 3 {
-		t.Fatalf("expected 3 readiness checks, got %d", len(c.Readiness.Checks))
+	if len(c.Readiness.Claims) != 3 {
+		t.Fatalf("expected 3 readiness claims, got %d", len(c.Readiness.Claims))
 	}
-	first := c.Readiness.Checks[0]
+	first := c.Readiness.Claims[0]
 	type field struct {
 		label string
 		got   any
@@ -308,23 +311,23 @@ func TestParse_ValidReadiness(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", f.label, f.got, f.want)
 		}
 	}
-	if c.Readiness.Checks[1].Status != contract.StatusPartial {
-		t.Errorf("expected partial status on second check, got %s", c.Readiness.Checks[1].Status)
+	if c.Readiness.Claims[1].Status != contract.StatusPartial {
+		t.Errorf("expected partial status on second claim, got %s", c.Readiness.Claims[1].Status)
 	}
-	if c.Readiness.Checks[2].Description != "" {
-		t.Errorf("expected empty description on third check, got %s", c.Readiness.Checks[2].Description)
+	if c.Readiness.Claims[2].Status != contract.StatusNotDone {
+		t.Errorf("expected not-done status on third claim, got %s", c.Readiness.Claims[2].Status)
 	}
 }
 
 func TestParse_ReadinessUnknownFieldRejected(t *testing.T) {
 	r := strings.NewReader(`
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 service:
   name: my-svc
   version: "1.0.0"
 readiness:
   expires: 2026-12-31
-  checks:
+  claims:
     - id: dashboard
       type: url
       status: done
@@ -334,33 +337,31 @@ readiness:
 `)
 	_, err := contract.Parse(r)
 	if err == nil {
-		t.Fatal("expected error for unknown readiness check field")
+		t.Fatal("expected error for unknown readiness claim field")
 	}
 	if _, ok := err.(*contract.ParseError); !ok {
 		t.Fatalf("expected ParseError, got %T", err)
 	}
 }
 
-func TestParse_MissingInterfaces(t *testing.T) {
+func TestParse_OptionalFields(t *testing.T) {
 	r := strings.NewReader(`
-pactoVersion: "1.0"
+pactoVersion: "2.0"
 service:
   name: my-svc
   version: "1.0.0"
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
 `)
 	c, err := contract.Parse(r)
 	if err != nil {
-		t.Fatalf("interfaces should be optional, got error: %v", err)
+		t.Fatalf("optional fields should be allowed, got error: %v", err)
 	}
 	if len(c.Interfaces) != 0 {
 		t.Errorf("expected 0 interfaces, got %d", len(c.Interfaces))
+	}
+	if c.State != nil {
+		t.Errorf("expected nil state, got %+v", c.State)
+	}
+	if c.Workload != "" {
+		t.Errorf("expected empty workload, got %s", c.Workload)
 	}
 }

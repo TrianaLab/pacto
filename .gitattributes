@@ -1,8 +1,14 @@
 # The dashboard UI under pkg/dashboard/ui is a generated Vite build output. It is
 # committed (not gitignored) because it is //go:embed-ed into the binary so
 # `go install`, the Docker image and releases ship a working dashboard without
-# Node. Mark it generated so GitHub collapses it in diffs and code-quality /
-# scanning tools skip the minified vendor bundles (e.g. spurious "semicolon
-# insertion" findings on minified mermaid chunks). It is rebuilt by `make
-# ui-build` and gated by `ci-ui-drift`, so it is never hand-edited.
+# Node. It is rebuilt by `make ui-build` and gated by `ci-ui-drift`, so it is
+# never hand-edited.
+#
+# `linguist-generated=true` collapses these files in GitHub diffs and excludes
+# them from Linguist language stats and classic CodeQL code scanning. NOTE: it
+# does NOT suppress GitHub's newer "Code Quality" bot (github-code-quality),
+# which currently has no path-ignore and still flags the minified vendor chunks
+# (e.g. spurious "semicolon insertion" on mermaid). That check is non-blocking
+# (not in the CI `required` set); its threads are resolved as generated-vendor
+# noise, never by editing these files.
 pkg/dashboard/ui/** linguist-generated=true

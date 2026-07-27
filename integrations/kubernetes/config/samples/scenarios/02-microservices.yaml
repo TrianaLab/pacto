@@ -1,0 +1,273 @@
+# Scenario 02: E-commerce microservices with inline contracts.
+#
+# Covers: HTTP/gRPC/event interfaces, dependencies, configuration with
+# values and secrets, scaling (fixed and auto), rolling upgrades, health
+# checks, metrics endpoints, public vs internal visibility.
+#
+# Topology:
+#   frontend (public :3000) ──req──→ order-service (:8080) ──req──→ payment-service (:8080)
+#                            └──req──→ user-service (:9090 gRPC)
+#   order-service ──opt──→ notification-worker (:8080, event consumer)
+#   payment-service ──req──→ payment-gateway (definition)
+#   user-service ──req──→ postgresql (scenario 03)
+---
+# order-service — internal HTTP API + event producer, depends on payments and notifications
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: order-service
+  namespace: default
+spec:
+  target:
+    serviceName: order-service
+  checkIntervalSeconds: 60
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: order-service
+        version: "1.4.0"
+        owner: team/orders
+        image:
+          ref: ghcr.io/acme/order-service:1.4.0
+      interfaces:
+        - name: http-api
+          type: http
+          port: 8080
+          visibility: internal
+        - name: order-events
+          type: event
+          visibility: internal
+          contract: openapi.yaml
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            DB_HOST: orders-db.internal
+            DB_PORT: 5432
+            DB_PASSWORD: secret://vault/order-service/db-password
+            BROKER_URL: amqp://rabbitmq:5672
+            MAX_ORDER_ITEMS: 50
+      dependencies:
+        - name: payment-service
+          ref: oci://ghcr.io/acme/payment-service-pacto
+          required: true
+          compatibility: "^2.0.0"
+        - name: notification-worker
+          ref: oci://ghcr.io/acme/notification-worker-pacto
+          required: false
+          compatibility: ">=1.0.0"
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: high
+        lifecycle:
+          upgradeStrategy: rolling
+          gracefulShutdownSeconds: 15
+        health:
+          interface: http-api
+          path: /health
+        metrics:
+          interface: http-api
+          path: /metrics
+      scaling:
+        min: 2
+        max: 6
+      metadata:
+        team: orders
+        tier: standard
+---
+# payment-service — high-criticality internal API, depends on external payment gateway
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: payment-service
+  namespace: default
+spec:
+  target:
+    serviceName: payment-service
+  checkIntervalSeconds: 60
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: payment-service
+        version: "2.1.0"
+        owner: team/payments
+        image:
+          ref: ghcr.io/acme/payment-service:2.1.0
+          private: true
+      interfaces:
+        - name: http-api
+          type: http
+          port: 8080
+          visibility: internal
+        - name: payment-events
+          type: event
+          visibility: internal
+          contract: openapi.yaml
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            STRIPE_API_KEY: secret://vault/payment-service/stripe-api-key
+            WEBHOOK_SECRET: secret://vault/payment-service/webhook-secret
+            IDEMPOTENCY_TTL_HOURS: 48
+      dependencies:
+        - name: payment-gateway
+          ref: oci://ghcr.io/acme/payment-gateway-pacto
+          required: true
+          compatibility: "^4.0.0"
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: high
+        lifecycle:
+          upgradeStrategy: rolling
+          gracefulShutdownSeconds: 30
+        health:
+          interface: http-api
+          path: /health
+        metrics:
+          interface: http-api
+          path: /metrics
+      scaling:
+        replicas: 3
+      metadata:
+        team: payments
+        tier: critical
+        pci-scope: "true"
+---
+# user-service — gRPC API with separate HTTP health/metrics ports
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: user-service
+  namespace: default
+spec:
+  target:
+    serviceName: user-service
+  checkIntervalSeconds: 60
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: user-service
+        version: "3.2.0"
+        owner: team/identity
+        image:
+          ref: ghcr.io/acme/user-service:3.2.0
+      interfaces:
+        - name: grpc-api
+          type: grpc
+          port: 9090
+          visibility: internal
+          contract: openapi.yaml
+        - name: health
+          type: http
+          port: 8080
+          visibility: internal
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            DB_HOST: user-db.internal
+            DB_PORT: 5432
+            DB_PASSWORD: secret://vault/user-service/db-password
+            CACHE_TTL_SECONDS: 300
+      dependencies:
+        - name: postgresql
+          ref: oci://ghcr.io/acme/postgresql-pacto
+          required: true
+          compatibility: "^16.0.0"
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: low
+        lifecycle:
+          upgradeStrategy: rolling
+          gracefulShutdownSeconds: 15
+        health:
+          interface: grpc-api
+        metrics:
+          interface: health
+          path: /metrics
+      scaling:
+        min: 3
+        max: 12
+      metadata:
+        team: identity
+        tier: critical
+---
+# frontend — public-facing web app, depends on order-service and user-service
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: frontend
+  namespace: default
+spec:
+  target:
+    serviceName: frontend
+  checkIntervalSeconds: 60
+  contractRef:
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: frontend
+        version: "3.0.0"
+        owner: team/frontend
+        image:
+          ref: ghcr.io/acme/frontend:3.0.0
+      interfaces:
+        - name: http-ui
+          type: http
+          port: 3000
+          visibility: public
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            API_URL: http://order-service:8080
+            USER_API_URL: grpc://user-service:9090
+            SESSION_SECRET: secret://vault/frontend/session-secret
+      dependencies:
+        - name: order-service
+          ref: oci://ghcr.io/acme/order-service-pacto
+          required: true
+          compatibility: "^1.0.0"
+        - name: user-service
+          ref: oci://ghcr.io/acme/user-service-pacto
+          required: true
+          compatibility: "^3.0.0"
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: low
+        lifecycle:
+          upgradeStrategy: rolling
+        health:
+          interface: http-ui
+          path: /
+      scaling:
+        min: 2
+        max: 10
+      metadata:
+        team: frontend
+        tier: standard
+        edge: "true"

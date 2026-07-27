@@ -13,10 +13,10 @@ import (
 	"path"
 	"sort"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
-	"github.com/trianalab/pacto/v2/pkg/semver"
-	"github.com/trianalab/pacto/v2/pkg/validation"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/semver"
+	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
 const contractFile = "pacto.yaml"
@@ -158,7 +158,7 @@ func (s *EmbedSource) GetService(_ context.Context, name string) (*dashboard.Ser
 // annotated with its contract hash and the diff classification against the
 // immediately preceding version (BREAKING / POTENTIAL_BREAKING / NON_BREAKING).
 // The server marks the current version separately via GetService.
-func (s *EmbedSource) GetVersions(_ context.Context, name string) ([]dashboard.Version, error) {
+func (s *EmbedSource) GetVersions(ctx context.Context, name string) ([]dashboard.Version, error) {
 	desc := s.versionsDesc(name)
 	if len(desc) == 0 {
 		return nil, fmt.Errorf("service %q not found", name)
@@ -177,6 +177,7 @@ func (s *EmbedSource) GetVersions(_ context.Context, name string) ([]dashboard.V
 			prev := desc[i+1]
 			prevEntry := s.byName[name][prev]
 			d := dashboard.ComputeDiff(
+				ctx,
 				dashboard.Ref{Name: name, Version: prev},
 				dashboard.Ref{Name: name, Version: v},
 				prevEntry.bundle, entry.bundle,
@@ -192,7 +193,7 @@ func (s *EmbedSource) GetVersions(_ context.Context, name string) ([]dashboard.V
 
 // GetDiff compares two specific service versions. An empty Ref.Version means the
 // service's latest version.
-func (s *EmbedSource) GetDiff(_ context.Context, a, b dashboard.Ref) (*dashboard.DiffResult, error) {
+func (s *EmbedSource) GetDiff(ctx context.Context, a, b dashboard.Ref) (*dashboard.DiffResult, error) {
 	entryA, refA, err := s.resolveRef(a)
 	if err != nil {
 		return nil, fmt.Errorf("loading %q: %w", a.Name, err)
@@ -201,7 +202,7 @@ func (s *EmbedSource) GetDiff(_ context.Context, a, b dashboard.Ref) (*dashboard
 	if err != nil {
 		return nil, fmt.Errorf("loading %q: %w", b.Name, err)
 	}
-	return dashboard.ComputeDiff(refA, refB, entryA.bundle, entryB.bundle), nil
+	return dashboard.ComputeDiff(ctx, refA, refB, entryA.bundle, entryB.bundle), nil
 }
 
 func (s *EmbedSource) GetServiceVersion(_ context.Context, ref dashboard.Ref) (*dashboard.ServiceDetails, error) {

@@ -84,7 +84,7 @@ func TestDashboardCommand(t *testing.T) {
 		if err := os.MkdirAll(hidden, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		contractYAML := "pactoVersion: \"1.0\"\nservice:\n  name: trashed\n  version: 1.0.0\n"
+		contractYAML := "pactoVersion: \"2.0\"\nservice:\n  name: trashed\n  version: 1.0.0\n"
 		if err := os.WriteFile(filepath.Join(hidden, "pacto.yaml"), []byte(contractYAML), 0o644); err != nil {
 			t.Fatal(err)
 		}

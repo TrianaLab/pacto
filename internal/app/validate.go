@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"log/slog"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/override"
-	"github.com/trianalab/pacto/v2/pkg/readiness"
-	"github.com/trianalab/pacto/v2/pkg/validation"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/override"
+	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
 // ValidateOptions holds options for the validate command.
@@ -35,7 +35,7 @@ type ValidateResult struct {
 func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*ValidateResult, error) {
 	ref := defaultPath(opts.Path)
 
-	slog.Debug("resolving contract for validation", "ref", ref)
+	logging.LoggerFromContext(ctx).Debug("resolving contract for validation", "ref", ref)
 	bundle, err := s.resolveBundleWithOverrides(ctx, ref, opts.Overrides)
 	if err != nil {
 		return &ValidateResult{
@@ -71,13 +71,13 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		return nil, fmt.Errorf("bundle has no raw YAML or filesystem")
 	}
 
-	slog.Debug("running validation", "ref", ref)
+	logging.LoggerFromContext(ctx).Debug("running validation", "ref", ref)
 	var resolver validation.BundleResolver
 	if s.BundleStore != nil {
 		resolver = &bundleResolverAdapter{svc: s}
 	}
 	result := validation.ValidateWithResolver(ctx, bundle.Contract, rawYAML, bundle.FS, resolver)
-	slog.Debug("validation complete", "valid", result.IsValid(), "errors", len(result.Errors), "warnings", len(result.Warnings))
+	logging.LoggerFromContext(ctx).Debug("validation complete", "valid", result.IsValid(), "errors", len(result.Errors), "warnings", len(result.Warnings))
 
 	errors := result.Errors
 	valid := result.IsValid()

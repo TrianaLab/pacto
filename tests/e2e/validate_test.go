@@ -39,7 +39,7 @@ func TestValidateCommand(t *testing.T) {
 				return nil, []string{"validate", dir}
 			},
 			wantErr: true,
-			wantOut: "HEALTH_INTERFACE_NOT_FOUND",
+			wantOut: "CAPABILITY_INTERFACE_UNKNOWN",
 		},
 		{
 			name: "json output",
@@ -126,27 +126,18 @@ func TestValidateCommand(t *testing.T) {
 	t.Run("scalar owner rejected", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "scalar-owner-svc")
-		yaml := `pactoVersion: "1.0"
+		yaml := `pactoVersion: "2.0"
 service:
   name: scalar-owner-svc
   version: 1.0.0
   owner: team/platform
-interfaces:
-  - name: api
-    type: http
-    port: 8080
-    visibility: internal
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 		path := writeBundleDir(t, dir, yaml, nil)
 		output, err := runCommand(t, nil, "validate", path)
@@ -171,27 +162,22 @@ func TestValidateFileContent(t *testing.T) {
 	t.Run("rejects invalid YAML in interface contract", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "bad-yaml-svc")
-		contractYAML := `pactoVersion: "1.0"
+		contractYAML := `pactoVersion: "2.0"
 service:
   name: bad-yaml-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    ref: interfaces/openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 		bundlePath := writeBundleDir(t, dir, contractYAML, map[string]string{
 			"openapi.yaml": ":\n  invalid:\n  - [yaml\n",
@@ -201,35 +187,27 @@ runtime:
 		if err == nil {
 			t.Fatalf("expected validation to fail for invalid YAML interface contract, output: %s", output)
 		}
-		assertContains(t, output, "INVALID_CONTRACT_FILE")
+		assertContains(t, output, "INVALID_INTERFACE_SPEC")
 	})
 
 	t.Run("rejects invalid JSON in config schema", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "bad-config-svc")
-		contractYAML := `pactoVersion: "1.0"
+		contractYAML := `pactoVersion: "2.0"
 service:
   name: bad-config-svc
   version: 1.0.0
-interfaces:
-  - name: api
-    type: http
-    port: 8080
-    visibility: internal
 configurations:
   - name: default
     schema: configuration/schema.json
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    required: true
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 		bundlePath := writeBundleDirRaw(t, dir, contractYAML, nil, "not valid json")
 
@@ -243,29 +221,20 @@ runtime:
 	t.Run("rejects invalid JSON in policy schema", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "bad-policy-svc")
-		contractYAML := `pactoVersion: "1.0"
+		contractYAML := `pactoVersion: "2.0"
 service:
   name: bad-policy-svc
   version: 1.0.0
-interfaces:
-  - name: api
-    type: http
-    port: 8080
-    visibility: internal
 policies:
   - name: default
     schema: policy/schema.json
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 		bundlePath := writeBundleDirWithPolicy(t, dir, contractYAML, "not valid json")
 
@@ -279,29 +248,21 @@ runtime:
 	t.Run("rejects uncompilable config schema", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "bad-schema-compile-svc")
-		contractYAML := `pactoVersion: "1.0"
+		contractYAML := `pactoVersion: "2.0"
 service:
   name: bad-schema-compile-svc
   version: 1.0.0
-interfaces:
-  - name: api
-    type: http
-    port: 8080
-    visibility: internal
 configurations:
   - name: default
     schema: configuration/schema.json
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    required: true
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 		bundlePath := writeBundleDirRaw(t, dir, contractYAML, nil,
 			`{"type":"object","properties":{"k":{"$ref":"nonexistent://bad"}}}`)

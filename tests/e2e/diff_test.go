@@ -502,53 +502,43 @@ func TestDiffPolicyChanges(t *testing.T) {
 	t.Parallel()
 
 	dir1 := filepath.Join(t.TempDir(), "svc-v1")
-	contract1 := `pactoVersion: "1.0"
+	contract1 := `pactoVersion: "2.0"
 service:
   name: diff-policy-svc
   version: 1.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    ref: interfaces/openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	dir2 := filepath.Join(t.TempDir(), "svc-v2")
-	contract2 := `pactoVersion: "1.0"
+	contract2 := `pactoVersion: "2.0"
 service:
   name: diff-policy-svc
   version: 2.0.0
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 policies:
   - name: acme
     ref: oci://ghcr.io/acme/policy:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	path1 := writeBundleDir(t, dir1, contract1, map[string]string{
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "diff-policy-svc", "1.0.0"),

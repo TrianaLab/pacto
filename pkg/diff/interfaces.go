@@ -3,12 +3,12 @@ package diff
 import (
 	"io/fs"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/validation"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
 // diffInterfaces compares interface lists and delegates to OpenAPI diff
-// for interfaces that reference contract files.
+// for openapi-type interfaces that reference spec files.
 func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 	var changes []Change
 
@@ -25,21 +25,19 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 		if oldIface.Type != newIface.Type {
 			changes = append(changes, newChange("interfaces.type", Modified, name+": "+oldIface.Type, name+": "+newIface.Type))
 		}
-		if intPtrChanged(oldIface.Port, newIface.Port) {
-			changes = append(changes, newChange("interfaces.port", intPtrChangeType(oldIface.Port, newIface.Port), intPtrVal(oldIface.Port), intPtrVal(newIface.Port)))
-		}
 		if oldIface.Visibility != newIface.Visibility {
 			changes = append(changes, newChange("interfaces.visibility", Modified, name+": "+oldIface.Visibility, name+": "+newIface.Visibility))
 		}
 
-		// Diff OpenAPI contract files if both reference one.
-		if oldIface.Contract != "" && newIface.Contract != "" {
-			if oldIface.Contract != newIface.Contract {
-				changes = append(changes, newChange("interfaces.contract", Modified, name+": "+oldIface.Contract, name+": "+newIface.Contract))
-			}
-			changes = append(changes, diffOpenAPI(oldIface.Contract, newIface.Contract, oldFS, newFS)...)
-		} else if oldIface.Contract != newIface.Contract {
-			changes = append(changes, newChange("interfaces.contract", Modified, oldIface.Contract, newIface.Contract))
+		// Diff spec ref (renamed from Contract in v1)
+		if oldIface.Ref != newIface.Ref {
+			changes = append(changes, newChange("interfaces.ref", Modified, name+": "+oldIface.Ref, name+": "+newIface.Ref))
+		}
+
+		// Diff OpenAPI spec content if both are openapi type and both have refs (regardless of ref equality)
+		if oldIface.Type == contract.InterfaceTypeOpenAPI && newIface.Type == contract.InterfaceTypeOpenAPI &&
+			oldIface.Ref != "" && newIface.Ref != "" {
+			changes = append(changes, diffOpenAPI(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
 		}
 	}
 
@@ -66,7 +64,7 @@ type refSource struct {
 	values            map[string]any
 }
 
-func configRefSources(cfgs []contract.ConfigurationSource) []refSource {
+func configRefSources(cfgs []contract.Configuration) []refSource {
 	out := make([]refSource, len(cfgs))
 	for i, c := range cfgs {
 		out[i] = refSource{name: c.Name, schema: c.Schema, ref: c.Ref, values: c.Values}
@@ -74,7 +72,7 @@ func configRefSources(cfgs []contract.ConfigurationSource) []refSource {
 	return out
 }
 
-func policyRefSources(pols []contract.PolicySource) []refSource {
+func policyRefSources(pols []contract.Policy) []refSource {
 	out := make([]refSource, len(pols))
 	for i, p := range pols {
 		out[i] = refSource{name: p.Name, schema: p.Schema, ref: p.Ref}

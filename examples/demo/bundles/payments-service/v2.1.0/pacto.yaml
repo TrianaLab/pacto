@@ -1,5 +1,4 @@
-pactoVersion: "1.2"
-
+pactoVersion: '2.0'
 service:
   name: payments-service
   version: 2.1.0
@@ -7,125 +6,111 @@ service:
     team: payments-team
     dri: james.wilson
     contacts:
-      - type: email
-        value: payments-team@acme.com
-        purpose: escalation
-      - type: chat
-        value: "#payments-team"
-        purpose: support
-      - type: oncall
-        value: payments-oncall
-        purpose: oncall
-  image:
-    ref: ghcr.io/trianalab/pacto-demo/payments-service:2.1.0
-
+    - type: email
+      value: payments-team@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#payments-team'
+      purpose: support
+    - type: oncall
+      value: payments-oncall
+      purpose: oncall
 interfaces:
-  - name: http
-    type: http
-    port: 8083
-    visibility: internal
-    contract: interfaces/openapi.json
-  - name: events
-    type: event
-    visibility: internal
-    contract: interfaces/events.json
-
+- name: http
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: internal
+- name: events
+  type: asyncapi
+  ref: interfaces/events.json
+  visibility: internal
 configurations:
-  - name: platform
-    ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
-  - name: app
-    schema: configuration/schema.json
-    values:
-      LOG_LEVEL: info
-      STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY}"
-      PAYMENTS_DB_URL: postgresql://postgres:5432/payments
-      WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET}"
-      FRAUD_CHECK_ENABLED: true
-
+- name: platform
+  ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  required: true
+- name: app
+  schema: configuration/schema.json
+  values:
+    LOG_LEVEL: info
+    STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+    PAYMENTS_DB_URL: postgresql://postgres:5432/payments
+    WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+    FRAUD_CHECK_ENABLED: true
+  required: true
 policies:
-  - name: http-security
-    ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
-
+- name: http-security
+  ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
 dependencies:
-  - name: postgresql
-    ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
-    required: true
-    compatibility: "^16.0.0"
-  - name: stripe-api
-    ref: oci://ghcr.io/trianalab/pacto-demo/stripe-api
-    required: true
-    compatibility: "^2024.01.01"
-  - name: fraud-service
-    ref: oci://ghcr.io/trianalab/pacto-demo/fraud-service
-    required: true
-    compatibility: "^1.0.0"
-
-runtime:
-  workload: service
-  state:
-    type: stateful
-    persistence:
-      scope: shared
-      durability: persistent
-    dataCriticality: high
-  lifecycle:
-    upgradeStrategy: recreate
-    gracefulShutdownSeconds: 60
-
-scaling:
-  min: 2
-  max: 4
-
+- name: postgresql
+  ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
+  required: true
+  compatibility: ^16.0.0
+- name: stripe-api
+  ref: oci://ghcr.io/trianalab/pacto-demo/stripe-api
+  required: true
+  compatibility: ^2024.01.01
+- name: fraud-service
+  ref: oci://ghcr.io/trianalab/pacto-demo/fraud-service
+  required: true
+  compatibility: ^1.0.0
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
+readiness:
+  minScore: 80
+  expires: '2099-12-31'
+  partialCredit: 0.5
+  history:
+  - date: '2026-02-15'
+    version: 2.1.0
+    author: james.wilson
+    description: Added structured ownership metadata and fraud detection readiness
+      tracking
+  claims:
+  - id: dashboard
+    type: url
+    category: observability
+    status: done
+    evidence: https://grafana.acme.com/d/payments-service
+    weight: 30
+    description: Production Grafana dashboard
+  - id: runbook
+    type: document
+    category: documentation
+    status: done
+    evidence: docs/runbooks/payments-service.md
+    weight: 20
+    description: On-call runbook for payment incidents
+  - id: security-review
+    type: ticket
+    category: security
+    status: done
+    evidence: SEC-2087
+    weight: 20
+    description: Annual security review
+  - id: ai-evals
+    type: report
+    category: testing
+    status: not-done
+    evidence: https://evals.acme.com/payments-service
+    weight: 30
+    description: LLM safety evaluation suite (stale — needs refresh)
 metadata:
   tier: domain
   category: payments
   criticality: high
-  summary: Payment Intents API with structured ownership metadata and mandatory fraud detection
+  summary: Payment Intents API with structured ownership metadata and mandatory fraud
+    detection
   language: go
   repo: github.com/trianalab/pacto-demo/payments-service
   tags:
-    - payments
-    - stripe
-    - payment-intents
-    - fraud-detection
-    - webhooks
-    - ownership
-
-readiness:
-  minScore: 80
-  expires: "2099-12-31"
-  partialCredit: 0.5
-  history:
-    - date: "2026-02-15"
-      version: 2.1.0
-      author: james.wilson
-      description: Added structured ownership metadata and fraud detection readiness tracking
-  checks:
-    - id: dashboard
-      type: url
-      category: observability
-      status: done
-      evidence: https://grafana.acme.com/d/payments-service
-      weight: 30
-      description: Production Grafana dashboard
-    - id: runbook
-      type: document
-      category: documentation
-      status: done
-      evidence: docs/runbooks/payments-service.md
-      weight: 20
-      description: On-call runbook for payment incidents
-    - id: security-review
-      type: ticket
-      category: security
-      status: done
-      evidence: SEC-2087
-      weight: 20
-      description: Annual security review
-    - id: ai-evals
-      type: report
-      category: testing
-      status: not-done
-      evidence: https://evals.acme.com/payments-service
-      weight: 30
-      description: LLM safety evaluation suite (stale — needs refresh)
+  - payments
+  - stripe
+  - payment-intents
+  - fraud-detection
+  - webhooks
+  - ownership

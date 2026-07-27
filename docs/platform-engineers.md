@@ -1,25 +1,22 @@
 # Pacto for Platform Engineers
-You manage the infrastructure that runs services. Pull a validated, machine-readable contract from an OCI registry and get everything needed to run a service: workload type, state model, interfaces, health checks, dependencies, config schema and scaling intent.
+You manage the infrastructure that runs services. Pull a validated, machine-readable contract from an OCI registry and get everything needed to run a service: workload type, state model, interfaces, capabilities, dependencies and config schema. The contract states operational *intent* — what the service is, not how to deploy it — so how you provision, scale and wire it stays your decision.
 
 ---
 ## What a contract tells you
 
-Every question you'd normally have to ask the dev team — or discover in production — is answered in the contract:
+Every question you'd normally have to ask the dev team — or discover in production — is answered in the contract. The fields are top-level in v2 (there is no `runtime` wrapper, and no port, scaling, image or lifecycle field — those are delivery concerns you own):
 
 | Contract Field | Platform Decision |
 |---|---|
-| `runtime.workload` (`service` / `job` / `scheduled`) | Choose the workload kind — see [Workload type](#workload-type) below |
-| `runtime.state.type` + `runtime.state.persistence` | Choose storage + scheduling strategy — see [State model](#state-model) below |
-| `runtime.state.dataCriticality: high` | Enable backups, stricter disruption budgets |
-| `interfaces[].port` | Configure Service, Ingress |
+| `workload` (`service` / `job` / `scheduled`) | Choose the workload kind — see [Workload type](#workload-type) below |
+| `state.type` + `state.persistence` | Choose storage + scheduling strategy — see [State model](#state-model) below |
+| `state.dataCriticality: high` | Enable backups, stricter disruption budgets |
+| `interfaces[]` (`type` + `ref`) | Know the API surface — generate Service/Ingress wiring, publish the spec, drive conformance |
 | `interfaces[].visibility: public` | Create external Ingress or load balancer |
-| `runtime.health.interface` + `runtime.health.path` | Configure liveness/readiness probes |
-| `runtime.lifecycle.upgradeStrategy: ordered` | Use ordered pod management |
-| `runtime.lifecycle.gracefulShutdownSeconds` | Set termination grace period |
-| `scaling.min` / `scaling.max` | Configure auto-scaling bounds |
-| `configurations[].schema` / `configurations[].ref` | Validate required configuration, generate config templates. Platform teams can publish a shared schema that services vendor into their bundles or reference via OCI — the schema then expresses what the platform *provides*. See [Configuration Schema Ownership Models](contract-reference/sections.md#configuration-schema-ownership-models) |
-| `policies[].ref` | Enforce organizational standards — require health endpoints, mandate ports, enforce visibility rules. See [policies](contract-reference/sections.md#policies) |
-| `readiness.checks[]` | Gate promotion and surface operational readiness — declare dashboard, runbook, security-review, SLO, AI-eval evidence; each check carries a weight; the assessment carries a single expiry date; derive a readiness score. Enforce required checks via policies. See [readiness](contract-reference/sections.md#readiness) |
+| `capabilities[]` (`health` / `metrics` binding) | Configure liveness/readiness probes and metrics scraping from the bound interface + path |
+| `configurations[].schema` / `configurations[].ref` | Validate required configuration, generate config templates. Platform teams can publish a shared schema that services vendor into their bundles or reference via OCI — the schema then expresses what the platform *provides*. See [Configuration Schema Ownership Models](patterns/configuration-schema-ownership.md) |
+| `policies[].ref` | Enforce organizational standards — require a health capability, enforce visibility rules, mandate an owner. See [policies](contract-reference/sections.md#policies) |
+| `readiness.claims[]` | Gate promotion and surface operational readiness — declare dashboard, runbook, security-review, SLO, AI-eval evidence; each claim carries a weight; the assessment carries a single expiry date; derive a readiness score. Enforce required claims via policies. See [readiness](contract-reference/sections.md#readiness) |
 | `dependencies[].ref` | Validate dependency graph, check compatibility |
 | `docs/` *(optional)* | Access service documentation, runbooks, integration guides |
 | `sbom/` *(optional)* | Audit third-party packages, track license compliance |
@@ -53,22 +50,25 @@ pacto pull oci://ghcr.io/acme/payments-api-pacto:2.1.0
 $ pacto explain oci://ghcr.io/acme/payments-api-pacto:2.1.0
 Service: payments-api@2.1.0
 Owner: payments
-Pacto Version: 1.2
+Pacto Version: 2.0
 
-Runtime:
-  Workload: service
-  State: stateful
-  Persistence: local/persistent
+Workload: service
+
+State:
+  Type: stateful
+  Persistence: shared/persistent
   Data Criticality: high
 
+Capabilities (2):
+  - health
+  - metrics
+
 Interfaces (2):
-  - rest-api (http, port 8080, public)
-  - grpc-api (grpc, port 9090, internal)
+  - rest-api (openapi: interfaces/openapi.yaml, public)
+  - grpc-api (grpc: interfaces/service.yaml, internal)
 
 Dependencies (1):
   - auth: oci://ghcr.io/acme/auth-pacto@sha256:abc123 (^2.0.0, required)
-
-Scaling: 2-10
 ```
 
 ### 3. Check for breaking changes
@@ -121,17 +121,17 @@ This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes m
 
 ### Workload type
 
-| `runtime.workload` | Kubernetes resource | Notes |
+| `workload` | Kubernetes resource | Notes |
 |---|---|---|
-| `service` | Deployment or StatefulSet | Based on `runtime.state.type` |
-| `job` | Job | No scaling, runs to completion |
+| `service` | Deployment or StatefulSet | Based on `state.type` |
+| `job` | Job | Runs to completion |
 | `scheduled` | CronJob | Schedule defined externally |
 
 ### State model
 
-The state model tells you exactly what storage and scheduling strategy a service needs. The `scope/durability` values below (e.g. `local/persistent`) are shorthand for the nested `runtime.state.persistence.scope` + `runtime.state.persistence.durability` fields, matching the `pacto explain` display:
+The state model tells you exactly what storage and scheduling strategy a service needs. The `scope/durability` values below (e.g. `shared/persistent`) are shorthand for the `state.persistence.scope` + `state.persistence.durability` fields, matching the `pacto explain` display. These are platform-agnostic signals, not Kubernetes prescriptions — the mapping below is one reasonable interpretation for Kubernetes; the equivalent decision exists on Nomad, ECS or a custom platform:
 
-| `runtime.state.type` | `runtime.state.persistence` | Infrastructure |
+| `state.type` | `state.persistence` | Infrastructure |
 |---|---|---|
 | `stateless` | `local/ephemeral` | Deployment, no PVC, free to scale horizontally |
 | `stateful` | `local/persistent` | StatefulSet + PVC, stable identity per replica |
@@ -140,13 +140,7 @@ The state model tells you exactly what storage and scheduling strategy a service
 | `hybrid` | `local/persistent` | StatefulSet + PVC, tolerates cold starts |
 | `hybrid` | `local/ephemeral` | Deployment with emptyDir, warm caches improve performance |
 
-### Upgrade strategy
-
-| `runtime.lifecycle.upgradeStrategy` | Kubernetes strategy |
-|---|---|
-| `rolling` | `RollingUpdate` |
-| `recreate` | `Recreate` |
-| `ordered` | StatefulSet with `OrderedReady` |
+Deployment mechanics the contract deliberately does not carry — upgrade strategy, graceful-shutdown timing, replica counts and autoscaling bounds — stay with your deployment tooling. The contract tells you *what* the service is; you decide *how* to roll it out.
 
 ---
 
@@ -178,11 +172,11 @@ configurations:
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
-See [Configuration Schema Ownership Models](contract-reference/sections.md#configuration-schema-ownership-models) for the full breakdown of service-defined vs. platform-defined schemas.
+See [Configuration Schema Ownership Models](patterns/configuration-schema-ownership.md) for the full breakdown of service-defined vs. platform-defined schemas.
 
 ### Policy: enforcing contract standards
 
-The `policies` section lets platform teams enforce **minimum requirements on contracts themselves**. A policy is a JSON Schema that validates `pacto.yaml` — requiring health endpoints, mandating specific ports, enforcing visibility rules, or any other organizational standard.
+The `policies` section lets platform teams enforce **minimum requirements on contracts themselves**. A policy is a JSON Schema that validates `pacto.yaml` — requiring a health capability, enforcing interface visibility rules, mandating a declared owner or a readiness gate, or any other organizational standard.
 
 The platform team publishes a policy contract carrying the JSON Schema, and services adopt it by reference:
 
@@ -197,7 +191,7 @@ See [The platform-published policy + schema contract](patterns/policy-schema.md)
 !!! warning "Where refs are enforced"
     Ref-based policies are enforced by `pacto validate` and `pacto push` (fail-closed — an unresolvable ref is a hard `POLICY_REF_UNRESOLVED` error, which is how push blocks non-compliant publishes). `pacto pack` and the operator run local-only validation: they enforce only inline `schema` policies and emit a `POLICY_REF_NOT_ENFORCED` warning for refs.
 
-See [Layer 4: Policy enforcement](contract-reference/validation.md#layer-4-policy-enforcement) for the resolution semantics (recursive N-hop, cycle detection, error codes) and [policies](contract-reference/sections.md#policies) for the full specification.
+See [Layer 3: Policy enforcement](contract-reference/validation.md#layer-3-policy-enforcement) for the resolution semantics (recursive N-hop, cycle detection, error codes) and [policies](contract-reference/sections.md#policies) for the full specification.
 
 !!! info
     Configuration and policy are complementary:
@@ -218,8 +212,8 @@ $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
              oci://ghcr.io/acme/payments-api-pacto:2.0.0
 Classification: BREAKING
 Changes (4):
-  [BREAKING] runtime.state.type (modified): runtime.state.type modified [stateless -> stateful]
-  [BREAKING] runtime.state.persistence.durability (modified): ... [ephemeral -> persistent]
+  [BREAKING] state.type (modified): state.type modified [stateless -> stateful]
+  [BREAKING] state.persistence.durability (modified): ... [ephemeral -> persistent]
   [BREAKING] interfaces (removed): interfaces removed [- metrics]
   [BREAKING] dependencies (removed): dependencies removed [- redis]
 
@@ -291,4 +285,4 @@ See [Dashboard architecture](architecture.md#dashboard-architecture) for the sou
 - **Use markdown output for PR comments.** `pacto diff --output-format markdown` renders changes as tables with old/new values — pipe it into `gh pr comment` for rich CI feedback.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
 - **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface](mcp-integration.md) — useful for ad-hoc inspection, dependency analysis, and contract generation.
-- **Close the loop with the operator.** The [Kubernetes Operator](operator.md) continuously verifies that deployed services match their contracts — port alignment, workload existence, health endpoint reachability, and more. Combined with the dashboard, you get a complete view: contract truth from OCI + runtime truth from the operator.
+- **Close the loop with the operator.** The [Kubernetes Operator](integrations/kubernetes/overview.md) is one runtime evidence source: it observes deployed workloads and reports whether they still match their contracts — workload alignment, state model, capability reachability, interface availability and more — as typed findings, never modifying your workloads. Combined with the dashboard, you get a complete view: contract truth from OCI + runtime truth from the operator.

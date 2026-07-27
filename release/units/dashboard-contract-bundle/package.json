@@ -1,0 +1,6 @@
+{
+  "name": "@pacto/dashboard-contract-bundle",
+  "version": "2.7.0",
+  "private": true,
+  "pacto": { "releaseUnit": "dashboard-contract-bundle", "kind": "oci-image", "coordinate": "ghcr.io/trianalab/pactos/pacto-dashboard" }
+}

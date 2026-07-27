@@ -12,7 +12,7 @@
 **Example: a postgres infrastructure contract.**
 
 ```yaml
-pactoVersion: "1.2"
+pactoVersion: "2.0"
 
 service:
   name: postgres
@@ -28,10 +28,11 @@ metadata:
 
 policies:
   - name: postgres-policy
-    schema: policy/schema.json   # enforces version >= 17, backups enabled, HA in prod
+    schema: policy/schema.json   # enforces an owner and provisioner labels
 
 configurations:
   - name: provisioning
+    required: true
     schema: configuration/schema.json   # derived from the provisioning claim's OpenAPI schema — the team-controllable subset of fields
 ```
 

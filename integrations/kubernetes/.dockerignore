@@ -1,0 +1,12 @@
+# Exclude everything at top level
+*
+
+# Re-include Go source directories and module files
+!api/
+!cmd/
+!internal/
+!go.mod
+!go.sum
+
+# Exclude test files from re-included directories
+**/*_test.go

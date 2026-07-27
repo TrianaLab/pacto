@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
 )
 
 // bundlesFS loads the same bundles the wasm binary embeds. Bundles live in
@@ -167,7 +167,7 @@ func TestEmbedSource_SurfacesCapabilitiesAndSkills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetService(payments-service): %v", err)
 	}
-	if len(pay.Capabilities) == 0 {
+	if len(pay.Tools) == 0 {
 		t.Fatal("payments-service should expose derived capability tools from its OpenAPI")
 	}
 	var refund bool
@@ -218,7 +218,7 @@ func TestEmbedSource_RealBundlesCarryLocks(t *testing.T) {
 
 // lockedPactoYAML is a minimal valid contract declaring one dependency, paired
 // with lockedLockYAML below so EmbedSource can surface the pin.
-const lockedPactoYAML = `pactoVersion: "1.0"
+const lockedPactoYAML = `pactoVersion: "2.0"
 service:
   name: svc-locked
   version: 1.0.0
@@ -250,7 +250,7 @@ dependencies:
     digest: sha256:deadbeef
 `
 
-const plainPactoYAML = `pactoVersion: "1.0"
+const plainPactoYAML = `pactoVersion: "2.0"
 service:
   name: svc-plain
   version: 1.0.0

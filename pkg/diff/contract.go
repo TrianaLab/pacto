@@ -3,10 +3,10 @@ package diff
 import (
 	"fmt"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
-// diffContract compares root-level fields: service identity, scaling, metadata.
+// diffContract compares root-level fields: service identity, workload, state, capabilities.
 func diffContract(old, new *contract.Contract) []Change {
 	var changes []Change
 
@@ -24,34 +24,16 @@ func diffContract(old, new *contract.Contract) []Change {
 	}
 	changes = append(changes, diffOwner(old.Service.Owner, new.Service.Owner)...)
 
-	// Image
-	oldImg := formatImage(old.Service.Image)
-	newImg := formatImage(new.Service.Image)
-	if oldImg != newImg {
-		ct := Modified
-		if old.Service.Image == nil {
-			ct = Added
-		} else if new.Service.Image == nil {
-			ct = Removed
-		}
-		changes = append(changes, newChange("service.image", ct, oldImg, newImg))
+	// Workload (top-level in v2)
+	if old.Workload != new.Workload {
+		changes = append(changes, newChange("workload", strChangeType(old.Workload, new.Workload), old.Workload, new.Workload))
 	}
 
-	// Chart
-	oldChart := formatChart(old.Service.Chart)
-	newChart := formatChart(new.Service.Chart)
-	if oldChart != newChart {
-		ct := Modified
-		if old.Service.Chart == nil {
-			ct = Added
-		} else if new.Service.Chart == nil {
-			ct = Removed
-		}
-		changes = append(changes, newChange("service.chart", ct, oldChart, newChart))
-	}
+	// State (top-level in v2)
+	changes = append(changes, diffState(old.State, new.State)...)
 
-	// Scaling
-	changes = append(changes, diffScaling(old.Scaling, new.Scaling)...)
+	// Capabilities
+	changes = append(changes, diffCapabilities(old.Capabilities, new.Capabilities)...)
 
 	return changes
 }
@@ -117,69 +99,74 @@ func formatContact(c contract.OwnerContact) string {
 	return c.Type + ":" + c.Value
 }
 
-func diffScaling(old, new *contract.Scaling) []Change {
+func diffState(old, new *contract.State) []Change {
 	var changes []Change
 
 	if old == nil && new == nil {
 		return nil
 	}
 	if old == nil {
-		changes = append(changes, newChange("scaling", Added, nil, formatScaling(new)))
-		return changes
+		old = &contract.State{}
 	}
 	if new == nil {
-		changes = append(changes, newChange("scaling", Removed, formatScaling(old), nil))
-		return changes
+		new = &contract.State{}
 	}
 
-	// Detect mode change (replicas vs min/max range).
-	oldHasReplicas := old.Replicas != nil
-	newHasReplicas := new.Replicas != nil
-
-	if oldHasReplicas != newHasReplicas {
-		changes = append(changes, newChange("scaling", Modified, formatScaling(old), formatScaling(new)))
-		return changes
+	if old.Type != new.Type {
+		changes = append(changes, newChange("state.type", strChangeType(old.Type, new.Type), old.Type, new.Type))
 	}
-
-	if oldHasReplicas {
-		if *old.Replicas != *new.Replicas {
-			changes = append(changes, newChange("scaling.replicas", Modified, *old.Replicas, *new.Replicas))
-		}
-		return changes
+	if old.Persistence.Scope != new.Persistence.Scope {
+		changes = append(changes, newChange("state.persistence.scope", strChangeType(old.Persistence.Scope, new.Persistence.Scope), old.Persistence.Scope, new.Persistence.Scope))
 	}
-
-	if old.Min != new.Min {
-		changes = append(changes, newChange("scaling.min", Modified, old.Min, new.Min))
+	if old.Persistence.Durability != new.Persistence.Durability {
+		changes = append(changes, newChange("state.persistence.durability", strChangeType(old.Persistence.Durability, new.Persistence.Durability), old.Persistence.Durability, new.Persistence.Durability))
 	}
-	if old.Max != new.Max {
-		changes = append(changes, newChange("scaling.max", Modified, old.Max, new.Max))
+	if old.DataCriticality != new.DataCriticality {
+		changes = append(changes, newChange("state.dataCriticality", strChangeType(old.DataCriticality, new.DataCriticality), old.DataCriticality, new.DataCriticality))
 	}
 
 	return changes
 }
 
-func formatScaling(s *contract.Scaling) string {
-	if s.Replicas != nil {
-		return fmt.Sprintf("replicas=%d", *s.Replicas)
+func diffCapabilities(old, new []contract.Capability) []Change {
+	var changes []Change
+	oldByKey := indexCapabilities(old)
+	newByKey := indexCapabilities(new)
+
+	for key, o := range oldByKey {
+		if _, exists := newByKey[key]; !exists {
+			changes = append(changes, newChange("capabilities", Removed, formatCapability(o), nil))
+		}
 	}
-	return fmt.Sprintf("min=%d max=%d", s.Min, s.Max)
+	for key, n := range newByKey {
+		if _, exists := oldByKey[key]; !exists {
+			changes = append(changes, newChange("capabilities", Added, nil, formatCapability(n)))
+		}
+	}
+
+	return changes
 }
 
-func formatImage(img *contract.Image) string {
-	if img == nil {
-		return ""
+func indexCapabilities(caps []contract.Capability) map[string]contract.Capability {
+	m := make(map[string]contract.Capability, len(caps))
+	for _, c := range caps {
+		m[capabilityKey(c)] = c
 	}
-	if img.Private {
-		return img.Ref + " (private)"
-	}
-	return img.Ref
+	return m
 }
 
-func formatChart(ch *contract.Chart) string {
-	if ch == nil {
-		return ""
+func capabilityKey(c contract.Capability) string {
+	if c.Ref != "" {
+		return c.Type + ":" + c.Ref
 	}
-	return fmt.Sprintf("%s:%s", ch.Ref, ch.Version)
+	return c.Type
+}
+
+func formatCapability(c contract.Capability) string {
+	if c.Ref != "" {
+		return c.Type + " (" + c.Ref + ")"
+	}
+	return c.Type
 }
 
 // newChange creates a Change with classification looked up from the rules table.
@@ -226,4 +213,16 @@ func diffStringSet(oldSet, newSet map[string]bool, pathPrefix, entityName string
 	}
 
 	return changes
+}
+
+// strChangeType classifies a string field change as Added (was empty), Removed
+// (now empty), or Modified.
+func strChangeType(old, new string) ChangeType {
+	if old == "" {
+		return Added
+	}
+	if new == "" {
+		return Removed
+	}
+	return Modified
 }

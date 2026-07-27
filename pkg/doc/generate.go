@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
-	"github.com/trianalab/pacto/v2/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/graph"
 )
 
 // sectionNumberer tracks hierarchical section numbers (1, 1.1, 1.1.1, etc.).
@@ -71,7 +71,7 @@ func Generate(d *dashboard.ServiceDetails, gr *graph.Result) (string, error) {
 	return b.String(), nil
 }
 
-// ── §presence + at-a-glance + TOC ──────────────────────────────────────
+// ── presence + at-a-glance + TOC ──────────────────────────────────────
 
 func hasSBOM(d *dashboard.ServiceDetails) bool {
 	return d.SBOM != nil && len(d.SBOM.Packages) > 0
@@ -88,7 +88,7 @@ func hasLock(d *dashboard.ServiceDetails) bool {
 // body without a second numberer.
 func sectionTitles(d *dashboard.ServiceDetails) []string {
 	var titles []string
-	if d.Runtime != nil || d.Scaling != nil {
+	if d.Workload != "" || d.State != nil || len(d.Capabilities) > 0 {
 		titles = append(titles, "Runtime & operations")
 	}
 	titles = append(titles, "Architecture") // always rendered (at least the root subgraph)
@@ -137,12 +137,6 @@ func writeSnapshotSummary(b *strings.Builder, d *dashboard.ServiceDetails) {
 	if !d.Owner.IsEmpty() {
 		rows = append(rows, [2]string{"Owner", d.Owner.DisplayString()})
 	}
-	if d.ImageRef != "" {
-		rows = append(rows, [2]string{"Image", d.ImageRef})
-	}
-	if d.ChartRef != "" {
-		rows = append(rows, [2]string{"Chart", d.ChartRef})
-	}
 	if len(rows) > 0 {
 		fmt.Fprintln(b, "| Field | Value |")
 		fmt.Fprintln(b, "|-------|-------|")
@@ -174,41 +168,34 @@ func writeTableOfContents(b *strings.Builder, d *dashboard.ServiceDetails) {
 	fmt.Fprintln(b)
 }
 
-// ── §1 Runtime & operations ────────────────────────────────────────────
+// ── 1 Runtime & operations ────────────────────────────────────────────
 
 func writeRuntimeOps(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
-	if d.Runtime == nil && d.Scaling == nil {
+	if d.Workload == "" && d.State == nil && len(d.Capabilities) == 0 {
 		return
 	}
 	fmt.Fprintf(b, "## %s. Runtime & operations\n\n", num.Next(1))
 	writeRuntimeTable(b, d)
 }
 
-// writeRuntimeTable emits the runtime/scaling Property/Value table body. Shared
+// writeRuntimeTable emits the v2 runtime Property/Value table body. Shared
 // by the root section and the per-dependency detail.
 func writeRuntimeTable(b *strings.Builder, d *dashboard.ServiceDetails) {
 	fmt.Fprintln(b, "| Property | Value |")
 	fmt.Fprintln(b, "|----------|-------|")
-	if r := d.Runtime; r != nil {
-		writeKV(b, "Workload", r.Workload)
-		writeKV(b, "State", r.StateType)
-		writeKV(b, "Data criticality", r.DataCriticality)
-		writeKV(b, "Persistence scope", r.PersistenceScope)
-		writeKV(b, "Persistence durability", r.PersistenceDurability)
-		writeKV(b, "Upgrade strategy", r.UpgradeStrategy)
-		if r.GracefulShutdownSeconds != nil {
-			writeKV(b, "Graceful shutdown", fmt.Sprintf("%ds", *r.GracefulShutdownSeconds))
-		}
-		writeKV(b, "Health interface", r.HealthInterface)
-		writeKV(b, "Health path", r.HealthPath)
-		writeKV(b, "Metrics interface", r.MetricsInterface)
-		writeKV(b, "Metrics path", r.MetricsPath)
+	writeKV(b, "Workload", d.Workload)
+	if st := d.State; st != nil {
+		writeKV(b, "State", st.Type)
+		writeKV(b, "Data criticality", st.DataCriticality)
+		writeKV(b, "Persistence scope", st.PersistenceScope)
+		writeKV(b, "Persistence durability", st.PersistenceDurability)
 	}
-	if s := d.Scaling; s != nil {
-		if s.Replicas != nil {
-			writeKV(b, "Replicas", fmt.Sprintf("%d", *s.Replicas))
-		} else if s.Min != nil || s.Max != nil {
-			writeKV(b, "Replicas", fmt.Sprintf("%s–%s", intp(s.Min), intp(s.Max)))
+	for _, cap := range d.Capabilities {
+		switch cap.Type {
+		case "health", "metrics":
+			writeKV(b, capitalizeFirst(cap.Type), "supported")
+		case "extension":
+			writeKV(b, "Extension", cap.Ref)
 		}
 	}
 	fmt.Fprintln(b)
@@ -221,14 +208,7 @@ func writeKV(b *strings.Builder, k, v string) {
 	fmt.Fprintf(b, "| **%s** | `%s` |\n", k, escapeMarkdownCell(v))
 }
 
-func intp(p *int) string {
-	if p == nil {
-		return "?"
-	}
-	return strconv.Itoa(*p)
-}
-
-// ── §2 Architecture (Mermaid) ──────────────────────────────────────────
+// ── 2 Architecture (Mermaid) ──────────────────────────────────────────
 
 func writeMermaidDiagram(b *strings.Builder, gr *graph.Result, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	root := rootContract(gr, d)
@@ -265,15 +245,16 @@ func rootContract(gr *graph.Result, d *dashboard.ServiceDetails) *contract.Contr
 	return contractFromDetails(d)
 }
 
-// contractFromDetails rebuilds the subset of a contract the Mermaid diagram
-// needs (identity, interfaces, dependencies, runtime, scaling) from a snapshot.
+// contractFromDetails rebuilds the subset of a v2 contract the Mermaid diagram
+// needs (identity, interfaces, dependencies, state, workload, capabilities) from a snapshot.
 func contractFromDetails(d *dashboard.ServiceDetails) *contract.Contract {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{Name: d.Name, Version: d.Version},
+		Service:  contract.Service{Name: d.Name, Version: d.Version},
+		Workload: d.Workload,
 	}
 	for _, i := range d.Interfaces {
 		c.Interfaces = append(c.Interfaces, contract.Interface{
-			Name: i.Name, Type: i.Type, Port: i.Port, Visibility: i.Visibility,
+			Name: i.Name, Type: i.Type, Ref: i.ContractFile, Visibility: i.Visibility,
 		})
 	}
 	for _, dep := range d.Dependencies {
@@ -281,30 +262,15 @@ func contractFromDetails(d *dashboard.ServiceDetails) *contract.Contract {
 			Name: dep.Name, Ref: dep.Ref, Required: dep.Required, Compatibility: dep.Compatibility,
 		})
 	}
-	if r := d.Runtime; r != nil {
-		c.Runtime = &contract.Runtime{
-			Workload: r.Workload,
-			State: contract.State{
-				Type:            r.StateType,
-				DataCriticality: r.DataCriticality,
-				Persistence:     contract.Persistence{Scope: r.PersistenceScope, Durability: r.PersistenceDurability},
-			},
-		}
-		if r.HealthInterface != "" {
-			c.Runtime.Health = &contract.Health{Interface: r.HealthInterface, Path: r.HealthPath}
-		}
-		if r.MetricsInterface != "" {
-			c.Runtime.Metrics = &contract.Metrics{Interface: r.MetricsInterface, Path: r.MetricsPath}
+	if st := d.State; st != nil {
+		c.State = &contract.State{
+			Type:            st.Type,
+			DataCriticality: st.DataCriticality,
+			Persistence:     contract.Persistence{Scope: st.PersistenceScope, Durability: st.PersistenceDurability},
 		}
 	}
-	if s := d.Scaling; s != nil {
-		c.Scaling = &contract.Scaling{Replicas: s.Replicas}
-		if s.Min != nil {
-			c.Scaling.Min = *s.Min
-		}
-		if s.Max != nil {
-			c.Scaling.Max = *s.Max
-		}
+	for _, cap := range d.Capabilities {
+		c.Capabilities = append(c.Capabilities, contract.Capability{Type: cap.Type, Ref: cap.Ref})
 	}
 	return c
 }
@@ -369,33 +335,28 @@ func writeDependencyEdges(b *strings.Builder, c *contract.Contract, gr *graph.Re
 }
 
 func buildStateLabel(c *contract.Contract) string {
-	label := fmt.Sprintf("%s · %s criticality", c.Runtime.State.Type, c.Runtime.State.DataCriticality)
-	if c.Runtime.State.Persistence.Scope != "" {
-		label += fmt.Sprintf(" · %s %s", c.Runtime.State.Persistence.Scope, c.Runtime.State.Persistence.Durability)
+	if c.State == nil {
+		return ""
 	}
-	if c.Scaling != nil {
-		if c.Scaling.Replicas != nil {
-			label += fmt.Sprintf(" · %d replicas", *c.Scaling.Replicas)
-		} else {
-			label += fmt.Sprintf(" · %d–%d replicas", c.Scaling.Min, c.Scaling.Max)
-		}
+	label := fmt.Sprintf("%s · %s criticality", c.State.Type, c.State.DataCriticality)
+	if c.State.Persistence.Scope != "" {
+		label += fmt.Sprintf(" · %s %s", c.State.Persistence.Scope, c.State.Persistence.Durability)
 	}
 	return label
 }
 
 func buildIfaceLabel(iface contract.Interface, c *contract.Contract) string {
 	label := iface.Name + "<br/>" + iface.Type
-	if iface.Port != nil {
-		label += fmt.Sprintf(" :%d", *iface.Port)
-	}
 	if iface.Visibility != "" {
 		label += "<br/>" + iface.Visibility
 	}
-	if c.Runtime != nil && c.Runtime.Health != nil && iface.Name == c.Runtime.Health.Interface {
-		label += "<br/>♥ health"
-	}
-	if c.Runtime != nil && c.Runtime.Metrics != nil && iface.Name == c.Runtime.Metrics.Interface {
-		label += "<br/>📊 metrics"
+	for _, cap := range c.Capabilities {
+		if cap.Type == "health" {
+			label += "<br/>♥ health"
+		}
+		if cap.Type == "metrics" {
+			label += "<br/>📊 metrics"
+		}
 	}
 	return label
 }
@@ -405,7 +366,7 @@ func writeServiceSubgraph(b *strings.Builder, c *contract.Contract, hasExternal 
 	fmt.Fprintf(b, "  subgraph %s[\"%s v%s\"]\n", svcID, c.Service.Name, c.Service.Version)
 	fmt.Fprintln(b, "    direction TB")
 	hasInnerNodes := false
-	if c.Runtime != nil {
+	if c.State != nil {
 		hasInnerNodes = true
 		fmt.Fprintf(b, "    %s_state[(\"%s\")]\n", svcID, buildStateLabel(c))
 	}
@@ -478,7 +439,7 @@ func depName(ref string) string {
 	return name
 }
 
-// ── §3 Interfaces ──────────────────────────────────────────────────────
+// ── 3 Interfaces ──────────────────────────────────────────────────────
 
 func writeInterfaces(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if len(d.Interfaces) == 0 {
@@ -501,36 +462,32 @@ func writeInterfaces(b *strings.Builder, d *dashboard.ServiceDetails, num *secti
 }
 
 func writeInterfaceTable(b *strings.Builder, ifaces []dashboard.InterfaceInfo) {
-	fmt.Fprintln(b, "| Name | Type | Port | Visibility |")
-	fmt.Fprintln(b, "|------|------|------|------------|")
+	fmt.Fprintln(b, "| Name | Type | Visibility |")
+	fmt.Fprintln(b, "|------|------|------------|")
 	for _, i := range ifaces {
-		port := "—"
-		if i.Port != nil {
-			port = fmt.Sprintf("`%d`", *i.Port)
-		}
 		vis := "—"
 		if i.Visibility != "" {
 			vis = fmt.Sprintf("`%s`", i.Visibility)
 		}
-		fmt.Fprintf(b, "| `%s` | `%s` | %s | %s |\n", i.Name, i.Type, port, vis)
+		fmt.Fprintf(b, "| `%s` | `%s` | %s |\n", i.Name, i.Type, vis)
 	}
 	fmt.Fprintln(b)
 }
 
 func interfaceHeadingByType(t, name string) string {
 	switch t {
-	case contract.InterfaceTypeHTTP:
-		return fmt.Sprintf("HTTP Interface: %s", name)
+	case contract.InterfaceTypeOpenAPI:
+		return fmt.Sprintf("OpenAPI Interface: %s", name)
 	case contract.InterfaceTypeGRPC:
 		return fmt.Sprintf("gRPC Interface: %s", name)
-	case contract.InterfaceTypeEvent:
-		return fmt.Sprintf("Event Interface: %s", name)
+	case contract.InterfaceTypeAsyncAPI:
+		return fmt.Sprintf("AsyncAPI Interface: %s", name)
 	default:
 		return fmt.Sprintf("%s Interface: %s", capitalizeFirst(t), name)
 	}
 }
 
-// ── §4 Configuration ───────────────────────────────────────────────────
+// ── 4 Configuration ───────────────────────────────────────────────────
 
 func writeConfiguration(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if len(d.Configurations) == 0 {
@@ -571,7 +528,7 @@ func writeConfigList(b *strings.Builder, configs []dashboard.ConfigurationInfo) 
 	}
 }
 
-// ── §5 Policies ────────────────────────────────────────────────────────
+// ── 5 Policies ────────────────────────────────────────────────────────
 
 func writePolicies(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if len(d.Policies) == 0 {
@@ -590,7 +547,7 @@ func writePolicies(b *strings.Builder, d *dashboard.ServiceDetails, num *section
 	fmt.Fprintln(b)
 }
 
-// ── §6 Dependencies ────────────────────────────────────────────────────
+// ── 6 Dependencies ────────────────────────────────────────────────────
 
 func writeDependencies(b *strings.Builder, d *dashboard.ServiceDetails, gr *graph.Result, num *sectionNumberer) {
 	if len(d.Dependencies) == 0 {
@@ -647,7 +604,7 @@ func collectFlatDependencyNodes(gr *graph.Result) []*graph.Node {
 func writeDependencyDetail(b *strings.Builder, node *graph.Node) {
 	nd := dashboard.ServiceDetailsFromBundle(&contract.Bundle{Contract: node.Contract, FS: node.FS}, "local")
 	fmt.Fprintf(b, "<details>\n<summary><strong>%s</strong> <code>v%s</code></summary>\n\n", nd.Name, nd.Version)
-	if nd.Runtime != nil {
+	if nd.Workload != "" || nd.State != nil || len(nd.Capabilities) > 0 {
 		fmt.Fprintln(b, "**Runtime**")
 		fmt.Fprintln(b)
 		writeRuntimeTable(b, nd)
@@ -671,7 +628,7 @@ func writeDependencyDetail(b *strings.Builder, node *graph.Node) {
 	fmt.Fprintln(b)
 }
 
-// ── §7 Readiness ───────────────────────────────────────────────────────
+// ── 7 Readiness ───────────────────────────────────────────────────────
 
 func writeReadiness(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if d.Readiness == nil {
@@ -711,7 +668,7 @@ func writeReadiness(b *strings.Builder, d *dashboard.ServiceDetails, num *sectio
 	}
 }
 
-// ── §8 SBOM ────────────────────────────────────────────────────────────
+// ── 8 SBOM ────────────────────────────────────────────────────────────
 
 func writeSBOM(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if !hasSBOM(d) {
@@ -727,7 +684,7 @@ func writeSBOM(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumb
 	fmt.Fprintln(b)
 }
 
-// ── §9 Lockfile ────────────────────────────────────────────────────────
+// ── 9 Lockfile ────────────────────────────────────────────────────────
 
 func writeLockfile(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if !hasLock(d) {
@@ -755,7 +712,7 @@ func writeLockfile(b *strings.Builder, d *dashboard.ServiceDetails, num *section
 	}
 }
 
-// ── §10 Documentation ──────────────────────────────────────────────────
+// ── 10 Documentation ──────────────────────────────────────────────────
 
 func writeBundleDocs(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
 	if len(d.Docs) == 0 {

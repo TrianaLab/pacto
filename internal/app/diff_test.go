@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/graph"
 )
 
 func TestDiff_LocalFiles(t *testing.T) {
@@ -69,7 +69,7 @@ func writeBundleWithDep(t *testing.T, parentVersion, childVersion string) string
 	t.Helper()
 	dir := t.TempDir()
 
-	parentYAML := []byte(`pactoVersion: "1.0"
+	parentYAML := []byte(`pactoVersion: "2.0"
 service:
   name: parent-svc
   version: "` + parentVersion + `"
@@ -79,25 +79,23 @@ dependencies:
     required: true
     compatibility: "^1.0.0"
 `)
-	childYAML := []byte(`pactoVersion: "1.0"
+	childYAML := []byte(`pactoVersion: "2.0"
 service:
   name: child-svc
   version: "` + childVersion + `"
 interfaces:
   - name: api
-    type: http
-    port: 8080
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    type: openapi
+    ref: openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `)
 
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), parentYAML, 0644); err != nil {
@@ -153,28 +151,26 @@ func TestDiff_DependencyClassificationElevation(t *testing.T) {
 	oldDir := writeBundleWithDep(t, "1.0.0", "1.0.0")
 
 	// Add a second interface to old child so removing it in new is BREAKING.
-	oldChildYAML := []byte(`pactoVersion: "1.0"
+	oldChildYAML := []byte(`pactoVersion: "2.0"
 service:
   name: child-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: openapi.yaml
   - name: grpc
     type: grpc
-    port: 9090
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    ref: grpc.proto
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `)
 	if err := os.WriteFile(filepath.Join(oldDir, "child", "pacto.yaml"), oldChildYAML, 0644); err != nil {
 		t.Fatal(err)
@@ -195,7 +191,7 @@ func TestDiff_DependencyOnlyInNew(t *testing.T) {
 	// Old has no dependencies, new has one → the dep exists only in newNodes.
 	// This tests the !exists branch at line 71.
 	oldDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(oldDir, "pacto.yaml"), []byte(`pactoVersion: "1.0"
+	if err := os.WriteFile(filepath.Join(oldDir, "pacto.yaml"), []byte(`pactoVersion: "2.0"
 service:
   name: parent-svc
   version: "1.0.0"
@@ -239,7 +235,7 @@ func TestDiff_LocalOverrideForOCIDeps(t *testing.T) {
 	// and no dependency diff appears — the exact bug that went undetected.
 
 	dir := t.TempDir()
-	parentYAML := []byte(`pactoVersion: "1.0"
+	parentYAML := []byte(`pactoVersion: "2.0"
 service:
   name: parent-svc
   version: "1.0.0"
@@ -266,49 +262,44 @@ dependencies:
 	if err := os.MkdirAll(childDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(childDir, "pacto.yaml"), []byte(`pactoVersion: "1.0"
+	if err := os.WriteFile(filepath.Join(childDir, "pacto.yaml"), []byte(`pactoVersion: "2.0"
 service:
   name: child-svc
   version: "2.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    type: openapi
+    ref: openapi.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	// Mock store returns a parent-svc bundle with the same OCI dep, and a
 	// child-svc bundle at v1.0.0 (the "published" version).
-	childPort := 8080
 	store := &mockBundleStore{
 		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
 			if strings.Contains(ref, "child-svc") {
 				return &contract.Bundle{
 					Contract: &contract.Contract{
-						PactoVersion: "1.0",
-						Service:      contract.ServiceIdentity{Name: "child-svc", Version: "1.0.0"},
-						Interfaces:   []contract.Interface{{Name: "api", Type: "http", Port: &childPort}},
-						Runtime: &contract.Runtime{
-							Workload: "service",
-							State: contract.State{
-								Type:            "stateless",
-								Persistence:     contract.Persistence{Scope: "local", Durability: "ephemeral"},
-								DataCriticality: "low",
-							},
-							Health: &contract.Health{Interface: "api", Path: "/health"},
+						PactoVersion: "2.0",
+						Service:      contract.Service{Name: "child-svc", Version: "1.0.0"},
+						Interfaces:   []contract.Interface{{Name: "api", Type: contract.InterfaceTypeOpenAPI, Ref: "openapi.yaml"}},
+						Workload:     contract.WorkloadService,
+						State: &contract.State{
+							Type:            contract.StateStateless,
+							Persistence:     contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral},
+							DataCriticality: contract.DataCriticalityLow,
 						},
+						Capabilities: []contract.Capability{{Type: contract.CapabilityHealth}},
 					},
 					RawYAML: []byte(""),
 				}, nil
@@ -316,8 +307,8 @@ runtime:
 			// parent-svc from OCI
 			return &contract.Bundle{
 				Contract: &contract.Contract{
-					PactoVersion: "1.0",
-					Service:      contract.ServiceIdentity{Name: "parent-svc", Version: "1.0.0"},
+					PactoVersion: "2.0",
+					Service:      contract.Service{Name: "parent-svc", Version: "1.0.0"},
 					Dependencies: []contract.Dependency{
 						{Ref: "oci://ghcr.io/acme/child-svc:1.0.0", Required: true, Compatibility: "^1.0.0"},
 					},

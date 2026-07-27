@@ -255,7 +255,7 @@ func TestDetectCache_WithBundles(t *testing.T) {
 	root := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(root, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
@@ -334,7 +334,7 @@ func TestDetectResult_AllSources_CacheNeverExposedWithOCI(t *testing.T) {
 	cacheDir := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: svc
   version: 1.0.0
@@ -356,7 +356,7 @@ func TestDetectResult_AllSources_CacheExposedAsCache(t *testing.T) {
 	cacheDir := t.TempDir()
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: svc
   version: 1.0.0
@@ -421,7 +421,7 @@ func TestDetectCache_DefaultDir(t *testing.T) {
 	cacheDir := filepath.Join(root, "pacto", "oci")
 	writeBundleTarGzFile(t,
 		filepath.Join(cacheDir, "ghcr.io/org/api/1.0.0/bundle.tar.gz"),
-		`pactoVersion: "1.0"
+		`pactoVersion: "2.0"
 service:
   name: api
   version: 1.0.0
@@ -771,30 +771,7 @@ func TestEnrichFromK8s_K8sListError(t *testing.T) {
 	}
 }
 
-func TestEnrichFromK8s_ImageRefFallback(t *testing.T) {
-	// resolvedRef is empty but imageRef is set — should use imageRef.
-	k8sData := `{"items": [
-		{"metadata": {"name": "svc", "namespace": "default"},
-		 "status": {"contractStatus": "Compliant", "contract": {"serviceName": "svc", "version": "1.0.0", "imageRef": "ghcr.io/org/svc-pacto:1.0.0"}}}
-	]}`
-
-	client := &mockK8sClient{listJSON: []byte(k8sData)}
-	r := &DetectResult{
-		Diagnostics: &SourceDiagnostics{},
-		K8s:         NewK8sSource(client, "", "pactos"),
-	}
-
-	r.EnrichFromK8s(context.Background(), newMockBundleStore(), t.TempDir())
-	if r.OCI == nil {
-		t.Fatal("expected OCI source via imageRef fallback")
-	}
-	if len(r.OCI.repos) != 1 {
-		t.Errorf("expected 1 repo, got %d", len(r.OCI.repos))
-	}
-	if r.OCI.repos[0] != "ghcr.io/org/svc-pacto" {
-		t.Errorf("expected bare repo 'ghcr.io/org/svc-pacto', got %q", r.OCI.repos[0])
-	}
-}
+// TestEnrichFromK8s_ImageRefFallback deleted: imageRef removed in v2
 
 func TestEnrichFromK8s_TagDigestFormat(t *testing.T) {
 	// resolvedRef has both tag and digest — stripTag must strip both.

@@ -3,7 +3,7 @@ package diff
 import (
 	"strconv"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // diffDependencies compares dependency lists between old and new contracts by name.

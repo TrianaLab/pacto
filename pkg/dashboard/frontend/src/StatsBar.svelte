@@ -17,12 +17,15 @@
   });
 
   let stats = $derived.by(() => {
-    const s = { total: baseFiltered.length, compliant: 0, warning: 0, nonCompliant: 0, unknown: 0, reference: 0 };
+    const s = { total: baseFiltered.length, compliant: 0, warning: 0, nonCompliant: 0, unknown: 0, invalid: 0, reference: 0, notEvaluated: 0 };
     for (const svc of baseFiltered) {
       if (svc.contractStatus === 'Compliant') s.compliant++;
       else if (svc.contractStatus === 'Warning') s.warning++;
       else if (svc.contractStatus === 'NonCompliant') s.nonCompliant++;
+      else if (svc.contractStatus === 'Invalid') s.invalid++;
+      else if (svc.contractStatus === 'Unknown') s.unknown++;
       else if (svc.contractStatus === 'Reference') s.reference++;
+      else if (svc.contractStatus === 'NotEvaluated') s.notEvaluated++;
       else s.unknown++;
     }
     return s;
@@ -53,8 +56,10 @@
     if (stats.compliant > 0) segments.push({ status: 'Compliant', label: 'Compliant', count: stats.compliant, color: 'var(--c-ok)', pct: (stats.compliant / stats.total * 100), tip: 'All contract checks pass' });
     if (stats.warning > 0) segments.push({ status: 'Warning', label: 'Warning', count: stats.warning, color: 'var(--c-warn)', pct: (stats.warning / stats.total * 100), tip: 'Some contract checks fail with warnings' });
     if (stats.nonCompliant > 0) segments.push({ status: 'NonCompliant', label: 'Non-Compliant', count: stats.nonCompliant, color: 'var(--c-err)', pct: (stats.nonCompliant / stats.total * 100), tip: 'The contract has validation errors' });
-    if (stats.reference > 0) segments.push({ status: 'Reference', label: 'Reference', count: stats.reference, color: 'var(--c-info)', pct: (stats.reference / stats.total * 100), tip: 'Shared contract definition with no deployed workload' });
-    if (stats.unknown > 0) segments.push({ status: 'Unknown', label: 'Unknown', count: stats.unknown, color: 'var(--c-neutral)', pct: (stats.unknown / stats.total * 100), tip: 'Contract status could not be determined' });
+    if (stats.invalid > 0) segments.push({ status: 'Invalid', label: 'Invalid', count: stats.invalid, color: 'var(--c-err)', pct: (stats.invalid / stats.total * 100), tip: 'Contract is malformed or structurally invalid' });
+    if (stats.unknown > 0) segments.push({ status: 'Unknown', label: 'Unknown', count: stats.unknown, color: 'var(--c-info)', pct: (stats.unknown / stats.total * 100), tip: 'Required assertions could not be evaluated' });
+    if (stats.reference > 0) segments.push({ status: 'Reference', label: 'Reference', count: stats.reference, color: 'var(--c-neutral)', pct: (stats.reference / stats.total * 100), tip: 'Shared contract definition with no deployed workload' });
+    if (stats.notEvaluated > 0) segments.push({ status: 'NotEvaluated', label: 'Not Evaluated', count: stats.notEvaluated, color: 'var(--c-neutral)', pct: (stats.notEvaluated / stats.total * 100), tip: 'Contract has not been runtime evaluated' });
     return segments;
   });
 

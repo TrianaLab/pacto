@@ -1,0 +1,71 @@
+# Kubernetes integration
+
+The Pacto Kubernetes integration is a read-only operator that continuously checks
+whether running workloads match their declared [Pacto](../../index.md) service
+contracts. Teams declare operational intent in a contract -- workload type, state
+and persistence, interfaces, capabilities, dependencies and configurations -- then
+deploy separately through Helm or Kustomize. Nothing connects the two sides at
+runtime, so contracts drift from reality silently. The operator closes that gap:
+it watches `Pacto` custom resources, reads the referenced contract, observes the
+live workload and reports whether they align. It never modifies your workloads.
+
+## Where it fits
+
+Pacto is a service contract system with three components:
+
+| Component | Role |
+| --- | --- |
+| CLI | Author, validate, diff and publish contracts to OCI registries |
+| Operator | Continuously check runtime alignment between contracts and live workloads |
+| Dashboard | Visualize the service graph, dependency tree and compliance status |
+
+The CLI is the authoring tool. The operator is the runtime feedback loop. The
+dashboard makes the results visible. The operator can optionally deploy and manage
+the dashboard for you (see [Operator configuration](operator-configuration.md)).
+
+## How a reconciliation works
+
+Each reconciliation follows a fixed pipeline:
+
+1. **Loader** resolves the contract from an OCI registry (auto-selecting the
+   highest semver tag) or parses inline YAML, and snapshots each resolved version
+   as an immutable `PactoRevision`.
+2. **Observer** (the collector) reads runtime state from the Kubernetes API and
+   produces typed Evidence. See [Runtime observations](runtime-observations.md).
+3. **Validator** is the engine's pure evaluator. It reasons over contract versus
+   evidence and returns typed findings plus evaluation coverage. It is stateless:
+   the operator owns evidence collection and status writes.
+4. **Controller** coordinates the pipeline, writes the `PactoRevision` snapshots,
+   and updates the `Pacto` CR status with structured conditions, a contract
+   compliance status and Prometheus metrics.
+
+```mermaid
+flowchart LR
+    CR[Pacto CR] --> Loader
+    Observer -- reads --> API[(K8s API)]
+    Loader --> Validator
+    Observer --> Validator
+    Validator --> Status[Status + Conditions]
+    Validator --> Metrics[Prometheus metrics]
+```
+
+## What it reports
+
+The operator sets `status.contractStatus` on each `Pacto` resource to one of seven
+values (`Compliant`, `Warning`, `NonCompliant`, `Reference`, `Unknown`, `Invalid`,
+`NotEvaluated`) derived from the typed findings. It is a measure of contract
+fidelity, not runtime health. The full status ladder, finding codes and the
+observation dimensions are documented in
+[Runtime observations](runtime-observations.md).
+
+## Where to go next
+
+- [Installation](installation.md) -- install the operator with Helm.
+- [Contract bindings](contract-bindings.md) -- bind a contract to a workload.
+- [Runtime observations](runtime-observations.md) -- what the operator observes and how it reasons.
+- [Operator configuration](operator-configuration.md) -- flags and environment variables.
+- [CRD reference](crd-reference.md) -- the `Pacto` and `PactoRevision` schemas.
+- [Helm reference](helm-reference.md) -- chart values.
+- [RBAC](rbac.md) -- the permissions the operator needs.
+- [Artifact Hub](artifact-hub.md) -- published artifact coordinates.
+- [Troubleshooting](troubleshooting.md) and [Limitations](limitations.md).

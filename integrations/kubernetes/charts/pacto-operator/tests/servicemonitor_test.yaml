@@ -1,0 +1,27 @@
+suite: servicemonitor tests
+templates:
+  - templates/servicemonitor.yaml
+tests:
+  - it: should not create a ServiceMonitor by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create a ServiceMonitor when enabled
+    set:
+      metrics.serviceMonitor.enabled: true
+    asserts:
+      - isKind:
+          of: ServiceMonitor
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+
+  - it: should use http scheme when metrics.secure is false
+    set:
+      metrics.serviceMonitor.enabled: true
+      metrics.secure: false
+    asserts:
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: http

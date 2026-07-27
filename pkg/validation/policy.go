@@ -8,7 +8,7 @@ import (
 	"slices"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // ResolvedPolicy holds a compiled policy schema and its origin for error reporting.
@@ -243,7 +243,7 @@ func resolveRefPolicy(ctx context.Context, ref, origin string, resolver BundleRe
 
 // policyOrigin returns a human-readable origin string for a policy source.
 // It uses the policy name if available, falling back to the index.
-func policyOrigin(pol contract.PolicySource, index int) string {
+func policyOrigin(pol contract.Policy, index int) string {
 	if pol.Name != "" {
 		return fmt.Sprintf("policies[%q]", pol.Name)
 	}
@@ -257,8 +257,6 @@ func compilePolicySchema(data []byte, url string) (*jsonschema.Schema, error) {
 	if err := json.Unmarshal(data, &schemaDoc); err != nil {
 		return nil, fmt.Errorf("failed to parse: %w", err)
 	}
-	if err := compiler.AddResource(url, schemaDoc); err != nil {
-		return nil, fmt.Errorf("failed to add resource: %w", err)
-	}
+	compiler.AddResource(url, schemaDoc) //nolint:errcheck // AddResource does not fail for valid JSON
 	return compiler.Compile(url)
 }

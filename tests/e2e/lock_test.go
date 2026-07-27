@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/lock"
+	"github.com/trianalab/pacto/v3/pkg/lock"
 )
 
 // readLock parses the pacto.lock written next to a local contract dir.
@@ -42,7 +42,7 @@ dependencies:
     compatibility: "^1.0.0"
 `, depName, depRef)
 	}
-	return fmt.Sprintf(`pactoVersion: "1.0"
+	return fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: %s
   version: %s
@@ -51,21 +51,16 @@ service:
 interfaces:
   - name: api
     type: grpc
-    port: 9000
     visibility: internal
-    contract: interfaces/api.proto
+    ref: interfaces/api.json
 %s
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `, name, version, deps)
 }
 
@@ -74,7 +69,7 @@ func writeDepBundle(t *testing.T, name, version, depName, depRef string) string 
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), name)
 	return writeBundleDir(t, dir, depServiceContract(name, version, depName, depRef), map[string]string{
-		"api.proto": fmt.Sprintf(protoTemplate, name, name),
+		"api.json": fmt.Sprintf(grpcSpecTemplate, name, name),
 	})
 }
 
@@ -103,7 +98,7 @@ type depRefDecl struct {
 // mixed-ref-form scenarios.
 func multiDepContract(name, version string, deps []depRefDecl) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, `pactoVersion: "1.0"
+	fmt.Fprintf(&b, `pactoVersion: "2.0"
 service:
   name: %s
   version: %s
@@ -112,9 +107,8 @@ service:
 interfaces:
   - name: api
     type: grpc
-    port: 9000
     visibility: internal
-    contract: interfaces/api.proto
+    ref: interfaces/api.json
 `, name, version)
 	if len(deps) > 0 {
 		b.WriteString("dependencies:\n")
@@ -125,17 +119,13 @@ interfaces:
 			}
 		}
 	}
-	b.WriteString(`runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+	b.WriteString(`workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `)
 	return b.String()
 }
@@ -145,7 +135,7 @@ func writeMultiDepBundle(t *testing.T, name, version string, deps []depRefDecl) 
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), name)
 	return writeBundleDir(t, dir, multiDepContract(name, version, deps), map[string]string{
-		"api.proto": fmt.Sprintf(protoTemplate, name, name),
+		"api.json": fmt.Sprintf(grpcSpecTemplate, name, name),
 	})
 }
 
@@ -205,7 +195,7 @@ func TestLockCapturesTransitiveClosure(t *testing.T) {
 // reference jump: a policy that references a policy).
 func policyRefContract(name, version, refName, ref string) string {
 	if ref == "" {
-		return fmt.Sprintf(`pactoVersion: "1.0"
+		return fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: %s
   version: %s
@@ -214,7 +204,7 @@ policies:
     schema: policy/schema.json
 `, name, version)
 	}
-	return fmt.Sprintf(`pactoVersion: "1.0"
+	return fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: %s
   version: %s
@@ -370,7 +360,7 @@ func TestLockStaleWhenDependencyAdded(t *testing.T) {
 
 	// Add a second, already-pushed dependency (stale-c) to pacto.yaml without
 	// re-locking — the lock is now stale.
-	twoDeps := fmt.Sprintf(`pactoVersion: "1.0"
+	twoDeps := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: stale-root
   version: 1.0.0
@@ -379,9 +369,8 @@ service:
 interfaces:
   - name: api
     type: grpc
-    port: 9000
     visibility: internal
-    contract: interfaces/api.proto
+    ref: interfaces/api.json
 dependencies:
   - name: stale-a
     ref: oci://%s/stale-a:1.0.0
@@ -391,17 +380,13 @@ dependencies:
     ref: oci://%s/stale-c:1.0.0
     required: true
     compatibility: "^1.0.0"
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `, reg.host, reg.host)
 	if err := os.WriteFile(filepath.Join(rootDir, "pacto.yaml"), []byte(twoDeps), 0644); err != nil {
 		t.Fatal(err)
@@ -495,7 +480,7 @@ func TestLockMixedDependencyRefForms(t *testing.T) {
 	parent := t.TempDir()
 	siblingDir := filepath.Join(parent, "mix-local")
 	writeBundleDir(t, siblingDir, depServiceContract("mix-local", "1.0.0", "", ""), map[string]string{
-		"api.proto": fmt.Sprintf(protoTemplate, "mix-local", "MixLocal"),
+		"api.json": fmt.Sprintf(grpcSpecTemplate, "mix-local", "MixLocal"),
 	})
 
 	rootDir := filepath.Join(parent, "mix-root")
@@ -506,7 +491,7 @@ func TestLockMixedDependencyRefForms(t *testing.T) {
 		{name: "mix-local", ref: "../mix-local"},
 	}
 	writeBundleDir(t, rootDir, multiDepContract("mix-root", "1.0.0", deps), map[string]string{
-		"api.proto": fmt.Sprintf(protoTemplate, "mix-root", "MixRoot"),
+		"api.json": fmt.Sprintf(grpcSpecTemplate, "mix-root", "MixRoot"),
 	})
 
 	if _, err := runCommand(t, reg, "lock", rootDir); err != nil {
@@ -682,7 +667,7 @@ func TestLockStaleWhenDependencyRemoved(t *testing.T) {
 	}
 
 	// REMOVE remove-b from pacto.yaml, leaving only remove-a. The lock is now stale.
-	oneDep := fmt.Sprintf(`pactoVersion: "1.0"
+	oneDep := fmt.Sprintf(`pactoVersion: "2.0"
 service:
   name: remove-root
   version: 1.0.0
@@ -691,25 +676,20 @@ service:
 interfaces:
   - name: api
     type: grpc
-    port: 9000
     visibility: internal
-    contract: interfaces/api.proto
+    ref: interfaces/api.json
 dependencies:
   - name: remove-a
     ref: oci://%s/remove-a:1.0.0
     required: true
     compatibility: "^1.0.0"
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `, reg.host)
 	if err := os.WriteFile(filepath.Join(rootDir, "pacto.yaml"), []byte(oneDep), 0644); err != nil {
 		t.Fatal(err)
@@ -751,7 +731,7 @@ func TestLockEmbeddedInPushedBundle(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "lock-embed")
 	contractYAML := depServiceContract("lock-embed", "1.0.0", "", "")
 	writeBundleDir(t, dir, contractYAML, map[string]string{
-		"api.proto": fmt.Sprintf(protoTemplate, "lock-embed", "LockEmbed"),
+		"api.json": fmt.Sprintf(grpcSpecTemplate, "lock-embed", "LockEmbed"),
 	})
 
 	// Generate a valid pacto.lock for this bundle (empty dependencies, but valid).
@@ -781,7 +761,7 @@ references: []
 	}
 
 	// Assert all three files survived the round-trip.
-	for _, file := range []string{"pacto.yaml", "interfaces/api.proto", "pacto.lock"} {
+	for _, file := range []string{"pacto.yaml", "interfaces/api.json", "pacto.lock"} {
 		path := filepath.Join(pullDir, filepath.FromSlash(file))
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("expected %s in pulled tree: %v", file, err)

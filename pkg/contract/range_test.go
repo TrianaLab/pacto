@@ -3,7 +3,7 @@ package contract_test
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 func TestParseRange(t *testing.T) {

@@ -15,18 +15,23 @@ import (
 	"path/filepath"
 	"strings"
 	"testing/fstest"
+	"time"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/stream"
 	"github.com/google/go-containerregistry/pkg/v1/types"
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 const (
 	LayerMediaType = types.MediaType("application/vnd.pacto.bundle.layer.v1.tar+gzip")
 )
+
+// tarEpoch is the fixed modification time stamped on every packed tar entry, so a
+// bundle's OCI digest depends only on content — never on filesystem timestamps.
+var tarEpoch = time.Unix(0, 0).UTC()
 
 // Function variables for testing.
 var (
@@ -69,6 +74,15 @@ func bundleToImage(b *contract.Bundle) (v1.Image, error) {
 	return img, nil
 }
 
+// BundleImage exposes the OCI image a bundle publishes (bundleToImage) so a
+// publisher can compute the deterministic digest a bundle WOULD be pushed under —
+// without pushing — for a byte-exact absent/identical/conflict gate. Packing is
+// content-deterministic (walkTar canonicalizes headers), so consuming this image's
+// layer stream and reading its Digest() yields exactly the digest Push produces.
+func BundleImage(b *contract.Bundle) (v1.Image, error) {
+	return bundleToImage(b)
+}
+
 // walkTar walks the filesystem and writes each entry as a tar header/data pair.
 func walkTar(tw *tar.Writer, fsys fs.FS) error {
 	return fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, walkErr error) error {
@@ -90,6 +104,21 @@ func walkTar(tw *tar.Writer, fsys fs.FS) error {
 			return err
 		}
 		header.Name = filepath.ToSlash(path)
+		// Canonicalize every header so the packed bundle is byte-deterministic:
+		// the tar (hence the OCI layer + manifest digest) reproduces on any host,
+		// so a published bundle's identity can be compared by digest rather than a
+		// semantic contract diff. Content is the only thing that moves the digest;
+		// filesystem mtime/owner/mode/atime/ctime never do.
+		header.ModTime = tarEpoch
+		header.AccessTime = time.Time{}
+		header.ChangeTime = time.Time{}
+		header.Uid, header.Gid = 0, 0
+		header.Uname, header.Gname = "", ""
+		if d.IsDir() {
+			header.Mode = 0o755
+		} else {
+			header.Mode = 0o644
+		}
 
 		if err := tw.WriteHeader(header); err != nil {
 			return err

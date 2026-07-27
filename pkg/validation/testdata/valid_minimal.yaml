@@ -1,24 +1,12 @@
-pactoVersion: "1.0"
+pactoVersion: "2.0"
 
 service:
   name: my-service
   version: 1.0.0
+  owner:
+    team: platform
 
 interfaces:
   - name: api
-    type: http
-    port: 8080
-
-runtime:
-  workload: service
-
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-
-  health:
-    interface: api
-    path: /health
+    type: openapi
+    ref: interfaces/openapi.yaml

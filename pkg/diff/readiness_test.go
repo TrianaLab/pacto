@@ -1,9 +1,10 @@
 package diff
 
 import (
+	"context"
 	"testing"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 func TestDiffReadiness_BothNil(t *testing.T) {
@@ -80,53 +81,53 @@ func TestDiffReadiness_PartialCreditModified(t *testing.T) {
 	}
 }
 
-func TestDiffReadiness_CheckStatusModified(t *testing.T) {
+func TestDiffReadiness_ClaimStatusModified(t *testing.T) {
 	old := &contract.Readiness{
 		Expires: "2026-12-31",
-		Checks:  []contract.ReadinessCheck{{ID: "dashboard", Type: "url", Status: "done", Evidence: "http://x", Weight: 10}},
+		Claims:  []contract.ReadinessClaim{{ID: "dashboard", Type: "url", Status: "done", Evidence: "http://x", Weight: 10}},
 	}
 	new := &contract.Readiness{
 		Expires: "2026-12-31",
-		Checks:  []contract.ReadinessCheck{{ID: "dashboard", Type: "url", Status: "not-done", Evidence: "http://x", Weight: 10}},
+		Claims:  []contract.ReadinessClaim{{ID: "dashboard", Type: "url", Status: "not-done", Evidence: "http://x", Weight: 10}},
 	}
 	changes := diffReadiness(old, new)
-	c, ok := findChange(changes, "readiness.checks[dashboard]", Modified)
+	c, ok := findChange(changes, "readiness.claims[dashboard]", Modified)
 	if !ok {
-		t.Fatalf("expected readiness.checks[dashboard] Modified, got %+v", changes)
+		t.Fatalf("expected readiness.claims[dashboard] Modified, got %+v", changes)
 	}
 	if c.Classification != NonBreaking {
 		t.Errorf("expected NonBreaking, got %s", c.Classification)
 	}
 }
 
-func TestDiffReadiness_CheckAdded(t *testing.T) {
+func TestDiffReadiness_ClaimAdded(t *testing.T) {
 	old := &contract.Readiness{Expires: "2026-12-31"}
 	new := &contract.Readiness{
 		Expires: "2026-12-31",
-		Checks:  []contract.ReadinessCheck{{ID: "runbook", Type: "url", Status: "done", Evidence: "http://x", Weight: 5}},
+		Claims:  []contract.ReadinessClaim{{ID: "runbook", Type: "url", Status: "done", Evidence: "http://x", Weight: 5}},
 	}
 	changes := diffReadiness(old, new)
-	if !hasChange(changes, "readiness.checks[runbook]", Added) {
-		t.Errorf("expected readiness.checks[runbook] Added, got %+v", changes)
+	if !hasChange(changes, "readiness.claims[runbook]", Added) {
+		t.Errorf("expected readiness.claims[runbook] Added, got %+v", changes)
 	}
 }
 
-func TestDiffReadiness_CheckRemoved(t *testing.T) {
+func TestDiffReadiness_ClaimRemoved(t *testing.T) {
 	old := &contract.Readiness{
 		Expires: "2026-12-31",
-		Checks:  []contract.ReadinessCheck{{ID: "runbook", Type: "url", Status: "done", Evidence: "http://x", Weight: 5}},
+		Claims:  []contract.ReadinessClaim{{ID: "runbook", Type: "url", Status: "done", Evidence: "http://x", Weight: 5}},
 	}
 	new := &contract.Readiness{Expires: "2026-12-31"}
 	changes := diffReadiness(old, new)
-	if !hasChange(changes, "readiness.checks[runbook]", Removed) {
-		t.Errorf("expected readiness.checks[runbook] Removed, got %+v", changes)
+	if !hasChange(changes, "readiness.claims[runbook]", Removed) {
+		t.Errorf("expected readiness.claims[runbook] Removed, got %+v", changes)
 	}
 }
 
 func TestDiffReadiness_NoChange(t *testing.T) {
 	r := &contract.Readiness{
 		Expires: "2026-12-31",
-		Checks:  []contract.ReadinessCheck{{ID: "dashboard", Type: "url", Status: "done", Evidence: "http://x", Weight: 10}},
+		Claims:  []contract.ReadinessClaim{{ID: "dashboard", Type: "url", Status: "done", Evidence: "http://x", Weight: 10}},
 	}
 	if changes := diffReadiness(r, r); len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %+v", changes)
@@ -138,22 +139,75 @@ func TestCompare_IncludesReadiness(t *testing.T) {
 	old := minimalContract()
 	new := minimalContract()
 	new.Readiness = &contract.Readiness{Expires: "2026-12-31"}
-	result := Compare(old, new, nil, nil)
-	if !hasChange(result.Changes, "readiness", Added) {
+	result := Compare(context.Background(), old, new, nil, nil)
+	found := false
+	for _, c := range result.Changes {
+		if c.Path == "readiness" && c.Type == Added {
+			found = true
+		}
+	}
+	if !found {
 		t.Errorf("expected Compare to surface readiness Added, got %+v", result.Changes)
 	}
 }
 
-func hasChange(changes []Change, path string, ct ChangeType) bool {
-	_, ok := findChange(changes, path, ct)
-	return ok
+func TestIntPtrChanged_BothNil(t *testing.T) {
+	if intPtrChanged(nil, nil) {
+		t.Error("expected false for both nil")
+	}
 }
 
-func findChange(changes []Change, path string, ct ChangeType) (Change, bool) {
-	for _, c := range changes {
-		if c.Path == path && c.Type == ct {
-			return c, true
-		}
+func TestIntPtrChanged_OneNil(t *testing.T) {
+	v := 10
+	if !intPtrChanged(nil, &v) {
+		t.Error("expected true when old is nil")
 	}
-	return Change{}, false
+	if !intPtrChanged(&v, nil) {
+		t.Error("expected true when new is nil")
+	}
+}
+
+func TestIntPtrChanged_BothNonNil(t *testing.T) {
+	a, b := 10, 20
+	if !intPtrChanged(&a, &b) {
+		t.Error("expected true for different values")
+	}
+	c := 10
+	if intPtrChanged(&a, &c) {
+		t.Error("expected false for same values")
+	}
+}
+
+func TestIntPtrChangeType_Added(t *testing.T) {
+	v := 10
+	if intPtrChangeType(nil, &v) != Added {
+		t.Error("expected Added")
+	}
+}
+
+func TestIntPtrChangeType_Removed(t *testing.T) {
+	v := 10
+	if intPtrChangeType(&v, nil) != Removed {
+		t.Error("expected Removed")
+	}
+}
+
+func TestIntPtrChangeType_Modified(t *testing.T) {
+	a, b := 10, 20
+	if intPtrChangeType(&a, &b) != Modified {
+		t.Error("expected Modified")
+	}
+}
+
+func TestIntPtrVal_Nil(t *testing.T) {
+	if intPtrVal(nil) != 0 {
+		t.Error("expected 0 for nil")
+	}
+}
+
+func TestIntPtrVal_NonNil(t *testing.T) {
+	v := 42
+	if intPtrVal(&v) != 42 {
+		t.Error("expected 42")
+	}
 }

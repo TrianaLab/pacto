@@ -1,46 +1,48 @@
-// Package contract defines the core data model for Pacto service contracts: the
-// in-memory representation of a pacto.yaml and the types for service identity,
-// interfaces, dependencies, configurations, policies, runtime semantics,
-// scaling, and readiness. It also provides YAML parsing along with OCI-reference
-// and semver-range helpers shared by the CLI, dashboard, and operator.
+// Package contract defines the core data model for Pacto v2.0 service contracts:
+// the in-memory representation of a pacto.yaml and the types for service identity,
+// interfaces, dependencies, configurations, policies, state, capabilities, and
+// readiness. It also provides YAML parsing along with OCI-reference and semver-range
+// helpers shared by the CLI, dashboard, and operator.
 package contract
 
 // Contract is the root aggregate — the parsed in-memory representation of a pacto.yaml.
 type Contract struct {
-	PactoVersion   string                `yaml:"pactoVersion" json:"pactoVersion"`
-	Service        ServiceIdentity       `yaml:"service" json:"service"`
-	Interfaces     []Interface           `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
-	Configurations []ConfigurationSource `yaml:"configurations,omitempty" json:"configurations,omitempty"`
-	Policies       []PolicySource        `yaml:"policies,omitempty" json:"policies,omitempty"`
-	Dependencies   []Dependency          `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
-	Runtime        *Runtime              `yaml:"runtime,omitempty" json:"runtime,omitempty"`
-	Scaling        *Scaling              `yaml:"scaling,omitempty" json:"scaling,omitempty"`
-	Readiness      *Readiness            `yaml:"readiness,omitempty" json:"readiness,omitempty"`
-	Metadata       map[string]any        `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	PactoVersion   string          `yaml:"pactoVersion" json:"pactoVersion"`
+	Service        Service         `yaml:"service" json:"service"`
+	Interfaces     []Interface     `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
+	Configurations []Configuration `yaml:"configurations,omitempty" json:"configurations,omitempty"`
+	Dependencies   []Dependency    `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+	State          *State          `yaml:"state,omitempty" json:"state,omitempty"`
+	Workload       string          `yaml:"workload,omitempty" json:"workload,omitempty"`
+	Capabilities   []Capability    `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+	Policies       []Policy        `yaml:"policies,omitempty" json:"policies,omitempty"`
+	Readiness      *Readiness      `yaml:"readiness,omitempty" json:"readiness,omitempty"`
+	Metadata       map[string]any  `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Extensions     map[string]any  `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 }
 
 // Readiness declares operational readiness evidence for the service.
-// It is an optional, provider-neutral section introduced in pactoVersion 1.2.
-// Each check declares its completion status (done/partial/not-done/deferred)
-// and points at evidence (a dashboard, runbook, ticket, report, etc.) without
-// Pacto verifying the target content. The whole assessment expires on a single
-// date; once expired, every in-scope check earns zero weight.
+// It is an optional, provider-neutral section. Each claim declares its completion
+// status (done/partial/not-done/deferred) and points at evidence (a dashboard,
+// runbook, ticket, report, etc.) without Pacto verifying the target content. The
+// whole assessment expires on a single date; once expired, every in-scope claim
+// earns zero weight.
 type Readiness struct {
 	// MinScore is the gate: the derived readiness score must be >= this value for
 	// the contract to be considered ready. It is on the same 0..100 scale as the
-	// score. Omitted means 100 (every weighted check must be done); set lower to
+	// score. Omitted means 100 (every weighted claim must be done); set lower to
 	// tolerate partial completion. Enforced by `pacto validate --readiness` and
 	// the operator.
 	MinScore *int `yaml:"minScore,omitempty" json:"minScore,omitempty"`
 	// Expires is the single assessment-level freshness boundary (YYYY-MM-DD).
-	// After this date every in-scope check earns zero weight and the gate fails.
+	// After this date every in-scope claim earns zero weight and the gate fails.
 	Expires string `yaml:"expires" json:"expires"`
-	// PartialCredit is the fraction of a check's weight earned when its status is
+	// PartialCredit is the fraction of a claim's weight earned when its status is
 	// "partial". Omitted means 0.5.
 	PartialCredit *float64 `yaml:"partialCredit,omitempty" json:"partialCredit,omitempty"`
 	// History records the revision log of the readiness assessment.
 	History []ReadinessRevision `yaml:"history,omitempty" json:"history,omitempty"`
-	Checks  []ReadinessCheck    `yaml:"checks,omitempty" json:"checks,omitempty"`
+	Claims  []ReadinessClaim    `yaml:"claims,omitempty" json:"claims,omitempty"`
 }
 
 // ReadinessRevision is a single entry in the readiness revision history.
@@ -51,14 +53,14 @@ type ReadinessRevision struct {
 	Description string `yaml:"description" json:"description"`
 }
 
-// ReadinessCheck is a single declared readiness requirement.
+// ReadinessClaim is a single declared readiness requirement.
 // ID identifies the organizational requirement (e.g. dashboard, runbook),
-// Type classifies the evidence pointer, Category groups the check into a
+// Type classifies the evidence pointer, Category groups the claim into a
 // software domain, Status declares its completion state, Evidence is the
 // pointer itself, and Weight contributes to the readiness score. The service
-// owner is declared at the contract level, so readiness checks deliberately
-// carry no per-check owner.
-type ReadinessCheck struct {
+// owner is declared at the contract level, so readiness claims deliberately
+// carry no per-claim owner. A claim is a declared, unverified attestation.
+type ReadinessClaim struct {
 	ID          string `yaml:"id" json:"id"`
 	Type        string `yaml:"type" json:"type"`
 	Category    string `yaml:"category,omitempty" json:"category,omitempty"`
@@ -107,41 +109,26 @@ const (
 	EvidenceTypeOther      = "other"
 )
 
-// ServiceIdentity holds service identification fields.
-type ServiceIdentity struct {
+// Service holds service identification fields.
+type Service struct {
 	Name    string `yaml:"name" json:"name"`
 	Version string `yaml:"version" json:"version"`
 	Owner   Owner  `yaml:"owner,omitempty" json:"owner,omitempty"`
-	Image   *Image `yaml:"image,omitempty" json:"image,omitempty"`
-	Chart   *Chart `yaml:"chart,omitempty" json:"chart,omitempty"`
-}
-
-// Image describes the container image for the service.
-type Image struct {
-	Ref     string `yaml:"ref" json:"ref"`
-	Private bool   `yaml:"private,omitempty" json:"private,omitempty"`
-}
-
-// Chart describes the Helm chart for the service.
-type Chart struct {
-	Ref     string `yaml:"ref" json:"ref"`
-	Version string `yaml:"version" json:"version"`
 }
 
 // Interface describes a service interface declaration.
 type Interface struct {
 	Name       string `yaml:"name" json:"name"`
 	Type       string `yaml:"type" json:"type"`
-	Port       *int   `yaml:"port,omitempty" json:"port,omitempty"`
+	Ref        string `yaml:"ref" json:"ref"`
 	Visibility string `yaml:"visibility,omitempty" json:"visibility,omitempty"`
-	Contract   string `yaml:"contract,omitempty" json:"contract,omitempty"`
 }
 
 // InterfaceType constants.
 const (
-	InterfaceTypeHTTP  = "http"
-	InterfaceTypeGRPC  = "grpc"
-	InterfaceTypeEvent = "event"
+	InterfaceTypeOpenAPI  = "openapi"
+	InterfaceTypeAsyncAPI = "asyncapi"
+	InterfaceTypeGRPC     = "grpc"
 )
 
 // Visibility constants.
@@ -150,18 +137,19 @@ const (
 	VisibilityInternal = "internal"
 )
 
-// ConfigurationSource declares a named configuration scope.
+// Configuration declares a named configuration scope.
 // Each entry is an independent scope with no implicit merge semantics.
 // Name is required and must be unique within the configurations array.
 // Exactly one of Schema or Ref must be set. Values is only allowed with Schema.
-type ConfigurationSource struct {
-	Name   string         `yaml:"name" json:"name"`
-	Schema string         `yaml:"schema,omitempty" json:"schema,omitempty"`
-	Ref    string         `yaml:"ref,omitempty" json:"ref,omitempty"`
-	Values map[string]any `yaml:"values,omitempty" json:"values,omitempty"`
+type Configuration struct {
+	Name     string         `yaml:"name" json:"name"`
+	Schema   string         `yaml:"schema,omitempty" json:"schema,omitempty"`
+	Ref      string         `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Values   map[string]any `yaml:"values,omitempty" json:"values,omitempty"`
+	Required bool           `yaml:"required" json:"required"` // MANDATORY in schema; true = confirmed absence is a violation
 }
 
-// PolicySource declares a named policy constraint source.
+// Policy declares a named policy constraint source.
 // Each entry provides either a local JSON Schema file or a reference to an
 // external contract. When resolving a ref, if the referenced contract declares
 // its own policies[] entries, those schemas are used directly (supporting custom
@@ -170,10 +158,11 @@ type ConfigurationSource struct {
 // A policy schema validates the contract itself, enabling platform teams to
 // enforce organizational standards. Schema and Ref are mutually exclusive.
 // Name is required and must be unique within the policies array.
-type PolicySource struct {
+type Policy struct {
 	Name   string `yaml:"name" json:"name"`
 	Schema string `yaml:"schema,omitempty" json:"schema,omitempty"`
 	Ref    string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Target string `yaml:"target,omitempty" json:"target,omitempty"`
 }
 
 // Dependency represents a named dependency on another service.
@@ -181,7 +170,7 @@ type PolicySource struct {
 type Dependency struct {
 	Name          string `yaml:"name" json:"name"`
 	Ref           string `yaml:"ref" json:"ref"`
-	Required      bool   `yaml:"required,omitempty" json:"required,omitempty"`
+	Required      bool   `yaml:"required" json:"required"`
 	Compatibility string `yaml:"compatibility" json:"compatibility"`
 }
 
@@ -205,33 +194,24 @@ type ReferenceRef struct {
 // builder and the demo lock generator resolve exactly this set.
 func (c *Contract) ReferenceRefs() []ReferenceRef {
 	var out []ReferenceRef
-	for _, p := range c.Policies {
-		if p.Ref != "" {
-			out = append(out, ReferenceRef{Kind: ReferenceKindPolicy, Name: p.Name, Ref: p.Ref})
+	for i := range c.Policies {
+		if c.Policies[i].Ref != "" {
+			out = append(out, ReferenceRef{Kind: ReferenceKindPolicy, Name: c.Policies[i].Name, Ref: c.Policies[i].Ref})
 		}
 	}
-	for _, cfg := range c.Configurations {
-		if cfg.Ref != "" {
-			out = append(out, ReferenceRef{Kind: ReferenceKindConfig, Name: cfg.Name, Ref: cfg.Ref})
+	for i := range c.Configurations {
+		if c.Configurations[i].Ref != "" {
+			out = append(out, ReferenceRef{Kind: ReferenceKindConfig, Name: c.Configurations[i].Name, Ref: c.Configurations[i].Ref})
 		}
 	}
 	return out
 }
 
-// Runtime describes how the service behaves at runtime.
-type Runtime struct {
-	Workload  string     `yaml:"workload" json:"workload"`
-	State     State      `yaml:"state" json:"state"`
-	Lifecycle *Lifecycle `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
-	Health    *Health    `yaml:"health,omitempty" json:"health,omitempty"`
-	Metrics   *Metrics   `yaml:"metrics,omitempty" json:"metrics,omitempty"`
-}
-
-// WorkloadType constants.
+// Workload type constants.
 const (
-	WorkloadTypeService   = "service"
-	WorkloadTypeJob       = "job"
-	WorkloadTypeScheduled = "scheduled"
+	WorkloadService   = "service"
+	WorkloadJob       = "job"
+	WorkloadScheduled = "scheduled"
 )
 
 // State describes the state semantics of the service.
@@ -273,36 +253,50 @@ const (
 	DurabilityPersistent = "persistent"
 )
 
-// Lifecycle describes lifecycle behavior.
-type Lifecycle struct {
-	UpgradeStrategy         string `yaml:"upgradeStrategy,omitempty" json:"upgradeStrategy,omitempty"`
-	GracefulShutdownSeconds *int   `yaml:"gracefulShutdownSeconds,omitempty" json:"gracefulShutdownSeconds,omitempty"`
+// Capability describes a service capability. Standard types (health, metrics) may declare a binding to a
+// declared interface; extension requires a namespaced ref (no binding).
+type Capability struct {
+	Type    string             `yaml:"type" json:"type"`
+	Ref     string             `yaml:"ref,omitempty" json:"ref,omitempty"`         // extension only
+	Binding *CapabilityBinding `yaml:"binding,omitempty" json:"binding,omitempty"` // standard types only
 }
 
-// UpgradeStrategy constants.
+// CapabilityBinding binds a standard capability endpoint (health/metrics) to a declared interface for
+// probing. binding.type is a CLOSED set — only "http" is supported (an unknown transport fails structural
+// validation). binding.interface names the declared interface that provides the ADDRESS/PORT anchor for the
+// probe — the platform-neutral counterpart of the Kubernetes CR's spec.target.interfaceBindings[]; it does
+// NOT claim the capability path is part of that interface's OpenAPI/AsyncAPI/gRPC specification. binding.path
+// is relative to the resolved endpoint.
+type CapabilityBinding struct {
+	Type      string `yaml:"type" json:"type"`                     // "http" (the only supported transport)
+	Interface string `yaml:"interface" json:"interface"`           // declared interface providing the address/port anchor
+	Path      string `yaml:"path,omitempty" json:"path,omitempty"` // relative to the resolved endpoint; must start with "/" (INV-6)
+}
+
+// CapabilityBindingType constants.
 const (
-	UpgradeStrategyRolling  = "rolling"
-	UpgradeStrategyRecreate = "recreate"
-	UpgradeStrategyOrdered  = "ordered"
+	CapabilityBindingHTTP = "http"
 )
 
-// Health describes the health check configuration.
-type Health struct {
-	Interface           string `yaml:"interface" json:"interface"`
-	Path                string `yaml:"path,omitempty" json:"path,omitempty"`
-	InitialDelaySeconds *int   `yaml:"initialDelaySeconds,omitempty" json:"initialDelaySeconds,omitempty"`
+// CapabilityType constants.
+const (
+	CapabilityHealth    = "health"
+	CapabilityMetrics   = "metrics"
+	CapabilityExtension = "extension"
+)
+
+// AssertionKey returns the canonical assertion identity for a capability: the namespaced ref for an
+// extension, otherwise the standard type. This is the single identity rule used everywhere — Evidence
+// Subject.Name, finding subjects, coverage counting, uniqueness validation and (in S6) collector /
+// evaluator registration — so two distinct extensions never collapse to the same "extension" identity.
+func (cap Capability) AssertionKey() string {
+	if cap.Type == CapabilityExtension {
+		return cap.Ref
+	}
+	return cap.Type
 }
 
-// Metrics describes the metrics endpoint configuration.
-type Metrics struct {
-	Interface string `yaml:"interface" json:"interface"`
-	Path      string `yaml:"path,omitempty" json:"path,omitempty"`
-}
-
-// Scaling describes scaling parameters.
-// Either Replicas (exact count) or Min/Max (range) is set.
-type Scaling struct {
-	Replicas *int `yaml:"replicas,omitempty" json:"replicas,omitempty"`
-	Min      int  `yaml:"min,omitempty" json:"min,omitempty"`
-	Max      int  `yaml:"max,omitempty" json:"max,omitempty"`
-}
+// PolicyTarget constants.
+const (
+	PolicyTargetContract = "contract"
+)

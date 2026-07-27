@@ -11,9 +11,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/oci"
-	"github.com/trianalab/pacto/v2/pkg/override"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/override"
 )
 
 func TestPush_Success(t *testing.T) {
@@ -182,32 +182,33 @@ func TestRejectLocalDeps_NoDeps(t *testing.T) {
 
 func TestPush_RejectsLocalDeps(t *testing.T) {
 	dir := t.TempDir()
-	content := []byte(`pactoVersion: "1.0"
+	content := []byte(`pactoVersion: "2.0"
 service:
   name: test-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: openapi.yaml
 dependencies:
   - name: local-dep
     ref: "../local-dep"
     required: true
     compatibility: "^1.0.0"
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `)
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "openapi.yaml"), []byte("openapi: \"3.0.0\"\ninfo:\n  title: API\n  version: 1.0.0\npaths: {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	store := &mockBundleStore{}
@@ -221,75 +222,33 @@ runtime:
 	}
 }
 
-func TestRejectLocalChart_NilChart(t *testing.T) {
-	c := &contract.Contract{}
-	if err := rejectLocalChart(c); err != nil {
-		t.Fatalf("unexpected error for nil chart: %v", err)
-	}
-}
-
-func TestRejectLocalChart_LocalRef(t *testing.T) {
+func TestRejectLocalRefs_ConfigRef(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{
-			Chart: &contract.Chart{Ref: "./charts/my-chart", Version: "1.0.0"},
+		Configurations: []contract.Configuration{
+			{Name: "cfg", Ref: "../local-config"},
 		},
 	}
-	err := rejectLocalChart(c)
+	err := rejectLocalRefs(c)
 	if err == nil {
-		t.Fatal("expected error for local chart ref")
+		t.Fatal("expected error for local config ref")
 	}
-	if !strings.Contains(err.Error(), "local chart reference detected") {
+	if !strings.Contains(err.Error(), "local config ref detected") {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
 
-func TestRejectLocalChart_OCIRef(t *testing.T) {
+func TestRejectLocalRefs_PolicyRef(t *testing.T) {
 	c := &contract.Contract{
-		Service: contract.ServiceIdentity{
-			Chart: &contract.Chart{Ref: "oci://ghcr.io/acme/chart", Version: "1.0.0"},
+		Policies: []contract.Policy{
+			{Name: "pol", Ref: "./local-policy"},
 		},
 	}
-	if err := rejectLocalChart(c); err != nil {
-		t.Fatalf("unexpected error for OCI chart ref: %v", err)
-	}
-}
-
-func TestPush_RejectsLocalChart(t *testing.T) {
-	dir := t.TempDir()
-	content := []byte(`pactoVersion: "1.0"
-service:
-  name: test-svc
-  version: "1.0.0"
-  chart:
-    ref: "./charts/my-chart"
-    version: "1.0.0"
-interfaces:
-  - name: api
-    type: http
-    port: 8080
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
-`)
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
-		t.Fatal(err)
-	}
-	store := &mockBundleStore{}
-	svc := NewService(store, nil)
-	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir})
+	err := rejectLocalRefs(c)
 	if err == nil {
-		t.Fatal("expected error for local chart ref")
+		t.Fatal("expected error for local policy ref")
 	}
-	if !strings.Contains(err.Error(), "local chart reference detected") {
-		t.Errorf("unexpected error: %v", err)
+	if !strings.Contains(err.Error(), "local policy ref detected") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }
 
@@ -425,30 +384,32 @@ func TestPush_ResolveNonNotFoundError(t *testing.T) {
 
 func TestPush_RejectsLocalConfigRef(t *testing.T) {
 	dir := t.TempDir()
-	content := []byte(`pactoVersion: "1.0"
+	content := []byte(`pactoVersion: "2.0"
 service:
   name: test-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: openapi.yaml
 configurations:
   - name: default
     ref: "../local-config"
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+    required: false
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `)
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "openapi.yaml"), []byte("openapi: \"3.0.0\"\ninfo:\n  title: API\n  version: 1.0.0\npaths: {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	store := &mockBundleStore{}
@@ -464,28 +425,26 @@ runtime:
 
 func TestPush_RejectsRemotePolicyViolation(t *testing.T) {
 	dir := t.TempDir()
-	content := []byte(`pactoVersion: "1.0"
+	content := []byte(`pactoVersion: "2.0"
 service:
   name: test-svc
   version: "1.0.0"
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: openapi.yaml
 policies:
   - name: acme
     ref: oci://ghcr.io/acme/policy:1.0.0
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+  - type: health
 `)
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), content, 0644); err != nil {
 		t.Fatal(err)
@@ -501,7 +460,7 @@ runtime:
 			return &contract.Bundle{
 				Contract: &contract.Contract{},
 				FS: fstest.MapFS{
-					"pacto.yaml":         &fstest.MapFile{Data: []byte(`pactoVersion: "1.0"`)},
+					"pacto.yaml":         &fstest.MapFile{Data: []byte(`pactoVersion: "2.0"`)},
 					"policy/schema.json": &fstest.MapFile{Data: policySchema},
 				},
 			}, nil
@@ -527,7 +486,7 @@ func TestRejectLocalRefs_NilPolicyAndConfig(t *testing.T) {
 
 func TestRejectLocalRefs_LocalConfigRef(t *testing.T) {
 	c := &contract.Contract{
-		Configurations: []contract.ConfigurationSource{{Name: "default", Ref: "file://../config"}},
+		Configurations: []contract.Configuration{{Name: "default", Ref: "file://../config"}},
 	}
 	err := rejectLocalRefs(c)
 	if err == nil {
@@ -540,7 +499,7 @@ func TestRejectLocalRefs_LocalConfigRef(t *testing.T) {
 
 func TestRejectLocalRefs_LocalPolicyRef(t *testing.T) {
 	c := &contract.Contract{
-		Policies: []contract.PolicySource{{Name: "local", Ref: "../policy"}},
+		Policies: []contract.Policy{{Name: "local", Ref: "../policy"}},
 	}
 	err := rejectLocalRefs(c)
 	if err == nil {
@@ -553,8 +512,8 @@ func TestRejectLocalRefs_LocalPolicyRef(t *testing.T) {
 
 func TestRejectLocalRefs_OCIRefsAllowed(t *testing.T) {
 	c := &contract.Contract{
-		Configurations: []contract.ConfigurationSource{{Name: "default", Ref: "oci://ghcr.io/acme/config:1.0.0"}},
-		Policies:       []contract.PolicySource{{Name: "remote", Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
+		Configurations: []contract.Configuration{{Name: "default", Ref: "oci://ghcr.io/acme/config:1.0.0"}},
+		Policies:       []contract.Policy{{Name: "remote", Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
 	}
 	if err := rejectLocalRefs(c); err != nil {
 		t.Fatalf("unexpected error for OCI refs: %v", err)
@@ -563,8 +522,8 @@ func TestRejectLocalRefs_OCIRefsAllowed(t *testing.T) {
 
 func TestRejectLocalRefs_EmptyRefs(t *testing.T) {
 	c := &contract.Contract{
-		Configurations: []contract.ConfigurationSource{{Name: "default", Schema: "configuration/schema.json"}},
-		Policies:       []contract.PolicySource{{Name: "local", Schema: "policy/schema.json"}},
+		Configurations: []contract.Configuration{{Name: "default", Schema: "configuration/schema.json"}},
+		Policies:       []contract.Policy{{Name: "local", Schema: "policy/schema.json"}},
 	}
 	if err := rejectLocalRefs(c); err != nil {
 		t.Fatalf("unexpected error for empty refs: %v", err)

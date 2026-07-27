@@ -1,13 +1,51 @@
 package contract
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
 
-func TestConfigurationSource_Fields(t *testing.T) {
-	cs := ConfigurationSource{
+func TestRequired_SerializationRoundTrip(t *testing.T) {
+	// required is MANDATORY in the v2 schema, so a false value MUST survive marshaling
+	// (no omitempty) or the re-emitted contract would fail the schema on reload. Spec section 5.2.
+	c := Contract{
+		PactoVersion:   "2.0",
+		Service:        Service{Name: "orders", Version: "1.0.0"},
+		Dependencies:   []Dependency{{Name: "dep", Ref: "oci://x", Required: false, Compatibility: "^1.0.0"}},
+		Configurations: []Configuration{{Name: "cfg", Schema: "config/schema.json", Required: false}},
+	}
+	for _, tc := range []struct {
+		val      bool
+		yamlWant string
+		jsonWant string
+	}{
+		{false, "required: false", `"required":false`},
+		{true, "required: true", `"required":true`},
+	} {
+		c.Dependencies[0].Required = tc.val
+		c.Configurations[0].Required = tc.val
+		y, err := yaml.Marshal(c)
+		if err != nil {
+			t.Fatalf("yaml marshal: %v", err)
+		}
+		if got := strings.Count(string(y), tc.yamlWant); got != 2 {
+			t.Errorf("yaml: want 2 %q (dependency+configuration), got %d\n%s", tc.yamlWant, got, y)
+		}
+		j, err := json.Marshal(c)
+		if err != nil {
+			t.Fatalf("json marshal: %v", err)
+		}
+		if got := strings.Count(string(j), tc.jsonWant); got != 2 {
+			t.Errorf("json: want 2 %q, got %d\n%s", tc.jsonWant, got, j)
+		}
+	}
+}
+
+func TestConfiguration_Fields(t *testing.T) {
+	cs := Configuration{
 		Name:   "app",
 		Schema: "config/schema.json",
 		Values: map[string]any{"KEY": "val"},
@@ -23,8 +61,8 @@ func TestConfigurationSource_Fields(t *testing.T) {
 	}
 }
 
-func TestConfigurationSource_RefOnly(t *testing.T) {
-	cs := ConfigurationSource{
+func TestConfiguration_RefOnly(t *testing.T) {
+	cs := Configuration{
 		Name: "ext",
 		Ref:  "oci://example.com/config:1.0",
 	}
@@ -35,7 +73,7 @@ func TestConfigurationSource_RefOnly(t *testing.T) {
 
 func TestContract_Configurations(t *testing.T) {
 	c := &Contract{
-		Configurations: []ConfigurationSource{
+		Configurations: []Configuration{
 			{Name: "app", Schema: "config/app.json"},
 			{Name: "db", Ref: "oci://example.com/db-config:1.0", Values: map[string]any{"HOST": "localhost"}},
 		},
@@ -61,13 +99,24 @@ func TestContract_EmptyConfigurations(t *testing.T) {
 	}
 }
 
-func TestPolicySource_NameField(t *testing.T) {
-	ps := PolicySource{
+func TestPolicy_NameField(t *testing.T) {
+	ps := Policy{
 		Name:   "scaling",
 		Schema: "policy/scaling.json",
 	}
 	if ps.Name != "scaling" {
 		t.Errorf("expected name scaling, got %s", ps.Name)
+	}
+}
+
+func TestPolicy_Target(t *testing.T) {
+	ps := Policy{
+		Name:   "compliance",
+		Schema: "policy/compliance.json",
+		Target: PolicyTargetContract,
+	}
+	if ps.Target != "contract" {
+		t.Errorf("expected target contract, got %s", ps.Target)
 	}
 }
 
@@ -82,7 +131,7 @@ func TestDependency_NameField(t *testing.T) {
 	}
 }
 
-func TestReadiness_ParseV12Shape(t *testing.T) {
+func TestReadiness_ParseV2Shape(t *testing.T) {
 	src := []byte(`
 minScore: 80
 expires: 2026-12-31
@@ -92,7 +141,7 @@ history:
     version: 2.1.0
     author: ed
     description: initial
-checks:
+claims:
   - id: sec
     type: ticket
     category: security
@@ -110,14 +159,14 @@ checks:
 	if len(r.History) != 1 || r.History[0].Author != "ed" {
 		t.Fatalf("bad history: %+v", r.History)
 	}
-	c := r.Checks[0]
+	c := r.Claims[0]
 	if c.Status != StatusDone || c.Category != CategorySecurity || c.Type != "ticket" {
-		t.Fatalf("bad check: %+v", c)
+		t.Fatalf("bad claim: %+v", c)
 	}
 }
 
-func TestReadinessCheck_Fields(t *testing.T) {
-	rc := ReadinessCheck{
+func TestReadinessClaim_Fields(t *testing.T) {
+	rc := ReadinessClaim{
 		ID:          "dashboard",
 		Type:        EvidenceTypeURL,
 		Category:    CategoryObservability,
@@ -205,7 +254,7 @@ func TestContract_Readiness(t *testing.T) {
 	c := &Contract{
 		Readiness: &Readiness{
 			Expires: "2026-12-31",
-			Checks: []ReadinessCheck{
+			Claims: []ReadinessClaim{
 				{ID: "dashboard", Type: EvidenceTypeURL, Status: StatusDone, Evidence: "https://x", Weight: 60},
 				{ID: "runbook", Type: EvidenceTypeDocument, Status: StatusDone, Evidence: "docs/rb.md", Weight: 40},
 			},
@@ -214,11 +263,11 @@ func TestContract_Readiness(t *testing.T) {
 	if c.Readiness == nil {
 		t.Fatal("expected readiness to be present")
 	}
-	if len(c.Readiness.Checks) != 2 {
-		t.Fatalf("expected 2 checks, got %d", len(c.Readiness.Checks))
+	if len(c.Readiness.Claims) != 2 {
+		t.Fatalf("expected 2 claims, got %d", len(c.Readiness.Claims))
 	}
-	if c.Readiness.Checks[1].ID != "runbook" {
-		t.Errorf("expected second check runbook, got %s", c.Readiness.Checks[1].ID)
+	if c.Readiness.Claims[1].ID != "runbook" {
+		t.Errorf("expected second claim runbook, got %s", c.Readiness.Claims[1].ID)
 	}
 }
 
@@ -234,7 +283,7 @@ func TestReadiness_MinScore(t *testing.T) {
 	r := &Readiness{
 		MinScore: &min,
 		Expires:  "2026-12-31",
-		Checks:   []ReadinessCheck{{ID: "dashboard", Type: EvidenceTypeURL, Status: StatusDone, Evidence: "https://x", Weight: 100}},
+		Claims:   []ReadinessClaim{{ID: "dashboard", Type: EvidenceTypeURL, Status: StatusDone, Evidence: "https://x", Weight: 100}},
 	}
 	if r.MinScore == nil || *r.MinScore != 80 {
 		t.Errorf("expected minScore 80, got %v", r.MinScore)
@@ -246,13 +295,13 @@ func TestReadiness_MinScore(t *testing.T) {
 // the single source of truth both lock builders consume.
 func TestContract_ReferenceRefs(t *testing.T) {
 	c := &Contract{
-		Configurations: []ConfigurationSource{
+		Configurations: []Configuration{
 			{Name: "cfg-ref", Ref: "oci://r/cfg"},
-			{Name: "cfg-inline", Schema: "config/schema.json"}, // no Ref -> skipped
+			{Name: "cfg-inline", Schema: "config/schema.json"},
 		},
-		Policies: []PolicySource{
+		Policies: []Policy{
 			{Name: "pol-ref", Ref: "oci://r/pol"},
-			{Name: "pol-inline", Schema: "policy/schema.json"}, // no Ref -> skipped
+			{Name: "pol-inline", Schema: "policy/schema.json"},
 		},
 	}
 	got := c.ReferenceRefs()
@@ -274,10 +323,108 @@ func TestContract_ReferenceRefs(t *testing.T) {
 // configs/policies (nil result).
 func TestContract_ReferenceRefs_Empty(t *testing.T) {
 	c := &Contract{
-		Configurations: []ConfigurationSource{{Name: "cfg", Schema: "config/schema.json"}},
-		Policies:       []PolicySource{{Name: "pol", Schema: "policy/schema.json"}},
+		Configurations: []Configuration{{Name: "cfg", Schema: "config/schema.json"}},
+		Policies:       []Policy{{Name: "pol", Schema: "policy/schema.json"}},
 	}
 	if got := c.ReferenceRefs(); got != nil {
 		t.Errorf("expected nil refs for inline-only contract, got %+v", got)
+	}
+}
+
+func TestCapability_StandardTypes(t *testing.T) {
+	h := Capability{Type: CapabilityHealth}
+	m := Capability{Type: CapabilityMetrics}
+	if h.Type != "health" {
+		t.Errorf("expected health type, got %s", h.Type)
+	}
+	if m.Type != "metrics" {
+		t.Errorf("expected metrics type, got %s", m.Type)
+	}
+	if h.Ref != "" || m.Ref != "" {
+		t.Error("standard capabilities should have no ref")
+	}
+}
+
+func TestCapability_Extension(t *testing.T) {
+	ext := Capability{Type: CapabilityExtension, Ref: "example.com/custom"}
+	if ext.Type != "extension" {
+		t.Errorf("expected extension type, got %s", ext.Type)
+	}
+	if ext.Ref != "example.com/custom" {
+		t.Errorf("expected namespaced ref, got %s", ext.Ref)
+	}
+}
+
+func TestCapability_AssertionKey(t *testing.T) {
+	if got := (Capability{Type: CapabilityHealth}).AssertionKey(); got != "health" {
+		t.Errorf("health key = %q, want health", got)
+	}
+	if got := (Capability{Type: CapabilityMetrics}).AssertionKey(); got != "metrics" {
+		t.Errorf("metrics key = %q, want metrics", got)
+	}
+	if got := (Capability{Type: CapabilityExtension, Ref: "acme.io/backup"}).AssertionKey(); got != "acme.io/backup" {
+		t.Errorf("extension key = %q, want the ref", got)
+	}
+}
+
+func TestCapability_DiscriminatedBinding(t *testing.T) {
+	src := `pactoVersion: "2.0"
+service:
+  name: orders
+  version: 1.0.0
+interfaces:
+  - name: public-api
+    type: openapi
+    ref: interfaces/openapi.json
+capabilities:
+  - type: health
+    binding:
+      type: http
+      interface: public-api
+      path: /healthz
+  - type: metrics
+    binding:
+      type: http
+      interface: public-api
+      path: /metrics
+  - type: extension
+    ref: example.com/custom
+`
+	c, err := Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(c.Capabilities) != 3 {
+		t.Fatalf("want 3 capabilities, got %d", len(c.Capabilities))
+	}
+	h := c.Capabilities[0]
+	if h.Binding == nil || h.Binding.Type != "http" || h.Binding.Interface != "public-api" || h.Binding.Path != "/healthz" {
+		t.Errorf("health binding not parsed: %+v", h.Binding)
+	}
+	if c.Capabilities[2].Binding != nil {
+		t.Error("extension capability must not carry a binding")
+	}
+	if c.Capabilities[2].Ref != "example.com/custom" {
+		t.Errorf("extension ref = %q", c.Capabilities[2].Ref)
+	}
+}
+
+func TestWorkloadConstants(t *testing.T) {
+	want := []string{"service", "job", "scheduled"}
+	got := []string{WorkloadService, WorkloadJob, WorkloadScheduled}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("workload %d: expected %s, got %s", i, want[i], got[i])
+		}
+	}
+}
+
+func TestInterfaceTypeConstants(t *testing.T) {
+	want := []string{"openapi", "asyncapi", "grpc"}
+	got := []string{InterfaceTypeOpenAPI, InterfaceTypeAsyncAPI, InterfaceTypeGRPC}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("interface type %d: expected %s, got %s", i, want[i], got[i])
+		}
 	}
 }

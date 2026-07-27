@@ -36,6 +36,13 @@ func TestComputeCompliance_Reference(t *testing.T) {
 }
 
 func TestComputeCompliance_Invalid(t *testing.T) {
+	info := ComputeCompliance(StatusInvalid, nil)
+	if info.Status != ComplianceError {
+		t.Errorf("expected ERROR, got %q", info.Status)
+	}
+}
+
+func TestComputeCompliance_NonCompliant(t *testing.T) {
 	info := ComputeCompliance(StatusNonCompliant, nil)
 	if info.Status != ComplianceError {
 		t.Errorf("expected ERROR, got %q", info.Status)
@@ -90,6 +97,50 @@ func TestComputeCompliance_WithErrors(t *testing.T) {
 	}
 }
 
+func TestComputeCompliance_WithUnknown(t *testing.T) {
+	conds := []Condition{
+		{Type: "ContractValid", Status: "True"},
+		{Type: "SomeCheck", Status: "Unknown"},
+	}
+	info := ComputeCompliance(StatusCompliant, conds)
+	if info.Status != ComplianceUnknown {
+		t.Errorf("expected UNKNOWN, got %q", info.Status)
+	}
+	if info.Summary.Unknown != 1 {
+		t.Errorf("expected 1 unknown, got %d", info.Summary.Unknown)
+	}
+	// Unknown is inconclusive, NOT a violation: Failed excludes it (errors+warnings=0),
+	// so Failed must differ from the old total-passed folding (which would be 1).
+	if info.Summary.Failed != 0 {
+		t.Errorf("expected Failed=0 (Unknown excluded), got %d", info.Summary.Failed)
+	}
+	if info.Summary.Failed == info.Summary.Total-info.Summary.Passed {
+		t.Errorf("Failed (%d) must not fold Unknown into total-passed (%d)",
+			info.Summary.Failed, info.Summary.Total-info.Summary.Passed)
+	}
+	// Check secondary metrics per B-2.
+	if info.Summary.RuntimeEvaluated != 2 {
+		t.Errorf("expected RuntimeEvaluated=2, got %d", info.Summary.RuntimeEvaluated)
+	}
+	if info.Summary.Conclusive != 1 {
+		t.Errorf("expected Conclusive=1, got %d", info.Summary.Conclusive)
+	}
+}
+
+func TestComputeCompliance_UnknownStatus(t *testing.T) {
+	info := ComputeCompliance(StatusUnknown, nil)
+	if info.Status != ComplianceUnknown {
+		t.Errorf("expected UNKNOWN, got %q", info.Status)
+	}
+}
+
+func TestComputeCompliance_NotEvaluated(t *testing.T) {
+	info := ComputeCompliance(StatusNotEvaluated, nil)
+	if info.Status != ComplianceReference {
+		t.Errorf("expected REFERENCE (excluded from denominator), got %q", info.Status)
+	}
+}
+
 func TestComputeCompliance_ExplicitSeverity(t *testing.T) {
 	conds := []Condition{
 		{Type: "ContractValid", Status: "True"},
@@ -116,54 +167,55 @@ func TestComputeCompliance_NoConds(t *testing.T) {
 }
 
 func TestComputeRuntimeDiff_BothNil(t *testing.T) {
-	rows := ComputeRuntimeDiff(nil, nil)
+	rows := ComputeRuntimeDiff("", nil, nil)
 	if rows != nil {
 		t.Errorf("expected nil, got %v", rows)
 	}
 }
 
 func TestComputeRuntimeDiff_Match(t *testing.T) {
-	rt := &RuntimeInfo{
-		Workload:        "service",
-		UpgradeStrategy: "RollingUpdate",
+	state := &StateInfo{
+		Type: "stateless",
 	}
 	obs := &ObservedRuntime{
-		WorkloadKind:       "Deployment",
-		DeploymentStrategy: "RollingUpdate",
+		WorkloadKind: "Deployment",
 	}
-	rows := ComputeRuntimeDiff(rt, obs)
-	if len(rows) == 0 {
-		t.Fatal("expected rows")
+	rows := ComputeRuntimeDiff("service", state, obs)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
 	}
 	// Workload: service -> Deployment, observed Deployment -> match
 	if rows[0].Status != "match" {
 		t.Errorf("expected match for workload, got %q", rows[0].Status)
 	}
-	// Upgrade strategy: RollingUpdate == RollingUpdate -> match
+	if rows[0].Field != "Workload Type" {
+		t.Errorf("expected field 'Workload Type', got %q", rows[0].Field)
+	}
+	// State: stateless, no PVC/emptyDir -> stateless -> match
 	if rows[1].Status != "match" {
-		t.Errorf("expected match for upgrade strategy, got %q", rows[1].Status)
+		t.Errorf("expected match for state, got %q", rows[1].Status)
 	}
 }
 
 func TestComputeRuntimeDiff_Mismatch(t *testing.T) {
-	rt := &RuntimeInfo{
-		Workload: "service",
+	state := &StateInfo{
+		Type: "stateless",
 	}
 	obs := &ObservedRuntime{
 		WorkloadKind: "StatefulSet",
 	}
-	rows := ComputeRuntimeDiff(rt, obs)
+	rows := ComputeRuntimeDiff("service", state, obs)
 	// Workload: service -> Deployment, observed StatefulSet -> mismatch
 	if rows[0].Status != "mismatch" {
 		t.Errorf("expected mismatch for workload, got %q", rows[0].Status)
 	}
 }
 
-func TestComputeRuntimeDiff_NilRuntime(t *testing.T) {
+func TestComputeRuntimeDiff_NilState(t *testing.T) {
 	obs := &ObservedRuntime{WorkloadKind: "Deployment"}
-	rows := ComputeRuntimeDiff(nil, obs)
-	if len(rows) == 0 {
-		t.Fatal("expected rows even with nil runtime")
+	rows := ComputeRuntimeDiff("service", nil, obs)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows even with nil state, got %d", len(rows))
 	}
 }
 

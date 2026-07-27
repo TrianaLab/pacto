@@ -31,7 +31,7 @@ pacto version
 Requires [Go 1.26](https://go.dev/dl/) or later.
 
 ```bash
-go install github.com/trianalab/pacto/v2/cmd/pacto@latest
+go install github.com/trianalab/pacto/v3/cmd/pacto@latest
 ```
 
 ## From source (manual build)
@@ -59,7 +59,7 @@ pacto update v1.2.0
 This downloads the new binary, **verifies its SHA-256 against the `checksums.txt` published with the release**, and only then replaces the current one. If the download fails verification, the update is aborted and the existing binary is left untouched.
 
 !!! note
-    If you installed via `go install`, use `go install github.com/trianalab/pacto/v2/cmd/pacto@latest` to update instead.
+    If you installed via `go install`, use `go install github.com/trianalab/pacto/v3/cmd/pacto@latest` to update instead.
 
 Pacto also checks for updates automatically and notifies you when a newer version is available. See the [`pacto update` reference](cli-reference.md#pacto-update) for [update notifications](cli-reference.md#update-notifications) and the [`PACTO_NO_UPDATE_CHECK` environment variable](cli-reference.md#environment-variables).
 

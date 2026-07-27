@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,9 +11,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/trianalab/pacto/v2/internal/app"
-	"github.com/trianalab/pacto/v2/pkg/dashboard"
-	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 func newDashboardCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Command {
@@ -132,21 +132,7 @@ Services are grouped by name across sources and merged using priority rules:
 			// new services are discovered. refreshCacheSources handles
 			// on-the-fly CacheSource creation (critical for --no-cache),
 			// cache rescan, OCI wiring, and memory cache invalidation.
-			if detectResult.OCI != nil {
-				// Wire internal cache into OCI for version enrichment
-				// (hash, createdAt, classification) without exposing cache
-				// as a separate public source.
-				if detectResult.Cache != nil {
-					detectResult.OCI.SetCache(detectResult.Cache)
-				}
-
-				// Wire k8s repo provider so that OCI background discovery
-				// picks up repos from CRDs that appear after startup
-				// (e.g. deployed by ArgoCD after the dashboard starts).
-				if detectResult.K8s != nil {
-					detectResult.OCI.SetRepoProvider(dashboard.RepoProviderFromSource(detectResult.K8s))
-				}
-			}
+			wireOCICache(detectResult)
 
 			// Build resolved source with contract + runtime separation.
 			resolved := dashboard.BuildResolvedSource(cachedSources)
@@ -158,6 +144,10 @@ Services are grouped by name across sources and merged using priority rules:
 				diag = detectResult.Diagnostics
 			}
 			server := dashboard.NewResolvedServer(resolved, uiFS, detectResult.Sources, diag)
+			// Thread this command's logger into the server so request handlers and
+			// background discovery log through it (via request-context injection)
+			// rather than the process-global slog default.
+			server.SetLogger(logging.LoggerFromContext(cmd.Context()))
 			server.UpdateSourceInfo(detectResult.Sources)
 			server.SetVersion(version)
 			server.SetListenAddr(host, port)
@@ -369,6 +359,18 @@ func wireK8sRedetect(
 	}
 }
 
+// wireOCICache wires cache and K8s repo provider into OCI source when available.
+func wireOCICache(detectResult *dashboard.DetectResult) {
+	if detectResult.OCI != nil {
+		if detectResult.Cache != nil {
+			detectResult.OCI.SetCache(detectResult.Cache)
+		}
+		if detectResult.K8s != nil {
+			detectResult.OCI.SetRepoProvider(dashboard.RepoProviderFromSource(detectResult.K8s))
+		}
+	}
+}
+
 // wireOCIEnrichment returns a callback that attempts OCI discovery from K8s
 // and wires the new sources into the existing pipeline. Called lazily by the
 // server when OCI was not available at startup.
@@ -386,7 +388,7 @@ func wireOCIEnrichment(
 			return false
 		}
 
-		slog.Info("lazy OCI enrichment: wiring OCI source into pipeline")
+		logging.LoggerFromContext(ctx).Info("lazy OCI enrichment: wiring OCI source into pipeline")
 
 		// Wrap the new OCI source with in-memory caching.
 		ociCached := dashboard.NewCachedDataSource(
@@ -399,15 +401,7 @@ func wireOCIEnrichment(
 		detectResult.OCI.SetOnDiscover(server.RefreshCacheSources)
 		server.SetOCISource(detectResult.OCI)
 
-		// Wire cache internally into OCI source for enrichment.
-		if detectResult.Cache != nil {
-			detectResult.OCI.SetCache(detectResult.Cache)
-		}
-
-		// Wire k8s repo provider for late-arriving CRDs.
-		if detectResult.K8s != nil {
-			detectResult.OCI.SetRepoProvider(dashboard.RepoProviderFromSource(detectResult.K8s))
-		}
+		wireOCICache(detectResult)
 
 		// Always pass memCache so RefreshCacheSources can invalidate stale
 		// data even when CacheSource is created on-the-fly (--no-cache).

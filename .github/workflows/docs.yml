@@ -6,103 +6,92 @@ on:
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
+      # Integration docs are assembled into this site by the mkdocs hook, so a
+      # change to an integration's docs (authored or generated) must redeploy.
+      - 'integrations/**/docs/**'
+      - 'integrations/**/integration.yaml'
+      - 'release/scripts/mkdocs_integration_hook.py'
+      # `make docs-deploy` regenerates the integration + CLI docs from these
+      # cross-module sources before mike publishes, so a change to any of them must
+      # redeploy the site (same inputs docs-check guards on PRs).
+      - 'release/scripts/gen_integration_docs.py'
+      - 'integrations/**/api/**'
+      - 'integrations/**/config/crd/**'
+      - 'integrations/**/config/rbac/**'
+      - 'integrations/**/charts/**'
+      - 'integrations/**/cmd/**'
+      - 'integrations/**/internal/observer/**'
+      - 'pkg/evidence/**'
+      - 'pkg/finding/**'
       - 'examples/demo/**'
       # The demo embeds the dashboard UI + engine, so redeploy when they change.
       - 'pkg/dashboard/**'
       - '.github/workflows/docs.yml'
-  # The demo bakes in the Pacto version via `git describe` at build time. The
-  # merge-to-main push above runs ~seconds BEFORE Auto release creates the tag,
-  # so it bakes the PREVIOUS version. We must redeploy once the new tag exists.
-  #
-  # Auto release creates the GitHub release with the default GITHUB_TOKEN, and
-  # GitHub does NOT fire the `release` event for token-created releases (anti-
-  # recursion) — so an `on: release` trigger never runs for our automated tags.
-  # Instead, redeploy when the "Auto release" workflow itself COMPLETES: by then
-  # the tag exists and `git describe` resolves it. `workflow_run` is not subject
-  # to the token restriction.
-  workflow_run:
-    workflows: ["Auto release"]
-    types: [completed]
-  # Still covers releases published manually by a human (those DO fire `release`).
-  release:
-    types: [published]
+  # Release-time docs are deployed by the release transaction (release.yml, unit
+  # k8s-docs), which owns the versioned site deploy with the exact core + k8s
+  # versions. This workflow only redeploys the CURRENT version's docs on a
+  # doc-only change to main (no release), plus manual runs. It no longer
+  # self-triggers on release/workflow_run (that was a duplicate deploy that read
+  # the "latest release" and raced the release job).
   workflow_dispatch:
 
+# mike commits the built site to the gh-pages branch and pushes it, so the deploy
+# needs write access to repository contents (not the Pages upload API).
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
+# Serialize deploys: two concurrent `mike deploy --push` runs would race on the
+# gh-pages branch.
 concurrency:
-  group: pages
+  group: docs-deploy
   cancel-in-progress: false
 
 jobs:
-  build:
+  # Non-release doc refresh. The release UNIT k8s-docs (the versioned site deploy
+  # with the exact release versions) is published by the release transaction
+  # (.github/workflows/release.yml, the docs job) — this is NOT that publisher. This
+  # job only redeploys the current version's docs on a doc-only change to main, or a
+  # manual run. mike publishes to gh-pages; GitHub Pages must serve from that branch.
+  deploy:
     runs-on: ubuntu-latest
-    # On the workflow_run trigger, only deploy when Auto release actually
-    # succeeded (skip cancelled/failed release runs). All other triggers proceed.
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - uses: actions/checkout@v7.0.0
-        # Full history + tags so the demo build's `git describe` resolves the
-        # real Pacto version to bake into the dashboard (shown in the navbar).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        # Full history + tags so the demo build's `git describe` resolves the real
+        # Pacto version to bake into the dashboard navbar, and so mike has the
+        # gh-pages history it appends each versioned deploy to.
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: docs/requirements.txt
       - run: pip install -r docs/requirements.txt
-      # --strict so a broken link/anchor or orphan page fails the deploy rather
-      # than silently shipping. Same gate the PR "Docs check" runs.
-      - run: mkdocs build --strict
-      # Build the in-browser (WebAssembly) dashboard demo and fold it into the
-      # same Pages artifact at /demo/ (two Pages deploys in one repo
-      # conflict; one upload below publishes both docs and demo).
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
       - name: Build the WASM dashboard demo
         run: make -C examples/demo build
       - name: Smoke test the wasm engine
         run: make -C examples/demo smoke
-      # Guardrail: on a release-driven deploy the baked navbar version MUST match
-      # the latest published release. If it doesn't (e.g. `git describe` resolved
-      # a stale tag), fail loudly instead of silently shipping the wrong version.
-      # Skipped on plain `push`/`workflow_dispatch`, where the build may
-      # intentionally predate the tag.
-      - name: Guardrail — baked demo version matches the latest release
-        if: ${{ github.event_name == 'workflow_run' || github.event_name == 'release' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          baked="$(jq -r .version examples/demo/dist/version.json)"
-          latest="$(gh release view --json tagName -q .tagName)"
-          echo "baked navbar version: '$baked' · latest release: '$latest'"
-          if [ "${baked#v}" != "${latest#v}" ]; then
-            echo "::error::Demo navbar version '$baked' != latest release '$latest' — stale demo deploy."
-            exit 1
-          fi
+      # Fold the demo into the docs tree so mike's internal `mkdocs build` copies it
+      # into every versioned deploy at /demo/.
       - name: Fold the demo into the docs site
         run: |
-          mkdir -p site/demo
-          cp -r examples/demo/dist/. site/demo/
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: site/
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v5
+          mkdir -p docs/demo
+          cp -r examples/demo/dist/. docs/demo/
+      # Strict gate before publishing: mike's internal build is not --strict, so run
+      # the same strict build the PR "Docs check" enforces against a throwaway dir.
+      - name: Strict docs build gate
+        run: mkdocs build --strict --site-dir "$(mktemp -d)"
+      # Publish ONLY the unreleased `next` snapshot to gh-pages. This non-release
+      # path must never move `latest` or write a released version slot — that is the
+      # release transaction's job (release.yml, unit k8s-docs, `make docs-deploy`).
+      - name: Deploy the dev (next) docs snapshot with mike
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          make docs-deploy-dev

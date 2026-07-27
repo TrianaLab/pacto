@@ -6,10 +6,10 @@
 
 | Version | What it enforces |
 |---------|-----------------|
-| `1.0.0` | `service.owner` declared, `runtime.health` defined |
-| `2.0.0` | + `runtime.workload` declared, `interfaces[]` if exposed |
+| `1.0.0` | `service.owner` declared, a `health` capability present |
+| `2.0.0` | + `workload` declared, `interfaces[]` if exposed |
 | `3.0.0` | + `configurations[]` schema present, `metadata.labels` required |
-| `4.0.0` | + `runtime.health.path` set, `scaling.min >= 2` for `service` workloads |
+| `4.0.0` | + the `health` capability declares a `binding.path`, a `readiness` gate present |
 
 A service pinned to `platform-policy:2.0.0` keeps validating against v2's rules until the team is ready to bump — the platform never forces the change.
 

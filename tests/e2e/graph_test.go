@@ -161,7 +161,7 @@ func TestGraphWithDependencies(t *testing.T) {
 	t.Run("version conflict detection", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "conflict-app")
-		conflictYAML := fmt.Sprintf(`pactoVersion: "1.0"
+		conflictYAML := fmt.Sprintf(`pactoVersion: "2.0"
 
 service:
   name: conflict-app
@@ -171,14 +171,14 @@ service:
 
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
     visibility: internal
-    contract: interfaces/openapi.yaml
+    ref: interfaces/openapi.yaml
 
 configurations:
   - name: default
     schema: configuration/schema.json
+    required: true
 
 dependencies:
   - name: redis-v1
@@ -190,21 +190,14 @@ dependencies:
     required: true
     compatibility: "^2.0.0"
 
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-  health:
-    interface: api
-    path: /health
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 
-scaling:
-  min: 1
-  max: 3
 `, reg.host, reg.host)
 
 		conflictDir := writeBundleDir(t, dir, conflictYAML, map[string]string{

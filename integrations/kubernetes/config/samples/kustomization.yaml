@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- pacto_v1alpha1_pacto.yaml
+- pacto_v1alpha1_pactorevision.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

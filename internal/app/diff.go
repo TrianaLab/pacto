@@ -3,16 +3,16 @@ package app
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/trianalab/pacto/v2/pkg/contract"
-	"github.com/trianalab/pacto/v2/pkg/diff"
-	"github.com/trianalab/pacto/v2/pkg/graph"
-	"github.com/trianalab/pacto/v2/pkg/override"
-	"github.com/trianalab/pacto/v2/pkg/sbom"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/diff"
+	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/override"
+	"github.com/trianalab/pacto/v3/pkg/sbom"
 )
 
 // DiffOptions holds options for the diff command.
@@ -44,7 +44,7 @@ type DiffResult struct {
 
 // Diff compares two contracts and produces a classified change set.
 func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, error) {
-	slog.Debug("resolving old contract", "path", opts.OldPath)
+	logging.LoggerFromContext(ctx).Debug("resolving old contract", "path", opts.OldPath)
 	oldBundle, err := s.resolveBundleWithOverrides(ctx, opts.OldPath, opts.OldOverrides)
 	if err != nil {
 		return nil, fmt.Errorf("old contract: %w", err)
@@ -53,7 +53,7 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 		return nil, err
 	}
 
-	slog.Debug("resolving new contract", "path", opts.NewPath)
+	logging.LoggerFromContext(ctx).Debug("resolving new contract", "path", opts.NewPath)
 	newBundle, err := s.resolveBundleWithOverrides(ctx, opts.NewPath, opts.NewOverrides)
 	if err != nil {
 		return nil, fmt.Errorf("new contract: %w", err)
@@ -62,10 +62,10 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 		return nil, err
 	}
 
-	slog.Debug("comparing contracts")
-	result := diff.Compare(oldBundle.Contract, newBundle.Contract, oldBundle.FS, newBundle.FS)
+	logging.LoggerFromContext(ctx).Debug("comparing contracts")
+	result := diff.Compare(ctx, oldBundle.Contract, newBundle.Contract, oldBundle.FS, newBundle.FS)
 
-	slog.Debug("resolving dependency graphs for diff")
+	logging.LoggerFromContext(ctx).Debug("resolving dependency graphs for diff")
 	oldFetcher := s.newDepFetcher(opts.OldPath)
 	newFetcher := s.newDiffFetcher(opts.NewPath)
 
@@ -87,7 +87,7 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 		if !exists || oldNode.Contract == nil || newNode.Contract == nil {
 			continue
 		}
-		depResult := diff.Compare(oldNode.Contract, newNode.Contract, oldNode.FS, newNode.FS)
+		depResult := diff.Compare(ctx, oldNode.Contract, newNode.Contract, oldNode.FS, newNode.FS)
 		hasSBOMChanges := depResult.SBOMDiff != nil && len(depResult.SBOMDiff.Changes) > 0
 		if len(depResult.Changes) == 0 && !hasSBOMChanges {
 			continue
@@ -103,7 +103,7 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 		})
 	}
 
-	slog.Debug("diff complete", "classification", overall.String(), "changes", len(result.Changes), "dependencyDiffs", len(depDiffs))
+	logging.LoggerFromContext(ctx).Debug("diff complete", "classification", overall.String(), "changes", len(result.Changes), "dependencyDiffs", len(depDiffs))
 
 	return &DiffResult{
 		OldPath:         opts.OldPath,
@@ -149,7 +149,7 @@ func (f *localOverrideFetcher) Fetch(ctx context.Context, dep contract.Dependenc
 		localPath := filepath.Join(f.parentDir, name)
 		bundle, err := loadLocalBundle(localPath)
 		if err == nil {
-			slog.Debug("using local override for dependency", "ref", dep.Ref, "path", localPath)
+			logging.LoggerFromContext(ctx).Debug("using local override for dependency", "ref", dep.Ref, "path", localPath)
 			return bundle, nil
 		}
 	}
