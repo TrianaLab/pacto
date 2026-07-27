@@ -2,6 +2,7 @@ package release
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -21,7 +22,6 @@ var staleOperatorRepoRE = regexp.MustCompile(`github\.com/[Tt]riana[Ll]ab/pacto-
 func isHistoricalRef(rel string) bool {
 	rel = filepath.ToSlash(rel)
 	for _, p := range []string{
-		"docs/adr/",
 		".changeset/",
 		"release/MIGRATION-STATE.md",
 		"release/proofs/",
@@ -41,33 +41,27 @@ func isHistoricalRef(rel string) bool {
 // historical/migration references (release-safety item 12).
 func TestNoStaleOperatorRepoLinks(t *testing.T) {
 	root := repoRoot(t)
-	skipDir := map[string]bool{".git": true, "node_modules": true, ".gocache": true, "dist": true}
 	textExt := map[string]bool{
 		".md": true, ".yaml": true, ".yml": true, ".go": true, ".mjs": true,
 		".sh": true, ".txt": true, ".json": true, ".gotmpl": true, ".tpl": true, "": true,
 	}
 
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
+	// Only git-TRACKED files are part of the PR; scratch/untracked files (a local
+	// .pr-body.md draft, editor temp files) are not the gate's concern.
+	out, err := exec.Command("git", "-C", root, "ls-files").Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
+	}
+	for _, rel := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if rel == "" || strings.HasPrefix(rel, "pkg/dashboard/ui/") { // built (minified) assets
+			continue
 		}
-		if d.IsDir() {
-			if skipDir[d.Name()] {
-				return filepath.SkipDir
-			}
-			return nil
+		if isHistoricalRef(rel) || !textExt[filepath.Ext(rel)] {
+			continue
 		}
-		rel, _ := filepath.Rel(root, path)
-		rel = filepath.ToSlash(rel)
-		if strings.HasPrefix(rel, "pkg/dashboard/ui/") { // built (minified) assets
-			return nil
-		}
-		if isHistoricalRef(rel) || !textExt[filepath.Ext(path)] {
-			return nil
-		}
-		b, e := os.ReadFile(path)
+		b, e := os.ReadFile(filepath.Join(root, rel))
 		if e != nil {
-			return nil
+			continue
 		}
 		for i, line := range strings.Split(string(b), "\n") {
 			if staleOperatorRepoRE.MatchString(line) {
@@ -75,9 +69,5 @@ func TestNoStaleOperatorRepoLinks(t *testing.T) {
 					rel, i+1, strings.TrimSpace(line))
 			}
 		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }

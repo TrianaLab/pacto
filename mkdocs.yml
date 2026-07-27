@@ -200,9 +200,6 @@ nav:
       - Dashboard container: dashboard-docker.md
   - Architecture:
       - Overview: architecture.md
-      - "ADR 0001: Integrations monorepo": adr/0001-integrations-monorepo.md
-      - "ADR 0002: Changesets release": adr/0002-changesets-release.md
-      - "ADR 0003: Operator repo cutover": adr/0003-operator-repo-cutover.md
   # changelog.md is assembled at build time from release/units/*/CHANGELOG.md
   # by release/scripts/mkdocs_integration_hook.py (Changesets-generated history).
   - Changelog: changelog.md

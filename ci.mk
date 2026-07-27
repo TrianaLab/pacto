@@ -59,6 +59,12 @@ ci-oci:
 	node --test release/scripts/publish.test.mjs
 	node --test release/orchestrator/*.test.mjs
 
+# Integration test for the version command: runs the REAL `npm run release:version`
+# in a throwaway clone with pending changesets and proves it emits a ready
+# transaction detect.mjs acts on. Needs node_modules (the CI job runs npm ci).
+ci-release-version:
+	bash release/orchestrator/test-release-version.sh
+
 # Regenerate every generated doc across the workspace. Core CLI reference first,
 # then every discovered integration's own generator (via its integration.yaml
 # documentation.generateCommand) so a future integration is picked up with no

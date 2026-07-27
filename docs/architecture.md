@@ -123,7 +123,7 @@ graph TD
     class APP,CLI,LOG,MCP,MAIN,UPDATE internal
 ```
 
-Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator](integrations/kubernetes/overview.md). So are the engine packages the operator consumes — `pkg/contract`, `pkg/evidence`, `pkg/finding`, `pkg/validation` and the `pkg/collector` interface — none of which import Kubernetes (enforced by the import-boundary gate; see [ADR 0001](adr/0001-integrations-monorepo.md)).
+Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator](integrations/kubernetes/overview.md). So are the engine packages the operator consumes — `pkg/contract`, `pkg/evidence`, `pkg/finding`, `pkg/validation` and the `pkg/collector` interface — none of which import Kubernetes (enforced by the import-boundary gate `tests/architecture/boundary_test.go`).
 
 ---
 

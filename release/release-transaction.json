@@ -15,7 +15,7 @@
   ],
   "expectedCoordinates": {
     "cli": "github.com/trianalab/pacto releases",
-    "core": "github.com/trianalab/pacto/v2",
+    "core": "github.com/trianalab/pacto/v3",
     "dashboard-contract-bundle": "ghcr.io/trianalab/pactos/pacto-dashboard",
     "dashboard-image": "ghcr.io/trianalab/pacto-dashboard",
     "demo-bundles": "ghcr.io/trianalab/pacto-demo",
