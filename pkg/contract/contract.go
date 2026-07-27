@@ -261,12 +261,16 @@ type Capability struct {
 	Binding *CapabilityBinding `yaml:"binding,omitempty" json:"binding,omitempty"` // standard types only
 }
 
-// CapabilityBinding binds a standard capability endpoint to a declared interface. Type is the binding
-// transport, discriminated: only "http" is implemented this release ("grpc" reserved).
+// CapabilityBinding binds a standard capability endpoint (health/metrics) to a declared interface for
+// probing. binding.type is a CLOSED set — only "http" is supported (an unknown transport fails structural
+// validation). binding.interface names the declared interface that provides the ADDRESS/PORT anchor for the
+// probe — the platform-neutral counterpart of the Kubernetes CR's spec.target.interfaceBindings[]; it does
+// NOT claim the capability path is part of that interface's OpenAPI/AsyncAPI/gRPC specification. binding.path
+// is relative to the resolved endpoint.
 type CapabilityBinding struct {
-	Type      string `yaml:"type" json:"type"`                     // "http" (grpc later)
-	Interface string `yaml:"interface" json:"interface"`           // name of the owning declared interface
-	Path      string `yaml:"path,omitempty" json:"path,omitempty"` // http only; must start with "/" (INV-6)
+	Type      string `yaml:"type" json:"type"`                     // "http" (the only supported transport)
+	Interface string `yaml:"interface" json:"interface"`           // declared interface providing the address/port anchor
+	Path      string `yaml:"path,omitempty" json:"path,omitempty"` // relative to the resolved endpoint; must start with "/" (INV-6)
 }
 
 // CapabilityBindingType constants.

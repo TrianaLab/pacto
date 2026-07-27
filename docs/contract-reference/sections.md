@@ -422,13 +422,19 @@ Optional. Declares standard observability capabilities (`health`, `metrics`) or 
 
 ### Capability binding
 
-Binds a standard capability endpoint to a declared interface. Only the `http` binding transport is implemented this release.
+Binds a standard capability endpoint (`health`/`metrics`) to a declared interface so a collector can probe it. `binding.type` is a **closed set — `http` is the only supported transport** this release; an unknown transport fails structural validation (the enum does not advertise unimplemented transports).
+
+Semantics — how a binding resolves:
+
+- `binding.type: http` means the capability is probed over **HTTP**.
+- `binding.interface` names the declared interface that provides the **address/port anchor** for the probe — the platform-neutral counterpart of the Kubernetes CR's `spec.target.interfaceBindings[].interface`, which resolves to a concrete Kubernetes Service port. It does **not** claim the capability path is part of that interface's OpenAPI/AsyncAPI/gRPC specification.
+- `binding.path` is relative to the resolved endpoint.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `type` | string | Yes | Enum: `http` |
-| `interface` | string | Yes | Must match a declared `interfaces[].name` (`CAPABILITY_INTERFACE_UNKNOWN` otherwise) |
-| `path` | string | No | Application path on the interface. Must start with a single `/` and carry no scheme/host/fragment (`CAPABILITY_PATH_INVALID` otherwise) |
+| `type` | string | Yes | Enum: `http` (only supported transport; any other value fails validation) |
+| `interface` | string | Yes | Must match a declared `interfaces[].name` — the interface whose platform binding provides the address/port (`CAPABILITY_INTERFACE_UNKNOWN` otherwise) |
+| `path` | string | No | Application path relative to the resolved endpoint. Must start with a single `/` and carry no scheme/host/fragment (`CAPABILITY_PATH_INVALID` otherwise) |
 
 ```yaml
 capabilities:

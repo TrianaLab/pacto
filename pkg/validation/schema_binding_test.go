@@ -32,6 +32,35 @@ func TestSchema_CapabilityBinding_Valid(t *testing.T) {
 	}
 }
 
+// Item 2: the binding transport enum is a CLOSED set — http only. A non-http
+// transport (e.g. grpc, added "for symmetry") must fail structural validation, so
+// an unimplemented transport can never be advertised as if it were supported.
+func TestSchema_CapabilityBinding_UnknownTransportRejected(t *testing.T) {
+	data := []byte(schemaBase + `capabilities:
+  - type: health
+    binding:
+      type: grpc
+      interface: public-api
+      path: /healthz
+`)
+	r := validation.ValidateStructuralRaw(data)
+	if !hasErrorCode(r, "SCHEMA_VIOLATION") {
+		t.Errorf("a non-http binding transport must fail structural validation (enum is http-only), got %+v", r.Errors)
+	}
+}
+
+// Item 2: a health/metrics capability with no binding is a valid declaration (for
+// another collector to verify); the Kubernetes collector reports it Unsupported.
+func TestSchema_CapabilityBinding_UnboundHealthValid(t *testing.T) {
+	data := []byte(schemaBase + `capabilities:
+  - type: health
+`)
+	r := validation.ValidateStructuralRaw(data)
+	if hasErrorCode(r, "SCHEMA_VIOLATION") {
+		t.Errorf("an unbound health capability must be structurally valid, got %+v", r.Errors)
+	}
+}
+
 func TestSchema_ExtensionWithBinding_Rejected(t *testing.T) {
 	data := []byte(schemaBase + `capabilities:
   - type: extension
