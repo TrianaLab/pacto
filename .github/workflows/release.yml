@@ -123,6 +123,34 @@ jobs:
           TAG: v${{ needs.detect.outputs.core_version }}
         run: bash release/orchestrator/publish-go-tag.sh "$TAG" "$GITHUB_SHA"
 
+  # Core-readiness barrier for the Kubernetes line. Always runs for a release so
+  # the Kubernetes publishers have a stable dependency even when core is unchanged
+  # (a Kubernetes-only release skips core-tag, which would otherwise skip its
+  # dependents). If core changed, require core-tag to have succeeded; if not,
+  # verify the pinned core tag the integration go.mod requires already exists.
+  core-ready:
+    needs: [detect, core-tag]
+    if: always() && needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Verify core is ready for the Kubernetes line
+        env:
+          CORE_TAG: v${{ needs.detect.outputs.core_version }}
+        run: |
+          if ${{ contains(fromJSON(needs.detect.outputs.units_json), 'core') }}; then
+            [ "${{ needs.core-tag.result }}" = "success" ] \
+              || { echo "::error::core changed but core-tag did not succeed"; exit 1; }
+            echo "core changed -> core-tag succeeded ($CORE_TAG)"
+          else
+            pin="$(jq -r '.groups.kubernetes.goModPin.version' release/release-plan.json)"
+            git ls-remote --tags origin "refs/tags/${pin}" | grep -q . \
+              || { echo "::error::core unchanged but the pinned core ${pin} is not published"; exit 1; }
+            echo "core unchanged -> pinned core ${pin} already published + resolvable"
+          fi
+
   # pacto-publishes: dashboard-image
   dashboard-image:
     needs: detect
@@ -224,7 +252,7 @@ jobs:
   # The nested integration module tag. Needs core-tag: the integration go.mod pins
   # the published core, so core must be tagged first for the tag to resolve.
   k8s-module:
-    needs: [detect, core-tag]
+    needs: [detect, core-ready]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'k8s-module')
     runs-on: ubuntu-latest
     permissions:
@@ -243,7 +271,7 @@ jobs:
   # go.work + the root go.mod + pkg/ + integrations/kubernetes/. Needs core-tag so
   # the pinned core resolves during the standalone (GOWORK=off) module build.
   operator-image:
-    needs: [detect, core-tag]
+    needs: [detect, core-ready]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'operator-image')
     runs-on: ubuntu-latest
     permissions:
@@ -336,7 +364,7 @@ jobs:
   # integration docs change). The "Deploy docs" workflow no longer self-triggers on
   # release/workflow_run; this is the single docs publisher.
   docs:
-    needs: [detect, core-tag, k8s-module]
+    needs: [detect, core-ready, k8s-module]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       (contains(fromJSON(needs.detect.outputs.units_json), 'k8s-docs') || contains(fromJSON(needs.detect.outputs.units_json), 'core')) &&
