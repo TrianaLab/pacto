@@ -162,7 +162,7 @@ jobs:
   # Operator image build with the EXACT production build-push context + file
   # (context: repo root, file: integrations/kubernetes/Dockerfile) — a dedicated
   # check so a broken production context is caught without relying on the kind
-  # script (release-safety item 7). push: false.
+  # script. push: false.
   operator-build:
     needs: changes
     if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

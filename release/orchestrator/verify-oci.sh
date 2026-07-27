@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Digest-aware immutability check for an OCI ref (release-safety items 5,10,12).
+# Digest-aware immutability check for an OCI ref.
 # Prints exactly one of: absent | identical | conflict.
 #
 #   absent    -> the ref does not exist; the caller publishes then records.

@@ -1,4 +1,4 @@
-// Tests for the release decision + recovery logic (release/DESIGN-release-safety.md).
+// Tests for the release decision + recovery logic.
 // Run: node --test release/orchestrator/detect.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

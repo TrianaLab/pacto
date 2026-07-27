@@ -112,7 +112,7 @@ function stable(v) {
   return v;
 }
 
-// buildTransaction — the release-ready plan (release/DESIGN-release-safety.md).
+// buildTransaction — the release-ready plan.
 // It is the ONLY source of release intent: publishing keys off `ready` +
 // `changedUnits`, never off a file diff. `changedUnits` is every unit whose
 // new version (from the just-bumped release/units) differs from the previous

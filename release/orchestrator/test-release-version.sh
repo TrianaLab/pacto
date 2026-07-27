@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Integration test for the version command (release-safety item 1). Runs the REAL
+# Integration test for the version command. Runs the REAL
 # `npm run release:version` in a throwaway clone with actual pending changesets and
 # proves it consumes them, bumps versions, and emits a ready:true transaction that
 # detect.mjs acts on — and that a feature PR with unconsumed changesets still

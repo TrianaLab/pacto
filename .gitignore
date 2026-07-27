@@ -46,4 +46,6 @@ pactos/*/sbom/
 .superpowers/
 
 # runtime-regenerated publisher proof transcripts (non-deterministic namespaces)
-release/proofs/publish-*.txt
+release/proofs/
+.mono-*.workflow.js
+.pr-body.md

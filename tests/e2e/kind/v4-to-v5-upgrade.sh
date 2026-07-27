@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Real cross-major operator upgrade — v4 -> v5 chart + CRD migration
-# (release-safety item 8). Unlike run.sh (which upgrades a 0.0.0-prev fixture that
+#. Unlike run.sh (which upgrades a 0.0.0-prev fixture that
 # is just the NEW chart repackaged with an older number — same CRDs, no real
 # schema change), this test installs the ACTUAL previous-major operator: the v4.7.0
 # chart (byte-faithful fixture, see tests/e2e/kind/fixtures/pacto-operator-v4/) with

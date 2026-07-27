@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Finalize the GitHub Release LAST (release/DESIGN-release-safety.md), after every
+# Finalize the GitHub Release LAST, after every
 # other unit for the transaction has published, so a finalized Release never
 # advertises missing assets. Fail-closed immutability: an existing release with
 # different asset checksums is a violation (never alter an immutable release); an

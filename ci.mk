@@ -51,9 +51,9 @@ ci-e2e-envtest:
 # the previous published chart, then uninstall. Runs the exact image + chart the
 # release simulation builds.
 # The required kind leg runs the main reconcile e2e (dashboard enabled), the
-# dashboard-modes acceptance (release-safety item 7): prove the operator does not
+# dashboard-modes acceptance: prove the operator does not
 # crashloop when the dashboard is disabled, and the v4->v5 upgrade acceptance
-# (release-safety item 8): a REAL cross-major chart + CRD migration (install the
+#: a REAL cross-major chart + CRD migration (install the
 # published v4 chart + its v4 CRDs, server-side apply the new CRDs, helm upgrade to
 # the v5 chart, prove existing resources survive). dashboard-modes + upgrade run
 # first (fast guards); run.sh then covers the full enabled reconcile cycle.
@@ -104,8 +104,7 @@ docs-serve:
 # serve from that branch (Settings > Pages > "Deploy from a branch: gh-pages /root");
 # mike creates gh-pages on first run. The WASM demo is included when built into
 # docs/demo/ first (the deploy workflow folds it there; locally run `make docs-build`).
-# Docs deploy is a release-transaction unit (release/DESIGN-release-safety.md item
-# 11): release.yml passes the EXACT released core version via PACTO_DOCS_CORE_VERSION
+# Docs deploy is a release-transaction unit: release.yml passes the EXACT released core version via PACTO_DOCS_CORE_VERSION
 # so the versioned snapshot never depends on "latest release" guessing. The
 # non-release docs.yml push path leaves it unset and falls back to the committed
 # manifest (redeploying the current core version's docs). A k8s-only release keeps

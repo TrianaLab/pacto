@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reproducible CLI build + checksums + SBOM (release/DESIGN-release-safety.md).
+# Reproducible CLI build + checksums + SBOM.
 # The build date is derived from the SOURCE COMMIT (committer date), never the
 # wall clock, so a re-run of the same transaction produces byte-identical binaries
 # — a prerequisite for digest-based immutability + safe resume. Shared by

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // detect.mjs — decide whether a commit releases, and which units, from the
-// release transaction (release/DESIGN-release-safety.md). Fail-closed: any
+// release transaction. Fail-closed: any
 // missing/invalid/ambiguous input => release nothing.
 //
 // Two decisions:

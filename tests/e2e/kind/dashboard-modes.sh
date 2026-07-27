@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Dashboard-modes acceptance (release-safety item 7): prove the operator honors
+# Dashboard-modes acceptance: prove the operator honors
 # dashboard.enabled in every lifecycle transition and NEVER crashloops when the
 # dashboard is disabled. The historical bug: the startup dashboard cleanup GETs
 # dashboard-owned cluster resources (ClusterRoleBinding/ClusterRole/ServiceAccount)

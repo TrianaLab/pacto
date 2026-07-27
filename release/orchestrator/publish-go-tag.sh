@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Immutable Go module tag publisher (release/DESIGN-release-safety.md).
+# Immutable Go module tag publisher.
 # Creates <tag> -> <sha> on origin. Fail-closed: an existing tag that points at a
 # different commit is an immutable-version violation; an existing tag already at
 # <sha> is an idempotent no-op (safe resume). Shared by release.yml + the dry-run

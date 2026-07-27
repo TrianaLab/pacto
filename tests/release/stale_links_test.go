@@ -16,19 +16,15 @@ import (
 var staleOperatorRepoRE = regexp.MustCompile(`github\.com/[Tt]riana[Ll]ab/pacto-operator`)
 
 // isHistoricalRef lists the paths permitted to reference the old repo for
-// history/migration reasons (changesets, the migration record, proofs, and the
-// verbatim v4 upgrade fixture). Everywhere else an active source/support link to
-// the archived operator repo is a defect (release-safety item 12): active links
-// must point at the monorepo.
+// history/migration reasons (changesets and the verbatim v4 upgrade fixture).
+// Everywhere else an active source/support link to the archived operator repo is
+// a defect: active links must point at the monorepo.
 func isHistoricalRef(rel string) bool {
 	rel = filepath.ToSlash(rel)
 	for _, p := range []string{
 		".changeset/",
-		"release/MIGRATION-STATE.md",
-		"release/proofs/",
-		"release/artifact-pipeline-ledger.json",
-		// A faithful byte-for-byte snapshot of the published v4 chart (item 8's
-		// real v4->v5 upgrade fixture); it MUST keep v4's original repo links.
+		// A faithful byte-for-byte snapshot of the published v4 chart (the real
+		// v4->v5 upgrade fixture); it MUST keep v4's original repo links.
 		"tests/e2e/kind/fixtures/pacto-operator-v4/",
 		// This gate's own source names the pattern it forbids.
 		"tests/release/stale_links_test.go",
@@ -42,7 +38,7 @@ func isHistoricalRef(rel string) bool {
 
 // TestNoStaleOperatorRepoLinks fails if any tracked source references the
 // archived operator repo as an ACTIVE link, distinguishing that from permitted
-// historical/migration references (release-safety item 12).
+// historical/migration references.
 func TestNoStaleOperatorRepoLinks(t *testing.T) {
 	root := repoRoot(t)
 	textExt := map[string]bool{

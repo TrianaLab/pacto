@@ -15,7 +15,7 @@ import (
 // gates on) and simulates which jobs run for a given changedUnits set, so a
 // wiring mistake — like a Kubernetes publisher depending on the conditionally
 // skipped core-tag instead of the always-run core-ready barrier — fails the
-// build (release-safety item 3). It models GitHub's skip semantics:
+// build. It models GitHub's skip semantics:
 //   - detect is the always-present root.
 //   - a job with `if: always()` runs whenever the release fires, regardless of a
 //     skipped dependency (that is how core-ready survives a skipped core-tag).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Durable, digest-aware release ledger (release-safety items 4,6). Stored as an
+# Durable, digest-aware release ledger. Stored as an
 # OCI artifact keyed by the transactionId, so a resumed release run reconstructs
 # per-unit truth (published digest + status) from a durable store — not a stale
 # local file. The same script backs staging (a disposable local registry) and

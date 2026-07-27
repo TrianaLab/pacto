@@ -173,7 +173,7 @@ func publishes(w workflow, coord string) bool {
 // repo / chart / bundle) is PUSHED by exactly one workflow. Read-only references
 // (a PR-time `pacto diff`, an immutability existence check, a consume build-arg)
 // do not count — only genuine publish operations. This detects duplicate
-// execution paths, not just duplicate marker comments (release-safety item 10).
+// execution paths, not just duplicate marker comments.
 func TestNoDuplicateRegistryCoordinate(t *testing.T) {
 	root := repoRoot(t)
 	m := loadManifest(t, root)
@@ -202,8 +202,8 @@ func TestNoDuplicateRegistryCoordinate(t *testing.T) {
 // (carries a `pacto-publishes:` marker) must be driven ONLY by push +
 // workflow_dispatch. A `release:` or `workflow_run:` trigger on a publisher is a
 // duplicate-trigger hazard (it fires a second publish path on the same release),
-// which is what let the dashboard contract bundle + docs publish twice
-// (release-safety item 10). Recovery is workflow_dispatch, never a second trigger.
+// which is what let the dashboard contract bundle + docs publish twice.
+// Recovery is workflow_dispatch, never a second trigger.
 func TestPublisherWorkflowTriggersAreSafe(t *testing.T) {
 	root := repoRoot(t)
 	workflows := loadWorkflows(t, root)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # verify-artifacthub.sh — round-trip check for the Artifact Hub repository-metadata
-# artifact (release-safety item 12).
+# artifact.
 #
 # IMPORTANT: the `...:artifacthub.io` tag is an INTENTIONAL MUTABLE repo-level
 # ALIAS, NOT an immutable SemVer chart version. Artifact Hub reads repository

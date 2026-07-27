@@ -16,4 +16,4 @@ Pacto 2.0 — breaking contract-model, engine and module-path changes.
   evidence)`; `ValidateRuntime` and the v1 declaration-side runtime types are
   gone.
 - Releasing is driven by an explicit release transaction, not a manifest-file
-  diff (see `release/DESIGN-release-safety.md`).
+  diff.

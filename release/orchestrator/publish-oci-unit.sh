@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared OCI publish adapter (release-safety items 4,5,11). Verifies a unit
+# Shared OCI publish adapter. Verifies a unit
 # against the durable ledger, then: identical -> skip (safe resume); conflict ->
 # fail closed; absent -> run the push command, read back the digest, record
 # complete in the ledger. release.yml (production) and dry-run.sh (staging) call

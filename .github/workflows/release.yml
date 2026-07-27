@@ -1,6 +1,6 @@
 name: Release
 
-# Transaction-driven release for the go.work monorepo (release/DESIGN-release-safety.md).
+# Transaction-driven release for the go.work monorepo.
 #
 # Publishing is gated on release/release-transaction.json — the release-ready plan
 # emitted only by `release:version` — NOT on a manifest-file diff. A feature merge
@@ -158,7 +158,7 @@ jobs:
             echo "core unchanged -> pinned core ${pin} already published + resolvable"
           fi
 
-  # Initialize the durable, digest-aware release ledger (release-safety items 4,6).
+  # Initialize the durable, digest-aware release ledger.
   # Every OCI publisher records its published digest here, so a resumed run
   # reconstructs per-unit truth (published digest + status) from a durable OCI
   # store instead of a stale local file. Idempotent: a recovery run
@@ -333,7 +333,7 @@ jobs:
   # pacto-publishes: demo-bundles
   # demo-bundles is a MULTI-artifact unit (one immutable tag per demo service),
   # so the per-bundle absent/identical/conflict immutability check lives inside
-  # publish-demo-bundles.sh (release-safety item 10). The workflow-level ledger
+  # publish-demo-bundles.sh. The workflow-level ledger
   # tracks unit completion for resume only: a recovery re-runs the script (which
   # skips already-pushed identical bundles and fails closed on any conflict).
   demo-bundles:
