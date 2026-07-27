@@ -215,6 +215,11 @@ jobs:
           node-version: '22'
       - name: Install crane (checksum-verified via GOSUMDB)
         run: go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
+      - name: Install ORAS
+        # The dry-run drives the real durable OCI-backed ledger (ledger.sh), which
+        # stores + reads the ledger as an OCI artifact via oras — exactly as the
+        # production publishers do.
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - run: make release-dry-run
