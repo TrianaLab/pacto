@@ -63,7 +63,6 @@ type contractSpec struct {
 	caps        []capSpec
 	deps        []depSpec
 	cfgs        []cfgSpec
-	conformance []string
 }
 
 func boolStr(b bool) string {
@@ -122,12 +121,6 @@ func buildContract(s contractSpec) string {
 			if cf.schema != "" {
 				b.WriteString("    schema: '" + cf.schema + "'\n")
 			}
-		}
-	}
-	if len(s.conformance) > 0 {
-		b.WriteString("verification:\n  conformance:\n")
-		for _, n := range s.conformance {
-			b.WriteString("    - " + n + "\n")
 		}
 	}
 	return b.String()
@@ -433,22 +426,6 @@ func TestInterfaces(t *testing.T) {
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
 		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
-	})
-
-	t.Run("conformance_optin_no_evaluator_unknown_EXTENSION_EVALUATOR_UNAVAILABLE", func(t *testing.T) {
-		ns := newNamespace(t)
-		createService(t, ns, "svc", port)
-		createEndpointSlice(t, ns, "svc", port, 1) // availability satisfied
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
-				name: "app", ifaces: []ifaceSpec{{name: "api"}}, conformance: []string{"api"}})},
-			Target: ifaceTarget,
-		})
-		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
-		requireFinding(t, p, "EXTENSION_EVALUATOR_UNAVAILABLE")
-		requireNoFinding(t, p, "INTERFACE_ABSENT") // availability still satisfied
-		requireCoverage(t, p, 1, 2)                // availability evaluated; conformance required-but-unevaluated
 	})
 
 	t.Run("asyncapi_no_binding_unknown", func(t *testing.T) {

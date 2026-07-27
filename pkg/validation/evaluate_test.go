@@ -243,7 +243,6 @@ func TestEvaluate_ExtensionIdentityByRef(t *testing.T) {
 	}
 }
 
-
 func TestEvaluate_CoverageBiconditional(t *testing.T) {
 	// no Unknown -> Evaluated == Required
 	fs, cov := Evaluate(fullContract(), satisfied())

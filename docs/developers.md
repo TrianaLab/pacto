@@ -52,7 +52,7 @@ configurations:
     required: true
 ```
 
-See [Configuration Schema Ownership Models](contract-reference/sections.md#configuration-schema-ownership-models) for details.
+See [Configuration Schema Ownership Models](patterns/configuration-schema-ownership.md) for details.
 
 If your service exposes an HTTP API using FastAPI or Huma, use the `openapi-infer` plugin to extract an OpenAPI 3.1 spec from your source code:
 

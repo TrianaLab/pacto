@@ -14,7 +14,7 @@ Every question you'd normally have to ask the dev team — or discover in produc
 | `interfaces[]` (`type` + `ref`) | Know the API surface — generate Service/Ingress wiring, publish the spec, drive conformance |
 | `interfaces[].visibility: public` | Create external Ingress or load balancer |
 | `capabilities[]` (`health` / `metrics` binding) | Configure liveness/readiness probes and metrics scraping from the bound interface + path |
-| `configurations[].schema` / `configurations[].ref` | Validate required configuration, generate config templates. Platform teams can publish a shared schema that services vendor into their bundles or reference via OCI — the schema then expresses what the platform *provides*. See [Configuration Schema Ownership Models](contract-reference/sections.md#configuration-schema-ownership-models) |
+| `configurations[].schema` / `configurations[].ref` | Validate required configuration, generate config templates. Platform teams can publish a shared schema that services vendor into their bundles or reference via OCI — the schema then expresses what the platform *provides*. See [Configuration Schema Ownership Models](patterns/configuration-schema-ownership.md) |
 | `policies[].ref` | Enforce organizational standards — require a health capability, enforce visibility rules, mandate an owner. See [policies](contract-reference/sections.md#policies) |
 | `readiness.claims[]` | Gate promotion and surface operational readiness — declare dashboard, runbook, security-review, SLO, AI-eval evidence; each claim carries a weight; the assessment carries a single expiry date; derive a readiness score. Enforce required claims via policies. See [readiness](contract-reference/sections.md#readiness) |
 | `dependencies[].ref` | Validate dependency graph, check compatibility |
@@ -172,7 +172,7 @@ configurations:
     ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
 ```
 
-See [Configuration Schema Ownership Models](contract-reference/sections.md#configuration-schema-ownership-models) for the full breakdown of service-defined vs. platform-defined schemas.
+See [Configuration Schema Ownership Models](patterns/configuration-schema-ownership.md) for the full breakdown of service-defined vs. platform-defined schemas.
 
 ### Policy: enforcing contract standards
 
