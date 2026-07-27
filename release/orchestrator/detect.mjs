@@ -77,16 +77,20 @@ export function decideRecovery(txn, input, manifestVersions) {
   if (Array.isArray(input.units) && input.units.length) {
     const foreign = input.units.filter((u) => !txn.changedUnits.includes(u));
     if (foreign.length) {
-      return { ok: false, reason: `units not in the transaction plan: ${foreign.join(',')}` };
+      return { ok: false, reason: `units not in the transaction plan: ${foreign.join(',')} (recovery may narrow the plan, never add units)` };
     }
     units = input.units;
   }
-  // Recovery only touches units NOT already complete.
-  const recoverable = units.filter((u) => (txn.units?.[u]?.status ?? 'pending') !== 'complete');
-  if (recoverable.length === 0) {
-    return { ok: false, reason: 'nothing to recover: all requested units already complete' };
+  if (units.length === 0) {
+    return { ok: false, reason: 'no units to recover' };
   }
-  return { ok: true, reason: 'recovery of incomplete units', transactionId: txn.transactionId, units: recoverable };
+  // Per-unit completion is NOT read from the committed transaction file — production
+  // never updates units[*].status there. It lives in the durable OCI ledger, which
+  // detect cannot read (the ledger is created later, in ledger-init). So recovery
+  // dispatches the requested units and each publisher's ledger check skips the ones
+  // already durably recorded (identical): recovery re-runs only the incomplete
+  // units, enforced fail-closed at publish time, not from stale committed status.
+  return { ok: true, reason: 'recovery: publishers skip durably-complete units', transactionId: txn.transactionId, units };
 }
 
 // CLI entry for release.yml's detect job. On push it decides from the transaction

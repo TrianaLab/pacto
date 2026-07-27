@@ -115,20 +115,26 @@ test('recovery rejects a manifestSha mismatch', () => {
 
 test('recovery rejects units not in the plan / adding new units', () => {
   const t = txn();
-  const r = decideRecovery(t, { transactionId: t.transactionId, sourceSha: 'x', units: ['operator-image'] });
+  const r = decideRecovery(t, { transactionId: t.transactionId, sourceSha: 'abc123', units: ['operator-image'] });
   assert.equal(r.ok, false);
 });
 
-test('recovery skips already-complete units and resumes the rest', () => {
-  const t = txn({ status: { core: 'complete', cli: 'failed', 'dashboard-image': 'pending' } });
-  const r = decideRecovery(t, { transactionId: t.transactionId, sourceSha: 'x' });
+// Completion is NOT read from the committed transaction file (production never
+// updates units[*].status there). Recovery dispatches the requested units; each
+// publisher's durable-ledger check skips the ones already recorded (identical), so
+// recovery re-runs only the incomplete units, enforced fail-closed at publish time.
+test('recovery dispatches the changed units (completion enforced at publish time)', () => {
+  const t = txn(); // changedUnits = [core, cli, dashboard-image]
+  const r = decideRecovery(t, { transactionId: t.transactionId, sourceSha: 'abc123' });
   assert.equal(r.ok, true);
-  assert.deepEqual(r.units.sort(), ['cli', 'dashboard-image']);
+  assert.deepEqual(r.units.sort(), ['cli', 'core', 'dashboard-image']);
 });
 
-test('recovery with everything complete has nothing to do', () => {
-  const t = txn({ status: { core: 'complete', cli: 'complete', 'dashboard-image': 'complete' } });
-  assert.equal(decideRecovery(t, { transactionId: t.transactionId, sourceSha: 'x' }).ok, false);
+test('recovery narrows to a requested subset of the plan', () => {
+  const t = txn();
+  const r = decideRecovery(t, { transactionId: t.transactionId, sourceSha: 'abc123', units: ['cli', 'core'] });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.units.sort(), ['cli', 'core']);
 });
 
 // ---- item 1 regression: the COMMITTED transaction must publish nothing ----
