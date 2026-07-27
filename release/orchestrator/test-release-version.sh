@@ -67,10 +67,24 @@ node release/orchestrator/detect.mjs > "$WORK/decide2.out" 2>/dev/null || true
 grep -qx "release=true" "$WORK/decide2.out" || fail "version-PR detect must be release=true"
 echo "  B: real release:version -> ready transaction, detect release=true"
 
-# --- C: deterministic (second generation byte-identical). ---
+# --- C: deterministic — the same changesets produce a byte-identical transaction
+# in an independent run (no clock/random; item 1 "second invocation byte-identical").
 cp release/release-transaction.json "$WORK/txn1.json"
-node release/scripts/build-release-plan.mjs --transaction >/dev/null 2>&1
-diff -q "$WORK/txn1.json" release/release-transaction.json >/dev/null || fail "transaction not deterministic on re-run"
-echo "  C: transaction generation is byte-identical on re-run"
+C2="$WORK/clone2"; git clone -q "$ROOT" "$C2"; ln -s "$ROOT/node_modules" "$C2/node_modules"
+(
+  cd "$C2"
+  find .changeset -name '*.md' ! -name 'README.md' -delete
+  cat > .changeset/test-major.md <<'MD'
+---
+"@pacto/core": major
+---
+
+Test: exercise the real release:version transaction path.
+MD
+  npm run release:version >/dev/null 2>&1
+)
+diff -q "$WORK/txn1.json" "$C2/release/release-transaction.json" >/dev/null \
+  || fail "transaction not deterministic across independent runs"
+echo "  C: same changesets -> byte-identical transaction across independent runs"
 
 echo "RELEASE-VERSION-TEST OK"
