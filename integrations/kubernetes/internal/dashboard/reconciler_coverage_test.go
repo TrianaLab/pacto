@@ -16,7 +16,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
@@ -214,6 +216,45 @@ func TestCleanup_DeleteError(t *testing.T) {
 	}
 	if got := err.Error(); got != "failed to delete Service: simulated delete error" {
 		t.Errorf("unexpected error: %s", got)
+	}
+}
+
+// --- cleanup: uncached APIReader + Forbidden tolerance ---
+
+// TestCleanup_APIReaderForbidden_Tolerated proves the disabled-mode cleanup reads
+// through the (uncached) APIReader and tolerates a Forbidden result: when the
+// dashboard was never enabled the operator lacks RBAC on the dashboard-owned
+// resources, so cleanup must skip them rather than fail (and crashloop) the
+// manager. Exercises both reader() branches and the IsForbidden path.
+func TestCleanup_APIReaderForbidden_Tolerated(t *testing.T) {
+	cfg := Config{Enabled: false, Namespace: "test-ns"}
+	scheme := newScheme()
+
+	apiReader := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*rbacv1.ClusterRoleBinding); ok {
+					return apierrors.NewForbidden(
+						schema.GroupResource{Group: "rbac.authorization.k8s.io", Resource: "clusterrolebindings"},
+						key.Name, fmt.Errorf("not permitted"))
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+
+	r := &Reconciler{
+		Client:    fake.NewClientBuilder().WithScheme(scheme).Build(),
+		APIReader: apiReader,
+		Scheme:    scheme,
+		Config:    cfg,
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{})
+	if err != nil {
+		t.Fatalf("forbidden cleanup read should be tolerated, got: %v", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Errorf("expected no requeue when disabled, got %v", result.RequeueAfter)
 	}
 }
 

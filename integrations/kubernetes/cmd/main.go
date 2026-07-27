@@ -339,8 +339,12 @@ func main() {
 
 	dashReconciler := &dashboard.Reconciler{
 		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Config: dashCfg,
+		// Uncached reader for cleanup: disabling the dashboard must not start a
+		// cluster-scoped informer whose list/watch RBAC is granted only when the
+		// dashboard is enabled (that would fail cache sync and crashloop).
+		APIReader: mgr.GetAPIReader(),
+		Scheme:    mgr.GetScheme(),
+		Config:    dashCfg,
 	}
 	if err := mgr.Add(dashReconciler); err != nil {
 		setupLog.Error(err, "Failed to add dashboard reconciler")

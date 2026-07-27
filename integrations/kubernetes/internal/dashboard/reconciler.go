@@ -28,12 +28,28 @@ import (
 // Reconciler manages the lifecycle of dashboard Kubernetes resources.
 type Reconciler struct {
 	client.Client
+
+	// APIReader performs uncached reads straight against the API server. cleanup()
+	// uses it so disabling the dashboard never starts a cluster-scoped informer
+	// (ClusterRole/ClusterRoleBinding/ServiceAccount) whose list/watch the chart
+	// only grants when the dashboard is enabled. A cached read would block cache
+	// sync and crashloop the manager. Falls back to the cached client when unset.
+	APIReader client.Reader
+
 	Scheme *runtime.Scheme
 	Config Config
 
 	// tickInterval overrides the periodic reconciliation interval (default 5m).
 	// Exposed for testing only.
 	tickInterval time.Duration
+}
+
+// reader returns the uncached API reader when wired, else the cached client.
+func (r *Reconciler) reader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
 }
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create
@@ -221,8 +237,16 @@ func (r *Reconciler) cleanup(ctx context.Context) error {
 	}
 
 	for _, res := range resources {
-		if err := r.Get(ctx, res.key, res.obj); err != nil {
+		if err := r.reader().Get(ctx, res.key, res.obj); err != nil {
 			if apierrors.IsNotFound(err) {
+				continue
+			}
+			if apierrors.IsForbidden(err) {
+				// The dashboard was never enabled, so the operator was never
+				// granted RBAC for this resource — there is nothing it created to
+				// clean up. Skip rather than failing (and crashlooping) the manager.
+				log.V(1).Info("Skipping cleanup; permission not granted (dashboard likely never enabled)",
+					"kind", res.name, "name", res.key.Name)
 				continue
 			}
 			return fmt.Errorf("failed to get %s: %w", res.name, err)
