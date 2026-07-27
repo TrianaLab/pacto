@@ -69,7 +69,6 @@ ci-e2e-kind-upgrade:
 # OCI leg: the public oci package tests + the staging release-publisher tests.
 ci-oci:
 	go test ./pkg/oci/...
-	node --test release/scripts/publish.test.mjs
 	node --test release/orchestrator/*.test.mjs
 
 # Integration test for the version command: runs the REAL `npm run release:version`
@@ -136,13 +135,10 @@ artifact-drift:
 		|| { echo "artifact drift: apply-release-plan is not idempotent (re-run mutated tracked files)"; exit 1; }
 	@echo "    artifact-drift: OK"
 
-# Staging release dry-run: regenerate the plan, then preflight the publisher
-# (plan/manifest publish-integrity refusals) WITHOUT contacting any registry.
-# Real release simulation: builds the real artifacts + pushes them to a disposable
-# local registry via the shared adapters production uses, and proves digest
-# idempotency, fail-closed immutability + resume. No production coordinate. The
-# synthetic publish.mjs remains a narrow unit-test fixture (ci-oci), not the
-# release evidence.
+# Staging release dry-run — the real release simulation: builds the real artifacts
+# and pushes them to a disposable local registry via the SAME shared adapters
+# production uses, proving digest idempotency, fail-closed immutability + resume.
+# No production coordinate. This is the single staging evidence path.
 release-dry-run:
 	bash release/orchestrator/dry-run.sh
 

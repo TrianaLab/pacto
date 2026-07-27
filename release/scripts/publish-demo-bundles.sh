@@ -44,7 +44,7 @@ BUNDLES="$ROOT/examples/demo/bundles"
 OWNED="ghcr.io/trianalab/pacto-demo"   # committed refs' coordinate (== demo-bundles unit coordinate)
 PROOF="$ROOT/release/proofs/demo-artifacts.txt"
 
-# ---- production guard (mirrors publish.mjs resolveTarget) ----
+# ---- production guard (refuse a production-looking target unless PACTO_ALLOW_PROD) ----
 host_path="${COORD#*/}"
 if { printf '%s' "$COORD" | grep -qi 'ghcr\.io'; } || { printf '%s' "$host_path" | grep -qi 'trianalab'; }; then
   if [ "${PACTO_ALLOW_PROD:-}" != "1" ]; then

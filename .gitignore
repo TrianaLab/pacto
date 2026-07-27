@@ -36,9 +36,6 @@ config.yaml
 /node_modules/
 release/units/*/node_modules/
 
-# Staging publish ledger (runtime state of release/scripts/publish.mjs)
-release/.release-ledger.json
-
 # Generated bundle artifacts (created by make targets / pacto generate)
 pactos/*/interfaces/openapi.json
 pactos/*/configuration/schema.json
