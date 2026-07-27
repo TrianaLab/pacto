@@ -118,8 +118,13 @@ function emit(o) {
     `transaction_id=${o.transaction_id || ''}`,
     `source_sha=${o.source_sha || ''}`,
   ].join('\n') + '\n';
+  // Always write the decision to stdout (visible in the job log and readable by
+  // the staging/version test harnesses); ADDITIONALLY append to GITHUB_OUTPUT for
+  // the real release.yml detect job. GITHUB_OUTPUT is set on EVERY GitHub Actions
+  // step, so a stdout-only-when-unset branch would silently starve those harnesses
+  // of output in CI.
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, lines);
-  else process.stdout.write(lines);
+  process.stdout.write(lines);
 }
 
 function main() {

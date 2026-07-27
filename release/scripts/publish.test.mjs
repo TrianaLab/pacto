@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -23,6 +23,7 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const proofs = join(here, '..', 'proofs');
+mkdirSync(proofs, { recursive: true }); // release/proofs/ is gitignored (regenerated evidence), so ensure it exists
 const proof = (name, body) => writeFileSync(join(proofs, name), body.endsWith('\n') ? body : body + '\n');
 
 function refusal(fn, code) {
