@@ -79,24 +79,32 @@ Kubernetes-specific bindings stay out of `pacto.yaml` (they live on the Pacto CR
 
 ```mermaid
 flowchart LR
-    CR["Pacto CR<br/>target + bindings"]
+    CR["Pacto CR<br/>contractRef + target + bindings"]
+    HOST["Operator host<br/>resolve + reconcile + temporal windows"]
+    CONTRACT["Resolved Pacto Contract"]
     K8S["Kubernetes API<br/>Workloads · Services · ConfigMaps · Secrets"]
-    OBS["Kubernetes collector"]
-    WIN["Operator host<br/>reconciliation + temporal windows"]
-    E["EvidenceSet"]
-    CORE["Pacto engine"]
+    COLLECTOR["Kubernetes collector"]
+    EVIDENCE["EvidenceSet"]
+    ENGINE["Evaluate"]
     STATUS["Pacto CR status<br/>Findings + Coverage"]
     DASH["Dashboard"]
 
-    CR --> WIN
-    K8S --> OBS
-    WIN --> OBS
-    OBS --> E
-    E --> CORE
-    CR --> CORE
-    CORE --> STATUS
+    CR --> HOST
+    HOST --> CONTRACT
+    HOST --> COLLECTOR
+    K8S --> COLLECTOR
+    COLLECTOR --> EVIDENCE
+    CONTRACT --> ENGINE
+    EVIDENCE --> ENGINE
+    ENGINE --> STATUS
     STATUS --> DASH
 ```
+
+The CR is **not** the Contract: the operator host resolves the `contractRef` into a
+Contract and owns reconciliation + stabilization windows; the collector translates
+Kubernetes facts into Evidence but does not evaluate compliance; `Evaluate` receives
+the Contract and the Evidence (the core never queries Kubernetes); the host writes
+the results to CR status, which the dashboard consumes (it does not collect or evaluate).
 
 ## Implementing a third-party collector today
 
@@ -115,12 +123,30 @@ boundary**: a custom Go integration constructs and validates `EvidenceSet` value
 A standalone collector process protocol is **not** currently defined: there is no
 public CLI, API or wire protocol that accepts third-party `Evidence`, and collectors
 cannot be installed or registered dynamically. A custom collector is a Go integration
-that builds evidence and calls the engine directly, for example:
+that builds an `EvidenceSet` and calls the engine directly. This is the compiled,
+run example `ExampleEvaluate` in `pkg/validation/collector_example_test.go`:
 
 ```go
-contract := loadContract(...)                     // your bundle load
-ev := customCollector.Observe(ctx, subject)       // your collector -> evidence.EvidenceSet
-findings, coverage := validation.Evaluate(contract, ev)
+// 1. The contract declares intent (loaded from a bundle in real use).
+c := contract.Contract{
+    Service:    contract.Service{Name: "orders", Version: "1.0.0"},
+    Interfaces: []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "interfaces/openapi.yaml"}},
+}
+
+// 2. A collector observes the environment and produces an EvidenceSet.
+prov := evidence.Provenance{Collector: "example", DetectedAt: time.Unix(0, 0)}
+ev := evidence.EvidenceSet{
+    Subject:     evidence.SubjectRef{Kind: "service", Name: "orders"},
+    ContractRef: "oci://example/orders:1.0.0",
+    Source:      "example",
+    ObservedAt:  time.Unix(0, 0),
+    Observations: []evidence.Observation{
+        evidence.NewInterfaceObserved(evidence.SubjectRef{Kind: "interface", Name: "public-api"}, "openapi", true, prov),
+    },
+}
+
+// 3. The pure engine evaluates Contract x Evidence.
+findings, coverage := validation.Evaluate(c, ev)
 ```
 
 ## Every assertion needs a possible Evidence path

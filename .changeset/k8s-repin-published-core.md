@@ -7,7 +7,7 @@
 
 The Kubernetes integration moves into the monorepo — breaking for consumers.
 
-- The Go module path becomes `github.com/trianalab/pacto/integrations/kubernetes`
+- The Go module path becomes `github.com/trianalab/pacto/integrations/kubernetes/v5`
   (was `github.com/trianalab/pacto-operator`).
 - It pins the published core module `github.com/trianalab/pacto/v3` at release
   time; the `go.work` workspace resolution is development-only.

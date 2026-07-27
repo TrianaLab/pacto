@@ -55,6 +55,16 @@ func TestCollectorsDocIsCanonical(t *testing.T) {
 	if !regexp.MustCompile(`(?i)collector.{0,40}plugin|plugin.{0,40}collector`).MatchString(doc) {
 		t.Error("docs/collectors.md must explicitly distinguish a collector from a plugin")
 	}
+	// The custom-collector Go example must be real (mirrors the compiled ExampleEvaluate
+	// in pkg/validation/collector_example_test.go), not ellipsis-based pseudocode.
+	if !strings.Contains(doc, "validation.Evaluate(c, ev)") || !strings.Contains(doc, "evidence.EvidenceSet{") {
+		t.Error("docs/collectors.md must show the real Evaluate call over an EvidenceSet (see ExampleEvaluate)")
+	}
+	for _, pseudo := range []string{"customCollector.Observe", "loadContract(...)"} {
+		if strings.Contains(doc, pseudo) {
+			t.Errorf("docs/collectors.md presents pseudocode %q as Go — use the compilable example", pseudo)
+		}
+	}
 }
 
 // TestDocsDoNotConflateOrOverclaimCollectors scans the public docs for two errors:
