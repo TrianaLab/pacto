@@ -44,20 +44,32 @@ func main() {
 }
 
 func run() error {
-	if len(os.Args) != 3 {
-		return fmt.Errorf("usage: publishbundles <bundles-dir> <coordinate>")
+	// --print-digests: compute each bundle's deterministic OCI digest locally and
+	// print "<svc>:<version> <digest>" WITHOUT pushing. The demo publisher uses this
+	// for a byte-exact absent/identical/conflict gate before touching the registry.
+	args := os.Args[1:]
+	printOnly := false
+	if len(args) > 0 && args[0] == "--print-digests" {
+		printOnly = true
+		args = args[1:]
 	}
-	bundlesDir, coord := os.Args[1], os.Args[2]
-
-	client := oci.NewClient(oci.NewKeychain(oci.CredentialOptions{
-		Username: os.Getenv("PACTO_REGISTRY_USERNAME"),
-		Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
-		Token:    os.Getenv("PACTO_REGISTRY_TOKEN"),
-	}))
+	if len(args) != 2 {
+		return fmt.Errorf("usage: publishbundles [--print-digests] <bundles-dir> <coordinate>")
+	}
+	bundlesDir, coord := args[0], args[1]
 
 	dirs, err := bundleDirs(bundlesDir)
 	if err != nil {
 		return err
+	}
+
+	var client *oci.Client
+	if !printOnly {
+		client = oci.NewClient(oci.NewKeychain(oci.CredentialOptions{
+			Username: os.Getenv("PACTO_REGISTRY_USERNAME"),
+			Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
+			Token:    os.Getenv("PACTO_REGISTRY_TOKEN"),
+		}))
 	}
 
 	ctx := context.Background()
@@ -66,14 +78,24 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", dir, err)
 		}
+		name := b.Contract.Service.Name
+		version := b.Contract.Service.Version
+		if printOnly {
+			d, err := oci.BundleDigest(b)
+			if err != nil {
+				return fmt.Errorf("digest %s: %w", dir, err)
+			}
+			fmt.Printf("%s:%s %s\n", name, version, d)
+			continue
+		}
 		// Client.Push takes a bare registry ref (no oci:// scheme), matching what
 		// the CLI passes after graph.ParseDependencyRef strips the scheme.
-		ref := fmt.Sprintf("%s/%s:%s", coord, b.Contract.Service.Name, b.Contract.Service.Version)
+		ref := fmt.Sprintf("%s/%s:%s", coord, name, version)
 		digest, err := client.Push(ctx, ref, b)
 		if err != nil {
 			return fmt.Errorf("push %s: %w", ref, err)
 		}
-		fmt.Printf("%s:%s %s\n", b.Contract.Service.Name, b.Contract.Service.Version, digest)
+		fmt.Printf("%s:%s %s\n", name, version, digest)
 	}
 	return nil
 }

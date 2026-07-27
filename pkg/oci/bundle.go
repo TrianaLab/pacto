@@ -15,11 +15,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing/fstest"
+	"time"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/stream"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
@@ -27,6 +29,10 @@ import (
 const (
 	LayerMediaType = types.MediaType("application/vnd.pacto.bundle.layer.v1.tar+gzip")
 )
+
+// tarEpoch is the fixed modification time stamped on every packed tar entry, so a
+// bundle's OCI digest depends only on content — never on filesystem timestamps.
+var tarEpoch = time.Unix(0, 0).UTC()
 
 // Function variables for testing.
 var (
@@ -69,6 +75,47 @@ func bundleToImage(b *contract.Bundle) (v1.Image, error) {
 	return img, nil
 }
 
+// BundleDigest returns the OCI manifest digest a bundle WOULD be published under,
+// computed locally WITHOUT pushing. Packing is content-deterministic (walkTar
+// canonicalizes headers) and the layer is compressed with the same go-containerregistry
+// gzip Push uses, so this equals the digest Push produces — letting a publisher
+// compare identity by digest (byte-exact) before touching the registry. It mirrors
+// bundleToImage exactly but with a buffered (static) layer, because bundleToImage's
+// streamed layer only finalizes its digest after the push consumes it.
+func BundleDigest(b *contract.Bundle) (string, error) {
+	if b == nil || b.Contract == nil || b.FS == nil {
+		return "", fmt.Errorf("bundle, contract, and filesystem are required")
+	}
+	img, err := mutateConfigFn(empty.Image, v1.Config{
+		Labels: map[string]string{
+			"io.pacto.name":         b.Contract.Service.Name,
+			"io.pacto.version":      b.Contract.Service.Version,
+			"io.pacto.pactoVersion": b.Contract.PactoVersion,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to set config: %w", err)
+	}
+	tarBytes, err := io.ReadAll(newBundleTarReader(b.FS))
+	if err != nil {
+		return "", fmt.Errorf("failed to read bundle tar: %w", err)
+	}
+	layer, err := tarball.LayerFromReader(bytes.NewReader(tarBytes), tarball.WithMediaType(LayerMediaType))
+	if err != nil {
+		return "", fmt.Errorf("failed to build layer: %w", err)
+	}
+	img, err = mutateAppendLayersFn(img, layer)
+	if err != nil {
+		return "", fmt.Errorf("failed to append layer: %w", err)
+	}
+	img = mutate.MediaType(img, types.OCIManifestSchema1)
+	d, err := img.Digest()
+	if err != nil {
+		return "", fmt.Errorf("failed to compute digest: %w", err)
+	}
+	return d.String(), nil
+}
+
 // walkTar walks the filesystem and writes each entry as a tar header/data pair.
 func walkTar(tw *tar.Writer, fsys fs.FS) error {
 	return fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, walkErr error) error {
@@ -90,6 +137,21 @@ func walkTar(tw *tar.Writer, fsys fs.FS) error {
 			return err
 		}
 		header.Name = filepath.ToSlash(path)
+		// Canonicalize every header so the packed bundle is byte-deterministic:
+		// the tar (hence the OCI layer + manifest digest) reproduces on any host,
+		// so a published bundle's identity can be compared by digest rather than a
+		// semantic contract diff. Content is the only thing that moves the digest;
+		// filesystem mtime/owner/mode/atime/ctime never do.
+		header.ModTime = tarEpoch
+		header.AccessTime = time.Time{}
+		header.ChangeTime = time.Time{}
+		header.Uid, header.Gid = 0, 0
+		header.Uname, header.Gname = "", ""
+		if d.IsDir() {
+			header.Mode = 0o755
+		} else {
+			header.Mode = 0o644
+		}
 
 		if err := tw.WriteHeader(header); err != nil {
 			return err
