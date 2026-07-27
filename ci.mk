@@ -5,7 +5,7 @@
 BUNDLE_DIR := pactos/pacto-dashboard
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
-       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
+       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
@@ -50,15 +50,21 @@ ci-e2e-envtest:
 # chart, drive a real Compliant -> Unknown -> Compliant reconcile, upgrade from
 # the previous published chart, then uninstall. Runs the exact image + chart the
 # release simulation builds.
-# The required kind leg runs BOTH the main reconcile e2e (dashboard enabled) and
-# the dashboard-modes acceptance (release-safety item 7): prove the operator does
-# not crashloop when the dashboard is disabled. dashboard-modes runs first (it is
-# the crashloop guard); run.sh then covers the full enabled reconcile cycle.
-ci-e2e-kind: ci-e2e-kind-dashboard
+# The required kind leg runs the main reconcile e2e (dashboard enabled), the
+# dashboard-modes acceptance (release-safety item 7): prove the operator does not
+# crashloop when the dashboard is disabled, and the v4->v5 upgrade acceptance
+# (release-safety item 8): a REAL cross-major chart + CRD migration (install the
+# published v4 chart + its v4 CRDs, server-side apply the new CRDs, helm upgrade to
+# the v5 chart, prove existing resources survive). dashboard-modes + upgrade run
+# first (fast guards); run.sh then covers the full enabled reconcile cycle.
+ci-e2e-kind: ci-e2e-kind-dashboard ci-e2e-kind-upgrade
 	bash tests/e2e/kind/run.sh
 
 ci-e2e-kind-dashboard:
 	bash tests/e2e/kind/dashboard-modes.sh
+
+ci-e2e-kind-upgrade:
+	bash tests/e2e/kind/v4-to-v5-upgrade.sh
 
 # OCI leg: the public oci package tests + the staging release-publisher tests.
 ci-oci:

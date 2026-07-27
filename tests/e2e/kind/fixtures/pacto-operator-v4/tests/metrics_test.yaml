@@ -1,0 +1,26 @@
+suite: metrics tests
+templates:
+  - templates/metrics-service.yaml
+tests:
+  - it: should create a metrics Service by default
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.ports[0].port
+          value: 8443
+
+  - it: should not create a metrics Service when disabled
+    set:
+      metrics.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should use custom port
+    set:
+      metrics.service.port: 9090
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 9090

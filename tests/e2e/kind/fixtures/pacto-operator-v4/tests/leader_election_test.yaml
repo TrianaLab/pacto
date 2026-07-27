@@ -1,0 +1,21 @@
+suite: leader election tests
+templates:
+  - templates/leader-election-role.yaml
+tests:
+  - it: should create leader election Role and RoleBinding by default
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - isKind:
+          of: RoleBinding
+        documentIndex: 1
+
+  - it: should not create leader election resources when disabled
+    set:
+      leaderElection.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

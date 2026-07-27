@@ -1,0 +1,28 @@
+{{- if and .Values.dashboard.enabled .Values.dashboard.httpRoute.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "pacto-operator.fullname" . }}-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+spec:
+  {{- with .Values.dashboard.httpRoute.parentRefs }}
+  parentRefs:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.dashboard.httpRoute.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if .Values.dashboard.httpRoute.rules }}
+  rules:
+    {{- toYaml .Values.dashboard.httpRoute.rules | nindent 4 }}
+  {{- else }}
+  rules:
+    - backendRefs:
+        - name: {{ include "pacto-operator.fullname" . }}-dashboard
+          port: {{ .Values.dashboard.service.port }}
+  {{- end }}
+{{- end }}

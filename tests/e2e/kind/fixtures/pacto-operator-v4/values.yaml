@@ -1,0 +1,160 @@
+# -- Number of controller replicas
+replicaCount: 1
+
+image:
+  # -- Controller image repository
+  repository: ghcr.io/trianalab/pacto-operator/pacto-controller
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag (default is the chart appVersion)
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount for the controller
+  create: true
+  # -- Automount API credentials
+  automount: true
+  # -- Annotations to add to the ServiceAccount
+  annotations: {}
+  # -- Name override (defaults to fullname)
+  name: ""
+
+# -- Annotations to add to the controller pod
+podAnnotations: {}
+# -- Labels to add to the controller pod
+podLabels: {}
+
+podSecurityContext:
+  # -- Run pod as non-root
+  runAsNonRoot: true
+  seccompProfile:
+    # -- Seccomp profile type
+    type: RuntimeDefault
+
+securityContext:
+  # -- Disallow privilege escalation
+  allowPrivilegeEscalation: false
+  capabilities:
+    # -- Drop all capabilities
+    drop:
+      - ALL
+  # -- Read-only root filesystem
+  readOnlyRootFilesystem: true
+  # -- Run as non-root
+  runAsNonRoot: true
+  # -- Run as UID 65532 (nonroot in distroless)
+  runAsUser: 65532
+
+resources:
+  limits:
+    # -- CPU limit
+    cpu: 500m
+    # -- Memory limit
+    memory: 128Mi
+  requests:
+    # -- CPU request
+    cpu: 10m
+    # -- Memory request
+    memory: 64Mi
+
+controller:
+  # -- Restrict the controller's observation scope to a single namespace.
+  # Empty string (default) means cluster-wide: the controller watches all namespaces.
+  # The dashboard inherits this scope automatically.
+  watchNamespace: ""
+
+leaderElection:
+  # -- Enable leader election for HA deployments
+  enabled: true
+
+metrics:
+  # -- Enable the metrics endpoint
+  enabled: true
+  # -- Serve metrics over HTTPS
+  secure: true
+  service:
+    # -- Metrics service port
+    port: 8443
+  serviceMonitor:
+    # -- Create a Prometheus ServiceMonitor
+    enabled: false
+    # -- Scrape interval
+    interval: ""
+    # -- Scrape timeout
+    scrapeTimeout: ""
+  # PrometheusRule alerting templates are available in config/prometheus/alerts.yaml.
+  # Apply them manually with: kubectl apply -f config/prometheus/alerts.yaml
+
+dashboard:
+  # -- Enable the operator-managed dashboard deployment.
+  # The dashboard image is controlled by the operator and derived from the
+  # bundled Pacto library version. It is not user-configurable.
+  enabled: true
+  # -- Optional Secret name for OCI registry credentials (backward compatible).
+  # Supports Opaque secrets (keys: registry + token, or registry + username + password)
+  # and kubernetes.io/dockerconfigjson secrets. Ignored when ociSecrets is set.
+  ociSecret: ""
+  # -- List of Secret names for OCI registry credentials.
+  # Supports Opaque (with registry key) and kubernetes.io/dockerconfigjson secrets.
+  # When set, credentials from all secrets are merged; later secrets override earlier ones for the same registry.
+  # Takes precedence over ociSecret.
+  ociSecrets: []
+  # -- Resource requests and limits for the dashboard container.
+  # The previous default of 128Mi memory limit caused OOMKill when monitoring
+  # multiple OCI repositories and CRs simultaneously.
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+  service:
+    # -- Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer).
+    # The operator manages an internal ClusterIP Service (pacto-dashboard) for
+    # pod-to-pod communication. This chart-managed Service provides configurable
+    # external access and serves as the backend for Ingress/HTTPRoute resources.
+    # Selects dashboard pods via operator-defined labels.
+    type: ClusterIP
+    # -- Dashboard service port
+    port: 3000
+    # -- Node port (only used when type is NodePort)
+    nodePort: ""
+  ingress:
+    # -- Enable Ingress for the dashboard
+    enabled: false
+    # -- Ingress class name
+    className: ""
+    # -- Ingress annotations
+    annotations: {}
+    # -- Ingress hosts
+    hosts:
+      - host: pacto-dashboard.local
+        paths:
+          - path: /
+            pathType: Prefix
+    # -- Ingress TLS configuration
+    tls: []
+  httpRoute:
+    # -- Enable Gateway API HTTPRoute for the dashboard
+    enabled: false
+    # -- Parent gateway references
+    parentRefs: []
+    # -- Hostnames for the HTTPRoute
+    hostnames: []
+    # -- HTTPRoute rules. When empty, a single catch-all rule is generated that
+    # routes all traffic to the chart-managed dashboard Service on dashboard.service.port.
+    rules: []
+
+# -- Node selector for the controller pod
+nodeSelector: {}
+# -- Tolerations for the controller pod
+tolerations: []
+# -- Affinity rules for the controller pod
+affinity: {}
