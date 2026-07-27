@@ -10,7 +10,7 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto-demo/api-gateway
       constraint: ^1.0.0
       version: 1.2.0
-      digest: sha256:c405b763e9bd64f3a03f93fae025b3420536ae026a9e714ad211053e3c7f59c0
+      digest: sha256:6fd63f2432c1b990b83fd39e830c6d2365b501d810639496e72d11ec60f3c776
       dependsOn:
         - auth-service
         - orders-service
@@ -20,7 +20,7 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto-demo/auth-service
       constraint: ^1.0.0
       version: 1.0.0
-      digest: sha256:1fc52eb28d0854621c8a82a13aaddaeab6f80f343c82b4bdc9a46f2046c12fb5
+      digest: sha256:2c9c73809a54e41f4276cd6eae1f3b2603d3dfd8b207fb9ea6899ee0f8cab5de
       dependsOn:
         - redis
     - name: email-provider
@@ -95,4 +95,4 @@ references:
       source: oci
       ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
       version: 1.0.0
-      digest: sha256:a2baa0f8dc5b716a94449dda9a30c93abd34c9c96ab9a724cf48839c25bef039
+      digest: sha256:37a6efb94754ea8d622cbb87ed184d6a270ec7b54a5571f003c74d544663dca3

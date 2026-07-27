@@ -27,7 +27,7 @@ UI_BUILD    := $(abspath .ui-build)
 # falls back to a short SHA, then "dev", when no tags are present.
 VERSION     ?= $(shell git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: build preflight ui wasm wasmexec inject serve test smoke clean diff breaking-change evolution explain demo-locks
+.PHONY: build preflight ui wasm wasmexec inject serve test validate smoke clean diff breaking-change evolution explain demo-locks
 
 build: preflight ui wasm wasmexec inject
 	@echo "==> Built '$(DIST)' (base $(BASE))"
@@ -97,6 +97,14 @@ demo-locks:
 ## Run the EmbedSource host tests.
 test:
 	go test ./...
+
+## Run the FULL Pacto validator over every demo bundle (every service and every
+## version) OFFLINE, resolving refs by service name within ./bundles. Fails if any
+## contract is not valid v2. This is the offline proof that the demo contracts are
+## valid; the live `pacto validate` against ghcr.io only passes once the release
+## republishes the demo bundles as v2 (a production publish, out of scope here).
+validate:
+	go run ./validatebundles
 
 ## Exercise the built wasm engine end-to-end in Node (needs `make build` first).
 smoke:

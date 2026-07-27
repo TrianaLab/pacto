@@ -5,7 +5,7 @@
 BUNDLE_DIR := pactos/pacto-dashboard
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
-       ci-e2e-envtest ci-e2e-kind ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
+       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
@@ -50,8 +50,15 @@ ci-e2e-envtest:
 # chart, drive a real Compliant -> Unknown -> Compliant reconcile, upgrade from
 # the previous published chart, then uninstall. Runs the exact image + chart the
 # release simulation builds.
-ci-e2e-kind:
+# The required kind leg runs BOTH the main reconcile e2e (dashboard enabled) and
+# the dashboard-modes acceptance (release-safety item 7): prove the operator does
+# not crashloop when the dashboard is disabled. dashboard-modes runs first (it is
+# the crashloop guard); run.sh then covers the full enabled reconcile cycle.
+ci-e2e-kind: ci-e2e-kind-dashboard
 	bash tests/e2e/kind/run.sh
+
+ci-e2e-kind-dashboard:
+	bash tests/e2e/kind/dashboard-modes.sh
 
 # OCI leg: the public oci package tests + the staging release-publisher tests.
 ci-oci:
@@ -154,6 +161,8 @@ ci-test:
 	@echo "    total coverage: 100.0%"
 	@echo "==> Running example tests (no coverage gate)..."
 	@go test -race ./examples/...
+	@echo "==> Validating demo contracts (offline, full validator over the closure)..."
+	@$(MAKE) -C examples/demo validate
 
 ci-ui:
 	@echo "==> Running frontend lint & tests..."

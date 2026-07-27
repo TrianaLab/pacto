@@ -1,0 +1,47 @@
+# gRPC service descriptor for auth-service (transcribed from the auth.v1 protobuf
+# definition). Pacto's interface validator reads spec files as YAML or JSON, so
+# the gRPC contract is expressed here as a structured YAML descriptor rather than
+# raw .proto IDL.
+syntax: proto3
+package: auth.v1
+options:
+  go_package: github.com/trianalab/pacto-demo/auth-service/gen/auth/v1
+services:
+- name: AuthService
+  methods:
+  - name: Authenticate
+    request: AuthenticateRequest
+    response: AuthenticateResponse
+  - name: ValidateToken
+    request: ValidateTokenRequest
+    response: ValidateTokenResponse
+  - name: RefreshToken
+    request: RefreshTokenRequest
+    response: RefreshTokenResponse
+  - name: RevokeToken
+    request: RevokeTokenRequest
+    response: RevokeTokenResponse
+messages:
+  AuthenticateRequest:
+    email: string
+    password: string
+  AuthenticateResponse:
+    access_token: string
+    refresh_token: string
+    expires_at: int64
+  ValidateTokenRequest:
+    token: string
+  ValidateTokenResponse:
+    valid: bool
+    user_id: string
+    roles: repeated string
+  RefreshTokenRequest:
+    refresh_token: string
+  RefreshTokenResponse:
+    access_token: string
+    refresh_token: string
+    expires_at: int64
+  RevokeTokenRequest:
+    token: string
+  RevokeTokenResponse:
+    revoked: bool

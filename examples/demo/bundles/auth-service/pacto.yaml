@@ -18,7 +18,7 @@ service:
 interfaces:
 - name: grpc
   type: grpc
-  ref: interfaces/auth.proto
+  ref: interfaces/auth.yaml
   visibility: internal
 configurations:
 - name: platform

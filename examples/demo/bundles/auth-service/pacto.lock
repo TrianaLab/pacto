@@ -23,4 +23,4 @@ references:
       source: oci
       ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
       version: 1.0.0
-      digest: sha256:a2baa0f8dc5b716a94449dda9a30c93abd34c9c96ab9a724cf48839c25bef039
+      digest: sha256:37a6efb94754ea8d622cbb87ed184d6a270ec7b54a5571f003c74d544663dca3

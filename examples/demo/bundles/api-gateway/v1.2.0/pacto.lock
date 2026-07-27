@@ -10,7 +10,7 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto-demo/auth-service
       constraint: ^1.0.0
       version: 1.0.0
-      digest: sha256:1fc52eb28d0854621c8a82a13aaddaeab6f80f343c82b4bdc9a46f2046c12fb5
+      digest: sha256:2c9c73809a54e41f4276cd6eae1f3b2603d3dfd8b207fb9ea6899ee0f8cab5de
       dependsOn:
         - redis
     - name: email-provider
