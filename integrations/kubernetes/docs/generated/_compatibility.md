@@ -10,12 +10,12 @@ The Kubernetes integration is versioned independently from Pacto core. The table
 
 | Integration artifact | Version | Supported Pacto core |
 | --- | --- | --- |
-| Operator image | `4.7.0` | `>=3.0.0` |
-| Operator chart | `4.7.0` | `>=3.0.0` |
-| Go module | `4.7.0` | `>=3.0.0` |
-| Integration docs | `4.7.0` | `>=3.0.0` |
+| Operator image | `5.0.0` | `>=3.0.0` |
+| Operator chart | `5.0.0` | `>=3.0.0` |
+| Go module | `5.0.0` | `>=3.0.0` |
+| Integration docs | `5.0.0` | `>=3.0.0` |
 
-This documentation set corresponds to Pacto core `2.7.0`. The integration's own version (currently operator/chart `4.7.0`, docs `4.7.0`) advances on its own release cadence.
+This documentation set corresponds to Pacto core `3.0.0`. The integration's own version (currently operator/chart `5.0.0`, docs `5.0.0`) advances on its own release cadence.
 
 ### Version selector
 

@@ -1,6 +1,10 @@
 {
   "name": "@pacto/dashboard-image",
-  "version": "2.7.0",
+  "version": "3.0.0",
   "private": true,
-  "pacto": { "releaseUnit": "dashboard-image", "kind": "oci-image", "coordinate": "ghcr.io/trianalab/pacto-dashboard" }
+  "pacto": {
+    "releaseUnit": "dashboard-image",
+    "kind": "oci-image",
+    "coordinate": "ghcr.io/trianalab/pacto-dashboard"
+  }
 }

@@ -1,6 +1,19 @@
 {
-  "changedGroups": [],
-  "changedUnits": [],
+  "changedGroups": [
+    "core",
+    "kubernetes"
+  ],
+  "changedUnits": [
+    "cli",
+    "core",
+    "dashboard-contract-bundle",
+    "dashboard-image",
+    "demo-bundles",
+    "k8s-docs",
+    "k8s-module",
+    "operator-chart",
+    "operator-image"
+  ],
   "dependencyOrder": [
     "core:go-module",
     "core:dashboard-image",
@@ -25,27 +38,27 @@
     "operator-image": "ghcr.io/trianalab/pacto-operator/pacto-controller"
   },
   "expectedTags": {
-    "cli": "v2.7.0",
-    "core": "v2.7.0",
-    "dashboard-contract-bundle": "2.7.0",
-    "dashboard-image": "2.7.0",
-    "demo-bundles": "2.7.0",
-    "k8s-docs": "4.7.0",
+    "cli": "v3.0.0",
+    "core": "v3.0.0",
+    "dashboard-contract-bundle": "3.0.0",
+    "dashboard-image": "3.0.0",
+    "demo-bundles": "3.0.0",
+    "k8s-docs": "5.0.0",
     "k8s-module": "integrations/kubernetes/v5.0.0",
-    "operator-chart": "4.7.0",
-    "operator-image": "4.7.0"
+    "operator-chart": "5.0.0",
+    "operator-image": "5.0.0"
   },
-  "manifestSha": "3bb5f93170489c41b181893a08449d4fa82884dfd79831de97111f1d8105e63c",
+  "manifestSha": "f02893979ac51ae283a565bb63df4fa4f8115ac95cb2654e9623c9629fced17f",
   "newVersions": {
-    "cli": "2.7.0",
-    "core": "2.7.0",
-    "dashboard-contract-bundle": "2.7.0",
-    "dashboard-image": "2.7.0",
-    "demo-bundles": "2.7.0",
-    "k8s-docs": "4.7.0",
-    "k8s-module": "4.7.0",
-    "operator-chart": "4.7.0",
-    "operator-image": "4.7.0"
+    "cli": "3.0.0",
+    "core": "3.0.0",
+    "dashboard-contract-bundle": "3.0.0",
+    "dashboard-image": "3.0.0",
+    "demo-bundles": "3.0.0",
+    "k8s-docs": "5.0.0",
+    "k8s-module": "5.0.0",
+    "operator-chart": "5.0.0",
+    "operator-image": "5.0.0"
   },
   "previousVersions": {
     "cli": "2.7.0",
@@ -58,9 +71,37 @@
     "operator-chart": "4.7.0",
     "operator-image": "4.7.0"
   },
-  "ready": false,
+  "ready": true,
   "schema": "pacto-release-transaction/v1",
   "sourceSha": "",
-  "transactionId": "",
-  "units": {}
+  "transactionId": "3cfebbddca298a68",
+  "units": {
+    "cli": {
+      "status": "pending"
+    },
+    "core": {
+      "status": "pending"
+    },
+    "dashboard-contract-bundle": {
+      "status": "pending"
+    },
+    "dashboard-image": {
+      "status": "pending"
+    },
+    "demo-bundles": {
+      "status": "pending"
+    },
+    "k8s-docs": {
+      "status": "pending"
+    },
+    "k8s-module": {
+      "status": "pending"
+    },
+    "operator-chart": {
+      "status": "pending"
+    },
+    "operator-image": {
+      "status": "pending"
+    }
+  }
 }

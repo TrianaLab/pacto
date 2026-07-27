@@ -1,6 +1,6 @@
 # pacto-operator
 
-![Version: 4.7.0](https://img.shields.io/badge/Version-4.7.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 4.7.0](https://img.shields.io/badge/AppVersion-4.7.0-informational?style=flat-square)  [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pacto-operator)](https://artifacthub.io/packages/search?repo=pacto-operator)
+![Version: 5.0.0](https://img.shields.io/badge/Version-5.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 5.0.0](https://img.shields.io/badge/AppVersion-5.0.0-informational?style=flat-square)  [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pacto-operator)](https://artifacthub.io/packages/search?repo=pacto-operator)
 
 Kubernetes operator for Pacto service contract validation
 
@@ -65,7 +65,7 @@ Pin to a specific version:
 
 ```bash
 helm install pacto-operator oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
-  --version 4.7.0 \
+  --version 5.0.0 \
   --namespace pacto-operator-system --create-namespace
 ```
 

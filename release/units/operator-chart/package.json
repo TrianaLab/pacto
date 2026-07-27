@@ -1,6 +1,10 @@
 {
   "name": "@pacto/operator-chart",
-  "version": "4.7.0",
+  "version": "5.0.0",
   "private": true,
-  "pacto": { "releaseUnit": "operator-chart", "kind": "helm-chart", "coordinate": "ghcr.io/trianalab/pacto-operator/charts/pacto-operator" }
+  "pacto": {
+    "releaseUnit": "operator-chart",
+    "kind": "helm-chart",
+    "coordinate": "ghcr.io/trianalab/pacto-operator/charts/pacto-operator"
+  }
 }
