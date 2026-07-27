@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real release simulation (release/DESIGN-release-safety.md item 8). Builds the
+# Real release simulation. Builds the
 # real release artifacts and pushes them to a DISPOSABLE local registry via the
 # SAME shared adapters production uses (build-cli.sh, verify-oci.sh,
 # publish-go-tag.sh), then proves digest idempotency, fail-closed immutability and
@@ -41,6 +41,53 @@ DV="0.0.0-dryrun"
 SHA="$(git -C "$ROOT" rev-parse HEAD)"
 OPIMG="$REG/pacto-operator/pacto-controller:$DV"
 
+echo "== TRANSACTION SELECTION: drive the REAL orchestrator (detect.mjs) per scenario =="
+# Prove the decision layer that feeds the release DAG: core-only, k8s-only,
+# coordinated and recovery each decide the correct unit set. This is the same
+# detect.mjs release.yml runs; the release.yml job `if:` selection over these
+# units is separately gated by tests/release/dag_test.go.
+CORE_UNITS="core,cli,dashboard-image,dashboard-contract-bundle,demo-bundles"
+K8S_UNITS="k8s-module,operator-image,operator-chart,k8s-docs"
+mk_txn() { # <id> <groups-csv> <units-csv> <ready 0|1> -> transaction json
+  python3 - "$@" <<'PY'
+import json,sys
+tid,groups,units,ready=sys.argv[1],sys.argv[2].split(','),sys.argv[3].split(','),sys.argv[4]=='1'
+print(json.dumps({"schema":"pacto-release-transaction/v1","ready":ready,"transactionId":tid,
+  "sourceSha":"deadbeef","manifestSha":"x","changedGroups":groups,"changedUnits":units,
+  "newVersions":{},"previousVersions":{},"expectedTags":[],"expectedCoordinates":[],
+  "dependencyOrder":units,"units":{u:{"status":"pending"} for u in units}}))
+PY
+}
+run_detect() { # <event> <txn-json> [ENV=val ...] -> detect.mjs stdout (GITHUB_OUTPUT lines)
+  local ev="$1" txn="$2"; shift 2
+  local d; d="$(mktemp -d)"; mkdir -p "$d/release"
+  printf '%s' "$txn" > "$d/release/release-transaction.json"
+  cp "$ROOT/release/release-manifest.json" "$d/release/release-manifest.json"
+  ( cd "$d" && env GITHUB_EVENT_NAME="$ev" GITHUB_SHA=deadbeef "$@" node "$ROOT/release/orchestrator/detect.mjs" ) 2>/dev/null
+  local rc=$?; rm -rf "$d"; return $rc
+}
+assert_units() { # <label> <actual detect stdout> <expected release> <expected units-csv>
+  local label="$1" out="$2" wantrel="$3" wantunits="$4"
+  local rel units
+  rel="$(printf '%s\n' "$out" | sed -n 's/^release=//p')"
+  units="$(printf '%s\n' "$out" | sed -n 's/^units=//p')"
+  [ "$rel" = "$wantrel" ] || { echo "   FAIL $label: release=$rel want $wantrel"; exit 1; }
+  # order-independent unit-set compare
+  local a b; a="$(printf '%s' "$units" | tr ',' '\n' | sort | paste -sd, -)"; b="$(printf '%s' "$wantunits" | tr ',' '\n' | sort | paste -sd, -)"
+  [ "$a" = "$b" ] || { echo "   FAIL $label: units=$a want $b"; exit 1; }
+  echo "   OK $label: release=$rel units=[$units]"
+}
+assert_units "core-only"    "$(run_detect push "$(mk_txn t-core core "$CORE_UNITS" 1)")"                    true  "$CORE_UNITS"
+assert_units "k8s-only"     "$(run_detect push "$(mk_txn t-k8s  k8s  "$K8S_UNITS"  1)")"                    true  "$K8S_UNITS"
+assert_units "coordinated"  "$(run_detect push "$(mk_txn t-both 'core,k8s' "$CORE_UNITS,$K8S_UNITS" 1)")"   true  "$CORE_UNITS,$K8S_UNITS"
+assert_units "not-ready"    "$(run_detect push "$(mk_txn t-nr   core "$CORE_UNITS" 0)")"                    false ""
+# recovery is workflow_dispatch only, and a mismatched transactionId is REFUSED
+# (exit non-zero) — recovery must never become a second release trigger.
+if run_detect workflow_dispatch "$(mk_txn t-real core "$CORE_UNITS" 1)" INPUT_TRANSACTION_ID=t-wrong INPUT_SOURCE_SHA=deadbeef >/dev/null 2>&1; then
+  echo "   FAIL recovery: a mismatched transactionId was accepted"; exit 1
+fi
+echo "   OK recovery-refused: mismatched transactionId rejected (no second release trigger)"
+
 echo "== build + push the operator image (production root context) =="
 docker build -f "$ROOT/integrations/kubernetes/Dockerfile" --build-arg VERSION="$DV" -t "$OPIMG" "$ROOT"
 docker push "$OPIMG" >/dev/null
@@ -64,50 +111,50 @@ helm push "$CHART" "oci://$REG/pacto-operator/charts" --plain-http >/dev/null 2>
   || helm push "$CHART" "oci://$REG/pacto-operator/charts" >/dev/null
 echo "   chart pushed"
 
-echo "== DURABLE LEDGER + absent/identical/conflict + partial-failure/resume =="
+echo "== DURABLE LEDGER + absent/identical/conflict + partial-failure/resume (shared adapter) =="
 export PACTO_LEDGER_REPO="$REG/pacto-release-ledger"
 led() { bash "$ROOT/release/orchestrator/ledger.sh" "$@"; }
 vfy() { bash "$ROOT/release/orchestrator/verify-oci.sh" "$@"; }
 TXN="dryrun-$(git -C "$ROOT" rev-parse --short HEAD)"
+export PACTO_RELEASE_TXN="$TXN"
 MSHA="$(node -e 'const c=require("crypto"),fs=require("fs");const m=JSON.parse(fs.readFileSync("'"$ROOT"'/release/release-manifest.json"));const nv=Object.fromEntries(Object.entries(m.units).map(([u,v])=>[u,v.version]));const st=v=>Array.isArray(v)?v.map(st):(v&&typeof v=="object"?Object.fromEntries(Object.keys(v).sort().map(k=>[k,st(v[k])])):v);process.stdout.write(c.createHash("sha256").update(JSON.stringify(st(nv))).digest("hex"))')"
 led init "$TXN" "$SHA" "$MSHA" >/dev/null
 
-# publish_unit <unit> <ref>: verify against the ledger, then absent->push+record,
-# identical->skip, conflict->fail. This is the exact adapter production uses.
-publish_unit() {
-  local unit="$1" ref="$2" want state
-  want="$(led digest "$TXN" "$unit")"
-  state="$(vfy "$ref" "$want")"
-  case "$state" in
-    absent)    docker push "$ref" >/dev/null; led record "$TXN" "$unit" "$ref" "$DV" "$(digest "$ref")" complete >/dev/null; echo "   $unit: absent -> published + recorded" ;;
-    identical) echo "   $unit: identical -> skipped (resume)" ;;
-    *)         echo "   $unit: $state"; return 1 ;;
-  esac
-}
+# Publish EACH unit through the EXACT shared adapter release.yml uses
+# (publish-oci-unit.sh): verify against the ledger, then absent->push+record,
+# identical->skip (safe resume), conflict->fail closed. Only PACTO_LEDGER_REPO +
+# the coordinates differ from production. One OCI unit per release LINE so the
+# partial-failure/resume spans BOTH categories; every other OCI unit
+# (dashboard-contract-bundle, demo-bundles, operator-chart) publishes through
+# this identical adapter path — exercised here once per line, not per artifact.
+adapter() { bash "$ROOT/release/orchestrator/publish-oci-unit.sh" "$@"; }
+# Fresh coordinates the adapter itself publishes: the build step already pushed
+# $OPIMG, so reusing it would read back as an existing tag (a conflict). Retag the
+# real operator image under one fresh coordinate per release LINE.
+K8S_UNIT_REF="$REG/pacto-operator/pacto-controller-ledger:$DV"   # k8s line
+CORE_UNIT_REF="$REG/pacto-dashboard:$DV"                         # core line
+docker tag "$OPIMG" "$K8S_UNIT_REF"
+docker tag "$OPIMG" "$CORE_UNIT_REF"
 
-# Second OCI unit: retag the operator image under a second coordinate so the
-# ledger has two units to (partially) resume over.
-UNIT2="$REG/pacto-operator/pacto-controller-secondary:$DV"
-docker tag "$OPIMG" "$UNIT2"
+echo "   RUN 1: publish the k8s-line unit, then CRASH before the core-line unit"
+adapter operator-image "$K8S_UNIT_REF" "$DV" -- docker push "$K8S_UNIT_REF" >/dev/null
+[ "$(led status "$TXN" operator-image)" = complete ] || { echo "operator-image not recorded"; exit 1; }
+# The run crashed here: dashboard-image was never published nor recorded (pending).
 
-echo "   RUN 1: publish operator-image (record complete), then CRASH before secondary"
-led record "$TXN" operator-image "$OPIMG" "$DV" "$OPDIGEST" complete >/dev/null
-publish_unit operator-image "$OPIMG"      # ledger=complete, remote identical -> skip
-[ "$(led status "$TXN" operator-image)" = complete ] || { echo "ledger not complete"; exit 1; }
-# The run crashed here: secondary was never published nor recorded (still pending).
-
-echo "   RUN 2 (resume same transaction $TXN):"
-publish_unit operator-image "$OPIMG"      # completed unit -> identical -> skip
-publish_unit secondary "$UNIT2"           # never published -> absent -> publish + record
-[ "$(led status "$TXN" secondary)" = complete ] || { echo "resume did not complete secondary"; exit 1; }
-echo "   resume: completed unit skipped, incomplete unit published"
+echo "   RUN 2 (resume same transaction $TXN), across both release lines:"
+adapter operator-image "$K8S_UNIT_REF" "$DV" -- docker push "$K8S_UNIT_REF" >/dev/null   # complete -> identical -> skip
+adapter dashboard-image "$CORE_UNIT_REF" "$DV" -- docker push "$CORE_UNIT_REF" >/dev/null # absent -> publish + record
+for u in operator-image dashboard-image; do
+  [ "$(led status "$TXN" "$u")" = complete ] || { echo "resume did not complete $u"; exit 1; }
+done
+echo "   resume: completed k8s-line unit skipped, incomplete core-line unit published + recorded"
 
 echo "== CONFLICT: an existing tag with different bytes than the ledger fails closed =="
-echo 'FROM busybox' | docker build -q -t "$UNIT2" - >/dev/null && docker push "$UNIT2" >/dev/null
-if vfy "$UNIT2" "$(led digest "$TXN" secondary)" >/dev/null 2>&1; then
-  echo "   FAIL: verify-oci accepted a conflicting digest"; exit 1
+echo 'FROM busybox' | docker build -q -t "$CORE_UNIT_REF" - >/dev/null && docker push "$CORE_UNIT_REF" >/dev/null
+if adapter dashboard-image "$CORE_UNIT_REF" "$DV" -- true >/dev/null 2>&1; then
+  echo "   FAIL: the adapter accepted a conflicting digest"; exit 1
 fi
-echo "   verify-oci correctly reported conflict + failed closed"
+echo "   adapter correctly reported conflict + failed closed (no overwrite)"
 
 echo "== PARTIAL FAILURE + RESUME: go tags in an isolated clone =="
 CLONE="$WORK/clone"; git clone -q "$ROOT" "$CLONE"
