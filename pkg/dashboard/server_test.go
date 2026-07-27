@@ -1423,12 +1423,19 @@ func TestGetCachedIndex_FreshCacheReturn(t *testing.T) {
 	srv := NewServer(source, fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}})
 
 	// First call builds cache.
-	cached1 := srv.getCachedIndex(context.Background())
-	if len(cached1.services) != 1 {
-		t.Fatalf("expected 1 service, got %d", len(cached1.services))
+	built := srv.getCachedIndex(context.Background())
+	if len(built.services) != 1 {
+		t.Fatalf("expected 1 service, got %d", len(built.services))
 	}
+	// The build kicks off background version enrichment, which replaces the cache
+	// object (with a fresh builtAt) once done. Wait for it to settle so the
+	// fresh-cache assertion is deterministic — otherwise the enrichment races the
+	// two calls below and swaps the object between them.
+	srv.WaitForVersionEnrich()
 
-	// Second call within TTL should return same cache object.
+	// Two calls within TTL return the SAME (settled) cache object — a fresh cache
+	// is reused, not rebuilt.
+	cached1 := srv.getCachedIndex(context.Background())
 	cached2 := srv.getCachedIndex(context.Background())
 	if cached1 != cached2 {
 		t.Error("expected same cache object for fresh cache")
