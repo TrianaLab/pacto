@@ -23,7 +23,6 @@ on:
       - 'integrations/**/internal/observer/**'
       - 'pkg/evidence/**'
       - 'pkg/finding/**'
-      - 'release/release-manifest.json'
       - 'examples/demo/**'
       # The demo embeds the dashboard UI + engine, so redeploy when they change.
       - 'pkg/dashboard/**'
@@ -88,10 +87,11 @@ jobs:
       # the same strict build the PR "Docs check" enforces against a throwaway dir.
       - name: Strict docs build gate
         run: mkdocs build --strict --site-dir "$(mktemp -d)"
-      # Publish the versioned site to gh-pages: mike deploy --push the core version
-      # + the `latest` alias, so the Material version selector has data.
-      - name: Deploy versioned docs with mike
+      # Publish ONLY the unreleased `next` snapshot to gh-pages. This non-release
+      # path must never move `latest` or write a released version slot — that is the
+      # release transaction's job (release.yml, unit k8s-docs, `make docs-deploy`).
+      - name: Deploy the dev (next) docs snapshot with mike
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          make docs-deploy
+          make docs-deploy-dev

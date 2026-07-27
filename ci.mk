@@ -108,10 +108,22 @@ docs-serve:
 # non-release docs.yml push path leaves it unset and falls back to the committed
 # manifest (redeploying the current core version's docs). A k8s-only release keeps
 # the same core version and refreshes the integration docs inside that snapshot.
+# RELEASE docs deploy (release.yml, unit k8s-docs): publish the EXACT released core
+# version and move the `latest` alias + default. Only a release transaction may
+# touch a stable version or latest.
 docs-deploy: docs-generate
 	@ver=$${PACTO_DOCS_CORE_VERSION:-$$(python3 -c "import json;print(json.load(open('release/release-manifest.json'))['units']['core']['version'])")}; \
-	echo "==> mike deploy --push --update-aliases $$ver latest"; \
-	mike deploy --push --update-aliases "$$ver" latest
+	echo "==> mike deploy --push --update-aliases $$ver latest (release)"; \
+	mike deploy --push --update-aliases "$$ver" latest; \
+	mike set-default --push latest
+
+# DEV docs deploy (docs.yml, non-release main-push): publish an unreleased `next`
+# snapshot ONLY. It must NEVER move `latest` or write into a released version slot,
+# so merging a breaking PR before its version PR releases cannot mislabel the stable
+# docs. The Material version selector shows `next` alongside the released versions.
+docs-deploy-dev: docs-generate
+	@echo "==> mike deploy --push next (unreleased dev snapshot; no alias move, no released slot)"; \
+	mike deploy --push --title "next (unreleased)" next
 
 # Full documentation gate: regenerate from scratch, prove zero drift and zero
 # second-run diff, strict build, and validate every fenced contract / CR example /
