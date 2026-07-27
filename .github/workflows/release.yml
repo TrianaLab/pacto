@@ -307,6 +307,7 @@ jobs:
             VERSION=v${{ needs.detect.outputs.k8s_version }}
             GIT_COMMIT=${{ github.sha }}
             DASHBOARD_IMAGE=ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}
+            RELEASE_BUILD=1
           labels: |
             org.opencontainers.image.title=pacto-controller
             org.opencontainers.image.version=${{ needs.detect.outputs.k8s_version }}
