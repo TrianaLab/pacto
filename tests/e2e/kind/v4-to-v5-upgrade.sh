@@ -33,6 +33,10 @@ DEMO_NS=upgrade-demo
 FIXTURE="$ROOT/tests/e2e/kind/fixtures/pacto-operator-v4"
 V4_REPO="ghcr.io/trianalab/pacto-operator/pacto-controller"
 V4_TAG="4.7.0"
+# Pin the historical v4 image by digest so a mutable/republished :4.7.0 tag cannot
+# silently change what this cross-major migration test installs. Verified in
+# SOURCE.md; the guard below fails closed if the live tag no longer resolves here.
+V4_DIGEST="sha256:a2e8e27dd8b080e797436ab376cef3f95467c7f91c9408bacc09aad8ff769e7d"
 V5_REPO="pacto-operator/pacto-controller"
 V5_TAG="5.0.0-e2e"
 V5_IMG="${V5_REPO}:${V5_TAG}"
@@ -89,6 +93,20 @@ cleanup
 for _ in $(seq 1 30); do kubectl get crd "$CRD_PACTOS" >/dev/null 2>&1 || break; sleep 2; done
 
 SETS=(--set image.pullPolicy=IfNotPresent --set dashboard.enabled=true)
+
+echo
+echo "== STEP 0: pin the v4 image by digest (fail closed if the tag was republished) =="
+# Resolve the LIVE index digest of the historical tag; crane if present, else the
+# docker fallbacks (same pattern as release/orchestrator/verify-oci.sh).
+resolve_index_digest() {
+  if command -v crane >/dev/null 2>&1; then crane digest "$1" 2>/dev/null && return; fi
+  docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' 2>/dev/null | grep -oE 'sha256:[a-f0-9]{64}' | head -1 && return
+  docker manifest inspect -v "$1" 2>/dev/null | grep -oE 'sha256:[a-f0-9]{64}' | head -1
+}
+LIVE_DIGEST="$(resolve_index_digest "${V4_REPO}:${V4_TAG}")"
+[ -n "$LIVE_DIGEST" ] || fail "could not resolve the live digest of ${V4_REPO}:${V4_TAG} (crane/docker registry unreachable)"
+[ "$LIVE_DIGEST" = "$V4_DIGEST" ] || fail "v4 image tag drifted: ${V4_REPO}:${V4_TAG} now resolves to $LIVE_DIGEST, expected $V4_DIGEST (see SOURCE.md)"
+echo "  v4 image pinned: ${V4_REPO}:${V4_TAG} == $V4_DIGEST"
 
 echo
 echo "== STEP 1: install the REAL v4 chart (4.7.0) + its v4 CRDs =="

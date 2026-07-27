@@ -24,11 +24,25 @@ this fixture supplies the chart the image shipped with.
 
 ## Recorded real v4 coordinates + digests
 
+Digests captured and verified as of **2026-07-27**.
+
 | Artifact | Coordinate | Digest / ref | Reachable |
 |----------|------------|--------------|-----------|
-| v4 controller image | `ghcr.io/trianalab/pacto-operator/pacto-controller:4.7.0` | `sha256:a2e8e27dd8b080e797436ab376cef3f95467c7f91c9408bacc09aad8ff769e7d` (multi-arch: linux/amd64 + linux/arm64) | yes (`crane digest`) |
+| v4 controller image (index) | `ghcr.io/trianalab/pacto-operator/pacto-controller:4.7.0` | `sha256:a2e8e27dd8b080e797436ab376cef3f95467c7f91c9408bacc09aad8ff769e7d` | yes (`crane digest`) |
+| &nbsp;&nbsp;↳ linux/amd64 | (per-platform manifest) | `sha256:3b507afc7f3faa718beda1334a1902498242c1d275ba5dfcb79b4d88b08d0e84` | yes |
+| &nbsp;&nbsp;↳ linux/arm64 | (per-platform manifest) | `sha256:6f75948f806f7e49b94d67e58dcec5e543d3a56e31e0dc1dadbffcc5f68ca11f` | yes |
 | v4 chart (published) | `ghcr.io/trianalab/pacto-operator/charts/pacto-operator:4.7.0` | — | **no** (MANIFEST_UNKNOWN) |
 | v4 chart source | `github.com/TrianaLab/pacto-operator` tag `v4.7.0`, commit `a889498538fd29421ffe2644dfd21b544dff9eb6` | tarball sha256 `b7d6c09d406344394ec615fcd3e0522c27c40f015c736154183e5a1194a77a56` | yes (`gh api .../tarball/v4.7.0`) |
+
+**Verify the pinned image** (the exact check `v4-to-v5-upgrade.sh` STEP 0 runs; the
+test fails closed if this drifts):
+
+```
+$ crane digest ghcr.io/trianalab/pacto-operator/pacto-controller:4.7.0
+sha256:a2e8e27dd8b080e797436ab376cef3f95467c7f91c9408bacc09aad8ff769e7d
+# fallback without crane:
+$ docker buildx imagetools inspect ghcr.io/trianalab/pacto-operator/pacto-controller:4.7.0
+```
 
 The image's own OCI labels confirm the source: `org.opencontainers.image.source
 = https://github.com/TrianaLab/pacto-operator`, `.revision =
