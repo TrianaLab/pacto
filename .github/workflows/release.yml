@@ -71,9 +71,14 @@ jobs:
       core_version: ${{ steps.v.outputs.core }}
       k8s_version: ${{ steps.v.outputs.k8s }}
     steps:
+      # On push, check out the pushed commit (needs HEAD^ for the changed-in-commit
+      # guard). On workflow_dispatch (recovery), check out the EXACT source_sha the
+      # transaction belongs to, so the transaction + manifest are loaded from that
+      # commit — never a later main commit that happens to carry the same file.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 2
+          ref: ${{ github.event.inputs.source_sha }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
@@ -97,11 +102,13 @@ jobs:
           done
           echo "core=$core" >> "$GITHUB_OUTPUT"
           echo "k8s=$k8s" >> "$GITHUB_OUTPUT"
-      - name: Guard — dispatch source_sha must be this commit
+      - name: Guard — recovery is bound to the exact source commit
         if: github.event_name == 'workflow_dispatch'
         run: |
-          test "${{ github.event.inputs.source_sha }}" = "$GITHUB_SHA" \
-            || { echo "::error::dispatch source_sha != the checked-out commit; check out the transaction's commit"; exit 1; }
+          head="$(git rev-parse HEAD)"
+          test "$head" = "${{ github.event.inputs.source_sha }}" \
+            || { echo "::error::checked-out HEAD ($head) != source_sha input — recovery must run against the exact transaction commit"; exit 1; }
+          echo "recovery bound to source commit $head"
 
   # pacto-publishes: core
   # The core Go module TAG (github.com/trianalab/pacto/v3 -> vX.Y.Z). Created FIRST
