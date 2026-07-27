@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pacto Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%23818cf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 6 5 12 10 18'/%3E%3Cpath d='M14 6 19 12 14 18'/%3E%3Ccircle cx='12' cy='12' r='1.9' fill='%23818cf8' stroke='none'/%3E%3C/svg%3E" />
+  <script>
+    // Prevent flash: apply saved theme before first paint
+    (function() {
+      var t = localStorage.getItem('pacto-theme');
+      if (t) document.documentElement.setAttribute('data-theme', t);
+      else if (window.matchMedia('(prefers-color-scheme: light)').matches)
+        document.documentElement.setAttribute('data-theme', 'light');
+    })();
+  </script>
+  <script src="./wasm_exec.js?v=293927c8d87e"></script>
+  <script src="./boot.js?v=293927c8d87e"></script>
+  <script type="module" crossorigin src="./assets/index-D3Bjcq_B.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/src-aspElOHd.js">
+  <link rel="stylesheet" crossorigin href="./assets/index-BCfanKDp.css">
+</head>
+<body>
+  <div id="app"></div>
+</body>
+</html>
