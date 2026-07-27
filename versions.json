@@ -3,5 +3,12 @@
     "version": "next",
     "title": "next (unreleased)",
     "aliases": []
+  },
+  {
+    "version": "3.0.0",
+    "title": "3.0.0",
+    "aliases": [
+      "latest"
+    ]
   }
 ]
