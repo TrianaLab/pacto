@@ -139,6 +139,10 @@ jobs:
 
   ci-oci:
     needs: changes
+    # The changesets Version PR commits a ready release-transaction.json (by design);
+    # the "committed transaction releases nothing" invariant is a feature-PR check, so
+    # skip it there. Skipped != failure, so the `required` aggregate stays green.
+    if: ${{ !startsWith(github.head_ref, 'changeset-release/') }}
     runs-on: ubuntu-latest
     services:
       registry:
@@ -199,7 +203,9 @@ jobs:
 
   release-dry-run:
     needs: changes
-    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Skip on the changesets Version PR: its changesets are already consumed, so the
+    # dry-run's "pending bump" scenarios do not apply (feature-PR / main gate only).
+    if: (needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && !startsWith(github.head_ref, 'changeset-release/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -257,7 +263,9 @@ jobs:
   # throwaway clone with pending changesets -> ready transaction detect.mjs acts on.
   release-version-test:
     needs: changes
-    if: needs.changes.outputs.release == 'true'
+    # Skip on the changesets Version PR (committed txn is ready there, by design); the
+    # feature-PR "committed txn not ready" invariant this asserts does not apply.
+    if: needs.changes.outputs.release == 'true' && !startsWith(github.head_ref, 'changeset-release/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

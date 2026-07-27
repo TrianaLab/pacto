@@ -54,11 +54,25 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
+      # Go + Python: the version command also regenerates the version-derived
+      # integration docs (release:version:docs), so the Version PR never carries
+      # stale generated docs. docs-generate runs `go run .../cmd --help` + a pyyaml
+      # script — kept here (push-only job) so the release-version-test clone stays
+      # dependency-free.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - run: pip install pyyaml
       - run: npm ci --ignore-scripts
       - name: Open or update the Version Packages PR
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
-          version: npm run release:version
+          version: npm run release:version:docs
+          title: "chore: version packages"
+          commit: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

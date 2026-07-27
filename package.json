@@ -7,6 +7,7 @@
   ],
   "scripts": {
     "release:version": "changeset version && node release/scripts/build-release-plan.mjs --transaction && node release/scripts/apply-release-plan.mjs",
+    "release:version:docs": "npm run release:version && make -C integrations/kubernetes docs-generate",
     "release:plan": "node release/scripts/build-release-plan.mjs"
   },
   "devDependencies": {
