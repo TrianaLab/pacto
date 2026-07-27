@@ -113,17 +113,6 @@ func Evaluate(c contract.Contract, ev evidence.EvidenceSet) ([]finding.Finding, 
 			})
 	}
 
-	// Interface conformance opt-in (contract-level, AR1): Required++ + EXTENSION_EVALUATOR_UNAVAILABLE
-	// (no evaluator this release). Never increments Evaluated.
-	if c.Verification != nil {
-		for _, name := range c.Verification.Conformance {
-			cov.Required++
-			findings = append(findings, unknownFinding(finding.CodeExtensionEvaluatorUnavailable,
-				"interface", name, fmt.Sprintf("verification.conformance[%s]", name),
-				fmt.Sprintf("interface %q contract-conformance verification requested but no evaluator is available", name), evRef))
-		}
-	}
-
 	return findings, cov
 }
 

@@ -290,48 +290,6 @@ func TestValidateCapabilities_DistinctExtensionRefs_OK(t *testing.T) {
 	}
 }
 
-func TestValidateVerification(t *testing.T) {
-	base := func() *contract.Contract {
-		c := validV20Contract()
-		c.Interfaces = []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}}
-		return c
-	}
-	// nil verification -> no error (guard)
-	var r0 ValidationResult
-	validateVerification(base(), &r0)
-	if !r0.IsValid() {
-		t.Errorf("nil verification must be valid, got %+v", r0.Errors)
-	}
-	// valid declared interface
-	c := base()
-	c.Verification = &contract.Verification{Conformance: []string{"public-api"}}
-	var r1 ValidationResult
-	validateVerification(c, &r1)
-	if !r1.IsValid() {
-		t.Errorf("declared conformance interface must be valid, got %+v", r1.Errors)
-	}
-	// unknown interface
-	c = base()
-	c.Verification = &contract.Verification{Conformance: []string{"nope"}}
-	var r2 ValidationResult
-	validateVerification(c, &r2)
-	if !hasErrorCode(r2, "VERIFICATION_INTERFACE_UNKNOWN") {
-		t.Errorf("unknown conformance interface must be VERIFICATION_INTERFACE_UNKNOWN, got %+v", r2.Errors)
-	}
-	// duplicate conformance entry
-	c = base()
-	c.Verification = &contract.Verification{Conformance: []string{"public-api", "public-api"}}
-	var r3 ValidationResult
-	validateVerification(c, &r3)
-	if !hasErrorCode(r3, "DUPLICATE_VERIFICATION_INTERFACE") {
-		t.Errorf("duplicate conformance entry must be DUPLICATE_VERIFICATION_INTERFACE, got %+v", r3.Errors)
-	}
-	// The duplicate-conformance code MUST be distinct from a duplicate interface DECLARATION.
-	if hasErrorCode(r3, "DUPLICATE_INTERFACE_NAME") {
-		t.Error("duplicate conformance must NOT reuse DUPLICATE_INTERFACE_NAME (different defect)")
-	}
-}
-
 func TestValidateCapabilities_ValidStandardTypes(t *testing.T) {
 	types := []string{"health", "metrics"}
 	for _, typ := range types {

@@ -454,19 +454,6 @@
       }
     },
 
-    "verification": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Author-required verification beyond structural validity (platform-agnostic, opt-in).",
-      "properties": {
-        "conformance": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 },
-          "description": "Names of interfaces[] whose running API must be verified to conform to the declared contract. With no evaluator this release, each entry resolves to EXTENSION_EVALUATOR_UNAVAILABLE (Unknown)."
-        }
-      }
-    },
-
     "metadata": {
       "type": "object",
       "description": "A free-form object for attaching custom key-value metadata to the service contract."

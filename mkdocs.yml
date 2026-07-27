@@ -148,6 +148,7 @@ nav:
       - Root + component contracts: patterns/root-component.md
       - Infrastructure contracts: patterns/infrastructure-contracts.md
       - Composable configurations: patterns/composable-configs.md
+      - Configuration schema ownership: patterns/configuration-schema-ownership.md
       - Policy + schema contract: patterns/policy-schema.md
       - Progressive policy versioning: patterns/progressive-policy.md
       - Override files: patterns/override-files.md

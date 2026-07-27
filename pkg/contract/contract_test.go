@@ -389,9 +389,6 @@ capabilities:
       path: /metrics
   - type: extension
     ref: example.com/custom
-verification:
-  conformance:
-    - public-api
 `
 	c, err := Parse(strings.NewReader(src))
 	if err != nil {
@@ -409,24 +406,6 @@ verification:
 	}
 	if c.Capabilities[2].Ref != "example.com/custom" {
 		t.Errorf("extension ref = %q", c.Capabilities[2].Ref)
-	}
-	if c.Verification == nil || len(c.Verification.Conformance) != 1 || c.Verification.Conformance[0] != "public-api" {
-		t.Errorf("verification.conformance not parsed: %+v", c.Verification)
-	}
-}
-
-func TestVerification_AbsentIsNil(t *testing.T) {
-	src := `pactoVersion: "2.0"
-service:
-  name: orders
-  version: 1.0.0
-`
-	c, err := Parse(strings.NewReader(src))
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if c.Verification != nil {
-		t.Errorf("absent verification block must be nil, got %+v", c.Verification)
 	}
 }
 

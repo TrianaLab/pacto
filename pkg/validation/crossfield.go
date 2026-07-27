@@ -32,7 +32,6 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateDependencyNamesUnique(c, &result)
 	validateInterfaces(c, bundleFS, &result)
 	validateCapabilities(c, &result)
-	validateVerification(c, &result)
 	validateInterfaceFiles(c, bundleFS, &result)
 	validateInterfaceFileContent(c, bundleFS, &result)
 	validateConfigFiles(c, bundleFS, &result)
@@ -307,32 +306,6 @@ func validateCapabilities(c *contract.Contract, result *ValidationResult) {
 			}
 			seen[key] = i
 		}
-	}
-}
-
-// validateVerification checks that every verification.conformance entry references a declared interface
-// and is unique, so a typo cannot create a permanently-Unknown required assertion for a nonexistent
-// interface. Emits DUPLICATE_VERIFICATION_INTERFACE for repeats (an interface name listed more than once).
-func validateVerification(c *contract.Contract, result *ValidationResult) {
-	if c.Verification == nil {
-		return
-	}
-	declaredIfaces := make(map[string]bool, len(c.Interfaces))
-	for _, iface := range c.Interfaces {
-		declaredIfaces[iface.Name] = true
-	}
-	seen := make(map[string]bool, len(c.Verification.Conformance))
-	for i, name := range c.Verification.Conformance {
-		field := fmt.Sprintf("verification.conformance[%d]", i)
-		if !declaredIfaces[name] {
-			result.AddError(field, "VERIFICATION_INTERFACE_UNKNOWN",
-				fmt.Sprintf("verification.conformance references interface %q, which is not declared in interfaces[]", name))
-		}
-		if seen[name] {
-			result.AddError(field, "DUPLICATE_VERIFICATION_INTERFACE",
-				fmt.Sprintf("interface %q is listed more than once in verification.conformance", name))
-		}
-		seen[name] = true
 	}
 }
 

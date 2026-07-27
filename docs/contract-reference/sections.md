@@ -179,60 +179,10 @@ Your configuration JSON Schema should declare secret fields as strings:
 
 ---
 
-## Configuration Schema Ownership Models
-
-The configurations schema field is an **interface**. It defines a boundary between a service and its environment. The schema itself is always a JSON Schema document — but its *meaning* depends on who defines it. Because it is a plain JSON Schema, this is usually a schema you already have rather than one written for Pacto — a service's configuration interface is often its Helm chart's `values.schema.json`, vendored into the bundle (see below). Compose the interface you already have; Pacto is deliberately not another configuration language.
-
-### Service-Defined Schema
-
-When a service defines its own configuration schema, the schema expresses **what the service requires** to run. The service author knows what configuration keys the service reads, what types they expect, and which ones are mandatory.
-
-```yaml
-configurations:
-  - name: default
-    required: true
-    schema: configuration/schema.json
-```
-
-The contract carries its own requirements, so each team defines exactly what its service needs and the bundle deploys on any platform. See [Composition patterns](../patterns/index.md) for when to choose this model.
-
-### Platform-Defined Schema
-
-When a platform team defines a shared configuration schema, the schema expresses **what the platform provides**. It describes the platform's capabilities — databases, caches, observability endpoints, feature flags — as a structured contract.
-
-There are two approaches for distributing platform schemas:
-
-**Vendored (local path):** The platform team publishes the schema externally, and services copy it into their bundle at build time:
-
-```yaml
-configurations:
-  - name: platform
-    required: true
-    schema: configuration/platform-schema.json
-```
-
-**Referenced (OCI):** Services reference the platform's configuration contract directly via `configurations[].ref`. No vendoring required — Pacto resolves the schema from the referenced bundle at the fixed path `configuration/schema.json`:
-
-```yaml
-configurations:
-  - name: platform
-    ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
-    required: true
-```
-
-All services share a common configuration vocabulary the platform team controls and validates centrally — whether referenced via OCI or vendored locally. See [Platform engineers](../platform-engineers.md) and [Composition patterns](../patterns/index.md) for the platform-as-a-product recipe.
-
-!!! info
-    In Pacto, the configuration schema is an **interface**. Depending on ownership, it describes either:
-
-    - what a **service requires** (service-defined), or
-    - what a **platform provides** (platform-defined)
-
-    The schema format and validation mechanics are identical in both cases. The difference is purely one of ownership and intent.
-
-### Hybrid Approaches
-
-In practice, organizations may combine both models — a platform-defined base schema that covers shared infrastructure (database connections, observability, secrets) with service-specific extensions for application-level configuration. Pacto does not prescribe a specific pattern; the schema format is identical regardless of where it originates. Since `configurations` is an array, you can have multiple named entries — one referencing a platform schema and another defining a service-specific schema. Note that `schema` and `ref` are mutually exclusive within a single entry — choose one approach per entry.
+Who owns a configuration schema (service-owned vs platform-provided vs mixed
+scopes), the precise condition for reusing a Helm `values.schema.json`, and exactly
+what the Kubernetes collector validates against a bound ConfigMap/Secret are covered
+in the pattern [Configuration schema ownership](../patterns/configuration-schema-ownership.md).
 
 ---
 
@@ -496,25 +446,7 @@ capabilities:
     ref: example.com/tracing
 ```
 
-A `health` or `metrics` capability may be declared with no binding when the endpoint is not addressed over a declared HTTP interface (e.g. a gRPC health check). An `extension` capability requires a namespaced `ref` and must not declare a binding.
-
----
-
-## `verification`
-
-Optional. Declares author-required verification beyond structural validity, in a platform-agnostic way. This release supports interface contract-conformance opt-in only.
-
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `conformance` | string[] | No | Names of `interfaces[]` whose running API must be verified to conform to the declared spec. Each name must match a declared interface (`VERIFICATION_INTERFACE_UNKNOWN` otherwise) |
-
-```yaml
-verification:
-  conformance:
-    - rest-api
-```
-
-With no evaluator shipped this release, each listed interface resolves to `EXTENSION_EVALUATOR_UNAVAILABLE` (Unknown) at runtime rather than failing the contract.
+A `health` or `metrics` capability may be declared with no binding: it is a valid declaration for another collector to verify, but the current Kubernetes integration cannot actively verify an unbound capability and reports it as Unsupported/Unknown. An `extension` capability requires a namespaced `ref` and must not declare a binding.
 
 ---
 
@@ -721,6 +653,18 @@ metadata:
 
 !!! tip
     `metadata` is a deliberate extension point for tooling. Platform teams use it to attach signals their CI or deployment systems can read off a contract — for example, infrastructure contracts can carry `metadata.labels` like `platform/provisioner: crossplane` to drive provisioning generically. See [Composition Patterns — Infrastructure contracts](../patterns/infrastructure-contracts.md).
+
+---
+
+## `extensions`
+
+Optional. A free-form object for forward-compatible, namespaced extension data that is not part of the core contract model. Distinct from `metadata` (free-form organizational key-value pairs): `extensions` is reserved for structured data that future Pacto features or third-party tooling may interpret. Keys should be namespaced (e.g. a domain) to avoid collisions. Not validated beyond type this release.
+
+```yaml
+extensions:
+  example.com/custom-tool:
+    enabled: true
+```
 
 ---
 

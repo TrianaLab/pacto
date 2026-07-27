@@ -45,9 +45,6 @@ func TestCategoryOf(t *testing.T) {
 		// Structural crossfield — capability binding.
 		CodeCapabilityInterfaceUnknown: CategoryInvalidCapability,
 		CodeCapabilityPathInvalid:      CategoryInvalidCapability,
-		// Structural crossfield — verification.
-		CodeVerificationInterfaceUnknown:   CategoryInterfaceMismatch,
-		CodeDuplicateVerificationInterface: CategoryDuplicateName,
 	}
 	for code, want := range cases {
 		if got := CategoryOf(code); got != want {

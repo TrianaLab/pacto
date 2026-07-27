@@ -17,20 +17,8 @@ type Contract struct {
 	Capabilities   []Capability    `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
 	Policies       []Policy        `yaml:"policies,omitempty" json:"policies,omitempty"`
 	Readiness      *Readiness      `yaml:"readiness,omitempty" json:"readiness,omitempty"`
-	Verification   *Verification   `yaml:"verification,omitempty" json:"verification,omitempty"`
 	Metadata       map[string]any  `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	Extensions     map[string]any  `yaml:"extensions,omitempty" json:"extensions,omitempty"`
-}
-
-// Verification declares author-required verification beyond structural validity. Platform-agnostic: it
-// states WHAT compliance requires, never HOW k8s exposes it. This release supports only interface
-// contract-conformance opt-in; with no evaluator shipped it resolves to EXTENSION_EVALUATOR_UNAVAILABLE
-// (Unknown). Kept separate from the interface declaration so declaring an interface never implies a
-// conformance capability that does not exist.
-type Verification struct {
-	// Conformance lists interfaces[].name whose running API MUST be verified to conform to the declared
-	// interface contract. Each listed interface adds a Required++ conformance assertion in Evaluate.
-	Conformance []string `yaml:"conformance,omitempty" json:"conformance,omitempty"`
 }
 
 // Readiness declares operational readiness evidence for the service.

@@ -25,13 +25,10 @@ func TestSchema_CapabilityBinding_Valid(t *testing.T) {
       path: /healthz
   - type: extension
     ref: example.com/custom
-verification:
-  conformance:
-    - public-api
 `)
 	r := validation.ValidateStructuralRaw(data)
 	if hasErrorCode(r, "SCHEMA_VIOLATION") {
-		t.Errorf("valid discriminated binding + verification must pass schema, got %+v", r.Errors)
+		t.Errorf("valid discriminated binding must pass schema, got %+v", r.Errors)
 	}
 }
 

@@ -243,22 +243,6 @@ func TestEvaluate_ExtensionIdentityByRef(t *testing.T) {
 	}
 }
 
-func TestEvaluate_ConformanceOptIn(t *testing.T) {
-	c := contract.Contract{
-		Service:      contract.Service{Name: "orders", Version: "1"},
-		Interfaces:   []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}},
-		Verification: &contract.Verification{Conformance: []string{"public-api"}},
-	}
-	// Interface available + conformance requested with no evaluator.
-	fs, cov := Evaluate(c, es(evidence.NewInterfaceObserved(sr("interface", "public-api"), "openapi", true, prov())))
-	if !hasCode(fs, finding.CodeExtensionEvaluatorUnavailable) {
-		t.Fatalf("want conformance Unknown, got %v", fs)
-	}
-	// interface availability evaluated (1/1) + conformance Required++ only -> {1,2}.
-	if cov.Required != 2 || cov.Evaluated != 1 {
-		t.Errorf("conformance coverage = %+v, want {1,2}", cov)
-	}
-}
 
 func TestEvaluate_CoverageBiconditional(t *testing.T) {
 	// no Unknown -> Evaluated == Required

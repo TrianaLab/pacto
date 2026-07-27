@@ -34,8 +34,6 @@ Validates semantic references and consistency:
 | Standard capability type is not declared twice | `DUPLICATE_CAPABILITY` |
 | `capabilities[].binding.interface` matches a declared interface | `CAPABILITY_INTERFACE_UNKNOWN` |
 | `capabilities[].binding.path` is a safe application path | `CAPABILITY_PATH_INVALID` |
-| `verification.conformance[]` names a declared interface | `VERIFICATION_INTERFACE_UNKNOWN` |
-| `verification.conformance[]` has no duplicate entries | `DUPLICATE_VERIFICATION_INTERFACE` |
 | OCI dependency refs (`oci://`) are valid OCI references | `INVALID_OCI_REF` |
 | Compatibility ranges are valid semver constraints | `INVALID_COMPATIBILITY` |
 | Compatibility range is empty | `EMPTY_COMPATIBILITY` |

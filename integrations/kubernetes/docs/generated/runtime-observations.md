@@ -84,7 +84,6 @@ Typed conclusions from the engine, grouped by severity family. Family 1 (confirm
 | `DUPLICATE_INTERFACE_NAME` | `DuplicateName` |
 | `DUPLICATE_POLICY_NAME` | `DuplicateName` |
 | `DUPLICATE_READINESS_ID` | `DuplicateName` |
-| `DUPLICATE_VERIFICATION_INTERFACE` | `DuplicateName` |
 | `EMPTY_COMPATIBILITY` | `InvalidDependency` |
 | `EMPTY_READINESS_DESCRIPTION` | `MissingEvidence` |
 | `EMPTY_READINESS_EVIDENCE` | `MissingEvidence` |
@@ -116,7 +115,6 @@ Typed conclusions from the engine, grouped by severity family. Family 1 (confirm
 | `UNSUPPORTED_PACTO_VERSION` | `InvalidVersion` |
 | `UNSUPPORTED_POLICY_TARGET` | `PolicyViolation` |
 | `VALUES_WITHOUT_SCHEMA` | `MissingConfiguration` |
-| `VERIFICATION_INTERFACE_UNKNOWN` | `InterfaceMismatch` |
 | `WORKLOAD_MISMATCH` | `RuntimeDrift` |
 | `YAML_PARSE_ERROR` | `SchemaViolation` |
 
