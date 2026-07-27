@@ -132,7 +132,7 @@ func TestExactlyOnePublisherPerUnit(t *testing.T) {
 // second workflow that pushes a coordinate — directly, via a continuation line,
 // or via an external script fed the coordinate as an env var — without being the
 // declared publisher.
-var readVerbRE = regexp.MustCompile(`(?i)\b(diff|view|inspect|digest|fetch|pull|download|verify-oci-absent|build-args|dashboard_image)\b`)
+var readVerbRE = regexp.MustCompile(`(?i)\b(diff|view|inspect|digest|fetch|pull|download|verify-oci|build-args|dashboard_image)\b`)
 
 // joinContinuations collapses shell line-continuations (a trailing backslash) so
 // a verb and the coordinate it operates on land on one logical line — e.g.

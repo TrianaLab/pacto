@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Real release simulation (release/DESIGN-release-safety.md item 8). Builds the
 # real release artifacts and pushes them to a DISPOSABLE local registry via the
-# SAME shared adapters production uses (build-cli.sh, verify-oci-absent.sh,
+# SAME shared adapters production uses (build-cli.sh, verify-oci.sh,
 # publish-go-tag.sh), then proves digest idempotency, fail-closed immutability and
 # resume — with real digests, no production coordinate or credential. This is the
 # code path release.yml runs; only the coordinates + credentials differ.

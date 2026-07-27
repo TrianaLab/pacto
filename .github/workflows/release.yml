@@ -158,14 +158,63 @@ jobs:
             echo "core unchanged -> pinned core ${pin} already published + resolvable"
           fi
 
+  # Initialize the durable, digest-aware release ledger (release-safety items 4,6).
+  # Every OCI publisher records its published digest here, so a resumed run
+  # reconstructs per-unit truth (published digest + status) from a durable OCI
+  # store instead of a stale local file. Idempotent: a recovery run
+  # (workflow_dispatch) resumes the EXISTING ledger and must NEVER re-init it (that
+  # would erase the recorded per-unit statuses). Runs after the core barrier so the
+  # ledger is created only once the release is truly proceeding.
+  ledger-init:
+    needs: [detect, core-ready]
+    if: needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    env:
+      PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
+      PACTO_ALLOW_PROD: '1'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install crane
+        run: |
+          go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Initialize or resume the release ledger
+        env:
+          TXN: ${{ needs.detect.outputs.transaction_id }}
+          SHA: ${{ needs.detect.outputs.source_sha }}
+        run: |
+          # MSHA: sha256 of the stable newVersions map (unit -> version). Same
+          # formula as release/orchestrator/detect.mjs and dry-run.sh, expressed in
+          # jq: sorted-key compact JSON of {unit: version}, hashed with no newline.
+          MSHA="$(jq -cS '.units | map_values(.version)' release/release-manifest.json | tr -d '\n' | sha256sum | cut -d' ' -f1)"
+          if [ -n "$(bash release/orchestrator/ledger.sh get "$TXN")" ]; then
+            echo "ledger $TXN already exists — resuming, not re-initializing"
+          else
+            bash release/orchestrator/ledger.sh init "$TXN" "$SHA" "$MSHA"
+          fi
+
   # pacto-publishes: dashboard-image
   dashboard-image:
-    needs: detect
+    needs: [detect, ledger-init]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'dashboard-image')
     runs-on: ubuntu-latest
     permissions:
       packages: write
       id-token: write
+    env:
+      PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
+      PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
+      PACTO_ALLOW_PROD: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
@@ -175,9 +224,20 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Refuse to overwrite an existing immutable tag
-        run: bash release/orchestrator/verify-oci-absent.sh "ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}"
+      - name: Install crane
+        run: |
+          go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+      - name: Verify against the ledger (fail-closed on a conflicting digest)
+        id: v
+        run: |
+          want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" dashboard-image)"
+          state="$(bash release/orchestrator/verify-oci.sh "ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}" "$want")"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
       - name: Build and push
+        if: steps.v.outputs.state == 'absent'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -193,13 +253,20 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
       - name: Install Cosign
+        if: steps.v.outputs.state == 'absent'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Sign
+        if: steps.v.outputs.state == 'absent'
         run: |
           digest=$(docker buildx imagetools inspect \
             "ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}" \
             --format '{{json .Manifest.Digest}}' | tr -d '"')
           cosign sign --yes "ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}@${digest}"
+      - name: Record in the ledger
+        if: steps.v.outputs.state == 'absent'
+        run: |
+          ref="ghcr.io/trianalab/pacto-dashboard:${{ needs.detect.outputs.core_version }}"
+          bash release/orchestrator/ledger.sh record "$PACTO_RELEASE_TXN" dashboard-image "ghcr.io/trianalab/pacto-dashboard" "${{ needs.detect.outputs.core_version }}" "$(crane digest "$ref")" complete
 
   # pacto-publishes: dashboard-contract-bundle
   # The OCI-distributed pacto CONTRACT for the dashboard service. Folded into the
@@ -207,12 +274,16 @@ jobs:
   # exactly one invocation, exact version + source SHA from the plan, no
   # `gh release view` latest-tag guessing.
   dashboard-contract-bundle:
-    needs: detect
+    needs: [detect, ledger-init]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'dashboard-contract-bundle')
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    env:
+      PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
+      PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
+      PACTO_ALLOW_PROD: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -220,13 +291,32 @@ jobs:
           go-version-file: go.mod
       - name: Install syft
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+      - name: Install crane
+        run: |
+          go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify against the ledger (fail-closed on a conflicting digest)
+        id: v
+        run: |
+          want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" dashboard-contract-bundle)"
+          state="$(bash release/orchestrator/verify-oci.sh "ghcr.io/trianalab/pactos/pacto-dashboard:${{ needs.detect.outputs.core_version }}" "$want")"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
       - name: Build the dashboard contract bundle
+        if: steps.v.outputs.state == 'absent'
         run: make gen-bundle
       - name: Validate the contract
+        if: steps.v.outputs.state == 'absent'
         run: go run ./cmd/pacto validate ./pactos/pacto-dashboard --set service.version=${{ needs.detect.outputs.core_version }}
-      - name: Refuse to overwrite an existing immutable tag
-        run: bash release/orchestrator/verify-oci-absent.sh "ghcr.io/trianalab/pactos/pacto-dashboard:${{ needs.detect.outputs.core_version }}"
       - name: Push the contract bundle (exact version + source SHA)
+        if: steps.v.outputs.state == 'absent'
         env:
           PACTO_REGISTRY_USERNAME: ${{ github.actor }}
           PACTO_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
@@ -234,26 +324,60 @@ jobs:
           go run ./cmd/pacto push \
             oci://ghcr.io/trianalab/pactos/pacto-dashboard:${{ needs.detect.outputs.core_version }} \
             ./pactos/pacto-dashboard --set service.version=${{ needs.detect.outputs.core_version }}
+      - name: Record in the ledger
+        if: steps.v.outputs.state == 'absent'
+        run: |
+          ref="ghcr.io/trianalab/pactos/pacto-dashboard:${{ needs.detect.outputs.core_version }}"
+          bash release/orchestrator/ledger.sh record "$PACTO_RELEASE_TXN" dashboard-contract-bundle "ghcr.io/trianalab/pactos/pacto-dashboard" "${{ needs.detect.outputs.core_version }}" "$(crane digest "$ref")" complete
 
   # pacto-publishes: demo-bundles
+  # demo-bundles is a MULTI-artifact unit (one immutable tag per demo service),
+  # so the per-bundle absent/identical/conflict immutability check lives inside
+  # publish-demo-bundles.sh (release-safety item 10). The workflow-level ledger
+  # tracks unit completion for resume only: a recovery re-runs the script (which
+  # skips already-pushed identical bundles and fails closed on any conflict).
   demo-bundles:
-    needs: detect
+    needs: [detect, ledger-init]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'demo-bundles')
     runs-on: ubuntu-latest
     permissions:
       packages: write
+    env:
+      PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
+      PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
+      PACTO_ALLOW_PROD: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      - name: Install ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resume check (ledger)
+        id: v
+        run: |
+          if [ "$(bash release/orchestrator/ledger.sh status "$PACTO_RELEASE_TXN" demo-bundles)" = complete ]; then
+            echo "state=identical" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=absent" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish demo bundles to the production coordinate
+        if: steps.v.outputs.state == 'absent'
         env:
           PACTO_DEMO_REGISTRY: ghcr.io/trianalab/pacto-demo
           PACTO_ALLOW_PROD: '1'
           PACTO_REGISTRY_USERNAME: ${{ github.actor }}
           PACTO_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: release/scripts/publish-demo-bundles.sh --push
+      - name: Record in the ledger
+        if: steps.v.outputs.state == 'absent'
+        run: bash release/orchestrator/ledger.sh record "$PACTO_RELEASE_TXN" demo-bundles "ghcr.io/trianalab/pacto-demo" "${{ needs.detect.outputs.core_version }}" "n/a" complete
 
   # pacto-publishes: k8s-module
   # The nested integration module tag. Needs core-tag: the integration go.mod pins
@@ -278,12 +402,16 @@ jobs:
   # go.work + the root go.mod + pkg/ + integrations/kubernetes/. Needs core-tag so
   # the pinned core resolves during the standalone (GOWORK=off) module build.
   operator-image:
-    needs: [detect, core-ready]
+    needs: [detect, core-ready, ledger-init]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'operator-image')
     runs-on: ubuntu-latest
     permissions:
       packages: write
       id-token: write
+    env:
+      PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
+      PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
+      PACTO_ALLOW_PROD: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
@@ -293,9 +421,20 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Refuse to overwrite an existing immutable tag
-        run: bash release/orchestrator/verify-oci-absent.sh "ghcr.io/trianalab/pacto-operator/pacto-controller:${{ needs.detect.outputs.k8s_version }}"
+      - name: Install crane
+        run: |
+          go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+      - name: Verify against the ledger (fail-closed on a conflicting digest)
+        id: v
+        run: |
+          want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" operator-image)"
+          state="$(bash release/orchestrator/verify-oci.sh "ghcr.io/trianalab/pacto-operator/pacto-controller:${{ needs.detect.outputs.k8s_version }}" "$want")"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
       - name: Build and push
+        if: steps.v.outputs.state == 'absent'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -314,16 +453,23 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
       - name: Install Cosign
+        if: steps.v.outputs.state == 'absent'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Sign
+        if: steps.v.outputs.state == 'absent'
         run: |
           img=ghcr.io/trianalab/pacto-operator/pacto-controller:${{ needs.detect.outputs.k8s_version }}
           digest=$(docker buildx imagetools inspect "$img" --format '{{json .Manifest.Digest}}' | tr -d '"')
           cosign sign --yes --new-bundle-format=false --use-signing-config=false "${img}@${digest}"
+      - name: Record in the ledger
+        if: steps.v.outputs.state == 'absent'
+        run: |
+          ref="ghcr.io/trianalab/pacto-operator/pacto-controller:${{ needs.detect.outputs.k8s_version }}"
+          bash release/orchestrator/ledger.sh record "$PACTO_RELEASE_TXN" operator-image "ghcr.io/trianalab/pacto-operator/pacto-controller" "${{ needs.detect.outputs.k8s_version }}" "$(crane digest "$ref")" complete
 
   # pacto-publishes: operator-chart
   operator-chart:
-    needs: [detect, operator-image]
+    needs: [detect, operator-image, ledger-init]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'operator-chart')
     runs-on: ubuntu-latest
     permissions:
@@ -332,6 +478,10 @@ jobs:
     defaults:
       run:
         working-directory: integrations/kubernetes
+    env:
+      PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
+      PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
+      PACTO_ALLOW_PROD: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install Helm
@@ -340,6 +490,11 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Install ORAS
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+      - name: Install crane
+        working-directory: .
+        run: |
+          go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Log in to GHCR (Helm)
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username ${{ github.actor }} --password-stdin
       - name: Log in to GHCR (Cosign/ORAS)
@@ -348,10 +503,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Refuse to overwrite an existing immutable chart
+      - name: Verify against the ledger (fail-closed on a conflicting digest)
+        id: v
         working-directory: .
-        run: bash release/orchestrator/verify-oci-absent.sh "ghcr.io/trianalab/pacto-operator/charts/pacto-operator:${{ needs.detect.outputs.k8s_version }}"
+        run: |
+          want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" operator-chart)"
+          state="$(bash release/orchestrator/verify-oci.sh "ghcr.io/trianalab/pacto-operator/charts/pacto-operator:${{ needs.detect.outputs.k8s_version }}" "$want")"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
       - name: Package, push, sign chart + Artifact Hub metadata
+        if: steps.v.outputs.state == 'absent'
         env:
           VERSION: ${{ needs.detect.outputs.k8s_version }}
         run: |
@@ -361,9 +521,22 @@ jobs:
           digest=$(echo "$out" | grep -oE 'sha256:[a-f0-9]+')
           cosign sign --yes --new-bundle-format=false --use-signing-config=false \
             "ghcr.io/trianalab/pacto-operator/charts/pacto-operator:${VERSION}@${digest}"
+          # The artifacthub.io tag is an intentional MUTABLE repo-level alias (NOT
+          # an immutable SemVer chart version): Artifact Hub reads repository
+          # ownership from this one well-known tag, so re-pushing + round-tripping
+          # the SAME metadata every release is expected to match byte-for-byte.
           oras push ghcr.io/trianalab/pacto-operator/charts/pacto-operator:artifacthub.io \
             --config /dev/null:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml \
             artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
+          bash "$GITHUB_WORKSPACE/release/orchestrator/verify-artifacthub.sh" \
+            ghcr.io/trianalab/pacto-operator/charts/pacto-operator:artifacthub.io \
+            artifacthub-repo.yml
+      - name: Record in the ledger
+        if: steps.v.outputs.state == 'absent'
+        working-directory: .
+        run: |
+          ref="ghcr.io/trianalab/pacto-operator/charts/pacto-operator:${{ needs.detect.outputs.k8s_version }}"
+          bash release/orchestrator/ledger.sh record "$PACTO_RELEASE_TXN" operator-chart "ghcr.io/trianalab/pacto-operator/charts/pacto-operator" "${{ needs.detect.outputs.k8s_version }}" "$(crane digest "$ref")" complete
 
   # pacto-publishes: k8s-docs
   # The versioned docs site. A transaction unit (not an independent trigger): it

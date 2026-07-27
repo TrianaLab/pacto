@@ -86,6 +86,41 @@ find "$WORK/bundles" -name pacto.lock -delete   # regenerated fresh against the 
 # host, run twice => identical proof.
 find "$WORK/bundles" -exec touch -t 202401010000.00 {} +
 
+# ---- item 10: immutability gate — a published bundle tag is NEVER silently
+# overwritten. For each bundle, if the target tag already exists AND its content
+# differs from what we would push, that is a CONFLICT and the run fails BEFORE
+# pushing anything (no mutation). To change a bundle, bump its contract version
+# (a new immutable tag); to intentionally replace stale content under an existing
+# tag (the one-time v1->v2 migration) set PACTO_DEMO_MIGRATE=1, which records the
+# replaced digests as an audit inventory. An unchanged existing tag is identical
+# and re-pushes as a deterministic no-op.
+MIGRATE="${PACTO_DEMO_MIGRATE:-0}"
+oci_exists() { crane digest "$1" >/dev/null 2>&1 || crane digest --insecure "$1" >/dev/null 2>&1; }
+if command -v crane >/dev/null 2>&1; then
+  CONFLICTS=() ; MIGRATED=()
+  while IFS= read -r y; do
+    dir="$(dirname "$y")"
+    svc="$(sed -n 's/^[[:space:]]*name:[[:space:]]*//p' "$y" | head -1)"
+    ver="$(sed -n 's/^[[:space:]]*version:[[:space:]]*//p' "$y" | head -1 | tr -d '\042\047')"
+    [ -n "$svc" ] && [ -n "$ver" ] || continue
+    ref="${COORD}/${svc}:${ver}"
+    oci_exists "$ref" || continue                      # absent -> will publish
+    if "$PACTO_BIN" diff "oci://$ref" "$dir" >/dev/null 2>&1; then
+      : # identical (no contract differences) -> deterministic no-op re-push
+    elif [ "$MIGRATE" = "1" ]; then
+      MIGRATED+=("$ref@$(crane digest "$ref" 2>/dev/null || crane digest --insecure "$ref")")
+    else
+      CONFLICTS+=("$ref")
+    fi
+  done < <(find "$WORK/bundles" -name pacto.yaml | sort)
+  if [ "${#CONFLICTS[@]}" -gt 0 ]; then
+    echo "REFUSED: these demo bundle tags exist with DIFFERENT content — bump the contract version or set PACTO_DEMO_MIGRATE=1 (one-time v1->v2 migration):" >&2
+    printf '    %s\n' "${CONFLICTS[@]}" >&2
+    exit 1
+  fi
+  [ "${#MIGRATED[@]}" -gt 0 ] && { echo "==> MIGRATION: replacing ${#MIGRATED[@]} stale tag(s) (audit inventory of old digests):"; printf '    %s\n' "${MIGRATED[@]}"; }
+fi
+
 echo "==> push demo bundles to $COORD"
 PUSHED="$WORK/pushed.txt"   # lines: "<svc>:<version> <digest>"
 ( cd "$ROOT/examples/demo" && go run ./publishbundles "$WORK/bundles" "$COORD" ) | tee "$PUSHED" | sed 's/^/    /'
