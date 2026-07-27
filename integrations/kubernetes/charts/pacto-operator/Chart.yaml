@@ -19,6 +19,12 @@ sources:
   - https://github.com/TrianaLab/pacto/tree/main/integrations/kubernetes
   - https://github.com/TrianaLab/pacto
 annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: support
+      url: https://github.com/TrianaLab/pacto/issues
+    - name: documentation
+      url: https://trianalab.github.io/pacto/integrations/kubernetes/overview/
   artifacthub.io/images: |
     - name: pacto-controller
       image: ghcr.io/trianalab/pacto-operator/pacto-controller:4.7.0
