@@ -156,6 +156,41 @@ if adapter dashboard-image "$CORE_UNIT_REF" "$DV" -- true >/dev/null 2>&1; then
 fi
 echo "   adapter correctly reported conflict + failed closed (no overwrite)"
 
+echo "== ITEM 5: ledger metadata verify (match + fail-closed mismatch) =="
+led verify "$TXN" "$SHA" "$MSHA" >/dev/null && echo "   verify MATCH ok"
+if led verify "$TXN" "different-source-sha" "$MSHA" >/dev/null 2>&1; then
+  echo "   FAIL: metadata mismatch was accepted"; exit 1
+fi
+echo "   verify MISMATCH refused (fail closed)"
+
+echo "== ITEM 2: parallel per-unit records lose nothing; idempotent; conflict fails =="
+CTX="dryrun-conc-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$CTX" "$SHA" "$MSHA" >/dev/null
+CUNITS="core cli dashboard-image dashboard-contract-bundle demo-bundles k8s-module operator-image operator-chart k8s-docs"
+i=0
+for u in $CUNITS; do i=$((i+1)); led record "$CTX" "$u" "coord/$u" "1.0.0" "sha256:$(printf '%064x' $((i*7)))" complete >/dev/null 2>&1 & done
+wait
+n=0; for u in $CUNITS; do [ "$(led status "$CTX" "$u")" = complete ] && n=$((n+1)) || echo "   LOST $u"; done
+[ "$n" -eq 9 ] || { echo "   FAIL: parallel records lost $((9-n)) unit(s)"; exit 1; }
+echo "   9/9 parallel records survived (no lost updates), attributable to $CTX"
+led record "$CTX" core "coord/core" 1.0.0 "sha256:$(printf '%064x' 7)" complete >/dev/null 2>&1 \
+  && echo "   duplicate-identical record idempotent" || { echo "   FAIL idempotent"; exit 1; }
+if led record "$CTX" core "coord/core" 1.0.0 "sha256:$(printf '%064x' 999)" complete >/dev/null 2>&1; then
+  echo "   FAIL: a conflicting digest for an existing unit was accepted"; exit 1
+fi
+echo "   conflicting digest for an existing unit fails closed"
+
+echo "== ITEM 3: crash after push / before record -> resume ADOPTS via provenance =="
+CRTXN="dryrun-crash-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$CRTXN" "$SHA" "$MSHA" >/dev/null
+CRIMG="$REG/pacto-operator/pacto-controller-crash:$DV"
+printf 'FROM busybox\nLABEL org.opencontainers.image.revision=%s\nLABEL org.opencontainers.image.version=%s\n' "$SHA" "$DV" \
+  | DOCKER_BUILDKIT=0 docker build -q -t "$CRIMG" - >/dev/null
+docker push "$CRIMG" >/dev/null   # simulate: artifact pushed, runner died before the ledger record
+[ -z "$(led digest "$CRTXN" operator-image)" ] || { echo "   FAIL: expected empty ledger for the crashed unit"; exit 1; }
+PACTO_RELEASE_TXN="$CRTXN" PACTO_EXPECT_REVISION="$SHA" PACTO_EXPECT_VERSION="$DV" \
+  adapter operator-image "$CRIMG" "$DV" -- false >/dev/null
+[ -n "$(led digest "$CRTXN" operator-image)" ] || { echo "   FAIL: crash window not recovered"; exit 1; }
+echo "   crash window recovered: remote adopted via provenance + recorded (no re-push)"
+
 echo "== PARTIAL FAILURE + RESUME: go tags in an isolated clone =="
 CLONE="$WORK/clone"; git clone -q "$ROOT" "$CLONE"
 # Disposable bare origin so tag pushes never touch the real repo.
