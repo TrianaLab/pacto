@@ -49,7 +49,7 @@ The V2 model keeps eight roles distinct. Some are first-class Go types; where a 
 | **Policy** — a JSON Schema that validates the contract itself | `pkg/contract` `Policy`; resolved and enforced in `pkg/validation` | Yes |
 | **Evidence** — a runtime observation, external to the contract | `pkg/evidence` `Observation` / `EvidenceSet` | Yes |
 | **Evaluation result** — typed findings plus coverage | `pkg/finding` `Finding`; `pkg/validation` `Coverage` | Yes |
-| **Collector** — turns a real system into evidence | `pkg/collector` `Collector` interface (implemented in `integrations/*`) | Interface only |
+| **Collector** — turns a real system into evidence | any component producing a valid `EvidenceSet` (`pkg/evidence`); the first-party one is the Kubernetes collector (`integrations/kubernetes`) | No core interface — Evidence is the boundary |
 | **Plugin / controller / external actor** — interprets a contract and acts through existing tools | `pkg/plugin` (out-of-process); controllers live in `integrations/*` | Boundary, not core logic |
 
 Two clarifications the naming can obscure:
@@ -65,7 +65,7 @@ These roles compose into a loop that a platform or an agent can drive. Steps 1, 
 2. **Read.** A platform, a controller or an agent inspects the contract (`pacto explain`, the dashboard API, or generated tools over MCP) to learn what the service is and what it can do.
 3. **Constrain.** External controls — policies, permissions, admission, IAM — decide which actions are allowed. Pacto validates a contract against policy schemas; it does not grant runtime permissions.
 4. **Act.** Controllers, deploy systems, plugins or agents perform actions through existing infrastructure and tools.
-5. **Observe.** Collectors obtain runtime evidence from the real system (`pkg/collector` -> `pkg/evidence`).
+5. **Observe.** Collectors obtain runtime evidence from the real system and produce a `pkg/evidence` `EvidenceSet` (the Kubernetes collector is the first shipped one).
 6. **Evaluate.** `Evaluate(contract, evidence)` reports whether observed reality is consistent with the declared contract, producing typed findings and coverage.
 
 ---
@@ -123,7 +123,7 @@ graph TD
     class APP,CLI,LOG,MCP,MAIN,UPDATE internal
 ```
 
-Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator](integrations/kubernetes/overview.md). So are the engine packages the operator consumes — `pkg/contract`, `pkg/evidence`, `pkg/finding`, `pkg/validation` and the `pkg/collector` interface — none of which import Kubernetes (enforced by the import-boundary gate `tests/architecture/boundary_test.go`).
+Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator](integrations/kubernetes/overview.md). So are the engine packages the operator consumes — `pkg/contract`, `pkg/evidence`, `pkg/finding` and `pkg/validation` — none of which import Kubernetes (enforced by the import-boundary gate `tests/architecture/boundary_test.go`). A collector feeds the engine by producing a `pkg/evidence` `EvidenceSet`; there is no core collector interface to implement.
 
 ---
 
@@ -187,9 +187,9 @@ The external-facts half of the engine. Defines a discriminated `Observation` car
 
 A pure data package with zero external dependencies: no knowledge of collectors, reporters, k8s, OCI or persistence. Defines `Finding` (a typed conclusion with `Code`, `Severity`, `Category`, `Subject`, `ContractPath`, `Message` and optional `EvidenceRefs`), the severity ladder (`error`/`warning`/`info`/`unknown`) and the code registry that maps each stable `Code` to a category and default severity. Family 1 codes are confirmed violations (`{RuntimeDrift, error}`); family 2 codes are evidence uncertainty (`{Inconclusive, unknown}`). Reporters at the edge project `Finding` into external shapes (SARIF, PolicyReport); this package never imports them.
 
-### `pkg/collector` -- Evidence source boundary
+### Collectors -- Evidence is the boundary
 
-A single interface: `Collect(ctx, subject) (EvidenceSet, error)`. Collectors observe a real system and produce evidence; they are the boundary between the pure engine and runtime state. The core defines the interface only — implementations live in integrations (the Kubernetes observer in `integrations/kubernetes/internal/observer`), so a third-party collector can feed the same engine without the core depending on any platform.
+There is intentionally **no `pkg/collector.Collector` interface**. Different environments need different collector inputs (the Kubernetes collector needs CR bindings and temporal windows; another environment may need build results or cloud resource identifiers), so forcing them through one speculative input signature would either leak platform concepts into the core or be an abstraction only for symmetry. Instead, the stable extension boundary is the **`EvidenceSet`** (`pkg/evidence`): a *collector* is any component that observes a real system and produces a valid, validated `EvidenceSet` that `Evaluate(contract, evidence)` consumes. Concrete collector APIs live in their integrations (the Kubernetes observer in `integrations/kubernetes/internal/observer`); the pure engine never imports them. This is modularity through a stable Evidence schema — not a dynamically pluggable collector runtime.
 
 ### `pkg/capability` -- Agent tool projection
 
@@ -497,7 +497,7 @@ These fields are populated during the service-index cache rebuild in `server.go`
 
 1. **Pure core** -- `pkg/*` packages have zero CLI/Kubernetes dependencies and are reusable from any Go program
 2. **Strict layering** -- CLI → App → Core (`pkg/`) → Domain (`pkg/contract`)
-3. **Declaration separated from observation** -- the contract is stable intent (`pkg/contract`); runtime facts are separate evidence (`pkg/evidence`) collected outside the core by a `pkg/collector` implementation. The pure `Evaluate` function in `pkg/validation` reasons over both and never observes or acts itself
+3. **Declaration separated from observation** -- the contract is stable intent (`pkg/contract`); runtime facts are separate evidence (`pkg/evidence`) collected outside the core by a collector (any component that produces a valid `EvidenceSet`; the Kubernetes collector is the first shipped one). The pure `Evaluate` function in `pkg/validation` reasons over both and never observes or acts itself
 4. **No global state** -- all instances created in the composition root (`main.go`); the only global is `slog.SetDefault()` configured once at startup
 5. **Interface-based** -- engines depend on interfaces (`DataSource`, `BundleStore`, `ContractFetcher`, `PluginRunner`), not concrete implementations
 6. **Out-of-process plugins** -- language-agnostic, version-independent
