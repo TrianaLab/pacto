@@ -47,6 +47,8 @@ The contract states stable operational *intent*. It is deliberately not a deploy
 
 No sidecars. No new distribution plane. The CLI runs at build time and CI time. The dashboard and operator extend the same contracts into exploration and runtime verification.
 
+Underneath those products is one model — **author → publish → observe → evaluate → consume**: the contract declares intent, a **collector** observes an environment and emits **Evidence**, the pure engine evaluates `Contract × Evidence`, and consumers surface or act on the results. The stable extension boundary is the `EvidenceSet`; the Kubernetes operator hosts the first shipped collector, and other collectors may live inside or outside this repo. See [Collectors and the evidence boundary](collectors.md).
+
 ---
 
 ## Who reads a contract?

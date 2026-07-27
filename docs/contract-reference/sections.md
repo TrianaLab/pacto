@@ -103,7 +103,7 @@ Declares the service's communication boundaries. Optional — a service with no 
 
 ## `configurations`
 
-Defines the service's configuration model. Optional — services with no configuration schema may omit this section entirely.
+Declares the named configuration **inputs** the service's operational contract requires or accepts. Each `configurations[]` entry describes one configuration input the service consumes at runtime — which is distinct from a platform provisioning API, Helm deployment values, or a raw Kubernetes ConfigMap/Secret: these are related but **not automatically interchangeable** (see [Configuration schema ownership](../patterns/configuration-schema-ownership.md)). Optional — a service with no configuration input may omit this section entirely.
 
 The `configurations` section is an array of named configuration entries:
 
