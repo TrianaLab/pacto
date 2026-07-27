@@ -122,3 +122,16 @@ contract := loadContract(...)                     // your bundle load
 ev := customCollector.Observe(ctx, subject)       // your collector -> evidence.EvidenceSet
 findings, coverage := validation.Evaluate(contract, ev)
 ```
+
+## Every assertion needs a possible Evidence path
+
+A contract assertion is only meaningful if some collector can produce the Evidence to
+evaluate it. This is why the V2 model has no permanently-unsatisfiable assertions: the
+`verification.conformance` opt-in was **removed** because no collector or evaluator
+currently produces interface-conformance Evidence — keeping it would only make a
+service permanently Unknown. Declaring an `interfaces[]` entry therefore requires
+runtime *availability* Evidence, not schema/protocol *conformance*. Conformance
+verification can return when there is a real observation kind and evaluator that
+produce Observed conformance Evidence — at which point it will have a collector path,
+not just a schema field.
+

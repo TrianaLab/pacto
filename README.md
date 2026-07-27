@@ -29,13 +29,31 @@ flowchart LR
 
 Pacto composes the interfaces you already own into one versioned contract, distributes it like a container image and lets whatever consumes your services — platforms, CI, runtime controllers and increasingly autonomous agents — read it instead of reverse-engineering it.
 
-## The three tools
+## Architecture: declaration, evidence, evaluation
+
+Underneath the products is one model. The contract **declares** intent; a **collector** observes a running environment and emits **Evidence**; the pure engine **evaluates** `Contract × Evidence` into Findings; consumers surface or act on them.
+
+```mermaid
+flowchart TB
+    A["Author intent<br/>pacto.yaml"] --> C["Contract"]
+    R["Running environment"] --> COL["Collector"]
+    COL --> E["EvidenceSet"]
+    C --> EV["Evaluate"]
+    E --> EV
+    EV --> OUT["Findings + Coverage"]
+```
+
+The stable extension boundary is the **`EvidenceSet`**, not a collector interface: a collector is any component that produces a valid `EvidenceSet` the engine can evaluate. The **Kubernetes collector** is the first shipped integration; other collectors may live inside or outside this monorepo. Pacto is *modular through a stable Evidence schema* — not a dynamically pluggable collector runtime. See [Collectors and the evidence boundary](https://trianalab.github.io/pacto/collectors/).
+
+## The tools
+
+The CLI, dashboard and Kubernetes operator are products built on that model — not the architecture itself. The operator is the *host* around the Kubernetes collector; the engine never queries Kubernetes.
 
 ```mermaid
 flowchart LR
     CLI["CLI · design-time and CI<br/>init · validate · diff · doc · push"] --> R[(OCI registry)]
     R --> DASH["Dashboard · anytime<br/>graph · ownership · SBOM · readiness · docs"]
-    R --> OP["Operator · in-cluster<br/>track · verify runtime fidelity"]
+    R --> OP["Operator · in-cluster<br/>hosts the Kubernetes collector · track · verify"]
     OP -. runtime state .-> DASH
 ```
 
