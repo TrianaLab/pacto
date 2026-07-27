@@ -87,6 +87,21 @@ func TestReleasePlanVersionPropagation(t *testing.T) {
 	if !semverRE.MatchString(k8s.Version) {
 		t.Fatalf("kubernetes version %q is not semver", k8s.Version)
 	}
+	majorOf := func(v string) int { n, _ := strconv.Atoi(strings.SplitN(v, ".", 2)[0]); return n }
+	// pathMajorVersion derives a Go module tag/pin version from the module PATH
+	// major: the module path carries its own major (…/vN) and a Go module tag must
+	// live on that major. Until the first vN release is published the unit version
+	// still reads vN-1, so a /vN coordinate takes a v<N>.0.0 baseline; otherwise the
+	// unit version flows through unchanged. Same rule build-release-plan.mjs applies
+	// to the core pin and the Kubernetes nested tag.
+	pathMajorVersion := func(coordinate, unitVersion string) string {
+		if m := regexp.MustCompile(`/v(\d+)$`).FindStringSubmatch(coordinate); m != nil {
+			if pm, _ := strconv.Atoi(m[1]); pm > majorOf(unitVersion) {
+				return fmt.Sprintf("%d.0.0", pm)
+			}
+		}
+		return unitVersion
+	}
 
 	// Core group: root tag + go-module tag are v<core>; dashboard image is <core>.
 	if want := "v" + core.Version; len(core.Tags) != 1 || core.Tags[0] != want {
@@ -100,8 +115,16 @@ func TestReleasePlanVersionPropagation(t *testing.T) {
 	}
 
 	// Kubernetes group: nested tag, operator image, chart trio, docs, pin, compat.
-	if want := "integrations/kubernetes/v" + k8s.Version; len(k8s.Tags) != 1 || k8s.Tags[0] != want {
-		t.Errorf("kubernetes tags = %v, want [%s]", k8s.Tags, want)
+	// The nested Go-module tag tracks the module PATH major (v<N>.0.0 for a /vN
+	// coordinate until the unit reaches vN), so a /v5 module never gets a v4 tag.
+	// The operator image, chart trio and docs stay on the unit version below.
+	k8sArt, _ := artifactByUnit(k8s, "k8s-module")
+	wantK8sTag := "integrations/kubernetes/v" + pathMajorVersion(k8sArt.Coordinate, k8s.Version)
+	if len(k8s.Tags) != 1 || k8s.Tags[0] != wantK8sTag {
+		t.Errorf("kubernetes tags = %v, want [%s]", k8s.Tags, wantK8sTag)
+	}
+	if k8sArt.Tag != wantK8sTag {
+		t.Errorf("k8s-module tag = %q, want %s", k8sArt.Tag, wantK8sTag)
 	}
 	if a, ok := artifactByUnit(k8s, "operator-image"); !ok || a.Tag != k8s.Version {
 		t.Errorf("operator-image tag = %q, want %s", a.Tag, k8s.Version)
@@ -117,7 +140,6 @@ func TestReleasePlanVersionPropagation(t *testing.T) {
 	// version. This is what lets a cross-major bump build under go.work and land on
 	// v<N>.0.0 when the major changeset applies.
 	coreArt, _ := artifactByUnit(core, "core")
-	majorOf := func(v string) int { n, _ := strconv.Atoi(strings.SplitN(v, ".", 2)[0]); return n }
 	pathMajor := majorOf(core.Version)
 	if m := regexp.MustCompile(`/v(\d+)$`).FindStringSubmatch(coreArt.Coordinate); m != nil {
 		pathMajor, _ = strconv.Atoi(m[1])
