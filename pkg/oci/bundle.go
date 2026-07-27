@@ -21,7 +21,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/stream"
-	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
@@ -75,45 +74,13 @@ func bundleToImage(b *contract.Bundle) (v1.Image, error) {
 	return img, nil
 }
 
-// BundleDigest returns the OCI manifest digest a bundle WOULD be published under,
-// computed locally WITHOUT pushing. Packing is content-deterministic (walkTar
-// canonicalizes headers) and the layer is compressed with the same go-containerregistry
-// gzip Push uses, so this equals the digest Push produces — letting a publisher
-// compare identity by digest (byte-exact) before touching the registry. It mirrors
-// bundleToImage exactly but with a buffered (static) layer, because bundleToImage's
-// streamed layer only finalizes its digest after the push consumes it.
-func BundleDigest(b *contract.Bundle) (string, error) {
-	if b == nil || b.Contract == nil || b.FS == nil {
-		return "", fmt.Errorf("bundle, contract, and filesystem are required")
-	}
-	img, err := mutateConfigFn(empty.Image, v1.Config{
-		Labels: map[string]string{
-			"io.pacto.name":         b.Contract.Service.Name,
-			"io.pacto.version":      b.Contract.Service.Version,
-			"io.pacto.pactoVersion": b.Contract.PactoVersion,
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to set config: %w", err)
-	}
-	tarBytes, err := io.ReadAll(newBundleTarReader(b.FS))
-	if err != nil {
-		return "", fmt.Errorf("failed to read bundle tar: %w", err)
-	}
-	layer, err := tarball.LayerFromReader(bytes.NewReader(tarBytes), tarball.WithMediaType(LayerMediaType))
-	if err != nil {
-		return "", fmt.Errorf("failed to build layer: %w", err)
-	}
-	img, err = mutateAppendLayersFn(img, layer)
-	if err != nil {
-		return "", fmt.Errorf("failed to append layer: %w", err)
-	}
-	img = mutate.MediaType(img, types.OCIManifestSchema1)
-	d, err := img.Digest()
-	if err != nil {
-		return "", fmt.Errorf("failed to compute digest: %w", err)
-	}
-	return d.String(), nil
+// BundleImage exposes the OCI image a bundle publishes (bundleToImage) so a
+// publisher can compute the deterministic digest a bundle WOULD be pushed under —
+// without pushing — for a byte-exact absent/identical/conflict gate. Packing is
+// content-deterministic (walkTar canonicalizes headers), so consuming this image's
+// layer stream and reading its Digest() yields exactly the digest Push produces.
+func BundleImage(b *contract.Bundle) (v1.Image, error) {
+	return bundleToImage(b)
 }
 
 // walkTar walks the filesystem and writes each entry as a tar header/data pair.

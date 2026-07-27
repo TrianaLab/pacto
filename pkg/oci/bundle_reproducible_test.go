@@ -7,6 +7,8 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // Release-safety item 7: a bundle's packed bytes (hence its OCI layer + manifest
@@ -51,36 +53,34 @@ func TestBundlePackingIsContentDeterministic(t *testing.T) {
 	}
 }
 
-// BundleDigest (the pre-push, buffered-layer digest the demo immutability gate
-// compares against the remote) MUST equal the digest Push actually produces from
-// the streamed layer — otherwise the gate would falsely conflict on identical
-// content. bundleToImage's streamed layer finalizes its digest only after the
-// stream is consumed, so consume it, then compare.
-func TestBundleDigestMatchesStreamedPush(t *testing.T) {
-	b := testBundle()
-	static, err := BundleDigest(b)
-	if err != nil {
-		t.Fatalf("BundleDigest: %v", err)
+// BundleImage exposes the publishable image; consuming its layer stream and
+// reading Digest() yields the deterministic digest a publisher gates on (and the
+// exact digest Push produces). Same content twice -> same digest.
+func TestBundleImageDigestIsDeterministic(t *testing.T) {
+	digestOf := func(b *contract.Bundle) string {
+		img, err := BundleImage(b)
+		if err != nil {
+			t.Fatalf("BundleImage: %v", err)
+		}
+		layers, err := img.Layers()
+		if err != nil {
+			t.Fatalf("Layers: %v", err)
+		}
+		for _, l := range layers {
+			rc, err := l.Compressed()
+			if err != nil {
+				t.Fatalf("Compressed: %v", err)
+			}
+			_, _ = io.Copy(io.Discard, rc)
+			_ = rc.Close()
+		}
+		d, err := img.Digest()
+		if err != nil {
+			t.Fatalf("Digest: %v", err)
+		}
+		return d.String()
 	}
-	img, err := bundleToImage(b)
-	if err != nil {
-		t.Fatalf("bundleToImage: %v", err)
-	}
-	layers, err := img.Layers()
-	if err != nil {
-		t.Fatalf("layers: %v", err)
-	}
-	rc, err := layers[0].Compressed()
-	if err != nil {
-		t.Fatalf("compressed: %v", err)
-	}
-	_, _ = io.Copy(io.Discard, rc)
-	_ = rc.Close()
-	streamed, err := img.Digest()
-	if err != nil {
-		t.Fatalf("digest: %v", err)
-	}
-	if static != streamed.String() {
-		t.Fatalf("BundleDigest %s != streamed push digest %s — the pre-push gate would falsely conflict on identical content", static, streamed.String())
+	if d1, d2 := digestOf(testBundle()), digestOf(testBundle()); d1 != d2 {
+		t.Fatalf("BundleImage digest not deterministic: %s != %s", d1, d2)
 	}
 }

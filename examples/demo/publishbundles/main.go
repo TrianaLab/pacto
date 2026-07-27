@@ -25,6 +25,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -81,7 +82,7 @@ func run() error {
 		name := b.Contract.Service.Name
 		version := b.Contract.Service.Version
 		if printOnly {
-			d, err := oci.BundleDigest(b)
+			d, err := bundleDigest(b)
 			if err != nil {
 				return fmt.Errorf("digest %s: %w", dir, err)
 			}
@@ -98,6 +99,37 @@ func run() error {
 		fmt.Printf("%s:%s %s\n", name, version, digest)
 	}
 	return nil
+}
+
+// bundleDigest computes the deterministic OCI digest a bundle would be published
+// under, WITHOUT pushing: build the image, consume its layer stream to finalize the
+// digest (streamed layers know it only after the stream is read), then read it.
+// Packing is content-deterministic, so this equals the digest Push produces.
+func bundleDigest(b *contract.Bundle) (string, error) {
+	img, err := oci.BundleImage(b)
+	if err != nil {
+		return "", err
+	}
+	layers, err := img.Layers()
+	if err != nil {
+		return "", err
+	}
+	for _, l := range layers {
+		rc, err := l.Compressed()
+		if err != nil {
+			return "", err
+		}
+		if _, err := io.Copy(io.Discard, rc); err != nil {
+			_ = rc.Close()
+			return "", err
+		}
+		_ = rc.Close()
+	}
+	d, err := img.Digest()
+	if err != nil {
+		return "", err
+	}
+	return d.String(), nil
 }
 
 // bundleDirs returns every directory under root that holds a pacto.yaml, sorted.
