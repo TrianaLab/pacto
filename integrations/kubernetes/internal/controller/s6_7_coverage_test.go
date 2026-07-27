@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/internal/observer"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/observer"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

@@ -7,7 +7,7 @@ domain: trianalab.io
 layout:
 - go.kubebuilder.io/v4
 projectName: pacto-operator
-repo: github.com/trianalab/pacto/integrations/kubernetes
+repo: github.com/trianalab/pacto/integrations/kubernetes/v5
 resources:
 - api:
     crdVersion: v1
@@ -16,7 +16,7 @@ resources:
   domain: trianalab.io
   group: pacto
   kind: Pacto
-  path: github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1
+  path: github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -24,6 +24,6 @@ resources:
   domain: trianalab.io
   group: pacto
   kind: PactoRevision
-  path: github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1
+  path: github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1
   version: v1alpha1
 version: "3"

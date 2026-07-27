@@ -96,4 +96,7 @@ PY
 echo "== standalone consumability (published core resolves, GOWORK=off, no replace) =="
 bash "$ROOT/release/scripts/verify-standalone.sh" | tail -1
 
+echo "== external-consumer proof for the /v5 Kubernetes module (go get @v5, GOWORK=off) =="
+bash "$ROOT/release/orchestrator/verify-k8s-standalone.sh" | tail -1
+
 echo "RELEASE-DRY-RUN OK: real artifacts to $REG, digest idempotency + immutability + resume proven, no production coordinate"

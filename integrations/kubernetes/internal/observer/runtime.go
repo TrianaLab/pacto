@@ -30,8 +30,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	unversioned "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/internal/prober"
+	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/prober"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 )

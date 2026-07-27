@@ -37,6 +37,18 @@ function buildPlan(u) {
   const coreMajor = Number(core.split('.')[0]);
   const pinVersion = pathMajor > coreMajor ? `v${pathMajor}.0.0` : `v${core}`;
   const compatMajor = Math.max(pathMajor, coreMajor);
+  // The Kubernetes Go module path carries its OWN major (.../integrations/
+  // kubernetes/vN). A Go module tag must live on the module path's major, so the
+  // nested-module tag has to track the PATH major, not the un-bumped unit version
+  // — exactly like core's pin above. Until the major changeset applies, the unit
+  // version still reads the last-published vN-1 (4.7.0), so derive the tag
+  // baseline from the path major so a /v5 module never gets a v4 tag; it lands on
+  // the real v5.x when the major changeset bumps the unit. The image, chart and
+  // docs stay on the unit version (they are OCI/doc versions, not Go modules).
+  const k8sPathMajor = Number((u['k8s-module'].coordinate.match(/\/v(\d+)$/) || [, k8s.split('.')[0]])[1]);
+  const k8sMajor = Number(k8s.split('.')[0]);
+  const k8sModuleVersion = k8sPathMajor > k8sMajor ? `${k8sPathMajor}.0.0` : k8s;
+  const k8sModuleTag = `integrations/kubernetes/v${k8sModuleVersion}`;
   // Fixed groups: core line and k8s line move as a unit.
   const plan = {
     schema: 'pacto-release-plan/v1',
@@ -63,7 +75,7 @@ function buildPlan(u) {
       },
       kubernetes: {
         version: k8s,
-        tags: [`integrations/kubernetes/v${k8s}`],            // nested-module tag
+        tags: [k8sModuleTag],                                 // nested-module tag (path-major)
         // Release state: the integration go.mod pins the published core, NO replace.
         goModPin: { module: u['core'].coordinate, version: pinVersion },
         // Fail-closed: apply-release-plan asserts no replace directive survives into
@@ -71,7 +83,7 @@ function buildPlan(u) {
         // not silently rewrite). Dev builds resolve via go.work, so none should exist.
         assertNoReplace: true,
         artifacts: [
-          { unit: 'k8s-module', kind: 'go-module', coordinate: u['k8s-module'].coordinate, tag: `integrations/kubernetes/v${k8s}` },
+          { unit: 'k8s-module', kind: 'go-module', coordinate: u['k8s-module'].coordinate, tag: k8sModuleTag },
           { unit: 'operator-image', kind: 'oci-image', coordinate: u['operator-image'].coordinate, tag: k8s },
           { unit: 'operator-chart', kind: 'helm-chart', coordinate: u['operator-chart'].coordinate, chartVersion: k8s, appVersion: k8s, defaultImageTag: k8s },
           { unit: 'k8s-docs', kind: 'docs', version: k8s },

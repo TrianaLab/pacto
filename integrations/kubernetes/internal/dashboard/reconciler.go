@@ -22,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/internal/credentials"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/credentials"
 )
 
 // Reconciler manages the lifecycle of dashboard Kubernetes resources.

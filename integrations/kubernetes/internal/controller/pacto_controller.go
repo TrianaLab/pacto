@@ -32,11 +32,11 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/internal/credentials"
-	"github.com/trianalab/pacto/integrations/kubernetes/internal/loader"
-	"github.com/trianalab/pacto/integrations/kubernetes/internal/metrics"
-	"github.com/trianalab/pacto/integrations/kubernetes/internal/observer"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/credentials"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/metrics"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/observer"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/oci"

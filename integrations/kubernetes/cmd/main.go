@@ -34,10 +34,10 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/internal/controller"
-	"github.com/trianalab/pacto/integrations/kubernetes/internal/dashboard"
-	"github.com/trianalab/pacto/integrations/kubernetes/internal/loader"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/controller"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/dashboard"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
 	// +kubebuilder:scaffold:imports
 )
 

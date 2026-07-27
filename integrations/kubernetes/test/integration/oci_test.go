@@ -30,7 +30,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
 )
 
 // testOCIEnv bundles an in-process OCI registry and a configured loader for tests.

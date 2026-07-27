@@ -39,8 +39,8 @@
     },
     "k8s-module": {
       "artifactKind": "go-module",
-      "coordinate": "github.com/trianalab/pacto/integrations/kubernetes",
-      "tag": "integrations/kubernetes/v4.7.0",
+      "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v5",
+      "tag": "integrations/kubernetes/v5.0.0",
       "version": "4.7.0"
     },
     "operator-chart": {

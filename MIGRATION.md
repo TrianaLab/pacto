@@ -494,6 +494,23 @@ readiness:
 - **Evaluation model**: `pkg/validation/evaluate.go` (pure `Evaluate(contract, evidence) -> (findings, coverage)`)
 - **Operator integration**: `integrations/kubernetes/api/v1alpha1/pacto_types.go`
 
+## Kubernetes integration Go module path
+
+The Kubernetes integration ships as its own Go module inside the monorepo. Its
+module path now carries a `/v5` major-version suffix:
+`github.com/trianalab/pacto/integrations/kubernetes/v5`. Consumers that import the
+operator packages (for example `.../integrations/kubernetes/v5/api/v1alpha1`) must
+use the `/v5` path and pull the module at its nested tag:
+
+```bash
+go get github.com/trianalab/pacto/integrations/kubernetes/v5@v5.0.0
+```
+
+The published artifact coordinate is generated into
+`integrations/kubernetes/docs/generated/artifact-hub.md`. The operator image, Helm
+chart and documentation keep their own OCI/doc versions and are unaffected by the
+Go semantic-import suffix.
+
 ## No Automated Migration Tool
 
 Pacto 2.0 does NOT provide a `pacto migrate` command. This document is the authoritative migration guide. The contract shape changes are intentional refinements that require human review (particularly around the mandatory `required` field semantics for dependencies and configurations).

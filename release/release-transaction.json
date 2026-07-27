@@ -20,7 +20,7 @@
     "dashboard-image": "ghcr.io/trianalab/pacto-dashboard",
     "demo-bundles": "ghcr.io/trianalab/pacto-demo",
     "k8s-docs": "mkdocs:integrations/kubernetes",
-    "k8s-module": "github.com/trianalab/pacto/integrations/kubernetes",
+    "k8s-module": "github.com/trianalab/pacto/integrations/kubernetes/v5",
     "operator-chart": "ghcr.io/trianalab/pacto-operator/charts/pacto-operator",
     "operator-image": "ghcr.io/trianalab/pacto-operator/pacto-controller"
   },
@@ -31,7 +31,7 @@
     "dashboard-image": "2.7.0",
     "demo-bundles": "2.7.0",
     "k8s-docs": "4.7.0",
-    "k8s-module": "integrations/kubernetes/v4.7.0",
+    "k8s-module": "integrations/kubernetes/v5.0.0",
     "operator-chart": "4.7.0",
     "operator-image": "4.7.0"
   },

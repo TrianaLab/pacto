@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/internal/prober"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/prober"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 	appsv1 "k8s.io/api/apps/v1"

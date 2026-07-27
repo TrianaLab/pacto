@@ -6,7 +6,7 @@ BUNDLE_DIR := pactos/pacto-dashboard
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
        ci-e2e-envtest ci-e2e-kind ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
-       ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
+       verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
 # ── Monorepo CI matrix (go.work) ─────────────────────────────────────
@@ -133,6 +133,14 @@ artifact-drift:
 # release evidence.
 release-dry-run:
 	bash release/orchestrator/dry-run.sh
+
+# External-consumer proof for the Kubernetes integration Go module: a throwaway
+# module `go get`s github.com/trianalab/pacto/integrations/kubernetes/v5@v5.0.0 and
+# builds it with GOWORK=off and no replace, proving the /v5 semantic-import path is
+# valid Go and consumable by outside users. Local staging tags only, no publish.
+# Also invoked by release/orchestrator/dry-run.sh after the core verify-standalone.
+verify-k8s-standalone:
+	bash release/orchestrator/verify-k8s-standalone.sh
 
 ci-test:
 	@echo "==> Running unit tests with race detector and coverage..."

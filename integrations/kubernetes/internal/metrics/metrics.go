@@ -20,7 +20,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/api/v1alpha1"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
 )
 
 const meterName = "pacto.trianalab.io/operator"
