@@ -35,7 +35,7 @@
   }
 
   var go = new Go();
-  instantiate(new URL("app.wasm?v=5232032f8307", scriptURL), go.importObject)
+  instantiate(new URL("app.wasm?v=3eae8cbea9ca", scriptURL), go.importObject)
     .then(function (result) { go.run(result.instance); })
     .catch(function (err) { console.error("Pacto engine failed to load:", err); });
 
