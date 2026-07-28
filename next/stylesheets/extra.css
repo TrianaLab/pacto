@@ -375,3 +375,22 @@
   from { opacity: 0; transform: translateY(0.5rem); }
   to   { opacity: 1; transform: none; }
 }
+
+/* ---- Header: keep the mike version selector visible ------------------------
+   The mike version selector is injected into the header's site-name topic.
+   Material swaps that topic for the page-title topic on scroll (adds
+   .md-header__title--active), which hides the selector — and with the sticky
+   tabs header that active state is set even at the top, so the selector never
+   shows. Keep the site-name topic (and its version selector) visible and drop
+   the page-title-in-header swap; the page title still shows as the content H1. */
+.md-header__title--active .md-header__ellipsis > .md-header__topic:first-child {
+  z-index: 1;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+.md-header__title--active .md-header__ellipsis > .md-header__topic[data-md-component="header-topic"] {
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
+}
