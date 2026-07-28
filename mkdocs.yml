@@ -83,6 +83,9 @@ extra:
       link: https://github.com/TrianaLab/pacto
   version:
     provider: mike
+    # Show the alias (e.g. "latest") next to the current version in the selector,
+    # so the newest release is clearly marked as latest.
+    alias: true
 
 markdown_extensions:
   - abbr
