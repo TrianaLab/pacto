@@ -40,7 +40,9 @@ type dockerConfigEntry struct {
 
 // FromSecret extracts OCI registry credentials from a Kubernetes Secret.
 // For dockerconfigjson secrets, registry selects the matching auth entry.
-// For opaque secrets, registry is ignored (credentials apply globally).
+// For opaque secrets, a "registry" key (when present) binds the credentials to that
+// host and a request for any other registry is refused; keyless opaque secrets keep
+// the legacy global behavior.
 //
 // Precedence for opaque secrets: token > username+password.
 // Precedence for dockerconfigjson: exact host match > host with scheme stripped.
@@ -48,11 +50,23 @@ func FromSecret(secret *corev1.Secret, registry string) (*authn.AuthConfig, erro
 	if secret.Type == corev1.SecretTypeDockerConfigJson {
 		return fromDockerConfigJSON(secret, registry)
 	}
-	return fromOpaque(secret)
+	return fromOpaque(secret, registry)
 }
 
-// fromOpaque extracts credentials from an Opaque secret.
-func fromOpaque(secret *corev1.Secret) (*authn.AuthConfig, error) {
+// fromOpaque extracts credentials from an Opaque secret. When the secret declares a
+// "registry" key, the credentials are bound to that host: a request for any other
+// registry (or no registry) is refused. This stops a token scoped to one registry
+// from being handed to another — e.g. a contract that points pull traffic at an
+// attacker-controlled host to exfiltrate a referenced-but-unreadable secret. Secrets
+// without a "registry" key keep the legacy global behavior.
+func fromOpaque(secret *corev1.Secret, registry string) (*authn.AuthConfig, error) {
+	if bound := strings.TrimSpace(string(secret.Data["registry"])); bound != "" {
+		if registry == "" || normalizeRegistryHost(bound) != normalizeRegistryHost(registry) {
+			return nil, fmt.Errorf("secret %q is scoped to registry %q but credentials were requested for %q",
+				secret.Name, bound, registry)
+		}
+	}
+
 	if token := string(secret.Data["token"]); token != "" {
 		return &authn.AuthConfig{RegistryToken: token}, nil
 	}
@@ -208,7 +222,7 @@ func MergeToDockerConfigJSON(secrets []*corev1.Secret) ([]byte, error) {
 				return nil, fmt.Errorf("secret %q: opaque secrets must contain a 'registry' key "+
 					"specifying the registry hostname (e.g. ghcr.io)", secret.Name)
 			}
-			auth, err := fromOpaque(secret)
+			auth, err := fromOpaque(secret, registry)
 			if err != nil {
 				return nil, fmt.Errorf("secret %q: %w", secret.Name, err)
 			}

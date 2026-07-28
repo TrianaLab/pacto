@@ -78,6 +78,49 @@ func TestFromSecret_OpaqueInvalidKeys(t *testing.T) {
 	}
 }
 
+func TestFromSecret_OpaqueRegistryBound_Match(t *testing.T) {
+	// A "registry" key binds the opaque secret; a matching request succeeds.
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "s"},
+		Data:       map[string][]byte{"registry": []byte("ghcr.io"), "token": []byte("ghp_abc")},
+	}
+	auth, err := FromSecret(secret, "https://ghcr.io/v2/")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if auth.RegistryToken != "ghp_abc" {
+		t.Fatalf("expected token ghp_abc, got %s", auth.RegistryToken)
+	}
+}
+
+func TestFromSecret_OpaqueRegistryBound_Mismatch(t *testing.T) {
+	// A token scoped to ghcr.io must NOT be handed to a different registry, or a
+	// contract pointing pull traffic at an attacker host could exfiltrate it.
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "s"},
+		Data:       map[string][]byte{"registry": []byte("ghcr.io"), "token": []byte("ghp_abc")},
+	}
+	_, err := FromSecret(secret, "attacker.example.com")
+	if err == nil {
+		t.Fatal("expected error when requested registry differs from the secret's bound registry")
+	}
+	if !strings.Contains(err.Error(), "scoped to registry") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestFromSecret_OpaqueRegistryBound_NoRequestedRegistry(t *testing.T) {
+	// A bound secret must be refused when no target registry is specified.
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "s"},
+		Data:       map[string][]byte{"registry": []byte("ghcr.io"), "token": []byte("ghp_abc")},
+	}
+	_, err := FromSecret(secret, "")
+	if err == nil {
+		t.Fatal("expected error when a bound secret is used without a target registry")
+	}
+}
+
 func TestFromSecret_DockerConfigJSON_ExactMatch(t *testing.T) {
 	cfg := dockerConfigJSON{Auths: map[string]dockerConfigEntry{
 		"ghcr.io": {Username: "user", Password: "pass"},

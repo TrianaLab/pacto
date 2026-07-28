@@ -15,7 +15,7 @@ A `Pacto` resource points at a platform-agnostic contract (inline or in OCI) and
 | `spec.contractRef` | `object` | yes |  | ContractRef specifies where to find the Pacto contract. |
 | `spec.contractRef.inline` | `string` | no |  | Inline allows specifying the contract YAML directly (for testing/dev). |
 | `spec.contractRef.oci` | `string` | no |  | OCI is the OCI registry reference for the contract bundle. Three forms are supported: - Unversioned (ghcr.io/org/service-pacto): tracks the latest semver tag. - Tagged (ghcr.io/org/service-pacto:1.2.3): pinned to that exact tag. - Digest (ghcr.io/org/service-pacto@sha256:...): immutable, exact reference. |
-| `spec.contractRef.pullSecretRef` | `string` | no |  | PullSecretRef is the name of a Secret in the same namespace containing OCI registry credentials. Supported secret types: - Opaque with "token" key (bearer token) - Opaque with "username"+"password" keys (basic auth) - kubernetes.io/dockerconfigjson (standard Docker registry auth) |
+| `spec.contractRef.pullSecretRef` | `string` | no |  | PullSecretRef is the name of a Secret in the same namespace containing OCI registry credentials. Supported secret types: - Opaque with "token" key (bearer token) - Opaque with "username"+"password" keys (basic auth) - kubernetes.io/dockerconfigjson (standard Docker registry auth) For Opaque secrets, add a "registry" key (e.g. "ghcr.io") to bind the credentials to that host; the operator then refuses to send them to any other registry. Recommended to prevent a contract from redirecting a referenced secret to an attacker-controlled registry. |
 
 ## Runtime target (`spec.target`)
 

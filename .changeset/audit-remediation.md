@@ -1,5 +1,6 @@
 ---
 "@pacto/core": patch
+"@pacto/k8s-module": patch
 ---
 
 Repo-wide audit remediation (engine, CLI, dashboard). Closes the OpenAPI
