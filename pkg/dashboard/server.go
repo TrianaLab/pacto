@@ -1429,36 +1429,46 @@ func (s *Server) deferredVersionEnrich(ctx context.Context, base *serviceIndexCa
 	defer s.versionWg.Done()
 	defer s.versionEnriching.Store(false)
 
-	// Clone index entries so readers of the base cache are not affected.
-	enrichedIndex := make(map[string]*ServiceDetails, len(base.index))
-	for k, v := range base.index {
-		clone := *v
-		enrichedIndex[k] = &clone
-	}
-
-	for _, d := range enrichedIndex {
-		versions, err := s.source.GetVersions(ctx, d.Name)
+	// Compute the latest available version per service from a snapshot of the base
+	// index (no shared mutation while we make the N GetVersions calls).
+	latest := make(map[string]string, len(base.index))
+	for name := range base.index {
+		versions, err := s.source.GetVersions(ctx, name)
 		if err != nil || len(versions) == 0 {
 			continue
 		}
-		d.LatestAvailable = computeLatestAvailable(versions)
-		d.UpdateAvailable = isUpdateAvailable(d.Version, d.LatestAvailable)
+		latest[name] = computeLatestAvailable(versions)
+	}
+	if len(latest) == 0 {
+		return
 	}
 
-	enriched := &serviceIndexCache{
-		services:    base.services,
-		index:       enrichedIndex,
-		aliases:     base.aliases,
-		globalGraph: base.globalGraph,
-		builtAt:     time.Now(),
-	}
-
+	// Apply to the CURRENT cache, not just `base`. Under load the index is rebuilt
+	// faster than these API calls complete, so keying the swap off `== base` would
+	// discard every result and version data would never appear (starvation). Clone
+	// the current entries so readers of the old cache are unaffected.
 	s.indexMu.Lock()
-	// Only replace if no newer cache was built while we were enriching.
-	if s.indexCache == base {
-		s.indexCache = enriched
+	defer s.indexMu.Unlock()
+	target := s.indexCache
+	if target == nil {
+		return
 	}
-	s.indexMu.Unlock()
+	newIndex := make(map[string]*ServiceDetails, len(target.index))
+	for k, v := range target.index {
+		clone := *v
+		if l, ok := latest[k]; ok {
+			clone.LatestAvailable = l
+			clone.UpdateAvailable = isUpdateAvailable(clone.Version, l)
+		}
+		newIndex[k] = &clone
+	}
+	s.indexCache = &serviceIndexCache{
+		services:    target.services,
+		index:       newIndex,
+		aliases:     target.aliases,
+		globalGraph: target.globalGraph,
+		builtAt:     target.builtAt,
+	}
 }
 
 // WaitForVersionEnrich blocks until any in-flight background version

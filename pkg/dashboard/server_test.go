@@ -3259,3 +3259,31 @@ func TestGetCachedIndex_DetachesRequestContext(t *testing.T) {
 		t.Fatalf("cancelled request ctx poisoned the shared index: got %d entries, want 1", len(cached.index))
 	}
 }
+
+// TestDeferredVersionEnrich_AppliesToCurrentCacheNotBase proves version enrichment
+// lands even when the index was rebuilt while enrichment was running. Keying the swap
+// off the original base cache discarded every result under load (starvation).
+func TestDeferredVersionEnrich_AppliesToCurrentCacheNotBase(t *testing.T) {
+	src := &mockSource{
+		services: []Service{{Name: "svc", Version: "1.0.0"}},
+		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Version: "1.0.0"}}},
+		versions: map[string][]Version{"svc": {{Version: "2.0.0"}, {Version: "1.0.0"}}},
+	}
+	srv := NewServer(src, fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}})
+
+	base := &serviceIndexCache{index: map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Version: "1.0.0"}}}}
+	// A newer cache was built while enrichment was pending (simulates load).
+	current := &serviceIndexCache{index: map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Version: "1.0.0"}}}}
+	srv.indexCache = current
+
+	srv.versionWg.Add(1) // deferredVersionEnrich calls Done
+	srv.deferredVersionEnrich(context.Background(), base)
+
+	got := srv.indexCache.index["svc"]
+	if got.LatestAvailable != "2.0.0" {
+		t.Errorf("version enrichment did not land on the current cache (starved): LatestAvailable=%q", got.LatestAvailable)
+	}
+	if !got.UpdateAvailable {
+		t.Error("expected UpdateAvailable=true after enrichment landed")
+	}
+}
