@@ -1,0 +1,4124 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="An open, OCI-distributed contract standard for cloud-native services.">
+      
+      
+      
+        <link rel="canonical" href="https://pacto.run/3.0.1/architecture/">
+      
+      
+        <link rel="prev" href="../collectors/">
+      
+      
+        <link rel="next" href="../maintainers/releases/">
+      
+      
+      <link rel="icon" href="../favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.21">
+    
+    
+      
+        <title>Overview - Pacto</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.2a3383ac.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Pacto" class="md-header__button md-logo" aria-label="Pacto" data-md-component="logo">
+      
+  <img src="../assets/images/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Pacto
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Overview
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="white" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/TrianaLab/pacto" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrianaLab/pacto
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../manifesto/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Manifesto
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../installation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../patterns/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Patterns
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../developers/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../examples/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../contract-reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../github-actions/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Integrations
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../collectors/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Collectors
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Architecture
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../maintainers/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Maintainers
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Pacto" class="md-nav__button md-logo" aria-label="Pacto" data-md-component="logo">
+      
+  <img src="../assets/images/logo.svg" alt="logo">
+
+    </a>
+    Pacto
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/TrianaLab/pacto" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrianaLab/pacto
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manifesto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Manifesto
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Get started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Get started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quickstart
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../patterns/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Patterns
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Patterns
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/root-component/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Root + component contracts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/infrastructure-contracts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Infrastructure contracts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/composable-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Composable configurations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/configuration-schema-ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration schema ownership
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/policy-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Policy + schema contract
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/progressive-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Progressive policy versioning
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/override-files/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Override files
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Guides
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Guides
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    For developers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform-engineers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    For platform engineers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../examples/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Examples
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            Examples
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/dashboard-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Live dashboard demo
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/compliance-scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Compliance scenarios (where proven)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/cron-worker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cron worker
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/event-processor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Event processor
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/grpc-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    gRPC service
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hybrid-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Hybrid cache
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/nginx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Nginx
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/postgresql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    PostgreSQL
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/rabbitmq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    RabbitMQ
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/redis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Redis
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../contract-reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Contract reference
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7_1" id="__nav_7_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_1">
+            <span class="md-nav__icon md-icon"></span>
+            Contract reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contract sections
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Validation layers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/overrides/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contract overrides
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/diff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Change classification
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CLI reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lockfile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Lockfile
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pactoignore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Packaging ignore
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Integrations
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            Integrations
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github-actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GitHub Actions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    MCP integration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_3" id="__nav_8_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Kubernetes
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_3">
+            <span class="md-nav__icon md-icon"></span>
+            Kubernetes
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Overview
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Upgrade
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/contract-bindings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contract bindings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/runtime-observations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Runtime observations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/operator-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Operator configuration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/crd-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CRD reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/helm-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Helm reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/rbac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    RBAC
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/artifact-hub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Artifact Hub
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Limitations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Plugin development
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard-docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Dashboard container
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../collectors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Collectors
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Architecture
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            Architecture
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Overview
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Overview
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#conceptual-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      Conceptual model
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Conceptual model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#declaration-versus-observation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Declaration versus observation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-engine-evaluatecontract-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      The engine: Evaluate(contract, evidence)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#separation-of-concerns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Separation of concerns
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-operational-control-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      The operational control loop
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependency-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dependency graph
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layer-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      Layer overview
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#package-responsibilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      Package responsibilities
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Package responsibilities">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pkgcontract-domain-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/contract -- Domain model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgvalidation-validation-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/validation -- Validation engine
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgevidence-runtime-observation-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/evidence -- Runtime observation model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgfinding-evaluation-result-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/finding -- Evaluation result model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#collectors-evidence-is-the-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      Collectors -- Evidence is the boundary
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgcapability-agent-tool-projection" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/capability -- Agent tool projection
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgskills-bundle-domain-knowledge" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/skills -- Bundle domain knowledge
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgdiff-change-classifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/diff -- Change classifier
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgsbom-sbom-parser-and-differ" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/sbom -- SBOM parser and differ
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkggraph-dependency-resolver" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/graph -- Dependency resolver
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgoverride-yaml-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/override -- YAML overrides
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgdoc-documentation-generator" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/doc -- Documentation generator
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgopenapi-openapi-parser" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/openapi -- OpenAPI parser
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgplugin-plugin-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/plugin -- Plugin system
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgdashboard-dashboard-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/dashboard -- Dashboard server
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkglock-lockfile-builder-and-verifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/lock -- Lockfile builder and verifier
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgignore-bundle-ignore-matcher" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/ignore -- Bundle ignore matcher
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalapp-application-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      internal/app -- Application services
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalcli-cli-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      internal/cli -- CLI layer
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgoci-oci-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/oci -- OCI adapter
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalmcp-mcp-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      internal/mcp -- MCP server
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internallogger-logger-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      internal/logger -- Logger setup
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalupdate-update-checker" class="md-nav__link">
+    <span class="md-ellipsis">
+      internal/update -- Update checker
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dashboard-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dashboard architecture
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dashboard architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#source-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      Source model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#discovery-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      Discovery lifecycle
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#source-categories" class="md-nav__link">
+    <span class="md-ellipsis">
+      Source categories
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resolution-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resolution model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#version-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      Version history
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#classification" class="md-nav__link">
+    <span class="md-ellipsis">
+      Classification
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internal-materialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      Internal materialization
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-provenance-sectionmeta" class="md-nav__link">
+    <span class="md-ellipsis">
+      Section provenance (SectionMeta)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-no-cache-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      --no-cache semantics
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#graph-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      Graph model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#server-and-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      Server and API
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#version-tracking" class="md-nav__link">
+    <span class="md-ellipsis">
+      Version tracking
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#design-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      Design principles
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architectural-invariants" class="md-nav__link">
+    <span class="md-ellipsis">
+      Architectural invariants
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Maintainers
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            Maintainers
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintainers/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Release architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Changelog
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#conceptual-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      Conceptual model
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Conceptual model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#declaration-versus-observation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Declaration versus observation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-engine-evaluatecontract-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      The engine: Evaluate(contract, evidence)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#separation-of-concerns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Separation of concerns
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-operational-control-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      The operational control loop
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependency-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dependency graph
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layer-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      Layer overview
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#package-responsibilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      Package responsibilities
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Package responsibilities">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pkgcontract-domain-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/contract -- Domain model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgvalidation-validation-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/validation -- Validation engine
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgevidence-runtime-observation-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/evidence -- Runtime observation model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgfinding-evaluation-result-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/finding -- Evaluation result model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#collectors-evidence-is-the-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      Collectors -- Evidence is the boundary
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgcapability-agent-tool-projection" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/capability -- Agent tool projection
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgskills-bundle-domain-knowledge" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/skills -- Bundle domain knowledge
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgdiff-change-classifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/diff -- Change classifier
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgsbom-sbom-parser-and-differ" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/sbom -- SBOM parser and differ
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkggraph-dependency-resolver" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/graph -- Dependency resolver
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgoverride-yaml-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/override -- YAML overrides
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgdoc-documentation-generator" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/doc -- Documentation generator
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgopenapi-openapi-parser" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/openapi -- OpenAPI parser
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgplugin-plugin-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/plugin -- Plugin system
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgdashboard-dashboard-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/dashboard -- Dashboard server
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkglock-lockfile-builder-and-verifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/lock -- Lockfile builder and verifier
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgignore-bundle-ignore-matcher" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/ignore -- Bundle ignore matcher
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalapp-application-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      internal/app -- Application services
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalcli-cli-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      internal/cli -- CLI layer
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pkgoci-oci-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      pkg/oci -- OCI adapter
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalmcp-mcp-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      internal/mcp -- MCP server
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internallogger-logger-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      internal/logger -- Logger setup
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalupdate-update-checker" class="md-nav__link">
+    <span class="md-ellipsis">
+      internal/update -- Update checker
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dashboard-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dashboard architecture
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dashboard architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#source-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      Source model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#discovery-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      Discovery lifecycle
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#source-categories" class="md-nav__link">
+    <span class="md-ellipsis">
+      Source categories
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resolution-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resolution model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#version-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      Version history
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#classification" class="md-nav__link">
+    <span class="md-ellipsis">
+      Classification
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internal-materialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      Internal materialization
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-provenance-sectionmeta" class="md-nav__link">
+    <span class="md-ellipsis">
+      Section provenance (SectionMeta)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-no-cache-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      --no-cache semantics
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#graph-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      Graph model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#server-and-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      Server and API
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#version-tracking" class="md-nav__link">
+    <span class="md-ellipsis">
+      Version tracking
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#design-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      Design principles
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architectural-invariants" class="md-nav__link">
+    <span class="md-ellipsis">
+      Architectural invariants
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/TrianaLab/pacto/edit/main/docs/architecture.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Anchor link">&para;</a></h1>
+<p>Pacto follows a layered architecture where dependencies flow predominantly in one direction. There are small, deliberate exceptions documented below. This page describes the internal design for contributors and plugin authors.</p>
+<hr />
+<h2 id="conceptual-model">Conceptual model<a class="headerlink" href="#conceptual-model" title="Anchor link">&para;</a></h2>
+<p>A Pacto contract describes the relationships between a service's interfaces and how they change over time — ownership, dependencies, compatibility and readiness. A single JSON Schema describes one interface in isolation and structurally cannot express how interfaces relate or evolve; that relational and temporal layer is Pacto's differentiator. It is why the core splits into <code>pkg/graph</code> (dependencies), <code>pkg/diff</code> (compatibility and change over time) and <code>pkg/validation</code> (structural enforcement and evidence evaluation).</p>
+<p>Underneath, Pacto composes the interfaces you already have rather than inventing a configuration language. An interface is a JSON Schema, OpenAPI spec or event schema — a service's config interface is its config JSON Schema, an API interface is its OpenAPI document. Where an interface is already owned by another system, Pacto composes it instead of reinventing it. Composition is the on-ramp; the operational contract is the differentiator.</p>
+<blockquote>
+<p>This mirrors the classic split between <em>interfaces</em> (configuration schema) and <em>requirements</em> (dependencies): composition covers the interfaces half, dependencies and compatibility cover the requirements half.</p>
+</blockquote>
+<p>In one line: <strong>JSON Schema describes an interface; Pacto describes the relationships between interfaces and how they change over time.</strong></p>
+<h3 id="declaration-versus-observation">Declaration versus observation<a class="headerlink" href="#declaration-versus-observation" title="Anchor link">&para;</a></h3>
+<p>The contract is stable author <em>intent</em>: what a service is operationally, independent of any orchestrator. What a service actually looks like at runtime is an <em>observation</em>, and it lives entirely outside the declared contract. The V2 core is built around that separation. The <code>Contract</code> type (<code>pkg/contract</code>) carries only intent — there is no <code>runtime</code> block, no port, no scaling and no image field; those are delivery and observation concerns owned by integrations. Runtime facts are carried by a separate <code>EvidenceSet</code> (<code>pkg/evidence</code>), produced by a collector, and the engine reasons over the two together.</p>
+<h3 id="the-engine-evaluatecontract-evidence">The engine: <code>Evaluate(contract, evidence)</code><a class="headerlink" href="#the-engine-evaluatecontract-evidence" title="Anchor link">&para;</a></h3>
+<p>The heart of V2 is a pure function (<code>pkg/validation/evaluate.go</code>):</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Evaluate(contract.Contract, evidence.EvidenceSet) -&gt; ([]finding.Finding, Coverage)
+</span></code></pre></div>
+<p>It is stateless and dependency-light: it reads a collector-stamped <code>Outcome</code> on each observation and applies no temporal, network or Kubernetes logic. For each required assertion in the contract (an interface's availability, a capability, a required dependency or configuration, the workload, persistence) it looks for a matching observation and produces exactly one of three results:</p>
+<ul>
+<li><strong>Confirmed violation</strong> — a matching observation has <code>Outcome=Observed</code> and its payload contradicts the contract. Emits an <code>error</code> finding in the <code>RuntimeDrift</code> category (for example <code>CONFIGURATION_ABSENT</code>, <code>CONFIGURATION_MISMATCH</code>, <code>INTERFACE_ABSENT</code>, <code>DEPENDENCY_UNREACHABLE</code>).</li>
+<li><strong>Uncertainty</strong> — no usable observation exists (missing, <code>Unsupported</code>, <code>Failed</code>, <code>Stale</code> or <code>Insufficient</code>). Emits an <code>unknown</code> finding in the <code>Inconclusive</code> category (for example <code>EVIDENCE_MISSING</code>, <code>COLLECTION_FAILED</code>). A required assertion Pacto cannot observe is never silently treated as a pass.</li>
+<li><strong>Satisfied</strong> — a matching <code>Observed</code> observation is consistent with the contract. No finding.</li>
+</ul>
+<p><code>Coverage</code> reports how many required assertions were actually evaluated versus declared. It is explanatory metadata and never changes the aggregate compliance state: an inability to observe is not a violation.</p>
+<p>The compliance model consumers derive from these findings has four substantive states — <strong>Compliant</strong>, <strong>NonCompliant</strong>, <strong>Unknown</strong> and <strong>Invalid</strong> — plus the informational <strong>Warning</strong>, <strong>Reference</strong> (the contract declares no runtime target) and <strong>NotEvaluated</strong> (a target exists but no evidence is available yet). The guiding rule: a confirmed contradiction is an error; an inability to observe is Unknown, not a contradiction. See <a href="../examples/compliance-scenarios/">Compliance scenarios</a> for where each state is exercised.</p>
+<h3 id="separation-of-concerns">Separation of concerns<a class="headerlink" href="#separation-of-concerns" title="Anchor link">&para;</a></h3>
+<p>The V2 model keeps eight roles distinct. Some are first-class Go types; where a concept is useful but not a first-class type, this is stated explicitly.</p>
+<table>
+<thead>
+<tr>
+<th>Concept</th>
+<th>Where it lives</th>
+<th>First-class type?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Contract</strong> — declared operational intent</td>
+<td><code>pkg/contract</code> <code>Contract</code></td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Bundle</strong> — the contract plus the interface/config/policy/skill files it composes</td>
+<td><code>pkg/contract</code> <code>Bundle</code> (a <code>Contract</code> + <code>fs.FS</code>)</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Interface</strong> — a composed spec (OpenAPI, AsyncAPI, gRPC) the service exposes</td>
+<td><code>pkg/contract</code> <code>Interface</code> (references a file in the bundle)</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Capability (contract)</strong> — a declared observability capability: <code>health</code>, <code>metrics</code> or a namespaced <code>extension</code></td>
+<td><code>pkg/contract</code> <code>Capability</code></td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Generated tool / skill</strong> — an agent-facing <em>projection</em> of a bundle, not part of the domain model</td>
+<td><code>pkg/capability</code> <code>BuildTools</code> (tools from an OpenAPI interface); <code>pkg/skills</code> (<code>skills/*.md</code>)</td>
+<td>Projection, not a contract type</td>
+</tr>
+<tr>
+<td><strong>Policy</strong> — a JSON Schema that validates the contract itself</td>
+<td><code>pkg/contract</code> <code>Policy</code>; resolved and enforced in <code>pkg/validation</code></td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Evidence</strong> — a runtime observation, external to the contract</td>
+<td><code>pkg/evidence</code> <code>Observation</code> / <code>EvidenceSet</code></td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Evaluation result</strong> — typed findings plus coverage</td>
+<td><code>pkg/finding</code> <code>Finding</code>; <code>pkg/validation</code> <code>Coverage</code></td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Collector</strong> — turns a real system into evidence</td>
+<td>any component producing a valid <code>EvidenceSet</code> (<code>pkg/evidence</code>); the first-party one is the Kubernetes collector (<code>integrations/kubernetes</code>)</td>
+<td>No core interface — Evidence is the boundary</td>
+</tr>
+<tr>
+<td><strong>Plugin / controller / external actor</strong> — interprets a contract and acts through existing tools</td>
+<td><code>pkg/plugin</code> (out-of-process); controllers live in <code>integrations/*</code></td>
+<td>Boundary, not core logic</td>
+</tr>
+</tbody>
+</table>
+<p>Two clarifications the naming can obscure:</p>
+<ul>
+<li><strong>Generated tools are not the contract's <code>capabilities</code>.</strong> The contract <code>capabilities</code> section declares observability endpoints (<code>health</code>/<code>metrics</code>/<code>extension</code>). Separately, <code>pkg/capability</code> <em>derives</em> agent-callable tools from a bundle's OpenAPI interface. A generated tool is a projection of an interface; it is not a new capability Pacto invents, and it is not the <code>capabilities</code> domain type.</li>
+<li><strong>The engine does not observe or act.</strong> It only reasons over <code>Contract</code> and <code>EvidenceSet</code>. Observing reality is a collector's job; performing actions is an external actor's job; deciding whether an action is <em>permitted</em> is a runtime control's job (OPA, Kyverno, admission, IAM). Pacto supplies the structured operational meaning those systems interpret and verify against — it is not one of them.</li>
+</ul>
+<h3 id="the-operational-control-loop">The operational control loop<a class="headerlink" href="#the-operational-control-loop" title="Anchor link">&para;</a></h3>
+<p>These roles compose into a loop that a platform or an agent can drive. Steps 1, 2, 5 and 6 are implemented in this codebase (the CLI, the dashboard, the collector and <code>Evaluate</code>); steps 3 and 4 are performed by external systems Pacto integrates with, not by Pacto itself.</p>
+<ol>
+<li><strong>Declare.</strong> A contract states the service's identity, interfaces, capabilities, configuration, dependencies and policies — its operational intent.</li>
+<li><strong>Read.</strong> A platform, a controller or an agent inspects the contract (<code>pacto explain</code>, the dashboard API, or generated tools over MCP) to learn what the service is and what it can do.</li>
+<li><strong>Constrain.</strong> External controls — policies, permissions, admission, IAM — decide which actions are allowed. Pacto validates a contract against policy schemas; it does not grant runtime permissions.</li>
+<li><strong>Act.</strong> Controllers, deploy systems, plugins or agents perform actions through existing infrastructure and tools.</li>
+<li><strong>Observe.</strong> Collectors obtain runtime evidence from the real system and produce a <code>pkg/evidence</code> <code>EvidenceSet</code> (the Kubernetes collector is the first shipped one).</li>
+<li><strong>Evaluate.</strong> <code>Evaluate(contract, evidence)</code> reports whether observed reality is consistent with the declared contract, producing typed findings and coverage.</li>
+</ol>
+<hr />
+<h2 id="dependency-graph">Dependency graph<a class="headerlink" href="#dependency-graph" title="Anchor link">&para;</a></h2>
+<pre class="mermaid"><code>graph TD
+    MAIN[cmd/pacto/main.go&lt;br/&gt;Composition Root] --&gt; CLI[internal/cli&lt;br/&gt;Cobra Commands]
+    MAIN --&gt; APP
+    MAIN --&gt; OCI
+    MAIN --&gt; PLUG
+    CLI --&gt; LOG[internal/logger&lt;br/&gt;Logger Setup]
+    CLI --&gt; MCP[internal/mcp&lt;br/&gt;MCP Server]
+    CLI --&gt; UPDATE[internal/update&lt;br/&gt;Update Checker]
+    MCP --&gt; APP
+    MCP --&gt; CAP[pkg/capability&lt;br/&gt;Agent Tools]
+    MCP --&gt; SKILL[pkg/skills&lt;br/&gt;Bundle Skills]
+    DASH --&gt; CAP
+    CLI --&gt; APP[internal/app&lt;br/&gt;Application Services]
+    APP --&gt; VAL[pkg/validation&lt;br/&gt;Validator + Evaluate]
+    VAL --&gt; FIND[pkg/finding&lt;br/&gt;Findings]
+    VAL --&gt; EVID[pkg/evidence&lt;br/&gt;Evidence]
+    APP --&gt; DIFF[pkg/diff&lt;br/&gt;Change Classifier]
+    APP --&gt; GRAPH[pkg/graph&lt;br/&gt;Dependency Resolver]
+    APP --&gt; OCI[pkg/oci&lt;br/&gt;OCI Adapter]
+    APP --&gt; PLUG[pkg/plugin&lt;br/&gt;Plugin Runner]
+    APP --&gt; DOC[pkg/doc&lt;br/&gt;Doc Generator]
+    APP --&gt; OVER[pkg/override&lt;br/&gt;YAML Overrides]
+    APP --&gt; DASH
+    CLI --&gt; DASH[pkg/dashboard&lt;br/&gt;Dashboard Server]
+    DASH --&gt; CONTRACT
+    DOC --&gt; DASH
+    DASH --&gt; DIFF
+    DASH --&gt; VAL
+    DASH --&gt; GRAPH
+    DASH --&gt; OCI
+    DIFF --&gt; SBOM[pkg/sbom&lt;br/&gt;SBOM Parser &amp; Differ]
+    VAL --&gt; GRAPH
+    DOC --&gt; GRAPH
+    DOC --&gt; VAL
+    VAL --&gt; CONTRACT[pkg/contract&lt;br/&gt;Domain Model]
+    DOC --&gt; CONTRACT
+    DIFF --&gt; CONTRACT
+    GRAPH --&gt; CONTRACT
+    OCI --&gt; CONTRACT
+    PLUG --&gt; CONTRACT
+    UPDATE -.-&gt; OCI
+    APP --&gt; LOCK[pkg/lock&lt;br/&gt;Lockfile Model]
+    APP --&gt; IGN[pkg/ignore&lt;br/&gt;Bundle Ignore]
+
+    classDef pkg fill:#e0f0ff,stroke:#4a90d9
+    classDef internal fill:#fff3e0,stroke:#e6a23c
+    class CONTRACT,VAL,DIFF,GRAPH,PLUG,DOC,SBOM,OVER,DASH,OCI,LOCK,IGN,FIND,EVID,CAP,SKILL pkg
+    class APP,CLI,LOG,MCP,MAIN,UPDATE internal</code></pre>
+<p>Dependencies flow <strong>downward only</strong>. The OCI adapter (<code>pkg/oci</code>) is a public package, importable by external consumers such as the <a href="../integrations/kubernetes/overview/">Kubernetes Operator</a>. So are the engine packages the operator consumes — <code>pkg/contract</code>, <code>pkg/evidence</code>, <code>pkg/finding</code> and <code>pkg/validation</code> — none of which import Kubernetes (enforced by the import-boundary gate <code>tests/architecture/boundary_test.go</code>). A collector feeds the engine by producing a <code>pkg/evidence</code> <code>EvidenceSet</code>; there is no core collector interface to implement.</p>
+<hr />
+<h2 id="layer-overview">Layer overview<a class="headerlink" href="#layer-overview" title="Anchor link">&para;</a></h2>
+<p>The codebase is organized into three layers:</p>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Location</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Core</strong></td>
+<td><code>pkg/</code></td>
+<td>Pure, reusable domain logic. No CLI deps, no side effects beyond minimal I/O.</td>
+</tr>
+<tr>
+<td><strong>Application</strong></td>
+<td><code>internal/app</code></td>
+<td>Use-case orchestration. Each CLI command maps to one service method. Returns structured results (never prints).</td>
+</tr>
+<tr>
+<td><strong>Interfaces</strong></td>
+<td><code>internal/cli</code>, <code>cmd/</code></td>
+<td>Thin adapters. Flag parsing, output formatting, process bootstrap. Zero business logic.</td>
+</tr>
+</tbody>
+</table>
+<p>Infrastructure adapters live in <code>internal/</code> because they depend on external systems or framework-specific details:</p>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>internal/mcp</code></td>
+<td>Model Context Protocol server for AI tool integration</td>
+</tr>
+<tr>
+<td><code>internal/logger</code></td>
+<td>Global <code>slog</code> configuration</td>
+</tr>
+<tr>
+<td><code>internal/update</code></td>
+<td>Async GitHub version checking and self-update</td>
+</tr>
+</tbody>
+</table>
+<p>Test infrastructure lives in <code>internal/testutil</code>, which provides shared mocks and fixtures (<code>MockBundleStore</code>, <code>MockPluginRunner</code>, <code>TestBundle()</code>) used across test packages.</p>
+<p><code>pkg/dashboard</code> is the largest core package — a self-contained app component (HTTP server, multi-source aggregation, graph, compliance, K8s client, embedded SPA) that the operator also embeds.</p>
+<hr />
+<h2 id="package-responsibilities">Package responsibilities<a class="headerlink" href="#package-responsibilities" title="Anchor link">&para;</a></h2>
+<h3 id="pkgcontract-domain-model"><code>pkg/contract</code> -- Domain model<a class="headerlink" href="#pkgcontract-domain-model" title="Anchor link">&para;</a></h3>
+<p>The root public package. Contains pure Go types and logic with <strong>zero I/O and zero framework dependencies</strong>. Imports nothing from the project.</p>
+<ul>
+<li><code>Contract</code> -- the root aggregate. Top-level <code>Service</code>, <code>Interfaces</code>, <code>Configurations</code>, <code>Dependencies</code>, <code>State</code>, <code>Workload</code> (a string), <code>Capabilities</code>, <code>Policies</code>, <code>Readiness</code>, <code>Verification</code>, <code>Metadata</code>, <code>Extensions</code>. There is no <code>Runtime</code> wrapper and no port/scaling/image field — those are delivery and observation concerns, external to the declared contract.</li>
+<li><code>Service</code>, <code>Interface</code>, <code>Configuration</code>, <code>Policy</code>, <code>Dependency</code>, <code>Capability</code>, <code>State</code> -- the section types (the V2 model; <code>ServiceIdentity</code>/<code>Runtime</code>/<code>ConfigurationSource</code>/<code>PolicySource</code> from v1 no longer exist)</li>
+<li><code>Parse()</code> -- YAML deserialization</li>
+<li><code>Bundle</code> -- <code>Contract</code> + <code>fs.FS</code> (the contract plus the files it composes)</li>
+<li><code>OCIReference</code> -- OCI reference parsing</li>
+<li><code>Range</code> -- Semver constraint evaluation</li>
+</ul>
+<h3 id="pkgvalidation-validation-engine"><code>pkg/validation</code> -- Validation engine<a class="headerlink" href="#pkgvalidation-validation-engine" title="Anchor link">&para;</a></h3>
+<p>Four-layer, short-circuit validation:</p>
+<pre class="mermaid"><code>flowchart LR
+    A[Layer 1&lt;br/&gt;Structural&lt;br/&gt;JSON Schema] --&gt; B[Layer 2&lt;br/&gt;Cross-Field&lt;br/&gt;Reference Validation]
+    B --&gt; C[Layer 3&lt;br/&gt;Semantic&lt;br/&gt;Consistency Checks]
+    C --&gt; D[Layer 4&lt;br/&gt;Policy&lt;br/&gt;Enforcement]</code></pre>
+<p>Each layer short-circuits -- if it produces errors, subsequent layers are skipped. See <a href="../contract-reference/validation/#validation-layers">Validation layers</a> for the per-layer rules and error codes. <code>Validate()</code> resolves policies locally (used by pack/push); <code>ValidateWithResolver()</code> resolves referenced policy contracts recursively (used by the validate command).</p>
+<p>This package also holds the runtime evaluator, <code>Evaluate(contract, evidence) -&gt; ([]finding.Finding, Coverage)</code> (<code>evaluate.go</code>) — the pure function described under <a href="#the-engine-evaluatecontract-evidence">The engine</a>. It compares declared intent against a collector-produced <code>evidence.EvidenceSet</code> and returns typed findings plus coverage. It is stateless and free of platform dependencies, so the <a href="../integrations/kubernetes/overview/">Kubernetes operator</a> consumes it without pulling k8s types into the core library. Structural validation and runtime evaluation are distinct: the four layers above decide whether a contract is <em>valid</em>; <code>Evaluate</code> decides whether a valid contract <em>matches observed reality</em>.</p>
+<h3 id="pkgevidence-runtime-observation-model"><code>pkg/evidence</code> -- Runtime observation model<a class="headerlink" href="#pkgevidence-runtime-observation-model" title="Anchor link">&para;</a></h3>
+<p>The external-facts half of the engine. Defines a discriminated <code>Observation</code> carrying an <code>Outcome</code> (<code>Observed</code>, <code>Unsupported</code>, <code>Failed</code>, <code>Stale</code>, <code>Insufficient</code>) and a typed payload that is present iff <code>Outcome == Observed</code>. Assertion identity lives on <code>SubjectRef</code>, so a non-<code>Observed</code> observation is still attributable. An <code>EvidenceSet</code> is a timestamped, provenance-stamped collection of observations about one service. Constructors (<code>NewCapabilityObserved</code>, <code>NewInterfaceObserved</code>, …) and JSON marshaling enforce the "Observed implies exactly one payload" invariant at every boundary. Evidence is produced by collectors and consumed by <code>Evaluate</code>; it is never part of the declared contract.</p>
+<h3 id="pkgfinding-evaluation-result-model"><code>pkg/finding</code> -- Evaluation result model<a class="headerlink" href="#pkgfinding-evaluation-result-model" title="Anchor link">&para;</a></h3>
+<p>A pure data package with zero external dependencies: no knowledge of collectors, reporters, k8s, OCI or persistence. Defines <code>Finding</code> (a typed conclusion with <code>Code</code>, <code>Severity</code>, <code>Category</code>, <code>Subject</code>, <code>ContractPath</code>, <code>Message</code> and optional <code>EvidenceRefs</code>), the severity ladder (<code>error</code>/<code>warning</code>/<code>info</code>/<code>unknown</code>) and the code registry that maps each stable <code>Code</code> to a category and default severity. Family 1 codes are confirmed violations (<code>{RuntimeDrift, error}</code>); family 2 codes are evidence uncertainty (<code>{Inconclusive, unknown}</code>). Reporters at the edge project <code>Finding</code> into external shapes (SARIF, PolicyReport); this package never imports them.</p>
+<h3 id="collectors-evidence-is-the-boundary">Collectors -- Evidence is the boundary<a class="headerlink" href="#collectors-evidence-is-the-boundary" title="Anchor link">&para;</a></h3>
+<p>There is intentionally <strong>no <code>pkg/collector.Collector</code> interface</strong>. Different environments need different collector inputs (the Kubernetes collector needs CR bindings and temporal windows; another environment may need build results or cloud resource identifiers), so forcing them through one speculative input signature would either leak platform concepts into the core or be an abstraction only for symmetry. Instead, the stable extension boundary is the <strong><code>EvidenceSet</code></strong> (<code>pkg/evidence</code>): a <em>collector</em> is any component that observes a real system and produces a valid, validated <code>EvidenceSet</code> that <code>Evaluate(contract, evidence)</code> consumes. Concrete collector APIs live in their integrations (the Kubernetes observer in <code>integrations/kubernetes/internal/observer</code>); the pure engine never imports them. This is modularity through a stable Evidence schema — not a dynamically pluggable collector runtime.</p>
+<h3 id="pkgcapability-agent-tool-projection"><code>pkg/capability</code> -- Agent tool projection<a class="headerlink" href="#pkgcapability-agent-tool-projection" title="Anchor link">&para;</a></h3>
+<p>Turns a bundle's OpenAPI interface into agent-callable tools: <code>BuildTools</code> derives one <code>Tool</code> per operation (input schema from parameters and request body; mutating operations gated behind an opt-in) and <code>Invoke</code> calls the live service. This is a <em>projection</em> of a declared interface, not a contract type — it is distinct from the contract <code>capabilities</code> section (which declares <code>health</code>/<code>metrics</code>/<code>extension</code> observability). Consumed by <code>internal/mcp</code> and the dashboard; HTTP/OpenAPI-specific today.</p>
+<h3 id="pkgskills-bundle-domain-knowledge"><code>pkg/skills</code> -- Bundle domain knowledge<a class="headerlink" href="#pkgskills-bundle-domain-knowledge" title="Anchor link">&para;</a></h3>
+<p>Reads a bundle's optional <code>skills/*.md</code> documents — workflows, business rules and operational guidance an interface alone cannot express. Skills are bundle-level knowledge, independent of interface type, and are surfaced to agents alongside generated tools (via <code>pacto_skill</code> in the MCP server). Like generated tools, skills are a projection of the bundle, not part of the contract domain model.</p>
+<h3 id="pkgdiff-change-classifier"><code>pkg/diff</code> -- Change classifier<a class="headerlink" href="#pkgdiff-change-classifier" title="Anchor link">&para;</a></h3>
+<p>Compares two contracts and classifies every change using a deterministic rule table. Sub-analyzers handle specific sections:</p>
+<ul>
+<li><code>contract.go</code> -- service identity, workload, state, capabilities</li>
+<li><code>interfaces.go</code> -- interface additions/removals/changes, configuration and policy diffing</li>
+<li><code>dependency.go</code> -- dependency list changes</li>
+<li><code>openapi.go</code> -- deep OpenAPI diff (paths, methods, parameters, request bodies, responses)</li>
+<li><code>schema.go</code> -- recursive JSON Schema diff (properties, required fields, types, constraints)</li>
+<li><code>readiness.go</code> -- readiness assessment (all changes NonBreaking, still surfaced)</li>
+</ul>
+<h3 id="pkgsbom-sbom-parser-and-differ"><code>pkg/sbom</code> -- SBOM parser and differ<a class="headerlink" href="#pkgsbom-sbom-parser-and-differ" title="Anchor link">&para;</a></h3>
+<p>Parses SPDX 2.3 and CycloneDX 1.5 SBOM files from the bundle's <code>sbom/</code> directory and normalizes them into a unified package model. Provides a diff engine that compares two SBOM documents and reports package-level changes (added, removed, version/license modified).</p>
+<ul>
+<li><code>ParseFromFS()</code> -- scans <code>sbom/</code> for recognized extensions, auto-detects format</li>
+<li><code>HasSBOM()</code> -- checks whether a bundle contains recognized SBOM files</li>
+<li><code>Diff()</code> -- compares two SBOM documents and returns changes</li>
+</ul>
+<p>The diff engine (<code>pkg/diff</code>) calls into this package when both bundles contain SBOMs. Results are reported separately from contract changes and don't affect classification.</p>
+<h3 id="pkggraph-dependency-resolver"><code>pkg/graph</code> -- Dependency resolver<a class="headerlink" href="#pkggraph-dependency-resolver" title="Anchor link">&para;</a></h3>
+<p>Builds a dependency graph by recursively fetching contracts from OCI registries and local paths. Sibling dependencies at each level are resolved concurrently. Detects cycles and version conflicts.</p>
+<ul>
+<li><code>ParseDependencyRef()</code> -- centralized dependency reference parser (<code>oci://</code>, <code>file://</code>, bare paths)</li>
+<li><code>RenderTree()</code> / <code>RenderDiffTree()</code> -- tree-style rendering with connectors</li>
+<li><code>DiffGraphs()</code> -- structural diff between two dependency graphs</li>
+</ul>
+<h3 id="pkgoverride-yaml-overrides"><code>pkg/override</code> -- YAML overrides<a class="headerlink" href="#pkgoverride-yaml-overrides" title="Anchor link">&para;</a></h3>
+<p>Applies value-file and <code>--set</code> overrides to raw YAML before parsing. Supports deep merge, dot-separated paths, and array index notation.</p>
+<h3 id="pkgdoc-documentation-generator"><code>pkg/doc</code> -- Documentation generator<a class="headerlink" href="#pkgdoc-documentation-generator" title="Anchor link">&para;</a></h3>
+<p>Renders the dashboard's single-service <code>ServiceDetails</code> snapshot as a Markdown document and as a self-contained static HTML site that reuses the embedded dashboard UI (<code>dashboard.EmbeddedUI()</code>) with the snapshot injected as <code>window.__PACTO_STATIC__</code>. It no longer re-derives content from the raw contract — the dashboard and the doc read the same model, so they cannot drift. <code>--serve</code> serves the static site, and <code>--ui swagger</code> serves the API explorer.</p>
+<h3 id="pkgopenapi-openapi-parser"><code>pkg/openapi</code> -- OpenAPI parser<a class="headerlink" href="#pkgopenapi-openapi-parser" title="Anchor link">&para;</a></h3>
+<p>A leaf package that parses OpenAPI specs into endpoint lists. Used by <code>pkg/dashboard</code> (interface endpoint tables), <code>pkg/capability</code> (MCP tool generation) and <code>internal/mcp</code>.</p>
+<h3 id="pkgplugin-plugin-system"><code>pkg/plugin</code> -- Plugin system<a class="headerlink" href="#pkgplugin-plugin-system" title="Anchor link">&para;</a></h3>
+<p>Out-of-process plugin execution via JSON stdin/stdout. Discovers plugin binaries and manages the communication protocol. See the <a href="../plugins/">Plugin Development</a> guide.</p>
+<h3 id="pkgdashboard-dashboard-server"><code>pkg/dashboard</code> -- Dashboard server<a class="headerlink" href="#pkgdashboard-dashboard-server" title="Anchor link">&para;</a></h3>
+<p>The exploration and observability layer of the Pacto system. See <a href="#dashboard-architecture">Dashboard architecture</a> below for a detailed design description.</p>
+<h3 id="pkglock-lockfile-builder-and-verifier"><code>pkg/lock</code> -- Lockfile builder and verifier<a class="headerlink" href="#pkglock-lockfile-builder-and-verifier" title="Anchor link">&para;</a></h3>
+<p>Deterministic lockfile model for dependency and reference closure tracking. Pure, dependency-light package (stdlib + <code>gopkg.in/yaml.v3</code> only).</p>
+<ul>
+<li><code>Lock</code> -- root model with <code>Root</code>, <code>Dependencies[]</code>, <code>References[]</code></li>
+<li><code>Marshal()</code> -- stable-sorted, byte-identical deterministic serialization so re-marshaling an unchanged closure produces identical output</li>
+<li><code>HashFS()</code> -- content hashing for local bundles (sha256 over sorted file list with length-prefixed paths and data)</li>
+<li>Typed errors: <code>DriftError</code> (OCI digest mismatch), <code>LocalDriftError</code> (local content changed), <code>StaleError</code> (pacto.yaml and pacto.lock disagree), <code>ConflictError</code> (conflicting version requirements), <code>UnresolvedError</code> (resolution failure), <code>MissingError</code> (lock required but absent)</li>
+</ul>
+<p>Closure building (transitive dependencies and transitive config/policy references) lives in <code>internal/app</code>. Verification is wired into validate, graph, diff and push commands with go.sum-style hard-fail semantics. See the <a href="../lockfile/">Lockfile</a> reference for the file format and workflow.</p>
+<h3 id="pkgignore-bundle-ignore-matcher"><code>pkg/ignore</code> -- Bundle ignore matcher<a class="headerlink" href="#pkgignore-bundle-ignore-matcher" title="Anchor link">&para;</a></h3>
+<p>Gitignore-style pattern matching for <code>.pactoignore</code> filtering. Determines which files are excluded from bundle packaging.</p>
+<ul>
+<li><code>DefaultPatterns</code> -- <code>.git/</code>, <code>.pactoignore</code>, <code>.DS_Store</code> (a committed <code>pacto.lock</code> is intentionally NOT default-ignored — it ships inside the bundle)</li>
+<li><code>alwaysKeep</code> guard -- ensures <code>pacto.yaml</code> is never ignorable regardless of user patterns</li>
+<li><code>Matcher.Ignored()</code> -- ancestor-aware filtering (files inside ignored directories are themselves ignored)</li>
+<li><code>FS()</code> -- filtering <code>fs.FS</code> wrapper applied at bundle load so pack, push and validation see one consistent file set</li>
+</ul>
+<p>Supports gitignore syntax: comments (<code>#</code>), negation (<code>!</code>), directory-only (<code>/</code>), anchoring (<code>^/</code>), globs (<code>*</code>, <code>?</code>, <code>[]</code>) and double-star (<code>**</code>) for cross-segment matching. Last matching rule wins. See the <a href="../pactoignore/">Packaging ignore</a> reference for details.</p>
+<h3 id="internalapp-application-services"><code>internal/app</code> -- Application services<a class="headerlink" href="#internalapp-application-services" title="Anchor link">&para;</a></h3>
+<p>Each CLI command maps to exactly one service method. This layer orchestrates <code>pkg/*</code> packages and infrastructure adapters. Methods are stateless: they take an options struct and return a result struct, never printing directly.</p>
+<ul>
+<li><code>Init()</code>, <code>Validate()</code>, <code>Pack()</code>, <code>Push()</code>, <code>Pull()</code></li>
+<li><code>Diff()</code>, <code>Graph()</code>, <code>Explain()</code>, <code>Generate()</code>, <code>Doc()</code>, <code>Lock()</code></li>
+<li>Shared helpers: <code>resolveBundle()</code>, <code>resolveBundleWithOverrides()</code>, <code>loadAndValidateLocal()</code>, <code>loadAndValidateFull()</code></li>
+</ul>
+<h3 id="internalcli-cli-layer"><code>internal/cli</code> -- CLI layer<a class="headerlink" href="#internalcli-cli-layer" title="Anchor link">&para;</a></h3>
+<p>Cobra command handlers and Viper configuration. <strong>Zero business logic</strong> -- only input parsing, orchestration, and output formatting.</p>
+<h3 id="pkgoci-oci-adapter"><code>pkg/oci</code> -- OCI adapter<a class="headerlink" href="#pkgoci-oci-adapter" title="Anchor link">&para;</a></h3>
+<p>Wraps <code>go-containerregistry</code> for OCI registry operations. Public package, imported by the operator. Pushes are content-addressed (immutable digest).</p>
+<p>Key components:</p>
+<ul>
+<li><strong><code>BundleStore</code></strong> interface -- the core abstraction: <code>Push()</code>, <code>Pull()</code>, <code>Resolve()</code>, <code>ListTags()</code></li>
+<li><strong><code>Client</code></strong> -- implements <code>BundleStore</code> using <code>go-containerregistry</code>. Translates between <code>contract.Bundle</code> and OCI images (tar.gz layer with metadata labels)</li>
+<li><strong><code>CachedStore</code></strong> -- wraps any <code>BundleStore</code> with in-memory and disk caching (<code>~/.cache/pacto/oci/&lt;registry&gt;/&lt;repo&gt;/&lt;tag&gt;/bundle.tar.gz</code>). Can be disabled at runtime via <code>--no-cache</code></li>
+<li><strong><code>Resolver</code></strong> -- lazy version resolution with semver filtering. <code>Resolve()</code> pulls bundles in <code>LocalOnly</code> or <code>RemoteAllowed</code> mode. <code>FetchAllVersions()</code> pulls every semver tag to populate the cache. <code>FilterSemverTags()</code> selects valid semver tags sorted descending</li>
+<li><strong>Credential chain</strong> -- <code>NewKeychain()</code> resolves credentials by priority order; see <a href="../cli-reference/#authentication">CLI reference → Authentication</a> for the full chain</li>
+<li><strong>Typed errors</strong> -- <code>AuthenticationError</code>, <code>ArtifactNotFoundError</code>, <code>RegistryUnreachableError</code>, <code>InvalidRefError</code>, <code>InvalidBundleError</code>, <code>NoMatchingVersionError</code></li>
+</ul>
+<h3 id="internalmcp-mcp-server"><code>internal/mcp</code> -- MCP server<a class="headerlink" href="#internalmcp-mcp-server" title="Anchor link">&para;</a></h3>
+<p>Thin adapter layer that exposes Pacto operations as <a href="https://modelcontextprotocol.io">Model Context Protocol</a> tools. Each MCP tool handler delegates to an <code>internal/app</code> service method -- no business logic lives here. The server communicates over stdio (default) or HTTP (<code>pacto mcp -t http</code>) and is started via <code>pacto mcp</code>. Used by AI tools such as Claude, Cursor and Copilot. See the <a href="../mcp-integration/">MCP integration</a> guide for setup.</p>
+<h3 id="internallogger-logger-setup"><code>internal/logger</code> -- Logger setup<a class="headerlink" href="#internallogger-logger-setup" title="Anchor link">&para;</a></h3>
+<p>Configures Go's standard <code>log/slog</code> default logger based on the <code>--verbose</code> flag. When verbose mode is enabled, debug-level messages are emitted to stderr; otherwise only warnings and above are shown. Called once during CLI initialization via <code>PersistentPreRunE</code> -- all packages use <code>slog.Debug()</code> directly with no wrappers.</p>
+<h3 id="internalupdate-update-checker"><code>internal/update</code> -- Update checker<a class="headerlink" href="#internalupdate-update-checker" title="Anchor link">&para;</a></h3>
+<p>Performs async version checking against the GitHub releases API. Started in a background goroutine during CLI initialization, with a 200ms timeout to avoid blocking. Results are cached on disk for 24 hours (<code>~/.config/pacto/update-check.json</code>) to minimize API calls. Suppressed for dev builds and JSON output mode.</p>
+<hr />
+<h2 id="dashboard-architecture">Dashboard architecture<a class="headerlink" href="#dashboard-architecture" title="Anchor link">&para;</a></h2>
+<p>The dashboard is complex enough to warrant its own design section. It provides a web-based UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, and diffs -- aggregated from multiple data sources. See the <a href="../dashboard-docker/">Dashboard Container</a> guide for deployment.</p>
+<h3 id="source-model">Source model<a class="headerlink" href="#source-model" title="Anchor link">&para;</a></h3>
+<p>The dashboard exposes up to <strong>four source types</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Source type</th>
+<th>Role</th>
+<th>Key type</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>local</code></td>
+<td>Contract from filesystem</td>
+<td><code>LocalSource</code></td>
+</tr>
+<tr>
+<td><code>oci</code></td>
+<td>Contract from OCI registry</td>
+<td><code>OCISource</code></td>
+</tr>
+<tr>
+<td><code>cache</code></td>
+<td>Contract baseline from the on-disk materialized cache</td>
+<td><code>CacheSource</code></td>
+</tr>
+<tr>
+<td><code>k8s</code></td>
+<td>Runtime enrichment from Kubernetes</td>
+<td><code>K8sSource</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>cache</code> is an <strong>offline fallback</strong>: it surfaces as a distinct source only when no live OCI registry is configured (see <a href="#internal-materialization">Internal materialization</a> below).</p>
+<h3 id="discovery-lifecycle">Discovery lifecycle<a class="headerlink" href="#discovery-lifecycle" title="Anchor link">&para;</a></h3>
+<p><code>OCISource</code> runs a <strong>continuous background loop</strong> (not one-shot):</p>
+<ol>
+<li><strong>Shallow scan</strong> (synchronous, at first <code>ListServices</code> call) -- one <code>ListTags</code> + <code>Pull</code> per configured repo. Fast.</li>
+<li><strong>Deep discovery</strong> (background goroutine) -- BFS across dependency refs, prefetches all semver versions. Closes <code>s.done</code> after the first cycle, ending the "discovering" UI state.</li>
+<li><strong>Periodic rediscovery</strong> -- after the first cycle, re-runs every 60 seconds (<code>ociRediscoverInterval</code>). Picks up new services, dependencies, and versions pushed since the last scan. Each cycle rescans the internal cache and invalidates in-memory caches so enrichment data (hash, classification) surfaces immediately.</li>
+</ol>
+<p><code>K8sSource</code> is query-on-demand with a 3-second list cache TTL. Each API call fetches fresh data -- no background polling or watching.</p>
+<h3 id="source-categories">Source categories<a class="headerlink" href="#source-categories" title="Anchor link">&para;</a></h3>
+<p>Sources are divided into two categories with different roles:</p>
+<p><strong>Contract sources</strong> (<code>local</code>, <code>oci</code>, <code>cache</code>) provide the authoritative service definition -- interfaces, configuration, dependencies, version, owner. Exactly one contract snapshot wins per service. Priority: <code>local</code> &gt; <code>oci</code> &gt; <code>cache</code> (explicit dev intent wins over the registry baseline, which wins over the offline disk cache). <code>cache</code> only participates when no live <code>oci</code> source is configured.</p>
+<p><strong>Runtime source</strong> (<code>k8s</code>) enriches the contract with live cluster state -- contract status, conditions, endpoints, resources, observed runtime and readiness. Runtime data <strong>never overrides contract content</strong> (config and policy <em>content</em> always comes from the declared contract). The <code>enrichWithRuntime()</code> function in <code>source_resolver.go</code> enforces this boundary: it copies k8s-specific fields but preserves contract fields. The one computed exception is the <code>Validation</code> summary, which is derived (not declarable) and is recomputed from runtime state when k8s data is present — <code>computeSectionMeta</code> attributes that section to <code>k8s</code> in the section provenance.</p>
+<h3 id="resolution-model">Resolution model<a class="headerlink" href="#resolution-model" title="Anchor link">&para;</a></h3>
+<p><code>ResolvedSource</code> (<code>source_resolver.go</code>) is the central aggregation layer. It combines contract and runtime sources into a unified view:</p>
+<ol>
+<li><strong>Contract resolution</strong> -- iterates contract sources in priority order (<code>local</code>, then <code>oci</code>, then <code>cache</code>). The first source that has the service wins. This produces one authoritative contract snapshot.</li>
+<li><strong>Runtime enrichment</strong> -- if k8s is available and has data for the service, runtime fields are layered on top of the contract snapshot without replacing any contract content.</li>
+<li><strong>Service list</strong> -- all sources are queried concurrently. Services are grouped by name across sources, merged using <code>mergeServiceEntry()</code>. The <code>Sources</code> array on each service lists all source types where that service was found.</li>
+</ol>
+<p><code>BuildResolvedSource()</code> constructs the <code>ResolvedSource</code> from the map of detected sources, automatically separating contract sources from the runtime source.</p>
+<h3 id="version-history">Version history<a class="headerlink" href="#version-history" title="Anchor link">&para;</a></h3>
+<p>Version history is merged across sources in a defined order (<code>resolverVersionSources</code> in <code>source_resolver.go</code> — <code>["k8s", "oci", "local", "cache"]</code>):</p>
+<ol>
+<li><strong>k8s</strong> -- PactoRevision CRDs are most authoritative (deployed versions with timestamps)</li>
+<li><strong>oci</strong> -- registry tags provide the full version catalog</li>
+<li><strong>local</strong> -- current on-disk version</li>
+<li><strong>cache</strong> -- the offline disk-cache baseline, consulted last</li>
+</ol>
+<p>When a live OCI registry is configured, <code>OCISource.GetVersions()</code> already enriches its bare tag listings with hash, createdAt, and classification from materialized bundles, so the separate <code>cache</code> entry contributes nothing extra. When no live registry is configured, the <code>cache</code> source supplies the version catalog from disk.</p>
+<p>Versions are deduplicated by version string. When the same version appears in multiple sources, <code>enrichVersion()</code> fills empty fields (hash, createdAt, classification, ref) from later sources without overwriting existing values.</p>
+<h3 id="classification">Classification<a class="headerlink" href="#classification" title="Anchor link">&para;</a></h3>
+<p><code>ClassifyVersions()</code> (<code>version_classify.go</code>) is a pure derivational function that computes diff classification between consecutive versions. It operates on <code>BundlePair</code> structs (tag + parsed bundle) and is independent of any data source.</p>
+<p>Classification requires <strong>materialized bundles</strong> -- both the current and previous version must have their contract bundles available locally. If either bundle is missing (not yet fetched from the registry), that version pair is skipped and receives no classification. This is intentional: classification is computed on demand as bundles become available, not assumed.</p>
+<h3 id="internal-materialization">Internal materialization<a class="headerlink" href="#internal-materialization" title="Anchor link">&para;</a></h3>
+<p><code>CacheSource</code> (<code>source_cache.go</code>) reads materialized OCI bundles from the disk cache (<code>~/.cache/pacto/oci/</code>). It plays <strong>two distinct roles</strong> depending on whether a live OCI registry is configured:</p>
+<ul>
+<li><strong>Internal enrichment (live OCI present).</strong> It backs <code>OCISource</code>, providing contract hash, classification, and createdAt enrichment for registry tag listings. In this mode it is invisible — <code>ActiveSources()</code> exposes the disk cache under the <code>"oci"</code> key.</li>
+<li><strong>Offline contract source (no live OCI).</strong> It is promoted to a first-class <code>cache</code> source: <code>ActiveSources()</code> exposes it under the <code>"cache"</code> key and <code>BuildResolvedSource()</code> includes it as the lowest-priority contract source (<code>local</code> &gt; <code>oci</code> &gt; <code>cache</code>).</li>
+</ul>
+<p>The flow when live OCI is present:</p>
+<ol>
+<li><code>OCISource.SetCache(cs)</code> wires a <code>CacheSource</code> internally</li>
+<li><code>OCISource.GetVersions()</code> lists tags from the registry (bare version + ref), then enriches each version with hash, createdAt, and classification from the internal cache</li>
+<li>Cache rescans happen in three places: after each background discovery cycle (<code>discoverAndPrefetch</code>), after resolve operations, and after fetch-all-versions -- all call <code>RescanCache()</code> + memory cache invalidation so new data surfaces immediately</li>
+</ol>
+<p>The <code>createdAt</code> timestamp from cached bundles reflects <strong>local materialization time</strong> (when the bundle was pulled to disk), not the registry push time. OCI registries do not expose push timestamps via tag listing.</p>
+<h3 id="section-provenance-sectionmeta">Section provenance (<code>SectionMeta</code>)<a class="headerlink" href="#section-provenance-sectionmeta" title="Anchor link">&para;</a></h3>
+<p>Every service-detail response carries a <code>SectionMeta</code> map so the UI can explain
+<em>why</em> a section is absent and <em>where</em> present data came from — not just show a
+blank. Each section reports a <code>state</code> and a <code>source</code>:</p>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>present</code></td>
+<td>Has data from an available source.</td>
+</tr>
+<tr>
+<td><code>empty</code></td>
+<td>The section is applicable but was genuinely not declared.</td>
+</tr>
+<tr>
+<td><code>not_applicable</code></td>
+<td>Cannot apply to this contract (e.g. runtime sections on a reference-only contract).</td>
+</tr>
+<tr>
+<td><code>unavailable</code></td>
+<td>A source that would have supplied it was unreachable or absent.</td>
+</tr>
+</tbody>
+</table>
+<p><code>SectionInfo</code> also carries <code>OverriddenBy</code> (the source that overrode a contract
+value, e.g. <code>"k8s"</code> for the deployed <code>version</code>/<code>owner</code>) and a <code>Reason</code> note for
+non-present states. <code>computeSectionMeta</code> (<code>sectionmeta.go</code>) derives the map from
+what the resolver assembled; <code>markRuntimeOverrides</code> flags fields the k8s overlay
+replaced. The top-level <code>RuntimeEvaluated</code> flag is true only when a Kubernetes
+runtime overlay was actually applied, which lets the UI distinguish "no runtime
+data yet" from "runtime evaluated, nothing to report". <code>SectionMeta</code> is populated
+on <strong>both</strong> the resolved path and the single-source <code>getService</code> path, so every
+response is fully explained regardless of which sources are active.</p>
+<p><strong>Which source wins, per field.</strong> This is the authoritative multi-source
+provenance table — the dashboard and operator attribute fields identically:</p>
+<table>
+<thead>
+<tr>
+<th>Field / section</th>
+<th>Authority</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>interfaces, configurations, policies, dependencies, workload, state, capabilities, readiness, metadata</td>
+<td>Declared contract (<code>local</code> &gt; <code>oci</code> &gt; <code>cache</code>)</td>
+<td>Config &amp; policy <strong>content</strong> always comes from the declared contract — even for reference-only contracts (the operator extracts schema content into status).</td>
+</tr>
+<tr>
+<td><code>version</code></td>
+<td>k8s overrides contract when deployed</td>
+<td><code>OverriddenBy: "k8s"</code>.</td>
+</tr>
+<tr>
+<td><code>owner</code></td>
+<td>k8s overrides contract when deployed</td>
+<td><code>OverriddenBy: "k8s"</code>.</td>
+</tr>
+<tr>
+<td>namespace, <code>resolvedRef</code></td>
+<td>k8s only</td>
+<td>Deployed-state fields; absent off-cluster.</td>
+</tr>
+<tr>
+<td>contract status, conditions, endpoints, observed runtime, resources, ports</td>
+<td>k8s only (runtime overlay)</td>
+<td><code>not_applicable</code> for reference-only contracts off-cluster.</td>
+</tr>
+<tr>
+<td><code>Validation</code> summary</td>
+<td>Recomputed from runtime when k8s present</td>
+<td>The one computed (non-declarable) field; <code>SectionMeta</code> attributes it to <code>k8s</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="-no-cache-semantics"><code>--no-cache</code> semantics<a class="headerlink" href="#-no-cache-semantics" title="Anchor link">&para;</a></h3>
+<p>The <code>--no-cache</code> flag is a <strong>cold-start mode</strong>, not a fully stateless mode:</p>
+<ul>
+<li>At startup, <code>DetectSources()</code> skips <code>detectCache()</code> entirely -- no pre-existing cached bundles are scanned or indexed</li>
+<li><code>CachedStore.DisableCache()</code> skips disk <strong>reads</strong> (no stale data), but disk <strong>writes</strong> remain enabled so same-session pulls are persisted</li>
+<li>The dashboard resolves <code>cacheDir</code> from <code>CachedStore.CacheDir()</code> when not explicitly set, ensuring <code>RefreshCacheSources()</code> knows where to find materialized bundles</li>
+<li>The <code>memCache</code> is always wired at startup (even with <code>--no-cache</code>) via <code>SetCacheSource(nil, memCache)</code>, ensuring <code>RefreshCacheSources()</code> can invalidate stale entries after on-the-fly creation</li>
+<li>If the user triggers "Fetch all versions" or lazy dependency resolution, <code>RefreshCacheSources()</code> creates a <code>CacheSource</code> on the fly from disk and wires it into the OCI source for enrichment</li>
+<li>The <code>onDiscover</code> callback is wired to <code>server.RefreshCacheSources</code> (not just <code>memCache.InvalidateAll</code>), so continuous background discovery also triggers on-the-fly <code>CacheSource</code> creation</li>
+<li>This means <code>--no-cache</code> ensures a clean start but allows same-session materialization to enrich the current view</li>
+</ul>
+<h3 id="graph-model">Graph model<a class="headerlink" href="#graph-model" title="Anchor link">&para;</a></h3>
+<p>The dashboard builds two graph representations:</p>
+<p><strong>Global graph</strong> (<code>buildGlobalGraph()</code>) -- a flat structure with <code>GraphNodeData</code> and <code>GraphEdgeData</code>, designed for D3.js force-directed visualization. Includes unresolved external dependencies as nodes with <code>status: "external"</code>. Edges are typed as <code>"dependency"</code> (contract deps) or <code>"reference"</code> (config/policy refs).</p>
+<p><strong>Per-service graph</strong> (<code>buildGraph()</code>) -- a recursive <code>DependencyGraph</code> with <code>GraphNode</code> and <code>GraphEdge</code>, used for tree visualization of a single service's dependency chain. Includes cycle detection.</p>
+<p>Both graphs use <strong>ref-alias mapping</strong> (<code>buildRefAliases()</code>) to resolve OCI repository names (e.g., <code>my-service-pacto</code>) to contract service names (e.g., <code>my-service</code>), based on <code>imageRef</code> and <code>chartRef</code> fields from the service index.</p>
+<p><code>computeBlastRadius()</code> performs BFS on the reverse dependency graph (required deps only) to count how many services would be transitively affected if a given service breaks.</p>
+<p>Multi-version <strong>conflict detection</strong> (<code>detectConflicts()</code> in <code>pkg/graph</code>) is a CLI-only concern used during <code>pacto graph</code> resolution; the dashboard does not call it, so version conflicts across the aggregated index are not surfaced through the dashboard API. A node can also appear with incomplete edges if its service details failed to load during a concurrent index rebuild; such nodes are rendered from the index alone.</p>
+<p>The frontend renders the dependency graph through a single shared <code>GraphPanel</code> component (canvas + one toolbar + one legend), reused by the graph page, the service detail dependencies section and the owner detail view. The graph looks and behaves the same everywhere. The per-service view includes an SBOM section sourced from <code>ServiceDetails.SBOM</code>.</p>
+<h3 id="server-and-api">Server and API<a class="headerlink" href="#server-and-api" title="Anchor link">&para;</a></h3>
+<p>The HTTP server is built on <a href="https://huma.rocks/">Huma v2</a> with typed I/O structs and automatic OpenAPI 3.1 spec generation. Static files (embedded SPA) and CORS are served on the raw <code>http.ServeMux</code>; only API operations go through Huma.</p>
+<p>Key API operations:</p>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Method</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/health</code></td>
+<td>GET</td>
+<td>Health status + version</td>
+</tr>
+<tr>
+<td><code>/metrics</code></td>
+<td>GET</td>
+<td>Service and source counts</td>
+</tr>
+<tr>
+<td><code>/api/services</code></td>
+<td>GET</td>
+<td>Service list with blast radius, compliance, checks</td>
+</tr>
+<tr>
+<td><code>/api/services/{name}</code></td>
+<td>GET</td>
+<td>Full service details</td>
+</tr>
+<tr>
+<td><code>/api/services/{name}/versions</code></td>
+<td>GET</td>
+<td>Version history</td>
+</tr>
+<tr>
+<td><code>/api/services/{name}/sources</code></td>
+<td>GET</td>
+<td>Per-source breakdown</td>
+</tr>
+<tr>
+<td><code>/api/services/{name}/dependents</code></td>
+<td>GET</td>
+<td>Reverse dependency lookup</td>
+</tr>
+<tr>
+<td><code>/api/services/{name}/refs</code></td>
+<td>GET</td>
+<td>Config/policy cross-references</td>
+</tr>
+<tr>
+<td><code>/api/services/{name}/graph</code></td>
+<td>GET</td>
+<td>Per-service dependency tree</td>
+</tr>
+<tr>
+<td><code>/api/graph</code></td>
+<td>GET</td>
+<td>Global D3-ready dependency graph</td>
+</tr>
+<tr>
+<td><code>/api/diff</code></td>
+<td>GET</td>
+<td>Classified diff between two versions</td>
+</tr>
+<tr>
+<td><code>/api/sources</code></td>
+<td>GET</td>
+<td>Detected source status and discovery state</td>
+</tr>
+<tr>
+<td><code>/api/refresh</code></td>
+<td>POST</td>
+<td>Force-refresh all sources</td>
+</tr>
+<tr>
+<td><code>/api/resolve</code></td>
+<td>POST</td>
+<td>Lazy-resolve a remote dependency</td>
+</tr>
+<tr>
+<td><code>/api/versions</code></td>
+<td>POST</td>
+<td>List registry tags, optionally fetch all</td>
+</tr>
+<tr>
+<td><code>/api/debug/*</code></td>
+<td>GET</td>
+<td>Diagnostics (requires <code>--diagnostics</code> flag)</td>
+</tr>
+</tbody>
+</table>
+<p>When running alongside the Kubernetes operator, <code>EnrichFromK8s()</code> automatically discovers OCI repositories from CRD <code>resolvedRef</code> fields, enabling full contract bundles, version history, and diffs without explicit OCI arguments.</p>
+<h3 id="version-tracking">Version tracking<a class="headerlink" href="#version-tracking" title="Anchor link">&para;</a></h3>
+<p>The dashboard computes version tracking semantics from two sources:</p>
+<ul>
+<li><strong>Version policy</strong> (<code>versionPolicy</code>): the preferred source is the operator's <code>status.contract.resolutionPolicy</code> field (<code>Latest</code> → <code>"tracking"</code>, <code>PinnedTag</code> → <code>"pinned-tag"</code>, <code>PinnedDigest</code> → <code>"pinned-digest"</code>), normalized by <code>normalizeResolutionPolicy()</code>. When unavailable (non-K8s sources, older operators), <code>classifyVersionPolicy()</code> provides a conservative fallback that only classifies unambiguous cases (digest, explicit semver tag) and returns empty for ambiguous refs.</li>
+<li><strong>Latest available</strong> (<code>latestAvailable</code>): the highest semver version from the existing version list. Computed by <code>computeLatestAvailable()</code>.</li>
+<li><strong>Update available</strong> (<code>updateAvailable</code>): true when <code>latestAvailable</code> is a higher semver than the current <code>version</code>. Computed by <code>isUpdateAvailable()</code>. This is informational -- it does <strong>not</strong> affect contract compliance status.</li>
+<li><strong>Current version marker</strong> (<code>isCurrent</code>): set on the <code>Version</code> entry matching <code>ServiceDetails.Version</code> via <code>markCurrentVersion()</code>.</li>
+</ul>
+<p>Operator-provided <code>resolutionPolicy</code> is propagated through the K8s source (<code>serviceDetailsFromK8sStatus</code>), carried forward by <code>enrichWithRuntime()</code>, and preserved by the index/detail enrichment in <code>server.go</code>, which applies the fallback only when no policy is already set.</p>
+<p>These fields are populated during the service-index cache rebuild in <code>server.go</code> and surfaced through the existing <code>/api/services</code> and <code>/api/services/{name}</code> endpoints.</p>
+<hr />
+<h2 id="design-principles">Design principles<a class="headerlink" href="#design-principles" title="Anchor link">&para;</a></h2>
+<ol>
+<li><strong>Pure core</strong> -- <code>pkg/*</code> packages have zero CLI/Kubernetes dependencies and are reusable from any Go program</li>
+<li><strong>Strict layering</strong> -- CLI → App → Core (<code>pkg/</code>) → Domain (<code>pkg/contract</code>)</li>
+<li><strong>Declaration separated from observation</strong> -- the contract is stable intent (<code>pkg/contract</code>); runtime facts are separate evidence (<code>pkg/evidence</code>) collected outside the core by a collector (any component that produces a valid <code>EvidenceSet</code>; the Kubernetes collector is the first shipped one). The pure <code>Evaluate</code> function in <code>pkg/validation</code> reasons over both and never observes or acts itself</li>
+<li><strong>No global state</strong> -- all instances created in the composition root (<code>main.go</code>); the only global is <code>slog.SetDefault()</code> configured once at startup</li>
+<li><strong>Interface-based</strong> -- engines depend on interfaces (<code>DataSource</code>, <code>BundleStore</code>, <code>ContractFetcher</code>, <code>PluginRunner</code>), not concrete implementations</li>
+<li><strong>Out-of-process plugins</strong> -- language-agnostic, version-independent</li>
+<li><strong>Embedded schemas</strong> -- JSON Schema compiled into the binary</li>
+<li><strong>Deterministic validation</strong> -- no configurable rules; same input, same result</li>
+<li><strong>Compose, don't replace</strong> -- an interface is a JSON Schema, OpenAPI or event schema that Pacto composes, not a new config language it invents; the contract adds only the relational and temporal layer (ownership, dependencies, compatibility, readiness) that no single interface owns</li>
+<li><strong>Single service-information model</strong> -- <code>ServiceDetails</code> (built by <code>ServiceDetailsFromBundle</code>) is the single service-information model consumed by the dashboard server, the <code>pacto doc</code> Markdown renderer and the static HTML exporter, so they cannot drift</li>
+</ol>
+<hr />
+<h2 id="architectural-invariants">Architectural invariants<a class="headerlink" href="#architectural-invariants" title="Anchor link">&para;</a></h2>
+<p>These rules must be preserved by future changes. Each exists for a specific reason.</p>
+<table>
+<thead>
+<tr>
+<th>Invariant</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pkg/contract</code> imports nothing from the project</td>
+<td>Foundation layer. If it depends on anything above, the entire dependency graph becomes circular.</td>
+</tr>
+<tr>
+<td><code>pkg/*</code> must not import <code>internal/cli</code> or <code>internal/app</code></td>
+<td>Core logic must remain reusable outside the CLI (operator, MCP, tests).</td>
+</tr>
+<tr>
+<td><code>pkg/oci</code> is a public package</td>
+<td>OCI primitives (client, credentials, tag resolution) are importable by external consumers such as the Kubernetes operator.</td>
+</tr>
+<tr>
+<td>K8s enriches runtime only, never overrides contract content</td>
+<td>Contract is the source of truth for interfaces, config, dependencies, version. K8s provides live state (contract status, conditions, endpoints), and config/policy <em>content</em> always comes from the declared contract. The computed <code>Validation</code> summary is the one runtime-recomputed field, and <code>SectionMeta</code> attributes it to <code>k8s</code> so provenance stays honest.</td>
+</tr>
+<tr>
+<td>Cache is a public source only as an offline fallback</td>
+<td>When a live <code>oci</code> source is configured the disk cache stays internal to it (exposed under the <code>"oci"</code> key). Only when no live registry is configured is the cache promoted to a distinct <code>cache</code> source. A session shows <code>oci</code> <strong>or</strong> <code>cache</code> for the registry baseline, never both — so users are never confused about which is authoritative.</td>
+</tr>
+<tr>
+<td>Contract source priority is <code>local</code> &gt; <code>oci</code> &gt; <code>cache</code></td>
+<td>Explicit dev intent beats the registry baseline, which beats the offline disk cache. <code>cache</code> only participates when <code>oci</code> is absent.</td>
+</tr>
+<tr>
+<td><code>resolverVersionSources</code> is <code>["k8s", "oci", "local", "cache"]</code></td>
+<td>Version history is merged in this order (see <a href="#version-history">Version history</a>).</td>
+</tr>
+<tr>
+<td>Classification requires materialized bundles</td>
+<td><code>ClassifyVersions()</code> diffs consecutive bundles. Without both bundles available, no classification is computed. This is correct behavior, not a bug.</td>
+</tr>
+<tr>
+<td><code>--no-cache</code> skips startup scanning, not same-session materialization</td>
+<td>Cold-start mode ensures deterministic initial state. <code>DisableCache()</code> skips disk reads but never disk writes, so bundles fetched during the session are persisted for enrichment (see <a href="#-no-cache-semantics"><code>--no-cache</code> semantics</a>).</td>
+</tr>
+<tr>
+<td><code>internal/app</code> methods are stateless</td>
+<td>Options in, result out. No side effects beyond the operation itself. This makes testing and composition straightforward.</td>
+</tr>
+<tr>
+<td>Validation is deterministic</td>
+<td>No configurable rule sets. Same contract + same schema = same result, always.</td>
+</tr>
+<tr>
+<td><code>SectionMeta</code> is populated on every service-detail path</td>
+<td>Both the resolved (multi-source) path and the single-source <code>getService</code> path compute <code>SectionMeta</code>, so the UI can always distinguish <code>present</code> / <code>empty</code> / <code>not_applicable</code> / <code>unavailable</code> and label each section's <code>source</code>.</td>
+</tr>
+<tr>
+<td>OCI discovery is continuous, not one-shot</td>
+<td>New services and versions pushed after startup must surface without restarting the dashboard. The background loop re-runs discovery every 60 seconds.</td>
+</tr>
+<tr>
+<td>K8s enrichment retries stop on permanent errors</td>
+<td>If the Pacto CRD is not installed (<code>ListServices</code> returns "resource not found"), <code>EnrichFromK8s</code> nils the K8s source so the retry loop exits immediately instead of waiting 30 seconds.</td>
+</tr>
+<tr>
+<td>UI data refresh must not disrupt user state</td>
+<td>DOM morphing preserves scroll position, form values, <code>&lt;details&gt;</code> open/closed state, and D3-managed containers. Debug panels use <code>patchDOM</code> instead of <code>innerHTML</code> replacement.</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../collectors/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Collectors">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Collectors
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../maintainers/releases/" class="md-footer__link md-footer__link--next" aria-label="Next: Release architecture">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Release architecture
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/TrianaLab/pacto" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "..", "features": ["announce.dismiss", "content.action.edit", "content.code.annotate", "content.code.copy", "content.tabs.link", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.instant.progress", "navigation.path", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      
+        <script src="../javascripts/logo-spin.js"></script>
+      
+    
+  </body>
+</html>
