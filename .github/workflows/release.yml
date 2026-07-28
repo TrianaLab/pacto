@@ -356,7 +356,7 @@ jobs:
           PACTO_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           bash release/orchestrator/publish-oci-unit.sh dashboard-contract-bundle "$REF" "$VER" -- \
-            go run ./cmd/pacto push "oci://$REF" ./pactos/pacto-dashboard --set service.version="$VER"
+            go run ./cmd/pacto push "oci://$REF" -p ./pactos/pacto-dashboard --set service.version="$VER"
 
   # pacto-publishes: demo-bundles
   # demo-bundles is a MULTI-artifact unit (one immutable tag per demo service),
