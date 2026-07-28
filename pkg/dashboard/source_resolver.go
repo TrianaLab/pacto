@@ -290,12 +290,9 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 	// and downstream handlers (getCachedIndex rewrites Dependencies[i].Name and
 	// appends Insights) mutate the result in place. Copying up front means no
 	// mutation can corrupt a cached source object or race a concurrent reader.
-	if contractDetails != nil {
-		contractDetails = contractDetails.deepCopy()
-	}
-	if runtimeDetails != nil {
-		runtimeDetails = runtimeDetails.deepCopy()
-	}
+	// deepCopy is nil-safe, so no guards needed here.
+	contractDetails = contractDetails.deepCopy()
+	runtimeDetails = runtimeDetails.deepCopy()
 
 	// Step 3: Build result.
 	var result *ServiceDetails
