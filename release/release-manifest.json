@@ -4,32 +4,32 @@
     "cli": {
       "artifactKind": "binaries",
       "coordinate": "github.com/trianalab/pacto releases",
-      "tag": "v3.0.0",
-      "version": "3.0.0"
+      "tag": "v3.0.1",
+      "version": "3.0.1"
     },
     "core": {
       "artifactKind": "go-module",
       "coordinate": "github.com/trianalab/pacto/v3",
-      "tag": "v3.0.0",
-      "version": "3.0.0"
+      "tag": "v3.0.1",
+      "version": "3.0.1"
     },
     "dashboard-contract-bundle": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pactos/pacto-dashboard",
-      "tag": "3.0.0",
-      "version": "3.0.0"
+      "tag": "3.0.1",
+      "version": "3.0.1"
     },
     "dashboard-image": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto-dashboard",
-      "tag": "3.0.0",
-      "version": "3.0.0"
+      "tag": "3.0.1",
+      "version": "3.0.1"
     },
     "demo-bundles": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto",
-      "tag": "3.0.0",
-      "version": "3.0.0"
+      "tag": "3.0.1",
+      "version": "3.0.1"
     },
     "k8s-docs": {
       "artifactKind": "docs",
