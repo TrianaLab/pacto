@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
@@ -1191,5 +1192,62 @@ func TestResolvedSource_GetServiceVersion_NoSourceAvailable(t *testing.T) {
 	_, err := resolved.GetServiceVersion(context.Background(), Ref{Name: "svc", Version: "1.0.0"})
 	if err == nil {
 		t.Fatal("expected error when no source available")
+	}
+}
+
+// TestResolvedSource_GetService_NoAliasingRace proves the resolver hands each caller
+// a fully-owned ServiceDetails: sources return a shared cached pointer, so without a
+// deep copy concurrent callers mutating the result (as getCachedIndex does — rewriting
+// Dependencies[i].Name and appending Insights) would race and corrupt the cached
+// object. Run with -race to catch the regression.
+func TestResolvedSource_GetService_NoAliasingRace(t *testing.T) {
+	// Spare capacity (cap > len) is deliberate: it makes an in-place append write to
+	// the shared backing array, so any code that aliases these slices races under
+	// -race instead of silently reallocating.
+	shared := &ServiceDetails{
+		Service:      Service{Name: "svc", Version: "1.0.0"},
+		Dependencies: append(make([]DependencyInfo, 0, 8), DependencyInfo{Name: "dep-a", Ref: "oci://ghcr.io/acme/dep-a:1.0.0"}),
+		Insights:     append(make([]Insight, 0, 8), Insight{Severity: "info", Title: "base"}),
+	}
+	// Non-shared source list clone so ListServices is not itself under test.
+	src := &stubSource{
+		name:     "local",
+		services: []Service{{Name: "svc", Version: "1.0.0"}},
+		details:  map[string]*ServiceDetails{"svc": shared},
+	}
+	resolved := BuildResolvedSource(map[string]DataSource{"local": src})
+
+	const goroutines = 16
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for g := 0; g < goroutines; g++ {
+		go func(g int) {
+			defer wg.Done()
+			d, err := resolved.GetService(context.Background(), "svc")
+			if err != nil {
+				t.Errorf("GetService: %v", err)
+				return
+			}
+			// Mirror getCachedIndex's in-place mutations on the returned object.
+			for i := range d.Dependencies {
+				d.Dependencies[i].Name = fmt.Sprintf("resolved-%d", g)
+			}
+			d.Insights = append(d.Insights, Insight{Severity: "warning", Title: "added"})
+		}(g)
+	}
+	wg.Wait()
+
+	// The source's cached object must be untouched by any caller.
+	if got := shared.Dependencies[0].Name; got != "dep-a" {
+		t.Errorf("cached dependency name mutated: got %q, want dep-a", got)
+	}
+	if got := len(shared.Insights); got != 1 {
+		t.Errorf("cached insights mutated: got len %d, want 1", got)
+	}
+}
+
+func TestServiceDetails_deepCopy_Nil(t *testing.T) {
+	if (*ServiceDetails)(nil).deepCopy() != nil {
+		t.Error("deepCopy(nil) should return nil")
 	}
 }
