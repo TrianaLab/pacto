@@ -66,7 +66,7 @@ func TestReconcile_Disabled_NoResources(t *testing.T) {
 func TestReconcile_Enabled_CreatesResources(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace: "test-ns",
 	}
 
@@ -100,14 +100,14 @@ func TestReconcile_Enabled_CreatesResources(t *testing.T) {
 func TestReconcile_Enabled_UpdatesExistingResources(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.25.0",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.25.0",
 		Namespace: "test-ns",
 	}
 
 	// Pre-create a deployment with an old image
 	oldDeploy := BuildDeployment(Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.0",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.0",
 		Namespace: "test-ns",
 	})
 
@@ -136,7 +136,7 @@ func TestReconcile_Enabled_UpdatesExistingResources(t *testing.T) {
 func TestReconcile_DisabledAfterEnabled_CleansUp(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace: "test-ns",
 	}
 
@@ -213,7 +213,7 @@ func TestReconcile_Cleanup_NoErrorWhenNoResources(t *testing.T) {
 func TestReconcile_PreservesExternalLabelsAndAnnotations(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.25.0",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.25.0",
 		Namespace: "test-ns",
 	}
 
@@ -268,7 +268,7 @@ func TestReconcile_PreservesExternalLabelsAndAnnotations(t *testing.T) {
 func TestReconcile_Idempotent(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace: "test-ns",
 	}
 
@@ -331,7 +331,7 @@ func assertClusterResourceNotFound(t *testing.T, c client.Client, ctx context.Co
 func TestReconcile_OCISecret_CreatesManagedSecret(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace: "test-ns",
 		OCISecret: "my-creds",
 	}
@@ -364,7 +364,7 @@ func TestReconcile_OCISecret_CreatesManagedSecret(t *testing.T) {
 func TestReconcile_OCISecrets_CreatesManagedSecret(t *testing.T) {
 	cfg := Config{
 		Enabled:    true,
-		Image:      "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:      "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace:  "test-ns",
 		OCISecrets: []string{"creds-1", "creds-2"},
 	}
@@ -396,7 +396,7 @@ func TestReconcile_OCISecrets_CreatesManagedSecret(t *testing.T) {
 func TestReconcile_NoOCISecrets_NoManagedSecret(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace: "test-ns",
 	}
 	r := newReconciler(cfg)
@@ -417,7 +417,7 @@ func TestReconcile_NoOCISecrets_NoManagedSecret(t *testing.T) {
 func TestReconcile_NoOCISecrets_CleansUpManagedSecret(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace: "test-ns",
 	}
 	// Pre-create a managed secret from a previous run
@@ -448,7 +448,7 @@ func TestReconcile_NoOCISecrets_CleansUpManagedSecret(t *testing.T) {
 func TestReconcile_OCISecret_MissingSourceSecret(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace: "test-ns",
 		OCISecret: "nonexistent",
 	}
@@ -464,7 +464,7 @@ func TestReconcile_OCISecret_MissingSourceSecret(t *testing.T) {
 func TestReconcile_OCICredentials_CleanupGetError(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace: "test-ns",
 		// No OCISecret/OCISecrets → triggers cleanup path
 	}
@@ -495,7 +495,7 @@ func TestReconcile_OCICredentials_CleanupGetError(t *testing.T) {
 func TestReconcile_OCICredentials_MergeError(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace: "test-ns",
 		OCISecret: "bad-secret",
 	}
@@ -519,7 +519,7 @@ func TestReconcile_OCICredentials_MergeError(t *testing.T) {
 func TestReconcile_Cleanup_IncludesManagedSecret(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace: "test-ns",
 	}
 	managedSecret := &corev1.Secret{

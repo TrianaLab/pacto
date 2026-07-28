@@ -57,14 +57,14 @@ The chart installs the controller and its supporting resources. The dashboard an
 ## Installation
 
 ```bash
-helm install pacto-operator oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
+helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --namespace pacto-operator-system --create-namespace
 ```
 
 Pin to a specific version:
 
 ```bash
-helm install pacto-operator oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
+helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --version 5.0.0 \
   --namespace pacto-operator-system --create-namespace
 ```
@@ -347,7 +347,7 @@ The Helm chart and controller image are signed with [Cosign](https://docs.sigsto
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp 'github.com/TrianaLab/pacto/.github/workflows/release.yml' \
-  ghcr.io/trianalab/pacto-operator/charts/pacto-operator:<version>
+  ghcr.io/trianalab/pacto/charts/pacto-operator:<version>
 ```
 
 ## Values
@@ -375,7 +375,7 @@ cosign verify \
 | dashboard.service.type | string | `"ClusterIP"` | Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-dashboard) for pod-to-pod communication. This chart-managed Service provides configurable external access and serves as the backend for Ingress/HTTPRoute resources. Selects dashboard pods via operator-defined labels. |
 | fullnameOverride | string | `""` | Override the full release name |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
-| image.repository | string | `"ghcr.io/trianalab/pacto-operator/pacto-controller"` | Controller image repository |
+| image.repository | string | `"ghcr.io/trianalab/pacto/operator"` | Controller image repository |
 | image.tag | string | `""` | Overrides the image tag (default is the chart appVersion) |
 | imagePullSecrets | list | `[]` | Image pull secrets for private registries |
 | leaderElection.enabled | bool | `true` | Enable leader election for HA deployments |

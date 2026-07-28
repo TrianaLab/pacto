@@ -15,13 +15,13 @@
     },
     "dashboard-contract-bundle": {
       "artifactKind": "oci-image",
-      "coordinate": "ghcr.io/trianalab/pactos/pacto-dashboard",
+      "coordinate": "ghcr.io/trianalab/pacto/dashboard-contract",
       "tag": "3.0.1",
       "version": "3.0.1"
     },
     "dashboard-image": {
       "artifactKind": "oci-image",
-      "coordinate": "ghcr.io/trianalab/pacto-dashboard",
+      "coordinate": "ghcr.io/trianalab/pacto/dashboard",
       "tag": "3.0.1",
       "version": "3.0.1"
     },
@@ -45,13 +45,13 @@
     },
     "operator-chart": {
       "artifactKind": "helm-chart",
-      "coordinate": "ghcr.io/trianalab/pacto-operator/charts/pacto-operator",
+      "coordinate": "ghcr.io/trianalab/pacto/charts/pacto-operator",
       "tag": "5.0.0",
       "version": "5.0.0"
     },
     "operator-image": {
       "artifactKind": "oci-image",
-      "coordinate": "ghcr.io/trianalab/pacto-operator/pacto-controller",
+      "coordinate": "ghcr.io/trianalab/pacto/operator",
       "tag": "5.0.0",
       "version": "5.0.0"
     }

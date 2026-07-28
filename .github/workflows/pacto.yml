@@ -80,7 +80,7 @@ jobs:
         continue-on-error: true
         run: |
           pacto diff \
-            oci://ghcr.io/trianalab/pactos/pacto-dashboard \
+            oci://ghcr.io/trianalab/pacto/dashboard-contract \
             ./pactos/pacto-dashboard \
             --new-set service.version=0.0.0-pr.${{ github.event.pull_request.number }} \
             -o markdown || true

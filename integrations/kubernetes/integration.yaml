@@ -23,10 +23,10 @@ releaseUnits:
     tagPrefix: integrations/kubernetes/
   - id: operator-image
     kind: oci-image
-    coordinate: ghcr.io/trianalab/pacto-operator/pacto-controller
+    coordinate: ghcr.io/trianalab/pacto/operator
   - id: operator-chart
     kind: helm-chart
-    coordinate: ghcr.io/trianalab/pacto-operator/charts/pacto-operator
+    coordinate: ghcr.io/trianalab/pacto/charts/pacto-operator
     chartName: pacto-operator
   - id: k8s-docs
     kind: docs

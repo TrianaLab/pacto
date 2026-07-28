@@ -37,7 +37,7 @@ V4_TAG="4.7.0"
 # silently change what this cross-major migration test installs. Verified in
 # SOURCE.md; the guard below fails closed if the live tag no longer resolves here.
 V4_DIGEST="sha256:a2e8e27dd8b080e797436ab376cef3f95467c7f91c9408bacc09aad8ff769e7d"
-V5_REPO="pacto-operator/pacto-controller"
+V5_REPO="pacto/operator"
 V5_TAG="5.0.0-e2e"
 V5_IMG="${V5_REPO}:${V5_TAG}"
 CRD_PACTOS=pactos.pacto.trianalab.io

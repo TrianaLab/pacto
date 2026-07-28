@@ -19,7 +19,7 @@ dashboard.
 
 ```bash
 helm install pacto-operator \
-  oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
+  oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --namespace pacto-operator-system --create-namespace
 ```
 
@@ -28,7 +28,7 @@ installs; see the [compatibility table](upgrade.md#version-compatibility)):
 
 ```bash
 helm install pacto-operator \
-  oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
+  oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --version 4.7.0 \
   --namespace pacto-operator-system --create-namespace
 ```
@@ -37,7 +37,7 @@ helm install pacto-operator \
 
 ```bash
 helm install pacto-operator \
-  oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
+  oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --namespace pacto-operator-system --create-namespace \
   --set controller.watchNamespace=my-namespace \
   --set metrics.serviceMonitor.enabled=true \

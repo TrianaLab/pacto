@@ -5,6 +5,6 @@
   "pacto": {
     "releaseUnit": "dashboard-contract-bundle",
     "kind": "oci-image",
-    "coordinate": "ghcr.io/trianalab/pactos/pacto-dashboard"
+    "coordinate": "ghcr.io/trianalab/pacto/dashboard-contract"
   }
 }

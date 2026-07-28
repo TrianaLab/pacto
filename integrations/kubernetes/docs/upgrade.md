@@ -11,7 +11,7 @@ enough:
 
 ```bash
 helm upgrade pacto-operator \
-  oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
+  oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --version 4.7.0 \
   --namespace pacto-operator-system
 ```
@@ -35,7 +35,7 @@ kubectl apply --server-side --force-conflicts \
 
 # 2. Upgrade the release to the new chart version.
 helm upgrade pacto-operator \
-  oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
+  oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --version 5.0.0 \
   --namespace pacto-operator-system
 ```

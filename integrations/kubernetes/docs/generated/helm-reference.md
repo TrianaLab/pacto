@@ -37,7 +37,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `dashboard.service.type` | `ClusterIP` | Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-dashboard) for pod-to-pod communication. This chart-managed Service provides configurable external access and serves as the backend for Ingress/HTTPRoute resources. Selects dashboard pods via operator-defined labels. |
 | `fullnameOverride` | `""` | Override the full release name |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
-| `image.repository` | `ghcr.io/trianalab/pacto-operator/pacto-controller` | Controller image repository |
+| `image.repository` | `ghcr.io/trianalab/pacto/operator` | Controller image repository |
 | `image.tag` | `""` | Overrides the image tag (default is the chart appVersion) |
 | `imagePullSecrets` | `[]` | Image pull secrets for private registries |
 | `leaderElection.enabled` | `true` | Enable leader election for HA deployments |

@@ -36,19 +36,19 @@ func TestConfigValidate(t *testing.T) {
 		},
 		{
 			name:    "enabled without namespace fails",
-			cfg:     Config{Enabled: true, Image: "ghcr.io/trianalab/pacto-dashboard:0.24.2"},
+			cfg:     Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:0.24.2"},
 			wantErr: true,
 			errMsg:  "dashboard namespace must be set",
 		},
 		{
 			name:    "enabled with latest tag fails",
-			cfg:     Config{Enabled: true, Image: "ghcr.io/trianalab/pacto-dashboard:latest", Namespace: "ns"},
+			cfg:     Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:latest", Namespace: "ns"},
 			wantErr: true,
 			errMsg:  "must not use 'latest'",
 		},
 		{
 			name:    "enabled with no tag fails (implicit latest)",
-			cfg:     Config{Enabled: true, Image: "ghcr.io/trianalab/pacto-dashboard", Namespace: "ns"},
+			cfg:     Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard", Namespace: "ns"},
 			wantErr: true,
 			errMsg:  "must not use 'latest'",
 		},
@@ -56,7 +56,7 @@ func TestConfigValidate(t *testing.T) {
 			name: "enabled with valid config succeeds",
 			cfg: Config{
 				Enabled:   true,
-				Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+				Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 				Namespace: "pacto-system",
 			},
 			wantErr: false,
@@ -65,7 +65,7 @@ func TestConfigValidate(t *testing.T) {
 			name: "enabled with OCI secret is valid",
 			cfg: Config{
 				Enabled:   true,
-				Image:     "ghcr.io/trianalab/pacto-dashboard:1.0.0",
+				Image:     "ghcr.io/trianalab/pacto/dashboard:1.0.0",
 				Namespace: "pacto-system",
 				OCISecret: "registry-creds",
 			},
@@ -75,7 +75,7 @@ func TestConfigValidate(t *testing.T) {
 			name: "enabled with invalid resource quantity fails",
 			cfg: Config{
 				Enabled:   true,
-				Image:     "ghcr.io/trianalab/pacto-dashboard:1.0.0",
+				Image:     "ghcr.io/trianalab/pacto/dashboard:1.0.0",
 				Namespace: "pacto-system",
 				Resources: ResourcesConfig{MemoryRequest: "not-a-quantity"},
 			},
@@ -86,7 +86,7 @@ func TestConfigValidate(t *testing.T) {
 			name: "enabled with valid resource overrides succeeds",
 			cfg: Config{
 				Enabled:   true,
-				Image:     "ghcr.io/trianalab/pacto-dashboard:1.0.0",
+				Image:     "ghcr.io/trianalab/pacto/dashboard:1.0.0",
 				Namespace: "pacto-system",
 				Resources: ResourcesConfig{CPURequest: "100m", CPULimit: "1", MemoryRequest: "256Mi", MemoryLimit: "1Gi"},
 			},
@@ -116,9 +116,9 @@ func TestHasLatestTag(t *testing.T) {
 		image string
 		want  bool
 	}{
-		{"ghcr.io/trianalab/pacto-dashboard:0.24.2", false},
-		{"ghcr.io/trianalab/pacto-dashboard:latest", true},
-		{"ghcr.io/trianalab/pacto-dashboard", true},
+		{"ghcr.io/trianalab/pacto/dashboard:0.24.2", false},
+		{"ghcr.io/trianalab/pacto/dashboard:latest", true},
+		{"ghcr.io/trianalab/pacto/dashboard", true},
 		{"my-registry.com/dashboard:v1.2.3", false},
 		{"dashboard:1.0", false},
 		{"dashboard:latest", true},

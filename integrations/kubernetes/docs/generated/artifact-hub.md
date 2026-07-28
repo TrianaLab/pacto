@@ -12,8 +12,8 @@ Published artifact coordinates for the Kubernetes integration. All coordinates a
 
 | Artifact | Kind | Coordinate | Version |
 | --- | --- | --- | --- |
-| Controller image | oci-image | `ghcr.io/trianalab/pacto-operator/pacto-controller` | `5.0.0` |
-| Helm chart | helm-chart | `ghcr.io/trianalab/pacto-operator/charts/pacto-operator` | `5.0.0` |
+| Controller image | oci-image | `ghcr.io/trianalab/pacto/operator` | `5.0.0` |
+| Helm chart | helm-chart | `ghcr.io/trianalab/pacto/charts/pacto-operator` | `5.0.0` |
 | Go module | go-module | `github.com/trianalab/pacto/integrations/kubernetes/v5` | `5.0.0` |
 | Documentation | docs | `mkdocs:integrations/kubernetes` | `5.0.0` |
 
@@ -24,14 +24,14 @@ Published artifact coordinates for the Kubernetes integration. All coordinates a
 
 ```yaml
 - name: pacto-controller
-  image: ghcr.io/trianalab/pacto-operator/pacto-controller:5.0.0
+  image: ghcr.io/trianalab/pacto/operator:5.0.0
 ```
 
 ## Install from the published chart
 
 ```bash
 helm install pacto-operator \
-  oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
+  oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --version 5.0.0 \
   --namespace pacto-operator-system --create-namespace
 ```
