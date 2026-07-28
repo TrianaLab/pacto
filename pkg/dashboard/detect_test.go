@@ -824,28 +824,6 @@ func TestEnrichFromK8s_NoResolvedRefs(t *testing.T) {
 	}
 }
 
-func TestEnrichFromK8s_GetServiceError(t *testing.T) {
-	// When GetService fails for a service, discoverOCIReposFromK8s should skip it.
-	k8sData := `{"items": [
-		{"metadata": {"name": "svc", "namespace": "ns"},
-		 "status": {"contract": {"serviceName": "svc", "version": "1.0.0", "resolvedRef": "ghcr.io/org/svc:1.0.0"}}}
-	]}`
-
-	client := &mockK8sClient{
-		listJSON: []byte(k8sData),
-		getErr:   fmt.Errorf("connection reset"),
-	}
-	r := &DetectResult{
-		Diagnostics: &SourceDiagnostics{},
-		K8s:         NewK8sSource(client, "ns", "pactos"),
-	}
-
-	r.EnrichFromK8s(context.Background(), newMockBundleStore(), "")
-	if r.OCI != nil {
-		t.Error("expected nil OCI when GetService fails for all services")
-	}
-}
-
 func TestEnrichFromK8s_CacheSourceAlreadyExists(t *testing.T) {
 	k8sData := `{"items": [
 		{"metadata": {"name": "svc", "namespace": "default"},

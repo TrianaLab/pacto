@@ -900,6 +900,9 @@ type mockK8sClient struct {
 	getErr       error
 	countResult  int
 	countErr     error
+
+	listCalls int // number of ListJSON invocations
+	getCalls  int // number of GetJSON invocations
 }
 
 func (m *mockK8sClient) Probe(context.Context) error { return m.probeErr }
@@ -907,6 +910,7 @@ func (m *mockK8sClient) DiscoverCRD(context.Context) (*CRDDiscovery, error) {
 	return m.crdDiscovery, m.crdErr
 }
 func (m *mockK8sClient) ListJSON(_ context.Context, resource, _ string) ([]byte, error) {
+	m.listCalls++
 	if m.listByRes != nil {
 		if err, hasErr := m.listByResErr[resource]; hasErr && err != nil {
 			return nil, err
@@ -918,6 +922,7 @@ func (m *mockK8sClient) ListJSON(_ context.Context, resource, _ string) ([]byte,
 	return m.listJSON, m.listErr
 }
 func (m *mockK8sClient) GetJSON(context.Context, string, string, string) ([]byte, error) {
+	m.getCalls++
 	return m.getJSON, m.getErr
 }
 func (m *mockK8sClient) CountResources(context.Context, string, string) (int, error) {
@@ -1088,8 +1093,8 @@ func TestK8s_ListServices(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestK8s_GetService_WithNamespace(t *testing.T) {
-	singleJSON := `{"metadata": {"name": "my-svc", "namespace": "default"}, "status": {"contractStatus": "Compliant", "contract": {"serviceName": "my-svc", "version": "2.0.0"}}}`
-	client := &mockK8sClient{getJSON: []byte(singleJSON)}
+	listJSON := `{"items": [{"metadata": {"name": "my-svc", "namespace": "default"}, "status": {"contractStatus": "Compliant", "contract": {"serviceName": "my-svc", "version": "2.0.0"}}}]}`
+	client := &mockK8sClient{listJSON: []byte(listJSON)}
 
 	src := NewK8sSource(client, "default", "pactos")
 	details, err := src.GetService(context.Background(), "my-svc")
@@ -1104,6 +1109,34 @@ func TestK8s_GetService_WithNamespace(t *testing.T) {
 	}
 	if details.ContractStatus != StatusCompliant {
 		t.Errorf("expected Compliant, got %q", details.ContractStatus)
+	}
+	// Namespaced GetService must be served from the cached list, never a direct GET.
+	if client.getCalls != 0 {
+		t.Errorf("expected 0 direct GetJSON calls, got %d", client.getCalls)
+	}
+}
+
+// TestK8s_GetService_Namespaced_NoPerServiceGet guards the N+1 fix: resolving many
+// services in namespaced mode must reuse the single cached List, not issue one
+// apiserver GET per service.
+func TestK8s_GetService_Namespaced_NoPerServiceGet(t *testing.T) {
+	listJSON := `{"items": [
+		{"metadata": {"name": "svc-a", "namespace": "default"}, "status": {"contractStatus": "Compliant", "contract": {"serviceName": "svc-a", "version": "1.0.0"}}},
+		{"metadata": {"name": "svc-b", "namespace": "default"}, "status": {"contractStatus": "Compliant", "contract": {"serviceName": "svc-b", "version": "1.0.0"}}}
+	]}`
+	client := &mockK8sClient{listJSON: []byte(listJSON)}
+
+	src := NewK8sSource(client, "default", "pactos")
+	for _, name := range []string{"svc-a", "svc-b", "svc-a"} {
+		if _, err := src.GetService(context.Background(), name); err != nil {
+			t.Fatalf("GetService(%s): %v", name, err)
+		}
+	}
+	if client.getCalls != 0 {
+		t.Errorf("expected 0 direct GetJSON calls, got %d", client.getCalls)
+	}
+	if client.listCalls != 1 {
+		t.Errorf("expected 1 cached ListJSON call for 3 lookups, got %d", client.listCalls)
 	}
 }
 
@@ -1232,40 +1265,6 @@ func TestK8s_getPacto_MatchByServiceName(t *testing.T) {
 	}
 	if details.Name != "my-service" {
 		t.Errorf("expected name 'my-service', got %q", details.Name)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// getPacto API error (with namespace, API call fails)
-// ---------------------------------------------------------------------------
-
-func TestK8s_getPacto_APIError_WithNamespace(t *testing.T) {
-	client := &mockK8sClient{getErr: fmt.Errorf("connection refused")}
-
-	src := NewK8sSource(client, "default", "pactos")
-	_, err := src.GetService(context.Background(), "my-svc")
-	if err == nil {
-		t.Fatal("expected error when API call fails for direct get")
-	}
-	if !strings.Contains(err.Error(), "getting") {
-		t.Errorf("expected error to mention 'getting', got: %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// getPacto bad JSON (with namespace, direct get returns invalid JSON)
-// ---------------------------------------------------------------------------
-
-func TestK8s_getPacto_BadJSON_WithNamespace(t *testing.T) {
-	client := &mockK8sClient{getJSON: []byte("not valid json at all")}
-
-	src := NewK8sSource(client, "default", "pactos")
-	_, err := src.GetService(context.Background(), "my-svc")
-	if err == nil {
-		t.Fatal("expected error when API returns bad JSON for direct get")
-	}
-	if !strings.Contains(err.Error(), "parsing API response") {
-		t.Errorf("expected error to mention 'parsing API response', got: %v", err)
 	}
 }
 
