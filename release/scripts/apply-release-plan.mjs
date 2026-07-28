@@ -59,6 +59,21 @@ function assert(cond, msg) {
   }
 }
 
+// ---- 1b. go.work: keep the versioned replace in lockstep with the pinned core ----
+// The workspace resolves the not-yet-published core via a version-pinned replace
+// (`<module> vX.Y.Z => .`). When the core version bumps, this pin MUST move with the
+// go.mod require, or the workspace tries to fetch the unpublished new version and
+// `go mod download` fails ("unknown revision"). Unlike the go.mod, a go.work replace
+// is legitimate (it is the dev/CI workspace, never a published module).
+{
+  const rel = 'go.work';
+  const after = edit(rel, (s) =>
+    s.replace(new RegExp(`(replace ${esc(pin.module)} )v${SEMVER}( => \\.)`),
+      `$1${pin.version}$2`));
+  assert(after.includes(`replace ${pin.module} ${pin.version} => .`),
+    `${rel}: versioned core replace not pinned to ${pin.version}`);
+}
+
 // ---- 2. operator chart Chart.yaml: version, appVersion, artifacthub image ----
 {
   const rel = 'integrations/kubernetes/charts/pacto-operator/Chart.yaml';
