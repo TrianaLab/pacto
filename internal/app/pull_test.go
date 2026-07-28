@@ -126,6 +126,23 @@ func TestPull_NoTag_ListTagsError(t *testing.T) {
 	}
 }
 
+func TestPull_RejectsUnsafeServiceName(t *testing.T) {
+	// A remote-controlled service name with a traversal sequence must be refused
+	// before it is used as the default output directory.
+	store := &mockBundleStore{
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			b := testBundle()
+			b.Contract.Service.Name = "../../etc/evil"
+			return b, nil
+		},
+	}
+	svc := NewService(store, nil)
+	_, err := svc.Pull(context.Background(), PullOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0"})
+	if err == nil {
+		t.Error("expected error for unsafe service name used as default output")
+	}
+}
+
 func TestPull_ExtractError(t *testing.T) {
 	store := &mockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {

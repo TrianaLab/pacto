@@ -48,6 +48,11 @@ func (s *Service) Pull(ctx context.Context, opts PullOptions) (*PullResult, erro
 
 	output := opts.Output
 	if output == "" {
+		// The output dir falls back to the REMOTE-controlled service name; refuse a
+		// name that would escape the working directory via path traversal.
+		if err := safeOutputName(bundle.Contract.Service.Name); err != nil {
+			return nil, err
+		}
 		output = bundle.Contract.Service.Name
 	}
 
