@@ -23,16 +23,26 @@ cd "$CLONE"
 prev_core="$(jq -r '.units.core.version' release/release-manifest.json)"
 prev_k8s="$(jq -r '.units["k8s-module"].version' release/release-manifest.json)"
 
-# --- A: a FEATURE PR merge must publish nothing. ---
-# The real invariant is what detect.mjs decides: merging the committed transaction
-# (unchanged across HEAD/HEAD^) must be release=false. This holds whether the
-# committed transaction is the empty pre-release state OR an already-consumed
-# post-release one (its tags are published, so an unchanged transaction never
-# re-releases). We assert detect's decision rather than `.ready == false`, which
-# was a pre-release-only proxy that breaks in the window after a release merges.
+# --- A: detect must decide correctly for THIS commit's committed transaction. ---
+# detect.mjs fires ONLY when a ready transaction is NEWLY introduced — its
+# transactionId differs from HEAD^ (the changed-in-commit guard). So the correct
+# decision depends on which commit the test runs on:
+#   - feature merge / post-release commit: transaction unchanged vs HEAD^ -> release=false
+#   - the version-PR-merge commit that introduces the ready transaction: release=true
+#     (that is the intended release trigger, not a failure).
+# Mirror that guard so this passes on EVERY commit — including the release commit
+# itself, where a blanket release=false assertion wrongly failed and reddened main.
 node release/orchestrator/detect.mjs > "$WORK/decide.out" 2>/dev/null || true
-grep -qx "release=false" "$WORK/decide.out" || fail "feature-PR detect must be release=false"
-echo "  A: feature PR (unchanged committed transaction) publishes nothing"
+head_ready="$(jq -r '.ready // false' release/release-transaction.json 2>/dev/null || echo false)"
+head_tid="$(jq -r '.transactionId // ""' release/release-transaction.json 2>/dev/null || echo '')"
+prev_tid="$(git show HEAD^:release/release-transaction.json 2>/dev/null | jq -r '.transactionId // ""' 2>/dev/null || echo '')"
+if [ "$head_ready" = "true" ] && [ -n "$head_tid" ] && [ "$head_tid" != "$prev_tid" ]; then
+  grep -qx "release=true" "$WORK/decide.out" || fail "version-PR-merge (new ready transaction) detect must be release=true"
+  echo "  A: version-PR-merge commit (ready transaction introduced) -> release=true"
+else
+  grep -qx "release=false" "$WORK/decide.out" || fail "feature-PR / post-release detect must be release=false"
+  echo "  A: feature PR / post-release (unchanged committed transaction) publishes nothing"
+fi
 
 # --- B: run the REAL version command with a pending major core changeset. ---
 # Consume ONLY a controlled changeset: drop the repo's pending entries so the
