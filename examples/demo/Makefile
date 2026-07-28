@@ -21,11 +21,14 @@ GOROOT      := $(shell go env GOROOT)
 SERVE_PORT  ?= 8088
 FRONTEND    := $(abspath ../../pkg/dashboard/frontend)
 UI_BUILD    := $(abspath .ui-build)
-# Pacto version this demo is built from — the latest release tag, surfaced in the
-# dashboard navbar via -ldflags into the wasm. Uses --abbrev=0 for a clean
-# "vX.Y.Z" label. Needs tags available (CI must checkout with fetch-depth: 0);
-# falls back to a short SHA, then "dev", when no tags are present.
-VERSION     ?= $(shell git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev)
+# Pacto CORE version this demo is built from — the latest core release tag,
+# surfaced in the dashboard navbar via -ldflags into the wasm. `--match 'v[0-9]*'`
+# restricts to core "vX.Y.Z" tags so the k8s submodule tag
+# (integrations/kubernetes/vX.Y.Z), which git describe would otherwise pick as the
+# most recent, never leaks into the navbar. Uses --abbrev=0 for a clean label.
+# Needs tags available (CI must checkout with fetch-depth: 0); falls back to a
+# short SHA, then "dev", when no tags are present.
+VERSION     ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev)
 
 .PHONY: build preflight ui wasm wasmexec inject serve test validate smoke clean diff breaking-change evolution explain demo-locks
 
