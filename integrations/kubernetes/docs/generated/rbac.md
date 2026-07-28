@@ -12,7 +12,7 @@ The operator's base `ClusterRole` (`manager-role`) is generated from kubebuilder
 
 | API groups | Resources | Verbs |
 | --- | --- | --- |
-| `"" (core)` | `configmaps` | `get` |
+| `"" (core)` | `configmaps` | `get`, `list`, `watch` |
 | `"" (core)` | `events` | `create`, `patch` |
 | `"" (core)` | `namespaces` | `create`, `get`, `list`, `watch` |
 | `"" (core)` | `secrets`, `serviceaccounts`, `services` | `create`, `delete`, `get`, `list`, `patch`, `update`, `watch` |
