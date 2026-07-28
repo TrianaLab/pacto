@@ -9,7 +9,7 @@
 
 Teams declare operational intent in a contract — workload type, state and persistence, interfaces, capabilities, dependencies and configurations — then deploy separately through Helm or Kustomize, and nothing connects the two sides at runtime, so contracts drift from reality silently. The operator closes that gap: it watches `Pacto` custom resources, reads the referenced contract, observes the live workload and reports whether they align — continuously, read-only, never modifying your workloads.
 
-**[Pacto](https://github.com/TrianaLab/pacto)** · **[Documentation](https://trianalab.github.io/pacto)** · **[Contract reference](https://trianalab.github.io/pacto/contract-reference)** · **[Helm chart](charts/pacto-operator/)**
+**[Pacto](https://github.com/TrianaLab/pacto)** · **[Documentation](https://pacto.run)** · **[Contract reference](https://pacto.run/latest/contract-reference)** · **[Helm chart](charts/pacto-operator/)**
 
 ---
 
@@ -167,7 +167,7 @@ The reason precedence when the gate is unmet is: `Expired` when the assessment h
 
 On gate transitions it emits events sparingly: a `Warning`/`ReadinessGateUnmet` when the gate first drops and a `Normal`/`ReadinessRecovered` when it is met again. Contracts without readiness get neither `status.readiness` nor the condition.
 
-For the canonical score and gate semantics, see the [readiness reference](https://trianalab.github.io/pacto/contract-reference/#readiness) in the CLI docs.
+For the canonical score and gate semantics, see the [readiness reference](https://pacto.run/latest/contract-reference/#readiness) in the CLI docs.
 
 ---
 
