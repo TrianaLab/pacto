@@ -112,7 +112,7 @@ pacto/
   cmd/gendocs/        # CLI docs generator
   pkg/                # Public, reusable core packages
     contract/         #   Domain model (Contract, Bundle, types)
-    validation/       #   Four-layer validator + runtime validation
+    validation/       #   Three-layer validator (structural, cross-field, policy)
     diff/             #   Change classifier
     graph/            #   Dependency resolver
     doc/              #   Markdown documentation generator
@@ -122,14 +122,12 @@ pacto/
   internal/           # Internal packages (not importable externally)
     app/              #   Application service layer (orchestrates pkg/*)
     cli/              #   Cobra command handlers (thin adapters)
-    oci/              #   OCI registry adapter
     mcp/              #   MCP server adapter
-    logger/           #   Structured logging setup
     update/           #   Version update checker
     testutil/         #   Shared test utilities
   schema/             # Standalone JSON schema copy
   tests/e2e/          # End-to-end tests
-  docs/               # Documentation site (Jekyll)
+  docs/               # Documentation site (MkDocs)
   scripts/            # Build and install scripts
 ```
 
@@ -203,12 +201,23 @@ The operator's `make ci` adds a Helm chart gate (`ci-chart`: helm lint, template
 
 ## Releasing
 
-Releases are managed by maintainers. The release workflow is triggered by pushing a new Git tag:
+Releases are managed by maintainers through a transaction-driven pipeline — not by
+pushing a Git tag by hand.
+
+Contributors: include a **changeset** with any user-facing change. Run
 
 ```bash
-git tag v1.2.3
-git push origin v1.2.3
+npx changeset
 ```
+
+and commit the generated `.changeset/*.md` file describing the change and its semver
+bump. The fixed changeset groups in `.changeset/config.json` keep the core and
+Kubernetes module versions consistent.
+
+Maintainers cut a release by running `npm run release:version` (which runs
+`changeset version`, then builds and applies the release plan) and letting the
+release workflow (`.github/workflows/release.yml`) build, publish and sign the
+artifacts.
 
 ## Questions?
 
