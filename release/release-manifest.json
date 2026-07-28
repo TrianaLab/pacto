@@ -4,56 +4,56 @@
     "cli": {
       "artifactKind": "binaries",
       "coordinate": "github.com/trianalab/pacto releases",
-      "tag": "v3.1.0",
-      "version": "3.1.0"
+      "tag": "v3.1.1",
+      "version": "3.1.1"
     },
     "core": {
       "artifactKind": "go-module",
       "coordinate": "github.com/trianalab/pacto/v3",
-      "tag": "v3.1.0",
-      "version": "3.1.0"
+      "tag": "v3.1.1",
+      "version": "3.1.1"
     },
     "dashboard-contract-bundle": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/dashboard-contract",
-      "tag": "3.1.0",
-      "version": "3.1.0"
+      "tag": "3.1.1",
+      "version": "3.1.1"
     },
     "dashboard-image": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/dashboard",
-      "tag": "3.1.0",
-      "version": "3.1.0"
+      "tag": "3.1.1",
+      "version": "3.1.1"
     },
     "demo-bundles": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto",
-      "tag": "3.1.0",
-      "version": "3.1.0"
+      "tag": "3.1.1",
+      "version": "3.1.1"
     },
     "k8s-docs": {
       "artifactKind": "docs",
       "coordinate": "mkdocs:integrations/kubernetes",
-      "tag": "5.1.0",
-      "version": "5.1.0"
+      "tag": "5.1.1",
+      "version": "5.1.1"
     },
     "k8s-module": {
       "artifactKind": "go-module",
       "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v5",
-      "tag": "integrations/kubernetes/v5.1.0",
-      "version": "5.1.0"
+      "tag": "integrations/kubernetes/v5.1.1",
+      "version": "5.1.1"
     },
     "operator-chart": {
       "artifactKind": "helm-chart",
       "coordinate": "ghcr.io/trianalab/pacto/charts/pacto-operator",
-      "tag": "5.1.0",
-      "version": "5.1.0"
+      "tag": "5.1.1",
+      "version": "5.1.1"
     },
     "operator-image": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/operator",
-      "tag": "5.1.0",
-      "version": "5.1.0"
+      "tag": "5.1.1",
+      "version": "5.1.1"
     }
   }
 }
