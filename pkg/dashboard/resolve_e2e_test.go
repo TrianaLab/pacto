@@ -504,9 +504,11 @@ func TestResolveE2E_FetchAllVersions_DefaultNonFetchMode(t *testing.T) {
 	}
 }
 
-func TestResolveE2E_ResolvedDependency_AvailableAsService(t *testing.T) {
-	// This test verifies that after resolving a dependency, it appears
-	// in the service list (via index cache invalidation).
+func TestResolveE2E_ResolveDependency_ReturnsOCIDetails(t *testing.T) {
+	// Resolving a not-yet-present dependency by OCI ref returns its details from the
+	// oci source. (Surfacing it as a persistent entry in the service list needs a
+	// CacheSource, which this lightweight harness does not wire, so that is not
+	// asserted here — the resolve endpoint's contract is the returned details.)
 	localSource := newOrderServiceSource()
 	store := &pullCountingStore{bundle: newPaymentBundle()}
 	sourceInfo := []SourceInfo{{Type: "local", Enabled: true, Reason: "found"}}
@@ -525,12 +527,9 @@ func TestResolveE2E_ResolvedDependency_AvailableAsService(t *testing.T) {
 	if details.Source != "oci" {
 		t.Errorf("expected source 'oci', got %q", details.Source)
 	}
-
-	// After resolve, payment-service should be accessible
-	// (through the resolver's index cache invalidation, which triggers
-	// the next GetService to find it).
-	// Note: with a real CachedStore+CacheSource, the service would
-	// persist across restarts. Here we just verify the immediate visibility.
+	if details.Name != "payment-service" {
+		t.Errorf("expected resolved details for payment-service, got %q", details.Name)
+	}
 }
 
 func TestResolveE2E_CurrentVersionIsHighestSemver(t *testing.T) {
