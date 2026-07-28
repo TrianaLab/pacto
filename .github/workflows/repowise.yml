@@ -1,0 +1,73 @@
+name: Repowise (architecture health)
+
+# Deterministic, zero-LLM architecture-health guardrail. Runs the repowise CLI's
+# static analysis (dependency graph, git hotspots, change coupling, dead code, the
+# 25-marker code-health score) on every PR and posts a change-risk + health report
+# to the PR's check summary. No API key, no LLM, no cloud — `repowise init --no-prose`
+# builds the index purely from the code + git history.
+#
+# This is intentionally ADVISORY (it never blocks): change-risk / health scores are
+# noisy as hard gates (a large but legitimate refactor scores "high"). To promote a
+# specific signal to a hard gate later, uncomment the `exit 1` in the report step.
+#
+# The complementary, richer view is the free deterministic Repowise PR bot
+# (https://github.com/apps/repowise-bot) — an org admin installs it once; it leaves a
+# per-PR comment on hotspot touches, hidden coupling, declining health and dead code.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repowise-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  repowise:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # repowise needs full git history for hotspots + change risk
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - name: Install repowise
+        run: pip install "repowise==0.36.0"
+      - name: Build deterministic index (no LLM, no API key)
+        run: repowise init --no-prose
+      - name: Change-risk + health report
+        run: |
+          set -o pipefail
+          repowise risk "origin/${{ github.base_ref }}..HEAD" --format json > risk.json 2>/dev/null || echo '{}' > risk.json
+          repowise health --format json > health.json 2>/dev/null || echo '{}' > health.json
+          python3 - risk.json health.json <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, sys
+          risk = json.load(open(sys.argv[1])) if sys.argv[1] else {}
+          health = json.load(open(sys.argv[2])) if sys.argv[2] else {}
+          print("## Repowise — architecture health (deterministic, zero-LLM)\n")
+          if risk:
+              print(f"**Change risk:** `{risk.get('level','?')}` "
+                    f"(percentile {risk.get('risk_percentile','?')}, "
+                    f"review priority {risk.get('review_priority','?')})\n")
+          kpis = (health or {}).get("kpis") or {}
+          if kpis:
+              print("**Health KPIs:**\n")
+              for k, v in kpis.items():
+                  print(f"- {k}: {v}")
+              print()
+          findings = (health or {}).get("findings") or []
+          if findings:
+              print(f"**Top health findings ({len(findings)} total):**\n")
+              for f in findings[:10]:
+                  loc = f.get("file", "?")
+                  msg = f.get("marker") or f.get("message") or f.get("title") or ""
+                  sev = f.get("severity") or f.get("score") or ""
+                  print(f"- `{loc}` — {sev} {msg}".rstrip())
+              print()
+          print("_Advisory only — see the Repowise PR bot for inline comments._")
+          # To hard-gate on a signal, e.g. block genuinely high-risk changes:
+          #   import sys; sys.exit(1 if risk.get("level") == "high" else 0)
+          PY
