@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/pkg/oci"
@@ -234,5 +235,51 @@ func TestWritePactoConfig_XDGConfigHome(t *testing.T) {
 	configPath := filepath.Join(dir, "pacto", "config.json")
 	if _, err := os.Stat(configPath); err != nil {
 		t.Fatalf("expected config file at %s: %v", configPath, err)
+	}
+}
+
+func TestWritePactoConfig_TightensExistingPerms(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	pactoDir := filepath.Join(dir, ".config", "pacto")
+	if err := os.MkdirAll(pactoDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(pactoDir, "config.json")
+	// Pre-existing config with world-readable perms — WriteFile alone would keep them.
+	if err := os.WriteFile(configPath, []byte(`{"auths":{}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writePactoConfig("ghcr.io", "user", "pass"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0600 {
+		t.Errorf("expected config perms 0600, got %o", perm)
+	}
+}
+
+func TestWritePactoConfig_ChmodError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	orig := chmodFn
+	chmodFn = func(string, os.FileMode) error { return fmt.Errorf("chmod failed") }
+	t.Cleanup(func() { chmodFn = orig })
+
+	err := writePactoConfig("ghcr.io", "user", "pass")
+	if err == nil {
+		t.Fatal("expected error when chmod fails")
+	}
+	if !strings.Contains(err.Error(), "failed to secure") {
+		t.Errorf("expected wrapped chmod error, got: %v", err)
 	}
 }
