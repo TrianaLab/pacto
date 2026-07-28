@@ -203,8 +203,7 @@ ci-arch:
 	@echo "==> Running Repowise architecture-health analysis (advisory, zero-LLM)..."
 	pip install --quiet "repowise==$(REPOWISE_VERSION)"
 	repowise init --no-prose
-	@set -o pipefail; \
-	tmp=$$(mktemp -d); \
+	@tmp=$$(mktemp -d); \
 	repowise risk "origin/$${GITHUB_BASE_REF:-main}..HEAD" --format json > $$tmp/risk.json 2>/dev/null || echo '{}' > $$tmp/risk.json; \
 	repowise health --format json > $$tmp/health.json 2>/dev/null || echo '{}' > $$tmp/health.json; \
 	python3 release/scripts/repowise_summary.py $$tmp/risk.json $$tmp/health.json >> "$${GITHUB_STEP_SUMMARY:-/dev/stdout}"; \

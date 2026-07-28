@@ -36,4 +36,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
+      # Advisory: the summary (change-risk + health) is the value, not a pass/fail
+      # gate — a repowise/pip hiccup must never block a PR (see ci.mk ci-arch).
       - run: make ci-arch
+        continue-on-error: true
