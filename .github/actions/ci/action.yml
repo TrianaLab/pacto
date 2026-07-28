@@ -1,5 +1,5 @@
 name: CI
-description: Shared CI step — setup Go and run a make target
+description: Shared CI step — setup Go with disk-guarded caching and run a make target
 
 inputs:
   target:
@@ -20,6 +20,9 @@ runs:
     - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
       with:
         go-version-file: go.mod
+        # We manage the Go cache explicitly below (disk-guarded); disable setup-go's
+        # built-in cache so the two do not fight over the same paths.
+        cache: false
 
     - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
       if: inputs.node == 'true'
@@ -28,12 +31,38 @@ runs:
         cache: 'npm'
         cache-dependency-path: pkg/dashboard/frontend/package-lock.json
 
+    # Best-effort caching: if the runner is low on disk, WARN and SKIP the cache for
+    # this run instead of risking a disk-full failure. Never exits non-zero.
+    - name: Cache disk guard
+      id: cacheguard
+      shell: bash
+      run: |
+        min_mb=5000
+        avail="$(df -Pm "$HOME" 2>/dev/null | awk 'NR==2{print $4}')"
+        if [ -n "$avail" ] && [ "$avail" -ge "$min_mb" ]; then
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::Go build/mod cache skipped — only ${avail:-unknown} MB free on \$HOME (need >= ${min_mb} MB)."
+        fi
+
+    - name: Resolve Go cache dirs
+      id: gocache
+      if: steps.cacheguard.outputs.enabled == 'true'
+      shell: bash
+      run: |
+        echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        echo "mod=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
     - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+      if: steps.cacheguard.outputs.enabled == 'true'
+      continue-on-error: true
       with:
         path: |
-          ~/.cache/go-build
-          ${{ env.GOPATH }}/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          ${{ steps.gocache.outputs.build }}
+          ${{ steps.gocache.outputs.mod }}
+        # Workspace-aware: bust on any module's go.sum OR the workspace go.work.sum.
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum', 'go.work.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-
 

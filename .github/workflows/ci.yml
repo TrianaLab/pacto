@@ -190,6 +190,13 @@ jobs:
     needs: changes
     if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # Shard the three self-provisioning kind scenarios across parallel runners (each
+    # spins up its own cluster) instead of running them serially in one job. The
+    # `required` aggregate waits for all matrix legs, so coverage is unchanged.
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [reconcile, dashboard, upgrade]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -199,7 +206,7 @@ jobs:
         run: go install sigs.k8s.io/kind@v0.30.0
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-      - run: make ci-e2e-kind
+      - run: make ci-e2e-kind-${{ matrix.scenario }}
 
   release-dry-run:
     needs: changes
