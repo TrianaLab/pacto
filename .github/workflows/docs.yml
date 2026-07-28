@@ -1,4 +1,4 @@
-name: Deploy docs
+name: Docs (validate)
 
 on:
   push:
@@ -27,24 +27,16 @@ on:
       # The demo embeds the dashboard UI + engine, so redeploy when they change.
       - 'pkg/dashboard/**'
       - '.github/workflows/docs.yml'
-  # Release-time docs are deployed by the release transaction (release.yml, unit
-  # k8s-docs), which owns the versioned site deploy with the exact core + k8s
-  # versions. This workflow only redeploys the CURRENT version's docs on a
-  # doc-only change to main (no release), plus manual runs. It no longer
-  # self-triggers on release/workflow_run (that was a duplicate deploy that read
-  # the "latest release" and raced the release job).
+  # The versioned public site is deployed ONLY by the release transaction
+  # (release.yml, unit k8s-docs), which owns the exact core + k8s versions and the
+  # `latest` alias. This workflow does NOT deploy: on a doc-only change to main it
+  # just runs a strict build to validate the docs (a post-merge safety net on top
+  # of the PR docs-check). It no longer publishes an unreleased `next` snapshot.
   workflow_dispatch:
 
-# mike commits the built site to the gh-pages branch and pushes it, so the deploy
-# needs write access to repository contents (not the Pages upload API).
+# Validation only — no deploy — so read access is enough.
 permissions:
-  contents: write
-
-# Serialize deploys: two concurrent `mike deploy --push` runs would race on the
-# gh-pages branch.
-concurrency:
-  group: docs-deploy
-  cancel-in-progress: false
+  contents: read
 
 jobs:
   # Non-release doc refresh. The release UNIT k8s-docs (the versioned site deploy
@@ -83,15 +75,14 @@ jobs:
         run: |
           mkdir -p docs/demo
           cp -r examples/demo/dist/. docs/demo/
-      # Strict gate before publishing: mike's internal build is not --strict, so run
-      # the same strict build the PR "Docs check" enforces against a throwaway dir.
+      # Strict gate: mike's internal build is not --strict, so run the same strict
+      # build the PR "Docs check" enforces, against a throwaway dir. This is a
+      # main-push validation net; it does NOT deploy.
+      #
+      # The versioned public site is deployed only by the release transaction
+      # (release.yml, unit k8s-docs). We intentionally do NOT publish an
+      # unreleased `next` snapshot: it cluttered the public version selector (and
+      # was the fallback the selector landed on). Preview unreleased docs locally
+      # with `make docs` / `mkdocs serve`.
       - name: Strict docs build gate
         run: mkdocs build --strict --site-dir "$(mktemp -d)"
-      # Publish ONLY the unreleased `next` snapshot to gh-pages. This non-release
-      # path must never move `latest` or write a released version slot — that is the
-      # release transaction's job (release.yml, unit k8s-docs, `make docs-deploy`).
-      - name: Deploy the dev (next) docs snapshot with mike
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          make docs-deploy-dev
