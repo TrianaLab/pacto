@@ -9,10 +9,10 @@ import (
 	"testing"
 )
 
-// staleOperatorRepoRE matches the archived operator GitHub REPO url. It does not
-// match the preserved public coordinates that keep the `pacto-operator` name —
-// the image/chart registry path (ghcr.io/trianalab/pacto-operator/…) and the
-// Artifact Hub repository (artifacthub.io/…/pacto-operator) — which are correct.
+// staleOperatorRepoRE matches the archived operator GitHub REPO url. Active
+// source/support links must point at the monorepo, never the archived repo. The
+// chart NAME `pacto-operator` is still used (Chart.yaml + the Artifact Hub
+// listing), but the ghcr registry path now lives under the `pacto` namespace.
 var staleOperatorRepoRE = regexp.MustCompile(`github\.com/[Tt]riana[Ll]ab/pacto-operator`)
 
 // isHistoricalRef lists the paths permitted to reference the old repo for

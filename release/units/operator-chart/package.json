@@ -5,6 +5,6 @@
   "pacto": {
     "releaseUnit": "operator-chart",
     "kind": "helm-chart",
-    "coordinate": "ghcr.io/trianalab/pacto-operator/charts/pacto-operator"
+    "coordinate": "ghcr.io/trianalab/pacto/charts/pacto-operator"
   }
 }

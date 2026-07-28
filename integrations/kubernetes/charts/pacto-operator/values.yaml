@@ -3,7 +3,7 @@ replicaCount: 1
 
 image:
   # -- Controller image repository
-  repository: ghcr.io/trianalab/pacto-operator/pacto-controller
+  repository: ghcr.io/trianalab/pacto/operator
   # -- Image pull policy
   pullPolicy: IfNotPresent
   # -- Overrides the image tag (default is the chart appVersion)

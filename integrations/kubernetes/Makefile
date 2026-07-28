@@ -44,7 +44,7 @@ PACTO_VERSION := $(shell node -e 'const fs=require("fs");process.stdout.write(JS
 else
 PACTO_VERSION := $(shell echo '$(call gomodver,github.com/trianalab/pacto/v3)' | sed 's/^v//')
 endif
-DASHBOARD_IMG := ghcr.io/trianalab/pacto-dashboard:$(PACTO_VERSION)
+DASHBOARD_IMG := ghcr.io/trianalab/pacto/dashboard:$(PACTO_VERSION)
 
 # Ldflags for version injection
 LDFLAGS := -ldflags "-s -w \
@@ -54,7 +54,7 @@ LDFLAGS := -ldflags "-s -w \
   -X main.dashboardImage=$(DASHBOARD_IMG)"
 
 # Image URL to use all building/pushing image targets
-IMG ?= ghcr.io/trianalab/pacto-operator/pacto-controller:$(VERSION)
+IMG ?= ghcr.io/trianalab/pacto/operator:$(VERSION)
 
 # Namespace used when running locally (defaults to HELM_NAMESPACE)
 POD_NAMESPACE ?= $(HELM_NAMESPACE)

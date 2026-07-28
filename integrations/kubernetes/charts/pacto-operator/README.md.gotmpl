@@ -57,14 +57,14 @@ The chart installs the controller and its supporting resources. The dashboard an
 ## Installation
 
 ```bash
-helm install pacto-operator oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
+helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --namespace pacto-operator-system --create-namespace
 ```
 
 Pin to a specific version:
 
 ```bash
-helm install pacto-operator oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
+helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --version {{ template "chart.version" . }} \
   --namespace pacto-operator-system --create-namespace
 ```
@@ -347,7 +347,7 @@ The Helm chart and controller image are signed with [Cosign](https://docs.sigsto
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp 'github.com/TrianaLab/pacto/.github/workflows/release.yml' \
-  ghcr.io/trianalab/pacto-operator/charts/pacto-operator:<version>
+  ghcr.io/trianalab/pacto/charts/pacto-operator:<version>
 ```
 
 {{ template "chart.valuesSection" . }}

@@ -14,7 +14,7 @@ import (
 
 var testConfig = Config{
 	Enabled:   true,
-	Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+	Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 	Namespace: "pacto-system",
 }
 
@@ -198,7 +198,7 @@ func TestBuildDeployment(t *testing.T) {
 func TestBuildDeploymentWithWatchNamespace(t *testing.T) {
 	cfg := Config{
 		Enabled:        true,
-		Image:          "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:          "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace:      "pacto-system",
 		WatchNamespace: "production",
 	}
@@ -230,7 +230,7 @@ func TestBuildDeploymentWithoutWatchNamespace(t *testing.T) {
 func TestBuildDeploymentWithOCISecret(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace: "pacto-system",
 		OCISecret: "registry-creds",
 	}
@@ -285,7 +285,7 @@ func TestBuildDeploymentWithOCISecret(t *testing.T) {
 func TestBuildDeploymentWithOCISecrets(t *testing.T) {
 	cfg := Config{
 		Enabled:    true,
-		Image:      "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Image:      "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace:  "pacto-system",
 		OCISecrets: []string{"ghcr-creds", "ecr-creds"},
 	}

@@ -14,7 +14,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].image
-          pattern: "ghcr.io/trianalab/pacto-operator/pacto-controller:.*"
+          pattern: "ghcr.io/trianalab/pacto/operator:.*"
 
   - it: should set security context
     asserts:
@@ -81,7 +81,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: "ghcr.io/trianalab/pacto-operator/pacto-controller:v1.2.3"
+          value: "ghcr.io/trianalab/pacto/operator:v1.2.3"
 
   - it: should disable leader election
     set:

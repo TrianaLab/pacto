@@ -31,7 +31,7 @@ The CLI is the authoring tool. The operator is the runtime feedback loop. The da
 
 ```bash
 # Install (dashboard enabled by default)
-helm install pacto-operator oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
+helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --namespace pacto-operator-system --create-namespace
 ```
 
@@ -216,7 +216,7 @@ ContractStatus reflects **contract validation/compliance**, not runtime health. 
 ### Helm (recommended)
 
 ```bash
-helm install pacto-operator oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator \
+helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --namespace pacto-operator-system --create-namespace
 ```
 
@@ -335,7 +335,7 @@ Verify the controller image:
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp 'github\.com/TrianaLab/pacto/\.github/workflows/release\.yml' \
-  ghcr.io/trianalab/pacto-operator/pacto-controller:<version>
+  ghcr.io/trianalab/pacto/operator:<version>
 ```
 
 Verify the Helm chart:
@@ -344,7 +344,7 @@ Verify the Helm chart:
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp 'github\.com/TrianaLab/pacto/\.github/workflows/release\.yml' \
-  ghcr.io/trianalab/pacto-operator/charts/pacto-operator:<version>
+  ghcr.io/trianalab/pacto/charts/pacto-operator:<version>
 ```
 
 ---
@@ -400,8 +400,8 @@ See the repository-root [CONTRIBUTING.md](/CONTRIBUTING.md) for the full develop
 
 | Artifact | Location |
 |----------|----------|
-| Controller image | `ghcr.io/trianalab/pacto-operator/pacto-controller` |
-| Helm chart | `oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator` |
+| Controller image | `ghcr.io/trianalab/pacto/operator` |
+| Helm chart | `oci://ghcr.io/trianalab/pacto/charts/pacto-operator` |
 
 ## License
 

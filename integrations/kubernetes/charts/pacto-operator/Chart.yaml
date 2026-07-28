@@ -27,4 +27,4 @@ annotations:
       url: https://trianalab.github.io/pacto/integrations/kubernetes/overview/
   artifacthub.io/images: |
     - name: pacto-controller
-      image: ghcr.io/trianalab/pacto-operator/pacto-controller:5.0.0
+      image: ghcr.io/trianalab/pacto/operator:5.0.0

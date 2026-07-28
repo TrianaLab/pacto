@@ -6,7 +6,7 @@ The Pacto dashboard is published as a container image for production and Kuberne
 ## Image
 
 ```
-ghcr.io/trianalab/pacto-dashboard:<version>
+ghcr.io/trianalab/pacto/dashboard:<version>
 ```
 
 The image tag always matches the Pacto release version (e.g., `1.2.3`). There is no `latest` tag. The container runs the exact `pacto` binary for that version.
@@ -17,13 +17,13 @@ The image tag always matches the Pacto release version (e.g., `1.2.3`). There is
 # Run with OCI registry sources
 docker run -p 3000:3000 \
   -e PACTO_DASHBOARD_REPO=ghcr.io/org/svc-a,ghcr.io/org/svc-b \
-  ghcr.io/trianalab/pacto-dashboard:1.2.3
+  ghcr.io/trianalab/pacto/dashboard:1.2.3
 
 # Run with registry authentication
 docker run -p 3000:3000 \
   -e PACTO_DASHBOARD_REPO=ghcr.io/org/svc-a \
   -e PACTO_REGISTRY_TOKEN=ghp_xxx \
-  ghcr.io/trianalab/pacto-dashboard:1.2.3
+  ghcr.io/trianalab/pacto/dashboard:1.2.3
 ```
 
 ## Local Development
@@ -88,7 +88,7 @@ To enable the Kubernetes data source, mount a kubeconfig:
 docker run -p 3000:3000 \
   -v ~/.kube/config:/home/pacto/.kube/config:ro \
   -e PACTO_DASHBOARD_NAMESPACE=production \
-  ghcr.io/trianalab/pacto-dashboard:1.2.3
+  ghcr.io/trianalab/pacto/dashboard:1.2.3
 ```
 
 When running inside a Kubernetes cluster, the in-cluster config is used automatically (no mount needed).
@@ -100,7 +100,7 @@ To scan a local contract directory:
 ```bash
 docker run -p 3000:3000 \
   -v /path/to/contracts:/data:ro \
-  ghcr.io/trianalab/pacto-dashboard:1.2.3 \
+  ghcr.io/trianalab/pacto/dashboard:1.2.3 \
   dashboard /data
 ```
 
@@ -154,7 +154,7 @@ spec:
     spec:
       containers:
         - name: dashboard
-          image: ghcr.io/trianalab/pacto-dashboard:1.2.3
+          image: ghcr.io/trianalab/pacto/dashboard:1.2.3
           ports:
             - containerPort: 3000
           env:
@@ -213,4 +213,4 @@ spec:
 
 ## Build and Release
 
-The dashboard image is built and published automatically when a new Pacto version is released. The `docker-build` and `docker-merge` jobs in the auto-release pipeline (`.github/workflows/auto-release.yml`) build per-architecture images (`linux/amd64`, `linux/arm64`) and merge them into a single multi-arch manifest pushed to `ghcr.io/trianalab/pacto-dashboard` with the matching version tag (without `v` prefix).
+The dashboard image is built and published automatically when a new Pacto version is released. The `docker-build` and `docker-merge` jobs in the auto-release pipeline (`.github/workflows/auto-release.yml`) build per-architecture images (`linux/amd64`, `linux/arm64`) and merge them into a single multi-arch manifest pushed to `ghcr.io/trianalab/pacto/dashboard` with the matching version tag (without `v` prefix).

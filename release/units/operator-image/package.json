@@ -5,6 +5,6 @@
   "pacto": {
     "releaseUnit": "operator-image",
     "kind": "oci-image",
-    "coordinate": "ghcr.io/trianalab/pacto-operator/pacto-controller"
+    "coordinate": "ghcr.io/trianalab/pacto/operator"
   }
 }

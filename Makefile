@@ -11,7 +11,7 @@ endif
 GOBIN := $(GOPATH)/bin
 endif
 
-IMAGE := ghcr.io/trianalab/pacto-dashboard
+IMAGE := ghcr.io/trianalab/pacto/dashboard
 
 .PHONY: build test e2e coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run
 

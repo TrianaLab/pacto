@@ -5,6 +5,6 @@
   "pacto": {
     "releaseUnit": "dashboard-image",
     "kind": "oci-image",
-    "coordinate": "ghcr.io/trianalab/pacto-dashboard"
+    "coordinate": "ghcr.io/trianalab/pacto/dashboard"
   }
 }
