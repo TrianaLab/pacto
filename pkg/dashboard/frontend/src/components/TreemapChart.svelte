@@ -1,5 +1,6 @@
 <script>
   import { renderTreemap } from '../lib/charts.ts';
+  import { currentTheme } from '../lib/theme.svelte.ts';
 
   let { data, onSelect = undefined } = $props();
 
@@ -8,7 +9,7 @@
 
   $effect(() => {
     if (!container || !data) return;
-    const sig = JSON.stringify(data) + (document.documentElement.getAttribute('data-theme') || '');
+    const sig = JSON.stringify(data) + currentTheme();
     if (sig === lastSig) return;
     lastSig = sig;
     renderTreemap(container, data, { onSelect });

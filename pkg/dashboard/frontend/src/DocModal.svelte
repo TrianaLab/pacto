@@ -5,8 +5,38 @@
   // When null, the modal is closed.
   let { doc = null, onClose = () => {} } = $props();
 
+  let modalEl = $state(null);
+  let prevFocus = null;
+
+  // Move focus into the dialog when it opens (so keyboard/AT users are actually
+  // placed inside it) and restore focus to the opener when it closes.
+  $effect(() => {
+    if (doc) {
+      prevFocus = document.activeElement;
+      queueMicrotask(() => modalEl?.focus());
+    } else if (prevFocus) {
+      prevFocus.focus?.();
+      prevFocus = null;
+    }
+  });
+
   function onKeydown(e) {
-    if (doc && e.key === 'Escape') onClose();
+    if (!doc) return;
+    if (e.key === 'Escape') { onClose(); return; }
+    if (e.key === 'Tab') {
+      // Trap focus: cycle among the dialog's focusable elements (close button +
+      // any links in the rendered doc) instead of escaping to the page behind.
+      e.preventDefault();
+      const focusable = Array.from(
+        modalEl?.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])') || [],
+      );
+      if (!focusable.length) { modalEl?.focus(); return; }
+      const idx = focusable.indexOf(document.activeElement);
+      const next = e.shiftKey
+        ? (idx <= 0 ? focusable.length - 1 : idx - 1)
+        : (idx >= focusable.length - 1 ? 0 : idx + 1);
+      focusable[next]?.focus();
+    }
   }
 </script>
 
@@ -17,6 +47,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="doc-modal-backdrop" role="presentation" onclick={onClose}>
     <div class="doc-modal" role="dialog" aria-modal="true" aria-label={doc.title || doc.path} tabindex="-1"
+      bind:this={modalEl}
       onclick={(e) => e.stopPropagation()}>
       <div class="doc-modal-header">
         <div class="doc-modal-titles">

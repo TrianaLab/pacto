@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { parseHash } from './lib/router.ts';
   import { syncFromHash } from './lib/filters.svelte.ts';
+  import { toggleTheme } from './lib/theme.svelte.ts';
   import { initTooltipPlacement } from './lib/tooltips.ts';
   import { api } from './lib/api.ts';
   import Navbar from './Navbar.svelte';
@@ -90,16 +91,7 @@
     }
   }
 
-  function toggleTheme() {
-    const root = document.documentElement;
-    const current = root.getAttribute('data-theme');
-    let isDark;
-    if (current) isDark = current === 'dark';
-    else isDark = matchMedia('(prefers-color-scheme: dark)').matches;
-    const next = isDark ? 'light' : 'dark';
-    root.setAttribute('data-theme', next);
-    localStorage.setItem('pacto-theme', next);
-  }
+  // toggleTheme lives in the reactive theme store so D3 charts re-render on toggle.
 
   function handlePaletteKeydown(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {

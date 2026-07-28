@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl, ownerUrl } from '../lib/router.ts';
   import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerMatchesFilter, ownerKey, aggregateGraphByOwner, relatedSubgraph } from '../lib/format.ts';
@@ -34,14 +34,17 @@
   let sourceFilter = $state(f.source || 'all');
   let nameFilter = $state(f.search || '');
 
-  // local (StatsBar) → store/hash
-  $effect(() => { const v = statusFilter === 'all' ? '' : statusFilter; if (f.contractStatus !== v) setFilter('contractStatus', v); });
-  $effect(() => { const v = sourceFilter === 'all' ? '' : sourceFilter; if (f.source !== v) setFilter('source', v); });
-  $effect(() => { if (f.search !== nameFilter) setFilter('search', nameFilter); });
-  // store → local (back/forward, palette navigation)
-  $effect(() => { const v = f.contractStatus || 'all'; if (statusFilter !== v) statusFilter = v; });
-  $effect(() => { const v = f.source || 'all'; if (sourceFilter !== v) sourceFilter = v; });
-  $effect(() => { const v = f.search || ''; if (nameFilter !== v) nameFilter = v; });
+  // local (StatsBar) → store/hash. Track ONLY the local: the store side is read via
+  // untrack so an external store change (back/forward nav) does not re-run this effect
+  // with a stale local value and clobber the navigation back to the old filter.
+  $effect(() => { const v = statusFilter === 'all' ? '' : statusFilter; if (untrack(() => f.contractStatus) !== v) setFilter('contractStatus', v); });
+  $effect(() => { const v = sourceFilter === 'all' ? '' : sourceFilter; if (untrack(() => f.source) !== v) setFilter('source', v); });
+  $effect(() => { if (untrack(() => f.search) !== nameFilter) setFilter('search', nameFilter); });
+  // store → local (back/forward, palette navigation). Track ONLY the store: the local is
+  // read via untrack so a user edit does not re-run this effect and revert their input.
+  $effect(() => { const v = f.contractStatus || 'all'; if (untrack(() => statusFilter) !== v) statusFilter = v; });
+  $effect(() => { const v = f.source || 'all'; if (untrack(() => sourceFilter) !== v) sourceFilter = v; });
+  $effect(() => { const v = f.search || ''; if (untrack(() => nameFilter) !== v) nameFilter = v; });
 
   // Group + focus live straight in the store (not StatsBar bindables).
   let groupByOwner = $derived(f.group === 'owner');
