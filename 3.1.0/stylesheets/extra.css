@@ -394,3 +394,6 @@
   opacity: 0;
   pointer-events: none;
 }
+
+/* Version selector: scroll long lists (max-height + overflow). */
+.md-version__list{max-height:75vh;overflow-y:auto}
