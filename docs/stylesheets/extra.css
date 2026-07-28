@@ -394,3 +394,10 @@
   opacity: 0;
   pointer-events: none;
 }
+
+/* Version selector: cap the dropdown height and scroll once the released versions
+   outgrow the viewport, so a long list never runs off-screen. */
+.md-version__list {
+  max-height: 75vh;
+  overflow-y: auto;
+}
