@@ -41,11 +41,18 @@ digest() {
   elif command -v oras  >/dev/null 2>&1; then run oras manifest fetch --descriptor "$1" 2>/dev/null | jq -r .digest
   else docker manifest inspect "$1" >/dev/null 2>&1 && docker buildx imagetools inspect "$1" --format '{{.Manifest.Digest}}' 2>/dev/null; fi
 }
-# label <ref> <key> -> the image config label value ("" if unavailable/no crane).
+# label <ref> <key> -> the provenance value for key ("" if unavailable/no crane).
+# Reads a docker-style config label first (images), then falls back to the OCI
+# manifest annotations (helm charts carry org.opencontainers.image.* there, not in a
+# config Labels block).
 label() {
   command -v crane >/dev/null 2>&1 || { printf ''; return; }
+  local v=""
   # shellcheck disable=SC2046
-  run crane config $(craneflags "$1") "$1" 2>/dev/null | jq -r --arg k "$2" '(.config.Labels[$k]) // (.config.labels[$k]) // ""' 2>/dev/null || printf ''
+  v="$(run crane config $(craneflags "$1") "$1" 2>/dev/null | jq -r --arg k "$2" '(.config.Labels[$k]) // (.config.labels[$k]) // ""' 2>/dev/null || printf '')"
+  if [ -n "$v" ]; then printf '%s' "$v"; return; fi
+  # shellcheck disable=SC2046
+  run crane manifest $(craneflags "$1") "$1" 2>/dev/null | jq -r --arg k "$2" '(.annotations[$k]) // ""' 2>/dev/null || printf ''
 }
 
 remote="$(digest "$REF" || true)"

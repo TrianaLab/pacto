@@ -493,20 +493,11 @@ func (s *K8sSource) setListCache(items []pactoResource, err error) {
 }
 
 func (s *K8sSource) getPacto(ctx context.Context, name string) (*pactoResource, error) {
-	if s.namespace != "" {
-		// Direct get with known namespace.
-		out, err := s.client.GetJSON(ctx, s.resourceName, s.namespace, name)
-		if err != nil {
-			return nil, fmt.Errorf("getting %s %s: %w", s.resourceName, name, err)
-		}
-		var r pactoResource
-		if err := json.Unmarshal(out, &r); err != nil {
-			return nil, fmt.Errorf("parsing API response: %w", err)
-		}
-		return &r, nil
-	}
-
-	// All-namespaces mode: list all and find by name.
+	// Always resolve from the cached list (namespace-scoped when s.namespace is set).
+	// GetService is called once per service during an index rebuild, so a direct
+	// apiserver GET per call is an N+1 against the apiserver when listPactos already
+	// holds — and caches — the whole set. Matching by service name here also resolves
+	// status.contract.serviceName, which a metadata.name-keyed GET cannot.
 	resources, err := s.listPactos(ctx)
 	if err != nil {
 		return nil, err

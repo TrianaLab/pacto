@@ -4,9 +4,12 @@
 
 BUNDLE_DIR := pactos/pacto-dashboard
 
+# Pinned Repowise CLI version for the advisory ci-arch architecture-health leg.
+REPOWISE_VERSION ?= 0.36.0
+
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
        ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
-       verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-docs \
+       verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
 # ── Monorepo CI matrix (go.work) ─────────────────────────────────────
@@ -189,6 +192,22 @@ ci-cyclo:
 ci-lint:
 	@echo "==> Running linter..."
 	golangci-lint run
+
+# Architecture-health leg (ADVISORY — never blocks). Deterministic Repowise
+# analysis: zero-LLM (`repowise init --no-prose`, no API key). Posts change-risk +
+# code-health to the PR check summary in CI ($GITHUB_STEP_SUMMARY), stdout locally.
+# Deliberately NOT part of the blocking `ci` aggregate above: metric hard-gates are
+# noisy (a large but legitimate refactor scores "high"), so this informs review
+# rather than gating. .github/workflows/repowise.yml just runs this target.
+ci-arch:
+	@echo "==> Running Repowise architecture-health analysis (advisory, zero-LLM)..."
+	pip install --quiet "repowise==$(REPOWISE_VERSION)"
+	repowise init --no-prose
+	@tmp=$$(mktemp -d); \
+	repowise risk "origin/$${GITHUB_BASE_REF:-main}..HEAD" --format json > $$tmp/risk.json 2>/dev/null || echo '{}' > $$tmp/risk.json; \
+	repowise health --format json > $$tmp/health.json 2>/dev/null || echo '{}' > $$tmp/health.json; \
+	python3 release/scripts/repowise_summary.py $$tmp/risk.json $$tmp/health.json >> "$${GITHUB_STEP_SUMMARY:-/dev/stdout}"; \
+	rm -rf $$tmp
 
 ci-docs:
 	@echo "==> Checking CLI docs are up to date..."

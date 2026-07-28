@@ -46,3 +46,6 @@ pactos/*/sbom/
 release/proofs/
 .mono-*.workflow.js
 .pr-body.md
+
+# repowise deterministic index/cache (built in CI on demand)
+.repowise/

@@ -16,6 +16,7 @@ import (
 var (
 	readPasswordFn      = func(fd int) ([]byte, error) { return term.ReadPassword(fd) }
 	jsonMarshalIndentFn = json.MarshalIndent
+	chmodFn             = os.Chmod
 )
 
 func newLoginCommand() *cobra.Command {
@@ -96,6 +97,13 @@ func writePactoConfig(registry, username, password string) error {
 
 	if err := os.WriteFile(configPath, out, 0600); err != nil {
 		return fmt.Errorf("failed to write %s: %w", configPath, err)
+	}
+
+	// WriteFile only applies the 0600 mode when it CREATES the file; an existing
+	// config keeps its prior (possibly world-readable) permissions. Enforce 0600
+	// explicitly so stored credentials are never left readable by other users.
+	if err := chmodFn(configPath, 0600); err != nil {
+		return fmt.Errorf("failed to secure %s: %w", configPath, err)
 	}
 
 	return nil

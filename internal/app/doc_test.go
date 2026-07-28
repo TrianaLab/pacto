@@ -70,6 +70,26 @@ func TestDoc_WithOutputDir(t *testing.T) {
 	}
 }
 
+func TestDoc_RejectsUnsafeServiceName(t *testing.T) {
+	// The output filename embeds the remote-controlled service name; a traversal
+	// sequence must be refused before writing under OutputDir.
+	store := &mockBundleStore{
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			b := testBundle()
+			b.Contract.Service.Name = "../../etc/evil"
+			return b, nil
+		},
+	}
+	svc := NewService(store, nil)
+	_, err := svc.Doc(context.Background(), DocOptions{
+		Path:      "oci://ghcr.io/acme/svc:1.0.0",
+		OutputDir: t.TempDir(),
+	})
+	if err == nil {
+		t.Error("expected error for unsafe service name used as output filename")
+	}
+}
+
 func TestDoc_NotFound(t *testing.T) {
 	svc := NewService(nil, nil)
 	_, err := svc.Doc(context.Background(), DocOptions{Path: "/nonexistent/path"})

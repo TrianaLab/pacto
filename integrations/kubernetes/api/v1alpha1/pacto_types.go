@@ -31,6 +31,10 @@ type ContractRef struct {
 	//   - Opaque with "token" key (bearer token)
 	//   - Opaque with "username"+"password" keys (basic auth)
 	//   - kubernetes.io/dockerconfigjson (standard Docker registry auth)
+	// For Opaque secrets, add a "registry" key (e.g. "ghcr.io") to bind the
+	// credentials to that host; the operator then refuses to send them to any
+	// other registry. Recommended to prevent a contract from redirecting a
+	// referenced secret to an attacker-controlled registry.
 	// +optional
 	PullSecretRef string `json:"pullSecretRef,omitempty"`
 }

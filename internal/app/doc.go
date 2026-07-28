@@ -74,6 +74,11 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 
 	if opts.OutputDir != "" {
 		logging.LoggerFromContext(ctx).Debug("writing documentation to disk", "dir", opts.OutputDir)
+		// The filename embeds the REMOTE-controlled service name; refuse a name that
+		// would escape OutputDir via path traversal.
+		if err := safeOutputName(bundle.Contract.Service.Name); err != nil {
+			return nil, err
+		}
 		filename := bundle.Contract.Service.Name + ".md"
 		outPath := filepath.Join(opts.OutputDir, filename)
 

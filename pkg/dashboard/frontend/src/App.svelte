@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { parseHash } from './lib/router.ts';
   import { syncFromHash } from './lib/filters.svelte.ts';
+  import { toggleTheme } from './lib/theme.svelte.ts';
   import { initTooltipPlacement } from './lib/tooltips.ts';
   import { api } from './lib/api.ts';
   import Navbar from './Navbar.svelte';
@@ -29,6 +30,7 @@
 
   const POLL_FAST = 2000;   // during discovery
   const POLL_NORMAL = 10000;
+  let reloadInterval = POLL_FAST; // the currently-active poll interval (ms)
 
   function onHashChange() {
     route = parseHash(location.hash);
@@ -58,18 +60,20 @@
       loadError = servicesFailed ? 'Can’t reach the Pacto backend.' : null;
       if (!servicesFailed && svcList !== null) services = svcList || [];
       if (srcData) sourcesInfo = srcData.sources || [];
-      const wasDiscovering = discovering;
       discovering = srcData?.discovering || false;
       appVersion = health?.version || appVersion;
       refreshTick++;
 
-      // Adjust polling speed: fast during discovery, normal otherwise
+      // Reconcile polling speed to the current discovery state: fast during
+      // discovery, normal otherwise. Compare against the ACTIVE interval (not the
+      // previous discovery flag) so the first settle to "not discovering" also slows
+      // the poll from the initial fast rate instead of staying stuck at 2s.
       if (autoReload) {
-        const shouldBeFast = discovering;
-        const wasFast = wasDiscovering;
-        if (shouldBeFast !== wasFast) {
+        const desired = discovering ? POLL_FAST : POLL_NORMAL;
+        if (reloadInterval !== desired) {
+          reloadInterval = desired;
           clearInterval(reloadTimer);
-          reloadTimer = setInterval(loadGlobal, shouldBeFast ? POLL_FAST : POLL_NORMAL);
+          reloadTimer = setInterval(loadGlobal, desired);
         }
       }
     } catch {
@@ -83,23 +87,15 @@
   function toggleAutoReload() {
     autoReload = !autoReload;
     if (autoReload) {
-      reloadTimer = setInterval(loadGlobal, discovering ? POLL_FAST : POLL_NORMAL);
+      reloadInterval = discovering ? POLL_FAST : POLL_NORMAL;
+      reloadTimer = setInterval(loadGlobal, reloadInterval);
     } else {
       clearInterval(reloadTimer);
       reloadTimer = null;
     }
   }
 
-  function toggleTheme() {
-    const root = document.documentElement;
-    const current = root.getAttribute('data-theme');
-    let isDark;
-    if (current) isDark = current === 'dark';
-    else isDark = matchMedia('(prefers-color-scheme: dark)').matches;
-    const next = isDark ? 'light' : 'dark';
-    root.setAttribute('data-theme', next);
-    localStorage.setItem('pacto-theme', next);
-  }
+  // toggleTheme lives in the reactive theme store so D3 charts re-render on toggle.
 
   function handlePaletteKeydown(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {

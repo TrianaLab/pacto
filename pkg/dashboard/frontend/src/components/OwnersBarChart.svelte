@@ -1,5 +1,6 @@
 <script>
   import { renderOwnerBars } from '../lib/charts.ts';
+  import { currentTheme } from '../lib/theme.svelte.ts';
   import { ownerUrl } from '../lib/router.ts';
 
   let { data = [] } = $props();
@@ -9,7 +10,7 @@
 
   $effect(() => {
     if (!container || !data) return;
-    const sig = JSON.stringify(data) + (document.documentElement.getAttribute('data-theme') || '');
+    const sig = JSON.stringify(data) + currentTheme();
     if (sig === lastSig) return;
     lastSig = sig;
     renderOwnerBars(container, data, {

@@ -116,6 +116,13 @@ if command -v crane >/dev/null 2>&1; then
     exit 1
   fi
   [ "${#MIGRATED[@]}" -gt 0 ] && { echo "==> MIGRATION: replacing ${#MIGRATED[@]} tag(s) (audit inventory old->new):"; printf '    %s\n' "${MIGRATED[@]}"; }
+elif [ "$PROD" = "1" ]; then
+  # Never publish to a production coordinate without the byte-exact immutability gate:
+  # a missing crane would otherwise let changed content overwrite an immutable tag.
+  echo "REFUSED: crane is required for the byte-exact immutability gate when publishing to a production target. Install it: go install github.com/google/go-containerregistry/cmd/crane@latest" >&2
+  exit 1
+else
+  echo "warning: crane not found — skipping the byte-exact immutability gate (non-production target)" >&2
 fi
 
 echo "==> push demo bundles to $COORD"

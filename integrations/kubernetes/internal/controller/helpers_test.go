@@ -22,6 +22,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/schemax"
 	"github.com/trianalab/pacto/v3/pkg/validation"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -451,5 +452,50 @@ func TestToSchemaProps_Valid(t *testing.T) {
 	}
 	if got[1].Key != "k2" || got[1].Type != "integer" {
 		t.Errorf("unexpected second prop: %+v", got[1])
+	}
+}
+
+func TestShortDigest(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"sha256:abcdef0123456789", "sha256:abcde"}, // long -> first 12 chars
+		{"", ""},                         // empty -> no panic
+		{"short", "short"},               // shorter than 12 -> whole string
+		{"exactly12chr", "exactly12chr"}, // exactly 12 -> whole string
+	}
+	for _, tc := range cases {
+		if got := shortDigest(tc.in); got != tc.want {
+			t.Errorf("shortDigest(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestResetDerivedStatus_PreservesConditionTransitionTime proves a reconcile does
+// not reset LastTransitionTime when a condition's status is unchanged: resetDerivedStatus
+// must keep existing conditions so meta.SetStatusCondition (via setCondition) can
+// preserve the timestamp. Previously the conditions slice was wiped every reconcile,
+// stamping LastTransitionTime = now each time.
+func TestResetDerivedStatus_PreservesConditionTransitionTime(t *testing.T) {
+	r := &PactoReconciler{}
+	past := metav1.NewTime(time.Now().Add(-1 * time.Hour).Truncate(time.Second))
+	pacto := &pactov1alpha1.Pacto{}
+	pacto.Status.Conditions = []metav1.Condition{{
+		Type:               pactov1alpha1.ConditionContractValid,
+		Status:             metav1.ConditionTrue,
+		Reason:             "Valid",
+		Message:            "ok",
+		LastTransitionTime: past,
+	}}
+
+	// Simulate a reconcile: reset derived status, then re-assert the SAME status.
+	r.resetDerivedStatus(pacto)
+	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue, "Valid", "still ok")
+
+	if len(pacto.Status.Conditions) != 1 {
+		t.Fatalf("expected 1 condition preserved, got %d", len(pacto.Status.Conditions))
+	}
+	if got := pacto.Status.Conditions[0].LastTransitionTime; !got.Time.Equal(past.Time) {
+		t.Errorf("LastTransitionTime reset on unchanged status: got %v, want preserved %v", got.Time, past.Time)
 	}
 }

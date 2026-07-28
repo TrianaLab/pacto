@@ -68,7 +68,7 @@ type PactoReconciler struct {
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactorevisions,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactorevisions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;watch
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;replicasets,verbs=get;list;watch
@@ -248,7 +248,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	r.applyObservationWindowUpdates(pacto, windowUpdates, declaredWindowKeys(effectiveContract))
 
 	// 11. Populate lean observed runtime into status (backward compat for dashboard)
-	snapshot, _ := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
+	snapshot, obsErr := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
 	if snapshot != nil && snapshot.WorkloadExists {
 		pacto.Status.ObservedRuntime = &pactov1alpha1.ObservedRuntime{
 			WorkloadKind:                   snapshot.WorkloadKind,
@@ -262,8 +262,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
-	r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionTrue,
-		pactov1alpha1.ReasonFound, "Runtime evidence collected successfully")
+	r.setRuntimeObservedCondition(pacto, obsErr)
 
 	// 12. Resources status (backward compat)
 	hasService := serviceName != ""
@@ -344,7 +343,11 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.ObservedRuntime = nil
 	pacto.Status.Readiness = nil
 	pacto.Status.Metadata = nil
-	pacto.Status.Conditions = nil
+	// Conditions are intentionally NOT wiped: they are sticky observations managed
+	// by meta.SetStatusCondition (via setCondition), which preserves each condition's
+	// LastTransitionTime while the status is unchanged and stamps ObservedGeneration
+	// so a not-re-set condition is detectably stale. Wiping them reset every
+	// LastTransitionTime to now on every reconcile.
 	pacto.Status.Findings = nil
 	pacto.Status.Capabilities = nil
 	pacto.Status.EvaluationCoverage = nil
@@ -936,6 +939,29 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 	return revisionName, nil
 }
 
+// setRuntimeObservedCondition records whether runtime evidence was collected. On an
+// observation API error it reports False (ReasonObservationFailed) rather than
+// claiming success, so a failure is distinguishable from a genuine observation.
+func (r *PactoReconciler) setRuntimeObservedCondition(pacto *pactov1alpha1.Pacto, obsErr error) {
+	if obsErr != nil {
+		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionFalse,
+			pactov1alpha1.ReasonObservationFailed, fmt.Sprintf("Runtime observation failed: %v", obsErr))
+		return
+	}
+	r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionTrue,
+		pactov1alpha1.ReasonFound, "Runtime evidence collected successfully")
+}
+
+// shortDigest returns the first 12 characters of a digest for display, or the
+// whole string when it is shorter. A digest can be empty or malformed (e.g. a
+// registry that omits it), so slicing [:12] unconditionally would panic.
+func shortDigest(d string) string {
+	if len(d) > 12 {
+		return d[:12]
+	}
+	return d
+}
+
 func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1alpha1.Pacto, baseRef string, ociAuth *authn.AuthConfig) error {
 	log := logf.FromContext(ctx)
 
@@ -989,7 +1015,7 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 				"newDigest", loadResult.ResolvedDigest,
 				"oldRevision", existing.Name)
 			r.Recorder.Eventf(pacto, corev1.EventTypeWarning, "TagOverwritten",
-				"Tag %s was force-pushed (digest changed from %s to %s)", tag, storedDigest[:12], loadResult.ResolvedDigest[:12])
+				"Tag %s was force-pushed (digest changed from %s to %s)", tag, shortDigest(storedDigest), shortDigest(loadResult.ResolvedDigest))
 
 			revName, revErr := r.ensureRevision(ctx, pacto, loadResult)
 			if revErr != nil {

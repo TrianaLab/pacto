@@ -19,7 +19,9 @@ if gh release view "$TAG" >/dev/null 2>&1; then
     echo "release ${TAG} already finalized with matching assets — nothing to do"
   else
     echo "release ${TAG} exists without checksums — uploading assets"
-    gh release upload "$TAG" "${OUT}"/*
+    # --clobber so a resumed finalize overwrites any assets a prior interrupted run
+    # already uploaded, instead of failing on the ones that already exist.
+    gh release upload "$TAG" "${OUT}"/* --clobber
   fi
 else
   gh release create "$TAG" --title "$TAG" --target "$SHA" --generate-notes "${OUT}"/*

@@ -30,8 +30,8 @@ RUN set -eu; \
     if [ -n "${RELEASE_BUILD}" ]; then \
       echo "release build: GOWORK=off against the published pinned core"; \
       cd integrations/kubernetes; \
-      GOWORK=off GOFLAGS=-mod=mod go mod download; \
-      CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} GOWORK=off GOFLAGS=-mod=mod \
+      GOWORK=off GOFLAGS=-mod=mod GOPROXY=direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' go mod download; \
+      CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} GOWORK=off GOFLAGS=-mod=mod GOPROXY=direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' \
         go build -ldflags "${LDFLAGS}" -o /workspace/manager ./cmd; \
     else \
       echo "workspace build: go.work resolves the local core"; \

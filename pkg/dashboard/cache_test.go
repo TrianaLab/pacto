@@ -276,3 +276,53 @@ func TestCachedDataSource_GetServiceVersion_Error(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestMemoryCache_BoundedEvictsSoonestToExpireWhenFull(t *testing.T) {
+	c := &memoryCache{entries: make(map[string]cacheEntry), maxEntries: 2}
+	c.Set("a", 1, time.Hour) // soonest to expire
+	c.Set("b", 2, 2*time.Hour)
+	c.Set("c", 3, 3*time.Hour) // over cap, all live -> evict "a"
+
+	if _, ok := c.Get("a"); ok {
+		t.Error("expected soonest-to-expire 'a' evicted when over capacity")
+	}
+	if _, ok := c.Get("b"); !ok {
+		t.Error("expected 'b' to remain")
+	}
+	if _, ok := c.Get("c"); !ok {
+		t.Error("expected 'c' to remain")
+	}
+}
+
+func TestMemoryCache_BoundedSweepsExpiredBeforeEvicting(t *testing.T) {
+	c := &memoryCache{entries: make(map[string]cacheEntry), maxEntries: 2}
+	c.Set("stale", 1, time.Millisecond)
+	c.Set("live", 2, time.Hour)
+	time.Sleep(5 * time.Millisecond) // let "stale" expire
+
+	c.Set("new", 3, time.Hour) // over cap -> sweeps expired "stale", keeps live ones
+
+	if _, ok := c.Get("stale"); ok {
+		t.Error("expected expired 'stale' swept on capacity pressure")
+	}
+	if _, ok := c.Get("live"); !ok {
+		t.Error("expected 'live' to remain")
+	}
+	if _, ok := c.Get("new"); !ok {
+		t.Error("expected 'new' to remain")
+	}
+}
+
+func TestMemoryCache_BoundedUpdateDoesNotEvict(t *testing.T) {
+	c := &memoryCache{entries: make(map[string]cacheEntry), maxEntries: 2}
+	c.Set("a", 1, time.Hour)
+	c.Set("b", 2, time.Hour)
+	c.Set("a", 99, time.Hour) // update existing at capacity -> no eviction
+
+	if v, ok := c.Get("a"); !ok || v.(int) != 99 {
+		t.Errorf("expected updated 'a'=99, got %v ok=%v", v, ok)
+	}
+	if _, ok := c.Get("b"); !ok {
+		t.Error("expected 'b' to remain after an update-in-place")
+	}
+}

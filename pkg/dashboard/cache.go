@@ -13,10 +13,17 @@ type Cache interface {
 	InvalidateAll()
 }
 
-// memoryCache is a simple in-memory cache with TTL-based expiration.
+// defaultMaxCacheEntries bounds the in-memory cache so a large fleet (many
+// services × versions × diffs) or expired-but-never-read entries cannot grow it
+// without limit and OOM the dashboard.
+const defaultMaxCacheEntries = 4096
+
+// memoryCache is a simple in-memory cache with TTL-based expiration and a bounded
+// number of entries.
 type memoryCache struct {
-	mu      sync.RWMutex
-	entries map[string]cacheEntry
+	mu         sync.RWMutex
+	entries    map[string]cacheEntry
+	maxEntries int
 }
 
 type cacheEntry struct {
@@ -24,9 +31,9 @@ type cacheEntry struct {
 	expiresAt time.Time
 }
 
-// NewMemoryCache creates a new in-memory cache.
+// NewMemoryCache creates a new bounded in-memory cache.
 func NewMemoryCache() Cache {
-	return &memoryCache{entries: make(map[string]cacheEntry)}
+	return &memoryCache{entries: make(map[string]cacheEntry), maxEntries: defaultMaxCacheEntries}
 }
 
 func (c *memoryCache) Get(key string) (any, bool) {
@@ -48,11 +55,41 @@ func (c *memoryCache) Get(key string) (any, bool) {
 
 func (c *memoryCache) Set(key string, value any, ttl time.Duration) {
 	c.mu.Lock()
+	// Bound the cache: if a NEW key would push it over the cap, reclaim room first —
+	// drop expired entries, and if none were reclaimable, evict the soonest-to-expire
+	// live entry. Existing keys are updates and never grow the map.
+	if _, exists := c.entries[key]; !exists && len(c.entries) >= c.maxEntries {
+		c.evictLocked()
+	}
 	c.entries[key] = cacheEntry{
 		value:     value,
 		expiresAt: time.Now().Add(ttl),
 	}
 	c.mu.Unlock()
+}
+
+// evictLocked frees at least one slot: it deletes every expired entry in a single
+// pass and, if that reclaimed nothing (all entries live and still at capacity),
+// evicts the soonest-to-expire entry. The caller must hold c.mu.
+// ponytail: soonest-to-expire, not true LRU — it would expire imminently anyway;
+// swap for an LRU only if hit-rate measurably suffers.
+func (c *memoryCache) evictLocked() {
+	now := time.Now()
+	var oldestKey string
+	oldestSet := false
+	var oldest time.Time
+	for k, e := range c.entries {
+		if now.After(e.expiresAt) {
+			delete(c.entries, k)
+			continue
+		}
+		if !oldestSet || e.expiresAt.Before(oldest) {
+			oldestKey, oldest, oldestSet = k, e.expiresAt, true
+		}
+	}
+	if oldestSet && len(c.entries) >= c.maxEntries {
+		delete(c.entries, oldestKey)
+	}
 }
 
 func (c *memoryCache) InvalidateAll() {

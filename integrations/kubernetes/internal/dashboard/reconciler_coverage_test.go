@@ -344,13 +344,20 @@ func TestStart_Enabled_TickerFire(t *testing.T) {
 func TestStart_Enabled_TickerReconcileError(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
 
-	callCount := 0
+	// errored fires the first time the ticker reconcile hits the failure branch, so
+	// the test can prove that branch actually executed instead of merely sleeping.
+	errored := make(chan struct{}, 1)
+	callCount := 0 // only touched from the Start goroutine's sequential reconcile loop
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
 		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 			// Let the initial reconcile succeed, then fail on ticker reconcile
 			if _, ok := obj.(*corev1.Namespace); ok {
 				callCount++
 				if callCount > 1 {
+					select {
+					case errored <- struct{}{}:
+					default:
+					}
 					return fmt.Errorf("simulated periodic failure")
 				}
 			}
@@ -366,8 +373,15 @@ func TestStart_Enabled_TickerReconcileError(t *testing.T) {
 		done <- r.Start(ctx)
 	}()
 
-	// Wait for a few ticks to fire (some will error, which is logged but not returned)
-	time.Sleep(50 * time.Millisecond)
+	// Wait until the ticker reconcile has actually fired the error branch (which is
+	// logged but not returned), rather than assuming a fixed sleep was long enough.
+	select {
+	case <-errored:
+	case <-time.After(2 * time.Second):
+		cancel()
+		<-done
+		t.Fatal("ticker reconcile error branch never fired within 2s")
+	}
 	cancel()
 
 	err := <-done

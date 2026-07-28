@@ -1,0 +1,42 @@
+name: Repowise (architecture health)
+
+# Deterministic, zero-LLM architecture-health guardrail. Runs the repowise CLI's
+# static analysis (dependency graph, git hotspots, change coupling, dead code, the
+# 25-marker code-health score) on every PR and posts a change-risk + health report
+# to the PR's check summary. No API key, no LLM, no cloud — `repowise init --no-prose`
+# builds the index purely from the code + git history.
+#
+# The actual work lives in the `ci-arch` target in ci.mk (the single source of truth
+# for CI gates), so `make ci-arch` reproduces this locally. This is intentionally
+# ADVISORY (never blocks): change-risk / health scores are noisy as hard gates (a
+# large but legitimate refactor scores "high"), so it is not part of the blocking
+# `make ci` aggregate.
+#
+# The complementary, richer view is the free deterministic Repowise PR bot
+# (https://github.com/apps/repowise-bot) — an org admin installs it once; it leaves a
+# per-PR comment on hotspot touches, hidden coupling, declining health and dead code.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repowise-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  repowise:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # repowise needs full git history for hotspots + change risk
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      # Advisory: the summary (change-risk + health) is the value, not a pass/fail
+      # gate — a repowise/pip hiccup must never block a PR (see ci.mk ci-arch).
+      - run: make ci-arch
+        continue-on-error: true

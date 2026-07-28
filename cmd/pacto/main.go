@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/internal/cli"
@@ -24,7 +27,16 @@ func main() {
 	}
 }
 
+// signalContext returns a context cancelled on SIGINT/SIGTERM so a Ctrl+C aborts
+// in-flight work (OCI pulls, plugin runs) instead of being ignored until completion.
+func signalContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+}
+
 func run() error {
+	ctx, stop := signalContext()
+	defer stop()
+
 	keychain := oci.NewKeychain(oci.CredentialOptions{
 		Username: os.Getenv("PACTO_REGISTRY_USERNAME"),
 		Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
@@ -40,5 +52,5 @@ func run() error {
 		BuildDate: buildDate,
 	})
 
-	return root.Execute()
+	return root.ExecuteContext(ctx)
 }

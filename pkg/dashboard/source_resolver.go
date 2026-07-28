@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -283,15 +284,21 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 		return nil, fmt.Errorf("service %q not found in any source", name)
 	}
 
+	// Own deep copies of both inputs. Sub-sources hand back pointers into their own
+	// caches (CachedDataSource returns the same *ServiceDetails on every hit), and
+	// both this function (enrichWithRuntime aliases runtime slices into the result)
+	// and downstream handlers (getCachedIndex rewrites Dependencies[i].Name and
+	// appends Insights) mutate the result in place. Copying up front means no
+	// mutation can corrupt a cached source object or race a concurrent reader.
+	// deepCopy is nil-safe, so no guards needed here.
+	contractDetails = contractDetails.deepCopy()
+	runtimeDetails = runtimeDetails.deepCopy()
+
 	// Step 3: Build result.
 	var result *ServiceDetails
 	if contractDetails != nil {
-		// Start with contract as base. This is a shallow struct copy, so any
-		// slice the caller mutates in place (getCachedIndex rewrites
-		// Dependencies[i].Name) must be cloned to avoid corrupting the shared
-		// backing array of the source's cached object.
+		// Start with contract as base (shallow struct copy of the owned deep copy).
 		base := *contractDetails
-		base.Dependencies = append([]DependencyInfo(nil), contractDetails.Dependencies...)
 		result = &base
 		result.Source = contractSource
 
@@ -324,6 +331,22 @@ func (r *ResolvedSource) GetService(ctx context.Context, name string) (*ServiceD
 	markRuntimeOverrides(result, contractDetails, runtimeDetails)
 
 	return result, nil
+}
+
+// deepCopy returns a fully independent copy of d via a JSON round-trip. ServiceDetails
+// is the dashboard's wire format — every field is JSON-tagged and none are json:"-" —
+// so the round-trip is lossless. The resolver uses it to sever aliasing to cached
+// source objects before handing a result to mutating callers.
+// ponytail: JSON round-trip stays maintenance-free as fields are added; swap for a
+// hand-written DeepCopy only if it ever shows up in a profile.
+func (d *ServiceDetails) deepCopy() *ServiceDetails {
+	if d == nil {
+		return nil
+	}
+	data, _ := json.Marshal(d) //nolint:errcheck // ServiceDetails is always JSON-serializable
+	var cp ServiceDetails
+	_ = json.Unmarshal(data, &cp) //nolint:errcheck // round-trip of our own output cannot fail
+	return &cp
 }
 
 // enrichWithRuntime attaches k8s runtime fields to a contract-based service.

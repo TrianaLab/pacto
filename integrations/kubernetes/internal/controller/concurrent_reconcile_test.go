@@ -50,7 +50,11 @@ var _ = Describe("Concurrent reconciliation", func() {
 			Eventually(func(g Gomega) {
 				pacto := &pactov1alpha1.Pacto{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
-				g.Expect(meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionContractValid)).NotTo(BeNil())
+				// Converged to the TERMINAL state, not merely a condition that exists:
+				// validContract is valid, so ContractValid must settle to True.
+				cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionContractValid)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 		}
 
