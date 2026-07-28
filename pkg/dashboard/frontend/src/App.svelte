@@ -30,6 +30,7 @@
 
   const POLL_FAST = 2000;   // during discovery
   const POLL_NORMAL = 10000;
+  let reloadInterval = POLL_FAST; // the currently-active poll interval (ms)
 
   function onHashChange() {
     route = parseHash(location.hash);
@@ -59,18 +60,20 @@
       loadError = servicesFailed ? 'Can’t reach the Pacto backend.' : null;
       if (!servicesFailed && svcList !== null) services = svcList || [];
       if (srcData) sourcesInfo = srcData.sources || [];
-      const wasDiscovering = discovering;
       discovering = srcData?.discovering || false;
       appVersion = health?.version || appVersion;
       refreshTick++;
 
-      // Adjust polling speed: fast during discovery, normal otherwise
+      // Reconcile polling speed to the current discovery state: fast during
+      // discovery, normal otherwise. Compare against the ACTIVE interval (not the
+      // previous discovery flag) so the first settle to "not discovering" also slows
+      // the poll from the initial fast rate instead of staying stuck at 2s.
       if (autoReload) {
-        const shouldBeFast = discovering;
-        const wasFast = wasDiscovering;
-        if (shouldBeFast !== wasFast) {
+        const desired = discovering ? POLL_FAST : POLL_NORMAL;
+        if (reloadInterval !== desired) {
+          reloadInterval = desired;
           clearInterval(reloadTimer);
-          reloadTimer = setInterval(loadGlobal, shouldBeFast ? POLL_FAST : POLL_NORMAL);
+          reloadTimer = setInterval(loadGlobal, desired);
         }
       }
     } catch {
@@ -84,7 +87,8 @@
   function toggleAutoReload() {
     autoReload = !autoReload;
     if (autoReload) {
-      reloadTimer = setInterval(loadGlobal, discovering ? POLL_FAST : POLL_NORMAL);
+      reloadInterval = discovering ? POLL_FAST : POLL_NORMAL;
+      reloadTimer = setInterval(loadGlobal, reloadInterval);
     } else {
       clearInterval(reloadTimer);
       reloadTimer = null;
