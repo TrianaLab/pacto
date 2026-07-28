@@ -3,7 +3,7 @@
 // fails if any bundle is not valid.
 //
 // Why this exists: `pacto validate examples/demo/bundles/<svc>` resolves each
-// bundle's dependency + policy refs LIVE from oci://ghcr.io/trianalab/pacto-demo/…
+// bundle's dependency + policy refs LIVE from oci://ghcr.io/trianalab/pacto/…
 // The published artifacts there are stale (older schema versions), so live
 // validation of a dep-bearing bundle fails on a resolution artifact
 // (LOCK_UNRESOLVED / stale ref), never on the local contract's own correctness.

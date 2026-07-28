@@ -75,7 +75,7 @@ kubectl apply -f config/samples/scenarios/07-demo-showcase-revisions.yaml
 | File | Description |
 |------|-------------|
 | `00-infrastructure.yaml` | Kubernetes Service/Deployment stubs for all scenarios |
-| `01-demo-oci.yaml` | Real OCI contracts from `ghcr.io/trianalab/pacto-demo` |
+| `01-demo-oci.yaml` | Real OCI contracts from `ghcr.io/trianalab/pacto` |
 | `02-microservices.yaml` | E-commerce services with inline contracts |
 | `03-stateful-infrastructure.yaml` | Stateful services (postgres, redis, rabbitmq) |
 | `04-platform-standards.yaml` | Definition-only contracts and cross-references |

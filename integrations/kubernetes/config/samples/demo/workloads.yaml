@@ -23,7 +23,7 @@ spec:
       terminationGracePeriodSeconds: 15
       containers:
         - name: frontend
-          image: ghcr.io/trianalab/pacto-demo/frontend:latest
+          image: ghcr.io/trianalab/pacto/frontend:latest
           ports:
             - containerPort: 3000
               name: http
@@ -66,7 +66,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: api-gateway
-          image: ghcr.io/trianalab/pacto-demo/api-gateway:latest
+          image: ghcr.io/trianalab/pacto/api-gateway:latest
           ports:
             - containerPort: 8080
               name: http
@@ -115,7 +115,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: auth-service
-          image: ghcr.io/trianalab/pacto-demo/auth-service:latest
+          image: ghcr.io/trianalab/pacto/auth-service:latest
           ports:
             - containerPort: 8081
               name: http
@@ -165,7 +165,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: orders-service
-          image: ghcr.io/trianalab/pacto-demo/orders-service:latest
+          image: ghcr.io/trianalab/pacto/orders-service:latest
           ports:
             - containerPort: 8082
               name: http
@@ -212,7 +212,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: payments-service
-          image: ghcr.io/trianalab/pacto-demo/payments-service:latest
+          image: ghcr.io/trianalab/pacto/payments-service:latest
           ports:
             - containerPort: 8083
               name: http
@@ -263,7 +263,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: fraud-service
-          image: ghcr.io/trianalab/pacto-demo/fraud-service:latest
+          image: ghcr.io/trianalab/pacto/fraud-service:latest
           ports:
             - containerPort: 8084
               name: http
@@ -433,7 +433,7 @@ spec:
           terminationGracePeriodSeconds: 60
           containers:
             - name: notification-worker
-              image: ghcr.io/trianalab/pacto-demo/notification-worker:latest
+              image: ghcr.io/trianalab/pacto/notification-worker:latest
               env:
                 - name: REDIS_URL
                   value: "redis://redis:6379/2"

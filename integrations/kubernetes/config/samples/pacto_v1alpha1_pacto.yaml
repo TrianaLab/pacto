@@ -9,4 +9,4 @@ spec:
     serviceName: api
   checkIntervalSeconds: 60
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/api
+    oci: ghcr.io/trianalab/pacto/api

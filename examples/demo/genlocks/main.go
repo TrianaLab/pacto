@@ -1,7 +1,7 @@
 // Command genlocks generates committed pacto.lock files for the dependency-bearing
 // demo bundles, OFFLINE and DETERMINISTICALLY.
 //
-// Why offline: the demo's refs point at oci://ghcr.io/trianalab/pacto-demo/<svc>,
+// Why offline: the demo's refs point at oci://ghcr.io/trianalab/pacto/<svc>,
 // which does not resolve without a live registry, and an ephemeral throwaway host
 // would pollute the committed refs. Every referenced service already exists in the
 // embedded demo set, so the closure is resolved BY SERVICE NAME within ./bundles,

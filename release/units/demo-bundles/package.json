@@ -5,6 +5,6 @@
   "pacto": {
     "releaseUnit": "demo-bundles",
     "kind": "oci-image",
-    "coordinate": "ghcr.io/trianalab/pacto-demo"
+    "coordinate": "ghcr.io/trianalab/pacto"
   }
 }

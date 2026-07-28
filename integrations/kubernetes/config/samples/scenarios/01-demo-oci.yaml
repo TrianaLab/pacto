@@ -1,6 +1,6 @@
 # Scenario 01: Real OCI contracts from the pacto-demo registry.
 #
-# These use actual contracts published to ghcr.io/trianalab/pacto-demo.
+# These use actual contracts published to ghcr.io/trianalab/pacto.
 # Each bundle contains pacto.yaml, OpenAPI specs, config schemas, and metadata.
 #
 # Dependency chain:
@@ -18,7 +18,7 @@ spec:
     serviceName: api
   checkIntervalSeconds: 60
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/api
+    oci: ghcr.io/trianalab/pacto/api
 ---
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
@@ -30,7 +30,7 @@ spec:
     serviceName: inference
   checkIntervalSeconds: 60
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/inference
+    oci: ghcr.io/trianalab/pacto/inference
 ---
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
@@ -42,4 +42,4 @@ spec:
     serviceName: runtime
   checkIntervalSeconds: 60
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/runtime
+    oci: ghcr.io/trianalab/pacto/runtime

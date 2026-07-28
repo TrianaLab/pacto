@@ -7,7 +7,7 @@ root:
 dependencies:
     - name: auth-service
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/auth-service
+      ref: oci://ghcr.io/trianalab/pacto/auth-service
       constraint: ^1.0.0
       version: 1.0.0
       digest: sha256:2c9c73809a54e41f4276cd6eae1f3b2603d3dfd8b207fb9ea6899ee0f8cab5de
@@ -15,13 +15,13 @@ dependencies:
         - redis
     - name: email-provider
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/email-provider
+      ref: oci://ghcr.io/trianalab/pacto/email-provider
       constraint: ^1.0.0
       version: 1.0.0
       digest: sha256:2ef9480d81b9d2006f9f2d98b1745cd698fe2d5805e2fe42980fb1ad24acf366
     - name: fraud-service
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/fraud-service
+      ref: oci://ghcr.io/trianalab/pacto/fraud-service
       constraint: ^1.0.0
       version: 1.0.0
       digest: sha256:43f5e2c5fae57886921678d2d84d249b005a3fcebe16430635edbc7903ab9acc
@@ -29,7 +29,7 @@ dependencies:
         - redis
     - name: notification-worker
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/notification-worker
+      ref: oci://ghcr.io/trianalab/pacto/notification-worker
       constraint: ^1.0.0
       version: 1.0.0
       digest: sha256:a09e6995d3c62a4bf8446ef98efd9c3b81572208ac5f5eb76a92a44d7539a314
@@ -37,7 +37,7 @@ dependencies:
         - email-provider
     - name: orders-service
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/orders-service
+      ref: oci://ghcr.io/trianalab/pacto/orders-service
       constraint: ^1.0.0
       version: 1.2.0
       digest: sha256:cc83798cbad4e1a793f594471e780c604542e1aab5a2adfff09a0e95ee133ee5
@@ -47,7 +47,7 @@ dependencies:
         - postgresql
     - name: payments-service
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/payments-service
+      ref: oci://ghcr.io/trianalab/pacto/payments-service
       constraint: ^1.0.0
       version: 2.1.0
       digest: sha256:50e5dc439ae90a8f3c8c5b079674145fe37c8b7c5d74d3c77733f626c41e769e
@@ -57,19 +57,19 @@ dependencies:
         - stripe-api
     - name: postgresql
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
+      ref: oci://ghcr.io/trianalab/pacto/postgresql
       constraint: ^16.0.0
       version: 16.0.0
       digest: sha256:5df5c6c08e82bf3a6f1ab512a8d13f2948e2b92cf13c7c28f354ae1f3794b2bf
     - name: redis
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/redis
+      ref: oci://ghcr.io/trianalab/pacto/redis
       constraint: ^7.0.0
       version: 7.2.0
       digest: sha256:62ea5244d912c65257e16fb538df281a802c9541771a04f3a512ba114d30bc37
     - name: stripe-api
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/stripe-api
+      ref: oci://ghcr.io/trianalab/pacto/stripe-api
       constraint: ^2024.01.01
       version: 2024.01.01
       digest: sha256:8c5fae3f3c2ef7fe805c525f62befa78663a7e87cae88010704533fdc1504d08
@@ -77,6 +77,6 @@ references:
     - kind: config
       name: platform
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+      ref: oci://ghcr.io/trianalab/pacto/platform-app-config
       version: 1.0.0
       digest: sha256:1ae13ed5c1779963835f2feb187261b2fe42f6c4fe12a7a3b2b05f020a1275b5

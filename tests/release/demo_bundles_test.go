@@ -121,7 +121,7 @@ func TestDemoBundlesReferenceOwnedCoordinate(t *testing.T) {
 // TestDemoRefGateHasTeeth proves the gate flags a foreign/unowned coordinate and
 // accepts an owned one — so a real regression cannot slip past silently.
 func TestDemoRefGateHasTeeth(t *testing.T) {
-	const owned = "ghcr.io/trianalab/pacto-demo"
+	const owned = "ghcr.io/trianalab/pacto"
 
 	// A ref under the owned namespace passes.
 	if v := demoRefViolations(owned, []string{"oci://" + owned + "/redis"}); len(v) != 0 {
@@ -129,9 +129,9 @@ func TestDemoRefGateHasTeeth(t *testing.T) {
 	}
 	// Foreign registry, foreign namespace and an unowned sibling all fail.
 	probes := []string{
-		"oci://ghcr.io/someone-else/pacto-demo/redis",  // foreign namespace
-		"oci://ghcr.io/trianalab/pacto-demo-old/redis", // unowned sibling coordinate
-		"oci://registry.example.com/pacto-demo/redis",  // foreign registry
+		"oci://ghcr.io/someone-else/pacto-demo/redis", // foreign namespace
+		"oci://ghcr.io/trianalab/pacto-old/redis",     // unowned sibling coordinate
+		"oci://registry.example.com/pacto-demo/redis", // foreign registry
 	}
 	for _, p := range probes {
 		if v := demoRefViolations(owned, []string{p}); len(v) != 1 {

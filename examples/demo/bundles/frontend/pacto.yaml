@@ -19,7 +19,7 @@ interfaces:
   visibility: public
 configurations:
 - name: platform
-  ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  ref: oci://ghcr.io/trianalab/pacto/platform-app-config
   required: true
 - name: app
   schema: configuration/schema.json
@@ -31,10 +31,10 @@ configurations:
   required: true
 policies:
 - name: http-security
-  ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+  ref: oci://ghcr.io/trianalab/pacto/platform-http-policy
 dependencies:
 - name: api-gateway
-  ref: oci://ghcr.io/trianalab/pacto-demo/api-gateway
+  ref: oci://ghcr.io/trianalab/pacto/api-gateway
   required: true
   compatibility: ^1.0.0
 workload: service

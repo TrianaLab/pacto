@@ -17,7 +17,7 @@ service:
       purpose: oncall
 configurations:
 - name: platform
-  ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  ref: oci://ghcr.io/trianalab/pacto/platform-app-config
   required: true
 - name: app
   schema: configuration/schema.json
@@ -29,10 +29,10 @@ configurations:
   required: true
 policies:
 - name: http-security
-  ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+  ref: oci://ghcr.io/trianalab/pacto/platform-http-policy
 dependencies:
 - name: redis
-  ref: oci://ghcr.io/trianalab/pacto-demo/redis
+  ref: oci://ghcr.io/trianalab/pacto/redis
   required: true
   compatibility: ^7.0.0
 workload: service

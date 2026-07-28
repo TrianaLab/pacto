@@ -400,14 +400,14 @@ jobs:
       - name: Publish demo bundles to the production coordinate
         if: steps.v.outputs.state == 'absent'
         env:
-          PACTO_DEMO_REGISTRY: ghcr.io/trianalab/pacto-demo
+          PACTO_DEMO_REGISTRY: ghcr.io/trianalab/pacto
           PACTO_ALLOW_PROD: '1'
           PACTO_REGISTRY_USERNAME: ${{ github.actor }}
           PACTO_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: release/scripts/publish-demo-bundles.sh --push
       - name: Record in the ledger
         if: steps.v.outputs.state == 'absent'
-        run: bash release/orchestrator/ledger.sh record "$PACTO_RELEASE_TXN" demo-bundles "ghcr.io/trianalab/pacto-demo" "${{ needs.detect.outputs.core_version }}" "n/a" complete
+        run: bash release/orchestrator/ledger.sh record "$PACTO_RELEASE_TXN" demo-bundles "ghcr.io/trianalab/pacto" "${{ needs.detect.outputs.core_version }}" "n/a" complete
 
   # pacto-publishes: k8s-module
   # The nested integration module tag. Needs core-tag: the integration go.mod pins

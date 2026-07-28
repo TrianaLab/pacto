@@ -15,7 +15,7 @@ interfaces:
   visibility: internal
 configurations:
 - name: platform
-  ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  ref: oci://ghcr.io/trianalab/pacto/platform-app-config
   required: true
 - name: app
   schema: configuration/schema.json
@@ -26,18 +26,18 @@ configurations:
   required: true
 policies:
 - name: http-security
-  ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+  ref: oci://ghcr.io/trianalab/pacto/platform-http-policy
 dependencies:
 - name: postgresql
-  ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
+  ref: oci://ghcr.io/trianalab/pacto/postgresql
   required: true
   compatibility: ^16.0.0
 - name: payments-service
-  ref: oci://ghcr.io/trianalab/pacto-demo/payments-service
+  ref: oci://ghcr.io/trianalab/pacto/payments-service
   required: true
   compatibility: ^1.0.0
 - name: notification-worker
-  ref: oci://ghcr.io/trianalab/pacto-demo/notification-worker
+  ref: oci://ghcr.io/trianalab/pacto/notification-worker
   required: false
   compatibility: ^1.0.0
 workload: service
