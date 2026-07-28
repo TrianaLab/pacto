@@ -314,8 +314,15 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	// Static UI — served on the raw mux, not through Huma.
 	mux.Handle("/", http.FileServer(http.FS(s.ui)))
 
+	// Every request derives from baseCtx, so Ctrl+C can actively cancel slow
+	// in-flight handlers (e.g. lazy OCI enrichment holding a rate-limited pull)
+	// instead of Shutdown blocking on them until the deadline.
+	baseCtx, cancelBase := context.WithCancel(context.Background())
+	defer cancelBase()
+
 	srv := &http.Server{
 		Handler:           s.corsMiddleware(mux),
+		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -335,10 +342,14 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 		if oci := s.getOCISource(); oci != nil {
 			oci.Close()
 		}
-		// Graceful shutdown: drain in-flight requests with a bounded timeout.
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// Cancel in-flight request contexts so slow handlers abort at once, then
+		// drain with a short bounded timeout. Ctrl+C is a clean, user-initiated
+		// stop, so a drain timeout is not an error to surface.
+		cancelBase()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		return srv.Shutdown(shutdownCtx)
+		_ = srv.Shutdown(shutdownCtx)
+		return nil
 	case err := <-errCh:
 		return err
 	}
