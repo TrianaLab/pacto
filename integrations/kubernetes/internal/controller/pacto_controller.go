@@ -248,7 +248,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	r.applyObservationWindowUpdates(pacto, windowUpdates, declaredWindowKeys(effectiveContract))
 
 	// 11. Populate lean observed runtime into status (backward compat for dashboard)
-	snapshot, _ := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
+	snapshot, obsErr := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
 	if snapshot != nil && snapshot.WorkloadExists {
 		pacto.Status.ObservedRuntime = &pactov1alpha1.ObservedRuntime{
 			WorkloadKind:                   snapshot.WorkloadKind,
@@ -262,8 +262,16 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
-	r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionTrue,
-		pactov1alpha1.ReasonFound, "Runtime evidence collected successfully")
+	if obsErr != nil {
+		// A runtime observation API error means we did NOT collect evidence — do not
+		// claim success. Report the failure so consumers can distinguish it from a
+		// genuine observation.
+		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionFalse,
+			pactov1alpha1.ReasonObservationFailed, fmt.Sprintf("Runtime observation failed: %v", obsErr))
+	} else {
+		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionTrue,
+			pactov1alpha1.ReasonFound, "Runtime evidence collected successfully")
+	}
 
 	// 12. Resources status (backward compat)
 	hasService := serviceName != ""

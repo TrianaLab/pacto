@@ -823,3 +823,52 @@ func TestReconcile_DriftSetsRuntimeObservedCondition(t *testing.T) {
 		t.Error("expected RuntimeObserved condition")
 	}
 }
+
+func TestReconcile_RuntimeObservationErrorSetsRuntimeObservedFalse(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "obsfail", Namespace: "default", UID: "u"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "svc-obs"},
+		},
+	}
+	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "svc-obs", Namespace: "default"}}
+	s := newSchemeWithApps()
+	cl := fake.NewClientBuilder().WithScheme(s).
+		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+		WithObjects(pacto, svc).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				// Fail the runtime observation's Service read with a non-NotFound error.
+				if _, ok := obj.(*corev1.Service); ok {
+					return apierrors.NewInternalError(fmt.Errorf("simulated API error"))
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+	r := &PactoReconciler{
+		Client:   cl,
+		Scheme:   s,
+		Recorder: record.NewFakeRecorder(20),
+		Loader: &mockLoader{loadFn: func(_ context.Context, _, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{Service: contract.Service{Name: "svc", Version: "1.0.0"}, Workload: "service"},
+				RawYAML:  []byte(validContract),
+			}, nil
+		}},
+	}
+	if _, err := r.Reconcile(context.Background(), reconcileReq("obsfail", "default")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := getPacto(t, r, "obsfail", "default")
+	cond := meta.FindStatusCondition(got.Status.Conditions, pactov1alpha1.ConditionRuntimeObserved)
+	if cond == nil {
+		t.Fatal("expected RuntimeObserved condition")
+	}
+	if cond.Status != metav1.ConditionFalse {
+		t.Errorf("expected RuntimeObserved=False on observation error, got %s", cond.Status)
+	}
+	if cond.Reason != pactov1alpha1.ReasonObservationFailed {
+		t.Errorf("expected reason %q, got %q", pactov1alpha1.ReasonObservationFailed, cond.Reason)
+	}
+}
