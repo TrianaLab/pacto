@@ -29,6 +29,16 @@ on:
       - 'pkg/evidence/**'
       - 'pkg/finding/**'
       - 'release/release-manifest.json'
+      # docs_check.py builds ./cmd/pacto and runs `pacto validate` on every fenced
+      # contract example in the docs, so a change to the validator, the contract
+      # model, the schema or the CLI can invalidate an example without touching any
+      # docs path above. Include those inputs so the fenced-contract gate runs.
+      - 'cmd/pacto/**'
+      - 'internal/cli/**'
+      - 'internal/app/**'
+      - 'pkg/validation/**'
+      - 'pkg/contract/**'
+      - 'schema/**'
 
 permissions:
   contents: read
