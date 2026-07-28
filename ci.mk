@@ -117,14 +117,6 @@ docs-deploy: docs-generate
 	mike deploy --push --update-aliases "$$ver" latest; \
 	mike set-default --push latest
 
-# DEV docs deploy (docs.yml, non-release main-push): publish an unreleased `next`
-# snapshot ONLY. It must NEVER move `latest` or write into a released version slot,
-# so merging a breaking PR before its version PR releases cannot mislabel the stable
-# docs. The Material version selector shows `next` alongside the released versions.
-docs-deploy-dev: docs-generate
-	@echo "==> mike deploy --push next (unreleased dev snapshot; no alias move, no released slot)"; \
-	mike deploy --push --title "next (unreleased)" next
-
 # Full documentation gate: regenerate from scratch, prove zero drift and zero
 # second-run diff, strict build, and validate every fenced contract / CR example /
 # flag / chart / artifact coordinate against the real sources. See docs_check.py.
