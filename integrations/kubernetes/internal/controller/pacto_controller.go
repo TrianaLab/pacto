@@ -262,16 +262,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
-	if obsErr != nil {
-		// A runtime observation API error means we did NOT collect evidence — do not
-		// claim success. Report the failure so consumers can distinguish it from a
-		// genuine observation.
-		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionFalse,
-			pactov1alpha1.ReasonObservationFailed, fmt.Sprintf("Runtime observation failed: %v", obsErr))
-	} else {
-		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionTrue,
-			pactov1alpha1.ReasonFound, "Runtime evidence collected successfully")
-	}
+	r.setRuntimeObservedCondition(pacto, obsErr)
 
 	// 12. Resources status (backward compat)
 	hasService := serviceName != ""
@@ -946,6 +937,19 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 	r.Recorder.Eventf(pacto, corev1.EventTypeNormal, "RevisionCreated", "Created revision %s for contract v%s", revisionName, version)
 
 	return revisionName, nil
+}
+
+// setRuntimeObservedCondition records whether runtime evidence was collected. On an
+// observation API error it reports False (ReasonObservationFailed) rather than
+// claiming success, so a failure is distinguishable from a genuine observation.
+func (r *PactoReconciler) setRuntimeObservedCondition(pacto *pactov1alpha1.Pacto, obsErr error) {
+	if obsErr != nil {
+		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionFalse,
+			pactov1alpha1.ReasonObservationFailed, fmt.Sprintf("Runtime observation failed: %v", obsErr))
+		return
+	}
+	r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionTrue,
+		pactov1alpha1.ReasonFound, "Runtime evidence collected successfully")
 }
 
 // shortDigest returns the first 12 characters of a digest for display, or the
