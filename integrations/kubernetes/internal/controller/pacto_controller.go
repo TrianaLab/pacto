@@ -344,7 +344,11 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.ObservedRuntime = nil
 	pacto.Status.Readiness = nil
 	pacto.Status.Metadata = nil
-	pacto.Status.Conditions = nil
+	// Conditions are intentionally NOT wiped: they are sticky observations managed
+	// by meta.SetStatusCondition (via setCondition), which preserves each condition's
+	// LastTransitionTime while the status is unchanged and stamps ObservedGeneration
+	// so a not-re-set condition is detectably stale. Wiping them reset every
+	// LastTransitionTime to now on every reconcile.
 	pacto.Status.Findings = nil
 	pacto.Status.Capabilities = nil
 	pacto.Status.EvaluationCoverage = nil
