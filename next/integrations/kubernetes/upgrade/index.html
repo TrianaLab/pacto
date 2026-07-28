@@ -2580,7 +2580,7 @@ one release group on their own cadence.</p>
 <p>For an upgrade that does not change the CRD schema, a plain <code>helm upgrade</code> is
 enough:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>pacto-operator<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>oci://ghcr.io/trianalab/pacto/charts/pacto-operator<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--version<span class="w"> </span><span class="m">4</span>.7.0<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>--namespace<span class="w"> </span>pacto-operator-system
 </span></code></pre></div>
@@ -2600,7 +2600,7 @@ therefore has one extra, ordered step — <strong>apply the new CRDs before you 
 </span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
 </span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1"># 2. Upgrade the release to the new chart version.</span>
 </span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>pacto-operator<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">  </span>oci://ghcr.io/trianalab/pacto-operator/charts/pacto-operator<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">  </span>oci://ghcr.io/trianalab/pacto/charts/pacto-operator<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">  </span>--version<span class="w"> </span><span class="m">5</span>.0.0<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">  </span>--namespace<span class="w"> </span>pacto-operator-system
 </span></code></pre></div>
