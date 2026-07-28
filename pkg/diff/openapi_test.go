@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -380,17 +381,16 @@ paths:
           description: Created
 `)
 	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
+	// The request body is now DEEP-diffed, so a changed body surfaces the specific
+	// field (here an added optional property) rather than one shallow change.
 	found := false
 	for _, c := range changes {
-		if c.Path == "openapi.paths[/users].methods[POST].request-body" && c.Type == Modified {
+		if strings.Contains(c.Path, "request-body") && strings.Contains(c.Path, "email") && c.Type == Added {
 			found = true
-			if c.NewValue == "" {
-				t.Errorf("expected non-empty NewValue showing body diff, got old=%q new=%q", c.OldValue, c.NewValue)
-			}
 		}
 	}
 	if !found {
-		t.Errorf("expected request body modified, got %v", changes)
+		t.Errorf("expected deep-diffed request body change for the added field, got %v", changes)
 	}
 }
 
@@ -515,14 +515,14 @@ paths:
 }
 
 func TestDiffOpenAPI_OperationBothNilMaps(t *testing.T) {
-	changes := diffOperation("/test", "GET", nil, nil)
+	changes := diffOperation("/test", "GET", nil, nil, nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes for nil operations, got %d", len(changes))
 	}
 }
 
 func TestDiffOpenAPI_OperationOneNilMap(t *testing.T) {
-	changes := diffOperation("/test", "GET", map[string]any{"summary": "test"}, nil)
+	changes := diffOperation("/test", "GET", map[string]any{"summary": "test"}, nil, nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes when new op is nil (no responses/requestBody), got %d", len(changes))
 	}
@@ -1058,5 +1058,155 @@ func TestParamLabel(t *testing.T) {
 	p := map[string]any{"name": "filter", "in": "query"}
 	if got := paramLabel(p); got != "query param 'filter'" {
 		t.Errorf("expected \"query param 'filter'\", got %q", got)
+	}
+}
+
+// --- Audit regression tests: OpenAPI diff false-negatives ---
+
+// Path-item-level parameters (shared by all operations) must be diffed; removing a
+// shared required parameter is BREAKING, not silently NON_BREAKING.
+func TestDiffOpenAPI_PathLevelParamRemoved_Breaking(t *testing.T) {
+	oldFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    parameters:
+      - name: tenant
+        in: query
+        required: true
+    get:
+      responses:
+        "200":
+          description: OK
+`)
+	newFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      responses:
+        "200":
+          description: OK
+`)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
+	found := false
+	for _, c := range changes {
+		if c.Type == Removed && c.Classification == Breaking && strings.Contains(c.Path, "parameters[tenant:query]") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected removed shared path-level required param classified Breaking, got %v", changes)
+	}
+}
+
+// A newly required property in the request body must be BREAKING (deep schema diff),
+// not one shallow POTENTIAL_BREAKING for the whole body.
+func TestDiffOpenAPI_RequestBodyNewRequiredField_Breaking(t *testing.T) {
+	oldFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+      responses:
+        "201":
+          description: Created
+`)
+	newFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                name: {type: string}
+                email: {type: string}
+      responses:
+        "201":
+          description: Created
+`)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
+	found := false
+	for _, c := range changes {
+		if c.Classification == Breaking && strings.Contains(c.Path, "request-body") && strings.Contains(c.Path, "required") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected new required request-body field classified Breaking, got %v", changes)
+	}
+}
+
+// Flipping a parameter from optional to required is BREAKING.
+func TestDiffOpenAPI_ParamOptionalToRequired_Breaking(t *testing.T) {
+	oldFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      parameters:
+        - {name: filter, in: query, required: false}
+      responses:
+        "200":
+          description: OK
+`)
+	newFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      parameters:
+        - {name: filter, in: query, required: true}
+      responses:
+        "200":
+          description: OK
+`)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
+	found := false
+	for _, c := range changes {
+		if c.Type == Modified && c.Classification == Breaking && strings.Contains(c.Path, "parameters[filter:query]") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected optional->required param classified Breaking, got %v", changes)
+	}
+}
+
+// Adding a new required parameter is BREAKING.
+func TestDiffOpenAPI_AddedRequiredParam_Breaking(t *testing.T) {
+	oldFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      responses:
+        "200":
+          description: OK
+`)
+	newFS := makeOpenAPIFS(`openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      parameters:
+        - {name: tenant, in: query, required: true}
+      responses:
+        "200":
+          description: OK
+`)
+	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
+	found := false
+	for _, c := range changes {
+		if c.Type == Added && c.Classification == Breaking && strings.Contains(c.Path, "parameters[tenant:query]") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected added required param classified Breaking, got %v", changes)
 	}
 }

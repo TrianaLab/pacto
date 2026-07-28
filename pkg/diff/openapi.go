@@ -91,6 +91,12 @@ func diffOpenAPISpecs(old, new *openAPISpec) []Change {
 func diffPathMethods(path string, oldMethods, newMethods map[string]any) []Change {
 	var changes []Change
 
+	// Path-item-level parameters are shared by every operation under the path
+	// (OpenAPI spec), so fold them into each method's effective set below — a
+	// shared parameter added/removed/made-required must be diffed, not ignored.
+	pathParamsOld := toSlice(oldMethods["parameters"])
+	pathParamsNew := toSlice(newMethods["parameters"])
+
 	for method, oldOp := range oldMethods {
 		if !httpMethods[method] {
 			continue
@@ -107,7 +113,7 @@ func diffPathMethods(path string, oldMethods, newMethods map[string]any) []Chang
 			})
 			continue
 		}
-		changes = append(changes, diffOperation(path, upper, oldOp, newOp)...)
+		changes = append(changes, diffOperation(path, upper, oldOp, newOp, pathParamsOld, pathParamsNew)...)
 	}
 
 	for method := range newMethods {
@@ -131,7 +137,7 @@ func diffPathMethods(path string, oldMethods, newMethods map[string]any) []Chang
 
 // diffOperation compares two operations (same path + method) for parameter,
 // request body, and response changes.
-func diffOperation(path, method string, oldOp, newOp any) []Change {
+func diffOperation(path, method string, oldOp, newOp any, pathParamsOld, pathParamsNew []any) []Change {
 	oldMap := toStringMap(oldOp)
 	newMap := toStringMap(newOp)
 	if oldMap == nil && newMap == nil {
@@ -140,8 +146,13 @@ func diffOperation(path, method string, oldOp, newOp any) []Change {
 
 	var changes []Change
 
-	// Compare parameters.
-	changes = append(changes, diffParameters(path, method, toSlice(oldMap["parameters"]), toSlice(newMap["parameters"]))...)
+	// Compare the EFFECTIVE parameter set: path-item-level parameters overlaid by
+	// operation-level ones. indexParams keeps the last entry per name+in, so listing
+	// operation-level params after path-level ones makes the operation override the
+	// path-level parameter of the same identity (per the OpenAPI spec).
+	effOld := append(append([]any{}, pathParamsOld...), toSlice(oldMap["parameters"])...)
+	effNew := append(append([]any{}, pathParamsNew...), toSlice(newMap["parameters"])...)
+	changes = append(changes, diffParameters(path, method, effOld, effNew)...)
 
 	// Compare request body.
 	oldBody, oldHas := oldMap["requestBody"]
@@ -165,15 +176,10 @@ func diffOperation(path, method string, oldOp, newOp any) []Change {
 			Reason:         fmt.Sprintf("%s %s request body added", method, path),
 		})
 	} else if oldHas && newHas && !yamlEqual(oldBody, newBody) {
-		oldSummary, newSummary := mapDelta(toStringMap(oldBody), toStringMap(newBody), nil)
-		changes = append(changes, Change{
-			Path:           bodyPath,
-			Type:           Modified,
-			OldValue:       oldSummary,
-			NewValue:       newSummary,
-			Classification: classify("openapi.request-body", Modified),
-			Reason:         fmt.Sprintf("%s %s request body modified", method, path),
-		})
+		// Deep-diff the request body so field-level changes are classified
+		// precisely — notably a newly required property (Breaking, via the schema
+		// differ) rather than one shallow POTENTIAL_BREAKING for the whole body.
+		changes = append(changes, diffJSON(bodyPath, oldBody, newBody)...)
 	}
 
 	// Compare responses.
@@ -201,6 +207,12 @@ func paramLabel(param map[string]any) string {
 	return fmt.Sprintf("%s param '%s'", in, name)
 }
 
+// paramRequired reports whether an OpenAPI parameter is marked required.
+func paramRequired(param map[string]any) bool {
+	r, _ := param["required"].(bool)
+	return r
+}
+
 // diffParameters compares operation parameters identified by name+in.
 func diffParameters(path, method string, oldParams, newParams []any) []Change {
 	oldByKey := indexParams(oldParams)
@@ -222,12 +234,17 @@ func diffParameters(path, method string, oldParams, newParams []any) []Change {
 		}
 		if !yamlEqual(oldParam, newParam) {
 			oldSummary, newSummary := mapDelta(oldParam, newParam, paramIdentityKeys)
+			cls := classify("openapi.parameters", Modified)
+			// optional -> required is breaking: existing clients omit the parameter.
+			if !paramRequired(oldParam) && paramRequired(newParam) {
+				cls = Breaking
+			}
 			changes = append(changes, Change{
 				Path:           fmt.Sprintf("openapi.paths[%s].methods[%s].parameters[%s]", path, method, key),
 				Type:           Modified,
 				OldValue:       oldSummary,
 				NewValue:       newSummary,
-				Classification: classify("openapi.parameters", Modified),
+				Classification: cls,
 				Reason:         fmt.Sprintf("%s %s %s modified", method, path, paramLabel(oldParam)),
 			})
 		}
@@ -235,11 +252,16 @@ func diffParameters(path, method string, oldParams, newParams []any) []Change {
 
 	for key, newParam := range newByKey {
 		if _, exists := oldByKey[key]; !exists {
+			cls := classify("openapi.parameters", Added)
+			// adding a required parameter is breaking: existing clients omit it.
+			if paramRequired(newParam) {
+				cls = Breaking
+			}
 			changes = append(changes, Change{
 				Path:           fmt.Sprintf("openapi.paths[%s].methods[%s].parameters[%s]", path, method, key),
 				Type:           Added,
 				NewValue:       fmt.Sprintf("%s %s %s", method, path, paramLabel(newParam)),
-				Classification: classify("openapi.parameters", Added),
+				Classification: cls,
 				Reason:         fmt.Sprintf("%s %s %s added", method, path, paramLabel(newParam)),
 			})
 		}
