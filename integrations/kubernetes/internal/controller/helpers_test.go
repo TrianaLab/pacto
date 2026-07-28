@@ -453,3 +453,19 @@ func TestToSchemaProps_Valid(t *testing.T) {
 		t.Errorf("unexpected second prop: %+v", got[1])
 	}
 }
+
+func TestShortDigest(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"sha256:abcdef0123456789", "sha256:abcde"}, // long -> first 12 chars
+		{"", ""},                         // empty -> no panic
+		{"short", "short"},               // shorter than 12 -> whole string
+		{"exactly12chr", "exactly12chr"}, // exactly 12 -> whole string
+	}
+	for _, tc := range cases {
+		if got := shortDigest(tc.in); got != tc.want {
+			t.Errorf("shortDigest(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

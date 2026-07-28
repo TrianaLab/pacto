@@ -936,6 +936,16 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 	return revisionName, nil
 }
 
+// shortDigest returns the first 12 characters of a digest for display, or the
+// whole string when it is shorter. A digest can be empty or malformed (e.g. a
+// registry that omits it), so slicing [:12] unconditionally would panic.
+func shortDigest(d string) string {
+	if len(d) > 12 {
+		return d[:12]
+	}
+	return d
+}
+
 func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1alpha1.Pacto, baseRef string, ociAuth *authn.AuthConfig) error {
 	log := logf.FromContext(ctx)
 
@@ -989,7 +999,7 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 				"newDigest", loadResult.ResolvedDigest,
 				"oldRevision", existing.Name)
 			r.Recorder.Eventf(pacto, corev1.EventTypeWarning, "TagOverwritten",
-				"Tag %s was force-pushed (digest changed from %s to %s)", tag, storedDigest[:12], loadResult.ResolvedDigest[:12])
+				"Tag %s was force-pushed (digest changed from %s to %s)", tag, shortDigest(storedDigest), shortDigest(loadResult.ResolvedDigest))
 
 			revName, revErr := r.ensureRevision(ctx, pacto, loadResult)
 			if revErr != nil {
