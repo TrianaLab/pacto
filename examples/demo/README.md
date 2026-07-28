@@ -5,7 +5,7 @@ set of demo contracts are compiled to WebAssembly and baked in, so the whole
 dashboard — fleet, dependency graph, version history, version diff, readiness —
 runs client-side with no backend and no live registry.
 
-**Live site:** https://trianalab.github.io/pacto/demo/
+**Live site:** https://pacto.run/latest/demo/
 
 ## Scope: what this demo is (and is not)
 

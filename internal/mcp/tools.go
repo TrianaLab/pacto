@@ -231,7 +231,7 @@ func schemaTool() *mcpsdk.Tool {
 	}
 }
 
-const docsURL = "https://trianalab.github.io/pacto"
+const docsURL = "https://pacto.run"
 
 type schemaResult struct {
 	Description string `json:"description"`
