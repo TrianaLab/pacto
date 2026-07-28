@@ -7,13 +7,13 @@ root:
 dependencies:
     - name: postgresql
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
+      ref: oci://ghcr.io/trianalab/pacto/postgresql
       constraint: ^16.0.0
       version: 16.0.0
       digest: sha256:5df5c6c08e82bf3a6f1ab512a8d13f2948e2b92cf13c7c28f354ae1f3794b2bf
     - name: stripe-api
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/stripe-api
+      ref: oci://ghcr.io/trianalab/pacto/stripe-api
       constraint: ^2024.01.01
       version: 2024.01.01
       digest: sha256:8c5fae3f3c2ef7fe805c525f62befa78663a7e87cae88010704533fdc1504d08
@@ -21,12 +21,12 @@ references:
     - kind: config
       name: platform
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+      ref: oci://ghcr.io/trianalab/pacto/platform-app-config
       version: 1.0.0
       digest: sha256:1ae13ed5c1779963835f2feb187261b2fe42f6c4fe12a7a3b2b05f020a1275b5
     - kind: policy
       name: http-security
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+      ref: oci://ghcr.io/trianalab/pacto/platform-http-policy
       version: 1.0.0
       digest: sha256:37a6efb94754ea8d622cbb87ed184d6a270ec7b54a5571f003c74d544663dca3

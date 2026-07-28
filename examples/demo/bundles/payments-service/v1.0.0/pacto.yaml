@@ -15,7 +15,7 @@ interfaces:
   visibility: internal
 configurations:
 - name: platform
-  ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+  ref: oci://ghcr.io/trianalab/pacto/platform-app-config
   required: true
 - name: app
   schema: configuration/schema.json
@@ -27,14 +27,14 @@ configurations:
   required: true
 policies:
 - name: http-security
-  ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+  ref: oci://ghcr.io/trianalab/pacto/platform-http-policy
 dependencies:
 - name: postgresql
-  ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
+  ref: oci://ghcr.io/trianalab/pacto/postgresql
   required: true
   compatibility: ^16.0.0
 - name: stripe-api
-  ref: oci://ghcr.io/trianalab/pacto-demo/stripe-api
+  ref: oci://ghcr.io/trianalab/pacto/stripe-api
   required: true
   compatibility: ^2024.01.01
 workload: service

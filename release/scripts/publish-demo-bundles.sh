@@ -41,7 +41,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PACTO_BIN="${PACTO_BIN:-/tmp/pacto}"
 COORD="${PACTO_DEMO_REGISTRY:-localhost:5001/pacto-demo}"
 BUNDLES="$ROOT/examples/demo/bundles"
-OWNED="ghcr.io/trianalab/pacto-demo"   # committed refs' coordinate (== demo-bundles unit coordinate)
+OWNED="ghcr.io/trianalab/pacto"   # committed refs' coordinate (== demo-bundles unit coordinate)
 PROOF="$ROOT/release/proofs/demo-artifacts.txt"
 
 # ---- production guard (refuse a production-looking target unless PACTO_ALLOW_PROD) ----

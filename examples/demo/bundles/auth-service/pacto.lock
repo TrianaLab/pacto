@@ -7,7 +7,7 @@ root:
 dependencies:
     - name: redis
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/redis
+      ref: oci://ghcr.io/trianalab/pacto/redis
       constraint: ^7.0.0
       version: 7.2.0
       digest: sha256:62ea5244d912c65257e16fb538df281a802c9541771a04f3a512ba114d30bc37
@@ -15,12 +15,12 @@ references:
     - kind: config
       name: platform
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/platform-app-config
+      ref: oci://ghcr.io/trianalab/pacto/platform-app-config
       version: 1.0.0
       digest: sha256:1ae13ed5c1779963835f2feb187261b2fe42f6c4fe12a7a3b2b05f020a1275b5
     - kind: policy
       name: http-security
       source: oci
-      ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+      ref: oci://ghcr.io/trianalab/pacto/platform-http-policy
       version: 1.0.0
       digest: sha256:37a6efb94754ea8d622cbb87ed184d6a270ec7b54a5571f003c74d544663dca3

@@ -27,7 +27,7 @@
     },
     "demo-bundles": {
       "artifactKind": "oci-image",
-      "coordinate": "ghcr.io/trianalab/pacto-demo",
+      "coordinate": "ghcr.io/trianalab/pacto",
       "tag": "3.0.0",
       "version": "3.0.0"
     },

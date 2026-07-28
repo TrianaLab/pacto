@@ -13,11 +13,11 @@ metadata:
     pacto.trianalab.com/service: pacto-demo
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/pacto-demo
+    oci: ghcr.io/trianalab/pacto/pacto-demo
 ---
 ##
 ## Per-service Pacto CRs — enable runtime validation against live workloads.
-## Contracts are resolved from OCI artifacts published in ghcr.io/trianalab/pacto-demo.
+## Contracts are resolved from OCI artifacts published in ghcr.io/trianalab/pacto.
 ##
 
 ## frontend — public web UI, depends on api-gateway
@@ -31,7 +31,7 @@ metadata:
     pacto.trianalab.com/service: frontend
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/frontend
+    oci: ghcr.io/trianalab/pacto/frontend
   target:
     serviceName: frontend
     workloadRef:
@@ -49,7 +49,7 @@ metadata:
     pacto.trianalab.com/service: api-gateway
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/api-gateway
+    oci: ghcr.io/trianalab/pacto/api-gateway
   target:
     serviceName: api-gateway
     workloadRef:
@@ -67,7 +67,7 @@ metadata:
     pacto.trianalab.com/service: auth-service
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/auth-service
+    oci: ghcr.io/trianalab/pacto/auth-service
   target:
     serviceName: auth-service
     workloadRef:
@@ -85,7 +85,7 @@ metadata:
     pacto.trianalab.com/service: orders-service
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/orders-service
+    oci: ghcr.io/trianalab/pacto/orders-service
   target:
     serviceName: orders-service
     workloadRef:
@@ -108,7 +108,7 @@ metadata:
     pacto.trianalab.com/service: payments-service
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/payments-service
+    oci: ghcr.io/trianalab/pacto/payments-service
   target:
     serviceName: payments-service
     workloadRef:
@@ -126,7 +126,7 @@ metadata:
     pacto.trianalab.com/service: fraud-service
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/fraud-service
+    oci: ghcr.io/trianalab/pacto/fraud-service
   target:
     serviceName: fraud-service
     workloadRef:
@@ -144,7 +144,7 @@ metadata:
     pacto.trianalab.com/service: postgresql
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/postgresql
+    oci: ghcr.io/trianalab/pacto/postgresql
   target:
     serviceName: postgresql
     workloadRef:
@@ -162,7 +162,7 @@ metadata:
     pacto.trianalab.com/service: redis
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/redis
+    oci: ghcr.io/trianalab/pacto/redis
   target:
     serviceName: redis
     workloadRef:
@@ -180,7 +180,7 @@ metadata:
     pacto.trianalab.com/service: notification-worker
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/notification-worker
+    oci: ghcr.io/trianalab/pacto/notification-worker
   target:
     workloadRef:
       name: notification-worker
@@ -197,7 +197,7 @@ metadata:
     pacto.trianalab.com/service: stripe-api
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/stripe-api
+    oci: ghcr.io/trianalab/pacto/stripe-api
 ---
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
@@ -209,4 +209,4 @@ metadata:
     pacto.trianalab.com/service: email-provider
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/email-provider
+    oci: ghcr.io/trianalab/pacto/email-provider

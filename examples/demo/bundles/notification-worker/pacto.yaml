@@ -19,7 +19,7 @@ interfaces:
   visibility: internal
 configurations:
 - name: platform
-  ref: oci://ghcr.io/trianalab/pacto-demo/platform-worker-config
+  ref: oci://ghcr.io/trianalab/pacto/platform-worker-config
   required: true
 - name: app
   schema: configuration/schema.json
@@ -32,10 +32,10 @@ configurations:
   required: true
 policies:
 - name: http-security
-  ref: oci://ghcr.io/trianalab/pacto-demo/platform-http-policy
+  ref: oci://ghcr.io/trianalab/pacto/platform-http-policy
 dependencies:
 - name: email-provider
-  ref: oci://ghcr.io/trianalab/pacto-demo/email-provider
+  ref: oci://ghcr.io/trianalab/pacto/email-provider
   required: true
   compatibility: ^1.0.0
 workload: scheduled

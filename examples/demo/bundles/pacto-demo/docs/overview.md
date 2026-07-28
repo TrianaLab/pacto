@@ -5,7 +5,7 @@ Single entry point for the entire e-commerce platform graph. Depends only on `fr
 ## Usage
 
 ```
-pacto dashboard oci://ghcr.io/trianalab/pacto-demo/pacto-demo
+pacto dashboard oci://ghcr.io/trianalab/pacto/pacto-demo
 ```
 
 This reveals the full platform: frontend -> api-gateway -> [auth, orders, payments] -> [postgresql, redis, stripe, fraud, notifications] -> [email-provider].
