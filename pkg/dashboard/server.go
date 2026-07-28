@@ -1272,8 +1272,12 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 	stale := s.indexCache
 	s.indexMu.Unlock()
 
-	// Rebuild outside the lock to avoid blocking concurrent requests.
-	services, err := s.source.ListServices(ctx)
+	// Rebuild outside the lock to avoid blocking concurrent requests. Detach from the
+	// request context: this populates the SHARED index cache, so a client disconnect
+	// mid-rebuild must not cancel the fetch and store a partial index that poisons the
+	// cache for every other request until the TTL expires.
+	buildCtx := context.WithoutCancel(ctx)
+	services, err := s.source.ListServices(buildCtx)
 	if err != nil {
 		if stale != nil {
 			return stale // return stale on error
@@ -1283,7 +1287,7 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 
 	index := make(map[string]*ServiceDetails, len(services))
 	for _, svc := range services {
-		d, err := s.source.GetService(ctx, svc.Name)
+		d, err := s.source.GetService(buildCtx, svc.Name)
 		if err == nil && d != nil {
 			d.GenerateInsights()
 			index[d.Name] = d
@@ -1326,7 +1330,7 @@ func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 	// by N×M GetVersions API calls. The enriched cache replaces the base once done.
 	if s.versionEnriching.CompareAndSwap(false, true) {
 		s.versionWg.Add(1)
-		go s.deferredVersionEnrich(context.WithoutCancel(ctx), rebuilt)
+		go s.deferredVersionEnrich(buildCtx, rebuilt)
 	}
 
 	return rebuilt

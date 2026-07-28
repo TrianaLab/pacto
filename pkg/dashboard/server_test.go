@@ -3225,3 +3225,37 @@ func TestServerGetServiceVersion_NotFound(t *testing.T) {
 		t.Fatalf("expected 404, got %d", resp.StatusCode)
 	}
 }
+
+// ctxSensitiveSource fails GetService when the context is already cancelled, so a
+// test can prove the index rebuild runs on a detached context.
+type ctxSensitiveSource struct {
+	*mockSource
+}
+
+func (c *ctxSensitiveSource) GetService(ctx context.Context, name string) (*ServiceDetails, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return c.mockSource.GetService(ctx, name)
+}
+
+// TestGetCachedIndex_DetachesRequestContext proves a cancelled request context does
+// not poison the shared index cache: the rebuild must fetch on a detached context so
+// a client disconnect mid-build cannot store a partial index for every other request.
+func TestGetCachedIndex_DetachesRequestContext(t *testing.T) {
+	src := &ctxSensitiveSource{mockSource: &mockSource{
+		services: []Service{{Name: "svc", Version: "1.0.0"}},
+		details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Version: "1.0.0"}}},
+	}}
+	srv := NewServer(src, fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // client disconnected before the rebuild completes
+
+	cached := srv.getCachedIndex(ctx)
+	srv.WaitForVersionEnrich()
+
+	if len(cached.index) != 1 {
+		t.Fatalf("cancelled request ctx poisoned the shared index: got %d entries, want 1", len(cached.index))
+	}
+}
