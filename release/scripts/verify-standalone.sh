@@ -22,13 +22,16 @@ if(bump==="major"){a++;b=0;c=0}else if(bump==="minor"){b++;c=0}else if(bump==="p
 process.stdout.write(`${a}.${b}.${c}`);
 ' "$ROOT")"
 echo "next published core version (from pending changesets): v${NEXT}"
-# Between releases (no pending core changeset) NEXT equals the current published
-# core. That is a valid state to verify — the operator must still build standalone
-# against the currently-published core — so verify against it rather than erroring.
-# "Don't repin an unchanged core" is a release-DECISION guard (detect.mjs), not a
-# standalone-build check.
+# Between releases there is no pending core bump, so NEXT equals the CURRENT core —
+# which is already published. This check substitutes a local staging tag for the
+# core module, so it must only run for a NOT-yet-published NEXT; substituting a tag
+# for the published current version collides with its real go.sum checksum. Nothing
+# to prove in that case (the current core was verified standalone at its own
+# release), so skip. "Don't repin an unchanged core" is a release-DECISION guard
+# (detect.mjs), not a standalone-build check.
 if [ "$NEXT" = "$(node -e 'console.log(require("'"$ROOT"'/release/units/pacto-core/package.json").version)')" ]; then
-  echo "note: no pending core bump — verifying the operator against the currently-published core v${NEXT}"
+  echo "note: no pending core bump — current core already published + proven standalone; skipping"
+  exit 0
 fi
 git -C "$ROOT" tag -f "v${NEXT}" HEAD >/dev/null 2>&1   # reproducible local staging tag (deleted at end)
 TMPGIT="$(mktemp)"; printf '[url "file://%s"]\n\tinsteadOf = https://github.com/trianalab/pacto\n' "$ROOT" > "$TMPGIT"
