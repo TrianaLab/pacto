@@ -610,6 +610,13 @@ jobs:
           node-version: '22'
       - name: Build the WASM dashboard demo
         run: make -C examples/demo build
+      # Fold the demo into the docs tree so mike's internal `mkdocs build` copies it
+      # into the released version deploy at /demo/ (mirrors docs.yml). Without this
+      # the demo is built but never lands in the version slot, so /latest/demo/ 404s.
+      - name: Fold the demo into the docs site
+        run: |
+          mkdir -p docs/demo
+          cp -r examples/demo/dist/. docs/demo/
       - name: Deploy versioned docs with mike (exact release versions)
         env:
           PACTO_DOCS_CORE_VERSION: ${{ needs.detect.outputs.core_version }}
