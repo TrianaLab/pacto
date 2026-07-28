@@ -326,6 +326,21 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # gen-bundle runs `pacto generate openapi-infer`, which needs the pacto CLI
+      # and the openapi-infer / schema-infer plugins on PATH (same as pacto.yml).
+      # GOPATH/bin is already on $GITHUB_PATH (crane step above).
+      - name: Build pacto + install bundle plugins
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          go install ./cmd/pacto
+          TAG=$(gh release view --repo TrianaLab/pacto-plugins --json tagName -q .tagName)
+          GOBIN=$(go env GOPATH)/bin
+          for plugin in pacto-plugin-schema-infer pacto-plugin-openapi-infer; do
+            gh release download "$TAG" --repo TrianaLab/pacto-plugins \
+              --pattern "${plugin}_linux_amd64" --output "${GOBIN}/${plugin}"
+            chmod +x "${GOBIN}/${plugin}"
+          done
       # Build + validate the bundle (prep), then publish through the SAME shared
       # adapter staging uses — verify / absent-push / identical-skip / conflict-fail
       # / record — instead of inline state transitions.
