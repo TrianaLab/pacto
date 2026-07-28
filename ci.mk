@@ -8,7 +8,7 @@ BUNDLE_DIR := pactos/pacto-dashboard
 REPOWISE_VERSION ?= 0.36.0
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
-       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
+       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
@@ -60,14 +60,19 @@ ci-e2e-envtest:
 # published v4 chart + its v4 CRDs, server-side apply the new CRDs, helm upgrade to
 # the v5 chart, prove existing resources survive). dashboard-modes + upgrade run
 # first (fast guards); run.sh then covers the full enabled reconcile cycle.
-ci-e2e-kind: ci-e2e-kind-dashboard ci-e2e-kind-upgrade
-	bash tests/e2e/kind/run.sh
+# CI shards these three self-provisioning scenarios across a matrix (each spins up
+# its own kind cluster, so they run independently in parallel); `make ci-e2e-kind`
+# still runs all three locally.
+ci-e2e-kind: ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile
 
 ci-e2e-kind-dashboard:
 	bash tests/e2e/kind/dashboard-modes.sh
 
 ci-e2e-kind-upgrade:
 	bash tests/e2e/kind/v4-to-v5-upgrade.sh
+
+ci-e2e-kind-reconcile:
+	bash tests/e2e/kind/run.sh
 
 # OCI leg: the public oci package tests + the staging release-publisher tests.
 ci-oci:

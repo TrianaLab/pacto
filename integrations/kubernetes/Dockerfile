@@ -2,7 +2,12 @@
 # Monorepo-aware build: context is the repository ROOT so the operator module
 # resolves the engine (github.com/trianalab/pacto/v3) through the workspace
 # (go.work) instead of a published tag — no replace, no unreleased-tag dependency.
-FROM golang:1.26.5 AS builder
+# Pin the builder to the BUILD platform so `go build` runs NATIVELY and
+# cross-compiles to $TARGETARCH (CGO_ENABLED=0 below) instead of running under QEMU
+# emulation for the non-native arch — the arm64 build was the multi-arch release
+# pole. The distroless/static runtime stage has no RUN, so nothing executes under the
+# target platform. Matches the root Dockerfile's cross-compile pattern.
+FROM --platform=$BUILDPLATFORM golang:1.26.5 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
