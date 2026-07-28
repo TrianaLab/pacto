@@ -139,10 +139,13 @@ test('recovery narrows to a requested subset of the plan', () => {
 
 // ---- item 1 regression: the COMMITTED transaction must publish nothing ----
 
-test('committed release-transaction.json releases nothing (feature-PR merge is safe)', () => {
+test('committed release-transaction.json releases nothing on an unchanged merge (feature-PR safe)', () => {
   const committed = JSON.parse(readFileSync(join(root, 'release', 'release-transaction.json'), 'utf8'));
-  assert.equal(committed.ready, false, 'a foundation PR carries no ready release');
-  assert.deepEqual(committed.changedUnits, [], 'no units may be published by merging this PR');
-  // Simulate the merge: HEAD and HEAD^ both carry this transaction.
+  // The real safety invariant: merging a PR that does not CHANGE the committed
+  // transaction (HEAD and HEAD^ carry the same one) publishes nothing. This holds
+  // for the empty pre-release state AND the already-consumed post-release state
+  // (a ready transaction whose tags are published never re-releases when unchanged).
+  // Asserting `.ready === false` / `changedUnits === []` here was a pre-release-only
+  // proxy that wrongly fails in the window right after a release merges to main.
   assert.equal(decideRelease(committed, committed).release, false);
 });

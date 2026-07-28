@@ -22,7 +22,14 @@ if(bump==="major"){a++;b=0;c=0}else if(bump==="minor"){b++;c=0}else if(bump==="p
 process.stdout.write(`${a}.${b}.${c}`);
 ' "$ROOT")"
 echo "next published core version (from pending changesets): v${NEXT}"
-[ "$NEXT" = "$(node -e 'console.log(require("'"$ROOT"'/release/units/pacto-core/package.json").version)')" ] && { echo "ERROR: no core bump pending — a release would repin an unchanged core"; exit 1; }
+# Between releases (no pending core changeset) NEXT equals the current published
+# core. That is a valid state to verify — the operator must still build standalone
+# against the currently-published core — so verify against it rather than erroring.
+# "Don't repin an unchanged core" is a release-DECISION guard (detect.mjs), not a
+# standalone-build check.
+if [ "$NEXT" = "$(node -e 'console.log(require("'"$ROOT"'/release/units/pacto-core/package.json").version)')" ]; then
+  echo "note: no pending core bump — verifying the operator against the currently-published core v${NEXT}"
+fi
 git -C "$ROOT" tag -f "v${NEXT}" HEAD >/dev/null 2>&1   # reproducible local staging tag (deleted at end)
 TMPGIT="$(mktemp)"; printf '[url "file://%s"]\n\tinsteadOf = https://github.com/trianalab/pacto\n' "$ROOT" > "$TMPGIT"
 WORK="$(mktemp -d)"; mkdir -p "$WORK/op"; tar -C "$ROOT/integrations/kubernetes" --exclude=bin --exclude=.github --exclude=node_modules -cf - . | tar -C "$WORK/op" -xf -
