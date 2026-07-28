@@ -104,12 +104,27 @@ PACTO_DIST_DIR="$DIST2" bash "$ROOT/release/orchestrator/build-cli.sh" "v$CORE" 
 diff -q "$DIST/checksums.txt" "$DIST2/checksums.txt" >/dev/null \
   && echo "   reproducible: identical checksums on rebuild" || { echo "CLI build not reproducible"; exit 1; }
 
-echo "== package + push the chart =="
-helm package "$ROOT/integrations/kubernetes/charts/pacto-operator" --version "$DV" --app-version "$DV" -d "$WORK" >/dev/null
+echo "== package + push the chart (with source-revision provenance, as production does) =="
+CHART_SRC="$WORK/chart-src"
+cp -r "$ROOT/integrations/kubernetes/charts/pacto-operator" "$CHART_SRC"
+SHA="$SHA" yq -i '.annotations."org.opencontainers.image.revision" = strenv(SHA)' "$CHART_SRC/Chart.yaml"
+helm package "$CHART_SRC" --version "$DV" --app-version "$DV" -d "$WORK" >/dev/null
 CHART="$(ls "$WORK"/pacto-operator-*.tgz)"
 helm push "$CHART" "oci://$REG/pacto-operator/charts" --plain-http >/dev/null 2>&1 \
   || helm push "$CHART" "oci://$REG/pacto-operator/charts" >/dev/null
 echo "   chart pushed"
+
+echo "== operator-chart crash recovery: verify-oci adopts a pushed-but-unrecorded chart =="
+# Simulates a push-before-record crash: no recorded digest, but the chart's manifest
+# provenance (org.opencontainers.image.revision/version) proves it is this transaction's.
+CHART_REF="$REG/pacto-operator/charts/pacto-operator:$DV"
+cstate="$(bash "$ROOT/release/orchestrator/verify-oci.sh" "$CHART_REF" "" "$SHA" "$DV")"
+[ "$cstate" = adopt ] || { echo "expected chart 'adopt' by provenance, got '$cstate'"; exit 1; }
+echo "   adoptable (revision+version provenance matched)"
+if bash "$ROOT/release/orchestrator/verify-oci.sh" "$CHART_REF" "" "wrong-sha" "$DV" >/dev/null 2>&1; then
+  echo "expected conflict on a foreign revision"; exit 1
+fi
+echo "   foreign revision refused (fail-closed)"
 
 echo "== DURABLE LEDGER + absent/identical/conflict + partial-failure/resume (shared adapter) =="
 export PACTO_LEDGER_REPO="$REG/pacto-release-ledger"

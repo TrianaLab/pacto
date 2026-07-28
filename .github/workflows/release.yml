@@ -541,7 +541,13 @@ jobs:
         working-directory: .
         run: |
           want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" operator-chart)"
-          state="$(bash release/orchestrator/verify-oci.sh "ghcr.io/trianalab/pacto/charts/pacto-operator:${{ needs.detect.outputs.k8s_version }}" "$want")"
+          # Pass the source revision + version so a push-before-record crash is
+          # recoverable: on resume verify-oci.sh returns `adopt` when the already-pushed
+          # chart's manifest provenance (org.opencontainers.image.revision/version)
+          # matches this transaction, instead of failing closed on the un-recorded tag.
+          state="$(bash release/orchestrator/verify-oci.sh \
+            "ghcr.io/trianalab/pacto/charts/pacto-operator:${{ needs.detect.outputs.k8s_version }}" \
+            "$want" "${{ needs.detect.outputs.source_sha }}" "${{ needs.detect.outputs.k8s_version }}")"
           echo "state=$state" >> "$GITHUB_OUTPUT"
       # Item 8: the IMMUTABLE chart and the MUTABLE Artifact Hub alias are separate
       # publication results. Package + push + RECORD the chart digest immediately
@@ -550,14 +556,35 @@ jobs:
         if: steps.v.outputs.state == 'absent'
         env:
           VERSION: ${{ needs.detect.outputs.k8s_version }}
+          SOURCE_SHA: ${{ needs.detect.outputs.source_sha }}
         run: |
-          helm package charts/pacto-operator
+          # Stamp the source revision onto the chart's OCI manifest (helm propagates
+          # Chart.yaml annotations) so a resumed run can adopt it by provenance after a
+          # push-before-record crash. Inject into a copy to keep the working tree clean;
+          # helm already stamps org.opencontainers.image.version from the chart version.
+          cp -r charts/pacto-operator /tmp/pacto-operator-chart
+          SHA="$SOURCE_SHA" yq -i '.annotations."org.opencontainers.image.revision" = strenv(SHA)' /tmp/pacto-operator-chart/Chart.yaml
+          helm package /tmp/pacto-operator-chart
           out=$(helm push "pacto-operator-${VERSION}.tgz" oci://ghcr.io/trianalab/pacto/charts 2>&1)
           echo "$out"
           digest=$(echo "$out" | grep -oE 'sha256:[a-f0-9]+')
           [ -n "$digest" ] || { echo "::error::no chart digest from helm push"; exit 1; }
           # Record the immutable chart digest NOW, before the mutable metadata step,
           # so an Artifact Hub failure can never leave a published-but-unrecorded chart.
+          bash "$GITHUB_WORKSPACE/release/orchestrator/ledger.sh" record "$PACTO_RELEASE_TXN" \
+            operator-chart "ghcr.io/trianalab/pacto/charts/pacto-operator" "$VERSION" "$digest" complete
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
+            "ghcr.io/trianalab/pacto/charts/pacto-operator:${VERSION}@${digest}"
+      # Crash recovery: a prior run pushed this exact chart (provenance verified by
+      # verify-oci.sh) but died before recording. Record its digest and sign — never
+      # re-push the immutable tag.
+      - name: Adopt an already-published chart from an interrupted run
+        if: steps.v.outputs.state == 'adopt'
+        env:
+          VERSION: ${{ needs.detect.outputs.k8s_version }}
+        run: |
+          digest=$(crane digest "ghcr.io/trianalab/pacto/charts/pacto-operator:${VERSION}")
+          [ -n "$digest" ] || { echo "::error::no chart digest to adopt"; exit 1; }
           bash "$GITHUB_WORKSPACE/release/orchestrator/ledger.sh" record "$PACTO_RELEASE_TXN" \
             operator-chart "ghcr.io/trianalab/pacto/charts/pacto-operator" "$VERSION" "$digest" complete
           cosign sign --yes --new-bundle-format=false --use-signing-config=false \
@@ -569,7 +596,7 @@ jobs:
       # resume still refreshes + verifies the alias; a failure here never wedges the
       # already-recorded immutable chart.
       - name: Publish + verify Artifact Hub metadata (mutable alias)
-        if: steps.v.outputs.state == 'absent' || steps.v.outputs.state == 'identical'
+        if: steps.v.outputs.state == 'absent' || steps.v.outputs.state == 'identical' || steps.v.outputs.state == 'adopt'
         run: |
           oras push ghcr.io/trianalab/pacto/charts/pacto-operator:artifacthub.io \
             --config /dev/null:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml \
