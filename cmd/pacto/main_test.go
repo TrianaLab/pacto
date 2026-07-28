@@ -3,8 +3,27 @@ package main
 import (
 	"os"
 	"os/exec"
+	"syscall"
 	"testing"
+	"time"
 )
+
+func TestSignalContext_CancelsOnSignal(t *testing.T) {
+	ctx, stop := signalContext()
+	defer stop()
+
+	// The handler is registered, so this diverts the signal to cancel ctx rather
+	// than terminating the test process.
+	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("send SIGTERM: %v", err)
+	}
+
+	select {
+	case <-ctx.Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("signal context was not cancelled on SIGTERM")
+	}
+}
 
 func TestRun_Version(t *testing.T) {
 	origArgs := os.Args
