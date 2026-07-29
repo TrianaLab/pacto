@@ -277,6 +277,7 @@ type ContractRevision struct {
 	Docs         []DocRef           `json:"docs,omitempty"`
 	Lock         *lock.Lock         `json:"lock,omitempty"`
 	Source       string             `json:"source"`
+	Sources      []string           `json:"sources,omitempty"`
 	FetchedAt    *time.Time         `json:"fetchedAt,omitempty"`
 
 	// bundle carries the parsed bundle used only DURING Build (to derive tools,

@@ -717,11 +717,12 @@ func TestBuild_SingleMemorySource(t *testing.T) {
 	}
 }
 
-func TestBuild_RevisionAndTargetDedup(t *testing.T) {
+func TestBuild_RevisionAndTargetMerge(t *testing.T) {
 	rev := RawRevision{Bundle: validLeafBundle(t), Digest: "sha256:leaf"}
 	tgt := RawTarget{Scope: "prod", Kind: "k8s", Name: "web", Service: "leaf-svc", Digest: "sha256:leaf", Compliance: StatusCompliant, EvidenceAt: ptrTime(fixedNow())}
 	src1 := NewMemorySource("a", "local", &Collection{Revisions: []RawRevision{rev}, Targets: []RawTarget{tgt}})
-	// Second source repeats the same revision key and target key: first wins.
+	// Second source contributes the SAME immutable revision and target: merge,
+	// don't drop. Provenance from both sources is retained.
 	rev2 := RawRevision{Bundle: validLeafBundle(t), Digest: "sha256:leaf"}
 	src2 := NewMemorySource("b", "oci", &Collection{Revisions: []RawRevision{rev2}, Targets: []RawTarget{tgt}})
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src1, src2)
@@ -729,22 +730,28 @@ func TestBuild_RevisionAndTargetDedup(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(snap.Revisions) != 1 {
-		t.Errorf("revision should be deduped to 1, got %d", len(snap.Revisions))
+		t.Errorf("same immutable revision should merge to 1, got %d", len(snap.Revisions))
 	}
 	if len(snap.Targets) != 1 {
-		t.Errorf("target should be deduped to 1, got %d", len(snap.Targets))
+		t.Errorf("same target should merge to 1, got %d", len(snap.Targets))
 	}
-	// First source (a) wins the revision.
+	// The merged revision retains BOTH sources (no first-source-wins drop).
 	for _, r := range snap.Revisions {
 		if r.Source != "a" {
-			t.Errorf("first source should win, got %q", r.Source)
+			t.Errorf("primary source should be a, got %q", r.Source)
+		}
+		if !containsStr(r.Sources, "a") || !containsStr(r.Sources, "b") {
+			t.Errorf("merged revision should retain both sources, got %v", r.Sources)
 		}
 	}
-	// Source b reported 0 net-new revisions.
-	for _, s := range snap.Sources {
-		if s.ID == "b" && s.RevisionCount != 0 {
-			t.Errorf("dedup source b should report 0 revisions, got %d", s.RevisionCount)
+	for _, tr := range snap.Targets {
+		if !containsStr(tr.Sources, "a") || !containsStr(tr.Sources, "b") {
+			t.Errorf("merged target should retain both sources, got %v", tr.Sources)
 		}
+	}
+	// The logical service records both contributing sources.
+	if s := snap.Service("leaf-svc"); !containsStr(s.Sources, "a") || !containsStr(s.Sources, "b") {
+		t.Errorf("service should record both sources, got %v", s.Sources)
 	}
 }
 

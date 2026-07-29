@@ -198,24 +198,154 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		if rev == nil {
 			continue
 		}
-		if _, exists := snap.Revisions[rev.Key]; exists {
-			continue // first source wins for a given immutable revision
+		if existing := snap.Revisions[rev.Key]; existing != nil {
+			// Same immutable revision from another source: merge complementary
+			// projections and provenance rather than dropping either.
+			snap.Limitations = append(snap.Limitations, mergeRevision(existing, rev)...)
+		} else {
+			snap.Revisions[rev.Key] = rev
 		}
-		snap.Revisions[rev.Key] = rev
 		revCount++
 	}
 	for _, raw := range col.Targets {
 		tgt := targetFrom(raw, src.ID(), now, window)
-		if _, exists := snap.Targets[tgt.Key]; exists {
-			continue
+		if existing := snap.Targets[tgt.Key]; existing != nil {
+			// Same target contributed by another source (e.g. platform inventory
+			// + operator evaluation): merge by field ownership and freshness.
+			snap.Limitations = append(snap.Limitations, mergeTarget(existing, tgt)...)
+		} else {
+			snap.Targets[tgt.Key] = tgt
 		}
-		snap.Targets[tgt.Key] = tgt
 		targetCount++
 	}
 	// A source that reported record-level problems is partial: keep its usable
 	// records AND surface the problems.
 	snap.Limitations = append(snap.Limitations, col.Limitations...)
 	snap.Sources = append(snap.Sources, sourceStateFor(src, col, now, revCount, targetCount))
+}
+
+// mergeRevision folds a later contribution of the same immutable revision into
+// the existing record: it unions provenance and fills empty complementary
+// projections (lock, validation, tools, skills, docs, readiness). It never lets
+// source order pick a winner. A digest disagreement (only possible for a
+// version-fallback key) is reported as a content conflict.
+func mergeRevision(existing, add *ContractRevision) []Limitation {
+	existing.Sources = appendUnique(existing.Sources, add.Source)
+	if existing.Lock == nil {
+		existing.Lock = add.Lock
+	}
+	if existing.Readiness == nil {
+		existing.Readiness = add.Readiness
+	}
+	if len(existing.Validation) == 0 && len(add.Validation) > 0 {
+		existing.Validation = add.Validation
+		existing.Valid = add.Valid
+		existing.validated = existing.validated || add.validated
+	}
+	if len(existing.Tools) == 0 {
+		existing.Tools = add.Tools
+	}
+	if len(existing.Skills) == 0 {
+		existing.Skills = add.Skills
+	}
+	if len(existing.Docs) == 0 {
+		existing.Docs = add.Docs
+	}
+	if existing.ResolvedRef == "" {
+		existing.ResolvedRef = add.ResolvedRef
+	}
+	if existing.Digest != "" && add.Digest != "" && existing.Digest != add.Digest {
+		return []Limitation{{
+			Code: LimitationRevisionConflict, Source: add.Source,
+			Message: "sources disagree on the content of revision " + string(existing.Key),
+		}}
+	}
+	return nil
+}
+
+// mergeTarget folds a later contribution of the same target into the existing
+// record. The fresher observation (by evidence time) owns evaluation fields;
+// labels union with a conflict report on disagreement; a contradictory resolved
+// reference is reported. Provenance is always retained.
+func mergeTarget(existing, add *TargetRecord) []Limitation {
+	existing.Sources = appendUnique(existing.Sources, add.Source)
+	var lims []Limitation
+	if ref, conflict := mergeRef(existing.ResolvedRef, add.ResolvedRef); conflict {
+		lims = append(lims, Limitation{Code: LimitationTargetRefConflict, Source: add.Source,
+			Message: "sources disagree on the resolved reference of target " + string(existing.Key)})
+	} else {
+		existing.ResolvedRef = ref
+	}
+	lims = append(lims, mergeTargetLabels(existing, add)...)
+	if targetFresher(add, existing) {
+		applyEvaluation(existing, add)
+	}
+	existing.Stale = existing.Stale && add.Stale
+	existing.Limitations = append(existing.Limitations, add.Limitations...)
+	return lims
+}
+
+// mergeRef returns the agreed reference, or reports a conflict when two non-empty
+// references disagree.
+func mergeRef(a, b string) (string, bool) {
+	switch {
+	case a == "":
+		return b, false
+	case b == "":
+		return a, false
+	case a == b:
+		return a, false
+	default:
+		return a, true
+	}
+}
+
+func mergeTargetLabels(existing, add *TargetRecord) []Limitation {
+	if len(add.Labels) == 0 {
+		return nil
+	}
+	if existing.Labels == nil {
+		existing.Labels = map[string]string{}
+	}
+	var lims []Limitation
+	for k, v := range add.Labels {
+		if cur, ok := existing.Labels[k]; ok && cur != v {
+			lims = append(lims, Limitation{Code: LimitationTargetFieldConflict, Source: add.Source,
+				Message: "sources disagree on label " + k + " of target " + string(existing.Key)})
+			continue
+		}
+		existing.Labels[k] = v
+	}
+	return lims
+}
+
+// targetFresher reports whether a is a fresher observation than b (by evidence
+// then reconciliation time); a target with evidence is fresher than one without.
+func targetFresher(a, b *TargetRecord) bool {
+	switch {
+	case a.EvidenceAt != nil && b.EvidenceAt != nil:
+		return a.EvidenceAt.After(*b.EvidenceAt)
+	case a.EvidenceAt != nil:
+		return true
+	case b.EvidenceAt != nil:
+		return false
+	case a.ReconciledAt != nil && b.ReconciledAt != nil:
+		return a.ReconciledAt.After(*b.ReconciledAt)
+	default:
+		return a.ReconciledAt != nil
+	}
+}
+
+// applyEvaluation copies the evaluation-owned fields from the fresher target.
+func applyEvaluation(dst, src *TargetRecord) {
+	dst.Compliance = src.Compliance
+	dst.Findings = src.Findings
+	dst.Coverage = src.Coverage
+	dst.Readiness = src.Readiness
+	dst.ObservedRuntime = src.ObservedRuntime
+	dst.EvidenceAt = src.EvidenceAt
+	dst.ReconciledAt = src.ReconciledAt
+	dst.Digest = src.Digest
 }
 
 // sourceStateFor derives (or honors a source-supplied) state for a collection.
@@ -296,6 +426,7 @@ func revisionFrom(raw RawRevision, source string, now time.Time) *ContractRevisi
 		// bundle after Build can never mutate the snapshot.
 		Contract:  cloneContract(c),
 		Source:    source,
+		Sources:   []string{source},
 		FetchedAt: copyTime(raw.FetchedAt),
 		bundle:    b,
 	}
@@ -506,12 +637,16 @@ func aggregateServices(snap *FleetSnapshot) {
 	for key, rev := range snap.Revisions {
 		s := ensureService(snap, rev.Service)
 		s.Revisions = append(s.Revisions, key)
-		s.Sources = appendUnique(s.Sources, rev.Source)
+		for _, src := range rev.Sources {
+			s.Sources = appendUnique(s.Sources, src)
+		}
 	}
 	for key, t := range snap.Targets {
 		s := ensureService(snap, t.Service)
 		s.Targets = append(s.Targets, key)
-		s.Sources = appendUnique(s.Sources, t.Source)
+		for _, src := range t.Sources {
+			s.Sources = appendUnique(s.Sources, src)
+		}
 		// Target/environment labels are NOT merged into the logical-service label
 		// map: distinct targets have distinct (possibly conflicting) labels, and
 		// collapsing them by map iteration order would fabricate a service label
