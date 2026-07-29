@@ -271,10 +271,10 @@ func TestIntOrZero(t *testing.T) {
 
 // connectFleetServer wires an in-memory client to a fleet server and returns the
 // session for tool/instruction inspection.
-func connectFleetServer(t *testing.T, q *fleet.Query) *mcpsdk.ClientSession {
+func connectFleetServer(t *testing.T, q *fleet.Query, provideImpact impactProvider) *mcpsdk.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	server := NewFleetServer("test", q)
+	server := NewFleetServer("test", q, provideImpact)
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil)
 	t1, t2 := mcpsdk.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, t1, nil); err != nil {
@@ -289,7 +289,7 @@ func connectFleetServer(t *testing.T, q *fleet.Query) *mcpsdk.ClientSession {
 }
 
 func TestNewFleetServer_NilQuery_OnlyAuthoringTools(t *testing.T) {
-	session := connectFleetServer(t, nil)
+	session := connectFleetServer(t, nil, nil)
 	names := toolNames(t, session)
 	if !names["pacto_create"] {
 		t.Error("expected authoring tools to be registered")
@@ -305,7 +305,7 @@ func TestNewFleetServer_NilQuery_OnlyAuthoringTools(t *testing.T) {
 }
 
 func TestNewFleetServer_WithQuery_RegistersFleetTools(t *testing.T) {
-	session := connectFleetServer(t, buildFleetQuery(t))
+	session := connectFleetServer(t, buildFleetQuery(t), nil)
 	names := toolNames(t, session)
 	if !names["pacto_create"] {
 		t.Error("expected authoring tools alongside fleet tools")

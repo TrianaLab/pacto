@@ -8,6 +8,8 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // fleetProvider builds a pure fleet query on demand. The dashboard is a consumer
@@ -24,8 +26,19 @@ type fleetProvider func(ctx context.Context) (*fleet.Query, error)
 // unaffected.
 func (s *Server) SetFleetProvider(fn fleetProvider) { s.fleetQuery = fn }
 
+// impactProviderFunc resolves the old and new contract revisions, builds a fleet
+// snapshot and analyzes the change's blast radius over it. The dashboard consumes
+// it so this package depends only on the pure impact result, never on the app
+// service, OCI client or Kubernetes.
+type impactProviderFunc func(ctx context.Context, old, new string, includeObserved bool) (*impact.Result, error)
+
+// SetImpactProvider enables the read-only /api/fleet/impact endpoint. When unset,
+// the endpoint is not registered, so existing deployments are unaffected.
+func (s *Server) SetImpactProvider(fn impactProviderFunc) { s.impactProvider = fn }
+
 // registerFleetOperations registers the fleet endpoints when a provider is set.
 func (s *Server) registerFleetOperations(api huma.API) {
+	s.registerImpactOperation(api)
 	if s.fleetQuery == nil {
 		return
 	}
@@ -151,4 +164,60 @@ func (s *Server) fleetStatus(ctx context.Context, _ *struct{}) (*fleetStatusOutp
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
 	return &fleetStatusOutput{Body: q.Status(fleet.StatusQuery{NeedsAttention: true})}, nil
+}
+
+// registerImpactOperation registers the read-only impact endpoint when a provider
+// is set. It is independent of the fleet query provider so an impact-only wiring
+// is possible, though the dashboard command sets both from the same local root.
+func (s *Server) registerImpactOperation(api huma.API) {
+	if s.impactProvider == nil {
+		return
+	}
+	huma.Register(api, huma.Operation{
+		OperationID: "fleet-impact",
+		Method:      http.MethodGet,
+		Path:        "/api/fleet/impact",
+		Summary:     "Analyze the blast radius of a change",
+		Description: "Projects the semantic diff between an old and a new contract revision onto " +
+			"the operational graph: classification, breaking changes, affected consumers (with " +
+			"confidence and compatibility verdict), active targets and owners. Read-only.",
+		Tags: []string{"Fleet"},
+	}, s.fleetImpact)
+}
+
+type fleetImpactInput struct {
+	Old             string `query:"old" required:"true" example:"oci://ghcr.io/org/svc:1.0.0" doc:"Old contract revision (local dir or oci:// ref)"`
+	New             string `query:"new" required:"true" example:"oci://ghcr.io/org/svc:2.0.0" doc:"New contract revision (local dir or oci:// ref)"`
+	IncludeObserved bool   `query:"includeObserved" doc:"Let observed (runtime) relationships raise consumer confidence"`
+}
+
+type fleetImpactOutput struct {
+	Body *impact.Result
+}
+
+func (s *Server) fleetImpact(ctx context.Context, in *fleetImpactInput) (*fleetImpactOutput, error) {
+	res, err := s.impactProvider(ctx, in.Old, in.New, in.IncludeObserved)
+	if err != nil {
+		return nil, impactHTTPError(err)
+	}
+	return &fleetImpactOutput{Body: res}, nil
+}
+
+// impactHTTPError maps an impact provider error to an HTTP status: a bad/incompatible
+// reference is the caller's fault (422), a missing artifact is 404, and everything
+// else (registry auth/reachability, fleet snapshot build) is a transient upstream
+// condition (503) rather than a bug in the request.
+func impactHTTPError(err error) error {
+	var invalidRef *oci.InvalidRefError
+	var invalidBundle *oci.InvalidBundleError
+	var noMatch *oci.NoMatchingVersionError
+	var notFound *oci.ArtifactNotFoundError
+	switch {
+	case errors.As(err, &invalidRef), errors.As(err, &noMatch), errors.As(err, &invalidBundle):
+		return huma.Error422UnprocessableEntity(err.Error())
+	case errors.As(err, &notFound):
+		return huma.Error404NotFound(err.Error())
+	default:
+		return huma.Error503ServiceUnavailable("impact analysis unavailable", err)
+	}
 }

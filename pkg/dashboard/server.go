@@ -28,20 +28,21 @@ import (
 
 // Server serves the dashboard web UI and REST API.
 type Server struct {
-	source      DataSource
-	resolved    *ResolvedSource // may be nil for non-resolved usage
-	resolver    *oci.Resolver   // optional: enables lazy resolution of remote OCI dependencies
-	fleetQuery  fleetProvider   // optional: enables the read-only operational-graph (fleet) endpoints
-	cacheSource *CacheSource    // optional: for rescanning after cache writes
-	cacheDir    string          // optional: OCI cache dir for on-demand CacheSource creation
-	memCache    Cache           // optional: for invalidating after cache writes
-	ociSource   *OCISource      // optional: for tracking discovery state
-	ui          fs.FS
-	sourceInfo  []SourceInfo
-	diagnostics *SourceDiagnostics
-	listenAddr  string // optional: server URL for OpenAPI spec
-	version     string // optional: Pacto version to expose via /health
-	corsOrigin  string // optional: explicit cross-origin allowed to call the API (startup-only)
+	source         DataSource
+	resolved       *ResolvedSource    // may be nil for non-resolved usage
+	resolver       *oci.Resolver      // optional: enables lazy resolution of remote OCI dependencies
+	fleetQuery     fleetProvider      // optional: enables the read-only operational-graph (fleet) endpoints
+	impactProvider impactProviderFunc // optional: enables the read-only /api/fleet/impact endpoint
+	cacheSource    *CacheSource       // optional: for rescanning after cache writes
+	cacheDir       string             // optional: OCI cache dir for on-demand CacheSource creation
+	memCache       Cache              // optional: for invalidating after cache writes
+	ociSource      *OCISource         // optional: for tracking discovery state
+	ui             fs.FS
+	sourceInfo     []SourceInfo
+	diagnostics    *SourceDiagnostics
+	listenAddr     string // optional: server URL for OpenAPI spec
+	version        string // optional: Pacto version to expose via /health
+	corsOrigin     string // optional: explicit cross-origin allowed to call the API (startup-only)
 
 	// logger is injected into every request context (see corsMiddleware), so the
 	// handler and source code that log via logging.LoggerFromContext reach the
@@ -113,20 +114,30 @@ func APIConfig() huma.Config {
 	}
 }
 
-// fleetSchemaNamer disambiguates OpenAPI component names. The fleet endpoints
-// pull engine types (contract, finding, readiness, lock, fleet) into the shared
-// schema registry, and their short Go names can collide with dashboard DTOs of
-// the same name (e.g. contract.Service vs dashboard.Service). Dashboard's own
-// types keep their canonical names; every other package's types are qualified by
-// their package, so no two distinct types can ever map to one component name.
+// fleetSchemaNamer disambiguates OpenAPI component names. The fleet and impact
+// endpoints pull engine types (contract, finding, readiness, lock, fleet, diff,
+// impact) into the shared schema registry, and their short Go names can collide
+// with dashboard DTOs of the same name (e.g. contract.Service vs dashboard.Service,
+// or diff.Change vs dashboard.DiffChange). Dashboard's own types keep their
+// canonical names; every other package's types are qualified by their package.
+// The qualifier is joined with a "." — a character no Go identifier can contain —
+// so a package-qualified name can never coincide with a bare dashboard name, and
+// no two distinct types can ever map to one component name.
 func fleetSchemaNamer(t reflect.Type, hint string) string {
 	name := huma.DefaultSchemaNamer(t, hint)
+	// Body types arrive as pointers (e.g. *impact.Result), whose PkgPath is empty;
+	// dereference to the named element so the qualifier is derived from the real
+	// package — otherwise two distinct *pkg.Result bodies both fall back to the
+	// bare "Result" and collide.
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
 	pkg := t.PkgPath()
 	if pkg == "" || strings.HasSuffix(pkg, "/pkg/dashboard") {
 		return name
 	}
 	base := pkg[strings.LastIndex(pkg, "/")+1:]
-	return strings.ToUpper(base[:1]) + base[1:] + name
+	return strings.ToUpper(base[:1]) + base[1:] + "." + name
 }
 
 // NewServer creates a dashboard server backed by the given data source.

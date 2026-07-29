@@ -37,6 +37,29 @@ func TestBuildMCPServer_WithFleet(t *testing.T) {
 	}
 }
 
+// TestMCPImpactProvider exercises the pacto_impact provider closure wired into
+// the MCP fleet server: a nonexistent old revision makes svc.Impact fail, which
+// covers the closure body and its fleet-options capture.
+func TestMCPImpactProvider(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v")
+	cmd.SetContext(context.Background())
+	provide := mcpImpactProvider(cmd, svc)
+	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", true); err == nil {
+		t.Fatal("expected an error resolving nonexistent revisions")
+	}
+}
+
+// TestImpactProviderForRoot exercises the dashboard /api/fleet/impact provider
+// closure. A nonexistent old revision surfaces as an error.
+func TestImpactProviderForRoot(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	provide := impactProviderForRoot(svc, t.TempDir())
+	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", false); err == nil {
+		t.Fatal("expected an error resolving nonexistent revisions")
+	}
+}
+
 // TestFleetProviderForRoot covers both the success and error paths of the
 // dashboard fleet-provider closure.
 func TestFleetProviderForRoot(t *testing.T) {

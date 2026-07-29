@@ -210,18 +210,25 @@ outputs of many evaluations; it never becomes a second, parallel evaluator.
 
 ---
 
+## Impact analysis, built on this substrate
+
+The graph maintains a reverse-dependency index: for any service, which services
+declare a required dependency on it. **[Impact analysis](impact.md)** builds
+directly on that index. `pacto impact <old> <new>` composes a semantic contract
+diff with this graph to answer "if this revision ships, what is the transitive
+blast radius" — direct and transitive affected consumers, active targets, owners,
+a compatibility verdict and a per-consumer confidence grade. No new data, a new
+question over the same graph the dashboard and CLI already query. It is shipped
+today and exposed on the CLI, as the `pacto_impact` MCP tool and at the
+dashboard's `/api/fleet/impact` endpoint. See [Impact analysis](impact.md) for
+the full model.
+
+---
+
 ## Where this is heading
 
-Three capabilities build directly on the substrate the graph already maintains.
-None changes the model above — each consumes it.
-
-### Impact analysis (`pacto impact`)
-
-The graph already maintains a reverse-dependency index: for any service, which
-services declare a required dependency on it. That index is the substrate for
-future **impact analysis** — `pacto impact` will answer "if this revision changes
-or breaks, what is the transitive blast radius" directly from the same graph the
-dashboard and CLI already query. No new data, a new question over it.
+Two further capabilities build directly on the substrate the graph already
+maintains. Neither changes the model above — each consumes it.
 
 ### Future external evidence ingestion
 

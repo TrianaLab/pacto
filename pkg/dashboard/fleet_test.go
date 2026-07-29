@@ -15,6 +15,8 @@ import (
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 func TestFleetSchemaNamer(t *testing.T) {
@@ -25,8 +27,10 @@ func TestFleetSchemaNamer(t *testing.T) {
 		want string
 	}{
 		{"dashboard type keeps bare name", reflect.TypeOf(Service{}), "Service"},
-		{"fleet type is prefixed", reflect.TypeOf(fleet.ServiceRecord{}), "FleetServiceRecord"},
-		{"contract type is prefixed (resolves the Service clash)", reflect.TypeOf(contract.Service{}), "ContractService"},
+		{"fleet type is prefixed", reflect.TypeOf(fleet.ServiceRecord{}), "Fleet.ServiceRecord"},
+		{"impact type is prefixed (no collision with dashboard/fleet)", reflect.TypeOf(impact.AffectedConsumer{}), "Impact.AffectedConsumer"},
+		{"pointer body type dereferences to its package", reflect.TypeOf(&impact.Result{}), "Impact.Result"},
+		{"contract type is prefixed (resolves the Service clash)", reflect.TypeOf(contract.Service{}), "Contract.Service"},
 		{"empty pkgpath passes through to the default namer", intType, huma.DefaultSchemaNamer(intType, "int")},
 	}
 	for _, tc := range cases {
@@ -58,8 +62,9 @@ func demoFleetQuery(t *testing.T) *fleet.Query {
 	return fleet.NewQuery(snap)
 }
 
-// startFleetTestServer starts a dashboard server with an optional fleet provider.
-func startFleetTestServer(t *testing.T, provider fleetProvider) (string, context.CancelFunc) {
+// startFleetTestServer starts a dashboard server with an optional fleet provider
+// and an optional impact provider.
+func startFleetTestServer(t *testing.T, provider fleetProvider, impactFn impactProviderFunc) (string, context.CancelFunc) {
 	t.Helper()
 	resolved := BuildResolvedSource(map[string]DataSource{"local": newOrderServiceSource()})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -71,6 +76,9 @@ func startFleetTestServer(t *testing.T, provider fleetProvider) (string, context
 	if provider != nil {
 		srv.SetFleetProvider(provider)
 	}
+	if impactFn != nil {
+		srv.SetImpactProvider(impactFn)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { _ = srv.ServeOnListener(ctx, ln) }()
 	time.Sleep(50 * time.Millisecond)
@@ -79,7 +87,7 @@ func startFleetTestServer(t *testing.T, provider fleetProvider) (string, context
 
 func TestFleetEndpoints_Serve(t *testing.T) {
 	q := demoFleetQuery(t)
-	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil })
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
 	defer cancel()
 
 	// Snapshot.
@@ -123,7 +131,7 @@ func TestFleetEndpoints_Serve(t *testing.T) {
 func TestFleetEndpoints_ProviderError(t *testing.T) {
 	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) {
 		return nil, fmt.Errorf("source down")
-	})
+	}, nil)
 	defer cancel()
 	expectStatus(t, base+"/api/fleet/snapshot", http.StatusServiceUnavailable)
 	expectStatus(t, base+"/api/fleet/services", http.StatusServiceUnavailable)
@@ -132,9 +140,66 @@ func TestFleetEndpoints_ProviderError(t *testing.T) {
 }
 
 func TestFleetEndpoints_NotRegisteredWithoutProvider(t *testing.T) {
-	base, cancel := startFleetTestServer(t, nil)
+	base, cancel := startFleetTestServer(t, nil, nil)
 	defer cancel()
 	expectStatus(t, base+"/api/fleet/snapshot", http.StatusNotFound)
+	// Impact is independently gated: no impact provider → not registered.
+	expectStatus(t, base+"/api/fleet/impact?old=a&new=b", http.StatusNotFound)
+}
+
+func TestFleetImpactEndpoint(t *testing.T) {
+	want := &impact.Result{
+		SchemaVersion:  impact.SchemaVersion,
+		Service:        "payment-service",
+		Classification: "BREAKING",
+		Consumers: []impact.AffectedConsumer{
+			{Service: "order-service", Depth: 1, Direct: true, Confidence: impact.ConfidenceContractual},
+		},
+	}
+	var gotObserved bool
+	base, cancel := startFleetTestServer(t, nil, func(_ context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+		gotObserved = includeObserved
+		if oldRef == "" || newRef == "" {
+			t.Errorf("expected old/new refs, got %q/%q", oldRef, newRef)
+		}
+		return want, nil
+	})
+	defer cancel()
+
+	var out impact.Result
+	getJSON(t, base+"/api/fleet/impact?old=oci://x/svc:1.0.0&new=oci://x/svc:2.0.0&includeObserved=true", http.StatusOK, &out)
+	if out.Service != "payment-service" || out.Classification != "BREAKING" {
+		t.Fatalf("unexpected impact result: %+v", out)
+	}
+	if len(out.Consumers) != 1 || out.Consumers[0].Service != "order-service" {
+		t.Fatalf("unexpected consumers: %+v", out.Consumers)
+	}
+	if !gotObserved {
+		t.Error("expected includeObserved=true to reach the provider")
+	}
+}
+
+func TestFleetImpactEndpoint_ErrorMapping(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"invalid ref → 422", &oci.InvalidRefError{Ref: "bad", Err: fmt.Errorf("parse")}, http.StatusUnprocessableEntity},
+		{"no matching version → 422", &oci.NoMatchingVersionError{Ref: "r", Constraint: "^9", Err: fmt.Errorf("none")}, http.StatusUnprocessableEntity},
+		{"invalid bundle → 422", &oci.InvalidBundleError{Ref: "r", Err: fmt.Errorf("bad")}, http.StatusUnprocessableEntity},
+		{"artifact not found → 404", &oci.ArtifactNotFoundError{Ref: "r"}, http.StatusNotFound},
+		{"other → 503", fmt.Errorf("build fleet snapshot: down"), http.StatusServiceUnavailable},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			base, cancel := startFleetTestServer(t, nil, func(context.Context, string, string, bool) (*impact.Result, error) {
+				return nil, tc.err
+			})
+			defer cancel()
+			expectStatus(t, base+"/api/fleet/impact?old=a&new=b", tc.want)
+		})
+	}
 }
 
 func getJSON(t *testing.T, url string, wantStatus int, into any) {

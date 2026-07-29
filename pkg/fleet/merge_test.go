@@ -125,6 +125,17 @@ func TestMergeTargetLabels_NoAddLabels(t *testing.T) {
 	}
 }
 
+func TestMergeTargetLabels_ExistingHasNoLabels(t *testing.T) {
+	// existing has nil Labels; the second source's labels initialize the map.
+	existing := &TargetRecord{Key: "k", Source: "a", Sources: []string{"a"}}
+	if lims := mergeTarget(existing, &TargetRecord{Key: "k", Source: "b", Labels: map[string]string{"env": "prod"}}); lims != nil {
+		t.Errorf("no conflict expected, got %v", lims)
+	}
+	if existing.Labels["env"] != "prod" {
+		t.Errorf("labels should be adopted when existing had none: %v", existing.Labels)
+	}
+}
+
 func TestMergeTarget_RefAndLabelConflicts(t *testing.T) {
 	existing := &TargetRecord{Key: "k", Source: "a", Sources: []string{"a"}, ResolvedRef: "oci://x:1", Labels: map[string]string{"env": "prod"}}
 	add := &TargetRecord{Key: "k", Source: "b", ResolvedRef: "oci://x:2", Labels: map[string]string{"env": "staging"}}

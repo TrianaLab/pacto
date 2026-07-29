@@ -13,7 +13,10 @@ import (
 // from the authoring and generated-service tool families.
 const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the operational graph: " +
 	"pacto_fleet_search, pacto_fleet_get, pacto_fleet_graph, pacto_fleet_status and " +
-	"pacto_fleet_explain. Distinguish the three tool families: authoring tools " +
+	"pacto_fleet_explain, plus pacto_impact — a fourth read-only capability that projects a " +
+	"semantic contract diff (old→new revision) onto the graph to report the real blast radius " +
+	"of a change: breaking changes, affected consumers with confidence and compatibility, " +
+	"active targets and owners to review. Distinguish the three tool families: authoring tools " +
 	"(pacto_create/edit/check/schema) create and check contracts; generated service " +
 	"tools (derived from a bundle's OpenAPI interfaces) invoke LIVE service operations; " +
 	"fleet tools understand the operational system and its state. Fleet tools only " +
@@ -26,25 +29,31 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 // NewFleetServer builds a server with the authoring tools plus the read-only
 // fleet query tools backed by q. When q is nil, only authoring tools register
 // (identical to NewServer) so a caller with no fleet sources degrades cleanly.
-func NewFleetServer(version string, q *fleet.Query) *mcpsdk.Server {
+// When provideImpact is non-nil the pacto_impact tool is registered too; a nil
+// provider omits it, so a caller that cannot resolve revisions degrades cleanly.
+func NewFleetServer(version string, q *fleet.Query, provideImpact impactProvider) *mcpsdk.Server {
 	instructions := baseInstructions
 	if q != nil {
 		instructions += "\n\n" + fleetInstructions
 	}
 	server := newServer(version, instructions)
 	if q != nil {
-		registerFleetTools(server, q)
+		registerFleetTools(server, q, provideImpact)
 	}
 	return server
 }
 
-// registerFleetTools adds the five read-only fleet query tools.
-func registerFleetTools(server *mcpsdk.Server, q *fleet.Query) {
+// registerFleetTools adds the five read-only fleet query tools, plus the
+// read-only pacto_impact tool when an impact provider is supplied.
+func registerFleetTools(server *mcpsdk.Server, q *fleet.Query, provideImpact impactProvider) {
 	server.AddTool(fleetSearchTool(), fleetSearchHandler(q))
 	server.AddTool(fleetGetTool(), fleetGetHandler(q))
 	server.AddTool(fleetGraphTool(), fleetGraphHandler(q))
 	server.AddTool(fleetStatusTool(), fleetStatusHandler(q))
 	server.AddTool(fleetExplainTool(), fleetExplainHandler(q))
+	if provideImpact != nil {
+		server.AddTool(impactTool(), impactHandler(provideImpact))
+	}
 }
 
 func fleetSearchTool() *mcpsdk.Tool {

@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v3/internal/app"
 	pactomcp "github.com/trianalab/pacto/v3/internal/mcp"
 	"github.com/trianalab/pacto/v3/pkg/capability"
+	"github.com/trianalab/pacto/v3/pkg/impact"
 )
 
 func newMCPCommand(svc *app.Service, version string) *cobra.Command {
@@ -71,7 +72,7 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 			if err != nil {
 				return nil, err
 			}
-			return pactomcp.NewFleetServer(version, q), nil
+			return pactomcp.NewFleetServer(version, q, mcpImpactProvider(cmd, svc)), nil
 		}
 		return pactomcp.NewServer(svc, version), nil
 	}
@@ -93,6 +94,19 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 		AllowWrites: allowWrites,
 	}
 	return pactomcp.NewCapabilityServer(bundle, opts, version, cmd.ErrOrStderr())
+}
+
+// mcpImpactProvider builds the impact provider for pacto_impact from svc.Impact,
+// using the same fleet source flags as the fleet query. Extracted so the wiring
+// is directly testable. It resolves the old/new refs and builds the snapshot on
+// each call, so the tool always analyzes against fresh contract and graph state.
+func mcpImpactProvider(cmd *cobra.Command, svc *app.Service) func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+	fopts := fleetOptions(cmd)
+	return func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+		return svc.Impact(ctx, app.ImpactOptions{
+			OldPath: oldRef, NewPath: newRef, Fleet: fopts, IncludeObserved: includeObserved,
+		})
+	}
 }
 
 // parseAuthFlags parses repeated name=value credential flags.

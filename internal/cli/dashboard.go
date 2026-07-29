@@ -14,6 +14,7 @@ import (
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/pkg/dashboard"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/impact"
 	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
@@ -165,6 +166,7 @@ Services are grouped by name across sources and merged using priority rules:
 			// re-deriving graph, freshness and completeness semantics itself.
 			if dir != "" {
 				server.SetFleetProvider(fleetProviderForRoot(svc, dir))
+				server.SetImpactProvider(impactProviderForRoot(svc, dir))
 			}
 
 			// Track OCI discovery state for progressive loading in the UI.
@@ -436,5 +438,18 @@ func fleetProviderForRoot(svc *app.Service, dir string) func(context.Context) (*
 			return nil, err
 		}
 		return fleet.NewQuery(snap), nil
+	}
+}
+
+// impactProviderForRoot returns an impact provider backing /api/fleet/impact. It
+// resolves the old/new refs and builds the fleet snapshot from the same local
+// bundle root the dashboard is viewing. Extracted so the wiring is testable.
+func impactProviderForRoot(svc *app.Service, dir string) func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+	return func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+		return svc.Impact(ctx, app.ImpactOptions{
+			OldPath: oldRef, NewPath: newRef,
+			Fleet:           app.FleetOptions{LocalRoots: []string{dir}},
+			IncludeObserved: includeObserved,
+		})
 	}
 }
