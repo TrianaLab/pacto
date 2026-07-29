@@ -16,6 +16,7 @@ package fleetsrc
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -74,15 +75,33 @@ func (s *LocalSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 		if d.Name() != "pacto.yaml" {
 			return nil
 		}
-		if rev, ok := loadRevision(filepath.Dir(p)); ok {
-			col.Revisions = append(col.Revisions, rev)
+		rev, loadErr := loadRevision(filepath.Dir(p))
+		if loadErr != nil {
+			// A broken contract must not vanish as if it never existed: keep
+			// scanning, keep the good bundles, and surface the failure so the
+			// source is reported partial. The relative path is safe to show.
+			col.Limitations = append(col.Limitations, fleet.Limitation{
+				Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
+				Message: "bundle at " + relPathSafe(s.root, p) + " could not be loaded: " + loadErr.Error(),
+			})
+			return nil
 		}
+		col.Revisions = append(col.Revisions, rev)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return col, nil
+}
+
+// relPathSafe returns the pacto.yaml path relative to the scan root for display,
+// falling back to the base name when it cannot be made relative.
+func relPathSafe(root, p string) string {
+	if rel, err := filepath.Rel(root, p); err == nil {
+		return rel
+	}
+	return filepath.Base(filepath.Dir(p)) + "/pacto.yaml"
 }
 
 // skipDir reports whether a directory should not be descended into: hidden dirs
@@ -106,14 +125,16 @@ func skipDir(root, p string, d fs.DirEntry) bool {
 // loadRevision parses the bundle in dir into a raw revision. The FS is rooted at
 // the bundle directory so referenced interface/config/lock files resolve. A
 // content hash over the bundle provides an immutable local revision identity.
-func loadRevision(dir string) (fleet.RawRevision, bool) {
+// It returns an error (not a silent skip) when the bundle cannot be loaded, so
+// the caller can surface a broken contract instead of hiding it.
+func loadRevision(dir string) (fleet.RawRevision, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
 	if err != nil {
-		return fleet.RawRevision{}, false
+		return fleet.RawRevision{}, fmt.Errorf("read pacto.yaml: %w", err)
 	}
 	c, err := contract.Parse(bytes.NewReader(data))
 	if err != nil {
-		return fleet.RawRevision{}, false
+		return fleet.RawRevision{}, fmt.Errorf("parse pacto.yaml: %w", err)
 	}
 	fsys := os.DirFS(dir)
 	b := &contract.Bundle{Contract: c, RawYAML: data, FS: fsys}
@@ -125,5 +146,5 @@ func loadRevision(dir string) (fleet.RawRevision, bool) {
 		t := info.ModTime()
 		rev.FetchedAt = &t
 	}
-	return rev, true
+	return rev, nil
 }

@@ -91,7 +91,8 @@ state:
 `)
 
 	evidence = filepath.Join(t.TempDir(), "evidence.yaml")
-	mustWrite(t, evidence, `targets:
+	mustWrite(t, evidence, `schemaVersion: pacto.dev/fleet-targets/v1
+targets:
   - scope: prod
     kind: k8s
     name: orders
@@ -189,7 +190,7 @@ func execFleet(t *testing.T, args ...string) (string, string, error) {
 
 func TestFleetSearch(t *testing.T) {
 	root, ev := writeFleetFixture(t)
-	base := []string{"fleet", "search", "--local", root, "--evidence", ev}
+	base := []string{"fleet", "search", "--local", root, "--target-state", ev}
 
 	// Text output with a partial answer (extra-svc has a target but the local
 	// source is complete; a service-only target keeps completeness=complete here,
@@ -236,7 +237,7 @@ func TestFleetSearch(t *testing.T) {
 func TestFleetSearch_OrDashForEmpties(t *testing.T) {
 	root, ev := writeFleetFixture(t)
 	// extra-svc has a target but no owner → owner renders as "-".
-	out, _, err := execFleet(t, "fleet", "search", "extra-svc", "--local", root, "--evidence", ev)
+	out, _, err := execFleet(t, "fleet", "search", "extra-svc", "--local", root, "--target-state", ev)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -247,7 +248,7 @@ func TestFleetSearch_OrDashForEmpties(t *testing.T) {
 
 func TestFleetGetService(t *testing.T) {
 	root, ev := writeFleetFixture(t)
-	base := []string{"--local", root, "--evidence", ev}
+	base := []string{"--local", root, "--target-state", ev}
 
 	// orders: revisions + targets + dependencies + tools + skills present.
 	out, _, err := execFleet(t, append([]string{"fleet", "get", "orders"}, base...)...)
@@ -291,7 +292,7 @@ func TestFleetGetService(t *testing.T) {
 
 func TestFleetGetTarget(t *testing.T) {
 	root, ev := writeFleetFixture(t)
-	base := []string{"--local", root, "--evidence", ev}
+	base := []string{"--local", root, "--target-state", ev}
 
 	// orders target: coverage + findings present.
 	out, _, err := execFleet(t, append([]string{"fleet", "get", "--target", "prod/k8s/orders"}, base...)...)
@@ -330,7 +331,7 @@ func TestFleetGetTarget(t *testing.T) {
 
 func TestFleetGet_Errors(t *testing.T) {
 	root, ev := writeFleetFixture(t)
-	base := []string{"--local", root, "--evidence", ev}
+	base := []string{"--local", root, "--target-state", ev}
 
 	// Neither service nor target.
 	if _, _, err := execFleet(t, append([]string{"fleet", "get"}, base...)...); err == nil {
@@ -352,7 +353,7 @@ func TestFleetGet_Errors(t *testing.T) {
 
 func TestFleetGraph(t *testing.T) {
 	root, ev := writeFleetFixture(t)
-	base := []string{"--local", root, "--evidence", ev}
+	base := []string{"--local", root, "--target-state", ev}
 
 	// dependencies (default) + unresolved edge (orders → ghost).
 	out, _, err := execFleet(t, append([]string{"fleet", "graph", "orders"}, base...)...)
@@ -425,7 +426,7 @@ state:
 
 func TestFleetStatus(t *testing.T) {
 	root, ev := writeFleetFixture(t)
-	base := []string{"--local", root, "--evidence", ev}
+	base := []string{"--local", root, "--target-state", ev}
 
 	// Default union.
 	out, _, err := execFleet(t, append([]string{"fleet", "status"}, base...)...)
@@ -456,7 +457,7 @@ func TestFleetStatus(t *testing.T) {
 
 func TestFleetSnapshot(t *testing.T) {
 	root, ev := writeFleetFixture(t)
-	base := []string{"--local", root, "--evidence", ev}
+	base := []string{"--local", root, "--target-state", ev}
 
 	out, _, err := execFleet(t, append([]string{"fleet", "snapshot"}, base...)...)
 	if err != nil {
@@ -472,7 +473,7 @@ func TestFleetSnapshot(t *testing.T) {
 
 	// A missing evidence file makes a source unavailable → the snapshot carries a
 	// limitation, exercising the limitation-print branch.
-	lout, _, err := execFleet(t, "fleet", "snapshot", "--local", root, "--evidence", filepath.Join(t.TempDir(), "missing.yaml"))
+	lout, _, err := execFleet(t, "fleet", "snapshot", "--local", root, "--target-state", filepath.Join(t.TempDir(), "missing.yaml"))
 	if err != nil {
 		t.Fatalf("snapshot partial: %v", err)
 	}
@@ -483,7 +484,7 @@ func TestFleetSnapshot(t *testing.T) {
 
 func TestFleetExplain(t *testing.T) {
 	root, ev := writeFleetFixture(t)
-	base := []string{"--local", root, "--evidence", ev}
+	base := []string{"--local", root, "--target-state", ev}
 
 	// orders: has reasons (findings).
 	out, _, err := execFleet(t, append([]string{"fleet", "explain", "orders"}, base...)...)
@@ -521,9 +522,9 @@ func TestFleetExplain(t *testing.T) {
 
 func TestFleetPartialWarning(t *testing.T) {
 	root, _ := writeFleetFixture(t)
-	// Point --evidence at a missing file → the evidence source is unavailable →
+	// Point --target-state at a missing file → the target-state source is unavailable →
 	// the answer is partial → warnPartial prints to stderr.
-	_, stderr, err := execFleet(t, "fleet", "search", "--local", root, "--evidence", filepath.Join(t.TempDir(), "missing.yaml"))
+	_, stderr, err := execFleet(t, "fleet", "search", "--local", root, "--target-state", filepath.Join(t.TempDir(), "missing.yaml"))
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -555,7 +556,7 @@ func TestFleetBuildError(t *testing.T) {
 		cancel()
 		svc := app.NewService(nil, nil)
 		root0 := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
-		root0.SetArgs(append(append([]string{}, sc...), "--local", root, "--evidence", ev))
+		root0.SetArgs(append(append([]string{}, sc...), "--local", root, "--target-state", ev))
 		var o, e bytes.Buffer
 		root0.SetOut(&o)
 		root0.SetErr(&e)

@@ -71,17 +71,37 @@ func NewRevisionKey(service, digest, resolvedRef, version string) RevisionKey {
 	return RevisionKey(service + "@" + id)
 }
 
-// NewTargetKey builds a target key from its scope, kind, and name. Empty
-// components render as "-" so the key stays well-formed and greppable.
+// NewTargetKey builds a collision-safe target key from its scope, kind, and
+// name. Each component is percent-escaped (so an embedded "/" or "%" can never
+// forge a component boundary) and the three components are joined with "/". The
+// encoding round-trips through [ParseTargetKey]; a separate human display string
+// is available via [TargetRecord.DisplayName]. Two distinct (scope,kind,name)
+// triples can never map to the same key.
 func NewTargetKey(scope, kind, name string) TargetKey {
-	parts := make([]string, 0, 3)
-	for _, p := range []string{scope, kind, name} {
-		if p == "" {
-			p = "-"
-		}
-		parts = append(parts, p)
+	return TargetKey(escapeKeyPart(scope) + "/" + escapeKeyPart(kind) + "/" + escapeKeyPart(name))
+}
+
+// ParseTargetKey losslessly decodes a target key back into its components. ok is
+// false when the key is not a well-formed three-component key.
+func ParseTargetKey(k TargetKey) (scope, kind, name string, ok bool) {
+	parts := strings.Split(string(k), "/")
+	if len(parts) != 3 {
+		return "", "", "", false
 	}
-	return TargetKey(strings.Join(parts, "/"))
+	return unescapeKeyPart(parts[0]), unescapeKeyPart(parts[1]), unescapeKeyPart(parts[2]), true
+}
+
+// escapeKeyPart percent-encodes "%" first (so encoding is unambiguous) then "/".
+func escapeKeyPart(s string) string {
+	s = strings.ReplaceAll(s, "%", "%25")
+	return strings.ReplaceAll(s, "/", "%2F")
+}
+
+// unescapeKeyPart reverses escapeKeyPart. "/" is decoded before "%" so that an
+// escaped literal "%2F" (encoded as "%252F") round-trips correctly.
+func unescapeKeyPart(s string) string {
+	s = strings.ReplaceAll(s, "%2F", "/")
+	return strings.ReplaceAll(s, "%25", "%")
 }
 
 // Completeness reports whether a snapshot or query answer covers everything it
@@ -128,13 +148,28 @@ const (
 	StatusNotEvaluated = "NotEvaluated"
 )
 
-// Limitation codes explain, in a structured way, why an answer is incomplete.
+// SchemaVersion is the version of the fleet snapshot/query wire model. It is
+// carried on every snapshot and query answer so consumers can detect model
+// changes.
+const SchemaVersion = "pacto.dev/fleet/v1"
+
+// Limitation codes explain, in a structured way, why an answer is incomplete or
+// why a record could not be fully established. Codes are stable and typed so
+// agents branch on them; the human message is advisory.
 const (
-	LimitationSourceUnavailable = "SOURCE_UNAVAILABLE"
-	LimitationSourceStale       = "SOURCE_STALE"
-	LimitationSourcePartial     = "SOURCE_PARTIAL"
-	LimitationUnresolvedDep     = "UNRESOLVED_DEPENDENCY"
-	LimitationEvidenceMissing   = "EVIDENCE_MISSING"
+	LimitationNoSourcesConfigured = "NO_SOURCES_CONFIGURED"
+	LimitationSourceUnavailable   = "SOURCE_UNAVAILABLE"
+	LimitationSourceStale         = "SOURCE_STALE"
+	LimitationSourcePartial       = "SOURCE_PARTIAL"
+	LimitationUnresolvedDep       = "UNRESOLVED_DEPENDENCY"
+	LimitationEvidenceMissing     = "EVIDENCE_MISSING"
+	LimitationSourceRecordInvalid = "SOURCE_RECORD_INVALID"
+	LimitationDuplicateSourceID   = "DUPLICATE_SOURCE_ID"
+	LimitationRevisionUnresolved  = "REVISION_IDENTITY_UNRESOLVED"
+	LimitationRevisionConflict    = "REVISION_CONTENT_CONFLICT"
+	LimitationTargetRefConflict   = "TARGET_REFERENCE_CONFLICT"
+	LimitationTargetFieldConflict = "TARGET_FIELD_CONFLICT"
+	LimitationOwnerConflict       = "OWNER_CONFLICT"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -261,8 +296,16 @@ type TargetRecord struct {
 	EvidenceAt       *time.Time        `json:"evidenceAt,omitempty"`
 	ReconciledAt     *time.Time        `json:"reconciledAt,omitempty"`
 	Source           string            `json:"source"`
+	Sources          []string          `json:"sources,omitempty"`
 	Stale            bool              `json:"stale"`
 	Limitations      []Limitation      `json:"limitations,omitempty"`
+}
+
+// DisplayName returns a human-readable "scope/kind/name" for a target, with
+// components unescaped. Unlike the canonical Key it is lossy (a name containing
+// "/" is shown verbatim) and must not be used as an identity.
+func (t *TargetRecord) DisplayName() string {
+	return strings.Join([]string{t.Scope, t.Kind, t.Name}, "/")
 }
 
 // Relationship is a directed graph edge. Only declared edges are produced today;
@@ -287,6 +330,11 @@ type Relationship struct {
 // deterministically (encoding/json sorts string keys); slices are sorted at
 // build time. It is safe for concurrent read-only queries.
 type FleetSnapshot struct {
+	// SchemaVersion identifies the wire model; SnapshotID is a deterministic
+	// content identity (a hash over the whole snapshot) so consumers can prove
+	// two answers came from the same system view and can compare snapshots.
+	SchemaVersion string                            `json:"schemaVersion"`
+	SnapshotID    string                            `json:"snapshotId"`
 	GeneratedAt   time.Time                         `json:"generatedAt"`
 	Services      map[ServiceKey]*ServiceRecord     `json:"services"`
 	Revisions     map[RevisionKey]*ContractRevision `json:"revisions"`

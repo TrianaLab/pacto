@@ -40,6 +40,12 @@ type Collection struct {
 	// report a source that succeeded but is stale or partial. Its ID/Kind are
 	// filled from the source if left blank.
 	State *SourceState
+	// Limitations report record-level problems a source hit while collecting
+	// (an unreadable bundle, an invalid fixture entry). A non-empty Limitations
+	// implies the source is partial: usable records are kept AND the problem is
+	// surfaced, so "an invalid record exists" is never confused with "no record
+	// exists". Messages must already be sanitized.
+	Limitations []Limitation
 }
 
 // RawRevision is what a definition or baseline source knows about a resolved

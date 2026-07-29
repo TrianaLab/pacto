@@ -29,20 +29,25 @@ func NewQuery(s *FleetSnapshot) *Query { return &Query{snap: s} }
 // Snapshot returns the underlying immutable snapshot.
 func (q *Query) Snapshot() *FleetSnapshot { return q.snap }
 
-// Meta is the completeness envelope attached to every query answer.
+// Meta is the completeness envelope attached to every query answer. SnapshotID
+// lets a caller prove that several answers came from the same system view.
 type Meta struct {
-	AsOf         time.Time     `json:"asOf"`
-	Completeness Completeness  `json:"completeness"`
-	Limitations  []Limitation  `json:"limitations,omitempty"`
-	Sources      []SourceState `json:"sources,omitempty"`
+	SchemaVersion string        `json:"schemaVersion"`
+	SnapshotID    string        `json:"snapshotId"`
+	AsOf          time.Time     `json:"asOf"`
+	Completeness  Completeness  `json:"completeness"`
+	Limitations   []Limitation  `json:"limitations,omitempty"`
+	Sources       []SourceState `json:"sources,omitempty"`
 }
 
 func (q *Query) meta() Meta {
 	return Meta{
-		AsOf:         q.snap.GeneratedAt,
-		Completeness: q.snap.Completeness,
-		Limitations:  q.snap.Limitations,
-		Sources:      q.snap.Sources,
+		SchemaVersion: q.snap.SchemaVersion,
+		SnapshotID:    q.snap.SnapshotID,
+		AsOf:          q.snap.GeneratedAt,
+		Completeness:  q.snap.Completeness,
+		Limitations:   q.snap.Limitations,
+		Sources:       q.snap.Sources,
 	}
 }
 

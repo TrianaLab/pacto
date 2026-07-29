@@ -248,10 +248,10 @@ Compose contracts, contract revisions and operational targets from local bundles
 **Flags:**
 
 ```
-      --evidence stringArray   operational-evidence file(s) supplying targets (repeatable)
-      --freshness duration     mark target evidence older than this as stale (0 disables)
-  -h, --help                   help for fleet
-      --local stringArray      local bundle root(s) to scan (repeatable) (default [.])
+      --freshness duration         mark target evidence older than this as stale (0 disables)
+  -h, --help                       help for fleet
+      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
 ```
 
 ---
@@ -476,16 +476,16 @@ pacto mcp [bundle-ref] [flags]
 **Flags:**
 
 ```
-      --allow-writes           expose mutating operations (POST/PUT/PATCH/DELETE) as tools
-      --auth stringArray       credential for a security scheme as name=value (repeatable)
-      --base-url string        base URL for live invocation (overrides the OpenAPI servers[] URL)
-      --evidence stringArray   operational-evidence file(s) for --fleet (repeatable)
-      --fleet                  expose read-only operational-graph (fleet) query tools
-      --freshness duration     mark target evidence older than this as stale (--fleet)
-  -h, --help                   help for mcp
-      --local stringArray      local bundle root(s) for --fleet (repeatable) (default [.])
-      --port int               port for HTTP transport (default 8585)
-  -t, --transport string       transport type: stdio or http (default "stdio")
+      --allow-writes               expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --auth stringArray           credential for a security scheme as name=value (repeatable)
+      --base-url string            base URL for live invocation (overrides the OpenAPI servers[] URL)
+      --fleet                      expose read-only operational-graph (fleet) query tools
+      --freshness duration         mark target evidence older than this as stale (--fleet)
+  -h, --help                       help for mcp
+      --local stringArray          local bundle root(s) for --fleet (repeatable) (default [.])
+      --port int                   port for HTTP transport (default 8585)
+      --target-state stringArray   offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)
+  -t, --transport string           transport type: stdio or http (default "stdio")
 ```
 
 The server exposes the following tools:

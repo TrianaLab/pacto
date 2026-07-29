@@ -9,6 +9,10 @@
 # unknown target (insufficient evidence), and a stale target (old evidence). The
 # source itself is marked available; a second, unreachable environment is modeled
 # separately by the demo so partial completeness is visible.
+#
+# This is an OFFLINE demo/test adapter — precomputed target state, NOT the signed
+# external EvidenceSet ingestion protocol.
+schemaVersion: pacto.dev/fleet-targets/v1
 targets:
   - scope: production-eu
     kind: kubernetes-workload

@@ -10,14 +10,14 @@ import (
 )
 
 // FleetOptions configures how a fleet snapshot is assembled from sources. Local
-// bundle roots supply contract revisions; evidence files supply operational
-// targets. Additional source kinds (OCI, live Kubernetes) attach here later
-// without changing callers.
+// bundle roots supply contract revisions; target-state fixture files supply
+// operational targets for cluster-free demos and tests. Additional source kinds
+// (OCI, live Kubernetes) attach here without changing callers.
 type FleetOptions struct {
-	LocalRoots      []string
-	EvidenceFiles   []string
-	FreshnessWindow time.Duration
-	Concurrency     int
+	LocalRoots       []string
+	TargetStateFiles []string
+	FreshnessWindow  time.Duration
+	Concurrency      int
 	// DisallowPartial makes a single source failure fatal instead of yielding a
 	// partial snapshot with explicit limitations.
 	DisallowPartial bool
@@ -34,8 +34,8 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	for i, root := range opts.LocalRoots {
 		sources = append(sources, fleetsrc.NewLocalSource(sourceID("local", i, len(opts.LocalRoots)), root))
 	}
-	for i, path := range opts.EvidenceFiles {
-		sources = append(sources, fleetsrc.NewEvidenceSource(sourceID("evidence", i, len(opts.EvidenceFiles)), path))
+	for i, path := range opts.TargetStateFiles {
+		sources = append(sources, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))
 	}
 	return fleet.Build(ctx, fleet.BuildOptions{
 		Now:             opts.Now,

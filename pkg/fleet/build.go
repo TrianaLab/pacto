@@ -2,6 +2,9 @@ package fleet
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"io/fs"
 	"sort"
 	"strings"
@@ -70,19 +73,36 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	}
 
 	snap := &FleetSnapshot{
-		Services:    map[ServiceKey]*ServiceRecord{},
-		Revisions:   map[RevisionKey]*ContractRevision{},
-		Targets:     map[TargetKey]*TargetRecord{},
-		GeneratedAt: generatedAt,
-		reverseDeps: map[string][]string{},
-		forwardDeps: map[string][]string{},
+		SchemaVersion: SchemaVersion,
+		Services:      map[ServiceKey]*ServiceRecord{},
+		Revisions:     map[RevisionKey]*ContractRevision{},
+		Targets:       map[TargetKey]*TargetRecord{},
+		GeneratedAt:   generatedAt,
+		reverseDeps:   map[string][]string{},
+		forwardDeps:   map[string][]string{},
 	}
 
-	// Sources are processed in declared order so revision dedup ("first key
-	// wins") is deterministic regardless of goroutine completion order.
+	// Zero configured sources is NOT the same as "every source was available and
+	// returned nothing". Make the distinction explicit.
+	if len(sources) == 0 {
+		snap.Limitations = append(snap.Limitations, Limitation{
+			Code: LimitationNoSourcesConfigured, Message: "no sources were configured for this snapshot",
+		})
+	}
+
+	seenSourceIDs := map[string]bool{}
+	// Sources are processed in declared order so composition is deterministic
+	// regardless of goroutine completion order.
 	for i := range results {
 		r := &results[i]
 		src := sources[i]
+		if seenSourceIDs[src.ID()] {
+			snap.Limitations = append(snap.Limitations, Limitation{
+				Code: LimitationDuplicateSourceID, Source: src.ID(),
+				Message: "more than one source declares id " + src.ID() + "; provenance may be ambiguous",
+			})
+		}
+		seenSourceIDs[src.ID()] = true
 		if r.err != nil {
 			if opts.DisallowPartial {
 				return nil, r.err
@@ -103,7 +123,25 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	snap.Completeness = classifyCompleteness(snap)
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
 	sortSnapshot(snap)
+	snap.SnapshotID = computeSnapshotID(snap)
 	return snap, nil
+}
+
+// computeSnapshotID hashes the fully-built, ordered snapshot into a deterministic
+// content identity. The SnapshotID field itself is excluded from the hash. Two
+// snapshots built from the same inputs and clock produce the same id.
+func computeSnapshotID(snap *FleetSnapshot) string {
+	clone := *snap
+	clone.SnapshotID = ""
+	data, err := json.Marshal(&clone)
+	if err != nil {
+		// The snapshot is composed of JSON-serializable domain types; a marshal
+		// error is not reachable in practice, but fail safe with a marker rather
+		// than a partial hash.
+		return "sha256:unavailable"
+	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // sourceResult is one source's collection outcome.
@@ -174,6 +212,9 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		snap.Targets[tgt.Key] = tgt
 		targetCount++
 	}
+	// A source that reported record-level problems is partial: keep its usable
+	// records AND surface the problems.
+	snap.Limitations = append(snap.Limitations, col.Limitations...)
 	snap.Sources = append(snap.Sources, sourceStateFor(src, col, now, revCount, targetCount))
 }
 
@@ -192,8 +233,12 @@ func sourceStateFor(src Source, col *Collection, now time.Time, revCount, target
 		return st
 	}
 	t := now
+	status := SourceAvailable
+	if len(col.Limitations) > 0 {
+		status = SourcePartial
+	}
 	return SourceState{
-		ID: src.ID(), Kind: src.Kind(), Status: SourceAvailable,
+		ID: src.ID(), Kind: src.Kind(), Status: status,
 		LastSuccessfulSync: &t, ObservedAt: &t,
 		RevisionCount: revCount, TargetCount: targetCount,
 	}
@@ -395,6 +440,7 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		EvidenceAt:      raw.EvidenceAt,
 		ReconciledAt:    raw.ReconciledAt,
 		Source:          source,
+		Sources:         []string{source},
 		Limitations:     append([]Limitation(nil), raw.Limitations...),
 	}
 	if window > 0 && raw.EvidenceAt != nil && now.Sub(*raw.EvidenceAt) > window {

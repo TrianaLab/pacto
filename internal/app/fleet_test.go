@@ -23,19 +23,19 @@ func TestService_Fleet(t *testing.T) {
 	root := t.TempDir()
 	writeLocalBundle(t, filepath.Join(root, "svc-a"), "svc-a")
 
-	evidence := filepath.Join(t.TempDir(), "evidence.yaml")
-	body := "targets:\n  - scope: prod\n    kind: k8s\n    name: svc-a\n    service: svc-a\n    compliance: Compliant\n"
-	if err := os.WriteFile(evidence, []byte(body), 0o644); err != nil {
+	targetState := filepath.Join(t.TempDir(), "targets.yaml")
+	body := "schemaVersion: pacto.dev/fleet-targets/v1\ntargets:\n  - scope: prod\n    kind: k8s\n    name: svc-a\n    service: svc-a\n    compliance: Compliant\n"
+	if err := os.WriteFile(targetState, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	fixed := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 	svc := NewService(nil, nil)
 	snap, err := svc.Fleet(context.Background(), FleetOptions{
-		LocalRoots:    []string{root},
-		EvidenceFiles: []string{evidence},
-		Concurrency:   2,
-		Now:           func() time.Time { return fixed },
+		LocalRoots:       []string{root},
+		TargetStateFiles: []string{targetState},
+		Concurrency:      2,
+		Now:              func() time.Time { return fixed },
 	})
 	if err != nil {
 		t.Fatalf("Fleet: %v", err)
@@ -54,8 +54,8 @@ func TestService_Fleet(t *testing.T) {
 	for _, s := range snap.Sources {
 		ids[s.ID] = true
 	}
-	if !ids["local"] || !ids["evidence"] {
-		t.Errorf("source ids = %v, want local + evidence", ids)
+	if !ids["local"] || !ids["target-state"] {
+		t.Errorf("source ids = %v, want local + target-state", ids)
 	}
 }
 
@@ -68,8 +68,8 @@ func TestSourceID(t *testing.T) {
 		{"local", 0, 1, "local"},
 		{"local", 0, 2, "local-1"},
 		{"local", 1, 2, "local-2"},
-		{"evidence", 0, 1, "evidence"},
-		{"evidence", 1, 3, "evidence-2"},
+		{"target-state", 0, 1, "target-state"},
+		{"target-state", 1, 3, "target-state-2"},
 	}
 	for _, tc := range cases {
 		if got := sourceID(tc.kind, tc.i, tc.total); got != tc.want {
@@ -101,10 +101,10 @@ func TestService_Fleet_MultipleSourcesGetSuffixedIDs(t *testing.T) {
 func TestService_Fleet_DisallowPartial(t *testing.T) {
 	svc := NewService(nil, nil)
 	_, err := svc.Fleet(context.Background(), FleetOptions{
-		EvidenceFiles:   []string{filepath.Join(t.TempDir(), "missing.yaml")},
-		DisallowPartial: true,
+		TargetStateFiles: []string{filepath.Join(t.TempDir(), "missing.yaml")},
+		DisallowPartial:  true,
 	})
 	if err == nil {
-		t.Fatal("expected error with DisallowPartial and a missing evidence file")
+		t.Fatal("expected error with DisallowPartial and a missing target-state file")
 	}
 }

@@ -5,7 +5,7 @@ system through Pacto alone, without reverse-engineering repositories, Helm chart
 Kubernetes resources or human documentation.
 
 Everything below runs offline against the bundles in `examples/demo/bundles`
-plus the ingested evidence in `examples/demo/fleet-evidence.yaml`. No cluster,
+plus the ingested evidence in `examples/demo/fleet-targets.yaml`. No cluster,
 registry or running process is required. The evidence file models what a platform
 would ingest from real environments (compliant, non-compliant, unknown and stale
 targets) so every operational state is visible without fabricating a runtime fact.
@@ -16,8 +16,8 @@ From the repository root:
 
 ```bash
 BUNDLES=examples/demo/bundles
-EVIDENCE=examples/demo/fleet-evidence.yaml
-alias pfleet="go run ./cmd/pacto fleet --local $BUNDLES --evidence $EVIDENCE --freshness 24h"
+EVIDENCE=examples/demo/fleet-targets.yaml
+alias pfleet="go run ./cmd/pacto fleet --local $BUNDLES --target-state $EVIDENCE --freshness 24h"
 ```
 
 ## CLI walkthrough
@@ -43,7 +43,8 @@ pfleet status
 pfleet get --target commerce/orders-service
 
 # Why is this target Unknown? (deterministic, structured reasons)
-pfleet explain production-eu/kubernetes-workload/identity/auth-service
+# Address a target by its unique name, or by its canonical (escaped) key.
+pfleet explain identity/auth-service
 #   [EVIDENCE_MISSING] no evidence has been observed for this target
 
 # Machine-readable, with as-of time and completeness on every answer
@@ -51,9 +52,10 @@ pfleet search --output-format json | head
 ```
 
 Add `--output-format json` to any command for a structured response whose `meta`
-carries `asOf`, `completeness` and any `limitations`. Point `--evidence` at a
-missing file to see partial completeness: the local revisions are still returned
-and the missing source is reported as `unavailable`, never as empty.
+carries `schemaVersion`, `snapshotId`, `asOf`, `completeness` and any
+`limitations`. Point `--target-state` at a missing file to see partial
+completeness: the local revisions are still returned and the missing source is
+reported as `unavailable`, never as empty.
 
 ## Agent walkthrough (MCP)
 
@@ -62,7 +64,7 @@ Start a read-only fleet MCP server over the same sources:
 ```bash
 go run ./cmd/pacto mcp --fleet \
   --local examples/demo/bundles \
-  --evidence examples/demo/fleet-evidence.yaml \
+  --target-state examples/demo/fleet-targets.yaml \
   --freshness 24h
 ```
 
@@ -85,7 +87,7 @@ An agent answers this entirely from structured Pacto data:
 2. `pacto_fleet_get { service: "api-gateway" }` -> owner, revisions, tools, skills.
 3. `pacto_fleet_status { needs_attention: true }` -> the NonCompliant, Unknown and
    stale targets, each with its code.
-4. `pacto_fleet_explain { subject: "production-eu/kubernetes-workload/identity/auth-service" }`
+4. `pacto_fleet_explain { subject: "identity/auth-service" }`
    -> `EVIDENCE_MISSING` — the auth-service target could not be observed, so its
    compliance is Unknown (uncertainty), not a confirmed violation.
 

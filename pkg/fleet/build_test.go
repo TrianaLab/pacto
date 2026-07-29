@@ -628,6 +628,108 @@ func TestBuild_EmptySources(t *testing.T) {
 	if !snap.GeneratedAt.Equal(fixedNow()) {
 		t.Error("GeneratedAt should use injected clock")
 	}
+	// Zero configured sources is explicit, not silent.
+	if !hasLimitation(snap.Limitations, LimitationNoSourcesConfigured) {
+		t.Errorf("empty-sources build should carry NO_SOURCES_CONFIGURED: %+v", snap.Limitations)
+	}
+	if snap.SchemaVersion != SchemaVersion {
+		t.Errorf("SchemaVersion = %q, want %q", snap.SchemaVersion, SchemaVersion)
+	}
+}
+
+func TestBuild_DuplicateSourceID(t *testing.T) {
+	// Two sources declaring the same id → a DUPLICATE_SOURCE_ID limitation.
+	a := NewMemorySource("dup", "local", &Collection{Revisions: []RawRevision{{Bundle: validLeafBundle(t), Digest: "sha256:leaf"}}})
+	b := NewMemorySource("dup", "oci", &Collection{Revisions: []RawRevision{{Bundle: bundleFor(t, "other"), Digest: "sha256:other"}}})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasLimitation(snap.Limitations, LimitationDuplicateSourceID) {
+		t.Errorf("duplicate source id should be surfaced: %+v", snap.Limitations)
+	}
+}
+
+func TestBuild_CollectionLimitations_MarkSourcePartial(t *testing.T) {
+	// A source that reports record-level problems keeps its usable records AND is
+	// marked partial, so completeness degrades and the problems reach the snapshot.
+	col := &Collection{
+		Revisions:   []RawRevision{{Bundle: validLeafBundle(t), Digest: "sha256:leaf"}},
+		Limitations: []Limitation{{Code: LimitationSourceRecordInvalid, Source: "local", Message: "a record was skipped"}},
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Completeness != CompletenessPartial {
+		t.Errorf("record-level problems → partial, got %q", snap.Completeness)
+	}
+	if !hasLimitation(snap.Limitations, LimitationSourceRecordInvalid) {
+		t.Errorf("source-supplied limitation should reach the snapshot: %+v", snap.Limitations)
+	}
+	var found bool
+	for _, s := range snap.Sources {
+		if s.ID == "local" {
+			found = true
+			if s.Status != SourcePartial {
+				t.Errorf("source with limitations → partial, got %q", s.Status)
+			}
+		}
+	}
+	if !found {
+		t.Error("local source state missing")
+	}
+	// The usable revision survives.
+	if snap.Service("leaf-svc") == nil {
+		t.Error("partial source should keep its usable records")
+	}
+}
+
+func TestBuild_SnapshotIDDeterministic(t *testing.T) {
+	// Same inputs + fixed clock → identical SnapshotID across builds.
+	mk := func() (*FleetSnapshot, error) {
+		col := &Collection{
+			Revisions: []RawRevision{{Bundle: validLeafBundle(t), Digest: "sha256:leaf"}},
+			Targets:   []RawTarget{{Scope: "prod", Kind: "k8s", Name: "web", Service: "leaf-svc", Digest: "sha256:leaf", Compliance: StatusCompliant, EvidenceAt: ptrTime(fixedNow())}},
+		}
+		return Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
+	}
+	first, err := mk()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(first.SnapshotID, "sha256:") || first.SnapshotID == "sha256:" {
+		t.Errorf("SnapshotID should be a sha256 digest, got %q", first.SnapshotID)
+	}
+	second, err := mk()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.SnapshotID != second.SnapshotID {
+		t.Errorf("SnapshotID not deterministic: %q != %q", first.SnapshotID, second.SnapshotID)
+	}
+	// A different fleet yields a different id.
+	other, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{{Bundle: bundleFor(t, "diff"), Digest: "sha256:diff"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.SnapshotID == first.SnapshotID {
+		t.Error("distinct fleets should have distinct snapshot ids")
+	}
+}
+
+func TestComputeSnapshotID_MarshalFailure(t *testing.T) {
+	// An un-marshalable value (a channel in a target's observed runtime) forces the
+	// defensive marshal-error path to a stable marker rather than a partial hash.
+	snap := &FleetSnapshot{
+		Targets: map[TargetKey]*TargetRecord{
+			"prod/k8s/x": {Key: "prod/k8s/x", Name: "x", ObservedRuntime: map[string]any{"bad": make(chan int)}},
+		},
+	}
+	if got := computeSnapshotID(snap); got != "sha256:unavailable" {
+		t.Errorf("marshal failure → sha256:unavailable, got %q", got)
+	}
 }
 
 func TestBuild_SingleMemorySource(t *testing.T) {

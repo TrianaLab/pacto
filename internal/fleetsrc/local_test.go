@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
 // writeBundle writes a minimal parseable pacto.yaml for service name at dir.
@@ -85,6 +87,32 @@ func TestLocalSource_Collect(t *testing.T) {
 	if len(col.Revisions) != 2 || !names["svc-a"] || !names["svc-b"] {
 		t.Errorf("got revisions %v, want exactly svc-a and svc-b", names)
 	}
+	// The broken bundle is not silently dropped: it surfaces as a record-level
+	// limitation so the source is reported partial instead of complete.
+	if !hasLimitation(col.Limitations, fleet.LimitationSourceRecordInvalid) {
+		t.Errorf("broken bundle should add a SOURCE_RECORD_INVALID limitation: %+v", col.Limitations)
+	}
+}
+
+func hasLimitation(ls []fleet.Limitation, code string) bool {
+	for _, l := range ls {
+		if l.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRelPathSafe(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "svc", "pacto.yaml")
+	if got := relPathSafe(root, p); got != filepath.Join("svc", "pacto.yaml") {
+		t.Errorf("relative = %q, want svc/pacto.yaml", got)
+	}
+	// An absolute root with a relative path cannot be made relative → base fallback.
+	if got := relPathSafe("/abs/root", "svc/pacto.yaml"); got != "svc/pacto.yaml" {
+		t.Errorf("fallback = %q, want svc/pacto.yaml", got)
+	}
 }
 
 func TestLocalSource_MissingRoot(t *testing.T) {
@@ -143,9 +171,9 @@ func TestSkipDir(t *testing.T) {
 }
 
 func TestLoadRevision_ReadError(t *testing.T) {
-	// A directory with no pacto.yaml → ReadFile fails → not ok.
-	if _, ok := loadRevision(t.TempDir()); ok {
-		t.Error("expected ok=false when pacto.yaml is absent")
+	// A directory with no pacto.yaml → ReadFile fails → error.
+	if _, err := loadRevision(t.TempDir()); err == nil {
+		t.Error("expected an error when pacto.yaml is absent")
 	}
 }
 
@@ -154,7 +182,7 @@ func TestLoadRevision_ParseError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("::: not yaml ["), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := loadRevision(dir); ok {
-		t.Error("expected ok=false for unparseable contract")
+	if _, err := loadRevision(dir); err == nil {
+		t.Error("expected an error for an unparseable contract")
 	}
 }

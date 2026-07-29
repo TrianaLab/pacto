@@ -56,7 +56,7 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
 	cmd.Flags().Bool("fleet", false, "expose read-only operational-graph (fleet) query tools")
 	cmd.Flags().StringArray("local", []string{"."}, "local bundle root(s) for --fleet (repeatable)")
-	cmd.Flags().StringArray("evidence", nil, "operational-evidence file(s) for --fleet (repeatable)")
+	cmd.Flags().StringArray("target-state", nil, "offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)")
 	cmd.Flags().Duration("freshness", 0, "mark target evidence older than this as stale (--fleet)")
 
 	return cmd

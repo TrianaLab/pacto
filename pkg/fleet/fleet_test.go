@@ -52,7 +52,7 @@ func TestSnapshotJSONDeterministic(t *testing.T) {
 	if err := json.Unmarshal(first, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"services", "revisions", "targets", "relationships", "sources", "completeness"} {
+	for _, field := range []string{"schemaVersion", "snapshotId", "services", "revisions", "targets", "relationships", "sources", "completeness"} {
 		if _, ok := decoded[field]; !ok {
 			t.Errorf("serialized snapshot missing %q", field)
 		}
