@@ -558,6 +558,17 @@ See [MCP Integration](mcp-integration.md) for detailed setup with Claude and oth
 
 ---
 
+## `pacto otel`
+
+
+**Flags:**
+
+```
+  -h, --help   help for otel
+```
+
+---
+
 ## `pacto pack`
 
 Validates the contract in the given directory and creates a tar.gz archive of the bundle, ready for distribution.

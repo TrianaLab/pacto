@@ -39,6 +39,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.AddCommand(newFleetStatusCommand(svc, v))
 	cmd.AddCommand(newFleetSnapshotCommand(svc, v))
 	cmd.AddCommand(newFleetExplainCommand(svc, v))
+	cmd.AddCommand(newFleetReconcileCommand(svc, v))
 	return cmd
 }
 
