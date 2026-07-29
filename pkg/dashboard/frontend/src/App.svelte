@@ -14,6 +14,8 @@
   import OwnersView from './views/OwnersView.svelte';
   import OwnerDetailView from './views/OwnerDetailView.svelte';
   import ReadinessView from './views/ReadinessView.svelte';
+  import FleetView from './views/FleetView.svelte';
+  import ImpactView from './views/ImpactView.svelte';
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -172,6 +174,10 @@
     <GraphPageView {services} {sourcesInfo} />
   {:else if route.view === 'readiness'}
     <ReadinessView {services} {initialLoading} />
+  {:else if route.view === 'fleet'}
+    <FleetView />
+  {:else if route.view === 'impact'}
+    <ImpactView />
   {:else if route.view === 'owners'}
     <OwnersView {services} {initialLoading} />
   {:else if route.view === 'owner-detail'}

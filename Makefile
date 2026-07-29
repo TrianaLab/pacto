@@ -28,6 +28,13 @@ test:
 e2e:
 	go test -tags e2e ./tests/e2e/ -v -count=1 -parallel 16 -timeout 120s
 
+# Hermetic operational-graph acceptance (no cluster): builds pacto and drives the
+# whole fleet story end to end against local fixtures (graph, signed evidence
+# ingestion, OTel observation, reconciliation, impact). Verifiable anywhere Go
+# runs — the live-Kubernetes source is covered by the kind acceptance.
+demo-fleet:
+	bash tests/e2e/fleet-graph.sh
+
 coverage:
 	go test -race $(shell go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/) -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html

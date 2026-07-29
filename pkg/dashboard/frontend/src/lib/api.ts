@@ -54,4 +54,38 @@ export const api = {
   remoteVersions: (ref: string, fetchAll?: boolean) => post('/api/versions', { ref, fetch: fetchAll }),
   refresh: () => post('/api/refresh'),
   debugSources: () => get('/api/debug/sources'),
+
+  // ── Operational graph (fleet) ──
+  fleetSnapshot: () => get('/api/fleet/snapshot'),
+  fleetServices: (
+    params: {
+      text?: string; owner?: string; scope?: string; status?: string;
+      source?: string; limit?: number; offset?: number;
+    } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.text) qs.set('text', params.text);
+    if (params.owner) qs.set('owner', params.owner);
+    if (params.scope) qs.set('scope', params.scope);
+    if (params.status) qs.set('status', params.status);
+    if (params.source) qs.set('source', params.source);
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.offset != null) qs.set('offset', String(params.offset));
+    const str = qs.toString();
+    return get(`/api/fleet/services${str ? `?${str}` : ''}`);
+  },
+  fleetServiceGraph: (
+    name: string,
+    opts: { direction?: string; transitive?: boolean; maxDepth?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts.direction) qs.set('direction', opts.direction);
+    if (opts.transitive != null) qs.set('transitive', String(opts.transitive));
+    if (opts.maxDepth != null) qs.set('maxDepth', String(opts.maxDepth));
+    const str = qs.toString();
+    return get(`/api/fleet/services/${encodeURIComponent(name)}/graph${str ? `?${str}` : ''}`);
+  },
+  fleetStatus: () => get('/api/fleet/status'),
+  fleetImpact: (oldRef: string, newRef: string, includeObserved?: boolean) =>
+    get(`/api/fleet/impact?old=${encodeURIComponent(oldRef)}&new=${encodeURIComponent(newRef)}&includeObserved=${includeObserved ? 'true' : 'false'}`),
 };

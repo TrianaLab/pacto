@@ -9,7 +9,7 @@ REPOWISE_VERSION ?= 0.36.0
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
        ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
-       verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
+       verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs demo-fleet \
        gen-openapi gen-config-schema gen-sbom gen-bundle
 
 # ── Monorepo CI matrix (go.work) ─────────────────────────────────────
@@ -33,8 +33,9 @@ ci-static: ci-static-engine
 # Engine static gates (fmt, vet, cyclo, lint, CLI docs drift, UI build drift).
 ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint ci-docs ci-ui-drift
 
-# Engine leg: unit tests (100% coverage gate) + engine e2e.
-ci-engine: ci-test e2e
+# Engine leg: unit tests (100% coverage gate) + engine e2e + the cluster-free
+# operational-graph acceptance (tests/e2e/fleet-graph.sh).
+ci-engine: ci-test e2e demo-fleet
 
 # Dashboard leg: frontend lint + tests.
 ci-dashboard: ci-ui

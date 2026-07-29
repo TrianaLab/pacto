@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseHash, serviceUrl, serviceVersionUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl, readinessUrl } from './router.ts';
+import { parseHash, serviceUrl, serviceVersionUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl, readinessUrl, fleetUrl, impactUrl } from './router.ts';
 
 describe('parseHash', () => {
   it('returns list view for empty hash', () => {
@@ -62,6 +62,14 @@ describe('parseHash', () => {
 
   it('parses readiness route', () => {
     expect(parseHash('#/readiness')).toEqual({ view: 'readiness', params: {} });
+  });
+
+  it('parses fleet route', () => {
+    expect(parseHash('#/fleet')).toEqual({ view: 'fleet', params: {} });
+  });
+
+  it('parses impact route', () => {
+    expect(parseHash('#/impact')).toEqual({ view: 'impact', params: {} });
   });
 
   it('parses legacy diff route without query params', () => {
@@ -223,6 +231,14 @@ describe('parseHash — query strings on non-diff routes', () => {
     expect(parseHash('#/readiness?contractStatus=Warning')).toEqual({ view: 'readiness', params: {} });
   });
 
+  it('strips the query string from the fleet route', () => {
+    expect(parseHash('#/fleet?owner=core')).toEqual({ view: 'fleet', params: {} });
+  });
+
+  it('strips the query string from the impact route', () => {
+    expect(parseHash('#/impact?old=a')).toEqual({ view: 'impact', params: {} });
+  });
+
   it('strips the query string from an encoded owner id', () => {
     expect(parseHash('#/owners/team%2Fpayments?source=k8s')).toEqual({
       view: 'owner-detail',
@@ -240,6 +256,18 @@ describe('ownersUrl', () => {
 describe('readinessUrl', () => {
   it('returns readiness URL', () => {
     expect(readinessUrl()).toBe('#/readiness');
+  });
+});
+
+describe('fleetUrl', () => {
+  it('returns fleet URL', () => {
+    expect(fleetUrl()).toBe('#/fleet');
+  });
+});
+
+describe('impactUrl', () => {
+  it('returns impact URL', () => {
+    expect(impactUrl()).toBe('#/impact');
   });
 });
 

@@ -48,6 +48,8 @@ import {
   driftBadgeClass,
   driftBadgeLabel,
   evaluationCoverageLabel,
+  completenessLabel,
+  completenessClass,
 } from './format.ts';
 
 describe('statusClass', () => {
@@ -149,6 +151,30 @@ describe('classificationClass', () => {
   it('maps POTENTIAL_BREAKING to badge-warn', () => expect(classificationClass('POTENTIAL_BREAKING')).toBe('badge-warn'));
   it('maps NON_BREAKING to badge-ok', () => expect(classificationClass('NON_BREAKING')).toBe('badge-ok'));
   it('maps unknown to badge-neutral', () => expect(classificationClass('other')).toBe('badge-neutral'));
+});
+
+describe('completenessLabel', () => {
+  it('maps complete/partial/empty to labels', () => {
+    expect(completenessLabel('complete')).toBe('Complete');
+    expect(completenessLabel('partial')).toBe('Partial');
+    expect(completenessLabel('empty')).toBe('Empty');
+  });
+  it('falls back to Unknown for missing and echoes unknown values', () => {
+    expect(completenessLabel(undefined)).toBe('Unknown');
+    expect(completenessLabel('weird')).toBe('weird');
+  });
+});
+
+describe('completenessClass', () => {
+  it('maps complete to ok, partial to warn, empty to neutral', () => {
+    expect(completenessClass('complete')).toBe('badge-ok');
+    expect(completenessClass('partial')).toBe('badge-warn');
+    expect(completenessClass('empty')).toBe('badge-neutral');
+  });
+  it('falls back to neutral for missing/unknown', () => {
+    expect(completenessClass(undefined)).toBe('badge-neutral');
+    expect(completenessClass('weird')).toBe('badge-neutral');
+  });
 });
 
 describe('changeTypeClass', () => {

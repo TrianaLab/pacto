@@ -79,6 +79,28 @@ export function classificationClass(c: string): string {
   return 'badge-neutral';
 }
 
+// ── Fleet completeness (operational-graph coverage) ──
+
+const COMPLETENESS_LABELS: Record<string, string> = {
+  complete: 'Complete',
+  partial: 'Partial',
+  empty: 'Empty',
+};
+
+/** Human label for a fleet snapshot/answer completeness. */
+export function completenessLabel(c: string | undefined): string {
+  if (!c) return 'Unknown';
+  return COMPLETENESS_LABELS[c] || c;
+}
+
+/** Badge class for a completeness — a partial answer reads as a warning. */
+export function completenessClass(c: string | undefined): string {
+  if (c === 'complete') return 'badge-ok';
+  if (c === 'partial') return 'badge-warn';
+  if (c === 'empty') return 'badge-neutral';
+  return 'badge-neutral';
+}
+
 export function changeTypeClass(t: string): string {
   if (t === 'added') return 'diff-added';
   if (t === 'removed') return 'diff-removed';

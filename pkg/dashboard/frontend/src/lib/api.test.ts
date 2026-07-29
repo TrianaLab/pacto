@@ -98,6 +98,89 @@ describe('api.resolve', () => {
   });
 });
 
+describe('api.fleetSnapshot', () => {
+  it('calls GET /api/fleet/snapshot', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ completeness: 'complete' }));
+    const result = await api.fleetSnapshot();
+    expect(result).toEqual({ completeness: 'complete' });
+    expect(mockFetch).toHaveBeenCalledWith('/api/fleet/snapshot', expect.objectContaining({ method: 'GET' }));
+  });
+});
+
+describe('api.fleetServices', () => {
+  it('builds a query string from the provided params', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ services: [] }));
+    await api.fleetServices({ text: 'pay', owner: 'core', scope: 'prod', status: 'Compliant', source: 'k8s', limit: 10, offset: 20 });
+    const url = mockFetch.mock.calls[0][0];
+    expect(url).toContain('/api/fleet/services?');
+    expect(url).toContain('text=pay');
+    expect(url).toContain('owner=core');
+    expect(url).toContain('scope=prod');
+    expect(url).toContain('status=Compliant');
+    expect(url).toContain('source=k8s');
+    expect(url).toContain('limit=10');
+    expect(url).toContain('offset=20');
+  });
+
+  it('omits the query string when no params are given', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ services: [] }));
+    await api.fleetServices();
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/fleet/services');
+  });
+
+  it('includes limit/offset of 0', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ services: [] }));
+    await api.fleetServices({ limit: 0, offset: 0 });
+    const url = mockFetch.mock.calls[0][0];
+    expect(url).toContain('limit=0');
+    expect(url).toContain('offset=0');
+  });
+});
+
+describe('api.fleetServiceGraph', () => {
+  it('encodes the name and builds the options query string', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ nodes: [] }));
+    await api.fleetServiceGraph('my service', { direction: 'dependents', transitive: true, maxDepth: 3 });
+    const url = mockFetch.mock.calls[0][0];
+    expect(url).toContain('/api/fleet/services/my%20service/graph?');
+    expect(url).toContain('direction=dependents');
+    expect(url).toContain('transitive=true');
+    expect(url).toContain('maxDepth=3');
+  });
+
+  it('omits the query string when no options are given', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ nodes: [] }));
+    await api.fleetServiceGraph('svc');
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/fleet/services/svc/graph');
+  });
+});
+
+describe('api.fleetStatus', () => {
+  it('calls GET /api/fleet/status', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ items: [] }));
+    await api.fleetStatus();
+    expect(mockFetch).toHaveBeenCalledWith('/api/fleet/status', expect.objectContaining({ method: 'GET' }));
+  });
+});
+
+describe('api.fleetImpact', () => {
+  it('builds the query string and encodes refs', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ classification: 'NON_BREAKING' }));
+    await api.fleetImpact('oci://ghcr.io/org/svc:1.0.0', 'oci://ghcr.io/org/svc:2.0.0', true);
+    const url = mockFetch.mock.calls[0][0];
+    expect(url).toContain('/api/fleet/impact?');
+    expect(url).toContain('old=oci%3A%2F%2Fghcr.io%2Forg%2Fsvc%3A1.0.0');
+    expect(url).toContain('new=oci%3A%2F%2Fghcr.io%2Forg%2Fsvc%3A2.0.0');
+    expect(url).toContain('includeObserved=true');
+  });
+
+  it('defaults includeObserved to false', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ classification: 'NON_BREAKING' }));
+    await api.fleetImpact('a', 'b');
+    expect(mockFetch.mock.calls[0][0]).toContain('includeObserved=false');
+  });
+});
+
 describe('error handling', () => {
   it('throws ApiError with status for non-ok responses', async () => {
     mockFetch.mockResolvedValue(errorResponse(404, 'not found'));

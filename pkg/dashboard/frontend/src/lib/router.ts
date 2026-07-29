@@ -1,7 +1,7 @@
 /** Minimal hash router — returns a reactive route object. */
 
 export interface Route {
-  view: 'list' | 'detail' | 'diff' | 'graph' | 'owners' | 'owner-detail' | 'readiness';
+  view: 'list' | 'detail' | 'diff' | 'graph' | 'owners' | 'owner-detail' | 'readiness' | 'fleet' | 'impact';
   params: Record<string, string>;
 }
 
@@ -63,6 +63,12 @@ export function parseHash(hash: string | null | undefined): Route {
   // #/readiness
   if (path === 'readiness') return { view: 'readiness', params: {} };
 
+  // #/fleet
+  if (path === 'fleet') return { view: 'fleet', params: {} };
+
+  // #/impact
+  if (path === 'impact') return { view: 'impact', params: {} };
+
   // #/owners/:id
   const ownerMatch = path.match(/^owners\/(.+)$/);
   if (ownerMatch) return { view: 'owner-detail', params: { owner: decodeURIComponent(ownerMatch[1]) } };
@@ -83,6 +89,8 @@ export function navigate(view: string, params: Record<string, string> = {}): voi
   else if (view === 'diff' && params.name) hash = `#/services/${encodeURIComponent(params.name)}/diff`;
   else if (view === 'graph') hash = '#/graph';
   else if (view === 'readiness') hash = '#/readiness';
+  else if (view === 'fleet') hash = '#/fleet';
+  else if (view === 'impact') hash = '#/impact';
   else if (view === 'owners') hash = '#/owners';
   else if (view === 'owner-detail' && params.owner) hash = `#/owners/${encodeURIComponent(params.owner)}`;
   location.hash = hash;
@@ -115,6 +123,14 @@ export function ownersUrl(): string {
 
 export function readinessUrl(): string {
   return '#/readiness';
+}
+
+export function fleetUrl(): string {
+  return '#/fleet';
+}
+
+export function impactUrl(): string {
+  return '#/impact';
 }
 
 export function ownerUrl(key: string): string {

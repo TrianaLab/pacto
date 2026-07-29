@@ -1,5 +1,5 @@
 <script>
-  import { graphUrl, ownersUrl, readinessUrl, compareDiffUrl } from './lib/router.ts';
+  import { graphUrl, ownersUrl, readinessUrl, fleetUrl, impactUrl, compareDiffUrl } from './lib/router.ts';
   import { sourceTooltip } from './lib/format.ts';
   import SourceDot from './components/SourceDot.svelte';
 
@@ -13,6 +13,8 @@
   const NAV = [
     { label: 'Services', href: '#/', views: ['list', 'detail'] },
     { label: 'Graph', href: graphUrl(), views: ['graph'] },
+    { label: 'Operational Graph', href: fleetUrl(), views: ['fleet'] },
+    { label: 'Impact', href: impactUrl(), views: ['impact'] },
     { label: 'Owners', href: ownersUrl(), views: ['owners', 'owner-detail'] },
     { label: 'Readiness', href: readinessUrl(), views: ['readiness'] },
     { label: 'Compare', href: compareDiffUrl(), views: ['diff'] },

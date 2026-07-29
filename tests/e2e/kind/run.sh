@@ -104,6 +104,18 @@ echo "== evaluation coverage reaches the CR status =="
 cov="$(kubectl -n demo get pacto orders -o jsonpath='{.status.evaluationCoverage}' 2>/dev/null)"
 [ -n "$cov" ] && echo "  evaluationCoverage: $cov" || { echo "  FAIL: no evaluationCoverage in status"; exit 1; }
 
+echo "== live Kubernetes fleet source reflects the reconciled CR =="
+# The operational graph's live k8s source reads Pacto CRs straight from the
+# cluster this run reconciled, with no separate reporting step. KUBECONFIG is
+# already exported above, so `pacto fleet --k8s` uses this kind cluster.
+PACTO_BIN="$(mktemp)"
+go build -o "$PACTO_BIN" "$ROOT/cmd/pacto"
+FLEET_JSON="$("$PACTO_BIN" fleet search --k8s --namespace demo --output-format json 2>/tmp/fleet-k8s.err)" \
+  || { echo "  FAIL: pacto fleet --k8s errored"; cat /tmp/fleet-k8s.err; exit 1; }
+grep -q '"name": *"orders"' <<<"$FLEET_JSON" \
+  && echo "  live k8s source shows orders in the graph" \
+  || { echo "  FAIL: orders not in the k8s-backed fleet"; echo "$FLEET_JSON"; exit 1; }
+
 echo "== uninstall cleans runtime resources =="
 helm uninstall pacto-operator -n "$NS" --wait >/dev/null
 sleep 3
