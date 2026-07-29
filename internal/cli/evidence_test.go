@@ -230,20 +230,27 @@ type failWriter struct{}
 func (failWriter) Write([]byte) (int, error) { return 0, errors.New("write fail") }
 
 func TestEvidenceServe_RequiresFlags(t *testing.T) {
+	// --trust is required; --bucket-url and --prefix have defaults.
 	if _, err := runEvidence(t, "evidence", "serve"); err == nil {
-		t.Error("expected required-flag error (--trust/--store-dir)")
+		t.Error("expected required-flag error (--trust)")
 	}
 }
 
 func TestEvidenceServe_ListenError(t *testing.T) {
 	dir, _, _ := setup(t)
-	if _, err := runEvidence(t, "evidence", "serve", "--port", "-1", "--trust", dir, "--store-dir", t.TempDir()); err == nil {
+	if _, err := runEvidence(t, "evidence", "serve", "--port", "-1", "--trust", dir, "--bucket-url", "file://"+t.TempDir()); err == nil {
 		t.Error("expected listen error for invalid port")
+	}
+	// --listen-address supersedes --port and is exercised on the same error path.
+	// A value with no port is rejected by net.Listen without any DNS lookup.
+	if _, err := runEvidence(t, "evidence", "serve", "--listen-address", "missing-port", "--trust", dir, "--bucket-url", "file://"+t.TempDir()); err == nil {
+		t.Error("expected listen error for bad listen-address")
 	}
 }
 
 func TestEvidenceServe_GracefulShutdown(t *testing.T) {
 	dir, _, _ := setup(t)
+	// --store-dir is the deprecated alias; it maps to a file:// bucket and warns.
 	storeDir := filepath.Join(t.TempDir(), "store")
 
 	root := cli.NewRootCommand(app.NewService(nil, nil), cli.VersionInfo{Version: "dev"})
@@ -262,6 +269,9 @@ func TestEvidenceServe_GracefulShutdown(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "listening on http://") {
 		t.Errorf("expected listening message, got %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--store-dir is deprecated") {
+		t.Errorf("expected deprecation warning, got %q", stderr.String())
 	}
 }
 

@@ -12,7 +12,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
-	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v3/pkg/evidencestore"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
@@ -109,23 +109,35 @@ func TestService_Fleet_MultipleSourcesGetSuffixedIDs(t *testing.T) {
 func TestService_Fleet_EvidenceStores(t *testing.T) {
 	fixed := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 	storeDir := t.TempDir()
-	store, err := evidenceingest.NewFileStore(storeDir)
+	// Seed a durable evidence store the same way the ingestion host would, so the
+	// fleet durable source reads it back through Recover + ListLatest.
+	store, err := openEvidenceStore(context.Background(), "file://"+storeDir, DefaultEvidencePrefix)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := evidenceingest.Record{
+	if _, err := store.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ar := evidencestore.AcceptedRecord{
 		Envelope: evidenceenvelope.Envelope{
+			ID:       "e1",
 			Producer: evidenceenvelope.Producer{ID: "prod-eu"},
+			Sequence: 1,
 			EvidenceSet: evidence.EvidenceSet{
 				Subject:     evidence.SubjectRef{Kind: "service", Name: "svc-a"},
 				ContractRef: "oci://ghcr.io/acme/svc:1.0.0",
 				ObservedAt:  fixed,
 			},
 		},
-		Compliance: fleet.StatusCompliant,
-		AcceptedAt: fixed,
+		Compliance:  fleet.StatusCompliant,
+		ContractRef: "oci://ghcr.io/acme/svc:1.0.0",
+		TargetKey:   string(fleet.NewTargetKey("prod-eu", "external", "svc-a")),
+		AcceptedAt:  fixed,
 	}
-	if err := store.Put(context.Background(), "svc-a", rec); err != nil {
+	if err := store.Commit(context.Background(), ar); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -159,9 +171,9 @@ func TestService_Fleet_EvidenceStores(t *testing.T) {
 }
 
 func TestService_Fleet_EvidenceStore_OpenError(t *testing.T) {
-	// A regular file cannot host a store directory beneath it, so NewFileStore
-	// fails and the store becomes a failing source (a limitation), not a build
-	// abort.
+	// A regular file cannot host a store directory beneath it, so the durable
+	// source's lazy open fails in Collect and the store becomes a failing source
+	// (a limitation), not a build abort.
 	dir := t.TempDir()
 	file := filepath.Join(dir, "afile")
 	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {

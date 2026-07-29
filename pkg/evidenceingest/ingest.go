@@ -1,6 +1,6 @@
 // Package evidenceingest accepts signed external [evidenceenvelope.Envelope]s,
-// verifies and de-duplicates them, evaluates the carried EvidenceSet against the
-// resolved contract revision, stores the result, and exposes it as a
+// verifies them, evaluates the carried EvidenceSet against the resolved contract
+// revision, commits the result to a durable store, and exposes it as a
 // [fleet.Source]. It is the platform side of outbound-only evidence reporting: a
 // remote or disconnected environment produces and signs an EvidenceSet and
 // reports it here; the operational graph then shows that environment as a target
@@ -8,8 +8,11 @@
 // reporting stops, never deleting it.
 //
 // The package is transport-light: the accept pipeline is pure over interfaces (a
-// trust store, a contract resolver, a store, a replay guard) and unit-testable
-// with fakes; a thin net/http handler wraps it for the ingestion host.
+// trust store, a contract resolver and a commit-based [Store]) and unit-testable
+// with fakes; a thin net/http handler wraps it for the ingestion host. Replay
+// protection lives inside [Store.Commit] — atomic with the durable write — so a
+// failed commit never leaves a phantom reservation. The package stays
+// infrastructure-free (no gocloud); the durable store is wired in by the host.
 package evidenceingest
 
 import (
@@ -46,10 +49,16 @@ type Record struct {
 	AcceptedAt time.Time                 `json:"acceptedAt"`
 }
 
-// Store persists accepted records keyed by target identity (last write per
-// target wins, so a target's latest evidence is what the graph shows).
+// Store durably persists accepted records. Commit is the acceptance authority:
+// it performs the immutable write and replay protection atomically, so a failed
+// commit never reserves an id or sequence (no phantom acceptance). List returns
+// the latest record per target for the fleet projection.
 type Store interface {
-	Put(ctx context.Context, key string, rec Record) error
+	// Commit atomically persists rec and enforces replay protection. It returns
+	// [ErrReplay] when the envelope id was already committed or the producer
+	// sequence is not strictly newer than its highest committed sequence.
+	Commit(ctx context.Context, rec Record) error
+	// List returns the latest record per target, in deterministic order.
 	List(ctx context.Context) ([]Record, error)
 }
 
@@ -59,33 +68,26 @@ type ContractResolver interface {
 	Resolve(ctx context.Context, ref string) (contract.Contract, error)
 }
 
-// ReplayGuard rejects duplicate or out-of-sequence envelopes.
-type ReplayGuard interface {
-	Admit(producerID string, sequence uint64, id string) bool
-}
-
 // Acceptor is the pure accept pipeline.
 type Acceptor struct {
 	trust    evidenceenvelope.TrustStore
 	resolver ContractResolver
 	store    Store
-	replay   ReplayGuard
 	now      func() time.Time
 }
 
 // NewAcceptor wires the accept pipeline. now defaults to time.Now.
-func NewAcceptor(trust evidenceenvelope.TrustStore, resolver ContractResolver, store Store, replay ReplayGuard, now func() time.Time) *Acceptor {
+func NewAcceptor(trust evidenceenvelope.TrustStore, resolver ContractResolver, store Store, now func() time.Time) *Acceptor {
 	if now == nil {
 		now = time.Now
 	}
-	if replay == nil {
-		replay = NewMemoryReplayGuard()
-	}
-	return &Acceptor{trust: trust, resolver: resolver, store: store, replay: replay, now: now}
+	return &Acceptor{trust: trust, resolver: resolver, store: store, now: now}
 }
 
-// Accept decodes, verifies, de-duplicates, evaluates and stores an envelope,
-// returning the resulting record. Every error is safe to surface (no secrets).
+// Accept decodes, verifies, evaluates and commits an envelope, returning the
+// resulting record. Replay protection is enforced inside store.Commit (atomic
+// with the durable write), so it is the last step and never leaves a phantom
+// reservation on failure. Every error is safe to surface (no secrets).
 func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 	env, err := evidenceenvelope.Decode(data)
 	if err != nil {
@@ -93,9 +95,6 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 	}
 	if err := evidenceenvelope.Verify(env, a.trust, a.now()); err != nil {
 		return Record{}, err
-	}
-	if !a.replay.Admit(env.Producer.ID, env.Sequence, env.ID) {
-		return Record{}, ErrReplay
 	}
 	if errs := evidence.ValidateEvidenceSet(env.EvidenceSet); len(errs) > 0 {
 		return Record{}, ErrInvalidEvidence
@@ -112,10 +111,16 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 		Coverage:   coverage,
 		AcceptedAt: a.now(),
 	}
-	if err := a.store.Put(ctx, targetKey(env), rec); err != nil {
+	if err := a.store.Commit(ctx, rec); err != nil {
 		return Record{}, err
 	}
 	return rec, nil
+}
+
+// List returns the latest committed record per target, for the read-only source
+// projection exposed over HTTP.
+func (a *Acceptor) List(ctx context.Context) ([]Record, error) {
+	return a.store.List(ctx)
 }
 
 // targetKey identifies the operational target an envelope reports on: the
@@ -190,27 +195,47 @@ func (s *Source) Collect(ctx context.Context) (*fleet.Collection, error) {
 	return col, nil
 }
 
-// MemoryStore is an in-memory [Store] (last record per target key).
+// MemoryStore is an in-memory [Store]: it enforces replay protection (duplicate
+// id and per-producer non-increasing sequence) atomically inside Commit, then
+// keeps the latest record per target key. It is the substrate for tests and any
+// caller that does not need durability across restarts.
 type MemoryStore struct {
-	mu   sync.RWMutex
-	recs map[string]Record
+	mu      sync.Mutex
+	seenID  map[string]bool
+	maxSeq  map[string]uint64
+	haveSeq map[string]bool
+	recs    map[string]Record
 }
 
 // NewMemoryStore returns an empty in-memory store.
-func NewMemoryStore() *MemoryStore { return &MemoryStore{recs: map[string]Record{}} }
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{seenID: map[string]bool{}, maxSeq: map[string]uint64{}, haveSeq: map[string]bool{}, recs: map[string]Record{}}
+}
 
-// Put implements [Store].
-func (m *MemoryStore) Put(_ context.Context, key string, rec Record) error {
+// Commit implements [Store]: a repeated id, or a producer sequence not strictly
+// greater than its last committed one, is rejected with [ErrReplay]; otherwise
+// the record becomes the latest for its target.
+func (m *MemoryStore) Commit(_ context.Context, rec Record) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.recs[key] = rec
+	env := rec.Envelope
+	if m.seenID[env.ID] {
+		return ErrReplay
+	}
+	if m.haveSeq[env.Producer.ID] && env.Sequence <= m.maxSeq[env.Producer.ID] {
+		return ErrReplay
+	}
+	m.seenID[env.ID] = true
+	m.maxSeq[env.Producer.ID] = env.Sequence
+	m.haveSeq[env.Producer.ID] = true
+	m.recs[targetKey(env)] = rec
 	return nil
 }
 
-// List implements [Store] in deterministic key order.
+// List implements [Store] in deterministic target-key order.
 func (m *MemoryStore) List(_ context.Context) ([]Record, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	keys := make([]string, 0, len(m.recs))
 	for k := range m.recs {
 		keys = append(keys, k)
@@ -223,60 +248,40 @@ func (m *MemoryStore) List(_ context.Context) ([]Record, error) {
 	return out, nil
 }
 
-// MemoryReplayGuard rejects duplicate ids and non-increasing sequences per
-// producer.
-type MemoryReplayGuard struct {
-	mu      sync.Mutex
-	seenID  map[string]bool
-	maxSeq  map[string]uint64
-	haveSeq map[string]bool
-}
-
-// NewMemoryReplayGuard returns an empty replay guard.
-func NewMemoryReplayGuard() *MemoryReplayGuard {
-	return &MemoryReplayGuard{seenID: map[string]bool{}, maxSeq: map[string]uint64{}, haveSeq: map[string]bool{}}
-}
-
-// Admit returns true if the envelope is new and in order, recording it. A
-// repeated id, or a sequence not greater than the producer's last, is rejected.
-func (g *MemoryReplayGuard) Admit(producerID string, sequence uint64, id string) bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.seenID[id] {
-		return false
-	}
-	if g.haveSeq[producerID] && sequence <= g.maxSeq[producerID] {
-		return false
-	}
-	g.seenID[id] = true
-	g.maxSeq[producerID] = sequence
-	g.haveSeq[producerID] = true
-	return true
-}
+// maxSourceTargets bounds the number of targets GET /targets returns so a large
+// store cannot produce an unbounded response. It is a var so tests can lower it.
+var maxSourceTargets = 1000
 
 // Handler mounts the ingestion HTTP API on a mux: POST accepts an envelope, and
-// GET endpoints report health and the trusted producer ids. TLS termination is
-// the host's responsibility; signature verification here is mandatory.
+// GET endpoints report health, readiness, the trusted producer ids and the
+// latest accepted targets. TLS termination is the host's responsibility;
+// signature verification here is mandatory.
 type Handler struct {
 	acceptor  *Acceptor
 	producers []string
 	onAccept  func()
+	// ready reports whether the backing store has completed recovery. When nil
+	// the host is treated as always ready (e.g. an in-memory store).
+	ready func() bool
 }
 
 // NewHandler returns an HTTP handler for the accept pipeline. producers is the
 // list of trusted producer ids to advertise; onAccept (optional) is invoked
-// after a successful accept (e.g. to trigger a snapshot refresh).
-func NewHandler(acceptor *Acceptor, producers []string, onAccept func()) *Handler {
+// after a successful accept (e.g. to trigger a snapshot refresh); ready
+// (optional) gates the /ready probe.
+func NewHandler(acceptor *Acceptor, producers []string, onAccept func(), ready func() bool) *Handler {
 	sorted := append([]string(nil), producers...)
 	sort.Strings(sorted)
-	return &Handler{acceptor: acceptor, producers: sorted, onAccept: onAccept}
+	return &Handler{acceptor: acceptor, producers: sorted, onAccept: onAccept, ready: ready}
 }
 
 // Routes registers the ingestion endpoints on mux under /api/evidence/v1.
 func (h *Handler) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/evidence/v1/envelopes", h.handleEnvelope)
 	mux.HandleFunc("GET /api/evidence/v1/health", h.handleHealth)
+	mux.HandleFunc("GET /api/evidence/v1/ready", h.handleReady)
 	mux.HandleFunc("GET /api/evidence/v1/producers", h.handleProducers)
+	mux.HandleFunc("GET /api/evidence/v1/targets", h.handleTargets)
 }
 
 func (h *Handler) handleEnvelope(w http.ResponseWriter, r *http.Request) {
@@ -299,12 +304,61 @@ func (h *Handler) handleEnvelope(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleHealth is the always-200 liveness probe (the process is up).
 func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleReady is the readiness probe: 503 until the backing store has recovered
+// (ready or degraded), so callers do not route writes to a not-yet-recovered
+// host. A degraded store still serves, so it counts as ready here.
+func (h *Handler) handleReady(w http.ResponseWriter, _ *http.Request) {
+	if h.ready != nil && !h.ready() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
 func (h *Handler) handleProducers(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string][]string{"producers": h.producers})
+}
+
+// targetView is the small, stable projection of an accepted target for the
+// read-only HTTP evidence source.
+type targetView struct {
+	Subject       string              `json:"subject"`
+	Producer      string              `json:"producer"`
+	Compliance    string              `json:"compliance"`
+	FindingsCount int                 `json:"findingsCount"`
+	Coverage      validation.Coverage `json:"coverage"`
+	ObservedAt    time.Time           `json:"observedAt"`
+}
+
+// handleTargets projects the latest accepted records into a bounded, read-only
+// list an HTTP evidence source can consume.
+func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
+	recs, err := h.acceptor.List(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not list targets"})
+		return
+	}
+	if len(recs) > maxSourceTargets {
+		recs = recs[:maxSourceTargets]
+	}
+	out := make([]targetView, 0, len(recs))
+	for _, rec := range recs {
+		es := rec.Envelope.EvidenceSet
+		out = append(out, targetView{
+			Subject:       es.Subject.Name,
+			Producer:      rec.Envelope.Producer.ID,
+			Compliance:    rec.Compliance,
+			FindingsCount: len(rec.Findings),
+			Coverage:      rec.Coverage,
+			ObservedAt:    es.ObservedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"targets": out})
 }
 
 // statusForError maps an accept error to an HTTP status without leaking secrets.

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -79,7 +78,7 @@ func newTestAcceptor(t *testing.T, resolver ContractResolver, store Store) (*Acc
 	t.Helper()
 	pub, priv := testKeypair()
 	trust := evidenceenvelope.MapTrustStore{keyID: pub}
-	return NewAcceptor(trust, resolver, store, nil, fixedNow), priv
+	return NewAcceptor(trust, resolver, store, fixedNow), priv
 }
 
 func TestAcceptor_HappyPath(t *testing.T) {
@@ -92,7 +91,7 @@ func TestAcceptor_HappyPath(t *testing.T) {
 	if rec.Envelope.ID != "e1" || rec.Compliance == "" {
 		t.Errorf("unexpected record: %+v", rec)
 	}
-	got, _ := store.List(context.Background())
+	got, _ := a.List(context.Background())
 	if len(got) != 1 {
 		t.Fatalf("store should hold 1 record, got %d", len(got))
 	}
@@ -103,7 +102,7 @@ func TestAcceptor_ReplayAndSequence(t *testing.T) {
 	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 5, "e1", testEvidenceSet())); err != nil {
 		t.Fatal(err)
 	}
-	// Same id → replay.
+	// Same id → replay (caught atomically inside Commit).
 	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 6, "e1", testEvidenceSet())); !errors.Is(err, ErrReplay) {
 		t.Errorf("duplicate id should be ErrReplay, got %v", err)
 	}
@@ -117,7 +116,7 @@ func TestAcceptor_VerifyFailure(t *testing.T) {
 	// Sign with a key not in the trust store.
 	_, otherPriv := testKeypair2()
 	pub, _ := testKeypair()
-	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: pub}, fakeResolver{}, NewMemoryStore(), nil, fixedNow)
+	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: pub}, fakeResolver{}, NewMemoryStore(), fixedNow)
 	data := signedEnvelopeBytes(t, otherPriv, 1, "e1", testEvidenceSet())
 	if _, err := a.Accept(context.Background(), data); !errors.Is(err, evidenceenvelope.ErrBadSignature) {
 		t.Errorf("wrong key should fail verification, got %v", err)
@@ -164,22 +163,33 @@ func TestDeriveCompliance(t *testing.T) {
 	}
 }
 
-func TestMemoryReplayGuard(t *testing.T) {
-	g := NewMemoryReplayGuard()
-	if !g.Admit("p", 1, "a") {
-		t.Error("first admit should pass")
+func TestMemoryStore_Commit(t *testing.T) {
+	m := NewMemoryStore()
+	ctx := context.Background()
+	rec := func(id string, seq uint64, producer, subject string) Record {
+		return Record{Envelope: evidenceenvelope.Envelope{
+			ID: id, Sequence: seq, Producer: evidenceenvelope.Producer{ID: producer},
+			EvidenceSet: evidence.EvidenceSet{Subject: evidence.SubjectRef{Kind: "service", Name: subject}},
+		}}
 	}
-	if g.Admit("p", 2, "a") {
-		t.Error("duplicate id should be rejected")
+	if err := m.Commit(ctx, rec("a", 1, "p", "s1")); err != nil {
+		t.Fatalf("first commit: %v", err)
 	}
-	if g.Admit("p", 1, "b") {
-		t.Error("non-increasing sequence should be rejected")
+	if err := m.Commit(ctx, rec("a", 2, "p", "s1")); !errors.Is(err, ErrReplay) {
+		t.Errorf("duplicate id: got %v", err)
 	}
-	if !g.Admit("p", 2, "b") {
-		t.Error("higher sequence, new id should pass")
+	if err := m.Commit(ctx, rec("b", 1, "p", "s1")); !errors.Is(err, ErrReplay) {
+		t.Errorf("non-increasing sequence: got %v", err)
 	}
-	if !g.Admit("q", 1, "c") {
-		t.Error("a different producer starts fresh")
+	if err := m.Commit(ctx, rec("c", 2, "p", "s2")); err != nil {
+		t.Errorf("higher sequence, new id: %v", err)
+	}
+	if err := m.Commit(ctx, rec("d", 1, "q", "s3")); err != nil {
+		t.Errorf("a different producer starts fresh: %v", err)
+	}
+	got, err := m.List(ctx)
+	if err != nil || len(got) != 3 {
+		t.Fatalf("list: %d recs err=%v", len(got), err)
 	}
 }
 
@@ -203,50 +213,20 @@ func TestSource_Collect(t *testing.T) {
 	}
 }
 
-func TestFileStore_RoundTrip(t *testing.T) {
-	fs, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	rec := Record{Envelope: evidenceenvelope.Envelope{ID: "e1"}, Compliance: "Compliant", AcceptedAt: fixedNow()}
-	if err := fs.Put(context.Background(), "prod/external/payments", rec); err != nil {
-		t.Fatal(err)
-	}
-	// Overwrite same key → still one record.
-	if err := fs.Put(context.Background(), "prod/external/payments", rec); err != nil {
-		t.Fatal(err)
-	}
-	got, err := fs.List(context.Background())
-	if err != nil || len(got) != 1 || got[0].Envelope.ID != "e1" {
-		t.Fatalf("filestore list: %d recs err=%v", len(got), err)
-	}
-}
-
-func TestFileStore_NewError(t *testing.T) {
-	// A path under a regular file cannot be created as a dir.
-	f, _ := NewFileStore(t.TempDir())
-	filePath := f.dir + "/afile"
-	if err := writeFileHelper(filePath); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := NewFileStore(filePath + "/sub"); err == nil {
-		t.Error("NewFileStore under a file should error")
-	}
-}
-
 func TestHandler_HTTP(t *testing.T) {
 	store := NewMemoryStore()
 	a, priv := newTestAcceptor(t, fakeResolver{}, store)
 	var refreshed int
-	h := NewHandler(a, []string{"env-a", "env-b"}, func() { refreshed++ })
+	h := NewHandler(a, []string{"env-a", "env-b"}, func() { refreshed++ }, nil)
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	// Health + producers.
+	// Health + producers + readiness (nil ready → always 200).
 	expectGET(t, srv.URL+"/api/evidence/v1/health", http.StatusOK)
 	expectGET(t, srv.URL+"/api/evidence/v1/producers", http.StatusOK)
+	expectGET(t, srv.URL+"/api/evidence/v1/ready", http.StatusOK)
 
 	// Valid envelope → 202 + refresh hook fired.
 	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusAccepted)
@@ -262,6 +242,61 @@ func TestHandler_HTTP(t *testing.T) {
 	bad := testEvidenceSet()
 	bad.Subject = evidence.SubjectRef{}
 	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 3, "e3", bad), http.StatusUnprocessableEntity)
+}
+
+func TestHandler_Ready(t *testing.T) {
+	a, _ := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
+	ready := false
+	h := NewHandler(a, nil, nil, func() bool { return ready })
+	mux := http.NewServeMux()
+	h.Routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	expectGET(t, srv.URL+"/api/evidence/v1/ready", http.StatusServiceUnavailable)
+	ready = true
+	expectGET(t, srv.URL+"/api/evidence/v1/ready", http.StatusOK)
+}
+
+func TestHandler_Targets(t *testing.T) {
+	store := NewMemoryStore()
+	a, priv := newTestAcceptor(t, fakeResolver{}, store)
+	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet())); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(a, nil, nil, nil)
+	mux := http.NewServeMux()
+	h.Routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	var body struct {
+		Targets []targetView `json:"targets"`
+	}
+	getJSON(t, srv.URL+"/api/evidence/v1/targets", &body)
+	if len(body.Targets) != 1 || body.Targets[0].Subject != "payments" || body.Targets[0].Producer != "env-a" {
+		t.Fatalf("unexpected targets: %+v", body.Targets)
+	}
+
+	// The bound truncates the returned list.
+	orig := maxSourceTargets
+	maxSourceTargets = 0
+	defer func() { maxSourceTargets = orig }()
+	getJSON(t, srv.URL+"/api/evidence/v1/targets", &body)
+	if len(body.Targets) != 0 {
+		t.Errorf("bound should truncate, got %d", len(body.Targets))
+	}
+}
+
+func TestHandler_TargetsError(t *testing.T) {
+	a := NewAcceptor(nil, fakeResolver{}, failStore{err: errors.New("read error")}, fixedNow)
+	h := NewHandler(a, nil, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/evidence/v1/targets", nil)
+	w := httptest.NewRecorder()
+	h.handleTargets(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("list error should be 500, got %d", w.Code)
+	}
 }
 
 // --- small helpers ---
@@ -287,6 +322,18 @@ func expectGET(t *testing.T, url string, want int) {
 	}
 }
 
+func getJSON(t *testing.T, url string, v any) {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+		t.Fatalf("decode %s: %v", url, err)
+	}
+}
+
 func post(t *testing.T, url string, body []byte, want int) {
 	t.Helper()
 	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
@@ -299,59 +346,13 @@ func post(t *testing.T, url string, body []byte, want int) {
 	}
 }
 
-func writeFileHelper(path string) error {
-	return os.WriteFile(path, []byte("x"), 0o600)
-}
-
-// TestFileStore_SeamErrors exercises the atomic-write and read error paths via
-// the injectable filesystem seams (defer restores the originals).
-func TestFileStore_SeamErrors(t *testing.T) {
-	fs, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	boom := errors.New("boom")
-
-	origMarshal := fsMarshal
-	fsMarshal = func(any) ([]byte, error) { return nil, boom }
-	if err := fs.Put(context.Background(), "k", Record{}); err == nil {
-		t.Error("marshal error should propagate")
-	}
-	fsMarshal = origMarshal
-
-	origWrite := fsWriteFile
-	fsWriteFile = func(string, []byte, os.FileMode) error { return boom }
-	if err := fs.Put(context.Background(), "k", Record{}); err == nil {
-		t.Error("write error should propagate")
-	}
-	fsWriteFile = origWrite
-
-	origRename := fsRename
-	fsRename = func(string, string) error { return boom }
-	if err := fs.Put(context.Background(), "k", Record{}); err == nil {
-		t.Error("rename error should propagate")
-	}
-	fsRename = origRename
-
-	// A readable record then a forced read error on List.
-	if err := fs.Put(context.Background(), "k", Record{Envelope: evidenceenvelope.Envelope{ID: "e"}}); err != nil {
-		t.Fatal(err)
-	}
-	origRead := fsReadFile
-	fsReadFile = func(string) ([]byte, error) { return nil, boom }
-	if _, err := fs.List(context.Background()); err == nil {
-		t.Error("read error should propagate")
-	}
-	fsReadFile = origRead
-}
-
 type brokenReader struct{}
 
 func (brokenReader) Read([]byte) (int, error) { return 0, errors.New("read failure") }
 
 func TestHandler_BodyReadError(t *testing.T) {
 	a, _ := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
-	h := NewHandler(a, nil, nil)
+	h := NewHandler(a, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/evidence/v1/envelopes", brokenReader{})
 	w := httptest.NewRecorder()
 	h.handleEnvelope(w, req)
@@ -360,16 +361,17 @@ func TestHandler_BodyReadError(t *testing.T) {
 	}
 }
 
-// failStore errors on Put and List to cover the acceptor/source error paths.
+// failStore errors on Commit and List to cover the acceptor/source error paths.
 type failStore struct{ err error }
 
-func (f failStore) Put(context.Context, string, Record) error { return f.err }
-func (f failStore) List(context.Context) ([]Record, error)    { return nil, f.err }
+func (f failStore) Commit(context.Context, Record) error   { return f.err }
+func (f failStore) List(context.Context) ([]Record, error) { return nil, f.err }
 
 func TestAcceptor_StoreError(t *testing.T) {
-	a, priv := newTestAcceptorStore(t, fakeResolver{}, failStore{err: errors.New("disk full")})
+	pub, priv := testKeypair()
+	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: pub}, fakeResolver{}, failStore{err: errors.New("disk full")}, fixedNow)
 	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet())); err == nil {
-		t.Error("store Put error should propagate")
+		t.Error("store Commit error should propagate")
 	}
 }
 
@@ -380,17 +382,11 @@ func TestSource_CollectError(t *testing.T) {
 	}
 }
 
-func newTestAcceptorStore(t *testing.T, resolver ContractResolver, store Store) (*Acceptor, ed25519.PrivateKey) {
-	t.Helper()
-	pub, priv := testKeypair()
-	return NewAcceptor(evidenceenvelope.MapTrustStore{keyID: pub}, resolver, store, NewMemoryReplayGuard(), fixedNow), priv
-}
-
 // TestNewAcceptor_DefaultClock covers the now==nil default-clock branch of
 // NewAcceptor by accepting an envelope valid under the real wall clock.
 func TestNewAcceptor_DefaultClock(t *testing.T) {
 	pub, priv := testKeypair()
-	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: pub}, fakeResolver{}, NewMemoryStore(), NewMemoryReplayGuard(), nil)
+	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: pub}, fakeResolver{}, NewMemoryStore(), nil)
 	env := evidenceenvelope.Envelope{
 		ID: "now1", Producer: evidenceenvelope.Producer{ID: "env-a", KeyID: keyID}, Sequence: 1,
 		IssuedAt: time.Now().Add(-time.Hour), ExpiresAt: time.Now().Add(365 * 24 * time.Hour),
@@ -412,64 +408,10 @@ func TestNewAcceptor_DefaultClock(t *testing.T) {
 func TestHandler_NilOnAccept(t *testing.T) {
 	store := NewMemoryStore()
 	a, priv := newTestAcceptor(t, fakeResolver{}, store)
-	h := NewHandler(a, nil, nil) // nil onAccept must not panic
+	h := NewHandler(a, nil, nil, nil) // nil onAccept must not panic
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusAccepted)
-}
-
-func TestFileStore_ListErrors(t *testing.T) {
-	dir := t.TempDir()
-	fs, err := NewFileStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A non-json file is skipped; a subdirectory is skipped.
-	if err := os.WriteFile(dir+"/note.txt", []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(dir+"/sub", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if recs, err := fs.List(context.Background()); err != nil || len(recs) != 0 {
-		t.Fatalf("non-json/dir entries should be skipped: %d %v", len(recs), err)
-	}
-	// A malformed .json file is a read error.
-	if err := os.WriteFile(dir+"/bad.json", []byte("{not json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fs.List(context.Background()); err == nil {
-		t.Error("malformed json should error")
-	}
-}
-
-func TestFileStore_ListMissingDir(t *testing.T) {
-	dir := t.TempDir()
-	fs, err := NewFileStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fs.List(context.Background()); err == nil {
-		t.Error("missing dir should error on List")
-	}
-}
-
-func TestFileStore_PutError(t *testing.T) {
-	dir := t.TempDir()
-	fs, err := NewFileStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Removing the dir makes CreateTemp inside Put fail.
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatal(err)
-	}
-	if err := fs.Put(context.Background(), "k", Record{}); err == nil {
-		t.Error("Put into a missing dir should error")
-	}
 }

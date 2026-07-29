@@ -455,35 +455,39 @@ func TestServeEvidence_EndToEnd(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- svc.ServeEvidenceOnListener(ctx, ln, ServeOptions{
-			TrustPath: trustDir, StoreDir: storeDir, Producers: []string{producer},
+			TrustPath: trustDir, BucketURL: "file://" + storeDir, Prefix: DefaultEvidencePrefix,
+			Producers: []string{producer},
 		})
 	}()
 
 	waitForHTTP(t, base+"/api/evidence/v1/health")
 
-	// POST the signed envelope -> 202 Accepted.
-	res, err := svc.SendEvidence(ctx, base+"/api/evidence/v1/envelopes", envPath)
-	if err != nil {
-		t.Fatalf("send: %v", err)
-	}
-	if res.StatusCode != http.StatusAccepted {
-		t.Fatalf("status = %d, body = %s", res.StatusCode, res.Body)
+	// Readiness is 200 once the store has recovered.
+	if code := getStatus(t, base+"/api/evidence/v1/ready"); code != http.StatusOK {
+		t.Errorf("ready = %d, want 200", code)
 	}
 
-	// Producers endpoint advertises the trusted producer.
-	presp, err := http.Get(base + "/api/evidence/v1/producers")
-	if err != nil {
-		t.Fatal(err)
+	// POST the signed envelope -> 202 Accepted; re-POSTing is a replay -> 409
+	// (durable dup-id → ErrReplay).
+	if code := postFile(t, svc, base, envPath); code != http.StatusAccepted {
+		t.Fatalf("accept status = %d", code)
 	}
-	pbody := readAllClose(presp)
-	if !strings.Contains(pbody, producer) {
-		t.Errorf("producers body = %q, want %q", pbody, producer)
+	if code := postFile(t, svc, base, envPath); code != http.StatusConflict {
+		t.Errorf("replay status = %d, want 409", code)
 	}
 
-	// The accepted record was persisted.
-	entries, err := os.ReadDir(storeDir)
+	// Producers advertises the trusted producer; targets projects the record.
+	if body := getBody(t, base+"/api/evidence/v1/producers"); !strings.Contains(body, producer) {
+		t.Errorf("producers body = %q, want %q", body, producer)
+	}
+	if body := getBody(t, base+"/api/evidence/v1/targets"); !strings.Contains(body, "svc-a") {
+		t.Errorf("targets body = %q, want svc-a", body)
+	}
+
+	// The accepted record was persisted durably under the prefix.
+	entries, err := os.ReadDir(filepath.Join(storeDir, DefaultEvidencePrefix, "envelopes"))
 	if err != nil || len(entries) == 0 {
-		t.Errorf("expected a persisted record in %s, err=%v entries=%d", storeDir, err, len(entries))
+		t.Errorf("expected a persisted record under %s, err=%v entries=%d", storeDir, err, len(entries))
 	}
 
 	// Graceful shutdown on context cancel returns nil.
@@ -491,6 +495,38 @@ func TestServeEvidence_EndToEnd(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Errorf("ServeEvidenceOnListener = %v, want nil on cancel", err)
 	}
+}
+
+// postFile sends an envelope file and returns the response status, failing on a
+// transport error.
+func postFile(t *testing.T, svc *Service, base, envPath string) int {
+	t.Helper()
+	res, err := svc.SendEvidence(context.Background(), base+"/api/evidence/v1/envelopes", envPath)
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	return res.StatusCode
+}
+
+// getStatus GETs url and returns its status code, failing on a transport error.
+func getStatus(t *testing.T, url string) int {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
+// getBody GETs url and returns its body, failing on a transport error.
+func getBody(t *testing.T, url string) string {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return readAllClose(resp)
 }
 
 func readAllClose(resp *http.Response) string {
@@ -506,7 +542,7 @@ func TestServeEvidenceOnListener_AssemblyError(t *testing.T) {
 	}
 	// An empty trust dir makes assembly fail; the listener must be closed.
 	err = (&Service{}).ServeEvidenceOnListener(context.Background(), ln, ServeOptions{
-		TrustPath: t.TempDir(), StoreDir: t.TempDir(),
+		TrustPath: t.TempDir(), BucketURL: "file://" + t.TempDir(), Prefix: DefaultEvidencePrefix,
 	})
 	if err == nil {
 		t.Fatal("expected assembly error for empty trust store")
@@ -524,7 +560,7 @@ func TestServeEvidenceOnListener_ServeError(t *testing.T) {
 	}
 	_ = ln.Close() // Serve on a closed listener fails via errCh.
 	err = (&Service{}).ServeEvidenceOnListener(context.Background(), ln, ServeOptions{
-		TrustPath: trustDir, StoreDir: t.TempDir(),
+		TrustPath: trustDir, BucketURL: "file://" + t.TempDir(), Prefix: DefaultEvidencePrefix,
 	})
 	if err == nil {
 		t.Error("expected serve error on a closed listener")
@@ -536,7 +572,7 @@ func TestServeEvidence_ListenAndCancel(t *testing.T) {
 	svc := &Service{}
 
 	// Invalid port -> listen error.
-	if err := svc.ServeEvidence(context.Background(), ServeOptions{Port: -1, TrustPath: trustDir, StoreDir: t.TempDir()}); err == nil {
+	if err := svc.ServeEvidence(context.Background(), ServeOptions{Port: -1, TrustPath: trustDir, BucketURL: "file://" + t.TempDir(), Prefix: DefaultEvidencePrefix}); err == nil {
 		t.Error("expected listen error for invalid port")
 	}
 
@@ -544,7 +580,7 @@ func TestServeEvidence_ListenAndCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- svc.ServeEvidence(ctx, ServeOptions{Port: 0, TrustPath: trustDir, StoreDir: t.TempDir()})
+		done <- svc.ServeEvidence(ctx, ServeOptions{Port: 0, TrustPath: trustDir, BucketURL: "file://" + t.TempDir(), Prefix: DefaultEvidencePrefix})
 	}()
 	time.Sleep(50 * time.Millisecond)
 	cancel()
@@ -553,20 +589,29 @@ func TestServeEvidence_ListenAndCancel(t *testing.T) {
 	}
 }
 
-func TestEvidenceMux_Errors(t *testing.T) {
+func TestBuildEvidenceHost_Errors(t *testing.T) {
 	svc := &Service{}
+	ctx := context.Background()
 	// Trust-store error.
-	if _, err := svc.evidenceMux(ServeOptions{TrustPath: t.TempDir(), StoreDir: t.TempDir()}); err == nil {
+	if _, _, err := svc.buildEvidenceHost(ctx, ServeOptions{TrustPath: t.TempDir(), BucketURL: "file://" + t.TempDir(), Prefix: DefaultEvidencePrefix}); err == nil {
 		t.Error("expected trust-store error")
 	}
-	// Store-dir error: cannot create a directory beneath a regular file.
 	trustDir, _, _ := serveTestFixtures(t)
+	// Bucket mkdir error: cannot create a directory beneath a regular file.
 	file := filepath.Join(t.TempDir(), "afile")
 	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.evidenceMux(ServeOptions{TrustPath: trustDir, StoreDir: filepath.Join(file, "store")}); err == nil {
-		t.Error("expected store-dir error")
+	if _, _, err := svc.buildEvidenceHost(ctx, ServeOptions{TrustPath: trustDir, BucketURL: "file://" + filepath.Join(file, "store"), Prefix: DefaultEvidencePrefix}); err == nil {
+		t.Error("expected bucket mkdir error")
+	}
+	// Bucket open error: an unregistered scheme cannot be opened.
+	if _, _, err := svc.buildEvidenceHost(ctx, ServeOptions{TrustPath: trustDir, BucketURL: "bogus://x", Prefix: DefaultEvidencePrefix}); err == nil {
+		t.Error("expected bucket open error")
+	}
+	// Invalid prefix: rejected by the store before it opens.
+	if _, _, err := svc.buildEvidenceHost(ctx, ServeOptions{TrustPath: trustDir, BucketURL: "file://" + t.TempDir(), Prefix: "../bad"}); err == nil {
+		t.Error("expected prefix error")
 	}
 }
 

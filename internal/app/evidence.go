@@ -23,6 +23,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v3/pkg/evidencestore"
 )
 
 // randReader is the entropy source for key generation, overridable in tests to
@@ -288,27 +289,40 @@ func (s *Service) EvidenceResolver() evidenceingest.ContractResolver {
 type ServeOptions struct {
 	Port      int      // listen port for ServeEvidence (0 = OS-assigned)
 	TrustPath string   // a public-key file or a directory of <keyId>.pub files
-	StoreDir  string   // directory the FileStore persists accepted records into
+	BucketURL string   // durable evidence store bucket URL (file://, s3://, gs://, azblob://)
+	Prefix    string   // key prefix within the bucket
 	Producers []string // trusted producer ids advertised on GET /producers
 }
 
-// evidenceMux assembles the ingestion HTTP mux (trust store, file store, accept
-// pipeline, handler). Assembly errors (unreadable trust store, uncreatable store
-// dir) surface here so serve validates configuration before it listens.
-func (s *Service) evidenceMux(opts ServeOptions) (*http.ServeMux, error) {
+// buildEvidenceHost assembles the ingestion HTTP mux over a durable evidence
+// store: it loads the trust store, opens the bucket and recovers it (which gates
+// readiness — the /ready probe reports 503 until recovery reaches ready or
+// degraded), then wires the durable adapter into the accept pipeline. On
+// success it returns the recovered store so the caller can Close it on shutdown.
+// Assembly errors (unreadable trust store, unopenable bucket) surface here so
+// serve validates configuration before it listens.
+func (s *Service) buildEvidenceHost(ctx context.Context, opts ServeOptions) (*http.ServeMux, *evidencestore.BlobStore, error) {
 	trust, err := loadTrustStore(opts.TrustPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	store, err := evidenceingest.NewFileStore(opts.StoreDir)
+	store, err := openEvidenceStore(ctx, opts.BucketURL, opts.Prefix)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	acceptor := evidenceingest.NewAcceptor(trust, s.EvidenceResolver(), store, nil, nil)
-	handler := evidenceingest.NewHandler(acceptor, opts.Producers, nil)
+	// Recovery outcome gates readiness, not serving: a failed recovery leaves the
+	// host up but reporting not-ready via /ready (and refusing writes), which is
+	// the operational signal we want rather than a silent crash-loop.
+	_, _ = store.Recover(ctx)
+	acceptor := evidenceingest.NewAcceptor(trust, s.EvidenceResolver(), durableEvidenceStore{store: store}, nil)
+	ready := func() bool {
+		phase := store.Inspect(ctx).Phase
+		return phase == evidencestore.PhaseReady || phase == evidencestore.PhaseDegraded
+	}
+	handler := evidenceingest.NewHandler(acceptor, opts.Producers, nil, ready)
 	mux := http.NewServeMux()
 	handler.Routes(mux)
-	return mux, nil
+	return mux, store, nil
 }
 
 // ServeEvidence assembles the ingestion host, listens on opts.Port and serves
@@ -323,14 +337,16 @@ func (s *Service) ServeEvidence(ctx context.Context, opts ServeOptions) error {
 }
 
 // ServeEvidenceOnListener serves the ingestion host on an existing listener until
-// ctx is cancelled, then shuts down gracefully. It takes ownership of ln, closing
-// it if assembly fails. This is the seam tests drive on a random port.
+// ctx is cancelled, then shuts down gracefully (closing the durable store). It
+// takes ownership of ln, closing it if assembly fails. This is the seam tests
+// drive on a random port.
 func (s *Service) ServeEvidenceOnListener(ctx context.Context, ln net.Listener, opts ServeOptions) error {
-	mux, err := s.evidenceMux(opts)
+	mux, store, err := s.buildEvidenceHost(ctx, opts)
 	if err != nil {
 		_ = ln.Close()
 		return err
 	}
+	defer func() { _ = store.Close() }()
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ln) }()

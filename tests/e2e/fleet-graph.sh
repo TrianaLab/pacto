@@ -96,7 +96,7 @@ VOUT="$("$BIN" evidence verify --trust "$WORK/keys" "$WORK/env.json")"
 assert_contains "$VOUT" "is valid" "signed envelope verifies"
 
 PORT=18787
-"$BIN" evidence serve --port "$PORT" --trust "$WORK/keys" --store-dir "$WORK/store" --producer prod-eu >/dev/null 2>&1 &
+"$BIN" evidence serve --port "$PORT" --trust "$WORK/keys" --bucket-url "file://$WORK/store" --producer prod-eu >/dev/null 2>&1 &
 SERVE_PID=$!
 for _ in $(seq 1 50); do
   curl -fsS "http://localhost:$PORT/api/evidence/v1/health" >/dev/null 2>&1 && break

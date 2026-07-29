@@ -8,7 +8,6 @@ import (
 
 	"github.com/trianalab/pacto/v3/internal/fleetsrc"
 	"github.com/trianalab/pacto/v3/internal/k8sclient"
-	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
@@ -77,15 +76,10 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}
 	for i, dir := range opts.EvidenceStores {
 		id := sourceID("evidence-store", i, len(opts.EvidenceStores))
-		store, err := evidenceingest.NewFileStore(dir)
-		if err != nil {
-			// Consistent with the other sources, a store we cannot open becomes a
-			// failing source (surfaced as an unavailable-source limitation) rather
-			// than aborting the whole snapshot build.
-			sources = append(sources, fleet.NewFailingSource(id, "evidence-ingest", err))
-			continue
-		}
-		sources = append(sources, evidenceingest.NewSource(id, store))
+		// The durable source opens and recovers the bucket lazily in Collect, so an
+		// unopenable/unrecoverable store surfaces as an unavailable-source
+		// limitation (via a Collect error) rather than aborting the snapshot build.
+		sources = append(sources, newDurableEvidenceSource(id, dir))
 	}
 	if len(opts.OCIRefs) > 0 {
 		if s.BundleStore != nil {

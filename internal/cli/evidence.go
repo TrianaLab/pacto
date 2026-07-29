@@ -3,12 +3,14 @@ package cli
 import (
 	"fmt"
 	"net"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/pkg/evidencestore"
 )
 
 // newEvidenceCommand builds the `pacto evidence` command group: produce, verify,
@@ -38,17 +40,26 @@ func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
 		Short: "Run the evidence ingestion host",
 		Long: "Starts an HTTP host that accepts signed evidence envelopes at " +
 			"POST /api/evidence/v1/envelopes, verifies them against --trust, evaluates " +
-			"the carried evidence against its resolved contract and persists accepted " +
-			"records into --store-dir. GET /api/evidence/v1/health and /producers report " +
-			"liveness and the advertised producer ids. Serves until interrupted.",
+			"the carried evidence against its resolved contract and commits accepted " +
+			"records to the durable evidence store at --bucket-url. GET .../health is an " +
+			"always-200 liveness probe; .../ready reports 503 until the store has " +
+			"recovered; .../producers advertises trusted producer ids; .../targets " +
+			"exposes the latest accepted targets. Serves until interrupted.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := app.ServeOptions{}
-			opts.Port, _ = cmd.Flags().GetInt("port")
 			opts.TrustPath, _ = cmd.Flags().GetString("trust")
-			opts.StoreDir, _ = cmd.Flags().GetString("store-dir")
+			opts.BucketURL, _ = cmd.Flags().GetString("bucket-url")
+			opts.Prefix, _ = cmd.Flags().GetString("prefix")
 			opts.Producers, _ = cmd.Flags().GetStringArray("producer")
-			addr := fmt.Sprintf("127.0.0.1:%d", opts.Port)
+			if storeDir, _ := cmd.Flags().GetString("store-dir"); storeDir != "" {
+				// filepath.Abs only fails if the working directory is unreadable, which
+				// the CLI already assumes it is not; discard the unreachable error.
+				abs, _ := filepath.Abs(storeDir)
+				opts.BucketURL = "file://" + abs
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "warning: --store-dir is deprecated; use --bucket-url file://<dir>")
+			}
+			addr := listenAddress(cmd)
 			ln, err := net.Listen("tcp", addr)
 			if err != nil {
 				return err
@@ -57,13 +68,25 @@ func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
 			return svc.ServeEvidenceOnListener(cmd.Context(), ln, opts)
 		},
 	}
-	cmd.Flags().Int("port", 8686, "port to listen on")
+	cmd.Flags().Int("port", 8686, "port to listen on (127.0.0.1); superseded by --listen-address")
+	cmd.Flags().String("listen-address", "", "host:port to listen on (supersedes --port)")
 	cmd.Flags().String("trust", "", "trust store: a public-key file or a directory of <keyId>.pub files")
-	cmd.Flags().String("store-dir", "", "directory to persist accepted evidence records")
+	cmd.Flags().String("bucket-url", evidencestore.DefaultBucketURL, "durable evidence store bucket URL (file://, s3://, gs://, azblob://)")
+	cmd.Flags().String("prefix", app.DefaultEvidencePrefix, "key prefix within the evidence bucket")
+	cmd.Flags().String("store-dir", "", "DEPRECATED: directory for accepted records (use --bucket-url file://<dir>)")
 	cmd.Flags().StringArray("producer", nil, "advertised trusted producer id (repeatable)")
 	_ = cmd.MarkFlagRequired("trust")
-	_ = cmd.MarkFlagRequired("store-dir")
 	return cmd
+}
+
+// listenAddress resolves the serve bind address: --listen-address wins; else
+// 127.0.0.1:<port> keeps --port working.
+func listenAddress(cmd *cobra.Command) string {
+	if addr, _ := cmd.Flags().GetString("listen-address"); addr != "" {
+		return addr
+	}
+	port, _ := cmd.Flags().GetInt("port")
+	return fmt.Sprintf("127.0.0.1:%d", port)
 }
 
 func newEvidenceSendCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
