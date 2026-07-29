@@ -55,7 +55,6 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `evidence.storage.persistence.accessModes` | `null` | PVC access modes. ReadWriteOnce is correct for a single writer. |
 | `evidence.storage.persistence.enabled` | `true` | Provision a PVC for a file:// bucket. Set false for cloud buckets or when using an existing claim. |
 | `evidence.storage.persistence.existingClaim` | `""` | Use an externally-managed PVC instead of provisioning one. |
-| `evidence.storage.persistence.retain` | `true` | Retain the PVC on component disable and chart uninstall. Persistent evidence is never garbage-collected with the operator (the managed PVC carries no owner reference). |
 | `evidence.storage.persistence.size` | `1Gi` | Requested PVC size. |
 | `evidence.storage.persistence.storageClass` | `""` | StorageClass for the provisioned PVC. Empty uses the cluster default. |
 | `evidence.storage.prefix` | `pacto-evidence/v1` | Logical key prefix; every object is scoped below it, so installations can safely share one bucket via distinct prefixes. |

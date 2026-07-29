@@ -26,9 +26,6 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --evidence-trust-secret=my-keys
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: --evidence-retain=true
 
   - it: passes a cloud bucket url and existing claim
     template: templates/deployment.yaml

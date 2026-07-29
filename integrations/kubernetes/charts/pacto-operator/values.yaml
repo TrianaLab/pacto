@@ -185,10 +185,12 @@ evidence:
       # -- PVC access modes. ReadWriteOnce is correct for a single writer.
       accessModes:
         - ReadWriteOnce
-      # -- Retain the PVC on component disable and chart uninstall. Persistent
-      # evidence is never garbage-collected with the operator (the managed PVC
-      # carries no owner reference).
-      retain: true
+      # NOTE: the evidence PVC is ALWAYS retained on component disable and chart
+      # uninstall — it carries no owner reference and is never garbage-collected
+      # with the operator. To delete persisted evidence, remove the PVC manually
+      # (kubectl delete pvc pacto-evidence-data). There is deliberately no toggle:
+      # auto-deleting signed, accepted audit evidence would defeat the component,
+      # and it is unimplementable at uninstall (the operator is already gone).
   trust:
     # -- Name of an existing Secret of trusted producer public keys, mounted
     # read-only. Signature verification is mandatory, so this is required when

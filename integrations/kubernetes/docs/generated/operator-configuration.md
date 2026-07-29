@@ -32,7 +32,6 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-evidence-persistence-enabled` | `bool` | `true` | Provision a PVC for a file:// evidence bucket. Set false for cloud buckets or an externally-managed claim. |
 | `-evidence-persistence-size` | `string` | `1Gi` | Size of the provisioned PVC backing a file:// evidence bucket. |
 | `-evidence-prefix` | `string` | `pacto-evidence/v1` | Logical key prefix scoping every evidence object; installations can share a bucket via distinct prefixes. |
-| `-evidence-retain` | `bool` | `true` | Retain the evidence PVC on disable and uninstall. Persistent evidence is never garbage-collected with the operator. |
 | `-evidence-storage-class` | `string` |  | StorageClass for the provisioned evidence PVC. Empty uses the cluster default. |
 | `-evidence-trust-secret` | `string` |  | Name of a Secret of trusted producer public keys, mounted read-only. Required when the Evidence Server is enabled. |
 | `-health-probe-bind-address` | `string` | `:8081` | The address the probe endpoint binds to. |

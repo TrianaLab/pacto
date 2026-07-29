@@ -86,7 +86,7 @@ func main() {
 	var evidenceCPURequest, evidenceCPULimit string
 	var evidenceMemoryRequest, evidenceMemoryLimit string
 	var evidencePersistenceSize, evidenceExistingClaim, evidenceStorageClass string
-	var evidencePersistenceEnabled, evidenceRetain bool
+	var evidencePersistenceEnabled bool
 	var showVersion bool
 	var stabilizationWindow time.Duration
 	var enableMetricsObservation bool
@@ -155,8 +155,6 @@ func main() {
 		"StorageClass for the provisioned evidence PVC. Empty uses the cluster default.")
 	flag.BoolVar(&evidencePersistenceEnabled, "evidence-persistence-enabled", true,
 		"Provision a PVC for a file:// evidence bucket. Set false for cloud buckets or an externally-managed claim.")
-	flag.BoolVar(&evidenceRetain, "evidence-retain", true,
-		"Retain the evidence PVC on disable and uninstall. Persistent evidence is never garbage-collected with the operator.")
 	flag.BoolVar(&showVersion, "version", false, "Print version information and exit.")
 	flag.DurationVar(&stabilizationWindow, "stabilization-window", 2*time.Minute,
 		"The stabilization window duration for compliance assertions before they trigger a false condition. "+
@@ -406,7 +404,6 @@ func main() {
 			ExistingClaim: evidenceExistingClaim,
 			Size:          evidencePersistenceSize,
 			StorageClass:  evidenceStorageClass,
-			Retain:        evidenceRetain,
 		},
 		Resources: evidence.ResourcesConfig{
 			CPURequest:    evidenceCPURequest,

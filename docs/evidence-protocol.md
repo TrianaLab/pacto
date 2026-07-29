@@ -268,10 +268,11 @@ lifecycle.
 - **Outside Kubernetes** the same component runs via `pacto evidence serve` — see
   [evidence security and tooling](evidence-security.md#running-the-ingestion-endpoint).
 
-The PVC is retained on purpose. It carries no owner reference, so it survives
-disabling the component, chart upgrades and uninstall
-(`evidence.storage.persistence.retain`) — accepted evidence is not garbage
-collected with the operator.
+The PVC is retained on purpose and always: it carries no owner reference, so it
+survives disabling the component, chart upgrades and uninstall — accepted evidence
+is never garbage-collected with the operator. There is deliberately no delete
+toggle; to remove persisted evidence, delete the PVC manually
+(`kubectl delete pvc pacto-evidence-data`).
 
 ---
 

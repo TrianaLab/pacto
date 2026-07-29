@@ -69,8 +69,6 @@ type PersistenceConfig struct {
 	StorageClass string
 	// AccessModes default to [ReadWriteOnce] (single writer).
 	AccessModes []string
-	// Retain keeps the PVC on component disable and uninstall (default true).
-	Retain bool
 }
 
 // ClaimName returns the PVC name to mount: the existing claim when set, else the

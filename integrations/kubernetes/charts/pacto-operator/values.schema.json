@@ -357,9 +357,6 @@
                   "items": {
                     "type": "string"
                   }
-                },
-                "retain": {
-                  "type": "boolean"
                 }
               }
             }

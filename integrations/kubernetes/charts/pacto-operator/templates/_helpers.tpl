@@ -120,7 +120,6 @@ Controller arguments derived from values
 {{- if .Values.evidence.storage.persistence.storageClass }}
 - --evidence-storage-class={{ .Values.evidence.storage.persistence.storageClass }}
 {{- end }}
-- --evidence-retain={{ .Values.evidence.storage.persistence.retain }}
 {{- with .Values.evidence.resources }}
 {{- if .requests }}
 {{- if .requests.cpu }}

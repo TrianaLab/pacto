@@ -391,7 +391,6 @@ cosign verify \
 | evidence.storage.persistence.accessModes | list | `["ReadWriteOnce"]` | PVC access modes. ReadWriteOnce is correct for a single writer. |
 | evidence.storage.persistence.enabled | bool | `true` | Provision a PVC for a file:// bucket. Set false for cloud buckets or when using an existing claim. |
 | evidence.storage.persistence.existingClaim | string | `""` | Use an externally-managed PVC instead of provisioning one. |
-| evidence.storage.persistence.retain | bool | `true` | Retain the PVC on component disable and chart uninstall. Persistent evidence is never garbage-collected with the operator (the managed PVC carries no owner reference). |
 | evidence.storage.persistence.size | string | `"1Gi"` | Requested PVC size. |
 | evidence.storage.persistence.storageClass | string | `""` | StorageClass for the provisioned PVC. Empty uses the cluster default. |
 | evidence.storage.prefix | string | `"pacto-evidence/v1"` | Logical key prefix; every object is scoped below it, so installations can safely share one bucket via distinct prefixes. |
