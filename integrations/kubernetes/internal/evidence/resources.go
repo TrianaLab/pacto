@@ -42,6 +42,9 @@ const (
 	// TrustMountPath is where the trusted-producer-keys Secret is mounted.
 	TrustMountPath = "/etc/pacto/trust"
 
+	// DefaultPVCSize is the default requested size for a provisioned evidence PVC.
+	DefaultPVCSize = "1Gi"
+
 	volumeTrust = "trust"
 	volumeData  = "data"
 )

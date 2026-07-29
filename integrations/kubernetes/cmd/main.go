@@ -147,7 +147,7 @@ func main() {
 		"Memory request for the Evidence Server container. Empty uses the built-in default.")
 	flag.StringVar(&evidenceMemoryLimit, "evidence-memory-limit", "",
 		"Memory limit for the Evidence Server container. Empty uses the built-in default.")
-	flag.StringVar(&evidencePersistenceSize, "evidence-persistence-size", "1Gi",
+	flag.StringVar(&evidencePersistenceSize, "evidence-persistence-size", evidence.DefaultPVCSize,
 		"Size of the provisioned PVC backing a file:// evidence bucket.")
 	flag.StringVar(&evidenceExistingClaim, "evidence-existing-claim", "",
 		"Use an externally-managed PVC for the evidence bucket instead of provisioning one.")

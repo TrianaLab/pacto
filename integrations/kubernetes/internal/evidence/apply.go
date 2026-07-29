@@ -151,7 +151,7 @@ func pvcAC(cfg Config) runtime.ApplyConfiguration {
 	}
 	size := cfg.Persistence.Size
 	if size == "" {
-		size = "1Gi"
+		size = DefaultPVCSize
 	}
 	spec := corev1ac.PersistentVolumeClaimSpec().
 		WithAccessModes(accessModes...).

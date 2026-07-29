@@ -9,6 +9,7 @@ package evidence
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -180,10 +181,8 @@ func validatePrefix(prefix string) error {
 	if strings.HasPrefix(prefix, "/") {
 		return fmt.Errorf("evidence prefix %q must be relative, not absolute", prefix)
 	}
-	for _, part := range strings.Split(prefix, "/") {
-		if part == ".." {
-			return fmt.Errorf("evidence prefix %q must not contain parent traversal", prefix)
-		}
+	if slices.Contains(strings.Split(prefix, "/"), "..") {
+		return fmt.Errorf("evidence prefix %q must not contain parent traversal", prefix)
 	}
 	return nil
 }
