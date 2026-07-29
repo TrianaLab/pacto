@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -105,11 +106,19 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 // using the same fleet source flags as the fleet query. Extracted so the wiring
 // is directly testable. It resolves the old/new refs and builds the snapshot on
 // each call, so the tool always analyzes against fresh contract and graph state.
-func mcpImpactProvider(cmd *cobra.Command, svc *app.Service) func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+func mcpImpactProvider(cmd *cobra.Command, svc *app.Service) func(ctx context.Context, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error) {
 	fopts := fleetOptions(cmd)
-	return func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+	return func(ctx context.Context, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error) {
+		var traces []byte
+		if tracesPath != "" {
+			var err error
+			if traces, err = os.ReadFile(tracesPath); err != nil {
+				return nil, err
+			}
+			includeObserved = true
+		}
 		return svc.Impact(ctx, app.ImpactOptions{
-			OldPath: oldRef, NewPath: newRef, Fleet: fopts, IncludeObserved: includeObserved,
+			OldPath: oldRef, NewPath: newRef, Fleet: fopts, IncludeObserved: includeObserved, Traces: traces,
 		})
 	}
 }

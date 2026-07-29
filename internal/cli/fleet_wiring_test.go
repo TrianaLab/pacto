@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/internal/app"
@@ -47,8 +49,21 @@ func TestMCPImpactProvider(t *testing.T) {
 	cmd := newMCPCommand(svc, "v")
 	cmd.SetContext(context.Background())
 	provide := mcpImpactProvider(cmd, svc)
-	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", true); err == nil {
+	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", true, ""); err == nil {
 		t.Fatal("expected an error resolving nonexistent revisions")
+	}
+	// A nonexistent traces path is a read error before any resolution.
+	if _, err := provide(context.Background(), "/old", "/new", false, "/nonexistent/traces.json"); err == nil {
+		t.Fatal("expected a traces read error")
+	}
+	// A readable traces file is consumed (implying include-observed), then the
+	// nonexistent revisions make Impact fail — covering the read-success path.
+	tf := filepath.Join(t.TempDir(), "traces.json")
+	if err := os.WriteFile(tf, []byte(`{"resourceSpans":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", false, tf); err == nil {
+		t.Fatal("expected a resolution error after reading traces")
 	}
 }
 

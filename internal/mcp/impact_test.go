@@ -9,12 +9,31 @@ import (
 )
 
 // stubImpact returns a provider yielding res/err, recording the arguments it saw.
+// It records the observed flag in seen.IncludeObserved and the traces path in
+// seenTraces (when non-nil).
 func stubImpact(res *impact.Result, err error, seen *impact.Options) impactProvider {
-	return func(_ context.Context, _, _ string, includeObserved bool) (*impact.Result, error) {
+	return stubImpactTraces(res, err, seen, nil)
+}
+
+func stubImpactTraces(res *impact.Result, err error, seen *impact.Options, seenTraces *string) impactProvider {
+	return func(_ context.Context, _, _ string, includeObserved bool, tracesPath string) (*impact.Result, error) {
 		if seen != nil {
 			seen.IncludeObserved = includeObserved
 		}
+		if seenTraces != nil {
+			*seenTraces = tracesPath
+		}
 		return res, err
+	}
+}
+
+func TestImpactHandler_TracesReachProvider(t *testing.T) {
+	var seenTraces string
+	callHandler(t, impactHandler(stubImpactTraces(&impact.Result{}, nil, nil, &seenTraces)), map[string]any{
+		"old_ref": "a", "new_ref": "b", "traces": "/tmp/traces.json",
+	})
+	if seenTraces != "/tmp/traces.json" {
+		t.Errorf("traces path = %q, want /tmp/traces.json", seenTraces)
 	}
 }
 

@@ -12,7 +12,7 @@ import (
 // snapshot and analyzes the change's blast radius over it. It is supplied by the
 // command layer (from app.Service.Impact) so this package depends only on the
 // pure result type — never on OCI, Kubernetes or the app service.
-type impactProvider func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error)
+type impactProvider func(ctx context.Context, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error)
 
 func impactTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
@@ -25,13 +25,14 @@ func impactTool() *mcpsdk.Tool {
 			"old_ref":          {Type: "string", Description: "Old contract revision (local directory or oci:// ref)"},
 			"new_ref":          {Type: "string", Description: "New contract revision (local directory or oci:// ref)"},
 			"include_observed": {Type: "boolean", Description: "Let observed (runtime) relationships raise consumer confidence"},
+			"traces":           {Type: "string", Description: "Path to an OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies include_observed)"},
 		}, []string{"old_ref", "new_ref"}),
 	}
 }
 
 func impactHandler(provide impactProvider) mcpsdk.ToolHandler {
 	return func(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-		res, err := provide(ctx, parseInput(req, "old_ref"), parseInput(req, "new_ref"), parseInputBool(req, "include_observed"))
+		res, err := provide(ctx, parseInput(req, "old_ref"), parseInput(req, "new_ref"), parseInputBool(req, "include_observed"), parseInput(req, "traces"))
 		if err != nil {
 			return errorResult(err), nil
 		}
