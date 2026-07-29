@@ -161,19 +161,21 @@ Services are grouped by name across sources and merged using priority rules:
 				server.SetResolver(oci.NewResolver(svc.BundleStore))
 			}
 
-			// Enable the read-only operational-graph (fleet) endpoints from the
-			// same local bundle root the dashboard is viewing. The dashboard
-			// becomes a CONSUMER of the reusable fleet layer here rather than
-			// re-deriving graph, freshness and completeness semantics itself.
-			// A single snapshot Manager serves many requests from one coherent,
-			// atomically-refreshed snapshot instead of rebuilding per request.
-			if dir != "" {
+			// Enable the read-only operational-graph (fleet) endpoints from every
+			// source the dashboard detected — local bundles, OCI repos, the disk
+			// cache and the live cluster — so the operational graph reflects the
+			// whole fleet, not just the local root. The dashboard becomes a
+			// CONSUMER of the reusable fleet layer rather than re-deriving graph,
+			// freshness and completeness semantics itself. A single snapshot
+			// Manager serves many requests from one coherent, atomically-refreshed
+			// snapshot instead of rebuilding per request.
+			if fopts, ok := dashboardFleetOptions(dir, repos, namespace, detectResult); ok {
 				mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
-					return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
+					return svc.Fleet(ctx, fopts)
 				}, fleet.ManagerOptions{})
 				go mgr.Start(cmd.Context(), fleetRefreshInterval)
 				server.SetFleetProvider(managerFleetProvider(mgr))
-				server.SetImpactProvider(impactProviderForRoot(svc, dir))
+				server.SetImpactProvider(impactProviderForFleet(svc, fopts))
 			}
 
 			// Track OCI discovery state for progressive loading in the UI.
@@ -455,15 +457,41 @@ func managerFleetProvider(mgr *fleet.Manager) func(context.Context) (*fleet.Quer
 	}
 }
 
-// impactProviderForRoot returns an impact provider backing /api/fleet/impact. It
-// resolves the old/new refs and builds the fleet snapshot from the same local
-// bundle root the dashboard is viewing. Extracted so the wiring is testable.
-func impactProviderForRoot(svc *app.Service, dir string) func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+// impactProviderForFleet returns an impact provider backing /api/fleet/impact.
+// It resolves the old/new refs and builds the fleet snapshot from the same
+// sources the dashboard detected. Extracted so the wiring is testable.
+func impactProviderForFleet(svc *app.Service, fopts app.FleetOptions) func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 	return func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 		return svc.Impact(ctx, app.ImpactOptions{
 			OldPath: oldRef, NewPath: newRef,
-			Fleet:           app.FleetOptions{LocalRoots: []string{dir}},
+			Fleet:           fopts,
 			IncludeObserved: includeObserved,
 		})
 	}
+}
+
+// dashboardFleetOptions builds fleet source options from everything the
+// dashboard detected, so the operational-graph endpoints span the whole fleet.
+// The second return is false when no source is active (fleet stays disabled).
+func dashboardFleetOptions(dir string, repos []string, namespace string, dr *dashboard.DetectResult) (app.FleetOptions, bool) {
+	var fopts app.FleetOptions
+	ok := false
+	if dr.Local != nil && dir != "" {
+		fopts.LocalRoots = []string{dir}
+		ok = true
+	}
+	if dr.OCI != nil && len(repos) > 0 {
+		fopts.OCIRefs = repos
+		ok = true
+	}
+	if dr.Cache != nil {
+		fopts.IncludeCache = true
+		ok = true
+	}
+	if dr.K8s != nil {
+		fopts.IncludeK8s = true
+		fopts.K8sNamespace = namespace
+		ok = true
+	}
+	return fopts, ok
 }

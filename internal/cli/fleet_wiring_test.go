@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
@@ -51,13 +52,41 @@ func TestMCPImpactProvider(t *testing.T) {
 	}
 }
 
-// TestImpactProviderForRoot exercises the dashboard /api/fleet/impact provider
+// TestImpactProviderForFleet exercises the dashboard /api/fleet/impact provider
 // closure. A nonexistent old revision surfaces as an error.
-func TestImpactProviderForRoot(t *testing.T) {
+func TestImpactProviderForFleet(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	provide := impactProviderForRoot(svc, t.TempDir())
+	provide := impactProviderForFleet(svc, app.FleetOptions{LocalRoots: []string{t.TempDir()}})
 	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", false); err == nil {
 		t.Fatal("expected an error resolving nonexistent revisions")
+	}
+}
+
+// TestDashboardFleetOptions maps detected sources onto fleet options.
+func TestDashboardFleetOptions(t *testing.T) {
+	// No sources -> disabled.
+	if _, ok := dashboardFleetOptions("", nil, "", &dashboard.DetectResult{}); ok {
+		t.Error("expected fleet disabled with no sources")
+	}
+	// Every source active.
+	dr := &dashboard.DetectResult{
+		Local: &dashboard.LocalSource{},
+		OCI:   &dashboard.OCISource{},
+		Cache: &dashboard.CacheSource{},
+		K8s:   &dashboard.K8sSource{},
+	}
+	fopts, ok := dashboardFleetOptions("./svc", []string{"ghcr.io/x/a"}, "prod", dr)
+	if !ok {
+		t.Fatal("expected fleet enabled")
+	}
+	if len(fopts.LocalRoots) != 1 || fopts.LocalRoots[0] != "./svc" {
+		t.Errorf("LocalRoots = %v", fopts.LocalRoots)
+	}
+	if len(fopts.OCIRefs) != 1 || fopts.OCIRefs[0] != "ghcr.io/x/a" {
+		t.Errorf("OCIRefs = %v", fopts.OCIRefs)
+	}
+	if !fopts.IncludeCache || !fopts.IncludeK8s || fopts.K8sNamespace != "prod" {
+		t.Errorf("cache/k8s wiring wrong: %+v", fopts)
 	}
 }
 
