@@ -453,25 +453,26 @@ func hasLimitation(ls []Limitation, code string) bool {
 // -------------------- matchRevision / linkTargets --------------------
 
 func TestMatchRevision(t *testing.T) {
+	svcKey := NewServiceKey("svc")
 	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
-		"svc@d1":  {Key: "svc@d1", Service: "svc", Digest: "sha256:d1", ResolvedRef: "reg/svc@sha256:d1"},
-		"svc@r2":  {Key: "svc@r2", Service: "svc", ResolvedRef: "reg/svc:2.0"},
-		"other@x": {Key: "other@x", Service: "other", Digest: "sha256:zz"},
+		"svc@d1":  {Key: "svc@d1", Service: "svc", ServiceKey: svcKey, Digest: "sha256:d1", ResolvedRef: "reg/svc@sha256:d1"},
+		"svc@r2":  {Key: "svc@r2", Service: "svc", ServiceKey: svcKey, ResolvedRef: "reg/svc:2.0"},
+		"other@x": {Key: "other@x", Service: "other", ServiceKey: NewServiceKey("other"), Digest: "sha256:zz"},
 	}}
-	byDigest := matchRevision(snap, &TargetRecord{Service: "svc", Digest: "sha256:d1"})
+	byDigest := matchRevision(snap, &TargetRecord{Service: "svc", ServiceKey: svcKey, Digest: "sha256:d1"})
 	if byDigest != "svc@d1" {
 		t.Errorf("digest match = %q", byDigest)
 	}
-	byRef := matchRevision(snap, &TargetRecord{Service: "svc", ResolvedRef: "reg/svc:2.0"})
+	byRef := matchRevision(snap, &TargetRecord{Service: "svc", ServiceKey: svcKey, ResolvedRef: "reg/svc:2.0"})
 	if byRef != "svc@r2" {
 		t.Errorf("resolvedRef match = %q", byRef)
 	}
-	unlinked := matchRevision(snap, &TargetRecord{Service: "svc", Digest: "sha256:none", ResolvedRef: "nope"})
+	unlinked := matchRevision(snap, &TargetRecord{Service: "svc", ServiceKey: svcKey, Digest: "sha256:none", ResolvedRef: "nope"})
 	if unlinked != "" {
 		t.Errorf("no match should be empty, got %q", unlinked)
 	}
 	// service with no revisions in fleet.
-	if matchRevision(snap, &TargetRecord{Service: "ghost", Digest: "sha256:d1"}) != "" {
+	if matchRevision(snap, &TargetRecord{Service: "ghost", ServiceKey: NewServiceKey("ghost"), Digest: "sha256:d1"}) != "" {
 		t.Error("ghost service should not link")
 	}
 }
@@ -503,28 +504,128 @@ func TestResolveDepService(t *testing.T) {
 		NewServiceKey("payments"): {Name: "payments"},
 		NewServiceKey("redis"):    {Name: "redis"},
 	}}
-	if r, ok := resolveDepService(snap, contract.Dependency{Name: "payments"}); !ok || r != "payments" {
+	if r, ok := resolveDepService(snap, "", contract.Dependency{Name: "payments"}); !ok || r != "payments" {
 		t.Errorf("direct resolve = %q,%v", r, ok)
 	}
-	if r, ok := resolveDepService(snap, contract.Dependency{Name: "redis-pacto"}); !ok || r != "redis" {
+	if r, ok := resolveDepService(snap, "", contract.Dependency{Name: "redis-pacto"}); !ok || r != "redis" {
 		t.Errorf("-pacto strip resolve = %q,%v", r, ok)
 	}
-	if _, ok := resolveDepService(snap, contract.Dependency{Name: "ghost"}); ok {
+	if _, ok := resolveDepService(snap, "", contract.Dependency{Name: "ghost"}); ok {
 		t.Error("ghost should not resolve")
 	}
 	// "-pacto" strip that still does not resolve.
-	if _, ok := resolveDepService(snap, contract.Dependency{Name: "missing-pacto"}); ok {
+	if _, ok := resolveDepService(snap, "", contract.Dependency{Name: "missing-pacto"}); ok {
 		t.Error("stripped name absent → unresolved")
 	}
 }
 
 func TestResolveRefService(t *testing.T) {
 	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{NewServiceKey("cfg"): {Name: "cfg"}}}
-	if r, ok := resolveRefService(snap, contract.ReferenceRef{Name: "cfg"}); !ok || r != "cfg" {
+	if r, ok := resolveRefService(snap, "", contract.ReferenceRef{Name: "cfg"}); !ok || r != "cfg" {
 		t.Errorf("ref resolve = %q,%v", r, ok)
 	}
-	if _, ok := resolveRefService(snap, contract.ReferenceRef{Name: "nope"}); ok {
+	if _, ok := resolveRefService(snap, "", contract.ReferenceRef{Name: "nope"}); ok {
 		t.Error("unknown ref should not resolve")
+	}
+}
+
+func TestResolveDepService_Domain(t *testing.T) {
+	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{
+		NewServiceKeyDomain("east", "payments"): {Name: "payments", Domain: "east"},
+		NewServiceKeyDomain("east", "redis"):    {Name: "redis", Domain: "east"},
+		NewServiceKeyDomain("west", "billing"):  {Name: "billing", Domain: "west"},
+	}}
+	// A bare dependency ref resolves within the depending revision's own domain.
+	if r, ok := resolveDepService(snap, "east", contract.Dependency{Name: "payments"}); !ok || r != "payments" {
+		t.Errorf("same-domain resolve = %q,%v", r, ok)
+	}
+	// The "-pacto" bundle-name suffix is stripped, still within the domain.
+	if r, ok := resolveDepService(snap, "east", contract.Dependency{Name: "redis-pacto"}); !ok || r != "redis" {
+		t.Errorf("-pacto strip in domain = %q,%v", r, ok)
+	}
+	// A name present only in a different domain does not resolve.
+	if _, ok := resolveDepService(snap, "east", contract.Dependency{Name: "billing"}); ok {
+		t.Error("cross-domain dependency must not resolve")
+	}
+}
+
+func TestResolveRefService_Domain(t *testing.T) {
+	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{
+		NewServiceKeyDomain("east", "cfg"):  {Name: "cfg", Domain: "east"},
+		NewServiceKeyDomain("west", "cfg2"): {Name: "cfg2", Domain: "west"},
+	}}
+	if r, ok := resolveRefService(snap, "east", contract.ReferenceRef{Name: "cfg"}); !ok || r != "cfg" {
+		t.Errorf("same-domain ref resolve = %q,%v", r, ok)
+	}
+	// A reference whose name exists only in another domain does not resolve.
+	if _, ok := resolveRefService(snap, "east", contract.ReferenceRef{Name: "cfg2"}); ok {
+		t.Error("cross-domain reference must not resolve")
+	}
+}
+
+// -------------------- domain-qualified service identity --------------------
+
+func TestBuild_DistinctDomains_Revisions(t *testing.T) {
+	east := NewMemorySource("east", "oci", &Collection{Revisions: []RawRevision{
+		{Bundle: bundleFor(t, "shared"), Domain: "east", Digest: "sha256:east"},
+	}})
+	west := NewMemorySource("west", "oci", &Collection{Revisions: []RawRevision{
+		{Bundle: bundleFor(t, "shared"), Domain: "west", Digest: "sha256:west"},
+	}})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, east, west)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eastKey := NewServiceKeyDomain("east", "shared")
+	es, ws := snap.Services[eastKey], snap.Services[NewServiceKeyDomain("west", "shared")]
+	if es == nil || ws == nil {
+		t.Fatalf("both domain services must exist: east=%v west=%v", es, ws)
+	}
+	if es == ws {
+		t.Error("same-named services in different domains must not be merged")
+	}
+	if es.Domain != "east" || ws.Domain != "west" {
+		t.Errorf("service domains not set: %q %q", es.Domain, ws.Domain)
+	}
+	// The revision carries its domain and canonical service key from raw.Domain.
+	rev := snap.Revisions["shared@sha256:east"]
+	if rev == nil || rev.Domain != "east" || rev.ServiceKey != eastKey {
+		t.Errorf("revision domain/key not derived from raw.Domain: %+v", rev)
+	}
+}
+
+func TestBuild_DistinctDomains_Targets(t *testing.T) {
+	src := NewMemorySource("s", "oci", &Collection{Targets: []RawTarget{
+		{Scope: "prod", Kind: "k8s", Name: "a", Service: "svc", Domain: "east"},
+		{Scope: "prod", Kind: "k8s", Name: "b", Service: "svc", Domain: "west"},
+	}})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	es := snap.Services[NewServiceKeyDomain("east", "svc")]
+	ws := snap.Services[NewServiceKeyDomain("west", "svc")]
+	if es == nil || ws == nil || es == ws {
+		t.Fatalf("targets in distinct domains must yield distinct services: east=%v west=%v", es, ws)
+	}
+	tgt := snap.Targets[NewTargetKey("prod", "k8s", "a")]
+	if tgt.Domain != "east" || tgt.ServiceKey != NewServiceKeyDomain("east", "svc") {
+		t.Errorf("target domain/key not derived from raw.Domain: %+v", tgt)
+	}
+}
+
+func TestMatchRevision_DomainDiscriminates(t *testing.T) {
+	eastKey := NewServiceKeyDomain("east", "shared")
+	westKey := NewServiceKeyDomain("west", "shared")
+	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
+		"east": {Key: "east", Service: "shared", ServiceKey: eastKey, Version: "1.0.0"},
+		"west": {Key: "west", Service: "shared", ServiceKey: westKey, Version: "1.0.0"},
+	}}
+	// Same name and version in both domains; only the ServiceKey differs. A target
+	// in the east domain must link to east's revision, never west's.
+	tgt := &TargetRecord{Service: "shared", ServiceKey: eastKey, ResolvedRef: "reg/shared:1.0.0"}
+	if got := matchRevision(snap, tgt); got != "east" {
+		t.Errorf("target linked to %q, want east (ServiceKey must discriminate)", got)
 	}
 }
 

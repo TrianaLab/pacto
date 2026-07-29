@@ -52,8 +52,43 @@ type RevisionKey string
 // TargetKey is the stable identity of an operational target: scope/kind/name.
 type TargetKey string
 
-// NewServiceKey returns the logical service key for a service name.
-func NewServiceKey(name string) ServiceKey { return ServiceKey(name) }
+// NewServiceKey returns the canonical key for a service in the default (empty)
+// domain — the ergonomic single-domain case. It is exactly
+// NewServiceKeyDomain("", name).
+func NewServiceKey(name string) ServiceKey {
+	return NewServiceKeyDomain("", name)
+}
+
+// NewServiceKeyDomain returns the canonical logical-service key for a
+// (domain, name) pair. A logical service is identified by BOTH a domain (the
+// registry, org or platform scope it belongs to) and its name, so the same name
+// in two different domains is never silently merged. The default (empty) domain
+// encodes to just the escaped name (ergonomic); a non-empty domain encodes as
+// "domain/name" with each component escaped, so the single unescaped "/" is
+// always the domain separator and the key round-trips through [ParseServiceKey].
+func NewServiceKeyDomain(domain, name string) ServiceKey {
+	if domain == "" {
+		return ServiceKey(escapeKeyPart(name))
+	}
+	return ServiceKey(escapeKeyPart(domain) + "/" + escapeKeyPart(name))
+}
+
+// ParseServiceKey decodes a service key back into its domain and name. A key with
+// no unescaped "/" is a default-domain (empty domain) key.
+func ParseServiceKey(k ServiceKey) (domain, name string) {
+	s := string(k)
+	if i := indexUnescapedSlash(s); i >= 0 {
+		return unescapeKeyPart(s[:i]), unescapeKeyPart(s[i+1:])
+	}
+	return "", unescapeKeyPart(s)
+}
+
+// indexUnescapedSlash returns the index of the first "/" (component escaping
+// guarantees any real "/" in a component was encoded as %2F, so the first raw
+// "/" is the domain separator), or -1.
+func indexUnescapedSlash(s string) int {
+	return strings.IndexByte(s, '/')
+}
 
 // NewRevisionKey builds a revision key from a service and the most immutable
 // identity available (digest > resolvedRef > version).
@@ -245,6 +280,7 @@ type Coverage struct {
 // when the derivation is unambiguous.
 type ServiceRecord struct {
 	Key       ServiceKey        `json:"key"`
+	Domain    string            `json:"domain,omitempty"`
 	Name      string            `json:"name"`
 	Owner     contract.Owner    `json:"owner,omitempty"`
 	Revisions []RevisionKey     `json:"revisions,omitempty"`
@@ -261,6 +297,7 @@ type ServiceRecord struct {
 type ContractRevision struct {
 	Key          RevisionKey        `json:"key"`
 	Service      string             `json:"service"`
+	Domain       string             `json:"domain,omitempty"`
 	ServiceKey   ServiceKey         `json:"serviceKey"`
 	PactoVersion string             `json:"pactoVersion,omitempty"`
 	Version      string             `json:"version,omitempty"`
@@ -300,6 +337,7 @@ type TargetRecord struct {
 	Name             string            `json:"name"`
 	Labels           map[string]string `json:"labels,omitempty"`
 	Service          string            `json:"service"`
+	Domain           string            `json:"domain,omitempty"`
 	ServiceKey       ServiceKey        `json:"serviceKey"`
 	ContractRevision RevisionKey       `json:"contractRevision,omitempty"`
 	RequestedRef     string            `json:"requestedRef,omitempty"`

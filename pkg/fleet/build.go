@@ -416,7 +416,8 @@ func revisionFrom(raw RawRevision, source string, now time.Time) *ContractRevisi
 	rev := &ContractRevision{
 		Key:          NewRevisionKey(c.Service.Name, raw.Digest, raw.ResolvedRef, c.Service.Version),
 		Service:      c.Service.Name,
-		ServiceKey:   NewServiceKey(c.Service.Name),
+		Domain:       raw.Domain,
+		ServiceKey:   NewServiceKeyDomain(raw.Domain, c.Service.Name),
 		PactoVersion: c.PactoVersion,
 		Version:      c.Service.Version,
 		RequestedRef: raw.RequestedRef,
@@ -565,7 +566,8 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		Name:            raw.Name,
 		Labels:          cloneStringMap(raw.Labels),
 		Service:         raw.Service,
-		ServiceKey:      NewServiceKey(raw.Service),
+		Domain:          raw.Domain,
+		ServiceKey:      NewServiceKeyDomain(raw.Domain, raw.Service),
 		RequestedRef:    raw.RequestedRef,
 		ResolvedRef:     raw.ResolvedRef,
 		Digest:          raw.Digest,
@@ -607,7 +609,7 @@ func linkTargets(snap *FleetSnapshot) {
 func matchRevision(snap *FleetSnapshot, t *TargetRecord) RevisionKey {
 	// Prefer immutable digest, then resolved ref, then service+version.
 	for _, rev := range snap.Revisions {
-		if rev.Service != t.Service {
+		if rev.ServiceKey != t.ServiceKey {
 			continue
 		}
 		if t.Digest != "" && rev.Digest == t.Digest {
@@ -615,7 +617,7 @@ func matchRevision(snap *FleetSnapshot, t *TargetRecord) RevisionKey {
 		}
 	}
 	for _, rev := range snap.Revisions {
-		if rev.Service == t.Service && t.ResolvedRef != "" && rev.ResolvedRef == t.ResolvedRef {
+		if rev.ServiceKey == t.ServiceKey && t.ResolvedRef != "" && rev.ResolvedRef == t.ResolvedRef {
 			return rev.Key
 		}
 	}
@@ -623,7 +625,7 @@ func matchRevision(snap *FleetSnapshot, t *TargetRecord) RevisionKey {
 	// version (e.g. "…/orders-service:2.0.0" links the 2.0.0 revision). This
 	// links an OCI-referenced target to a local revision of the same version.
 	for _, rev := range snap.Revisions {
-		if rev.Service == t.Service && rev.Version != "" &&
+		if rev.ServiceKey == t.ServiceKey && rev.Version != "" &&
 			(strings.HasSuffix(t.ResolvedRef, ":"+rev.Version) || strings.HasSuffix(t.ResolvedRef, "@"+rev.Version)) {
 			return rev.Key
 		}
@@ -635,14 +637,14 @@ func matchRevision(snap *FleetSnapshot, t *TargetRecord) RevisionKey {
 // then derives each service's deterministic owner summary and aggregate status.
 func aggregateServices(snap *FleetSnapshot) {
 	for key, rev := range snap.Revisions {
-		s := ensureService(snap, rev.Service)
+		s := ensureService(snap, rev.Domain, rev.Service)
 		s.Revisions = append(s.Revisions, key)
 		for _, src := range rev.Sources {
 			s.Sources = appendUnique(s.Sources, src)
 		}
 	}
 	for key, t := range snap.Targets {
-		s := ensureService(snap, t.Service)
+		s := ensureService(snap, t.Domain, t.Service)
 		s.Targets = append(s.Targets, key)
 		for _, src := range t.Sources {
 			s.Sources = appendUnique(s.Sources, src)
@@ -697,11 +699,11 @@ func ownerSeen(seen []contract.Owner, o contract.Owner) bool {
 	return false
 }
 
-func ensureService(snap *FleetSnapshot, name string) *ServiceRecord {
-	key := NewServiceKey(name)
+func ensureService(snap *FleetSnapshot, domain, name string) *ServiceRecord {
+	key := NewServiceKeyDomain(domain, name)
 	s := snap.Services[key]
 	if s == nil {
-		s = &ServiceRecord{Key: key, Name: name}
+		s = &ServiceRecord{Key: key, Domain: domain, Name: name}
 		snap.Services[key] = s
 	}
 	return s
@@ -792,7 +794,7 @@ func buildRelationships(snap *FleetSnapshot) {
 func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRevision) []Relationship {
 	var out []Relationship
 	for _, dep := range rev.Contract.Dependencies {
-		toSvc, ok := resolveDepService(snap, dep)
+		toSvc, ok := resolveDepService(snap, rev.Domain, dep)
 		rel := Relationship{
 			FromService: rev.Service, FromRevision: rk, To: dep.Name,
 			Type: RelationshipDependency, Provenance: ProvenanceDeclared,
@@ -823,7 +825,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRevision) []Relationship {
 	var out []Relationship
 	for _, ref := range rev.Contract.ReferenceRefs() {
-		toSvc, ok := resolveRefService(snap, ref)
+		toSvc, ok := resolveRefService(snap, rev.Domain, ref)
 		typ := RelationshipConfigRef
 		if ref.Kind == contract.ReferenceKindPolicy {
 			typ = RelationshipPolicyRef
@@ -855,25 +857,27 @@ func resolveDepRevision(snap *FleetSnapshot, toSvc, lockedDigest string) Revisio
 	return ""
 }
 
-// resolveDepService resolves a dependency to a logical service in the fleet by
-// name, tolerating a "-pacto" bundle-name suffix.
-func resolveDepService(snap *FleetSnapshot, dep contract.Dependency) (string, bool) {
-	if _, ok := snap.Services[NewServiceKey(dep.Name)]; ok {
-		return dep.Name, true
+// resolveDepService resolves a dependency to a logical service, preferring the
+// depending revision's own domain (a bare dependency ref carries no domain, so it
+// resolves within the same domain), tolerating a "-pacto" bundle-name suffix.
+func resolveDepService(snap *FleetSnapshot, fromDomain string, dep contract.Dependency) (string, bool) {
+	if s := snap.Services[NewServiceKeyDomain(fromDomain, dep.Name)]; s != nil {
+		return s.Name, true
 	}
 	stripped := strings.TrimSuffix(dep.Name, "-pacto")
 	if stripped != dep.Name {
-		if _, ok := snap.Services[NewServiceKey(stripped)]; ok {
-			return stripped, true
+		if s := snap.Services[NewServiceKeyDomain(fromDomain, stripped)]; s != nil {
+			return s.Name, true
 		}
 	}
 	return "", false
 }
 
-// resolveRefService resolves a config/policy reference to a service by name.
-func resolveRefService(snap *FleetSnapshot, ref contract.ReferenceRef) (string, bool) {
-	if _, ok := snap.Services[NewServiceKey(ref.Name)]; ok {
-		return ref.Name, true
+// resolveRefService resolves a config/policy reference to a service in the
+// referencing revision's domain.
+func resolveRefService(snap *FleetSnapshot, fromDomain string, ref contract.ReferenceRef) (string, bool) {
+	if s := snap.Services[NewServiceKeyDomain(fromDomain, ref.Name)]; s != nil {
+		return s.Name, true
 	}
 	return "", false
 }

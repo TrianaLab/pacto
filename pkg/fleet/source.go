@@ -52,7 +52,12 @@ type Collection struct {
 // contract revision. Bundle carries the parsed contract and its FS; the
 // resolved identity (requestedRef → resolvedRef + digest) is preserved.
 type RawRevision struct {
-	Bundle       *contract.Bundle
+	Bundle *contract.Bundle
+	// Domain is the logical-service domain (registry/org/platform scope) this
+	// revision belongs to. Empty means the default domain. It comes from the
+	// source, not the contract, so the same service name in two registries or
+	// organizations stays distinct.
+	Domain       string
 	RequestedRef string
 	ResolvedRef  string
 	Digest       string
@@ -67,6 +72,7 @@ type RawTarget struct {
 	Name            string
 	Labels          map[string]string
 	Service         string
+	Domain          string
 	RequestedRef    string
 	ResolvedRef     string
 	Digest          string

@@ -82,6 +82,90 @@ func queryFleet(t *testing.T) *Query {
 	return NewQuery(snap)
 }
 
+// twoDomainSnap builds a fleet with the SAME service name "shared" in two
+// domains plus a domain-unique "eastonly", to exercise domain-qualified identity
+// and Query.resolveService.
+func twoDomainSnap(t *testing.T) *FleetSnapshot {
+	t.Helper()
+	east := NewMemorySource("east", "oci", &Collection{Revisions: []RawRevision{
+		{Bundle: bundleFor(t, "shared"), Domain: "east", Digest: "sha256:east-shared"},
+		{Bundle: bundleFor(t, "eastonly"), Domain: "east", Digest: "sha256:east-only"},
+	}})
+	west := NewMemorySource("west", "oci", &Collection{Revisions: []RawRevision{
+		{Bundle: bundleFor(t, "shared"), Domain: "west", Digest: "sha256:west-shared"},
+	}})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, east, west)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap
+}
+
+// -------------------- domain-qualified resolveService --------------------
+
+func TestDomainResolveService_GetService(t *testing.T) {
+	q := NewQuery(twoDomainSnap(t))
+	// A qualified "domain/name" key resolves the exact domained service.
+	east, err := q.GetService("east/shared")
+	if err != nil {
+		t.Fatalf("qualified: %v", err)
+	}
+	if east.Service.Domain != "east" || east.Service.Key != NewServiceKeyDomain("east", "shared") {
+		t.Errorf("qualified resolved wrong service: %+v", east.Service)
+	}
+	// A bare name unique across domains resolves (non-default key, matched by name).
+	if only, err := q.GetService("eastonly"); err != nil || only.Service.Domain != "east" {
+		t.Errorf("bare-unique resolve: svc=%+v err=%v", only, err)
+	}
+	// An absent name is a NotFoundError.
+	if _, err := q.GetService("ghost"); err == nil {
+		t.Fatal("expected NotFoundError")
+	} else if _, ok := err.(*NotFoundError); !ok {
+		t.Errorf("want NotFoundError, got %T", err)
+	}
+}
+
+func TestDomainResolveService_Ambiguous(t *testing.T) {
+	q := NewQuery(twoDomainSnap(t))
+	assertAmbiguous := func(who string, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatalf("%s: expected AmbiguousError", who)
+		}
+		ae, ok := err.(*AmbiguousError)
+		if !ok {
+			t.Fatalf("%s: want AmbiguousError, got %T", who, err)
+		}
+		// Matches are the sorted qualified keys of every domain the name lives in.
+		if len(ae.Matches) != 2 || ae.Matches[0] != "east/shared" || ae.Matches[1] != "west/shared" {
+			t.Errorf("%s: matches = %v, want [east/shared west/shared]", who, ae.Matches)
+		}
+	}
+	_, gsErr := q.GetService("shared")
+	assertAmbiguous("GetService", gsErr)
+	_, gErr := q.Graph(GraphQuery{Service: "shared"})
+	assertAmbiguous("Graph", gErr)
+	_, eErr := q.Explain("shared")
+	assertAmbiguous("Explain", eErr)
+}
+
+func TestDomainSearch_SameNameAcrossDomains(t *testing.T) {
+	q := NewQuery(twoDomainSnap(t))
+	res, err := q.Search(SearchFilter{Text: "shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Total != 2 {
+		t.Fatalf("Total = %d, want 2 (both domains appear)", res.Total)
+	}
+	// Deterministic order by service key: east/shared before west/shared.
+	if len(res.Services) != 2 ||
+		!containsStr(res.Services[0].Sources, "east") ||
+		!containsStr(res.Services[1].Sources, "west") {
+		t.Errorf("results not deterministically ordered by key: %+v", res.Services)
+	}
+}
+
 // -------------------- NewQuery / meta / Snapshot --------------------
 
 func TestQueryMetaAndSnapshot(t *testing.T) {

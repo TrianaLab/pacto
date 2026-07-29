@@ -8,6 +8,42 @@ func TestNewServiceKey(t *testing.T) {
 	}
 }
 
+func TestNewServiceKeyDomain(t *testing.T) {
+	if got := NewServiceKeyDomain("", "payments"); got != ServiceKey("payments") {
+		t.Errorf("empty domain = %q, want payments", got)
+	}
+	if got := NewServiceKeyDomain("east", "payments"); got != ServiceKey("east/payments") {
+		t.Errorf("non-empty domain = %q, want east/payments", got)
+	}
+	// The ergonomic NewServiceKey is exactly the empty-domain form.
+	if NewServiceKey("payments") != NewServiceKeyDomain("", "payments") {
+		t.Error("NewServiceKey must equal NewServiceKeyDomain with an empty domain")
+	}
+}
+
+// TestParseServiceKey_RoundTrip asserts NewServiceKeyDomain and ParseServiceKey
+// are inverse — including a domain and a name that each carry "/" and "%", the
+// characters that could otherwise forge or blur the domain separator. It also
+// exercises the no-domain path of indexUnescapedSlash.
+func TestParseServiceKey_RoundTrip(t *testing.T) {
+	cases := []struct{ domain, name string }{
+		{"", "plain"},
+		{"east", "payments"},
+		{"a/b%c", "x/y%z"}, // both components carry "/" and "%"
+		{"", "n/m%k"},      // default domain, name carrying "/" and "%"
+	}
+	for _, c := range cases {
+		key := NewServiceKeyDomain(c.domain, c.name)
+		d, n := ParseServiceKey(key)
+		if d != c.domain || n != c.name {
+			t.Errorf("round-trip %q → (%q,%q), want (%q,%q)", key, d, n, c.domain, c.name)
+		}
+		if NewServiceKey(c.name) != NewServiceKeyDomain("", c.name) {
+			t.Errorf("NewServiceKey(%q) must equal NewServiceKeyDomain(\"\", …)", c.name)
+		}
+	}
+}
+
 func TestNewRevisionKey(t *testing.T) {
 	tests := []struct {
 		name                             string

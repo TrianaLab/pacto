@@ -26,6 +26,37 @@ type Query struct {
 // NewQuery wraps a snapshot in a query view.
 func NewQuery(s *FleetSnapshot) *Query { return &Query{snap: s} }
 
+// resolveService resolves a user-supplied identifier to exactly one service.
+// An exact canonical key (qualified "domain/name" or a bare default-domain name)
+// wins; otherwise a bare name that matches exactly one service across all domains
+// resolves; a bare name matching services in multiple domains returns an
+// [AmbiguousError] listing the qualified keys, so unrelated same-named services
+// are never silently conflated.
+func (q *Query) resolveService(identifier string) (*ServiceRecord, error) {
+	if s := q.snap.Services[ServiceKey(identifier)]; s != nil {
+		return s, nil
+	}
+	var matches []*ServiceRecord
+	for _, s := range q.snap.Services {
+		if s.Name == identifier {
+			matches = append(matches, s)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return nil, &NotFoundError{Kind: "service", ID: identifier}
+	case 1:
+		return matches[0], nil
+	default:
+		keys := make([]string, len(matches))
+		for i, m := range matches {
+			keys[i] = string(m.Key)
+		}
+		sort.Strings(keys)
+		return nil, &AmbiguousError{Kind: "service", ID: identifier, Matches: keys}
+	}
+}
+
 // Snapshot returns a deep copy of the snapshot for serialization. It never
 // returns the internal snapshot pointer, so a caller cannot mutate shared state;
 // the copy carries data only (its private query indexes are not rebuilt, so it
@@ -141,11 +172,11 @@ func (q *Query) Search(f SearchFilter) (*SearchResult, error) {
 	if limit > MaxSearchLimit {
 		limit = MaxSearchLimit
 	}
-	names := q.sortedServiceNames()
+	keys := q.sortedServiceKeys()
 
 	res := &SearchResult{Meta: q.meta(), Services: []ServiceHit{}}
-	for _, name := range names {
-		s := q.snap.Services[NewServiceKey(name)]
+	for _, key := range keys {
+		s := q.snap.Services[key]
 		if !q.serviceMatches(s, f) {
 			continue
 		}
@@ -176,13 +207,15 @@ func validateSearchFilter(f SearchFilter) error {
 	return nil
 }
 
-func (q *Query) sortedServiceNames() []string {
-	names := make([]string, 0, len(q.snap.Services))
-	for _, s := range q.snap.Services {
-		names = append(names, s.Name)
+// sortedServiceKeys returns all logical-service keys in deterministic order, so
+// search is stable and includes every domain (not just the default one).
+func (q *Query) sortedServiceKeys() []ServiceKey {
+	keys := make([]ServiceKey, 0, len(q.snap.Services))
+	for k := range q.snap.Services {
+		keys = append(keys, k)
 	}
-	sort.Strings(names)
-	return names
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	return keys
 }
 
 func hitFromService(s *ServiceRecord) ServiceHit {
@@ -373,9 +406,9 @@ type ServiceView struct {
 // dependency edges (across all revisions), its dependents, and per-revision tools
 // and skills. It returns a [NotFoundError] when the service is absent.
 func (q *Query) GetService(name string) (*ServiceView, error) {
-	s := q.snap.Services[NewServiceKey(name)]
-	if s == nil {
-		return nil, &NotFoundError{Kind: "service", ID: name}
+	s, err := q.resolveService(name)
+	if err != nil {
+		return nil, err
 	}
 	view := &ServiceView{Meta: q.meta(), Service: cloneService(s), Dependencies: []Relationship{}}
 	for _, rk := range s.Revisions {
@@ -392,11 +425,11 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.FromService == name && rel.Type == RelationshipDependency {
+		if rel.FromService == s.Name && rel.Type == RelationshipDependency {
 			view.Dependencies = append(view.Dependencies, rel)
 		}
 	}
-	view.Dependents = append([]string(nil), q.snap.reverseDeps[name]...)
+	view.Dependents = append([]string(nil), q.snap.reverseDeps[s.Name]...)
 	return view, nil
 }
 
@@ -588,11 +621,11 @@ func (q *Query) resolveGraphScope(gq GraphQuery) (rootSvc string, scopeRev Revis
 		}
 		return rev.Service, gq.Revision, false, nil
 	default:
-		s := q.snap.Services[NewServiceKey(gq.Service)]
-		if s == nil {
-			return "", "", false, &NotFoundError{Kind: "service", ID: gq.Service}
+		s, err := q.resolveService(gq.Service)
+		if err != nil {
+			return "", "", false, err
 		}
-		return gq.Service, "", len(s.Revisions) > 1, nil
+		return s.Name, "", len(s.Revisions) > 1, nil
 	}
 }
 
@@ -749,8 +782,12 @@ type ExplainResult struct {
 // resolved as a service name first, then a target key/name. It never asserts
 // absence or compliance beyond the observed evidence.
 func (q *Query) Explain(subject string) (*ExplainResult, error) {
-	if s := q.snap.Services[NewServiceKey(subject)]; s != nil {
+	s, serr := q.resolveService(subject)
+	if serr == nil {
 		return q.explainService(s), nil
+	}
+	if _, amb := serr.(*AmbiguousError); amb {
+		return nil, serr
 	}
 	tv, err := q.GetTarget(subject)
 	if err != nil {
