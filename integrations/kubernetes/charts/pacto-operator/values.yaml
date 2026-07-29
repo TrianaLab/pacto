@@ -157,6 +157,86 @@ dashboard:
     # routes all traffic to the chart-managed dashboard Service on dashboard.service.port.
     rules: []
 
+evidence:
+  # -- Enable the operator-managed Evidence Server deployment. Disabled by
+  # default. When enabled the operator reconciles a SEPARATE Evidence Server
+  # Deployment and an internal Service; the image is the same runtime image as
+  # the dashboard and is not user-configurable. The Evidence Server is single-
+  # writer, so its replica count is fixed at one.
+  enabled: false
+  storage:
+    # -- Durable evidence bucket URL. The default file:// needs no external
+    # infrastructure (just the PVC below); s3://, gs:// and azblob:// use cloud
+    # storage with the same evidence logic.
+    bucketURL: file:///var/lib/pacto/evidence
+    # -- Logical key prefix; every object is scoped below it, so installations
+    # can safely share one bucket via distinct prefixes.
+    prefix: pacto-evidence/v1
+    persistence:
+      # -- Provision a PVC for a file:// bucket. Set false for cloud buckets or
+      # when using an existing claim.
+      enabled: true
+      # -- Use an externally-managed PVC instead of provisioning one.
+      existingClaim: ""
+      # -- Requested PVC size.
+      size: 1Gi
+      # -- StorageClass for the provisioned PVC. Empty uses the cluster default.
+      storageClass: ""
+      # -- PVC access modes. ReadWriteOnce is correct for a single writer.
+      accessModes:
+        - ReadWriteOnce
+      # -- Retain the PVC on component disable and chart uninstall. Persistent
+      # evidence is never garbage-collected with the operator (the managed PVC
+      # carries no owner reference).
+      retain: true
+  trust:
+    # -- Name of an existing Secret of trusted producer public keys, mounted
+    # read-only. Signature verification is mandatory, so this is required when
+    # evidence is enabled.
+    existingSecret: ""
+  service:
+    # -- Evidence exposure Service type (ClusterIP, NodePort, LoadBalancer). The
+    # operator manages an internal ClusterIP Service (pacto-evidence) for
+    # in-cluster access; this chart-managed Service provides optional external
+    # access and backs any Ingress/HTTPRoute.
+    type: ClusterIP
+    # -- Evidence service port.
+    port: 8686
+    # -- Node port (only used when type is NodePort).
+    nodePort: ""
+  ingress:
+    # -- Enable Ingress for the Evidence Server.
+    enabled: false
+    # -- Ingress class name.
+    className: ""
+    # -- Ingress annotations.
+    annotations: {}
+    # -- Ingress hosts.
+    hosts:
+      - host: pacto-evidence.local
+        paths:
+          - path: /
+            pathType: Prefix
+    # -- Ingress TLS configuration.
+    tls: []
+  httpRoute:
+    # -- Enable Gateway API HTTPRoute for the Evidence Server.
+    enabled: false
+    # -- Parent gateway references.
+    parentRefs: []
+    # -- Hostnames for the HTTPRoute.
+    hostnames: []
+    # -- HTTPRoute rules. When empty, a single catch-all rule routes to the
+    # chart-managed evidence Service on evidence.service.port.
+    rules: []
+  # -- Resource requests and limits for the Evidence Server container.
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
 # -- Node selector for the controller pod
 nodeSelector: {}
 # -- Tolerations for the controller pod

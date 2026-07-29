@@ -70,6 +70,9 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	if cfg.WatchNamespace != "" {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_WATCH_NAMESPACE").WithValue(cfg.WatchNamespace))
 	}
+	if cfg.EvidenceSourceURL != "" {
+		env = append(env, corev1ac.EnvVar().WithName("PACTO_EVIDENCE_SOURCE_URL").WithValue(cfg.EvidenceSourceURL))
+	}
 
 	volumeMounts := []*corev1ac.VolumeMountApplyConfiguration{
 		corev1ac.VolumeMount().WithName("cache").WithMountPath("/home/pacto/.cache/pacto"),

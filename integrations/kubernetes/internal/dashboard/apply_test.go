@@ -126,6 +126,45 @@ func TestDeploymentAC_WithOCISecrets(t *testing.T) {
 	}
 }
 
+func TestDeploymentAC_WithEvidenceSourceURL(t *testing.T) {
+	cfg := Config{
+		Enabled:           true,
+		Image:             "img:v1",
+		Namespace:         "test-ns",
+		EvidenceSourceURL: "http://pacto-evidence.test-ns.svc:8686",
+	}
+	ac := deploymentAC(cfg)
+	deploy, ok := ac.(*appsv1ac.DeploymentApplyConfiguration)
+	if !ok {
+		t.Fatalf("expected *DeploymentApplyConfiguration, got %T", ac)
+	}
+	container := deploy.Spec.Template.Spec.Containers[0]
+	var found bool
+	for _, env := range container.Env {
+		if *env.Name == "PACTO_EVIDENCE_SOURCE_URL" {
+			found = true
+			if *env.Value != cfg.EvidenceSourceURL {
+				t.Errorf("expected PACTO_EVIDENCE_SOURCE_URL=%q, got %q", cfg.EvidenceSourceURL, *env.Value)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected PACTO_EVIDENCE_SOURCE_URL env var when EvidenceSourceURL is set")
+	}
+}
+
+func TestDeploymentAC_WithoutEvidenceSourceURL(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
+	ac := deploymentAC(cfg)
+	deploy := ac.(*appsv1ac.DeploymentApplyConfiguration)
+	container := deploy.Spec.Template.Spec.Containers[0]
+	for _, env := range container.Env {
+		if *env.Name == "PACTO_EVIDENCE_SOURCE_URL" {
+			t.Error("unexpected PACTO_EVIDENCE_SOURCE_URL env var when EvidenceSourceURL is empty")
+		}
+	}
+}
+
 func TestServiceAC_WithOwnerRef(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,

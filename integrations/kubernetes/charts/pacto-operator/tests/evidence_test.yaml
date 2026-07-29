@@ -1,0 +1,136 @@
+suite: evidence server tests
+tests:
+  # --- operator args wiring ---
+  - it: does not pass evidence flags when evidence is disabled (default)
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-evidence-server
+
+  - it: passes the evidence flags when enabled
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-evidence-server
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-bucket-url=file:///var/lib/pacto/evidence
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-prefix=pacto-evidence/v1
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-trust-secret=my-keys
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-retain=true
+
+  - it: passes a cloud bucket url and existing claim
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.storage.bucketURL: s3://my-bucket
+      evidence.storage.persistence.existingClaim: my-claim
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-bucket-url=s3://my-bucket
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-existing-claim=my-claim
+
+  # --- RBAC ---
+  - it: grants PVC lifecycle RBAC only when evidence is enabled
+    template: templates/clusterrole.yaml
+    set:
+      evidence.enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [persistentvolumeclaims]
+            verbs: [create, get, list, patch, update, watch]
+
+  - it: always grants evidence teardown RBAC (never PVC delete)
+    template: templates/clusterrole.yaml
+    set:
+      evidence.enabled: false
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [apps]
+            resources: [deployments]
+            verbs: [get, delete]
+            resourceNames: [pacto-evidence]
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [persistentvolumeclaims]
+            verbs: [create, get, list, patch, update, watch]
+
+  # --- optional exposure ---
+  - it: renders no chart external evidence Service by default (ClusterIP, no exposure)
+    template: templates/evidence-service.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders an external evidence Service for NodePort
+    template: templates/evidence-service.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.service.type: NodePort
+      evidence.service.nodePort: 30686
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 8686
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/component: evidence
+            app.kubernetes.io/name: pacto-evidence
+
+  - it: renders an evidence Ingress when enabled
+    template: templates/evidence-ingress.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.ingress.enabled: true
+    asserts:
+      - isKind:
+          of: Ingress
+
+  - it: renders no evidence Ingress by default
+    template: templates/evidence-ingress.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders an evidence HTTPRoute when enabled
+    template: templates/evidence-httproute.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.httpRoute.enabled: true
+    asserts:
+      - isKind:
+          of: HTTPRoute

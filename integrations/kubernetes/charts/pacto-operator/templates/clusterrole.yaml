@@ -68,6 +68,18 @@ rules:
     resources: [clusterroles, clusterrolebindings]
     verbs: [get, delete]
     resourceNames: [pacto-dashboard]
+  # Evidence Server teardown — ALWAYS granted, so an operator upgraded from
+  # enabled -> disabled can remove the Deployment and Service it created. The
+  # evidence PersistentVolumeClaim is deliberately absent here: persistent
+  # evidence is retained, never garbage-collected with the operator.
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, delete]
+    resourceNames: [pacto-evidence]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, delete]
+    resourceNames: [pacto-evidence]
   {{- if .Values.dashboard.enabled }}
   # Dashboard lifecycle management
   - apiGroups: [""]
@@ -85,4 +97,20 @@ rules:
   - apiGroups: [rbac.authorization.k8s.io]
     resources: [clusterroles, clusterrolebindings]
     verbs: [create, delete, get, list, patch, update, watch]
+  {{- end }}
+  {{- if .Values.evidence.enabled }}
+  # Evidence Server lifecycle management. The PVC is create/patch only — never
+  # delete — so persistent evidence survives disable, upgrade and uninstall.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [create, get, list, watch]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [create, get, list, patch, update, watch]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [create, delete, patch, update]
   {{- end }}

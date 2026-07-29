@@ -37,6 +37,7 @@ import (
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/controller"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/dashboard"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/evidence"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
 	// +kubebuilder:scaffold:imports
 )
@@ -80,6 +81,12 @@ func main() {
 	var dashboardOCISecrets string
 	var dashboardCPURequest, dashboardCPULimit string
 	var dashboardMemoryRequest, dashboardMemoryLimit string
+	var enableEvidence bool
+	var evidenceBucketURL, evidencePrefix, evidenceTrustSecret string
+	var evidenceCPURequest, evidenceCPULimit string
+	var evidenceMemoryRequest, evidenceMemoryLimit string
+	var evidencePersistenceSize, evidenceExistingClaim, evidenceStorageClass string
+	var evidencePersistenceEnabled, evidenceRetain bool
 	var showVersion bool
 	var stabilizationWindow time.Duration
 	var enableMetricsObservation bool
@@ -123,6 +130,33 @@ func main() {
 		"Memory request for the dashboard container (e.g. 128Mi). Empty uses the built-in default.")
 	flag.StringVar(&dashboardMemoryLimit, "dashboard-memory-limit", "",
 		"Memory limit for the dashboard container (e.g. 512Mi). Empty uses the built-in default.")
+	flag.BoolVar(&enableEvidence, "enable-evidence-server", false,
+		"Enable the managed Pacto Evidence Server deployment. Disabled by default.")
+	flag.StringVar(&evidenceBucketURL, "evidence-bucket-url", "file:///var/lib/pacto/evidence",
+		"Durable evidence bucket URL. Default file:// needs no external infrastructure; "+
+			"s3://, gs:// and azblob:// use cloud storage.")
+	flag.StringVar(&evidencePrefix, "evidence-prefix", "pacto-evidence/v1",
+		"Logical key prefix scoping every evidence object; installations can share a bucket via distinct prefixes.")
+	flag.StringVar(&evidenceTrustSecret, "evidence-trust-secret", "",
+		"Name of a Secret of trusted producer public keys, mounted read-only. Required when the Evidence Server is enabled.")
+	flag.StringVar(&evidenceCPURequest, "evidence-cpu-request", "",
+		"CPU request for the Evidence Server container. Empty uses the built-in default.")
+	flag.StringVar(&evidenceCPULimit, "evidence-cpu-limit", "",
+		"CPU limit for the Evidence Server container. Empty uses the built-in default.")
+	flag.StringVar(&evidenceMemoryRequest, "evidence-memory-request", "",
+		"Memory request for the Evidence Server container. Empty uses the built-in default.")
+	flag.StringVar(&evidenceMemoryLimit, "evidence-memory-limit", "",
+		"Memory limit for the Evidence Server container. Empty uses the built-in default.")
+	flag.StringVar(&evidencePersistenceSize, "evidence-persistence-size", "1Gi",
+		"Size of the provisioned PVC backing a file:// evidence bucket.")
+	flag.StringVar(&evidenceExistingClaim, "evidence-existing-claim", "",
+		"Use an externally-managed PVC for the evidence bucket instead of provisioning one.")
+	flag.StringVar(&evidenceStorageClass, "evidence-storage-class", "",
+		"StorageClass for the provisioned evidence PVC. Empty uses the cluster default.")
+	flag.BoolVar(&evidencePersistenceEnabled, "evidence-persistence-enabled", true,
+		"Provision a PVC for a file:// evidence bucket. Set false for cloud buckets or an externally-managed claim.")
+	flag.BoolVar(&evidenceRetain, "evidence-retain", true,
+		"Retain the evidence PVC on disable and uninstall. Persistent evidence is never garbage-collected with the operator.")
 	flag.BoolVar(&showVersion, "version", false, "Print version information and exit.")
 	flag.DurationVar(&stabilizationWindow, "stabilization-window", 2*time.Minute,
 		"The stabilization window duration for compliance assertions before they trigger a false condition. "+
@@ -317,14 +351,23 @@ func main() {
 		}
 	}
 
+	// When the Evidence Server is enabled, wire the dashboard to its internal
+	// Service so the dashboard consumes the evidence Operational Graph
+	// contribution read-only over HTTP (it never touches the evidence bucket).
+	evidenceSourceURL := ""
+	if enableEvidence {
+		evidenceSourceURL = fmt.Sprintf("http://%s.%s.svc:%d", evidence.Name, dashboardNamespace, evidence.EvidencePort)
+	}
+
 	dashCfg := dashboard.Config{
-		Enabled:        enableDashboard,
-		Image:          dashboardImage,
-		Namespace:      dashboardNamespace,
-		WatchNamespace: watchNamespace,
-		OCISecret:      dashboardOCISecret,
-		OCISecrets:     parsedOCISecrets,
-		OwnerRef:       ownerRef,
+		Enabled:           enableDashboard,
+		Image:             dashboardImage,
+		Namespace:         dashboardNamespace,
+		WatchNamespace:    watchNamespace,
+		OCISecret:         dashboardOCISecret,
+		OCISecrets:        parsedOCISecrets,
+		OwnerRef:          ownerRef,
+		EvidenceSourceURL: evidenceSourceURL,
 		Resources: dashboard.ResourcesConfig{
 			CPURequest:    dashboardCPURequest,
 			CPULimit:      dashboardCPULimit,
@@ -348,6 +391,43 @@ func main() {
 	}
 	if err := mgr.Add(dashReconciler); err != nil {
 		setupLog.Error(err, "Failed to add dashboard reconciler")
+		os.Exit(1)
+	}
+
+	evidenceCfg := evidence.Config{
+		Enabled:     enableEvidence,
+		Image:       dashboardImage, // the runtime image runs `pacto evidence serve`
+		Namespace:   dashboardNamespace,
+		BucketURL:   evidenceBucketURL,
+		Prefix:      evidencePrefix,
+		TrustSecret: evidenceTrustSecret,
+		Persistence: evidence.PersistenceConfig{
+			Enabled:       evidencePersistenceEnabled,
+			ExistingClaim: evidenceExistingClaim,
+			Size:          evidencePersistenceSize,
+			StorageClass:  evidenceStorageClass,
+			Retain:        evidenceRetain,
+		},
+		Resources: evidence.ResourcesConfig{
+			CPURequest:    evidenceCPURequest,
+			CPULimit:      evidenceCPULimit,
+			MemoryRequest: evidenceMemoryRequest,
+			MemoryLimit:   evidenceMemoryLimit,
+		},
+		OwnerRef: ownerRef,
+	}
+	if err := evidenceCfg.Validate(); err != nil {
+		setupLog.Error(err, "Invalid evidence configuration")
+		os.Exit(1)
+	}
+	evidenceReconciler := &evidence.Reconciler{
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Scheme:    mgr.GetScheme(),
+		Config:    evidenceCfg,
+	}
+	if err := mgr.Add(evidenceReconciler); err != nil {
+		setupLog.Error(err, "Failed to add evidence reconciler")
 		os.Exit(1)
 	}
 

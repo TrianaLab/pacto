@@ -373,6 +373,29 @@ cosign verify \
 | dashboard.service.nodePort | string | `""` | Node port (only used when type is NodePort) |
 | dashboard.service.port | int | `3000` | Dashboard service port |
 | dashboard.service.type | string | `"ClusterIP"` | Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-dashboard) for pod-to-pod communication. This chart-managed Service provides configurable external access and serves as the backend for Ingress/HTTPRoute resources. Selects dashboard pods via operator-defined labels. |
+| evidence.enabled | bool | `false` | Enable the operator-managed Evidence Server deployment. Disabled by default. When enabled the operator reconciles a SEPARATE Evidence Server Deployment and an internal Service; the image is the same runtime image as the dashboard and is not user-configurable. The Evidence Server is single- writer, so its replica count is fixed at one. |
+| evidence.httpRoute.enabled | bool | `false` | Enable Gateway API HTTPRoute for the Evidence Server. |
+| evidence.httpRoute.hostnames | list | `[]` | Hostnames for the HTTPRoute. |
+| evidence.httpRoute.parentRefs | list | `[]` | Parent gateway references. |
+| evidence.httpRoute.rules | list | `[]` | HTTPRoute rules. When empty, a single catch-all rule routes to the chart-managed evidence Service on evidence.service.port. |
+| evidence.ingress.annotations | object | `{}` | Ingress annotations. |
+| evidence.ingress.className | string | `""` | Ingress class name. |
+| evidence.ingress.enabled | bool | `false` | Enable Ingress for the Evidence Server. |
+| evidence.ingress.hosts | list | `[{"host":"pacto-evidence.local","paths":[{"path":"/","pathType":"Prefix"}]}]` | Ingress hosts. |
+| evidence.ingress.tls | list | `[]` | Ingress TLS configuration. |
+| evidence.resources | object | `{"limits":{"memory":"256Mi"},"requests":{"cpu":"25m","memory":"64Mi"}}` | Resource requests and limits for the Evidence Server container. |
+| evidence.service.nodePort | string | `""` | Node port (only used when type is NodePort). |
+| evidence.service.port | int | `8686` | Evidence service port. |
+| evidence.service.type | string | `"ClusterIP"` | Evidence exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-evidence) for in-cluster access; this chart-managed Service provides optional external access and backs any Ingress/HTTPRoute. |
+| evidence.storage.bucketURL | string | `"file:///var/lib/pacto/evidence"` | Durable evidence bucket URL. The default file:// needs no external infrastructure (just the PVC below); s3://, gs:// and azblob:// use cloud storage with the same evidence logic. |
+| evidence.storage.persistence.accessModes | list | `["ReadWriteOnce"]` | PVC access modes. ReadWriteOnce is correct for a single writer. |
+| evidence.storage.persistence.enabled | bool | `true` | Provision a PVC for a file:// bucket. Set false for cloud buckets or when using an existing claim. |
+| evidence.storage.persistence.existingClaim | string | `""` | Use an externally-managed PVC instead of provisioning one. |
+| evidence.storage.persistence.retain | bool | `true` | Retain the PVC on component disable and chart uninstall. Persistent evidence is never garbage-collected with the operator (the managed PVC carries no owner reference). |
+| evidence.storage.persistence.size | string | `"1Gi"` | Requested PVC size. |
+| evidence.storage.persistence.storageClass | string | `""` | StorageClass for the provisioned PVC. Empty uses the cluster default. |
+| evidence.storage.prefix | string | `"pacto-evidence/v1"` | Logical key prefix; every object is scoped below it, so installations can safely share one bucket via distinct prefixes. |
+| evidence.trust.existingSecret | string | `""` | Name of an existing Secret of trusted producer public keys, mounted read-only. Signature verification is mandatory, so this is required when evidence is enabled. |
 | fullnameOverride | string | `""` | Override the full release name |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
 | image.repository | string | `"ghcr.io/trianalab/pacto/operator"` | Controller image repository |

@@ -103,4 +103,41 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if .Values.evidence.enabled }}
+- --enable-evidence-server
+- --evidence-bucket-url={{ .Values.evidence.storage.bucketURL }}
+- --evidence-prefix={{ .Values.evidence.storage.prefix }}
+{{- if .Values.evidence.trust.existingSecret }}
+- --evidence-trust-secret={{ .Values.evidence.trust.existingSecret }}
+{{- end }}
+- --evidence-persistence-enabled={{ .Values.evidence.storage.persistence.enabled }}
+{{- if .Values.evidence.storage.persistence.existingClaim }}
+- --evidence-existing-claim={{ .Values.evidence.storage.persistence.existingClaim }}
+{{- end }}
+{{- if .Values.evidence.storage.persistence.size }}
+- --evidence-persistence-size={{ .Values.evidence.storage.persistence.size }}
+{{- end }}
+{{- if .Values.evidence.storage.persistence.storageClass }}
+- --evidence-storage-class={{ .Values.evidence.storage.persistence.storageClass }}
+{{- end }}
+- --evidence-retain={{ .Values.evidence.storage.persistence.retain }}
+{{- with .Values.evidence.resources }}
+{{- if .requests }}
+{{- if .requests.cpu }}
+- --evidence-cpu-request={{ .requests.cpu }}
+{{- end }}
+{{- if .requests.memory }}
+- --evidence-memory-request={{ .requests.memory }}
+{{- end }}
+{{- end }}
+{{- if .limits }}
+{{- if .limits.cpu }}
+- --evidence-cpu-limit={{ .limits.cpu }}
+{{- end }}
+{{- if .limits.memory }}
+- --evidence-memory-limit={{ .limits.memory }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}

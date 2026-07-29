@@ -1,0 +1,28 @@
+{{- if and .Values.evidence.enabled .Values.evidence.service.type (ne .Values.evidence.service.type "None") }}
+{{- if or .Values.evidence.ingress.enabled .Values.evidence.httpRoute.enabled (ne .Values.evidence.service.type "ClusterIP") }}
+# Optional chart-managed external Service. The operator always manages an
+# internal ClusterIP Service (pacto-evidence) for in-cluster access; this one
+# provides configurable external exposure and backs any Ingress/HTTPRoute.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pacto-operator.fullname" . }}-evidence
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: evidence
+spec:
+  type: {{ .Values.evidence.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.evidence.service.port }}
+      targetPort: 8686
+      protocol: TCP
+      {{- if and (eq .Values.evidence.service.type "NodePort") .Values.evidence.service.nodePort }}
+      nodePort: {{ .Values.evidence.service.nodePort }}
+      {{- end }}
+  selector:
+    app.kubernetes.io/component: evidence
+    app.kubernetes.io/name: pacto-evidence
+{{- end }}
+{{- end }}
