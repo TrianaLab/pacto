@@ -264,7 +264,9 @@ Compose contracts, contract revisions and operational targets from local bundles
       --evidence-store stringArray   directory of accepted-evidence records to include as external targets (repeatable)
       --freshness duration           mark target evidence older than this as stale (0 disables)
   -h, --help                         help for fleet
+      --k8s                          include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray            local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string             namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --target-state stringArray     offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
 ```
 
@@ -533,7 +535,9 @@ pacto mcp [bundle-ref] [flags]
       --fleet                        expose read-only operational-graph (fleet) query tools
       --freshness duration           mark target evidence older than this as stale (--fleet)
   -h, --help                         help for mcp
+      --k8s                          include live Pacto CRs from the current Kubernetes cluster (--fleet)
       --local stringArray            local bundle root(s) for --fleet (repeatable) (default [.])
+      --namespace string             namespace for --k8s (empty = all namespaces)
       --port int                     port for HTTP transport (default 8585)
       --target-state stringArray     offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)
   -t, --transport string             transport type: stdio or http (default "stdio")

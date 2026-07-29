@@ -6,8 +6,15 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v3/internal/fleetsrc"
+	"github.com/trianalab/pacto/v3/internal/k8sclient"
 	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+)
+
+// Kubernetes access seams, overridable in tests to avoid real cluster access.
+var (
+	newK8sClient       = k8sclient.NewGoClient
+	currentKubeContext = k8sclient.CurrentKubeContext
 )
 
 // FleetOptions configures how a fleet snapshot is assembled from sources. Local
@@ -21,7 +28,13 @@ type FleetOptions struct {
 	TargetStateFiles []string
 	// EvidenceStores are directories of accepted-evidence records (as written by
 	// the ingestion host); each becomes a fleet source of external targets.
-	EvidenceStores  []string
+	EvidenceStores []string
+	// IncludeK8s adds a live source that reads Pacto CRs from the current
+	// Kubernetes cluster as targets. An unreachable cluster surfaces as an
+	// unavailable-source limitation rather than a build failure.
+	IncludeK8s bool
+	// K8sNamespace scopes the live Kubernetes source; empty means all namespaces.
+	K8sNamespace    string
 	FreshnessWindow time.Duration
 	Concurrency     int
 	// DisallowPartial makes a single source failure fatal instead of yielding a
@@ -54,6 +67,20 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			continue
 		}
 		sources = append(sources, evidenceingest.NewSource(id, store))
+	}
+	if opts.IncludeK8s {
+		id := currentKubeContext()
+		if id == "" {
+			id = "k8s"
+		}
+		client, err := newK8sClient()
+		if err != nil {
+			// An unreachable cluster (no kubeconfig, no API server) surfaces as an
+			// unavailable source, consistent with the other source kinds.
+			sources = append(sources, fleet.NewFailingSource(id, "kubernetes", err))
+		} else {
+			sources = append(sources, fleetsrc.NewK8sSource(id, client, opts.K8sNamespace))
+		}
 	}
 	return fleet.Build(ctx, fleet.BuildOptions{
 		Now:             opts.Now,

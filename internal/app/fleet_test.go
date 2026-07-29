@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/trianalab/pacto/v3/internal/k8sclient"
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
@@ -179,6 +181,74 @@ func TestService_Fleet_EvidenceStore_OpenError(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a SOURCE_UNAVAILABLE limitation for evidence-store, got %+v", snap.Limitations)
+	}
+}
+
+// fakeFleetK8sClient is a k8sclient.K8sClient for the IncludeK8s wiring tests.
+type fakeFleetK8sClient struct {
+	disc     *k8sclient.CRDDiscovery
+	listData []byte
+}
+
+func (f *fakeFleetK8sClient) Probe(context.Context) error { return nil }
+func (f *fakeFleetK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
+	return f.disc, nil
+}
+func (f *fakeFleetK8sClient) ListJSON(context.Context, string, string) ([]byte, error) {
+	return f.listData, nil
+}
+func (f *fakeFleetK8sClient) GetJSON(context.Context, string, string, string) ([]byte, error) {
+	return nil, nil
+}
+func (f *fakeFleetK8sClient) CountResources(context.Context, string, string) (int, error) {
+	return 0, nil
+}
+
+func TestService_Fleet_IncludeK8s(t *testing.T) {
+	origClient, origCtx := newK8sClient, currentKubeContext
+	t.Cleanup(func() { newK8sClient, currentKubeContext = origClient, origCtx })
+	newK8sClient = func() (k8sclient.K8sClient, error) {
+		return &fakeFleetK8sClient{
+			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+			listData: []byte(`{"items":[{"metadata":{"name":"svc-a","namespace":"prod"},"status":{"contractStatus":"Compliant","contract":{"serviceName":"svc-a"}}}]}`),
+		}, nil
+	}
+	currentKubeContext = func() string { return "my-ctx" }
+
+	svc := NewService(nil, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{LocalRoots: nil, IncludeK8s: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	q := fleet.NewQuery(snap)
+	res, err := q.Search(fleet.SearchFilter{})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(res.Services) != 1 || res.Services[0].Name != "svc-a" {
+		t.Fatalf("expected svc-a from the k8s source, got %+v", res.Services)
+	}
+}
+
+func TestService_Fleet_IncludeK8s_ClientError(t *testing.T) {
+	origClient, origCtx := newK8sClient, currentKubeContext
+	t.Cleanup(func() { newK8sClient, currentKubeContext = origClient, origCtx })
+	newK8sClient = func() (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
+	currentKubeContext = func() string { return "" } // exercise the "k8s" id fallback
+
+	svc := NewService(nil, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true})
+	if err != nil {
+		t.Fatalf("Fleet returned a hard error, want partial: %v", err)
+	}
+	found := false
+	for _, l := range snap.Limitations {
+		if l.Code == fleet.LimitationSourceUnavailable && l.Source == "k8s" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected SOURCE_UNAVAILABLE for k8s, got %+v", snap.Limitations)
 	}
 }
 

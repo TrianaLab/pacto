@@ -1,4 +1,4 @@
-package dashboard
+package k8sclient
 
 import (
 	"context"
@@ -96,7 +96,7 @@ func TestBuildK8sConfig_NoConfig(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// newK8sGoClient
+// NewGoClient
 // ---------------------------------------------------------------------------
 
 func TestNewK8sGoClient_Success(t *testing.T) {
@@ -127,7 +127,7 @@ users:
 	}
 	t.Cleanup(func() { inClusterConfigFunc = origIC })
 
-	client, err := newK8sGoClient()
+	client, err := NewGoClient()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestNewK8sGoClient_ConfigError(t *testing.T) {
 	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
 	t.Setenv("HOME", dir)
 
-	_, err := newK8sGoClient()
+	_, err := NewGoClient()
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -187,7 +187,7 @@ users:
 	}
 	t.Cleanup(func() { newDiscoveryClientForConfig = origDisc })
 
-	_, err := newK8sGoClient()
+	_, err := NewGoClient()
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -227,7 +227,7 @@ users:
 	}
 	t.Cleanup(func() { newDynamicForConfig = origDyn })
 
-	_, err := newK8sGoClient()
+	_, err := NewGoClient()
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -620,18 +620,18 @@ clusters:
 	}
 	t.Setenv("KUBECONFIG", kubeconfigPath)
 
-	got := readCurrentKubeContext()
+	got := CurrentKubeContext()
 	if got != "my-cluster" {
-		t.Errorf("readCurrentKubeContext() = %q, want %q", got, "my-cluster")
+		t.Errorf("CurrentKubeContext() = %q, want %q", got, "my-cluster")
 	}
 }
 
 func TestReadCurrentKubeContext_NoConfig(t *testing.T) {
 	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "nonexistent"))
 
-	got := readCurrentKubeContext()
+	got := CurrentKubeContext()
 	if got != "" {
-		t.Errorf("readCurrentKubeContext() = %q, want empty", got)
+		t.Errorf("CurrentKubeContext() = %q, want empty", got)
 	}
 }
 
@@ -642,8 +642,8 @@ func TestReadCurrentKubeContext_MalformedConfig(t *testing.T) {
 	}
 	t.Setenv("KUBECONFIG", kubeconfigPath)
 
-	got := readCurrentKubeContext()
+	got := CurrentKubeContext()
 	if got != "" {
-		t.Errorf("readCurrentKubeContext() = %q, want empty for malformed config", got)
+		t.Errorf("CurrentKubeContext() = %q, want empty for malformed config", got)
 	}
 }
