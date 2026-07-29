@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 
-const fleetImpactFn = vi.fn();
+const { fleetImpactFn } = vi.hoisted(() => ({ fleetImpactFn: vi.fn() }));
 
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
