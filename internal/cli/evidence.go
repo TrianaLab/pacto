@@ -151,6 +151,8 @@ func newEvidenceSignCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			opts.ProducerID, _ = cmd.Flags().GetString("producer")
 			opts.ProducerVersion, _ = cmd.Flags().GetString("producer-version")
 			opts.ID, _ = cmd.Flags().GetString("id")
+			seq, _ := cmd.Flags().GetUint64("sequence")
+			opts.Sequence = seq
 			opts.TTL, _ = cmd.Flags().GetDuration("ttl")
 			if issued, _ := cmd.Flags().GetString("issued-at"); issued != "" {
 				t, err := time.Parse(time.RFC3339, issued)
@@ -173,6 +175,7 @@ func newEvidenceSignCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().String("producer", "", "producer id")
 	cmd.Flags().String("producer-version", "", "producer version (optional)")
 	cmd.Flags().String("id", "", "envelope id (defaults to a content hash of the evidence)")
+	cmd.Flags().Uint64("sequence", 0, "producer-scoped monotonic sequence; each report must be strictly greater than the producer's last")
 	cmd.Flags().String("issued-at", "", "issued-at timestamp (RFC3339; defaults to now)")
 	cmd.Flags().Duration("ttl", 24*time.Hour, "validity window; 0 disables expiry")
 	_ = cmd.MarkFlagRequired("key")

@@ -12,6 +12,13 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
+// recoverEvidence recovers a durable store; a seam so the Collect recovery-error
+// path is testable without a fault-injecting filesystem.
+var recoverEvidence = func(ctx context.Context, s *evidencestore.BlobStore) error {
+	_, err := s.Recover(ctx)
+	return err
+}
+
 // DefaultEvidencePrefix is the key prefix the durable evidence store uses within
 // its bucket. The ingestion host and the fleet source share it so evidence
 // written by `pacto evidence serve` is read back by `pacto fleet`.
@@ -132,7 +139,7 @@ func (s *durableEvidenceSource) Collect(ctx context.Context) (*fleet.Collection,
 		return nil, err
 	}
 	defer func() { _ = store.Close() }()
-	if _, err := store.Recover(ctx); err != nil {
+	if err := recoverEvidence(ctx, store); err != nil {
 		return nil, err
 	}
 	col := &fleet.Collection{}

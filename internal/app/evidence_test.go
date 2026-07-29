@@ -202,6 +202,22 @@ func TestSignEvidence_DeterministicID(t *testing.T) {
 	}
 }
 
+func TestSignEvidence_Sequence(t *testing.T) {
+	dir := t.TempDir()
+	svc := &Service{}
+	kp, _ := svc.GenerateKey(dir, "")
+	ev := writeEvidenceFile(t, dir, sampleEvidenceSet())
+	env, err := svc.SignEvidence(SignOptions{
+		EvidencePath: ev, KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: "p", Sequence: 7, TTL: time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.Sequence != 7 {
+		t.Errorf("Sequence = %d, want 7", env.Sequence)
+	}
+}
+
 func TestSignEvidence_ContentHashID(t *testing.T) {
 	dir := t.TempDir()
 	svc := &Service{}

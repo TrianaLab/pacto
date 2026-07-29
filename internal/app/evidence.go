@@ -84,6 +84,11 @@ type SignOptions struct {
 	ID              string        // optional; defaults to a content hash of the EvidenceSet
 	IssuedAt        time.Time     // optional; defaults to time.Now (pass a fixed value for determinism)
 	TTL             time.Duration // 0 disables expiry
+	// Sequence is the producer-scoped monotonic sequence. A producer increments
+	// it per report so the ingestion host can reject replays and out-of-order
+	// reports; each accepted envelope must have a sequence strictly greater than
+	// the producer's last.
+	Sequence uint64
 }
 
 // SignEvidence reads an EvidenceSet JSON file, wraps it in a signed Envelope and
@@ -117,6 +122,7 @@ func (s *Service) SignEvidence(opts SignOptions) (evidenceenvelope.Envelope, err
 		Kind:        evidenceenvelope.KindEnvelope,
 		ID:          id,
 		Producer:    evidenceenvelope.Producer{ID: opts.ProducerID, Version: opts.ProducerVersion, KeyID: opts.KeyID},
+		Sequence:    opts.Sequence,
 		IssuedAt:    issued,
 		EvidenceSet: set,
 	}
