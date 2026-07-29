@@ -23,6 +23,18 @@ DASH_IMG="localhost:5001/pacto-dashboard:${CORE}"
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1"; exit 1; }
 
+# The evidence Deployment is created by the operator (not the chart), so helm
+# --wait does not cover it: poll until it exists and is Ready.
+wait_evidence_ready() {
+  for _ in $(seq 1 40); do
+    if kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=10s >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 3
+  done
+  return 1
+}
+
 echo "== build dashboard + operator images =="
 docker build -f "$ROOT/Dockerfile" -t "$DASH_IMG" "$ROOT"
 docker build -f "$ROOT/integrations/kubernetes/Dockerfile" \
@@ -55,7 +67,7 @@ echo "== install the operator with the Evidence Server enabled =="
 helm install pacto-operator "$CHART" -n "$NS" "${common_sets[@]}" --wait --timeout 240s
 
 echo "== the operator reconciles a managed Evidence Server Deployment (readiness gated on recovery) =="
-kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=180s \
+wait_evidence_ready \
   && pass "evidence Deployment is Ready (storage recovered)" \
   || fail "evidence Deployment did not become Ready"
 kubectl -n "$NS" get svc pacto-evidence >/dev/null \
@@ -76,16 +88,22 @@ kubectl -n "$NS" get deploy pacto-dashboard -o jsonpath='{.spec.template.spec.co
 
 echo "== disabling the Evidence Server removes runtime resources but RETAINS the PVC =="
 helm upgrade pacto-operator "$CHART" -n "$NS" "${common_sets[@]}" --set evidence.enabled=false --wait --timeout 180s
-sleep 5
-kubectl -n "$NS" get deploy pacto-evidence -o name 2>/dev/null | grep -q . \
-  && fail "evidence Deployment survived disable" || pass "evidence Deployment removed on disable"
+# helm --wait only waits for the operator rollout; the new operator pod then
+# reconciles the evidence teardown asynchronously (after its caches sync), so
+# poll for the Deployment to disappear rather than assuming it is immediate.
+deleted=false
+for _ in $(seq 1 40); do
+  kubectl -n "$NS" get deploy pacto-evidence -o name 2>/dev/null | grep -q . || { deleted=true; break; }
+  sleep 3
+done
+[ "$deleted" = true ] && pass "evidence Deployment removed on disable" || fail "evidence Deployment survived disable"
 kubectl -n "$NS" get pvc pacto-evidence-data >/dev/null 2>&1 \
   && pass "evidence PVC RETAINED after disable (persistent evidence preserved)" \
   || fail "evidence PVC was deleted on disable — persistent evidence lost"
 
 echo "== re-enabling recovers against the retained PVC =="
 helm upgrade pacto-operator "$CHART" -n "$NS" "${common_sets[@]}" --wait --timeout 180s
-kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=180s \
+wait_evidence_ready \
   && pass "evidence Deployment recovered against the retained PVC" \
   || fail "evidence Deployment did not recover after re-enable"
 
