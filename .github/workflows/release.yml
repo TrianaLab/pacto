@@ -233,9 +233,72 @@ jobs:
             bash release/orchestrator/ledger.sh init "$TXN" "$SHA" "$MSHA"
           fi
 
-  # pacto-publishes: dashboard-image
-  dashboard-image:
+  # Per-arch NATIVE build of the dashboard image, pushed by digest; the dashboard-image
+  # job below merges these children into the published multi-arch index.
+  dashboard-image-build:
     needs: [detect, ledger-init]
+    if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'dashboard-image')
+    permissions:
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.detect.outputs.source_sha }}
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Log in to GHCR
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Disk-guarded buildx layer cache flags
+        id: cache
+        run: |
+          avail="$(df -Pm / 2>/dev/null | awk 'NR==2{print $4}')"
+          if [ -n "$avail" ] && [ "$avail" -ge 14336 ]; then
+            echo "flags=--cache-from type=gha,scope=dashboard-${{ matrix.arch }} --cache-to type=gha,mode=max,ignore-error=true,scope=dashboard-${{ matrix.arch }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::buildx layer cache skipped — only ${avail:-unknown} MB free on /."
+            echo "flags=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build + push by digest (native ${{ matrix.arch }})
+        env:
+          VER: ${{ needs.detect.outputs.core_version }}
+          SRC: ${{ needs.detect.outputs.source_sha }}
+        run: |
+          docker buildx build --platform ${{ matrix.platform }} \
+            --build-arg "VERSION=v$VER" --build-arg "GIT_COMMIT=$SRC" \
+            --label org.opencontainers.image.title=pacto-dashboard \
+            --label "org.opencontainers.image.version=$VER" \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=$SRC" \
+            ${{ steps.cache.outputs.flags }} \
+            --output type=image,name=ghcr.io/trianalab/pacto/dashboard,push-by-digest=true,push=true \
+            --metadata-file /tmp/meta.json .
+          mkdir -p /tmp/digests
+          d="$(jq -r '."containerimage.digest"' /tmp/meta.json)"
+          touch "/tmp/digests/${d#sha256:}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dashboard-digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          retention-days: 1
+          if-no-files-found: error
+
+  # pacto-publishes: dashboard-image (MERGE the per-arch children into the index)
+  dashboard-image:
+    needs: [detect, ledger-init, dashboard-image-build]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'dashboard-image')
     runs-on: ubuntu-latest
     permissions:
@@ -264,7 +327,12 @@ jobs:
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - name: Publish + sign the dashboard image (shared adapter)
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: dashboard-digests-*
+          merge-multiple: true
+          path: /tmp/digests
+      - name: Merge the per-arch children + sign (shared adapter)
         env:
           REF: ghcr.io/trianalab/pacto/dashboard:${{ needs.detect.outputs.core_version }}
           VER: ${{ needs.detect.outputs.core_version }}
@@ -272,18 +340,20 @@ jobs:
           PACTO_EXPECT_REVISION: ${{ needs.detect.outputs.source_sha }}
           PACTO_EXPECT_VERSION: ${{ needs.detect.outputs.core_version }}
         run: |
-          # The SAME shared adapter staging uses (publish-oci-unit.sh): verify ->
-          # absent build+push / identical skip / adopt (crash window) / conflict fail
-          # -> record. No inline state transitions duplicated in YAML. cosign signs
-          # only when we actually published or adopted (not on an idempotent skip).
+          # Same shared adapter: verify -> absent create / identical skip / adopt / conflict
+          # -> record. `imagetools create` assembles the index from the pushed-by-digest
+          # children and the adapter records the INDEX digest. index: annotations carry the
+          # provenance verify-oci.sh adopt reads on a crash-window resume (children also carry
+          # the same --label provenance). cosign signs only on publish/adopt.
+          refs=""
+          for d in /tmp/digests/*; do refs="$refs ghcr.io/trianalab/pacto/dashboard@sha256:$(basename "$d")"; done
           out="$(bash release/orchestrator/publish-oci-unit.sh dashboard-image "$REF" "$VER" -- \
-            docker buildx build --push --platform linux/amd64,linux/arm64 \
-              --build-arg "VERSION=v$VER" --build-arg "GIT_COMMIT=$SRC" \
-              --label org.opencontainers.image.title=pacto-dashboard \
-              --label "org.opencontainers.image.version=$VER" \
-              --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
-              --label "org.opencontainers.image.revision=$SRC" \
-              -t "$REF" .)"
+            docker buildx imagetools create \
+              --annotation index:org.opencontainers.image.title=pacto-dashboard \
+              --annotation "index:org.opencontainers.image.version=$VER" \
+              --annotation "index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+              --annotation "index:org.opencontainers.image.revision=$SRC" \
+              -t "$REF"$refs)"
           echo "$out"
           case "$out" in
             *"published + recorded"*|*"adopt"*) cosign sign --yes "${REF}@$(crane digest "$REF")" ;;
@@ -435,12 +505,85 @@ jobs:
           SRC: ${{ needs.detect.outputs.source_sha }}
         run: bash release/orchestrator/publish-go-tag.sh "$TAG" "$SRC"
 
-  # pacto-publishes: operator-image
-  # Root build context (context: .) so the monorepo-aware Dockerfile can COPY
-  # go.work + the root go.mod + pkg/ + integrations/kubernetes/. Needs core-tag so
-  # the pinned core resolves during the standalone (GOWORK=off) module build.
-  operator-image:
+  # Per-arch NATIVE build of the operator image, pushed by digest; the operator-image
+  # job below merges these children into the published multi-arch index.
+  # Each arch builds on its own native runner (no QEMU) with the root context so the
+  # monorepo-aware Dockerfile can COPY go.work + the root go.mod + pkg/ +
+  # integrations/kubernetes/. Needs core-ready so the pinned core resolves during the
+  # standalone (GOWORK=off) module build. The operator-image MERGE job assembles the
+  # multi-arch index from these children.
+  operator-image-build:
     needs: [detect, core-ready, ledger-init]
+    if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'operator-image')
+    permissions:
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.detect.outputs.source_sha }}
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Log in to GHCR
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Disk-guarded buildx layer cache flags
+        id: cache
+        run: |
+          # Best-effort: skip the GHA layer cache when the runner is low on disk so a
+          # cache save can never fail the build; ignore-error keeps export non-fatal too.
+          avail="$(df -Pm / 2>/dev/null | awk 'NR==2{print $4}')"
+          if [ -n "$avail" ] && [ "$avail" -ge 14336 ]; then
+            echo "flags=--cache-from type=gha,scope=operator-${{ matrix.arch }} --cache-to type=gha,mode=max,ignore-error=true,scope=operator-${{ matrix.arch }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::buildx layer cache skipped — only ${avail:-unknown} MB free on /."
+            echo "flags=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build + push by digest (native ${{ matrix.arch }})
+        env:
+          VER: ${{ needs.detect.outputs.k8s_version }}
+          SRC: ${{ needs.detect.outputs.source_sha }}
+          DASH: ghcr.io/trianalab/pacto/dashboard:${{ needs.detect.outputs.core_version }}
+        run: |
+          docker buildx build --platform ${{ matrix.platform }} \
+            --file integrations/kubernetes/Dockerfile \
+            --build-arg "VERSION=v$VER" --build-arg "GIT_COMMIT=$SRC" \
+            --build-arg "DASHBOARD_IMAGE=$DASH" --build-arg RELEASE_BUILD=1 \
+            --label org.opencontainers.image.title=pacto-controller \
+            --label "org.opencontainers.image.version=$VER" \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=$SRC" \
+            ${{ steps.cache.outputs.flags }} \
+            --output type=image,name=ghcr.io/trianalab/pacto/operator,push-by-digest=true,push=true \
+            --metadata-file /tmp/meta.json .
+          mkdir -p /tmp/digests
+          d="$(jq -r '."containerimage.digest"' /tmp/meta.json)"
+          touch "/tmp/digests/${d#sha256:}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: operator-digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          retention-days: 1
+          if-no-files-found: error
+
+  # pacto-publishes: operator-image (MERGE the per-arch children into the index)
+  # Keeps the job name `operator-image` so downstream needs (operator-chart, release)
+  # resolve unchanged. The shared adapter runs `imagetools create` as its push command
+  # and records the INDEX digest exactly as the single-runner build did.
+  operator-image:
+    needs: [detect, core-ready, ledger-init, operator-image-build]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'operator-image')
     runs-on: ubuntu-latest
     permissions:
@@ -469,29 +612,34 @@ jobs:
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - name: Publish + sign the operator image (shared adapter)
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: operator-digests-*
+          merge-multiple: true
+          path: /tmp/digests
+      - name: Merge the per-arch children + sign (shared adapter)
         env:
           REF: ghcr.io/trianalab/pacto/operator:${{ needs.detect.outputs.k8s_version }}
           VER: ${{ needs.detect.outputs.k8s_version }}
           SRC: ${{ needs.detect.outputs.source_sha }}
-          DASH: ghcr.io/trianalab/pacto/dashboard:${{ needs.detect.outputs.core_version }}
           PACTO_EXPECT_REVISION: ${{ needs.detect.outputs.source_sha }}
           PACTO_EXPECT_VERSION: ${{ needs.detect.outputs.k8s_version }}
         run: |
-          # Same shared adapter as staging; RELEASE_BUILD=1 builds the operator
-          # standalone against the published core. Operator + chart use cosign's
-          # legacy bundle format (Artifact Hub indexes the .sig tag), unlike the
-          # dashboard image — keep that flag difference. Sign only on publish/adopt.
+          # Same shared adapter (verify -> absent create / identical skip / adopt / conflict
+          # -> record). `imagetools create` assembles the index from the pushed-by-digest
+          # children; the adapter records the INDEX digest. index: annotations carry the
+          # provenance verify-oci.sh adopt reads on a crash-window resume (each child also
+          # carries the same --label provenance). Operator + chart use cosign's legacy
+          # bundle format (Artifact Hub indexes the .sig tag). Sign only on publish/adopt.
+          refs=""
+          for d in /tmp/digests/*; do refs="$refs ghcr.io/trianalab/pacto/operator@sha256:$(basename "$d")"; done
           out="$(bash release/orchestrator/publish-oci-unit.sh operator-image "$REF" "$VER" -- \
-            docker buildx build --push --platform linux/amd64,linux/arm64 \
-              --file integrations/kubernetes/Dockerfile \
-              --build-arg "VERSION=v$VER" --build-arg "GIT_COMMIT=$SRC" \
-              --build-arg "DASHBOARD_IMAGE=$DASH" --build-arg RELEASE_BUILD=1 \
-              --label org.opencontainers.image.title=pacto-controller \
-              --label "org.opencontainers.image.version=$VER" \
-              --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
-              --label "org.opencontainers.image.revision=$SRC" \
-              -t "$REF" .)"
+            docker buildx imagetools create \
+              --annotation index:org.opencontainers.image.title=pacto-controller \
+              --annotation "index:org.opencontainers.image.version=$VER" \
+              --annotation "index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+              --annotation "index:org.opencontainers.image.revision=$SRC" \
+              -t "$REF"$refs)"
           echo "$out"
           case "$out" in
             *"published + recorded"*|*"adopt"*)
