@@ -91,22 +91,52 @@ echo "== 2. sign, ingest and surface external evidence as a target =="
 cat > "$WORK/ev.json" <<EOF
 {"Subject":{"kind":"service","name":"payments"},"ContractRef":"$WORK/ws/payments","Source":"remote","ObservedAt":"2026-07-29T11:00:00Z","Observations":[{"kind":"WorkloadObserved","subject":{"kind":"service","name":"payments"},"outcome":"Unsupported","provenance":{"collector":"remote","detectedAt":"2026-07-29T11:00:00Z"}}]}
 EOF
-"$BIN" evidence sign --key "$WORK/keys/demo.key" --key-id demo --producer prod-eu --ttl 0 "$WORK/ev.json" > "$WORK/env.json"
-VOUT="$("$BIN" evidence verify --trust "$WORK/keys" "$WORK/env.json")"
+sign_env() { # id sequence outfile
+  "$BIN" evidence sign --key "$WORK/keys/demo.key" --key-id demo --producer prod-eu \
+    --id "$1" --sequence "$2" --ttl 0 "$WORK/ev.json" > "$3"
+}
+sign_env e1 1 "$WORK/env1.json"
+VOUT="$("$BIN" evidence verify --trust "$WORK/keys" "$WORK/env1.json")"
 assert_contains "$VOUT" "is valid" "signed envelope verifies"
 
 PORT=18787
-"$BIN" evidence serve --port "$PORT" --trust "$WORK/keys" --bucket-url "file://$WORK/store" --producer prod-eu >/dev/null 2>&1 &
-SERVE_PID=$!
-for _ in $(seq 1 50); do
-  curl -fsS "http://localhost:$PORT/api/evidence/v1/health" >/dev/null 2>&1 && break
-  sleep 0.2
-done
-SEND="$("$BIN" evidence send --url "http://localhost:$PORT/api/evidence/v1/envelopes" "$WORK/env.json")"
+API="http://localhost:$PORT/api/evidence/v1"
+start_server() {
+  "$BIN" evidence serve --port "$PORT" --trust "$WORK/keys" --bucket-url "file://$WORK/store" --producer prod-eu >/dev/null 2>&1 &
+  SERVE_PID=$!
+}
+wait_ready() { # readiness is gated on completed storage recovery
+  for _ in $(seq 1 50); do curl -fsS "$API/ready" >/dev/null 2>&1 && return 0; sleep 0.2; done
+  fail "evidence server did not become ready (recovery)"
+}
+stop_server() { kill "$SERVE_PID" 2>/dev/null || true; wait "$SERVE_PID" 2>/dev/null || true; SERVE_PID=""; }
+
+start_server; wait_ready
+SEND="$("$BIN" evidence send --url "$API/envelopes" "$WORK/env1.json")"
 assert_contains "$SEND" "accepted" "ingestion accepts the envelope"
 FOUT="$("$BIN" fleet search --local "$WORK/ws" --evidence-store "$WORK/store" --scope prod-eu)"
 assert_contains "$FOUT" "payments" "ingested evidence appears as a fleet target"
-kill "$SERVE_PID" 2>/dev/null || true; SERVE_PID=""
+
+echo "== 2b. durable replay protection survives a restart =="
+stop_server
+start_server; wait_ready   # recovery rebuilds the replay state from the bucket
+if "$BIN" evidence send --url "$API/envelopes" "$WORK/env1.json" >/dev/null 2>&1; then
+  fail "a replayed envelope was accepted after restart"
+else
+  pass "replayed envelope rejected after restart (recovery rebuilt the replay state from the PVC-equivalent bucket)"
+fi
+
+echo "== 2c. a newer sequence is accepted, an older one rejected =="
+sign_env e2 2 "$WORK/env2.json"
+SEND2="$("$BIN" evidence send --url "$API/envelopes" "$WORK/env2.json")"
+assert_contains "$SEND2" "accepted" "newer-sequence report accepted after restart"
+sign_env e3 1 "$WORK/env3.json"
+if "$BIN" evidence send --url "$API/envelopes" "$WORK/env3.json" >/dev/null 2>&1; then
+  fail "an out-of-sequence report was accepted"
+else
+  pass "out-of-sequence report rejected"
+fi
+stop_server
 
 echo "== 3. observe runtime dependencies from traces =="
 OOUT="$("$BIN" otel observe "$WORK/traces.json")"
