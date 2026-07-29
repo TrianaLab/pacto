@@ -400,17 +400,20 @@
    absolutely positioned directly over the nav tabs below it, so it popped open when
    the mouse merely passed over the header and swallowed the tabs' clicks. Neutralise
    the hover/focus open triggers and drive visibility from the .md-version--open class.
+   The suppress rules are gated with :not(.md-version--open) because clicking the
+   trigger FOCUSES it, and an un-gated .md-version:focus-within rule (specificity 0,3,0)
+   would out-rank the .md-version--open show rule and keep the list collapsed on click.
    Keep Material's collapsed default (max-height:0) so the closed list never overlays
    the tabs; cap the OPEN height so a long version list scrolls instead of running
    off-screen (.md-version__list already has overflow:auto). */
-.md-version:hover .md-version__list,
-.md-version:focus-within .md-version__list {
+.md-version:not(.md-version--open):hover .md-version__list,
+.md-version:not(.md-version--open):focus-within .md-version__list {
   max-height: 0;
   opacity: 0;
   pointer-events: none;
   animation: none;
 }
-.md-version--open .md-version__list {
+.md-version.md-version--open .md-version__list {
   max-height: 75vh;
   opacity: 1;
   pointer-events: auto;
