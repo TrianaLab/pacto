@@ -92,15 +92,25 @@ sanitized failure reason on failure.
 ## Running the ingestion endpoint
 
 ```bash
-pacto evidence serve --port 8686 --trust ./trust --local . --store ./evidence-store
+pacto evidence serve --trust ./trust
 ```
 
-`serve` starts the ingestion host: it loads the trust store from `--trust`,
-resolves contract refs from `--local` bundle roots, persists accepted records
-under `--store` and mounts the three protocol endpoints. It advertises the
-trusted producer ids at `GET /api/evidence/v1/producers`. TLS termination is the
-host's responsibility — run `serve` behind a TLS-terminating proxy or gateway.
-Signature verification is always on and cannot be disabled.
+`serve` starts the ingestion host: it loads the trust store from `--trust`, opens
+the durable evidence store at `--bucket-url` (default
+`file:///var/lib/pacto/evidence`) under `--prefix`, recovers it, then evaluates
+each accepted envelope against the contract its `ContractRef` resolves to and
+commits the result to the store. It listens on `127.0.0.1:<--port>` (default
+8686) or on `--listen-address host:port`, advertises the producer ids configured
+with `--producer` at `GET /api/evidence/v1/producers` and reports readiness at
+`GET /api/evidence/v1/ready` (`503` until recovery completes). Point `--bucket-url`
+at `s3://`, `gs://` or `azblob://` for cloud storage; `--store-dir` is a
+deprecated alias for a `file://` bucket. TLS termination is the host's
+responsibility — run `serve` behind a TLS-terminating proxy or gateway. Signature
+verification is always on and cannot be disabled.
+
+For durability, recovery and the storage layout, see
+[durable storage and recovery](evidence-protocol.md#durable-storage-and-recovery);
+for how the server is deployed, see [deployment](evidence-protocol.md#deployment).
 
 ---
 
@@ -126,7 +136,21 @@ The protocol and its tooling hold a small set of non-negotiable invariants.
   signature verification.
 - **Replay protection.** A duplicate id or a non-increasing per-producer
   sequence is rejected, so re-sent or reordered reports never regress a target to
-  older state.
+  older state. It is enforced by the durable store and rebuilt from the immutable
+  records at startup, so it survives process and pod restarts (see
+  [durable storage and recovery](evidence-protocol.md#durable-storage-and-recovery)).
+- **Single active writer.** The durable evidence store has exactly one active
+  writer per bucket URL and prefix, enforced operationally (one replica, with the
+  chart schema rejecting more) rather than with a distributed lock. Sharing a
+  bucket across installations is safe only through distinct prefixes.
+- **Evidence is retained, never auto-deleted.** Accepted immutable envelopes are
+  the audit trail and the recovery source, so they are never garbage collected — a
+  bucket lifecycle policy must not delete anything under `<prefix>/envelopes/`.
+  Only the rebuildable `materialized/` projections are safe to drop.
+- **Trust store is a read-only mount.** In the operator-managed deployment the
+  trust store is a Secret of `<keyId>.pub` keys mounted read-only
+  (`evidence.trust.existingSecret`). Distributing it stays an out-of-band operator
+  responsibility; the server never fetches keys.
 - **Private keys are `0600`.** `keygen` writes seeds owner-only. Treat the `.key`
   file as a secret; only the `.pub` crosses the trust boundary to the platform.
 

@@ -156,9 +156,11 @@ expiry). Verification rejects an envelope after `expiresAt` (expired) or before
 The ingestion replay guard rejects a repeated envelope `id` and any `sequence`
 not greater than the producer's last accepted value. Re-sent or reordered
 reports are therefore safe: the platform keeps the latest report per target and
-never regresses to an older one. The bundled replay guard is in-memory and
-resets on restart; the accept pipeline takes the guard as a dependency, so a
-host that needs cross-restart protection supplies a durable one.
+never regresses to an older one. Replay protection is enforced by the durable
+store atomically with each immutable write, and its duplicate-id set and
+per-producer sequence high-water mark are rebuilt from the immutable records at
+startup — so replay protection survives process and pod restarts (see
+[durable storage and recovery](#durable-storage-and-recovery)).
 
 **Size and observation bounds.** A decoded envelope is capped at **1 MiB**, and a
 single envelope may carry at most **10,000 observations**. The HTTP handler reads
@@ -174,7 +176,7 @@ unknown-field payload is refused before any signature work.
 
 ## Ingestion API
 
-The ingestion host mounts three endpoints under `/api/evidence/v1`. TLS
+The ingestion host mounts five endpoints under `/api/evidence/v1`. TLS
 termination is the host's responsibility — run the endpoint behind a
 TLS-terminating proxy or gateway. Transport security is not what makes an
 accepted envelope trustworthy: **signature verification against the trust store
@@ -183,8 +185,10 @@ is mandatory**, and is what the platform relies on regardless of transport.
 | Method + path | Purpose | Success |
 |---------------|---------|---------|
 | `POST /api/evidence/v1/envelopes` | Accept, verify, de-duplicate, evaluate and store one envelope. | `202 Accepted` with `{ id, compliance, findings, acceptedAt }` |
-| `GET /api/evidence/v1/health` | Liveness. | `200 OK` with `{ "status": "ok" }` |
+| `GET /api/evidence/v1/health` | Liveness. Independent of recovery. | `200 OK` with `{ "status": "ok" }` |
+| `GET /api/evidence/v1/ready` | Readiness. `503` until the durable store finishes recovery. | `200 OK` with `{ "status": "ready" }` |
 | `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises. | `200 OK` with `{ "producers": [ … ] }` |
+| `GET /api/evidence/v1/targets` | The latest accepted target per producer, for a read-only HTTP evidence source. | `200 OK` with `{ "targets": [ … ] }` |
 
 `POST` status codes map the accept outcome without leaking any secret material:
 
@@ -198,6 +202,76 @@ is mandatory**, and is what the platform relies on regardless of transport.
 
 After a successful accept, the host can trigger a snapshot refresh so the new
 target appears in the graph immediately.
+
+---
+
+## Durable storage and recovery
+
+Accepted evidence is durable. Behind the ingestion host is the **Evidence
+Server** and its store (`pkg/evidencestore`), which persists every accepted
+envelope so replay protection and latest-target state survive a process or pod
+restart. The store is deliberately infrastructure-light: the default bucket is
+`file:///var/lib/pacto/evidence` on a ReadWriteOnce PVC — no database, cache or
+coordination service. The same store logic runs unchanged over cloud buckets
+(`s3://`, `gs://`, `azblob://`) through gocloud.dev when you point `--bucket-url`
+at one.
+
+**One source of truth, rebuildable projections.** Immutable accepted-evidence
+records under `<prefix>/envelopes/` are the sole source of truth — once written,
+a record is never overwritten. Materialized target and manifest projections under
+`<prefix>/materialized/` are performance optimizations that can be rebuilt from
+the records, never authoritative. The immutable write is the commit point: an
+envelope is durably accepted the moment its record lands, even if a later
+projection write fails.
+
+**Read-after-write without List consistency.** The active writer serves every
+read from an in-memory index rather than from a bucket `List`, so a just-accepted
+target is visible immediately and correctness never depends on the bucket's list
+consistency.
+
+**Recovery and readiness.** At startup the store opens its bucket and replays the
+immutable records to rebuild the replay indexes (the accepted duplicate-id set
+and the per-producer sequence high-water mark) and the latest-target state.
+Because that state is reconstructed from the records themselves, replay
+protection — a duplicate `id` or a non-increasing producer `sequence` — survives
+process and pod restarts rather than resetting. Readiness gates on recovery:
+`GET /api/evidence/v1/ready` reports `503` until recovery completes, while
+liveness (`GET /api/evidence/v1/health`) is independent and always answers.
+
+**Single active writer, no distributed lock.** There is exactly one active writer
+per (bucket URL + prefix). This is enforced operationally — one replica, with the
+chart schema rejecting more — not with a distributed lock built from blob writes.
+Sharing one bucket across installations is safe only through distinct prefixes.
+
+**Retention.** Accepted immutable envelopes are never auto-deleted; they are the
+audit trail and the recovery source. A bucket lifecycle policy must not delete
+anything under `<prefix>/envelopes/`. Only the rebuildable `materialized/`
+projections are safe to drop.
+
+---
+
+## Deployment
+
+The Evidence Server, the dashboard and the operator are three independent
+processes with one clean responsibility split — the Evidence Server owns
+ingestion, verification, recovery and storage, the dashboard consumes the
+server's read-only contribution and the operator manages the Kubernetes
+lifecycle.
+
+- **In Kubernetes** it is an optional operator-managed component of the single
+  `pacto-operator` Helm chart: set `evidence.enabled=true`. The operator
+  reconciles a separate Evidence Server Deployment, an internal Service and a
+  retained PVC. There is no standalone evidence chart and no subchart. When both
+  `dashboard.enabled` and `evidence.enabled` are set, the operator auto-wires the
+  dashboard to the internal server via `PACTO_EVIDENCE_SOURCE_URL`, and the
+  dashboard consumes it read-only over HTTP without ever touching the bucket.
+- **Outside Kubernetes** the same component runs via `pacto evidence serve` — see
+  [evidence security and tooling](evidence-security.md#running-the-ingestion-endpoint).
+
+The PVC is retained on purpose. It carries no owner reference, so it survives
+disabling the component, chart upgrades and uninstall
+(`evidence.storage.persistence.retain`) — accepted evidence is not garbage
+collected with the operator.
 
 ---
 
