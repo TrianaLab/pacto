@@ -214,6 +214,19 @@ Sibling dependencies are resolved in parallel. OCI bundles cache under `~/.cache
 
 ---
 
+## `pacto evidence`
+
+Produce and verify the signed, versioned envelopes that carry a Pacto EvidenceSet from a remote or disconnected environment to a platform that ingests it. Keys are Ed25519; the wire format is defined by pkg/evidenceenvelope.
+
+
+**Flags:**
+
+```
+  -h, --help   help for evidence
+```
+
+---
+
 ## `pacto explain`
 
 Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract.
@@ -248,10 +261,11 @@ Compose contracts, contract revisions and operational targets from local bundles
 **Flags:**
 
 ```
-      --freshness duration         mark target evidence older than this as stale (0 disables)
-  -h, --help                       help for fleet
-      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
-      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --evidence-store stringArray   directory of accepted-evidence records to include as external targets (repeatable)
+      --freshness duration           mark target evidence older than this as stale (0 disables)
+  -h, --help                         help for fleet
+      --local stringArray            local bundle root(s) to scan (repeatable) (default [.])
+      --target-state stringArray     offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
 ```
 
 ---
@@ -315,6 +329,42 @@ Dependencies resolved from local paths are annotated with `[local]`. Shared depe
 Reports cycles, version conflicts, and unreachable dependencies.
 
 Sibling dependencies are resolved in parallel. OCI bundles are cached locally in `~/.cache/pacto/oci/` for faster subsequent operations. Use `--no-cache` to bypass the cache.
+
+---
+
+## `pacto impact`
+
+Composes a semantic contract diff (old→new) with the operational graph to answer what a change's real blast radius is: which consumers are affected, how strong the evidence is and whether their declared compatibility still holds.
+
+Exit status is non-zero when the change is BREAKING and at least one active consumer is incompatible with the new version (mirrors `pacto diff`).
+
+```
+pacto impact <old> <new> [flags]
+```
+
+**Examples:**
+
+```
+  # Impact of upgrading a local service against the local fleet
+  pacto impact ./svc-v1 ./svc-v2 --local .
+
+  # Include observed (runtime) evidence and emit JSON
+  pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --include-observed --output-format json
+```
+
+**Flags:**
+
+```
+      --freshness duration         mark target evidence older than this as stale (0 disables)
+  -h, --help                       help for impact
+      --include-observed           let observed (runtime) relationships raise consumer confidence
+      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --new-set stringArray        set a value on the new contract (e.g. --new-set service.version=2.0.0)
+      --new-values stringArray     values file to merge into the new contract (can be repeated)
+      --old-set stringArray        set a value on the old contract (e.g. --old-set service.version=1.0.0)
+      --old-values stringArray     values file to merge into the old contract (can be repeated)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets (repeatable)
+```
 
 ---
 
@@ -476,16 +526,17 @@ pacto mcp [bundle-ref] [flags]
 **Flags:**
 
 ```
-      --allow-writes               expose mutating operations (POST/PUT/PATCH/DELETE) as tools
-      --auth stringArray           credential for a security scheme as name=value (repeatable)
-      --base-url string            base URL for live invocation (overrides the OpenAPI servers[] URL)
-      --fleet                      expose read-only operational-graph (fleet) query tools
-      --freshness duration         mark target evidence older than this as stale (--fleet)
-  -h, --help                       help for mcp
-      --local stringArray          local bundle root(s) for --fleet (repeatable) (default [.])
-      --port int                   port for HTTP transport (default 8585)
-      --target-state stringArray   offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)
-  -t, --transport string           transport type: stdio or http (default "stdio")
+      --allow-writes                 expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --auth stringArray             credential for a security scheme as name=value (repeatable)
+      --base-url string              base URL for live invocation (overrides the OpenAPI servers[] URL)
+      --evidence-store stringArray   directory of accepted-evidence records for --fleet (repeatable)
+      --fleet                        expose read-only operational-graph (fleet) query tools
+      --freshness duration           mark target evidence older than this as stale (--fleet)
+  -h, --help                         help for mcp
+      --local stringArray            local bundle root(s) for --fleet (repeatable) (default [.])
+      --port int                     port for HTTP transport (default 8585)
+      --target-state stringArray     offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)
+  -t, --transport string             transport type: stdio or http (default "stdio")
 ```
 
 The server exposes the following tools:

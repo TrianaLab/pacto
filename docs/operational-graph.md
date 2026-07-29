@@ -60,9 +60,11 @@ source observes what it can right now and contributes revisions and targets:
 - **Local bundles** — the revision a developer is editing, before it is pushed.
 - **Kubernetes / operator evidence** — which revision runs in which target and its
   compliance, from the runtime the operator hosts.
-- **Future sources** — a remote environment's [ingested evidence](#future-external-evidence-ingestion),
-  an [observed graph](#a-future-observed-graph-otel), or any other component that
-  implements the source seam.
+- **Ingested external evidence** — a remote environment's signed, versioned
+  [EvidenceSet report](evidence-protocol.md), verified and evaluated at ingestion,
+  then exposed as an operational target.
+- **Future sources** — an [observed graph](#a-future-observed-graph-otel) or any
+  other component that implements the source seam.
 
 No source leaks its transport into the graph. A Kubernetes-backed source, an
 OCI-backed source, a local source and the dashboard adapter each implement the
@@ -154,11 +156,13 @@ flowchart LR
         OCI["Contracts in OCI<br/>published revisions"]
         LOCAL["Local bundles<br/>revision being edited"]
         K8S["Kubernetes / operator<br/>evidence: which revision runs where"]
-        FUT["Future sources<br/>ingested evidence · observed graph"]
+        EVI["Ingested external evidence<br/>signed EvidenceSet reports"]
+        FUT["Future sources<br/>observed graph (OTel)"]
     end
     OCI --> OG
     LOCAL --> OG
     K8S --> OG
+    EVI --> OG
     FUT -. planned .-> OG
     OG["Operational Graph<br/><i>Fleet Snapshot · immutable read model</i>"]
     OG --> Q["Fleet Query<br/>search · get · graph · status · explain"]
@@ -225,21 +229,26 @@ the full model.
 
 ---
 
+## External evidence ingestion
+
+Runtime evidence no longer has to come only from a cluster the operator watches.
+The source seam is deliberately environment-neutral, so a **remote or
+disconnected environment** can participate without Pacto reaching into it: the
+remote side produces a signed, versioned `EvidenceSet`, reports it outbound to an
+ingestion endpoint, and the platform verifies the signature, evaluates the
+evidence and exposes the result as an operational target. The freshness rules
+hold across the boundary — a target goes `stale` when its evidence ages past the
+window and its source becomes `unavailable` when it stops reporting, never a
+silent empty and never deleted. This is the shipped
+[external evidence protocol](evidence-protocol.md); for keys and CLI usage see
+[evidence security and tooling](evidence-security.md).
+
+---
+
 ## Where this is heading
 
-Two further capabilities build directly on the substrate the graph already
-maintains. Neither changes the model above — each consumes it.
-
-### Future external evidence ingestion
-
-Today runtime evidence comes from a cluster the operator watches. The source seam
-is deliberately environment-neutral so a **remote environment** can participate
-without Pacto reaching into it: the remote side produces a signed, versioned
-`EvidenceSet`, a platform ingests it, and the graph exposes the resulting targets
-with honest freshness — `stale` when the evidence ages past the window,
-`partial` when a remote environment did not report. The invariants hold across the
-boundary: an environment that goes quiet becomes `unavailable`, never a silent
-empty.
+One further capability builds directly on the substrate the graph already
+maintains. It does not change the model above — it consumes it.
 
 ### A future observed graph (OTel)
 

@@ -1,0 +1,377 @@
+package app
+
+import (
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
+)
+
+// randReader is the entropy source for key generation, overridable in tests to
+// exercise the failure path (crypto/rand.Reader effectively never fails).
+var randReader io.Reader = rand.Reader
+
+// KeyPair describes an Ed25519 signing keypair written to disk. The private key
+// is the base64 32-byte seed (0600); the public key is the base64 32-byte key.
+// The public-key file is named <keyId>.pub so its base name IS the trust-store
+// key id consumed by VerifyEnvelope.
+type KeyPair struct {
+	KeyID          string `json:"keyId"`
+	PrivateKeyPath string `json:"privateKeyPath"`
+	PublicKeyPath  string `json:"publicKeyPath"`
+	PublicKey      string `json:"publicKey"`
+}
+
+// GenerateKey creates an Ed25519 keypair in dir. When keyID is empty it defaults
+// to a short fingerprint of the public key. Files are <keyId>.key (private seed,
+// 0600) and <keyId>.pub (public key, 0644).
+func (s *Service) GenerateKey(dir, keyID string) (KeyPair, error) {
+	pub, priv, err := ed25519.GenerateKey(randReader)
+	if err != nil {
+		return KeyPair{}, err
+	}
+	if keyID == "" {
+		keyID = keyFingerprint(pub)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return KeyPair{}, err
+	}
+	privPath := filepath.Join(dir, keyID+".key")
+	pubPath := filepath.Join(dir, keyID+".pub")
+	pubB64 := base64.StdEncoding.EncodeToString(pub)
+	seed := base64.StdEncoding.EncodeToString(priv.Seed())
+	if err := writeFileFn(privPath, []byte(seed+"\n"), 0o600); err != nil {
+		return KeyPair{}, err
+	}
+	if err := writeFileFn(pubPath, []byte(pubB64+"\n"), 0o644); err != nil {
+		return KeyPair{}, err
+	}
+	return KeyPair{KeyID: keyID, PrivateKeyPath: privPath, PublicKeyPath: pubPath, PublicKey: pubB64}, nil
+}
+
+// keyFingerprint derives a stable short key id from a public key.
+func keyFingerprint(pub ed25519.PublicKey) string {
+	sum := sha256.Sum256(pub)
+	return hex.EncodeToString(sum[:8])
+}
+
+// SignOptions configures SignEvidence.
+type SignOptions struct {
+	EvidencePath    string
+	KeyPath         string
+	KeyID           string
+	ProducerID      string
+	ProducerVersion string
+	ID              string        // optional; defaults to a content hash of the EvidenceSet
+	IssuedAt        time.Time     // optional; defaults to time.Now (pass a fixed value for determinism)
+	TTL             time.Duration // 0 disables expiry
+}
+
+// SignEvidence reads an EvidenceSet JSON file, wraps it in a signed Envelope and
+// returns it. The envelope ID defaults to a content hash so signing is
+// deterministic given the same evidence, key and IssuedAt.
+func (s *Service) SignEvidence(opts SignOptions) (evidenceenvelope.Envelope, error) {
+	if opts.KeyID == "" {
+		return evidenceenvelope.Envelope{}, fmt.Errorf("key-id is required")
+	}
+	if opts.ProducerID == "" {
+		return evidenceenvelope.Envelope{}, fmt.Errorf("producer is required")
+	}
+	key, err := loadPrivateKey(opts.KeyPath)
+	if err != nil {
+		return evidenceenvelope.Envelope{}, err
+	}
+	set, err := readEvidenceSet(opts.EvidencePath)
+	if err != nil {
+		return evidenceenvelope.Envelope{}, err
+	}
+	id := opts.ID
+	if id == "" {
+		id = contentID(set)
+	}
+	issued := opts.IssuedAt
+	if issued.IsZero() {
+		issued = time.Now().UTC()
+	}
+	env := evidenceenvelope.Envelope{
+		APIVersion:  evidenceenvelope.APIVersionV1,
+		Kind:        evidenceenvelope.KindEnvelope,
+		ID:          id,
+		Producer:    evidenceenvelope.Producer{ID: opts.ProducerID, Version: opts.ProducerVersion, KeyID: opts.KeyID},
+		IssuedAt:    issued,
+		EvidenceSet: set,
+	}
+	if opts.TTL > 0 {
+		env.ExpiresAt = issued.Add(opts.TTL)
+	}
+	return evidenceenvelope.Sign(env, key)
+}
+
+// readEvidenceSet strictly decodes and structurally validates an EvidenceSet.
+func readEvidenceSet(path string) (evidence.EvidenceSet, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return evidence.EvidenceSet{}, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var set evidence.EvidenceSet
+	if err := dec.Decode(&set); err != nil {
+		return evidence.EvidenceSet{}, fmt.Errorf("decode evidence set: %w", err)
+	}
+	if errs := evidence.ValidateEvidenceSet(set); len(errs) > 0 {
+		return evidence.EvidenceSet{}, fmt.Errorf("invalid evidence set: %w", errors.Join(errs...))
+	}
+	return set, nil
+}
+
+// contentID hashes the canonical EvidenceSet for a deterministic envelope id.
+func contentID(set evidence.EvidenceSet) string {
+	// ponytail: set is already validated and its payloads are closed structs, so
+	// json.Marshal cannot fail here — dropping the error keeps this branch-free.
+	raw, _ := json.Marshal(set)
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// VerifyOptions configures VerifyEnvelope.
+type VerifyOptions struct {
+	EnvelopePath string
+	TrustPath    string // a public-key file or a directory of <keyId>.pub files
+}
+
+// VerifyResult reports the verification outcome. OK is false with a Reason when
+// the envelope decoded but failed signature, freshness or trust checks.
+type VerifyResult struct {
+	OK       bool   `json:"ok"`
+	ID       string `json:"id"`
+	Producer string `json:"producer"`
+	KeyID    string `json:"keyId"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// VerifyEnvelope loads a trust store, decodes an envelope and verifies it. A
+// non-nil error signals an operational failure (unreadable input, bad trust
+// store, undecodable envelope). A decoded-but-invalid envelope returns OK=false
+// with a Reason and a nil error.
+func (s *Service) VerifyEnvelope(opts VerifyOptions) (VerifyResult, error) {
+	ts, err := loadTrustStore(opts.TrustPath)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	data, err := os.ReadFile(opts.EnvelopePath)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	env, err := evidenceenvelope.Decode(data)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	res := VerifyResult{ID: env.ID, Producer: env.Producer.ID, KeyID: env.Producer.KeyID}
+	if err := evidenceenvelope.Verify(env, ts, time.Now()); err != nil {
+		res.Reason = err.Error()
+		return res, nil
+	}
+	res.OK = true
+	return res, nil
+}
+
+// loadTrustStore builds a key-id->public-key map from a directory of *.pub files
+// or from a single public-key file.
+func loadTrustStore(path string) (evidenceenvelope.MapTrustStore, error) {
+	ts := evidenceenvelope.MapTrustStore{}
+	entries, err := os.ReadDir(path)
+	if err == nil {
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".pub") {
+				continue
+			}
+			if err := addTrustKey(ts, filepath.Join(path, e.Name())); err != nil {
+				return nil, err
+			}
+		}
+	} else if err := addTrustKey(ts, path); err != nil {
+		return nil, err
+	}
+	if len(ts) == 0 {
+		return nil, fmt.Errorf("no public keys found in trust store %q", path)
+	}
+	return ts, nil
+}
+
+// addTrustKey loads one public key and registers it under its file base name.
+func addTrustKey(ts evidenceenvelope.MapTrustStore, path string) error {
+	pub, err := loadPublicKey(path)
+	if err != nil {
+		return err
+	}
+	ts[strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))] = pub
+	return nil
+}
+
+// loadPrivateKey reads a base64 32-byte Ed25519 seed and expands it.
+func loadPrivateKey(path string) (ed25519.PrivateKey, error) {
+	raw, err := readBase64(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) != ed25519.SeedSize {
+		return nil, fmt.Errorf("invalid private key %q: expected %d-byte seed, got %d", path, ed25519.SeedSize, len(raw))
+	}
+	return ed25519.NewKeyFromSeed(raw), nil
+}
+
+// loadPublicKey reads a base64 32-byte Ed25519 public key.
+func loadPublicKey(path string) (ed25519.PublicKey, error) {
+	raw, err := readBase64(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid public key %q: expected %d bytes, got %d", path, ed25519.PublicKeySize, len(raw))
+	}
+	return ed25519.PublicKey(raw), nil
+}
+
+// readBase64 reads a file and base64-decodes its trimmed contents.
+func readBase64(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(data)))
+	if err != nil {
+		return nil, fmt.Errorf("decode key %q: %w", path, err)
+	}
+	return raw, nil
+}
+
+// contractResolver adapts the Service's bundle resolution to the ingest layer's
+// ContractResolver seam, so accepted evidence is evaluated against the same
+// contract revisions the rest of the CLI resolves (local dir or oci:// ref).
+type contractResolver struct{ svc *Service }
+
+// Resolve implements evidenceingest.ContractResolver.
+func (r contractResolver) Resolve(ctx context.Context, ref string) (contract.Contract, error) {
+	b, err := r.svc.ResolveBundle(ctx, ref)
+	if err != nil {
+		return contract.Contract{}, err
+	}
+	return *b.Contract, nil
+}
+
+// EvidenceResolver returns a ContractResolver backed by this Service, resolving
+// an evidence set's ContractRef to its parsed contract.
+func (s *Service) EvidenceResolver() evidenceingest.ContractResolver {
+	return contractResolver{svc: s}
+}
+
+// ServeOptions configures the evidence ingestion host.
+type ServeOptions struct {
+	Port      int      // listen port for ServeEvidence (0 = OS-assigned)
+	TrustPath string   // a public-key file or a directory of <keyId>.pub files
+	StoreDir  string   // directory the FileStore persists accepted records into
+	Producers []string // trusted producer ids advertised on GET /producers
+}
+
+// evidenceMux assembles the ingestion HTTP mux (trust store, file store, accept
+// pipeline, handler). Assembly errors (unreadable trust store, uncreatable store
+// dir) surface here so serve validates configuration before it listens.
+func (s *Service) evidenceMux(opts ServeOptions) (*http.ServeMux, error) {
+	trust, err := loadTrustStore(opts.TrustPath)
+	if err != nil {
+		return nil, err
+	}
+	store, err := evidenceingest.NewFileStore(opts.StoreDir)
+	if err != nil {
+		return nil, err
+	}
+	acceptor := evidenceingest.NewAcceptor(trust, s.EvidenceResolver(), store, nil, nil)
+	handler := evidenceingest.NewHandler(acceptor, opts.Producers, nil)
+	mux := http.NewServeMux()
+	handler.Routes(mux)
+	return mux, nil
+}
+
+// ServeEvidence assembles the ingestion host, listens on opts.Port and serves
+// until ctx is cancelled. It is the port-based convenience over
+// ServeEvidenceOnListener.
+func (s *Service) ServeEvidence(ctx context.Context, opts ServeOptions) error {
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", opts.Port))
+	if err != nil {
+		return err
+	}
+	return s.ServeEvidenceOnListener(ctx, ln, opts)
+}
+
+// ServeEvidenceOnListener serves the ingestion host on an existing listener until
+// ctx is cancelled, then shuts down gracefully. It takes ownership of ln, closing
+// it if assembly fails. This is the seam tests drive on a random port.
+func (s *Service) ServeEvidenceOnListener(ctx context.Context, ln net.Listener, opts ServeOptions) error {
+	mux, err := s.evidenceMux(opts)
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve(ln) }()
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+		return nil
+	case err := <-errCh:
+		return err
+	}
+}
+
+// SendResult is the response from posting an envelope to an ingestion host.
+type SendResult struct {
+	StatusCode int
+	Body       string
+}
+
+// SendEvidence posts an envelope file to an ingestion host URL and returns the
+// response. A non-2xx status is reported in the result (the caller decides the
+// exit code); only IO and transport failures return an error.
+func (s *Service) SendEvidence(ctx context.Context, url, envelopePath string) (SendResult, error) {
+	data, err := os.ReadFile(envelopePath)
+	if err != nil {
+		return SendResult{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	if err != nil {
+		return SendResult{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return SendResult{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return SendResult{}, err
+	}
+	return SendResult{StatusCode: resp.StatusCode, Body: string(body)}, nil
+}

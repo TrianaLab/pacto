@@ -28,6 +28,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	// Source flags are shared by every subcommand.
 	cmd.PersistentFlags().StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
 	cmd.PersistentFlags().StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)")
+	cmd.PersistentFlags().StringArray("evidence-store", nil, "directory of accepted-evidence records to include as external targets (repeatable)")
 	cmd.PersistentFlags().Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
 
 	cmd.AddCommand(newFleetSearchCommand(svc, v))
@@ -43,8 +44,14 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	targetState, _ := cmd.Flags().GetStringArray("target-state")
+	evidenceStores, _ := cmd.Flags().GetStringArray("evidence-store")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
-	return app.FleetOptions{LocalRoots: local, TargetStateFiles: targetState, FreshnessWindow: freshness}
+	return app.FleetOptions{
+		LocalRoots:       local,
+		TargetStateFiles: targetState,
+		EvidenceStores:   evidenceStores,
+		FreshnessWindow:  freshness,
+	}
 }
 
 // buildQuery assembles the snapshot and returns a pure query over it.

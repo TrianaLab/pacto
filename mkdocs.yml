@@ -206,6 +206,8 @@ nav:
   - Operational graph: operational-graph.md
   - Impact analysis: impact.md
   - Collectors: collectors.md
+  - External evidence protocol: evidence-protocol.md
+  - Evidence security and tooling: evidence-security.md
   - Architecture:
       - Overview: architecture.md
   - Maintainers:

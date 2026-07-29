@@ -120,11 +120,15 @@ boundary**: a custom Go integration constructs and validates `EvidenceSet` value
 - the Evidence validation invariants,
 - how `Evaluate` consumes an `EvidenceSet`.
 
-A standalone collector process protocol is **not** currently defined: there is no
-public CLI, API or wire protocol that accepts third-party `Evidence`, and collectors
-cannot be installed or registered dynamically. A custom collector is a Go integration
-that builds an `EvidenceSet` and calls the engine directly. This is the compiled,
-run example `ExampleEvaluate` in `pkg/validation/collector_example_test.go`:
+Two integration surfaces exist today. **In-process**, a custom Go collector builds
+an `EvidenceSet` (`pkg/evidence`) and calls `Evaluate` (`pkg/validation`) directly.
+**Across a trust boundary**, a remote environment reports a signed `EvidenceSet`
+over the [external evidence protocol](evidence-protocol.md) — a versioned,
+Ed25519-signed wire format and ingestion API. What is still **not** defined is a
+dynamically pluggable collector runtime: collectors cannot be installed or
+registered as plugins. The stable surface is the `EvidenceSet` itself, whether
+passed in-process or signed and reported over the wire. The in-process path is the
+compiled, run example `ExampleEvaluate` in `pkg/validation/collector_example_test.go`:
 
 ```go
 // 1. The contract declares intent (loaded from a bundle in real use).

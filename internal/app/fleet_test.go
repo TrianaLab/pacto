@@ -6,6 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
 func writeLocalBundle(t *testing.T, dir, name string) {
@@ -95,6 +100,85 @@ func TestService_Fleet_MultipleSourcesGetSuffixedIDs(t *testing.T) {
 	}
 	if !ids["local-1"] || !ids["local-2"] {
 		t.Errorf("source ids = %v, want local-1 + local-2", ids)
+	}
+}
+
+func TestService_Fleet_EvidenceStores(t *testing.T) {
+	fixed := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
+	storeDir := t.TempDir()
+	store, err := evidenceingest.NewFileStore(storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := evidenceingest.Record{
+		Envelope: evidenceenvelope.Envelope{
+			Producer: evidenceenvelope.Producer{ID: "prod-eu"},
+			EvidenceSet: evidence.EvidenceSet{
+				Subject:     evidence.SubjectRef{Kind: "service", Name: "svc-a"},
+				ContractRef: "oci://ghcr.io/acme/svc:1.0.0",
+				ObservedAt:  fixed,
+			},
+		},
+		Compliance: fleet.StatusCompliant,
+		AcceptedAt: fixed,
+	}
+	if err := store.Put(context.Background(), "svc-a", rec); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(nil, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{
+		EvidenceStores: []string{storeDir},
+		Now:            func() time.Time { return fixed },
+	})
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	if len(snap.Targets) != 1 {
+		t.Fatalf("got %d targets, want 1", len(snap.Targets))
+	}
+	found := false
+	for _, tgt := range snap.Targets {
+		if tgt.Scope == "prod-eu" && tgt.Name == "svc-a" && tgt.Kind == "external" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an external target prod-eu/svc-a, got %+v", snap.Targets)
+	}
+	ids := map[string]bool{}
+	for _, s := range snap.Sources {
+		ids[s.ID] = true
+	}
+	if !ids["evidence-store"] {
+		t.Errorf("source ids = %v, want evidence-store", ids)
+	}
+}
+
+func TestService_Fleet_EvidenceStore_OpenError(t *testing.T) {
+	// A regular file cannot host a store directory beneath it, so NewFileStore
+	// fails and the store becomes a failing source (a limitation), not a build
+	// abort.
+	dir := t.TempDir()
+	file := filepath.Join(dir, "afile")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(nil, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{
+		EvidenceStores: []string{filepath.Join(file, "store")},
+	})
+	if err != nil {
+		t.Fatalf("Fleet returned a hard error, want partial snapshot: %v", err)
+	}
+	found := false
+	for _, l := range snap.Limitations {
+		if l.Code == fleet.LimitationSourceUnavailable && l.Source == "evidence-store" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a SOURCE_UNAVAILABLE limitation for evidence-store, got %+v", snap.Limitations)
 	}
 }
 

@@ -124,6 +124,7 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 	root.AddCommand(newPullCommand(svc, v))
 	root.AddCommand(newGraphCommand(svc, v))
 	root.AddCommand(newFleetCommand(svc, v))
+	root.AddCommand(newEvidenceCommand(svc, v))
 	root.AddCommand(newImpactCommand(svc, v))
 	root.AddCommand(newExplainCommand(svc, v))
 	root.AddCommand(newDocCommand(svc, v))

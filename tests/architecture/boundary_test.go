@@ -24,6 +24,8 @@ import (
 var corePackages = []string{
 	"github.com/trianalab/pacto/v3/pkg/contract/...",
 	"github.com/trianalab/pacto/v3/pkg/evidence/...",
+	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope/...",
+	"github.com/trianalab/pacto/v3/pkg/evidenceingest/...",
 	"github.com/trianalab/pacto/v3/pkg/finding/...",
 	"github.com/trianalab/pacto/v3/pkg/fleet/...",
 	"github.com/trianalab/pacto/v3/pkg/graph/...",
