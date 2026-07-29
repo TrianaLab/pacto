@@ -321,7 +321,7 @@ func TestListLatest_FilterAndOrder(t *testing.T) {
 	now := time.Now()
 	commit(t, s, newRec("e1", "p", "z", 1, now))
 	commit(t, s, newRec("e2", "q", "a", 1, now))
-	commit(t, s, newRec("e3", "p", "m", 1, now))
+	commit(t, s, newRec("e3", "p", "m", 2, now)) // producer p advances to seq 2
 	all := s.ListLatest(ctx, ListOptions{})
 	if len(all) != 3 || all[0].TargetKey != "a" || all[1].TargetKey != "m" || all[2].TargetKey != "z" {
 		t.Fatalf("unsorted: %v", all)
@@ -329,6 +329,25 @@ func TestListLatest_FilterAndOrder(t *testing.T) {
 	only := s.ListLatest(ctx, ListOptions{Producer: "p"})
 	if len(only) != 2 || only[0].TargetKey != "m" || only[1].TargetKey != "z" {
 		t.Fatalf("filter failed: %v", only)
+	}
+}
+
+func TestCommit_OutOfSequence(t *testing.T) {
+	s := openMem(t)
+	ctx := context.Background()
+	if _, err := s.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	commit(t, s, newRec("e1", "p", "t", 5, now))
+	// A newer sequence for the same producer is accepted.
+	commit(t, s, newRec("e2", "p", "t", 6, now))
+	// An equal or older sequence (a replay) is rejected, even with a fresh id.
+	if err := s.Commit(ctx, newRec("e3", "p", "t", 6, now)); err != ErrOutOfSequence {
+		t.Errorf("equal seq: got %v, want ErrOutOfSequence", err)
+	}
+	if err := s.Commit(ctx, newRec("e4", "p", "t", 3, now)); err != ErrOutOfSequence {
+		t.Errorf("older seq: got %v, want ErrOutOfSequence", err)
 	}
 }
 

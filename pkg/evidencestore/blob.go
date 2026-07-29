@@ -207,6 +207,12 @@ func (b *BlobStore) Commit(ctx context.Context, rec AcceptedRecord) error {
 	if _, ok := b.tainted[hashID(rec.ProducerID())]; ok {
 		return ErrProducerTainted
 	}
+	// Replay protection: the sequence must be strictly newer than the producer's
+	// high-water mark. This is atomic with the immutable write below and survives
+	// restarts because Recover rebuilds maxSeq from the immutable records.
+	if cur, ok := b.maxSeq[rec.ProducerID()]; ok && rec.Sequence() <= cur {
+		return ErrOutOfSequence
+	}
 	data, err := jsonMarshal(rec)
 	if err != nil {
 		return err

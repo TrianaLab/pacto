@@ -161,6 +161,12 @@ type Store interface {
 var (
 	// ErrAlreadyCommitted means the envelope id is already durably accepted.
 	ErrAlreadyCommitted = errors.New("evidence store: envelope already committed")
+	// ErrOutOfSequence means the envelope's sequence is not greater than the
+	// producer's highest accepted sequence — an old or replayed report. Replay
+	// protection is enforced here, atomically with the immutable write, so it
+	// survives process and pod restarts (Recover rebuilds the sequence high-water
+	// mark from the immutable records).
+	ErrOutOfSequence = errors.New("evidence store: envelope sequence is not newer than the producer's latest")
 	// ErrProducerTainted means the producer's history is partially corrupt, so
 	// replay correctness cannot be guaranteed and new writes are refused.
 	ErrProducerTainted = errors.New("evidence store: producer history is corrupt; writes refused")
