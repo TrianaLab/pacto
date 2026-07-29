@@ -29,6 +29,8 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.PersistentFlags().StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
 	cmd.PersistentFlags().StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)")
 	cmd.PersistentFlags().StringArray("evidence-store", nil, "directory of accepted-evidence records to include as external targets (repeatable)")
+	cmd.PersistentFlags().StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
+	cmd.PersistentFlags().Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
 	cmd.PersistentFlags().Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
 	cmd.PersistentFlags().String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
 	cmd.PersistentFlags().Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
@@ -48,6 +50,8 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	targetState, _ := cmd.Flags().GetStringArray("target-state")
 	evidenceStores, _ := cmd.Flags().GetStringArray("evidence-store")
+	ociRefs, _ := cmd.Flags().GetStringArray("oci")
+	includeCache, _ := cmd.Flags().GetBool("cache")
 	includeK8s, _ := cmd.Flags().GetBool("k8s")
 	namespace, _ := cmd.Flags().GetString("namespace")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
@@ -55,6 +59,8 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		LocalRoots:       local,
 		TargetStateFiles: targetState,
 		EvidenceStores:   evidenceStores,
+		OCIRefs:          ociRefs,
+		IncludeCache:     includeCache,
 		IncludeK8s:       includeK8s,
 		K8sNamespace:     namespace,
 		FreshnessWindow:  freshness,

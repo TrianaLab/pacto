@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,18 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
+
+// errNoBundleStore marks an OCI or cache source configured without a store.
+var errNoBundleStore = errors.New("no bundle store configured (registry credentials/cache unavailable)")
+
+// bundleStoreCacheDir returns the store's on-disk cache directory when it
+// exposes one, else "" (the cache source then finds nothing).
+func bundleStoreCacheDir(store any) string {
+	if cs, ok := store.(interface{ CacheDir() string }); ok {
+		return cs.CacheDir()
+	}
+	return ""
+}
 
 // Kubernetes access seams, overridable in tests to avoid real cluster access.
 var (
@@ -29,6 +42,12 @@ type FleetOptions struct {
 	// EvidenceStores are directories of accepted-evidence records (as written by
 	// the ingestion host); each becomes a fleet source of external targets.
 	EvidenceStores []string
+	// OCIRefs are registry references to include as published-baseline revisions.
+	// Requires a configured BundleStore.
+	OCIRefs []string
+	// IncludeCache adds every bundle in the local OCI disk cache as an offline
+	// baseline revision. Requires a configured BundleStore.
+	IncludeCache bool
 	// IncludeK8s adds a live source that reads Pacto CRs from the current
 	// Kubernetes cluster as targets. An unreachable cluster surfaces as an
 	// unavailable-source limitation rather than a build failure.
@@ -67,6 +86,20 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			continue
 		}
 		sources = append(sources, evidenceingest.NewSource(id, store))
+	}
+	if len(opts.OCIRefs) > 0 {
+		if s.BundleStore != nil {
+			sources = append(sources, fleetsrc.NewOCISource("oci", s.BundleStore, opts.OCIRefs))
+		} else {
+			sources = append(sources, fleet.NewFailingSource("oci", "oci", errNoBundleStore))
+		}
+	}
+	if opts.IncludeCache {
+		if s.BundleStore != nil {
+			sources = append(sources, fleetsrc.NewCacheSource("cache", bundleStoreCacheDir(s.BundleStore), s.BundleStore))
+		} else {
+			sources = append(sources, fleet.NewFailingSource("cache", "cache", errNoBundleStore))
+		}
 	}
 	if opts.IncludeK8s {
 		id := currentKubeContext()

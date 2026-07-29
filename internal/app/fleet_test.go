@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v3/internal/k8sclient"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
@@ -181,6 +182,120 @@ func TestService_Fleet_EvidenceStore_OpenError(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a SOURCE_UNAVAILABLE limitation for evidence-store, got %+v", snap.Limitations)
+	}
+}
+
+// fakeFleetStore is an oci.BundleStore for the OCI/cache wiring tests. It does
+// not expose CacheDir (so bundleStoreCacheDir falls back to "").
+type fakeFleetStore struct {
+	bundles map[string]*contract.Bundle
+}
+
+func (f fakeFleetStore) Push(context.Context, string, *contract.Bundle) (string, error) {
+	return "", nil
+}
+func (f fakeFleetStore) ListTags(context.Context, string) ([]string, error) { return nil, nil }
+func (f fakeFleetStore) Resolve(context.Context, string) (string, error)    { return "sha256:x", nil }
+func (f fakeFleetStore) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
+	if b, ok := f.bundles[ref]; ok {
+		return b, nil
+	}
+	return nil, errors.New("not found")
+}
+
+// fakeFleetCacheStore adds a real CacheDir so the cache source can walk it.
+type fakeFleetCacheStore struct {
+	fakeFleetStore
+	dir string
+}
+
+func (f fakeFleetCacheStore) CacheDir() string { return f.dir }
+
+func bundleForFleet(name string) *contract.Bundle {
+	return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: name, Version: "1.0.0"}}}
+}
+
+func TestService_Fleet_OCIRefs(t *testing.T) {
+	store := fakeFleetStore{bundles: map[string]*contract.Bundle{"ghcr.io/x/a:1.0.0": bundleForFleet("a")}}
+	svc := NewService(store, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{OCIRefs: []string{"ghcr.io/x/a:1.0.0"}})
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	if snap.Service("a") == nil {
+		t.Errorf("expected service a from OCI source, got %+v", snap.Services)
+	}
+}
+
+func TestService_Fleet_OCIRefs_NoStore(t *testing.T) {
+	svc := NewService(nil, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{OCIRefs: []string{"ghcr.io/x/a:1.0.0"}})
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	if !hasUnavailable(snap, "oci") {
+		t.Errorf("expected SOURCE_UNAVAILABLE for oci, got %+v", snap.Limitations)
+	}
+}
+
+func TestService_Fleet_Cache(t *testing.T) {
+	dir := t.TempDir()
+	writeCacheBundle(t, dir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz")
+	store := fakeFleetCacheStore{
+		fakeFleetStore: fakeFleetStore{bundles: map[string]*contract.Bundle{"ghcr.io/org/svc:1.0.0": bundleForFleet("svc")}},
+		dir:            dir,
+	}
+	svc := NewService(store, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeCache: true})
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	if snap.Service("svc") == nil {
+		t.Errorf("expected service svc from cache source, got %+v", snap.Services)
+	}
+}
+
+func TestService_Fleet_Cache_NoStore(t *testing.T) {
+	svc := NewService(nil, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeCache: true})
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	if !hasUnavailable(snap, "cache") {
+		t.Errorf("expected SOURCE_UNAVAILABLE for cache, got %+v", snap.Limitations)
+	}
+}
+
+func TestService_Fleet_Cache_StoreWithoutCacheDir(t *testing.T) {
+	// A store lacking CacheDir() resolves to "" (bundleStoreCacheDir fallback);
+	// the cache source then finds nothing but does not fail.
+	svc := NewService(fakeFleetStore{}, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeCache: true})
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	if len(snap.Services) != 0 {
+		t.Errorf("expected no services, got %+v", snap.Services)
+	}
+}
+
+func hasUnavailable(snap *fleet.FleetSnapshot, source string) bool {
+	for _, l := range snap.Limitations {
+		if l.Code == fleet.LimitationSourceUnavailable && l.Source == source {
+			return true
+		}
+	}
+	return false
+}
+
+func writeCacheBundle(t *testing.T, dir, rel string) {
+	t.Helper()
+	p := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

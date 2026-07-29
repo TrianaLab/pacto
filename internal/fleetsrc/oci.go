@@ -1,0 +1,147 @@
+package fleetsrc
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/oci"
+)
+
+// fsWalkDir is a seam for injecting a traversal error in tests.
+var fsWalkDir = filepath.WalkDir
+
+// OCISource resolves a set of registry references into contract revisions. It is
+// the published-baseline source: each ref becomes a revision the graph can diff
+// local edits or runtime targets against. Resolution is cache-first (the
+// underlying store caches pulls), so a ref already pulled resolves offline; a
+// ref that cannot be resolved becomes a record-level limitation, never an abort.
+type OCISource struct {
+	id       string
+	resolver *oci.Resolver
+	store    oci.BundleStore
+	refs     []string
+	mode     oci.ResolveMode
+}
+
+// NewOCISource returns an OCI-backed revision source over the given refs.
+func NewOCISource(id string, store oci.BundleStore, refs []string) *OCISource {
+	if id == "" {
+		id = "oci"
+	}
+	return &OCISource{id: id, resolver: oci.NewResolver(store), store: store, refs: refs, mode: oci.RemoteAllowed}
+}
+
+// ID implements [fleet.Source].
+func (s *OCISource) ID() string { return s.id }
+
+// Kind implements [fleet.Source].
+func (s *OCISource) Kind() string { return "oci" }
+
+// Collect resolves each configured ref into a revision.
+func (s *OCISource) Collect(ctx context.Context) (*fleet.Collection, error) {
+	return collectRefs(ctx, s.id, s.resolver, s.store, s.refs, s.mode)
+}
+
+// CacheSource enumerates every bundle in the local OCI disk cache and includes
+// it as a baseline revision. It is the offline counterpart to [OCISource]: it
+// resolves strictly from disk (no network), so a disconnected environment still
+// sees every service it has ever pulled.
+type CacheSource struct {
+	id       string
+	cacheDir string
+	resolver *oci.Resolver
+	store    oci.BundleStore
+}
+
+// NewCacheSource returns a source over the on-disk OCI cache rooted at cacheDir.
+func NewCacheSource(id, cacheDir string, store oci.BundleStore) *CacheSource {
+	if id == "" {
+		id = "cache"
+	}
+	return &CacheSource{id: id, cacheDir: cacheDir, resolver: oci.NewResolver(store), store: store}
+}
+
+// ID implements [fleet.Source].
+func (s *CacheSource) ID() string { return s.id }
+
+// Kind implements [fleet.Source].
+func (s *CacheSource) Kind() string { return "cache" }
+
+// Collect walks the cache directory, reconstructs each cached ref, and resolves
+// it from disk. An absent cache directory yields an empty collection (nothing
+// cached), not an error.
+func (s *CacheSource) Collect(ctx context.Context) (*fleet.Collection, error) {
+	refs, err := cachedRefs(s.cacheDir)
+	if err != nil {
+		return nil, err
+	}
+	return collectRefs(ctx, s.id, s.resolver, s.store, refs, oci.LocalOnly)
+}
+
+// collectRefs resolves refs into revisions, turning per-ref failures into
+// record-level limitations so a partial result is never mistaken for empty.
+func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store oci.BundleStore, refs []string, mode oci.ResolveMode) (*fleet.Collection, error) {
+	col := &fleet.Collection{}
+	for _, ref := range refs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		bundle, err := resolver.Resolve(ctx, ref, mode)
+		if err != nil {
+			col.Limitations = append(col.Limitations, fleet.Limitation{
+				Code: fleet.LimitationSourceRecordInvalid, Source: id,
+				Message: "ref " + ref + " could not be resolved: " + err.Error(),
+			})
+			continue
+		}
+		rev := fleet.RawRevision{Bundle: bundle, RequestedRef: ref, ResolvedRef: ref}
+		if digest, derr := store.Resolve(ctx, ref); derr == nil {
+			rev.Digest = digest
+		}
+		col.Revisions = append(col.Revisions, rev)
+	}
+	return col, nil
+}
+
+// cachedRefs walks the cache directory and reconstructs the ref for each cached
+// bundle. The layout is <cacheDir>/<repo...>/<tag>/bundle.tar.gz, so the ref is
+// <repo...>:<tag>. Results are sorted for deterministic output.
+func cachedRefs(cacheDir string) ([]string, error) {
+	if _, err := os.Stat(cacheDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var refs []string
+	err := fsWalkDir(cacheDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() || d.Name() != "bundle.tar.gz" {
+			return nil
+		}
+		// path is always under cacheDir (WalkDir guarantees it), so a prefix trim
+		// yields the relative path without a Rel error branch.
+		rel := strings.TrimPrefix(strings.TrimPrefix(path, cacheDir), string(os.PathSeparator))
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		// Need at least repo/tag/bundle.tar.gz.
+		if len(parts) < 3 {
+			return nil
+		}
+		parts = parts[:len(parts)-1] // drop bundle.tar.gz
+		tag := parts[len(parts)-1]
+		repo := strings.Join(parts[:len(parts)-1], "/")
+		refs = append(refs, repo+":"+tag)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(refs)
+	return refs, nil
+}
