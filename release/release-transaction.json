@@ -1,18 +1,13 @@
 {
   "changedGroups": [
-    "core",
-    "kubernetes"
+    "core"
   ],
   "changedUnits": [
     "cli",
     "core",
     "dashboard-contract-bundle",
     "dashboard-image",
-    "demo-bundles",
-    "k8s-docs",
-    "k8s-module",
-    "operator-chart",
-    "operator-image"
+    "demo-bundles"
   ],
   "dependencyOrder": [
     "core:go-module",
@@ -38,18 +33,29 @@
     "operator-image": "ghcr.io/trianalab/pacto/operator"
   },
   "expectedTags": {
-    "cli": "v3.1.2",
-    "core": "v3.1.2",
-    "dashboard-contract-bundle": "3.1.2",
-    "dashboard-image": "3.1.2",
-    "demo-bundles": "3.1.2",
+    "cli": "v3.1.3",
+    "core": "v3.1.3",
+    "dashboard-contract-bundle": "3.1.3",
+    "dashboard-image": "3.1.3",
+    "demo-bundles": "3.1.3",
     "k8s-docs": "5.1.2",
     "k8s-module": "integrations/kubernetes/v5.1.2",
     "operator-chart": "5.1.2",
     "operator-image": "5.1.2"
   },
-  "manifestSha": "64e46381ea4820f8dbd7f049d15c3efa4117dbc478187568bbafa8f5d9b5150f",
+  "manifestSha": "d0faad970fae53f205db73c3bef66cf181fa4957f8dde75bcae7eb83c7d8439a",
   "newVersions": {
+    "cli": "3.1.3",
+    "core": "3.1.3",
+    "dashboard-contract-bundle": "3.1.3",
+    "dashboard-image": "3.1.3",
+    "demo-bundles": "3.1.3",
+    "k8s-docs": "5.1.2",
+    "k8s-module": "5.1.2",
+    "operator-chart": "5.1.2",
+    "operator-image": "5.1.2"
+  },
+  "previousVersions": {
     "cli": "3.1.2",
     "core": "3.1.2",
     "dashboard-contract-bundle": "3.1.2",
@@ -60,21 +66,10 @@
     "operator-chart": "5.1.2",
     "operator-image": "5.1.2"
   },
-  "previousVersions": {
-    "cli": "3.1.1",
-    "core": "3.1.1",
-    "dashboard-contract-bundle": "3.1.1",
-    "dashboard-image": "3.1.1",
-    "demo-bundles": "3.1.1",
-    "k8s-docs": "5.1.1",
-    "k8s-module": "5.1.1",
-    "operator-chart": "5.1.1",
-    "operator-image": "5.1.1"
-  },
   "ready": true,
   "schema": "pacto-release-transaction/v1",
   "sourceSha": "",
-  "transactionId": "9e757cd7e31c8abf",
+  "transactionId": "e7881328a5f03018",
   "units": {
     "cli": {
       "status": "pending"
@@ -89,18 +84,6 @@
       "status": "pending"
     },
     "demo-bundles": {
-      "status": "pending"
-    },
-    "k8s-docs": {
-      "status": "pending"
-    },
-    "k8s-module": {
-      "status": "pending"
-    },
-    "operator-chart": {
-      "status": "pending"
-    },
-    "operator-image": {
       "status": "pending"
     }
   }
