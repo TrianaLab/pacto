@@ -108,6 +108,23 @@ func TestSnapshotService(t *testing.T) {
 	}
 }
 
+func TestValidStatus(t *testing.T) {
+	for _, s := range []string{
+		StatusInvalid, StatusNonCompliant, StatusUnknown, StatusWarning,
+		StatusCompliant, StatusReference, StatusNotEvaluated,
+	} {
+		if !ValidStatus(s) {
+			t.Errorf("%q should be a canonical status", s)
+		}
+	}
+	if ValidStatus("Nonsense") {
+		t.Error("a non-canonical value must not validate")
+	}
+	if ValidStatus("") {
+		t.Error("empty string is not a canonical status")
+	}
+}
+
 func TestContractRevisionBundle(t *testing.T) {
 	var r ContractRevision
 	if r.Bundle() != nil {

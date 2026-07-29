@@ -177,9 +177,6 @@ func TestRevisionFrom_ProjectionsMatrix(t *testing.T) {
 }
 
 func TestRevisionFrom_NoReadinessEmptyFS(t *testing.T) {
-	// NOTE: an empty (non-nil) FS is used deliberately. revisionFrom calls
-	// skills.List(b.FS) with no nil guard (unlike toolsFrom/docsFrom/lockFrom),
-	// so a bundle with a nil FS panics — see the production-bug note in the report.
 	c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "bare", Version: "1.0.0"}}
 	rev := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}}, "local", fixedNow())
 	if rev.Readiness != nil {
@@ -190,6 +187,20 @@ func TestRevisionFrom_NoReadinessEmptyFS(t *testing.T) {
 	}
 	if rev.Lock != nil {
 		t.Error("empty FS → no lock")
+	}
+}
+
+func TestRevisionFrom_NilFS(t *testing.T) {
+	// A bundle with a contract but a nil FS must not panic: skills.List is guarded
+	// by an `if b.FS != nil` check (like toolsFrom/docsFrom/lockFrom). This exercises
+	// that false branch — no tools/docs/skills/lock are derived.
+	c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "nofs", Version: "1.0.0"}}
+	rev := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: c}}, "local", fixedNow())
+	if rev == nil {
+		t.Fatal("nil-FS bundle should still project a revision")
+	}
+	if rev.Tools != nil || rev.Docs != nil || rev.Skills != nil || rev.Lock != nil {
+		t.Errorf("nil FS → no derived projections, got %+v", rev)
 	}
 }
 
@@ -482,46 +493,6 @@ func TestMatchRevision_VersionFallback(t *testing.T) {
 	// A ref that pins a different version does not link.
 	if got := matchRevision(snap, &TargetRecord{Service: "vsvc", ResolvedRef: "reg/vsvc:9.9.9"}); got != "" {
 		t.Errorf("mismatched version should not link, got %q", got)
-	}
-}
-
-// -------------------- revisionNewer / representativeRevision --------------------
-
-func TestRevisionNewer(t *testing.T) {
-	tests := []struct {
-		name string
-		a, b *ContractRevision
-		want bool
-	}{
-		{"a greater semver", &ContractRevision{Version: "2.0.0", Key: "a"}, &ContractRevision{Version: "1.0.0", Key: "b"}, true},
-		{"a lesser semver", &ContractRevision{Version: "1.0.0", Key: "a"}, &ContractRevision{Version: "2.0.0", Key: "b"}, false},
-		{"equal semver, key tiebreak", &ContractRevision{Version: "1.0.0", Key: "z"}, &ContractRevision{Version: "1.0.0", Key: "a"}, true},
-		{"a parses b not", &ContractRevision{Version: "1.0.0", Key: "a"}, &ContractRevision{Version: "not-semver", Key: "b"}, true},
-		{"b parses a not", &ContractRevision{Version: "nope", Key: "a"}, &ContractRevision{Version: "1.0.0", Key: "b"}, false},
-		{"neither parses, key tiebreak", &ContractRevision{Version: "x", Key: "z"}, &ContractRevision{Version: "y", Key: "a"}, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := revisionNewer(tt.a, tt.b); got != tt.want {
-				t.Errorf("revisionNewer = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestRepresentativeRevision(t *testing.T) {
-	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
-		"svc@1": {Key: "svc@1", Service: "svc", Version: "1.0.0"},
-		"svc@2": {Key: "svc@2", Service: "svc", Version: "2.0.0"},
-	}}
-	s := &ServiceRecord{Revisions: []RevisionKey{"svc@1", "svc@2"}}
-	rep := representativeRevision(snap, s)
-	if rep == nil || rep.Version != "2.0.0" {
-		t.Errorf("representative should be highest semver, got %+v", rep)
-	}
-	// no revisions → nil.
-	if representativeRevision(snap, &ServiceRecord{}) != nil {
-		t.Error("no revisions → nil representative")
 	}
 }
 
@@ -938,7 +909,7 @@ func TestBuild_DuplicateDepEdgeSort(t *testing.T) {
 	}
 	var refs []string
 	for _, rel := range snap.Relationships {
-		if rel.From == "dupdep" && rel.To == "z" {
+		if rel.FromService == "dupdep" && rel.To == "z" {
 			refs = append(refs, rel.RequestedRef)
 		}
 	}
@@ -968,8 +939,8 @@ func TestBuild_SuppliedSourceState_Stale(t *testing.T) {
 	}
 }
 
-// bundleFor builds a distinct leaf-style bundle for service name id. It carries a
-// non-nil (empty) FS because revisionFrom → skills.List panics on a nil FS.
+// bundleFor builds a distinct leaf-style bundle for service name id, carrying an
+// empty (non-nil) FS so no skills/docs/tools are derived.
 func bundleFor(t *testing.T, id string) *contract.Bundle {
 	t.Helper()
 	c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: id, Version: "1.0.0", Owner: contract.Owner{Team: "t"}}}
@@ -981,7 +952,7 @@ func bundleFor(t *testing.T, id string) *contract.Bundle {
 // relFrom finds the first relationship with the given from/to endpoints.
 func relFrom(rels []Relationship, from, to string) *Relationship {
 	for i := range rels {
-		if rels[i].From == from && rels[i].To == to {
+		if rels[i].FromService == from && rels[i].To == to {
 			return &rels[i]
 		}
 	}
@@ -1021,8 +992,11 @@ func buildRelSnapshot(t *testing.T) *FleetSnapshot {
 func TestBuild_RelationshipsResolution(t *testing.T) {
 	snap := buildRelSnapshot(t)
 	resolvedDep := relFrom(snap.Relationships, "web", "leaf-svc")
-	if resolvedDep == nil || !resolvedDep.Resolved || resolvedDep.ResolvedService != "leaf-svc" {
+	if resolvedDep == nil || !resolvedDep.Resolved || resolvedDep.ToService != "leaf-svc" {
 		t.Errorf("resolved dependency edge wrong: %+v", resolvedDep)
+	}
+	if resolvedDep.Type != RelationshipDependency || resolvedDep.FromRevision == "" {
+		t.Errorf("dependency edge must be typed and tagged with its FromRevision: %+v", resolvedDep)
 	}
 	unresolvedDep := relFrom(snap.Relationships, "web", "ghost")
 	if unresolvedDep == nil || unresolvedDep.Resolved || unresolvedDep.Reason == "" {
@@ -1040,8 +1014,8 @@ func TestBuild_RelationshipsResolution(t *testing.T) {
 func TestBuild_RelationshipsRefAndLock(t *testing.T) {
 	snap := buildRelSnapshot(t)
 	refEdge := relFrom(snap.Relationships, "web", "cfg-svc")
-	if refEdge == nil || refEdge.Type != "reference" || !refEdge.Resolved {
-		t.Errorf("config reference edge wrong: %+v", refEdge)
+	if refEdge == nil || refEdge.Type != RelationshipConfigRef || !refEdge.Resolved {
+		t.Errorf("config reference edge should be a distinct configuration_reference type: %+v", refEdge)
 	}
 	lockedDep := relFrom(snap.Relationships, "web", "dep-svc")
 	if lockedDep == nil || lockedDep.LockedDigest != "sha256:deadbeef" || lockedDep.LockedVersion != "2.0.0" {
@@ -1049,31 +1023,153 @@ func TestBuild_RelationshipsRefAndLock(t *testing.T) {
 	}
 }
 
-func TestBuild_TwoRevisionsRepresentative(t *testing.T) {
-	c1 := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "svc", Version: "1.0.0"},
-		Dependencies: []contract.Dependency{{Name: "old-dep", Ref: "oci://x/o", Required: true, Compatibility: "^1.0.0"}}}
-	c2 := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "svc", Version: "2.0.0"},
-		Dependencies: []contract.Dependency{{Name: "new-dep", Ref: "oci://x/n", Required: true, Compatibility: "^1.0.0"}}}
-	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local",
-		&Collection{Revisions: []RawRevision{
-			{Bundle: &contract.Bundle{Contract: c1, FS: fstest.MapFS{}}, Digest: "sha256:1"},
-			{Bundle: &contract.Bundle{Contract: c2, FS: fstest.MapFS{}}, Digest: "sha256:2"},
-		}}))
+// TestBuild_TypedReferenceEdges asserts config and policy references produce
+// DISTINCT typed edges (never collapsed into one generic "reference"), and that an
+// unresolved reference still emits an edge carrying a reason.
+func TestBuild_TypedReferenceEdges(t *testing.T) {
+	app := &contract.Contract{
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "app", Version: "1.0.0"},
+		Configurations: []contract.Configuration{
+			{Name: "cfg-target", Ref: "oci://x/cfg"},
+		},
+		Policies: []contract.Policy{
+			{Name: "pol-target", Ref: "oci://x/pol"},
+			{Name: "ghost-pol", Ref: "oci://x/ghost"},
+		},
+	}
+	col := &Collection{Revisions: []RawRevision{
+		{Bundle: &contract.Bundle{Contract: app, FS: fstest.MapFS{}}, Digest: "sha256:app"},
+		{Bundle: bundleFor(t, "cfg-target"), Digest: "sha256:cfg"},
+		{Bundle: bundleFor(t, "pol-target"), Digest: "sha256:pol"},
+	}}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Representative (v2.0.0) sources edges → new-dep present, old-dep absent.
-	var sawNew, sawOld bool
-	for _, rel := range snap.Relationships {
-		if rel.To == "new-dep" {
-			sawNew = true
+	cfg := relFrom(snap.Relationships, "app", "cfg-target")
+	if cfg == nil || cfg.Type != RelationshipConfigRef || !cfg.Resolved || cfg.ToService != "cfg-target" {
+		t.Errorf("config ref edge wrong: %+v", cfg)
+	}
+	pol := relFrom(snap.Relationships, "app", "pol-target")
+	if pol == nil || pol.Type != RelationshipPolicyRef || !pol.Resolved {
+		t.Errorf("policy ref edge wrong: %+v", pol)
+	}
+	if RelationshipConfigRef == RelationshipPolicyRef {
+		t.Fatal("config and policy reference types must be distinct")
+	}
+	ghost := relFrom(snap.Relationships, "app", "ghost-pol")
+	if ghost == nil || ghost.Type != RelationshipPolicyRef || ghost.Resolved || ghost.Reason == "" {
+		t.Errorf("unresolved policy ref should emit an edge with a reason: %+v", ghost)
+	}
+}
+
+// TestBuild_ResolvedRevisionPinnedByLock covers resolveDepRevision's match branch:
+// when a lock digest identifies an exact revision of the resolved service, the
+// dependency edge pins it via ResolvedRevision.
+func TestBuild_ResolvedRevisionPinnedByLock(t *testing.T) {
+	web := &contract.Contract{
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "web", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{{Name: "dep-svc", Ref: "oci://x/dep", Required: true, Compatibility: "^2.0.0"}},
+	}
+	col := &Collection{Revisions: []RawRevision{
+		{Bundle: &contract.Bundle{Contract: web, FS: fstest.MapFS{}}, Digest: "sha256:web", Lock: mustLock(t)},
+		// digest matches the lock's dep-svc digest (sha256:deadbeef).
+		{Bundle: bundleFor(t, "dep-svc"), Digest: "sha256:deadbeef"},
+	}}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := relFrom(snap.Relationships, "web", "dep-svc")
+	want := NewRevisionKey("dep-svc", "sha256:deadbeef", "", "1.0.0")
+	if rel == nil || rel.ResolvedRevision != want {
+		t.Errorf("locked dep should pin the resolved revision %q, got %+v", want, rel)
+	}
+}
+
+// TestBuildRelationships_NilContractSkipped covers the defensive nil-Contract skip
+// in buildRelationships (unreachable via Build, exercised directly).
+func TestBuildRelationships_NilContractSkipped(t *testing.T) {
+	snap := &FleetSnapshot{
+		Revisions:             map[RevisionKey]*ContractRevision{"x@1": {Key: "x@1", Service: "x"}},
+		forwardDeps:           map[string][]string{},
+		reverseDeps:           map[string][]string{},
+		forwardDepsByRevision: map[RevisionKey][]string{},
+	}
+	buildRelationships(snap)
+	if len(snap.Relationships) != 0 {
+		t.Errorf("nil-contract revision must produce no edges, got %+v", snap.Relationships)
+	}
+}
+
+// twoRevSnapshot builds a fleet with one service "svc" carrying TWO revisions that
+// declare DIFFERENT dependencies, both deps present as services, plus a target
+// pinned to the first revision. It is the shared fixture for per-revision edge and
+// revision/target graph-scoping assertions.
+func twoRevSnapshot(t *testing.T) *FleetSnapshot {
+	t.Helper()
+	mk := func(name, version, digest string, deps ...string) RawRevision {
+		c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: version}}
+		for _, d := range deps {
+			c.Dependencies = append(c.Dependencies, contract.Dependency{Name: d, Ref: "oci://x/" + d, Required: true, Compatibility: "^1.0.0"})
 		}
-		if rel.To == "old-dep" {
-			sawOld = true
+		return RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Digest: digest}
+	}
+	col := &Collection{
+		Revisions: []RawRevision{
+			mk("svc", "1.0.0", "sha256:1", "old-dep"),
+			mk("svc", "2.0.0", "sha256:2", "new-dep"),
+			mk("old-dep", "1.0.0", "sha256:old"),
+			mk("new-dep", "1.0.0", "sha256:new"),
+		},
+		Targets: []RawTarget{
+			// pinned by digest to the v1.0.0 revision (sha256:1).
+			{Scope: "prod", Kind: "k8s", Name: "svc-app", Service: "svc", Digest: "sha256:1", Compliance: StatusCompliant, EvidenceAt: ptrTime(fixedNow())},
+		},
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap
+}
+
+// TestBuild_PerRevisionEdges asserts edges are built from EVERY revision and tagged
+// with the exact FromRevision they originate from — never a single "latest"/
+// representative revision. A service with two revisions declaring different deps
+// yields two distinct, revision-tagged edge sets.
+func TestBuild_PerRevisionEdges(t *testing.T) {
+	snap := twoRevSnapshot(t)
+	rev1 := NewRevisionKey("svc", "sha256:1", "", "1.0.0")
+	rev2 := NewRevisionKey("svc", "sha256:2", "", "2.0.0")
+
+	var oldEdge, newEdge *Relationship
+	for i := range snap.Relationships {
+		switch snap.Relationships[i].To {
+		case "old-dep":
+			oldEdge = &snap.Relationships[i]
+		case "new-dep":
+			newEdge = &snap.Relationships[i]
 		}
 	}
-	if !sawNew || sawOld {
-		t.Errorf("representative revision should source edges from v2.0.0 only (new=%v old=%v)", sawNew, sawOld)
+	if oldEdge == nil || oldEdge.FromRevision != rev1 {
+		t.Errorf("old-dep edge must originate from rev1 %q, got %+v", rev1, oldEdge)
+	}
+	if newEdge == nil || newEdge.FromRevision != rev2 {
+		t.Errorf("new-dep edge must originate from rev2 %q, got %+v", rev2, newEdge)
+	}
+	// Revision-accurate index: each revision sees only ITS dependency.
+	if got := snap.forwardDepsByRevision[rev1]; len(got) != 1 || got[0] != "old-dep" {
+		t.Errorf("forwardDepsByRevision[rev1] = %v, want [old-dep]", got)
+	}
+	if got := snap.forwardDepsByRevision[rev2]; len(got) != 1 || got[0] != "new-dep" {
+		t.Errorf("forwardDepsByRevision[rev2] = %v, want [new-dep]", got)
+	}
+	// Aggregated service index is the union across revisions.
+	if got := snap.forwardDeps["svc"]; len(got) != 2 {
+		t.Errorf("forwardDeps[svc] should union both deps, got %v", got)
 	}
 }
 
@@ -1118,7 +1214,7 @@ func TestBuild_ServiceStatuses(t *testing.T) {
 	}
 }
 
-func TestBuild_OwnerAndLabelBackfill(t *testing.T) {
+func TestBuild_OwnerBackfill_LabelsNotMerged(t *testing.T) {
 	c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "owners"}}}
 	col := &Collection{
 		Revisions: []RawRevision{{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Digest: "sha256:1"}},
@@ -1132,8 +1228,131 @@ func TestBuild_OwnerAndLabelBackfill(t *testing.T) {
 	if s.Owner.Team != "owners" {
 		t.Errorf("owner should backfill from revision, got %+v", s.Owner)
 	}
-	if s.Labels["env"] != "prod" {
-		t.Errorf("labels should union from targets, got %+v", s.Labels)
+	// Target labels must NOT be merged into the logical service label map.
+	if s.Labels != nil {
+		t.Errorf("service Labels must stay nil (target labels live on the target), got %+v", s.Labels)
+	}
+	// The label lives on the target, which also carries its Sources.
+	for _, tk := range s.Targets {
+		tgt := snap.Targets[tk]
+		if tgt.Labels["env"] != "prod" {
+			t.Errorf("target should keep its own labels, got %+v", tgt.Labels)
+		}
+		if len(tgt.Sources) != 1 || tgt.Sources[0] != "local" {
+			t.Errorf("target Sources = %v, want [local]", tgt.Sources)
+		}
+	}
+}
+
+// -------------------- serviceStatus severity order --------------------
+
+func TestServiceStatus_WarningDominatesCompliant(t *testing.T) {
+	// NonCompliant > Unknown > Warning > Compliant. With only Warning + Compliant
+	// targets, Warning wins.
+	snap := &FleetSnapshot{
+		Revisions: map[RevisionKey]*ContractRevision{},
+		Targets: map[TargetKey]*TargetRecord{
+			"w": {Key: "w", Compliance: StatusWarning},
+			"c": {Key: "c", Compliance: StatusCompliant},
+		},
+	}
+	s := &ServiceRecord{Targets: []TargetKey{"c", "w"}}
+	if got := serviceStatus(snap, s); got != StatusWarning {
+		t.Errorf("Warning should dominate Compliant, got %q", got)
+	}
+}
+
+func TestServiceStatus_TargetInvalidDominates(t *testing.T) {
+	// A target reporting Invalid compliance dominates even NonCompliant.
+	snap := &FleetSnapshot{
+		Revisions: map[RevisionKey]*ContractRevision{},
+		Targets: map[TargetKey]*TargetRecord{
+			"n": {Key: "n", Compliance: StatusNonCompliant},
+			"i": {Key: "i", Compliance: StatusInvalid},
+		},
+	}
+	s := &ServiceRecord{Targets: []TargetKey{"n", "i"}}
+	if got := serviceStatus(snap, s); got != StatusInvalid {
+		t.Errorf("target Invalid must dominate, got %q", got)
+	}
+}
+
+func TestServiceStatus_InvalidNotCollapsed(t *testing.T) {
+	// An invalid contract revision is a distinct, worse state than a compliance
+	// violation: it must NEVER be collapsed into NonCompliant.
+	bad := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: mustParse(t, invalidYAML), RawYAML: []byte(invalidYAML), FS: fstest.MapFS{}}}, "s", fixedNow())
+	snap := &FleetSnapshot{
+		Revisions: map[RevisionKey]*ContractRevision{bad.Key: bad},
+		Targets:   map[TargetKey]*TargetRecord{"t": {Key: "t", Compliance: StatusNonCompliant}},
+	}
+	s := &ServiceRecord{Revisions: []RevisionKey{bad.Key}, Targets: []TargetKey{"t"}}
+	if got := serviceStatus(snap, s); got != StatusInvalid {
+		t.Errorf("invalid revision must not collapse to NonCompliant, got %q", got)
+	}
+}
+
+// -------------------- deriveOwner / ownerSeen --------------------
+
+func TestDeriveOwner_DeterministicBackfill(t *testing.T) {
+	// The lowest-keyed revision that declares an owner sets the summary; a revision
+	// with an empty owner is skipped.
+	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
+		"svc@a": {Key: "svc@a", Service: "svc"}, // empty owner → skipped
+		"svc@b": {Key: "svc@b", Service: "svc", Owner: contract.Owner{Team: "b-team"}},
+	}}
+	s := &ServiceRecord{Name: "svc", Revisions: []RevisionKey{"svc@b", "svc@a"}}
+	if lim := deriveOwner(snap, s); lim != nil {
+		t.Errorf("single distinct owner → no limitation, got %+v", lim)
+	}
+	if s.Owner.Team != "b-team" {
+		t.Errorf("owner should be derived from the declaring revision, got %+v", s.Owner)
+	}
+}
+
+func TestDeriveOwner_SameOwnerNoConflict(t *testing.T) {
+	// Two revisions declaring the SAME owner is not a conflict (ownerSeen==true).
+	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
+		"svc@a": {Key: "svc@a", Service: "svc", Owner: contract.Owner{Team: "same"}},
+		"svc@z": {Key: "svc@z", Service: "svc", Owner: contract.Owner{Team: "same"}},
+	}}
+	s := &ServiceRecord{Name: "svc", Revisions: []RevisionKey{"svc@z", "svc@a"}}
+	if lim := deriveOwner(snap, s); lim != nil {
+		t.Errorf("identical owners → no conflict, got %+v", lim)
+	}
+	if s.Owner.Team != "same" {
+		t.Errorf("owner = %+v", s.Owner)
+	}
+}
+
+func TestDeriveOwner_Conflict(t *testing.T) {
+	// Differing owners across revisions → OWNER_CONFLICT; the summary owner is
+	// deterministically the lowest revision key's owner.
+	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
+		"svc@a": {Key: "svc@a", Service: "svc", Owner: contract.Owner{Team: "a-team"}},
+		"svc@b": {Key: "svc@b", Service: "svc", Owner: contract.Owner{Team: "b-team"}},
+	}}
+	s := &ServiceRecord{Name: "svc", Revisions: []RevisionKey{"svc@b", "svc@a"}}
+	lim := deriveOwner(snap, s)
+	if len(lim) != 1 || lim[0].Code != LimitationOwnerConflict || lim[0].Source != "fleet" {
+		t.Fatalf("differing owners → OWNER_CONFLICT from fleet, got %+v", lim)
+	}
+	if s.Owner.Team != "a-team" {
+		t.Errorf("owner summary should be the lowest-key revision's owner (a-team), got %+v", s.Owner)
+	}
+}
+
+func TestBuild_OwnerConflictSurfaced(t *testing.T) {
+	c1 := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "t1"}}}
+	c2 := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "svc", Version: "2.0.0", Owner: contract.Owner{Team: "t2"}}}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{
+		{Bundle: &contract.Bundle{Contract: c1, FS: fstest.MapFS{}}, Digest: "sha256:1"},
+		{Bundle: &contract.Bundle{Contract: c2, FS: fstest.MapFS{}}, Digest: "sha256:2"},
+	}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasLimitation(snap.Limitations, LimitationOwnerConflict) {
+		t.Errorf("conflicting per-revision owners should surface OWNER_CONFLICT: %+v", snap.Limitations)
 	}
 }
 

@@ -99,13 +99,18 @@ func TestFleetEndpoints_Serve(t *testing.T) {
 		t.Error("expected search meta asOf to be set")
 	}
 
-	// Graph (found + not found).
+	// Graph (found + not found + invalid).
 	var graph fleet.GraphResult
 	getJSON(t, base+"/api/fleet/services/payment-service/graph?direction=dependents&transitive=true", http.StatusOK, &graph)
 	if graph.Root != "payment-service" {
 		t.Errorf("graph root = %q", graph.Root)
 	}
 	expectStatus(t, base+"/api/fleet/services/nonexistent/graph", http.StatusNotFound)
+	// A bad direction is a malformed query (not a NotFound) → 422.
+	expectStatus(t, base+"/api/fleet/services/payment-service/graph?direction=sideways", http.StatusUnprocessableEntity)
+
+	// An invalid search filter → 422.
+	expectStatus(t, base+"/api/fleet/services?status=Bogus", http.StatusUnprocessableEntity)
 
 	// Status surfaces the non-compliant target.
 	var status fleet.StatusResult

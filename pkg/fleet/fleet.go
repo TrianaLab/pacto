@@ -143,10 +143,25 @@ const (
 	StatusCompliant    = "Compliant"
 	StatusNonCompliant = "NonCompliant"
 	StatusUnknown      = "Unknown"
+	StatusWarning      = "Warning"
 	StatusInvalid      = "Invalid"
 	StatusReference    = "Reference"
 	StatusNotEvaluated = "NotEvaluated"
 )
+
+// severityRank orders statuses from most to least severe for aggregation and
+// validation. Lower rank is more severe. Invalid is strictly worse than
+// NonCompliant and is never collapsed into it.
+var severityRank = map[string]int{
+	StatusInvalid: 0, StatusNonCompliant: 1, StatusUnknown: 2, StatusWarning: 3,
+	StatusCompliant: 4, StatusReference: 5, StatusNotEvaluated: 6,
+}
+
+// ValidStatus reports whether s is a canonical status value.
+func ValidStatus(s string) bool {
+	_, ok := severityRank[s]
+	return ok
+}
 
 // SchemaVersion is the version of the fleet snapshot/query wire model. It is
 // carried on every snapshot and query answer so consumers can detect model
@@ -308,22 +323,35 @@ func (t *TargetRecord) DisplayName() string {
 	return strings.Join([]string{t.Scope, t.Kind, t.Name}, "/")
 }
 
-// Relationship is a directed graph edge. Only declared edges are produced today;
-// Provenance leaves room for observed/inferred edges later without conflating
-// them with declared intent.
+// Relationship types. Configuration and policy references are kept distinct from
+// dependencies and from each other — collapsing them into one generic "reference"
+// edge loses meaning that consumers and future impact analysis need.
+const (
+	RelationshipDependency = "dependency"
+	RelationshipConfigRef  = "configuration_reference"
+	RelationshipPolicyRef  = "policy_reference"
+)
+
+// Relationship is a directed, revision-scoped graph edge. A declared edge
+// originates from a specific [ContractRevision] (FromRevision) of a logical
+// service (FromService) — never from "the service's latest revision". Only
+// declared edges are produced today; Provenance leaves room for observed/inferred
+// edges later without conflating them with declared intent.
 type Relationship struct {
-	From            string `json:"from"`
-	To              string `json:"to"`
-	Type            string `json:"type"`
-	Provenance      string `json:"provenance"`
-	Required        bool   `json:"required,omitempty"`
-	Compatibility   string `json:"compatibility,omitempty"`
-	Resolved        bool   `json:"resolved"`
-	RequestedRef    string `json:"requestedRef,omitempty"`
-	ResolvedService string `json:"resolvedService,omitempty"`
-	LockedDigest    string `json:"lockedDigest,omitempty"`
-	LockedVersion   string `json:"lockedVersion,omitempty"`
-	Reason          string `json:"reason,omitempty"`
+	FromService      string      `json:"fromService"`
+	FromRevision     RevisionKey `json:"fromRevision,omitempty"`
+	To               string      `json:"to"`
+	ToService        string      `json:"toService,omitempty"`
+	ResolvedRevision RevisionKey `json:"resolvedRevision,omitempty"`
+	Type             string      `json:"type"`
+	Provenance       string      `json:"provenance"`
+	Required         bool        `json:"required,omitempty"`
+	Compatibility    string      `json:"compatibility,omitempty"`
+	Resolved         bool        `json:"resolved"`
+	RequestedRef     string      `json:"requestedRef,omitempty"`
+	LockedDigest     string      `json:"lockedDigest,omitempty"`
+	LockedVersion    string      `json:"lockedVersion,omitempty"`
+	Reason           string      `json:"reason,omitempty"`
 }
 
 // FleetSnapshot is the immutable read model produced by [Build]. Maps serialize
@@ -345,12 +373,16 @@ type FleetSnapshot struct {
 	Limitations   []Limitation                      `json:"limitations,omitempty"`
 
 	// reverseDeps maps a service name to the names of services that declare a
-	// required dependency on it (the dependents / blast-radius index). Built
+	// dependency on it, across all their revisions (the dependents index). Built
 	// once at Build time; never mutated afterwards.
 	reverseDeps map[string][]string
-	// forwardDeps maps a service name to the resolved dependency service names it
-	// declares (required or not), for transitive dependency traversal.
+	// forwardDeps maps a service name to the union of resolved dependency service
+	// names across all its revisions, for aggregated service-level traversal.
 	forwardDeps map[string][]string
+	// forwardDepsByRevision maps a specific revision to the resolved dependency
+	// service names IT declares — the revision-accurate adjacency used when a
+	// graph query names a revision or a target (never "the latest revision").
+	forwardDepsByRevision map[RevisionKey][]string
 }
 
 // Service returns the logical service record by name, or nil.

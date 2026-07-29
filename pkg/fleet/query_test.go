@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"testing"
 	"testing/fstest"
@@ -120,10 +121,17 @@ func TestSearch_Filters(t *testing.T) {
 		{"has dependency", SearchFilter{HasDependency: true}, "alpha", "beta"},
 		{"ready only", SearchFilter{ReadyOnly: true}, "alpha", "beta"},
 		{"not ready", SearchFilter{NotReady: true}, "beta", "alpha"},
+		// Correlated: a prod target on an UNLINKED revision is not-ready (nil
+		// revision), so no-rev-svc matches; alpha's prod target links a ready
+		// revision so alpha is excluded.
+		{"scope+notready", SearchFilter{Scope: "prod", NotReady: true}, "no-rev-svc", "alpha"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			res := q.Search(tt.filter)
+			res, err := q.Search(tt.filter)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if !hasService(res.Services, tt.want) {
 				t.Errorf("want %q present in %v", tt.want, names(res.Services))
 			}
@@ -134,22 +142,126 @@ func TestSearch_Filters(t *testing.T) {
 	}
 }
 
+// TestSearch_CorrelatedTargetsNegative is the §7.1 negative case: a service with a
+// PRODUCTION target on a READY revision and a STAGING target on a NOT-READY
+// revision must NOT match "production AND not-ready" — the two conditions come from
+// different targets and are never satisfied by correlating across them.
+func TestSearch_CorrelatedTargetsNegative(t *testing.T) {
+	q := correlationFleet(t)
+
+	// Negative: production + not-ready must not match (prod target is ready).
+	for _, f := range []SearchFilter{
+		{Scope: "production", NotReady: true},
+		{Labels: map[string]string{"env": "production"}, NotReady: true},
+	} {
+		res, err := q.Search(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hasService(res.Services, "corr") {
+			t.Errorf("filter %+v must NOT match corr (conditions span two different targets)", f)
+		}
+	}
+
+	// Positive controls: each condition holds for its OWN target.
+	positives := []struct {
+		name string
+		f    SearchFilter
+	}{
+		{"prod+ready", SearchFilter{Scope: "production", ReadyOnly: true}},
+		{"staging+notready", SearchFilter{Scope: "staging", NotReady: true}},
+		{"prod label+ready", SearchFilter{Labels: map[string]string{"env": "production"}, ReadyOnly: true}},
+	}
+	for _, tt := range positives {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := q.Search(tt.f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !hasService(res.Services, "corr") {
+				t.Errorf("filter %+v should match corr", tt.f)
+			}
+		})
+	}
+}
+
+// correlationFleet builds a single service "corr" with two revisions (one ready,
+// one not) each linked to a target in a different scope/label.
+func correlationFleet(t *testing.T) *Query {
+	t.Helper()
+	ready := &contract.Contract{
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "corr", Version: "1.0.0"},
+		Readiness: &contract.Readiness{
+			Expires: "2099-12-31",
+			Claims:  []contract.ReadinessClaim{{ID: "d", Type: "url", Status: contract.StatusDone, Evidence: "https://x", Weight: 10}},
+		},
+	}
+	notReady := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "corr", Version: "2.0.0"}}
+	col := &Collection{
+		Revisions: []RawRevision{
+			{Bundle: &contract.Bundle{Contract: ready, FS: fstest.MapFS{}}, Digest: "sha256:ready"},
+			{Bundle: &contract.Bundle{Contract: notReady, FS: fstest.MapFS{}}, Digest: "sha256:notready"},
+		},
+		Targets: []RawTarget{
+			{Scope: "production", Kind: "k8s", Name: "corr-prod", Service: "corr", Digest: "sha256:ready", Labels: map[string]string{"env": "production"}, Compliance: StatusCompliant, EvidenceAt: ptrTime(fixedNow())},
+			{Scope: "staging", Kind: "k8s", Name: "corr-stg", Service: "corr", Digest: "sha256:notready", Labels: map[string]string{"env": "staging"}, Compliance: StatusCompliant, EvidenceAt: ptrTime(fixedNow())},
+		},
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewQuery(snap)
+}
+
+// TestSearch_ValidationErrors asserts a malformed filter returns a typed
+// *InvalidQueryError rather than silently defaulting.
+func TestSearch_ValidationErrors(t *testing.T) {
+	q := queryFleet(t)
+	for _, f := range []SearchFilter{
+		{Offset: -1},
+		{Limit: -1},
+		{Status: "Bogus"},
+		{Compliance: "Bogus"},
+	} {
+		_, err := q.Search(f)
+		var iqe *InvalidQueryError
+		if !errors.As(err, &iqe) {
+			t.Errorf("filter %+v: want *InvalidQueryError, got %v", f, err)
+		}
+	}
+	// A well-formed filter validates.
+	if _, err := q.Search(SearchFilter{Status: StatusCompliant, Compliance: StatusNonCompliant}); err != nil {
+		t.Fatalf("valid filter should not error: %v", err)
+	}
+}
+
 func TestSearch_LimitOffsetAndCap(t *testing.T) {
 	q := queryFleet(t)
-	all := q.Search(SearchFilter{})
+	all, err := q.Search(SearchFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	total := all.Total
 	if all.Count != total {
 		t.Fatalf("default search should return all %d, got %d", total, all.Count)
 	}
 
 	// Limit above MaxSearchLimit is capped but still returns everything here.
-	capped := q.Search(SearchFilter{Limit: MaxSearchLimit + 1000})
+	capped, err := q.Search(SearchFilter{Limit: MaxSearchLimit + 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if capped.Count != total {
 		t.Errorf("capped search count = %d, want %d", capped.Count, total)
 	}
 
 	// Offset paging: skip first, take one.
-	page := q.Search(SearchFilter{Offset: 1, Limit: 1})
+	page, err := q.Search(SearchFilter{Offset: 1, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if page.Count != 1 {
 		t.Errorf("paged count = %d, want 1", page.Count)
 	}
@@ -196,11 +308,23 @@ func TestGetService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(leaf.Tools) == 0 {
-		t.Error("leaf-svc representative should expose tools")
+	// Capabilities are attributed PER REVISION (never flattened to one
+	// "representative"): leaf-svc has one revision carrying tools + skills.
+	if len(leaf.Capabilities) != 1 {
+		t.Fatalf("leaf-svc should expose one revision's capabilities, got %d", len(leaf.Capabilities))
 	}
-	if len(leaf.Skills) == 0 {
-		t.Error("leaf-svc representative should expose skills")
+	capA := leaf.Capabilities[0]
+	if capA.Revision != leaf.Revisions[0].Key {
+		t.Errorf("capability must reference its exact revision, got %q vs %q", capA.Revision, leaf.Revisions[0].Key)
+	}
+	if capA.Version != "1.0.0" {
+		t.Errorf("capability version = %q, want 1.0.0", capA.Version)
+	}
+	if len(capA.Tools) == 0 {
+		t.Error("leaf-svc revision should expose tools")
+	}
+	if len(capA.Skills) == 0 {
+		t.Error("leaf-svc revision should expose skills")
 	}
 	if !containsStr(leaf.Dependents, "alpha") {
 		t.Errorf("leaf-svc dependents should include alpha, got %v", leaf.Dependents)
@@ -215,6 +339,10 @@ func TestGetService(t *testing.T) {
 	}
 	if len(alpha.Dependencies) != 2 {
 		t.Errorf("alpha should declare 2 dependency edges, got %d", len(alpha.Dependencies))
+	}
+	// alpha's revision carries no tools/skills (empty FS) → no capabilities entry.
+	if len(alpha.Capabilities) != 0 {
+		t.Errorf("alpha should expose no capabilities, got %+v", alpha.Capabilities)
 	}
 
 	if _, err := q.GetService("does-not-exist"); err == nil {
@@ -323,12 +451,22 @@ func TestGraph_Dependencies(t *testing.T) {
 	if got["g-b"] != 1 || got["g-c"] != 2 {
 		t.Errorf("transitive depths = %v", got)
 	}
-	if !containsStr(res.Unresolved, "g-missing") {
-		t.Errorf("unresolved should list g-missing, got %v", res.Unresolved)
+	if !hasUnresolvedTo(res.Unresolved, "g-missing") {
+		t.Errorf("unresolved should list a g-missing edge, got %v", res.Unresolved)
 	}
 	if len(res.Edges) == 0 {
 		t.Error("dependency edges should be populated")
 	}
+}
+
+// hasUnresolvedTo reports whether an unresolved relationship edge points at to.
+func hasUnresolvedTo(rels []Relationship, to string) bool {
+	for _, r := range rels {
+		if r.To == to && !r.Resolved {
+			return true
+		}
+	}
+	return false
 }
 
 func TestGraph_Direct(t *testing.T) {
@@ -368,10 +506,10 @@ func TestGraph_Dependents(t *testing.T) {
 	if got["g-b"] != 1 || got["g-a"] != 2 {
 		t.Errorf("dependents depths = %v", got)
 	}
-	// edgesFor dependents: the g-b→g-c edge resolves to g-c.
+	// dependents edges: the g-b→g-c edge resolves to g-c.
 	found := false
 	for _, e := range res.Edges {
-		if e.From == "g-b" && e.ResolvedService == "g-c" {
+		if e.FromService == "g-b" && e.ToService == "g-c" {
 			found = true
 		}
 	}
@@ -442,6 +580,155 @@ func TestGraph_NotFound(t *testing.T) {
 	q := graphFleet(t)
 	if _, err := q.Graph(GraphQuery{Service: "nope"}); err == nil {
 		t.Fatal("unknown root should error")
+	}
+}
+
+func TestGraph_RevisionScope(t *testing.T) {
+	q := NewQuery(twoRevSnapshot(t))
+	rev1 := NewRevisionKey("svc", "sha256:1", "", "1.0.0")
+	rev2 := NewRevisionKey("svc", "sha256:2", "", "2.0.0")
+
+	// A revision-scoped graph uses THAT revision's exact dependencies only.
+	r1, err := q.Graph(GraphQuery{Revision: rev1, Transitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r1.Root != "svc" || r1.Revision != rev1 || r1.Aggregated {
+		t.Errorf("rev1 scope: root/revision/aggregated wrong: %+v", r1)
+	}
+	d1 := nodeDepths(r1)
+	if _, ok := d1["old-dep"]; !ok {
+		t.Errorf("rev1 graph should reach old-dep: %v", d1)
+	}
+	if _, ok := d1["new-dep"]; ok {
+		t.Errorf("rev1 graph must NOT reach rev2's new-dep: %v", d1)
+	}
+	// Root edges are scoped to rev1 only.
+	for _, e := range r1.Edges {
+		if e.FromService == "svc" && e.FromRevision != rev1 {
+			t.Errorf("rev1 graph leaked a non-rev1 root edge: %+v", e)
+		}
+	}
+
+	r2, err := q.Graph(GraphQuery{Revision: rev2, Transitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d2 := nodeDepths(r2)
+	if _, ok := d2["new-dep"]; !ok {
+		t.Errorf("rev2 graph should reach new-dep: %v", d2)
+	}
+	if _, ok := d2["old-dep"]; ok {
+		t.Errorf("rev2 graph must NOT reach old-dep: %v", d2)
+	}
+}
+
+func TestGraph_TargetScope(t *testing.T) {
+	// A target-scoped graph uses the target's LINKED revision (svc-app pins rev1).
+	q := NewQuery(twoRevSnapshot(t))
+	res, err := q.Graph(GraphQuery{Target: "svc-app", Transitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Aggregated {
+		t.Error("a target-scoped graph is exact, not aggregated")
+	}
+	got := nodeDepths(res)
+	if _, ok := got["old-dep"]; !ok {
+		t.Errorf("target graph should follow the linked (rev1) deps: %v", got)
+	}
+	if _, ok := got["new-dep"]; ok {
+		t.Errorf("target graph must not follow rev2's deps: %v", got)
+	}
+}
+
+func TestGraph_ServiceAggregated(t *testing.T) {
+	// A bare service query over a multi-revision service aggregates every revision's
+	// deps and flags Aggregated.
+	q := NewQuery(twoRevSnapshot(t))
+	res, err := q.Graph(GraphQuery{Service: "svc", Transitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Aggregated {
+		t.Error("multi-revision service graph should be Aggregated")
+	}
+	if res.Revision != "" {
+		t.Errorf("aggregated graph carries no single revision, got %q", res.Revision)
+	}
+	got := nodeDepths(res)
+	if _, ok := got["old-dep"]; !ok {
+		t.Errorf("aggregated graph should reach old-dep: %v", got)
+	}
+	if _, ok := got["new-dep"]; !ok {
+		t.Errorf("aggregated graph should reach new-dep: %v", got)
+	}
+}
+
+func TestGraph_UnknownRevision(t *testing.T) {
+	q := NewQuery(twoRevSnapshot(t))
+	_, err := q.Graph(GraphQuery{Revision: "svc@bogus"})
+	var nf *NotFoundError
+	if !errors.As(err, &nf) || nf.Kind != "revision" {
+		t.Errorf("unknown revision should yield a revision NotFoundError, got %v", err)
+	}
+}
+
+func TestGraph_TargetNotFound(t *testing.T) {
+	q := NewQuery(twoRevSnapshot(t))
+	if _, err := q.Graph(GraphQuery{Target: "no-such-target"}); err == nil {
+		t.Fatal("unknown target should error (propagated from GetTarget)")
+	}
+}
+
+// TestGraph_SkipsReferenceEdges asserts the graph traversal only follows and
+// collects dependency edges — config/policy reference edges are skipped by
+// graphEdges even when the declaring service is the root.
+func TestGraph_SkipsReferenceEdges(t *testing.T) {
+	gc := &contract.Contract{
+		PactoVersion:   "2.0",
+		Service:        contract.Service{Name: "gc", Version: "1.0.0"},
+		Dependencies:   []contract.Dependency{{Name: "gd", Ref: "oci://x/gd", Required: true, Compatibility: "^1.0.0"}},
+		Configurations: []contract.Configuration{{Name: "gcfg", Ref: "oci://x/gcfg"}},
+	}
+	col := &Collection{Revisions: []RawRevision{
+		{Bundle: &contract.Bundle{Contract: gc, FS: fstest.MapFS{}}, Digest: "sha256:gc"},
+		{Bundle: bundleFor(t, "gd"), Digest: "sha256:gd"},
+		{Bundle: bundleFor(t, "gcfg"), Digest: "sha256:gcfg"},
+	}}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := NewQuery(snap).Graph(GraphQuery{Service: "gc", Transitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := nodeDepths(res)["gcfg"]; ok {
+		t.Error("graph must not traverse a configuration reference edge")
+	}
+	for _, e := range res.Edges {
+		if e.Type != RelationshipDependency {
+			t.Errorf("graph edges must be dependency-only, got %+v", e)
+		}
+	}
+}
+
+func TestGraph_InvalidDirection(t *testing.T) {
+	q := graphFleet(t)
+	_, err := q.Graph(GraphQuery{Service: "g-a", Direction: Direction("sideways")})
+	var iqe *InvalidQueryError
+	if !errors.As(err, &iqe) || iqe.Field != "direction" {
+		t.Errorf("bad direction should yield a direction InvalidQueryError, got %v", err)
+	}
+}
+
+func TestGraph_NegativeMaxDepth(t *testing.T) {
+	q := graphFleet(t)
+	_, err := q.Graph(GraphQuery{Service: "g-a", MaxDepth: -1})
+	var iqe *InvalidQueryError
+	if !errors.As(err, &iqe) || iqe.Field != "maxDepth" {
+		t.Errorf("negative MaxDepth should yield a maxDepth InvalidQueryError, got %v", err)
 	}
 }
 
@@ -589,5 +876,9 @@ func TestErrorMessages(t *testing.T) {
 	ae := &AmbiguousError{Kind: "target", ID: "dup", Matches: []string{"a", "b"}}
 	if ae.Error() == "" {
 		t.Error("AmbiguousError message empty")
+	}
+	iqe := &InvalidQueryError{Field: "direction", Value: "sideways", Reason: "must be dependencies or dependents"}
+	if iqe.Error() == "" {
+		t.Error("InvalidQueryError message empty")
 	}
 }

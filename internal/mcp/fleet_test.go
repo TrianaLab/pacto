@@ -117,6 +117,14 @@ func TestFleetSearchHandler(t *testing.T) {
 	}
 }
 
+func TestFleetSearchHandler_InvalidFilter(t *testing.T) {
+	q := buildFleetQuery(t)
+	res := callHandler(t, fleetSearchHandler(q), map[string]any{"status": "Bogus"})
+	if !res.IsError {
+		t.Error("expected an error result for an invalid status filter")
+	}
+}
+
 func TestFleetGetHandler_Service(t *testing.T) {
 	q := buildFleetQuery(t)
 	res := callHandler(t, fleetGetHandler(q), map[string]any{"service": "orders"})
@@ -125,7 +133,11 @@ func TestFleetGetHandler_Service(t *testing.T) {
 	if out.Service == nil || out.Service.Name != "orders" {
 		t.Fatalf("unexpected service view: %+v", out.Service)
 	}
-	if len(out.Tools) == 0 {
+	tools := 0
+	for _, c := range out.Capabilities {
+		tools += len(c.Tools)
+	}
+	if tools == 0 {
 		t.Error("expected tools derived from the OpenAPI interface")
 	}
 	if len(out.Dependencies) == 0 {

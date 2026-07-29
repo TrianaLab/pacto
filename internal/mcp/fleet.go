@@ -58,6 +58,7 @@ func fleetSearchTool() *mcpsdk.Tool {
 			"status":         {Type: "string", Description: "Aggregate status", Enum: []string{"Compliant", "NonCompliant", "Unknown", "Invalid", "NotEvaluated"}},
 			"compliance":     {Type: "string", Description: "Filter to services with a target of this compliance"},
 			"source":         {Type: "string", Description: "Filter by observing source id"},
+			"scope":          {Type: "string", Description: "Correlate to a target with this scope"},
 			"workload":       {Type: "string", Description: "Workload type", Enum: []string{"service", "job", "scheduled"}},
 			"has_capability": {Type: "boolean", Description: "Only services declaring a capability"},
 			"has_dependency": {Type: "boolean", Description: "Only services declaring a dependency"},
@@ -74,11 +75,16 @@ func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandler {
 			Text: parseInput(req, "text"), Owner: parseInput(req, "owner"),
 			Status: parseInput(req, "status"), Compliance: parseInput(req, "compliance"),
 			Source: parseInput(req, "source"), Workload: parseInput(req, "workload"),
+			Scope:         parseInput(req, "scope"),
 			HasCapability: parseInputBool(req, "has_capability"), HasDependency: parseInputBool(req, "has_dependency"),
 			ReadyOnly: parseInputBool(req, "ready"), NotReady: parseInputBool(req, "not_ready"),
 			Limit: intOrZero(parseInputIntPtr(req, "limit")),
 		}
-		return jsonResult(q.Search(f))
+		res, err := q.Search(f)
+		if err != nil {
+			return errorResult(err), nil
+		}
+		return jsonResult(res)
 	}
 }
 
@@ -121,11 +127,13 @@ func fleetGraphTool() *mcpsdk.Tool {
 		Description: "Traverse fleet dependencies or dependents from a service. Cycle-safe. " +
 			"Reports reached nodes with depth and path, cycles and unresolved dependencies. Read-only.",
 		InputSchema: inputSchema(map[string]property{
-			"service":    {Type: "string", Description: "Root service name"},
+			"service":    {Type: "string", Description: "Root logical service name (aggregates across its revisions)"},
+			"revision":   {Type: "string", Description: "Root a specific contract revision key (exact, not latest)"},
+			"target":     {Type: "string", Description: "Root the revision linked to this operational target key or name"},
 			"direction":  {Type: "string", Description: "Traversal direction", Enum: []string{"dependencies", "dependents"}},
 			"transitive": {Type: "boolean", Description: "Traverse transitively"},
 			"max_depth":  {Type: "integer", Description: "Maximum transitive depth (0 = unlimited)"},
-		}, []string{"service"}),
+		}, nil),
 	}
 }
 
@@ -136,7 +144,10 @@ func fleetGraphHandler(q *fleet.Query) mcpsdk.ToolHandler {
 			dir = fleet.DirectionDependents
 		}
 		res, err := q.Graph(fleet.GraphQuery{
-			Service: parseInput(req, "service"), Direction: dir,
+			Service:    parseInput(req, "service"),
+			Revision:   fleet.RevisionKey(parseInput(req, "revision")),
+			Target:     parseInput(req, "target"),
+			Direction:  dir,
 			Transitive: parseInputBool(req, "transitive"), MaxDepth: intOrZero(parseInputIntPtr(req, "max_depth")),
 		})
 		if err != nil {

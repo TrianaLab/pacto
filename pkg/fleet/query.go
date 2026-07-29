@@ -76,18 +76,27 @@ func (e *AmbiguousError) Error() string {
 
 // SearchFilter constrains a service search. The zero value matches everything
 // (subject to the default result bound).
+//
+// Predicates fall into two groups. SERVICE-LEVEL predicates (Text, Owner,
+// Status, Source) and REVISION-EXISTENTIAL predicates (Workload, HasCapability,
+// HasDependency) match when ANY revision of the service qualifies — there is no
+// hidden "representative"/latest revision. TARGET-CORRELATED predicates
+// (Labels, Scope, Compliance, and — when a target predicate is present —
+// ReadyOnly/NotReady) must all hold for the SAME target and its LINKED revision,
+// so "production" and "not ready" can never come from two different targets.
 type SearchFilter struct {
-	Text          string            // substring over name and owner
+	Text          string            // substring over service name and owner
 	Owner         string            // matches team, DRI, or a contact value
-	Labels        map[string]string // all pairs must match a service label
-	Status        string            // service aggregate status
-	Compliance    string            // at least one target has this compliance
+	Labels        map[string]string // all pairs must match one target's labels
+	Scope         string            // a target of the service has this scope
+	Status        string            // service aggregate status (canonical value)
+	Compliance    string            // a target has this compliance (canonical value)
 	Source        string            // service observed from this source
-	Workload      string            // representative revision workload
-	HasCapability bool              // representative revision declares a capability
-	HasDependency bool              // representative revision declares a dependency
-	ReadyOnly     bool              // representative revision readiness passes
-	NotReady      bool              // representative revision readiness missing or failing
+	Workload      string            // some revision declares this workload
+	HasCapability bool              // some revision declares a capability
+	HasDependency bool              // some revision declares a dependency
+	ReadyOnly     bool              // operationally ready (correlated to target when a target predicate is set)
+	NotReady      bool              // not operationally ready (correlated likewise)
 	Limit         int               // 0 → DefaultSearchLimit, capped at MaxSearchLimit
 	Offset        int
 }
@@ -112,8 +121,13 @@ type SearchResult struct {
 }
 
 // Search returns logical services matching the filter, deterministically sorted
-// by name and bounded.
-func (q *Query) Search(f SearchFilter) *SearchResult {
+// by name and bounded. It returns an [InvalidQueryError] for a malformed filter
+// (unknown status/compliance, negative limit/offset) rather than silently
+// defaulting.
+func (q *Query) Search(f SearchFilter) (*SearchResult, error) {
+	if err := validateSearchFilter(f); err != nil {
+		return nil, err
+	}
 	limit := f.Limit
 	if limit <= 0 {
 		limit = DefaultSearchLimit
@@ -136,7 +150,24 @@ func (q *Query) Search(f SearchFilter) *SearchResult {
 		res.Services = append(res.Services, hitFromService(s))
 	}
 	res.Count = len(res.Services)
-	return res
+	return res, nil
+}
+
+// validateSearchFilter rejects malformed filter values with a typed error.
+func validateSearchFilter(f SearchFilter) error {
+	if f.Offset < 0 {
+		return &InvalidQueryError{Field: "offset", Value: fmt.Sprint(f.Offset), Reason: "must be >= 0"}
+	}
+	if f.Limit < 0 {
+		return &InvalidQueryError{Field: "limit", Value: fmt.Sprint(f.Limit), Reason: "must be >= 0"}
+	}
+	if f.Status != "" && !ValidStatus(f.Status) {
+		return &InvalidQueryError{Field: "status", Value: f.Status, Reason: "not a canonical status"}
+	}
+	if f.Compliance != "" && !ValidStatus(f.Compliance) {
+		return &InvalidQueryError{Field: "compliance", Value: f.Compliance, Reason: "not a canonical status"}
+	}
+	return nil
 }
 
 func (q *Query) sortedServiceNames() []string {
@@ -156,22 +187,20 @@ func hitFromService(s *ServiceRecord) ServiceHit {
 	}
 }
 
-// serviceMatches evaluates every filter predicate. Each predicate is a small,
-// independently testable helper that folds in its own empty-filter short-circuit,
-// so this function stays a single loop with low cyclomatic complexity.
+// serviceMatches evaluates the filter without ever selecting a single
+// representative revision: service-level and revision-existential predicates are
+// checked independently, and target-correlated predicates are checked against
+// the same target and its linked revision.
 func (q *Query) serviceMatches(s *ServiceRecord, f SearchFilter) bool {
-	rev := representativeRevision(q.snap, s)
 	checks := []bool{
 		matchText(s, f.Text),
 		matchOwner(s, f.Owner),
-		labelsMatch(s.Labels, f.Labels),
 		matchEq(f.Status, s.Status),
-		q.matchCompliance(s, f.Compliance),
 		matchSource(s, f.Source),
-		matchWorkload(rev, f.Workload),
-		matchHasCapability(rev, f.HasCapability),
-		matchHasDependency(rev, f.HasDependency),
-		matchReadiness(rev, f.ReadyOnly, f.NotReady),
+		q.anyRevisionWorkload(s, f.Workload),
+		q.anyRevisionHasCapability(s, f.HasCapability),
+		q.anyRevisionHasDependency(s, f.HasDependency),
+		q.matchTargetCorrelated(s, f),
 	}
 	for _, ok := range checks {
 		if !ok {
@@ -179,6 +208,37 @@ func (q *Query) serviceMatches(s *ServiceRecord, f SearchFilter) bool {
 		}
 	}
 	return true
+}
+
+// matchTargetCorrelated enforces §7.1: when a target predicate (label, scope or
+// compliance) is present, the readiness predicate must hold for that SAME target
+// and its linked revision. With no target predicate, readiness applies
+// existentially across the service's revisions.
+func (q *Query) matchTargetCorrelated(s *ServiceRecord, f SearchFilter) bool {
+	hasTargetPredicate := len(f.Labels) > 0 || f.Scope != "" || f.Compliance != ""
+	if !hasTargetPredicate {
+		if !f.ReadyOnly && !f.NotReady {
+			return true
+		}
+		return q.anyRevisionReadiness(s, f.ReadyOnly, f.NotReady)
+	}
+	for _, tk := range s.Targets {
+		t := q.snap.Targets[tk]
+		if !labelsMatch(t.Labels, f.Labels) {
+			continue
+		}
+		if f.Scope != "" && t.Scope != f.Scope {
+			continue
+		}
+		if f.Compliance != "" && t.Compliance != f.Compliance {
+			continue
+		}
+		if (f.ReadyOnly || f.NotReady) && !readinessMatches(q.snap.Revisions[t.ContractRevision], f.ReadyOnly, f.NotReady) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func matchText(s *ServiceRecord, text string) bool {
@@ -199,23 +259,50 @@ func matchSource(s *ServiceRecord, source string) bool {
 	return source == "" || containsStr(s.Sources, source)
 }
 
-func (q *Query) matchCompliance(s *ServiceRecord, compliance string) bool {
-	return compliance == "" || q.anyTargetCompliance(s, compliance)
+func (q *Query) anyRevisionWorkload(s *ServiceRecord, workload string) bool {
+	if workload == "" {
+		return true
+	}
+	return q.anyRevision(s, func(r *ContractRevision) bool {
+		return r.Contract != nil && r.Contract.Workload == workload
+	})
 }
 
-func matchWorkload(rev *ContractRevision, workload string) bool {
-	return workload == "" || (rev != nil && rev.Contract != nil && rev.Contract.Workload == workload)
+func (q *Query) anyRevisionHasCapability(s *ServiceRecord, want bool) bool {
+	if !want {
+		return true
+	}
+	return q.anyRevision(s, func(r *ContractRevision) bool {
+		return r.Contract != nil && len(r.Contract.Capabilities) > 0
+	})
 }
 
-func matchHasCapability(rev *ContractRevision, want bool) bool {
-	return !want || (rev != nil && rev.Contract != nil && len(rev.Contract.Capabilities) > 0)
+func (q *Query) anyRevisionHasDependency(s *ServiceRecord, want bool) bool {
+	if !want {
+		return true
+	}
+	return q.anyRevision(s, func(r *ContractRevision) bool {
+		return r.Contract != nil && len(r.Contract.Dependencies) > 0
+	})
 }
 
-func matchHasDependency(rev *ContractRevision, want bool) bool {
-	return !want || (rev != nil && rev.Contract != nil && len(rev.Contract.Dependencies) > 0)
+func (q *Query) anyRevisionReadiness(s *ServiceRecord, readyOnly, notReady bool) bool {
+	return q.anyRevision(s, func(r *ContractRevision) bool {
+		return readinessMatches(r, readyOnly, notReady)
+	})
 }
 
-func matchReadiness(rev *ContractRevision, readyOnly, notReady bool) bool {
+// anyRevision reports whether any revision of the service satisfies pred.
+func (q *Query) anyRevision(s *ServiceRecord, pred func(*ContractRevision) bool) bool {
+	for _, rk := range s.Revisions {
+		if pred(q.snap.Revisions[rk]) {
+			return true
+		}
+	}
+	return false
+}
+
+func readinessMatches(rev *ContractRevision, readyOnly, notReady bool) bool {
 	return (!readyOnly || readinessPasses(rev)) && (!notReady || !readinessPasses(rev))
 }
 
@@ -226,15 +313,6 @@ func labelsMatch(have, want map[string]string) bool {
 		}
 	}
 	return true
-}
-
-func (q *Query) anyTargetCompliance(s *ServiceRecord, compliance string) bool {
-	for _, tk := range s.Targets {
-		if q.snap.Targets[tk].Compliance == compliance {
-			return true
-		}
-	}
-	return false
 }
 
 func readinessPasses(rev *ContractRevision) bool {
@@ -250,21 +328,31 @@ func containsStr(s []string, v string) bool {
 	return false
 }
 
-// ServiceView is the detailed answer for one logical service.
-type ServiceView struct {
-	Meta         Meta                `json:"meta"`
-	Service      *ServiceRecord      `json:"service"`
-	Revisions    []*ContractRevision `json:"revisions"`
-	Targets      []*TargetRecord     `json:"targets"`
-	Dependencies []Relationship      `json:"dependencies"`
-	Dependents   []string            `json:"dependents"`
-	Tools        []ToolSummary       `json:"tools,omitempty"`
-	Skills       []string            `json:"skills,omitempty"`
+// RevisionCapabilities attributes tools and skills to the exact revision that
+// declares them, so a logical-service answer never presents one revision's tools
+// as universal.
+type RevisionCapabilities struct {
+	Revision RevisionKey   `json:"revision"`
+	Version  string        `json:"version,omitempty"`
+	Tools    []ToolSummary `json:"tools,omitempty"`
+	Skills   []string      `json:"skills,omitempty"`
 }
 
-// GetService returns the logical service, its revisions and targets, its
-// declared dependency edges, its dependents, and its representative revision's
-// tools and skills. It returns a [NotFoundError] when the service is absent.
+// ServiceView is the detailed answer for one logical service. Tools and skills
+// are grouped per revision (never flattened to a single "representative").
+type ServiceView struct {
+	Meta         Meta                   `json:"meta"`
+	Service      *ServiceRecord         `json:"service"`
+	Revisions    []*ContractRevision    `json:"revisions"`
+	Targets      []*TargetRecord        `json:"targets"`
+	Dependencies []Relationship         `json:"dependencies"`
+	Dependents   []string               `json:"dependents"`
+	Capabilities []RevisionCapabilities `json:"capabilities,omitempty"`
+}
+
+// GetService returns the logical service, its revisions and targets, its declared
+// dependency edges (across all revisions), its dependents, and per-revision tools
+// and skills. It returns a [NotFoundError] when the service is absent.
 func (q *Query) GetService(name string) (*ServiceView, error) {
 	s := q.snap.Services[NewServiceKey(name)]
 	if s == nil {
@@ -272,22 +360,24 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 	}
 	view := &ServiceView{Meta: q.meta(), Service: s, Dependencies: []Relationship{}}
 	for _, rk := range s.Revisions {
-		view.Revisions = append(view.Revisions, q.snap.Revisions[rk])
+		rev := q.snap.Revisions[rk]
+		view.Revisions = append(view.Revisions, rev)
+		if len(rev.Tools) > 0 || len(rev.Skills) > 0 {
+			view.Capabilities = append(view.Capabilities, RevisionCapabilities{
+				Revision: rev.Key, Version: rev.Version, Tools: rev.Tools, Skills: rev.Skills,
+			})
+		}
 	}
 	for _, tk := range s.Targets {
 		view.Targets = append(view.Targets, q.snap.Targets[tk])
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.From == name && rel.Type == "dependency" {
+		if rel.FromService == name && rel.Type == RelationshipDependency {
 			view.Dependencies = append(view.Dependencies, rel)
 		}
 	}
 	view.Dependents = append([]string(nil), q.snap.reverseDeps[name]...)
-	if rev := representativeRevision(q.snap, s); rev != nil {
-		view.Tools = rev.Tools
-		view.Skills = rev.Skills
-	}
 	return view, nil
 }
 
@@ -342,9 +432,27 @@ const (
 	DirectionDependents   Direction = "dependents"
 )
 
-// GraphQuery configures a fleet graph traversal.
+// InvalidQueryError is returned for a malformed query argument (a bad direction,
+// negative depth or offset, an unknown status). Adapters map it to a 4xx / usage
+// error rather than silently defaulting.
+type InvalidQueryError struct {
+	Field  string
+	Value  string
+	Reason string
+}
+
+func (e *InvalidQueryError) Error() string {
+	return fmt.Sprintf("invalid %s %q: %s", e.Field, e.Value, e.Reason)
+}
+
+// GraphQuery configures a fleet graph traversal. The perspective is explicit: a
+// Target uses that target's exact linked revision; a Revision uses that revision;
+// a bare Service aggregates across all its revisions (Aggregated is set in the
+// result) and never silently picks "latest".
 type GraphQuery struct {
 	Service    string
+	Revision   RevisionKey
+	Target     string
 	Direction  Direction // defaults to dependencies
 	Transitive bool
 	MaxDepth   int // 0 → unlimited (still cycle-safe)
@@ -357,42 +465,57 @@ type GraphNode struct {
 	Path  []string `json:"path"`
 }
 
-// GraphResult is a deterministic, cycle-safe traversal answer.
+// GraphResult is a deterministic, cycle-safe traversal answer. Aggregated is true
+// when the query was service-scoped over more than one revision (so edges are a
+// union across revisions rather than a single revision's exact graph).
 type GraphResult struct {
 	Meta       Meta           `json:"meta"`
 	Root       string         `json:"root"`
+	Revision   RevisionKey    `json:"revision,omitempty"`
+	Aggregated bool           `json:"aggregated"`
 	Direction  Direction      `json:"direction"`
 	Nodes      []GraphNode    `json:"nodes"`
-	Edges      []Relationship `json:"edges,omitempty"`
+	Edges      []Relationship `json:"edges"`
 	Cycles     [][]string     `json:"cycles,omitempty"`
-	Unresolved []string       `json:"unresolved,omitempty"`
+	Unresolved []Relationship `json:"unresolved,omitempty"`
 }
 
-// Graph traverses dependencies or dependents from a root service. Direct-only
-// (Transitive=false) returns the immediate neighbors; transitive traversal is
-// cycle-safe and honors MaxDepth. Neighbors are visited in deterministic order.
+// Graph traverses dependencies or dependents from an explicit root. It returns
+// every reached node (with depth and path), every traversed edge (typed, with
+// revision provenance, required/compatibility and resolution), unresolved edges
+// at every depth, and cycles. Direct-only (Transitive=false) returns immediate
+// neighbors; transitive traversal is cycle-safe and honors MaxDepth.
 func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
-	if q.snap.Services[NewServiceKey(gq.Service)] == nil {
-		return nil, &NotFoundError{Kind: "service", ID: gq.Service}
+	dir, err := validateDirection(gq.Direction)
+	if err != nil {
+		return nil, err
 	}
-	dir := gq.Direction
-	if dir == "" {
-		dir = DirectionDependencies
+	if gq.MaxDepth < 0 {
+		return nil, &InvalidQueryError{Field: "maxDepth", Value: fmt.Sprint(gq.MaxDepth), Reason: "must be >= 0"}
 	}
-	adj := q.snap.forwardDeps
-	if dir == DirectionDependents {
-		adj = q.snap.reverseDeps
+	rootSvc, scopeRev, aggregated, err := q.resolveGraphScope(gq)
+	if err != nil {
+		return nil, err
 	}
 
-	res := &GraphResult{Meta: q.meta(), Root: gq.Service, Direction: dir, Nodes: []GraphNode{}}
+	res := &GraphResult{Meta: q.meta(), Root: rootSvc, Revision: scopeRev, Aggregated: aggregated, Direction: dir, Nodes: []GraphNode{}}
+	neighbors := func(name string, isRoot bool) []string {
+		if dir == DirectionDependents {
+			return q.snap.reverseDeps[name]
+		}
+		if isRoot && scopeRev != "" {
+			return q.snap.forwardDepsByRevision[scopeRev]
+		}
+		return q.snap.forwardDeps[name]
+	}
+
 	visited := map[string]bool{}
+	nodeSet := map[string]bool{}
 	var cycles [][]string
-	var walk func(name string, depth int, path, onPath []string)
-	walk = func(name string, depth int, path, onPath []string) {
-		for _, next := range adj[name] {
+	var walk func(name string, depth int, path, onPath []string, isRoot bool)
+	walk = func(name string, depth int, path, onPath []string, isRoot bool) {
+		for _, next := range neighbors(name, isRoot) {
 			if containsStr(onPath, next) {
-				// Back-edge to a node on the current path: a cycle. Recorded, not
-				// traversed, so recursion is always bounded.
 				cycles = append(cycles, append(append([]string(nil), onPath...), next))
 				continue
 			}
@@ -400,51 +523,88 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 				continue // already reached and expanded; keeps traversal O(V+E)
 			}
 			visited[next] = true
+			nodeSet[next] = true
 			nextPath := append(append([]string(nil), path...), next)
 			res.Nodes = append(res.Nodes, GraphNode{Name: next, Depth: depth, Path: nextPath})
 			if gq.Transitive && (gq.MaxDepth == 0 || depth < gq.MaxDepth) {
-				walk(next, depth+1, nextPath, append(append([]string(nil), onPath...), next))
+				walk(next, depth+1, nextPath, append(append([]string(nil), onPath...), next), false)
 			}
 		}
 	}
-	walk(gq.Service, 1, []string{gq.Service}, []string{gq.Service})
+	walk(rootSvc, 1, []string{rootSvc}, []string{rootSvc}, true)
 
 	sort.Slice(cycles, func(i, j int) bool {
 		return strings.Join(cycles[i], "\x00") < strings.Join(cycles[j], "\x00")
 	})
 	res.Cycles = cycles
-	if dir == DirectionDependencies {
-		res.Unresolved = q.unresolvedDeps(gq.Service)
-	}
-	res.Edges = q.edgesFor(gq.Service, dir)
+	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev)
 	return res, nil
 }
 
-// unresolvedDeps lists the root service's declared dependencies that no service
-// in the fleet resolves.
-func (q *Query) unresolvedDeps(name string) []string {
-	var out []string
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
-		if rel.From == name && rel.Type == "dependency" && !rel.Resolved {
-			out = append(out, rel.To)
-		}
+func validateDirection(d Direction) (Direction, error) {
+	switch d {
+	case "", DirectionDependencies:
+		return DirectionDependencies, nil
+	case DirectionDependents:
+		return DirectionDependents, nil
+	default:
+		return "", &InvalidQueryError{Field: "direction", Value: string(d), Reason: "must be dependencies or dependents"}
 	}
-	return out
 }
 
-func (q *Query) edgesFor(name string, dir Direction) []Relationship {
-	var out []Relationship
+// resolveGraphScope determines the root service, the scoping revision (empty for
+// an aggregated service query) and whether the answer aggregates revisions.
+func (q *Query) resolveGraphScope(gq GraphQuery) (rootSvc string, scopeRev RevisionKey, aggregated bool, err error) {
+	switch {
+	case gq.Target != "":
+		tv, e := q.GetTarget(gq.Target)
+		if e != nil {
+			return "", "", false, e
+		}
+		return tv.Target.Service, tv.Target.ContractRevision, false, nil
+	case gq.Revision != "":
+		rev := q.snap.Revisions[gq.Revision]
+		if rev == nil {
+			return "", "", false, &NotFoundError{Kind: "revision", ID: string(gq.Revision)}
+		}
+		return rev.Service, gq.Revision, false, nil
+	default:
+		s := q.snap.Services[NewServiceKey(gq.Service)]
+		if s == nil {
+			return "", "", false, &NotFoundError{Kind: "service", ID: gq.Service}
+		}
+		return gq.Service, "", len(s.Revisions) > 1, nil
+	}
+}
+
+// graphEdges collects the typed dependency edges spanned by the traversal (root +
+// reached nodes) and, separately, the unresolved ones. Root edges honor the
+// revision scope; downstream edges are service-level.
+func (q *Query) graphEdges(nodeSet map[string]bool, rootSvc string, dir Direction, scopeRev RevisionKey) (edges, unresolved []Relationship) {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if dir == DirectionDependencies && rel.From == name {
-			out = append(out, rel)
+		if rel.Type != RelationshipDependency {
+			continue
 		}
-		if dir == DirectionDependents && rel.ResolvedService == name {
-			out = append(out, rel)
+		if !edgeInScope(rel, nodeSet, rootSvc, dir, scopeRev) {
+			continue
+		}
+		edges = append(edges, rel)
+		if !rel.Resolved {
+			unresolved = append(unresolved, rel)
 		}
 	}
-	return out
+	return edges, unresolved
+}
+
+func edgeInScope(rel Relationship, nodeSet map[string]bool, rootSvc string, dir Direction, scopeRev RevisionKey) bool {
+	if dir == DirectionDependents {
+		return rel.ToService != "" && (rel.ToService == rootSvc || nodeSet[rel.ToService])
+	}
+	if rel.FromService == rootSvc {
+		return scopeRev == "" || rel.FromRevision == scopeRev
+	}
+	return nodeSet[rel.FromService]
 }
 
 // StatusQuery selects which "needs attention" categories to report.
@@ -534,8 +694,8 @@ func (q *Query) unresolvedStatusItems(all bool, sq StatusQuery) []StatusItem {
 	var items []StatusItem
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.Type == "dependency" && !rel.Resolved {
-			items = append(items, StatusItem{Kind: "relationship", Name: rel.From + "→" + rel.To, Code: "UNRESOLVED_DEPENDENCY", Reason: "declared dependency is not resolved in the fleet"})
+		if rel.Type == RelationshipDependency && !rel.Resolved {
+			items = append(items, StatusItem{Kind: "relationship", Name: rel.FromService + "→" + rel.To, Code: "UNRESOLVED_DEPENDENCY", Reason: "declared dependency is not resolved in the fleet"})
 		}
 	}
 	return items
@@ -590,7 +750,7 @@ func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.From == s.Name && rel.Type == "dependency" && !rel.Resolved {
+		if rel.FromService == s.Name && rel.Type == RelationshipDependency && !rel.Resolved {
 			res.Reasons = append(res.Reasons, Reason{
 				Code: LimitationUnresolvedDep, Message: "declared dependency is not resolved in the fleet",
 				Assertion: &AssertionRef{Kind: "dependency", Name: rel.To},

@@ -79,7 +79,10 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res := q.Search(searchFilterFromCmd(cmd, optionalArg(args)))
+			res, err := q.Search(searchFilterFromCmd(cmd, optionalArg(args)))
+			if err != nil {
+				return err
+			}
 			return printFleetSearch(cmd, res, v.GetString(outputFormatKey))
 		},
 	}
@@ -93,6 +96,7 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Bool("not-ready", false, "only services not operationally ready")
 	cmd.Flags().Bool("has-capability", false, "only services declaring a capability")
 	cmd.Flags().Bool("has-dependency", false, "only services declaring a dependency")
+	cmd.Flags().String("scope", "", "correlate to a target with this scope")
 	cmd.Flags().Int("limit", 0, "maximum results (0 = default)")
 	cmd.Flags().Int("offset", 0, "result offset for paging")
 	return cmd
@@ -104,6 +108,7 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
 	compliance, _ := cmd.Flags().GetString("compliance")
 	source, _ := cmd.Flags().GetString("source")
 	workload, _ := cmd.Flags().GetString("workload")
+	scope, _ := cmd.Flags().GetString("scope")
 	labels, _ := cmd.Flags().GetStringArray("label")
 	ready, _ := cmd.Flags().GetBool("ready")
 	notReady, _ := cmd.Flags().GetBool("not-ready")
@@ -112,7 +117,7 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
 	return fleet.SearchFilter{
-		Text: text, Owner: owner, Labels: parseLabels(labels), Status: status,
+		Text: text, Owner: owner, Labels: parseLabels(labels), Scope: scope, Status: status,
 		Compliance: compliance, Source: source, Workload: workload,
 		HasCapability: hasCap, HasDependency: hasDep, ReadyOnly: ready, NotReady: notReady,
 		Limit: limit, Offset: offset,
@@ -170,19 +175,24 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "graph <service>",
 		Short: "Traverse fleet dependencies or dependents",
-		Args:  cobra.ExactArgs(1),
+		Long: "Traverse the operational graph from an explicit root. Give a service " +
+			"name to aggregate across its revisions, or --revision/--target to root " +
+			"an exact revision (never 'latest').",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
 				return err
 			}
-			dir := fleet.DirectionDependencies
-			if d, _ := cmd.Flags().GetString("direction"); d == "dependents" {
-				dir = fleet.DirectionDependents
-			}
+			direction, _ := cmd.Flags().GetString("direction")
 			transitive, _ := cmd.Flags().GetBool("transitive")
 			maxDepth, _ := cmd.Flags().GetInt("max-depth")
-			res, err := q.Graph(fleet.GraphQuery{Service: args[0], Direction: dir, Transitive: transitive, MaxDepth: maxDepth})
+			revision, _ := cmd.Flags().GetString("revision")
+			target, _ := cmd.Flags().GetString("target")
+			res, err := q.Graph(fleet.GraphQuery{
+				Service: optionalArg(args), Revision: fleet.RevisionKey(revision), Target: target,
+				Direction: fleet.Direction(direction), Transitive: transitive, MaxDepth: maxDepth,
+			})
 			if err != nil {
 				return err
 			}
@@ -192,6 +202,8 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().String("direction", "dependencies", "traversal direction (dependencies, dependents)")
 	cmd.Flags().Bool("transitive", false, "traverse transitively (cycle-safe)")
 	cmd.Flags().Int("max-depth", 0, "maximum transitive depth (0 = unlimited)")
+	cmd.Flags().String("revision", "", "root an exact contract revision key")
+	cmd.Flags().String("target", "", "root the revision linked to this target key or name")
 	return cmd
 }
 

@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -82,9 +83,11 @@ func (s *Server) fleetSnapshot(ctx context.Context, _ *struct{}) (*fleetSnapshot
 type fleetSearchInput struct {
 	Text   string `query:"text"`
 	Owner  string `query:"owner"`
+	Scope  string `query:"scope"`
 	Status string `query:"status"`
 	Source string `query:"source"`
 	Limit  int    `query:"limit"`
+	Offset int    `query:"offset"`
 }
 
 type fleetSearchOutput struct {
@@ -96,14 +99,20 @@ func (s *Server) fleetSearch(ctx context.Context, in *fleetSearchInput) (*fleetS
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
-	res := q.Search(fleet.SearchFilter{
-		Text: in.Text, Owner: in.Owner, Status: in.Status, Source: in.Source, Limit: in.Limit,
+	res, err := q.Search(fleet.SearchFilter{
+		Text: in.Text, Owner: in.Owner, Scope: in.Scope, Status: in.Status,
+		Source: in.Source, Limit: in.Limit, Offset: in.Offset,
 	})
+	if err != nil {
+		return nil, huma.Error422UnprocessableEntity("invalid fleet search filter", err)
+	}
 	return &fleetSearchOutput{Body: res}, nil
 }
 
 type fleetGraphInput struct {
 	Name       string `path:"name"`
+	Revision   string `query:"revision"`
+	Target     string `query:"target"`
 	Direction  string `query:"direction"`
 	Transitive bool   `query:"transitive"`
 	MaxDepth   int    `query:"maxDepth"`
@@ -118,13 +127,16 @@ func (s *Server) fleetGraph(ctx context.Context, in *fleetGraphInput) (*fleetGra
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
-	dir := fleet.DirectionDependencies
-	if in.Direction == "dependents" {
-		dir = fleet.DirectionDependents
-	}
-	res, err := q.Graph(fleet.GraphQuery{Service: in.Name, Direction: dir, Transitive: in.Transitive, MaxDepth: in.MaxDepth})
+	res, err := q.Graph(fleet.GraphQuery{
+		Service: in.Name, Revision: fleet.RevisionKey(in.Revision), Target: in.Target,
+		Direction: fleet.Direction(in.Direction), Transitive: in.Transitive, MaxDepth: in.MaxDepth,
+	})
 	if err != nil {
-		return nil, huma.Error404NotFound("service not found", err)
+		var nf *fleet.NotFoundError
+		if errors.As(err, &nf) {
+			return nil, huma.Error404NotFound("not found", err)
+		}
+		return nil, huma.Error422UnprocessableEntity("invalid fleet graph query", err)
 	}
 	return &fleetGraphOutput{Body: res}, nil
 }

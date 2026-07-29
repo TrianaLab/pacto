@@ -69,11 +69,10 @@ func printServiceEdges(w io.Writer, sv *fleet.ServiceView) {
 	if len(sv.Dependents) > 0 {
 		_, _ = fmt.Fprintf(w, "Dependents (%d): %v\n", len(sv.Dependents), sv.Dependents)
 	}
-	if len(sv.Tools) > 0 {
-		_, _ = fmt.Fprintf(w, "Tools: %d\n", len(sv.Tools))
-	}
-	if len(sv.Skills) > 0 {
-		_, _ = fmt.Fprintf(w, "Skills: %v\n", sv.Skills)
+	for _, c := range sv.Capabilities {
+		if len(c.Tools) > 0 || len(c.Skills) > 0 {
+			_, _ = fmt.Fprintf(w, "Revision %s (v%s): tools=%d skills=%d\n", c.Revision, c.Version, len(c.Tools), len(c.Skills))
+		}
 	}
 }
 
@@ -103,7 +102,13 @@ func printFleetTarget(cmd *cobra.Command, tv *fleet.TargetView, format string) e
 func printFleetGraph(cmd *cobra.Command, res *fleet.GraphResult, format string) error {
 	return formatResult(cmd, format, res, func() error {
 		w := cmd.OutOrStdout()
-		_, _ = fmt.Fprintf(w, "%s of %s (%d node(s)):\n", res.Direction, res.Root, len(res.Nodes))
+		root := res.Root
+		if res.Revision != "" {
+			root = string(res.Revision)
+		} else if res.Aggregated {
+			root += " (aggregated across revisions)"
+		}
+		_, _ = fmt.Fprintf(w, "%s of %s (%d node(s)):\n", res.Direction, root, len(res.Nodes))
 		for _, n := range res.Nodes {
 			_, _ = fmt.Fprintf(w, "  %*s%s (depth %d)\n", n.Depth*2, "", n.Name, n.Depth)
 		}
@@ -111,7 +116,7 @@ func printFleetGraph(cmd *cobra.Command, res *fleet.GraphResult, format string) 
 			_, _ = fmt.Fprintf(w, "  cycle: %v\n", c)
 		}
 		for _, u := range res.Unresolved {
-			_, _ = fmt.Fprintf(w, "  unresolved: %s\n", u)
+			_, _ = fmt.Fprintf(w, "  unresolved: %s -> %s (%s)\n", u.FromService, u.To, orDash(u.Reason))
 		}
 		warnPartial(cmd, res.Meta)
 		return nil

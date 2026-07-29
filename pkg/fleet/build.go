@@ -10,12 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/trianalab/pacto/v3/pkg/capability"
 	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/lock"
 	"github.com/trianalab/pacto/v3/pkg/openapi"
 	"github.com/trianalab/pacto/v3/pkg/readiness"
@@ -73,13 +71,14 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	}
 
 	snap := &FleetSnapshot{
-		SchemaVersion: SchemaVersion,
-		Services:      map[ServiceKey]*ServiceRecord{},
-		Revisions:     map[RevisionKey]*ContractRevision{},
-		Targets:       map[TargetKey]*TargetRecord{},
-		GeneratedAt:   generatedAt,
-		reverseDeps:   map[string][]string{},
-		forwardDeps:   map[string][]string{},
+		SchemaVersion:         SchemaVersion,
+		Services:              map[ServiceKey]*ServiceRecord{},
+		Revisions:             map[RevisionKey]*ContractRevision{},
+		Targets:               map[TargetKey]*TargetRecord{},
+		GeneratedAt:           generatedAt,
+		reverseDeps:           map[string][]string{},
+		forwardDeps:           map[string][]string{},
+		forwardDepsByRevision: map[RevisionKey][]string{},
 	}
 
 	// Zero configured sources is NOT the same as "every source was available and
@@ -494,30 +493,66 @@ func matchRevision(snap *FleetSnapshot, t *TargetRecord) RevisionKey {
 	return ""
 }
 
-// aggregateServices groups revisions and targets into logical service records.
+// aggregateServices groups revisions and targets into logical service records,
+// then derives each service's deterministic owner summary and aggregate status.
 func aggregateServices(snap *FleetSnapshot) {
 	for key, rev := range snap.Revisions {
 		s := ensureService(snap, rev.Service)
 		s.Revisions = append(s.Revisions, key)
 		s.Sources = appendUnique(s.Sources, rev.Source)
-		if s.Owner.Team == "" && s.Owner.DRI == "" && (rev.Owner.Team != "" || rev.Owner.DRI != "") {
-			s.Owner = rev.Owner
-		}
 	}
 	for key, t := range snap.Targets {
 		s := ensureService(snap, t.Service)
 		s.Targets = append(s.Targets, key)
 		s.Sources = appendUnique(s.Sources, t.Source)
-		for k, v := range t.Labels {
-			if s.Labels == nil {
-				s.Labels = map[string]string{}
-			}
-			s.Labels[k] = v
-		}
+		// Target/environment labels are NOT merged into the logical-service label
+		// map: distinct targets have distinct (possibly conflicting) labels, and
+		// collapsing them by map iteration order would fabricate a service label
+		// and break target-correlated search. Labels live on the target.
 	}
 	for _, s := range snap.Services {
 		s.Status = serviceStatus(snap, s)
+		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
 	}
+}
+
+// deriveOwner sets a deterministic owner SUMMARY for a service (the owner
+// declared by its lowest-keyed revision that declares one) and reports an
+// OWNER_CONFLICT limitation when revisions disagree. Per-revision ownership is
+// always retained on the revisions themselves; the service field is only a
+// documented summary, not the authority.
+func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
+	keys := append([]RevisionKey(nil), s.Revisions...)
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	var distinct []contract.Owner
+	for _, rk := range keys {
+		o := snap.Revisions[rk].Owner
+		if o.IsEmpty() {
+			continue
+		}
+		if s.Owner.IsEmpty() {
+			s.Owner = o
+		}
+		if !ownerSeen(distinct, o) {
+			distinct = append(distinct, o)
+		}
+	}
+	if len(distinct) > 1 {
+		return []Limitation{{
+			Code: LimitationOwnerConflict, Source: "fleet",
+			Message: "revisions of " + s.Name + " declare different owners; the service owner is a summary (see per-revision ownership)",
+		}}
+	}
+	return nil
+}
+
+func ownerSeen(seen []contract.Owner, o contract.Owner) bool {
+	for _, e := range seen {
+		if e.Equal(o) {
+			return true
+		}
+	}
+	return false
 }
 
 func ensureService(snap *FleetSnapshot, name string) *ServiceRecord {
@@ -530,35 +565,22 @@ func ensureService(snap *FleetSnapshot, name string) *ServiceRecord {
 	return s
 }
 
-// serviceStatus derives a conservative aggregate status. A confirmed
-// non-compliant target dominates; an unknown target is surfaced as unknown;
-// only all-compliant observed targets yield Compliant. With no targets it falls
-// back to the revisions' validity (Invalid if any is invalid, else
-// NotEvaluated) and never claims compliance from declaration alone.
+// serviceStatus derives a conservative aggregate over a service's targets and
+// revisions using the canonical severity order — Invalid > NonCompliant >
+// Unknown > Warning > Compliant. Invalid is NEVER collapsed into NonCompliant: a
+// structurally invalid contract is a distinct, worse state than a compliance
+// violation. The aggregate is a triage summary, not "the health of the service";
+// callers needing precision inspect per-target and per-revision state.
 func serviceStatus(snap *FleetSnapshot, s *ServiceRecord) string {
-	if len(s.Targets) > 0 {
-		anyUnknown, allCompliant := false, true
-		for _, tk := range s.Targets {
-			switch snap.Targets[tk].Compliance {
-			case StatusNonCompliant, StatusInvalid:
-				return StatusNonCompliant
-			case StatusCompliant:
-			default:
-				anyUnknown = true
-				allCompliant = false
-			}
-		}
-		if anyUnknown {
-			return StatusUnknown
-		}
-		if allCompliant {
-			return StatusCompliant
-		}
-	}
+	// An invalid contract revision is the worst state and dominates.
 	for _, rk := range s.Revisions {
-		if snap.Revisions[rk].bundle != nil && snap.Revisions[rk].bundle.RawYAML != nil && !snap.Revisions[rk].Valid {
+		rev := snap.Revisions[rk]
+		if rev.bundle != nil && rev.bundle.RawYAML != nil && !rev.Valid {
 			return StatusInvalid
 		}
+	}
+	if st := targetAggregateStatus(snap, s); st != "" {
+		return st
 	}
 	if len(s.Revisions) > 0 {
 		return StatusNotEvaluated
@@ -566,84 +588,130 @@ func serviceStatus(snap *FleetSnapshot, s *ServiceRecord) string {
 	return StatusUnknown
 }
 
-// buildRelationships builds declared edges from a representative revision per
-// service and populates the forward/reverse dependency indexes.
-func buildRelationships(snap *FleetSnapshot) {
-	names := make([]string, 0, len(snap.Services))
-	for _, s := range snap.Services {
-		names = append(names, s.Name)
+// targetAggregateStatus reduces a service's targets to a single status by
+// severity (Invalid > NonCompliant > Unknown > Warning > Compliant), returning
+// "" when the service has no targets (or only non-canonical ones). Non-canonical
+// compliance values are ignored rather than mis-ranked.
+func targetAggregateStatus(snap *FleetSnapshot, s *ServiceRecord) string {
+	var invalid, nonCompliant, unknown, warning, compliant bool
+	for _, tk := range s.Targets {
+		switch snap.Targets[tk].Compliance {
+		case StatusInvalid:
+			invalid = true
+		case StatusNonCompliant:
+			nonCompliant = true
+		case StatusUnknown:
+			unknown = true
+		case StatusWarning:
+			warning = true
+		case StatusCompliant:
+			compliant = true
+		}
 	}
-	sort.Strings(names)
+	switch {
+	case invalid:
+		return StatusInvalid
+	case nonCompliant:
+		return StatusNonCompliant
+	case unknown:
+		return StatusUnknown
+	case warning:
+		return StatusWarning
+	case compliant:
+		return StatusCompliant
+	}
+	return ""
+}
 
-	for _, name := range names {
-		rev := representativeRevision(snap, snap.Services[NewServiceKey(name)])
-		if rev == nil || rev.Contract == nil {
+// buildRelationships builds declared edges from EVERY revision (never a single
+// "representative" or "latest" revision) and populates the revision-accurate and
+// aggregated dependency indexes. Each edge records the exact FromRevision it
+// originates from, so a target running an old revision never inherits a newer
+// revision's dependencies.
+func buildRelationships(snap *FleetSnapshot) {
+	revKeys := make([]RevisionKey, 0, len(snap.Revisions))
+	for k := range snap.Revisions {
+		revKeys = append(revKeys, k)
+	}
+	sort.Slice(revKeys, func(i, j int) bool { return revKeys[i] < revKeys[j] })
+
+	for _, rk := range revKeys {
+		rev := snap.Revisions[rk]
+		if rev.Contract == nil {
 			continue
 		}
-		for _, dep := range rev.Contract.Dependencies {
-			resolved, ok := resolveDepService(snap, dep)
-			rel := Relationship{
-				From: name, To: dep.Name, Type: graph.EdgeDependency,
-				Provenance: ProvenanceDeclared, Required: dep.Required,
-				Compatibility: dep.Compatibility, RequestedRef: dep.Ref,
-				Resolved: ok, ResolvedService: resolved,
-			}
-			if rev.Lock != nil {
-				if e, found := rev.Lock.Dependency(dep.Name); found {
-					rel.LockedDigest = e.Digest
-					rel.LockedVersion = e.Version
-				}
-			}
-			if !ok {
-				rel.Reason = "no service in the fleet resolves this dependency ref"
-			} else {
-				snap.forwardDeps[name] = appendUnique(snap.forwardDeps[name], resolved)
-				snap.reverseDeps[resolved] = appendUnique(snap.reverseDeps[resolved], name)
-			}
-			snap.Relationships = append(snap.Relationships, rel)
-		}
-		for _, ref := range rev.Contract.ReferenceRefs() {
-			resolved, ok := resolveRefService(snap, ref)
-			snap.Relationships = append(snap.Relationships, Relationship{
-				From: name, To: ref.Name, Type: graph.EdgeReference,
-				Provenance: ProvenanceDeclared, RequestedRef: ref.Ref,
-				Resolved: ok, ResolvedService: resolved,
-			})
-		}
+		snap.Relationships = append(snap.Relationships, revisionDependencyEdges(snap, rk, rev)...)
+		snap.Relationships = append(snap.Relationships, revisionReferenceEdges(snap, rk, rev)...)
 	}
 }
 
-// representativeRevision picks the highest-version revision of a service to
-// source its declared edges from (deterministic; ties break on key).
-func representativeRevision(snap *FleetSnapshot, s *ServiceRecord) *ContractRevision {
-	var best *ContractRevision
-	for _, rk := range s.Revisions {
-		rev := snap.Revisions[rk]
-		if best == nil || revisionNewer(rev, best) {
-			best = rev
+// revisionDependencyEdges builds one dependency edge per declared dependency of a
+// revision, updating the revision-accurate and aggregated indexes for resolved
+// edges.
+func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRevision) []Relationship {
+	var out []Relationship
+	for _, dep := range rev.Contract.Dependencies {
+		toSvc, ok := resolveDepService(snap, dep)
+		rel := Relationship{
+			FromService: rev.Service, FromRevision: rk, To: dep.Name,
+			Type: RelationshipDependency, Provenance: ProvenanceDeclared,
+			Required: dep.Required, Compatibility: dep.Compatibility,
+			RequestedRef: dep.Ref, Resolved: ok, ToService: toSvc,
 		}
+		if rev.Lock != nil {
+			if e, found := rev.Lock.Dependency(dep.Name); found {
+				rel.LockedDigest = e.Digest
+				rel.LockedVersion = e.Version
+			}
+		}
+		if !ok {
+			rel.Reason = "no service in the fleet resolves this dependency ref"
+		} else {
+			snap.forwardDepsByRevision[rk] = appendUnique(snap.forwardDepsByRevision[rk], toSvc)
+			snap.forwardDeps[rev.Service] = appendUnique(snap.forwardDeps[rev.Service], toSvc)
+			snap.reverseDeps[toSvc] = appendUnique(snap.reverseDeps[toSvc], rev.Service)
+			rel.ResolvedRevision = resolveDepRevision(snap, toSvc, rel.LockedDigest)
+		}
+		out = append(out, rel)
 	}
-	return best
+	return out
 }
 
-// revisionNewer reports whether a is a newer revision than b: greater semver
-// version, else (for unparseable versions) the greater key for determinism.
-func revisionNewer(a, b *ContractRevision) bool {
-	av, aerr := semver.NewVersion(a.Version)
-	bv, berr := semver.NewVersion(b.Version)
-	switch {
-	case aerr == nil && berr == nil:
-		if av.Equal(bv) {
-			return a.Key > b.Key
+// revisionReferenceEdges builds config- and policy-reference edges (kept
+// distinct) for a revision.
+func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRevision) []Relationship {
+	var out []Relationship
+	for _, ref := range rev.Contract.ReferenceRefs() {
+		toSvc, ok := resolveRefService(snap, ref)
+		typ := RelationshipConfigRef
+		if ref.Kind == contract.ReferenceKindPolicy {
+			typ = RelationshipPolicyRef
 		}
-		return av.GreaterThan(bv)
-	case aerr == nil:
-		return true
-	case berr == nil:
-		return false
-	default:
-		return a.Key > b.Key
+		rel := Relationship{
+			FromService: rev.Service, FromRevision: rk, To: ref.Name,
+			Type: typ, Provenance: ProvenanceDeclared, RequestedRef: ref.Ref,
+			Resolved: ok, ToService: toSvc,
+		}
+		if !ok {
+			rel.Reason = "no service in the fleet resolves this reference"
+		}
+		out = append(out, rel)
 	}
+	return out
+}
+
+// resolveDepRevision pins the exact revision of the resolved service that a
+// dependency points at, when a lock digest identifies it; otherwise "".
+func resolveDepRevision(snap *FleetSnapshot, toSvc, lockedDigest string) RevisionKey {
+	if lockedDigest == "" {
+		return ""
+	}
+	for _, rev := range snap.Revisions {
+		if rev.Service == toSvc && rev.Digest == lockedDigest {
+			return rev.Key
+		}
+	}
+	return ""
 }
 
 // resolveDepService resolves a dependency to a logical service in the fleet by
@@ -703,8 +771,11 @@ func degradedLimitations(snap *FleetSnapshot) []Limitation {
 func sortSnapshot(snap *FleetSnapshot) {
 	sort.Slice(snap.Relationships, func(i, j int) bool {
 		a, b := snap.Relationships[i], snap.Relationships[j]
-		if a.From != b.From {
-			return a.From < b.From
+		if a.FromService != b.FromService {
+			return a.FromService < b.FromService
+		}
+		if a.FromRevision != b.FromRevision {
+			return a.FromRevision < b.FromRevision
 		}
 		if a.Type != b.Type {
 			return a.Type < b.Type
@@ -732,6 +803,9 @@ func sortSnapshot(snap *FleetSnapshot) {
 	}
 	for k := range snap.forwardDeps {
 		sort.Strings(snap.forwardDeps[k])
+	}
+	for k := range snap.forwardDepsByRevision {
+		sort.Strings(snap.forwardDepsByRevision[k])
 	}
 }
 

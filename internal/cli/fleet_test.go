@@ -232,6 +232,11 @@ func TestFleetSearch(t *testing.T) {
 	if !strings.Contains(jout, `"total"`) || !strings.Contains(jout, `"services"`) {
 		t.Errorf("unexpected search json:\n%s", jout)
 	}
+
+	// An invalid filter value is a query error, not a silent default.
+	if _, _, err := execFleet(t, append(append([]string{}, base...), "--status", "Bogus")...); err == nil {
+		t.Error("expected error for an invalid --status filter")
+	}
 }
 
 func TestFleetSearch_OrDashForEmpties(t *testing.T) {
@@ -255,7 +260,7 @@ func TestFleetGetService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get orders: %v", err)
 	}
-	for _, want := range []string{"Service: orders", "Revisions", "Targets", "Dependencies", "Tools:", "Skills:"} {
+	for _, want := range []string{"Service: orders", "Revisions", "Targets", "Dependencies", "tools=1 skills=1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("get orders missing %q:\n%s", want, out)
 		}
@@ -360,7 +365,7 @@ func TestFleetGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("graph orders: %v", err)
 	}
-	if !strings.Contains(out, "dependencies of orders") || !strings.Contains(out, "unresolved: ghost") {
+	if !strings.Contains(out, "dependencies of orders") || !strings.Contains(out, "unresolved: orders -> ghost") {
 		t.Errorf("unexpected graph output:\n%s", out)
 	}
 
@@ -400,6 +405,46 @@ func TestFleetGraph_Cycle(t *testing.T) {
 	}
 	if !strings.Contains(out, "cycle:") {
 		t.Errorf("expected a cycle to be rendered:\n%s", out)
+	}
+}
+
+// TestFleetGraph_Aggregated proves a service-only graph over a multi-revision
+// service reports the aggregated note (no "latest"/representative revision).
+func TestFleetGraph_Aggregated(t *testing.T) {
+	root := t.TempDir()
+	mustBundle(t, filepath.Join(root, "v1"), "multi", "1.0.0", "team")
+	mustBundle(t, filepath.Join(root, "v2"), "multi", "2.0.0", "team")
+
+	out, _, err := execFleet(t, "fleet", "graph", "multi", "--local", root)
+	if err != nil {
+		t.Fatalf("graph multi: %v", err)
+	}
+	if !strings.Contains(out, "aggregated across revisions") {
+		t.Errorf("expected aggregated note for a multi-revision service:\n%s", out)
+	}
+}
+
+// TestFleetGraph_RevisionScoped proves --target roots the target's exact linked
+// revision, so the output header names that revision (not the aggregated service).
+func TestFleetGraph_RevisionScoped(t *testing.T) {
+	root := t.TempDir()
+	mustBundle(t, filepath.Join(root, "svc"), "svc", "1.0.0", "team")
+	ev := filepath.Join(t.TempDir(), "ev.yaml")
+	mustWrite(t, ev, `schemaVersion: pacto.dev/fleet-targets/v1
+targets:
+  - scope: prod
+    kind: k8s
+    name: svc
+    service: svc
+    resolvedRef: oci://x/svc:1.0.0
+    compliance: Compliant
+`)
+	out, _, err := execFleet(t, "fleet", "graph", "--target", "prod/k8s/svc", "--local", root, "--target-state", ev)
+	if err != nil {
+		t.Fatalf("graph --target: %v", err)
+	}
+	if !strings.Contains(out, "svc@") {
+		t.Errorf("expected revision-scoped root in output:\n%s", out)
 	}
 }
 
