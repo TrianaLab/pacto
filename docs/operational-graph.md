@@ -40,14 +40,16 @@ Edges in the graph carry a **provenance** discriminator so a fact's origin is
 never ambiguous:
 
 - **declared** — the relationship comes from a contract (`dependencies[]`, and
-  config/policy `ref`s). This is the only provenance produced today.
-- **observed** — a relationship seen in running traffic (see [the future OTel
-  graph](#a-future-observed-graph-otel) below). Reserved, not yet produced.
+  config/policy `ref`s). Every edge *in a snapshot* is declared today.
+- **observed** — a relationship seen in running traffic. Observed dependencies
+  are produced now by the [OTel observer](#observed-dependencies-and-reconciliation)
+  and consumed by reconciliation and impact, but they are compared *against* the
+  declared graph rather than merged into a snapshot's edges yet.
 - **inferred** — a relationship deduced heuristically. Reserved, not yet produced.
 
-The discriminator exists now so a future observed or inferred graph can be added
-without ever conflating "what a team declared" with "what a tracer saw". Today
-every edge is `declared`, and the graph says so.
+The discriminator keeps "what a team declared" and "what a tracer saw" separable
+wherever they meet, so an observed or inferred edge can never be mistaken for a
+declared one.
 
 ---
 
@@ -56,20 +58,26 @@ every edge is `declared`, and the graph says so.
 The graph is assembled from **sources** — a framework-neutral ingestion seam. Each
 source observes what it can right now and contributes revisions and targets:
 
-- **Contracts in OCI** — the published revision catalogue.
-- **Local bundles** — the revision a developer is editing, before it is pushed.
-- **Kubernetes / operator evidence** — which revision runs in which target and its
-  compliance, from the runtime the operator hosts.
-- **Ingested external evidence** — a remote environment's signed, versioned
-  [EvidenceSet report](evidence-protocol.md), verified and evaluated at ingestion,
-  then exposed as an operational target.
-- **Future sources** — an [observed graph](#a-future-observed-graph-otel) or any
-  other component that implements the source seam.
+- **Local bundles** (`--local`) — the revision a developer is editing, before it
+  is pushed.
+- **Contracts in OCI** (`--oci <ref>`) — the published revision catalogue,
+  resolved cache-first so a pulled ref works offline.
+- **Local OCI cache** (`--cache`) — every bundle already pulled to disk, as an
+  offline baseline.
+- **Live Kubernetes** (`--k8s [--namespace]`) — Pacto CRs read straight from a
+  running cluster: which revision runs in which target and its operator-computed
+  compliance, findings, coverage and observed runtime.
+- **Ingested external evidence** (`--evidence-store <dir>`) — a remote
+  environment's signed, versioned [EvidenceSet report](evidence-protocol.md),
+  verified and evaluated at ingestion, then exposed as an operational target.
+- **Offline target-state fixtures** (`--target-state`) — an unsigned demo and
+  test adapter for supplying targets without a cluster.
 
-No source leaks its transport into the graph. A Kubernetes-backed source, an
-OCI-backed source, a local source and the dashboard adapter each implement the
-same small interface, so the read model stays free of Kubernetes, MCP and
-dashboard code.
+Every source flag is shared by `pacto fleet`, `pacto impact` and the MCP fleet
+server, so the same graph is reachable from each. No source leaks its transport
+into the graph: a Kubernetes-backed source, an OCI-backed source, a local source
+and the dashboard adapter each implement the same small interface, so the read
+model stays free of Kubernetes, MCP and dashboard code.
 
 ---
 
@@ -155,16 +163,17 @@ flowchart LR
     subgraph Sources["Sources"]
         OCI["Contracts in OCI<br/>published revisions"]
         LOCAL["Local bundles<br/>revision being edited"]
-        K8S["Kubernetes / operator<br/>evidence: which revision runs where"]
+        K8S["Live Kubernetes<br/>Pacto CRs: which revision runs where"]
         EVI["Ingested external evidence<br/>signed EvidenceSet reports"]
-        FUT["Future sources<br/>observed graph (OTel)"]
     end
+    OTEL["OTel traces<br/>observed dependencies"]
     OCI --> OG
     LOCAL --> OG
     K8S --> OG
     EVI --> OG
-    FUT -. planned .-> OG
     OG["Operational Graph<br/><i>Fleet Snapshot · immutable read model</i>"]
+    OTEL --> RECON["reconcile · impact<br/>declared vs observed"]
+    OG --> RECON
     OG --> Q["Fleet Query<br/>search · get · graph · status · explain"]
     Q --> DASH["Dashboard"]
     Q --> CLI["CLI<br/>pacto fleet …"]
@@ -173,12 +182,13 @@ flowchart LR
     Q --> AGENT["Agents"]
 ```
 
-- **Dashboard** — the visual front door. It merges local, OCI and Kubernetes
-  sources into one fleet view and navigates services, revisions, targets and the
-  graph.
-- **CLI (`pacto fleet …`)** — the same five queries on the command line:
+- **Dashboard** — the visual front door. It builds one snapshot from every
+  source it detects — local bundles, OCI, the disk cache and the live cluster —
+  and serves the operational graph and impact through `/api/fleet/*`.
+- **CLI (`pacto fleet …`)** — the five queries on the command line:
   `pacto fleet search`, `pacto fleet get`, `pacto fleet graph`, `pacto fleet
-  status`, `pacto fleet explain`. Scriptable, deterministic output.
+  status`, `pacto fleet explain`, plus `pacto fleet reconcile` (declared vs
+  observed). Scriptable, deterministic output.
 - **MCP fleet tools** — `pacto_fleet_search`, `pacto_fleet_get`,
   `pacto_fleet_graph`, `pacto_fleet_status` and `pacto_fleet_explain` give an
   agent read-only understanding of the operational system. They are one of three
@@ -245,19 +255,34 @@ silent empty and never deleted. This is the shipped
 
 ---
 
-## Where this is heading
+## Observed dependencies and reconciliation
 
-One further capability builds directly on the substrate the graph already
-maintains. It does not change the model above — it consumes it.
+Declared intent is only half the picture; the other half is what traffic
+actually does. The **OTel observer** (`pacto otel observe <traces.json>`) reads
+an OTLP/JSON trace export and derives the service dependency edges its outbound
+spans prove. It reports only what it saw and never asserts a dependency is
+absent — an unseen dependency is uncertainty, not a confirmed "no".
 
-### A future observed graph (OTel)
+Those observed edges meet the declared graph in two places:
 
-Every relationship already carries a `provenance` discriminator, and only
-`declared` is produced today. A future **observed** graph — for example
-dependencies seen in OpenTelemetry traces — slots in as `observed` edges
-alongside the declared ones, never overwriting them. "What a team declared" and
-"what a tracer saw" stay distinguishable, and a consumer can ask for either or
-compare them.
+- **Reconciliation** — `pacto fleet reconcile --traces <file>` compares what the
+  fleet's contracts declare against what traffic proves, labelling each
+  dependency **matched**, **declared-not-observed** (dormant or simply unseen in
+  the window) or **observed-not-declared** (a *shadow* dependency the contract
+  never mentions).
+- **Impact** — `pacto impact --traces <file>` lets observed traffic raise a
+  declared consumer to **corroborated** confidence and surface **observed-only
+  (shadow) consumers** a declared-only analysis would miss.
+
+The OTel observer can also emit signable EvidenceSets
+(`pacto otel observe --evidence`), so observed dependencies can travel the same
+[external evidence protocol](evidence-protocol.md) as any other report.
+
+The remaining step is to merge observed edges *into the snapshot itself* as
+`observed`-provenance relationships (the `provenance` discriminator already
+reserves the slot), so `pacto fleet graph` can render the observed layer beside
+the declared one. Today they meet in reconcile and impact rather than in a
+snapshot's edge set.
 
 ---
 

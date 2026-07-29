@@ -91,9 +91,15 @@ Two rules follow directly from this model and are load-bearing:
 > will break. Treat `inferred` as a lead to verify, never as a settled fact.
 
 > **Observed evidence only raises confidence when you opt in.** Without
-> `--include-observed` the analysis is declared-only. Runtime observations, where
-> the graph carries them, then let a direct edge become `observed` or
-> `corroborated`.
+> `--include-observed` the analysis is declared-only. Runtime observations then
+> let a direct edge become `observed` or `corroborated`.
+
+Observed edges come from OpenTelemetry traces via `--traces <file>` (which
+implies `--include-observed`). Beyond corroborating declared consumers, traces
+surface **observed-only (shadow) consumers** — services seen calling the changed
+service that never declared the dependency. A declared-only analysis cannot see
+them; with traces they appear as direct consumers at `observed` confidence, so a
+release check is not blind to undeclared traffic.
 
 ---
 
@@ -107,13 +113,14 @@ pacto impact <old> <new> --local .
 fleet source flags are shared with [`pacto fleet`](operational-graph.md): repeat
 `--local` for each bundle root to scan when building the snapshot.
 
-Turn on runtime corroboration with `--include-observed`, so observed
-relationships raise consumer confidence where the graph carries them:
+Turn on runtime corroboration with `--include-observed`, or supply an OTLP/JSON
+trace export with `--traces` (which implies it) so observed traffic raises
+consumer confidence and surfaces shadow consumers:
 
 ```bash
 pacto impact ./payments-api@1.4.0 ./payments-api@2.0.0 \
   --local ./services \
-  --include-observed
+  --traces ./traces.json
 ```
 
 The output reports the classification, the breaking changes, every affected
