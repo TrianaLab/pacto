@@ -279,14 +279,15 @@ type ContractRevision struct {
 	Source       string             `json:"source"`
 	FetchedAt    *time.Time         `json:"fetchedAt,omitempty"`
 
-	// bundle carries the parsed bundle for lazy body access (skill/doc/interface
-	// contents). It is never serialized and is owned by the snapshot.
+	// bundle carries the parsed bundle used only DURING Build (to derive tools,
+	// skills, docs and validation). It is never serialized and is never exposed
+	// through a query result, so callers cannot mutate snapshot-owned bundle data.
 	bundle *contract.Bundle
+	// validated records that this revision had raw YAML and was run through the
+	// validator at build time. Stored so status queries never dereference the
+	// build-only bundle after Build.
+	validated bool
 }
-
-// Bundle returns the underlying bundle for lazy body access, or nil for a
-// revision projected without one (e.g. a runtime-only observation).
-func (r *ContractRevision) Bundle() *contract.Bundle { return r.bundle }
 
 // TargetRecord is a concrete operational target associated with a revision.
 // Its identity is generic (scope/kind/name) and does not assume Kubernetes,

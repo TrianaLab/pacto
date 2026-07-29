@@ -1375,16 +1375,17 @@ func TestBuild_DoesNotMutateInputContract(t *testing.T) {
 	if !c.Service.Owner.Equal(origOwner) || len(c.Dependencies) != origDepCount {
 		t.Error("Build must not mutate the input contract's fields")
 	}
-	// The snapshot references the same contract pointer (no defensive copy expected).
 	if snap.Service("svc") == nil {
 		t.Fatal("service missing")
 	}
+	// The snapshot deep-copies the contract (immutability): equal value, distinct
+	// pointer, so a later source mutation cannot reach the snapshot.
 	for _, r := range snap.Revisions {
-		if r.Contract != c {
-			t.Error("revision should reference the input contract pointer")
+		if r.Contract == c {
+			t.Error("revision must NOT alias the input contract pointer")
 		}
-		if r.bundle != raw.Bundle {
-			t.Error("revision should reference the input bundle pointer")
+		if r.Contract == nil || r.Contract.Service.Name != c.Service.Name {
+			t.Error("revision contract should be an equal deep copy")
 		}
 	}
 }

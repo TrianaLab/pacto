@@ -26,8 +26,14 @@ type Query struct {
 // NewQuery wraps a snapshot in a query view.
 func NewQuery(s *FleetSnapshot) *Query { return &Query{snap: s} }
 
-// Snapshot returns the underlying immutable snapshot.
-func (q *Query) Snapshot() *FleetSnapshot { return q.snap }
+// Snapshot returns a deep copy of the snapshot for serialization. It never
+// returns the internal snapshot pointer, so a caller cannot mutate shared state;
+// the copy carries data only (its private query indexes are not rebuilt, so it
+// is for reading/serializing, not for constructing a new Query).
+func (q *Query) Snapshot() *FleetSnapshot { return jsonClone(q.snap) }
+
+// SnapshotID returns the snapshot's content identity without copying.
+func (q *Query) SnapshotID() string { return q.snap.SnapshotID }
 
 // Meta is the completeness envelope attached to every query answer. SnapshotID
 // lets a caller prove that several answers came from the same system view.
@@ -183,8 +189,21 @@ func hitFromService(s *ServiceRecord) ServiceHit {
 	return ServiceHit{
 		Name: s.Name, Owner: s.Owner.DisplayString(), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
-		Sources: s.Sources, Labels: s.Labels,
+		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels),
 	}
+}
+
+// cloneStringMap returns a copy of m (nil for a nil map) so a returned hit's
+// labels cannot alias snapshot-owned state.
+func cloneStringMap(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 // serviceMatches evaluates the filter without ever selecting a single
@@ -358,9 +377,9 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 	if s == nil {
 		return nil, &NotFoundError{Kind: "service", ID: name}
 	}
-	view := &ServiceView{Meta: q.meta(), Service: s, Dependencies: []Relationship{}}
+	view := &ServiceView{Meta: q.meta(), Service: cloneService(s), Dependencies: []Relationship{}}
 	for _, rk := range s.Revisions {
-		rev := q.snap.Revisions[rk]
+		rev := cloneRevision(q.snap.Revisions[rk])
 		view.Revisions = append(view.Revisions, rev)
 		if len(rev.Tools) > 0 || len(rev.Skills) > 0 {
 			view.Capabilities = append(view.Capabilities, RevisionCapabilities{
@@ -369,7 +388,7 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 		}
 	}
 	for _, tk := range s.Targets {
-		view.Targets = append(view.Targets, q.snap.Targets[tk])
+		view.Targets = append(view.Targets, cloneTarget(q.snap.Targets[tk]))
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
@@ -417,9 +436,9 @@ func (q *Query) GetTarget(id string) (*TargetView, error) {
 }
 
 func (q *Query) targetView(t *TargetRecord) *TargetView {
-	view := &TargetView{Meta: q.meta(), Target: t}
+	view := &TargetView{Meta: q.meta(), Target: cloneTarget(t)}
 	if t.ContractRevision != "" {
-		view.Revision = q.snap.Revisions[t.ContractRevision]
+		view.Revision = cloneRevision(q.snap.Revisions[t.ContractRevision])
 	}
 	return view
 }
@@ -677,7 +696,7 @@ func (q *Query) targetStatusItems(all bool, sq StatusQuery) []StatusItem {
 func (q *Query) revisionStatusItems(all bool, sq StatusQuery) []StatusItem {
 	var items []StatusItem
 	for _, rev := range q.snap.Revisions {
-		if (all || sq.Invalid) && rev.bundle != nil && rev.bundle.RawYAML != nil && !rev.Valid {
+		if (all || sq.Invalid) && rev.validated && !rev.Valid {
 			items = append(items, StatusItem{Kind: "revision", Name: string(rev.Key), Code: "INVALID_CONTRACT", Reason: "contract is structurally invalid"})
 		}
 		if (all || sq.MissingReadiness) && rev.Readiness == nil {
@@ -780,9 +799,19 @@ func targetReasons(t *TargetRecord) []Reason {
 		out = append(out, Reason{Code: LimitationEvidenceMissing, Message: "no evidence has been observed for this target", Source: t.Source})
 	}
 	if t.Stale {
-		out = append(out, Reason{Code: LimitationSourceStale, Message: "the most recent evidence is older than the freshness window", Source: t.Source, ObservedAt: t.EvidenceAt})
+		out = append(out, Reason{Code: LimitationSourceStale, Message: "the most recent evidence is older than the freshness window", Source: t.Source, ObservedAt: copyTime(t.EvidenceAt)})
 	}
 	return out
+}
+
+// copyTime returns a fresh pointer to a copy of t so a returned reason never
+// aliases snapshot-owned time state.
+func copyTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	c := *t
+	return &c
 }
 
 func sortReasons(rs []Reason) {

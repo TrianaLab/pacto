@@ -125,14 +125,16 @@ func TestValidStatus(t *testing.T) {
 	}
 }
 
-func TestContractRevisionBundle(t *testing.T) {
-	var r ContractRevision
-	if r.Bundle() != nil {
-		t.Error("nil bundle expected")
+func TestCloneHelpers_NilSafe(t *testing.T) {
+	if cloneContract(nil) != nil || cloneLock(nil) != nil ||
+		cloneRevision(nil) != nil || cloneTarget(nil) != nil || cloneService(nil) != nil {
+		t.Error("clone helpers must return nil for nil input")
 	}
-	b := validLeafBundle(t)
-	r.bundle = b
-	if r.Bundle() != b {
-		t.Error("Bundle() should return the wired bundle")
+	if cloneStringMap(nil) != nil || cloneCoverage(nil) != nil ||
+		cloneReadiness(nil) != nil || cloneAnyMap(nil) != nil {
+		t.Error("map/coverage/readiness clone helpers must return nil for nil input")
+	}
+	if copyTime(nil) != nil {
+		t.Error("copyTime(nil) must be nil")
 	}
 }

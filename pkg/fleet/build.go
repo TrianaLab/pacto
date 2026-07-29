@@ -14,6 +14,7 @@ import (
 
 	"github.com/trianalab/pacto/v3/pkg/capability"
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/lock"
 	"github.com/trianalab/pacto/v3/pkg/openapi"
 	"github.com/trianalab/pacto/v3/pkg/readiness"
@@ -291,16 +292,20 @@ func revisionFrom(raw RawRevision, source string, now time.Time) *ContractRevisi
 		RequestedRef: raw.RequestedRef,
 		ResolvedRef:  raw.ResolvedRef,
 		Digest:       raw.Digest,
-		Owner:        c.Service.Owner,
-		Contract:     c,
-		Source:       source,
-		FetchedAt:    raw.FetchedAt,
-		bundle:       b,
+		// The declared contract is deep-copied so a source mutating its own
+		// bundle after Build can never mutate the snapshot.
+		Contract:  cloneContract(c),
+		Source:    source,
+		FetchedAt: copyTime(raw.FetchedAt),
+		bundle:    b,
 	}
+	// Owner references the cloned contract so it never aliases source memory.
+	rev.Owner = rev.Contract.Service.Owner
 	if b.RawYAML != nil {
 		res := validation.Validate(c, b.RawYAML, b.FS)
 		rev.Valid = res.IsValid()
 		rev.Validation = res.Findings()
+		rev.validated = true
 	}
 	rev.Readiness = readiness.Evaluate(c.Readiness, now)
 	rev.Tools = toolsFrom(c, b.FS)
@@ -312,7 +317,7 @@ func revisionFrom(raw RawRevision, source string, now time.Time) *ContractRevisi
 		}
 	}
 	rev.Docs = docsFrom(b.FS)
-	rev.Lock = lockFrom(raw)
+	rev.Lock = cloneLock(lockFrom(raw))
 	return rev
 }
 
@@ -420,24 +425,26 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 	if compliance == "" {
 		compliance = StatusUnknown
 	}
+	// Every mutable field is deep-copied so a source mutating its own records
+	// after Build cannot mutate the snapshot.
 	t := &TargetRecord{
 		Key:             NewTargetKey(raw.Scope, raw.Kind, raw.Name),
 		Scope:           raw.Scope,
 		Kind:            raw.Kind,
 		Name:            raw.Name,
-		Labels:          raw.Labels,
+		Labels:          cloneStringMap(raw.Labels),
 		Service:         raw.Service,
 		ServiceKey:      NewServiceKey(raw.Service),
 		RequestedRef:    raw.RequestedRef,
 		ResolvedRef:     raw.ResolvedRef,
 		Digest:          raw.Digest,
 		Compliance:      compliance,
-		Findings:        raw.Findings,
-		Coverage:        raw.Coverage,
-		Readiness:       raw.Readiness,
-		ObservedRuntime: raw.ObservedRuntime,
-		EvidenceAt:      raw.EvidenceAt,
-		ReconciledAt:    raw.ReconciledAt,
+		Findings:        append([]finding.Finding(nil), raw.Findings...),
+		Coverage:        cloneCoverage(raw.Coverage),
+		Readiness:       cloneReadiness(raw.Readiness),
+		ObservedRuntime: cloneAnyMap(raw.ObservedRuntime),
+		EvidenceAt:      copyTime(raw.EvidenceAt),
+		ReconciledAt:    copyTime(raw.ReconciledAt),
 		Source:          source,
 		Sources:         []string{source},
 		Limitations:     append([]Limitation(nil), raw.Limitations...),
@@ -574,8 +581,7 @@ func ensureService(snap *FleetSnapshot, name string) *ServiceRecord {
 func serviceStatus(snap *FleetSnapshot, s *ServiceRecord) string {
 	// An invalid contract revision is the worst state and dominates.
 	for _, rk := range s.Revisions {
-		rev := snap.Revisions[rk]
-		if rev.bundle != nil && rev.bundle.RawYAML != nil && !rev.Valid {
+		if rev := snap.Revisions[rk]; rev.validated && !rev.Valid {
 			return StatusInvalid
 		}
 	}
