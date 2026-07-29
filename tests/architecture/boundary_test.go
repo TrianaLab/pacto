@@ -44,6 +44,7 @@ var forbiddenPrefixes = []string{
 	"k8s.io/",
 	"sigs.k8s.io/",
 	"github.com/trianalab/pacto/integrations/", // no core -> integration edge
+	"gocloud.dev/",                             // Go CDK belongs behind the evidence Store adapter, never in the pure domain
 }
 
 func TestCorePackagesHaveNoKubernetesOrIntegrationDeps(t *testing.T) {
