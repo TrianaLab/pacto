@@ -89,3 +89,53 @@ func TestService_Impact_FleetError(t *testing.T) {
 		t.Error("expected error when the fleet build context is cancelled")
 	}
 }
+
+func TestService_Impact_WithTraces(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeImpactService(t, oldDir, "orders", "1.0.0")
+	writeImpactService(t, newDir, "orders", "2.0.0")
+	fleetRoot := t.TempDir()
+	writeImpactService(t, filepath.Join(fleetRoot, "orders"), "orders", "2.0.0")
+
+	// A trace where checkout calls orders → an observed-only (shadow) consumer.
+	trace := `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"checkout"}}]},
+	  "scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"orders"}}]}]}]}]}`
+
+	svc := NewService(nil, nil)
+	res, err := svc.Impact(context.Background(), ImpactOptions{
+		OldPath: oldDir, NewPath: newDir,
+		Fleet:           FleetOptions{LocalRoots: []string{fleetRoot}},
+		IncludeObserved: true,
+		Traces:          []byte(trace),
+	})
+	if err != nil {
+		t.Fatalf("Impact: %v", err)
+	}
+	found := false
+	for _, c := range res.Consumers {
+		if c.Service == "checkout" && c.Confidence == impact.ConfidenceObserved {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected observed-only consumer checkout, got %+v", res.Consumers)
+	}
+}
+
+func TestService_Impact_BadTraces(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeImpactService(t, oldDir, "orders", "1.0.0")
+	writeImpactService(t, newDir, "orders", "2.0.0")
+	fleetRoot := t.TempDir()
+	writeImpactService(t, filepath.Join(fleetRoot, "orders"), "orders", "2.0.0")
+
+	svc := NewService(nil, nil)
+	_, err := svc.Impact(context.Background(), ImpactOptions{
+		OldPath: oldDir, NewPath: newDir,
+		Fleet:  FleetOptions{LocalRoots: []string{fleetRoot}},
+		Traces: []byte("{bad"),
+	})
+	if err == nil {
+		t.Fatal("expected trace parse error")
+	}
+}

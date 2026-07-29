@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -36,6 +37,15 @@ func newImpactCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			includeObserved, _ := cmd.Flags().GetBool("include-observed")
 			format := v.GetString(outputFormatKey)
 
+			var traces []byte
+			if tracesPath, _ := cmd.Flags().GetString("traces"); tracesPath != "" {
+				var readErr error
+				if traces, readErr = os.ReadFile(tracesPath); readErr != nil {
+					return readErr
+				}
+				includeObserved = true // supplying traces implies observed analysis
+			}
+
 			start := time.Now()
 			sp := startSpinner(cmd, format, "Analyzing impact")
 			result, err := svc.Impact(cmd.Context(), app.ImpactOptions{
@@ -45,6 +55,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				NewOverrides:    newOverrides,
 				Fleet:           fleetOptions(cmd),
 				IncludeObserved: includeObserved,
+				Traces:          traces,
 			})
 			if err != nil {
 				sp.Stop()
@@ -67,6 +78,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets (repeatable)")
 	cmd.Flags().Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
 	cmd.Flags().Bool("include-observed", false, "let observed (runtime) relationships raise consumer confidence")
+	cmd.Flags().String("traces", "", "OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)")
 	addDiffOverrideFlags(cmd)
 
 	return cmd

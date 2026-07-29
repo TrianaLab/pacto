@@ -77,6 +77,37 @@ targets:
 	return root, evidence
 }
 
+// TestImpactCommand_Traces covers the --traces path: an observed edge surfaces a
+// shadow consumer.
+func TestImpactCommand_Traces(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeOrders(t, oldDir, "1.0.0", "service")
+	writeOrders(t, newDir, "1.0.0", "service") // non-breaking
+	root := t.TempDir()
+	writeOrders(t, filepath.Join(root, "orders"), "1.0.0", "service")
+
+	tf := filepath.Join(t.TempDir(), "traces.json")
+	mustWrite(t, tf, `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"checkout"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"orders"}}]}]}]}]}`)
+
+	out, _, err := execFleet(t, "impact", oldDir, newDir, "--local", root, "--traces", tf)
+	if err != nil {
+		t.Fatalf("impact --traces: %v", err)
+	}
+	if !strings.Contains(out, "checkout") || !strings.Contains(out, "observed") {
+		t.Errorf("expected observed shadow consumer checkout:\n%s", out)
+	}
+}
+
+// TestImpactCommand_TracesReadError covers the --traces read-error path.
+func TestImpactCommand_TracesReadError(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeOrders(t, oldDir, "1.0.0", "service")
+	writeOrders(t, newDir, "1.0.0", "service")
+	if _, _, err := execFleet(t, "impact", oldDir, newDir, "--traces", filepath.Join(t.TempDir(), "missing.json")); err == nil {
+		t.Fatal("expected read error for a missing traces file")
+	}
+}
+
 // TestImpactCommand_BreakingBlocksActiveConsumer proves the non-zero exit when a
 // breaking change lands on a live, incompatible consumer, and the rich text view.
 func TestImpactCommand_BreakingBlocksActiveConsumer(t *testing.T) {

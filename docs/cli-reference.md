@@ -366,6 +366,7 @@ pacto impact <old> <new> [flags]
       --old-set stringArray        set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray     values file to merge into the old contract (can be repeated)
       --target-state stringArray   offline target-state fixture file(s) supplying targets (repeatable)
+      --traces string              OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
 ```
 
 ---

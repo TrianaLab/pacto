@@ -47,11 +47,23 @@ const (
 	CompatibilityUnknown      = "unknown"
 )
 
+// ObservedEdge is an observed caller→provider dependency (e.g. derived from
+// OpenTelemetry traces). It is evidence of real traffic, independent of what a
+// contract declares.
+type ObservedEdge struct {
+	Consumer string
+	Provider string
+}
+
 // Options configures the analysis.
 type Options struct {
-	// IncludeObserved lets observed relationships raise confidence when the graph
-	// carries them (declared-only when false).
+	// IncludeObserved lets observed relationships raise confidence and surface
+	// observed-only (shadow) consumers. When false the analysis is declared-only.
 	IncludeObserved bool
+	// ObservedEdges are observed caller→provider dependencies. Callers of the
+	// changed service corroborate a declared consumer (raising confidence to
+	// corroborated) or, when only observed, appear as observed-only consumers.
+	ObservedEdges []ObservedEdge
 }
 
 // AffectedConsumer is one service affected by the change.
@@ -126,8 +138,8 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	for _, tk := range serviceTargets(snap, svc) {
 		targets[tk] = true
 	}
-	for _, node := range graph.Nodes {
-		c := consumerImpact(snap, svc, node, new.Service.Version, opts)
+	for _, cn := range unionConsumers(graph, svc, opts) {
+		c := consumerImpact(snap, svc, cn, new.Service.Version, opts)
 		res.Consumers = append(res.Consumers, c)
 		if c.Owner != "" {
 			owners[c.Owner] = true
@@ -141,15 +153,49 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	return res
 }
 
-// consumerImpact builds the affected-consumer record for one dependent node.
-func consumerImpact(snap *fleet.FleetSnapshot, changed string, node fleet.GraphNode, newVersion string, opts Options) AffectedConsumer {
-	c := AffectedConsumer{
-		Service: node.Name,
-		Depth:   node.Depth,
-		Direct:  node.Depth == 1,
-		Path:    node.Path,
+// consumerNode identifies one affected consumer and its position in the graph.
+type consumerNode struct {
+	name  string
+	depth int
+	path  []string
+}
+
+// unionConsumers merges the declared dependents (from the graph) with observed
+// callers of the changed service. Observed-only callers are included as direct
+// (depth 1) consumers only when IncludeObserved is set. The result is sorted by
+// name for deterministic output.
+func unionConsumers(graph *fleet.GraphResult, changed string, opts Options) []consumerNode {
+	byName := map[string]consumerNode{}
+	for _, node := range graph.Nodes {
+		byName[node.Name] = consumerNode{name: node.Name, depth: node.Depth, path: node.Path}
 	}
-	if s := snap.Services[fleet.NewServiceKey(node.Name)]; s != nil {
+	if opts.IncludeObserved {
+		for _, e := range opts.ObservedEdges {
+			if e.Provider != changed {
+				continue
+			}
+			if _, ok := byName[e.Consumer]; !ok {
+				byName[e.Consumer] = consumerNode{name: e.Consumer, depth: 1, path: []string{changed, e.Consumer}}
+			}
+		}
+	}
+	out := make([]consumerNode, 0, len(byName))
+	for _, cn := range byName {
+		out = append(out, cn)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	return out
+}
+
+// consumerImpact builds the affected-consumer record for one consumer.
+func consumerImpact(snap *fleet.FleetSnapshot, changed string, node consumerNode, newVersion string, opts Options) AffectedConsumer {
+	c := AffectedConsumer{
+		Service: node.name,
+		Depth:   node.depth,
+		Direct:  node.depth == 1,
+		Path:    node.path,
+	}
+	if s := snap.Services[fleet.NewServiceKey(node.name)]; s != nil {
 		c.Owner = s.Owner.DisplayString()
 		c.Status = s.Status
 		for _, tk := range s.Targets {
@@ -158,7 +204,7 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed string, node fleet.GraphN
 		sort.Strings(c.Targets)
 	}
 
-	rel, hasDeclared, observed := edgeEvidence(snap, node.Name, changed)
+	rel, hasDeclared, observed := edgeEvidence(snap, node.name, changed, opts.ObservedEdges)
 	// Observed evidence is only counted when the caller opted in; provenance and
 	// confidence must agree on what was counted.
 	observedCounted := observed && opts.IncludeObserved
@@ -166,13 +212,14 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed string, node fleet.GraphN
 	c.Compatibility = rel.Compatibility
 	c.Provenance = provenance(hasDeclared, observedCounted)
 	c.CompatibilityVerdict = compatibilityVerdict(rel.Compatibility, newVersion, hasDeclared)
-	c.Confidence = confidence(node.Depth, hasDeclared, observedCounted)
+	c.Confidence = confidence(node.depth, hasDeclared, observedCounted)
 	return c
 }
 
 // edgeEvidence finds the declared dependency edge from consumer→changed and
-// whether an observed edge exists.
-func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed string) (rel fleet.Relationship, declared, observed bool) {
+// whether an observed edge exists — either recorded in the graph as an observed
+// relationship or supplied via telemetry (observedEdges).
+func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed string, observedEdges []ObservedEdge) (rel fleet.Relationship, declared, observed bool) {
 	for i := range snap.Relationships {
 		r := snap.Relationships[i]
 		if r.Type != fleet.RelationshipDependency || r.FromService != consumer || r.ToService != changed {
@@ -184,6 +231,11 @@ func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed string) (rel flee
 		}
 		rel = r
 		declared = true
+	}
+	for _, e := range observedEdges {
+		if e.Consumer == consumer && e.Provider == changed {
+			observed = true
+		}
 	}
 	return rel, declared, observed
 }
