@@ -1,5 +1,5 @@
-# Built binary
-pacto
+# Built binary (root only; do not ignore the cmd/pacto source directory)
+/pacto
 
 # IDE
 .idea/
