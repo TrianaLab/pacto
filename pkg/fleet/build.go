@@ -194,7 +194,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	}
 	revCount, targetCount := 0, 0
 	for _, raw := range col.Revisions {
-		rev := revisionFrom(raw, src.ID(), now)
+		rev, lims := revisionFrom(raw, src.ID(), now)
 		if rev == nil {
 			continue
 		}
@@ -204,6 +204,9 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 			snap.Limitations = append(snap.Limitations, mergeRevision(existing, rev)...)
 		} else {
 			snap.Revisions[rev.Key] = rev
+			// The identity-unresolved limitation is a property of the revision, so
+			// record it only when the revision first enters the snapshot.
+			snap.Limitations = append(snap.Limitations, lims...)
 		}
 		revCount++
 	}
@@ -227,8 +230,9 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 // mergeRevision folds a later contribution of the same immutable revision into
 // the existing record: it unions provenance and fills empty complementary
 // projections (lock, validation, tools, skills, docs, readiness). It never lets
-// source order pick a winner. A digest disagreement (only possible for a
-// version-fallback key) is reported as a content conflict.
+// source order pick a winner. Because keys are content-addressed, a same-key
+// collision whose derived content digests disagree means two sources pinned the
+// same identity to different contract bodies — reported as a content conflict.
 func mergeRevision(existing, add *ContractRevision) []Limitation {
 	existing.Sources = appendUnique(existing.Sources, add.Source)
 	if existing.Lock == nil {
@@ -254,7 +258,7 @@ func mergeRevision(existing, add *ContractRevision) []Limitation {
 	if existing.ResolvedRef == "" {
 		existing.ResolvedRef = add.ResolvedRef
 	}
-	if existing.Digest != "" && add.Digest != "" && existing.Digest != add.Digest {
+	if existing.content != add.content {
 		return []Limitation{{
 			Code: LimitationRevisionConflict, Source: add.Source,
 			Message: "sources disagree on the content of revision " + string(existing.Key),
@@ -406,18 +410,34 @@ func sanitizeError(err error) *SourceError {
 
 // revisionFrom projects a raw revision into an immutable ContractRevision,
 // deriving validation, readiness, tools, skills, doc refs, and lock. Returns nil
-// for a record with no parseable contract.
-func revisionFrom(raw RawRevision, source string, now time.Time) *ContractRevision {
+// (and no limitations) for a record with no parseable contract. When the source
+// pinned no immutable digest it derives a content digest for the key and returns
+// a REVISION_IDENTITY_UNRESOLVED limitation, so the revision is collision-safe yet
+// honestly marked as lacking an immutable registry reference.
+func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevision, []Limitation) {
 	if raw.Bundle == nil || raw.Bundle.Contract == nil {
-		return nil
+		return nil, nil
 	}
 	b := raw.Bundle
 	c := b.Contract
+	serviceKey := NewServiceKeyDomain(raw.Domain, c.Service.Name)
+	content := contentDigest(c)
+	contentID := raw.Digest
+	var lims []Limitation
+	if contentID == "" {
+		// No immutable digest: derive a collision-safe content identity rather than
+		// falling back to a mutable tag or version.
+		contentID = content
+		lims = append(lims, Limitation{
+			Code: LimitationRevisionUnresolved, Source: source,
+			Message: "revision " + c.Service.Name + " has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference",
+		})
+	}
 	rev := &ContractRevision{
-		Key:          NewRevisionKey(c.Service.Name, raw.Digest, raw.ResolvedRef, c.Service.Version),
+		Key:          NewRevisionKey(serviceKey, contentID),
 		Service:      c.Service.Name,
 		Domain:       raw.Domain,
-		ServiceKey:   NewServiceKeyDomain(raw.Domain, c.Service.Name),
+		ServiceKey:   serviceKey,
 		PactoVersion: c.PactoVersion,
 		Version:      c.Service.Version,
 		RequestedRef: raw.RequestedRef,
@@ -430,6 +450,7 @@ func revisionFrom(raw RawRevision, source string, now time.Time) *ContractRevisi
 		Sources:   []string{source},
 		FetchedAt: copyTime(raw.FetchedAt),
 		bundle:    b,
+		content:   content,
 	}
 	// Owner references the cloned contract so it never aliases source memory.
 	rev.Owner = rev.Contract.Service.Owner
@@ -450,7 +471,16 @@ func revisionFrom(raw RawRevision, source string, now time.Time) *ContractRevisi
 	}
 	rev.Docs = docsFrom(b.FS)
 	rev.Lock = cloneLock(lockFrom(raw))
-	return rev
+	return rev, lims
+}
+
+// contentDigest derives a deterministic, collision-safe content identity for a
+// revision's declared contract. encoding/json sorts map keys, so equal contracts
+// hash identically and different contracts differ.
+func contentDigest(c *contract.Contract) string {
+	data, _ := json.Marshal(c)
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // toolsFrom derives bounded tool summaries from a contract's OpenAPI interfaces,

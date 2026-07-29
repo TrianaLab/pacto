@@ -669,8 +669,8 @@ func TestGraph_NotFound(t *testing.T) {
 
 func TestGraph_RevisionScope(t *testing.T) {
 	q := NewQuery(twoRevSnapshot(t))
-	rev1 := NewRevisionKey("svc", "sha256:1", "", "1.0.0")
-	rev2 := NewRevisionKey("svc", "sha256:2", "", "2.0.0")
+	rev1 := NewRevisionKey(NewServiceKey("svc"), "sha256:1")
+	rev2 := NewRevisionKey(NewServiceKey("svc"), "sha256:2")
 
 	// A revision-scoped graph uses THAT revision's exact dependencies only.
 	r1, err := q.Graph(GraphQuery{Revision: rev1, Transitive: true})

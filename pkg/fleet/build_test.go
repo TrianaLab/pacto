@@ -110,30 +110,42 @@ func TestUnavailableState(t *testing.T) {
 // -------------------- revisionFrom --------------------
 
 func TestRevisionFrom_NilBundle(t *testing.T) {
-	if revisionFrom(RawRevision{}, "src", fixedNow()) != nil {
+	if rev, _ := revisionFrom(RawRevision{}, "src", fixedNow()); rev != nil {
 		t.Error("nil bundle must project to nil")
 	}
-	if revisionFrom(RawRevision{Bundle: &contract.Bundle{}}, "src", fixedNow()) != nil {
+	if rev, _ := revisionFrom(RawRevision{Bundle: &contract.Bundle{}}, "src", fixedNow()); rev != nil {
 		t.Error("bundle with nil contract must project to nil")
 	}
 }
 
 func TestRevisionFrom_ValidAndInvalidYAML(t *testing.T) {
-	valid := revisionFrom(RawRevision{Bundle: validLeafBundle(t), Digest: "sha256:leaf"}, "local", fixedNow())
+	valid, validLims := revisionFrom(RawRevision{Bundle: validLeafBundle(t), Digest: "sha256:leaf"}, "local", fixedNow())
 	if !valid.Valid {
 		t.Errorf("valid bundle should be Valid; findings=%+v", valid.Validation)
 	}
-	if valid.Key != NewRevisionKey("leaf-svc", "sha256:leaf", "", "1.2.3") {
+	if valid.Key != NewRevisionKey(NewServiceKey("leaf-svc"), "sha256:leaf") {
 		t.Errorf("unexpected key %q", valid.Key)
+	}
+	// A source-pinned digest is an immutable identity, so no unresolved limitation.
+	if len(validLims) != 0 {
+		t.Errorf("digest-pinned revision should have no identity limitation, got %+v", validLims)
 	}
 
 	badBundle := &contract.Bundle{Contract: mustParse(t, invalidYAML), RawYAML: []byte(invalidYAML), FS: fstest.MapFS{}}
-	bad := revisionFrom(RawRevision{Bundle: badBundle}, "local", fixedNow())
+	bad, badLims := revisionFrom(RawRevision{Bundle: badBundle}, "local", fixedNow())
 	if bad.Valid {
 		t.Error("invalid bundle should be !Valid")
 	}
 	if len(bad.Validation) == 0 {
 		t.Error("invalid bundle should carry findings")
+	}
+	// No digest was pinned, so identity is a derived content digest and the
+	// revision is flagged REVISION_IDENTITY_UNRESOLVED.
+	if len(badLims) != 1 || badLims[0].Code != LimitationRevisionUnresolved {
+		t.Errorf("no-digest revision must return REVISION_IDENTITY_UNRESOLVED, got %+v", badLims)
+	}
+	if !strings.Contains(string(bad.Key), "@sha256:") {
+		t.Errorf("no-digest revision key should be content-addressed, got %q", bad.Key)
 	}
 }
 
@@ -154,7 +166,7 @@ func TestRevisionFrom_ProjectionsMatrix(t *testing.T) {
 		"docs/overview.md":        {Data: []byte("# doc")},
 		lock.FileName:             {Data: []byte(validLockYAML)},
 	}
-	rev := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fsys}}, "local", fixedNow())
+	rev, _ := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fsys}}, "local", fixedNow())
 	if rev.Readiness == nil {
 		t.Error("readiness should be evaluated")
 	}
@@ -178,7 +190,7 @@ func TestRevisionFrom_ProjectionsMatrix(t *testing.T) {
 
 func TestRevisionFrom_NoReadinessEmptyFS(t *testing.T) {
 	c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "bare", Version: "1.0.0"}}
-	rev := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}}, "local", fixedNow())
+	rev, _ := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}}, "local", fixedNow())
 	if rev.Readiness != nil {
 		t.Error("no readiness declared → nil result")
 	}
@@ -195,7 +207,7 @@ func TestRevisionFrom_NilFS(t *testing.T) {
 	// by an `if b.FS != nil` check (like toolsFrom/docsFrom/lockFrom). This exercises
 	// that false branch — no tools/docs/skills/lock are derived.
 	c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "nofs", Version: "1.0.0"}}
-	rev := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: c}}, "local", fixedNow())
+	rev, _ := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: c}}, "local", fixedNow())
 	if rev == nil {
 		t.Fatal("nil-FS bundle should still project a revision")
 	}
@@ -587,10 +599,14 @@ func TestBuild_DistinctDomains_Revisions(t *testing.T) {
 	if es.Domain != "east" || ws.Domain != "west" {
 		t.Errorf("service domains not set: %q %q", es.Domain, ws.Domain)
 	}
-	// The revision carries its domain and canonical service key from raw.Domain.
-	rev := snap.Revisions["shared@sha256:east"]
+	// The revision key is domain-qualified (ServiceKey@digest), so two same-named
+	// revisions in different domains never collide on one key.
+	rev := snap.Revisions[NewRevisionKey(eastKey, "sha256:east")]
 	if rev == nil || rev.Domain != "east" || rev.ServiceKey != eastKey {
 		t.Errorf("revision domain/key not derived from raw.Domain: %+v", rev)
+	}
+	if _, collides := snap.Revisions["shared@sha256:east"]; collides {
+		t.Error("revision key must be domain-qualified, not the bare service name")
 	}
 }
 
@@ -1191,7 +1207,7 @@ func TestBuild_ResolvedRevisionPinnedByLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	rel := relFrom(snap.Relationships, "web", "dep-svc")
-	want := NewRevisionKey("dep-svc", "sha256:deadbeef", "", "1.0.0")
+	want := NewRevisionKey(NewServiceKey("dep-svc"), "sha256:deadbeef")
 	if rel == nil || rel.ResolvedRevision != want {
 		t.Errorf("locked dep should pin the resolved revision %q, got %+v", want, rel)
 	}
@@ -1250,8 +1266,8 @@ func twoRevSnapshot(t *testing.T) *FleetSnapshot {
 // yields two distinct, revision-tagged edge sets.
 func TestBuild_PerRevisionEdges(t *testing.T) {
 	snap := twoRevSnapshot(t)
-	rev1 := NewRevisionKey("svc", "sha256:1", "", "1.0.0")
-	rev2 := NewRevisionKey("svc", "sha256:2", "", "2.0.0")
+	rev1 := NewRevisionKey(NewServiceKey("svc"), "sha256:1")
+	rev2 := NewRevisionKey(NewServiceKey("svc"), "sha256:2")
 
 	var oldEdge, newEdge *Relationship
 	for i := range snap.Relationships {
@@ -1388,7 +1404,7 @@ func TestServiceStatus_TargetInvalidDominates(t *testing.T) {
 func TestServiceStatus_InvalidNotCollapsed(t *testing.T) {
 	// An invalid contract revision is a distinct, worse state than a compliance
 	// violation: it must NEVER be collapsed into NonCompliant.
-	bad := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: mustParse(t, invalidYAML), RawYAML: []byte(invalidYAML), FS: fstest.MapFS{}}}, "s", fixedNow())
+	bad, _ := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: mustParse(t, invalidYAML), RawYAML: []byte(invalidYAML), FS: fstest.MapFS{}}}, "s", fixedNow())
 	snap := &FleetSnapshot{
 		Revisions: map[RevisionKey]*ContractRevision{bad.Key: bad},
 		Targets:   map[TargetKey]*TargetRecord{"t": {Key: "t", Compliance: StatusNonCompliant}},

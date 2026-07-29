@@ -44,9 +44,11 @@ import (
 // ServiceKey is the stable identity of a logical service (its name).
 type ServiceKey string
 
-// RevisionKey is the stable identity of an immutable contract revision.
-// It prefers the manifest digest, then the resolved ref, then the version — a
-// mutable OCI tag alone is never a revision identity.
+// RevisionKey is the stable identity of an immutable contract revision:
+// ServiceKey@<contentID>, where contentID is the source's manifest digest or,
+// when none was pinned, a digest derived from the revision's content. A mutable
+// OCI tag or a bare version string is never a revision identity, so two revisions
+// that merely share a tag or version can never collide on one key.
 type RevisionKey string
 
 // TargetKey is the stable identity of an operational target: scope/kind/name.
@@ -90,20 +92,12 @@ func indexUnescapedSlash(s string) int {
 	return strings.IndexByte(s, '/')
 }
 
-// NewRevisionKey builds a revision key from a service and the most immutable
-// identity available (digest > resolvedRef > version).
-func NewRevisionKey(service, digest, resolvedRef, version string) RevisionKey {
-	id := digest
-	if id == "" {
-		id = resolvedRef
-	}
-	if id == "" {
-		id = version
-	}
-	if id == "" {
-		id = "unknown"
-	}
-	return RevisionKey(service + "@" + id)
+// NewRevisionKey builds the immutable revision key: the domain-qualified
+// [ServiceKey] joined with a content identity — a manifest digest when the source
+// pinned one, otherwise a content digest derived by [Build]. A mutable OCI tag or
+// a bare version string is never a revision identity.
+func NewRevisionKey(serviceKey ServiceKey, contentID string) RevisionKey {
+	return RevisionKey(string(serviceKey) + "@" + contentID)
 }
 
 // NewTargetKey builds a collision-safe target key from its scope, kind, and
@@ -325,6 +319,11 @@ type ContractRevision struct {
 	// validator at build time. Stored so status queries never dereference the
 	// build-only bundle after Build.
 	validated bool
+	// content is the digest derived from the declared contract body at Build time.
+	// It is the revision's true content identity, used to raise a content conflict
+	// when two sources claim the same key (e.g. the same source-pinned digest) but
+	// disagree on the contract body. Never serialized.
+	content string
 }
 
 // TargetRecord is a concrete operational target associated with a revision.

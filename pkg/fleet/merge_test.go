@@ -34,12 +34,14 @@ func TestMergeRevision_FillsEmptyAndUnionsSources(t *testing.T) {
 	}
 }
 
-func TestMergeRevision_DigestConflict(t *testing.T) {
-	existing := &ContractRevision{Key: "svc@v1", Digest: "sha256:a", Source: "a", Sources: []string{"a"}}
-	add := &ContractRevision{Key: "svc@v1", Digest: "sha256:b", Source: "b"}
+func TestMergeRevision_ContentConflict(t *testing.T) {
+	// Same content-addressed key but different derived content digests means two
+	// sources pinned the same identity to different contract bodies.
+	existing := &ContractRevision{Key: "svc@v1", Source: "a", Sources: []string{"a"}, content: "sha256:a"}
+	add := &ContractRevision{Key: "svc@v1", Source: "b", content: "sha256:b"}
 	lims := mergeRevision(existing, add)
 	if len(lims) != 1 || lims[0].Code != LimitationRevisionConflict {
-		t.Errorf("digest disagreement should report REVISION_CONTENT_CONFLICT, got %v", lims)
+		t.Errorf("content disagreement should report REVISION_CONTENT_CONFLICT, got %v", lims)
 	}
 }
 

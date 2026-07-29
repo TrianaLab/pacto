@@ -46,18 +46,17 @@ func TestParseServiceKey_RoundTrip(t *testing.T) {
 
 func TestNewRevisionKey(t *testing.T) {
 	tests := []struct {
-		name                             string
-		service, digest, resolved, versn string
-		want                             RevisionKey
+		name      string
+		svc       ServiceKey
+		contentID string
+		want      RevisionKey
 	}{
-		{"digest wins", "svc", "sha256:abc", "ref", "1.0.0", "svc@sha256:abc"},
-		{"resolvedRef when no digest", "svc", "", "reg/svc:1.0", "1.0.0", "svc@reg/svc:1.0"},
-		{"version when no digest/ref", "svc", "", "", "1.0.0", "svc@1.0.0"},
-		{"unknown fallback", "svc", "", "", "", "svc@unknown"},
+		{"digest identity", NewServiceKey("svc"), "sha256:abc", "svc@sha256:abc"},
+		{"domain-qualified key", NewServiceKeyDomain("east", "svc"), "sha256:abc", "east/svc@sha256:abc"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewRevisionKey(tt.service, tt.digest, tt.resolved, tt.versn); got != tt.want {
+			if got := NewRevisionKey(tt.svc, tt.contentID); got != tt.want {
 				t.Errorf("NewRevisionKey = %q, want %q", got, tt.want)
 			}
 		})
