@@ -139,6 +139,7 @@ extra_css:
 
 extra_javascript:
   - javascripts/logo-spin.js
+  - javascripts/version-selector.js
 
 nav:
   - Home: index.md

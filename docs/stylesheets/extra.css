@@ -395,9 +395,24 @@
   pointer-events: none;
 }
 
-/* Version selector: cap the dropdown height and scroll once the released versions
-   outgrow the viewport, so a long list never runs off-screen. */
-.md-version__list {
+/* Version selector: open on CLICK only (toggled by javascripts/version-selector.js),
+   never on hover/focus. Material opens .md-version__list on :hover — but that list is
+   absolutely positioned directly over the nav tabs below it, so it popped open when
+   the mouse merely passed over the header and swallowed the tabs' clicks. Neutralise
+   the hover/focus open triggers and drive visibility from the .md-version--open class.
+   Keep Material's collapsed default (max-height:0) so the closed list never overlays
+   the tabs; cap the OPEN height so a long version list scrolls instead of running
+   off-screen (.md-version__list already has overflow:auto). */
+.md-version:hover .md-version__list,
+.md-version:focus-within .md-version__list {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  animation: none;
+}
+.md-version--open .md-version__list {
   max-height: 75vh;
-  overflow-y: auto;
+  opacity: 1;
+  pointer-events: auto;
+  animation: none;
 }
