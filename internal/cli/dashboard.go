@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
@@ -156,6 +157,14 @@ Services are grouped by name across sources and merged using priority rules:
 			// Enable lazy resolution of remote OCI dependencies when a BundleStore is available.
 			if svc.BundleStore != nil {
 				server.SetResolver(oci.NewResolver(svc.BundleStore))
+			}
+
+			// Enable the read-only operational-graph (fleet) endpoints from the
+			// same local bundle root the dashboard is viewing. The dashboard
+			// becomes a CONSUMER of the reusable fleet layer here rather than
+			// re-deriving graph, freshness and completeness semantics itself.
+			if dir != "" {
+				server.SetFleetProvider(fleetProviderForRoot(svc, dir))
 			}
 
 			// Track OCI discovery state for progressive loading in the UI.
@@ -414,5 +423,18 @@ func wireOCIEnrichment(
 		memCache.InvalidateAll()
 
 		return true
+	}
+}
+
+// fleetProviderForRoot returns a fleet-query provider that builds a snapshot from
+// a single local bundle root each time it is called. It is extracted so the
+// dashboard command's fleet wiring is directly testable.
+func fleetProviderForRoot(svc *app.Service, dir string) func(context.Context) (*fleet.Query, error) {
+	return func(ctx context.Context) (*fleet.Query, error) {
+		snap, err := svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
+		if err != nil {
+			return nil, err
+		}
+		return fleet.NewQuery(snap), nil
 	}
 }

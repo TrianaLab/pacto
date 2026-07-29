@@ -51,6 +51,26 @@ Underneath those products is one model — **author → publish → observe → 
 
 ---
 
+## From one contract to an operational graph
+
+A single contract describes one service. Composed across a whole platform, those
+contracts, their revisions and the targets they run in become a **versioned,
+verifiable operational graph that humans, automation and agents can reason over**.
+Pacto is to service operations what OpenAPI is to HTTP APIs — and where an OpenAPI
+document describes one interface, the operational graph describes the relationships
+*between* many services and how far a change reaches. Its four capabilities are
+**Diff · Graph · Enforce · Verify**.
+
+Think of it against Internal Developer Platforms. IDPs make platform *capabilities*
+consumable by humans through portals, golden paths, catalogues and workflows.
+Pacto makes platform *knowledge* consumable by machines through contracts,
+relationships, constraints, tools and evidence. Pacto is not an IDP, a portal, a
+deployment engine or an authorization system — it is the machine-readable
+operational layer *over* a platform. A human portal and an agent can consume the
+same Pacto graph. See [The Pacto Operational Graph](operational-graph.md).
+
+---
+
 ## Who reads a contract?
 
 A contract is written once and read by everything that needs to understand the service:
@@ -215,6 +235,7 @@ These primitives compose into reusable platform patterns — root + component co
 - **Not another configuration language** — an interface is a JSON Schema, OpenAPI or protobuf definition you already own; Pacto composes those rather than replacing them
 - **Not a registry** — it uses existing OCI registries (GHCR, ECR, ACR, Docker Hub)
 - **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
+- **Not an IDP, portal or authorization system** — it is the machine-readable operational layer *over* a platform, not the portal humans click or the system that decides who may act
 
 See the [Manifesto](manifesto.md) for the full positioning and rationale.
 

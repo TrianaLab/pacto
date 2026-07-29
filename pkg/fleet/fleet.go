@@ -1,0 +1,311 @@
+// Package fleet is the framework-independent operational-graph layer of Pacto.
+//
+// Externally this capability is the "Pacto Operational Graph": it composes many
+// independent contracts, contract revisions, operational targets, and their
+// relationships into a single versioned, navigable, verifiable read model that
+// humans, CLIs, platforms, and agents can reason over.
+//
+// It deliberately models three identities separately and never flattens them:
+//
+//   - a [ServiceRecord] is a stable logical service ("payments-api", owner
+//     payments) — who owns it, which revisions exist, where it is deployed;
+//   - a [ContractRevision] is an immutable resolved revision
+//     ("payments-api@sha256:…") — what it declares and how it differs from
+//     another revision;
+//   - a [TargetRecord] is a concrete operational target ("production-eu/
+//     customer-a → kubernetes-workload payments/payments-api") — which revision
+//     runs there and whether it is compliant.
+//
+// The package is a READ MODEL over many evaluations. It does not replace the
+// pure engine (Contract × EvidenceSet → Findings); it references the engine's
+// public domain types ([contract], [finding], [readiness], [graph], [lock])
+// rather than re-modelling them. A [FleetSnapshot] is immutable once built; a
+// [Query] is a pure, network-free view over it. The package imports no
+// Kubernetes, no MCP, and no dashboard code — the boundary test in
+// tests/architecture enforces this so external collectors and third-party Go
+// consumers can use it without pulling those in.
+//
+// Incompleteness is always explicit. Sources report their [SourceState]; a
+// snapshot and every query answer carry an as-of time, a [Completeness], and a
+// list of [Limitation]s. An unavailable source is never rendered as an empty
+// result: absence under partial coverage is not evidence of absence.
+package fleet
+
+import (
+	"strings"
+	"time"
+
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v3/pkg/lock"
+	"github.com/trianalab/pacto/v3/pkg/readiness"
+)
+
+// ServiceKey is the stable identity of a logical service (its name).
+type ServiceKey string
+
+// RevisionKey is the stable identity of an immutable contract revision.
+// It prefers the manifest digest, then the resolved ref, then the version — a
+// mutable OCI tag alone is never a revision identity.
+type RevisionKey string
+
+// TargetKey is the stable identity of an operational target: scope/kind/name.
+type TargetKey string
+
+// NewServiceKey returns the logical service key for a service name.
+func NewServiceKey(name string) ServiceKey { return ServiceKey(name) }
+
+// NewRevisionKey builds a revision key from a service and the most immutable
+// identity available (digest > resolvedRef > version).
+func NewRevisionKey(service, digest, resolvedRef, version string) RevisionKey {
+	id := digest
+	if id == "" {
+		id = resolvedRef
+	}
+	if id == "" {
+		id = version
+	}
+	if id == "" {
+		id = "unknown"
+	}
+	return RevisionKey(service + "@" + id)
+}
+
+// NewTargetKey builds a target key from its scope, kind, and name. Empty
+// components render as "-" so the key stays well-formed and greppable.
+func NewTargetKey(scope, kind, name string) TargetKey {
+	parts := make([]string, 0, 3)
+	for _, p := range []string{scope, kind, name} {
+		if p == "" {
+			p = "-"
+		}
+		parts = append(parts, p)
+	}
+	return TargetKey(strings.Join(parts, "/"))
+}
+
+// Completeness reports whether a snapshot or query answer covers everything it
+// intended to.
+type Completeness string
+
+const (
+	// CompletenessComplete means every source was available and current.
+	CompletenessComplete Completeness = "complete"
+	// CompletenessPartial means at least one source was unavailable, stale, or
+	// itself partial — the answer must be treated as incomplete knowledge.
+	CompletenessPartial Completeness = "partial"
+	// CompletenessEmpty means no source produced any record.
+	CompletenessEmpty Completeness = "empty"
+)
+
+// SourceStatus is the health of a single source participating in a snapshot.
+type SourceStatus string
+
+const (
+	SourceAvailable   SourceStatus = "available"
+	SourcePartial     SourceStatus = "partial"
+	SourceStale       SourceStatus = "stale"
+	SourceUnavailable SourceStatus = "unavailable"
+)
+
+// Provenance distinguishes how a relationship became known. Only "declared" is
+// produced today; the discriminator leaves a clean path for a future observed
+// (OTel) or inferred graph without conflating them with declared intent.
+const (
+	ProvenanceDeclared = "declared"
+	ProvenanceObserved = "observed"
+	ProvenanceInferred = "inferred"
+)
+
+// Contract/compliance state strings, aligned with the operator and dashboard
+// vocabulary. Declared here so the fleet layer does not import the dashboard.
+const (
+	StatusCompliant    = "Compliant"
+	StatusNonCompliant = "NonCompliant"
+	StatusUnknown      = "Unknown"
+	StatusInvalid      = "Invalid"
+	StatusReference    = "Reference"
+	StatusNotEvaluated = "NotEvaluated"
+)
+
+// Limitation codes explain, in a structured way, why an answer is incomplete.
+const (
+	LimitationSourceUnavailable = "SOURCE_UNAVAILABLE"
+	LimitationSourceStale       = "SOURCE_STALE"
+	LimitationSourcePartial     = "SOURCE_PARTIAL"
+	LimitationUnresolvedDep     = "UNRESOLVED_DEPENDENCY"
+	LimitationEvidenceMissing   = "EVIDENCE_MISSING"
+)
+
+// Limitation is a structured, machine-readable reason an answer is incomplete.
+// Prose lives in Message; agents branch on Code.
+type Limitation struct {
+	Code    string `json:"code"`
+	Source  string `json:"source,omitempty"`
+	Message string `json:"message"`
+}
+
+// SourceError is a sanitized source failure. It never carries secrets, tokens,
+// or raw authentication/transport error text — only a category code and a
+// generic message safe to surface to any consumer.
+type SourceError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// SourceState reports the health and provenance of one source in a snapshot.
+type SourceState struct {
+	ID                 string       `json:"id"`
+	Kind               string       `json:"kind"`
+	Status             SourceStatus `json:"status"`
+	LastSuccessfulSync *time.Time   `json:"lastSuccessfulSync,omitempty"`
+	ObservedAt         *time.Time   `json:"observedAt,omitempty"`
+	Error              *SourceError `json:"error,omitempty"`
+	RevisionCount      int          `json:"revisionCount"`
+	TargetCount        int          `json:"targetCount"`
+}
+
+// ToolSummary is a bounded projection of an agent-invocable tool derived from a
+// revision's OpenAPI interface. It omits the full input schema and operation
+// body so search/get answers stay small; callers fetch bodies lazily.
+type ToolSummary struct {
+	Name     string `json:"name"`
+	Method   string `json:"method"`
+	Path     string `json:"path"`
+	Summary  string `json:"summary,omitempty"`
+	Mutating bool   `json:"mutating"`
+}
+
+// DocRef is a pointer to an in-bundle document. It carries no body — bodies are
+// fetched lazily, never eagerly duplicated into the index.
+type DocRef struct {
+	Path  string `json:"path"`
+	Title string `json:"title"`
+}
+
+// Coverage records how much of a target's required assertion set was actually
+// evaluated against evidence.
+type Coverage struct {
+	Evaluated int `json:"evaluated"`
+	Required  int `json:"required"`
+}
+
+// ServiceRecord is a stable logical service. It references its revisions and
+// targets by key rather than copying them, and only carries an aggregate Status
+// when the derivation is unambiguous.
+type ServiceRecord struct {
+	Key       ServiceKey        `json:"key"`
+	Name      string            `json:"name"`
+	Owner     contract.Owner    `json:"owner,omitempty"`
+	Revisions []RevisionKey     `json:"revisions,omitempty"`
+	Targets   []TargetKey       `json:"targets,omitempty"`
+	Labels    map[string]string `json:"labels,omitempty"`
+	Status    string            `json:"status,omitempty"`
+	Sources   []string          `json:"sources,omitempty"`
+}
+
+// ContractRevision is an immutable resolved revision. It embeds a reference to
+// the declared contract (the interfaces/configs/deps/policies/state/readiness it
+// declares) and adds computed projections (readiness result, validation
+// findings, derived tools/skills/doc refs) plus its resolved identity.
+type ContractRevision struct {
+	Key          RevisionKey        `json:"key"`
+	Service      string             `json:"service"`
+	ServiceKey   ServiceKey         `json:"serviceKey"`
+	PactoVersion string             `json:"pactoVersion,omitempty"`
+	Version      string             `json:"version,omitempty"`
+	RequestedRef string             `json:"requestedRef,omitempty"`
+	ResolvedRef  string             `json:"resolvedRef,omitempty"`
+	Digest       string             `json:"digest,omitempty"`
+	Owner        contract.Owner     `json:"owner,omitempty"`
+	Contract     *contract.Contract `json:"contract,omitempty"`
+	Readiness    *readiness.Result  `json:"readiness,omitempty"`
+	Validation   []finding.Finding  `json:"validation,omitempty"`
+	Valid        bool               `json:"valid"`
+	Tools        []ToolSummary      `json:"tools,omitempty"`
+	Skills       []string           `json:"skills,omitempty"`
+	Docs         []DocRef           `json:"docs,omitempty"`
+	Lock         *lock.Lock         `json:"lock,omitempty"`
+	Source       string             `json:"source"`
+	FetchedAt    *time.Time         `json:"fetchedAt,omitempty"`
+
+	// bundle carries the parsed bundle for lazy body access (skill/doc/interface
+	// contents). It is never serialized and is owned by the snapshot.
+	bundle *contract.Bundle
+}
+
+// Bundle returns the underlying bundle for lazy body access, or nil for a
+// revision projected without one (e.g. a runtime-only observation).
+func (r *ContractRevision) Bundle() *contract.Bundle { return r.bundle }
+
+// TargetRecord is a concrete operational target associated with a revision.
+// Its identity is generic (scope/kind/name) and does not assume Kubernetes,
+// though the first implementations are Kubernetes-derived.
+type TargetRecord struct {
+	Key              TargetKey         `json:"key"`
+	Scope            string            `json:"scope,omitempty"`
+	Kind             string            `json:"kind,omitempty"`
+	Name             string            `json:"name"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	Service          string            `json:"service"`
+	ServiceKey       ServiceKey        `json:"serviceKey"`
+	ContractRevision RevisionKey       `json:"contractRevision,omitempty"`
+	RequestedRef     string            `json:"requestedRef,omitempty"`
+	ResolvedRef      string            `json:"resolvedRef,omitempty"`
+	Digest           string            `json:"digest,omitempty"`
+	Compliance       string            `json:"compliance"`
+	Findings         []finding.Finding `json:"findings,omitempty"`
+	Coverage         *Coverage         `json:"coverage,omitempty"`
+	Readiness        *readiness.Result `json:"readiness,omitempty"`
+	ObservedRuntime  map[string]any    `json:"observedRuntime,omitempty"`
+	EvidenceAt       *time.Time        `json:"evidenceAt,omitempty"`
+	ReconciledAt     *time.Time        `json:"reconciledAt,omitempty"`
+	Source           string            `json:"source"`
+	Stale            bool              `json:"stale"`
+	Limitations      []Limitation      `json:"limitations,omitempty"`
+}
+
+// Relationship is a directed graph edge. Only declared edges are produced today;
+// Provenance leaves room for observed/inferred edges later without conflating
+// them with declared intent.
+type Relationship struct {
+	From            string `json:"from"`
+	To              string `json:"to"`
+	Type            string `json:"type"`
+	Provenance      string `json:"provenance"`
+	Required        bool   `json:"required,omitempty"`
+	Compatibility   string `json:"compatibility,omitempty"`
+	Resolved        bool   `json:"resolved"`
+	RequestedRef    string `json:"requestedRef,omitempty"`
+	ResolvedService string `json:"resolvedService,omitempty"`
+	LockedDigest    string `json:"lockedDigest,omitempty"`
+	LockedVersion   string `json:"lockedVersion,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+}
+
+// FleetSnapshot is the immutable read model produced by [Build]. Maps serialize
+// deterministically (encoding/json sorts string keys); slices are sorted at
+// build time. It is safe for concurrent read-only queries.
+type FleetSnapshot struct {
+	GeneratedAt   time.Time                         `json:"generatedAt"`
+	Services      map[ServiceKey]*ServiceRecord     `json:"services"`
+	Revisions     map[RevisionKey]*ContractRevision `json:"revisions"`
+	Targets       map[TargetKey]*TargetRecord       `json:"targets"`
+	Relationships []Relationship                    `json:"relationships"`
+	Sources       []SourceState                     `json:"sources"`
+	Completeness  Completeness                      `json:"completeness"`
+	Limitations   []Limitation                      `json:"limitations,omitempty"`
+
+	// reverseDeps maps a service name to the names of services that declare a
+	// required dependency on it (the dependents / blast-radius index). Built
+	// once at Build time; never mutated afterwards.
+	reverseDeps map[string][]string
+	// forwardDeps maps a service name to the resolved dependency service names it
+	// declares (required or not), for transitive dependency traversal.
+	forwardDeps map[string][]string
+}
+
+// Service returns the logical service record by name, or nil.
+func (s *FleetSnapshot) Service(name string) *ServiceRecord {
+	return s.Services[NewServiceKey(name)]
+}

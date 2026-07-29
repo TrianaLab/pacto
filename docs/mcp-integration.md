@@ -4,6 +4,42 @@ Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.
 Point the server at a bundle (`pacto mcp <bundle-ref>`) and it goes further: every operation in the bundle's OpenAPI interface becomes an executable agent tool, and any `skills/*.md` domain guides the bundle ships are exposed too — making an existing contract immediately agent-ready without writing per-tool glue. See [Agent capabilities](#agent-capabilities) below.
 
 ---
+## Three tool families and their boundaries
+
+Pacto exposes three distinct families of MCP tools. They do very different things,
+so their safety boundaries differ — knowing which family a tool belongs to tells
+you exactly what invoking it can and cannot do.
+
+| Family | Tools | What they do | Safety boundary |
+|--------|-------|--------------|-----------------|
+| **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files, not live systems. `pacto_edit` writes only after validation. |
+| **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call is bounded by a timeout and does not follow cross-origin redirects. |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain` | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. | Read-only always; they observe nothing and change nothing. |
+
+The three families answer three different questions: authoring tools shape *what a
+contract says*, generated service tools *do something to a running service*, and
+fleet query tools *understand the system as it is*. An agent should never confuse
+them — invoking `createRefund` moves money; `pacto_fleet_get` never leaves the
+read model.
+
+Fleet query tools deserve explicit safety framing:
+
+- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md)
+  — an immutable read model — and perform no I/O against live systems.
+- **Pacto does not determine authorization.** These tools expose knowledge; they
+  never grant, scope or revoke a permission. Whether an agent *may* act stays with
+  policy and IAM systems.
+- **Partial or stale results are incomplete knowledge.** Every answer carries an
+  `asOf` time, a `completeness` value and structured `limitations`. Branch on
+  those before trusting an answer.
+- **A missing result under partial coverage does not prove absence.** If a source
+  was unavailable, a "not found" means "not known here", not "does not exist". An
+  unavailable source is never rendered as an empty result.
+
+See [The Pacto Operational Graph](operational-graph.md) for the read model these
+tools query and the query semantics they expose.
+
+---
 ## Why MCP?
 
 [MCP](https://modelcontextprotocol.io) is an open standard that lets AI tools invoke external functions through structured tool calls. With the Pacto MCP server, an assistant calls tools like `pacto_create` or `pacto_check` and gets structured JSON back — creating, editing and validating contracts in a single conversation instead of copy-pasting CLI output.

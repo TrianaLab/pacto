@@ -203,6 +203,7 @@ nav:
           - Limitations: integrations/kubernetes/limitations.md
       - Plugin development: plugins.md
       - Dashboard container: dashboard-docker.md
+  - Operational graph: operational-graph.md
   - Collectors: collectors.md
   - Architecture:
       - Overview: architecture.md

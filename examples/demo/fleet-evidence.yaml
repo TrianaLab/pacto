@@ -1,0 +1,65 @@
+# Demo operational-evidence fixture for the Pacto operational graph.
+#
+# This models what a platform would INGEST from real environments: pre-produced
+# evaluation results (a signed, versioned EvidenceSet in the future). It lets the
+# demo show every target state without a live cluster, and never fabricates a
+# runtime fact — each entry is an explicit, declared observation with provenance.
+#
+# It exercises: a compliant target, a non-compliant target (confirmed drift), an
+# unknown target (insufficient evidence), and a stale target (old evidence). The
+# source itself is marked available; a second, unreachable environment is modeled
+# separately by the demo so partial completeness is visible.
+targets:
+  - scope: production-eu
+    kind: kubernetes-workload
+    name: payments/payments-service
+    service: payments-service
+    resolvedRef: oci://ghcr.io/trianalab/pacto/payments-service:2.1.0
+    compliance: Compliant
+    coverage: { evaluated: 6, required: 6 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    reconciledAt: 2026-07-29T09:41:00Z
+    labels: { env: production, region: eu }
+
+  - scope: production-eu
+    kind: kubernetes-workload
+    name: commerce/orders-service
+    service: orders-service
+    resolvedRef: oci://ghcr.io/trianalab/pacto/orders-service:1.2.0
+    compliance: NonCompliant
+    coverage: { evaluated: 5, required: 5 }
+    evidenceAt: 2026-07-29T09:40:00Z
+    reconciledAt: 2026-07-29T09:41:00Z
+    labels: { env: production, region: eu }
+    findings:
+      - code: STATELESS_PERSISTENT_CONFLICT
+        severity: error
+        category: RuntimeDrift
+        subjectKind: state
+        subjectName: orders-db
+        message: declared stateless but the observed workload mounts a persistent volume
+
+  - scope: production-eu
+    kind: kubernetes-workload
+    name: identity/auth-service
+    service: auth-service
+    resolvedRef: oci://ghcr.io/trianalab/pacto/auth-service:1.0.0
+    compliance: Unknown
+    coverage: { evaluated: 1, required: 4 }
+    labels: { env: production, region: eu }
+    # No evidenceAt: the collector could not observe this target, so its
+    # compliance is Unknown (uncertainty), NOT a confirmed violation.
+
+  - scope: production-us
+    kind: kubernetes-workload
+    name: payments/fraud-service
+    service: fraud-service
+    resolvedRef: oci://ghcr.io/trianalab/pacto/fraud-service:1.0.0
+    compliance: Compliant
+    coverage: { evaluated: 3, required: 3 }
+    evidenceAt: 2026-07-20T08:00:00Z
+    labels: { env: production, region: us }
+    # evidenceAt is old; with --freshness 24h this target is classified stale.
+
+state:
+  status: available

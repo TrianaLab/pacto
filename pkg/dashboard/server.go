@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +31,7 @@ type Server struct {
 	source      DataSource
 	resolved    *ResolvedSource // may be nil for non-resolved usage
 	resolver    *oci.Resolver   // optional: enables lazy resolution of remote OCI dependencies
+	fleetQuery  fleetProvider   // optional: enables the read-only operational-graph (fleet) endpoints
 	cacheSource *CacheSource    // optional: for rescanning after cache writes
 	cacheDir    string          // optional: OCI cache dir for on-demand CacheSource creation
 	memCache    Cache           // optional: for invalidating after cache writes
@@ -95,6 +97,13 @@ func APIConfig() huma.Config {
 					"Resolves contract data from local filesystem or OCI registries, " +
 					"enriched with runtime state from Kubernetes.",
 			},
+			// A custom schema registry namespaces pkg/fleet types so their short
+			// Go names (e.g. GraphNode) do not collide with dashboard types of
+			// the same name in the shared OpenAPI component registry. Non-fleet
+			// types keep their default names, so existing schemas are unchanged.
+			Components: &huma.Components{
+				Schemas: huma.NewMapRegistry("#/components/schemas/", fleetSchemaNamer),
+			},
 		},
 		OpenAPIPath:   "/openapi",
 		DocsPath:      "/docs",
@@ -102,6 +111,22 @@ func APIConfig() huma.Config {
 		Formats:       huma.DefaultFormats,
 		DefaultFormat: "application/json",
 	}
+}
+
+// fleetSchemaNamer disambiguates OpenAPI component names. The fleet endpoints
+// pull engine types (contract, finding, readiness, lock, fleet) into the shared
+// schema registry, and their short Go names can collide with dashboard DTOs of
+// the same name (e.g. contract.Service vs dashboard.Service). Dashboard's own
+// types keep their canonical names; every other package's types are qualified by
+// their package, so no two distinct types can ever map to one component name.
+func fleetSchemaNamer(t reflect.Type, hint string) string {
+	name := huma.DefaultSchemaNamer(t, hint)
+	pkg := t.PkgPath()
+	if pkg == "" || strings.HasSuffix(pkg, "/pkg/dashboard") {
+		return name
+	}
+	base := pkg[strings.LastIndex(pkg, "/")+1:]
+	return strings.ToUpper(base[:1]) + base[1:] + name
 }
 
 // NewServer creates a dashboard server backed by the given data source.
@@ -536,6 +561,8 @@ func (s *Server) RegisterOperations(api huma.API) {
 			Tags:        []string{"Debug"},
 		}, s.debugServices)
 	}
+
+	s.registerFleetOperations(api)
 }
 
 // ExportOpenAPI builds the Huma API with all operations registered and returns the

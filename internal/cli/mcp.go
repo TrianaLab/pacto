@@ -54,6 +54,10 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 	cmd.Flags().String("base-url", "", "base URL for live invocation (overrides the OpenAPI servers[] URL)")
 	cmd.Flags().StringArray("auth", nil, "credential for a security scheme as name=value (repeatable)")
 	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
+	cmd.Flags().Bool("fleet", false, "expose read-only operational-graph (fleet) query tools")
+	cmd.Flags().StringArray("local", []string{"."}, "local bundle root(s) for --fleet (repeatable)")
+	cmd.Flags().StringArray("evidence", nil, "operational-evidence file(s) for --fleet (repeatable)")
+	cmd.Flags().Duration("freshness", 0, "mark target evidence older than this as stale (--fleet)")
 
 	return cmd
 }
@@ -62,6 +66,13 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 // capability tools when a bundle reference is supplied.
 func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args []string) (*mcpsdk.Server, error) {
 	if len(args) == 0 {
+		if enabled, _ := cmd.Flags().GetBool("fleet"); enabled {
+			q, err := buildQuery(cmd, svc)
+			if err != nil {
+				return nil, err
+			}
+			return pactomcp.NewFleetServer(version, q), nil
+		}
 		return pactomcp.NewServer(svc, version), nil
 	}
 

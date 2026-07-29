@@ -240,6 +240,22 @@ pacto explain [dir | oci://ref] [flags]
 
 ---
 
+## `pacto fleet`
+
+Compose contracts, contract revisions and operational targets from local bundles and ingested evidence into a versioned, navigable graph, then search, inspect, traverse and explain it. Every answer reports its as-of time and completeness.
+
+
+**Flags:**
+
+```
+      --evidence stringArray   operational-evidence file(s) supplying targets (repeatable)
+      --freshness duration     mark target evidence older than this as stale (0 disables)
+  -h, --help                   help for fleet
+      --local stringArray      local bundle root(s) to scan (repeatable) (default [.])
+```
+
+---
+
 ## `pacto generate`
 
 Invokes a pacto-plugin-<name> binary to generate deployment manifests, documentation, or other artifacts from a contract directory or oci:// reference.
@@ -460,12 +476,16 @@ pacto mcp [bundle-ref] [flags]
 **Flags:**
 
 ```
-      --allow-writes       expose mutating operations (POST/PUT/PATCH/DELETE) as tools
-      --auth stringArray   credential for a security scheme as name=value (repeatable)
-      --base-url string    base URL for live invocation (overrides the OpenAPI servers[] URL)
-  -h, --help               help for mcp
-      --port int           port for HTTP transport (default 8585)
-  -t, --transport string   transport type: stdio or http (default "stdio")
+      --allow-writes           expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --auth stringArray       credential for a security scheme as name=value (repeatable)
+      --base-url string        base URL for live invocation (overrides the OpenAPI servers[] URL)
+      --evidence stringArray   operational-evidence file(s) for --fleet (repeatable)
+      --fleet                  expose read-only operational-graph (fleet) query tools
+      --freshness duration     mark target evidence older than this as stale (--fleet)
+  -h, --help                   help for mcp
+      --local stringArray      local bundle root(s) for --fleet (repeatable) (default [.])
+      --port int               port for HTTP transport (default 8585)
+  -t, --transport string       transport type: stdio or http (default "stdio")
 ```
 
 The server exposes the following tools:
