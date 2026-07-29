@@ -1,0 +1,403 @@
+/* ===========================================================================
+   Pacto docs theme — typography, indigo accent, dark surfaces, landing hero.
+   Header stays neutral (white in light, near-black in dark; set via the palette
+   in mkdocs.yml). Indigo is the one accent — links, active nav/tabs, buttons,
+   the hero — retinted here so there is a single place to change it.
+   =========================================================================== */
+
+/* Headings use Space Grotesk (body stays Inter, code stays JetBrains Mono).
+   Fetched from Google Fonts here; Material only exposes one text-font slot. */
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap");
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3 {
+  font-family: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+/* Indigo accent — matched to the Pacto dashboard (#6366F1 family). */
+:root {
+  --pacto-indigo: #6366f1;
+  --pacto-indigo-light: #818cf8;
+  --pacto-indigo-deep: #4f46e5;
+}
+
+[data-md-color-scheme="default"] {
+  --md-accent-fg-color: var(--pacto-indigo-deep);
+  --md-typeset-a-color: var(--pacto-indigo);
+}
+
+/* Dark: the header is black and the surfaces near-black, so links and accents
+   step up to the lighter indigo to keep contrast. */
+[data-md-color-scheme="slate"] {
+  --md-accent-fg-color: var(--pacto-indigo-light);
+  --md-typeset-a-color: var(--pacto-indigo-light);
+}
+
+/* Dark mode: Material's slate scheme tints surfaces blue, which reads muddy under
+   the indigo accent. Retint to a neutral near-black so the whole site — hero glow
+   included — sits on one calm surface. */
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: #14151a;
+  --md-default-bg-color--light: hsla(0, 0%, 100%, 0.7);
+  --md-default-bg-color--lighter: hsla(0, 0%, 100%, 0.3);
+  --md-default-bg-color--lightest: hsla(0, 0%, 100%, 0.12);
+  --md-code-bg-color: #0f1014;
+  --md-footer-bg-color: #101116;
+}
+
+/* The logo is the indigo brackets mark (assets/images/logo.svg); indigo reads on
+   both the white (light) and near-black (dark) header, so no per-scheme swap. */
+
+/* Nav and tabs highlights follow the accent (Material would otherwise tint them
+   with the now-neutral primary). */
+.md-nav__link--active,
+.md-nav__link:hover {
+  color: var(--pacto-indigo);
+}
+.md-tabs__link--active,
+.md-tabs__link:hover {
+  color: var(--pacto-indigo);
+  opacity: 1;
+}
+[data-md-color-scheme="slate"] .md-nav__link--active,
+[data-md-color-scheme="slate"] .md-nav__link:hover,
+[data-md-color-scheme="slate"] .md-tabs__link--active,
+[data-md-color-scheme="slate"] .md-tabs__link:hover {
+  color: var(--pacto-indigo-light);
+}
+
+/* Primary buttons: the neutral primary would make these white/black, so pin them
+   to indigo everywhere (hero and body). */
+.md-typeset .md-button--primary {
+  background-color: var(--pacto-indigo);
+  border-color: var(--pacto-indigo);
+  color: #fff;
+}
+.md-typeset .md-button--primary:hover,
+.md-typeset .md-button--primary:focus {
+  background-color: var(--pacto-indigo-deep);
+  border-color: var(--pacto-indigo-deep);
+  color: #fff;
+}
+
+/* ---- Landing hero (overrides/home.html) -----------------------------------
+   Light & airy: inherits the page background and floats a soft indigo glow
+   behind the wordmark. Elements fade up on load; motion respects
+   prefers-reduced-motion. */
+.pacto-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 5.5rem 1rem 4rem;
+  text-align: center;
+}
+.pacto-hero__glow {
+  position: absolute;
+  top: -9rem;
+  left: 50%;
+  width: 46rem;
+  max-width: 130vw;
+  height: 34rem;
+  transform: translateX(-50%);
+  background: radial-gradient(
+    closest-side,
+    rgba(99, 102, 241, 0.28),
+    rgba(99, 102, 241, 0) 70%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+[data-md-color-scheme="slate"] .pacto-hero__glow {
+  background: radial-gradient(
+    closest-side,
+    rgba(129, 140, 248, 0.22),
+    rgba(129, 140, 248, 0) 70%
+  );
+}
+.pacto-hero__inner {
+  position: relative;
+  z-index: 1;
+  max-width: 46rem;
+  margin: 0 auto;
+}
+.pacto-hero__brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+  animation: pacto-fade-up 0.6s ease both;
+}
+.pacto-hero .pacto-hero__logo {
+  height: 2.5rem;
+  width: auto;
+  color: var(--pacto-indigo);
+}
+[data-md-color-scheme="slate"] .pacto-hero .pacto-hero__logo {
+  color: var(--pacto-indigo-light);
+}
+.pacto-hero__wordmark {
+  font-family: "Space Grotesk", "Inter", sans-serif;
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--md-default-fg-color);
+}
+.pacto-hero .pacto-hero__eyebrow {
+  margin: 0 0 0.9rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--pacto-indigo);
+  animation: pacto-fade-up 0.6s ease 0.08s both;
+}
+[data-md-color-scheme="slate"] .pacto-hero .pacto-hero__eyebrow {
+  color: var(--pacto-indigo-light);
+}
+.pacto-hero .pacto-hero__title {
+  margin: 0 auto;
+  max-width: 20ch;
+  font-family: "Space Grotesk", "Inter", sans-serif;
+  font-size: clamp(2.4rem, 6vw, 3.6rem);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--md-default-fg-color);
+  animation: pacto-fade-up 0.6s ease 0.16s both;
+}
+.pacto-hero .pacto-hero__tagline {
+  margin: 1.25rem auto 0;
+  max-width: 34rem;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: var(--md-default-fg-color--light);
+  animation: pacto-fade-up 0.6s ease 0.24s both;
+}
+.pacto-hero__actions {
+  margin-top: 2.25rem;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  animation: pacto-fade-up 0.6s ease 0.32s both;
+}
+.pacto-hero .md-button {
+  border-color: var(--md-default-fg-color--lighter);
+  color: var(--md-default-fg-color);
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+.pacto-hero .md-button:hover,
+.pacto-hero .md-button:focus {
+  background-color: var(--pacto-indigo);
+  border-color: var(--pacto-indigo);
+  color: #fff;
+}
+.pacto-hero .md-button--primary,
+.pacto-hero .md-button--primary:hover,
+.pacto-hero .md-button--primary:focus {
+  color: #fff;
+}
+
+
+@keyframes pacto-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pacto-hero__brand,
+  .pacto-hero .pacto-hero__eyebrow,
+  .pacto-hero .pacto-hero__title,
+  .pacto-hero .pacto-hero__tagline,
+  .pacto-hero__actions {
+    animation: none;
+  }
+}
+
+/* Drop the near-empty footer-meta bar (generator removed, no copyright). The
+   header already links the repo, so the footer is just prev/next navigation. */
+.md-footer-meta {
+  display: none;
+}
+
+/* Scroll-driven hero reveal: as the first screen scrolls, the hero dissolves upward
+   while the page content rises into view. Progressive enhancement — only browsers that
+   support scroll-driven animations get it (older browsers keep the static compact hero),
+   and it is disabled under prefers-reduced-motion. GPU-friendly: opacity/transform/filter
+   only. Tunable knobs: hero splash height (min-height) and the scroll distance the
+   dissolve spans (animation-range end). */
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .pacto-hero {
+      /* Give the hero a full-ish first screen so there is scroll distance to reveal over.
+         A sliver of the page below peeks in as a scroll hint. */
+      min-height: 90svh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      animation: pacto-hero-dissolve linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 72vh;
+      will-change: opacity, transform;
+    }
+  }
+}
+@keyframes pacto-hero-dissolve {
+  to {
+    opacity: 0;
+    transform: translateY(-3rem) scale(0.985);
+    filter: blur(3px);
+  }
+}
+
+/* Logo spin on click — header mark + hero mark, toggled by javascripts/logo-spin.js. */
+.md-header__button.md-logo img,
+.pacto-hero__logo {
+  transform-origin: 50% 50%;
+}
+.pacto-spin {
+  animation: pacto-logo-spin 0.6s ease;
+}
+@keyframes pacto-logo-spin {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pacto-spin {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Mermaid diagram contrast fixes for the dark (slate) color scheme.
+
+   Material's built-in mermaid integration sets theme variables, but in dark
+   mode the default node fills and edge strokes can lack contrast against
+   the dark background. The overrides below pin nodes/labels/edges to
+   Material's own CSS variables so contrast follows the theme.
+   --------------------------------------------------------------------------- */
+
+[data-md-color-scheme="slate"] .mermaid {
+    background: transparent;
+}
+
+/* Node shapes (rectangles, circles, diamonds, etc.) */
+[data-md-color-scheme="slate"] .mermaid .node rect,
+[data-md-color-scheme="slate"] .mermaid .node circle,
+[data-md-color-scheme="slate"] .mermaid .node ellipse,
+[data-md-color-scheme="slate"] .mermaid .node polygon,
+[data-md-color-scheme="slate"] .mermaid .node path {
+    fill: var(--md-code-bg-color) !important;
+    stroke: var(--md-default-fg-color--lighter) !important;
+    stroke-width: 1px !important;
+}
+
+/* Node and edge text labels */
+[data-md-color-scheme="slate"] .mermaid .nodeLabel,
+[data-md-color-scheme="slate"] .mermaid .edgeLabel,
+[data-md-color-scheme="slate"] .mermaid .label,
+[data-md-color-scheme="slate"] .mermaid foreignObject div {
+    color: var(--md-default-fg-color) !important;
+    background: transparent !important;
+}
+
+/* Edge label backgrounds (the small chip behind labels on links) */
+[data-md-color-scheme="slate"] .mermaid .edgeLabel rect {
+    fill: var(--md-default-bg-color) !important;
+}
+
+/* Connector lines and arrowheads */
+[data-md-color-scheme="slate"] .mermaid .edgePath .path,
+[data-md-color-scheme="slate"] .mermaid .flowchart-link,
+[data-md-color-scheme="slate"] .mermaid .messageLine0,
+[data-md-color-scheme="slate"] .mermaid .messageLine1 {
+    stroke: var(--md-default-fg-color--light) !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid .arrowheadPath,
+[data-md-color-scheme="slate"] .mermaid marker path {
+    fill: var(--md-default-fg-color--light) !important;
+    stroke: var(--md-default-fg-color--light) !important;
+}
+
+/* Subgraph (cluster) backgrounds and borders */
+[data-md-color-scheme="slate"] .mermaid .cluster rect {
+    fill: rgba(255, 255, 255, 0.03) !important;
+    stroke: var(--md-default-fg-color--lightest) !important;
+    stroke-width: 1px !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid .cluster .nodeLabel,
+[data-md-color-scheme="slate"] .mermaid .cluster .label {
+    color: var(--md-default-fg-color) !important;
+    font-weight: 600;
+}
+
+/* Sequence diagram actor boxes */
+[data-md-color-scheme="slate"] .mermaid .actor {
+    fill: var(--md-code-bg-color) !important;
+    stroke: var(--md-default-fg-color--lighter) !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid text.actor {
+    fill: var(--md-default-fg-color) !important;
+}
+
+/* ---- Page-navigation motion ------------------------------------------------
+   navigation.instant (mkdocs.yml) swaps pages client-side with no full reload; these
+   add a clean, subtle transition on top. The main content gently fades/rises in on each
+   page render, and — where the browser + Material support the View Transitions API — the
+   root cross-fade is tuned. Both are disabled under prefers-reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .md-content__inner {
+    animation: pacto-page-in 0.28s ease both;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.28s;
+  }
+}
+@keyframes pacto-page-in {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ---- Header: keep the mike version selector visible ------------------------
+   The mike version selector is injected into the header's site-name topic.
+   Material swaps that topic for the page-title topic on scroll (adds
+   .md-header__title--active), which hides the selector — and with the sticky
+   tabs header that active state is set even at the top, so the selector never
+   shows. Keep the site-name topic (and its version selector) visible and drop
+   the page-title-in-header swap; the page title still shows as the content H1. */
+.md-header__title--active .md-header__ellipsis > .md-header__topic:first-child {
+  z-index: 1;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+.md-header__title--active .md-header__ellipsis > .md-header__topic[data-md-component="header-topic"] {
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Version selector: cap the dropdown height and scroll once the released versions
+   outgrow the viewport, so a long list never runs off-screen. */
+.md-version__list {
+  max-height: 75vh;
+  overflow-y: auto;
+}
