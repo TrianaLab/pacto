@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -164,8 +165,14 @@ Services are grouped by name across sources and merged using priority rules:
 			// same local bundle root the dashboard is viewing. The dashboard
 			// becomes a CONSUMER of the reusable fleet layer here rather than
 			// re-deriving graph, freshness and completeness semantics itself.
+			// A single snapshot Manager serves many requests from one coherent,
+			// atomically-refreshed snapshot instead of rebuilding per request.
 			if dir != "" {
-				server.SetFleetProvider(fleetProviderForRoot(svc, dir))
+				mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
+					return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
+				}, fleet.ManagerOptions{})
+				go mgr.Start(cmd.Context(), fleetRefreshInterval)
+				server.SetFleetProvider(managerFleetProvider(mgr))
 				server.SetImpactProvider(impactProviderForRoot(svc, dir))
 			}
 
@@ -428,16 +435,23 @@ func wireOCIEnrichment(
 	}
 }
 
-// fleetProviderForRoot returns a fleet-query provider that builds a snapshot from
-// a single local bundle root each time it is called. It is extracted so the
-// dashboard command's fleet wiring is directly testable.
-func fleetProviderForRoot(svc *app.Service, dir string) func(context.Context) (*fleet.Query, error) {
+// fleetRefreshInterval is how often the dashboard's snapshot Manager rebuilds
+// the operational graph in the background.
+const fleetRefreshInterval = 30 * time.Second
+
+// managerFleetProvider serves the fleet query from a shared snapshot Manager.
+// Before the first background refresh completes it triggers a coalesced build so
+// the first request is answered from a real snapshot rather than erroring.
+func managerFleetProvider(mgr *fleet.Manager) func(context.Context) (*fleet.Query, error) {
 	return func(ctx context.Context) (*fleet.Query, error) {
-		snap, err := svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
-		if err != nil {
-			return nil, err
+		q, err := mgr.Query()
+		if errors.Is(err, fleet.ErrNoSnapshot) {
+			if rerr := mgr.Refresh(ctx); rerr != nil {
+				return nil, rerr
+			}
+			return mgr.Query()
 		}
-		return fleet.NewQuery(snap), nil
+		return q, err
 	}
 }
 

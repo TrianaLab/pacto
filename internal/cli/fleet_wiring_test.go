@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
 // TestBuildMCPServer_WithFleet covers the --fleet branch of buildMCPServer: no
@@ -60,21 +61,36 @@ func TestImpactProviderForRoot(t *testing.T) {
 	}
 }
 
-// TestFleetProviderForRoot covers both the success and error paths of the
-// dashboard fleet-provider closure.
-func TestFleetProviderForRoot(t *testing.T) {
+// TestManagerFleetProvider covers the dashboard's Manager-backed fleet provider:
+// the lazy first build (ErrNoSnapshot -> refresh -> query) and the served-cached
+// path, plus the refresh-error path on a cancelled context.
+func TestManagerFleetProvider(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	provider := fleetProviderForRoot(svc, t.TempDir())
+	dir := t.TempDir()
+	mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
+		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
+	}, fleet.ManagerOptions{})
+	provider := managerFleetProvider(mgr)
 
+	// First call: no snapshot yet -> coalesced build then query.
 	q, err := provider(context.Background())
 	if err != nil || q == nil {
-		t.Fatalf("provider(ok): q=%v err=%v", q, err)
+		t.Fatalf("first call: q=%v err=%v", q, err)
+	}
+	// Second call: served from the published snapshot.
+	q2, err := provider(context.Background())
+	if err != nil || q2.SnapshotID() != q.SnapshotID() {
+		t.Fatalf("second call should serve the same snapshot: %v", err)
 	}
 
-	// A cancelled context propagates through Build as a fatal error.
+	// A fresh manager whose first build is triggered with a cancelled context
+	// returns the refresh error.
+	mgr2 := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
+		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
+	}, fleet.ManagerOptions{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := provider(ctx); err == nil {
-		t.Fatal("provider(cancelled): expected an error")
+	if _, err := managerFleetProvider(mgr2)(ctx); err == nil {
+		t.Fatal("cancelled first build should return an error")
 	}
 }
