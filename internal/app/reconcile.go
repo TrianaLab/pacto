@@ -40,11 +40,17 @@ func declaredFromSnapshot(snap *fleet.FleetSnapshot) []reconcile.Declared {
 		if rel.Type != fleet.RelationshipDependency {
 			continue
 		}
-		dep := rel.ToService
-		if dep == "" {
+		// Reconciliation matches declared against observed edges by bare service
+		// name (OpenTelemetry reports default-domain names), so unqualify the
+		// domain-qualified endpoints back to names for comparison.
+		_, from := fleet.ParseServiceKey(rel.FromService)
+		dep := ""
+		if rel.ToService != "" {
+			_, dep = fleet.ParseServiceKey(rel.ToService)
+		} else {
 			dep = rel.To
 		}
-		out = append(out, reconcile.Declared{Service: rel.FromService, Dependency: dep, Required: rel.Required})
+		out = append(out, reconcile.Declared{Service: from, Dependency: dep, Required: rel.Required})
 	}
 	return out
 }

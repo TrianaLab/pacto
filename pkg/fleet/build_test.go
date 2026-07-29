@@ -513,13 +513,13 @@ func TestMatchRevision_VersionFallback(t *testing.T) {
 
 func TestResolveDepService(t *testing.T) {
 	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{
-		NewServiceKey("payments"): {Name: "payments"},
-		NewServiceKey("redis"):    {Name: "redis"},
+		NewServiceKey("payments"): {Key: NewServiceKey("payments"), Name: "payments"},
+		NewServiceKey("redis"):    {Key: NewServiceKey("redis"), Name: "redis"},
 	}}
-	if r, ok := resolveDepService(snap, "", contract.Dependency{Name: "payments"}); !ok || r != "payments" {
+	if r, ok := resolveDepService(snap, "", contract.Dependency{Name: "payments"}); !ok || r != NewServiceKey("payments") {
 		t.Errorf("direct resolve = %q,%v", r, ok)
 	}
-	if r, ok := resolveDepService(snap, "", contract.Dependency{Name: "redis-pacto"}); !ok || r != "redis" {
+	if r, ok := resolveDepService(snap, "", contract.Dependency{Name: "redis-pacto"}); !ok || r != NewServiceKey("redis") {
 		t.Errorf("-pacto strip resolve = %q,%v", r, ok)
 	}
 	if _, ok := resolveDepService(snap, "", contract.Dependency{Name: "ghost"}); ok {
@@ -532,8 +532,8 @@ func TestResolveDepService(t *testing.T) {
 }
 
 func TestResolveRefService(t *testing.T) {
-	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{NewServiceKey("cfg"): {Name: "cfg"}}}
-	if r, ok := resolveRefService(snap, "", contract.ReferenceRef{Name: "cfg"}); !ok || r != "cfg" {
+	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{NewServiceKey("cfg"): {Key: NewServiceKey("cfg"), Name: "cfg"}}}
+	if r, ok := resolveRefService(snap, "", contract.ReferenceRef{Name: "cfg"}); !ok || r != NewServiceKey("cfg") {
 		t.Errorf("ref resolve = %q,%v", r, ok)
 	}
 	if _, ok := resolveRefService(snap, "", contract.ReferenceRef{Name: "nope"}); ok {
@@ -543,16 +543,17 @@ func TestResolveRefService(t *testing.T) {
 
 func TestResolveDepService_Domain(t *testing.T) {
 	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{
-		NewServiceKeyDomain("east", "payments"): {Name: "payments", Domain: "east"},
-		NewServiceKeyDomain("east", "redis"):    {Name: "redis", Domain: "east"},
-		NewServiceKeyDomain("west", "billing"):  {Name: "billing", Domain: "west"},
+		NewServiceKeyDomain("east", "payments"): {Key: NewServiceKeyDomain("east", "payments"), Name: "payments", Domain: "east"},
+		NewServiceKeyDomain("east", "redis"):    {Key: NewServiceKeyDomain("east", "redis"), Name: "redis", Domain: "east"},
+		NewServiceKeyDomain("west", "billing"):  {Key: NewServiceKeyDomain("west", "billing"), Name: "billing", Domain: "west"},
 	}}
-	// A bare dependency ref resolves within the depending revision's own domain.
-	if r, ok := resolveDepService(snap, "east", contract.Dependency{Name: "payments"}); !ok || r != "payments" {
+	// A bare dependency ref resolves within the depending revision's own domain,
+	// returning the DOMAIN-QUALIFIED key (never the bare name).
+	if r, ok := resolveDepService(snap, "east", contract.Dependency{Name: "payments"}); !ok || r != NewServiceKeyDomain("east", "payments") {
 		t.Errorf("same-domain resolve = %q,%v", r, ok)
 	}
 	// The "-pacto" bundle-name suffix is stripped, still within the domain.
-	if r, ok := resolveDepService(snap, "east", contract.Dependency{Name: "redis-pacto"}); !ok || r != "redis" {
+	if r, ok := resolveDepService(snap, "east", contract.Dependency{Name: "redis-pacto"}); !ok || r != NewServiceKeyDomain("east", "redis") {
 		t.Errorf("-pacto strip in domain = %q,%v", r, ok)
 	}
 	// A name present only in a different domain does not resolve.
@@ -563,10 +564,10 @@ func TestResolveDepService_Domain(t *testing.T) {
 
 func TestResolveRefService_Domain(t *testing.T) {
 	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{
-		NewServiceKeyDomain("east", "cfg"):  {Name: "cfg", Domain: "east"},
-		NewServiceKeyDomain("west", "cfg2"): {Name: "cfg2", Domain: "west"},
+		NewServiceKeyDomain("east", "cfg"):  {Key: NewServiceKeyDomain("east", "cfg"), Name: "cfg", Domain: "east"},
+		NewServiceKeyDomain("west", "cfg2"): {Key: NewServiceKeyDomain("west", "cfg2"), Name: "cfg2", Domain: "west"},
 	}}
-	if r, ok := resolveRefService(snap, "east", contract.ReferenceRef{Name: "cfg"}); !ok || r != "cfg" {
+	if r, ok := resolveRefService(snap, "east", contract.ReferenceRef{Name: "cfg"}); !ok || r != NewServiceKeyDomain("east", "cfg") {
 		t.Errorf("same-domain ref resolve = %q,%v", r, ok)
 	}
 	// A reference whose name exists only in another domain does not resolve.
@@ -1076,7 +1077,7 @@ func bundleFor(t *testing.T, id string) *contract.Bundle {
 // relFrom finds the first relationship with the given from/to endpoints.
 func relFrom(rels []Relationship, from, to string) *Relationship {
 	for i := range rels {
-		if rels[i].FromService == from && rels[i].To == to {
+		if string(rels[i].FromService) == from && rels[i].To == to {
 			return &rels[i]
 		}
 	}
@@ -1218,9 +1219,9 @@ func TestBuild_ResolvedRevisionPinnedByLock(t *testing.T) {
 func TestBuildRelationships_NilContractSkipped(t *testing.T) {
 	snap := &FleetSnapshot{
 		Revisions:             map[RevisionKey]*ContractRevision{"x@1": {Key: "x@1", Service: "x"}},
-		forwardDeps:           map[string][]string{},
-		reverseDeps:           map[string][]string{},
-		forwardDepsByRevision: map[RevisionKey][]string{},
+		forwardDeps:           map[ServiceKey][]ServiceKey{},
+		reverseDeps:           map[ServiceKey][]ServiceKey{},
+		forwardDepsByRevision: map[RevisionKey][]ServiceKey{},
 	}
 	buildRelationships(snap)
 	if len(snap.Relationships) != 0 {

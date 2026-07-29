@@ -133,13 +133,14 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		return res
 	}
 
+	changed := graph.Root
 	owners := map[string]bool{}
 	targets := map[string]bool{}
-	for _, tk := range serviceTargets(snap, svc) {
+	for _, tk := range serviceTargets(snap, changed) {
 		targets[tk] = true
 	}
-	for _, cn := range unionConsumers(graph, svc, opts) {
-		c := consumerImpact(snap, svc, cn, new.Service.Version, opts)
+	for _, cn := range unionConsumers(graph, changed, opts) {
+		c := consumerImpact(snap, changed, cn, new.Service.Version, opts)
 		res.Consumers = append(res.Consumers, c)
 		if c.Owner != "" {
 			owners[c.Owner] = true
@@ -155,47 +156,51 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 
 // consumerNode identifies one affected consumer and its position in the graph.
 type consumerNode struct {
+	key   fleet.ServiceKey
 	name  string
 	depth int
-	path  []string
+	path  []fleet.ServiceKey
 }
 
 // unionConsumers merges the declared dependents (from the graph) with observed
 // callers of the changed service. Observed-only callers are included as direct
 // (depth 1) consumers only when IncludeObserved is set. The result is sorted by
 // name for deterministic output.
-func unionConsumers(graph *fleet.GraphResult, changed string, opts Options) []consumerNode {
-	byName := map[string]consumerNode{}
+func unionConsumers(graph *fleet.GraphResult, changed fleet.ServiceKey, opts Options) []consumerNode {
+	byKey := map[fleet.ServiceKey]consumerNode{}
 	for _, node := range graph.Nodes {
-		byName[node.Name] = consumerNode{name: node.Name, depth: node.Depth, path: node.Path}
+		byKey[node.Key] = consumerNode{key: node.Key, name: node.Name, depth: node.Depth, path: node.Path}
 	}
 	if opts.IncludeObserved {
 		for _, e := range opts.ObservedEdges {
-			if e.Provider != changed {
+			if fleet.NewServiceKey(e.Provider) != changed {
 				continue
 			}
-			if _, ok := byName[e.Consumer]; !ok {
-				byName[e.Consumer] = consumerNode{name: e.Consumer, depth: 1, path: []string{changed, e.Consumer}}
+			ck := fleet.NewServiceKey(e.Consumer)
+			if _, ok := byKey[ck]; !ok {
+				byKey[ck] = consumerNode{key: ck, name: e.Consumer, depth: 1, path: []fleet.ServiceKey{changed, ck}}
 			}
 		}
 	}
-	out := make([]consumerNode, 0, len(byName))
-	for _, cn := range byName {
+	out := make([]consumerNode, 0, len(byKey))
+	for _, cn := range byKey {
 		out = append(out, cn)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	sort.Slice(out, func(i, j int) bool { return out[i].key < out[j].key })
 	return out
 }
 
 // consumerImpact builds the affected-consumer record for one consumer.
-func consumerImpact(snap *fleet.FleetSnapshot, changed string, node consumerNode, newVersion string, opts Options) AffectedConsumer {
+func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node consumerNode, newVersion string, opts Options) AffectedConsumer {
+	domain, _ := fleet.ParseServiceKey(node.key)
 	c := AffectedConsumer{
 		Service: node.name,
+		Domain:  domain,
 		Depth:   node.depth,
 		Direct:  node.depth == 1,
-		Path:    node.path,
+		Path:    keysToStrings(node.path),
 	}
-	if s := snap.Services[fleet.NewServiceKey(node.name)]; s != nil {
+	if s := snap.Services[node.key]; s != nil {
 		c.Owner = s.Owner.DisplayString()
 		c.Status = s.Status
 		for _, tk := range s.Targets {
@@ -204,7 +209,7 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed string, node consumerNode
 		sort.Strings(c.Targets)
 	}
 
-	rel, hasDeclared, observed := edgeEvidence(snap, node.name, changed, opts.ObservedEdges)
+	rel, hasDeclared, observed := edgeEvidence(snap, node.key, changed, opts.ObservedEdges)
 	// Observed evidence is only counted when the caller opted in; provenance and
 	// confidence must agree on what was counted.
 	observedCounted := observed && opts.IncludeObserved
@@ -219,7 +224,7 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed string, node consumerNode
 // edgeEvidence finds the declared dependency edge from consumer→changed and
 // whether an observed edge exists — either recorded in the graph as an observed
 // relationship or supplied via telemetry (observedEdges).
-func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed string, observedEdges []ObservedEdge) (rel fleet.Relationship, declared, observed bool) {
+func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, observedEdges []ObservedEdge) (rel fleet.Relationship, declared, observed bool) {
 	for i := range snap.Relationships {
 		r := snap.Relationships[i]
 		if r.Type != fleet.RelationshipDependency || r.FromService != consumer || r.ToService != changed {
@@ -233,7 +238,7 @@ func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed string, observedE
 		declared = true
 	}
 	for _, e := range observedEdges {
-		if e.Consumer == consumer && e.Provider == changed {
+		if fleet.NewServiceKey(e.Consumer) == consumer && fleet.NewServiceKey(e.Provider) == changed {
 			observed = true
 		}
 	}
@@ -292,14 +297,25 @@ func compatibilityVerdict(constraint, version string, declared bool) string {
 	return CompatibilityIncompatible
 }
 
-func serviceTargets(snap *fleet.FleetSnapshot, name string) []string {
-	s := snap.Services[fleet.NewServiceKey(name)]
+func serviceTargets(snap *fleet.FleetSnapshot, key fleet.ServiceKey) []string {
+	s := snap.Services[key]
 	if s == nil {
 		return nil
 	}
 	out := make([]string, 0, len(s.Targets))
 	for _, tk := range s.Targets {
 		out = append(out, string(tk))
+	}
+	return out
+}
+
+// keysToStrings renders a path of service keys as strings for the wire model.
+// Every consumer node carries a non-empty path (root→consumer), so no nil guard
+// is needed.
+func keysToStrings(ks []fleet.ServiceKey) []string {
+	out := make([]string, len(ks))
+	for i, k := range ks {
+		out[i] = string(k)
 	}
 	return out
 }

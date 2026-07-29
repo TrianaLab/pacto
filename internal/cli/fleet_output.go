@@ -102,7 +102,7 @@ func printFleetTarget(cmd *cobra.Command, tv *fleet.TargetView, format string) e
 func printFleetGraph(cmd *cobra.Command, res *fleet.GraphResult, format string) error {
 	return formatResult(cmd, format, res, func() error {
 		w := cmd.OutOrStdout()
-		root := res.Root
+		root := string(res.Root)
 		if res.Revision != "" {
 			root = string(res.Revision)
 		} else if res.Aggregated {

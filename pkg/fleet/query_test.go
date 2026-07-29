@@ -652,10 +652,10 @@ func TestGraph_MultipleCycles(t *testing.T) {
 	}
 }
 
-func joinCycle(c []string) string {
+func joinCycle(c []ServiceKey) string {
 	out := ""
 	for _, s := range c {
-		out += s + "\x00"
+		out += string(s) + "\x00"
 	}
 	return out
 }

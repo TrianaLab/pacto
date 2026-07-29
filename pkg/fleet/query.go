@@ -371,13 +371,24 @@ func readinessPasses(rev *ContractRevision) bool {
 	return rev != nil && rev.Readiness != nil && rev.Readiness.Passing
 }
 
-func containsStr(s []string, v string) bool {
+// containsStr reports whether v is in s. Generic over comparable so it serves
+// both bare-string membership and domain-qualified ServiceKey membership.
+func containsStr[T comparable](s []T, v T) bool {
 	for _, e := range s {
 		if e == v {
 			return true
 		}
 	}
 	return false
+}
+
+// joinKeys renders a path of service keys into a single sortable string.
+func joinKeys(ks []ServiceKey) string {
+	parts := make([]string, len(ks))
+	for i, k := range ks {
+		parts[i] = string(k)
+	}
+	return strings.Join(parts, "\x00")
 }
 
 // RevisionCapabilities attributes tools and skills to the exact revision that
@@ -398,7 +409,7 @@ type ServiceView struct {
 	Revisions    []*ContractRevision    `json:"revisions"`
 	Targets      []*TargetRecord        `json:"targets"`
 	Dependencies []Relationship         `json:"dependencies"`
-	Dependents   []string               `json:"dependents"`
+	Dependents   []ServiceKey           `json:"dependents"`
 	Capabilities []RevisionCapabilities `json:"capabilities,omitempty"`
 }
 
@@ -425,11 +436,11 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.FromService == s.Name && rel.Type == RelationshipDependency {
+		if rel.FromService == s.Key && rel.Type == RelationshipDependency {
 			view.Dependencies = append(view.Dependencies, rel)
 		}
 	}
-	view.Dependents = append([]string(nil), q.snap.reverseDeps[s.Name]...)
+	view.Dependents = append([]ServiceKey(nil), q.snap.reverseDeps[s.Key]...)
 	return view, nil
 }
 
@@ -511,10 +522,13 @@ type GraphQuery struct {
 }
 
 // GraphNode is one reached node with its depth and the path taken to reach it.
+// Key is the node's domain-qualified identity; Name is its unqualified display
+// name; Path is the domain-qualified chain of keys from the root to this node.
 type GraphNode struct {
-	Name  string   `json:"name"`
-	Depth int      `json:"depth"`
-	Path  []string `json:"path"`
+	Key   ServiceKey   `json:"key"`
+	Name  string       `json:"name"`
+	Depth int          `json:"depth"`
+	Path  []ServiceKey `json:"path"`
 }
 
 // GraphResult is a deterministic, cycle-safe traversal answer. Aggregated is true
@@ -522,13 +536,13 @@ type GraphNode struct {
 // union across revisions rather than a single revision's exact graph).
 type GraphResult struct {
 	Meta       Meta           `json:"meta"`
-	Root       string         `json:"root"`
+	Root       ServiceKey     `json:"root"`
 	Revision   RevisionKey    `json:"revision,omitempty"`
 	Aggregated bool           `json:"aggregated"`
 	Direction  Direction      `json:"direction"`
 	Nodes      []GraphNode    `json:"nodes"`
 	Edges      []Relationship `json:"edges"`
-	Cycles     [][]string     `json:"cycles,omitempty"`
+	Cycles     [][]ServiceKey `json:"cycles,omitempty"`
 	Unresolved []Relationship `json:"unresolved,omitempty"`
 }
 
@@ -551,24 +565,24 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	}
 
 	res := &GraphResult{Meta: q.meta(), Root: rootSvc, Revision: scopeRev, Aggregated: aggregated, Direction: dir, Nodes: []GraphNode{}}
-	neighbors := func(name string, isRoot bool) []string {
+	neighbors := func(key ServiceKey, isRoot bool) []ServiceKey {
 		if dir == DirectionDependents {
-			return q.snap.reverseDeps[name]
+			return q.snap.reverseDeps[key]
 		}
 		if isRoot && scopeRev != "" {
 			return q.snap.forwardDepsByRevision[scopeRev]
 		}
-		return q.snap.forwardDeps[name]
+		return q.snap.forwardDeps[key]
 	}
 
-	visited := map[string]bool{}
-	nodeSet := map[string]bool{}
-	var cycles [][]string
-	var walk func(name string, depth int, path, onPath []string, isRoot bool)
-	walk = func(name string, depth int, path, onPath []string, isRoot bool) {
-		for _, next := range neighbors(name, isRoot) {
+	visited := map[ServiceKey]bool{}
+	nodeSet := map[ServiceKey]bool{}
+	var cycles [][]ServiceKey
+	var walk func(key ServiceKey, depth int, path, onPath []ServiceKey, isRoot bool)
+	walk = func(key ServiceKey, depth int, path, onPath []ServiceKey, isRoot bool) {
+		for _, next := range neighbors(key, isRoot) {
 			if containsStr(onPath, next) {
-				cycles = append(cycles, append(append([]string(nil), onPath...), next))
+				cycles = append(cycles, append(append([]ServiceKey(nil), onPath...), next))
 				continue
 			}
 			if visited[next] {
@@ -576,17 +590,18 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 			}
 			visited[next] = true
 			nodeSet[next] = true
-			nextPath := append(append([]string(nil), path...), next)
-			res.Nodes = append(res.Nodes, GraphNode{Name: next, Depth: depth, Path: nextPath})
+			nextPath := append(append([]ServiceKey(nil), path...), next)
+			_, name := ParseServiceKey(next)
+			res.Nodes = append(res.Nodes, GraphNode{Key: next, Name: name, Depth: depth, Path: nextPath})
 			if gq.Transitive && (gq.MaxDepth == 0 || depth < gq.MaxDepth) {
-				walk(next, depth+1, nextPath, append(append([]string(nil), onPath...), next), false)
+				walk(next, depth+1, nextPath, append(append([]ServiceKey(nil), onPath...), next), false)
 			}
 		}
 	}
-	walk(rootSvc, 1, []string{rootSvc}, []string{rootSvc}, true)
+	walk(rootSvc, 1, []ServiceKey{rootSvc}, []ServiceKey{rootSvc}, true)
 
 	sort.Slice(cycles, func(i, j int) bool {
-		return strings.Join(cycles[i], "\x00") < strings.Join(cycles[j], "\x00")
+		return joinKeys(cycles[i]) < joinKeys(cycles[j])
 	})
 	res.Cycles = cycles
 	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev)
@@ -606,33 +621,33 @@ func validateDirection(d Direction) (Direction, error) {
 
 // resolveGraphScope determines the root service, the scoping revision (empty for
 // an aggregated service query) and whether the answer aggregates revisions.
-func (q *Query) resolveGraphScope(gq GraphQuery) (rootSvc string, scopeRev RevisionKey, aggregated bool, err error) {
+func (q *Query) resolveGraphScope(gq GraphQuery) (rootKey ServiceKey, scopeRev RevisionKey, aggregated bool, err error) {
 	switch {
 	case gq.Target != "":
 		tv, e := q.GetTarget(gq.Target)
 		if e != nil {
 			return "", "", false, e
 		}
-		return tv.Target.Service, tv.Target.ContractRevision, false, nil
+		return tv.Target.ServiceKey, tv.Target.ContractRevision, false, nil
 	case gq.Revision != "":
 		rev := q.snap.Revisions[gq.Revision]
 		if rev == nil {
 			return "", "", false, &NotFoundError{Kind: "revision", ID: string(gq.Revision)}
 		}
-		return rev.Service, gq.Revision, false, nil
+		return rev.ServiceKey, gq.Revision, false, nil
 	default:
 		s, err := q.resolveService(gq.Service)
 		if err != nil {
 			return "", "", false, err
 		}
-		return s.Name, "", len(s.Revisions) > 1, nil
+		return s.Key, "", len(s.Revisions) > 1, nil
 	}
 }
 
 // graphEdges collects the typed dependency edges spanned by the traversal (root +
 // reached nodes) and, separately, the unresolved ones. Root edges honor the
 // revision scope; downstream edges are service-level.
-func (q *Query) graphEdges(nodeSet map[string]bool, rootSvc string, dir Direction, scopeRev RevisionKey) (edges, unresolved []Relationship) {
+func (q *Query) graphEdges(nodeSet map[ServiceKey]bool, rootSvc ServiceKey, dir Direction, scopeRev RevisionKey) (edges, unresolved []Relationship) {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		if rel.Type != RelationshipDependency {
@@ -649,7 +664,7 @@ func (q *Query) graphEdges(nodeSet map[string]bool, rootSvc string, dir Directio
 	return edges, unresolved
 }
 
-func edgeInScope(rel Relationship, nodeSet map[string]bool, rootSvc string, dir Direction, scopeRev RevisionKey) bool {
+func edgeInScope(rel Relationship, nodeSet map[ServiceKey]bool, rootSvc ServiceKey, dir Direction, scopeRev RevisionKey) bool {
 	if dir == DirectionDependents {
 		return rel.ToService != "" && (rel.ToService == rootSvc || nodeSet[rel.ToService])
 	}
@@ -747,7 +762,7 @@ func (q *Query) unresolvedStatusItems(all bool, sq StatusQuery) []StatusItem {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		if rel.Type == RelationshipDependency && !rel.Resolved {
-			items = append(items, StatusItem{Kind: "relationship", Name: rel.FromService + "→" + rel.To, Code: "UNRESOLVED_DEPENDENCY", Reason: "declared dependency is not resolved in the fleet"})
+			items = append(items, StatusItem{Kind: "relationship", Name: string(rel.FromService) + "→" + rel.To, Code: "UNRESOLVED_DEPENDENCY", Reason: "declared dependency is not resolved in the fleet"})
 		}
 	}
 	return items
@@ -806,7 +821,7 @@ func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.FromService == s.Name && rel.Type == RelationshipDependency && !rel.Resolved {
+		if rel.FromService == s.Key && rel.Type == RelationshipDependency && !rel.Resolved {
 			res.Reasons = append(res.Reasons, Reason{
 				Code: LimitationUnresolvedDep, Message: "declared dependency is not resolved in the fleet",
 				Assertion: &AssertionRef{Kind: "dependency", Name: rel.To},

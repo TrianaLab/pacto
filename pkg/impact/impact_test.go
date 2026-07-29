@@ -180,8 +180,8 @@ func TestAnalyzeServiceNotInFleet(t *testing.T) {
 
 func TestConsumerImpactServiceAbsent(t *testing.T) {
 	snap := &fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{}}
-	node := consumerNode{name: "ghost", depth: 2, path: []string{"auth-service", "ghost"}}
-	got := consumerImpact(snap, "auth-service", node, "2.0.0", Options{})
+	node := consumerNode{key: fleet.NewServiceKey("ghost"), name: "ghost", depth: 2, path: []fleet.ServiceKey{"auth-service", "ghost"}}
+	got := consumerImpact(snap, fleet.NewServiceKey("auth-service"), node, "2.0.0", Options{})
 	want := AffectedConsumer{
 		Service: "ghost", Depth: 2, Path: []string{"auth-service", "ghost"},
 		CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceInferred, Confidence: ConfidenceInferred,

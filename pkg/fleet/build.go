@@ -77,9 +77,9 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		Revisions:             map[RevisionKey]*ContractRevision{},
 		Targets:               map[TargetKey]*TargetRecord{},
 		GeneratedAt:           generatedAt,
-		reverseDeps:           map[string][]string{},
-		forwardDeps:           map[string][]string{},
-		forwardDepsByRevision: map[RevisionKey][]string{},
+		reverseDeps:           map[ServiceKey][]ServiceKey{},
+		forwardDeps:           map[ServiceKey][]ServiceKey{},
+		forwardDepsByRevision: map[RevisionKey][]ServiceKey{},
 	}
 
 	// Zero configured sources is NOT the same as "every source was available and
@@ -826,7 +826,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 	for _, dep := range rev.Contract.Dependencies {
 		toSvc, ok := resolveDepService(snap, rev.Domain, dep)
 		rel := Relationship{
-			FromService: rev.Service, FromRevision: rk, To: dep.Name,
+			FromService: rev.ServiceKey, FromRevision: rk, To: dep.Name,
 			Type: RelationshipDependency, Provenance: ProvenanceDeclared,
 			Required: dep.Required, Compatibility: dep.Compatibility,
 			RequestedRef: dep.Ref, Resolved: ok, ToService: toSvc,
@@ -841,8 +841,8 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 			rel.Reason = "no service in the fleet resolves this dependency ref"
 		} else {
 			snap.forwardDepsByRevision[rk] = appendUnique(snap.forwardDepsByRevision[rk], toSvc)
-			snap.forwardDeps[rev.Service] = appendUnique(snap.forwardDeps[rev.Service], toSvc)
-			snap.reverseDeps[toSvc] = appendUnique(snap.reverseDeps[toSvc], rev.Service)
+			snap.forwardDeps[rev.ServiceKey] = appendUnique(snap.forwardDeps[rev.ServiceKey], toSvc)
+			snap.reverseDeps[toSvc] = appendUnique(snap.reverseDeps[toSvc], rev.ServiceKey)
 			rel.ResolvedRevision = resolveDepRevision(snap, toSvc, rel.LockedDigest)
 		}
 		out = append(out, rel)
@@ -861,7 +861,7 @@ func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRe
 			typ = RelationshipPolicyRef
 		}
 		rel := Relationship{
-			FromService: rev.Service, FromRevision: rk, To: ref.Name,
+			FromService: rev.ServiceKey, FromRevision: rk, To: ref.Name,
 			Type: typ, Provenance: ProvenanceDeclared, RequestedRef: ref.Ref,
 			Resolved: ok, ToService: toSvc,
 		}
@@ -875,12 +875,12 @@ func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRe
 
 // resolveDepRevision pins the exact revision of the resolved service that a
 // dependency points at, when a lock digest identifies it; otherwise "".
-func resolveDepRevision(snap *FleetSnapshot, toSvc, lockedDigest string) RevisionKey {
+func resolveDepRevision(snap *FleetSnapshot, toSvc ServiceKey, lockedDigest string) RevisionKey {
 	if lockedDigest == "" {
 		return ""
 	}
 	for _, rev := range snap.Revisions {
-		if rev.Service == toSvc && rev.Digest == lockedDigest {
+		if rev.ServiceKey == toSvc && rev.Digest == lockedDigest {
 			return rev.Key
 		}
 	}
@@ -890,14 +890,14 @@ func resolveDepRevision(snap *FleetSnapshot, toSvc, lockedDigest string) Revisio
 // resolveDepService resolves a dependency to a logical service, preferring the
 // depending revision's own domain (a bare dependency ref carries no domain, so it
 // resolves within the same domain), tolerating a "-pacto" bundle-name suffix.
-func resolveDepService(snap *FleetSnapshot, fromDomain string, dep contract.Dependency) (string, bool) {
+func resolveDepService(snap *FleetSnapshot, fromDomain string, dep contract.Dependency) (ServiceKey, bool) {
 	if s := snap.Services[NewServiceKeyDomain(fromDomain, dep.Name)]; s != nil {
-		return s.Name, true
+		return s.Key, true
 	}
 	stripped := strings.TrimSuffix(dep.Name, "-pacto")
 	if stripped != dep.Name {
 		if s := snap.Services[NewServiceKeyDomain(fromDomain, stripped)]; s != nil {
-			return s.Name, true
+			return s.Key, true
 		}
 	}
 	return "", false
@@ -905,9 +905,9 @@ func resolveDepService(snap *FleetSnapshot, fromDomain string, dep contract.Depe
 
 // resolveRefService resolves a config/policy reference to a service in the
 // referencing revision's domain.
-func resolveRefService(snap *FleetSnapshot, fromDomain string, ref contract.ReferenceRef) (string, bool) {
+func resolveRefService(snap *FleetSnapshot, fromDomain string, ref contract.ReferenceRef) (ServiceKey, bool) {
 	if s := snap.Services[NewServiceKeyDomain(fromDomain, ref.Name)]; s != nil {
-		return s.Name, true
+		return s.Key, true
 	}
 	return "", false
 }
@@ -974,18 +974,24 @@ func sortSnapshot(snap *FleetSnapshot) {
 		sort.Strings(s.Sources)
 	}
 	for k := range snap.reverseDeps {
-		sort.Strings(snap.reverseDeps[k])
+		sortKeys(snap.reverseDeps[k])
 	}
 	for k := range snap.forwardDeps {
-		sort.Strings(snap.forwardDeps[k])
+		sortKeys(snap.forwardDeps[k])
 	}
 	for k := range snap.forwardDepsByRevision {
-		sort.Strings(snap.forwardDepsByRevision[k])
+		sortKeys(snap.forwardDepsByRevision[k])
 	}
 }
 
-// appendUnique appends v to s if not already present.
-func appendUnique(s []string, v string) []string {
+// sortKeys sorts service keys lexicographically in place.
+func sortKeys(ks []ServiceKey) {
+	sort.Slice(ks, func(i, j int) bool { return ks[i] < ks[j] })
+}
+
+// appendUnique appends v to s if not already present and non-empty. It is generic
+// over string-like identities (bare source ids and domain-qualified ServiceKeys).
+func appendUnique[T ~string](s []T, v T) []T {
 	if v == "" {
 		return s
 	}

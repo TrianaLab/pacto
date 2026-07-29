@@ -377,10 +377,10 @@ const (
 // declared edges are produced today; Provenance leaves room for observed/inferred
 // edges later without conflating them with declared intent.
 type Relationship struct {
-	FromService      string      `json:"fromService"`
+	FromService      ServiceKey  `json:"fromService"`
 	FromRevision     RevisionKey `json:"fromRevision,omitempty"`
 	To               string      `json:"to"`
-	ToService        string      `json:"toService,omitempty"`
+	ToService        ServiceKey  `json:"toService,omitempty"`
 	ResolvedRevision RevisionKey `json:"resolvedRevision,omitempty"`
 	Type             string      `json:"type"`
 	Provenance       string      `json:"provenance"`
@@ -411,17 +411,19 @@ type FleetSnapshot struct {
 	Completeness  Completeness                      `json:"completeness"`
 	Limitations   []Limitation                      `json:"limitations,omitempty"`
 
-	// reverseDeps maps a service name to the names of services that declare a
+	// reverseDeps maps a service KEY to the keys of services that declare a
 	// dependency on it, across all their revisions (the dependents index). Built
-	// once at Build time; never mutated afterwards.
-	reverseDeps map[string][]string
-	// forwardDeps maps a service name to the union of resolved dependency service
-	// names across all its revisions, for aggregated service-level traversal.
-	forwardDeps map[string][]string
+	// once at Build time; never mutated afterwards. Keyed by the domain-qualified
+	// ServiceKey (not the bare name) so same-named services in different domains
+	// never share a dependents set.
+	reverseDeps map[ServiceKey][]ServiceKey
+	// forwardDeps maps a service KEY to the union of resolved dependency service
+	// keys across all its revisions, for aggregated service-level traversal.
+	forwardDeps map[ServiceKey][]ServiceKey
 	// forwardDepsByRevision maps a specific revision to the resolved dependency
-	// service names IT declares — the revision-accurate adjacency used when a
-	// graph query names a revision or a target (never "the latest revision").
-	forwardDepsByRevision map[RevisionKey][]string
+	// service keys IT declares — the revision-accurate adjacency used when a graph
+	// query names a revision or a target (never "the latest revision").
+	forwardDepsByRevision map[RevisionKey][]ServiceKey
 }
 
 // Service returns the logical service record by name, or nil.
