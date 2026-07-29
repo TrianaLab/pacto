@@ -265,8 +265,10 @@ func TestService_Fleet_OCIRefs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fleet: %v", err)
 	}
-	if snap.Service("a") == nil {
-		t.Errorf("expected service a from OCI source, got %+v", snap.Services)
+	// The OCI ref's registry+org becomes the service domain, so it is keyed under
+	// ghcr.io/x, not the default domain.
+	if snap.Services[fleet.NewServiceKeyDomain("ghcr.io/x", "a")] == nil {
+		t.Errorf("expected service a in domain ghcr.io/x from OCI source, got %+v", snap.Services)
 	}
 }
 
@@ -293,8 +295,8 @@ func TestService_Fleet_Cache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fleet: %v", err)
 	}
-	if snap.Service("svc") == nil {
-		t.Errorf("expected service svc from cache source, got %+v", snap.Services)
+	if snap.Services[fleet.NewServiceKeyDomain("ghcr.io/org", "svc")] == nil {
+		t.Errorf("expected service svc in domain ghcr.io/org from cache source, got %+v", snap.Services)
 	}
 }
 

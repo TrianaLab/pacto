@@ -98,13 +98,39 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 			})
 			continue
 		}
-		rev := fleet.RawRevision{Bundle: bundle, RequestedRef: ref, ResolvedRef: ref}
+		rev := fleet.RawRevision{Bundle: bundle, Domain: ociDomain(ref), RequestedRef: ref, ResolvedRef: ref}
 		if digest, derr := store.Resolve(ctx, ref); derr == nil {
 			rev.Digest = digest
 		}
 		col.Revisions = append(col.Revisions, rev)
 	}
 	return col, nil
+}
+
+// ociDomain derives the logical-service domain (the registry+org/repo scope) from
+// a reference, so the same service name published to two different registries or
+// organizations stays distinct in the operational graph. It is the repo path with
+// its final segment (the artifact/service name) removed; a bare single-segment ref
+// (no registry/org) is the default (empty) domain.
+//
+//	oci://ghcr.io/acme/payments:1.0       -> ghcr.io/acme
+//	localhost:5000/acme/payments@sha256:x -> localhost:5000/acme
+//	payments:1.0                          -> "" (default domain)
+func ociDomain(ref string) string {
+	r := strings.TrimPrefix(ref, "oci://")
+	if i := strings.Index(r, "@"); i >= 0 {
+		r = r[:i] // strip digest
+	}
+	// Strip a tag: a ':' in the final path segment (after the last '/'), so a
+	// registry port (localhost:5000/...) is never mistaken for a tag separator.
+	slash := strings.LastIndex(r, "/")
+	if colon := strings.LastIndex(r, ":"); colon > slash {
+		r = r[:colon]
+	}
+	if slash = strings.LastIndex(r, "/"); slash >= 0 {
+		return r[:slash]
+	}
+	return ""
 }
 
 // cachedRefs walks the cache directory and reconstructs the ref for each cached

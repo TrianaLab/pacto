@@ -57,6 +57,10 @@ type ObservedEdge struct {
 
 // Options configures the analysis.
 type Options struct {
+	// Domain is the logical-service domain of the changed service. It disambiguates
+	// same-named services across domains so impact answers are domain-isolated. The
+	// empty domain is the default single-domain case.
+	Domain string
 	// IncludeObserved lets observed relationships raise confidence and surface
 	// observed-only (shadow) consumers. When false the analysis is declared-only.
 	IncludeObserved bool
@@ -123,8 +127,9 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		}
 	}
 
+	svcKey := fleet.NewServiceKeyDomain(opts.Domain, svc)
 	q := fleet.NewQuery(snap)
-	graph, err := q.Graph(fleet.GraphQuery{Service: svc, Direction: fleet.DirectionDependents, Transitive: true})
+	graph, err := q.Graph(fleet.GraphQuery{Service: string(svcKey), Direction: fleet.DirectionDependents, Transitive: true})
 	if err != nil {
 		res.Limitations = append(res.Limitations, fleet.Limitation{
 			Code: "SERVICE_NOT_IN_FLEET", Source: "impact",

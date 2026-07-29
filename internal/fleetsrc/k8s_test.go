@@ -140,7 +140,10 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 	}
 	tg.ReconciledAt = nil // asserted above; nil out so DeepEqual is location-agnostic
 	want := fleet.RawTarget{
-		Scope:           "prod",
+		Scope: "prod",
+		// Domain is derived from the resolved ref's registry+org, correlating this
+		// runtime target with the same service's OCI baseline.
+		Domain:          "ghcr.io/x",
 		Kind:            "kubernetes",
 		Name:            "payments-prod",
 		Service:         "payments",
