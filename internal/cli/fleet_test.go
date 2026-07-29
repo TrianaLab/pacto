@@ -3,6 +3,8 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -578,6 +580,23 @@ func TestFleetPartialWarning(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "SOURCE_UNAVAILABLE") {
 		t.Errorf("expected SOURCE_UNAVAILABLE limitation on stderr:\n%s", stderr)
+	}
+}
+
+// TestFleetEvidenceURL proves the --evidence-url flag reaches EvidenceURLs and
+// its read-only HTTP contribution appears in the snapshot.
+func TestFleetEvidenceURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"targets":[{"subject":"svc-a","producer":"prod-eu","compliance":"Compliant","coverage":{"evaluated":3,"required":5},"observedAt":"2026-07-29T11:00:00Z"}]}`))
+	}))
+	defer srv.Close()
+
+	out, _, err := execFleet(t, "fleet", "snapshot", "--local", t.TempDir(), "--evidence-url", srv.URL, "--output-format", "json")
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if !strings.Contains(out, "evidence-http") || !strings.Contains(out, "svc-a") {
+		t.Errorf("expected the evidence-http source and svc-a target in snapshot:\n%s", out)
 	}
 }
 

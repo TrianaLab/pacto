@@ -79,6 +79,8 @@ func TestImpactProviderForFleet(t *testing.T) {
 
 // TestDashboardFleetOptions maps detected sources onto fleet options.
 func TestDashboardFleetOptions(t *testing.T) {
+	// Unset (empty) env → no evidence source added, unconfigured stays disabled.
+	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "")
 	// No sources -> disabled.
 	if _, ok := dashboardFleetOptions("", nil, "", &dashboard.DetectResult{}); ok {
 		t.Error("expected fleet disabled with no sources")
@@ -102,6 +104,22 @@ func TestDashboardFleetOptions(t *testing.T) {
 	}
 	if !fopts.IncludeCache || !fopts.IncludeK8s || fopts.K8sNamespace != "prod" {
 		t.Errorf("cache/k8s wiring wrong: %+v", fopts)
+	}
+	if len(fopts.EvidenceURLs) != 0 {
+		t.Errorf("expected no evidence URLs with env unset, got %v", fopts.EvidenceURLs)
+	}
+}
+
+// TestDashboardFleetOptions_EvidenceURL proves the operator-wired env var adds a
+// read-only evidence source and enables the fleet even with no other source.
+func TestDashboardFleetOptions_EvidenceURL(t *testing.T) {
+	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "http://evidence.internal:8080")
+	fopts, ok := dashboardFleetOptions("", nil, "", &dashboard.DetectResult{})
+	if !ok {
+		t.Fatal("expected fleet enabled by the evidence env var alone")
+	}
+	if len(fopts.EvidenceURLs) != 1 || fopts.EvidenceURLs[0] != "http://evidence.internal:8080" {
+		t.Errorf("EvidenceURLs = %v", fopts.EvidenceURLs)
 	}
 }
 

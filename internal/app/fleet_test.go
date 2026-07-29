@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -167,6 +169,35 @@ func TestService_Fleet_EvidenceStores(t *testing.T) {
 	}
 	if !ids["evidence-store"] {
 		t.Errorf("source ids = %v, want evidence-store", ids)
+	}
+}
+
+func TestService_Fleet_EvidenceURLs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"targets":[{"subject":"svc-a","producer":"prod-eu","compliance":"Compliant","coverage":{"evaluated":3,"required":5},"observedAt":"2026-07-29T11:00:00Z"}]}`))
+	}))
+	defer srv.Close()
+
+	svc := NewService(nil, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{EvidenceURLs: []string{srv.URL}})
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	found := false
+	for _, tgt := range snap.Targets {
+		if tgt.Scope == "prod-eu" && tgt.Name == "svc-a" && tgt.Kind == "external" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an external target prod-eu/svc-a, got %+v", snap.Targets)
+	}
+	ids := map[string]bool{}
+	for _, s := range snap.Sources {
+		ids[s.ID] = true
+	}
+	if !ids["evidence-http"] {
+		t.Errorf("source ids = %v, want evidence-http", ids)
 	}
 }
 

@@ -263,6 +263,7 @@ Compose contracts, contract revisions and operational targets from local bundles
 ```
       --cache                        include every bundle in the local OCI cache as an offline baseline revision
       --evidence-store stringArray   directory of accepted-evidence records to include as external targets (repeatable)
+      --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --freshness duration           mark target evidence older than this as stale (0 disables)
   -h, --help                         help for fleet
       --k8s                          include live Pacto CRs from the current Kubernetes cluster as targets
@@ -536,6 +537,7 @@ pacto mcp [bundle-ref] [flags]
       --base-url string              base URL for live invocation (overrides the OpenAPI servers[] URL)
       --cache                        include the local OCI cache as offline baseline revisions (--fleet)
       --evidence-store stringArray   directory of accepted-evidence records for --fleet (repeatable)
+      --evidence-url stringArray     base URL of an Evidence Server to consume over HTTP for --fleet (repeatable)
       --fleet                        expose read-only operational-graph (fleet) query tools
       --freshness duration           mark target evidence older than this as stale (--fleet)
   -h, --help                         help for mcp

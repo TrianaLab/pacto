@@ -493,5 +493,12 @@ func dashboardFleetOptions(dir string, repos []string, namespace string, dr *das
 		fopts.K8sNamespace = namespace
 		ok = true
 	}
+	// An operator-wired dashboard learns its managed Evidence Server via env; when
+	// set, consume its read-only contribution. Unset means no evidence source
+	// (unconfigured), not an unavailable one — so add nothing.
+	if url := os.Getenv("PACTO_EVIDENCE_SOURCE_URL"); url != "" {
+		fopts.EvidenceURLs = append(fopts.EvidenceURLs, url)
+		ok = true
+	}
 	return fopts, ok
 }

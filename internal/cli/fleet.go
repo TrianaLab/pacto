@@ -29,6 +29,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.PersistentFlags().StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
 	cmd.PersistentFlags().StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)")
 	cmd.PersistentFlags().StringArray("evidence-store", nil, "directory of accepted-evidence records to include as external targets (repeatable)")
+	cmd.PersistentFlags().StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
 	cmd.PersistentFlags().StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
 	cmd.PersistentFlags().Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
 	cmd.PersistentFlags().Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
@@ -50,6 +51,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	targetState, _ := cmd.Flags().GetStringArray("target-state")
 	evidenceStores, _ := cmd.Flags().GetStringArray("evidence-store")
+	evidenceURLs, _ := cmd.Flags().GetStringArray("evidence-url")
 	ociRefs, _ := cmd.Flags().GetStringArray("oci")
 	includeCache, _ := cmd.Flags().GetBool("cache")
 	includeK8s, _ := cmd.Flags().GetBool("k8s")
@@ -59,6 +61,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		LocalRoots:       local,
 		TargetStateFiles: targetState,
 		EvidenceStores:   evidenceStores,
+		EvidenceURLs:     evidenceURLs,
 		OCIRefs:          ociRefs,
 		IncludeCache:     includeCache,
 		IncludeK8s:       includeK8s,

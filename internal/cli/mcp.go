@@ -60,6 +60,7 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 	cmd.Flags().StringArray("local", []string{"."}, "local bundle root(s) for --fleet (repeatable)")
 	cmd.Flags().StringArray("target-state", nil, "offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)")
 	cmd.Flags().StringArray("evidence-store", nil, "directory of accepted-evidence records for --fleet (repeatable)")
+	cmd.Flags().StringArray("evidence-url", nil, "base URL of an Evidence Server to consume over HTTP for --fleet (repeatable)")
 	cmd.Flags().StringArray("oci", nil, "registry reference to include as a published-baseline revision for --fleet (repeatable)")
 	cmd.Flags().Bool("cache", false, "include the local OCI cache as offline baseline revisions (--fleet)")
 	cmd.Flags().Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster (--fleet)")

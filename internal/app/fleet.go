@@ -41,6 +41,10 @@ type FleetOptions struct {
 	// EvidenceStores are directories of accepted-evidence records (as written by
 	// the ingestion host); each becomes a fleet source of external targets.
 	EvidenceStores []string
+	// EvidenceURLs are base URLs of Evidence Servers whose read-only Operational
+	// Graph contribution is consumed over HTTP; each becomes a fleet source of
+	// external targets without touching the server's durable bucket.
+	EvidenceURLs []string
 	// OCIRefs are registry references to include as published-baseline revisions.
 	// Requires a configured BundleStore.
 	OCIRefs []string
@@ -80,6 +84,10 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		// unopenable/unrecoverable store surfaces as an unavailable-source
 		// limitation (via a Collect error) rather than aborting the snapshot build.
 		sources = append(sources, newDurableEvidenceSource(id, dir))
+	}
+	for i, url := range opts.EvidenceURLs {
+		id := sourceID("evidence-http", i, len(opts.EvidenceURLs))
+		sources = append(sources, fleetsrc.NewEvidenceHTTPSource(id, url))
 	}
 	if len(opts.OCIRefs) > 0 {
 		if s.BundleStore != nil {
