@@ -226,8 +226,21 @@ $dash_has_checkout \
   && pass "dashboard Fleet API reports the checkout target" || fail "dashboard Fleet API missing the target"
 
 echo "== the CLI reports the same target over the same Evidence source =="
-"$PACTO_BIN" fleet search --evidence-url "http://127.0.0.1:${LOCAL_EV_PORT}" 2>/dev/null | grep -q checkout \
-  && pass "CLI fleet search reports the checkout target" || fail "CLI missing the target"
+# Retry: the CLI builds a fresh snapshot each run, but a long-lived kubectl
+# port-forward can drop transiently. On failure the actual output is printed for
+# diagnosis rather than swallowed.
+cli_out=""; cli_ok=false
+for _ in $(seq 1 10); do
+  cli_out="$("$PACTO_BIN" fleet search --evidence-url "http://127.0.0.1:${LOCAL_EV_PORT}" 2>&1 || true)"
+  if printf '%s' "$cli_out" | grep -q checkout; then cli_ok=true; break; fi
+  sleep 2
+done
+if $cli_ok; then
+  pass "CLI fleet search reports the checkout target"
+else
+  echo "  CLI output was: $cli_out"
+  fail "CLI missing the target"
+fi
 
 echo "== replay: re-sending the same envelope is rejected (409) =="
 send_rejected "$WORK/env1.json" "replay rejected"
