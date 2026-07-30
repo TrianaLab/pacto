@@ -733,10 +733,15 @@ func linkTargets(snap *FleetSnapshot) {
 		case revisionMatchExact, revisionMatchInferred:
 			t.RevisionMatch = kind
 		case revisionMatchAmbiguous:
-			snap.Limitations = append(snap.Limitations, Limitation{
+			lim := Limitation{
 				Code: LimitationRevisionAmbiguous, Source: t.Source,
 				Message: "several revisions of " + string(t.ServiceKey) + " match target " + string(t.Key) + " by its mutable reference; no authoritative revision link was made",
-			})
+			}
+			// Record it on the target too, so the target is self-describing: a
+			// consumer classifies the link "ambiguous" (not merely "unresolved")
+			// from the target alone, without parsing snapshot-level messages.
+			t.Limitations = append(t.Limitations, lim)
+			snap.Limitations = append(snap.Limitations, lim)
 		}
 	}
 }

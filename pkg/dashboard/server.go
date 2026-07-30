@@ -575,6 +575,7 @@ func (s *Server) RegisterOperations(api huma.API) {
 
 	s.registerCapabilitiesOperation(api)
 	s.registerFleetOperations(api)
+	s.registerProductOperations(api)
 }
 
 // ExportOpenAPI builds the Huma API with all operations registered and returns the

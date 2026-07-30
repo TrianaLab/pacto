@@ -453,15 +453,6 @@ func TestTargetFrom_WindowDisabled(t *testing.T) {
 	}
 }
 
-func hasLimitation(ls []Limitation, code string) bool {
-	for _, l := range ls {
-		if l.Code == code {
-			return true
-		}
-	}
-	return false
-}
-
 // -------------------- matchRevision / linkTargets --------------------
 
 func TestMatchRevision(t *testing.T) {
