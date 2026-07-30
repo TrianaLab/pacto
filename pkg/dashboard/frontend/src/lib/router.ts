@@ -85,6 +85,7 @@ export function parseHash(hash: string | null | undefined): Route {
   if (path === 'impact') {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
+    if (qs.get('svc')) params.svc = qs.get('svc')!;
     if (qs.get('old')) params.old = qs.get('old')!;
     if (qs.get('new')) params.new = qs.get('new')!;
     if (qs.get('observed')) params.observed = qs.get('observed')!;
@@ -159,8 +160,9 @@ export function fleetUrl(opts: {
   return str ? `#/fleet?${str}` : '#/fleet';
 }
 
-export function impactUrl(opts: { old?: string; new?: string; observed?: boolean } = {}): string {
+export function impactUrl(opts: { svc?: string; old?: string; new?: string; observed?: boolean } = {}): string {
   const qs = new URLSearchParams();
+  if (opts.svc) qs.set('svc', opts.svc);
   if (opts.old) qs.set('old', opts.old);
   if (opts.new) qs.set('new', opts.new);
   if (opts.observed) qs.set('observed', '1');

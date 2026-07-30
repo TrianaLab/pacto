@@ -165,11 +165,12 @@
   }
 
   function impactFor() {
-    // Launch the impact workflow for the selected service/revision. The graph
-    // gives context; the impact page picks the old/new revisions.
+    // Launch the impact workflow preconfigured for the selected service: pass its
+    // domain-qualified key so the impact page preselects it and defaults to its two
+    // most recent revisions.
     const sv = detail?.view?.service;
-    const name = sv?.name || '';
-    return impactUrl({ new: name });
+    if (!sv) return impactUrl();
+    return impactUrl({ svc: sv.key });
   }
 </script>
 

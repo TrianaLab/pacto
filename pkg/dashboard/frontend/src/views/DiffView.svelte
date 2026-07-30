@@ -1,7 +1,7 @@
 <script>
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { serviceUrl, compareDiffUrl } from '../lib/router.ts';
+  import { serviceUrl, compareDiffUrl, impactUrl } from '../lib/router.ts';
   import { classificationClass } from '../lib/format.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -195,6 +195,8 @@
         {#if !isSameService}
           <span class="text-3">({fromName} {fromVer} vs {toName} {toVer})</span>
         {/if}
+        <!-- §2.1: launch the operational impact of this change from the diff. -->
+        <a class="impact-cta" href={impactUrl({ svc: toName })}>Analyze operational impact →</a>
       </div>
 
       <DiffChangesTable changes={result.changes} />
@@ -243,6 +245,7 @@
 
   .diff-result { margin-top: var(--sp-5); }
   .diff-summary { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-4); flex-wrap: wrap; }
+  .impact-cta { margin-left: auto; font-weight: 600; font-size: var(--text-sm); }
 
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); font-size: var(--text-sm); }
