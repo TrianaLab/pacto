@@ -159,6 +159,12 @@ nav:
   - Guides:
       - For developers: developers.md
       - For platform engineers: platform-engineers.md
+  - Operational graph:
+      - operational-graph.md
+      - Impact analysis: impact.md
+      - Collectors: collectors.md
+      - External evidence protocol: evidence-protocol.md
+      - Evidence security and tooling: evidence-security.md
   - Examples:
       - Overview: examples/index.md
       - Live dashboard demo: examples/dashboard-demo.md
@@ -203,11 +209,6 @@ nav:
           - Limitations: integrations/kubernetes/limitations.md
       - Plugin development: plugins.md
       - Dashboard container: dashboard-docker.md
-  - Operational graph: operational-graph.md
-  - Impact analysis: impact.md
-  - Collectors: collectors.md
-  - External evidence protocol: evidence-protocol.md
-  - Evidence security and tooling: evidence-security.md
   - Architecture:
       - Overview: architecture.md
   - Maintainers:
