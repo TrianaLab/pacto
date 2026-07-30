@@ -25,6 +25,8 @@
 #   5. clean uninstall.
 # Prints V4-TO-V5-UPGRADE PASS.
 set -euo pipefail
+# shellcheck source=tests/e2e/kind/lib.sh
+source "$(dirname "$0")/lib.sh"
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-pacto-mono}"
@@ -87,7 +89,10 @@ cleanup() {
   kubectl delete clusterrole,clusterrolebinding pacto-operator-manager pacto-dashboard \
     --ignore-not-found --wait=false >/dev/null 2>&1 || true
 }
-trap cleanup EXIT
+# On exit: dump diagnostics FIRST if we failed, then tear down — unless
+# KEEP_E2E_CLUSTER is set, which leaves the state for inspection (see lib.sh).
+# shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
+trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; keep_or_teardown "$NS" "$CLUSTER" cleanup; exit $rc' EXIT
 cleanup
 # Wait for the CRDs to actually be gone before installing.
 for _ in $(seq 1 30); do kubectl get crd "$CRD_PACTOS" >/dev/null 2>&1 || break; sleep 2; done

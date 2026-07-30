@@ -13,7 +13,8 @@ endif
 
 IMAGE := ghcr.io/trianalab/pacto/dashboard
 
-.PHONY: build test e2e coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run
+.PHONY: build test e2e coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
+        e2e-operational-graph e2e-otel e2e-dashboard-kind e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind
 
 # Local docs preview includes the in-browser WASM dashboard demo at /demo/.
 DOCS_DEMO := docs/demo
@@ -34,6 +35,33 @@ e2e:
 # runs — the live-Kubernetes source is covered by the kind acceptance.
 demo-fleet:
 	bash tests/e2e/fleet-graph.sh
+
+# ── Local e2e lifecycle ──────────────────────────────────────────────
+# Thin, user-facing aliases over the ci-e2e-* targets (in ci.mk) + demo-fleet so
+# a contributor can run ONE acceptance scenario without the whole `make ci` matrix.
+# Each -kind scenario self-provisions its own kind cluster (honoring KIND_CLUSTER
+# for reuse) and, on failure, dumps cluster diagnostics via tests/e2e/kind/lib.sh.
+# To keep a failed cluster + namespace for interactive inspection instead of
+# tearing it down, set KEEP_E2E_CLUSTER=1 — the single inspect knob. There are
+# deliberately NO per-scenario -status/-logs/-down targets: the scripts
+# self-provision and the failure-dump trap covers the real need.
+#   KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind
+# There is no e2e-dashboard-wasm / e2e-docs target: the in-browser WASM dashboard
+# demo and the docs site are built + exercised by `make docs`, `make docs-build`
+# and `make -C examples/demo build` (the docs targets below).
+
+# Cluster-free operational-graph acceptance (graph, evidence, OTel, reconcile,
+# impact) — the same hermetic run as demo-fleet, verifiable anywhere Go runs.
+e2e-operational-graph: demo-fleet
+
+# OTel observation acceptance is step 3 of the operational-graph story above; there
+# is no collector-backed cluster scenario, so this runs the same cluster-free run.
+e2e-otel: demo-fleet
+
+e2e-dashboard-kind: ci-e2e-kind-dashboard
+e2e-evidence-kind: ci-e2e-kind-evidence
+e2e-reconcile-kind: ci-e2e-kind-reconcile
+e2e-upgrade-kind: ci-e2e-kind-upgrade
 
 coverage:
 	go test -race $(shell go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/) -coverprofile=coverage.out

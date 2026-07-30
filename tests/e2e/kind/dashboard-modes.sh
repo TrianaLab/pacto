@@ -19,6 +19,8 @@
 #   3. upgrade false -> true -> dashboard resources created + Deployment Ready.
 #   4. uninstall (both modes) -> no operator/dashboard runtime resources.
 set -euo pipefail
+# shellcheck source=tests/e2e/kind/lib.sh
+source "$(dirname "$0")/lib.sh"
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-pacto-mono}"
@@ -44,7 +46,10 @@ export KUBECONFIG="$(mktemp)"; kind get kubeconfig --name "$CLUSTER" > "$KUBECON
 
 # Best-effort teardown so reruns start clean and a mid-run failure leaves nothing.
 cleanup() { helm uninstall pacto-operator -n "$NS" --wait >/dev/null 2>&1 || true; kubectl delete ns "$NS" --wait=false >/dev/null 2>&1 || true; }
-trap cleanup EXIT
+# On exit: dump diagnostics FIRST if we failed, then tear down — unless
+# KEEP_E2E_CLUSTER is set, which leaves the state for inspection (see lib.sh).
+# shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
+trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; keep_or_teardown "$NS" "$CLUSTER" cleanup; exit $rc' EXIT
 cleanup
 
 # Image loaded into kind: operator via image.pullPolicy=Never; the dashboard image

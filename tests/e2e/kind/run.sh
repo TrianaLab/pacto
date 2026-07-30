@@ -13,6 +13,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-pacto-mono}"
 NS=pacto-system
+# shellcheck source=tests/e2e/kind/lib.sh
+source "$(dirname "$0")/lib.sh"
+# On failure, dump cluster diagnostics before exiting; never mask the real code.
+# This scenario reuses/leaves its kind cluster (see KEEP_E2E_CLUSTER in lib.sh).
+# shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
+trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; exit $rc' EXIT
 node "$ROOT/release/scripts/build-release-plan.mjs" >/dev/null 2>&1
 VER="$(python3 -c 'import json;print(json.load(open("'"$ROOT"'/release/release-plan.json"))["groups"]["kubernetes"]["version"])')"
 CORE="$(python3 -c 'import json;print(json.load(open("'"$ROOT"'/release/release-plan.json"))["groups"]["core"]["version"])')"

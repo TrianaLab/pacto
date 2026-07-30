@@ -48,10 +48,34 @@ By participating in this project, you agree to treat all contributors with respe
 
    ```bash
    make test         # unit tests
-   make e2e          # end-to-end tests
+   make e2e          # Go end-to-end tests (build tag e2e)
    make lint         # gofmt + go vet
    make coverage     # coverage report with HTML output
    ```
+
+   Acceptance scenarios can be run one at a time (thin aliases over the
+   `ci-e2e-*` targets and `demo-fleet`):
+
+   ```bash
+   make e2e-operational-graph  # cluster-free fleet story: graph, evidence, OTel, reconcile, impact
+   make e2e-otel               # OTel observation acceptance (part of the operational-graph run)
+   make e2e-reconcile-kind     # kind: full operator reconcile cycle (dashboard enabled)
+   make e2e-dashboard-kind     # kind: dashboard enabled/disabled lifecycle, no crashloop
+   make e2e-evidence-kind      # kind: operator-managed Evidence Server
+   make e2e-upgrade-kind       # kind: real v4 -> v5 chart + CRD migration
+   ```
+
+   The `-kind` scenarios each self-provision a kind cluster (reused via
+   `KIND_CLUSTER`) and, on failure, dump cluster diagnostics before exiting. To
+   keep a failed cluster and its namespace for inspection instead of tearing it
+   down, set `KEEP_E2E_CLUSTER=1`:
+
+   ```bash
+   KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind
+   ```
+
+   The in-browser WASM dashboard demo and the docs site are built and exercised by
+   `make docs` / `make docs-build` — there is no separate `e2e-docs` target.
 
 ## How to Contribute
 
