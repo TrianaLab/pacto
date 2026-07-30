@@ -149,6 +149,49 @@ func TestRecover_TamperedRecordsAreCorruption(t *testing.T) {
 	}
 }
 
+func TestRepairProjections(t *testing.T) {
+	ctx := context.Background()
+	s := openMem(t)
+	if _, err := s.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	commit(t, s, newRec("e1", "p", "t1", 1, fixedClock()()))
+
+	// Force projection writes to fail so the next commit degrades the store.
+	orig := writeProjection
+	defer func() { writeProjection = orig }()
+	writeProjection = func(context.Context, *blob.Bucket, string, []byte) error {
+		return errors.New("disk full")
+	}
+	commit(t, s, newRec("e2", "p", "t2", 2, fixedClock()())) // Commit returns nil; store degrades
+	if st := s.Inspect(ctx); st.Phase != PhaseDegraded || !st.PendingRepair {
+		t.Fatalf("want degraded+pendingRepair, got phase=%s pending=%v", st.Phase, st.PendingRepair)
+	}
+	// The immutable record is still accepted: replay stays blocked while degraded.
+	if err := s.Commit(ctx, newRec("e2", "p", "t2", 2, fixedClock()())); err != ErrAlreadyCommitted {
+		t.Errorf("replay must stay blocked while degraded, got %v", err)
+	}
+	// Repair while writes still fail -> stays degraded.
+	if err := s.RepairProjections(ctx); err == nil {
+		t.Error("repair should fail while projection writes fail")
+	}
+	if st := s.Inspect(ctx); st.Phase != PhaseDegraded || !st.PendingRepair {
+		t.Errorf("still degraded expected, got phase=%s pending=%v", st.Phase, st.PendingRepair)
+	}
+	// Restore writes; repair succeeds -> ready + cleared.
+	writeProjection = orig
+	if err := s.RepairProjections(ctx); err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	if st := s.Inspect(ctx); st.Phase != PhaseReady || st.PendingRepair {
+		t.Errorf("want ready+cleared, got phase=%s pending=%v", st.Phase, st.PendingRepair)
+	}
+	// Idempotent: repairing a healthy store is a no-op.
+	if err := s.RepairProjections(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOpen_Prefix(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, "mem://", "app/ev")

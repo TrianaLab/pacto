@@ -338,6 +338,45 @@ func (b *BlobStore) writeProjections(ctx context.Context, rec AcceptedRecord, da
 	return writeProjection(ctx, b.bucket, b.manifestKeyPath(), []byte(manifest))
 }
 
+// projection is one materialized-projection write (key + bytes).
+type projection struct {
+	key  string
+	data []byte
+}
+
+// RepairProjections rewrites every materialized projection from the in-memory
+// index and, on full success, clears the pending-repair flag and restores
+// readiness (unless recovery found corruptions). It is the explicit, idempotent
+// repair for a store that went degraded because a derived-projection write failed
+// AFTER an accepted immutable write: the immutable record was never lost — only
+// its rebuildable projection — so replay protection and the latest-target index
+// stay correct in memory throughout, and a repeated envelope is still rejected
+// while the store is degraded. If a rewrite fails the store stays degraded.
+func (b *BlobStore) RepairProjections(ctx context.Context) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.pendingRepair {
+		return nil
+	}
+	writes := make([]projection, 0, len(b.latest)+1)
+	for _, rec := range b.latest {
+		data, _ := jsonMarshal(rec)
+		writes = append(writes, projection{key: b.targetKeyPath(rec.TargetKey), data: data})
+	}
+	manifest := fmt.Sprintf(`{"records":%d,"generatedAt":%q}`, len(b.seen), b.now().UTC().Format(time.RFC3339Nano))
+	writes = append(writes, projection{key: b.manifestKeyPath(), data: []byte(manifest)})
+	for _, w := range writes {
+		if err := writeProjection(ctx, b.bucket, w.key, w.data); err != nil {
+			return err // still degraded; pendingRepair stays set
+		}
+	}
+	b.pendingRepair = false
+	if len(b.corruptions) == 0 {
+		b.phase = PhaseReady
+	}
+	return nil
+}
+
 // Latest returns the most recent accepted record for a target from memory.
 func (b *BlobStore) Latest(_ context.Context, targetKey string) (AcceptedRecord, bool) {
 	b.mu.Lock()
