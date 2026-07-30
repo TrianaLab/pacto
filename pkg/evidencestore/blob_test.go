@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,6 +191,178 @@ func TestRepairProjections(t *testing.T) {
 	if err := s.RepairProjections(ctx); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestRecover_ImpossibleHistory(t *testing.T) {
+	ctx := context.Background()
+	keyOf := func(rec AcceptedRecord) string { return (&BlobStore{prefix: ""}).immutableKey(rec) }
+	mustJSON := func(rec AcceptedRecord) []byte { d, _ := json.Marshal(rec); return d }
+	at := fixedClock()()
+
+	// write commits crafted objects DIRECTLY to a fresh bucket (bypassing Commit's
+	// replay protection, which makes these states unreachable in normal operation)
+	// then recovers a store over them.
+	recover := func(t *testing.T, objs map[string][]byte) (RecoveredState, *BlobStore) {
+		t.Helper()
+		dir := t.TempDir()
+		hb, err := blob.OpenBucket(ctx, "file://"+dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for k, v := range objs {
+			if err := hb.WriteAll(ctx, k, v, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_ = hb.Close()
+		s, err := Open(ctx, "file://"+dir, "", WithInstanceID("w"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		st, err := s.Recover(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st, s
+	}
+
+	t.Run("forked producer sequence", func(t *testing.T) {
+		a := newRec("secret-env-a", "secret-producer", "t1", 7, at)
+		b := newRec("secret-env-b", "secret-producer", "t2", 7, at) // same producer+sequence, distinct envelope: a fork
+		st, s := recover(t, map[string][]byte{keyOf(a): mustJSON(a), keyOf(b): mustJSON(b)})
+		if len(st.Corruptions) != 1 {
+			t.Fatalf("want 1 impossible-history corruption, got %+v", st.Corruptions)
+		}
+		if len(st.SeenEnvelopeIDs) != 1 {
+			t.Errorf("the first record must stay indexed, seen=%v", st.SeenEnvelopeIDs)
+		}
+		if _, ok := st.TaintedProducers[hashID("secret-producer")]; !ok {
+			t.Error("a forked producer must be tainted")
+		}
+		// The reason must NOT leak the raw producer or envelope id values.
+		if r := st.Corruptions[0].Reason; !containsAll(r, "impossible history", "sequence") ||
+			containsAny(r, "secret-producer", "secret-env-a", "secret-env-b") {
+			t.Errorf("reason leaks ids or is unclear: %q", r)
+		}
+		if err := s.Commit(ctx, newRec("envC", "secret-producer", "t3", 99, at)); err != ErrProducerTainted {
+			t.Errorf("tainted producer must be refused, got %v", err)
+		}
+	})
+
+	t.Run("envelope committed more than once", func(t *testing.T) {
+		a := newRec("envDup", "prod", "t1", 1, at)
+		b := newRec("envDup", "prod", "t1", 2, at) // same envelope id re-committed at a new sequence
+		st, _ := recover(t, map[string][]byte{keyOf(a): mustJSON(a), keyOf(b): mustJSON(b)})
+		if len(st.Corruptions) != 1 || len(st.SeenEnvelopeIDs) != 1 {
+			t.Fatalf("want 1 corruption + 1 indexed, got corruptions=%+v seen=%v", st.Corruptions, st.SeenEnvelopeIDs)
+		}
+	})
+}
+
+// driftStore writes one valid immutable record plus an optional manifest
+// projection to a fresh bucket and returns an opened (not-yet-recovered) store, so
+// the projection-drift tests can each recover it and assert the outcome.
+func driftStore(t *testing.T, manifest []byte) *BlobStore {
+	t.Helper()
+	ctx := context.Background()
+	rec := newRec("e1", "p", "t1", 1, fixedClock()())
+	dir := t.TempDir()
+	hb, err := blob.OpenBucket(ctx, "file://"+dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := (&BlobStore{prefix: ""}).immutableKey(rec)
+	body, _ := json.Marshal(rec)
+	if err := hb.WriteAll(ctx, key, body, nil); err != nil {
+		t.Fatal(err)
+	}
+	if manifest != nil {
+		if err := hb.WriteAll(ctx, "materialized/manifest.json", manifest, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = hb.Close()
+	s, err := Open(ctx, "file://"+dir, "", WithInstanceID("w"), WithClock(fixedClock()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
+
+func TestRecover_ProjectionDrift_MissingManifestRepairs(t *testing.T) {
+	ctx := context.Background()
+	s := driftStore(t, nil)
+	st, err := s.Recover(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Corruptions) != 0 {
+		t.Fatalf("drift is not a corruption: %+v", st.Corruptions)
+	}
+	if ins := s.Inspect(ctx); ins.Phase != PhaseDegraded || !ins.PendingRepair {
+		t.Fatalf("want degraded+pendingRepair, got %+v", ins)
+	}
+	// A physical repair rewrites projections from the recovered index and restores
+	// readiness; a re-recovery then sees a consistent manifest.
+	if err := s.RepairProjections(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ins := s.Inspect(ctx); ins.Phase != PhaseReady || ins.PendingRepair {
+		t.Fatalf("re-recovery after physical repair must be clean, got %+v", ins)
+	}
+}
+
+func TestRecover_ProjectionDrift_StaleCountRepairs(t *testing.T) {
+	s := driftStore(t, []byte(`{"records":99,"generatedAt":"x"}`))
+	if _, err := s.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Inspect(context.Background()).PendingRepair {
+		t.Error("a record-count mismatch must flag a repair")
+	}
+}
+
+func TestRecover_ProjectionDrift_UnparsableRepairs(t *testing.T) {
+	s := driftStore(t, []byte("not json"))
+	if _, err := s.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Inspect(context.Background()).PendingRepair {
+		t.Error("an unparsable manifest must flag a repair")
+	}
+}
+
+func TestRecover_ProjectionDrift_ConsistentStaysReady(t *testing.T) {
+	s := driftStore(t, []byte(`{"records":1,"generatedAt":"x"}`))
+	if _, err := s.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if ins := s.Inspect(context.Background()); ins.Phase != PhaseReady || ins.PendingRepair {
+		t.Fatalf("a consistent manifest must stay ready, got %+v", ins)
+	}
+}
+
+func containsAll(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if !strings.Contains(s, sub) {
+			return false
+		}
+	}
+	return true
+}
+
+func containsAny(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPhase(t *testing.T) {

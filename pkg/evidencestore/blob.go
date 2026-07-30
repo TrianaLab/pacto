@@ -82,6 +82,13 @@ type BlobStore struct {
 	seen   map[string]struct{}       // accepted envelope ids
 	maxSeq map[string]uint64         // producer id -> highest sequence
 	latest map[string]AcceptedRecord // target key -> most recent record
+	// seqSeen holds every committed sequence per producer, used ONLY during
+	// recovery to detect an impossible history (the same producer committed two
+	// distinct records at one sequence — a fork that single-writer replay
+	// protection makes unreachable, so its presence means tamper or split-brain).
+	// ponytail: O(records) memory like `seen`; a Bloom filter would bound it if the
+	// log ever outgrows memory.
+	seqSeen map[string]map[uint64]struct{}
 	// tainted holds hashed producer ids whose history is partially corrupt; keyed
 	// by hash because a corrupt record's original producer id cannot be read back.
 	tainted       map[string]struct{}
@@ -135,6 +142,7 @@ func (b *BlobStore) resetIndex() {
 	b.seen = map[string]struct{}{}
 	b.maxSeq = map[string]uint64{}
 	b.latest = map[string]AcceptedRecord{}
+	b.seqSeen = map[string]map[uint64]struct{}{}
 	b.tainted = map[string]struct{}{}
 	b.corruptions = nil
 	b.pendingRepair = false
@@ -161,12 +169,39 @@ func (b *BlobStore) Recover(ctx context.Context) (RecoveredState, error) {
 		}
 		b.recoverOne(ctx, obj.Key, listPrefix)
 	}
-	if len(b.corruptions) == 0 {
+	// Compare the persisted materialized projection against the rebuilt-from-log
+	// truth and flag a physical repair if it drifted.
+	b.detectProjectionDrift(ctx)
+	if len(b.corruptions) == 0 && !b.pendingRepair {
 		b.setPhase(PhaseReady)
 	} else {
 		b.setPhase(PhaseDegraded)
 	}
 	return b.snapshotState(), nil
+}
+
+// detectProjectionDrift compares the persisted manifest projection against the
+// index just rebuilt from the immutable log (the sole source of truth). A manifest
+// that is missing while records exist, is unreadable/unparsable, or whose record
+// count disagrees with the log means the materialized projection no longer reflects
+// the truth — e.g. a crash between an accepted immutable write and its projection
+// write, surviving a restart. It flags a pending PHYSICAL repair so
+// RepairProjections rewrites every projection from the recovered index; a fresh
+// (empty) store with no manifest is not drift.
+func (b *BlobStore) detectProjectionDrift(ctx context.Context) {
+	data, err := readAll(ctx, b.bucket, b.manifestKeyPath())
+	if err != nil {
+		if len(b.seen) > 0 {
+			b.pendingRepair = true
+		}
+		return
+	}
+	var m struct {
+		Records int `json:"records"`
+	}
+	if json.Unmarshal(data, &m) != nil || m.Records != len(b.seen) {
+		b.pendingRepair = true
+	}
 }
 
 // recoverOne reads one immutable object into the index, or taints its producer
@@ -186,7 +221,35 @@ func (b *BlobStore) recoverOne(ctx context.Context, key, listPrefix string) {
 		b.taint(key, listPrefix, err)
 		return
 	}
+	if err := b.checkHistory(rec); err != nil {
+		b.taint(key, listPrefix, err)
+		return
+	}
 	b.index(rec)
+}
+
+// checkHistory detects an IMPOSSIBLE history in the persisted log — a state that
+// correct single-writer operation (strictly increasing per-producer sequences,
+// commit-once envelopes) can never produce, so its presence means the immutable
+// log was tampered with or two writers forked it. It rejects two committed records
+// at the same producer sequence and an envelope id committed more than once. Ids
+// are never echoed into the reason (they identify producers; the tainted-producer
+// hash and object key locate the fault without leaking them). It runs during
+// recovery before index, so it compares against records already folded this scan.
+func (b *BlobStore) checkHistory(rec AcceptedRecord) error {
+	if _, dup := b.seen[rec.EnvelopeID()]; dup {
+		return fmt.Errorf("impossible history: an envelope id was committed more than once")
+	}
+	seqs := b.seqSeen[rec.ProducerID()]
+	if seqs == nil {
+		seqs = map[uint64]struct{}{}
+		b.seqSeen[rec.ProducerID()] = seqs
+	}
+	if _, dup := seqs[rec.Sequence()]; dup {
+		return fmt.Errorf("impossible history: two committed records share one producer sequence")
+	}
+	seqs[rec.Sequence()] = struct{}{}
+	return nil
 }
 
 // decodeRecord strictly decodes an immutable record, rejecting unknown fields so a

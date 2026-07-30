@@ -352,7 +352,7 @@ func (s *Service) buildEvidenceHost(ctx context.Context, opts ServeOptions) (*ht
 	// degraded. A long but progressing recovery therefore never trips a liveness
 	// restart loop. A failed recovery leaves the host up but not-ready, the signal
 	// we want rather than a silent crash-loop.
-	go func() { _ = recoverEvidence(ctx, store) }()
+	go recoverAndRepair(ctx, store)
 	acceptor := evidenceingest.NewAcceptor(trust, s.EvidenceResolver(), durableEvidenceStore{store: store}, nil)
 	ready := func() bool {
 		// Phase() is lock-free, so readiness answers promptly even while the

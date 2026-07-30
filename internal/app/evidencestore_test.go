@@ -128,6 +128,63 @@ func TestDurableEvidenceSource_Collect_DegradedIsPartial(t *testing.T) {
 	}
 }
 
+func TestRecoverAndRepair(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("physically repairs a drifted projection", func(t *testing.T) {
+		dir := t.TempDir()
+		// Seed one accepted record, then delete the materialized manifest to
+		// simulate a projection that drifted from the immutable log across a crash.
+		store, err := openEvidenceStore(ctx, "file://"+dir, DefaultEvidencePrefix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Recover(ctx); err != nil {
+			t.Fatal(err)
+		}
+		rec := evidencestore.AcceptedRecord{
+			Envelope:   evidenceenvelope.Envelope{ID: "e1", Producer: evidenceenvelope.Producer{ID: "prod"}, Sequence: 1},
+			TargetKey:  "t1",
+			AcceptedAt: time.Unix(1, 0),
+		}
+		if err := store.Commit(ctx, rec); err != nil {
+			t.Fatal(err)
+		}
+		_ = store.Close()
+		manifest := filepath.Join(dir, DefaultEvidencePrefix, "materialized", "manifest.json")
+		if err := os.Remove(manifest); err != nil {
+			t.Fatalf("remove manifest: %v", err)
+		}
+
+		// Reopen and run the writer's recover+repair: it must detect the drift and
+		// PHYSICALLY rewrite the manifest, returning the store to ready.
+		reopened, err := openEvidenceStore(ctx, "file://"+dir, DefaultEvidencePrefix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = reopened.Close() }()
+		recoverAndRepair(ctx, reopened)
+		if st := reopened.Inspect(ctx); st.Phase != evidencestore.PhaseReady || st.PendingRepair {
+			t.Errorf("want ready + repaired, got %+v", st)
+		}
+		if _, err := os.Stat(manifest); err != nil {
+			t.Errorf("manifest was not physically rewritten: %v", err)
+		}
+	})
+
+	t.Run("recover failure skips repair", func(t *testing.T) {
+		orig := recoverEvidence
+		recoverEvidence = func(context.Context, *evidencestore.BlobStore) error { return errors.New("boom") }
+		t.Cleanup(func() { recoverEvidence = orig })
+		store, err := openEvidenceStore(ctx, "file://"+t.TempDir(), DefaultEvidencePrefix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = store.Close() }()
+		recoverAndRepair(ctx, store) // must not panic; repair is not attempted
+	})
+}
+
 func TestDurableEvidenceSource_Collect_RecoverError(t *testing.T) {
 	// A recovery failure (e.g. a corrupt or unreadable bucket) surfaces as a
 	// source error, not an empty collection.

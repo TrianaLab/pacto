@@ -19,6 +19,20 @@ var recoverEvidence = func(ctx context.Context, s *evidencestore.BlobStore) erro
 	return err
 }
 
+// recoverAndRepair recovers the durable store and, as the single active writer,
+// physically repairs any materialized projection that drifted from the immutable
+// log (e.g. a crash between an accepted immutable write and its projection write,
+// surviving a restart). Recovery is the source of truth; repair is idempotent and
+// a no-op when nothing drifted. Read-only consumers (the fleet source, `evidence
+// inspect`) deliberately do NOT repair — only the writer that owns the bucket does,
+// so a transient reader never races the writer's projections.
+func recoverAndRepair(ctx context.Context, store *evidencestore.BlobStore) {
+	if err := recoverEvidence(ctx, store); err != nil {
+		return
+	}
+	_ = store.RepairProjections(ctx)
+}
+
 // DefaultEvidencePrefix is the key prefix the durable evidence store uses within
 // its bucket. The ingestion host and the fleet source share it so evidence
 // written by `pacto evidence serve` is read back by `pacto fleet`.
