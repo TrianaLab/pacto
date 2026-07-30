@@ -365,6 +365,21 @@ func containsAny(s string, subs ...string) bool {
 	return false
 }
 
+func TestSameDeviceTempURL(t *testing.T) {
+	cases := map[string]string{
+		"file:///var/lib/pacto":        "file:///var/lib/pacto?no_tmp_dir=true",        // add with ?
+		"file:///data?create_dir=true": "file:///data?create_dir=true&no_tmp_dir=true", // add with &
+		"file:///data?no_tmp_dir=true": "file:///data?no_tmp_dir=true",                 // already set → unchanged
+		"mem://":                       "mem://",                                       // non-file → unchanged
+		"s3://bucket/prefix":           "s3://bucket/prefix",                           // non-file → unchanged
+	}
+	for in, want := range cases {
+		if got := sameDeviceTempURL(in); got != want {
+			t.Errorf("sameDeviceTempURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestPhase(t *testing.T) {
 	ctx := context.Background()
 	s := openMem(t)

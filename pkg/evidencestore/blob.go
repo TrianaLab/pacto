@@ -103,7 +103,7 @@ func Open(ctx context.Context, bucketURL, prefix string, opts ...Option) (*BlobS
 	if err != nil {
 		return nil, err
 	}
-	bucket, err := blob.OpenBucket(ctx, bucketURL)
+	bucket, err := blob.OpenBucket(ctx, sameDeviceTempURL(bucketURL))
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +120,23 @@ func Open(ctx context.Context, bucketURL, prefix string, opts ...Option) (*BlobS
 		opt(b)
 	}
 	return b, nil
+}
+
+// sameDeviceTempURL adds no_tmp_dir=true to a file:// bucket URL so the fileblob
+// driver writes each object's temp file IN the destination directory and renames it
+// there (same filesystem). Without it fileblob writes the temp in os.TempDir and
+// renames across devices, which fails on a hardened container: EROFS when /tmp is
+// read-only, or EXDEV ("invalid cross-device link") when /tmp is a separate volume
+// from the data PVC. Non-file backends are returned unchanged.
+func sameDeviceTempURL(bucketURL string) string {
+	if !strings.HasPrefix(bucketURL, "file://") || strings.Contains(bucketURL, "no_tmp_dir") {
+		return bucketURL
+	}
+	sep := "?"
+	if strings.Contains(bucketURL, "?") {
+		sep = "&"
+	}
+	return bucketURL + sep + "no_tmp_dir=true"
 }
 
 // setPhase records the lifecycle phase under mu AND in the lock-free mirror.
