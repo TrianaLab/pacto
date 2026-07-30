@@ -164,6 +164,7 @@ nav:
       - Impact analysis: impact.md
       - Collectors: collectors.md
       - External evidence protocol: evidence-protocol.md
+      - Storage and recovery: evidence-storage-recovery.md
       - Evidence security and tooling: evidence-security.md
   - Examples:
       - Overview: examples/index.md
