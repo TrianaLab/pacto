@@ -106,6 +106,7 @@ pacto dashboard [sources...] [flags]
       --host string          bind address for the dashboard server (default "127.0.0.1")
       --namespace string     Kubernetes namespace (empty = all namespaces)
       --port int             port for the dashboard server (default 3000)
+      --traces stringArray   OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
 ```
 
 It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached), and `--diagnostics` to expose the `/api/debug/*` endpoints.
