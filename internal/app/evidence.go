@@ -37,6 +37,7 @@ var randReader io.Reader = rand.Reader
 // key id consumed by VerifyEnvelope.
 type KeyPair struct {
 	KeyID          string `json:"keyId"`
+	ProducerID     string `json:"producerId"`
 	PrivateKeyPath string `json:"privateKeyPath"`
 	PublicKeyPath  string `json:"publicKeyPath"`
 	PublicKey      string `json:"publicKey"`
@@ -45,7 +46,7 @@ type KeyPair struct {
 // GenerateKey creates an Ed25519 keypair in dir. When keyID is empty it defaults
 // to a short fingerprint of the public key. Files are <keyId>.key (private seed,
 // 0600) and <keyId>.pub (public key, 0644).
-func (s *Service) GenerateKey(dir, keyID string) (KeyPair, error) {
+func (s *Service) GenerateKey(dir, producer, keyID string) (KeyPair, error) {
 	pub, priv, err := ed25519.GenerateKey(randReader)
 	if err != nil {
 		return KeyPair{}, err
@@ -56,8 +57,19 @@ func (s *Service) GenerateKey(dir, keyID string) (KeyPair, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return KeyPair{}, err
 	}
+	// The public-key filename encodes the trust binding the ingestion host reads:
+	// "<producer>__<keyId>.pub" binds the key to exactly that producer. With no
+	// --producer the producer defaults to the key id (a bare "<keyId>.pub"), so a
+	// single-producer setup needs no filename convention knowledge.
+	if producer == "" {
+		producer = keyID
+	}
+	pubBase := keyID + ".pub"
+	if producer != keyID {
+		pubBase = producer + "__" + keyID + ".pub"
+	}
 	privPath := filepath.Join(dir, keyID+".key")
-	pubPath := filepath.Join(dir, keyID+".pub")
+	pubPath := filepath.Join(dir, pubBase)
 	pubB64 := base64.StdEncoding.EncodeToString(pub)
 	seed := base64.StdEncoding.EncodeToString(priv.Seed())
 	if err := writeFileFn(privPath, []byte(seed+"\n"), 0o600); err != nil {
@@ -66,7 +78,7 @@ func (s *Service) GenerateKey(dir, keyID string) (KeyPair, error) {
 	if err := writeFileFn(pubPath, []byte(pubB64+"\n"), 0o644); err != nil {
 		return KeyPair{}, err
 	}
-	return KeyPair{KeyID: keyID, PrivateKeyPath: privPath, PublicKeyPath: pubPath, PublicKey: pubB64}, nil
+	return KeyPair{KeyID: keyID, ProducerID: producer, PrivateKeyPath: privPath, PublicKeyPath: pubPath, PublicKey: pubB64}, nil
 }
 
 // keyFingerprint derives a stable short key id from a public key.
@@ -240,6 +252,12 @@ func addTrustKey(ts evidenceenvelope.MapTrustStore, path string) error {
 	producerID, keyID := base, base
 	if p, k, ok := strings.Cut(base, "__"); ok {
 		producerID, keyID = p, k
+	}
+	// A duplicate key id would silently let one trust entry overwrite another
+	// (e.g. two files binding the same key id to different producers) — a
+	// trust-store integrity hole. Fail loudly instead.
+	if _, exists := ts[keyID]; exists {
+		return fmt.Errorf("duplicate key id %q in trust store (each key id must appear once)", keyID)
 	}
 	ts[keyID] = evidenceenvelope.TrustEntry{PublicKey: pub, ProducerID: producerID}
 	return nil

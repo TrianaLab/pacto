@@ -20,7 +20,7 @@ The commands split cleanly by side of the trust boundary:
 ## Minting a keypair
 
 ```bash
-pacto evidence keygen --out ./keys --key-id edge-eu-west-2026
+pacto evidence keygen --out ./keys --producer edge-eu-west --key-id edge-eu-west-2026
 ```
 
 This writes two files into `--out`:
@@ -28,10 +28,16 @@ This writes two files into `--out`:
 - `<keyId>.key` — the base64 32-byte Ed25519 seed, written **`0600`** (owner
   read and write only). This is secret material. Keep it in the environment that
   produces evidence; never commit it, never ship it to the platform.
-- `<keyId>.pub` — the base64 public key, written `0644`. Its base name is the
-  trust-store key id. This is the file you hand to the platform operator.
+- `<producer>__<keyId>.pub` — the base64 public key, written `0644`. The filename
+  **binds the key to that producer** in the trust store, so the platform authorizes
+  it only for evidence signed as that producer. This is the file you hand to the
+  platform operator; you do not need to know or apply the filename convention by
+  hand — `--producer` writes it for you.
 
-With no `--key-id`, the key id defaults to a short fingerprint of the public key.
+With no `--producer`, the key is bound to a producer named after the key id and the
+file is a bare `<keyId>.pub` (the single-producer default). With no `--key-id`, the
+key id defaults to a short fingerprint of the public key. **Sign with the same
+`--producer` and `--key-id` you minted the key with** — a mismatch is rejected.
 
 ---
 

@@ -49,7 +49,7 @@ func writeEvidenceFile(t *testing.T, dir string, set evidence.EvidenceSet) strin
 
 func TestGenerateKey_DefaultKeyID(t *testing.T) {
 	dir := t.TempDir()
-	kp, err := (&Service{}).GenerateKey(dir, "")
+	kp, err := (&Service{}).GenerateKey(dir, "", "")
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestGenerateKey_DefaultKeyID(t *testing.T) {
 
 func TestGenerateKey_ExplicitKeyID(t *testing.T) {
 	dir := t.TempDir()
-	kp, err := (&Service{}).GenerateKey(dir, "mykey")
+	kp, err := (&Service{}).GenerateKey(dir, "", "mykey")
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}
@@ -85,11 +85,55 @@ func TestGenerateKey_ExplicitKeyID(t *testing.T) {
 	}
 }
 
+func TestGenerateKey_WithProducer(t *testing.T) {
+	dir := t.TempDir()
+	kp, err := (&Service{}).GenerateKey(dir, "prod-eu", "k1")
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	if kp.ProducerID != "prod-eu" || kp.KeyID != "k1" {
+		t.Errorf("keypair identity = %+v", kp)
+	}
+	want := filepath.Join(dir, "prod-eu__k1.pub")
+	if kp.PublicKeyPath != want {
+		t.Errorf("public key path = %q, want %q", kp.PublicKeyPath, want)
+	}
+	// The workflow round-trips: the trust loader binds the key to the producer the
+	// filename encodes — sign with the SAME --producer and it verifies.
+	ts, err := loadTrustStore(want)
+	if err != nil {
+		t.Fatalf("loadTrustStore: %v", err)
+	}
+	if ts["k1"].ProducerID != "prod-eu" {
+		t.Errorf("trust binding = %+v, want producer prod-eu", ts["k1"])
+	}
+}
+
+func TestLoadTrustStore_DuplicateKeyID(t *testing.T) {
+	dir := t.TempDir()
+	kp, err := (&Service{}).GenerateKey(dir, "", "k1") // k1.pub (bare → producer k1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second file binding the SAME key id (to a different producer) must be
+	// rejected, not silently overwrite the first.
+	data, err := os.ReadFile(kp.PublicKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "other__k1.pub"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadTrustStore(dir); err == nil {
+		t.Fatal("expected a duplicate-key-id error")
+	}
+}
+
 func TestGenerateKey_RandError(t *testing.T) {
 	old := randReader
 	randReader = errReader{}
 	defer func() { randReader = old }()
-	if _, err := (&Service{}).GenerateKey(t.TempDir(), ""); err == nil {
+	if _, err := (&Service{}).GenerateKey(t.TempDir(), "", ""); err == nil {
 		t.Fatal("expected error from failing entropy source")
 	}
 }
@@ -105,7 +149,7 @@ func TestGenerateKey_MkdirError(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A directory cannot be created beneath a regular file.
-	if _, err := (&Service{}).GenerateKey(filepath.Join(file, "sub"), ""); err == nil {
+	if _, err := (&Service{}).GenerateKey(filepath.Join(file, "sub"), "", ""); err == nil {
 		t.Fatal("expected mkdir error")
 	}
 }
@@ -116,7 +160,7 @@ func TestGenerateKey_WriteErrors(t *testing.T) {
 
 	// Private-key write fails.
 	writeFileFn = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
-	if _, err := (&Service{}).GenerateKey(t.TempDir(), ""); err == nil {
+	if _, err := (&Service{}).GenerateKey(t.TempDir(), "", ""); err == nil {
 		t.Fatal("expected private-key write error")
 	}
 
@@ -129,7 +173,7 @@ func TestGenerateKey_WriteErrors(t *testing.T) {
 		}
 		return errors.New("disk full")
 	}
-	if _, err := (&Service{}).GenerateKey(t.TempDir(), ""); err == nil {
+	if _, err := (&Service{}).GenerateKey(t.TempDir(), "", ""); err == nil {
 		t.Fatal("expected public-key write error")
 	}
 }
@@ -140,7 +184,7 @@ func signAndWrite(t *testing.T, opts SignOptions) (KeyPair, string) {
 	t.Helper()
 	dir := t.TempDir()
 	svc := &Service{}
-	kp, err := svc.GenerateKey(dir, "")
+	kp, err := svc.GenerateKey(dir, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +258,7 @@ func TestSignEvidence_DeterministicID(t *testing.T) {
 func TestSignEvidence_Sequence(t *testing.T) {
 	dir := t.TempDir()
 	svc := &Service{}
-	kp, _ := svc.GenerateKey(dir, "")
+	kp, _ := svc.GenerateKey(dir, "", "")
 	ev := writeEvidenceFile(t, dir, sampleEvidenceSet())
 	env, err := svc.SignEvidence(SignOptions{
 		EvidencePath: ev, KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: "p", Sequence: 7, TTL: time.Hour,
@@ -230,7 +274,7 @@ func TestSignEvidence_Sequence(t *testing.T) {
 func TestSignEvidence_ContentHashID(t *testing.T) {
 	dir := t.TempDir()
 	svc := &Service{}
-	kp, _ := svc.GenerateKey(dir, "")
+	kp, _ := svc.GenerateKey(dir, "", "")
 	ev := writeEvidenceFile(t, dir, sampleEvidenceSet())
 	env, err := svc.SignEvidence(SignOptions{EvidencePath: ev, KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: "p", TTL: time.Hour})
 	if err != nil {
@@ -250,7 +294,7 @@ func TestSignEvidence_ContentHashID(t *testing.T) {
 func TestSignEvidence_Errors(t *testing.T) {
 	dir := t.TempDir()
 	svc := &Service{}
-	kp, _ := svc.GenerateKey(dir, "")
+	kp, _ := svc.GenerateKey(dir, "", "")
 	good := writeEvidenceFile(t, dir, sampleEvidenceSet())
 
 	cases := []struct {
@@ -274,7 +318,7 @@ func TestSignEvidence_Errors(t *testing.T) {
 func TestSignEvidence_BadEvidenceJSON(t *testing.T) {
 	dir := t.TempDir()
 	svc := &Service{}
-	kp, _ := svc.GenerateKey(dir, "")
+	kp, _ := svc.GenerateKey(dir, "", "")
 
 	bad := filepath.Join(dir, "bad.json")
 	if err := os.WriteFile(bad, []byte("{ not json"), 0o644); err != nil {
@@ -434,7 +478,7 @@ func serveTestFixtures(t *testing.T) (svc *Service, trustDir, envPath, producer 
 	}
 	contractRef := "oci://" + host + "/svc-a@" + digest
 
-	kp, err := (&Service{}).GenerateKey(dir, "k1")
+	kp, err := (&Service{}).GenerateKey(dir, "", "k1")
 	if err != nil {
 		t.Fatal(err)
 	}

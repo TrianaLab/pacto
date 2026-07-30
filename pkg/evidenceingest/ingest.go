@@ -50,27 +50,49 @@ var ErrInvalidEvidence = errors.New("evidence ingest: evidence set is invalid")
 var ErrContractRefPolicy = errors.New("evidence ingest: contract reference violates ingestion policy")
 
 // validateContractRef enforces the externally-reported contract-ref policy: an
-// immutable oci:// digest reference, optionally within an allowlisted repository.
+// immutable oci:// digest reference (a full, well-formed sha256 digest — not
+// merely a string that contains "@sha256:"), optionally within an allowlisted
+// repository matched on path-segment boundaries so "ghcr.io/acme" never
+// authorizes "ghcr.io/acme-attacker".
 func validateContractRef(ref string, allowedRepos []string) error {
 	if !strings.HasPrefix(ref, "oci://") {
 		return ErrContractRefPolicy // no local paths, no bare refs
 	}
-	if !strings.Contains(ref, "@sha256:") {
-		return ErrContractRefPolicy // require an immutable digest, not a mutable tag
+	body := strings.TrimPrefix(ref, "oci://")
+	repo, digest, ok := strings.Cut(body, "@")
+	if !ok || !validSHA256Digest(digest) {
+		return ErrContractRefPolicy // require a complete immutable digest, not a mutable tag
+	}
+	if repo == "" {
+		return ErrContractRefPolicy
 	}
 	if len(allowedRepos) == 0 {
 		return nil
 	}
-	repo := strings.TrimPrefix(ref, "oci://")
-	if i := strings.Index(repo, "@"); i >= 0 {
-		repo = repo[:i]
-	}
 	for _, prefix := range allowedRepos {
-		if strings.HasPrefix(repo, prefix) {
+		if repo == prefix || strings.HasPrefix(repo, prefix+"/") {
 			return nil
 		}
 	}
 	return ErrContractRefPolicy
+}
+
+// validSHA256Digest reports whether d is a complete "sha256:<64 lowercase hex>"
+// digest — the full immutable shape, so a truncated or malformed digest is
+// rejected rather than accepted because it merely contains the "@sha256:" marker.
+func validSHA256Digest(d string) bool {
+	const prefix = "sha256:"
+	hex, ok := strings.CutPrefix(d, prefix)
+	if !ok || len(hex) != 64 {
+		return false
+	}
+	for i := 0; i < len(hex); i++ {
+		c := hex[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 // Record is one accepted envelope and the evaluation it produced.

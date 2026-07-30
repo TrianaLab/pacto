@@ -167,13 +167,18 @@ func newEvidenceKeygenCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "keygen",
 		Short: "Generate an Ed25519 signing keypair",
-		Long: "Writes <keyId>.key (base64 private seed, 0600) and <keyId>.pub (base64 " +
-			"public key) into --out. The .pub base name is the trust-store key id.",
+		Long: "Writes the private seed to <keyId>.key (base64, 0600) and the public key " +
+			"into --out. With --producer, the public key is written as " +
+			"<producer>__<keyId>.pub, which binds the key to that producer in the trust " +
+			"store — hand that file to the platform. Sign with the SAME --producer and " +
+			"--key-id. With no --producer, a bare <keyId>.pub binds the key to a producer " +
+			"named after the key id (the single-producer default).",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, _ := cmd.Flags().GetString("out")
 			keyID, _ := cmd.Flags().GetString("key-id")
-			kp, err := svc.GenerateKey(dir, keyID)
+			producer, _ := cmd.Flags().GetString("producer")
+			kp, err := svc.GenerateKey(dir, producer, keyID)
 			if err != nil {
 				return err
 			}
@@ -182,6 +187,7 @@ func newEvidenceKeygenCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	}
 	cmd.Flags().String("out", ".", "directory to write the keypair into")
 	cmd.Flags().String("key-id", "", "key id (defaults to a fingerprint of the public key)")
+	cmd.Flags().String("producer", "", "producer id to bind the key to (writes <producer>__<keyId>.pub)")
 	return cmd
 }
 

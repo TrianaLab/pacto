@@ -20,6 +20,10 @@ import (
 
 const keyID = "env-a-2026"
 
+// testContractRef is a full, well-formed immutable digest ref (the shape the
+// ingestion policy now requires — a truncated "@sha256:abc" is rejected).
+var testContractRef = "oci://ghcr.io/acme/payments@sha256:" + strings.Repeat("a", 64)
+
 func testKeypair() (ed25519.PublicKey, ed25519.PrivateKey) {
 	seed := make([]byte, ed25519.SeedSize)
 	for i := range seed {
@@ -34,7 +38,7 @@ func fixedNow() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 func testEvidenceSet() evidence.EvidenceSet {
 	return evidence.EvidenceSet{
 		Subject:     evidence.SubjectRef{Kind: "service", Name: "payments"},
-		ContractRef: "oci://ghcr.io/acme/payments@sha256:abc",
+		ContractRef: testContractRef,
 		Source:      "remote",
 		ObservedAt:  fixedNow().Add(-time.Minute),
 		Observations: []evidence.Observation{
@@ -113,6 +117,7 @@ func TestAcceptor_ReplayAndSequence(t *testing.T) {
 }
 
 func TestValidateContractRef(t *testing.T) {
+	dig := "@sha256:" + strings.Repeat("a", 64)
 	cases := []struct {
 		name    string
 		ref     string
@@ -120,11 +125,18 @@ func TestValidateContractRef(t *testing.T) {
 		wantErr bool
 	}{
 		{"local path", "/tmp/bundle", nil, true},
-		{"bare ref no scheme", "ghcr.io/x@sha256:a", nil, true},
+		{"bare ref no scheme", "ghcr.io/x" + dig, nil, true},
 		{"mutable tag", "oci://ghcr.io/x:1.0", nil, true},
-		{"digest, no allowlist", "oci://ghcr.io/x@sha256:a", nil, false},
-		{"digest in allowlist", "oci://ghcr.io/acme/x@sha256:a", []string{"ghcr.io/acme"}, false},
-		{"digest not in allowlist", "oci://other.io/x@sha256:a", []string{"ghcr.io/acme"}, true},
+		{"truncated digest (substring only) rejected", "oci://ghcr.io/x@sha256:abc", nil, true},
+		{"digest wrong length rejected", "oci://ghcr.io/x@sha256:" + strings.Repeat("a", 63), nil, true},
+		{"digest non-hex rejected", "oci://ghcr.io/x@sha256:" + strings.Repeat("g", 64), nil, true},
+		{"empty repo rejected", "oci://" + dig, nil, true},
+		{"full digest, no allowlist", "oci://ghcr.io/x" + dig, nil, false},
+		{"full digest in allowlist", "oci://ghcr.io/acme/x" + dig, []string{"ghcr.io/acme"}, false},
+		{"exact repo == allowlist entry", "oci://ghcr.io/acme" + dig, []string{"ghcr.io/acme"}, false},
+		{"digest not in allowlist", "oci://other.io/x" + dig, []string{"ghcr.io/acme"}, true},
+		// The boundary check: a sibling org sharing a prefix must NOT be authorized.
+		{"prefix-sibling is not authorized (boundary)", "oci://ghcr.io/acme-attacker/x" + dig, []string{"ghcr.io/acme"}, true},
 	}
 	for _, tc := range cases {
 		if err := validateContractRef(tc.ref, tc.allowed); (err != nil) != tc.wantErr {
@@ -324,7 +336,7 @@ func TestHandler_Targets(t *testing.T) {
 	if got.Subject != "payments" || got.Producer != "env-a" || got.ProducerKeyID != keyID {
 		t.Errorf("identity/provenance lost: %+v", got)
 	}
-	if got.ContractRef != "oci://ghcr.io/acme/payments@sha256:abc" {
+	if got.ContractRef != testContractRef {
 		t.Errorf("contract linkage lost: %q", got.ContractRef)
 	}
 	if got.AcceptedAt.IsZero() || got.EvidenceAt.IsZero() {
@@ -350,7 +362,7 @@ func TestHandler_TargetsFindingsCapAndHealth(t *testing.T) {
 			Sequence: 1,
 			EvidenceSet: evidence.EvidenceSet{
 				Subject:     evidence.SubjectRef{Kind: "service", Name: "payments"},
-				ContractRef: "oci://ghcr.io/acme/payments@sha256:abc",
+				ContractRef: testContractRef,
 			},
 		},
 		Compliance: "compliant",

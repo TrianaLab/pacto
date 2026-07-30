@@ -12,7 +12,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORK="$(mktemp -d)"
 BIN="$WORK/pacto"
-trap 'rm -rf "$WORK"; [ -n "${SERVE_PID:-}" ] && kill "$SERVE_PID" 2>/dev/null || true' EXIT
+trap 'rm -rf "$WORK"; [ -n "${SERVE_PID:-}" ] && kill "$SERVE_PID" 2>/dev/null; [ -n "${REG_PID:-}" ] && kill "$REG_PID" 2>/dev/null; true' EXIT
 
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1"; exit 1; }
@@ -87,9 +87,25 @@ assert_contains "$OUT" "web" "web is in the graph"
 assert_contains "$OUT" "payments" "payments is in the graph"
 
 echo "== 2. sign, ingest and surface external evidence as a target =="
-"$BIN" evidence keygen --out "$WORK/keys" --key-id demo >/dev/null
+# A remote producer must reference an IMMUTABLE oci digest, not a local path.
+# Publish the payments contract to an ephemeral in-memory registry (Go-only, no
+# Docker) and reference it by digest — the shape the ingestion policy requires and
+# the identity the accepted target links to.
+REG_PORT=15071
+REG_HOST="127.0.0.1:${REG_PORT}"
+go build -o "$WORK/localregistry" "$ROOT/tests/e2e/localregistry"
+"$WORK/localregistry" --port "$REG_PORT" >/dev/null 2>&1 &
+REG_PID=$!
+for _ in $(seq 1 50); do curl -fsS "http://${REG_HOST}/v2/" >/dev/null 2>&1 && break; sleep 0.2; done
+PAY_DIGEST="$(PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" push "oci://${REG_HOST}/demo/payments:1.0.0" -p "$WORK/ws/payments" 2>&1 | grep -oE 'sha256:[0-9a-f]{64}' | head -1)"
+[ -n "$PAY_DIGEST" ] && pass "published payments contract $PAY_DIGEST" || fail "could not publish the payments contract"
+CONTRACT_REF="oci://${REG_HOST}/demo/payments@${PAY_DIGEST}"
+
+# Bind the key to the producer it will sign as, so the trust store authorizes it
+# (writes prod-eu__demo.pub).
+"$BIN" evidence keygen --out "$WORK/keys" --producer prod-eu --key-id demo >/dev/null
 cat > "$WORK/ev.json" <<EOF
-{"Subject":{"kind":"service","name":"payments"},"ContractRef":"$WORK/ws/payments","Source":"remote","ObservedAt":"2026-07-29T11:00:00Z","Observations":[{"kind":"WorkloadObserved","subject":{"kind":"service","name":"payments"},"outcome":"Unsupported","provenance":{"collector":"remote","detectedAt":"2026-07-29T11:00:00Z"}}]}
+{"Subject":{"kind":"service","name":"payments"},"ContractRef":"${CONTRACT_REF}","Source":"remote","ObservedAt":"2026-07-29T11:00:00Z","Observations":[{"kind":"WorkloadObserved","subject":{"kind":"service","name":"payments"},"outcome":"Unsupported","provenance":{"collector":"remote","detectedAt":"2026-07-29T11:00:00Z"}}]}
 EOF
 sign_env() { # id sequence outfile
   "$BIN" evidence sign --key "$WORK/keys/demo.key" --key-id demo --producer prod-eu \
@@ -102,7 +118,9 @@ assert_contains "$VOUT" "is valid" "signed envelope verifies"
 PORT=18787
 API="http://localhost:$PORT/api/evidence/v1"
 start_server() {
-  "$BIN" evidence serve --port "$PORT" --trust "$WORK/keys" --bucket-url "file://$WORK/store" --producer prod-eu >/dev/null 2>&1 &
+  # The server resolves the evidence's oci ContractRef from the ephemeral
+  # plain-HTTP registry, so mark it insecure.
+  PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" evidence serve --port "$PORT" --trust "$WORK/keys" --bucket-url "file://$WORK/store" --producer prod-eu >/dev/null 2>&1 &
   SERVE_PID=$!
 }
 wait_ready() { # readiness is gated on completed storage recovery
