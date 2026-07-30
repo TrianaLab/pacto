@@ -1,9 +1,9 @@
 /**
  * Component tests for the redesigned ImpactView.svelte.
- * Covers the revision-selector workflow, honest observed gating (§2.4),
- * separated breaking vs potentially-breaking (§2.3), the consumer table with
- * path/range/verdict/confidence, snapshotId parity display (§2.2), the deep-link
- * auto-run entry point (§2.1), and the empty/error states. `api` is mocked.
+ * Covers the revision-selector workflow, honest observed gating (section 2.4),
+ * separated breaking vs potentially-breaking (section 2.3), the consumer table with
+ * path/range/verdict/confidence, snapshotId parity display (section 2.2), the deep-link
+ * auto-run entry point (section 2.1), and the empty/error states. `api` is mocked.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
@@ -76,7 +76,7 @@ describe('ImpactView — redesigned workflow', () => {
     capabilitiesFn.mockResolvedValue({ fleet: true, impact: true, observed: false });
   });
 
-  it('offers revision selectors populated from the snapshot (§2.1)', async () => {
+  it('offers revision selectors populated from the snapshot (section 2.1)', async () => {
     const { target, component } = mountView();
     await vi.waitFor(() => {
       const svcOpts = Array.from(target.querySelectorAll('#impact-svc option')).map((o) => o.textContent);
@@ -86,7 +86,7 @@ describe('ImpactView — redesigned workflow', () => {
     document.body.removeChild(target);
   });
 
-  it('disables include-observed when no observed source exists (§2.4 no placebo)', async () => {
+  it('disables include-observed when no observed source exists (section 2.4 no placebo)', async () => {
     const { target, component } = mountView();
     await vi.waitFor(() => {
       const cb = target.querySelector('input[type="checkbox"]') as HTMLInputElement;
@@ -124,14 +124,14 @@ describe('ImpactView — redesigned workflow', () => {
     document.body.removeChild(target);
   });
 
-  it('a deep link with both refs runs the analysis immediately (§2.1 entry point)', async () => {
+  it('a deep link with both refs runs the analysis immediately (section 2.1 entry point)', async () => {
     const { target, component } = mountView({ old: 'oci://svc@sha256:1', new: 'oci://svc@sha256:2' });
     await vi.waitFor(() => expect(fleetImpactFn).toHaveBeenCalledWith('oci://svc@sha256:1', 'oci://svc@sha256:2', false));
     unmount(component);
     document.body.removeChild(target);
   });
 
-  it('shows breaking and potentially-breaking changes SEPARATELY (§2.3)', async () => {
+  it('shows breaking and potentially-breaking changes SEPARATELY (section 2.3)', async () => {
     const { target, component } = mountView({ old: 'a', new: 'b' });
     await vi.waitFor(() => {
       const text = target.textContent || '';
@@ -147,7 +147,7 @@ describe('ImpactView — redesigned workflow', () => {
     document.body.removeChild(target);
   });
 
-  it('renders consumers with reach, path, range, verdict, confidence and provenance (§2.3)', async () => {
+  it('renders consumers with reach, path, range, verdict, confidence and provenance (section 2.3)', async () => {
     const { target, component } = mountView({ old: 'a', new: 'b' });
     await vi.waitFor(() => {
       const text = target.textContent || '';
@@ -165,7 +165,7 @@ describe('ImpactView — redesigned workflow', () => {
     document.body.removeChild(target);
   });
 
-  it('shows snapshotId parity with the current graph (§2.2)', async () => {
+  it('shows snapshotId parity with the current graph (section 2.2)', async () => {
     const { target, component } = mountView({ old: 'a', new: 'b' });
     await vi.waitFor(() => expect(target.textContent || '').toContain('matches graph'));
     unmount(component);

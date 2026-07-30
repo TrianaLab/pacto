@@ -69,7 +69,7 @@ func buildDemoFleet(src *EmbedSource) (*fleet.FleetSnapshot, map[string]*contrac
 
 // demoImpactProvider returns the impact provider the demo wires into the
 // dashboard. It analyzes against the SAME published snapshot the Operational
-// Graph serves (so snapshotIds match, §2.2), resolving the two revisions from the
+// Graph serves (so snapshotIds match, section 2.2), resolving the two revisions from the
 // in-memory ref index. Observed edges are folded into that snapshot by
 // buildDemoFleet, so include-observed is a real capability driven by the SAME
 // pipeline the Operational Graph uses (surfacing a shadow consumer), not a placebo

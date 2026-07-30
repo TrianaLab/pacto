@@ -10,7 +10,7 @@ import (
 
 // Two sources contributing the SAME target key but disagreeing on an
 // identity-bearing field must quarantine the target and surface a structured
-// conflict — deterministically, regardless of source order (review §D).
+// conflict — deterministically, regardless of source order (review section D).
 func TestTargetMerge_IdentityConflict_QuarantineAndOrderIndependent(t *testing.T) {
 	rev := func(domain string) RawRevision {
 		return RawRevision{

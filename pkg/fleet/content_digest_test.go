@@ -10,7 +10,7 @@ import (
 // A revision's fallback content identity must cover the COMPLETE bundle, not just
 // the parsed contract — two bundles with an identical pacto.yaml but different
 // referenced files (OpenAPI, schema, skills, docs) must get DIFFERENT revision
-// identities (review §5).
+// identities (review section 5).
 func TestContentDigest_CoversReferencedFiles(t *testing.T) {
 	c := &contract.Contract{
 		PactoVersion: "2.0",

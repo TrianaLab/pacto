@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 // Mobile-layout E2E (runs only on the mobile project, see playwright.config.ts):
 // at a narrow viewport the desktop nav is hidden and the primary navigation
-// collapses into an accessible hamburger drawer. This asserts the §A rules:
+// collapses into an accessible hamburger drawer. This asserts the section A rules:
 // hidden navigation is ABSENT from the accessibility tree until opened, the toggle
 // exposes aria-expanded, and Escape closes the overlay.
 test('the navbar collapses into an accessible hamburger drawer on mobile', async ({ page }) => {

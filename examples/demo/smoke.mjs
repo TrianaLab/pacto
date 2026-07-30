@@ -115,7 +115,7 @@ const newRef = payRevs[payRevs.length - 1].resolvedRef;
 const impRes = call("GET", `/api/fleet/impact?old=${encodeURIComponent(oldRef)}&new=${encodeURIComponent(newRef)}&includeObserved=false`);
 check("impact 200", impRes.status === 200, `status ${impRes.status}`);
 const imp = json(impRes);
-check("impact result binds the published snapshot (§2.2)", imp.snapshotId === snap.snapshotId, `${imp.snapshotId} vs ${snap.snapshotId}`);
+check("impact result binds the published snapshot (section 2.2)", imp.snapshotId === snap.snapshotId, `${imp.snapshotId} vs ${snap.snapshotId}`);
 check("impact 1.0.0→2.0.0 is BREAKING", imp.classification === "BREAKING", imp.classification);
 check("impact has affected consumers (direct + transitive)", (imp.consumers || []).length >= 1);
 

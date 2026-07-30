@@ -97,7 +97,7 @@ e2e-evidence-kind: ci-e2e-kind-evidence
 e2e-reconcile-kind: ci-e2e-kind-reconcile
 e2e-upgrade-kind: ci-e2e-kind-upgrade
 
-# ── Operational-graph story acceptances (§M) ─────────────────────────
+# ── Operational-graph story acceptances (section M) ─────────────────────────
 # Observed relationships end to end in a real browser: the demo folds observed
 # edges into the snapshot, so the Operational Graph's Observed layer and the impact
 # shadow-consumer are real, not placebos.
@@ -110,7 +110,7 @@ e2e-docs:
 	$(MAKE) -C examples/demo build
 	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npx playwright test --project=desktop e2e/mermaid.spec.ts
 
-# Live Kind dashboard browser acceptance (§I): the full vertical (operator +
+# Live Kind dashboard browser acceptance (section I): the full vertical (operator +
 # dashboard + Evidence Server + registry + reconciled CRs + ingested evidence) plus
 # a Playwright/Chromium run against the LIVE, port-forwarded dashboard.
 e2e-dashboard-kind-browser:

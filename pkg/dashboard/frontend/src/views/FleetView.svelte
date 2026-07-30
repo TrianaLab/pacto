@@ -57,7 +57,7 @@
 
   onMount(() => { load(); });
 
-  // §1.3: global refresh + auto-reload must refresh THIS view — not just onMount.
+  // section 1.3: global refresh + auto-reload must refresh THIS view — not just onMount.
   // The first effect run records the initial tick (onMount does the first load);
   // every later tick change triggers a reload without resetting the selection.
   let lastTick = -1;
@@ -117,7 +117,7 @@
     syncUrl();
   }
 
-  // §1.2: selecting a node loads its bounded detail. The node id is a
+  // section 1.2: selecting a node loads its bounded detail. The node id is a
   // domain-qualified key; a revision key (serviceKey@content) resolves to its
   // service for detail.
   async function selectNode(id) {
@@ -195,7 +195,7 @@
     <div class="metric-tile"><span class="metric-head">Relationships</span><span class="metric-value">{counts.relationships}</span></div>
   </div>
 
-  <!-- §1.3: source states are shown explicitly; unavailable/partial/stale are
+  <!-- section 1.3: source states are shown explicitly; unavailable/partial/stale are
        never rendered as "all clear". -->
   {#if sources.length > 0}
     <div class="sources-row" data-testid="source-states">
@@ -346,7 +346,7 @@
         </ul>
 
         <h3>Dependencies <span class="count">{(sv.dependencies || []).length}</span></h3>
-        <!-- §1.2 edge details: each declared edge with type/provenance/required/
+        <!-- section 1.2 edge details: each declared edge with type/provenance/required/
              compatibility/reconciliation state. -->
         {#if (sv.dependencies || []).length > 0}
           <table class="edge-table">

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestOTelObserverStaysOffline guards the §9 narrowing: pkg/otelobserver is an
+// TestOTelObserverStaysOffline guards the section 9 narrowing: pkg/otelobserver is an
 // OFFLINE OTLP/JSON trace-FILE analyzer. It has no OTLP/HTTP receiver, no live
 // endpoint and nothing deployed. The docs (docs/operational-graph.md) claim
 // exactly that. If someone re-introduces a receiver — an HTTP listener, the

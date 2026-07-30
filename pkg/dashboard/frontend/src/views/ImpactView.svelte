@@ -9,7 +9,7 @@
   let { params = {} } = $props();
 
   // Snapshot backs the revision selectors, the observed-availability gate and the
-  // snapshotId comparison — impact analyzes THIS published snapshot (§2.2).
+  // snapshotId comparison — impact analyzes THIS published snapshot (section 2.2).
   let snapshot = $state(null);
   let caps = $state(null);
   let snapLoading = $state(true);
@@ -40,7 +40,7 @@
     return 'badge-neutral';
   }
 
-  // §2.4: the include-observed control is only usable when an observation source
+  // section 2.4: the include-observed control is only usable when an observation source
   // exists — either observed edges in the snapshot, or the host declaring an
   // observation source (capabilities.observed, e.g. the demo's embedded traces).
   // Otherwise it is a placebo and is disabled with a reason.
@@ -144,7 +144,7 @@
 </div>
 
 <form class="impact-form" onsubmit={analyze}>
-  <!-- §2.1: the primary workflow is revision selectors populated from known
+  <!-- section 2.1: the primary workflow is revision selectors populated from known
        revisions; raw refs remain available as an advanced input. -->
   <div class="selectors">
     <div class="field">
@@ -223,7 +223,7 @@
     </div>
   {/if}
 
-  <!-- §2.3: breaking and potentially-breaking are shown SEPARATELY; a
+  <!-- section 2.3: breaking and potentially-breaking are shown SEPARATELY; a
        POTENTIAL_BREAKING change is never labelled "Breaking". -->
   <div class="changes-grid">
     <div class="section">

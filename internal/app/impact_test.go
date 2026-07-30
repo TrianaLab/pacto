@@ -52,7 +52,7 @@ func TestService_Impact(t *testing.T) {
 	}
 }
 
-// TestService_ImpactWithSnapshot_BindsGivenSnapshot proves §2.2: an impact answer
+// TestService_ImpactWithSnapshot_BindsGivenSnapshot proves section 2.2: an impact answer
 // produced against an already-published snapshot carries THAT snapshot's id, so a
 // dashboard can guarantee the impact result matches the graph the user is viewing
 // rather than a freshly rebuilt, divergent one.

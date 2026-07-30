@@ -198,7 +198,7 @@ func TestFleetDetailEndpoints(t *testing.T) {
 	expectStatus(t, baseOff+"/api/fleet/target?key=x", http.StatusNotFound)
 }
 
-// TestFleetServiceDetail_DomainIsolation proves §3 at the API boundary: two
+// TestFleetServiceDetail_DomainIsolation proves section 3 at the API boundary: two
 // same-named services in different domains are distinct records; a bare name is
 // ambiguous (422, qualify it) while the domain-qualified key resolves exactly one.
 func TestFleetServiceDetail_DomainIsolation(t *testing.T) {

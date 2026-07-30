@@ -180,7 +180,7 @@ describe('FleetView — redesigned operational graph', () => {
     document.body.removeChild(target);
   });
 
-  it('a status FAILURE renders "unavailable", never "All clear" (§1.3)', async () => {
+  it('a status FAILURE renders "unavailable", never "All clear" (section 1.3)', async () => {
     fleetStatusFn.mockRejectedValue(new ApiError(503, 'status backend down'));
     const { target, component } = mountView();
     await vi.waitFor(() => {
@@ -192,7 +192,7 @@ describe('FleetView — redesigned operational graph', () => {
     document.body.removeChild(target);
   });
 
-  it('lazily loads bounded detail for a deep-linked selection (§1.2)', async () => {
+  it('lazily loads bounded detail for a deep-linked selection (section 1.2)', async () => {
     const { target, component } = mountView({ params: { sel: 'domain-a/payments' } });
     await vi.waitFor(() => {
       expect(fleetServiceFn).toHaveBeenCalledWith('domain-a/payments');
@@ -219,7 +219,7 @@ describe('FleetView — redesigned operational graph', () => {
     document.body.removeChild(target);
   });
 
-  it('reloads when refreshTick changes (§1.3 auto-refresh)', async () => {
+  it('reloads when refreshTick changes (section 1.3 auto-refresh)', async () => {
     const { target, component, props } = mountView();
     await vi.waitFor(() => expect(fleetSnapshotFn).toHaveBeenCalledTimes(1));
     props.refreshTick = 1; // a global refresh / auto-reload tick

@@ -218,7 +218,7 @@ echo "$SNAP" | grep -q checkout && echo "$SNAP" | grep -q orders && pass "declar
 echo "$SNAP" | grep -q payments && pass "external evidence target present in the graph" || fail "evidence target missing"
 kill "$DASH_PF" 2>/dev/null || true
 
-# Browser acceptance (§I): drive the LIVE dashboard in Chromium via Playwright,
+# Browser acceptance (section I): drive the LIVE dashboard in Chromium via Playwright,
 # proving the real frontend bundle + real HTTP API + real operator data render
 # together — not just that the JSON API answers. Opt-in (the `browser` subcommand)
 # so the default vertical run stays dependency-light.

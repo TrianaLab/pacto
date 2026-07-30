@@ -195,7 +195,7 @@
         {#if !isSameService}
           <span class="text-3">({fromName} {fromVer} vs {toName} {toVer})</span>
         {/if}
-        <!-- §2.1: launch the operational impact of this change from the diff. -->
+        <!-- section 2.1: launch the operational impact of this change from the diff. -->
         <a class="impact-cta" href={impactUrl({ svc: toName })}>Analyze operational impact →</a>
       </div>
 

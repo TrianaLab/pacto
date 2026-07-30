@@ -45,7 +45,7 @@ func crossDomainSnapshot(t *testing.T) *FleetSnapshot {
 	return snap
 }
 
-// The §3 acceptance is split across focused tests (each well under the standalone
+// The section 3 acceptance is split across focused tests (each well under the standalone
 // gocyclo -over 15 gate, which scans _test.go): two same-named services in
 // different domains must never cross-contaminate across services, revisions,
 // targets, dependents, graph traversal, owners or status.

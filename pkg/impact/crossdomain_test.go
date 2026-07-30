@@ -10,7 +10,7 @@ import (
 )
 
 // crossDomainSnap builds a fleet with the same service names in two domains, each
-// with its own consumer, to prove impact answers are domain-isolated (§3/§10).
+// with its own consumer, to prove impact answers are domain-isolated (section 3/section 10).
 func crossDomainSnap(t *testing.T) *fleet.FleetSnapshot {
 	t.Helper()
 	rev := func(domain, name, digest string, deps ...string) fleet.RawRevision {

@@ -575,7 +575,7 @@ func TestServeEvidence_EndToEnd(t *testing.T) {
 	}
 }
 
-// TestServeEvidence_BackgroundRecovery is the §6 acceptance: recovery runs in the
+// TestServeEvidence_BackgroundRecovery is the section 6 acceptance: recovery runs in the
 // background, so a long recovery keeps liveness (/health) up while readiness and
 // ingestion are refused, then both succeed once recovery completes.
 func TestServeEvidence_BackgroundRecovery(t *testing.T) {

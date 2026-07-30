@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// §K: validate that Mermaid diagrams in bundle docs actually RENDER in the browser
+// section K: validate that Mermaid diagrams in bundle docs actually RENDER in the browser
 // — not merely that the ```mermaid source survives. The demo's payments-service
 // v2.1.0 overview carries a flowchart; opening it must replace the code block with
 // a real <svg>. jsdom cannot render Mermaid (it needs a browser), so this can only

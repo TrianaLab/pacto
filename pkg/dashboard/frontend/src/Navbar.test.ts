@@ -1,5 +1,5 @@
 /**
- * Navbar capability gating (§12): the navbar must not expose a capability the
+ * Navbar capability gating (section 12): the navbar must not expose a capability the
  * running host has not registered. The Operational Graph tab requires the fleet
  * capability; it shows when unknown (null) or enabled, and hides when disabled.
  */

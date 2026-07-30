@@ -226,7 +226,7 @@ func TestSearch_Filters(t *testing.T) {
 	}
 }
 
-// TestSearch_CorrelatedTargetsNegative is the §7.1 negative case: a service with a
+// TestSearch_CorrelatedTargetsNegative is the section 7.1 negative case: a service with a
 // PRODUCTION target on a READY revision and a STAGING target on a NOT-READY
 // revision must NOT match "production AND not-ready" — the two conditions come from
 // different targets and are never satisfied by correlating across them.

@@ -267,7 +267,7 @@ func (q *Query) serviceMatches(s *ServiceRecord, f SearchFilter) bool {
 	return true
 }
 
-// matchTargetCorrelated enforces §7.1: when a target predicate (label, scope or
+// matchTargetCorrelated enforces section 7.1: when a target predicate (label, scope or
 // compliance) is present, the readiness predicate must hold for that SAME target
 // and its linked revision. With no target predicate, readiness applies
 // existentially across the service's revisions.

@@ -81,7 +81,7 @@ func writeCLIBundle(t *testing.T, dir, name, version string) {
 }
 
 // TestImpactProviderForFleet exercises the dashboard /api/fleet/impact provider
-// closure: the resolve-error branch, and (§2.2) that a successful impact answer
+// closure: the resolve-error branch, and (section 2.2) that a successful impact answer
 // binds to the Manager's PUBLISHED snapshot — same snapshotId the fleet endpoints
 // serve, never a rebuilt one.
 func TestImpactProviderForFleet(t *testing.T) {
