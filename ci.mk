@@ -10,7 +10,7 @@ REPOWISE_VERSION ?= 0.36.0
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
        ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-e2e-kind-evidence ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs demo-fleet \
-       gen-openapi gen-config-schema gen-sbom gen-bundle
+       gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check
 
 # ── Monorepo CI matrix (go.work) ─────────────────────────────────────
 # The root aggregate. Every leg delegates to the REAL underlying gate across the
@@ -131,10 +131,18 @@ docs-deploy: docs-generate
 	mike deploy --push --update-aliases "$$ver" latest; \
 	mike set-default --push latest
 
+# Blocking Mermaid syntax gate: every fenced ```mermaid block in docs/ +
+# integrations/ must render via mermaid-cli (mmdc). mkdocs --strict does NOT parse
+# mermaid (pymdownx.superfences only wraps it for client-side render), so a broken
+# diagram ships silently — this is the only gate that catches it. See check_mermaid.py.
+mermaid-check:
+	python3 release/scripts/check_mermaid.py
+
 # Full documentation gate: regenerate from scratch, prove zero drift and zero
 # second-run diff, strict build, and validate every fenced contract / CR example /
-# flag / chart / artifact coordinate against the real sources. See docs_check.py.
-docs-check:
+# flag / chart / artifact coordinate against the real sources. Runs mermaid-check
+# first so a broken diagram fails the same gate. See docs_check.py + check_mermaid.py.
+docs-check: mermaid-check
 	python3 release/scripts/docs_check.py
 
 # artifact-drift = one-publisher-per-artifact gate + apply-release-plan

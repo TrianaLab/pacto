@@ -52,7 +52,7 @@ sequenceDiagram
     Host->>Plat: verify signature + freshness + replay
     Plat->>Plat: Evaluate(contract, evidenceSet)
     Plat->>Graph: store record, project to target
-    Note over Graph: stops reporting -> stale, then unavailable; never deleted
+    Note over Graph: stops reporting → stale → unavailable, never deleted
 ```
 
 ---
