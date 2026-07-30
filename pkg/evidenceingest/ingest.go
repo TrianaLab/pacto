@@ -304,16 +304,20 @@ type Handler struct {
 	// ready reports whether the backing store has completed recovery. When nil
 	// the host is treated as always ready (e.g. an in-memory store).
 	ready func() bool
+	// health reports the store's diagnostic health for the /targets DTO, so a
+	// degraded store is surfaced instead of masquerading as healthy. When nil the
+	// DTO reports a ready, uncorrupted store (the in-memory case).
+	health func() SourceHealth
 }
 
 // NewHandler returns an HTTP handler for the accept pipeline. producers is the
-// list of trusted producer ids to advertise; onAccept (optional) is invoked
-// after a successful accept (e.g. to trigger a snapshot refresh); ready
-// (optional) gates the /ready probe.
-func NewHandler(acceptor *Acceptor, producers []string, onAccept func(), ready func() bool) *Handler {
+// list of trusted producer ids to advertise; onAccept (optional) is invoked after
+// a successful accept; ready (optional) gates the /ready probe; health (optional)
+// feeds the /targets DTO's store-health block.
+func NewHandler(acceptor *Acceptor, producers []string, onAccept func(), ready func() bool, health func() SourceHealth) *Handler {
 	sorted := append([]string(nil), producers...)
 	sort.Strings(sorted)
-	return &Handler{acceptor: acceptor, producers: sorted, onAccept: onAccept, ready: ready}
+	return &Handler{acceptor: acceptor, producers: sorted, onAccept: onAccept, ready: ready, health: health}
 }
 
 // Routes registers the ingestion endpoints on mux under /api/evidence/v1.
@@ -371,41 +375,89 @@ func (h *Handler) handleProducers(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string][]string{"producers": h.producers})
 }
 
-// targetView is the small, stable projection of an accepted target for the
-// read-only HTTP evidence source.
-type targetView struct {
-	Subject       string              `json:"subject"`
-	Producer      string              `json:"producer"`
-	Compliance    string              `json:"compliance"`
-	FindingsCount int                 `json:"findingsCount"`
-	Coverage      validation.Coverage `json:"coverage"`
-	ObservedAt    time.Time           `json:"observedAt"`
+// TargetsSchemaVersion identifies the read-only evidence-source DTO wire model.
+const TargetsSchemaVersion = "pacto.dev/evidence-source/v1"
+
+// maxFindingsPerTarget bounds the findings projected per target so one pathological
+// target cannot blow the response body even under the target-count bound.
+var maxFindingsPerTarget = 500
+
+// SourceHealth is the store-health block carried by the /targets DTO so a consumer
+// can tell a degraded or corrupt store from a healthy one.
+type SourceHealth struct {
+	Phase         string `json:"phase"`
+	PendingRepair bool   `json:"pendingRepair"`
+	Corruptions   int    `json:"corruptions"`
 }
 
-// handleTargets projects the latest accepted records into a bounded, read-only
-// list an HTTP evidence source can consume.
+// TargetDTO is a faithful, bounded projection of one accepted target — enough to
+// reconstruct a fleet target with findings, contract linkage, freshness and
+// provenance, not a lossy summary.
+type TargetDTO struct {
+	Subject       string              `json:"subject"`
+	Producer      string              `json:"producer"`
+	ProducerKeyID string              `json:"producerKeyId,omitempty"`
+	Compliance    string              `json:"compliance"`
+	Coverage      validation.Coverage `json:"coverage"`
+	Findings      []finding.Finding   `json:"findings,omitempty"`
+	ContractRef   string              `json:"contractRef,omitempty"`
+	EvidenceAt    time.Time           `json:"evidenceAt"`
+	AcceptedAt    time.Time           `json:"acceptedAt"`
+}
+
+// TargetsResponse is the versioned read-only evidence-source contribution.
+type TargetsResponse struct {
+	SchemaVersion string       `json:"schemaVersion"`
+	GeneratedAt   time.Time    `json:"generatedAt"`
+	Health        SourceHealth `json:"health"`
+	Truncated     bool         `json:"truncated"`
+	Targets       []TargetDTO  `json:"targets"`
+}
+
+// handleTargets serves the versioned, bounded, read-only evidence-source DTO. It
+// carries full (bounded) findings, contract linkage and store health, so a
+// consumer builds a faithful target and can tell a degraded store from a healthy
+// one; truncation is signaled explicitly rather than silently dropping targets.
 func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 	recs, err := h.acceptor.List(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not list targets"})
 		return
 	}
+	truncated := false
 	if len(recs) > maxSourceTargets {
-		recs = recs[:maxSourceTargets]
+		recs, truncated = recs[:maxSourceTargets], true
 	}
-	out := make([]targetView, 0, len(recs))
+	out := make([]TargetDTO, 0, len(recs))
 	for _, rec := range recs {
 		es := rec.Envelope.EvidenceSet
-		out = append(out, targetView{
+		findings := rec.Findings
+		if len(findings) > maxFindingsPerTarget {
+			findings, truncated = findings[:maxFindingsPerTarget], true
+		}
+		out = append(out, TargetDTO{
 			Subject:       es.Subject.Name,
 			Producer:      rec.Envelope.Producer.ID,
+			ProducerKeyID: rec.Envelope.Producer.KeyID,
 			Compliance:    rec.Compliance,
-			FindingsCount: len(rec.Findings),
 			Coverage:      rec.Coverage,
-			ObservedAt:    es.ObservedAt,
+			Findings:      findings,
+			ContractRef:   es.ContractRef,
+			EvidenceAt:    es.ObservedAt,
+			AcceptedAt:    rec.AcceptedAt,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"targets": out})
+	health := SourceHealth{Phase: "ready"}
+	if h.health != nil {
+		health = h.health()
+	}
+	writeJSON(w, http.StatusOK, TargetsResponse{
+		SchemaVersion: TargetsSchemaVersion,
+		GeneratedAt:   time.Now().UTC(),
+		Health:        health,
+		Truncated:     truncated,
+		Targets:       out,
+	})
 }
 
 // statusForError maps an accept error to an HTTP status without leaking secrets.

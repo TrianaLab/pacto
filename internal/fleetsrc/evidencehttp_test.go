@@ -5,9 +5,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
-const targetsJSON = `{"targets":[{"subject":"payments","producer":"prod-eu","compliance":"Compliant","findingsCount":0,"coverage":{"evaluated":3,"required":5},"observedAt":"2026-07-29T11:00:00Z"}]}`
+// targetsJSON is a full v1 DTO: identity, contract linkage, full findings,
+// freshness, provenance and a healthy store.
+const targetsJSON = `{"schemaVersion":"pacto.dev/evidence-source/v1","generatedAt":"2026-07-29T12:00:00Z","health":{"phase":"ready","pendingRepair":false,"corruptions":0},"truncated":false,"targets":[{"subject":"payments","producer":"prod-eu","producerKeyId":"k1","compliance":"Compliant","coverage":{"evaluated":3,"required":5},"findings":[{}],"contractRef":"oci://ghcr.io/acme/payments@sha256:abc","evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:05:00Z"}]}`
+
+func serveJSON(t *testing.T, payload string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(payload))
+	}))
+}
 
 func TestEvidenceHTTPSource_IDKind(t *testing.T) {
 	if s := NewEvidenceHTTPSource("", ""); s.ID() != "evidence-http" || s.Kind() != "evidence-http" {
@@ -31,6 +42,9 @@ func TestEvidenceHTTPSource_Collect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
+	if col.State != nil {
+		t.Errorf("healthy store should not force a source state: %+v", col.State)
+	}
 	if len(col.Targets) != 1 {
 		t.Fatalf("targets = %d, want 1", len(col.Targets))
 	}
@@ -44,9 +58,90 @@ func TestEvidenceHTTPSource_Collect(t *testing.T) {
 	if tgt.Coverage == nil || tgt.Coverage.Evaluated != 3 || tgt.Coverage.Required != 5 {
 		t.Errorf("coverage wrong: %+v", tgt.Coverage)
 	}
+	// Faithful projection: full findings, contract linkage and both timestamps —
+	// not a lossy summary.
+	if len(tgt.Findings) != 1 {
+		t.Errorf("findings not reconstructed: %+v", tgt.Findings)
+	}
+	if tgt.ResolvedRef != "oci://ghcr.io/acme/payments@sha256:abc" || tgt.Digest != "sha256:abc" {
+		t.Errorf("contract linkage lost: ref=%q digest=%q", tgt.ResolvedRef, tgt.Digest)
+	}
 	if tgt.EvidenceAt == nil || tgt.EvidenceAt.Year() != 2026 {
 		t.Errorf("evidenceAt wrong: %v", tgt.EvidenceAt)
 	}
+	if tgt.ReconciledAt == nil || tgt.ReconciledAt.Year() != 2026 {
+		t.Errorf("acceptedAt→reconciledAt wrong: %v", tgt.ReconciledAt)
+	}
+}
+
+func TestEvidenceHTTPSource_Collect_SchemaMismatch(t *testing.T) {
+	srv := serveJSON(t, `{"schemaVersion":"pacto.dev/evidence-source/v2","targets":[]}`)
+	defer srv.Close()
+	if _, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background()); err == nil {
+		t.Fatal("a mismatched schema version must be an error, not a silent read")
+	}
+}
+
+func TestEvidenceHTTPSource_Collect_UnknownField(t *testing.T) {
+	srv := serveJSON(t, `{"schemaVersion":"pacto.dev/evidence-source/v1","targets":[],"surprise":true}`)
+	defer srv.Close()
+	if _, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background()); err == nil {
+		t.Fatal("strict decode must reject an unknown field")
+	}
+}
+
+func TestEvidenceHTTPSource_Collect_InvalidCompliance(t *testing.T) {
+	srv := serveJSON(t, `{"schemaVersion":"pacto.dev/evidence-source/v1","health":{"phase":"ready"},"targets":[{"subject":"payments","producer":"prod-eu","compliance":"Bogus","coverage":{},"evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:00:00Z"}]}`)
+	defer srv.Close()
+	col, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Targets) != 0 {
+		t.Errorf("a target with unknown compliance must be dropped, got %d", len(col.Targets))
+	}
+	if !hasLimitationCode(col.Limitations, fleet.LimitationSourceRecordInvalid) {
+		t.Errorf("dropped record must surface a limitation: %+v", col.Limitations)
+	}
+}
+
+func TestEvidenceHTTPSource_Collect_Degraded(t *testing.T) {
+	cases := map[string]string{
+		"phase":         `"health":{"phase":"recovering"}`,
+		"pendingRepair": `"health":{"phase":"ready","pendingRepair":true}`,
+		"corruptions":   `"health":{"phase":"ready","corruptions":2}`,
+		"truncated":     `"health":{"phase":"ready"},"truncated":true`,
+	}
+	for name, health := range cases {
+		t.Run(name, func(t *testing.T) {
+			payload := `{"schemaVersion":"pacto.dev/evidence-source/v1",` + health + `,"targets":[{"subject":"payments","producer":"prod-eu","compliance":"Compliant","coverage":{},"evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:00:00Z"}]}`
+			srv := serveJSON(t, payload)
+			defer srv.Close()
+			col, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background())
+			if err != nil {
+				t.Fatalf("Collect: %v", err)
+			}
+			// Usable targets are still kept — degraded means partial, not empty.
+			if len(col.Targets) != 1 {
+				t.Errorf("degraded source should still keep usable targets, got %d", len(col.Targets))
+			}
+			if col.State == nil || col.State.Status != fleet.SourcePartial {
+				t.Errorf("degraded source must be SourcePartial: %+v", col.State)
+			}
+			if !hasLimitationCode(col.Limitations, fleet.LimitationSourcePartial) {
+				t.Errorf("degraded source must surface SOURCE_PARTIAL: %+v", col.Limitations)
+			}
+		})
+	}
+}
+
+func hasLimitationCode(ls []fleet.Limitation, code string) bool {
+	for _, l := range ls {
+		if l.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func TestEvidenceHTTPSource_Collect_Non200(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/evidencestore"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
 func TestService_InspectEvidence(t *testing.T) {
@@ -93,6 +94,37 @@ func TestOpenEvidenceStore_MkdirError(t *testing.T) {
 	}
 	if _, err := openEvidenceStore(context.Background(), "file://"+filepath.Join(file, "bucket"), DefaultEvidencePrefix); err == nil {
 		t.Fatal("expected a mkdir error under a regular file")
+	}
+}
+
+func TestDurableEvidenceSource_Collect_DegradedIsPartial(t *testing.T) {
+	// A recovered-but-degraded store (a stray/garbage object under envelopes/)
+	// still serves usable targets, but the contribution must be marked partial
+	// rather than presented as a complete graph.
+	ctx := context.Background()
+	dir := t.TempDir()
+	stray := filepath.Join(dir, DefaultEvidencePrefix, "envelopes", "stray.json")
+	if err := os.MkdirAll(filepath.Dir(stray), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stray, []byte("{not a record}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	col, err := newDurableEvidenceSource("evidence-store", dir).Collect(ctx)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if col.State == nil || col.State.Status != fleet.SourcePartial {
+		t.Errorf("degraded store must be SourcePartial: %+v", col.State)
+	}
+	found := false
+	for _, l := range col.Limitations {
+		if l.Code == fleet.LimitationSourcePartial {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("degraded store must surface SOURCE_PARTIAL: %+v", col.Limitations)
 	}
 }
 

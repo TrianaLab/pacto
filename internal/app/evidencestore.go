@@ -147,6 +147,18 @@ func (s *durableEvidenceSource) Collect(ctx context.Context) (*fleet.Collection,
 	for _, ar := range store.ListLatest(ctx, evidencestore.ListOptions{}) {
 		col.Targets = append(col.Targets, rawTargetFromAccepted(ar))
 	}
+	// A store that recovered but is degraded (a projection write failed, or some
+	// records could not be recovered) still serves its usable targets, but the
+	// contribution is incomplete — mark it partial rather than presenting a
+	// full-looking graph.
+	st := store.Inspect(ctx)
+	if st.Phase != evidencestore.PhaseReady || st.PendingRepair || len(st.Corruptions) > 0 {
+		col.State = &fleet.SourceState{Status: fleet.SourcePartial}
+		col.Limitations = append(col.Limitations, fleet.Limitation{
+			Code: fleet.LimitationSourcePartial, Source: s.id,
+			Message: "evidence store is degraded: some records may be missing",
+		})
+	}
 	return col, nil
 }
 

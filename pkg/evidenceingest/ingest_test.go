@@ -247,7 +247,7 @@ func TestHandler_HTTP(t *testing.T) {
 	store := NewMemoryStore()
 	a, priv := newTestAcceptor(t, fakeResolver{}, store)
 	var refreshed int
-	h := NewHandler(a, []string{"env-a", "env-b"}, func() { refreshed++ }, nil)
+	h := NewHandler(a, []string{"env-a", "env-b"}, func() { refreshed++ }, nil, nil)
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)
@@ -277,7 +277,7 @@ func TestHandler_HTTP(t *testing.T) {
 func TestHandler_Ready(t *testing.T) {
 	a, priv := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
 	ready := false
-	h := NewHandler(a, nil, nil, func() bool { return ready })
+	h := NewHandler(a, nil, nil, func() bool { return ready }, nil)
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)
@@ -301,33 +301,94 @@ func TestHandler_Targets(t *testing.T) {
 	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet())); err != nil {
 		t.Fatal(err)
 	}
-	h := NewHandler(a, nil, nil, nil)
+	h := NewHandler(a, nil, nil, nil, nil)
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	var body struct {
-		Targets []targetView `json:"targets"`
-	}
+	var body TargetsResponse
 	getJSON(t, srv.URL+"/api/evidence/v1/targets", &body)
-	if len(body.Targets) != 1 || body.Targets[0].Subject != "payments" || body.Targets[0].Producer != "env-a" {
+	if body.SchemaVersion != TargetsSchemaVersion {
+		t.Errorf("schemaVersion = %q, want %q", body.SchemaVersion, TargetsSchemaVersion)
+	}
+	if body.Health.Phase != "ready" || body.Truncated {
+		t.Errorf("default health/truncated: %+v truncated=%v", body.Health, body.Truncated)
+	}
+	if len(body.Targets) != 1 {
 		t.Fatalf("unexpected targets: %+v", body.Targets)
 	}
+	got := body.Targets[0]
+	// Faithful projection: identity, contract linkage, freshness and provenance
+	// all cross the wire, not just a summary.
+	if got.Subject != "payments" || got.Producer != "env-a" || got.ProducerKeyID != keyID {
+		t.Errorf("identity/provenance lost: %+v", got)
+	}
+	if got.ContractRef != "oci://ghcr.io/acme/payments@sha256:abc" {
+		t.Errorf("contract linkage lost: %q", got.ContractRef)
+	}
+	if got.AcceptedAt.IsZero() || got.EvidenceAt.IsZero() {
+		t.Errorf("freshness lost: acceptedAt=%v evidenceAt=%v", got.AcceptedAt, got.EvidenceAt)
+	}
 
-	// The bound truncates the returned list.
+	// The count bound truncates the list AND says so.
 	orig := maxSourceTargets
 	maxSourceTargets = 0
 	defer func() { maxSourceTargets = orig }()
 	getJSON(t, srv.URL+"/api/evidence/v1/targets", &body)
-	if len(body.Targets) != 0 {
-		t.Errorf("bound should truncate, got %d", len(body.Targets))
+	if len(body.Targets) != 0 || !body.Truncated {
+		t.Errorf("count bound should truncate+signal, got %d truncated=%v", len(body.Targets), body.Truncated)
+	}
+}
+
+func TestHandler_TargetsFindingsCapAndHealth(t *testing.T) {
+	store := NewMemoryStore()
+	rec := Record{
+		Envelope: evidenceenvelope.Envelope{
+			ID:       "e1",
+			Producer: evidenceenvelope.Producer{ID: "env-a", KeyID: keyID},
+			Sequence: 1,
+			EvidenceSet: evidence.EvidenceSet{
+				Subject:     evidence.SubjectRef{Kind: "service", Name: "payments"},
+				ContractRef: "oci://ghcr.io/acme/payments@sha256:abc",
+			},
+		},
+		Compliance: "compliant",
+		Findings:   []finding.Finding{{}, {}, {}},
+		AcceptedAt: fixedNow(),
+	}
+	if err := store.Commit(context.Background(), rec); err != nil {
+		t.Fatal(err)
+	}
+	a := NewAcceptor(nil, fakeResolver{}, store, fixedNow)
+	health := func() SourceHealth { return SourceHealth{Phase: "degraded", PendingRepair: true, Corruptions: 2} }
+	h := NewHandler(a, nil, nil, nil, health)
+
+	orig := maxFindingsPerTarget
+	maxFindingsPerTarget = 1
+	defer func() { maxFindingsPerTarget = orig }()
+
+	mux := http.NewServeMux()
+	h.Routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	var body TargetsResponse
+	getJSON(t, srv.URL+"/api/evidence/v1/targets", &body)
+	if body.Health.Phase != "degraded" || !body.Health.PendingRepair || body.Health.Corruptions != 2 {
+		t.Errorf("store health not surfaced: %+v", body.Health)
+	}
+	if !body.Truncated {
+		t.Errorf("findings cap should mark truncated")
+	}
+	if n := len(body.Targets[0].Findings); n != 1 {
+		t.Errorf("findings cap = %d, want 1", n)
 	}
 }
 
 func TestHandler_TargetsError(t *testing.T) {
 	a := NewAcceptor(nil, fakeResolver{}, failStore{err: errors.New("read error")}, fixedNow)
-	h := NewHandler(a, nil, nil, nil)
+	h := NewHandler(a, nil, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/evidence/v1/targets", nil)
 	w := httptest.NewRecorder()
 	h.handleTargets(w, req)
@@ -389,7 +450,7 @@ func (brokenReader) Read([]byte) (int, error) { return 0, errors.New("read failu
 
 func TestHandler_BodyReadError(t *testing.T) {
 	a, _ := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
-	h := NewHandler(a, nil, nil, nil)
+	h := NewHandler(a, nil, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/evidence/v1/envelopes", brokenReader{})
 	w := httptest.NewRecorder()
 	h.handleEnvelope(w, req)
@@ -445,7 +506,7 @@ func TestNewAcceptor_DefaultClock(t *testing.T) {
 func TestHandler_NilOnAccept(t *testing.T) {
 	store := NewMemoryStore()
 	a, priv := newTestAcceptor(t, fakeResolver{}, store)
-	h := NewHandler(a, nil, nil, nil) // nil onAccept must not panic
+	h := NewHandler(a, nil, nil, nil, nil) // nil onAccept must not panic
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)

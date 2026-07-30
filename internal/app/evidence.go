@@ -341,7 +341,11 @@ func (s *Service) buildEvidenceHost(ctx context.Context, opts ServeOptions) (*ht
 		phase := store.Phase()
 		return phase == evidencestore.PhaseReady || phase == evidencestore.PhaseDegraded
 	}
-	handler := evidenceingest.NewHandler(acceptor, opts.Producers, nil, ready)
+	health := func() evidenceingest.SourceHealth {
+		st := store.Inspect(ctx)
+		return evidenceingest.SourceHealth{Phase: string(st.Phase), PendingRepair: st.PendingRepair, Corruptions: len(st.Corruptions)}
+	}
+	handler := evidenceingest.NewHandler(acceptor, opts.Producers, nil, ready, health)
 	mux := http.NewServeMux()
 	handler.Routes(mux)
 	return mux, store, nil

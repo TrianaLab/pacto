@@ -206,7 +206,43 @@ is mandatory**, and is what the platform relies on regardless of transport.
 | `GET /api/evidence/v1/health` | Liveness. Independent of recovery. | `200 OK` with `{ "status": "ok" }` |
 | `GET /api/evidence/v1/ready` | Readiness. `503` until the durable store finishes recovery. | `200 OK` with `{ "status": "ready" }` |
 | `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises. | `200 OK` with `{ "producers": [ … ] }` |
-| `GET /api/evidence/v1/targets` | The latest accepted target per producer, for a read-only HTTP evidence source. | `200 OK` with `{ "targets": [ … ] }` |
+| `GET /api/evidence/v1/targets` | The latest accepted target per producer, for a read-only HTTP evidence source. | `200 OK` with the versioned targets DTO (below). |
+
+The `/targets` response is a versioned, self-describing DTO so a consumer can
+reconstruct a faithful operational target — not a lossy summary — and can tell a
+degraded store from a healthy one:
+
+```json
+{
+  "schemaVersion": "pacto.dev/evidence-source/v1",
+  "generatedAt": "2026-07-29T12:00:00Z",
+  "health": { "phase": "ready", "pendingRepair": false, "corruptions": 0 },
+  "truncated": false,
+  "targets": [
+    {
+      "subject": "payments",
+      "producer": "prod-eu",
+      "producerKeyId": "edge-eu-west-2026",
+      "compliance": "Compliant",
+      "coverage": { "evaluated": 3, "required": 5 },
+      "findings": [ … ],
+      "contractRef": "oci://ghcr.io/acme/payments@sha256:…",
+      "evidenceAt": "2026-07-29T11:00:00Z",
+      "acceptedAt": "2026-07-29T11:05:00Z"
+    }
+  ]
+}
+```
+
+Each target carries full findings, the immutable `contractRef` (so it links to a
+concrete revision), both the evidence and accept timestamps, and producer
+provenance. `schemaVersion` is the compatibility contract: a consumer that does
+not recognise it treats the source as unavailable rather than misreading it.
+`health` and `truncated` let a consumer mark the source *partial* — keeping the
+usable targets while surfacing that the contribution is incomplete — instead of
+presenting a full-looking graph. Both the target count and the per-target
+findings count are bounded; `truncated` is set when either bound trims the
+response.
 
 `POST` status codes map the accept outcome without leaking any secret material:
 
