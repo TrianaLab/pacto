@@ -205,13 +205,30 @@ const (
 	SourceUnavailable SourceStatus = "unavailable"
 )
 
-// Provenance distinguishes how a relationship became known. Only "declared" is
-// produced today; the discriminator leaves a clean path for a future observed
-// (OTel) or inferred graph without conflating them with declared intent.
+// Provenance distinguishes how a relationship became known. "declared" (from a
+// contract) and "observed" (folded from runtime telemetry, see
+// foldObservedRelationships) are both produced today and kept separate so an
+// observed edge is never conflated with declared intent; "inferred" is reserved
+// for a future heuristic graph and is not produced yet.
 const (
 	ProvenanceDeclared = "declared"
 	ProvenanceObserved = "observed"
 	ProvenanceInferred = "inferred"
+)
+
+// Reconciliation classifies a DECLARED dependency edge against the snapshot's
+// observation data. It is an explicit backend fact — never inferred from name
+// resolution or whether the provider happens to be deployed. Empty for
+// observed/inferred edges and non-dependency edges.
+const (
+	// ReconciliationMatched: declared AND corroborated by an observed edge.
+	ReconciliationMatched = "matched"
+	// ReconciliationDeclaredNotObserved: observation data exists but did not
+	// witness this edge (dormant, or the window was too short — not proof it is dead).
+	ReconciliationDeclaredNotObserved = "declared-not-observed"
+	// ReconciliationInsufficient: no observation data at all, so the edge cannot be
+	// reconciled. A declared edge is NEVER called reconciled without observed data.
+	ReconciliationInsufficient = "insufficient"
 )
 
 // Contract/compliance state strings, aligned with the operator and dashboard
@@ -259,6 +276,7 @@ const (
 	LimitationDuplicateSourceID   = "DUPLICATE_SOURCE_ID"
 	LimitationRevisionUnresolved  = "REVISION_IDENTITY_UNRESOLVED"
 	LimitationRevisionConflict    = "REVISION_CONTENT_CONFLICT"
+	LimitationRevisionAmbiguous   = "REVISION_LINK_AMBIGUOUS"
 	LimitationTargetRefConflict   = "TARGET_REFERENCE_CONFLICT"
 	LimitationTargetFieldConflict = "TARGET_FIELD_CONFLICT"
 	LimitationOwnerConflict       = "OWNER_CONFLICT"
@@ -390,19 +408,25 @@ type TargetRecord struct {
 	Domain           string            `json:"domain,omitempty"`
 	ServiceKey       ServiceKey        `json:"serviceKey"`
 	ContractRevision RevisionKey       `json:"contractRevision,omitempty"`
-	RequestedRef     string            `json:"requestedRef,omitempty"`
-	ResolvedRef      string            `json:"resolvedRef,omitempty"`
-	Digest           string            `json:"digest,omitempty"`
-	Compliance       string            `json:"compliance"`
-	Findings         []finding.Finding `json:"findings,omitempty"`
-	Coverage         *Coverage         `json:"coverage,omitempty"`
-	Readiness        *readiness.Result `json:"readiness,omitempty"`
-	ObservedRuntime  map[string]any    `json:"observedRuntime,omitempty"`
-	EvidenceAt       *time.Time        `json:"evidenceAt,omitempty"`
-	ReconciledAt     *time.Time        `json:"reconciledAt,omitempty"`
-	Source           string            `json:"source"`
-	Sources          []string          `json:"sources,omitempty"`
-	Stale            bool              `json:"stale"`
+	// RevisionMatch records HOW ContractRevision was linked: "exact" (immutable
+	// digest — the revision known to be running) or "inferred" (a unique but
+	// MUTABLE tag/version correlation, not proof). Empty when there is no link;
+	// an ambiguous mutable match yields no link and a REVISION_LINK_AMBIGUOUS
+	// limitation instead. Only an exact link may be presented as authoritative.
+	RevisionMatch   string            `json:"revisionMatch,omitempty"`
+	RequestedRef    string            `json:"requestedRef,omitempty"`
+	ResolvedRef     string            `json:"resolvedRef,omitempty"`
+	Digest          string            `json:"digest,omitempty"`
+	Compliance      string            `json:"compliance"`
+	Findings        []finding.Finding `json:"findings,omitempty"`
+	Coverage        *Coverage         `json:"coverage,omitempty"`
+	Readiness       *readiness.Result `json:"readiness,omitempty"`
+	ObservedRuntime map[string]any    `json:"observedRuntime,omitempty"`
+	EvidenceAt      *time.Time        `json:"evidenceAt,omitempty"`
+	ReconciledAt    *time.Time        `json:"reconciledAt,omitempty"`
+	Source          string            `json:"source"`
+	Sources         []string          `json:"sources,omitempty"`
+	Stale           bool              `json:"stale"`
 	// Quarantined is set when two sources contributed this target key with
 	// conflicting identity-bearing fields (service, domain, revision, digest, ref).
 	// The record is kept visible with its conflict limitations but is NOT treated
@@ -430,9 +454,10 @@ const (
 
 // Relationship is a directed, revision-scoped graph edge. A declared edge
 // originates from a specific [ContractRevision] (FromRevision) of a logical
-// service (FromService) — never from "the service's latest revision". Only
-// declared edges are produced today; Provenance leaves room for observed/inferred
-// edges later without conflating them with declared intent.
+// service (FromService) — never from "the service's latest revision". Declared
+// and observed edges are both produced today (see Provenance); an observed edge
+// is folded from runtime telemetry and carries ObservedCount/Source. Inferred
+// edges are reserved and not produced yet.
 type Relationship struct {
 	FromService      ServiceKey  `json:"fromService"`
 	FromRevision     RevisionKey `json:"fromRevision,omitempty"`
@@ -441,18 +466,44 @@ type Relationship struct {
 	ResolvedRevision RevisionKey `json:"resolvedRevision,omitempty"`
 	Type             string      `json:"type"`
 	Provenance       string      `json:"provenance"`
-	Required         bool        `json:"required,omitempty"`
-	Compatibility    string      `json:"compatibility,omitempty"`
-	Resolved         bool        `json:"resolved"`
-	RequestedRef     string      `json:"requestedRef,omitempty"`
-	LockedDigest     string      `json:"lockedDigest,omitempty"`
-	LockedVersion    string      `json:"lockedVersion,omitempty"`
-	Reason           string      `json:"reason,omitempty"`
-	// ObservedCount is the number of runtime calls witnessed for an observed
-	// (Provenance == observed) edge. Zero for declared edges.
+	// Reconciliation, for a declared dependency edge, is the explicit
+	// declared-vs-observed outcome computed against the snapshot's observed edges
+	// (matched / declared-not-observed / insufficient). Empty for observed and
+	// inferred edges. Consumers must render "reconciled" from THIS, never from name
+	// resolution or provider deployment.
+	Reconciliation string `json:"reconciliation,omitempty"`
+	Required       bool   `json:"required,omitempty"`
+	Compatibility  string `json:"compatibility,omitempty"`
+	Resolved       bool   `json:"resolved"`
+	RequestedRef   string `json:"requestedRef,omitempty"`
+	LockedDigest   string `json:"lockedDigest,omitempty"`
+	LockedVersion  string `json:"lockedVersion,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	// ObservedCount is the TOTAL runtime calls witnessed across all sources for an
+	// observed (Provenance == observed) edge. Zero for declared edges.
 	ObservedCount int `json:"observedCount,omitempty"`
-	// Source is the id of the source that witnessed an observed edge (provenance).
+	// Source is the id of the sole source that witnessed an observed edge; it is
+	// EMPTY when more than one source contributed (see ObservedSources), so a
+	// multi-source count is never attributed to just the first source.
 	Source string `json:"source,omitempty"`
+	// ObservedSources is the per-source breakdown of an observed edge — each
+	// source's own count and observation window — so no source's contribution is
+	// collapsed onto another. Empty for declared edges.
+	ObservedSources []ObservedSourceStat `json:"observedSources,omitempty"`
+	// FirstSeen/LastSeen bound the observation window (min/max across sources) of an
+	// observed edge. This is the trace window, NOT "current" runtime truth; an old
+	// offline sample keeps its old window.
+	FirstSeen *time.Time `json:"firstSeen,omitempty"`
+	LastSeen  *time.Time `json:"lastSeen,omitempty"`
+}
+
+// ObservedSourceStat is one observation source's contribution to an observed
+// relationship: the calls it witnessed and the window it saw them in.
+type ObservedSourceStat struct {
+	Source    string     `json:"source"`
+	Count     int        `json:"count"`
+	FirstSeen *time.Time `json:"firstSeen,omitempty"`
+	LastSeen  *time.Time `json:"lastSeen,omitempty"`
 }
 
 // FleetSnapshot is the immutable read model produced by [Build]. Maps serialize

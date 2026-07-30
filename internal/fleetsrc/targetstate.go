@@ -3,7 +3,9 @@ package fleetsrc
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -88,13 +90,18 @@ func (s *TargetStateFileSource) Collect(ctx context.Context) (*fleet.Collection,
 }
 
 // decodeTargetStateStrict decodes with KnownFields so unknown fields are
-// rejected rather than silently ignored.
+// rejected, and requires the input to be EXACTLY ONE document: a trailing second
+// YAML document ("---\n…") is rejected rather than silently ignored, mirroring the
+// exactly-one-value rule at the JSON boundaries.
 func decodeTargetStateStrict(data []byte) (*targetStateDoc, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var doc targetStateDoc
 	if err := dec.Decode(&doc); err != nil {
 		return nil, err
+	}
+	if err := dec.Decode(new(targetStateDoc)); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("target-state file must contain exactly one document")
 	}
 	return &doc, nil
 }

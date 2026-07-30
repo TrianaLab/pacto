@@ -30,8 +30,9 @@ ci-gates:
 ci-static: ci-static-engine
 	$(MAKE) -C integrations/kubernetes ci-static
 
-# Engine static gates (fmt, vet, cyclo, lint, CLI docs drift, UI build drift).
-ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint ci-docs ci-ui-drift
+# Engine static gates (fmt, vet, cyclo, lint, U+00A7 section-sign gate, CLI docs
+# drift, UI build drift). check-section is blocking here, not only under `lint`.
+ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint check-section ci-docs ci-ui-drift
 
 # Engine leg: unit tests (100% coverage gate) + engine e2e + the cluster-free
 # operational-graph acceptance (tests/e2e/fleet-graph.sh).

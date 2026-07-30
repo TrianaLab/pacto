@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Bring up the FULL Pacto operational-graph vertical in a local kind cluster so the
-# whole product can be tested end to end in a browser: the operator, the dashboard,
-# the Evidence Server and an in-cluster OCI registry — with real declared services
-# (Pacto CRs the operator reconciles), a declared dependency edge, reconciled
-# runtime targets, and a signed EvidenceEnvelope ingested from a "remote"
-# environment as an external target. Everything a fully-configured install shows.
+# Bring up the FULL Pacto operational-graph vertical in a local kind cluster: the
+# operator, the dashboard, the Evidence Server and an in-cluster OCI registry —
+# with real declared services (Pacto CRs the operator reconciles), a declared
+# dependency edge, reconciled runtime targets, and a signed EvidenceEnvelope
+# ingested from a "remote" environment as an external target. This script asserts
+# the vertical at the API level (/api/fleet/snapshot, the Evidence source, the
+# CLI); the `browser` subcommand adds a Playwright SMOKE check that the live
+# dashboard renders and a seeded service is navigable — it is NOT a full
+# product-acceptance suite (see the spec for exactly what it asserts).
 #
 # Subcommands (driven by the Makefile aliases):
 #   (default) / up   build + provision + assert, then keep or tear down

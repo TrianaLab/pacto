@@ -59,11 +59,14 @@ type ScopeSpans struct {
 	Spans []Span `json:"spans"`
 }
 
-// Span is one recorded span; only kind and attributes are read.
+// Span is one recorded span; kind, attributes and the start/end timestamps are
+// read. The OTLP/JSON timestamps are unsigned-nanosecond strings.
 type Span struct {
-	Name       string     `json:"name"`
-	Kind       spanKind   `json:"kind"`
-	Attributes []KeyValue `json:"attributes"`
+	Name              string     `json:"name"`
+	Kind              spanKind   `json:"kind"`
+	StartTimeUnixNano string     `json:"startTimeUnixNano"`
+	EndTimeUnixNano   string     `json:"endTimeUnixNano"`
+	Attributes        []KeyValue `json:"attributes"`
 }
 
 // KeyValue is an OTLP attribute.
@@ -103,11 +106,15 @@ func (k *spanKind) UnmarshalJSON(b []byte) error {
 }
 
 // Edge is an observed dependency: From (a service) reached To (its callee) in
-// Count outbound spans.
+// Count outbound spans, first witnessed at FirstSeen and last at LastSeen (the
+// observation window derived from the spans' timestamps; zero when the traces
+// carry none).
 type Edge struct {
-	From  string `json:"from"`
-	To    string `json:"to"`
-	Count int    `json:"count"`
+	From      string    `json:"from"`
+	To        string    `json:"to"`
+	Count     int       `json:"count"`
+	FirstSeen time.Time `json:"firstSeen,omitzero"`
+	LastSeen  time.Time `json:"lastSeen,omitzero"`
 }
 
 // ParseTraces decodes an OTLP/JSON trace payload.
@@ -123,7 +130,7 @@ func ParseTraces(data []byte) (*TracesData, error) {
 // sorted by From then To for deterministic output. Self-edges and spans without
 // a resolvable caller or callee are skipped.
 func DependencyEdges(td *TracesData) []Edge {
-	counts := map[[2]string]int{}
+	edges := map[[2]string]*edgeAgg{}
 	for _, rs := range td.ResourceSpans {
 		caller := attrValue(rs.Resource.Attributes, "service.name")
 		if caller == "" {
@@ -131,28 +138,64 @@ func DependencyEdges(td *TracesData) []Edge {
 		}
 		for _, ss := range rs.ScopeSpans {
 			for _, sp := range ss.Spans {
-				if sp.Kind != spanKindClient && sp.Kind != spanKindProducer {
-					continue
-				}
-				callee := calleeName(sp.Attributes)
-				if callee == "" || callee == caller {
-					continue
-				}
-				counts[[2]string{caller, callee}]++
+				foldSpanEdge(edges, caller, sp)
 			}
 		}
 	}
-	edges := make([]Edge, 0, len(counts))
-	for k, n := range counts {
-		edges = append(edges, Edge{From: k[0], To: k[1], Count: n})
+	out := make([]Edge, 0, len(edges))
+	for k, a := range edges {
+		out = append(out, Edge{From: k[0], To: k[1], Count: a.count, FirstSeen: a.first, LastSeen: a.last})
 	}
-	sort.Slice(edges, func(i, j int) bool {
-		if edges[i].From != edges[j].From {
-			return edges[i].From < edges[j].From
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].From != out[j].From {
+			return out[i].From < out[j].From
 		}
-		return edges[i].To < edges[j].To
+		return out[i].To < out[j].To
 	})
-	return edges
+	return out
+}
+
+type edgeAgg struct {
+	count       int
+	first, last time.Time
+}
+
+// foldSpanEdge folds one outbound span into the caller->callee aggregate,
+// widening the observation window from the span's start/end timestamps.
+func foldSpanEdge(edges map[[2]string]*edgeAgg, caller string, sp Span) {
+	if sp.Kind != spanKindClient && sp.Kind != spanKindProducer {
+		return
+	}
+	callee := calleeName(sp.Attributes)
+	if callee == "" || callee == caller {
+		return
+	}
+	k := [2]string{caller, callee}
+	a := edges[k]
+	if a == nil {
+		a = &edgeAgg{}
+		edges[k] = a
+	}
+	a.count++
+	if st := parseNano(sp.StartTimeUnixNano); !st.IsZero() && (a.first.IsZero() || st.Before(a.first)) {
+		a.first = st
+	}
+	if et := parseNano(sp.EndTimeUnixNano); !et.IsZero() && et.After(a.last) {
+		a.last = et
+	}
+}
+
+// parseNano parses an OTLP unsigned-nanosecond timestamp string into a UTC time,
+// returning the zero time for an empty, unparseable or out-of-int64-range value.
+func parseNano(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil || n > 1<<63-1 {
+		return time.Time{}
+	}
+	return time.Unix(0, int64(n)).UTC()
 }
 
 // Options configure evidence emission.

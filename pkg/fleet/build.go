@@ -129,6 +129,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	aggregateServices(snap)
 	buildRelationships(snap)
 	foldObservedRelationships(snap, observed)
+	reconcileDeclared(snap)
 	snap.Completeness = classifyCompleteness(snap)
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
 	sortSnapshot(snap)
@@ -205,6 +206,10 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	for _, raw := range col.Revisions {
 		rev, lims := revisionFrom(raw, src.ID(), now)
 		if rev == nil {
+			// A nil revision may still carry a limitation stating why it was omitted
+			// (e.g. no immutable digest and unhashable content); record it so the
+			// omission is honest rather than silent.
+			snap.Limitations = append(snap.Limitations, lims...)
 			continue
 		}
 		if existing := snap.Revisions[rev.Key]; existing != nil {
@@ -382,7 +387,15 @@ func targetFresher(a, b *TargetRecord) bool {
 	}
 }
 
-// applyEvaluation copies the evaluation-owned fields from the fresher target.
+// applyEvaluation copies the evaluation-owned fields from the fresher target,
+// including Source so the source of record follows the authoritative evaluation
+// (otherwise the winning evaluation is mis-attributed to whichever source merged
+// first). Digest is deliberately NOT copied here: it is an identity-bearing
+// field, and carrying it across the freshness merge would let a fresher
+// evaluation that lacks a digest wipe one another source established, making the
+// serialized snapshot and its SnapshotID depend on source order. Digest is
+// reconciled order-independently by mergeTargetIdentity (fill-empty or
+// quarantine).
 func applyEvaluation(dst, src *TargetRecord) {
 	dst.Compliance = src.Compliance
 	dst.Findings = src.Findings
@@ -391,7 +404,7 @@ func applyEvaluation(dst, src *TargetRecord) {
 	dst.ObservedRuntime = src.ObservedRuntime
 	dst.EvidenceAt = src.EvidenceAt
 	dst.ReconciledAt = src.ReconciledAt
-	dst.Digest = src.Digest
+	dst.Source = src.Source
 }
 
 // sourceStateFor derives (or honors a source-supplied) state for a collection.
@@ -463,13 +476,26 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 	b := raw.Bundle
 	c := b.Contract
 	serviceKey := NewServiceKeyDomain(raw.Domain, c.Service.Name)
-	content := contentDigest(b)
-	contentID := raw.Digest
 	var lims []Limitation
-	if contentID == "" {
-		// No immutable digest: derive a collision-safe content identity rather than
-		// falling back to a mutable tag or version.
-		contentID = content
+	// When the source pinned an immutable digest that IS the content identity:
+	// two sources agreeing on the same digest can never spuriously conflict on
+	// content, even if one's local FS holds regenerated/cache artifacts. Only when
+	// there is no immutable digest do we derive a full-bundle content identity.
+	contentID := raw.Digest
+	content := raw.Digest
+	if raw.Digest == "" {
+		cd, err := contentDigest(b)
+		if err != nil {
+			// The full logical content cannot be hashed and there is no immutable
+			// digest. Omit the revision rather than assign a contract-only identity
+			// that would be presented as collision-safe when it is not.
+			return nil, []Limitation{{
+				Code: LimitationRevisionUnresolved, Source: source,
+				Message: "revision " + c.Service.Name + " has no immutable digest and its bundle content could not be hashed (" + err.Error() + "); it is omitted rather than given a non-collision-safe identity",
+			}}
+		}
+		contentID = cd
+		content = cd
 		lims = append(lims, Limitation{
 			Code: LimitationRevisionUnresolved, Source: source,
 			Message: "revision " + c.Service.Name + " has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference",
@@ -522,23 +548,26 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 // bundles with an identical pacto.yaml but different referenced content therefore
 // get different revision identities. encoding/json sorts map keys, so equal
 // contracts hash identically; lock.HashFS is order-independent over the FS.
-func contentDigest(b *contract.Bundle) string {
+func contentDigest(b *contract.Bundle) (string, error) {
 	h := sha256.New()
 	data, _ := json.Marshal(b.Contract)
 	h.Write(data)
 	if b.FS != nil {
 		// Fold in every bundle file so referenced content affects identity. A hash
-		// error (unreadable FS) degrades to the contract-only digest rather than
-		// failing the build.
-		if fsHash, err := lock.HashFS(b.FS); err == nil {
-			h.Write([]byte{0})
-			h.Write([]byte(fsHash))
+		// error (unreadable FS) is returned, NOT silently degraded to a
+		// contract-only digest: the caller must not present an incomplete identity
+		// as collision-safe.
+		fsHash, err := lock.HashFS(b.FS)
+		if err != nil {
+			return "", err
 		}
+		h.Write([]byte{0})
+		h.Write([]byte(fsHash))
 	} else if b.RawYAML != nil {
 		h.Write([]byte{0})
 		h.Write(b.RawYAML)
 	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // toolsFrom derives bounded tool summaries from a contract's OpenAPI interfaces,
@@ -686,39 +715,93 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 	return t
 }
 
-// linkTargets associates each target with a revision by digest, then resolved
-// ref, then service+version.
+// Revision-link classes (see TargetRecord.RevisionMatch).
+const (
+	revisionMatchExact     = "exact"     // immutable digest — authoritative
+	revisionMatchInferred  = "inferred"  // unique mutable tag/version correlation
+	revisionMatchAmbiguous = "ambiguous" // several candidates — no link is made
+)
+
+// linkTargets associates each target with a revision and records how the link
+// was made. An ambiguous mutable match links to nothing and surfaces a
+// REVISION_LINK_AMBIGUOUS limitation, so a guess is never presented as fact.
 func linkTargets(snap *FleetSnapshot) {
 	for _, t := range snap.Targets {
-		t.ContractRevision = matchRevision(snap, t)
+		key, kind := matchRevision(snap, t)
+		t.ContractRevision = key
+		switch kind {
+		case revisionMatchExact, revisionMatchInferred:
+			t.RevisionMatch = kind
+		case revisionMatchAmbiguous:
+			snap.Limitations = append(snap.Limitations, Limitation{
+				Code: LimitationRevisionAmbiguous, Source: t.Source,
+				Message: "several revisions of " + string(t.ServiceKey) + " match target " + string(t.Key) + " by its mutable reference; no authoritative revision link was made",
+			})
+		}
 	}
 }
 
-func matchRevision(snap *FleetSnapshot, t *TargetRecord) RevisionKey {
-	// Prefer immutable digest, then resolved ref, then service+version.
-	for _, rev := range snap.Revisions {
-		if rev.ServiceKey != t.ServiceKey {
-			continue
-		}
-		if t.Digest != "" && rev.Digest == t.Digest {
-			return rev.Key
+// matchRevision links a target to a contract revision and classifies the link.
+// An immutable-digest match is EXACT (the revision known to be running). A match
+// by mutable resolved-ref or version suffix is INFERRED, and only when it is
+// UNIQUE — two or more revisions a mutable reference could name are AMBIGUOUS and
+// yield no link, so source order or a coin-flip never selects a "running"
+// revision. Revisions are visited in sorted key order for a deterministic result.
+func matchRevision(snap *FleetSnapshot, t *TargetRecord) (RevisionKey, string) {
+	keys := sortedRevisionKeys(snap)
+	// Tier 1: immutable digest — exact and unique (the digest is part of the key).
+	if t.Digest != "" {
+		for _, k := range keys {
+			if rev := snap.Revisions[k]; rev.ServiceKey == t.ServiceKey && rev.Digest == t.Digest {
+				return rev.Key, revisionMatchExact
+			}
 		}
 	}
-	for _, rev := range snap.Revisions {
-		if rev.ServiceKey == t.ServiceKey && t.ResolvedRef != "" && rev.ResolvedRef == t.ResolvedRef {
-			return rev.Key
+	if t.ResolvedRef == "" {
+		return "", ""
+	}
+	// Tier 2: exact resolved-ref equality (still a MUTABLE reference) — inferred.
+	var byRef []RevisionKey
+	for _, k := range keys {
+		if rev := snap.Revisions[k]; rev.ServiceKey == t.ServiceKey && rev.ResolvedRef == t.ResolvedRef {
+			byRef = append(byRef, rev.Key)
 		}
 	}
-	// Fallback: same service and the target's resolved ref pins the revision's
-	// version (e.g. "…/orders-service:2.0.0" links the 2.0.0 revision). This
-	// links an OCI-referenced target to a local revision of the same version.
-	for _, rev := range snap.Revisions {
-		if rev.ServiceKey == t.ServiceKey && rev.Version != "" &&
+	if key, kind := classifyMutableMatch(byRef); kind != "" {
+		return key, kind
+	}
+	// Tier 3: the resolved ref pins the revision's version (":2.0.0"/"@2.0.0").
+	var byVersion []RevisionKey
+	for _, k := range keys {
+		if rev := snap.Revisions[k]; rev.ServiceKey == t.ServiceKey && rev.Version != "" &&
 			(strings.HasSuffix(t.ResolvedRef, ":"+rev.Version) || strings.HasSuffix(t.ResolvedRef, "@"+rev.Version)) {
-			return rev.Key
+			byVersion = append(byVersion, rev.Key)
 		}
 	}
-	return ""
+	key, kind := classifyMutableMatch(byVersion)
+	return key, kind
+}
+
+// classifyMutableMatch turns a set of mutable-correlation candidates into a link
+// class: none, a unique inferred link, or ambiguous.
+func classifyMutableMatch(candidates []RevisionKey) (RevisionKey, string) {
+	switch len(candidates) {
+	case 0:
+		return "", ""
+	case 1:
+		return candidates[0], revisionMatchInferred
+	default:
+		return "", revisionMatchAmbiguous
+	}
+}
+
+func sortedRevisionKeys(snap *FleetSnapshot) []RevisionKey {
+	keys := make([]RevisionKey, 0, len(snap.Revisions))
+	for k := range snap.Revisions {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	return keys
 }
 
 // aggregateServices groups revisions and targets into logical service records,
@@ -904,8 +987,14 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 	resolve := snap.ObservedNameResolver()
 	seenLim := map[string]bool{}
 	type edgeKey struct{ from, to ServiceKey }
-	counts := map[edgeKey]int{}
-	srcOf := map[edgeKey]string{}
+	// Per-edge, per-source aggregate: a multi-source edge keeps EVERY source's own
+	// count and window rather than crediting the first source with the total.
+	type edgeAgg struct {
+		total    int
+		bySource map[string]*ObservedSourceStat
+		sources  []string
+	}
+	edges := map[edgeKey]*edgeAgg{}
 	var order []edgeKey
 	for _, oi := range observed {
 		fromKey, fromRes := resolve(oi.edge.From)
@@ -916,11 +1005,21 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 			continue
 		}
 		k := edgeKey{fromKey, toKey}
-		if _, ok := counts[k]; !ok {
+		a := edges[k]
+		if a == nil {
+			a = &edgeAgg{bySource: map[string]*ObservedSourceStat{}}
+			edges[k] = a
 			order = append(order, k)
-			srcOf[k] = oi.source
 		}
-		counts[k] += oi.edge.Count
+		a.total += oi.edge.Count
+		st := a.bySource[oi.source]
+		if st == nil {
+			st = &ObservedSourceStat{Source: oi.source}
+			a.bySource[oi.source] = st
+			a.sources = append(a.sources, oi.source)
+		}
+		st.Count += oi.edge.Count
+		mergeWindow(&st.FirstSeen, &st.LastSeen, oi.edge.FirstSeen, oi.edge.LastSeen)
 	}
 	sort.Slice(order, func(i, j int) bool {
 		if order[i].from != order[j].from {
@@ -929,13 +1028,85 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 		return order[i].to < order[j].to
 	})
 	for _, k := range order {
+		a := edges[k]
+		sort.Strings(a.sources)
+		stats := make([]ObservedSourceStat, 0, len(a.sources))
+		var winFirst, winLast *time.Time
+		for _, s := range a.sources {
+			st := a.bySource[s]
+			stats = append(stats, *st)
+			mergeWindowP(&winFirst, &winLast, st.FirstSeen, st.LastSeen)
+		}
+		// Source names a single unambiguous contributor; multi-source edges leave it
+		// empty and rely on the per-source breakdown.
+		source := ""
+		if len(a.sources) == 1 {
+			source = a.sources[0]
+		}
 		snap.Relationships = append(snap.Relationships, Relationship{
 			FromService: k.from, ToService: k.to, Type: RelationshipDependency,
 			Provenance: ProvenanceObserved, Resolved: true,
-			ObservedCount: counts[k], Source: srcOf[k],
+			ObservedCount: a.total, Source: source,
+			ObservedSources: stats, FirstSeen: winFirst, LastSeen: winLast,
 		})
 		snap.observedForward[k.from] = appendUnique(snap.observedForward[k.from], k.to)
 		snap.observedReverse[k.to] = appendUnique(snap.observedReverse[k.to], k.from)
+	}
+}
+
+// reconcileDeclared classifies each declared dependency edge against the
+// snapshot's observed edges: matched (an observed edge corroborates it),
+// declared-not-observed (observation data exists but did not witness it), or
+// insufficient (no observation data at all — so it cannot be reconciled). This is
+// the ONLY source of a relationship's reconciliation state; a declared edge is
+// never "reconciled" merely because its provider is deployed. Runs after
+// foldObservedRelationships so the observed edges are present.
+func reconcileDeclared(snap *FleetSnapshot) {
+	type edge struct{ from, to ServiceKey }
+	observed := map[edge]bool{}
+	for _, rel := range snap.Relationships {
+		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceObserved {
+			observed[edge{rel.FromService, rel.ToService}] = true
+		}
+	}
+	haveObservation := len(observed) > 0
+	for i := range snap.Relationships {
+		rel := &snap.Relationships[i]
+		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared {
+			continue
+		}
+		switch {
+		case !haveObservation:
+			rel.Reconciliation = ReconciliationInsufficient
+		case observed[edge{rel.FromService, rel.ToService}]:
+			rel.Reconciliation = ReconciliationMatched
+		default:
+			rel.Reconciliation = ReconciliationDeclaredNotObserved
+		}
+	}
+}
+
+// mergeWindow widens the (first,last) window pointed to by dst with a candidate
+// non-zero [first,last] pair; nil dst pointers are allocated on first widening.
+func mergeWindow(dstFirst, dstLast **time.Time, first, last time.Time) {
+	if !first.IsZero() && (*dstFirst == nil || first.Before(**dstFirst)) {
+		f := first
+		*dstFirst = &f
+	}
+	if !last.IsZero() && (*dstLast == nil || last.After(**dstLast)) {
+		l := last
+		*dstLast = &l
+	}
+}
+
+// mergeWindowP is mergeWindow over pointer inputs (per-source windows already
+// stored as *time.Time).
+func mergeWindowP(dstFirst, dstLast **time.Time, first, last *time.Time) {
+	if first != nil {
+		mergeWindow(dstFirst, dstLast, *first, time.Time{})
+	}
+	if last != nil {
+		mergeWindow(dstFirst, dstLast, time.Time{}, *last)
 	}
 }
 
@@ -1110,12 +1281,22 @@ func sortSnapshot(snap *FleetSnapshot) {
 		if a.Code != b.Code {
 			return a.Code < b.Code
 		}
-		return a.Source < b.Source
+		if a.Source != b.Source {
+			return a.Source < b.Source
+		}
+		// Message is the tertiary key so limitations with the same code+source but
+		// different subjects order deterministically (permutation-invariant).
+		return a.Message < b.Message
 	})
 	for _, s := range snap.Services {
 		sort.Slice(s.Revisions, func(i, j int) bool { return s.Revisions[i] < s.Revisions[j] })
 		sort.Slice(s.Targets, func(i, j int) bool { return s.Targets[i] < s.Targets[j] })
 		sort.Strings(s.Sources)
+	}
+	// A target's contributing-source set is provenance, not an ordered list; sort
+	// it so a merged target serializes identically regardless of source order.
+	for _, t := range snap.Targets {
+		sort.Strings(t.Sources)
 	}
 	for k := range snap.reverseDeps {
 		sortKeys(snap.reverseDeps[k])

@@ -61,6 +61,48 @@ func TestDependencyEdges_ExtractionDedupeSort(t *testing.T) {
 	}
 }
 
+func TestParseNano(t *testing.T) {
+	if !parseNano("").IsZero() {
+		t.Error("empty must be zero")
+	}
+	if !parseNano("notanumber").IsZero() {
+		t.Error("unparseable must be zero")
+	}
+	if !parseNano("99999999999999999999999").IsZero() {
+		t.Error("out-of-int64-range must be zero")
+	}
+	if got, want := parseNano("1500"), time.Unix(0, 1500).UTC(); !got.Equal(want) {
+		t.Errorf("parseNano(1500) = %v, want %v", got, want)
+	}
+}
+
+// The observation window of an edge is min(startTimeUnixNano) .. max(endTimeUnixNano)
+// across its spans, so an offline trace's real window is preserved (review S5).
+func TestDependencyEdges_ObservationWindow(t *testing.T) {
+	client := func(callee, start, end string) Span {
+		return Span{Kind: 3, StartTimeUnixNano: start, EndTimeUnixNano: end,
+			Attributes: []KeyValue{{Key: "peer.service", Value: AnyValue{StringValue: callee}}}}
+	}
+	td := &TracesData{ResourceSpans: []ResourceSpans{{
+		Resource: Resource{Attributes: []KeyValue{{Key: "service.name", Value: AnyValue{StringValue: "web"}}}},
+		ScopeSpans: []ScopeSpans{{Spans: []Span{
+			client("api", "2000", "5000"),
+			client("api", "1000", "3000"),
+			client("api", "bad", ""), // unparseable times ignored, still counted
+		}}},
+	}}}
+	edges := DependencyEdges(td)
+	if len(edges) != 1 || edges[0].Count != 3 {
+		t.Fatalf("edges = %+v", edges)
+	}
+	if want := time.Unix(0, 1000).UTC(); !edges[0].FirstSeen.Equal(want) {
+		t.Errorf("firstSeen = %v, want %v", edges[0].FirstSeen, want)
+	}
+	if want := time.Unix(0, 5000).UTC(); !edges[0].LastSeen.Equal(want) {
+		t.Errorf("lastSeen = %v, want %v", edges[0].LastSeen, want)
+	}
+}
+
 func TestDependencyEdges_SkipMissingCallerCalleeAndSelf(t *testing.T) {
 	trace := `{"resourceSpans":[
 	  {"resource":{"attributes":[]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"x"}}]}]}]},

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,39 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"gocloud.dev/blob"
 )
+
+// A Commit issued while recovery is mid-scan must serialize behind the store
+// mutex and observe a terminal phase (Ready), never the in-flight Recovering
+// phase (review section S7). Run under -race to prove the serialization is sound.
+func TestCommit_DuringRecovery_BlocksThenSeesReady(t *testing.T) {
+	ctx := context.Background()
+	s := driftStore(t, []byte(`{"records":1}`))
+
+	midScan := make(chan struct{})
+	release := make(chan struct{})
+	orig := readAll
+	var once sync.Once
+	readAll = func(ctx context.Context, bucket *blob.Bucket, key string) ([]byte, error) {
+		once.Do(func() { close(midScan); <-release })
+		return orig(ctx, bucket, key)
+	}
+	t.Cleanup(func() { readAll = orig })
+
+	recovered := make(chan error, 1)
+	go func() { _, err := s.Recover(ctx); recovered <- err }()
+	<-midScan // recovery now holds b.mu mid-scan
+
+	committed := make(chan error, 1)
+	go func() { committed <- s.Commit(ctx, newRec("e2", "p", "t2", 2, fixedClock()())) }()
+	close(release) // let recovery finish; the blocked Commit then sees Ready
+
+	if err := <-recovered; err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	if err := <-committed; err != nil {
+		t.Errorf("commit during recovery must block then succeed once ready, got %v", err)
+	}
+}
 
 func fixedClock() func() time.Time {
 	t := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
@@ -193,71 +227,107 @@ func TestRepairProjections(t *testing.T) {
 	}
 }
 
-func TestRecover_ImpossibleHistory(t *testing.T) {
+// immutableKeyOf / mustRecJSON / recoverOverObjects craft immutable objects
+// DIRECTLY on a fresh bucket (bypassing Commit's replay protection, which makes
+// these forked states unreachable in normal operation) and recover a store over
+// them, so the impossible-history tests can assert recovery's response to a
+// pre-existing on-disk fork.
+func immutableKeyOf(rec AcceptedRecord) string { return (&BlobStore{prefix: ""}).immutableKey(rec) }
+func mustRecJSON(rec AcceptedRecord) []byte    { d, _ := json.Marshal(rec); return d }
+
+func recoverOverObjects(t *testing.T, objs map[string][]byte) (RecoveredState, *BlobStore) {
+	t.Helper()
 	ctx := context.Background()
-	keyOf := func(rec AcceptedRecord) string { return (&BlobStore{prefix: ""}).immutableKey(rec) }
-	mustJSON := func(rec AcceptedRecord) []byte { d, _ := json.Marshal(rec); return d }
-	at := fixedClock()()
-
-	// write commits crafted objects DIRECTLY to a fresh bucket (bypassing Commit's
-	// replay protection, which makes these states unreachable in normal operation)
-	// then recovers a store over them.
-	recover := func(t *testing.T, objs map[string][]byte) (RecoveredState, *BlobStore) {
-		t.Helper()
-		dir := t.TempDir()
-		hb, err := blob.OpenBucket(ctx, "file://"+dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for k, v := range objs {
-			if err := hb.WriteAll(ctx, k, v, nil); err != nil {
-				t.Fatal(err)
-			}
-		}
-		_ = hb.Close()
-		s, err := Open(ctx, "file://"+dir, "", WithInstanceID("w"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = s.Close() })
-		st, err := s.Recover(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return st, s
+	dir := t.TempDir()
+	hb, err := blob.OpenBucket(ctx, "file://"+dir)
+	if err != nil {
+		t.Fatal(err)
 	}
+	for k, v := range objs {
+		if err := hb.WriteAll(ctx, k, v, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = hb.Close()
+	s, err := Open(ctx, "file://"+dir, "", WithInstanceID("w"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	st, err := s.Recover(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st, s
+}
 
-	t.Run("forked producer sequence", func(t *testing.T) {
-		a := newRec("secret-env-a", "secret-producer", "t1", 7, at)
-		b := newRec("secret-env-b", "secret-producer", "t2", 7, at) // same producer+sequence, distinct envelope: a fork
-		st, s := recover(t, map[string][]byte{keyOf(a): mustJSON(a), keyOf(b): mustJSON(b)})
-		if len(st.Corruptions) != 1 {
-			t.Fatalf("want 1 impossible-history corruption, got %+v", st.Corruptions)
-		}
-		if len(st.SeenEnvelopeIDs) != 1 {
-			t.Errorf("the first record must stay indexed, seen=%v", st.SeenEnvelopeIDs)
-		}
-		if _, ok := st.TaintedProducers[hashID("secret-producer")]; !ok {
-			t.Error("a forked producer must be tainted")
-		}
-		// The reason must NOT leak the raw producer or envelope id values.
-		if r := st.Corruptions[0].Reason; !containsAll(r, "impossible history", "sequence") ||
-			containsAny(r, "secret-producer", "secret-env-a", "secret-env-b") {
-			t.Errorf("reason leaks ids or is unclear: %q", r)
-		}
-		if err := s.Commit(ctx, newRec("envC", "secret-producer", "t3", 99, at)); err != ErrProducerTainted {
-			t.Errorf("tainted producer must be refused, got %v", err)
-		}
-	})
+// A forked producer sequence (same producer+sequence, distinct envelopes) taints
+// BOTH records and indexes NEITHER — list order must not pick a survivor (S10).
+func TestRecover_ImpossibleHistory_ForkedSequence(t *testing.T) {
+	at := fixedClock()()
+	a := newRec("secret-env-a", "secret-producer", "t1", 7, at)
+	b := newRec("secret-env-b", "secret-producer", "t2", 7, at)
+	st, s := recoverOverObjects(t, map[string][]byte{immutableKeyOf(a): mustRecJSON(a), immutableKeyOf(b): mustRecJSON(b)})
+	if len(st.Corruptions) != 2 {
+		t.Fatalf("want both forked records reported, got %+v", st.Corruptions)
+	}
+	if len(st.SeenEnvelopeIDs) != 0 {
+		t.Errorf("neither forked record may stay indexed, seen=%v", st.SeenEnvelopeIDs)
+	}
+	if _, ok := st.TaintedProducers[hashID("secret-producer")]; !ok {
+		t.Error("a forked producer must be tainted")
+	}
+	// The reason must NOT leak the raw producer or envelope id values.
+	if r := st.Corruptions[0].Reason; !containsAll(r, "impossible history", "sequence") ||
+		containsAny(r, "secret-producer", "secret-env-a", "secret-env-b") {
+		t.Errorf("reason leaks ids or is unclear: %q", r)
+	}
+	if err := s.Commit(context.Background(), newRec("envC", "secret-producer", "t3", 99, at)); err != ErrProducerTainted {
+		t.Errorf("tainted producer must be refused, got %v", err)
+	}
+}
 
-	t.Run("envelope committed more than once", func(t *testing.T) {
-		a := newRec("envDup", "prod", "t1", 1, at)
-		b := newRec("envDup", "prod", "t1", 2, at) // same envelope id re-committed at a new sequence
-		st, _ := recover(t, map[string][]byte{keyOf(a): mustJSON(a), keyOf(b): mustJSON(b)})
-		if len(st.Corruptions) != 1 || len(st.SeenEnvelopeIDs) != 1 {
-			t.Fatalf("want 1 corruption + 1 indexed, got corruptions=%+v seen=%v", st.Corruptions, st.SeenEnvelopeIDs)
+// The same envelope id re-committed (even at a new sequence) taints both parties.
+func TestRecover_ImpossibleHistory_DuplicateEnvelope(t *testing.T) {
+	at := fixedClock()()
+	a := newRec("envDup", "prod", "t1", 1, at)
+	b := newRec("envDup", "prod", "t1", 2, at)
+	st, _ := recoverOverObjects(t, map[string][]byte{immutableKeyOf(a): mustRecJSON(a), immutableKeyOf(b): mustRecJSON(b)})
+	if len(st.Corruptions) != 2 || len(st.SeenEnvelopeIDs) != 0 {
+		t.Fatalf("want both parties reported + 0 indexed, got corruptions=%+v seen=%v", st.Corruptions, st.SeenEnvelopeIDs)
+	}
+	if _, ok := st.TaintedProducers[hashID("prod")]; !ok {
+		t.Error("the producer of a re-committed envelope must be tainted")
+	}
+}
+
+// The sharp cross-producer case (S10): the SAME envelope id in two DIFFERENT
+// producers' records. Both producers must be tainted and both refs reported, so
+// bucket-listing order can never leave one producer trusted or one forked target
+// served.
+func TestRecover_ImpossibleHistory_ForkedAcrossProducers(t *testing.T) {
+	at := fixedClock()()
+	a := newRec("shared-env", "producer-one", "t1", 1, at)
+	b := newRec("shared-env", "producer-two", "t2", 1, at)
+	st, s := recoverOverObjects(t, map[string][]byte{immutableKeyOf(a): mustRecJSON(a), immutableKeyOf(b): mustRecJSON(b)})
+	if len(st.Corruptions) != 2 {
+		t.Fatalf("both object refs must be reported, got %+v", st.Corruptions)
+	}
+	if len(st.SeenEnvelopeIDs) != 0 {
+		t.Errorf("neither forked record may be served, seen=%v", st.SeenEnvelopeIDs)
+	}
+	for _, p := range []string{"producer-one", "producer-two"} {
+		if _, ok := st.TaintedProducers[hashID(p)]; !ok {
+			t.Errorf("both producers must be tainted; %q was not", p)
 		}
-	})
+	}
+	ctx := context.Background()
+	if err := s.Commit(ctx, newRec("x", "producer-one", "t9", 5, at)); err != ErrProducerTainted {
+		t.Errorf("producer-one must be refused, got %v", err)
+	}
+	if err := s.Commit(ctx, newRec("y", "producer-two", "t9", 5, at)); err != ErrProducerTainted {
+		t.Errorf("producer-two must be refused, got %v", err)
+	}
 }
 
 // driftStore writes one valid immutable record plus an optional manifest

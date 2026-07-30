@@ -49,7 +49,7 @@ func writeEvidenceFile(t *testing.T, dir string, set evidence.EvidenceSet) strin
 
 func TestGenerateKey_DefaultKeyID(t *testing.T) {
 	dir := t.TempDir()
-	kp, err := (&Service{}).GenerateKey(dir, "", "")
+	kp, err := (&Service{}).GenerateKey(dir, "", "", false)
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestGenerateKey_DefaultKeyID(t *testing.T) {
 
 func TestGenerateKey_ExplicitKeyID(t *testing.T) {
 	dir := t.TempDir()
-	kp, err := (&Service{}).GenerateKey(dir, "", "mykey")
+	kp, err := (&Service{}).GenerateKey(dir, "", "mykey", false)
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestGenerateKey_ExplicitKeyID(t *testing.T) {
 
 func TestGenerateKey_WithProducer(t *testing.T) {
 	dir := t.TempDir()
-	kp, err := (&Service{}).GenerateKey(dir, "prod-eu", "k1")
+	kp, err := (&Service{}).GenerateKey(dir, "prod-eu", "k1", false)
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestGenerateKey_WithProducer(t *testing.T) {
 
 func TestLoadTrustStore_DuplicateKeyID(t *testing.T) {
 	dir := t.TempDir()
-	kp, err := (&Service{}).GenerateKey(dir, "", "k1") // k1.pub (bare → producer k1)
+	kp, err := (&Service{}).GenerateKey(dir, "", "k1", false) // k1.pub (bare → producer k1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestGenerateKey_RandError(t *testing.T) {
 	old := randReader
 	randReader = errReader{}
 	defer func() { randReader = old }()
-	if _, err := (&Service{}).GenerateKey(t.TempDir(), "", ""); err == nil {
+	if _, err := (&Service{}).GenerateKey(t.TempDir(), "", "", false); err == nil {
 		t.Fatal("expected error from failing entropy source")
 	}
 }
@@ -149,7 +149,7 @@ func TestGenerateKey_MkdirError(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A directory cannot be created beneath a regular file.
-	if _, err := (&Service{}).GenerateKey(filepath.Join(file, "sub"), "", ""); err == nil {
+	if _, err := (&Service{}).GenerateKey(filepath.Join(file, "sub"), "", "", false); err == nil {
 		t.Fatal("expected mkdir error")
 	}
 }
@@ -160,7 +160,7 @@ func TestGenerateKey_WriteErrors(t *testing.T) {
 
 	// Private-key write fails.
 	writeFileFn = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
-	if _, err := (&Service{}).GenerateKey(t.TempDir(), "", ""); err == nil {
+	if _, err := (&Service{}).GenerateKey(t.TempDir(), "", "", false); err == nil {
 		t.Fatal("expected private-key write error")
 	}
 
@@ -173,7 +173,7 @@ func TestGenerateKey_WriteErrors(t *testing.T) {
 		}
 		return errors.New("disk full")
 	}
-	if _, err := (&Service{}).GenerateKey(t.TempDir(), "", ""); err == nil {
+	if _, err := (&Service{}).GenerateKey(t.TempDir(), "", "", false); err == nil {
 		t.Fatal("expected public-key write error")
 	}
 }
@@ -184,7 +184,7 @@ func signAndWrite(t *testing.T, opts SignOptions) (KeyPair, string) {
 	t.Helper()
 	dir := t.TempDir()
 	svc := &Service{}
-	kp, err := svc.GenerateKey(dir, "", "")
+	kp, err := svc.GenerateKey(dir, "", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestSignEvidence_DeterministicID(t *testing.T) {
 func TestSignEvidence_Sequence(t *testing.T) {
 	dir := t.TempDir()
 	svc := &Service{}
-	kp, _ := svc.GenerateKey(dir, "", "")
+	kp, _ := svc.GenerateKey(dir, "", "", false)
 	ev := writeEvidenceFile(t, dir, sampleEvidenceSet())
 	env, err := svc.SignEvidence(SignOptions{
 		EvidencePath: ev, KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: "p", Sequence: 7, TTL: time.Hour,
@@ -271,10 +271,200 @@ func TestSignEvidence_Sequence(t *testing.T) {
 	}
 }
 
+// A structured trust config populates the per-key subject and contract-repo
+// allowlists the filename-only loader can never express (review section S11).
+func TestLoadStructuredTrustStore_Valid(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := (&Service{}).GenerateKey(dir, "", "edgekey", false); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(dir, "trust.yaml")
+	if err := os.WriteFile(cfgPath, []byte(`apiVersion: pacto.dev/evidence-trust/v1
+keys:
+  - keyId: edge-eu-2026
+    producerId: edge-eu
+    publicKeyFile: edgekey.pub
+    allowedSubjects:
+      - "payments-*"
+    allowedContractRepos:
+      - ghcr.io/acme/contracts
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ts, err := loadTrustStore(cfgPath) // dispatches on the .yaml extension
+	if err != nil {
+		t.Fatalf("loadTrustStore: %v", err)
+	}
+	e, ok := ts["edge-eu-2026"]
+	if !ok {
+		t.Fatalf("key not loaded: %v", ts)
+	}
+	if e.ProducerID != "edge-eu" {
+		t.Errorf("producer = %q", e.ProducerID)
+	}
+	if len(e.Subjects) != 1 || e.Subjects[0] != "payments-*" {
+		t.Errorf("subjects = %v (the allowlist the bare-.pub loader could not set)", e.Subjects)
+	}
+	if len(e.ContractRepos) != 1 || e.ContractRepos[0] != "ghcr.io/acme/contracts" {
+		t.Errorf("contractRepos = %v", e.ContractRepos)
+	}
+}
+
+func TestLoadStructuredTrustStore_Rejects(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := (&Service{}).GenerateKey(dir, "", "edgekey", false); err != nil {
+		t.Fatal(err)
+	}
+	head := "apiVersion: pacto.dev/evidence-trust/v1\nkeys:\n"
+	cases := map[string]string{
+		"unsupported apiVersion": "apiVersion: pacto.dev/evidence-trust/v2\nkeys:\n  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub}\n",
+		"no keys":                "apiVersion: pacto.dev/evidence-trust/v1\nkeys: []\n",
+		"unknown field":          head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, bogus: 1}\n",
+		"duplicate key id":       head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub}\n  - {keyId: k, producerId: q, publicKeyFile: edgekey.pub}\n",
+		"contradictory producer": head + "  - {keyId: a, producerId: p, publicKeyFile: edgekey.pub}\n  - {keyId: b, producerId: q, publicKeyFile: edgekey.pub}\n",
+		"missing key file":       head + "  - {keyId: k, producerId: p, publicKeyFile: nope.pub}\n",
+		"traversal key file":     head + "  - {keyId: k, producerId: p, publicKeyFile: ../edgekey.pub}\n",
+		"bad key id grammar":     head + "  - {keyId: a/b, producerId: p, publicKeyFile: edgekey.pub}\n",
+		"bad producer grammar":   head + "  - {keyId: k, producerId: p/q, publicKeyFile: edgekey.pub}\n",
+		"empty public key file":  head + "  - {keyId: k, producerId: p}\n",
+		"malformed subject glob": head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedSubjects: [\"[\"]}\n",
+		"malformed repo prefix":  head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedContractRepos: [\"oci://x@y\"]}\n",
+		"empty repo prefix":      head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedContractRepos: [\"\"]}\n",
+		"whitespace repo prefix": head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedContractRepos: [\"a b\"]}\n",
+	}
+	// A directly-unreadable config file surfaces the read error.
+	if _, err := loadStructuredTrustStore(filepath.Join(t.TempDir(), "absent.yaml")); err == nil {
+		t.Error("unreadable trust config must error")
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "trust.yaml")
+			// The key file lives in `dir`; reference it via a copy alongside the config.
+			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			// Provide edgekey.pub next to this config for cases that need a real file.
+			pub, _ := os.ReadFile(filepath.Join(dir, "edgekey.pub"))
+			_ = os.WriteFile(filepath.Join(filepath.Dir(p), "edgekey.pub"), pub, 0o644)
+			if _, err := loadTrustStore(p); err == nil {
+				t.Errorf("%s: expected rejection, got nil", name)
+			}
+		})
+	}
+}
+
+func TestValidateKeyIdent(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		ok   bool
+	}{
+		{"valid-dotted", "edge-eu.2026", true},
+		{"valid-alnum", "k1", true},
+		{"empty", "", false},
+		{"too-long", strings.Repeat("a", 65), false},
+		{"dotdot", "a..b", false},
+		{"slash", "a/b", false},
+		{"backslash", `a\b`, false},
+		{"underscore-reserved", "a_b", false},
+		{"leading-dot", ".hidden", false},
+		{"leading-dash", "-x", false},
+		{"space", "a b", false},
+		{"tab", "a\tb", false},
+		{"null", "a\x00b", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if err := validateKeyIdent("id", c.in); (err == nil) != c.ok {
+				t.Errorf("validateKeyIdent(%q) err=%v, want ok=%v", c.in, err, c.ok)
+			}
+		})
+	}
+}
+
+// A key id or producer that could escape the output directory must be rejected
+// before any file is written, on both Unix and Windows path syntaxes (S12).
+func TestGenerateKey_RejectsUnsafeIdentifiers(t *testing.T) {
+	dir := t.TempDir()
+	svc := &Service{}
+	for _, tc := range []struct{ producer, keyID string }{
+		{"", "../../evil"},
+		{"../evil", "k1"},
+		{"", "a/b"},
+		{"", `a\b`},
+	} {
+		if _, err := svc.GenerateKey(dir, tc.producer, tc.keyID, false); err == nil {
+			t.Errorf("GenerateKey(producer=%q, keyID=%q) must be rejected", tc.producer, tc.keyID)
+		}
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Errorf("no files should be written for rejected identifiers, got %d", len(entries))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "..", "evil.key")); err == nil {
+		t.Error("a traversal write escaped the output directory")
+	}
+}
+
+// Regenerating over an existing key must fail (protecting the private seed) unless
+// --force is given (S12).
+func TestGenerateKey_NoSilentOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	svc := &Service{}
+	kp, err := svc.GenerateKey(dir, "", "k1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed1, _ := os.ReadFile(kp.PrivateKeyPath)
+	if _, err := svc.GenerateKey(dir, "", "k1", false); err == nil {
+		t.Error("re-generating over an existing key must fail without --force")
+	}
+	if seed2, _ := os.ReadFile(kp.PrivateKeyPath); string(seed1) != string(seed2) {
+		t.Error("the existing private seed must be untouched when overwrite is refused")
+	}
+	if _, err := svc.GenerateKey(dir, "", "k1", true); err != nil {
+		t.Fatalf("force overwrite should succeed: %v", err)
+	}
+	if seed3, _ := os.ReadFile(kp.PrivateKeyPath); string(seed3) == string(seed1) {
+		t.Error("force should have written a new seed")
+	}
+}
+
+// The default envelope id must be producer-safe: two producers reporting an
+// identical EvidenceSet must not collide in the store's global id namespace, and
+// a producer's id must change with its sequence, while re-signing the same
+// (producer, sequence, evidence) stays stable (review section S9).
+func TestSignEvidence_DefaultIDProducerSafe(t *testing.T) {
+	dir := t.TempDir()
+	svc := &Service{}
+	kp, _ := svc.GenerateKey(dir, "", "", false)
+	ev := writeEvidenceFile(t, dir, sampleEvidenceSet())
+	sign := func(producer string, seq uint64) string {
+		env, err := svc.SignEvidence(SignOptions{EvidencePath: ev, KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: producer, Sequence: seq})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return env.ID
+	}
+	base := sign("prod-eu", 1)
+	if sign("prod-us", 1) == base {
+		t.Error("two producers with an identical EvidenceSet must not share a default envelope id")
+	}
+	if sign("prod-eu", 2) == base {
+		t.Error("same producer, different sequence must yield a different id")
+	}
+	if sign("prod-eu", 1) != base {
+		t.Error("same producer+sequence+evidence must yield a stable, idempotent id")
+	}
+	// A maximum sequence must not panic and stays distinct.
+	if hi := sign("prod-eu", ^uint64(0)); hi == base {
+		t.Error("max-sequence id must differ from sequence 1")
+	}
+}
+
 func TestSignEvidence_ContentHashID(t *testing.T) {
 	dir := t.TempDir()
 	svc := &Service{}
-	kp, _ := svc.GenerateKey(dir, "", "")
+	kp, _ := svc.GenerateKey(dir, "", "", false)
 	ev := writeEvidenceFile(t, dir, sampleEvidenceSet())
 	env, err := svc.SignEvidence(SignOptions{EvidencePath: ev, KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: "p", TTL: time.Hour})
 	if err != nil {
@@ -294,7 +484,7 @@ func TestSignEvidence_ContentHashID(t *testing.T) {
 func TestSignEvidence_Errors(t *testing.T) {
 	dir := t.TempDir()
 	svc := &Service{}
-	kp, _ := svc.GenerateKey(dir, "", "")
+	kp, _ := svc.GenerateKey(dir, "", "", false)
 	good := writeEvidenceFile(t, dir, sampleEvidenceSet())
 
 	cases := []struct {
@@ -318,7 +508,7 @@ func TestSignEvidence_Errors(t *testing.T) {
 func TestSignEvidence_BadEvidenceJSON(t *testing.T) {
 	dir := t.TempDir()
 	svc := &Service{}
-	kp, _ := svc.GenerateKey(dir, "", "")
+	kp, _ := svc.GenerateKey(dir, "", "", false)
 
 	bad := filepath.Join(dir, "bad.json")
 	if err := os.WriteFile(bad, []byte("{ not json"), 0o644); err != nil {
@@ -478,7 +668,7 @@ func serveTestFixtures(t *testing.T) (svc *Service, trustDir, envPath, producer 
 	}
 	contractRef := "oci://" + host + "/svc-a@" + digest
 
-	kp, err := (&Service{}).GenerateKey(dir, "", "k1")
+	kp, err := (&Service{}).GenerateKey(dir, "", "k1", false)
 	if err != nil {
 		t.Fatal(err)
 	}

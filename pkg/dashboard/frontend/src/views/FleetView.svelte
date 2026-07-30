@@ -346,11 +346,13 @@
         </ul>
 
         <h3>Dependencies <span class="count">{(sv.dependencies || []).length}</span></h3>
-        <!-- section 1.2 edge details: each declared edge with type/provenance/required/
-             compatibility/reconciliation state. -->
+        <!-- section 1.2 edge details: each declared edge with type/provenance/
+             required/compatibility, its NAME-RESOLUTION state and, separately, the
+             backend RECONCILIATION state (never conflated: resolution is not
+             reconciliation). -->
         {#if (sv.dependencies || []).length > 0}
           <table class="edge-table">
-            <thead><tr><th>To</th><th>Type</th><th>Prov.</th><th>Req.</th><th>Compat.</th><th>State</th></tr></thead>
+            <thead><tr><th>To</th><th>Type</th><th>Prov.</th><th>Req.</th><th>Compat.</th><th>Resolution</th><th>Reconciliation</th></tr></thead>
             <tbody>
               {#each sv.dependencies as rel}
                 <tr>
@@ -359,7 +361,8 @@
                   <td>{rel.provenance || 'declared'}</td>
                   <td>{rel.required ? 'yes' : 'no'}</td>
                   <td>{rel.compatibility || '—'}</td>
-                  <td>{rel.resolved ? 'reconciled' : 'unresolved'}</td>
+                  <td>{rel.resolved ? 'resolved' : 'unresolved'}</td>
+                  <td>{rel.reconciliation || '—'}</td>
                 </tr>
               {/each}
             </tbody>

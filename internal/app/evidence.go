@@ -7,10 +7,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net"
 	"net/http"
@@ -25,6 +27,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v3/pkg/evidencestore"
+	"github.com/trianalab/pacto/v3/pkg/strictjson"
 )
 
 // randReader is the entropy source for key generation, overridable in tests to
@@ -45,17 +48,15 @@ type KeyPair struct {
 
 // GenerateKey creates an Ed25519 keypair in dir. When keyID is empty it defaults
 // to a short fingerprint of the public key. Files are <keyId>.key (private seed,
-// 0600) and <keyId>.pub (public key, 0644).
-func (s *Service) GenerateKey(dir, producer, keyID string) (KeyPair, error) {
+// 0600) and <keyId>.pub (public key, 0644). Existing files are NOT overwritten
+// unless force is set, so a re-run can never silently destroy a private seed.
+func (s *Service) GenerateKey(dir, producer, keyID string, force bool) (KeyPair, error) {
 	pub, priv, err := ed25519.GenerateKey(randReader)
 	if err != nil {
 		return KeyPair{}, err
 	}
 	if keyID == "" {
 		keyID = keyFingerprint(pub)
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return KeyPair{}, err
 	}
 	// The public-key filename encodes the trust binding the ingestion host reads:
 	// "<producer>__<keyId>.pub" binds the key to exactly that producer. With no
@@ -64,12 +65,34 @@ func (s *Service) GenerateKey(dir, producer, keyID string) (KeyPair, error) {
 	if producer == "" {
 		producer = keyID
 	}
+	// Identifiers become filenames AND a trust binding, so they must satisfy a
+	// closed ASCII grammar: no path separators, "..", control characters,
+	// whitespace or the reserved "__" producer/key delimiter. Because the grammar
+	// forbids every path-escaping character, filepath.Join(dir, <name>) is
+	// guaranteed to stay inside dir — no separate post-join traversal check is
+	// reachable, so none is written (it would be dead code under the 100% gate).
+	if err := validateKeyIdent("key id", keyID); err != nil {
+		return KeyPair{}, err
+	}
+	if err := validateKeyIdent("producer", producer); err != nil {
+		return KeyPair{}, err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return KeyPair{}, err
+	}
 	pubBase := keyID + ".pub"
 	if producer != keyID {
 		pubBase = producer + "__" + keyID + ".pub"
 	}
 	privPath := filepath.Join(dir, keyID+".key")
 	pubPath := filepath.Join(dir, pubBase)
+	if !force {
+		for _, p := range []string{privPath, pubPath} {
+			if _, err := os.Stat(p); err == nil {
+				return KeyPair{}, fmt.Errorf("%q already exists; pass --force to overwrite", p)
+			}
+		}
+	}
 	pubB64 := base64.StdEncoding.EncodeToString(pub)
 	seed := base64.StdEncoding.EncodeToString(priv.Seed())
 	if err := writeFileFn(privPath, []byte(seed+"\n"), 0o600); err != nil {
@@ -79,6 +102,31 @@ func (s *Service) GenerateKey(dir, producer, keyID string) (KeyPair, error) {
 		return KeyPair{}, err
 	}
 	return KeyPair{KeyID: keyID, ProducerID: producer, PrivateKeyPath: privPath, PublicKeyPath: pubPath, PublicKey: pubB64}, nil
+}
+
+// validateKeyIdent enforces a closed grammar for a producer id or key id: a
+// non-empty, <=64-char string of letters, digits, '.' and '-' that starts with a
+// letter or digit, with no ".." and (by disallowing '_' entirely) no "__"
+// delimiter collision. This rejects path separators, absolute paths, traversal,
+// control characters and whitespace before the value is ever used as a filename.
+func validateKeyIdent(kind, s string) error {
+	switch {
+	case s == "":
+		return fmt.Errorf("%s must not be empty", kind)
+	case len(s) > 64:
+		return fmt.Errorf("%s %q exceeds 64 characters", kind, s)
+	case strings.Contains(s, ".."):
+		return fmt.Errorf("%s %q must not contain %q", kind, s, "..")
+	}
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case (r == '.' || r == '-') && i > 0:
+		default:
+			return fmt.Errorf("%s %q contains an invalid character %q (allowed: letters, digits, '.', '-'; must start alphanumeric)", kind, s, string(r))
+		}
+	}
+	return nil
 }
 
 // keyFingerprint derives a stable short key id from a public key.
@@ -124,7 +172,7 @@ func (s *Service) SignEvidence(opts SignOptions) (evidenceenvelope.Envelope, err
 	}
 	id := opts.ID
 	if id == "" {
-		id = contentID(set)
+		id = defaultEnvelopeID(evidenceenvelope.APIVersionV1, opts.ProducerID, opts.Sequence, set)
 	}
 	issued := opts.IssuedAt
 	if issued.IsZero() {
@@ -151,10 +199,8 @@ func readEvidenceSet(path string) (evidence.EvidenceSet, error) {
 	if err != nil {
 		return evidence.EvidenceSet{}, err
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
 	var set evidence.EvidenceSet
-	if err := dec.Decode(&set); err != nil {
+	if err := strictjson.Unmarshal(data, &set); err != nil {
 		return evidence.EvidenceSet{}, fmt.Errorf("decode evidence set: %w", err)
 	}
 	if errs := evidence.ValidateEvidenceSet(set); len(errs) > 0 {
@@ -163,13 +209,39 @@ func readEvidenceSet(path string) (evidence.EvidenceSet, error) {
 	return set, nil
 }
 
-// contentID hashes the canonical EvidenceSet for a deterministic envelope id.
+// contentID hashes the canonical EvidenceSet — the evidence-digest component of
+// an envelope id.
 func contentID(set evidence.EvidenceSet) string {
 	// ponytail: set is already validated and its payloads are closed structs, so
 	// json.Marshal cannot fail here — dropping the error keeps this branch-free.
 	raw, _ := json.Marshal(set)
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// defaultEnvelopeID derives a producer-safe default envelope id when the caller
+// supplies none. It folds the API version, producer id and sequence in ALONGSIDE
+// the evidence digest, so two DIFFERENT producers reporting an identical
+// EvidenceSet never collide in the store's global envelope-id namespace (the
+// second would otherwise be dropped as a replay). A producer re-signing the same
+// (producer, sequence, evidence) still gets a stable, idempotent id. Fields are
+// length-prefixed so no two field boundaries can be confused.
+func defaultEnvelopeID(apiVersion, producerID string, sequence uint64, set evidence.EvidenceSet) string {
+	h := sha256.New()
+	writeLenPrefixed(h, []byte(apiVersion))
+	writeLenPrefixed(h, []byte(producerID))
+	var seq [8]byte
+	binary.BigEndian.PutUint64(seq[:], sequence)
+	h.Write(seq[:])
+	writeLenPrefixed(h, []byte(contentID(set)))
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+func writeLenPrefixed(h hash.Hash, b []byte) {
+	var n [8]byte
+	binary.BigEndian.PutUint64(n[:], uint64(len(b)))
+	h.Write(n[:])
+	h.Write(b)
 }
 
 // VerifyOptions configures VerifyEnvelope.
@@ -220,6 +292,15 @@ func (s *Service) VerifyEnvelope(opts VerifyOptions) (VerifyResult, error) {
 // "<keyId>.pub" binds the producer to the key id — so a trusted key can never
 // sign as another producer.
 func loadTrustStore(path string) (evidenceenvelope.MapTrustStore, error) {
+	// A YAML file is the structured, versioned trust config (can bind per-key
+	// subject/contract-repo allowlists). A directory or a single .pub file is the
+	// legacy bare-key mode, which binds only the producer and CANNOT express
+	// scopes — see loadStructuredTrustStore.
+	if info, statErr := os.Stat(path); statErr == nil && !info.IsDir() {
+		if ext := strings.ToLower(filepath.Ext(path)); ext == ".yaml" || ext == ".yml" {
+			return loadStructuredTrustStore(path)
+		}
+	}
 	ts := evidenceenvelope.MapTrustStore{}
 	entries, err := os.ReadDir(path)
 	if err == nil {

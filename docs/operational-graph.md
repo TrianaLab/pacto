@@ -40,11 +40,13 @@ Edges in the graph carry a **provenance** discriminator so a fact's origin is
 never ambiguous:
 
 - **declared** — the relationship comes from a contract (`dependencies[]`, and
-  config/policy `ref`s). Every edge *in a snapshot* is declared today.
+  config/policy `ref`s).
 - **observed** — a relationship seen in running traffic. Observed dependencies
   are produced by the [OTel observer](#observed-dependencies-and-reconciliation)
-  and consumed by reconciliation and impact only; they are compared *against* the
-  declared graph and are not merged into a snapshot's edges.
+  and, when an observation source is configured, folded into the snapshot's edges
+  as `observed`-provenance relationships (kept in a separate adjacency index from
+  the declared graph). Reconciliation and impact consume them; because every edge
+  keeps its provenance, an observed edge is never mistaken for a declared one.
 - **inferred** — a relationship deduced heuristically. Reserved, not yet produced.
 
 The discriminator keeps "what a team declared" and "what a tracer saw" separable
@@ -328,6 +330,19 @@ declared graph stays declared and consumers layer observed evidence on top rathe
 than conflating the two. In the dashboard's Operational Graph this is the
 **Layer** control (declared · observed · reconciled · all); a layer with no
 backing data in the current snapshot is disabled rather than shown as a placebo.
+
+Reconciliation is an **explicit backend fact**, not a frontend guess. Every
+declared dependency edge in a snapshot carries a `reconciliation` state computed
+against the snapshot's observed edges: **matched** (an observed edge corroborates
+it), **declared-not-observed** (observation data exists but did not witness this
+edge) or **insufficient** (no observation data at all — so it cannot be
+reconciled). The dashboard's *reconciled* layer shows only `matched` edges and
+never infers reconciliation from name resolution or from whether a provider is
+deployed. To feed observation data to the normal dashboard (so its Operational
+Graph, reconciliation and Impact see observed edges), pass offline OTLP/JSON
+trace files with `pacto dashboard --traces <file>` (repeatable) or the
+`PACTO_DASHBOARD_TRACES` environment variable; the observed capability the UI
+advertises is derived from the published snapshot, never a hardcoded flag.
 
 ---
 

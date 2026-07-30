@@ -129,7 +129,7 @@ func TestDashboardFleetOptions(t *testing.T) {
 	// Unset (empty) env → no evidence source added, unconfigured stays disabled.
 	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "")
 	// No sources -> disabled.
-	if _, ok := dashboardFleetOptions("", nil, "", &dashboard.DetectResult{}); ok {
+	if _, ok := dashboardFleetOptions("", nil, "", nil, &dashboard.DetectResult{}); ok {
 		t.Error("expected fleet disabled with no sources")
 	}
 	// Every source active.
@@ -139,7 +139,7 @@ func TestDashboardFleetOptions(t *testing.T) {
 		Cache: &dashboard.CacheSource{},
 		K8s:   &dashboard.K8sSource{},
 	}
-	fopts, ok := dashboardFleetOptions("./svc", []string{"ghcr.io/x/a"}, "prod", dr)
+	fopts, ok := dashboardFleetOptions("./svc", []string{"ghcr.io/x/a"}, "prod", nil, dr)
 	if !ok {
 		t.Fatal("expected fleet enabled")
 	}
@@ -161,12 +161,25 @@ func TestDashboardFleetOptions(t *testing.T) {
 // read-only evidence source and enables the fleet even with no other source.
 func TestDashboardFleetOptions_EvidenceURL(t *testing.T) {
 	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "http://evidence.internal:8080")
-	fopts, ok := dashboardFleetOptions("", nil, "", &dashboard.DetectResult{})
+	fopts, ok := dashboardFleetOptions("", nil, "", nil, &dashboard.DetectResult{})
 	if !ok {
 		t.Fatal("expected fleet enabled by the evidence env var alone")
 	}
 	if len(fopts.EvidenceURLs) != 1 || fopts.EvidenceURLs[0] != "http://evidence.internal:8080" {
 		t.Errorf("EvidenceURLs = %v", fopts.EvidenceURLs)
+	}
+}
+
+// TestDashboardFleetOptions_Traces proves --traces / PACTO_DASHBOARD_TRACES wires
+// an observation source into the normal dashboard and enables the fleet alone.
+func TestDashboardFleetOptions_Traces(t *testing.T) {
+	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "")
+	fopts, ok := dashboardFleetOptions("", nil, "", []string{"/tmp/a.json", "/tmp/b.json"}, &dashboard.DetectResult{})
+	if !ok {
+		t.Fatal("expected fleet enabled by trace files alone")
+	}
+	if len(fopts.TraceFiles) != 2 || fopts.TraceFiles[0] != "/tmp/a.json" {
+		t.Errorf("TraceFiles = %v", fopts.TraceFiles)
 	}
 }
 

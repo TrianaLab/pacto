@@ -44,7 +44,12 @@ func (s *Service) Reconcile(ctx context.Context, opts ReconcileOptions) (reconci
 func declaredFromSnapshot(snap *fleet.FleetSnapshot) []reconcile.Declared {
 	var out []reconcile.Declared
 	for _, rel := range snap.Relationships {
-		if rel.Type != fleet.RelationshipDependency {
+		// Only contract-declared dependencies are declared knowledge. A snapshot
+		// built with an observation source also carries observed dependency edges
+		// (Provenance=observed) in Relationships; those are the reality side of
+		// reconciliation and must never enter the declared set, or a shadow
+		// (observed-only) dependency would be reported as a healthy match.
+		if rel.Type != fleet.RelationshipDependency || rel.Provenance != fleet.ProvenanceDeclared {
 			continue
 		}
 		dep := string(rel.ToService)

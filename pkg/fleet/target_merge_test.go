@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
@@ -87,6 +88,58 @@ func TestTargetMerge_FillsEmptyIdentity(t *testing.T) {
 	}
 	if hasLim(snap.Limitations, LimitationTargetFieldConflict) {
 		t.Errorf("no conflict expected when filling empty: %+v", snap.Limitations)
+	}
+}
+
+// The evaluation-freshness merge must never carry the identity-bearing Digest:
+// a fresher evaluation that happens to lack an image digest must not wipe a
+// digest another source already established, or the serialized snapshot and its
+// SnapshotID would depend on source order (review section S14).
+func TestTargetMerge_EvaluationDoesNotOverrideDigest_OrderIndependent(t *testing.T) {
+	older := fixedNow().Add(-time.Hour)
+	newer := fixedNow()
+	// k8s knows the running image digest but its evidence is older.
+	withDigest := NewMemorySource("k8s", "k8s", &Collection{
+		Targets: []RawTarget{{Scope: "prod", Kind: "k8s", Name: "pay", Service: "payments",
+			Digest: "sha256:aaa", Compliance: StatusCompliant, EvidenceAt: &older}},
+	})
+	// evidence-ingest has fresher evidence but no image digest.
+	noDigest := NewMemorySource("ev", "evidence-ingest", &Collection{
+		Targets: []RawTarget{{Scope: "prod", Kind: "k8s", Name: "pay", Service: "payments",
+			Compliance: StatusCompliant, EvidenceAt: &newer}},
+	})
+
+	digestOf := func(t *testing.T, snap *FleetSnapshot) string {
+		t.Helper()
+		var d string
+		var n int
+		for _, tr := range snap.Targets {
+			d = tr.Digest
+			n++
+		}
+		if n != 1 {
+			t.Fatalf("expected one merged target, got %d", n)
+		}
+		return d
+	}
+
+	snapDN, err := Build(context.Background(), BuildOptions{Now: fixedNow}, withDigest, noDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapND, err := Build(context.Background(), BuildOptions{Now: fixedNow}, noDigest, withDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if d := digestOf(t, snapDN); d != "sha256:aaa" {
+		t.Errorf("[withDigest, noDigest] digest = %q, want sha256:aaa (a fresher empty-digest evaluation must not wipe it)", d)
+	}
+	if d := digestOf(t, snapND); d != "sha256:aaa" {
+		t.Errorf("[noDigest, withDigest] digest = %q, want sha256:aaa", d)
+	}
+	if snapDN.SnapshotID != snapND.SnapshotID {
+		t.Errorf("SnapshotID depends on source order: %q vs %q", snapDN.SnapshotID, snapND.SnapshotID)
 	}
 }
 

@@ -349,10 +349,13 @@ func TestDecodeRejectsTrailingData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A second JSON value after the envelope is rejected.
-	trailing := append(append([]byte(nil), data...), []byte(`{"x":1}`)...)
-	if _, err := Decode(trailing); !errors.Is(err, ErrTrailingData) {
-		t.Fatalf("Decode(trailing) = %v, want ErrTrailingData", err)
+	// Trailing data after the envelope is rejected — including a lone '}' or ']',
+	// the cases json.Decoder.More silently accepts (review section S8).
+	for _, tail := range []string{`{"x":1}`, `}`, `]`, `[]`, `5`, `garbage`} {
+		trailing := append(append([]byte(nil), data...), []byte(tail)...)
+		if _, err := Decode(trailing); !errors.Is(err, ErrTrailingData) {
+			t.Errorf("Decode(env+%q) = %v, want ErrTrailingData", tail, err)
+		}
 	}
 	// The clean envelope still decodes.
 	if _, err := Decode(data); err != nil {

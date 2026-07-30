@@ -58,7 +58,9 @@ func (s *ObservationSource) Collect(ctx context.Context) (*fleet.Collection, err
 	edges := otelobserver.DependencyEdges(td)
 	col := &fleet.Collection{Observed: make([]fleet.ObservedEdge, 0, len(edges))}
 	for _, e := range edges {
-		col.Observed = append(col.Observed, fleet.ObservedEdge{From: e.From, To: e.To, Count: e.Count})
+		col.Observed = append(col.Observed, fleet.ObservedEdge{
+			From: e.From, To: e.To, Count: e.Count, FirstSeen: e.FirstSeen, LastSeen: e.LastSeen,
+		})
 	}
 	return col, nil
 }

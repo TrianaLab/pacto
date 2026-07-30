@@ -66,6 +66,18 @@ func (q *Query) Snapshot() *FleetSnapshot { return jsonClone(q.snap) }
 // SnapshotID returns the snapshot's content identity without copying.
 func (q *Query) SnapshotID() string { return q.snap.SnapshotID }
 
+// HasObserved reports whether the snapshot carries any observation-backed
+// (Provenance == observed) relationship, so a host advertises the observed
+// capability from real published data rather than a hardcoded flag.
+func (q *Query) HasObserved() bool {
+	for _, rel := range q.snap.Relationships {
+		if rel.Provenance == ProvenanceObserved {
+			return true
+		}
+	}
+	return false
+}
+
 // Meta is the completeness envelope attached to every query answer. SnapshotID
 // lets a caller prove that several answers came from the same system view.
 type Meta struct {
@@ -441,7 +453,10 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.FromService == s.Key && rel.Type == RelationshipDependency {
+		// Declared dependency edges only, matching this field's documented meaning;
+		// observed edges live in the separate observed adjacency index (and the
+		// graph's observed layer), so they never masquerade as declared intent here.
+		if rel.FromService == s.Key && rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared {
 			view.Dependencies = append(view.Dependencies, rel)
 		}
 	}

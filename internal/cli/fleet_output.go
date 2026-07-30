@@ -83,7 +83,13 @@ func printFleetTarget(cmd *cobra.Command, tv *fleet.TargetView, format string) e
 		_, _ = fmt.Fprintf(w, "Target: %s\n", t.Key)
 		_, _ = fmt.Fprintf(w, "Service: %s\n", t.Service)
 		_, _ = fmt.Fprintf(w, "Compliance: %s\n", t.Compliance)
-		_, _ = fmt.Fprintf(w, "Revision: %s\n", orDash(string(t.ContractRevision)))
+		rev := orDash(string(t.ContractRevision))
+		// Only an exact (immutable-digest) link is the revision known to be running;
+		// an inferred link is a mutable correlation and is labelled as such.
+		if t.ContractRevision != "" && t.RevisionMatch != "" {
+			rev += " (" + t.RevisionMatch + ")"
+		}
+		_, _ = fmt.Fprintf(w, "Revision: %s\n", rev)
 		_, _ = fmt.Fprintf(w, "Stale: %t\n", t.Stale)
 		if t.Coverage != nil {
 			_, _ = fmt.Fprintf(w, "Coverage: %d/%d evaluated\n", t.Coverage.Evaluated, t.Coverage.Required)

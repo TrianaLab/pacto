@@ -2,7 +2,6 @@ package fleetsrc
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/strictjson"
 )
 
 // evidenceTargetsPath is the read-only projection an Evidence Server exposes.
@@ -105,10 +105,9 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("evidence source %s returned HTTP %d", url, resp.StatusCode)
 	}
-	dec := json.NewDecoder(io.LimitReader(resp.Body, maxEvidenceBodyBytes))
-	dec.DisallowUnknownFields()
 	var body evidenceTargetsResponse
-	if err := dec.Decode(&body); err != nil {
+	// Strict: reject unknown fields AND trailing data, bounded by the LimitReader.
+	if err := strictjson.Decode(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &body); err != nil {
 		return nil, err
 	}
 	if body.SchemaVersion != evidenceSchemaVersion {

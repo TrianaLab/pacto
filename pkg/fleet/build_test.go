@@ -471,20 +471,20 @@ func TestMatchRevision(t *testing.T) {
 		"svc@r2":  {Key: "svc@r2", Service: "svc", ServiceKey: svcKey, ResolvedRef: "reg/svc:2.0"},
 		"other@x": {Key: "other@x", Service: "other", ServiceKey: NewServiceKey("other"), Digest: "sha256:zz"},
 	}}
-	byDigest := matchRevision(snap, &TargetRecord{Service: "svc", ServiceKey: svcKey, Digest: "sha256:d1"})
-	if byDigest != "svc@d1" {
-		t.Errorf("digest match = %q", byDigest)
+	byDigest, kind := matchRevision(snap, &TargetRecord{Service: "svc", ServiceKey: svcKey, Digest: "sha256:d1"})
+	if byDigest != "svc@d1" || kind != revisionMatchExact {
+		t.Errorf("digest match = %q/%q, want svc@d1/exact", byDigest, kind)
 	}
-	byRef := matchRevision(snap, &TargetRecord{Service: "svc", ServiceKey: svcKey, ResolvedRef: "reg/svc:2.0"})
-	if byRef != "svc@r2" {
-		t.Errorf("resolvedRef match = %q", byRef)
+	byRef, kind := matchRevision(snap, &TargetRecord{Service: "svc", ServiceKey: svcKey, ResolvedRef: "reg/svc:2.0"})
+	if byRef != "svc@r2" || kind != revisionMatchInferred {
+		t.Errorf("resolvedRef match = %q/%q, want svc@r2/inferred (a mutable ref is not exact)", byRef, kind)
 	}
-	unlinked := matchRevision(snap, &TargetRecord{Service: "svc", ServiceKey: svcKey, Digest: "sha256:none", ResolvedRef: "nope"})
-	if unlinked != "" {
-		t.Errorf("no match should be empty, got %q", unlinked)
+	unlinked, kind := matchRevision(snap, &TargetRecord{Service: "svc", ServiceKey: svcKey, Digest: "sha256:none", ResolvedRef: "nope"})
+	if unlinked != "" || kind != "" {
+		t.Errorf("no match should be empty, got %q/%q", unlinked, kind)
 	}
 	// service with no revisions in fleet.
-	if matchRevision(snap, &TargetRecord{Service: "ghost", ServiceKey: NewServiceKey("ghost"), Digest: "sha256:d1"}) != "" {
+	if k, _ := matchRevision(snap, &TargetRecord{Service: "ghost", ServiceKey: NewServiceKey("ghost"), Digest: "sha256:d1"}); k != "" {
 		t.Error("ghost service should not link")
 	}
 }
@@ -493,18 +493,18 @@ func TestMatchRevision_VersionFallback(t *testing.T) {
 	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
 		"vsvc@2": {Key: "vsvc@2", Service: "vsvc", Version: "2.0.0"}, // no digest, no resolvedRef
 	}}
-	// Tag-pinned resolved ref links by version suffix (":version").
-	byTag := matchRevision(snap, &TargetRecord{Service: "vsvc", ResolvedRef: "reg/vsvc:2.0.0"})
-	if byTag != "vsvc@2" {
-		t.Errorf("tag version fallback = %q", byTag)
+	// Tag-pinned resolved ref links by version suffix (":version") — inferred.
+	byTag, kind := matchRevision(snap, &TargetRecord{Service: "vsvc", ResolvedRef: "reg/vsvc:2.0.0"})
+	if byTag != "vsvc@2" || kind != revisionMatchInferred {
+		t.Errorf("tag version fallback = %q/%q, want vsvc@2/inferred", byTag, kind)
 	}
 	// Digest-style "@version" suffix also links.
-	byAt := matchRevision(snap, &TargetRecord{Service: "vsvc", ResolvedRef: "reg/vsvc@2.0.0"})
-	if byAt != "vsvc@2" {
-		t.Errorf("@ version fallback = %q", byAt)
+	byAt, kind := matchRevision(snap, &TargetRecord{Service: "vsvc", ResolvedRef: "reg/vsvc@2.0.0"})
+	if byAt != "vsvc@2" || kind != revisionMatchInferred {
+		t.Errorf("@ version fallback = %q/%q, want vsvc@2/inferred", byAt, kind)
 	}
 	// A ref that pins a different version does not link.
-	if got := matchRevision(snap, &TargetRecord{Service: "vsvc", ResolvedRef: "reg/vsvc:9.9.9"}); got != "" {
+	if got, _ := matchRevision(snap, &TargetRecord{Service: "vsvc", ResolvedRef: "reg/vsvc:9.9.9"}); got != "" {
 		t.Errorf("mismatched version should not link, got %q", got)
 	}
 }
@@ -631,6 +631,91 @@ func TestBuild_DistinctDomains_Targets(t *testing.T) {
 	}
 }
 
+// Two revisions of one service share a version but differ in content (no pinned
+// digest). A target whose only correlation is that mutable version must NOT be
+// linked to a coin-flip revision; it is ambiguous, links to nothing, and the
+// result is identical regardless of source order (review section S15 + I4).
+func TestMatchRevision_AmbiguousMutableMatch_Deterministic(t *testing.T) {
+	mkRev := func(openapi string) RawRevision {
+		return RawRevision{
+			Bundle: &contract.Bundle{
+				Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "orders", Version: "2.0.0"}},
+				FS:       fstest.MapFS{"openapi.yaml": {Data: []byte(openapi)}},
+			},
+			Domain: "d", // no Digest -> distinct content-derived keys, same version
+		}
+	}
+	tgt := RawTarget{Scope: "prod", Kind: "k8s", Name: "o", Service: "orders", Domain: "d",
+		ResolvedRef: "reg/orders:2.0.0", Compliance: StatusCompliant}
+	srcA := NewMemorySource("a", "oci", &Collection{Revisions: []RawRevision{mkRev("# variant A")}, Targets: []RawTarget{tgt}})
+	srcB := NewMemorySource("b", "oci", &Collection{Revisions: []RawRevision{mkRev("# variant B")}})
+
+	check := func(t *testing.T, snap *FleetSnapshot) string {
+		t.Helper()
+		var tr *TargetRecord
+		for _, x := range snap.Targets {
+			tr = x
+		}
+		if tr == nil {
+			t.Fatal("expected the target")
+		}
+		if tr.ContractRevision != "" || tr.RevisionMatch != "" {
+			t.Errorf("ambiguous mutable match must not link: got rev=%q match=%q", tr.ContractRevision, tr.RevisionMatch)
+		}
+		if !hasLim(snap.Limitations, LimitationRevisionAmbiguous) {
+			t.Errorf("expected REVISION_LINK_AMBIGUOUS, got %+v", snap.Limitations)
+		}
+		return snap.SnapshotID
+	}
+
+	snapAB, err := Build(context.Background(), BuildOptions{Now: fixedNow}, srcA, srcB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapBA, err := Build(context.Background(), BuildOptions{Now: fixedNow}, srcB, srcA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idAB, idBA := check(t, snapAB), check(t, snapBA); idAB != idBA {
+		t.Errorf("ambiguous link must be permutation-invariant: SnapshotID %q vs %q", idAB, idBA)
+	}
+}
+
+// Build must record whether a target's revision link is exact (immutable digest)
+// or inferred (a mutable version tag), so only the exact one is presented as the
+// revision known to be running (review section S15).
+func TestLinkTargets_ClassifiesExactVsInferred(t *testing.T) {
+	rev := func(name, ver, digest, ref string) RawRevision {
+		return RawRevision{Bundle: &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0",
+			Service: contract.Service{Name: name, Version: ver}}, FS: fstest.MapFS{}},
+			Domain: "d", Digest: digest, ResolvedRef: ref}
+	}
+	src := NewMemorySource("s", "k8s", &Collection{
+		Revisions: []RawRevision{
+			rev("pay", "1.0.0", "sha256:pay1", "oci://r/pay@sha256:pay1"),
+			rev("ship", "3.0.0", "", ""),
+		},
+		Targets: []RawTarget{
+			{Scope: "prod", Kind: "k8s", Name: "p", Service: "pay", Domain: "d", Digest: "sha256:pay1", Compliance: StatusCompliant},
+			{Scope: "prod", Kind: "k8s", Name: "s", Service: "ship", Domain: "d", ResolvedRef: "reg/ship:3.0.0", Compliance: StatusCompliant},
+		},
+	})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, tr := range snap.Targets {
+		got[tr.Service] = tr.RevisionMatch
+	}
+	if got["pay"] != revisionMatchExact {
+		t.Errorf("pay target should link exact (digest), got %q", got["pay"])
+	}
+	if got["ship"] != revisionMatchInferred {
+		t.Errorf("ship target should link inferred (version tag), got %q", got["ship"])
+	}
+}
+
 func TestMatchRevision_DomainDiscriminates(t *testing.T) {
 	eastKey := NewServiceKeyDomain("east", "shared")
 	westKey := NewServiceKeyDomain("west", "shared")
@@ -641,7 +726,7 @@ func TestMatchRevision_DomainDiscriminates(t *testing.T) {
 	// Same name and version in both domains; only the ServiceKey differs. A target
 	// in the east domain must link to east's revision, never west's.
 	tgt := &TargetRecord{Service: "shared", ServiceKey: eastKey, ResolvedRef: "reg/shared:1.0.0"}
-	if got := matchRevision(snap, tgt); got != "east" {
+	if got, _ := matchRevision(snap, tgt); got != "east" {
 		t.Errorf("target linked to %q, want east (ServiceKey must discriminate)", got)
 	}
 }
@@ -1186,6 +1271,101 @@ func TestBuild_ObservedRelationships(t *testing.T) {
 	}
 	if len(snap.reverseDeps[NewServiceKey("api")]) != 0 {
 		t.Error("observed edges must NOT pollute the declared reverseDeps index")
+	}
+}
+
+// When two sources witness the same edge, neither source's count is collapsed
+// onto the other: the total is summed but each source keeps its own count and
+// window, and the single Source field is empty (review section S5).
+// Reconciliation is an explicit backend fact: a declared edge is matched only
+// when an observed edge corroborates it, declared-not-observed when observation
+// data exists but did not witness it, and insufficient when there is no
+// observation data at all — never "reconciled" from deployment (review S3).
+func TestQuery_HasObserved(t *testing.T) {
+	declaredOnly := NewQuery(&FleetSnapshot{Relationships: []Relationship{
+		{Type: RelationshipDependency, Provenance: ProvenanceDeclared, FromService: "a", ToService: "b"},
+	}})
+	if declaredOnly.HasObserved() {
+		t.Error("a declared-only snapshot must not report observed")
+	}
+	withObserved := NewQuery(&FleetSnapshot{Relationships: []Relationship{
+		{Type: RelationshipDependency, Provenance: ProvenanceObserved, FromService: "a", ToService: "b"},
+	}})
+	if !withObserved.HasObserved() {
+		t.Error("a snapshot with an observed edge must report observed")
+	}
+}
+
+func TestReconcileDeclared(t *testing.T) {
+	snap := &FleetSnapshot{Relationships: []Relationship{
+		{Type: RelationshipDependency, Provenance: ProvenanceDeclared, FromService: "d/web", ToService: "d/api"},
+		{Type: RelationshipDependency, Provenance: ProvenanceDeclared, FromService: "d/web", ToService: "d/cache"},
+		{Type: RelationshipDependency, Provenance: ProvenanceObserved, FromService: "d/web", ToService: "d/api"},
+	}}
+	reconcileDeclared(snap)
+	got := map[ServiceKey]string{}
+	for _, r := range snap.Relationships {
+		if r.Provenance == ProvenanceDeclared {
+			got[r.ToService] = r.Reconciliation
+		}
+	}
+	if got["d/api"] != ReconciliationMatched {
+		t.Errorf("web->api = %q, want matched", got["d/api"])
+	}
+	if got["d/cache"] != ReconciliationDeclaredNotObserved {
+		t.Errorf("web->cache = %q, want declared-not-observed", got["d/cache"])
+	}
+}
+
+func TestReconcileDeclared_InsufficientWithoutObservation(t *testing.T) {
+	snap := &FleetSnapshot{Relationships: []Relationship{
+		{Type: RelationshipDependency, Provenance: ProvenanceDeclared, FromService: "d/web", ToService: "d/api"},
+	}}
+	reconcileDeclared(snap)
+	if snap.Relationships[0].Reconciliation != ReconciliationInsufficient {
+		t.Errorf("no observation data must be insufficient, got %q", snap.Relationships[0].Reconciliation)
+	}
+}
+
+func TestBuild_ObservedRelationships_MultiSource(t *testing.T) {
+	base := fixedNow()
+	revs := []RawRevision{
+		{Bundle: bundleFor(t, "web"), Digest: "sha256:web"},
+		{Bundle: bundleFor(t, "api"), Digest: "sha256:api"},
+	}
+	mesh := NewMemorySource("mesh", "observation", &Collection{
+		Revisions: revs,
+		Observed:  []ObservedEdge{{From: "web", To: "api", Count: 10, FirstSeen: base.Add(-3 * time.Hour), LastSeen: base.Add(-2 * time.Hour)}},
+	})
+	otel := NewMemorySource("otel", "observation", &Collection{
+		Observed: []ObservedEdge{{From: "web", To: "api", Count: 5, FirstSeen: base.Add(-1 * time.Hour), LastSeen: base}},
+	})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, mesh, otel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := relObserved(snap.Relationships, "web", "api")
+	if rel == nil {
+		t.Fatalf("expected observed web->api, got %+v", snap.Relationships)
+	}
+	if rel.ObservedCount != 15 {
+		t.Errorf("total ObservedCount = %d, want 15", rel.ObservedCount)
+	}
+	if rel.Source != "" {
+		t.Errorf("a multi-source edge must not attribute to one source, got %q", rel.Source)
+	}
+	bySrc := map[string]int{}
+	for _, s := range rel.ObservedSources {
+		bySrc[s.Source] = s.Count
+	}
+	if bySrc["mesh"] != 10 || bySrc["otel"] != 5 {
+		t.Errorf("per-source counts lost: %+v", rel.ObservedSources)
+	}
+	if rel.FirstSeen == nil || !rel.FirstSeen.Equal(base.Add(-3*time.Hour)) {
+		t.Errorf("window start = %v, want %v", rel.FirstSeen, base.Add(-3*time.Hour))
+	}
+	if rel.LastSeen == nil || !rel.LastSeen.Equal(base) {
+		t.Errorf("window end = %v, want %v", rel.LastSeen, base)
 	}
 }
 

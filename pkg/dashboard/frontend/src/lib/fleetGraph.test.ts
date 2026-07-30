@@ -6,8 +6,11 @@ import {
   type FleetSnapshot,
 } from './fleetGraph.ts';
 
-// Two same-named services in different domains, one with a running target (so its
-// declared dependency edge is "reconciled"), plus a stale target and an owner.
+// Two same-named services in different domains. The backend has reconciled
+// domain-a/payments->ledger as "matched" (observed traffic corroborates it) and
+// domain-b/payments->ledger as "declared-not-observed"; the frontend consumes
+// those states verbatim (it never infers reconciliation). Plus a stale target
+// and an owner.
 const snap: FleetSnapshot = {
   services: {
     'domain-a/payments': {
@@ -35,10 +38,10 @@ const snap: FleetSnapshot = {
     'prod/k8s/ledger-a': { key: 'prod/k8s/ledger-a', serviceKey: 'domain-a/ledger', service: 'ledger', domain: 'domain-a', name: 'ledger-a', scope: 'prod', compliance: 'Compliant', contractRevision: 'domain-a/ledger@sha256:l1', stale: true },
   },
   relationships: [
-    // domain-a/payments depends on domain-a/ledger, resolved + ledger has a target → reconciled.
-    { fromService: 'domain-a/payments', fromRevision: 'domain-a/payments@sha256:a1', toService: 'domain-a/ledger', resolvedRevision: 'domain-a/ledger@sha256:l1', type: 'dependency', provenance: 'declared', required: true, resolved: true },
-    // domain-b/payments depends on domain-a/ledger too — declared, resolved, ledger has a target → reconciled.
-    { fromService: 'domain-b/payments', fromRevision: 'domain-b/payments@sha256:b1', toService: 'domain-a/ledger', resolvedRevision: 'domain-a/ledger@sha256:l1', type: 'dependency', provenance: 'declared', required: false, resolved: true },
+    // domain-a/payments -> domain-a/ledger: backend reconciled it as matched.
+    { fromService: 'domain-a/payments', fromRevision: 'domain-a/payments@sha256:a1', toService: 'domain-a/ledger', resolvedRevision: 'domain-a/ledger@sha256:l1', type: 'dependency', provenance: 'declared', required: true, resolved: true, reconciliation: 'matched' },
+    // domain-b/payments -> domain-a/ledger: declared but not observed (NOT reconciled).
+    { fromService: 'domain-b/payments', fromRevision: 'domain-b/payments@sha256:b1', toService: 'domain-a/ledger', resolvedRevision: 'domain-a/ledger@sha256:l1', type: 'dependency', provenance: 'declared', required: false, resolved: true, reconciliation: 'declared-not-observed' },
   ],
 };
 
@@ -89,10 +92,13 @@ describe('buildFleetGraph — service perspective', () => {
 });
 
 describe('buildFleetGraph — layers', () => {
-  it('reconciled layer keeps only edges whose target actually runs', () => {
+  it('reconciled layer keeps only backend-matched edges', () => {
     const g = buildFleetGraph(snap, 'service', 'reconciled');
     const from = g.nodes.find((n) => n.id === 'domain-a/payments')!;
-    expect(from.edges).toHaveLength(1); // ledger runs → reconciled
+    expect(from.edges).toHaveLength(1); // reconciliation === 'matched'
+    // domain-b/payments->ledger is declared-not-observed, so it is NOT reconciled.
+    const other = g.nodes.find((n) => n.id === 'domain-b/payments')!;
+    expect(other.edges).toHaveLength(0);
   });
 
   it('observed layer is empty when the snapshot has no observed edges', () => {

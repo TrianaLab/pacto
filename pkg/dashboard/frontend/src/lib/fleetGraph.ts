@@ -11,8 +11,10 @@
  * when an observation source is configured (OTel traces folded in by fleet.Build),
  * domain-qualified observed relationships (provenance "observed"). layerAvailability
  * reports which layers actually have backing data so the view disables the empty
- * ones rather than shipping a placebo toggle. "reconciled" is DERIVED — a declared
- * edge whose target service actually has operational targets running — so it is real.
+ * ones rather than shipping a placebo toggle. "reconciled" is a BACKEND fact — the
+ * declared edge's `reconciliation === 'matched'` (declared AND corroborated by
+ * observed traffic); the frontend never derives it from name resolution or whether
+ * the provider happens to be deployed.
  * The target perspective NEVER fabricates instance-to-instance edges (a Cartesian
  * mesh the snapshot cannot substantiate): an instance links to the dependency
  * SERVICE it depends on, not to peer instances.
@@ -30,6 +32,11 @@ export interface FleetRelationship {
   resolvedRevision?: string;
   type: string;
   provenance?: string;
+  /** reconciliation is the BACKEND declared-vs-observed outcome for a declared
+   * dependency edge: 'matched' | 'declared-not-observed' | 'insufficient'. The
+   * frontend renders "reconciled" from this alone — never from name resolution or
+   * whether the provider is deployed. */
+  reconciliation?: string;
   required?: boolean;
   resolved?: boolean;
   compatibility?: string;
@@ -95,12 +102,11 @@ function ownerKeyOf(owner: unknown): string {
   return '';
 }
 
-/** A declared dependency edge that is "reconciled": resolved to a concrete
- * service that actually has operational targets running. */
-function isReconciled(rel: FleetRelationship, snap: FleetSnapshot): boolean {
-  if (!rel.resolved || !rel.toService) return false;
-  const to = snap.services?.[rel.toService];
-  return !!to && (to.targets?.length ?? 0) > 0;
+/** A declared dependency edge is "reconciled" ONLY when the backend computed it
+ * matched (declared AND corroborated by observed traffic). This is a backend fact
+ * — resolution and provider deployment are NOT reconciliation. */
+function isReconciled(rel: FleetRelationship): boolean {
+  return rel.reconciliation === 'matched';
 }
 
 /** layerAvailability reports which relationship layers have ANY backing data, so
@@ -114,7 +120,7 @@ export function layerAvailability(snap: FleetSnapshot | null | undefined): Layer
     if (r.type !== 'dependency') continue;
     if (r.provenance === 'observed') observed = true;
     else declared = true;
-    if (isReconciled(r, snap!)) reconciled = true;
+    if (isReconciled(r)) reconciled = true;
   }
   return { declared, observed, reconciled };
 }
@@ -136,7 +142,7 @@ function serviceMatches(s: FleetServiceRecord, snap: FleetSnapshot, f: GraphFilt
 }
 
 /** relationshipInLayer decides whether an edge belongs in the selected layer. */
-function relationshipInLayer(rel: FleetRelationship, snap: FleetSnapshot, layer: Layer): boolean {
+function relationshipInLayer(rel: FleetRelationship, layer: Layer): boolean {
   if (rel.type !== 'dependency') return false;
   const observed = rel.provenance === 'observed';
   switch (layer) {
@@ -145,7 +151,7 @@ function relationshipInLayer(rel: FleetRelationship, snap: FleetSnapshot, layer:
     case 'observed':
       return observed;
     case 'reconciled':
-      return isReconciled(rel, snap);
+      return isReconciled(rel);
     case 'all':
       return true;
   }
@@ -174,7 +180,7 @@ function serviceGraph(snap: FleetSnapshot, layer: Layer, f: GraphFilters): Graph
   const nodes: GraphNode[] = [];
   const edgesByFrom = new Map<string, GraphEdge[]>();
   for (const rel of snap.relationships || []) {
-    if (!relationshipInLayer(rel, snap, layer)) continue;
+    if (!relationshipInLayer(rel, layer)) continue;
     if (!keep.has(rel.fromService) || !rel.toService || !keep.has(rel.toService)) continue;
     const list = edgesByFrom.get(rel.fromService) || [];
     list.push({ targetId: rel.toService, required: rel.required, type: rel.type });
@@ -206,7 +212,7 @@ function revisionGraph(snap: FleetSnapshot, layer: Layer, f: GraphFilters): Grap
   }
   const edgesByFrom = new Map<string, GraphEdge[]>();
   for (const rel of snap.relationships || []) {
-    if (!relationshipInLayer(rel, snap, layer)) continue;
+    if (!relationshipInLayer(rel, layer)) continue;
     if (!rel.fromRevision || !rel.resolvedRevision) continue;
     if (!keepRev.has(rel.fromRevision) || !keepRev.has(rel.resolvedRevision)) continue;
     const list = edgesByFrom.get(rel.fromRevision) || [];
@@ -258,7 +264,7 @@ function targetGraph(snap: FleetSnapshot, layer: Layer, f: GraphFilters): GraphD
   const edgesByFrom = new Map<string, GraphEdge[]>();
   const depServiceNodes = new Map<string, string>(); // aggregate node id -> serviceKey
   for (const rel of snap.relationships || []) {
-    if (!relationshipInLayer(rel, snap, layer)) continue;
+    if (!relationshipInLayer(rel, layer)) continue;
     if (!rel.resolved || !rel.toService || !keepService.has(rel.fromService)) continue;
     const fromTargets = instancesOf.get(rel.fromService) || [];
     if (fromTargets.length === 0) continue;

@@ -1,12 +1,12 @@
 package evidencestore
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -19,6 +19,7 @@ import (
 	"gocloud.dev/blob"
 
 	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v3/pkg/strictjson"
 )
 
 // Seams, overridable in tests to exercise the write error paths without a real
@@ -82,13 +83,6 @@ type BlobStore struct {
 	seen   map[string]struct{}       // accepted envelope ids
 	maxSeq map[string]uint64         // producer id -> highest sequence
 	latest map[string]AcceptedRecord // target key -> most recent record
-	// seqSeen holds every committed sequence per producer, used ONLY during
-	// recovery to detect an impossible history (the same producer committed two
-	// distinct records at one sequence — a fork that single-writer replay
-	// protection makes unreachable, so its presence means tamper or split-brain).
-	// ponytail: O(records) memory like `seen`; a Bloom filter would bound it if the
-	// log ever outgrows memory.
-	seqSeen map[string]map[uint64]struct{}
 	// tainted holds hashed producer ids whose history is partially corrupt; keyed
 	// by hash because a corrupt record's original producer id cannot be read back.
 	tainted       map[string]struct{}
@@ -159,7 +153,6 @@ func (b *BlobStore) resetIndex() {
 	b.seen = map[string]struct{}{}
 	b.maxSeq = map[string]uint64{}
 	b.latest = map[string]AcceptedRecord{}
-	b.seqSeen = map[string]map[uint64]struct{}{}
 	b.tainted = map[string]struct{}{}
 	b.corruptions = nil
 	b.pendingRepair = false
@@ -175,6 +168,7 @@ func (b *BlobStore) Recover(ctx context.Context) (RecoveredState, error) {
 	b.resetIndex()
 	listPrefix := path.Join(b.prefix, "envelopes") + "/"
 	it := b.bucket.List(&blob.ListOptions{Prefix: listPrefix})
+	var valid []recoveredRecord
 	for {
 		obj, err := it.Next(ctx)
 		if err == io.EOF {
@@ -184,11 +178,22 @@ func (b *BlobStore) Recover(ctx context.Context) (RecoveredState, error) {
 			b.setPhase(PhaseFailed)
 			return RecoveredState{}, err
 		}
-		b.recoverOne(ctx, obj.Key, listPrefix)
+		if rec, ok := b.readValidRecord(ctx, obj.Key, listPrefix); ok {
+			valid = append(valid, recoveredRecord{key: obj.Key, rec: rec})
+		}
 	}
+	// Fold valid records into the index, tainting EVERY party to an impossible
+	// history rather than letting list order pick which forked record survives.
+	b.indexValid(valid, listPrefix)
 	// Compare the persisted materialized projection against the rebuilt-from-log
 	// truth and flag a physical repair if it drifted.
 	b.detectProjectionDrift(ctx)
+	// Deterministic corruption order so a forked log serializes identically
+	// regardless of bucket-listing order. Each corruption carries a distinct object
+	// key, so the key is a total order on its own.
+	sort.Slice(b.corruptions, func(i, j int) bool {
+		return b.corruptions[i].Key < b.corruptions[j].Key
+	})
 	if len(b.corruptions) == 0 && !b.pendingRepair {
 		b.setPhase(PhaseReady)
 	} else {
@@ -221,62 +226,89 @@ func (b *BlobStore) detectProjectionDrift(ctx context.Context) {
 	}
 }
 
-// recoverOne reads one immutable object into the index, or taints its producer
-// when the object cannot be read, parsed or validated.
-func (b *BlobStore) recoverOne(ctx context.Context, key, listPrefix string) {
+// recoveredRecord pairs a valid immutable record with its object key.
+type recoveredRecord struct {
+	key string
+	rec AcceptedRecord
+}
+
+// errDupEnvelopeID and errForkedSequence are the two impossible-history reasons.
+// They carry NO ids (ids identify producers); the tainted-producer hash and the
+// reported object key locate the fault without leaking them.
+var (
+	errDupEnvelopeID  = errors.New("impossible history: an envelope id was committed more than once")
+	errForkedSequence = errors.New("impossible history: two committed records share one producer sequence")
+)
+
+// readValidRecord reads, decodes and validates one immutable object. On any
+// failure it taints the object's producer and returns ok=false; cross-record
+// conflict detection happens later in indexValid.
+func (b *BlobStore) readValidRecord(ctx context.Context, key, listPrefix string) (AcceptedRecord, bool) {
 	data, err := readAll(ctx, b.bucket, key)
 	if err != nil {
 		b.taint(key, listPrefix, err)
-		return
+		return AcceptedRecord{}, false
 	}
 	rec, err := decodeRecord(data)
 	if err != nil {
 		b.taint(key, listPrefix, err)
-		return
+		return AcceptedRecord{}, false
 	}
 	if err := b.validateRecovered(rec, key); err != nil {
 		b.taint(key, listPrefix, err)
-		return
+		return AcceptedRecord{}, false
 	}
-	if err := b.checkHistory(rec); err != nil {
-		b.taint(key, listPrefix, err)
-		return
-	}
-	b.index(rec)
+	return rec, true
 }
 
-// checkHistory detects an IMPOSSIBLE history in the persisted log — a state that
-// correct single-writer operation (strictly increasing per-producer sequences,
-// commit-once envelopes) can never produce, so its presence means the immutable
-// log was tampered with or two writers forked it. It rejects two committed records
-// at the same producer sequence and an envelope id committed more than once. Ids
-// are never echoed into the reason (they identify producers; the tainted-producer
-// hash and object key locate the fault without leaking them). It runs during
-// recovery before index, so it compares against records already folded this scan.
-func (b *BlobStore) checkHistory(rec AcceptedRecord) error {
-	if _, dup := b.seen[rec.EnvelopeID()]; dup {
-		return fmt.Errorf("impossible history: an envelope id was committed more than once")
+// indexValid folds valid records into the index, first detecting IMPOSSIBLE
+// histories across the WHOLE set — a state correct single-writer operation
+// (strictly increasing per-producer sequences, commit-once envelopes) can never
+// produce, so its presence means tamper or a split-brain fork. Two records that
+// share an envelope id, or share one producer's sequence, are BOTH tainted and
+// NEITHER indexed: the bucket-listing order must never decide which forked record
+// survives or which producer stays trusted. Grouping is set-based, so the outcome
+// is independent of list order.
+func (b *BlobStore) indexValid(recs []recoveredRecord, listPrefix string) {
+	byID := map[string][]recoveredRecord{}
+	bySeq := map[string][]recoveredRecord{}
+	for _, r := range recs {
+		byID[r.rec.EnvelopeID()] = append(byID[r.rec.EnvelopeID()], r)
+		seqKey := fmt.Sprintf("%s\x00%d", r.rec.ProducerID(), r.rec.Sequence())
+		bySeq[seqKey] = append(bySeq[seqKey], r)
 	}
-	seqs := b.seqSeen[rec.ProducerID()]
-	if seqs == nil {
-		seqs = map[uint64]struct{}{}
-		b.seqSeen[rec.ProducerID()] = seqs
+	conflicted := map[string]bool{}
+	markConflict := func(group []recoveredRecord, cause error) {
+		if len(group) < 2 {
+			return
+		}
+		for _, r := range group {
+			if !conflicted[r.key] {
+				conflicted[r.key] = true
+				b.taint(r.key, listPrefix, cause)
+			}
+		}
 	}
-	if _, dup := seqs[rec.Sequence()]; dup {
-		return fmt.Errorf("impossible history: two committed records share one producer sequence")
+	for _, g := range byID {
+		markConflict(g, errDupEnvelopeID)
 	}
-	seqs[rec.Sequence()] = struct{}{}
-	return nil
+	for _, g := range bySeq {
+		markConflict(g, errForkedSequence)
+	}
+	for _, r := range recs {
+		if !conflicted[r.key] {
+			b.index(r.rec)
+		}
+	}
 }
 
 // decodeRecord strictly decodes an immutable record, rejecting unknown fields so a
 // schema change or an injected field is reported as corruption, not silently
 // mis-parsed.
 func decodeRecord(data []byte) (AcceptedRecord, error) {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
 	var rec AcceptedRecord
-	if err := dec.Decode(&rec); err != nil {
+	// Strict: reject unknown fields AND any trailing data after the record.
+	if err := strictjson.Unmarshal(data, &rec); err != nil {
 		return AcceptedRecord{}, err
 	}
 	return rec, nil

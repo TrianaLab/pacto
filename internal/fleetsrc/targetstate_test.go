@@ -132,6 +132,14 @@ func TestTargetStateFileSource_UnknownFieldRejected(t *testing.T) {
 	}
 }
 
+func TestTargetStateFileSource_SecondDocumentRejected(t *testing.T) {
+	body := "schemaVersion: pacto.dev/fleet-targets/v1\ntargets: []\n---\nschemaVersion: pacto.dev/fleet-targets/v1\ntargets: []\n"
+	path := writeFixture(t, "t.yaml", body)
+	if _, err := NewTargetStateFileSource("", path).Collect(context.Background()); err == nil {
+		t.Error("a second YAML document must be rejected (exactly one document)")
+	}
+}
+
 func TestTargetStateFileSource_MissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "does-not-exist.yaml")
 	if _, err := NewTargetStateFileSource("", path).Collect(context.Background()); err == nil {

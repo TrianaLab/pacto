@@ -61,6 +61,11 @@ type ObservedEdge struct {
 	From  string
 	To    string
 	Count int
+	// FirstSeen/LastSeen bound the observation window this edge was witnessed in
+	// (zero when the source carries no timestamps). They flow into the observed
+	// relationship so a stale offline sample is never presented as current truth.
+	FirstSeen time.Time
+	LastSeen  time.Time
 }
 
 // RawRevision is what a definition or baseline source knows about a resolved

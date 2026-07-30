@@ -155,14 +155,18 @@ func TestCapabilitiesEndpoint(t *testing.T) {
 	}
 }
 
-func TestCapabilities_ObservedAvailable(t *testing.T) {
-	// A host that declares an observation source advertises observed=true, so the
-	// frontend may enable an include-observed control honestly.
+func TestCapabilities_ObservedDerivedFromSnapshot(t *testing.T) {
+	// observed=true is DERIVED from the published snapshot carrying an observed
+	// relationship, not a hardcoded flag, so it can never be a placebo (review S4).
+	snap := &fleet.FleetSnapshot{Relationships: []fleet.Relationship{{
+		FromService: "eu/a", ToService: "eu/b", Type: fleet.RelationshipDependency,
+		Provenance: fleet.ProvenanceObserved, Resolved: true, ObservedCount: 1,
+	}}}
 	srv := NewResolvedServer(BuildResolvedSource(map[string]DataSource{"local": newOrderServiceSource()}), nil, nil, nil)
-	srv.SetObservedAvailable(true)
+	srv.SetFleetProvider(func(context.Context) (*fleet.Query, error) { return fleet.NewQuery(snap), nil })
 	out, err := srv.capabilities(context.Background(), nil)
 	if err != nil || !out.Body.Observed {
-		t.Errorf("expected observed=true, got %+v err=%v", out.Body, err)
+		t.Errorf("expected observed=true derived from the snapshot, got %+v err=%v", out.Body, err)
 	}
 }
 

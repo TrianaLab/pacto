@@ -56,7 +56,8 @@ func main() {
 		q := fleet.NewQuery(snap)
 		srv.SetFleetProvider(func(context.Context) (*fleet.Query, error) { return q, nil })
 		srv.SetImpactProvider(demoImpactProvider(snap, byRef))
-		srv.SetObservedAvailable(true) // the demo carries embedded observed edges
+		// The observed capability is derived from the snapshot's observed edges;
+		// the demo carries them, so no flag is needed.
 	}
 
 	mux := http.NewServeMux()

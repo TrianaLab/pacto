@@ -65,19 +65,21 @@ func (s *Server) registerCapabilitiesOperation(api huma.API) {
 	}, s.capabilities)
 }
 
-func (s *Server) capabilities(_ context.Context, _ *struct{}) (*capabilitiesOutput, error) {
+func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOutput, error) {
 	out := &capabilitiesOutput{}
 	out.Body.Fleet = s.fleetQuery != nil
 	out.Body.Impact = s.impactProvider != nil
-	out.Body.Observed = s.observedAvailable
+	// Observed availability is DERIVED from the currently published snapshot (does
+	// it carry any observed relationship?), never a hardcoded flag — so the
+	// capability is honest on every host, including the WASM demo. If the snapshot
+	// cannot be read, observed is reported false (we cannot confirm it).
+	if s.fleetQuery != nil {
+		if q, err := s.fleetQuery(ctx); err == nil && q.HasObserved() {
+			out.Body.Observed = true
+		}
+	}
 	return out, nil
 }
-
-// SetObservedAvailable declares that the impact provider is backed by an
-// observation source (e.g. embedded OTel traces), so the frontend may enable its
-// include-observed control. Off by default — a host without observed data must
-// never advertise it (no placebo).
-func (s *Server) SetObservedAvailable(v bool) { s.observedAvailable = v }
 
 // registerFleetOperations registers the fleet endpoints when a provider is set.
 func (s *Server) registerFleetOperations(api huma.API) {

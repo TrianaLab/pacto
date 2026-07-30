@@ -178,7 +178,8 @@ func newEvidenceKeygenCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			dir, _ := cmd.Flags().GetString("out")
 			keyID, _ := cmd.Flags().GetString("key-id")
 			producer, _ := cmd.Flags().GetString("producer")
-			kp, err := svc.GenerateKey(dir, producer, keyID)
+			force, _ := cmd.Flags().GetBool("force")
+			kp, err := svc.GenerateKey(dir, producer, keyID, force)
 			if err != nil {
 				return err
 			}
@@ -188,6 +189,7 @@ func newEvidenceKeygenCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().String("out", ".", "directory to write the keypair into")
 	cmd.Flags().String("key-id", "", "key id (defaults to a fingerprint of the public key)")
 	cmd.Flags().String("producer", "", "producer id to bind the key to (writes <producer>__<keyId>.pub)")
+	cmd.Flags().Bool("force", false, "overwrite existing key files instead of failing")
 	return cmd
 }
 

@@ -21,6 +21,8 @@ import (
 	"path"
 	"time"
 
+	"github.com/trianalab/pacto/v3/pkg/strictjson"
+
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 )
 
@@ -247,16 +249,14 @@ func Decode(data []byte) (Envelope, error) {
 	if len(data) > MaxEnvelopeBytes {
 		return Envelope{}, ErrTooLarge
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
 	var e Envelope
-	if err := dec.Decode(&e); err != nil {
+	// strictjson rejects unknown fields AND any trailing data — including a lone
+	// '}' or ']', which json.Decoder.More silently accepts.
+	if err := strictjson.Unmarshal(data, &e); err != nil {
+		if errors.Is(err, strictjson.ErrTrailingData) {
+			return Envelope{}, ErrTrailingData
+		}
 		return Envelope{}, fmt.Errorf("evidence envelope: decode: %w", err)
-	}
-	// Reject anything after the single envelope value: strict decoding must not
-	// silently accept `{envelope}{garbage}` or trailing tokens.
-	if dec.More() {
-		return Envelope{}, ErrTrailingData
 	}
 	if err := e.validateStructure(); err != nil {
 		return Envelope{}, err

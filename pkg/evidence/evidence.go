@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/trianalab/pacto/v3/pkg/strictjson"
 )
 
 // SubjectRef identifies the specific entity an observation is about. For per-assertion kinds it names the
@@ -198,8 +200,12 @@ func (o Observation) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements custom JSON unmarshaling for Observation, running validate() after decode.
 func (o *Observation) UnmarshalJSON(data []byte) error {
+	// A custom UnmarshalJSON does NOT inherit the outer decoder's
+	// DisallowUnknownFields, so decode strictly here too — otherwise an unknown
+	// field inside an observation is silently dropped even through a strict decode
+	// of the enclosing EvidenceSet.
 	var j observationJSON
-	if err := json.Unmarshal(data, &j); err != nil {
+	if err := strictjson.Unmarshal(data, &j); err != nil {
 		return fmt.Errorf("unmarshal observation: %w", err)
 	}
 	*o = Observation(j)

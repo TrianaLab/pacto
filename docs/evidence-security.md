@@ -96,6 +96,33 @@ verification fails, so it drops straight into CI.
 The output reports the envelope id, producer and key id on success, or the
 sanitized failure reason on failure.
 
+### Structured trust configuration
+
+The bare-`.pub` mode binds a key only to a **producer**; it cannot express the
+per-key **subject** and **contract-repository** allowlists the verification and
+ingestion layers already enforce. To configure those, point `--trust` at a
+versioned YAML trust config instead (a file ending in `.yaml`/`.yml`):
+
+```yaml
+apiVersion: pacto.dev/evidence-trust/v1
+keys:
+  - keyId: edge-eu-2026
+    producerId: edge-eu
+    publicKeyFile: edge-eu-2026.pub   # resolved relative to this config's directory
+    allowedSubjects:                  # path.Match globs; empty = any subject
+      - payments-*
+    allowedContractRepos:             # bare registry/repo prefixes; empty = any repo
+      - ghcr.io/acme/contracts
+```
+
+Loading validates the schema version, the identifier grammar, duplicate key ids,
+contradictory producer bindings for one key file, missing/traversing key files
+and malformed subject/repo patterns. Because `publicKeyFile` resolves relative to
+the config's directory, a Kubernetes Secret mounted as a directory containing the
+config plus its `.pub` files can be pointed at directly. The bare-`.pub` mode
+remains supported but stays deliberately limited to producer binding — it does not
+enforce scopes it cannot express.
+
 ---
 
 ## Running the ingestion endpoint
