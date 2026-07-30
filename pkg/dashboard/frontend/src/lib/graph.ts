@@ -50,6 +50,11 @@ export interface GraphNode {
   status: string;
   version?: string;
   reason?: string;    // why unresolved: non_oci_ref, auth_failed, no_semver_tags, not_found, discovering
+  // kind distinguishes what a node represents so the renderer can style it and the
+  // viewer is never misled about the layer: 'target' is a deployed instance,
+  // 'service' is a logical service (incl. a dependency-service aggregate in the
+  // target perspective), 'revision' is a content-addressed revision. Absent = service.
+  kind?: 'service' | 'revision' | 'target';
   edges?: GraphEdge[];
 }
 
@@ -190,6 +195,7 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
         label: version ? `${name}\n${version}` : name,
         status: n.status,
         reason: n.reason || '',
+        kind: n.kind || 'service',
         external: n.status === 'external' ? 1 : 0,
         isFocus: n.serviceName === focusId ? 1 : 0,
         parent: label ? groupId(label) : undefined,
@@ -311,6 +317,13 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
         'transition-duration': '0.12s',
         'transition-timing-function': 'ease-out',
       },
+    },
+    {
+      // A deployed instance (target perspective) reads as an ellipse so it is never
+      // mistaken for a logical service/revision node (round-rectangle). This keeps
+      // the physical vs logical distinction honest at a glance.
+      selector: "node[kind='target']",
+      style: { shape: 'ellipse' },
     },
     {
       selector: 'edge',

@@ -282,6 +282,14 @@
     {/if}
   </div>
 
+  {#if perspective === 'target'}
+    <p class="perspective-note" data-testid="target-note">
+      Ellipses are deployed instances; rounded boxes are the logical services they depend on.
+      An instance links to the dependency <em>service</em>, not to specific peer instances —
+      runtime instance-to-instance routing is not observed, so it is never drawn.
+    </p>
+  {/if}
+
   <div class="graph-layout">
     <div class="graph-main">
       {#if graphData.nodes.length === 0}
@@ -445,6 +453,8 @@
   .src-partial, .src-stale { border-color: var(--c-warn-border, orange); }
   .src-unavailable { border-color: var(--c-err-border, red); }
 
+  .perspective-note { margin: 0 0 var(--sp-3); font-size: var(--text-xs); color: var(--c-text-3); max-width: 70ch; }
+  .perspective-note em { font-style: italic; color: var(--c-text-2); }
   .partial-banner { padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3); border: 1px solid var(--c-warn-border); border-radius: var(--radius-sm); background: var(--c-warn-bg); color: var(--c-text-2); font-size: var(--text-sm); }
   .partial-banner strong { color: var(--c-warn); }
   .limitations { margin: var(--sp-2) 0 0; padding-left: var(--sp-4); display: flex; flex-direction: column; gap: 4px; }

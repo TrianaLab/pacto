@@ -7,12 +7,15 @@
  * RevisionKey or TargetKey — never a bare display name — so two same-named
  * services in different domains stay distinct nodes with distinct edges.
  *
- * Honesty (matches the backend): the snapshot carries ONLY declared relationships
- * today (see pkg/fleet Relationship: "Only declared edges are produced today").
- * "reconciled" is DERIVED — a declared edge whose target service actually has
- * operational targets running — so it is real. "observed" has no snapshot-level
- * source yet, so layerAvailability reports it empty and the view disables it
- * rather than shipping a placebo toggle.
+ * Honesty (matches the backend): the snapshot carries declared relationships AND,
+ * when an observation source is configured (OTel traces folded in by fleet.Build),
+ * domain-qualified observed relationships (provenance "observed"). layerAvailability
+ * reports which layers actually have backing data so the view disables the empty
+ * ones rather than shipping a placebo toggle. "reconciled" is DERIVED — a declared
+ * edge whose target service actually has operational targets running — so it is real.
+ * The target perspective NEVER fabricates instance-to-instance edges (a Cartesian
+ * mesh the snapshot cannot substantiate): an instance links to the dependency
+ * SERVICE it depends on, not to peer instances.
  */
 
 import type { GraphData, GraphNode, GraphEdge } from './graph.ts';
@@ -158,7 +161,7 @@ export function buildFleetGraph(
 ): GraphData {
   if (!snap) return { nodes: [] };
   if (perspective === 'revision') return revisionGraph(snap, layer, filters);
-  if (perspective === 'target') return targetGraph(snap, filters);
+  if (perspective === 'target') return targetGraph(snap, layer, filters);
   return serviceGraph(snap, layer, filters);
 }
 
@@ -183,6 +186,7 @@ function serviceGraph(snap: FleetSnapshot, layer: Layer, f: GraphFilters): Graph
       id: key,
       serviceName: s.name,
       status: s.status || 'Unknown',
+      kind: 'service',
       edges: edgesByFrom.get(key) || [],
     });
   }
@@ -217,42 +221,57 @@ function revisionGraph(snap: FleetSnapshot, layer: Layer, f: GraphFilters): Grap
       serviceName: rev.service,
       status: rev.valid === false ? 'NonCompliant' : (services[rev.serviceKey]?.status || 'Unknown'),
       version: rev.version || '',
+      kind: 'revision',
       edges: edgesByFrom.get(rk) || [],
     });
   }
   return { nodes };
 }
 
-function targetGraph(snap: FleetSnapshot, f: GraphFilters): GraphData {
+/** Prefix for a dependency-SERVICE aggregate node in the target perspective, kept
+ * distinct from any TargetKey so ids never collide. */
+export const TARGET_DEP_SERVICE_PREFIX = 'depsvc::';
+
+function targetGraph(snap: FleetSnapshot, layer: Layer, f: GraphFilters): GraphData {
   const services = snap.services || {};
   const targets = snap.targets || {};
   const keepService = new Set<string>();
   for (const [key, s] of Object.entries(services)) {
     if (serviceMatches(s, snap, f)) keepService.add(key);
   }
-  // A target-perspective (reconciled runtime) edge links a target to the targets
-  // of the services its service declares a dependency on — the dependency as
-  // actually deployed. Build a service→[targetKeys] index first.
-  const targetsOfService = new Map<string, string[]>();
+  // Index the instances of each kept service.
+  const instancesOf = new Map<string, string[]>();
   for (const [tk, t] of Object.entries(targets)) {
     if (!keepService.has(t.serviceKey)) continue;
-    const list = targetsOfService.get(t.serviceKey) || [];
+    const list = instancesOf.get(t.serviceKey) || [];
     list.push(tk);
-    targetsOfService.set(t.serviceKey, list);
+    instancesOf.set(t.serviceKey, list);
   }
+  // Dependency edges in the target perspective link a deployed instance to the
+  // SERVICE its service depends on — NOT to each peer instance of that service.
+  // Drawing instance→instance for every (fromTarget, toTarget) pair would assert a
+  // full-mesh runtime routing that the snapshot never observed (OTel service.name
+  // resolves to a service, not an instance). That Cartesian fan-out is the lie this
+  // view must not tell. So the edge points at a single dependency-service aggregate
+  // node (N×1), honest as "this instance depends on service B". Layers apply: only
+  // dependencies in the selected layer are drawn.
   const edgesByFrom = new Map<string, GraphEdge[]>();
+  const depServiceNodes = new Map<string, string>(); // aggregate node id -> serviceKey
   for (const rel of snap.relationships || []) {
-    if (rel.type !== 'dependency' || !rel.resolved || !rel.toService) continue;
-    const fromTargets = targetsOfService.get(rel.fromService) || [];
-    const toTargets = targetsOfService.get(rel.toService) || [];
+    if (!relationshipInLayer(rel, snap, layer)) continue;
+    if (!rel.resolved || !rel.toService || !keepService.has(rel.fromService)) continue;
+    const fromTargets = instancesOf.get(rel.fromService) || [];
+    if (fromTargets.length === 0) continue;
+    const aggId = TARGET_DEP_SERVICE_PREFIX + rel.toService;
+    depServiceNodes.set(aggId, rel.toService);
     for (const ft of fromTargets) {
       const list = edgesByFrom.get(ft) || [];
-      for (const tt of toTargets) list.push({ targetId: tt, required: rel.required, type: 'dependency' });
+      list.push({ targetId: aggId, required: rel.required, type: rel.type });
       edgesByFrom.set(ft, list);
     }
   }
   const nodes: GraphNode[] = [];
-  for (const [sk, tks] of targetsOfService) {
+  for (const [sk, tks] of instancesOf) {
     void sk;
     for (const tk of tks) {
       const t = targets[tk];
@@ -262,9 +281,16 @@ function targetGraph(snap: FleetSnapshot, f: GraphFilters): GraphData {
         status: t.compliance || 'Unknown',
         version: t.scope || '',
         reason: t.stale ? 'not_found' : undefined,
+        kind: 'target',
         edges: edgesByFrom.get(tk) || [],
       });
     }
+  }
+  // The dependency-service aggregate nodes an instance points at (logical services,
+  // rendered distinctly from instances). They carry no outgoing edges here.
+  for (const [aggId, sk] of depServiceNodes) {
+    const s = services[sk];
+    nodes.push({ id: aggId, serviceName: s?.name || sk, status: s?.status || 'Unknown', kind: 'service', edges: [] });
   }
   return { nodes };
 }

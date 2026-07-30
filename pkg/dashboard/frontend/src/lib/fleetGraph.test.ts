@@ -128,13 +128,44 @@ describe('buildFleetGraph — revision & target perspectives', () => {
     expect(g.nodes.find((n) => n.id === 'domain-b/payments@sha256:b1')!.status).toBe('NonCompliant');
   });
 
-  it('target perspective keys nodes by TargetKey and links running dependencies', () => {
+  it('target perspective links an instance to the dependency SERVICE, never peer instances', () => {
     const g = buildFleetGraph(snap, 'target', 'reconciled');
-    expect(g.nodes.map((n) => n.id).sort()).toEqual(['prod/k8s/ledger-a', 'prod/k8s/pay-a']);
-    // pay-a → ledger-a (payments depends on ledger, both run).
-    expect(g.nodes.find((n) => n.id === 'prod/k8s/pay-a')!.edges).toEqual([{ targetId: 'prod/k8s/ledger-a', required: true, type: 'dependency' }]);
+    // Instances plus the single dependency-service aggregate node pay-a points at.
+    expect(g.nodes.map((n) => n.id).sort()).toEqual(['depsvc::domain-a/ledger', 'prod/k8s/ledger-a', 'prod/k8s/pay-a']);
+    // pay-a → the ledger SERVICE aggregate (not ledger-a the instance): no fabricated
+    // instance-to-instance routing.
+    expect(g.nodes.find((n) => n.id === 'prod/k8s/pay-a')!.edges).toEqual([{ targetId: 'depsvc::domain-a/ledger', required: true, type: 'dependency' }]);
+    expect(g.nodes.find((n) => n.id === 'prod/k8s/pay-a')!.kind).toBe('target');
+    expect(g.nodes.find((n) => n.id === 'depsvc::domain-a/ledger')!.kind).toBe('service');
     // A stale target is flagged.
     expect(g.nodes.find((n) => n.id === 'prod/k8s/ledger-a')!.reason).toBe('not_found');
+  });
+
+  it('target perspective never draws a Cartesian instance mesh (regression)', () => {
+    // 2 instances of A depending on a service with 2 instances would be 2×2=4 edges
+    // under the old Cartesian fan-out; the honest graph draws 1 edge per source
+    // instance (each to the single dependency-service aggregate) → 2 total.
+    const mesh: FleetSnapshot = {
+      services: {
+        a: { key: 'a', name: 'a', targets: ['s/k/a1', 's/k/a2'] },
+        b: { key: 'b', name: 'b', status: 'Compliant', targets: ['s/k/b1', 's/k/b2'] },
+      },
+      targets: {
+        's/k/a1': { key: 's/k/a1', serviceKey: 'a', service: 'a', name: 'a1', scope: 's' },
+        's/k/a2': { key: 's/k/a2', serviceKey: 'a', service: 'a', name: 'a2', scope: 's' },
+        's/k/b1': { key: 's/k/b1', serviceKey: 'b', service: 'b', name: 'b1', scope: 's' },
+        's/k/b2': { key: 's/k/b2', serviceKey: 'b', service: 'b', name: 'b2', scope: 's' },
+      },
+      relationships: [{ fromService: 'a', toService: 'b', type: 'dependency', required: true, resolved: true }],
+    };
+    const g = buildFleetGraph(mesh, 'target', 'all');
+    const totalEdges = g.nodes.reduce((n, node) => n + (node.edges?.length || 0), 0);
+    expect(totalEdges).toBe(2); // NOT 4
+    for (const inst of ['s/k/a1', 's/k/a2']) {
+      expect(g.nodes.find((n) => n.id === inst)!.edges).toEqual([{ targetId: 'depsvc::b', required: true, type: 'dependency' }]);
+    }
+    // The dependency service appears once as an aggregate node.
+    expect(g.nodes.filter((n) => n.id === 'depsvc::b')).toHaveLength(1);
   });
 });
 

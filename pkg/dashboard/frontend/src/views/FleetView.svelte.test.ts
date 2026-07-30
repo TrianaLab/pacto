@@ -110,6 +110,20 @@ describe('FleetView — redesigned operational graph', () => {
     document.body.removeChild(target);
   });
 
+  it('target perspective explains instances link to dependency services, not peer instances', async () => {
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('.controls')).toBeTruthy());
+    const targetsBtn = Array.from(target.querySelectorAll('.seg')).find((b) => b.textContent?.trim() === 'Targets') as HTMLButtonElement;
+    targetsBtn.click();
+    await vi.waitFor(() => {
+      const note = target.querySelector('[data-testid="target-note"]');
+      expect(note?.textContent).toContain('instances');
+      expect(note?.textContent).toContain('not to specific peer instances');
+    });
+    unmount(component);
+    document.body.removeChild(target);
+  });
+
   it('renders the filter selectors populated from snapshot values', async () => {
     const { target, component } = mountView();
     await vi.waitFor(() => {
