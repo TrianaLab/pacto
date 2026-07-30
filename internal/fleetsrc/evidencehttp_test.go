@@ -29,15 +29,13 @@ func TestEvidenceHTTPSource_IDKind(t *testing.T) {
 	}
 }
 
-func TestEvidenceHTTPSource_Collect(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != evidenceTargetsPath {
-			t.Errorf("unexpected path %q", r.URL.Path)
-		}
-		_, _ = w.Write([]byte(targetsJSON))
-	}))
+// collectOneTarget serves the full v1 DTO and returns its single mapped target,
+// asserting the healthy-store shape (no forced state, exactly one target). Kept
+// small so the per-aspect tests below stay low-complexity.
+func collectOneTarget(t *testing.T) fleet.RawTarget {
+	t.Helper()
+	srv := serveJSON(t, targetsJSON)
 	defer srv.Close()
-
 	col, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
@@ -48,7 +46,11 @@ func TestEvidenceHTTPSource_Collect(t *testing.T) {
 	if len(col.Targets) != 1 {
 		t.Fatalf("targets = %d, want 1", len(col.Targets))
 	}
-	tgt := col.Targets[0]
+	return col.Targets[0]
+}
+
+func TestEvidenceHTTPSource_Collect(t *testing.T) {
+	tgt := collectOneTarget(t)
 	if tgt.Scope != "prod-eu" || tgt.Kind != "external" || tgt.Name != "payments" || tgt.Service != "payments" {
 		t.Errorf("identity wrong: %+v", tgt)
 	}
@@ -58,8 +60,12 @@ func TestEvidenceHTTPSource_Collect(t *testing.T) {
 	if tgt.Coverage == nil || tgt.Coverage.Evaluated != 3 || tgt.Coverage.Required != 5 {
 		t.Errorf("coverage wrong: %+v", tgt.Coverage)
 	}
-	// Faithful projection: full findings, contract linkage and both timestamps —
-	// not a lossy summary.
+}
+
+// TestEvidenceHTTPSource_Collect_FaithfulProjection proves the consumer keeps the
+// full record — findings, contract linkage and both timestamps — not a summary.
+func TestEvidenceHTTPSource_Collect_FaithfulProjection(t *testing.T) {
+	tgt := collectOneTarget(t)
 	if len(tgt.Findings) != 1 {
 		t.Errorf("findings not reconstructed: %+v", tgt.Findings)
 	}
