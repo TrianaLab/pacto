@@ -245,7 +245,7 @@ func TestHandler_HTTP(t *testing.T) {
 }
 
 func TestHandler_Ready(t *testing.T) {
-	a, _ := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
+	a, priv := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
 	ready := false
 	h := NewHandler(a, nil, nil, func() bool { return ready })
 	mux := http.NewServeMux()
@@ -253,9 +253,16 @@ func TestHandler_Ready(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
+	// While not ready: readiness AND ingestion are refused, but liveness (health)
+	// is unaffected — the whole point of the independent probes.
+	expectGET(t, srv.URL+"/api/evidence/v1/health", http.StatusOK)
 	expectGET(t, srv.URL+"/api/evidence/v1/ready", http.StatusServiceUnavailable)
+	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusServiceUnavailable)
+
+	// Once ready: readiness and ingestion both succeed.
 	ready = true
 	expectGET(t, srv.URL+"/api/evidence/v1/ready", http.StatusOK)
+	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusAccepted)
 }
 
 func TestHandler_Targets(t *testing.T) {

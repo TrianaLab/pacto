@@ -101,6 +101,11 @@ func TestDeploymentAC_FileBucket_ProbesAndSecurity(t *testing.T) {
 	if container.LivenessProbe == nil || *container.LivenessProbe.HTTPGet.Path != HealthPath {
 		t.Errorf("expected liveness path %q", HealthPath)
 	}
+	// A startupProbe on /ready gives a slow first recovery budget before liveness
+	// engages, so a long recovery never trips the liveness loop.
+	if container.StartupProbe == nil || *container.StartupProbe.HTTPGet.Path != ReadyPath || *container.StartupProbe.FailureThreshold != 60 {
+		t.Errorf("expected a startup probe on %q with failureThreshold 60", ReadyPath)
+	}
 	if container.SecurityContext == nil || !*container.SecurityContext.ReadOnlyRootFilesystem {
 		t.Error("expected read-only root filesystem")
 	}

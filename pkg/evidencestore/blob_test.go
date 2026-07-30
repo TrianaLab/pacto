@@ -192,6 +192,24 @@ func TestRepairProjections(t *testing.T) {
 	}
 }
 
+func TestPhase(t *testing.T) {
+	ctx := context.Background()
+	s := openMem(t)
+	if s.Phase() != PhaseStarting {
+		t.Errorf("initial phase = %s, want starting", s.Phase())
+	}
+	if _, err := s.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if s.Phase() != PhaseReady {
+		t.Errorf("recovered phase = %s, want ready", s.Phase())
+	}
+	// A zero-value store (before Open ever set the atomic) reports starting.
+	if (&BlobStore{}).Phase() != PhaseStarting {
+		t.Error("zero-value Phase should be starting")
+	}
+}
+
 func TestOpen_Prefix(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, "mem://", "app/ev")
@@ -530,7 +548,8 @@ func TestInspect(t *testing.T) {
 	}
 	commit(t, s, newRec("e1", "p", "t1", 1, time.Now()))
 	st := s.Inspect(ctx)
-	if st.InstanceID != "my-id" || st.BucketURL != "mem://" || st.Prefix != "p1" {
+	// Backend is the scheme only — never the raw URL, credentials or endpoint.
+	if st.InstanceID != "my-id" || st.Backend != "mem" || st.Prefix != "p1" {
 		t.Errorf("identity=%+v", st)
 	}
 	if st.Records != 1 || st.Targets != 1 || st.Producers != 1 {

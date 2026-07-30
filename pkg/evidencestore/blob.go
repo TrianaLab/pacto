@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gocloud.dev/blob"
@@ -72,6 +73,10 @@ type BlobStore struct {
 	instanceID string
 	now        func() time.Time
 
+	// phaseAtomic mirrors phase for lock-free reads: Recover holds mu for the whole
+	// scan, so a readiness probe reads the phase from here without blocking on it.
+	phaseAtomic atomic.Value
+
 	mu     sync.Mutex
 	phase  Phase
 	seen   map[string]struct{}       // accepted envelope ids
@@ -101,13 +106,28 @@ func Open(ctx context.Context, bucketURL, prefix string, opts ...Option) (*BlobS
 		bucketURL:  bucketURL,
 		instanceID: newInstanceID(),
 		now:        time.Now,
-		phase:      PhaseStarting,
 	}
+	b.setPhase(PhaseStarting)
 	b.resetIndex()
 	for _, opt := range opts {
 		opt(b)
 	}
 	return b, nil
+}
+
+// setPhase records the lifecycle phase under mu AND in the lock-free mirror.
+func (b *BlobStore) setPhase(p Phase) {
+	b.phase = p
+	b.phaseAtomic.Store(p)
+}
+
+// Phase returns the store's lifecycle phase without contending on the recovery
+// scan lock, so a readiness probe answers promptly even while Recover runs.
+func (b *BlobStore) Phase() Phase {
+	if v := b.phaseAtomic.Load(); v != nil {
+		return v.(Phase)
+	}
+	return PhaseStarting
 }
 
 // resetIndex clears the in-memory index to its empty starting state.
@@ -126,7 +146,7 @@ func (b *BlobStore) Recover(ctx context.Context) (RecoveredState, error) {
 	// fast-path that trusts a materialized projection is deliberately future work.
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.phase = PhaseRecovering
+	b.setPhase(PhaseRecovering)
 	b.resetIndex()
 	listPrefix := path.Join(b.prefix, "envelopes") + "/"
 	it := b.bucket.List(&blob.ListOptions{Prefix: listPrefix})
@@ -136,15 +156,15 @@ func (b *BlobStore) Recover(ctx context.Context) (RecoveredState, error) {
 			break
 		}
 		if err != nil {
-			b.phase = PhaseFailed
+			b.setPhase(PhaseFailed)
 			return RecoveredState{}, err
 		}
 		b.recoverOne(ctx, obj.Key, listPrefix)
 	}
 	if len(b.corruptions) == 0 {
-		b.phase = PhaseReady
+		b.setPhase(PhaseReady)
 	} else {
-		b.phase = PhaseDegraded
+		b.setPhase(PhaseDegraded)
 	}
 	return b.snapshotState(), nil
 }
@@ -323,7 +343,7 @@ func (b *BlobStore) Commit(ctx context.Context, rec AcceptedRecord) error {
 	}
 	b.index(rec) // commit point reached: reserve id and sequence
 	if err := b.writeProjections(ctx, rec, data); err != nil {
-		b.phase = PhaseDegraded
+		b.setPhase(PhaseDegraded)
 		b.pendingRepair = true
 	}
 	return nil
@@ -372,7 +392,7 @@ func (b *BlobStore) RepairProjections(ctx context.Context) error {
 	}
 	b.pendingRepair = false
 	if len(b.corruptions) == 0 {
-		b.phase = PhaseReady
+		b.setPhase(PhaseReady)
 	}
 	return nil
 }

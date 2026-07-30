@@ -70,6 +70,15 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 			corev1ac.ContainerPort().WithName("http").WithContainerPort(EvidencePort).WithProtocol(corev1.ProtocolTCP),
 		).
 		WithVolumeMounts(volumeMounts...).
+		WithStartupProbe(
+			// Give a first recovery generous startup budget (up to ~5 min) before
+			// liveness/readiness engage. /ready stays 503 until recovery completes,
+			// so a long-but-progressing recovery can never trip the liveness loop.
+			corev1ac.Probe().
+				WithHTTPGet(corev1ac.HTTPGetAction().WithPath(ReadyPath).WithPort(intstr.FromInt32(EvidencePort))).
+				WithPeriodSeconds(5).
+				WithFailureThreshold(60),
+		).
 		WithReadinessProbe(
 			corev1ac.Probe().
 				WithHTTPGet(corev1ac.HTTPGetAction().WithPath(ReadyPath).WithPort(intstr.FromInt32(EvidencePort))).

@@ -301,12 +301,13 @@ type ServeOptions struct {
 }
 
 // buildEvidenceHost assembles the ingestion HTTP mux over a durable evidence
-// store: it loads the trust store, opens the bucket and recovers it (which gates
-// readiness — the /ready probe reports 503 until recovery reaches ready or
-// degraded), then wires the durable adapter into the accept pipeline. On
-// success it returns the recovered store so the caller can Close it on shutdown.
-// Assembly errors (unreadable trust store, unopenable bucket) surface here so
-// serve validates configuration before it listens.
+// store: it loads the trust store, opens the bucket and starts recovery in the
+// BACKGROUND (which gates readiness — /health is 200 from t0 while /ready reports
+// 503 and ingestion is refused until recovery reaches ready or degraded), then
+// wires the durable adapter into the accept pipeline. On success it returns the
+// store so the caller can Close it on shutdown. Assembly errors (unreadable trust
+// store, unopenable bucket) surface here so serve validates configuration before
+// it listens; recovery problems surface via /ready, not as a startup error.
 func (s *Service) buildEvidenceHost(ctx context.Context, opts ServeOptions) (*http.ServeMux, *evidencestore.BlobStore, error) {
 	trust, err := loadTrustStore(opts.TrustPath)
 	if err != nil {
@@ -316,13 +317,18 @@ func (s *Service) buildEvidenceHost(ctx context.Context, opts ServeOptions) (*ht
 	if err != nil {
 		return nil, nil, err
 	}
-	// Recovery outcome gates readiness, not serving: a failed recovery leaves the
-	// host up but reporting not-ready via /ready (and refusing writes), which is
-	// the operational signal we want rather than a silent crash-loop.
-	_, _ = store.Recover(ctx)
+	// Recovery runs in the BACKGROUND so the listener starts immediately: /health
+	// answers 200 from t0 (liveness is independent of recovery), while /ready
+	// reports 503 and ingestion is refused until recovery reaches ready or
+	// degraded. A long but progressing recovery therefore never trips a liveness
+	// restart loop. A failed recovery leaves the host up but not-ready, the signal
+	// we want rather than a silent crash-loop.
+	go func() { _ = recoverEvidence(ctx, store) }()
 	acceptor := evidenceingest.NewAcceptor(trust, s.EvidenceResolver(), durableEvidenceStore{store: store}, nil)
 	ready := func() bool {
-		phase := store.Inspect(ctx).Phase
+		// Phase() is lock-free, so readiness answers promptly even while the
+		// recovery scan holds the store mutex.
+		phase := store.Phase()
 		return phase == evidencestore.PhaseReady || phase == evidencestore.PhaseDegraded
 	}
 	handler := evidenceingest.NewHandler(acceptor, opts.Producers, nil, ready)

@@ -285,6 +285,12 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 }
 
 func (h *Handler) handleEnvelope(w http.ResponseWriter, r *http.Request) {
+	// Refuse ingestion until the store has recovered: accepting a write against a
+	// not-yet-recovered replay index could re-accept a replayed envelope.
+	if h.ready != nil && !h.ready() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "evidence store is not ready"})
+		return
+	}
 	data, err := io.ReadAll(io.LimitReader(r.Body, evidenceenvelope.MaxEnvelopeBytes+1))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "could not read request body"})

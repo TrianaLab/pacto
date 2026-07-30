@@ -16,6 +16,7 @@ import (
 
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v3/pkg/evidencestore"
 )
 
 // sampleEvidenceSet returns a minimal, structurally valid EvidenceSet.
@@ -478,7 +479,10 @@ func TestServeEvidence_EndToEnd(t *testing.T) {
 
 	waitForHTTP(t, base+"/api/evidence/v1/health")
 
-	// Readiness is 200 once the store has recovered.
+	// Readiness becomes 200 once background recovery completes (poll, not one-shot).
+	for i := 0; i < 200 && getStatus(t, base+"/api/evidence/v1/ready") != http.StatusOK; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if code := getStatus(t, base+"/api/evidence/v1/ready"); code != http.StatusOK {
 		t.Errorf("ready = %d, want 200", code)
 	}
@@ -511,6 +515,71 @@ func TestServeEvidence_EndToEnd(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Errorf("ServeEvidenceOnListener = %v, want nil on cancel", err)
 	}
+}
+
+// TestServeEvidence_BackgroundRecovery is the §6 acceptance: recovery runs in the
+// background, so a long recovery keeps liveness (/health) up while readiness and
+// ingestion are refused, then both succeed once recovery completes.
+func TestServeEvidence_BackgroundRecovery(t *testing.T) {
+	trustDir, envPath, producer := serveTestFixtures(t)
+	storeDir := filepath.Join(t.TempDir(), "store")
+
+	// Block recovery to simulate a long recovery that outlasts a liveness probe.
+	release := make(chan struct{})
+	recovered := make(chan struct{})
+	orig := recoverEvidence
+	recoverEvidence = func(ctx context.Context, s *evidencestore.BlobStore) error {
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		_, err := s.Recover(ctx)
+		close(recovered)
+		return err
+	}
+	defer func() { recoverEvidence = orig }()
+
+	svc := &Service{}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "http://" + ln.Addr().String()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.ServeEvidenceOnListener(ctx, ln, ServeOptions{
+			TrustPath: trustDir, BucketURL: "file://" + storeDir, Prefix: DefaultEvidencePrefix,
+			Producers: []string{producer},
+		})
+	}()
+
+	waitForHTTP(t, base+"/api/evidence/v1/health")
+	// While recovery is blocked: liveness is up, readiness is 503, ingest is 503.
+	if code := getStatus(t, base+"/api/evidence/v1/health"); code != http.StatusOK {
+		t.Errorf("health during recovery = %d, want 200", code)
+	}
+	if code := getStatus(t, base+"/api/evidence/v1/ready"); code != http.StatusServiceUnavailable {
+		t.Errorf("ready during recovery = %d, want 503", code)
+	}
+	if code := postFile(t, svc, base, envPath); code != http.StatusServiceUnavailable {
+		t.Errorf("ingest during recovery = %d, want 503", code)
+	}
+
+	// Let recovery finish; readiness and ingestion then succeed.
+	close(release)
+	<-recovered
+	if code := getStatus(t, base+"/api/evidence/v1/ready"); code != http.StatusOK {
+		t.Errorf("ready after recovery = %d, want 200", code)
+	}
+	if code := postFile(t, svc, base, envPath); code != http.StatusAccepted {
+		t.Errorf("ingest after recovery = %d, want 202", code)
+	}
+
+	cancel()
+	<-done
 }
 
 // postFile sends an envelope file and returns the response status, failing on a
