@@ -47,18 +47,32 @@ type Entry struct {
 	Count      int    `json:"count,omitempty"`
 }
 
+// Unresolved is observed traffic whose endpoint name could not be mapped to a
+// unique domain-qualified service (unknown, or ambiguous across domains). It is
+// preserved as explicit unresolved knowledge rather than being forced into a
+// default domain, so observed traffic can never be misattributed across domains.
+type Unresolved struct {
+	Service    string `json:"service"`
+	Dependency string `json:"dependency"`
+	Count      int    `json:"count"`
+	Reason     string `json:"reason"` // "unknown" or "ambiguous"
+}
+
 // Summary counts entries by status.
 type Summary struct {
 	Matched             int `json:"matched"`
 	DeclaredNotObserved int `json:"declaredNotObserved"`
 	ObservedNotDeclared int `json:"observedNotDeclared"`
+	Unresolved          int `json:"unresolved,omitempty"`
 }
 
 // Report is the full reconciliation result, entries sorted by service then
-// dependency for deterministic output.
+// dependency for deterministic output. Unresolved holds observed edges that
+// could not be attributed to a unique domain-qualified identity.
 type Report struct {
-	Entries []Entry `json:"entries"`
-	Summary Summary `json:"summary"`
+	Entries    []Entry      `json:"entries"`
+	Unresolved []Unresolved `json:"unresolved,omitempty"`
+	Summary    Summary      `json:"summary"`
 }
 
 type key struct{ service, dependency string }

@@ -147,13 +147,17 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	}
 
 	changed := graph.Root
+	// Resolve observed (OTel) endpoints to unique domain-qualified keys ONCE;
+	// unresolved/ambiguous ones become explicit limitations and never corroborate.
+	resolvedObserved, obsLims := resolveObservedEdges(snap, opts.ObservedEdges, opts.IncludeObserved)
+	res.Limitations = append(res.Limitations, obsLims...)
 	owners := map[string]bool{}
 	targets := map[string]bool{}
 	for _, tk := range serviceTargets(snap, changed) {
 		targets[tk] = true
 	}
-	for _, cn := range unionConsumers(graph, changed, opts) {
-		c := consumerImpact(snap, changed, cn, new.Service.Version, opts)
+	for _, cn := range unionConsumers(graph, changed, resolvedObserved) {
+		c := consumerImpact(snap, changed, cn, new.Service.Version, resolvedObserved)
 		res.Consumers = append(res.Consumers, c)
 		if c.Owner != "" {
 			owners[c.Owner] = true
@@ -175,24 +179,74 @@ type consumerNode struct {
 	path  []fleet.ServiceKey
 }
 
+// resolvedObservedEdge is an observed caller→provider edge whose endpoints have
+// been resolved to UNIQUE domain-qualified fleet ServiceKeys.
+type resolvedObservedEdge struct{ consumer, provider fleet.ServiceKey }
+
+// ObservedIdentityUnresolved is the limitation code for an observed endpoint whose
+// OTel service name could not be mapped to exactly one fleet service.
+const ObservedIdentityUnresolved = "OBSERVED_IDENTITY_UNRESOLVED"
+
+// resolveObservedEdges maps raw observed (OTel) endpoint names to UNIQUE
+// domain-qualified ServiceKeys via the snapshot. A name matching no service, or
+// more than one (across domains), is NOT silently assigned the default domain: the
+// edge is dropped from corroboration and a structured limitation is emitted, so
+// observed evidence can never corroborate or affect the wrong same-named service in
+// another domain. Returns nothing when observed evidence was not opted in.
+func resolveObservedEdges(snap *fleet.FleetSnapshot, edges []ObservedEdge, include bool) ([]resolvedObservedEdge, []fleet.Limitation) {
+	if !include || len(edges) == 0 {
+		return nil, nil
+	}
+	resolve := snap.ObservedNameResolver()
+	var out []resolvedObservedEdge
+	var lims []fleet.Limitation
+	seen := map[string]bool{}
+	addLim := func(name string, res fleet.ObservedResolution) bool {
+		reason := ""
+		switch res {
+		case fleet.ObservedUnknown:
+			reason = "unknown"
+		case fleet.ObservedAmbiguous:
+			reason = "ambiguous across domains"
+		default:
+			return true
+		}
+		if !seen[reason+":"+name] {
+			seen[reason+":"+name] = true
+			lims = append(lims, fleet.Limitation{Code: ObservedIdentityUnresolved, Source: "impact",
+				Message: "observed service " + name + " could not be mapped to a unique fleet service (" + reason + "); it does not corroborate or affect any domain-qualified service"})
+		}
+		return false
+	}
+	for _, e := range edges {
+		ck, cRes := resolve(e.Consumer)
+		pk, pRes := resolve(e.Provider)
+		cOK := addLim(e.Consumer, cRes)
+		pOK := addLim(e.Provider, pRes)
+		if cOK && pOK {
+			out = append(out, resolvedObservedEdge{consumer: ck, provider: pk})
+		}
+	}
+	sort.Slice(lims, func(i, j int) bool { return lims[i].Message < lims[j].Message })
+	return out, lims
+}
+
 // unionConsumers merges the declared dependents (from the graph) with observed
-// callers of the changed service. Observed-only callers are included as direct
-// (depth 1) consumers only when IncludeObserved is set. The result is sorted by
-// name for deterministic output.
-func unionConsumers(graph *fleet.GraphResult, changed fleet.ServiceKey, opts Options) []consumerNode {
+// callers of the changed service — using only observed edges whose endpoints
+// resolved to unique domain-qualified keys. Observed-only callers are direct
+// (depth 1). The result is sorted for deterministic output.
+func unionConsumers(graph *fleet.GraphResult, changed fleet.ServiceKey, observed []resolvedObservedEdge) []consumerNode {
 	byKey := map[fleet.ServiceKey]consumerNode{}
 	for _, node := range graph.Nodes {
 		byKey[node.Key] = consumerNode{key: node.Key, name: node.Name, depth: node.Depth, path: node.Path}
 	}
-	if opts.IncludeObserved {
-		for _, e := range opts.ObservedEdges {
-			if fleet.NewServiceKey(e.Provider) != changed {
-				continue
-			}
-			ck := fleet.NewServiceKey(e.Consumer)
-			if _, ok := byKey[ck]; !ok {
-				byKey[ck] = consumerNode{key: ck, name: e.Consumer, depth: 1, path: []fleet.ServiceKey{changed, ck}}
-			}
+	for _, e := range observed {
+		if e.provider != changed {
+			continue
+		}
+		if _, ok := byKey[e.consumer]; !ok {
+			_, name := fleet.ParseServiceKey(e.consumer)
+			byKey[e.consumer] = consumerNode{key: e.consumer, name: name, depth: 1, path: []fleet.ServiceKey{changed, e.consumer}}
 		}
 	}
 	out := make([]consumerNode, 0, len(byKey))
@@ -204,7 +258,7 @@ func unionConsumers(graph *fleet.GraphResult, changed fleet.ServiceKey, opts Opt
 }
 
 // consumerImpact builds the affected-consumer record for one consumer.
-func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node consumerNode, newVersion string, opts Options) AffectedConsumer {
+func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node consumerNode, newVersion string, observedEdges []resolvedObservedEdge) AffectedConsumer {
 	domain, _ := fleet.ParseServiceKey(node.key)
 	c := AffectedConsumer{
 		Service: node.name,
@@ -222,10 +276,10 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 		sort.Strings(c.Targets)
 	}
 
-	rel, hasDeclared, observed := edgeEvidence(snap, node.key, changed, opts.ObservedEdges)
-	// Observed evidence is only counted when the caller opted in; provenance and
-	// confidence must agree on what was counted.
-	observedCounted := observed && opts.IncludeObserved
+	rel, hasDeclared, observed := edgeEvidence(snap, node.key, changed, observedEdges)
+	// The observedEdges slice is empty unless the caller opted in and the endpoints
+	// resolved to unique domain-qualified keys, so `observed` is already gated.
+	observedCounted := observed
 	c.Required = rel.Required
 	c.Compatibility = rel.Compatibility
 	c.Provenance = provenance(hasDeclared, observedCounted)
@@ -236,8 +290,10 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 
 // edgeEvidence finds the declared dependency edge from consumer→changed and
 // whether an observed edge exists — either recorded in the graph as an observed
-// relationship or supplied via telemetry (observedEdges).
-func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, observedEdges []ObservedEdge) (rel fleet.Relationship, declared, observed bool) {
+// relationship or supplied via telemetry. The observedEdges are pre-resolved to
+// unique domain-qualified keys, so comparison is a plain key match (no default-
+// domain coercion that could corroborate a same-named service in another domain).
+func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, observedEdges []resolvedObservedEdge) (rel fleet.Relationship, declared, observed bool) {
 	for i := range snap.Relationships {
 		r := snap.Relationships[i]
 		if r.Type != fleet.RelationshipDependency || r.FromService != consumer || r.ToService != changed {
@@ -251,7 +307,7 @@ func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey,
 		declared = true
 	}
 	for _, e := range observedEdges {
-		if fleet.NewServiceKey(e.Consumer) == consumer && fleet.NewServiceKey(e.Provider) == changed {
+		if e.consumer == consumer && e.provider == changed {
 			observed = true
 		}
 	}

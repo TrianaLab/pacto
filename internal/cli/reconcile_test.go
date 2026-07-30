@@ -42,6 +42,30 @@ func TestFleetReconcile_Text(t *testing.T) {
 	}
 }
 
+// A trace whose caller (phantom) is not a fleet service: it cannot be attributed
+// to a unique domain-qualified identity, so it must surface as unresolved rather
+// than being force-fit to the default domain.
+const reconcileTraceUnresolved = `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"phantom"}}]},
+  "scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"payments"}}]}]}]}]}`
+
+func TestFleetReconcile_Unresolved(t *testing.T) {
+	root := t.TempDir()
+	writeWebWithDeps(t, filepath.Join(root, "web"), "payments")
+	tf := filepath.Join(t.TempDir(), "traces.json")
+	mustWrite(t, tf, reconcileTraceUnresolved)
+
+	out, _, err := execFleet(t, "fleet", "reconcile", "--traces", tf, "--local", root)
+	if err != nil {
+		t.Fatalf("fleet reconcile: %v", err)
+	}
+	if !strings.Contains(out, "1 unresolved") {
+		t.Errorf("summary missing unresolved count:\n%s", out)
+	}
+	if !strings.Contains(out, "[unresolved:unknown] phantom -> payments") {
+		t.Errorf("unresolved entry missing:\n%s", out)
+	}
+}
+
 func TestFleetReconcile_JSON(t *testing.T) {
 	root := t.TempDir()
 	writeWebWithDeps(t, filepath.Join(root, "web"), "payments")

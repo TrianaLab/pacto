@@ -121,6 +121,11 @@ func TestService_Impact_WithTraces(t *testing.T) {
 	writeImpactService(t, newDir, "orders", "2.0.0")
 	fleetRoot := t.TempDir()
 	writeImpactService(t, filepath.Join(fleetRoot, "orders"), "orders", "2.0.0")
+	// checkout is a REGISTERED fleet service that does not declare orders — so the
+	// observed edge makes it a domain-qualified observed-only (shadow) consumer. An
+	// unregistered caller name would instead be preserved as an unresolved
+	// limitation, never a phantom default-domain consumer.
+	writeImpactService(t, filepath.Join(fleetRoot, "checkout"), "checkout", "1.0.0")
 
 	// A trace where checkout calls orders → an observed-only (shadow) consumer.
 	trace := `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"checkout"}}]},

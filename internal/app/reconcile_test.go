@@ -8,8 +8,40 @@ import (
 	"testing"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/otelobserver"
 	"github.com/trianalab/pacto/v3/pkg/reconcile"
 )
+
+func TestObservedFromEdges_DomainScopedAndUnresolved(t *testing.T) {
+	// "payments" exists in both eu and us (globally ambiguous); "web" is unique.
+	snap := &fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{
+		fleet.NewServiceKeyDomain("eu", "web"):      {Name: "web"},
+		fleet.NewServiceKeyDomain("eu", "payments"): {Name: "payments"},
+		fleet.NewServiceKeyDomain("us", "payments"): {Name: "payments"},
+	}}
+	edges := []otelobserver.Edge{
+		{From: "web", To: "payments", Count: 5}, // caller unique, callee resolves within eu
+		{From: "web", To: "external", Count: 2}, // caller unique, callee not a fleet service -> bare name
+		{From: "payments", To: "x", Count: 1},   // caller ambiguous -> unresolved
+		{From: "ghost", To: "y", Count: 3},      // caller unknown -> unresolved
+	}
+	observed, unresolved := observedFromEdges(snap, edges)
+
+	wantObserved := []reconcile.Observed{
+		{Service: "eu/web", Dependency: "eu/payments", Count: 5},
+		{Service: "eu/web", Dependency: "external", Count: 2},
+	}
+	if !reflect.DeepEqual(observed, wantObserved) {
+		t.Errorf("observed = %+v, want %+v", observed, wantObserved)
+	}
+	wantUnresolved := []reconcile.Unresolved{
+		{Service: "payments", Dependency: "x", Count: 1, Reason: "ambiguous"},
+		{Service: "ghost", Dependency: "y", Count: 3, Reason: "unknown"},
+	}
+	if !reflect.DeepEqual(unresolved, wantUnresolved) {
+		t.Errorf("unresolved = %+v, want %+v", unresolved, wantUnresolved)
+	}
+}
 
 func TestDeclaredFromSnapshot_SkipsNonDependencyAndFallsBack(t *testing.T) {
 	snap := &fleet.FleetSnapshot{Relationships: []fleet.Relationship{

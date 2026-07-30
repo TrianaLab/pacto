@@ -85,6 +85,10 @@ func TestImpactCommand_Traces(t *testing.T) {
 	writeOrders(t, newDir, "1.0.0", "service") // non-breaking
 	root := t.TempDir()
 	writeOrders(t, filepath.Join(root, "orders"), "1.0.0", "service")
+	// checkout must be a registered fleet service to be a domain-qualified shadow
+	// consumer; an unregistered caller would be preserved as an unresolved
+	// limitation, not a phantom default-domain consumer.
+	mustWrite(t, filepath.Join(root, "checkout", "pacto.yaml"), "pactoVersion: \"2.0\"\nservice:\n  name: checkout\n  version: \"1.0.0\"\n")
 
 	tf := filepath.Join(t.TempDir(), "traces.json")
 	mustWrite(t, tf, `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"checkout"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"orders"}}]}]}]}]}`)

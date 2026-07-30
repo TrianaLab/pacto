@@ -8,6 +8,25 @@ func TestNewServiceKey(t *testing.T) {
 	}
 }
 
+func TestObservedNameResolver(t *testing.T) {
+	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{
+		NewServiceKey("solo"):                 {Name: "solo"},
+		NewServiceKeyDomain("eu", "payments"): {Name: "payments"},
+		NewServiceKeyDomain("us", "payments"): {Name: "payments"},
+	}}
+	resolve := snap.ObservedNameResolver()
+
+	if k, res := resolve("solo"); res != ObservedResolved || k != NewServiceKey("solo") {
+		t.Errorf("solo = %q,%v; want unique", k, res)
+	}
+	if k, res := resolve("payments"); res != ObservedAmbiguous || k != "" {
+		t.Errorf("payments = %q,%v; want ambiguous", k, res)
+	}
+	if k, res := resolve("ghost"); res != ObservedUnknown || k != "" {
+		t.Errorf("ghost = %q,%v; want unknown", k, res)
+	}
+}
+
 func TestNewServiceKeyDomain(t *testing.T) {
 	if got := NewServiceKeyDomain("", "payments"); got != ServiceKey("payments") {
 		t.Errorf("empty domain = %q, want payments", got)

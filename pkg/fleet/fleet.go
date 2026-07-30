@@ -85,6 +85,44 @@ func ParseServiceKey(k ServiceKey) (domain, name string) {
 	return "", unescapeKeyPart(s)
 }
 
+// ObservedResolution classifies how a raw observed (e.g. OpenTelemetry
+// service.name) name mapped onto the fleet's domain-qualified identities.
+type ObservedResolution int
+
+const (
+	// ObservedResolved: the name matched exactly one fleet service.
+	ObservedResolved ObservedResolution = iota
+	// ObservedUnknown: the name matched no fleet service.
+	ObservedUnknown
+	// ObservedAmbiguous: the name matched more than one service (same name in
+	// different domains) — it cannot be attributed to a single domain.
+	ObservedAmbiguous
+)
+
+// ObservedNameResolver returns a resolver that maps a raw observed service name
+// to its UNIQUE domain-qualified [ServiceKey]. A name matching zero or multiple
+// services is never coerced to the default domain — the resolution status says so
+// and the returned key is only valid when [ObservedResolved]. The name index is
+// built once, so repeated resolution is O(1). This is the single place observed
+// telemetry crosses into Pacto identity, so observed evidence can never
+// corroborate or affect a same-named service in another domain.
+func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, ObservedResolution) {
+	byName := map[string][]ServiceKey{}
+	for k, svc := range s.Services {
+		byName[svc.Name] = append(byName[svc.Name], k)
+	}
+	return func(name string) (ServiceKey, ObservedResolution) {
+		switch ks := byName[name]; len(ks) {
+		case 1:
+			return ks[0], ObservedResolved
+		case 0:
+			return "", ObservedUnknown
+		default:
+			return "", ObservedAmbiguous
+		}
+	}
+}
+
 // indexUnescapedSlash returns the index of the first "/" (component escaping
 // guarantees any real "/" in a component was encoded as %2F, so the first raw
 // "/" is the domain separator), or -1.

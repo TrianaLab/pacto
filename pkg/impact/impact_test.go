@@ -103,17 +103,29 @@ func TestAnalyze(t *testing.T) {
 }
 
 func TestAnalyze_ObservedEdgesSurfaceShadowAndCorroborate(t *testing.T) {
-	snap := buildChain(t)
-	old := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
-	old.Interfaces = []contract.Interface{{Name: "auth-api", Type: contract.InterfaceTypeGRPC, Ref: "auth.proto"}}
+	// shadow-svc is a REGISTERED fleet service that calls auth-service without
+	// declaring the dependency — a domain-qualified observed-only (shadow) consumer.
+	// Only registered services can be resolved to a unique domain-qualified key;
+	// an unknown OTel name is preserved as an unresolved limitation instead.
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	auth.Interfaces = []contract.Interface{{Name: "auth-api", Type: contract.InterfaceTypeGRPC, Ref: "auth.proto"}}
+	gateway := svcContract("api-gateway", "1.0.0", contract.Owner{Team: "gateway-team"},
+		contract.Dependency{Name: "auth-service", Ref: "ghcr.io/x/auth-service:1.0.0", Required: true, Compatibility: "^1.0.0"})
+	shadow := svcContract("shadow-svc", "1.0.0", contract.Owner{Team: "ops"})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory",
+		&fleet.Collection{Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: mkBundle(gateway)}, {Bundle: mkBundle(shadow)}}}))
+	if err != nil {
+		t.Fatalf("fleet.Build: %v", err)
+	}
 	newC := svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"})
 
-	res := Analyze(context.Background(), old, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{
+	res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{
 		IncludeObserved: true,
 		ObservedEdges: []ObservedEdge{
 			{Consumer: "api-gateway", Provider: "auth-service"}, // corroborates declared direct consumer
 			{Consumer: "shadow-svc", Provider: "auth-service"},  // observed-only (shadow) consumer
-			{Consumer: "billing", Provider: "other-service"},    // different provider -> skipped
+			{Consumer: "api-gateway", Provider: "shadow-svc"},   // resolved, but provider != changed -> skipped
+			{Consumer: "billing", Provider: "other-service"},    // unknown endpoints -> unresolved, dropped
 		},
 	})
 
@@ -121,22 +133,97 @@ func TestAnalyze_ObservedEdgesSurfaceShadowAndCorroborate(t *testing.T) {
 	for _, c := range res.Consumers {
 		got[c.Service] = c
 	}
-	if len(res.Consumers) != 3 {
-		t.Fatalf("expected 3 consumers (api-gateway, frontend, shadow-svc), got %+v", res.Consumers)
+	if len(res.Consumers) != 2 {
+		t.Fatalf("expected 2 consumers (api-gateway, shadow-svc), got %+v", res.Consumers)
 	}
 	if got["api-gateway"].Confidence != ConfidenceCorroborated || got["api-gateway"].Provenance != "declared+observed" {
 		t.Errorf("api-gateway not corroborated: %+v", got["api-gateway"])
 	}
 	sh := got["shadow-svc"]
-	wantShadow := AffectedConsumer{
-		Service: "shadow-svc", Depth: 1, Direct: true, Path: []string{"shadow-svc", "auth-service"},
-		CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceObserved, Confidence: ConfidenceObserved,
-	}
-	if !reflect.DeepEqual(sh, wantShadow) {
-		t.Errorf("shadow consumer = %+v, want %+v", sh, wantShadow)
+	if sh.Provenance != fleet.ProvenanceObserved || sh.Confidence != ConfidenceObserved || !sh.Direct || sh.Depth != 1 || sh.Owner != "ops" {
+		t.Errorf("shadow consumer not surfaced as domain-qualified observed-only: %+v", sh)
 	}
 	if _, ok := got["billing"]; ok {
-		t.Error("billing (different provider) should not be a consumer")
+		t.Error("billing (unknown endpoint) must not become a phantom default-domain consumer")
+	}
+	// billing and other-service are unknown → structured unresolved limitations.
+	unresolved := 0
+	for _, l := range res.Limitations {
+		if l.Code == ObservedIdentityUnresolved {
+			unresolved++
+		}
+	}
+	if unresolved != 2 {
+		t.Errorf("expected 2 OBSERVED_IDENTITY_UNRESOLVED limitations (billing, other-service), got %d: %+v", unresolved, res.Limitations)
+	}
+}
+
+// TestAnalyze_ObservedEdgesCrossDomainIsolation proves observed evidence never
+// corroborates or affects a same-named service in a DIFFERENT domain: an
+// ambiguous OTel name (two "payments" services) resolves to neither, and is
+// preserved as an unresolved limitation instead of defaulting a domain.
+func TestAnalyze_ObservedEdgesCrossDomainIsolation(t *testing.T) {
+	payEU := svcContract("payments", "1.0.0", contract.Owner{Team: "eu"})
+	payUS := svcContract("payments", "1.0.0", contract.Owner{Team: "us"})
+	checkout := svcContract("checkout", "1.0.0", contract.Owner{Team: "eu"},
+		contract.Dependency{Name: "payments", Ref: "ghcr.io/x/payments:1.0.0", Required: true, Compatibility: "^1.0.0"})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory",
+		&fleet.Collection{Revisions: []fleet.RawRevision{
+			{Domain: "eu", Bundle: mkBundle(payEU)},
+			{Domain: "us", Bundle: mkBundle(payUS)},
+			{Domain: "eu", Bundle: mkBundle(checkout)},
+		}}))
+	if err != nil {
+		t.Fatalf("fleet.Build: %v", err)
+	}
+	old := svcContract("payments", "1.0.0", contract.Owner{Team: "eu"})
+	newC := svcContract("payments", "2.0.0", contract.Owner{Team: "eu"})
+
+	res := Analyze(context.Background(), old, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{
+		Domain:          "eu",
+		IncludeObserved: true,
+		// "payments" is ambiguous across eu/us; "checkout" is unique. The ambiguous
+		// endpoint must not corroborate the eu/payments declared edge.
+		ObservedEdges: []ObservedEdge{{Consumer: "checkout", Provider: "payments"}},
+	})
+
+	for _, c := range res.Consumers {
+		if c.Service == "checkout" && c.Provenance == "declared+observed" {
+			t.Errorf("ambiguous observed edge wrongly corroborated cross-domain: %+v", c)
+		}
+	}
+	found := false
+	for _, l := range res.Limitations {
+		if l.Code == ObservedIdentityUnresolved {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected OBSERVED_IDENTITY_UNRESOLVED for ambiguous 'payments', got %+v", res.Limitations)
+	}
+}
+
+func TestResolveObservedEdges(t *testing.T) {
+	snap := buildChain(t)
+	// unique endpoints resolve; unknown/ambiguous do not.
+	edges := []ObservedEdge{
+		{Consumer: "api-gateway", Provider: "auth-service"}, // both unique -> resolved
+		{Consumer: "ghost", Provider: "auth-service"},       // ghost unknown -> dropped + limitation
+	}
+	resolved, lims := resolveObservedEdges(snap, edges, true)
+	if len(resolved) != 1 || resolved[0].consumer != fleet.NewServiceKey("api-gateway") || resolved[0].provider != fleet.NewServiceKey("auth-service") {
+		t.Fatalf("resolved = %+v", resolved)
+	}
+	if len(lims) != 1 || lims[0].Code != ObservedIdentityUnresolved {
+		t.Fatalf("lims = %+v", lims)
+	}
+	// not opted in -> nothing.
+	if r, l := resolveObservedEdges(snap, edges, false); r != nil || l != nil {
+		t.Errorf("expected nil when not included, got %+v / %+v", r, l)
+	}
+	// no edges -> nothing.
+	if r, l := resolveObservedEdges(snap, nil, true); r != nil || l != nil {
+		t.Errorf("expected nil for no edges, got %+v / %+v", r, l)
 	}
 }
 
@@ -181,7 +268,7 @@ func TestAnalyzeServiceNotInFleet(t *testing.T) {
 func TestConsumerImpactServiceAbsent(t *testing.T) {
 	snap := &fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{}}
 	node := consumerNode{key: fleet.NewServiceKey("ghost"), name: "ghost", depth: 2, path: []fleet.ServiceKey{"auth-service", "ghost"}}
-	got := consumerImpact(snap, fleet.NewServiceKey("auth-service"), node, "2.0.0", Options{})
+	got := consumerImpact(snap, fleet.NewServiceKey("auth-service"), node, "2.0.0", nil)
 	want := AffectedConsumer{
 		Service: "ghost", Depth: 2, Path: []string{"ghost", "auth-service"},
 		CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceInferred, Confidence: ConfidenceInferred,
@@ -209,7 +296,7 @@ func TestEdgeEvidence(t *testing.T) {
 		&fleet.FleetSnapshot{Relationships: []fleet.Relationship{
 			{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Required: true},
 		}},
-		"a", "b", []ObservedEdge{{Consumer: "a", Provider: "b"}, {Consumer: "other", Provider: "b"}})
+		"a", "b", []resolvedObservedEdge{{consumer: "a", provider: "b"}, {consumer: "other", provider: "b"}})
 	if !declaredT || !observedT || !relT.Required {
 		t.Errorf("telemetry edge not counted: rel:%+v declared:%v observed:%v", relT, declaredT, observedT)
 	}
