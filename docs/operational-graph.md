@@ -175,6 +175,7 @@ flowchart LR
     LOCAL --> OG
     K8S --> OG
     EVI --> OG
+    OTEL -->|--traces| OG
     OG["Operational Graph<br/><i>Fleet Snapshot · immutable read model</i>"]
     OTEL --> RECON["reconcile · impact<br/>declared vs observed"]
     OG --> RECON
@@ -188,7 +189,14 @@ flowchart LR
 
 - **Dashboard** — the visual front door. It builds one snapshot from every
   source it detects — local bundles, OCI, the disk cache and the live cluster —
-  and serves the operational graph and impact through `/api/fleet/*`.
+  and serves the operational graph and impact through `/api/fleet/*`. The
+  Operational Graph view offers three **perspectives** — **Services** (logical),
+  **Revisions** (content-addressed) and **Targets** (deployed instances) — and a
+  **Layer** control (declared · observed · reconciled · all). The Targets
+  perspective is honest about deployment: a deployed instance links to the
+  dependency **service** it depends on, never to each peer instance — a
+  full instance-to-instance mesh would assert runtime routing the snapshot never
+  observed, so it is never drawn.
 - **CLI (`pacto fleet …`)** — the five queries on the command line:
   `pacto fleet search`, `pacto fleet get`, `pacto fleet graph`, `pacto fleet
   status`, `pacto fleet explain`, plus `pacto fleet reconcile` (declared vs
@@ -285,26 +293,41 @@ deployed; it processes a file you hand it. It reports only what it saw and never
 asserts a dependency is absent — an unseen dependency is uncertainty, not a
 confirmed "no".
 
-Those observed edges meet the declared graph in two places:
+Those observed edges meet the declared graph in three places:
 
+- **The snapshot itself** — `pacto fleet --traces <file>` adds an *observation
+  source*: [Build](#sources) resolves each raw observed endpoint name to a
+  **unique domain-qualified service** and folds resolved edges into the snapshot
+  as `observed` relationships. So `pacto fleet graph`, the dashboard and the MCP
+  tools all see runtime evidence — it is no longer confined to a one-off report.
+  An endpoint name that matches zero or more than one service (the same name in
+  two domains) is **never** coerced to a domain; it is preserved as an
+  `OBSERVED_IDENTITY_UNRESOLVED` limitation, so observed traffic can never be
+  misattributed across domains.
 - **Reconciliation** — `pacto fleet reconcile --traces <file>` compares what the
   fleet's contracts declare against what traffic proves, labelling each
   dependency **matched**, **declared-not-observed** (dormant or simply unseen in
   the window) or **observed-not-declared** (a *shadow* dependency the contract
-  never mentions).
-- **Impact** — `pacto impact --traces <file>` lets observed traffic raise a
-  declared consumer to **corroborated** confidence and surface **observed-only
-  (shadow) consumers** a declared-only analysis would miss.
+  never mentions). The caller must resolve to a unique service; the callee is
+  resolved within the caller's domain (mirroring declared-dependency resolution),
+  and anything unresolvable is reported in a distinct **unresolved** category
+  rather than force-fit to the default domain.
+- **Impact** — `pacto impact --traces <file>` (or any snapshot that already
+  carries observed edges) lets observed traffic raise a declared consumer to
+  **corroborated** confidence and surface **observed-only (shadow) consumers** a
+  declared-only analysis would miss. A shadow consumer must itself be a registered
+  fleet service; an unknown caller name is preserved as an unresolved limitation,
+  never a phantom default-domain consumer.
 
 The OTel observer can also emit signable EvidenceSets
 (`pacto otel observe --evidence`), so observed dependencies can travel the same
 [external evidence protocol](evidence-protocol.md) as any other report.
 
-Observed edges are **not** part of a Fleet Snapshot. The `provenance`
-discriminator reserves an `observed` slot, but nothing populates it today: a
-snapshot's edges are all `declared`, and observed edges meet the declared graph
-only in the reconcile report and in impact — never merged into a snapshot's edge
-set, so `pacto fleet graph` renders the declared layer alone.
+Observed edges live in a **separate** adjacency index from declared edges, so the
+declared graph stays declared and consumers layer observed evidence on top rather
+than conflating the two. In the dashboard's Operational Graph this is the
+**Layer** control (declared · observed · reconciled · all); a layer with no
+backing data in the current snapshot is disabled rather than shown as a placebo.
 
 ---
 

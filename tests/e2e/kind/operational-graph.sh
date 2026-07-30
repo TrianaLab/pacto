@@ -72,8 +72,11 @@ OP_IMG="${OP_REPO}:${VER}"
 DASH_IMG="localhost:5001/pacto-dashboard:${CORE}"
 
 echo "== build the operator + dashboard images =="
-docker build -f "$ROOT/Dockerfile" -t "$DASH_IMG" "$ROOT"
-docker build -f "$ROOT/integrations/kubernetes/Dockerfile" \
+# --load forces the result into the local docker image store even when the default
+# buildx builder uses the docker-container driver (otherwise the image lives only in
+# buildkit's cache and `kind load docker-image` fails with "content digest not found").
+docker build --load -f "$ROOT/Dockerfile" -t "$DASH_IMG" "$ROOT"
+docker build --load -f "$ROOT/integrations/kubernetes/Dockerfile" \
   --build-arg VERSION="$VER" --build-arg DASHBOARD_IMAGE="$DASH_IMG" -t "$OP_IMG" "$ROOT"
 docker pull registry:2 >/dev/null
 
@@ -83,7 +86,12 @@ helm package "$ROOT/integrations/kubernetes/charts/pacto-operator" -d /tmp/pacto
 CHART="$(ls /tmp/pacto-og-charts/pacto-operator-*.tgz)"
 
 kind get clusters | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 90s
-kind load docker-image "$DASH_IMG" "$OP_IMG" registry:2 --name "$CLUSTER"
+# Load images ONE AT A TIME: a combined `kind load docker-image A B C` streams a
+# single ctr import that can fail with "content digest ... not found" when the
+# images share base layers, so import each independently for robustness.
+for img in "$DASH_IMG" "$OP_IMG" registry:2; do
+  kind load docker-image "$img" --name "$CLUSTER"
+done
 KUBECONFIG="$(mktemp)"; export KUBECONFIG; kind get kubeconfig --name "$CLUSTER" > "$KUBECONFIG"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 

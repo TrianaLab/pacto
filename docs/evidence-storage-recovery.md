@@ -52,7 +52,7 @@ A crash at every boundary has a defined, safe outcome:
 | Before the immutable write | Not accepted; nothing persisted. The producer re-sends the same sequence and it is accepted then. |
 | During the immutable write | The blob driver's `WriteAll` is atomic per object: the object is either fully present or absent. A partial/torn object fails recovery validation → reported as corruption, **not** indexed → **not** accepted. |
 | After the immutable write, before indexing | The record is durable. Recovery re-indexes it from the immutable object → accepted, replay high-water restored. |
-| After indexing, before the projection write | Accepted (the immutable record exists). The projection is missing; recovery rebuilds the index from the immutable records and the store reports `degraded` until `RepairProjections` rewrites the projection. Replay stays enforced throughout. |
+| After indexing, before the projection write | Accepted (the immutable record exists). The projection is missing or stale; on the next start recovery **detects the drift** (the persisted manifest disagrees with the rebuilt-from-log truth) and the single writer **physically rewrites** every projection via `RepairProjections`, restoring `ready` with no operator action. Replay stays enforced throughout. |
 | During/after the projection write | Accepted. The projection is rebuildable and non-authoritative. |
 
 The immutable write being the commit point is the invariant: a derived-state
@@ -73,7 +73,22 @@ of:
   catching a moved, re-producered, re-sequenced or re-identified object;
 - an evidence digest that does not match the digest recomputed over the carried
   `EvidenceSet` — catching a tampered evidence body;
-- a contract reference inconsistent with the one inside the evidence set.
+- a contract reference inconsistent with the one inside the evidence set;
+- an **impossible history** — two committed records at the same producer
+  sequence (a fork), or an envelope id committed more than once. Correct
+  single-writer operation (strictly increasing per-producer sequences,
+  commit-once envelopes) can never produce these, so their presence means the
+  immutable log was tampered with or two writers forked it. The corruption reason
+  never echoes a producer or envelope id.
+
+Recovery also compares the persisted materialized projection against the
+just-rebuilt-from-log truth. A manifest that is missing while records exist, is
+unparsable, or whose record count disagrees with the log means the projection
+drifted (e.g. a crash between the immutable write and its projection, across a
+restart). The single active writer then **physically rewrites** every projection
+from the recovered index, so the store returns to `ready` without operator action.
+Read-only consumers (the fleet source, `pacto evidence inspect`) never repair —
+only the writer that owns the bucket does, so a transient reader cannot race it.
 
 Readiness is gated on recovery: the server answers `/ready` = 503 and refuses
 ingestion until recovery reaches `ready` (or `degraded`); liveness is independent.

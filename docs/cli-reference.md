@@ -271,6 +271,7 @@ Compose contracts, contract revisions and operational targets from local bundles
       --namespace string             namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray              registry reference to include as a published-baseline revision (repeatable)
       --target-state stringArray     offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --traces stringArray           OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
 ---
