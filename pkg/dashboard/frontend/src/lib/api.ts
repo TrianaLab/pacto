@@ -92,4 +92,73 @@ export const api = {
   fleetTarget: (key: string) => get(`/api/fleet/target?key=${encodeURIComponent(key)}`),
   fleetImpact: (oldRef: string, newRef: string, includeObserved?: boolean) =>
     get(`/api/fleet/impact?old=${encodeURIComponent(oldRef)}&new=${encodeURIComponent(newRef)}&includeObserved=${includeObserved ? 'true' : 'false'}`),
+
+  // ── Product-oriented operational-graph APIs (requirement 2) ──
+  // These are the primary dashboard contract: bounded, versioned answers built
+  // for product questions, each carrying canonical routes so the frontend never
+  // re-derives identity or navigation from the raw snapshot.
+  fleetOverview: () => get('/api/fleet/overview'),
+  fleetEntities: (
+    params: {
+      text?: string; kinds?: string[]; owner?: string; domain?: string;
+      scope?: string; status?: string; source?: string; limit?: number; offset?: number;
+    } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.text) qs.set('text', params.text);
+    if (params.kinds && params.kinds.length) qs.set('kinds', params.kinds.join(','));
+    if (params.owner) qs.set('owner', params.owner);
+    if (params.domain) qs.set('domain', params.domain);
+    if (params.scope) qs.set('scope', params.scope);
+    if (params.status) qs.set('status', params.status);
+    if (params.source) qs.set('source', params.source);
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.offset != null) qs.set('offset', String(params.offset));
+    const str = qs.toString();
+    return get(`/api/fleet/entities${str ? `?${str}` : ''}`);
+  },
+  fleetEntityDetail: (kind: string, key: string) =>
+    get(`/api/fleet/entities/${encodeURIComponent(kind)}?key=${encodeURIComponent(key)}`),
+  fleetNeighborhood: (
+    params: {
+      kind: string; key: string; direction?: string; depth?: number;
+      views?: string[]; maxNodes?: number; maxEdges?: number;
+    },
+  ) => {
+    const qs = new URLSearchParams();
+    qs.set('kind', params.kind);
+    qs.set('key', params.key);
+    if (params.direction) qs.set('direction', params.direction);
+    if (params.depth != null) qs.set('depth', String(params.depth));
+    if (params.views && params.views.length) qs.set('views', params.views.join(','));
+    if (params.maxNodes != null) qs.set('maxNodes', String(params.maxNodes));
+    if (params.maxEdges != null) qs.set('maxEdges', String(params.maxEdges));
+    return get(`/api/fleet/neighborhood?${qs.toString()}`);
+  },
+  fleetAttention: (
+    params: {
+      category?: string; kind?: string; key?: string; service?: string; owner?: string;
+      source?: string; severity?: string; status?: string; staleOnly?: boolean; limit?: number;
+    } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.category) qs.set('category', params.category);
+    if (params.kind) qs.set('kind', params.kind);
+    if (params.key) qs.set('key', params.key);
+    if (params.service) qs.set('service', params.service);
+    if (params.owner) qs.set('owner', params.owner);
+    if (params.source) qs.set('source', params.source);
+    if (params.severity) qs.set('severity', params.severity);
+    if (params.status) qs.set('status', params.status);
+    if (params.staleOnly) qs.set('staleOnly', 'true');
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    const str = qs.toString();
+    return get(`/api/fleet/attention${str ? `?${str}` : ''}`);
+  },
+  // Contextual impact by canonical identity (requirement 2.6): the snapshot id is
+  // sent so the server rejects analyzing a state the user is no longer viewing.
+  fleetImpactByIdentity: (body: {
+    snapshotId?: string; serviceKey?: string; fromRevisionKey: string;
+    toRevisionKey: string; includeObserved?: boolean;
+  }) => post('/api/fleet/impact', body),
 };

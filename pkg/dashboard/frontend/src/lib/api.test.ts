@@ -181,6 +181,73 @@ describe('api.fleetImpact', () => {
   });
 });
 
+describe('product API client', () => {
+  it('fleetOverview calls GET /api/fleet/overview', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ summary: {} }));
+    await api.fleetOverview();
+    expect(mockFetch).toHaveBeenCalledWith('/api/fleet/overview', expect.objectContaining({ method: 'GET' }));
+  });
+
+  it('fleetEntities joins kinds and builds the query string', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ entities: [] }));
+    await api.fleetEntities({ text: 'pay', kinds: ['service', 'target'], owner: 'core', domain: 'eu', scope: 'prod', status: 'Compliant', source: 'k8s', limit: 5, offset: 10 });
+    const url = mockFetch.mock.calls[0][0];
+    expect(url).toContain('/api/fleet/entities?');
+    expect(url).toContain('kinds=service%2Ctarget');
+    expect(url).toContain('domain=eu');
+    expect(url).toContain('limit=5');
+    expect(url).toContain('offset=10');
+  });
+
+  it('fleetEntities omits the query string when empty', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ entities: [] }));
+    await api.fleetEntities();
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/fleet/entities');
+  });
+
+  it('fleetEntityDetail encodes kind and passes key as a query param', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ entity: {} }));
+    await api.fleetEntityDetail('target', 'prod/k8s/app');
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/fleet/entities/target?key=prod%2Fk8s%2Fapp');
+  });
+
+  it('fleetNeighborhood requires kind+key and adds options', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ nodes: [] }));
+    await api.fleetNeighborhood({ kind: 'service', key: 'eu/pay', direction: 'both', depth: 2, views: ['expected', 'observed'], maxNodes: 40, maxEdges: 80 });
+    const url = mockFetch.mock.calls[0][0];
+    expect(url).toContain('kind=service');
+    expect(url).toContain('key=eu%2Fpay');
+    expect(url).toContain('direction=both');
+    expect(url).toContain('views=expected%2Cobserved');
+    expect(url).toContain('maxNodes=40');
+  });
+
+  it('fleetAttention builds filters and staleOnly', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ items: [] }));
+    await api.fleetAttention({ category: 'stale', severity: 'warning', staleOnly: true, limit: 3 });
+    const url = mockFetch.mock.calls[0][0];
+    expect(url).toContain('category=stale');
+    expect(url).toContain('severity=warning');
+    expect(url).toContain('staleOnly=true');
+    expect(url).toContain('limit=3');
+  });
+
+  it('fleetAttention omits the query string when empty', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ items: [] }));
+    await api.fleetAttention();
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/fleet/attention');
+  });
+
+  it('fleetImpactByIdentity POSTs canonical identities', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ classification: 'BREAKING' }));
+    await api.fleetImpactByIdentity({ snapshotId: 'snap-1', fromRevisionKey: 'svc@a', toRevisionKey: 'svc@b', includeObserved: true });
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe('/api/fleet/impact');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body)).toEqual({ snapshotId: 'snap-1', fromRevisionKey: 'svc@a', toRevisionKey: 'svc@b', includeObserved: true });
+  });
+});
+
 describe('error handling', () => {
   it('throws ApiError with status for non-ok responses', async () => {
     mockFetch.mockResolvedValue(errorResponse(404, 'not found'));
