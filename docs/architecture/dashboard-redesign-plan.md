@@ -212,8 +212,17 @@ Completed:
 - (phase 2) projection architecture decision (ADR-5): removed the write-only
   per-target projections; `pkg/evidencestore` stays 100% covered; storage ADR and
   Kind E2E updated (manifest restoration proven physically).
+- (phase 3, in progress) typed product API client in
+  `pkg/dashboard/frontend/src/lib/api.ts` (`fleetOverview`, `fleetEntities`,
+  `fleetEntityDetail`, `fleetNeighborhood`, `fleetAttention`,
+  `fleetImpactByIdentity`) with vitest coverage; UI bundle rebuilt
+  deterministically (a clean `npm ci && npm run build` reproduces the committed
+  assets, so `ci-ui-drift` stays green). This is the API-data layer the new views
+  will consume; the views, routes, reusable components, responsive + a11y work,
+  WASM fixtures and Playwright suite are the remaining bulk of phase 3+.
 
-Pending: phases 3 through 12 in the migration sequence (frontend IA/routing;
+Pending: rest of phase 3 through 12 in the migration sequence (frontend
+IA/routing;
 overview + entity navigation; search-first graph; entity detail + cross-linking;
 responsive + a11y; WASM demo + browser acceptance; live Kind; MkDocs; local
 registry; docs + PR body + final verification).
