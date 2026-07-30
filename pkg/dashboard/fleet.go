@@ -63,6 +63,27 @@ func (s *Server) registerFleetOperations(api huma.API) {
 	}, s.fleetSearch)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "fleet-service-detail",
+		Method:      http.MethodGet,
+		Path:        "/api/fleet/service",
+		Summary:     "Operational-graph service detail",
+		Description: "Returns one logical service's revisions, targets, declared dependencies and " +
+			"dependents. Keyed by the domain-qualified ServiceKey (query param) for bounded lazy detail " +
+			"loading, so the whole snapshot need not be shipped to open a service.",
+		Tags: []string{"Fleet"},
+	}, s.fleetServiceDetail)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "fleet-target-detail",
+		Method:      http.MethodGet,
+		Path:        "/api/fleet/target",
+		Summary:     "Operational-graph target detail",
+		Description: "Returns one operational target and its exact linked contract revision. Keyed by " +
+			"the TargetKey (query param) for bounded lazy detail loading.",
+		Tags: []string{"Fleet"},
+	}, s.fleetTargetDetail)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "fleet-graph",
 		Method:      http.MethodGet,
 		Path:        "/api/fleet/services/{name}/graph",
@@ -120,6 +141,58 @@ func (s *Server) fleetSearch(ctx context.Context, in *fleetSearchInput) (*fleetS
 		return nil, huma.Error422UnprocessableEntity("invalid fleet search filter", err)
 	}
 	return &fleetSearchOutput{Body: res}, nil
+}
+
+type fleetServiceDetailInput struct {
+	Key string `query:"key" required:"true" doc:"Domain-qualified ServiceKey (or a unique service name)"`
+}
+
+type fleetServiceDetailOutput struct {
+	Body *fleet.ServiceView
+}
+
+func (s *Server) fleetServiceDetail(ctx context.Context, in *fleetServiceDetailInput) (*fleetServiceDetailOutput, error) {
+	q, err := s.fleetQuery(ctx)
+	if err != nil {
+		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+	}
+	view, err := q.GetService(in.Key)
+	if err != nil {
+		return nil, fleetLookupError(err)
+	}
+	return &fleetServiceDetailOutput{Body: view}, nil
+}
+
+type fleetTargetDetailInput struct {
+	Key string `query:"key" required:"true" doc:"TargetKey (or a unique target name)"`
+}
+
+type fleetTargetDetailOutput struct {
+	Body *fleet.TargetView
+}
+
+func (s *Server) fleetTargetDetail(ctx context.Context, in *fleetTargetDetailInput) (*fleetTargetDetailOutput, error) {
+	q, err := s.fleetQuery(ctx)
+	if err != nil {
+		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+	}
+	view, err := q.GetTarget(in.Key)
+	if err != nil {
+		return nil, fleetLookupError(err)
+	}
+	return &fleetTargetDetailOutput{Body: view}, nil
+}
+
+// fleetLookupError maps a by-key lookup error to HTTP: absent → 404; otherwise
+// (the only other error GetService/GetTarget return is AmbiguousError — a bare
+// name matched several domains/targets) → 422, since the fix is to pass the
+// fully-qualified key the error lists.
+func fleetLookupError(err error) error {
+	var nf *fleet.NotFoundError
+	if errors.As(err, &nf) {
+		return huma.Error404NotFound("not found", err)
+	}
+	return huma.Error422UnprocessableEntity("ambiguous or invalid key: qualify it", err)
 }
 
 type fleetGraphInput struct {

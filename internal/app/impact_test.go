@@ -52,6 +52,31 @@ func TestService_Impact(t *testing.T) {
 	}
 }
 
+// TestService_ImpactWithSnapshot_BindsGivenSnapshot proves §2.2: an impact answer
+// produced against an already-published snapshot carries THAT snapshot's id, so a
+// dashboard can guarantee the impact result matches the graph the user is viewing
+// rather than a freshly rebuilt, divergent one.
+func TestService_ImpactWithSnapshot_BindsGivenSnapshot(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeImpactService(t, oldDir, "orders", "1.0.0")
+	writeImpactService(t, newDir, "orders", "2.0.0")
+	fleetRoot := t.TempDir()
+	writeImpactService(t, filepath.Join(fleetRoot, "orders"), "orders", "2.0.0")
+
+	svc := NewService(nil, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{LocalRoots: []string{fleetRoot}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.ImpactWithSnapshot(context.Background(), ImpactOptions{OldPath: oldDir, NewPath: newDir}, snap)
+	if err != nil {
+		t.Fatalf("ImpactWithSnapshot: %v", err)
+	}
+	if snap.SnapshotID == "" || res.SnapshotID != snap.SnapshotID {
+		t.Errorf("impact snapshotId %q must equal the given snapshot %q", res.SnapshotID, snap.SnapshotID)
+	}
+}
+
 func TestService_Impact_OldPathError(t *testing.T) {
 	newDir := t.TempDir()
 	writeImpactService(t, newDir, "orders", "2.0.0")

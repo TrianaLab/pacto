@@ -138,9 +138,14 @@ type SearchFilter struct {
 	Offset        int
 }
 
-// ServiceHit is a bounded search-result row for a logical service.
+// ServiceHit is a bounded search-result row for a logical service. Key is the
+// domain-qualified identity; Name/Domain are the display split. A consumer keys
+// rows, routes and follow-up lookups on Key so two same-named services in
+// different domains stay distinct — never on Name alone.
 type ServiceHit struct {
+	Key           ServiceKey        `json:"key"`
 	Name          string            `json:"name"`
+	Domain        string            `json:"domain,omitempty"`
 	Owner         string            `json:"owner,omitempty"`
 	Status        string            `json:"status,omitempty"`
 	RevisionCount int               `json:"revisionCount"`
@@ -220,7 +225,7 @@ func (q *Query) sortedServiceKeys() []ServiceKey {
 
 func hitFromService(s *ServiceRecord) ServiceHit {
 	return ServiceHit{
-		Name: s.Name, Owner: s.Owner.DisplayString(), Status: s.Status,
+		Key: s.Key, Name: s.Name, Domain: s.Domain, Owner: s.Owner.DisplayString(), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
 		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels),
 	}

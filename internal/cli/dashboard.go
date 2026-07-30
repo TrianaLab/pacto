@@ -175,7 +175,7 @@ Services are grouped by name across sources and merged using priority rules:
 				}, fleet.ManagerOptions{})
 				go mgr.Start(cmd.Context(), fleetRefreshInterval)
 				server.SetFleetProvider(managerFleetProvider(mgr))
-				server.SetImpactProvider(impactProviderForFleet(svc, fopts))
+				server.SetImpactProvider(impactProviderForFleet(svc, mgr))
 			}
 
 			// Track OCI discovery state for progressive loading in the UI.
@@ -441,32 +441,40 @@ func wireOCIEnrichment(
 // the operational graph in the background.
 const fleetRefreshInterval = 30 * time.Second
 
-// managerFleetProvider serves the fleet query from a shared snapshot Manager.
-// Before the first background refresh completes it triggers a coalesced build so
-// the first request is answered from a real snapshot rather than erroring.
-func managerFleetProvider(mgr *fleet.Manager) func(context.Context) (*fleet.Query, error) {
-	return func(ctx context.Context) (*fleet.Query, error) {
-		q, err := mgr.Query()
-		if errors.Is(err, fleet.ErrNoSnapshot) {
-			if rerr := mgr.Refresh(ctx); rerr != nil {
-				return nil, rerr
-			}
-			return mgr.Query()
+// currentQuery returns the Manager's published snapshot query, triggering a
+// coalesced first build if none exists yet (so the first request is answered
+// from a real snapshot rather than erroring).
+func currentQuery(ctx context.Context, mgr *fleet.Manager) (*fleet.Query, error) {
+	q, err := mgr.Query()
+	if errors.Is(err, fleet.ErrNoSnapshot) {
+		if rerr := mgr.Refresh(ctx); rerr != nil {
+			return nil, rerr
 		}
-		return q, err
+		return mgr.Query()
 	}
+	return q, err
+}
+
+// managerFleetProvider serves the fleet query from a shared snapshot Manager.
+func managerFleetProvider(mgr *fleet.Manager) func(context.Context) (*fleet.Query, error) {
+	return func(ctx context.Context) (*fleet.Query, error) { return currentQuery(ctx, mgr) }
 }
 
 // impactProviderForFleet returns an impact provider backing /api/fleet/impact.
-// It resolves the old/new refs and builds the fleet snapshot from the same
-// sources the dashboard detected. Extracted so the wiring is testable.
-func impactProviderForFleet(svc *app.Service, fopts app.FleetOptions) func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+// It resolves the old/new refs and analyzes the change against the SAME snapshot
+// the dashboard is currently serving (the Manager's published one), so the impact
+// answer's snapshotId matches the Operational Graph the user is looking at — never
+// a freshly rebuilt, divergent snapshot. Extracted so the wiring is testable.
+func impactProviderForFleet(svc *app.Service, mgr *fleet.Manager) func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 	return func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
-		return svc.Impact(ctx, app.ImpactOptions{
+		q, err := currentQuery(ctx, mgr)
+		if err != nil {
+			return nil, err
+		}
+		return svc.ImpactWithSnapshot(ctx, app.ImpactOptions{
 			OldPath: oldRef, NewPath: newRef,
-			Fleet:           fopts,
 			IncludeObserved: includeObserved,
-		})
+		}, q.Snapshot())
 	}
 }
 

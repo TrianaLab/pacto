@@ -587,7 +587,7 @@ func TestFleetPartialWarning(t *testing.T) {
 // its read-only HTTP contribution appears in the snapshot.
 func TestFleetEvidenceURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"targets":[{"subject":"svc-a","producer":"prod-eu","compliance":"Compliant","coverage":{"evaluated":3,"required":5},"observedAt":"2026-07-29T11:00:00Z"}]}`))
+		_, _ = w.Write([]byte(`{"schemaVersion":"pacto.dev/evidence-source/v1","health":{"phase":"ready"},"targets":[{"subject":"svc-a","producer":"prod-eu","compliance":"Compliant","coverage":{"evaluated":3,"required":5},"evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:00:00Z"}]}`))
 	}))
 	defer srv.Close()
 

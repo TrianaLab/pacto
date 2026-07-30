@@ -128,6 +128,65 @@ func TestFleetEndpoints_Serve(t *testing.T) {
 	}
 }
 
+func TestFleetDetailEndpoints(t *testing.T) {
+	q := demoFleetQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+
+	// Service detail by key (default-domain key == name): revisions + targets.
+	var sv fleet.ServiceView
+	getJSON(t, base+"/api/fleet/service?key=payment-service", http.StatusOK, &sv)
+	if sv.Service == nil || sv.Service.Name != "payment-service" {
+		t.Fatalf("service detail: %+v", sv.Service)
+	}
+	if len(sv.Revisions) == 0 || len(sv.Targets) == 0 {
+		t.Errorf("service detail must carry revisions and targets: %+v", sv)
+	}
+	expectStatus(t, base+"/api/fleet/service?key=nope", http.StatusNotFound)
+
+	// Target detail by name (unique; the name carries a slash, so URL-encoded):
+	// exact linked revision included.
+	var tv fleet.TargetView
+	getJSON(t, base+"/api/fleet/target?key=pay%2Fpayment-service", http.StatusOK, &tv)
+	if tv.Target == nil || tv.Target.Service != "payment-service" {
+		t.Fatalf("target detail: %+v", tv.Target)
+	}
+	expectStatus(t, base+"/api/fleet/target?key=nope", http.StatusNotFound)
+
+	// The detail endpoints are gated on the provider like the rest.
+	baseOff, cancelOff := startFleetTestServer(t, nil, nil)
+	defer cancelOff()
+	expectStatus(t, baseOff+"/api/fleet/service?key=payment-service", http.StatusNotFound)
+	expectStatus(t, baseOff+"/api/fleet/target?key=x", http.StatusNotFound)
+}
+
+// TestFleetServiceDetail_DomainIsolation proves §3 at the API boundary: two
+// same-named services in different domains are distinct records; a bare name is
+// ambiguous (422, qualify it) while the domain-qualified key resolves exactly one.
+func TestFleetServiceDetail_DomainIsolation(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleet.NewMemorySource("a", "local", &fleet.Collection{Revisions: []fleet.RawRevision{{
+			Bundle: newPaymentBundle(), Domain: "domain-a", ResolvedRef: "oci://a/payment-service:1.0.0", Digest: "sha256:a",
+		}}}),
+		fleet.NewMemorySource("b", "local", &fleet.Collection{Revisions: []fleet.RawRevision{{
+			Bundle: newPaymentBundle(), Domain: "domain-b", ResolvedRef: "oci://b/payment-service:1.0.0", Digest: "sha256:b",
+		}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+
+	expectStatus(t, base+"/api/fleet/service?key=payment-service", http.StatusUnprocessableEntity)
+
+	var sv fleet.ServiceView
+	getJSON(t, base+"/api/fleet/service?key=domain-a%2Fpayment-service", http.StatusOK, &sv)
+	if sv.Service == nil || sv.Service.Domain != "domain-a" {
+		t.Fatalf("qualified key must resolve exactly one domain: %+v", sv.Service)
+	}
+}
+
 func TestFleetEndpoints_ProviderError(t *testing.T) {
 	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) {
 		return nil, fmt.Errorf("source down")
@@ -135,6 +194,8 @@ func TestFleetEndpoints_ProviderError(t *testing.T) {
 	defer cancel()
 	expectStatus(t, base+"/api/fleet/snapshot", http.StatusServiceUnavailable)
 	expectStatus(t, base+"/api/fleet/services", http.StatusServiceUnavailable)
+	expectStatus(t, base+"/api/fleet/service?key=x", http.StatusServiceUnavailable)
+	expectStatus(t, base+"/api/fleet/target?key=x", http.StatusServiceUnavailable)
 	expectStatus(t, base+"/api/fleet/services/x/graph", http.StatusServiceUnavailable)
 	expectStatus(t, base+"/api/fleet/status", http.StatusServiceUnavailable)
 }

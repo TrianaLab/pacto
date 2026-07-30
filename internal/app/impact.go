@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/trianalab/pacto/v3/internal/fleetsrc"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/impact"
 	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/otelobserver"
@@ -30,7 +31,23 @@ type ImpactOptions struct {
 
 // Impact resolves the old and new contract revisions, builds a fleet snapshot
 // from the configured sources, and analyzes the change's blast radius over it.
+// Each call builds a fresh snapshot; the dashboard uses ImpactWithSnapshot to
+// analyze against its already-published snapshot instead (so the impact answer's
+// snapshotId matches the graph the user is looking at).
 func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Result, error) {
+	snap, err := s.Fleet(ctx, opts.Fleet)
+	if err != nil {
+		return nil, fmt.Errorf("build fleet snapshot: %w", err)
+	}
+	return s.ImpactWithSnapshot(ctx, opts, snap)
+}
+
+// ImpactWithSnapshot analyzes a change's blast radius over an ALREADY-BUILT
+// snapshot, resolving only the old and new contract revisions. It exists so a
+// caller holding a published snapshot (the dashboard's Fleet Manager) can get an
+// impact answer bound to that exact snapshot — same snapshotId, same as-of time,
+// same completeness — rather than a freshly rebuilt one. opts.Fleet is ignored.
+func (s *Service) ImpactWithSnapshot(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot) (*impact.Result, error) {
 	logging.LoggerFromContext(ctx).Debug("resolving old revision", "path", opts.OldPath)
 	oldBundle, err := s.resolveBundleWithOverrides(ctx, opts.OldPath, opts.OldOverrides)
 	if err != nil {
@@ -40,10 +57,6 @@ func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Resul
 	newBundle, err := s.resolveBundleWithOverrides(ctx, opts.NewPath, opts.NewOverrides)
 	if err != nil {
 		return nil, fmt.Errorf("new revision: %w", err)
-	}
-	snap, err := s.Fleet(ctx, opts.Fleet)
-	if err != nil {
-		return nil, fmt.Errorf("build fleet snapshot: %w", err)
 	}
 	observed, err := observedEdgesFromTraces(opts.Traces)
 	if err != nil {
