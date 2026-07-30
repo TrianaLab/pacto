@@ -198,7 +198,7 @@ curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" | grep -q 
   && pass "Evidence source API reports the checkout target" || fail "Evidence source API missing the target"
 
 echo "== the dashboard Fleet API reports the same target from the same store =="
-DASH_PF_PID="$(pf 8080 svc/pacto-dashboard 8080)"
+DASH_PF_PID="$(pf 8080 svc/pacto-dashboard 3000)"
 sleep 2
 curl -fsS "http://127.0.0.1:8080/api/fleet/snapshot" | grep -q 'checkout' \
   && pass "dashboard Fleet API reports the checkout target" || fail "dashboard Fleet API missing the target"
@@ -255,7 +255,7 @@ kubectl -n "$NS" get pvc pacto-evidence-data >/dev/null 2>&1 \
 
 echo "== when disabled, the dashboard no longer reports the Evidence source =="
 kubectl -n "$NS" rollout status deployment/pacto-dashboard --timeout=120s
-DASH_PF_PID="$(pf 8080 svc/pacto-dashboard 8080)"; sleep 2
+DASH_PF_PID="$(pf 8080 svc/pacto-dashboard 3000)"; sleep 2
 kubectl -n "$NS" get deploy pacto-dashboard -o jsonpath='{.spec.template.spec.containers[0].env[*].name}' \
   | grep -q PACTO_EVIDENCE_SOURCE_URL \
   && fail "dashboard still wired to the (disabled) Evidence Server" \

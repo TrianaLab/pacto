@@ -57,25 +57,51 @@ By participating in this project, you agree to treat all contributors with respe
    `ci-e2e-*` targets and `demo-fleet`):
 
    ```bash
-   make e2e-operational-graph  # cluster-free fleet story: graph, evidence, OTel, reconcile, impact
-   make e2e-otel               # OTel observation acceptance (part of the operational-graph run)
-   make e2e-reconcile-kind     # kind: full operator reconcile cycle (dashboard enabled)
-   make e2e-dashboard-kind     # kind: dashboard enabled/disabled lifecycle, no crashloop
-   make e2e-evidence-kind      # kind: operator-managed Evidence Server
-   make e2e-upgrade-kind       # kind: real v4 -> v5 chart + CRD migration
+   make e2e-operational-graph       # kind: FULL vertical (operator + dashboard + Evidence Server + registry), asserts end to end
+   make e2e-operational-graph-core  # cluster-free fleet story: graph, evidence, OTel, reconcile, impact
+   make e2e-otel                    # OTel observation acceptance (part of the operational-graph-core run)
+   make e2e-dashboard-wasm          # browser (Playwright) suite against the built WASM dashboard demo
+   make e2e-reconcile-kind          # kind: full operator reconcile cycle (dashboard enabled)
+   make e2e-dashboard-kind          # kind: dashboard enabled/disabled lifecycle, no crashloop
+   make e2e-evidence-kind           # kind: operator-managed Evidence Server + real in-cluster ingestion
+   make e2e-upgrade-kind            # kind: real v4 -> v5 chart + CRD migration
    ```
 
    The `-kind` scenarios each self-provision a kind cluster (reused via
    `KIND_CLUSTER`) and, on failure, dump cluster diagnostics before exiting. To
    keep a failed cluster and its namespace for inspection instead of tearing it
-   down, set `KEEP_E2E_CLUSTER=1`:
+   down, set `KEEP_E2E_CLUSTER=1` (e.g. `KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind`).
+
+   **Test the whole product locally.** To bring up a fully-configured install
+   (operator + dashboard + Evidence Server + an in-cluster registry, with
+   reconciled Pacto CRs — including a declared dependency edge — and a signed
+   EvidenceEnvelope ingested as an external target) and leave it running so you can
+   click through the Operational Graph and Impact in a browser:
 
    ```bash
-   KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind
+   make e2e-operational-graph-up      # bring it up and leave it running (prints how to reach the dashboard)
+   make e2e-operational-graph-status  # component health
+   make e2e-operational-graph-logs    # component logs
+   make e2e-operational-graph-down    # tear it down
    ```
 
-   The in-browser WASM dashboard demo and the docs site are built and exercised by
-   `make docs` / `make docs-build` — there is no separate `e2e-docs` target.
+   After `-up`, port-forward the dashboard and open the graph:
+
+   ```bash
+   export KUBECONFIG=$(mktemp) && kind get kubeconfig --name pacto-og > $KUBECONFIG
+   kubectl -n pacto-system port-forward svc/pacto-dashboard 8080:3000
+   open http://localhost:8080/#/fleet
+   ```
+
+   For the same product story with **no cluster at all**, the in-browser WASM demo
+   runs the real dashboard + API compiled to wasm over embedded data:
+
+   ```bash
+   make -C examples/demo build && make -C examples/demo serve   # then open the printed URL
+   ```
+
+   The docs site (which embeds the WASM demo at `/demo/`) is built by
+   `make docs` / `make docs-build`.
 
 ## How to Contribute
 

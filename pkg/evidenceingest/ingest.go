@@ -320,9 +320,13 @@ func NewHandler(acceptor *Acceptor, producers []string, onAccept func(), ready f
 	return &Handler{acceptor: acceptor, producers: sorted, onAccept: onAccept, ready: ready, health: health}
 }
 
+// EnvelopesPath is the ingestion endpoint a producer POSTs a signed envelope to.
+// Exported so a client can target it against a base host URL.
+const EnvelopesPath = "/api/evidence/v1/envelopes"
+
 // Routes registers the ingestion endpoints on mux under /api/evidence/v1.
 func (h *Handler) Routes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/evidence/v1/envelopes", h.handleEnvelope)
+	mux.HandleFunc("POST "+EnvelopesPath, h.handleEnvelope)
 	mux.HandleFunc("GET /api/evidence/v1/health", h.handleHealth)
 	mux.HandleFunc("GET /api/evidence/v1/ready", h.handleReady)
 	mux.HandleFunc("GET /api/evidence/v1/producers", h.handleProducers)

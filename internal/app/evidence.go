@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -416,6 +417,7 @@ func (s *Service) SendEvidence(ctx context.Context, url, envelopePath string) (S
 	if err != nil {
 		return SendResult{}, err
 	}
+	url = normalizeIngestURL(url)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return SendResult{}, err
@@ -431,4 +433,16 @@ func (s *Service) SendEvidence(ctx context.Context, url, envelopePath string) (S
 		return SendResult{}, err
 	}
 	return SendResult{StatusCode: resp.StatusCode, Body: string(body)}, nil
+}
+
+// normalizeIngestURL lets a caller pass either a base host URL (the documented
+// form, e.g. https://ingest.example.com) or a full endpoint URL. A bare host or
+// trailing "/" gets the standard envelope endpoint path appended; a URL that
+// already carries a path is used verbatim so existing full-path callers still work.
+func normalizeIngestURL(raw string) string {
+	u, err := neturl.Parse(raw)
+	if err != nil || u.Path == "" || u.Path == "/" {
+		return strings.TrimRight(raw, "/") + evidenceingest.EnvelopesPath
+	}
+	return raw
 }

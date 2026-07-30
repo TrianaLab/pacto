@@ -14,7 +14,9 @@ endif
 IMAGE := ghcr.io/trianalab/pacto/dashboard
 
 .PHONY: build test e2e coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
-        e2e-operational-graph e2e-otel e2e-dashboard-wasm e2e-dashboard-kind e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind
+        e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
+        e2e-operational-graph-logs e2e-operational-graph-down e2e-otel e2e-dashboard-wasm e2e-dashboard-kind \
+        e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind
 
 # Local docs preview includes the in-browser WASM dashboard demo at /demo/.
 DOCS_DEMO := docs/demo
@@ -42,17 +44,42 @@ demo-fleet:
 # Each -kind scenario self-provisions its own kind cluster (honoring KIND_CLUSTER
 # for reuse) and, on failure, dumps cluster diagnostics via tests/e2e/kind/lib.sh.
 # To keep a failed cluster + namespace for interactive inspection instead of
-# tearing it down, set KEEP_E2E_CLUSTER=1 — the single inspect knob. There are
-# deliberately NO per-scenario -status/-logs/-down targets: the scripts
-# self-provision and the failure-dump trap covers the real need.
-#   KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind
+# tearing it down, set KEEP_E2E_CLUSTER=1 — the inspect knob for every -kind
+# scenario:  KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind
+#
+# The full operational-graph vertical additionally has a dev lifecycle so you can
+# bring up a fully-configured install (operator + dashboard + Evidence Server +
+# registry + reconciled Pacto CRs + ingested evidence) and test the product end to
+# end in a browser:
+#   make e2e-operational-graph-up      # bring it up and leave it running
+#   make e2e-operational-graph-status  # component health
+#   make e2e-operational-graph-logs    # component logs
+#   make e2e-operational-graph-down    # tear it down
 # e2e-dashboard-wasm builds the in-browser WASM dashboard demo and runs the
 # Playwright browser suite against it (Chromium). It is the browser-level
 # acceptance for the redesigned Operational Graph + Impact UI, with no cluster.
 
-# Cluster-free operational-graph acceptance (graph, evidence, OTel, reconcile,
-# impact) — the same hermetic run as demo-fleet, verifiable anywhere Go runs.
-e2e-operational-graph: demo-fleet
+# Full operational-graph vertical in a local kind cluster: operator + dashboard +
+# Evidence Server + in-cluster registry, with reconciled Pacto CRs (a declared
+# dependency edge) and a signed EvidenceEnvelope ingested as an external target —
+# everything a fully-configured install shows. Tears down unless KEEP_E2E_CLUSTER=1.
+e2e-operational-graph:
+	bash tests/e2e/kind/operational-graph.sh
+
+# Cluster-free core: the hermetic operational-graph acceptance (graph, evidence,
+# OTel, reconcile, impact) — the same run as demo-fleet, verifiable anywhere Go runs.
+e2e-operational-graph-core: demo-fleet
+
+# Bring the full vertical UP and LEAVE it running for manual, end-to-end testing
+# (prints how to reach the dashboard). Inspect with -status/-logs; tear down with -down.
+e2e-operational-graph-up:
+	KEEP_E2E_CLUSTER=1 bash tests/e2e/kind/operational-graph.sh up
+e2e-operational-graph-status:
+	bash tests/e2e/kind/operational-graph.sh status
+e2e-operational-graph-logs:
+	bash tests/e2e/kind/operational-graph.sh logs
+e2e-operational-graph-down:
+	bash tests/e2e/kind/operational-graph.sh down
 
 # OTel observation acceptance is step 3 of the operational-graph story above; there
 # is no collector-backed cluster scenario, so this runs the same cluster-free run.

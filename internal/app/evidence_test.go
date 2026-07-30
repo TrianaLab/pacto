@@ -16,6 +16,7 @@ import (
 
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v3/pkg/evidencestore"
 )
 
@@ -716,8 +717,11 @@ func TestSendEvidence(t *testing.T) {
 	_, _, envPath, _ := serveTestFixtures(t)
 	svc := &Service{}
 
-	// 2xx.
-	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	// 2xx. A BASE host URL (the documented form) must be POSTed to the standard
+	// envelope endpoint path, not verbatim to "/".
+	var gotPath string
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
@@ -728,6 +732,16 @@ func TestSendEvidence(t *testing.T) {
 	}
 	if res.StatusCode != http.StatusAccepted || !strings.Contains(res.Body, "ok") {
 		t.Errorf("res = %+v", res)
+	}
+	if gotPath != evidenceingest.EnvelopesPath {
+		t.Errorf("base URL should POST to %q, got %q", evidenceingest.EnvelopesPath, gotPath)
+	}
+	// A full endpoint URL is used verbatim (no double-append).
+	if _, err := svc.SendEvidence(context.Background(), ok.URL+evidenceingest.EnvelopesPath, envPath); err != nil {
+		t.Fatalf("send full url: %v", err)
+	}
+	if gotPath != evidenceingest.EnvelopesPath {
+		t.Errorf("full URL path mangled: %q", gotPath)
 	}
 
 	// Non-2xx is reported without error.
