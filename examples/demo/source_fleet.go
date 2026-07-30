@@ -16,8 +16,8 @@ import (
 // This file builds the in-memory operational graph (fleet) and impact provider
 // the WASM demo wires into the dashboard, entirely from the embedded bundles plus
 // deterministic operational targets — so the Operational Graph and Impact pages
-// are useful the moment the demo opens, with no server and no OCI registry. It
-// carries no build tag so the host build compiles and TESTS it (source_embed_test).
+// are useful the moment the demo opens, with no server and no OCI registry.
+// It is wasm-only (see the build tag): the host build never compiles it.
 
 // demoRegistry is the synthetic registry the demo's revision refs live under. The
 // refs are immutable digest refs so they satisfy the same identity rules the real
@@ -50,6 +50,7 @@ func buildDemoFleet(src *EmbedSource) (*fleet.FleetSnapshot, map[string]*contrac
 		}
 	}
 	col.Targets = demoTargets()
+	col.Observed = demoObservedEdges() // fold runtime-observed edges into the snapshot
 
 	partial := fleet.NewMemorySource("edge-cluster", "k8s", &fleet.Collection{
 		State: &fleet.SourceState{
@@ -69,8 +70,10 @@ func buildDemoFleet(src *EmbedSource) (*fleet.FleetSnapshot, map[string]*contrac
 // demoImpactProvider returns the impact provider the demo wires into the
 // dashboard. It analyzes against the SAME published snapshot the Operational
 // Graph serves (so snapshotIds match, §2.2), resolving the two revisions from the
-// in-memory ref index, and carries embedded observed edges so include-observed is
-// a real capability in the demo (surfacing a shadow consumer), not a placebo.
+// in-memory ref index. Observed edges are folded into that snapshot by
+// buildDemoFleet, so include-observed is a real capability driven by the SAME
+// pipeline the Operational Graph uses (surfacing a shadow consumer), not a placebo
+// and not a second, divergent source of observed data.
 func demoImpactProvider(snap *fleet.FleetSnapshot, byRef map[string]*contract.Bundle) func(context.Context, string, string, bool) (*impact.Result, error) {
 	return func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 		oldB, newB := byRef[oldRef], byRef[newRef]
@@ -79,7 +82,6 @@ func demoImpactProvider(snap *fleet.FleetSnapshot, byRef map[string]*contract.Bu
 		}
 		return impact.Analyze(ctx, oldB.Contract, newB.Contract, oldB.FS, newB.FS, snap, impact.Options{
 			IncludeObserved: includeObserved,
-			ObservedEdges:   demoObservedEdges(),
 		}), nil
 	}
 }
@@ -105,13 +107,15 @@ func demoTargets() []fleet.RawTarget {
 	}
 }
 
-// demoObservedEdges are embedded observed caller→provider edges. audit-log is
-// observed calling payments-service WITHOUT declaring it — an observed-only
-// (shadow) dependency; orders-service→payments-service corroborates a declared
-// dependency. They only affect impact when include-observed is enabled.
-func demoObservedEdges() []impact.ObservedEdge {
-	return []impact.ObservedEdge{
-		{Consumer: "audit-log", Provider: "payments-service"},
-		{Consumer: "orders-service", Provider: "payments-service"},
+// demoObservedEdges are embedded observed caller→provider edges Build folds into
+// the snapshot as domain-qualified observed relationships. audit-log is observed
+// calling payments-service WITHOUT declaring it — an observed-only (shadow)
+// dependency; orders-service→payments-service corroborates a declared dependency.
+// They surface in the Operational Graph's Observed layer and, when include-observed
+// is enabled, in impact.
+func demoObservedEdges() []fleet.ObservedEdge {
+	return []fleet.ObservedEdge{
+		{From: "audit-log", To: "payments-service", Count: 12},
+		{From: "orders-service", To: "payments-service", Count: 340},
 	}
 }

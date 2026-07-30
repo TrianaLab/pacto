@@ -28,6 +28,8 @@
   const isActive = (item) => item.views.includes(view);
 
   let mobileMenuOpen = $state(false);
+  let hamburgerEl = $state(null);
+  let drawerEl = $state(null);
 
   // Spin the brand mark on click (also navigates home via the href). Reduced-motion safe.
   function spinLogo(e) {
@@ -38,8 +40,46 @@
     el.classList.add('spin');
   }
 
+  function toggleMenu() {
+    mobileMenuOpen ? closeMenu() : (mobileMenuOpen = true);
+  }
+  // Closing the overlay ALWAYS returns focus to the control that opened it, so a
+  // keyboard/screen-reader user is never dropped at the top of the document.
+  function closeMenu(restoreFocus = true) {
+    if (!mobileMenuOpen) return;
+    mobileMenuOpen = false;
+    // Restore focus AFTER the drawer is torn down (a microtask), so the browser
+    // does not blur the hamburger during the reactive DOM removal.
+    if (restoreFocus) queueMicrotask(() => hamburgerEl?.focus());
+  }
+
+  // When the drawer opens, move focus into it (first link) so the overlay is
+  // immediately operable by keyboard, matching the command palette's behavior.
+  $effect(() => {
+    if (mobileMenuOpen && drawerEl) {
+      queueMicrotask(() => drawerEl?.querySelector('a, button')?.focus());
+    }
+  });
+
+  // Focus trap + Escape for the open drawer (an overlay, per WAI-ARIA): Escape
+  // closes and restores focus; Tab cycles within the drawer's focusable elements.
+  function onDrawerKeydown(e) {
+    if (e.key === 'Escape') { e.preventDefault(); closeMenu(); return; }
+    if (e.key !== 'Tab') return;
+    const focusable = Array.from(drawerEl?.querySelectorAll('a, button') || []).filter((el) => !el.disabled);
+    if (focusable.length === 0) return;
+    const idx = focusable.indexOf(document.activeElement);
+    const next = e.shiftKey
+      ? (idx <= 0 ? focusable.length - 1 : idx - 1)
+      : (idx >= focusable.length - 1 ? 0 : idx + 1);
+    e.preventDefault();
+    focusable[next]?.focus();
+  }
+
   function handleClickOutside(e) {
-    if (mobileMenuOpen && !e.target.closest('.navbar')) mobileMenuOpen = false;
+    // A click outside the navbar closes the drawer WITHOUT stealing focus back to
+    // the hamburger (the user is interacting elsewhere).
+    if (mobileMenuOpen && !e.target.closest('.navbar')) closeMenu(false);
   }
 
   const enabledSources = $derived(sourcesInfo.filter((s) => s.enabled));
@@ -90,17 +130,29 @@
   </div>
 
   <!-- Mobile hamburger -->
-  <button type="button" class="hamburger" class:open={mobileMenuOpen} onclick={() => mobileMenuOpen = !mobileMenuOpen} aria-label="Menu">
+  <button
+    type="button"
+    class="hamburger"
+    class:open={mobileMenuOpen}
+    bind:this={hamburgerEl}
+    onclick={toggleMenu}
+    aria-label="Menu"
+    aria-haspopup="true"
+    aria-expanded={mobileMenuOpen}
+    aria-controls="mobile-drawer"
+  >
     <span></span><span></span><span></span>
   </button>
 </nav>
 
-<!-- Mobile drawer -->
+<!-- Mobile drawer: an overlay with a focus trap, Escape-to-close and focus
+     restore. It is only in the DOM while open, so its navigation is never present
+     in the accessibility tree when collapsed. -->
 {#if mobileMenuOpen}
-  <div class="mobile-drawer" role="menu">
+  <div class="mobile-drawer" id="mobile-drawer" bind:this={drawerEl} onkeydown={onDrawerKeydown}>
     <nav class="mobile-nav" aria-label="Primary">
       {#each nav as item}
-        <a href={item.href} class="mobile-nav-link" class:active={isActive(item)} aria-current={isActive(item) ? 'page' : undefined} onclick={() => mobileMenuOpen = false}>{item.label}</a>
+        <a href={item.href} class="mobile-nav-link" class:active={isActive(item)} aria-current={isActive(item) ? 'page' : undefined} onclick={() => closeMenu(false)}>{item.label}</a>
       {/each}
     </nav>
     <div class="mobile-drawer-section">
@@ -112,7 +164,7 @@
       {/if}
     </div>
     <div class="mobile-drawer-actions">
-      <button type="button" class="btn btn-sm" class:spinning={refreshing} onclick={() => { onRefresh(); mobileMenuOpen = false; }}>
+      <button type="button" class="btn btn-sm" class:spinning={refreshing} onclick={() => { onRefresh(); closeMenu(false); }}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
         Refresh
       </button>
@@ -120,7 +172,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         Auto-reload {autoReload ? 'on' : 'off'}
       </button>
-      <button type="button" class="btn btn-sm" onclick={() => { onToggleTheme(); mobileMenuOpen = false; }}>
+      <button type="button" class="btn btn-sm" onclick={() => { onToggleTheme(); closeMenu(false); }}>
         <svg class="theme-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
         <svg class="theme-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         Theme
