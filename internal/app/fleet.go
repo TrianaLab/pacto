@@ -45,6 +45,10 @@ type FleetOptions struct {
 	// Graph contribution is consumed over HTTP; each becomes a fleet source of
 	// external targets without touching the server's durable bucket.
 	EvidenceURLs []string
+	// TraceFiles are OTLP/JSON trace files supplying runtime-observed dependency
+	// edges; each becomes an observation source whose edges Build folds into the
+	// snapshot as domain-qualified observed relationships.
+	TraceFiles []string
 	// OCIRefs are registry references to include as published-baseline revisions.
 	// Requires a configured BundleStore.
 	OCIRefs []string
@@ -88,6 +92,10 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	for i, url := range opts.EvidenceURLs {
 		id := sourceID("evidence-http", i, len(opts.EvidenceURLs))
 		sources = append(sources, fleetsrc.NewEvidenceHTTPSource(id, url))
+	}
+	for i, path := range opts.TraceFiles {
+		id := sourceID("observation", i, len(opts.TraceFiles))
+		sources = append(sources, fleetsrc.NewObservationSource(id, path))
 	}
 	if len(opts.OCIRefs) > 0 {
 		if s.BundleStore != nil {

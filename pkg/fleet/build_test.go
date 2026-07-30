@@ -1136,6 +1136,96 @@ func TestBuild_RelationshipsResolution(t *testing.T) {
 	}
 }
 
+// relObserved finds the first OBSERVED relationship by domain-qualified endpoints.
+func relObserved(rels []Relationship, from, to string) *Relationship {
+	for i := range rels {
+		if rels[i].Provenance == ProvenanceObserved && string(rels[i].FromService) == from && string(rels[i].ToService) == to {
+			return &rels[i]
+		}
+	}
+	return nil
+}
+
+func TestBuild_ObservedRelationships(t *testing.T) {
+	src := NewMemorySource("otel", "observation", &Collection{
+		Revisions: []RawRevision{
+			{Bundle: bundleFor(t, "web"), Digest: "sha256:web"},
+			{Bundle: bundleFor(t, "api"), Digest: "sha256:api"},
+			{Bundle: bundleFor(t, "cache"), Digest: "sha256:cache"},
+			{Domain: "eu", Bundle: bundleFor(t, "payments"), Digest: "sha256:pe"},
+			{Domain: "us", Bundle: bundleFor(t, "payments"), Digest: "sha256:pu"},
+		},
+		Observed: []ObservedEdge{
+			{From: "web", To: "api", Count: 3},      // unique both -> observed edge
+			{From: "web", To: "api", Count: 2},      // duplicate -> counts sum to 5
+			{From: "web", To: "cache", Count: 1},    // same caller, different callee -> sort by 'to'
+			{From: "api", To: "web", Count: 1},      // different caller -> sort by 'from'
+			{From: "web", To: "payments", Count: 1}, // payments ambiguous across domains -> limitation
+			{From: "web", To: "payments", Count: 4}, // same ambiguous name again -> limitation deduped
+			{From: "ghost", To: "api", Count: 1},    // ghost unknown -> limitation
+		},
+	})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rel := relObserved(snap.Relationships, "web", "api")
+	if rel == nil {
+		t.Fatalf("expected an observed web->api relationship: %+v", snap.Relationships)
+	}
+	if rel.ObservedCount != 5 || rel.Source != "otel" || !rel.Resolved || rel.Type != RelationshipDependency {
+		t.Errorf("observed relationship = %+v", rel)
+	}
+	// Observed adjacency is populated and SEPARATE from the declared indexes.
+	if deps := snap.ObservedDependents(NewServiceKey("api")); len(deps) != 1 || deps[0] != NewServiceKey("web") {
+		t.Errorf("observed dependents of api = %v, want [web]", deps)
+	}
+	if fwd := snap.ObservedDependencies(NewServiceKey("web")); len(fwd) != 2 {
+		t.Errorf("observed dependencies of web = %v, want [api cache]", fwd)
+	}
+	if len(snap.reverseDeps[NewServiceKey("api")]) != 0 {
+		t.Error("observed edges must NOT pollute the declared reverseDeps index")
+	}
+}
+
+func TestBuild_ObservedRelationships_Unresolved(t *testing.T) {
+	src := NewMemorySource("otel", "observation", &Collection{
+		Revisions: []RawRevision{
+			{Bundle: bundleFor(t, "web"), Digest: "sha256:web"},
+			{Bundle: bundleFor(t, "api"), Digest: "sha256:api"},
+			{Domain: "eu", Bundle: bundleFor(t, "payments"), Digest: "sha256:pe"},
+			{Domain: "us", Bundle: bundleFor(t, "payments"), Digest: "sha256:pu"},
+		},
+		Observed: []ObservedEdge{
+			{From: "web", To: "payments", Count: 1}, // payments ambiguous across domains -> limitation
+			{From: "web", To: "payments", Count: 4}, // same ambiguous name again -> deduped
+			{From: "ghost", To: "api", Count: 1},    // ghost unknown -> limitation
+		},
+	})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unresolved := 0
+	for _, l := range snap.Limitations {
+		if l.Code == LimitationObservedIdentityUnresolved {
+			unresolved++
+		}
+	}
+	if unresolved != 2 {
+		t.Errorf("want 2 unresolved observed limitations (payments ambiguous, ghost unknown), got %d: %+v", unresolved, snap.Limitations)
+	}
+	if relObserved(snap.Relationships, "ghost", "api") != nil {
+		t.Error("an unknown caller must not create an observed relationship")
+	}
+	// No observed edges at all is a no-op (guards the empty-input path).
+	s2, _ := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("x", "y", &Collection{}))
+	if len(s2.Relationships) != 0 {
+		t.Error("no observed edges must add no relationships")
+	}
+}
+
 func TestBuild_RelationshipsRefAndLock(t *testing.T) {
 	snap := buildRelSnapshot(t)
 	refEdge := relFrom(snap.Relationships, "web", "cfg-svc")

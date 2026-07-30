@@ -151,6 +151,12 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	// unresolved/ambiguous ones become explicit limitations and never corroborate.
 	resolvedObserved, obsLims := resolveObservedEdges(snap, opts.ObservedEdges, opts.IncludeObserved)
 	res.Limitations = append(res.Limitations, obsLims...)
+	// The snapshot may already carry observed relationships folded in by Build (the
+	// real observation pipeline). They are pre-resolved to domain-qualified keys, so
+	// they join the ad-hoc --traces edges directly when observed evidence is opted in.
+	if opts.IncludeObserved {
+		resolvedObserved = append(resolvedObserved, snapshotObservedEdges(snap)...)
+	}
 	owners := map[string]bool{}
 	targets := map[string]bool{}
 	for _, tk := range serviceTargets(snap, changed) {
@@ -184,8 +190,9 @@ type consumerNode struct {
 type resolvedObservedEdge struct{ consumer, provider fleet.ServiceKey }
 
 // ObservedIdentityUnresolved is the limitation code for an observed endpoint whose
-// OTel service name could not be mapped to exactly one fleet service.
-const ObservedIdentityUnresolved = "OBSERVED_IDENTITY_UNRESOLVED"
+// OTel service name could not be mapped to exactly one fleet service. It aliases
+// the fleet code so the pipeline reports one stable code end to end.
+const ObservedIdentityUnresolved = fleet.LimitationObservedIdentityUnresolved
 
 // resolveObservedEdges maps raw observed (OTel) endpoint names to UNIQUE
 // domain-qualified ServiceKeys via the snapshot. A name matching no service, or
@@ -229,6 +236,19 @@ func resolveObservedEdges(snap *fleet.FleetSnapshot, edges []ObservedEdge, inclu
 	}
 	sort.Slice(lims, func(i, j int) bool { return lims[i].Message < lims[j].Message })
 	return out, lims
+}
+
+// snapshotObservedEdges extracts the observed dependency relationships Build
+// already folded into the snapshot. They are pre-resolved to domain-qualified
+// keys, so no re-resolution (and no default-domain risk) applies here.
+func snapshotObservedEdges(snap *fleet.FleetSnapshot) []resolvedObservedEdge {
+	var out []resolvedObservedEdge
+	for _, r := range snap.Relationships {
+		if r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceObserved && r.Resolved {
+			out = append(out, resolvedObservedEdge{consumer: r.FromService, provider: r.ToService})
+		}
+	}
+	return out
 }
 
 // unionConsumers merges the declared dependents (from the graph) with observed

@@ -203,6 +203,41 @@ func TestAnalyze_ObservedEdgesCrossDomainIsolation(t *testing.T) {
 	}
 }
 
+// TestAnalyze_ObservedEdgesFromSnapshot proves the real pipeline: an observed
+// relationship folded into the snapshot by Build surfaces the observed consumer
+// with no ad-hoc --traces input, and only when observed evidence is opted in.
+func TestAnalyze_ObservedEdgesFromSnapshot(t *testing.T) {
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	caller := svcContract("caller", "1.0.0", contract.Owner{Team: "team-c"})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("obs", "observation",
+		&fleet.Collection{
+			Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: mkBundle(caller)}},
+			Observed:  []fleet.ObservedEdge{{From: "caller", To: "auth-service", Count: 7}},
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newC := svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"})
+
+	res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{IncludeObserved: true})
+	found := false
+	for _, c := range res.Consumers {
+		if c.Service == "caller" && c.Provenance == fleet.ProvenanceObserved {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected observed consumer 'caller' from the snapshot pipeline, got %+v", res.Consumers)
+	}
+
+	res2 := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+	for _, c := range res2.Consumers {
+		if c.Service == "caller" {
+			t.Error("a snapshot observed edge must not surface a consumer without IncludeObserved")
+		}
+	}
+}
+
 func TestResolveObservedEdges(t *testing.T) {
 	snap := buildChain(t)
 	// unique endpoints resolve; unknown/ambiguous do not.

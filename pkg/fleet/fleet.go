@@ -262,6 +262,9 @@ const (
 	LimitationTargetRefConflict   = "TARGET_REFERENCE_CONFLICT"
 	LimitationTargetFieldConflict = "TARGET_FIELD_CONFLICT"
 	LimitationOwnerConflict       = "OWNER_CONFLICT"
+	// LimitationObservedIdentityUnresolved: a runtime-observed endpoint name could
+	// not be mapped to exactly one domain-qualified fleet service.
+	LimitationObservedIdentityUnresolved = "OBSERVED_IDENTITY_UNRESOLVED"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -445,6 +448,11 @@ type Relationship struct {
 	LockedDigest     string      `json:"lockedDigest,omitempty"`
 	LockedVersion    string      `json:"lockedVersion,omitempty"`
 	Reason           string      `json:"reason,omitempty"`
+	// ObservedCount is the number of runtime calls witnessed for an observed
+	// (Provenance == observed) edge. Zero for declared edges.
+	ObservedCount int `json:"observedCount,omitempty"`
+	// Source is the id of the source that witnessed an observed edge (provenance).
+	Source string `json:"source,omitempty"`
 }
 
 // FleetSnapshot is the immutable read model produced by [Build]. Maps serialize
@@ -478,6 +486,23 @@ type FleetSnapshot struct {
 	// service keys IT declares — the revision-accurate adjacency used when a graph
 	// query names a revision or a target (never "the latest revision").
 	forwardDepsByRevision map[RevisionKey][]ServiceKey
+	// observedReverse/observedForward mirror reverseDeps/forwardDeps for OBSERVED
+	// (runtime) edges only, kept SEPARATE so the declared graph stays declared and
+	// callers can layer observed evidence on top rather than conflating the two.
+	observedReverse map[ServiceKey][]ServiceKey
+	observedForward map[ServiceKey][]ServiceKey
+}
+
+// ObservedDependents returns the services observed calling the given service at
+// runtime (the observed-edge reverse index), separate from declared dependents.
+func (s *FleetSnapshot) ObservedDependents(key ServiceKey) []ServiceKey {
+	return append([]ServiceKey(nil), s.observedReverse[key]...)
+}
+
+// ObservedDependencies returns the services the given service was observed calling
+// at runtime (the observed-edge forward index), separate from declared ones.
+func (s *FleetSnapshot) ObservedDependencies(key ServiceKey) []ServiceKey {
+	return append([]ServiceKey(nil), s.observedForward[key]...)
 }
 
 // Service returns the logical service record by name, or nil.

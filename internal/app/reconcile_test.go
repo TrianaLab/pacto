@@ -82,6 +82,36 @@ const reconcileTrace = `{"resourceSpans":[{"resource":{"attributes":[{"key":"ser
     {"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"shadow"}}]}
   ]}]}]}`
 
+// TestFleet_TraceFilesFoldObserved proves the real observation pipeline: a
+// --traces file becomes an observation source whose edges Build folds into the
+// snapshot as domain-qualified observed relationships.
+func TestFleet_TraceFilesFoldObserved(t *testing.T) {
+	root := t.TempDir()
+	writeLocalBundleWithDeps(t, filepath.Join(root, "web"), "web")
+	writeLocalBundleWithDeps(t, filepath.Join(root, "payments"), "payments")
+	tf := filepath.Join(t.TempDir(), "traces.json")
+	if err := os.WriteFile(tf, []byte(reconcileTrace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := NewService(nil, nil).Fleet(context.Background(), FleetOptions{
+		LocalRoots: []string{root},
+		TraceFiles: []string{tf},
+	})
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	found := false
+	for _, r := range snap.Relationships {
+		if r.Provenance == fleet.ProvenanceObserved && string(r.FromService) == "web" && string(r.ToService) == "payments" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an observed web->payments relationship folded from --traces, got %+v", snap.Relationships)
+	}
+}
+
 func TestService_Reconcile(t *testing.T) {
 	root := t.TempDir()
 	writeLocalBundleWithDeps(t, filepath.Join(root, "web"), "web", "payments", "cache")

@@ -46,6 +46,21 @@ type Collection struct {
 	// surfaced, so "an invalid record exists" is never confused with "no record
 	// exists". Messages must already be sanitized.
 	Limitations []Limitation
+	// Observed carries runtime-observed dependency edges (e.g. from OpenTelemetry
+	// traces or a service mesh) this source witnessed. Endpoint names are raw
+	// observed identities; [Build] resolves each to a unique domain-qualified
+	// service and folds resolved edges into the snapshot as observed relationships.
+	// An endpoint that resolves to zero or multiple services is never coerced to a
+	// domain — it becomes an explicit limitation instead.
+	Observed []ObservedEdge
+}
+
+// ObservedEdge is one runtime-observed caller→provider dependency. From and To are
+// raw observed (e.g. OTel service.name) identities, not yet Pacto service keys.
+type ObservedEdge struct {
+	From  string
+	To    string
+	Count int
 }
 
 // RawRevision is what a definition or baseline source knows about a resolved

@@ -80,6 +80,8 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		reverseDeps:           map[ServiceKey][]ServiceKey{},
 		forwardDeps:           map[ServiceKey][]ServiceKey{},
 		forwardDepsByRevision: map[RevisionKey][]ServiceKey{},
+		observedReverse:       map[ServiceKey][]ServiceKey{},
+		observedForward:       map[ServiceKey][]ServiceKey{},
 	}
 
 	// Zero configured sources is NOT the same as "every source was available and
@@ -91,6 +93,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	}
 
 	seenSourceIDs := map[string]bool{}
+	var observed []observedInput
 	// Sources are processed in declared order so composition is deterministic
 	// regardless of goroutine completion order.
 	for i := range results {
@@ -115,11 +118,17 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 			continue
 		}
 		ingestCollection(snap, src, r.col, generatedAt, opts.FreshnessWindow)
+		if r.col != nil {
+			for _, e := range r.col.Observed {
+				observed = append(observed, observedInput{edge: e, source: src.ID()})
+			}
+		}
 	}
 
 	linkTargets(snap)
 	aggregateServices(snap)
 	buildRelationships(snap)
+	foldObservedRelationships(snap, observed)
 	snap.Completeness = classifyCompleteness(snap)
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
 	sortSnapshot(snap)
@@ -871,6 +880,86 @@ func buildRelationships(snap *FleetSnapshot) {
 		snap.Relationships = append(snap.Relationships, revisionDependencyEdges(snap, rk, rev)...)
 		snap.Relationships = append(snap.Relationships, revisionReferenceEdges(snap, rk, rev)...)
 	}
+}
+
+// observedInput pairs a raw observed edge with the id of the source that
+// witnessed it, so folded observed relationships carry their provenance.
+type observedInput struct {
+	edge   ObservedEdge
+	source string
+}
+
+// foldObservedRelationships resolves runtime-observed edges to UNIQUE
+// domain-qualified services and folds resolved edges into the snapshot as observed
+// dependency relationships, summing counts for duplicate edges. An endpoint that
+// matches zero or multiple services is never coerced to a domain — it becomes an
+// explicit unresolved limitation so observed traffic can't be misattributed across
+// domains (see [FleetSnapshot.ObservedNameResolver]). Resolved edges also extend
+// the SEPARATE observed adjacency indexes, keeping the declared graph declared
+// while making observed-only (shadow) callers reachable in the operational graph.
+func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
+	if len(observed) == 0 {
+		return
+	}
+	resolve := snap.ObservedNameResolver()
+	seenLim := map[string]bool{}
+	type edgeKey struct{ from, to ServiceKey }
+	counts := map[edgeKey]int{}
+	srcOf := map[edgeKey]string{}
+	var order []edgeKey
+	for _, oi := range observed {
+		fromKey, fromRes := resolve(oi.edge.From)
+		toKey, toRes := resolve(oi.edge.To)
+		addObservedLimitation(snap, seenLim, oi.edge.From, fromRes, oi.source)
+		addObservedLimitation(snap, seenLim, oi.edge.To, toRes, oi.source)
+		if fromRes != ObservedResolved || toRes != ObservedResolved {
+			continue
+		}
+		k := edgeKey{fromKey, toKey}
+		if _, ok := counts[k]; !ok {
+			order = append(order, k)
+			srcOf[k] = oi.source
+		}
+		counts[k] += oi.edge.Count
+	}
+	sort.Slice(order, func(i, j int) bool {
+		if order[i].from != order[j].from {
+			return order[i].from < order[j].from
+		}
+		return order[i].to < order[j].to
+	})
+	for _, k := range order {
+		snap.Relationships = append(snap.Relationships, Relationship{
+			FromService: k.from, ToService: k.to, Type: RelationshipDependency,
+			Provenance: ProvenanceObserved, Resolved: true,
+			ObservedCount: counts[k], Source: srcOf[k],
+		})
+		snap.observedForward[k.from] = appendUnique(snap.observedForward[k.from], k.to)
+		snap.observedReverse[k.to] = appendUnique(snap.observedReverse[k.to], k.from)
+	}
+}
+
+// addObservedLimitation records an unresolved observed identity once per
+// (reason,name). It is a no-op when the name resolved. The message never echoes a
+// registry credential or secret — only the observed name and why it is ambiguous.
+func addObservedLimitation(snap *FleetSnapshot, seen map[string]bool, name string, res ObservedResolution, source string) {
+	reason := ""
+	switch res {
+	case ObservedUnknown:
+		reason = "unknown"
+	case ObservedAmbiguous:
+		reason = "ambiguous across domains"
+	default:
+		return
+	}
+	if seen[reason+":"+name] {
+		return
+	}
+	seen[reason+":"+name] = true
+	snap.Limitations = append(snap.Limitations, Limitation{
+		Code: LimitationObservedIdentityUnresolved, Source: source,
+		Message: "observed service " + name + " could not be mapped to a unique fleet service (" + reason + "); its runtime edge is not attributed to any domain-qualified service",
+	})
 }
 
 // revisionDependencyEdges builds one dependency edge per declared dependency of a
