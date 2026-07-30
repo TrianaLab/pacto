@@ -150,6 +150,13 @@ func signAndWrite(t *testing.T, opts SignOptions) (KeyPair, string) {
 	if opts.ProducerID == "" {
 		opts.ProducerID = "producer-a"
 	}
+	// Bind the trust file to the producer so verification authorizes it:
+	// "<producer>__<keyId>.pub".
+	boundPub := filepath.Join(dir, opts.ProducerID+"__"+kp.KeyID+".pub")
+	if err := os.Rename(kp.PublicKeyPath, boundPub); err != nil {
+		t.Fatal(err)
+	}
+	kp.PublicKeyPath = boundPub
 	if opts.EvidencePath == "" {
 		opts.EvidencePath = writeEvidenceFile(t, dir, sampleEvidenceSet())
 	}
@@ -411,27 +418,34 @@ func TestEvidenceResolver(t *testing.T) {
 
 // serveTestFixtures mints a key, a resolvable local bundle and a signed envelope
 // file, returning the trust dir, the envelope path and the producer id.
-func serveTestFixtures(t *testing.T) (trustDir, envPath, producer string) {
+func serveTestFixtures(t *testing.T) (svc *Service, trustDir, envPath, producer string) {
 	t.Helper()
 	dir := t.TempDir()
-	svc := &Service{}
-	kp, err := svc.GenerateKey(dir, "k1")
+	// Push the svc-a bundle to an in-process registry so the evidence references it
+	// by an IMMUTABLE oci:// digest — the ingestion contract-ref policy accepts
+	// nothing else (no local paths, no mutable tags). The returned Service resolves
+	// that ref against the same registry.
+	host := mxPlainRegistry(t)
+	svc, client := mxService(mxHostKeychain{})
+	digest, err := client.Push(context.Background(), host+"/svc-a:1.0.0", mxBundle(t, "svc-a", "1.0.0"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundleDir := filepath.Join(dir, "bundle")
-	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
+	contractRef := "oci://" + host + "/svc-a@" + digest
+
+	kp, err := (&Service{}).GenerateKey(dir, "k1")
+	if err != nil {
 		t.Fatal(err)
 	}
-	body := "pactoVersion: \"2.0\"\nservice:\n  name: svc-a\n  version: \"1.0.0\"\n"
-	if err := os.WriteFile(filepath.Join(bundleDir, "pacto.yaml"), []byte(body), 0o644); err != nil {
+	// Bind the trust file to the producer: "<producer>__<keyId>.pub".
+	if err := os.Rename(kp.PublicKeyPath, filepath.Join(dir, "prod-eu__"+kp.KeyID+".pub")); err != nil {
 		t.Fatal(err)
 	}
 	set := sampleEvidenceSet()
-	set.ContractRef = bundleDir
+	set.ContractRef = contractRef
 	set.Subject = evidence.SubjectRef{Kind: "service", Name: "svc-a"}
 	evFile := writeEvidenceFile(t, dir, set)
-	env, err := svc.SignEvidence(SignOptions{EvidencePath: evFile, KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: "prod-eu", TTL: time.Hour})
+	env, err := (&Service{}).SignEvidence(SignOptions{EvidencePath: evFile, KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: "prod-eu", TTL: time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +454,7 @@ func serveTestFixtures(t *testing.T) (trustDir, envPath, producer string) {
 	if err := os.WriteFile(envPath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return dir, envPath, "prod-eu"
+	return svc, dir, envPath, "prod-eu"
 }
 
 func waitForHTTP(t *testing.T, url string) {
@@ -458,9 +472,8 @@ func waitForHTTP(t *testing.T, url string) {
 }
 
 func TestServeEvidence_EndToEnd(t *testing.T) {
-	trustDir, envPath, producer := serveTestFixtures(t)
+	svc, trustDir, envPath, producer := serveTestFixtures(t)
 	storeDir := filepath.Join(t.TempDir(), "store")
-	svc := &Service{}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -521,7 +534,7 @@ func TestServeEvidence_EndToEnd(t *testing.T) {
 // background, so a long recovery keeps liveness (/health) up while readiness and
 // ingestion are refused, then both succeed once recovery completes.
 func TestServeEvidence_BackgroundRecovery(t *testing.T) {
-	trustDir, envPath, producer := serveTestFixtures(t)
+	svc, trustDir, envPath, producer := serveTestFixtures(t)
 	storeDir := filepath.Join(t.TempDir(), "store")
 
 	// Block recovery to simulate a long recovery that outlasts a liveness probe.
@@ -540,7 +553,6 @@ func TestServeEvidence_BackgroundRecovery(t *testing.T) {
 	}
 	defer func() { recoverEvidence = orig }()
 
-	svc := &Service{}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -638,7 +650,7 @@ func TestServeEvidenceOnListener_AssemblyError(t *testing.T) {
 }
 
 func TestServeEvidenceOnListener_ServeError(t *testing.T) {
-	trustDir, _, _ := serveTestFixtures(t)
+	_, trustDir, _, _ := serveTestFixtures(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -653,7 +665,7 @@ func TestServeEvidenceOnListener_ServeError(t *testing.T) {
 }
 
 func TestServeEvidence_ListenAndCancel(t *testing.T) {
-	trustDir, _, _ := serveTestFixtures(t)
+	_, trustDir, _, _ := serveTestFixtures(t)
 	svc := &Service{}
 
 	// Invalid port -> listen error.
@@ -681,7 +693,7 @@ func TestBuildEvidenceHost_Errors(t *testing.T) {
 	if _, _, err := svc.buildEvidenceHost(ctx, ServeOptions{TrustPath: t.TempDir(), BucketURL: "file://" + t.TempDir(), Prefix: DefaultEvidencePrefix}); err == nil {
 		t.Error("expected trust-store error")
 	}
-	trustDir, _, _ := serveTestFixtures(t)
+	_, trustDir, _, _ := serveTestFixtures(t)
 	// Bucket mkdir error: cannot create a directory beneath a regular file.
 	file := filepath.Join(t.TempDir(), "afile")
 	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
@@ -701,7 +713,7 @@ func TestBuildEvidenceHost_Errors(t *testing.T) {
 }
 
 func TestSendEvidence(t *testing.T) {
-	_, envPath, _ := serveTestFixtures(t)
+	_, _, envPath, _ := serveTestFixtures(t)
 	svc := &Service{}
 
 	// 2xx.

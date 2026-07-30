@@ -131,17 +131,35 @@ message never contains key or signature material.
 
 ## Key ids and the trust store
 
-`producer.keyId` selects a public key in the verifier's **trust store**. A trust
-store is either a single public-key file or a directory of `<keyId>.pub` files,
-each a base64 Ed25519 public key. The file base name **is** the key id.
+`producer.keyId` selects a trust-store entry that binds the key to the **one
+producer** it may sign as. A trust store is a single public-key file or a
+directory of `.pub` files, each a base64 Ed25519 public key. The file name binds
+the producer: `<producerId>__<keyId>.pub` authorizes key `keyId` for producer
+`producerId`; a bare `<keyId>.pub` authorizes it for the producer whose id equals
+the key id. Authentication and authorization are separate:
 
-- An envelope whose `keyId` is not in the trust store is rejected as an unknown
-  key. Signature verification is mandatory: an unsigned envelope, an unsupported
-  algorithm or a bad signature is rejected.
-- Rotating a key means adding a new `<keyId>.pub`, signing with the new `keyId`
-  and removing the old `.pub` once producers have moved.
-- Distributing the trust store is an out-of-band, operator responsibility. The
-  protocol verifies against whatever keys the host trusts; it does not fetch keys.
+- **Authenticate.** An envelope whose `keyId` is not in the trust store is
+  rejected as an unknown key; an unsigned envelope, an unsupported algorithm or a
+  bad signature is rejected. Verification is mandatory.
+- **Authorize.** After the signature checks out, the envelope's `producer.id` must
+  match the key's bound producer, or it is rejected — a trusted key can never sign
+  as another producer. An optional per-key subject allowlist further scopes which
+  subjects it may report.
+- **Rotate without impersonation.** Rotating is adding a new
+  `<producerId>__<newKeyId>.pub`, signing with the new `keyId`, and removing the
+  old entry — the producer identity survives the key change, and no key can assume
+  another producer's identity.
+- Distributing the trust store is an out-of-band operator responsibility. The
+  protocol verifies against whatever keys the host trusts; it never fetches keys.
+
+### Contract references must be immutable
+
+Evidence from a producer you do not control must not steer the ingestion host to
+arbitrary storage. A reported `evidenceSet.ContractRef` is accepted only when it
+is an immutable `oci://…@sha256:…` digest reference; a local path, a bare ref or a
+mutable tag is rejected **before** resolution. A per-key repository allowlist (on
+the producer's trust entry) can further restrict which registries or repositories
+its evidence may reference.
 
 ---
 

@@ -201,8 +201,11 @@ func (s *Service) VerifyEnvelope(opts VerifyOptions) (VerifyResult, error) {
 	return res, nil
 }
 
-// loadTrustStore builds a key-id->public-key map from a directory of *.pub files
-// or from a single public-key file.
+// loadTrustStore builds a key-id -> trust-entry map from a directory of *.pub
+// files or a single public-key file. Each key is bound to exactly one producer by
+// the filename: "<producerID>__<keyId>.pub" binds explicitly, and a bare
+// "<keyId>.pub" binds the producer to the key id — so a trusted key can never
+// sign as another producer.
 func loadTrustStore(path string) (evidenceenvelope.MapTrustStore, error) {
 	ts := evidenceenvelope.MapTrustStore{}
 	entries, err := os.ReadDir(path)
@@ -224,13 +227,20 @@ func loadTrustStore(path string) (evidenceenvelope.MapTrustStore, error) {
 	return ts, nil
 }
 
-// addTrustKey loads one public key and registers it under its file base name.
+// addTrustKey loads one public key and registers it under its key id, bound to
+// the producer encoded in the filename ("<producerID>__<keyId>.pub", or a bare
+// "<keyId>.pub" binding the producer to the key id).
 func addTrustKey(ts evidenceenvelope.MapTrustStore, path string) error {
 	pub, err := loadPublicKey(path)
 	if err != nil {
 		return err
 	}
-	ts[strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))] = pub
+	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	producerID, keyID := base, base
+	if p, k, ok := strings.Cut(base, "__"); ok {
+		producerID, keyID = p, k
+	}
+	ts[keyID] = evidenceenvelope.TrustEntry{PublicKey: pub, ProducerID: producerID}
 	return nil
 }
 

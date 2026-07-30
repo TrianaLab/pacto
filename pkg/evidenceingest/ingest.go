@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +40,38 @@ var ErrReplay = errors.New("evidence ingest: duplicate or out-of-sequence envelo
 
 // ErrInvalidEvidence is returned when the carried EvidenceSet is invalid.
 var ErrInvalidEvidence = errors.New("evidence ingest: evidence set is invalid")
+
+// ErrContractRefPolicy is returned when an externally-reported contract reference
+// violates the ingestion policy: a remote producer must reference an IMMUTABLE
+// oci:// digest, and (when its trust entry lists allowed repos) one within that
+// allowlist. This stops a remote producer from making the ingestion host read an
+// arbitrary local path, pin evaluation to a mutable tag, or reference an
+// unapproved registry.
+var ErrContractRefPolicy = errors.New("evidence ingest: contract reference violates ingestion policy")
+
+// validateContractRef enforces the externally-reported contract-ref policy: an
+// immutable oci:// digest reference, optionally within an allowlisted repository.
+func validateContractRef(ref string, allowedRepos []string) error {
+	if !strings.HasPrefix(ref, "oci://") {
+		return ErrContractRefPolicy // no local paths, no bare refs
+	}
+	if !strings.Contains(ref, "@sha256:") {
+		return ErrContractRefPolicy // require an immutable digest, not a mutable tag
+	}
+	if len(allowedRepos) == 0 {
+		return nil
+	}
+	repo := strings.TrimPrefix(ref, "oci://")
+	if i := strings.Index(repo, "@"); i >= 0 {
+		repo = repo[:i]
+	}
+	for _, prefix := range allowedRepos {
+		if strings.HasPrefix(repo, prefix) {
+			return nil
+		}
+	}
+	return ErrContractRefPolicy
+}
 
 // Record is one accepted envelope and the evaluation it produced.
 type Record struct {
@@ -98,6 +131,14 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 	}
 	if errs := evidence.ValidateEvidenceSet(env.EvidenceSet); len(errs) > 0 {
 		return Record{}, ErrInvalidEvidence
+	}
+	// Enforce the contract-ref policy BEFORE resolving: a remote producer must not
+	// be able to drive the host to read a local path or a mutable/unapproved ref.
+	// The producer was authenticated by Verify, so its trust entry (with any repo
+	// allowlist) is present.
+	entry, _ := a.trust.Entry(env.Producer.KeyID)
+	if err := validateContractRef(env.EvidenceSet.ContractRef, entry.ContractRepos); err != nil {
+		return Record{}, err
 	}
 	c, err := a.resolver.Resolve(ctx, env.EvidenceSet.ContractRef)
 	if err != nil {
@@ -374,7 +415,8 @@ func statusForError(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, evidenceenvelope.ErrExpired), errors.Is(err, evidenceenvelope.ErrNotYetValid),
 		errors.Is(err, evidenceenvelope.ErrBadSignature), errors.Is(err, evidenceenvelope.ErrUnknownKey),
-		errors.Is(err, evidenceenvelope.ErrUnsignedEnvelope), errors.Is(err, evidenceenvelope.ErrBadAlgorithm):
+		errors.Is(err, evidenceenvelope.ErrUnsignedEnvelope), errors.Is(err, evidenceenvelope.ErrBadAlgorithm),
+		errors.Is(err, evidenceenvelope.ErrProducerMismatch), errors.Is(err, evidenceenvelope.ErrSubjectNotAllowed):
 		return http.StatusUnauthorized
 	default:
 		return http.StatusUnprocessableEntity

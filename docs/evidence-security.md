@@ -81,9 +81,12 @@ names the failure category (see the [protocol status codes](evidence-protocol.md
 pacto evidence verify envelope.json --trust ./trust
 ```
 
-`verify` decodes an envelope and checks its signature, freshness and trust
-against `--trust`, which is either a single `<keyId>.pub` file or a directory of
-them. It exits non-zero when verification fails, so it drops straight into CI.
+`verify` decodes an envelope and checks its signature, freshness, producer
+authorization and trust against `--trust`, which is either a single public-key
+file or a directory of `<producerId>__<keyId>.pub` files (a bare `<keyId>.pub`
+binds the producer to the key id). Each key is authorized for exactly one
+producer, so a trusted key cannot sign as another. It exits non-zero when
+verification fails, so it drops straight into CI.
 The output reports the envelope id, producer and key id on success, or the
 sanitized failure reason on failure.
 
@@ -148,8 +151,9 @@ The protocol and its tooling hold a small set of non-negotiable invariants.
   bucket lifecycle policy must not delete anything under `<prefix>/envelopes/`.
   Only the rebuildable `materialized/` projections are safe to drop.
 - **Trust store is a read-only mount.** In the operator-managed deployment the
-  trust store is a Secret of `<keyId>.pub` keys mounted read-only
-  (`evidence.trust.existingSecret`). Distributing it stays an out-of-band operator
+  trust store is a Secret of `<producerId>__<keyId>.pub` keys mounted read-only
+  (`evidence.trust.existingSecret`), each key bound to exactly one producer so a
+  trusted key cannot sign as another. Distributing it stays an out-of-band operator
   responsibility; the server never fetches keys.
 - **Private keys are `0600`.** `keygen` writes seeds owner-only. Treat the `.key`
   file as a secret; only the `.pub` crosses the trust boundary to the platform.

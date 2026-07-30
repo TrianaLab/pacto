@@ -83,7 +83,7 @@ func mustSign(t *testing.T, e Envelope, key ed25519.PrivateKey) Envelope {
 
 func TestSignVerifyHappyPath(t *testing.T) {
 	priv, pub := keyPair(1)
-	ts := MapTrustStore{"key-1": pub}
+	ts := MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1"}}
 
 	signed := mustSign(t, baseEnvelope(), priv)
 	if signed.Signature == nil {
@@ -123,24 +123,11 @@ func TestSignMarshalError(t *testing.T) {
 	}
 }
 
-// overflowNumber marshals to a JSON number that is valid syntax but overflows
-// float64, so json.Marshal succeeds while re-decoding into any fails — the only
-// way to reach canonicalJSON's second (re-decode) error branch.
-type overflowNumber struct{}
-
-func (overflowNumber) MarshalJSON() ([]byte, error) { return []byte("1e400"), nil }
-
-func TestCanonicalJSONReDecodeError(t *testing.T) {
-	if _, err := canonicalJSON(overflowNumber{}); err == nil {
-		t.Fatal("canonicalJSON should fail when marshaled output cannot re-decode")
-	}
-}
-
 // Round trip through Marshal -> Decode -> Verify proves canonicalJSON produces
 // stable signing bytes regardless of transport re-encoding.
 func TestRoundTripStability(t *testing.T) {
 	priv, pub := keyPair(1)
-	ts := MapTrustStore{"key-1": pub}
+	ts := MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1"}}
 
 	signed := mustSign(t, baseEnvelope(), priv)
 	data, err := json.Marshal(signed)
@@ -158,7 +145,7 @@ func TestRoundTripStability(t *testing.T) {
 
 func TestVerifyFailures(t *testing.T) {
 	priv, pub := keyPair(1)
-	ts := MapTrustStore{"key-1": pub}
+	ts := MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1"}}
 
 	cases := []struct {
 		name   string
@@ -199,7 +186,7 @@ func flipSignatureByte(e *Envelope) {
 // evidence cannot marshal makes signingBytes fail inside Verify.
 func TestVerifySigningBytesError(t *testing.T) {
 	_, pub := keyPair(1)
-	ts := MapTrustStore{"key-1": pub}
+	ts := MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1"}}
 
 	e := badObsEnvelope()
 	e.Signature = &Signature{
@@ -214,7 +201,7 @@ func TestVerifySigningBytesError(t *testing.T) {
 // validateStructure is exercised through both Verify and Decode.
 func TestValidateStructure(t *testing.T) {
 	_, pub := keyPair(1)
-	ts := MapTrustStore{"key-1": pub}
+	ts := MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1"}}
 
 	cases := []struct {
 		name       string
@@ -287,21 +274,96 @@ func TestDecodeStrict(t *testing.T) {
 
 func TestMapTrustStore(t *testing.T) {
 	_, pub := keyPair(1)
-	ts := MapTrustStore{"key-1": pub}
+	ts := MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1"}}
 
-	got, ok := ts.PublicKey("key-1")
-	if !ok || !got.Equal(pub) {
-		t.Fatalf("PublicKey(hit) = %v, %v", got, ok)
+	got, ok := ts.Entry("key-1")
+	if !ok || !got.PublicKey.Equal(pub) || got.ProducerID != "prod-1" {
+		t.Fatalf("Entry(hit) = %+v, %v", got, ok)
 	}
-	if _, ok := ts.PublicKey("missing"); ok {
-		t.Fatal("PublicKey(miss) reported found")
+	if _, ok := ts.Entry("missing"); ok {
+		t.Fatal("Entry(miss) reported found")
+	}
+}
+
+func TestVerifyAuthorization(t *testing.T) {
+	priv, pub := keyPair(1)
+	signed := mustSign(t, baseEnvelope(), priv) // producer prod-1, subject "orders"
+
+	// A key bound to a DIFFERENT producer cannot be used to sign as prod-1.
+	wrongProducer := MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-2"}}
+	if err := Verify(signed, wrongProducer, validNow); !errors.Is(err, ErrProducerMismatch) {
+		t.Errorf("cross-producer = %v, want ErrProducerMismatch", err)
+	}
+
+	// A subject outside the key's allowlist is rejected; one inside (incl. a glob) is allowed.
+	outOfScope := MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1", Subjects: []string{"payments"}}}
+	if err := Verify(signed, outOfScope, validNow); !errors.Is(err, ErrSubjectNotAllowed) {
+		t.Errorf("out-of-scope subject = %v, want ErrSubjectNotAllowed", err)
+	}
+	inScope := MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1", Subjects: []string{"ord*"}}}
+	if err := Verify(signed, inScope, validNow); err != nil {
+		t.Errorf("in-scope subject (glob) = %v, want nil", err)
+	}
+
+	// An unbound entry (empty ProducerID) permits any producer — single-tenant use.
+	unbound := MapTrustStore{"key-1": TrustEntry{PublicKey: pub}}
+	if err := Verify(signed, unbound, validNow); err != nil {
+		t.Errorf("unbound entry = %v, want nil", err)
+	}
+}
+
+func TestCanonicalPreservesLargeSequence(t *testing.T) {
+	priv, pub := keyPair(1)
+	ts := MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1"}}
+
+	// Two sequences above 2^53 must produce DIFFERENT signing bytes (they both
+	// round to the same float64, so this fails without exact-integer canonicaliza-
+	// tion), proving the uint64 sequence is authenticated exactly.
+	a := baseEnvelope()
+	a.Sequence = 1<<53 + 1
+	b := baseEnvelope()
+	b.Sequence = 1<<53 + 2
+	ab, _ := a.signingBytes()
+	bb, _ := b.signingBytes()
+	if string(ab) == string(bb) {
+		t.Fatal("distinct large sequences produced identical signing bytes (float64 rounding)")
+	}
+
+	// Max uint64 signs, verifies, and is preserved exactly in the signing bytes.
+	m := baseEnvelope()
+	m.Sequence = ^uint64(0)
+	signed := mustSign(t, m, priv)
+	if err := Verify(signed, ts, validNow); err != nil {
+		t.Fatalf("max-uint64 sequence verify: %v", err)
+	}
+	sb, _ := signed.signingBytes()
+	if !strings.Contains(string(sb), "18446744073709551615") {
+		t.Errorf("max uint64 not preserved exactly in signing bytes: %s", sb)
+	}
+}
+
+func TestDecodeRejectsTrailingData(t *testing.T) {
+	priv, _ := keyPair(1)
+	signed := mustSign(t, baseEnvelope(), priv)
+	data, err := json.Marshal(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second JSON value after the envelope is rejected.
+	trailing := append(append([]byte(nil), data...), []byte(`{"x":1}`)...)
+	if _, err := Decode(trailing); !errors.Is(err, ErrTrailingData) {
+		t.Fatalf("Decode(trailing) = %v, want ErrTrailingData", err)
+	}
+	// The clean envelope still decodes.
+	if _, err := Decode(data); err != nil {
+		t.Fatalf("Decode(clean) = %v", err)
 	}
 }
 
 // Sentinel messages must never leak public or private key material.
 func TestErrorMessagesNoKeyLeak(t *testing.T) {
 	priv, pub := keyPair(1)
-	ts := MapTrustStore{"key-1": pub}
+	ts := MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1"}}
 	secrets := []string{
 		string(pub),
 		string(priv),

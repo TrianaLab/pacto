@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/evidence"
@@ -76,6 +77,9 @@ var (
 	ErrBadSignature       = errors.New("evidence envelope: signature verification failed")
 	ErrExpired            = errors.New("evidence envelope: envelope has expired")
 	ErrNotYetValid        = errors.New("evidence envelope: envelope is not yet valid")
+	ErrTrailingData       = errors.New("evidence envelope: unexpected trailing data after the envelope")
+	ErrProducerMismatch   = errors.New("evidence envelope: producer id is not authorized for this key")
+	ErrSubjectNotAllowed  = errors.New("evidence envelope: subject is outside the key's authorized scope")
 )
 
 // signingBytes returns the canonical bytes signed and verified. It normalizes to
@@ -95,10 +99,15 @@ func canonicalJSON(v any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	// Decode integers as json.Number, not float64, so a uint64 sequence above 2^53
+	// is preserved exactly in the signing bytes rather than silently rounded — two
+	// distinct large sequences must produce distinct signatures. raw is the output
+	// of json.Marshal (always well-formed) and json.Number accepts any numeric
+	// literal, so this decode cannot fail.
+	dec.UseNumber()
 	var generic any
-	if err := json.Unmarshal(raw, &generic); err != nil {
-		return nil, err
-	}
+	_ = dec.Decode(&generic)
 	return json.Marshal(generic)
 }
 
@@ -120,18 +129,53 @@ func Sign(e Envelope, key ed25519.PrivateKey) (Envelope, error) {
 	return e, nil
 }
 
-// TrustStore resolves a producer key id to its Ed25519 public key.
+// TrustEntry binds a key id to its public key AND the identity and scope it is
+// authorized to claim. Binding the producer id to the key is what stops one
+// trusted key from impersonating another producer; the optional allowlists scope
+// which subjects it may report and which contract repos its evidence may
+// reference. Rotation is adding a new entry and removing the old one, so a
+// producer's identity survives a key change without any key being able to assume
+// another producer's identity.
+type TrustEntry struct {
+	// PublicKey verifies the signature.
+	PublicKey ed25519.PublicKey
+	// ProducerID is the ONLY producer id an envelope signed by this key may claim.
+	// Empty means unbound (permitted only for a deliberately single-tenant store).
+	ProducerID string
+	// Subjects, when non-empty, is an allowlist of subject-name patterns
+	// (path.Match globs) this key may report. Empty means any subject.
+	Subjects []string
+	// ContractRepos, when non-empty, is the allowlist of immutable contract-repo
+	// prefixes evidence from this key may reference. Enforced at the ingestion seam.
+	ContractRepos []string
+}
+
+// TrustStore resolves a producer key id to its trust entry.
 type TrustStore interface {
-	PublicKey(keyID string) (ed25519.PublicKey, bool)
+	Entry(keyID string) (TrustEntry, bool)
 }
 
 // MapTrustStore is an in-memory trust store keyed by key id.
-type MapTrustStore map[string]ed25519.PublicKey
+type MapTrustStore map[string]TrustEntry
 
-// PublicKey implements [TrustStore].
-func (m MapTrustStore) PublicKey(keyID string) (ed25519.PublicKey, bool) {
-	k, ok := m[keyID]
-	return k, ok
+// Entry implements [TrustStore].
+func (m MapTrustStore) Entry(keyID string) (TrustEntry, bool) {
+	e, ok := m[keyID]
+	return e, ok
+}
+
+// subjectAllowed reports whether name matches any allowed pattern (path.Match
+// globs). An empty allowlist permits any subject.
+func subjectAllowed(patterns []string, name string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	for _, p := range patterns {
+		if ok, err := path.Match(p, name); err == nil && ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Verify checks structural validity, freshness and the Ed25519 signature against
@@ -148,7 +192,7 @@ func Verify(e Envelope, ts TrustStore, now time.Time) error {
 	if e.Signature.Algorithm != AlgorithmEd25519 {
 		return ErrBadAlgorithm
 	}
-	pub, ok := ts.PublicKey(e.Producer.KeyID)
+	entry, ok := ts.Entry(e.Producer.KeyID)
 	if !ok {
 		return ErrUnknownKey
 	}
@@ -160,8 +204,17 @@ func Verify(e Envelope, ts TrustStore, now time.Time) error {
 	if err != nil {
 		return ErrBadSignature
 	}
-	if !ed25519.Verify(pub, msg, sig) {
+	if !ed25519.Verify(entry.PublicKey, msg, sig) {
 		return ErrBadSignature
+	}
+	// Authenticated. Now authorize: a trusted key may only sign as its bound
+	// producer and report subjects within its allowlist — a leaked or misused key
+	// cannot impersonate another producer or report an out-of-scope subject.
+	if entry.ProducerID != "" && e.Producer.ID != entry.ProducerID {
+		return ErrProducerMismatch
+	}
+	if !subjectAllowed(entry.Subjects, e.EvidenceSet.Subject.Name) {
+		return ErrSubjectNotAllowed
 	}
 	if !e.ExpiresAt.IsZero() && now.After(e.ExpiresAt) {
 		return ErrExpired
@@ -199,6 +252,11 @@ func Decode(data []byte) (Envelope, error) {
 	var e Envelope
 	if err := dec.Decode(&e); err != nil {
 		return Envelope{}, fmt.Errorf("evidence envelope: decode: %w", err)
+	}
+	// Reject anything after the single envelope value: strict decoding must not
+	// silently accept `{envelope}{garbage}` or trailing tokens.
+	if dec.More() {
+		return Envelope{}, ErrTrailingData
 	}
 	if err := e.validateStructure(); err != nil {
 		return Envelope{}, err

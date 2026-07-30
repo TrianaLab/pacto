@@ -77,7 +77,7 @@ func (f fakeResolver) Resolve(context.Context, string) (contract.Contract, error
 func newTestAcceptor(t *testing.T, resolver ContractResolver, store Store) (*Acceptor, ed25519.PrivateKey) {
 	t.Helper()
 	pub, priv := testKeypair()
-	trust := evidenceenvelope.MapTrustStore{keyID: pub}
+	trust := evidenceenvelope.MapTrustStore{keyID: evidenceenvelope.TrustEntry{PublicKey: pub, ProducerID: "env-a"}}
 	return NewAcceptor(trust, resolver, store, fixedNow), priv
 }
 
@@ -112,11 +112,41 @@ func TestAcceptor_ReplayAndSequence(t *testing.T) {
 	}
 }
 
+func TestValidateContractRef(t *testing.T) {
+	cases := []struct {
+		name    string
+		ref     string
+		allowed []string
+		wantErr bool
+	}{
+		{"local path", "/tmp/bundle", nil, true},
+		{"bare ref no scheme", "ghcr.io/x@sha256:a", nil, true},
+		{"mutable tag", "oci://ghcr.io/x:1.0", nil, true},
+		{"digest, no allowlist", "oci://ghcr.io/x@sha256:a", nil, false},
+		{"digest in allowlist", "oci://ghcr.io/acme/x@sha256:a", []string{"ghcr.io/acme"}, false},
+		{"digest not in allowlist", "oci://other.io/x@sha256:a", []string{"ghcr.io/acme"}, true},
+	}
+	for _, tc := range cases {
+		if err := validateContractRef(tc.ref, tc.allowed); (err != nil) != tc.wantErr {
+			t.Errorf("%s: validateContractRef(%q) err=%v, wantErr=%v", tc.name, tc.ref, err, tc.wantErr)
+		}
+	}
+}
+
+func TestAcceptor_ContractRefPolicy(t *testing.T) {
+	a, priv := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
+	es := testEvidenceSet()
+	es.ContractRef = "/local/path" // not an immutable oci:// digest -> rejected before resolve
+	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", es)); !errors.Is(err, ErrContractRefPolicy) {
+		t.Errorf("local-path contract ref must be rejected, got %v", err)
+	}
+}
+
 func TestAcceptor_VerifyFailure(t *testing.T) {
 	// Sign with a key not in the trust store.
 	_, otherPriv := testKeypair2()
 	pub, _ := testKeypair()
-	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: pub}, fakeResolver{}, NewMemoryStore(), fixedNow)
+	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: evidenceenvelope.TrustEntry{PublicKey: pub, ProducerID: "env-a"}}, fakeResolver{}, NewMemoryStore(), fixedNow)
 	data := signedEnvelopeBytes(t, otherPriv, 1, "e1", testEvidenceSet())
 	if _, err := a.Accept(context.Background(), data); !errors.Is(err, evidenceenvelope.ErrBadSignature) {
 		t.Errorf("wrong key should fail verification, got %v", err)
@@ -376,7 +406,7 @@ func (f failStore) List(context.Context) ([]Record, error) { return nil, f.err }
 
 func TestAcceptor_StoreError(t *testing.T) {
 	pub, priv := testKeypair()
-	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: pub}, fakeResolver{}, failStore{err: errors.New("disk full")}, fixedNow)
+	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: evidenceenvelope.TrustEntry{PublicKey: pub, ProducerID: "env-a"}}, fakeResolver{}, failStore{err: errors.New("disk full")}, fixedNow)
 	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet())); err == nil {
 		t.Error("store Commit error should propagate")
 	}
@@ -393,7 +423,7 @@ func TestSource_CollectError(t *testing.T) {
 // NewAcceptor by accepting an envelope valid under the real wall clock.
 func TestNewAcceptor_DefaultClock(t *testing.T) {
 	pub, priv := testKeypair()
-	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: pub}, fakeResolver{}, NewMemoryStore(), nil)
+	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: evidenceenvelope.TrustEntry{PublicKey: pub, ProducerID: "env-a"}}, fakeResolver{}, NewMemoryStore(), nil)
 	env := evidenceenvelope.Envelope{
 		ID: "now1", Producer: evidenceenvelope.Producer{ID: "env-a", KeyID: keyID}, Sequence: 1,
 		IssuedAt: time.Now().Add(-time.Hour), ExpiresAt: time.Now().Add(365 * 24 * time.Hour),

@@ -61,6 +61,11 @@ func setup(t *testing.T) (dir, keyPath, evidencePath string) {
 	if _, err := runEvidence(t, "evidence", "keygen", "--out", dir, "--key-id", "k1"); err != nil {
 		t.Fatalf("keygen: %v", err)
 	}
+	// Bind key k1 to producer "p" in the trust store ("<producer>__<keyId>.pub"),
+	// matching the --producer p the sign helpers use.
+	if err := os.Rename(filepath.Join(dir, "k1.pub"), filepath.Join(dir, "p__k1.pub")); err != nil {
+		t.Fatal(err)
+	}
 	return dir, filepath.Join(dir, "k1.key"), writeEvidence(t, dir)
 }
 
