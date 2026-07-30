@@ -86,6 +86,9 @@ export const api = {
     return get(`/api/fleet/services/${encodeURIComponent(name)}/graph${str ? `?${str}` : ''}`);
   },
   fleetStatus: () => get('/api/fleet/status'),
+  // Bounded lazy detail keyed by the domain-qualified ServiceKey / TargetKey.
+  fleetService: (key: string) => get(`/api/fleet/service?key=${encodeURIComponent(key)}`),
+  fleetTarget: (key: string) => get(`/api/fleet/target?key=${encodeURIComponent(key)}`),
   fleetImpact: (oldRef: string, newRef: string, includeObserved?: boolean) =>
     get(`/api/fleet/impact?old=${encodeURIComponent(oldRef)}&new=${encodeURIComponent(newRef)}&includeObserved=${includeObserved ? 'true' : 'false'}`),
 };

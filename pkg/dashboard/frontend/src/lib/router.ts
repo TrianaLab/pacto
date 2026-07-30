@@ -38,8 +38,10 @@ export function parseHash(hash: string | null | undefined): Route {
     return { view: 'diff', params };
   }
 
-  // For non-diff routes, strip query string from path before matching
+  // For non-diff routes, strip query string from path before matching, but keep
+  // the query for the routes that carry state in it (fleet graph, impact).
   const path = raw.split('?')[0];
+  const query = raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '';
 
   // #/services/:name/versions/:version (full detail of a specific version)
   const versionMatch = path.match(/^services\/(.+?)\/versions\/(.+)$/);
@@ -63,11 +65,31 @@ export function parseHash(hash: string | null | undefined): Route {
   // #/readiness
   if (path === 'readiness') return { view: 'readiness', params: {} };
 
-  // #/fleet
-  if (path === 'fleet') return { view: 'fleet', params: {} };
+  // #/fleet?perspective=&layer=&domain=&scope=&owner=&status=&source=&freshness=&sel=&kind=
+  // The Operational Graph keeps its perspective, layer, filters and selection in
+  // the URL so the view is deep-linkable, survives auto-refresh, and is testable.
+  // `sel` is a URL-encoded domain-qualified ServiceKey/RevisionKey/TargetKey.
+  if (path === 'fleet') {
+    const params: Record<string, string> = {};
+    const qs = new URLSearchParams(query);
+    for (const k of ['perspective', 'layer', 'domain', 'scope', 'owner', 'status', 'source', 'freshness', 'sel', 'kind']) {
+      const v = qs.get(k);
+      if (v) params[k] = v;
+    }
+    return { view: 'fleet', params };
+  }
 
-  // #/impact
-  if (path === 'impact') return { view: 'impact', params: {} };
+  // #/impact?old=&new=&observed=1 — the impact deep link carries the two revisions
+  // and the include-observed toggle so entry points (Compare, a service, a
+  // revision) can launch it preconfigured.
+  if (path === 'impact') {
+    const params: Record<string, string> = {};
+    const qs = new URLSearchParams(query);
+    if (qs.get('old')) params.old = qs.get('old')!;
+    if (qs.get('new')) params.new = qs.get('new')!;
+    if (qs.get('observed')) params.observed = qs.get('observed')!;
+    return { view: 'impact', params };
+  }
 
   // #/owners/:id
   const ownerMatch = path.match(/^owners\/(.+)$/);
@@ -125,12 +147,25 @@ export function readinessUrl(): string {
   return '#/readiness';
 }
 
-export function fleetUrl(): string {
-  return '#/fleet';
+export function fleetUrl(opts: {
+  perspective?: string; layer?: string; domain?: string; scope?: string; owner?: string;
+  status?: string; source?: string; freshness?: string; sel?: string; kind?: string;
+} = {}): string {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(opts)) {
+    if (v) qs.set(k, v);
+  }
+  const str = qs.toString();
+  return str ? `#/fleet?${str}` : '#/fleet';
 }
 
-export function impactUrl(): string {
-  return '#/impact';
+export function impactUrl(opts: { old?: string; new?: string; observed?: boolean } = {}): string {
+  const qs = new URLSearchParams();
+  if (opts.old) qs.set('old', opts.old);
+  if (opts.new) qs.set('new', opts.new);
+  if (opts.observed) qs.set('observed', '1');
+  const str = qs.toString();
+  return str ? `#/impact?${str}` : '#/impact';
 }
 
 export function ownerUrl(key: string): string {

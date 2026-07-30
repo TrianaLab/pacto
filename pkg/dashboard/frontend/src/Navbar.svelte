@@ -1,5 +1,5 @@
 <script>
-  import { graphUrl, ownersUrl, readinessUrl, fleetUrl, impactUrl, compareDiffUrl } from './lib/router.ts';
+  import { ownersUrl, readinessUrl, fleetUrl, compareDiffUrl } from './lib/router.ts';
   import { sourceTooltip } from './lib/format.ts';
   import SourceDot from './components/SourceDot.svelte';
 
@@ -9,12 +9,13 @@
   } = $props();
 
   // Persistent primary nav. `views` lists the route.view values that light the
-  // item (Services covers a drilled-in service; Owners covers an owner detail).
+  // item. The Operational Graph is now the single graph/topology capability (the
+  // former standalone "Graph" folded into it, still reachable as a deep link);
+  // Impact is a contextual deep route launched from Compare or a selected
+  // service/revision, not a top-level empty page.
   const NAV = [
     { label: 'Services', href: '#/', views: ['list', 'detail'] },
-    { label: 'Graph', href: graphUrl(), views: ['graph'] },
-    { label: 'Operational Graph', href: fleetUrl(), views: ['fleet'] },
-    { label: 'Impact', href: impactUrl(), views: ['impact'] },
+    { label: 'Operational Graph', href: fleetUrl(), views: ['fleet', 'graph', 'impact'] },
     { label: 'Owners', href: ownersUrl(), views: ['owners', 'owner-detail'] },
     { label: 'Readiness', href: readinessUrl(), views: ['readiness'] },
     { label: 'Compare', href: compareDiffUrl(), views: ['diff'] },

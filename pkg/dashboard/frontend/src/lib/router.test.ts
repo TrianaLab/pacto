@@ -231,12 +231,18 @@ describe('parseHash — query strings on non-diff routes', () => {
     expect(parseHash('#/readiness?contractStatus=Warning')).toEqual({ view: 'readiness', params: {} });
   });
 
-  it('strips the query string from the fleet route', () => {
-    expect(parseHash('#/fleet?owner=core')).toEqual({ view: 'fleet', params: {} });
+  it('parses fleet graph state (perspective, layer, filters, selection) from the query', () => {
+    expect(parseHash('#/fleet?perspective=target&layer=reconciled&domain=domain-a&owner=core&sel=domain-a%2Fpayments')).toEqual({
+      view: 'fleet',
+      params: { perspective: 'target', layer: 'reconciled', domain: 'domain-a', owner: 'core', sel: 'domain-a/payments' },
+    });
   });
 
-  it('strips the query string from the impact route', () => {
-    expect(parseHash('#/impact?old=a')).toEqual({ view: 'impact', params: {} });
+  it('parses impact deep-link params (old, new, observed) from the query', () => {
+    expect(parseHash('#/impact?old=oci://x/a@sha256:1&new=oci://x/a@sha256:2&observed=1')).toEqual({
+      view: 'impact',
+      params: { old: 'oci://x/a@sha256:1', new: 'oci://x/a@sha256:2', observed: '1' },
+    });
   });
 
   it('strips the query string from an encoded owner id', () => {
@@ -263,11 +269,18 @@ describe('fleetUrl', () => {
   it('returns fleet URL', () => {
     expect(fleetUrl()).toBe('#/fleet');
   });
+  it('builds a fleet URL with graph state (encoding the selected key)', () => {
+    expect(fleetUrl({ perspective: 'service', layer: 'all', sel: 'domain-a/payments' }))
+      .toBe('#/fleet?perspective=service&layer=all&sel=domain-a%2Fpayments');
+  });
 });
 
 describe('impactUrl', () => {
   it('returns impact URL', () => {
     expect(impactUrl()).toBe('#/impact');
+  });
+  it('builds an impact deep link with both revisions and the observed toggle', () => {
+    expect(impactUrl({ old: 'a', new: 'b', observed: true })).toBe('#/impact?old=a&new=b&observed=1');
   });
 });
 

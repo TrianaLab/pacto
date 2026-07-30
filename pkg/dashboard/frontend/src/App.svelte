@@ -175,9 +175,9 @@
   {:else if route.view === 'readiness'}
     <ReadinessView {services} {initialLoading} />
   {:else if route.view === 'fleet'}
-    <FleetView />
+    <FleetView params={route.params} {refreshTick} />
   {:else if route.view === 'impact'}
-    <ImpactView />
+    <ImpactView params={route.params} />
   {:else if route.view === 'owners'}
     <OwnersView {services} {initialLoading} />
   {:else if route.view === 'owner-detail'}
