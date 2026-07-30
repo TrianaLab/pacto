@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -142,6 +143,37 @@ func TestValidateContractRef(t *testing.T) {
 	for _, tc := range cases {
 		if err := validateContractRef(tc.ref, tc.allowed); (err != nil) != tc.wantErr {
 			t.Errorf("%s: validateContractRef(%q) err=%v, wantErr=%v", tc.name, tc.ref, err, tc.wantErr)
+		}
+	}
+}
+
+func TestClassifyAcceptError(t *testing.T) {
+	cases := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{"replay", ErrReplay, http.StatusConflict, "replay"},
+		{"auth", evidenceenvelope.ErrBadSignature, http.StatusUnauthorized, "unauthorized_producer"},
+		{"producer mismatch", evidenceenvelope.ErrProducerMismatch, http.StatusUnauthorized, "unauthorized_producer"},
+		{"contract ref", ErrContractRefPolicy, http.StatusUnprocessableEntity, "contract_ref_rejected"},
+		{"invalid evidence", ErrInvalidEvidence, http.StatusUnprocessableEntity, "invalid_evidence"},
+		{"malformed", fmt.Errorf("%w: %w", ErrMalformedEnvelope, errors.New("bad json")), http.StatusBadRequest, "invalid_envelope"},
+		{"resolution", fmt.Errorf("%w: %w", ErrContractResolution, errors.New("registry.internal:5000 down")), http.StatusBadGateway, "contract_resolution_failed"},
+		{"store write", fmt.Errorf("%w: %w", ErrStoreWrite, errors.New("file:///secret/bucket?token=abc")), http.StatusServiceUnavailable, "store_degraded"},
+		{"unknown", errors.New("surprise"), http.StatusInternalServerError, "internal_error"},
+		// An auth error wrapped inside a decode wrapper still classifies as auth.
+		{"auth wins over wrapper", fmt.Errorf("%w: %w", ErrMalformedEnvelope, evidenceenvelope.ErrUnsignedEnvelope), http.StatusUnauthorized, "unauthorized_producer"},
+	}
+	for _, tc := range cases {
+		status, code, msg := classifyAcceptError(tc.err)
+		if status != tc.wantStatus || code != tc.wantCode {
+			t.Errorf("%s: got (%d,%q), want (%d,%q)", tc.name, status, code, tc.wantStatus, tc.wantCode)
+		}
+		// The generic message must NEVER echo the underlying (possibly sensitive) error text.
+		if strings.Contains(msg, "token=") || strings.Contains(msg, "registry.internal") || strings.Contains(msg, "bad json") {
+			t.Errorf("%s: message leaks underlying error: %q", tc.name, msg)
 		}
 	}
 }
@@ -519,17 +551,19 @@ func TestAccept_CrossDomainIsolation(t *testing.T) {
 	for _, tg := range col.Targets {
 		byDomain[tg.Domain] = tg
 	}
-	a1, okA := byDomain["reg-a.io/team"]
-	b1, okB := byDomain["reg-b.io/team"]
-	if !okA || !okB {
-		t.Fatalf("expected two distinct domains, got %v", byDomain)
-	}
-	// Same logical service NAME, distinct domains + distinct revision digests.
-	if a1.Service != "payments" || b1.Service != "payments" {
-		t.Errorf("resolved service should be payments for both: %q / %q", a1.Service, b1.Service)
-	}
-	if a1.Digest != digA || b1.Digest != digB {
-		t.Errorf("digests crossed: a=%q b=%q", a1.Digest, b1.Digest)
+	// Same logical service NAME, distinct domains, distinct revision digests.
+	want := map[string]string{"reg-a.io/team": digA, "reg-b.io/team": digB}
+	for dom, dig := range want {
+		tg, ok := byDomain[dom]
+		if !ok {
+			t.Fatalf("missing target for domain %s (got %v)", dom, byDomain)
+		}
+		if tg.Service != "payments" {
+			t.Errorf("domain %s: service = %q, want payments", dom, tg.Service)
+		}
+		if tg.Digest != dig {
+			t.Errorf("domain %s: digest = %q, want %q (crossed?)", dom, tg.Digest, dig)
+		}
 	}
 	// Built into a snapshot, they are two distinct domain-qualified services.
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
@@ -537,13 +571,10 @@ func TestAccept_CrossDomainIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Services[fleet.NewServiceKeyDomain("reg-a.io/team", "payments")] == nil ||
-		snap.Services[fleet.NewServiceKeyDomain("reg-b.io/team", "payments")] == nil {
-		keys := make([]string, 0, len(snap.Services))
-		for k := range snap.Services {
-			keys = append(keys, string(k))
+	for dom := range want {
+		if snap.Services[fleet.NewServiceKeyDomain(dom, "payments")] == nil {
+			t.Errorf("missing domain-qualified service %s/payments", dom)
 		}
-		t.Fatalf("expected two domain-qualified payments services, got %v", keys)
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -31,6 +32,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
@@ -48,6 +50,17 @@ var ErrInvalidEvidence = errors.New("evidence ingest: evidence set is invalid")
 // arbitrary local path, pin evaluation to a mutable tag, or reference an
 // unapproved registry.
 var ErrContractRefPolicy = errors.New("evidence ingest: contract reference violates ingestion policy")
+
+// Category sentinels wrap the raw, potentially-sensitive errors from decoding,
+// contract resolution and the durable store, so the HTTP layer can return a
+// STABLE code + a generic sanitized message while the detailed error is logged
+// server-side only. errors.Is still sees the underlying sentinel, so specific
+// classifications (auth, replay) are matched before these broad wrappers.
+var (
+	ErrMalformedEnvelope  = errors.New("evidence ingest: malformed envelope")
+	ErrContractResolution = errors.New("evidence ingest: contract resolution failed")
+	ErrStoreWrite         = errors.New("evidence ingest: durable store write failed")
+)
 
 // validateContractRef enforces the externally-reported contract-ref policy: an
 // immutable oci:// digest reference (a full, well-formed sha256 digest — not
@@ -178,7 +191,7 @@ func NewAcceptor(trust evidenceenvelope.TrustStore, resolver ContractResolver, s
 func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 	env, err := evidenceenvelope.Decode(data)
 	if err != nil {
-		return Record{}, err
+		return Record{}, fmt.Errorf("%w: %w", ErrMalformedEnvelope, err)
 	}
 	if err := evidenceenvelope.Verify(env, a.trust, a.now()); err != nil {
 		return Record{}, err
@@ -196,7 +209,7 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 	}
 	c, err := a.resolver.Resolve(ctx, env.EvidenceSet.ContractRef)
 	if err != nil {
-		return Record{}, err
+		return Record{}, fmt.Errorf("%w: %w", ErrContractResolution, err)
 	}
 	findings, coverage := validation.Evaluate(c, env.EvidenceSet)
 	rec := Record{
@@ -212,7 +225,12 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 		Digest:  ociDigest(env.EvidenceSet.ContractRef),
 	}
 	if err := a.store.Commit(ctx, rec); err != nil {
-		return Record{}, err
+		// Replay is a defined, safe-to-surface outcome; any other commit failure is
+		// an internal store error whose detail must not reach the client.
+		if errors.Is(err, ErrReplay) {
+			return Record{}, err
+		}
+		return Record{}, fmt.Errorf("%w: %w", ErrStoreWrite, err)
 	}
 	return rec, nil
 }
@@ -401,17 +419,22 @@ func (h *Handler) handleEnvelope(w http.ResponseWriter, r *http.Request) {
 	// Refuse ingestion until the store has recovered: accepting a write against a
 	// not-yet-recovered replay index could re-accept a replayed envelope.
 	if h.ready != nil && !h.ready() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "evidence store is not ready"})
+		writeErr(w, http.StatusServiceUnavailable, "store_not_ready", "the evidence store is not ready")
 		return
 	}
 	data, err := io.ReadAll(io.LimitReader(r.Body, evidenceenvelope.MaxEnvelopeBytes+1))
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "could not read request body"})
+		writeErr(w, http.StatusBadRequest, "invalid_envelope", "the request body could not be read")
 		return
 	}
 	rec, err := h.acceptor.Accept(r.Context(), data)
 	if err != nil {
-		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
+		status, code, msg := classifyAcceptError(err)
+		// The DETAILED error is logged server-side only; the client gets a stable
+		// code and a generic, secret-free message.
+		logging.LoggerFromContext(r.Context()).Warn("evidence accept rejected",
+			"code", code, "status", status, "error", err.Error())
+		writeErr(w, status, code, msg)
 		return
 	}
 	if h.onAccept != nil {
@@ -496,7 +519,7 @@ type TargetsResponse struct {
 func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 	recs, err := h.acceptor.List(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not list targets"})
+		writeErr(w, http.StatusInternalServerError, "internal_error", "could not list targets")
 		return
 	}
 	truncated := false
@@ -538,19 +561,38 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// statusForError maps an accept error to an HTTP status without leaking secrets.
-func statusForError(err error) int {
+// classifyAcceptError maps an accept error to (HTTP status, stable code, generic
+// sanitized message). Specific sentinels are checked before the broad category
+// wrappers (ErrMalformedEnvelope/ErrContractResolution/ErrStoreWrite) so an
+// auth or replay error inside a wrapped decode/commit is still classified
+// precisely. The message NEVER contains the underlying error text.
+func classifyAcceptError(err error) (int, string, string) {
 	switch {
 	case errors.Is(err, ErrReplay):
-		return http.StatusConflict
+		return http.StatusConflict, "replay", "the report was already accepted or is out of sequence"
 	case errors.Is(err, evidenceenvelope.ErrExpired), errors.Is(err, evidenceenvelope.ErrNotYetValid),
 		errors.Is(err, evidenceenvelope.ErrBadSignature), errors.Is(err, evidenceenvelope.ErrUnknownKey),
 		errors.Is(err, evidenceenvelope.ErrUnsignedEnvelope), errors.Is(err, evidenceenvelope.ErrBadAlgorithm),
 		errors.Is(err, evidenceenvelope.ErrProducerMismatch), errors.Is(err, evidenceenvelope.ErrSubjectNotAllowed):
-		return http.StatusUnauthorized
+		return http.StatusUnauthorized, "unauthorized_producer", "the envelope could not be authenticated or is not authorized for this producer or subject"
+	case errors.Is(err, ErrContractRefPolicy):
+		return http.StatusUnprocessableEntity, "contract_ref_rejected", "the contract reference is not an approved immutable digest reference"
+	case errors.Is(err, ErrInvalidEvidence):
+		return http.StatusUnprocessableEntity, "invalid_evidence", "the evidence set is invalid"
+	case errors.Is(err, ErrMalformedEnvelope):
+		return http.StatusBadRequest, "invalid_envelope", "the envelope could not be decoded"
+	case errors.Is(err, ErrContractResolution):
+		return http.StatusBadGateway, "contract_resolution_failed", "the referenced contract could not be resolved"
+	case errors.Is(err, ErrStoreWrite):
+		return http.StatusServiceUnavailable, "store_degraded", "the evidence store could not durably commit the record"
 	default:
-		return http.StatusUnprocessableEntity
+		return http.StatusInternalServerError, "internal_error", "the request could not be processed"
 	}
+}
+
+// writeErr writes a stable, sanitized error response: {code, message}.
+func writeErr(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, map[string]string{"code": code, "message": message})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

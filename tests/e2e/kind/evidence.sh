@@ -185,9 +185,22 @@ WORK="$(mktemp -d)"
 sign_envelope 1 e2e-1 "$WORK/env1.json"
 EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"
 sleep 1
-send() { "$PACTO_BIN" evidence send "$1" --url "http://127.0.0.1:${LOCAL_EV_PORT}"; }
-send "$WORK/env1.json" >/dev/null 2>&1 \
-  && pass "envelope accepted (202)" || fail "envelope was not accepted"
+# send captures the ingestion host's response so a failure surfaces the HTTP
+# status, stable error code and sanitized message (never silently discarded).
+send() { "$PACTO_BIN" evidence send "$1" --url "http://127.0.0.1:${LOCAL_EV_PORT}" 2>&1; }
+send_ok() { # envelope, label
+  local out
+  if out="$(send "$1")"; then pass "$2"; else
+    echo "  ingestion response: $out"
+    kubectl -n "$NS" exec deploy/pacto-evidence -- pacto evidence inspect --bucket-url file:///var/lib/pacto/evidence 2>&1 | head -20 || true
+    fail "$2"
+  fi
+}
+send_rejected() { # envelope, label (expects a NON-2xx; prints the code on unexpected accept)
+  local out
+  if out="$(send "$1")"; then echo "  unexpectedly accepted: $out"; fail "$2"; else pass "$2"; fi
+}
+send_ok "$WORK/env1.json" "envelope accepted (202)"
 
 echo "== the accepted record is committed durably to the PVC =="
 kubectl -n "$NS" exec deploy/pacto-evidence -- sh -c 'ls -R /var/lib/pacto/evidence 2>/dev/null | grep -q envelopes' \
@@ -208,11 +221,11 @@ echo "== the CLI reports the same target over the same Evidence source =="
   && pass "CLI fleet search reports the checkout target" || fail "CLI missing the target"
 
 echo "== replay: re-sending the same envelope is rejected (409) =="
-send "$WORK/env1.json" >/dev/null 2>&1 && fail "replay was accepted" || pass "replay rejected"
+send_rejected "$WORK/env1.json" "replay rejected"
 
 echo "== a newer sequence is accepted =="
 sign_envelope 2 e2e-2 "$WORK/env2.json"
-send "$WORK/env2.json" >/dev/null 2>&1 && pass "newer sequence accepted" || fail "newer sequence rejected"
+send_ok "$WORK/env2.json" "newer sequence accepted"
 
 echo "== restart-recovery: replay protection survives a pod restart =="
 kubectl -n "$NS" delete pod -l app.kubernetes.io/component=evidence --wait=false >/dev/null 2>&1 || \
@@ -221,8 +234,8 @@ kubectl -n "$NS" delete pod -l app.kubernetes.io/component=evidence --wait=false
 kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
 kill "$EV_PF_PID" 2>/dev/null || true
 EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"; sleep 1
-send "$WORK/env1.json" >/dev/null 2>&1 && fail "replay accepted after restart" || pass "replay still rejected after restart (rebuilt from immutable records)"
-send "$WORK/env2.json" >/dev/null 2>&1 && fail "seq 2 replay accepted after restart" || pass "seq-2 replay still rejected after restart"
+send_rejected "$WORK/env1.json" "replay still rejected after restart (rebuilt from immutable records)"
+send_rejected "$WORK/env2.json" "seq-2 replay still rejected after restart"
 
 echo "== materialized projections are rebuildable: delete them, restart, target survives =="
 kubectl -n "$NS" exec deploy/pacto-evidence -- sh -c 'rm -rf /var/lib/pacto/evidence/*/materialized 2>/dev/null; true'

@@ -246,13 +246,22 @@ response.
 
 `POST` status codes map the accept outcome without leaking any secret material:
 
-| Status | When |
-|--------|------|
-| `202 Accepted` | Verified, evaluated and stored. |
-| `400 Bad Request` | The request body could not be read. |
-| `401 Unauthorized` | Signature, trust or freshness failure — unsigned, unknown key, unsupported algorithm, bad signature, expired or not yet valid. |
-| `409 Conflict` | Replay — a duplicate `id` or an out-of-sequence `sequence`. |
-| `422 Unprocessable Entity` | Malformed or oversized envelope, unknown fields, unsupported version or kind, an invalid `EvidenceSet` or an unresolvable contract ref. |
+A non-2xx response is a JSON object `{ "code": <stable-code>, "message": <generic> }`.
+The `code` is stable and safe to branch on; the `message` is generic and never
+contains the underlying error text (resolver, storage or internal detail). Detailed
+errors are logged server-side only. The codes and their statuses:
+
+| Status | Code | When |
+|--------|------|------|
+| `202 Accepted` | — | Verified, evaluated and stored. |
+| `400 Bad Request` | `invalid_envelope` | The body could not be read or the envelope could not be decoded. |
+| `401 Unauthorized` | `unauthorized_producer` | Signature/trust/freshness failure, or the key is not authorized for this producer or subject. |
+| `409 Conflict` | `replay` | A duplicate `id` or an out-of-sequence `sequence`. |
+| `422 Unprocessable Entity` | `contract_ref_rejected` | The contract ref is not an approved immutable digest reference. |
+| `422 Unprocessable Entity` | `invalid_evidence` | The `EvidenceSet` is invalid. |
+| `502 Bad Gateway` | `contract_resolution_failed` | The referenced contract could not be resolved (upstream). |
+| `503 Service Unavailable` | `store_not_ready` / `store_degraded` | The store has not recovered, or a durable commit failed. |
+| `500 Internal Server Error` | `internal_error` | An unexpected failure. |
 
 After a successful accept, the host can trigger a snapshot refresh so the new
 target appears in the graph immediately.

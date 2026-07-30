@@ -36,6 +36,15 @@ dump_diag() {
   done
   echo "--- pvc ($ns) ---"
   kubectl get pvc -n "$ns" -o wide || true
+  # Evidence-specific diagnostics (best-effort; only when the component exists):
+  # readiness/health and a durable-store inspection make an ingestion failure
+  # diagnosable without leaking secrets.
+  if kubectl -n "$ns" get deploy pacto-evidence >/dev/null 2>&1; then
+    echo "--- evidence readiness/health ($ns) ---"
+    kubectl -n "$ns" exec deploy/pacto-evidence -- sh -c 'wget -qO- http://127.0.0.1:8686/api/evidence/v1/ready; echo; wget -qO- http://127.0.0.1:8686/api/evidence/v1/health; echo' 2>/dev/null || true
+    echo "--- evidence store inspection ($ns) ---"
+    kubectl -n "$ns" exec deploy/pacto-evidence -- pacto evidence inspect --bucket-url file:///var/lib/pacto/evidence 2>/dev/null | head -30 || true
+  fi
 }
 
 keep_or_teardown() {
