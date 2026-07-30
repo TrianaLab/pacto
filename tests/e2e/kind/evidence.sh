@@ -212,8 +212,17 @@ curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" | grep -q 
 
 echo "== the dashboard Fleet API reports the same target from the same store =="
 DASH_PF_PID="$(pf 8080 svc/pacto-dashboard 3000)"
-sleep 2
-curl -fsS "http://127.0.0.1:8080/api/fleet/snapshot" | grep -q 'checkout' \
+# The dashboard serves a periodically-refreshed snapshot (fleetRefreshInterval,
+# 30s), so an envelope ingested after its first build appears on the next refresh.
+# Poll rather than race the first build.
+dash_has_checkout=false
+for _ in $(seq 1 24); do
+  if curl -fsS "http://127.0.0.1:8080/api/fleet/snapshot" 2>/dev/null | grep -q 'checkout'; then
+    dash_has_checkout=true; break
+  fi
+  sleep 3
+done
+$dash_has_checkout \
   && pass "dashboard Fleet API reports the checkout target" || fail "dashboard Fleet API missing the target"
 
 echo "== the CLI reports the same target over the same Evidence source =="

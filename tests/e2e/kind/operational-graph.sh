@@ -213,7 +213,15 @@ kill "$EV_PF" 2>/dev/null || true
 
 echo "== the dashboard's operational graph shows the declared services AND the external evidence target =="
 DASH_PF="$(pf 8080 svc/pacto-dashboard 3000)"; sleep 2
-SNAP="$(curl -fsS http://127.0.0.1:8080/api/fleet/snapshot)"
+# The dashboard serves a periodically-refreshed snapshot (30s), so poll until the
+# reconciled services AND the just-ingested evidence target all appear, rather than
+# racing the first build.
+SNAP=""
+for _ in $(seq 1 24); do
+  SNAP="$(curl -fsS http://127.0.0.1:8080/api/fleet/snapshot 2>/dev/null || true)"
+  if echo "$SNAP" | grep -q checkout && echo "$SNAP" | grep -q orders && echo "$SNAP" | grep -q payments; then break; fi
+  sleep 3
+done
 echo "$SNAP" | grep -q checkout && echo "$SNAP" | grep -q orders && pass "declared services present in the graph" || fail "declared services missing"
 echo "$SNAP" | grep -q payments && pass "external evidence target present in the graph" || fail "evidence target missing"
 kill "$DASH_PF" 2>/dev/null || true
