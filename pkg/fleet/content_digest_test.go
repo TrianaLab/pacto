@@ -33,8 +33,9 @@ func TestContentDigest_CoversReferencedFiles(t *testing.T) {
 	if a == b {
 		t.Fatalf("identical pacto.yaml with different openapi.yaml must differ: both %s", a)
 	}
-	// Identical bundles hash identically (deterministic).
-	if contentDigest(mk("same")) != contentDigest(mk("same")) {
+	// Two independent bundles with identical content hash identically (deterministic).
+	same1, same2 := contentDigest(mk("same")), contentDigest(mk("same"))
+	if same1 != same2 {
 		t.Error("identical bundles must hash identically")
 	}
 

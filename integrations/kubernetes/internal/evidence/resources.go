@@ -47,6 +47,12 @@ const (
 
 	volumeTrust = "trust"
 	volumeData  = "data"
+	// volumeTmp backs a writable /tmp: the readOnlyRootFilesystem container needs a
+	// writable temp dir because gocloud fileblob writes each object to a temp file
+	// (in os.TempDir) and atomically renames it into place. Without it, every
+	// durable write fails with "read-only file system".
+	volumeTmp    = "tmp"
+	tmpMountPath = "/tmp"
 )
 
 // Labels returns the standard labels applied to all evidence resources.

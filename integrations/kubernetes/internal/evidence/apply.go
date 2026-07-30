@@ -42,11 +42,15 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 
 	volumeMounts := []*corev1ac.VolumeMountApplyConfiguration{
 		corev1ac.VolumeMount().WithName(volumeTrust).WithMountPath(TrustMountPath).WithReadOnly(true),
+		// A writable /tmp for gocloud fileblob's atomic temp-write+rename; the root
+		// filesystem is read-only.
+		corev1ac.VolumeMount().WithName(volumeTmp).WithMountPath(tmpMountPath),
 	}
 	volumes := []*corev1ac.VolumeApplyConfiguration{
 		corev1ac.Volume().WithName(volumeTrust).WithSecret(
 			corev1ac.SecretVolumeSource().WithSecretName(cfg.TrustSecret),
 		),
+		corev1ac.Volume().WithName(volumeTmp).WithEmptyDir(corev1ac.EmptyDirVolumeSource()),
 	}
 	if path := fileBucketPath(cfg.BucketURL); path != "" {
 		volumeMounts = append(volumeMounts,
