@@ -181,16 +181,45 @@ func (b *BlobStore) index(rec AcceptedRecord) {
 	}
 }
 
-// snapshotState exposes the current index as RecoveredState. The maps are shared
-// with the store, so the value is a startup snapshot consumed once by readiness.
+// snapshotState exposes the current index as RecoveredState. Every map and record
+// is deep-copied, so a caller can retain and mutate the returned state without
+// ever touching store-owned memory (defends against data races and accidental
+// mutation, even though records are immutable in the store).
 func (b *BlobStore) snapshotState() RecoveredState {
-	return RecoveredState{
-		SeenEnvelopeIDs:  b.seen,
-		MaxSequence:      b.maxSeq,
-		LatestByTarget:   b.latest,
-		Corruptions:      b.corruptions,
-		TaintedProducers: b.tainted,
+	seen := make(map[string]struct{}, len(b.seen))
+	for k := range b.seen {
+		seen[k] = struct{}{}
 	}
+	maxSeq := make(map[string]uint64, len(b.maxSeq))
+	for k, v := range b.maxSeq {
+		maxSeq[k] = v
+	}
+	latest := make(map[string]AcceptedRecord, len(b.latest))
+	for k, v := range b.latest {
+		latest[k] = cloneRecord(v)
+	}
+	tainted := make(map[string]struct{}, len(b.tainted))
+	for k := range b.tainted {
+		tainted[k] = struct{}{}
+	}
+	return RecoveredState{
+		SeenEnvelopeIDs:  seen,
+		MaxSequence:      maxSeq,
+		LatestByTarget:   latest,
+		Corruptions:      append([]Corruption(nil), b.corruptions...),
+		TaintedProducers: tainted,
+	}
+}
+
+// cloneRecord returns a fully independent copy of rec so a returned value can
+// never alias store-owned nested slices/maps (Findings, Coverage, the envelope's
+// observations). ponytail: a JSON round-trip is the simple provably-isolated
+// clone; if read throughput ever dominates, replace with field-wise deep copies.
+func cloneRecord(rec AcceptedRecord) AcceptedRecord {
+	data, _ := json.Marshal(rec)
+	var out AcceptedRecord
+	_ = json.Unmarshal(data, &out)
+	return out
 }
 
 // Commit writes the immutable record (the commit point), reserves its id and
@@ -242,7 +271,10 @@ func (b *BlobStore) Latest(_ context.Context, targetKey string) (AcceptedRecord,
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	rec, ok := b.latest[targetKey]
-	return rec, ok
+	if !ok {
+		return AcceptedRecord{}, false
+	}
+	return cloneRecord(rec), true
 }
 
 // ListLatest returns the latest record per target in target-key order, optionally
@@ -255,7 +287,7 @@ func (b *BlobStore) ListLatest(_ context.Context, opts ListOptions) []AcceptedRe
 		if opts.Producer != "" && rec.ProducerID() != opts.Producer {
 			continue
 		}
-		out = append(out, rec)
+		out = append(out, cloneRecord(rec))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].TargetKey < out[j].TargetKey })
 	return out
@@ -273,7 +305,7 @@ func (b *BlobStore) Inspect(_ context.Context) StoreStatus {
 		Records:       len(b.seen),
 		Targets:       len(b.latest),
 		Producers:     len(b.maxSeq),
-		Corruptions:   b.corruptions,
+		Corruptions:   append([]Corruption(nil), b.corruptions...),
 		PendingRepair: b.pendingRepair,
 	}
 }

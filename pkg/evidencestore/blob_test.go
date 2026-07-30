@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v3/pkg/finding"
 	"gocloud.dev/blob"
 )
 
@@ -41,6 +42,49 @@ func commit(t *testing.T, s *BlobStore, rec AcceptedRecord) {
 	t.Helper()
 	if err := s.Commit(context.Background(), rec); err != nil {
 		t.Fatalf("commit %s: %v", rec.EnvelopeID(), err)
+	}
+}
+
+func TestReturnedState_IsDeepCopied(t *testing.T) {
+	ctx := context.Background()
+	s := openMem(t)
+	if _, err := s.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rec := newRec("e1", "prod", "t1", 1, time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC))
+	rec.Findings = []finding.Finding{{Code: "X"}}
+	rec.Compliance = "NonCompliant"
+	commit(t, s, rec)
+
+	// Latest: mutating the returned record must never touch store-owned memory.
+	got, _ := s.Latest(ctx, "t1")
+	got.Findings[0].Code = "TAMPERED"
+	got.Findings = append(got.Findings, finding.Finding{Code: "EXTRA"})
+	got.Compliance = "Compliant"
+	if again, _ := s.Latest(ctx, "t1"); len(again.Findings) != 1 || again.Findings[0].Code != "X" || again.Compliance != "NonCompliant" {
+		t.Errorf("Latest leaked a caller mutation: %+v", again)
+	}
+
+	// ListLatest: same isolation.
+	list := s.ListLatest(ctx, ListOptions{})
+	list[0].Findings[0].Code = "TAMPERED"
+	if l2 := s.ListLatest(ctx, ListOptions{}); l2[0].Findings[0].Code != "X" {
+		t.Errorf("ListLatest leaked a caller mutation: %+v", l2[0])
+	}
+
+	// Recover's RecoveredState maps must be independent of the store's live index.
+	st, err := s.Recover(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delete(st.SeenEnvelopeIDs, "e1")
+	st.MaxSequence["prod"] = 999
+	delete(st.LatestByTarget, "t1")
+	if err := s.Commit(ctx, rec); err != ErrAlreadyCommitted {
+		t.Errorf("store seen map was mutated via RecoveredState: %v", err)
+	}
+	if _, ok := s.Latest(ctx, "t1"); !ok {
+		t.Error("store latest map was mutated via RecoveredState")
 	}
 }
 
