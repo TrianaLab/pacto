@@ -7,9 +7,9 @@
 # EvidenceEnvelope is POSTed to the in-cluster Evidence Service, accepted, and
 # committed durably to the PVC; the same target then appears through the Evidence
 # source API, the dashboard Fleet API and the CLI over the same store; replay and
-# restart-recovery, a newer sequence, materialized-projection reconstruction and a
-# semantically-corrupt record (degraded state) are all exercised in the cluster —
-# not delegated to a filesystem-only test.
+# restart-recovery, a newer sequence, manifest-projection reconstruction (proven
+# physically on disk) and a semantically-corrupt record (degraded state) are all
+# exercised in the cluster — not delegated to a filesystem-only test.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-pacto-evidence}"
@@ -259,16 +259,22 @@ EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"; sleep 1
 send_rejected "$WORK/env1.json" "replay still rejected after restart (rebuilt from immutable records)"
 send_rejected "$WORK/env2.json" "seq-2 replay still rejected after restart"
 
-echo "== materialized projections are rebuildable: delete them, restart, target survives =="
+echo "== the manifest projection is rebuildable: delete it, restart, target survives AND the manifest is physically rewritten =="
 # find (not a fixed-depth glob) so this works regardless of the prefix depth
-# (DefaultEvidencePrefix is two levels: pacto-evidence/v1).
+# (DefaultEvidencePrefix is two levels: pacto-evidence/v1). The only materialized
+# projection is manifest.json; the per-target latest is served from the in-memory
+# index recovery rebuilds from the immutable log, never a persisted per-target file.
 kubectl -n "$NS" exec deploy/pacto-evidence -- sh -c 'find /var/lib/pacto/evidence -type d -name materialized -exec rm -rf {} + 2>/dev/null; true'
 kubectl -n "$NS" rollout restart deployment/pacto-evidence >/dev/null
 kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
 kill "$EV_PF_PID" 2>/dev/null || true
 EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"; sleep 1
 curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" | grep -q '"subject":"checkout"' \
-  && pass "target reconstructed from immutable records after projection loss" || fail "projection reconstruction failed"
+  && pass "target reconstructed from the immutable log after projection loss" || fail "projection reconstruction failed"
+# Physically prove the manifest object was RESTORED on disk (not only that /targets
+# answers from memory): the single writer rewrites it via recovery + RepairProjections.
+kubectl -n "$NS" exec deploy/pacto-evidence -- sh -c 'set -e; for _ in $(seq 1 30); do find /var/lib/pacto/evidence -type f -name manifest.json | grep -q . && exit 0; sleep 2; done; exit 1' \
+  && pass "manifest projection physically rewritten on disk after loss" || fail "manifest projection was not physically restored"
 
 echo "== a semantically-corrupt immutable record surfaces a degraded store =="
 # find the envelopes dir regardless of prefix depth; fail loudly if absent rather

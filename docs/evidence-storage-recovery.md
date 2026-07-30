@@ -19,7 +19,7 @@ first is authoritative:
 | State | Location | Meaning |
 |-------|----------|---------|
 | **Durably accepted record** | `<prefix>/envelopes/<producer>/<seq>-<id>.json` | The immutable, authoritative unit. Written once, never modified. Its existence **is** acceptance. |
-| **Rebuildable materialized projection** | `<prefix>/materialized/…` | A performance optimization (latest-per-target, manifest). Never a source of truth; always reconstructable from the accepted records. |
+| **Rebuildable manifest projection** | `<prefix>/materialized/manifest.json` | The one materialized projection: a record-count summary read back and verified against the log on recovery to detect a crash between an accepted write and its manifest update. Never a source of truth; always reconstructable from the accepted records. No per-target projection is persisted — the per-target latest is served from the in-memory index (rebuilt from the log), so no write-only derived state carries an unverified correctness guarantee. |
 | **Immutable uploaded object** | `<prefix>/envelopes/…` | A blob the driver reports as present. It becomes a *durably accepted record* only if it passes recovery validation (below); a torn or tampered upload is reported as corruption, never indexed. |
 | **Orphan upload** | anywhere | A partial/torn write from an interrupted commit. Detected as corruption on recovery and excluded; it never affects replay or latest-target state. |
 
@@ -37,7 +37,7 @@ A commit runs, under a single in-process critical section:
    sequence (replay protection) from the in-memory index.
 3. **Write the immutable record. This write is the commit point.**
 4. Reserve the envelope id and sequence in the in-memory index.
-5. Best-effort write the rebuildable projections.
+5. Best-effort write the rebuildable manifest projection.
 
 Read-after-write within the single writer is always served from the in-memory
 index, **never** from `Bucket.List` — so a commit is immediately visible to the
@@ -52,8 +52,8 @@ A crash at every boundary has a defined, safe outcome:
 | Before the immutable write | Not accepted; nothing persisted. The producer re-sends the same sequence and it is accepted then. |
 | During the immutable write | The blob driver's `WriteAll` is atomic per object: the object is either fully present or absent. A partial/torn object fails recovery validation → reported as corruption, **not** indexed → **not** accepted. |
 | After the immutable write, before indexing | The record is durable. Recovery re-indexes it from the immutable object → accepted, replay high-water restored. |
-| After indexing, before the projection write | Accepted (the immutable record exists). The projection is missing or stale; on the next start recovery **detects the drift** (the persisted manifest disagrees with the rebuilt-from-log truth) and the single writer **physically rewrites** every projection via `RepairProjections`, restoring `ready` with no operator action. Replay stays enforced throughout. |
-| During/after the projection write | Accepted. The projection is rebuildable and non-authoritative. |
+| After indexing, before the manifest write | Accepted (the immutable record exists). The manifest is missing or stale; on the next start recovery **detects the drift** (the persisted manifest disagrees with the rebuilt-from-log truth) and the single writer **physically rewrites** the manifest via `RepairProjections`, restoring `ready` with no operator action. Replay stays enforced throughout. |
+| During/after the manifest write | Accepted. The manifest is rebuildable and non-authoritative. |
 
 The immutable write being the commit point is the invariant: a derived-state
 failure **after** it degrades the store, it never loses or re-accepts the
@@ -81,14 +81,18 @@ of:
   immutable log was tampered with or two writers forked it. The corruption reason
   never echoes a producer or envelope id.
 
-Recovery also compares the persisted materialized projection against the
+Recovery also compares the persisted manifest projection against the
 just-rebuilt-from-log truth. A manifest that is missing while records exist, is
-unparsable, or whose record count disagrees with the log means the projection
-drifted (e.g. a crash between the immutable write and its projection, across a
-restart). The single active writer then **physically rewrites** every projection
-from the recovered index, so the store returns to `ready` without operator action.
-Read-only consumers (the fleet source, `pacto evidence inspect`) never repair —
-only the writer that owns the bucket does, so a transient reader cannot race it.
+unparsable, or whose record count disagrees with the log means the manifest
+drifted (e.g. a crash between the immutable write and the manifest, across a
+restart). The single active writer then **physically rewrites** the manifest from
+the recovered index, so the store returns to `ready` without operator action.
+There is no per-target projection to verify or repair: the per-target latest is
+served from the in-memory index the recovery step just rebuilt from the log, so it
+is authoritative-by-construction rather than a separately-persisted copy that
+could silently drift. Read-only consumers (the fleet source, `pacto evidence
+inspect`) never repair — only the writer that owns the bucket does, so a transient
+reader cannot race it.
 
 Readiness is gated on recovery: the server answers `/ready` = 503 and refuses
 ingestion until recovery reaches `ready` (or `degraded`); liveness is independent.
@@ -150,5 +154,5 @@ process; in-process read-after-write is served from memory.
 Immutable accepted records are **never auto-deleted**. Any object-lifecycle policy
 configured on the bucket **must not** delete anything under `<prefix>/envelopes/`
 — doing so destroys the source of truth and corrupts replay/latest state on the
-next recovery. Rebuildable projections under `<prefix>/materialized/` may be
-expired safely; recovery reconstructs them.
+next recovery. The rebuildable manifest under `<prefix>/materialized/` may be
+expired safely; recovery reconstructs it.

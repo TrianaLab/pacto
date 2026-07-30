@@ -13,8 +13,12 @@
 //     distributed lock built from blob writes.
 //   - The only authoritative durable records are immutable accepted-evidence
 //     records under <prefix>/envelopes/. Once written, a record is never
-//     overwritten. Materialized projections under <prefix>/materialized/ are
-//     rebuildable performance optimizations, never a source of truth.
+//     overwritten. The one materialized projection, <prefix>/materialized/
+//     manifest.json, is a rebuildable record-count summary read back and verified
+//     against the log on recovery; it is never a source of truth. No per-target
+//     projection is persisted — the per-target latest is served from the
+//     in-memory index (rebuilt from the log), so no write-only derived state
+//     carries an unverified correctness guarantee.
 //   - The immutable write is the commit point. Read-after-write within the
 //     single writer is served from an in-memory index, never from bucket List.
 //

@@ -177,7 +177,19 @@ across views), consuming backend-provided canonical routes.
   `differences` view reads it verbatim. Reason: requirement 2.3 authority rules.
 - ADR-4: Impact by canonical identities resolves revision keys to their snapshot
   refs and rejects a snapshot-id mismatch. Reason: requirement 2.6.
-- ADR-5 (projection): see requirement 17; decision recorded in phase 2.
+- ADR-5 (projection, requirement 17): **Option A — remove the write-only
+  per-target projections.** They were written under
+  `materialized/targets/<hash>/latest.json` but read by no serving path, no
+  recovery path, no test and no E2E (the in-memory index, rebuilt from the
+  immutable log, serves every read). Retaining them was write-only derived state
+  with an unverified implied correctness guarantee. Removed the per-target write
+  from commit and repair and deleted `targetKeyPath`. The single remaining
+  materialized projection is `materialized/manifest.json`, a record-count summary
+  that recovery reads back and verifies against the log — honest, verified derived
+  state. `RepairProjections` now rewrites only the manifest; the Kind Evidence E2E
+  physically proves the manifest is rewritten on disk after loss (not only that
+  `/targets` answers from memory). Storage ADR and tests updated; the overstated
+  "repairs missing/corrupt per-target projection" claim is gone.
 
 ## 8. Completed and pending
 
@@ -197,10 +209,14 @@ Completed:
   `/attention`, `POST /impact`) with impact enrichment and snapshot-mismatch
   rejection, 100% covered; OpenAPI exports cleanly.
 
-Pending: phases 2 through 12 in the migration sequence (projection decision;
-frontend IA/routing; overview + entity navigation; search-first graph; entity
-detail + cross-linking; responsive + a11y; WASM demo + browser acceptance; live
-Kind; MkDocs; local registry; docs + PR body + final verification).
+- (phase 2) projection architecture decision (ADR-5): removed the write-only
+  per-target projections; `pkg/evidencestore` stays 100% covered; storage ADR and
+  Kind E2E updated (manifest restoration proven physically).
+
+Pending: phases 3 through 12 in the migration sequence (frontend IA/routing;
+overview + entity navigation; search-first graph; entity detail + cross-linking;
+responsive + a11y; WASM demo + browser acceptance; live Kind; MkDocs; local
+registry; docs + PR body + final verification).
 
 ## 9. Acceptance criteria
 

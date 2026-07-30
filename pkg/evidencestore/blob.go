@@ -64,9 +64,13 @@ func WithInstanceID(id string) Option {
 }
 
 // BlobStore is the gocloud.dev/blob-backed [Store]. Immutable accepted-evidence
-// records under <prefix>/envelopes/ are the sole source of truth; materialized
-// projections under <prefix>/materialized/ are rebuildable optimizations. A
-// single writer owns the in-memory index and serves every read from it.
+// records under <prefix>/envelopes/ are the sole source of truth. The single
+// writer owns the in-memory index and serves EVERY read from it (Latest,
+// ListLatest); the index is rebuilt from the immutable log at recovery. The only
+// materialized projection is <prefix>/materialized/manifest.json, a record-count
+// summary that recovery reads back and verifies against the log to detect a crash
+// between an accepted write and its manifest update. No per-target projection is
+// persisted: it would be write-only state no read path consults.
 type BlobStore struct {
 	bucket     *blob.Bucket
 	prefix     string
@@ -454,53 +458,42 @@ func (b *BlobStore) Commit(ctx context.Context, rec AcceptedRecord) error {
 		return err // not accepted; the index is untouched
 	}
 	b.index(rec) // commit point reached: reserve id and sequence
-	if err := b.writeProjections(ctx, rec, data); err != nil {
+	if err := b.writeManifest(ctx); err != nil {
 		b.setPhase(PhaseDegraded)
 		b.pendingRepair = true
 	}
 	return nil
 }
 
-// writeProjections writes the per-target latest record and the manifest summary.
-func (b *BlobStore) writeProjections(ctx context.Context, rec AcceptedRecord, data []byte) error {
-	if err := writeProjection(ctx, b.bucket, b.targetKeyPath(rec.TargetKey), data); err != nil {
-		return err
-	}
+// writeManifest writes the manifest summary — the ONLY materialized projection.
+// The per-target latest record is deliberately NOT persisted as a projection: it
+// is served from the in-memory index, which recovery rebuilds from the immutable
+// log alone (see [BlobStore.Recover]). Persisting a per-target copy would be
+// write-only state carrying an unverified correctness guarantee — no serving or
+// recovery path ever read it. The manifest's record count, by contrast, IS read
+// back and verified against the log on recovery (see [detectProjectionDrift]), so
+// it is honest, verified derived state.
+func (b *BlobStore) writeManifest(ctx context.Context) error {
 	manifest := fmt.Sprintf(`{"records":%d,"generatedAt":%q}`, len(b.seen), b.now().UTC().Format(time.RFC3339Nano))
 	return writeProjection(ctx, b.bucket, b.manifestKeyPath(), []byte(manifest))
 }
 
-// projection is one materialized-projection write (key + bytes).
-type projection struct {
-	key  string
-	data []byte
-}
-
-// RepairProjections rewrites every materialized projection from the in-memory
-// index and, on full success, clears the pending-repair flag and restores
-// readiness (unless recovery found corruptions). It is the explicit, idempotent
-// repair for a store that went degraded because a derived-projection write failed
-// AFTER an accepted immutable write: the immutable record was never lost — only
-// its rebuildable projection — so replay protection and the latest-target index
-// stay correct in memory throughout, and a repeated envelope is still rejected
-// while the store is degraded. If a rewrite fails the store stays degraded.
+// RepairProjections rewrites the manifest projection from the in-memory index and,
+// on success, clears the pending-repair flag and restores readiness (unless
+// recovery found corruptions). It is the explicit, idempotent repair for a store
+// that went degraded because the manifest write failed AFTER an accepted immutable
+// write: the immutable record was never lost — only its rebuildable manifest — so
+// replay protection and the latest-target index stay correct in memory throughout,
+// and a repeated envelope is still rejected while the store is degraded. If the
+// rewrite fails the store stays degraded.
 func (b *BlobStore) RepairProjections(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if !b.pendingRepair {
 		return nil
 	}
-	writes := make([]projection, 0, len(b.latest)+1)
-	for _, rec := range b.latest {
-		data, _ := jsonMarshal(rec)
-		writes = append(writes, projection{key: b.targetKeyPath(rec.TargetKey), data: data})
-	}
-	manifest := fmt.Sprintf(`{"records":%d,"generatedAt":%q}`, len(b.seen), b.now().UTC().Format(time.RFC3339Nano))
-	writes = append(writes, projection{key: b.manifestKeyPath(), data: []byte(manifest)})
-	for _, w := range writes {
-		if err := writeProjection(ctx, b.bucket, w.key, w.data); err != nil {
-			return err // still degraded; pendingRepair stays set
-		}
+	if err := b.writeManifest(ctx); err != nil {
+		return err // still degraded; pendingRepair stays set
 	}
 	b.pendingRepair = false
 	if len(b.corruptions) == 0 {
@@ -569,11 +562,6 @@ func (b *BlobStore) Close() error { return b.bucket.Close() }
 func (b *BlobStore) immutableKey(rec AcceptedRecord) string {
 	name := fmt.Sprintf("%020d-%s.json", rec.Sequence(), hashID(rec.EnvelopeID()))
 	return path.Join(b.prefix, "envelopes", hashID(rec.ProducerID()), name)
-}
-
-// targetKeyPath is the per-target latest-projection key.
-func (b *BlobStore) targetKeyPath(targetKey string) string {
-	return path.Join(b.prefix, "materialized", "targets", hashID(targetKey), "latest.json")
 }
 
 // manifestKeyPath is the manifest-projection key.
