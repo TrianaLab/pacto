@@ -33,7 +33,8 @@ const SchemaVersion = "pacto.dev/impact/v1"
 type Confidence string
 
 const (
-	ConfidenceContractual  Confidence = "contractual"  // explicit declared dependency + compatibility
+	ConfidenceContractual  Confidence = "contractual"  // declared dependency WITH a usable compatibility range
+	ConfidenceDeclared     Confidence = "declared"     // declared dependency but no usable compatibility range
 	ConfidenceObserved     Confidence = "observed"     // runtime use observed in a window
 	ConfidenceCorroborated Confidence = "corroborated" // declared and observed agree
 	ConfidenceInferred     Confidence = "inferred"     // transitive effect through another affected service
@@ -89,19 +90,20 @@ type AffectedConsumer struct {
 
 // Result is the deterministic impact answer.
 type Result struct {
-	SchemaVersion   string             `json:"schemaVersion"`
-	SnapshotID      string             `json:"snapshotId"`
-	AsOf            time.Time          `json:"asOf"`
-	Service         string             `json:"service"`
-	OldVersion      string             `json:"oldVersion,omitempty"`
-	NewVersion      string             `json:"newVersion,omitempty"`
-	Classification  string             `json:"classification"`
-	BreakingChanges []diff.Change      `json:"breakingChanges,omitempty"`
-	Consumers       []AffectedConsumer `json:"consumers"`
-	ActiveTargets   []string           `json:"activeTargets,omitempty"`
-	Owners          []string           `json:"owners,omitempty"`
-	Completeness    fleet.Completeness `json:"completeness"`
-	Limitations     []fleet.Limitation `json:"limitations,omitempty"`
+	SchemaVersion              string             `json:"schemaVersion"`
+	SnapshotID                 string             `json:"snapshotId"`
+	AsOf                       time.Time          `json:"asOf"`
+	Service                    string             `json:"service"`
+	OldVersion                 string             `json:"oldVersion,omitempty"`
+	NewVersion                 string             `json:"newVersion,omitempty"`
+	Classification             string             `json:"classification"`
+	BreakingChanges            []diff.Change      `json:"breakingChanges,omitempty"`
+	PotentiallyBreakingChanges []diff.Change      `json:"potentiallyBreakingChanges,omitempty"`
+	Consumers                  []AffectedConsumer `json:"consumers"`
+	ActiveTargets              []string           `json:"activeTargets,omitempty"`
+	Owners                     []string           `json:"owners,omitempty"`
+	Completeness               fleet.Completeness `json:"completeness"`
+	Limitations                []fleet.Limitation `json:"limitations,omitempty"`
 }
 
 // Analyze compares old→new and projects the change onto the operational graph.
@@ -121,9 +123,15 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		Limitations:    append([]fleet.Limitation(nil), snap.Limitations...),
 		Consumers:      []AffectedConsumer{},
 	}
+	// Breaking and potentially-breaking changes are kept SEPARATE: a
+	// POTENTIAL_BREAKING change is not a confirmed break and must not be presented
+	// as one.
 	for _, ch := range d.Changes {
-		if ch.Classification != diff.NonBreaking {
+		switch ch.Classification {
+		case diff.Breaking:
 			res.BreakingChanges = append(res.BreakingChanges, ch)
+		case diff.PotentialBreaking:
+			res.PotentiallyBreakingChanges = append(res.PotentiallyBreakingChanges, ch)
 		}
 	}
 
@@ -203,7 +211,7 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 		Domain:  domain,
 		Depth:   node.depth,
 		Direct:  node.depth == 1,
-		Path:    keysToStrings(node.path),
+		Path:    pathConsumerFirst(node.path),
 	}
 	if s := snap.Services[node.key]; s != nil {
 		c.Owner = s.Owner.DisplayString()
@@ -222,7 +230,7 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 	c.Compatibility = rel.Compatibility
 	c.Provenance = provenance(hasDeclared, observedCounted)
 	c.CompatibilityVerdict = compatibilityVerdict(rel.Compatibility, newVersion, hasDeclared)
-	c.Confidence = confidence(node.depth, hasDeclared, observedCounted)
+	c.Confidence = confidence(node.depth, hasDeclared, rel.Compatibility != "", observedCounted)
 	return c
 }
 
@@ -265,8 +273,10 @@ func provenance(declared, observed bool) string {
 	}
 }
 
-// confidence grades a consumer per the documented model.
-func confidence(depth int, declared, observed bool) Confidence {
+// confidence grades a consumer per the documented model. A declared dependency
+// counts as contractual ONLY when it carries a usable compatibility range;
+// declared-without-range is its own weaker grade.
+func confidence(depth int, declared, hasRange, observed bool) Confidence {
 	if depth > 1 {
 		return ConfidenceInferred
 	}
@@ -275,8 +285,10 @@ func confidence(depth int, declared, observed bool) Confidence {
 		return ConfidenceCorroborated
 	case observed:
 		return ConfidenceObserved
-	case declared:
+	case declared && hasRange:
 		return ConfidenceContractual
+	case declared:
+		return ConfidenceDeclared
 	default:
 		return ConfidenceUnknown
 	}
@@ -314,13 +326,14 @@ func serviceTargets(snap *fleet.FleetSnapshot, key fleet.ServiceKey) []string {
 	return out
 }
 
-// keysToStrings renders a path of service keys as strings for the wire model.
-// Every consumer node carries a non-empty path (root→consumer), so no nil guard
-// is needed.
-func keysToStrings(ks []fleet.ServiceKey) []string {
+// pathConsumerFirst renders the path in the documented consumer → intermediate →
+// changed-service orientation. The fleet dependents traversal produces it
+// changed-service-first, so it is reversed here. Every consumer node carries a
+// non-empty path, so no nil guard is needed.
+func pathConsumerFirst(ks []fleet.ServiceKey) []string {
 	out := make([]string, len(ks))
 	for i, k := range ks {
-		out[i] = string(k)
+		out[len(ks)-1-i] = string(k)
 	}
 	return out
 }

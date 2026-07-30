@@ -80,13 +80,13 @@ func TestAnalyze(t *testing.T) {
 
 	wantConsumers := []AffectedConsumer{
 		{
-			Service: "api-gateway", Depth: 1, Direct: true, Path: []string{"auth-service", "api-gateway"},
+			Service: "api-gateway", Depth: 1, Direct: true, Path: []string{"api-gateway", "auth-service"},
 			Owner: "gateway-team", Required: true, Compatibility: "^1.0.0",
 			CompatibilityVerdict: CompatibilityIncompatible, Provenance: "declared+observed",
 			Confidence: ConfidenceCorroborated, Status: fleet.StatusCompliant, Targets: []string{"prod/deployment/gw"},
 		},
 		{
-			Service: "frontend", Depth: 2, Direct: false, Path: []string{"auth-service", "api-gateway", "frontend"},
+			Service: "frontend", Depth: 2, Direct: false, Path: []string{"frontend", "api-gateway", "auth-service"},
 			CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceInferred,
 			Confidence: ConfidenceInferred, Status: fleet.StatusNotEvaluated,
 		},
@@ -129,7 +129,7 @@ func TestAnalyze_ObservedEdgesSurfaceShadowAndCorroborate(t *testing.T) {
 	}
 	sh := got["shadow-svc"]
 	wantShadow := AffectedConsumer{
-		Service: "shadow-svc", Depth: 1, Direct: true, Path: []string{"auth-service", "shadow-svc"},
+		Service: "shadow-svc", Depth: 1, Direct: true, Path: []string{"shadow-svc", "auth-service"},
 		CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceObserved, Confidence: ConfidenceObserved,
 	}
 	if !reflect.DeepEqual(sh, wantShadow) {
@@ -183,7 +183,7 @@ func TestConsumerImpactServiceAbsent(t *testing.T) {
 	node := consumerNode{key: fleet.NewServiceKey("ghost"), name: "ghost", depth: 2, path: []fleet.ServiceKey{"auth-service", "ghost"}}
 	got := consumerImpact(snap, fleet.NewServiceKey("auth-service"), node, "2.0.0", Options{})
 	want := AffectedConsumer{
-		Service: "ghost", Depth: 2, Path: []string{"auth-service", "ghost"},
+		Service: "ghost", Depth: 2, Path: []string{"ghost", "auth-service"},
 		CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceInferred, Confidence: ConfidenceInferred,
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -234,19 +234,47 @@ func TestProvenance(t *testing.T) {
 
 func TestConfidence(t *testing.T) {
 	tests := []struct {
-		depth              int
-		declared, observed bool
-		want               Confidence
+		depth                        int
+		declared, hasRange, observed bool
+		want                         Confidence
 	}{
-		{2, false, false, ConfidenceInferred},
-		{1, true, true, ConfidenceCorroborated},
-		{1, false, true, ConfidenceObserved},
-		{1, true, false, ConfidenceContractual},
-		{1, false, false, ConfidenceUnknown},
+		{2, false, false, false, ConfidenceInferred},
+		{1, true, true, true, ConfidenceCorroborated},
+		{1, false, false, true, ConfidenceObserved},
+		{1, true, true, false, ConfidenceContractual}, // declared WITH range
+		{1, true, false, false, ConfidenceDeclared},   // declared WITHOUT range
+		{1, false, false, false, ConfidenceUnknown},
 	}
 	for _, tc := range tests {
-		if got := confidence(tc.depth, tc.declared, tc.observed); got != tc.want {
-			t.Errorf("confidence(%d,%v,%v) = %q, want %q", tc.depth, tc.declared, tc.observed, got, tc.want)
+		if got := confidence(tc.depth, tc.declared, tc.hasRange, tc.observed); got != tc.want {
+			t.Errorf("confidence(%d,%v,%v,%v) = %q, want %q", tc.depth, tc.declared, tc.hasRange, tc.observed, got, tc.want)
+		}
+	}
+}
+
+func TestAnalyze_PotentialBreakingSeparated(t *testing.T) {
+	dep := func(comp string) contract.Dependency {
+		return contract.Dependency{Name: "redis", Ref: "oci://x/redis", Required: true, Compatibility: comp}
+	}
+	old := svcContract("svc", "1.0.0", contract.Owner{}, dep("^1.0.0"))
+	newC := svcContract("svc", "1.0.0", contract.Owner{}, dep("^2.0.0")) // compatibility modified -> PotentialBreaking
+	snap := &fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{}}
+
+	res := Analyze(context.Background(), old, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+
+	// A potentially-breaking change lands in its own bucket, never counted as a
+	// confirmed break.
+	if len(res.PotentiallyBreakingChanges) == 0 {
+		t.Fatalf("dependency compatibility change should be potentially-breaking; breaking=%+v potential=%+v", res.BreakingChanges, res.PotentiallyBreakingChanges)
+	}
+	for _, ch := range res.PotentiallyBreakingChanges {
+		if ch.Classification != diff.PotentialBreaking {
+			t.Errorf("wrong class in PotentiallyBreakingChanges: %+v", ch)
+		}
+	}
+	for _, ch := range res.BreakingChanges {
+		if ch.Classification == diff.PotentialBreaking {
+			t.Errorf("POTENTIAL_BREAKING leaked into BreakingChanges: %+v", ch)
 		}
 	}
 }

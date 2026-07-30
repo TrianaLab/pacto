@@ -12,10 +12,12 @@ func TestOciDomain(t *testing.T) {
 		{"ghcr.io/acme/payments", "ghcr.io/acme"},                          // no tag, no digest
 		{"payments:1.0", ""}, // single segment + tag -> default domain
 		{"payments", ""},     // bare name -> default domain
+		{"./svc-v2", ""},     // local relative path -> no domain
+		{"/abs/bundle", ""},  // local absolute path -> no domain
 	}
 	for _, c := range cases {
-		if got := ociDomain(c.ref); got != c.want {
-			t.Errorf("ociDomain(%q) = %q, want %q", c.ref, got, c.want)
+		if got := OciDomain(c.ref); got != c.want {
+			t.Errorf("OciDomain(%q) = %q, want %q", c.ref, got, c.want)
 		}
 	}
 }

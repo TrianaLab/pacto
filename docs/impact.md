@@ -19,7 +19,7 @@ MCP tool and the dashboard, and every one of them returns the identical answer.
 flowchart LR
     OLD["Old revision<br/>contract + files"] --> DIFF["Semantic diff<br/>pkg/diff"]
     NEW["New revision<br/>contract + files"] --> DIFF
-    DIFF --> CLASS["Classification<br/>NON_BREAKING · POTENTIAL_BREAKING · BREAKING<br/>+ breaking changes"]
+    DIFF --> CLASS["Classification<br/>NON_BREAKING · POTENTIAL_BREAKING · BREAKING<br/>breaking and potentially-breaking, kept separate"]
 
     SNAP["Fleet Snapshot<br/>pkg/fleet · immutable read model"] --> GRAPH["Dependents traversal<br/>direct + transitive"]
 
@@ -78,11 +78,12 @@ guess up as a fact.
 
 | Confidence | Exact meaning |
 |------------|---------------|
-| **contractual** | An explicit declared dependency with a compatibility range. The consumer's own contract says it depends on this service. |
+| **contractual** | A declared dependency **with** a usable compatibility range. The consumer's own contract says it depends on this service and pins the versions it accepts. |
+| **declared** | A declared dependency **without** a usable compatibility range. The dependency is stated, but no version constraint was pinned, so a compatibility verdict cannot be computed. |
 | **observed** | Runtime use of the dependency was observed in a window. Requires `--include-observed`. |
 | **corroborated** | The declared dependency and an observed one agree — the strongest grade, contract and runtime saying the same thing. |
 | **inferred** | A transitive effect reached *through* another affected service (`depth > 1`). It follows from the graph, not from a direct declaration or observation. |
-| **unknown** | Required evidence is incomplete or stale — a direct edge with neither a usable declaration nor an observation. |
+| **unknown** | A direct edge with no declaration and no observation — the effect is possible but unverified. |
 
 Two rules follow directly from this model and are load-bearing:
 
@@ -123,9 +124,11 @@ pacto impact ./payments-api@1.4.0 ./payments-api@2.0.0 \
   --traces ./traces.json
 ```
 
-The output reports the classification, the breaking changes, every affected
-consumer with its compatibility verdict and confidence, the active targets and the
-owners to notify — along with the snapshot's completeness and any limitations.
+The output reports the classification, the breaking and potentially-breaking
+changes (kept separate — a potential break is never counted as a confirmed one),
+every affected consumer with its compatibility verdict and confidence, the active
+targets and the owners to notify — along with the snapshot's completeness and any
+limitations.
 
 ---
 

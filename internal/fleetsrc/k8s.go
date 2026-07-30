@@ -89,7 +89,7 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		// cache sources derive it, so a service's runtime target correlates with its
 		// published baseline (same registry+org → same logical service) instead of
 		// splitting into a k8s-only and an OCI-only service.
-		Domain:          ociDomain(resolvedRef),
+		Domain:          OciDomain(resolvedRef),
 		Kind:            "kubernetes",
 		Name:            item.Metadata.Name,
 		Service:         service,

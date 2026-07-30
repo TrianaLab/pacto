@@ -98,7 +98,7 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 			})
 			continue
 		}
-		rev := fleet.RawRevision{Bundle: bundle, Domain: ociDomain(ref), RequestedRef: ref, ResolvedRef: ref}
+		rev := fleet.RawRevision{Bundle: bundle, Domain: OciDomain(ref), RequestedRef: ref, ResolvedRef: ref}
 		if digest, derr := store.Resolve(ctx, ref); derr == nil {
 			rev.Digest = digest
 		}
@@ -107,16 +107,21 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 	return col, nil
 }
 
-// ociDomain derives the logical-service domain (the registry+org/repo scope) from
+// OciDomain derives the logical-service domain (the registry+org/repo scope) from
 // a reference, so the same service name published to two different registries or
 // organizations stays distinct in the operational graph. It is the repo path with
 // its final segment (the artifact/service name) removed; a bare single-segment ref
-// (no registry/org) is the default (empty) domain.
+// (no registry/org) or a local filesystem path is the default (empty) domain.
 //
 //	oci://ghcr.io/acme/payments:1.0       -> ghcr.io/acme
 //	localhost:5000/acme/payments@sha256:x -> localhost:5000/acme
 //	payments:1.0                          -> "" (default domain)
-func ociDomain(ref string) string {
+//	./svc  or  /abs/path                  -> "" (local path, no domain)
+func OciDomain(ref string) string {
+	// A local filesystem path has no registry/org domain.
+	if strings.HasPrefix(ref, ".") || strings.HasPrefix(ref, "/") || strings.HasPrefix(ref, "~") {
+		return ""
+	}
 	r := strings.TrimPrefix(ref, "oci://")
 	if i := strings.Index(r, "@"); i >= 0 {
 		r = r[:i] // strip digest

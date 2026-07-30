@@ -102,6 +102,7 @@ func printImpactResult(cmd *cobra.Command, result *impact.Result, format string)
 		_, _ = fmt.Fprintf(w, "Impact: %s %s -> %s\n", result.Service, orDash(result.OldVersion), orDash(result.NewVersion))
 		_, _ = fmt.Fprintf(w, "Classification: %s\n", colorClassification(w, result.Classification))
 		_, _ = fmt.Fprintf(w, "Breaking changes: %d\n", len(result.BreakingChanges))
+		_, _ = fmt.Fprintf(w, "Potentially breaking changes: %d\n", len(result.PotentiallyBreakingChanges))
 
 		if len(result.Consumers) == 0 {
 			_, _ = fmt.Fprintln(w, "No affected consumers.")

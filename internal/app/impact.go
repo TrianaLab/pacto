@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/trianalab/pacto/v3/internal/fleetsrc"
 	"github.com/trianalab/pacto/v3/pkg/impact"
 	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/otelobserver"
@@ -49,7 +50,13 @@ func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Resul
 		return nil, fmt.Errorf("parse traces: %w", err)
 	}
 	return impact.Analyze(ctx, oldBundle.Contract, newBundle.Contract, oldBundle.FS, newBundle.FS, snap,
-		impact.Options{IncludeObserved: opts.IncludeObserved, ObservedEdges: observed}), nil
+		impact.Options{
+			// Domain-qualify the changed service from its new reference so impact is
+			// isolated across domains (a local path yields the default domain).
+			Domain:          fleetsrc.OciDomain(opts.NewPath),
+			IncludeObserved: opts.IncludeObserved,
+			ObservedEdges:   observed,
+		}), nil
 }
 
 // observedEdgesFromTraces derives impact observed edges from OTLP/JSON trace
