@@ -247,7 +247,9 @@ send_rejected "$WORK/env1.json" "replay still rejected after restart (rebuilt fr
 send_rejected "$WORK/env2.json" "seq-2 replay still rejected after restart"
 
 echo "== materialized projections are rebuildable: delete them, restart, target survives =="
-kubectl -n "$NS" exec deploy/pacto-evidence -- sh -c 'rm -rf /var/lib/pacto/evidence/*/materialized 2>/dev/null; true'
+# find (not a fixed-depth glob) so this works regardless of the prefix depth
+# (DefaultEvidencePrefix is two levels: pacto-evidence/v1).
+kubectl -n "$NS" exec deploy/pacto-evidence -- sh -c 'find /var/lib/pacto/evidence -type d -name materialized -exec rm -rf {} + 2>/dev/null; true'
 kubectl -n "$NS" rollout restart deployment/pacto-evidence >/dev/null
 kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
 kill "$EV_PF_PID" 2>/dev/null || true
@@ -256,7 +258,9 @@ curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" | grep -q 
   && pass "target reconstructed from immutable records after projection loss" || fail "projection reconstruction failed"
 
 echo "== a semantically-corrupt immutable record surfaces a degraded store =="
-kubectl -n "$NS" exec deploy/pacto-evidence -- sh -c 'd=$(ls -d /var/lib/pacto/evidence/*/envelopes/*/ 2>/dev/null | head -1); echo "{not-a-record}" > "${d}zzzz-corrupt.json"'
+# find the envelopes dir regardless of prefix depth; fail loudly if absent rather
+# than falling back to a read-only CWD write.
+kubectl -n "$NS" exec deploy/pacto-evidence -- sh -c 'set -e; d=$(find /var/lib/pacto/evidence -type d -name envelopes | head -1); [ -n "$d" ]; printf "{not-a-record}" > "$d/zzzz-corrupt.json"'
 kubectl -n "$NS" rollout restart deployment/pacto-evidence >/dev/null
 kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
 kubectl -n "$NS" exec deploy/pacto-evidence -- pacto evidence inspect --bucket-url file:///var/lib/pacto/evidence 2>/dev/null | grep -qiE 'degraded|corrupt' \
