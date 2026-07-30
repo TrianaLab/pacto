@@ -42,9 +42,9 @@ never ambiguous:
 - **declared** — the relationship comes from a contract (`dependencies[]`, and
   config/policy `ref`s). Every edge *in a snapshot* is declared today.
 - **observed** — a relationship seen in running traffic. Observed dependencies
-  are produced now by the [OTel observer](#observed-dependencies-and-reconciliation)
-  and consumed by reconciliation and impact, but they are compared *against* the
-  declared graph rather than merged into a snapshot's edges yet.
+  are produced by the [OTel observer](#observed-dependencies-and-reconciliation)
+  and consumed by reconciliation and impact only; they are compared *against* the
+  declared graph and are not merged into a snapshot's edges.
 - **inferred** — a relationship deduced heuristically. Reserved, not yet produced.
 
 The discriminator keeps "what a team declared" and "what a tracer saw" separable
@@ -170,7 +170,7 @@ flowchart LR
         K8S["Live Kubernetes<br/>Pacto CRs: which revision runs where"]
         EVI["Evidence Server<br/>durable signed EvidenceSet reports"]
     end
-    OTEL["OTel traces<br/>observed dependencies"]
+    OTEL["OTel trace file<br/>offline analysis"]
     OCI --> OG
     LOCAL --> OG
     K8S --> OG
@@ -277,10 +277,13 @@ manages the Kubernetes lifecycle.
 ## Observed dependencies and reconciliation
 
 Declared intent is only half the picture; the other half is what traffic
-actually does. The **OTel observer** (`pacto otel observe <traces.json>`) reads
-an OTLP/JSON trace export and derives the service dependency edges its outbound
-spans prove. It reports only what it saw and never asserts a dependency is
-absent — an unseen dependency is uncertainty, not a confirmed "no".
+actually does. The **OTel observer** (`pacto otel observe <traces.json>`) is an
+offline analyzer: it reads an exported OTLP/JSON trace file and derives the
+caller-to-callee reachability edges its outbound spans prove. It is not a
+receiver or a live collector — there is no OTLP endpoint and nothing is
+deployed; it processes a file you hand it. It reports only what it saw and never
+asserts a dependency is absent — an unseen dependency is uncertainty, not a
+confirmed "no".
 
 Those observed edges meet the declared graph in two places:
 
@@ -297,11 +300,11 @@ The OTel observer can also emit signable EvidenceSets
 (`pacto otel observe --evidence`), so observed dependencies can travel the same
 [external evidence protocol](evidence-protocol.md) as any other report.
 
-The remaining step is to merge observed edges *into the snapshot itself* as
-`observed`-provenance relationships (the `provenance` discriminator already
-reserves the slot), so `pacto fleet graph` can render the observed layer beside
-the declared one. Today they meet in reconcile and impact rather than in a
-snapshot's edge set.
+Observed edges are **not** part of a Fleet Snapshot. The `provenance`
+discriminator reserves an `observed` slot, but nothing populates it today: a
+snapshot's edges are all `declared`, and observed edges meet the declared graph
+only in the reconcile report and in impact — never merged into a snapshot's edge
+set, so `pacto fleet graph` renders the declared layer alone.
 
 ---
 
