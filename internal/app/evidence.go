@@ -331,6 +331,21 @@ func (s *Service) buildEvidenceHost(ctx context.Context, opts ServeOptions) (*ht
 	return mux, store, nil
 }
 
+// InspectEvidence opens the durable evidence store, recovers it and returns its
+// diagnostic status. The status is already redacted (backend scheme only, never
+// the raw bucket URL, credentials or endpoint). A recovery problem is reflected in
+// the returned phase (recovering/degraded/failed) rather than as an error, so the
+// diagnostic always shows the store's real state; only an unopenable bucket errors.
+func (s *Service) InspectEvidence(ctx context.Context, bucketURL, prefix string) (evidencestore.StoreStatus, error) {
+	store, err := openEvidenceStore(ctx, bucketURL, prefix)
+	if err != nil {
+		return evidencestore.StoreStatus{}, err
+	}
+	defer func() { _ = store.Close() }()
+	_ = recoverEvidence(ctx, store) // outcome is reflected in the status phase
+	return store.Inspect(ctx), nil
+}
+
 // ServeEvidence assembles the ingestion host, listens on opts.Port and serves
 // until ctx is cancelled. It is the port-based convenience over
 // ServeEvidenceOnListener.

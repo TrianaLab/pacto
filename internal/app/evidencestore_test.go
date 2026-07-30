@@ -6,9 +6,47 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/evidencestore"
 )
+
+func TestService_InspectEvidence(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	// Seed one record via a store on the same bucket+prefix InspectEvidence reads.
+	store, err := openEvidenceStore(ctx, "file://"+dir, DefaultEvidencePrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rec := evidencestore.AcceptedRecord{
+		Envelope:   evidenceenvelope.Envelope{ID: "e1", Producer: evidenceenvelope.Producer{ID: "prod"}, Sequence: 1},
+		TargetKey:  "t1",
+		AcceptedAt: time.Unix(1, 0),
+	}
+	if err := store.Commit(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := NewService(nil, nil).InspectEvidence(ctx, "file://"+dir, DefaultEvidencePrefix)
+	if err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	if st.Backend != "file" || st.Records != 1 || st.Phase != evidencestore.PhaseReady {
+		t.Errorf("status = %+v", st)
+	}
+	// An unopenable bucket surfaces as an error.
+	if _, err := NewService(nil, nil).InspectEvidence(ctx, "bogus://x", ""); err == nil {
+		t.Error("expected error for unopenable bucket")
+	}
+}
 
 func TestToBucketURL(t *testing.T) {
 	// A schemed value passes through unchanged.

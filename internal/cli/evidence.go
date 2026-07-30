@@ -31,7 +31,56 @@ func newEvidenceCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.AddCommand(newEvidenceVerifyCommand(svc, v))
 	cmd.AddCommand(newEvidenceServeCommand(svc, v))
 	cmd.AddCommand(newEvidenceSendCommand(svc, v))
+	cmd.AddCommand(newEvidenceInspectCommand(svc, v))
 	return cmd
+}
+
+// newEvidenceInspectCommand builds `pacto evidence inspect`: a redacted diagnostic
+// view of the durable evidence store.
+func newEvidenceInspectCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "inspect",
+		Short: "Show the durable evidence store's diagnostic status",
+		Long: "Opens the durable evidence store, recovers it and prints a REDACTED " +
+			"diagnostic view — the backend scheme (never the raw URL, credentials or " +
+			"endpoint), key prefix, lifecycle phase, record/target/producer counts, the " +
+			"corruption count and whether a projection repair is pending. JSON output " +
+			"additionally lists the corruption details.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			bucketURL, _ := cmd.Flags().GetString("bucket-url")
+			prefix, _ := cmd.Flags().GetString("prefix")
+			if storeDir, _ := cmd.Flags().GetString("store-dir"); storeDir != "" {
+				abs, _ := filepath.Abs(storeDir)
+				bucketURL = "file://" + abs
+			}
+			status, err := svc.InspectEvidence(cmd.Context(), bucketURL, prefix)
+			if err != nil {
+				return err
+			}
+			return printEvidenceStatus(cmd, status, v.GetString(outputFormatKey))
+		},
+	}
+	cmd.Flags().String("bucket-url", evidencestore.DefaultBucketURL, "durable evidence store bucket URL (file://, s3://, gs://, azblob://)")
+	cmd.Flags().String("prefix", app.DefaultEvidencePrefix, "key prefix within the evidence bucket")
+	cmd.Flags().String("store-dir", "", "deprecated alias for --bucket-url file://<dir>")
+	return cmd
+}
+
+// printEvidenceStatus renders a redacted store status as text or JSON. The text
+// form shows only the corruption COUNT; JSON carries the full corruption list.
+func printEvidenceStatus(cmd *cobra.Command, st evidencestore.StoreStatus, format string) error {
+	return formatResult(cmd, format, st, func() error {
+		w := cmd.OutOrStdout()
+		_, _ = fmt.Fprintf(w, "Evidence store (%s, prefix %q)\n", st.Backend, st.Prefix)
+		_, _ = fmt.Fprintf(w, "  phase:         %s\n", st.Phase)
+		_, _ = fmt.Fprintf(w, "  records:       %d\n", st.Records)
+		_, _ = fmt.Fprintf(w, "  targets:       %d\n", st.Targets)
+		_, _ = fmt.Fprintf(w, "  producers:     %d\n", st.Producers)
+		_, _ = fmt.Fprintf(w, "  corruptions:   %d\n", len(st.Corruptions))
+		_, _ = fmt.Fprintf(w, "  pendingRepair: %v\n", st.PendingRepair)
+		return nil
+	}, nil)
 }
 
 func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {

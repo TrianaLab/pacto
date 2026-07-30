@@ -112,18 +112,23 @@ type RecoveredState struct {
 	TaintedProducers map[string]struct{}
 }
 
-// StoreStatus is a point-in-time diagnostic view of the store.
+// StoreStatus is a point-in-time diagnostic view of the store. It NEVER carries
+// the raw bucket URL: only the backend scheme is exposed, so credentials, a
+// private endpoint host, a path or query parameters can never leak through
+// status, logs or CLI output.
 type StoreStatus struct {
-	Phase       Phase        `json:"phase"`
-	InstanceID  string       `json:"instanceId"`
-	BucketURL   string       `json:"bucketUrl"`
+	Phase      Phase  `json:"phase"`
+	InstanceID string `json:"instanceId"`
+	// Backend is the bucket scheme only (file, s3, gs, azblob, mem) — never the
+	// full URL, credentials, host or query.
+	Backend     string       `json:"backend"`
 	Prefix      string       `json:"prefix"`
 	Records     int          `json:"records"`
 	Targets     int          `json:"targets"`
 	Producers   int          `json:"producers"`
 	Corruptions []Corruption `json:"corruptions,omitempty"`
 	// PendingRepair is true when a derived projection write failed and the store
-	// is serving from memory while repair is retried.
+	// is serving from memory until [BlobStore.RepairProjections] rewrites it.
 	PendingRepair bool `json:"pendingRepair"`
 }
 

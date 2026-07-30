@@ -404,14 +404,15 @@ func (b *BlobStore) ListLatest(_ context.Context, opts ListOptions) []AcceptedRe
 	return out
 }
 
-// Inspect returns a point-in-time diagnostic view of the store.
+// Inspect returns a point-in-time diagnostic view of the store. The bucket URL is
+// reduced to its scheme so credentials or a private endpoint can never leak.
 func (b *BlobStore) Inspect(_ context.Context) StoreStatus {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return StoreStatus{
 		Phase:         b.phase,
 		InstanceID:    b.instanceID,
-		BucketURL:     b.bucketURL,
+		Backend:       bucketScheme(b.bucketURL),
 		Prefix:        b.prefix,
 		Records:       len(b.seen),
 		Targets:       len(b.latest),
@@ -419,6 +420,12 @@ func (b *BlobStore) Inspect(_ context.Context) StoreStatus {
 		Corruptions:   append([]Corruption(nil), b.corruptions...),
 		PendingRepair: b.pendingRepair,
 	}
+}
+
+// bucketScheme returns just the URL scheme (file, s3, gs, azblob, mem) — never the
+// host, path, credentials or query — so a diagnostic can never leak them.
+func bucketScheme(url string) string {
+	return strings.SplitN(url, "://", 2)[0]
 }
 
 // Close releases the underlying bucket.

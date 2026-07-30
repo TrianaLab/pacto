@@ -229,6 +229,35 @@ type failWriter struct{}
 
 func (failWriter) Write([]byte) (int, error) { return 0, errors.New("write fail") }
 
+func TestEvidenceInspect_TextJSONAndRedaction(t *testing.T) {
+	dir := t.TempDir()
+	// Empty store recovers to ready. --store-dir aliases --bucket-url file://.
+	out, err := runEvidence(t, "evidence", "inspect", "--store-dir", dir)
+	if err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	if !strings.Contains(out, "Evidence store (file,") || !strings.Contains(out, "phase:") || !strings.Contains(out, "records:") {
+		t.Errorf("text output missing fields: %q", out)
+	}
+
+	out, err = runEvidence(t, "evidence", "inspect", "--bucket-url", "file://"+dir, "--output-format", "json")
+	if err != nil {
+		t.Fatalf("inspect json: %v", err)
+	}
+	if !strings.Contains(out, `"backend"`) || !strings.Contains(out, `"phase"`) {
+		t.Errorf("json output missing fields: %q", out)
+	}
+	// Redaction: the raw bucket path / scheme URL must never appear in any output.
+	if strings.Contains(out, dir) || strings.Contains(out, "file://") {
+		t.Errorf("inspect leaked the raw bucket URL: %q", out)
+	}
+
+	// An unopenable bucket surfaces as an error.
+	if _, err := runEvidence(t, "evidence", "inspect", "--bucket-url", "bogus://x"); err == nil {
+		t.Error("expected an error for an unopenable bucket")
+	}
+}
+
 func TestEvidenceServe_RequiresFlags(t *testing.T) {
 	// --trust is required; --bucket-url and --prefix have defaults.
 	if _, err := runEvidence(t, "evidence", "serve"); err == nil {
