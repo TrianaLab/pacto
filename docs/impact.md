@@ -152,6 +152,19 @@ the same result model the CLI and MCP tool produce. It lets a reviewer see the
 affected consumers, targets, owners and per-consumer confidence for a proposed
 old→new change directly in the operational view, without leaving the browser.
 
+The Impact page is contextual: revision selectors are populated from the known
+revisions, and it can be launched preconfigured from a Diff result or a selected
+service in the Operational Graph. It analyzes the **currently published** Fleet
+Snapshot — the same one the Operational Graph shows — so the answer's `snapshotId`
+matches the graph, never a divergent rebuild. Breaking and potentially-breaking
+changes are shown separately, and each consumer carries its path to the changed
+service, compatibility range and verdict, and confidence with an explanation.
+
+Because observed evidence must have a real source, the dashboard's
+**include-observed** control is enabled only when the host declares an observation
+source (reported by `GET /api/capabilities`); otherwise it is disabled — the
+dashboard never ships a control that would have no effect.
+
 ---
 
 ## It recommends review, it does not act
