@@ -113,10 +113,24 @@ func TestTargetKeyRoundTrip(t *testing.T) {
 }
 
 func TestParseTargetKey_Malformed(t *testing.T) {
-	for _, bad := range []TargetKey{"", "one", "one/two", "a/b/c/d"} {
-		if _, _, _, ok := ParseTargetKey(bad); ok {
-			t.Errorf("ParseTargetKey(%q) = ok, want not ok", bad)
+	bad := []TargetKey{
+		"", "one", "one/two", "a/b/c/d",
+		// Non-canonical / invalid percent encodings must NOT decode ok.
+		"a/b/c%",   // dangling percent
+		"a/b/c%2G", // invalid hex
+		"a/b/c%2f", // lowercase (non-canonical; NewTargetKey emits %2F)
+		"a%/b/c",   // bare percent in a component
+	}
+	for _, k := range bad {
+		if _, _, _, ok := ParseTargetKey(k); ok {
+			t.Errorf("ParseTargetKey(%q) = ok, want not ok", k)
 		}
+	}
+	// A canonically-encoded key round-trips.
+	k := NewTargetKey("prod/x", "k8s", "a%b/c")
+	scope, kind, name, ok := ParseTargetKey(k)
+	if !ok || scope != "prod/x" || kind != "k8s" || name != "a%b/c" {
+		t.Errorf("canonical key must decode: %q -> %q/%q/%q ok=%v", k, scope, kind, name, ok)
 	}
 }
 

@@ -111,11 +111,21 @@ func NewTargetKey(scope, kind, name string) TargetKey {
 }
 
 // ParseTargetKey losslessly decodes a target key back into its components. ok is
-// false when the key is not a well-formed three-component key.
+// false when the key is not a well-formed three-component key OR any component is
+// not CANONICALLY encoded — an invalid escape (e.g. a bare "%", "%2G") or a
+// non-canonical one (e.g. lowercase "%2f") is rejected rather than silently
+// mis-decoded, so only keys [NewTargetKey] could have produced round-trip.
 func ParseTargetKey(k TargetKey) (scope, kind, name string, ok bool) {
 	parts := strings.Split(string(k), "/")
 	if len(parts) != 3 {
 		return "", "", "", false
+	}
+	for _, p := range parts {
+		// A component is canonical iff re-encoding its decoding reproduces it
+		// exactly; escapeKeyPart only ever emits %25 and %2F.
+		if escapeKeyPart(unescapeKeyPart(p)) != p {
+			return "", "", "", false
+		}
 	}
 	return unescapeKeyPart(parts[0]), unescapeKeyPart(parts[1]), unescapeKeyPart(parts[2]), true
 }

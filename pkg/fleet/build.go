@@ -421,7 +421,7 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 	b := raw.Bundle
 	c := b.Contract
 	serviceKey := NewServiceKeyDomain(raw.Domain, c.Service.Name)
-	content := contentDigest(c)
+	content := contentDigest(b)
 	contentID := raw.Digest
 	var lims []Limitation
 	if contentID == "" {
@@ -474,13 +474,29 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 	return rev, lims
 }
 
-// contentDigest derives a deterministic, collision-safe content identity for a
-// revision's declared contract. encoding/json sorts map keys, so equal contracts
-// hash identically and different contracts differ.
-func contentDigest(c *contract.Contract) string {
-	data, _ := json.Marshal(c)
-	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:])
+// contentDigest derives a deterministic, collision-safe content identity for the
+// COMPLETE logical bundle — the parsed contract PLUS every referenced file
+// (OpenAPI documents, JSON schemas, skills, docs) via a deterministic FS hash. Two
+// bundles with an identical pacto.yaml but different referenced content therefore
+// get different revision identities. encoding/json sorts map keys, so equal
+// contracts hash identically; lock.HashFS is order-independent over the FS.
+func contentDigest(b *contract.Bundle) string {
+	h := sha256.New()
+	data, _ := json.Marshal(b.Contract)
+	h.Write(data)
+	if b.FS != nil {
+		// Fold in every bundle file so referenced content affects identity. A hash
+		// error (unreadable FS) degrades to the contract-only digest rather than
+		// failing the build.
+		if fsHash, err := lock.HashFS(b.FS); err == nil {
+			h.Write([]byte{0})
+			h.Write([]byte(fsHash))
+		}
+	} else if b.RawYAML != nil {
+		h.Write([]byte{0})
+		h.Write(b.RawYAML)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
 // toolsFrom derives bounded tool summaries from a contract's OpenAPI interfaces,
