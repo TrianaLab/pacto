@@ -2,6 +2,7 @@ package evidencestore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -17,14 +18,17 @@ func fixedClock() func() time.Time {
 }
 
 func newRec(id, producer, target string, seq uint64, at time.Time) AcceptedRecord {
+	env := evidenceenvelope.Envelope{
+		ID:       id,
+		Producer: evidenceenvelope.Producer{ID: producer},
+		Sequence: seq,
+	}
 	return AcceptedRecord{
-		Envelope: evidenceenvelope.Envelope{
-			ID:       id,
-			Producer: evidenceenvelope.Producer{ID: producer},
-			Sequence: seq,
-		},
-		TargetKey:  target,
-		AcceptedAt: at,
+		Envelope:       env,
+		TargetKey:      target,
+		AcceptedAt:     at,
+		SchemaVersion:  RecordSchemaVersion,
+		EvidenceDigest: EvidenceDigest(env.EvidenceSet),
 	}
 }
 
@@ -85,6 +89,63 @@ func TestReturnedState_IsDeepCopied(t *testing.T) {
 	}
 	if _, ok := s.Latest(ctx, "t1"); !ok {
 		t.Error("store latest map was mutated via RecoveredState")
+	}
+}
+
+func TestRecover_TamperedRecordsAreCorruption(t *testing.T) {
+	ctx := context.Background()
+	valid := newRec("e1", "prod", "t1", 1, fixedClock()()) // schema + evidence digest set by newRec; ContractRef "" matches empty EvidenceSet
+
+	keyOf := func(rec AcceptedRecord) string { return (&BlobStore{prefix: ""}).immutableKey(rec) }
+	mustJSON := func(rec AcceptedRecord) []byte { d, _ := json.Marshal(rec); return d }
+
+	// recoverInto writes one crafted object under envelopes/ and recovers a fresh
+	// store over it, returning the reconstructed state.
+	recoverInto := func(t *testing.T, key string, data []byte) RecoveredState {
+		t.Helper()
+		dir := t.TempDir()
+		hb, err := blob.OpenBucket(ctx, "file://"+dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := hb.WriteAll(ctx, key, data, nil); err != nil {
+			t.Fatal(err)
+		}
+		_ = hb.Close()
+		s, err := Open(ctx, "file://"+dir, "", WithInstanceID("w"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		st, err := s.Recover(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+
+	cases := []struct {
+		name string
+		key  string
+		data []byte
+	}{
+		{"unknown schema version", keyOf(valid), func() []byte { r := valid; r.SchemaVersion = "bogus"; return mustJSON(r) }()},
+		{"empty envelope id", keyOf(valid), func() []byte { r := valid; r.Envelope.ID = ""; return mustJSON(r) }()},
+		{"object moved under another producer", "envelopes/" + hashID("other") + "/00000000000000000001-x.json", mustJSON(valid)},
+		{"tampered evidence digest", keyOf(valid), func() []byte { r := valid; r.EvidenceDigest = "sha256:tampered"; return mustJSON(r) }()},
+		{"tampered contract ref", keyOf(valid), func() []byte { r := valid; r.ContractRef = "oci://evil"; return mustJSON(r) }()},
+		{"unknown field", keyOf(valid), []byte(`{"schemaVersion":"` + RecordSchemaVersion + `","evilField":true}`)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := recoverInto(t, tc.key, tc.data)
+			if len(st.Corruptions) != 1 {
+				t.Fatalf("want 1 corruption, got %d: %+v", len(st.Corruptions), st.Corruptions)
+			}
+			if len(st.SeenEnvelopeIDs) != 0 {
+				t.Errorf("tampered record must not be indexed, seen=%v", st.SeenEnvelopeIDs)
+			}
+		})
 	}
 }
 

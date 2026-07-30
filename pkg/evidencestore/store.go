@@ -72,6 +72,9 @@ type AcceptedRecord struct {
 	// ContractRef is the immutable contract reference the evidence was evaluated
 	// against.
 	ContractRef string `json:"contractRef"`
+	// SchemaVersion identifies the record wire format. Recovery refuses (taints) a
+	// record whose version it does not recognize rather than mis-parsing it.
+	SchemaVersion string `json:"schemaVersion"`
 }
 
 // ProducerID is the reporting producer's id (from the envelope).
@@ -176,6 +179,10 @@ var (
 
 // DefaultBucketURL is the zero-infrastructure default: a file bucket on a PVC.
 const DefaultBucketURL = "file:///var/lib/pacto/evidence"
+
+// RecordSchemaVersion is the current immutable-record wire format. Recovery
+// rejects (taints) a record carrying any other version.
+const RecordSchemaVersion = "pacto.dev/evidence-record/v1"
 
 // NormalizePrefix validates and normalizes a logical key prefix. Every object
 // key is scoped below it, so it must be a safe relative path: no absolute paths,

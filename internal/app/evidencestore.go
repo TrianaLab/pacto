@@ -87,7 +87,8 @@ func acceptedRecordFromIngest(rec evidenceingest.Record) evidencestore.AcceptedR
 	return evidencestore.AcceptedRecord{
 		Envelope:       env,
 		AcceptedAt:     rec.AcceptedAt,
-		EvidenceDigest: contentID(env.EvidenceSet),
+		EvidenceDigest: evidencestore.EvidenceDigest(env.EvidenceSet),
+		SchemaVersion:  evidencestore.RecordSchemaVersion,
 		Findings:       rec.Findings,
 		Coverage:       rec.Coverage,
 		Compliance:     rec.Compliance,

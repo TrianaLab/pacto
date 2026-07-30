@@ -1,6 +1,7 @@
 package evidencestore
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"gocloud.dev/blob"
+
+	"github.com/trianalab/pacto/v3/pkg/evidence"
 )
 
 // Seams, overridable in tests to exercise the write error paths without a real
@@ -147,19 +150,82 @@ func (b *BlobStore) Recover(ctx context.Context) (RecoveredState, error) {
 }
 
 // recoverOne reads one immutable object into the index, or taints its producer
-// when the object cannot be read or parsed.
+// when the object cannot be read, parsed or validated.
 func (b *BlobStore) recoverOne(ctx context.Context, key, listPrefix string) {
 	data, err := readAll(ctx, b.bucket, key)
 	if err != nil {
 		b.taint(key, listPrefix, err)
 		return
 	}
-	var rec AcceptedRecord
-	if err := json.Unmarshal(data, &rec); err != nil {
+	rec, err := decodeRecord(data)
+	if err != nil {
+		b.taint(key, listPrefix, err)
+		return
+	}
+	if err := b.validateRecovered(rec, key); err != nil {
 		b.taint(key, listPrefix, err)
 		return
 	}
 	b.index(rec)
+}
+
+// decodeRecord strictly decodes an immutable record, rejecting unknown fields so a
+// schema change or an injected field is reported as corruption, not silently
+// mis-parsed.
+func decodeRecord(data []byte) (AcceptedRecord, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var rec AcceptedRecord
+	if err := dec.Decode(&rec); err != nil {
+		return AcceptedRecord{}, err
+	}
+	return rec, nil
+}
+
+// validateRecovered re-verifies a recovered record's structural and identity
+// integrity before it re-enters the index, so a syntactically valid but tampered
+// or degenerate object is reported as corruption instead of poisoning the replay
+// and latest-target state. It checks everything re-derivable WITHOUT trusting the
+// bucket: the record schema version; non-empty producer and envelope ids (a "{}"
+// object can no longer be indexed as a record); the object-key binding
+// (recomputing the immutable key ties the object to its producer, envelope id and
+// sequence, so a moved, re-producered, re-sequenced or re-identified object is
+// rejected); the evidence digest recomputed over the carried EvidenceSet; and the
+// contract reference matching the one inside the evidence set.
+//
+// The producer's envelope SIGNATURE is verified at INGEST and the immutable write
+// is the commit point. Recovery does NOT re-verify the signature (that needs the
+// trust store — see the evidence protocol) nor re-derive the acceptor's own
+// evaluation (findings/coverage/compliance) or the target key: those are trusted
+// from the single active writer's bucket, a private ReadWriteOnce PVC by default
+// or an IAM-scoped bucket for cloud backends. A full bucket-compromise adversary
+// is out of that trust model.
+func (b *BlobStore) validateRecovered(rec AcceptedRecord, key string) error {
+	if rec.SchemaVersion != RecordSchemaVersion {
+		return fmt.Errorf("unknown record schema version %q", rec.SchemaVersion)
+	}
+	if rec.EnvelopeID() == "" || rec.ProducerID() == "" {
+		return fmt.Errorf("record has an empty envelope or producer id")
+	}
+	if key != b.immutableKey(rec) {
+		return fmt.Errorf("record body does not bind its object key")
+	}
+	if EvidenceDigest(rec.Envelope.EvidenceSet) != rec.EvidenceDigest {
+		return fmt.Errorf("evidence digest does not match the carried evidence set")
+	}
+	if rec.ContractRef != rec.Envelope.EvidenceSet.ContractRef {
+		return fmt.Errorf("contract reference does not match the evidence set")
+	}
+	return nil
+}
+
+// EvidenceDigest is the canonical content digest over an EvidenceSet. The acceptor
+// stamps it on each record and recovery recomputes it, so a tampered EvidenceSet
+// is detected. Deterministic: encoding/json sorts map keys.
+func EvidenceDigest(set evidence.EvidenceSet) string {
+	raw, _ := json.Marshal(set)
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // taint records a corruption and refuses future writes for the affected producer
@@ -230,6 +296,12 @@ func (b *BlobStore) Commit(ctx context.Context, rec AcceptedRecord) error {
 	if b.phase == PhaseStarting || b.phase == PhaseFailed {
 		return ErrNotReady
 	}
+	// The store owns record metadata: stamp the schema version and (re)compute the
+	// evidence digest so every committed record is self-consistent and passes the
+	// same integrity checks recovery applies. A caller can never commit a record
+	// that would later fail to recover on these fields.
+	rec.SchemaVersion = RecordSchemaVersion
+	rec.EvidenceDigest = EvidenceDigest(rec.Envelope.EvidenceSet)
 	if _, ok := b.seen[rec.EnvelopeID()]; ok {
 		return ErrAlreadyCommitted
 	}
