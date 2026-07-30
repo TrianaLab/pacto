@@ -441,18 +441,28 @@ func wireOCIEnrichment(
 // the operational graph in the background.
 const fleetRefreshInterval = 30 * time.Second
 
-// currentQuery returns the Manager's published snapshot query, triggering a
-// coalesced first build if none exists yet (so the first request is answered
-// from a real snapshot rather than erroring).
-func currentQuery(ctx context.Context, mgr *fleet.Manager) (*fleet.Query, error) {
-	q, err := mgr.Query()
+// currentSnapshot returns the Manager's published snapshot (the original, with
+// its query indexes intact — NOT a serialization clone), triggering a coalesced
+// first build if none exists yet.
+func currentSnapshot(ctx context.Context, mgr *fleet.Manager) (*fleet.FleetSnapshot, error) {
+	snap, err := mgr.Current()
 	if errors.Is(err, fleet.ErrNoSnapshot) {
 		if rerr := mgr.Refresh(ctx); rerr != nil {
 			return nil, rerr
 		}
-		return mgr.Query()
+		return mgr.Current()
 	}
-	return q, err
+	return snap, err
+}
+
+// currentQuery returns a query over the Manager's published snapshot, triggering
+// a coalesced first build if none exists yet.
+func currentQuery(ctx context.Context, mgr *fleet.Manager) (*fleet.Query, error) {
+	snap, err := currentSnapshot(ctx, mgr)
+	if err != nil {
+		return nil, err
+	}
+	return fleet.NewQuery(snap), nil
 }
 
 // managerFleetProvider serves the fleet query from a shared snapshot Manager.
@@ -467,14 +477,17 @@ func managerFleetProvider(mgr *fleet.Manager) func(context.Context) (*fleet.Quer
 // a freshly rebuilt, divergent snapshot. Extracted so the wiring is testable.
 func impactProviderForFleet(svc *app.Service, mgr *fleet.Manager) func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 	return func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
-		q, err := currentQuery(ctx, mgr)
+		// Use the ORIGINAL published snapshot (with its query indexes), not a
+		// serialization clone — impact traverses the dependency graph, which a
+		// clone cannot answer.
+		snap, err := currentSnapshot(ctx, mgr)
 		if err != nil {
 			return nil, err
 		}
 		return svc.ImpactWithSnapshot(ctx, app.ImpactOptions{
 			OldPath: oldRef, NewPath: newRef,
 			IncludeObserved: includeObserved,
-		}, q.Snapshot())
+		}, snap)
 	}
 }
 

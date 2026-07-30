@@ -28,21 +28,22 @@ import (
 
 // Server serves the dashboard web UI and REST API.
 type Server struct {
-	source         DataSource
-	resolved       *ResolvedSource    // may be nil for non-resolved usage
-	resolver       *oci.Resolver      // optional: enables lazy resolution of remote OCI dependencies
-	fleetQuery     fleetProvider      // optional: enables the read-only operational-graph (fleet) endpoints
-	impactProvider impactProviderFunc // optional: enables the read-only /api/fleet/impact endpoint
-	cacheSource    *CacheSource       // optional: for rescanning after cache writes
-	cacheDir       string             // optional: OCI cache dir for on-demand CacheSource creation
-	memCache       Cache              // optional: for invalidating after cache writes
-	ociSource      *OCISource         // optional: for tracking discovery state
-	ui             fs.FS
-	sourceInfo     []SourceInfo
-	diagnostics    *SourceDiagnostics
-	listenAddr     string // optional: server URL for OpenAPI spec
-	version        string // optional: Pacto version to expose via /health
-	corsOrigin     string // optional: explicit cross-origin allowed to call the API (startup-only)
+	source            DataSource
+	resolved          *ResolvedSource    // may be nil for non-resolved usage
+	resolver          *oci.Resolver      // optional: enables lazy resolution of remote OCI dependencies
+	fleetQuery        fleetProvider      // optional: enables the read-only operational-graph (fleet) endpoints
+	impactProvider    impactProviderFunc // optional: enables the read-only /api/fleet/impact endpoint
+	observedAvailable bool               // optional: impact is backed by an observation source (enables include-observed)
+	cacheSource       *CacheSource       // optional: for rescanning after cache writes
+	cacheDir          string             // optional: OCI cache dir for on-demand CacheSource creation
+	memCache          Cache              // optional: for invalidating after cache writes
+	ociSource         *OCISource         // optional: for tracking discovery state
+	ui                fs.FS
+	sourceInfo        []SourceInfo
+	diagnostics       *SourceDiagnostics
+	listenAddr        string // optional: server URL for OpenAPI spec
+	version           string // optional: Pacto version to expose via /health
+	corsOrigin        string // optional: explicit cross-origin allowed to call the API (startup-only)
 
 	// logger is injected into every request context (see corsMiddleware), so the
 	// handler and source code that log via logging.LoggerFromContext reach the
@@ -573,6 +574,7 @@ func (s *Server) RegisterOperations(api huma.API) {
 		}, s.debugServices)
 	}
 
+	s.registerCapabilitiesOperation(api)
 	s.registerFleetOperations(api)
 }
 

@@ -1,0 +1,38 @@
+pactoVersion: '2.0'
+service:
+  name: audit-log
+  version: 1.0.0
+  owner:
+    team: platform-security
+    dri: nadia.osei
+    contacts:
+    - type: email
+      value: platform-security@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#platform-security'
+      purpose: support
+interfaces:
+- name: events
+  type: asyncapi
+  ref: interfaces/events.json
+  visibility: internal
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
+metadata:
+  tier: domain
+  category: security
+  criticality: high
+  summary: Append-only audit trail; consumes domain events and persists them for compliance
+  language: go
+  repo: github.com/trianalab/pacto-demo/audit-log
+  tags:
+  - audit
+  - compliance
+  - events
+  - security

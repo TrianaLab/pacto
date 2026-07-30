@@ -4,7 +4,7 @@
   import SourceDot from './components/SourceDot.svelte';
 
   let {
-    services = [], sourcesInfo = [], version = '', discovering = false, view = 'list',
+    services = [], sourcesInfo = [], capabilities = null, version = '', discovering = false, view = 'list',
     autoReload = false, refreshing = false, onRefresh, onToggleAutoReload, onToggleTheme, onOpenPalette,
   } = $props();
 
@@ -12,14 +12,19 @@
   // item. The Operational Graph is now the single graph/topology capability (the
   // former standalone "Graph" folded into it, still reachable as a deep link);
   // Impact is a contextual deep route launched from Compare or a selected
-  // service/revision, not a top-level empty page.
+  // service/revision, not a top-level empty page. `cap`, when set, requires that
+  // capability to be enabled on the host — so a fleet-less host never shows a dead
+  // Operational Graph tab.
   const NAV = [
     { label: 'Services', href: '#/', views: ['list', 'detail'] },
-    { label: 'Operational Graph', href: fleetUrl(), views: ['fleet', 'graph', 'impact'] },
+    { label: 'Operational Graph', href: fleetUrl(), views: ['fleet', 'graph', 'impact'], cap: 'fleet' },
     { label: 'Owners', href: ownersUrl(), views: ['owners', 'owner-detail'] },
     { label: 'Readiness', href: readinessUrl(), views: ['readiness'] },
     { label: 'Compare', href: compareDiffUrl(), views: ['diff'] },
   ];
+  // Until capabilities are known (null), show everything; once known, hide items
+  // whose required capability the host does not serve.
+  const nav = $derived(NAV.filter((item) => !item.cap || capabilities === null || capabilities[item.cap]));
   const isActive = (item) => item.views.includes(view);
 
   let mobileMenuOpen = $state(false);
@@ -52,7 +57,7 @@
   </div>
 
   <nav class="navbar-nav navbar-nav-desktop" aria-label="Primary">
-    {#each NAV as item}
+    {#each nav as item}
       <a href={item.href} class="nav-link" class:active={isActive(item)} aria-current={isActive(item) ? 'page' : undefined}>{item.label}</a>
     {/each}
   </nav>
@@ -94,7 +99,7 @@
 {#if mobileMenuOpen}
   <div class="mobile-drawer" role="menu">
     <nav class="mobile-nav" aria-label="Primary">
-      {#each NAV as item}
+      {#each nav as item}
         <a href={item.href} class="mobile-nav-link" class:active={isActive(item)} aria-current={isActive(item) ? 'page' : undefined} onclick={() => mobileMenuOpen = false}>{item.label}</a>
       {/each}
     </nav>

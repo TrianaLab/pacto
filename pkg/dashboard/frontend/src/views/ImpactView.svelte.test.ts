@@ -8,9 +8,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 
-const { fleetImpactFn, fleetSnapshotFn } = vi.hoisted(() => ({
+const { fleetImpactFn, fleetSnapshotFn, capabilitiesFn } = vi.hoisted(() => ({
   fleetImpactFn: vi.fn(),
   fleetSnapshotFn: vi.fn(),
+  capabilitiesFn: vi.fn(),
 }));
 
 vi.mock('../lib/api.ts', async (importOriginal) => {
@@ -20,6 +21,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
     api: {
       fleetImpact: (...a: unknown[]) => fleetImpactFn(...a),
       fleetSnapshot: (...a: unknown[]) => fleetSnapshotFn(...a),
+      capabilities: (...a: unknown[]) => capabilitiesFn(...a),
     },
   };
 });
@@ -71,6 +73,7 @@ describe('ImpactView — redesigned workflow', () => {
     fleetSnapshotFn.mockReset();
     fleetImpactFn.mockResolvedValue(result);
     fleetSnapshotFn.mockResolvedValue(snapshot);
+    capabilitiesFn.mockResolvedValue({ fleet: true, impact: true, observed: false });
   });
 
   it('offers revision selectors populated from the snapshot (§2.1)', async () => {
@@ -88,6 +91,17 @@ describe('ImpactView — redesigned workflow', () => {
     await vi.waitFor(() => {
       const cb = target.querySelector('input[type="checkbox"]') as HTMLInputElement;
       expect(cb.disabled).toBe(true);
+    });
+    unmount(component);
+    document.body.removeChild(target);
+  });
+
+  it('enables include-observed when the host declares an observation source', async () => {
+    capabilitiesFn.mockResolvedValue({ fleet: true, impact: true, observed: true });
+    const { target, component } = mountView();
+    await vi.waitFor(() => {
+      const cb = target.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      expect(cb.disabled).toBe(false);
     });
     unmount(component);
     document.body.removeChild(target);

@@ -49,3 +49,4 @@ release/proofs/
 
 # repowise deterministic index/cache (built in CI on demand)
 .repowise/
+/demo

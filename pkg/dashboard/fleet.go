@@ -36,6 +36,49 @@ type impactProviderFunc func(ctx context.Context, old, new string, includeObserv
 // the endpoint is not registered, so existing deployments are unaffected.
 func (s *Server) SetImpactProvider(fn impactProviderFunc) { s.impactProvider = fn }
 
+// capabilitiesOutput reports which optional capabilities the running host has
+// registered, so the frontend can gate its navigation and never expose a
+// capability the host does not serve (a fleet-less host must not show a dead
+// Operational Graph tab).
+type capabilitiesOutput struct {
+	Body struct {
+		Fleet  bool `json:"fleet" doc:"The operational-graph (fleet) endpoints are served"`
+		Impact bool `json:"impact" doc:"The impact endpoint is served"`
+		// Observed reports whether an observation source (e.g. OTel traces) backs
+		// the impact provider, so a consumer can honestly enable an include-observed
+		// control instead of shipping a placebo.
+		Observed bool `json:"observed" doc:"An observation source backs impact analysis"`
+	}
+}
+
+// registerCapabilitiesOperation registers the always-on capabilities endpoint. It
+// reports state at request time, so a provider set after registration is
+// reflected.
+func (s *Server) registerCapabilitiesOperation(api huma.API) {
+	huma.Register(api, huma.Operation{
+		OperationID: "capabilities",
+		Method:      http.MethodGet,
+		Path:        "/api/capabilities",
+		Summary:     "Report enabled capabilities",
+		Description: "Reports which optional capabilities (fleet, impact) the running host serves.",
+		Tags:        []string{"Meta"},
+	}, s.capabilities)
+}
+
+func (s *Server) capabilities(_ context.Context, _ *struct{}) (*capabilitiesOutput, error) {
+	out := &capabilitiesOutput{}
+	out.Body.Fleet = s.fleetQuery != nil
+	out.Body.Impact = s.impactProvider != nil
+	out.Body.Observed = s.observedAvailable
+	return out, nil
+}
+
+// SetObservedAvailable declares that the impact provider is backed by an
+// observation source (e.g. embedded OTel traces), so the frontend may enable its
+// include-observed control. Off by default — a host without observed data must
+// never advertise it (no placebo).
+func (s *Server) SetObservedAvailable(v bool) { s.observedAvailable = v }
+
 // registerFleetOperations registers the fleet endpoints when a provider is set.
 func (s *Server) registerFleetOperations(api huma.API) {
 	s.registerImpactOperation(api)

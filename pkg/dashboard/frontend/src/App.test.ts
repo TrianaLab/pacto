@@ -13,12 +13,14 @@ import { mount, unmount } from 'svelte';
 const servicesFn = vi.fn();
 const sourcesFn = vi.fn();
 const healthFn = vi.fn();
+const capabilitiesFn = vi.fn();
 
 vi.mock('./lib/api.ts', () => ({
   api: {
     services: (...a: unknown[]) => servicesFn(...a),
     sources: (...a: unknown[]) => sourcesFn(...a),
     health: (...a: unknown[]) => healthFn(...a),
+    capabilities: (...a: unknown[]) => capabilitiesFn(...a),
     refresh: vi.fn().mockResolvedValue({}),
   },
 }));
@@ -33,6 +35,7 @@ describe('App — auto-reload cadence', () => {
     servicesFn.mockResolvedValue([]);
     sourcesFn.mockResolvedValue({ sources: [], discovering: false });
     healthFn.mockResolvedValue({ version: 'x' });
+    capabilitiesFn.mockResolvedValue({ fleet: true, impact: true });
     vi.useFakeTimers();
     target = document.createElement('div');
     document.body.appendChild(target);

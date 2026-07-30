@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"io"
 	"io/fs"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
 // embeddedBundles holds the demo contracts baked into the wasm binary at build
@@ -44,6 +46,19 @@ func main() {
 	// resolves from the embedded contracts' declared dependencies — no OCI.
 	srv := dashboard.NewServer(src, nil)
 	srv.SetVersion(version) // surfaced via /health → shown in the navbar
+
+	// Wire the operational graph (fleet) and impact provider from the embedded
+	// bundles + deterministic targets, so the Operational Graph and Impact pages
+	// prove the full product story in the browser with no server and no OCI.
+	if snap, byRef, err := buildDemoFleet(src); err != nil {
+		panic(err)
+	} else {
+		q := fleet.NewQuery(snap)
+		srv.SetFleetProvider(func(context.Context) (*fleet.Query, error) { return q, nil })
+		srv.SetImpactProvider(demoImpactProvider(snap, byRef))
+		srv.SetObservedAvailable(true) // the demo carries embedded observed edges
+	}
+
 	mux := http.NewServeMux()
 	api := humago.New(mux, dashboard.APIConfig())
 	srv.RegisterOperations(api)

@@ -11,6 +11,7 @@
   // Snapshot backs the revision selectors, the observed-availability gate and the
   // snapshotId comparison — impact analyzes THIS published snapshot (§2.2).
   let snapshot = $state(null);
+  let caps = $state(null);
   let snapLoading = $state(true);
 
   // Revision-selector state (the primary workflow); raw refs are an advanced input.
@@ -39,10 +40,11 @@
     return 'badge-neutral';
   }
 
-  // Observed evidence has no dashboard-level source today, so the toggle is a
-  // placebo unless the snapshot actually carries observed relationships. §2.4:
-  // do not ship a placebo control — disable it with a reason when unusable.
-  const observedAvailable = $derived(layerAvailability(snapshot).observed);
+  // §2.4: the include-observed control is only usable when an observation source
+  // exists — either observed edges in the snapshot, or the host declaring an
+  // observation source (capabilities.observed, e.g. the demo's embedded traces).
+  // Otherwise it is a placebo and is disabled with a reason.
+  const observedAvailable = $derived(!!caps?.observed || layerAvailability(snapshot).observed);
   $effect(() => { if (!observedAvailable && includeObserved) includeObserved = false; });
 
   // Services and their revisions, domain-qualified, for the selectors.
@@ -51,20 +53,36 @@
       .map((s) => ({ key: s.key, name: s.name, domain: s.domain || '', label: s.domain ? `${s.name} (${s.domain})` : s.name }))
       .sort((a, b) => a.label.localeCompare(b.label)),
   );
-  const revisionsOfService = $derived.by(() => {
+  // Sort revisions newest-first by semver so the selectors and the default
+  // old→new pair are deterministic regardless of the snapshot's map order.
+  function cmpVersionDesc(a, b) {
+    const pa = String(a).split('.').map((n) => parseInt(n, 10));
+    const pb = String(b).split('.').map((n) => parseInt(n, 10));
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const x = pa[i] || 0;
+      const y = pb[i] || 0;
+      if (x !== y) return y - x;
+    }
+    return String(b).localeCompare(String(a));
+  }
+  function revsForService(key) {
     const revs = snapshot?.revisions || {};
-    const svc = snapshot?.services?.[svcKey];
+    const svc = snapshot?.services?.[key];
     if (!svc) return [];
     return (svc.revisions || [])
       .map((rk) => revs[rk])
       .filter(Boolean)
-      .map((r) => ({ ref: r.resolvedRef || r.key, version: r.version || r.key, digest: r.digest || '' }));
-  });
+      .map((r) => ({ ref: r.resolvedRef || r.key, version: r.version || r.key, digest: r.digest || '' }))
+      .sort((a, b) => cmpVersionDesc(a.version, b.version));
+  }
+  const revisionsOfService = $derived(revsForService(svcKey));
 
   async function loadSnapshot() {
     snapLoading = true;
     try {
-      snapshot = await api.fleetSnapshot();
+      const [snap, c] = await Promise.all([api.fleetSnapshot(), api.capabilities().catch(() => null)]);
+      snapshot = snap;
+      caps = c;
     } catch {
       snapshot = null; // selectors degrade to the advanced raw-ref inputs
       showAdvanced = true;
@@ -74,16 +92,15 @@
 
   function pickService(key) {
     svcKey = key;
-    const revs = (snapshot?.services?.[key]?.revisions || [])
-      .map((rk) => snapshot.revisions?.[rk])
-      .filter(Boolean);
-    // Default to the two most recent revisions (old = second-newest, new = newest)
-    // so a service with history yields a ready old→new comparison.
+    const revs = revsForService(key); // newest-first
+    // Default to the full known history (old = oldest, new = newest) so a service
+    // spanning a major bump yields a ready — and, across a major, breaking —
+    // comparison. The user can narrow it with the selectors.
     if (revs.length >= 2) {
-      newRef = revs[0].resolvedRef || revs[0].key;
-      oldRef = revs[1].resolvedRef || revs[1].key;
+      newRef = revs[0].ref;
+      oldRef = revs[revs.length - 1].ref;
     } else if (revs.length === 1) {
-      newRef = revs[0].resolvedRef || revs[0].key;
+      newRef = revs[0].ref;
     }
   }
 

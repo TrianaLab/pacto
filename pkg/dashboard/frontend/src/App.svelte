@@ -29,6 +29,10 @@
   let initialLoading = $state(true);
   let loadError = $state(null);
   let paletteOpen = $state(false);
+  // Which optional capabilities the host serves, so the navbar never exposes a
+  // capability the running host has not registered. null = not yet known (show
+  // everything until the first probe resolves).
+  let capabilities = $state(null);
 
   const POLL_FAST = 2000;   // during discovery
   const POLL_NORMAL = 10000;
@@ -51,11 +55,13 @@
       const needsServices = route.view === 'list' || route.view === 'graph' || route.view === 'diff' || route.view === 'owners' || route.view === 'owner-detail' || route.view === 'readiness';
 
       let servicesFailed = false;
-      const [svcList, srcData, health] = await Promise.all([
+      const [svcList, srcData, health, caps] = await Promise.all([
         needsServices ? api.services().catch(() => { servicesFailed = true; return null; }) : Promise.resolve(null),
         api.sources().catch(() => null),
         api.health().catch(() => null),
+        capabilities === null ? api.capabilities().catch(() => null) : Promise.resolve(null),
       ]);
+      if (caps) capabilities = caps;
       // A failed services fetch means the backend is unreachable or erroring — not
       // that the fleet is genuinely empty. Keep any stale data and flag the error
       // so views show "can't reach backend" instead of the "no sources" setup screen.
@@ -131,6 +137,7 @@
 <Navbar
   {services}
   {sourcesInfo}
+  {capabilities}
   view={route.view}
   version={appVersion}
   {discovering}

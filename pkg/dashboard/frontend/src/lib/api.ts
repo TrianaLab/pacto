@@ -37,6 +37,7 @@ const post = (path: string, body?: unknown): Promise<unknown> => request('POST',
 
 export const api = {
   health: () => get('/health'),
+  capabilities: () => get('/api/capabilities'),
   sources: () => get('/api/sources'),
   services: () => get('/api/services'),
   service: (name: string) => get(`/api/services/${encodeURIComponent(name)}`),

@@ -128,6 +128,44 @@ func TestFleetEndpoints_Serve(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesEndpoint(t *testing.T) {
+	// With both providers set, capabilities reports them enabled. Observed stays
+	// off unless a host explicitly declares an observation source.
+	q := demoFleetQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil },
+		func(context.Context, string, string, bool) (*impact.Result, error) { return &impact.Result{}, nil })
+	defer cancel()
+	var caps struct {
+		Fleet    bool `json:"fleet"`
+		Impact   bool `json:"impact"`
+		Observed bool `json:"observed"`
+	}
+	getJSON(t, base+"/api/capabilities", http.StatusOK, &caps)
+	if !caps.Fleet || !caps.Impact || caps.Observed {
+		t.Errorf("expected fleet+impact enabled, observed off, got %+v", caps)
+	}
+
+	// With no providers, capabilities reports them disabled (so the frontend can
+	// hide the corresponding navigation).
+	baseOff, cancelOff := startFleetTestServer(t, nil, nil)
+	defer cancelOff()
+	getJSON(t, baseOff+"/api/capabilities", http.StatusOK, &caps)
+	if caps.Fleet || caps.Impact {
+		t.Errorf("expected fleet+impact disabled, got %+v", caps)
+	}
+}
+
+func TestCapabilities_ObservedAvailable(t *testing.T) {
+	// A host that declares an observation source advertises observed=true, so the
+	// frontend may enable an include-observed control honestly.
+	srv := NewResolvedServer(BuildResolvedSource(map[string]DataSource{"local": newOrderServiceSource()}), nil, nil, nil)
+	srv.SetObservedAvailable(true)
+	out, err := srv.capabilities(context.Background(), nil)
+	if err != nil || !out.Body.Observed {
+		t.Errorf("expected observed=true, got %+v err=%v", out.Body, err)
+	}
+}
+
 func TestFleetDetailEndpoints(t *testing.T) {
 	q := demoFleetQuery(t)
 	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)

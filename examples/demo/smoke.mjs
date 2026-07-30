@@ -69,5 +69,63 @@ check("payments readiness gate FAIL", pay.readiness && pay.readiness.passing ===
 const ord = json(call("GET", "/api/services/orders-service"));
 check("orders 1.2.0 readiness passes", ord.readiness && ord.readiness.passing === true, ord.readiness && `score ${ord.readiness.score}`);
 
+// ── Operational graph (fleet) + impact + capabilities ──
+// The demo wires SetFleetProvider/SetImpactProvider/SetObservedAvailable, so
+// every new endpoint the redesigned dashboard calls must answer for real.
+const caps = json(call("GET", "/api/capabilities"));
+check("capabilities: fleet+impact+observed enabled", caps.fleet === true && caps.impact === true && caps.observed === true, JSON.stringify(caps));
+
+const snap = json(call("GET", "/api/fleet/snapshot"));
+const svcCount = Object.keys(snap.services || {}).length;
+check("fleet snapshot has all demo services", svcCount >= 7, `${svcCount} services`);
+check("fleet snapshot has a snapshotId", typeof snap.snapshotId === "string" && snap.snapshotId.length > 0);
+check("fleet snapshot has operational targets", Object.keys(snap.targets || {}).length >= 7);
+// A deliberately-unavailable secondary source makes the snapshot partial.
+check("fleet snapshot is partial (an unavailable source is surfaced)",
+  snap.completeness !== "complete" && (snap.sources || []).some((s) => s.status === "unavailable"),
+  `completeness=${snap.completeness}`);
+
+const search = json(call("GET", "/api/fleet/services?text=payments"));
+check("fleet search finds payments-service", (search.services || []).some((s) => s.name === "payments-service"));
+const hit = (search.services || []).find((s) => s.name === "payments-service");
+check("fleet search hit carries a domain-qualified key", hit && typeof hit.key === "string" && hit.key.length > 0, hit && hit.key);
+
+const detail = json(call("GET", "/api/fleet/service?key=payments-service"));
+check("fleet service detail has revisions + targets", detail.service && (detail.revisions || []).length >= 1 && (detail.targets || []).length >= 1);
+
+const fgraph = json(call("GET", "/api/fleet/services/payments-service/graph?direction=dependents&transitive=true"));
+check("fleet graph traverses from payments-service", fgraph.root === "payments-service");
+
+const fstatus = json(call("GET", "/api/fleet/status"));
+check("fleet status surfaces the non-compliant orders target",
+  (fstatus.items || []).some((i) => i.name.includes("orders-service") || i.code === "NON_COMPLIANT"));
+
+// A pick a target detail key from the snapshot and fetch it.
+const someTargetKey = Object.keys(snap.targets || {})[0];
+const tdetail = json(call("GET", `/api/fleet/target?key=${encodeURIComponent(someTargetKey)}`));
+check("fleet target detail resolves by key", tdetail.target && tdetail.target.key === someTargetKey, someTargetKey);
+
+// Impact: a preconfigured breaking scenario (payments-service 1.0.0 → 2.0.0)
+// resolved entirely from embedded bundles, no OCI. Uses the same published
+// snapshot the graph serves.
+const revs = json(call("GET", "/api/services/payments-service/versions")); // reuse for hashes? use fleet detail refs
+const payRevs = (detail.revisions || []).slice().sort((a, b) => (a.version < b.version ? -1 : 1));
+const oldRef = payRevs[0].resolvedRef;
+const newRef = payRevs[payRevs.length - 1].resolvedRef;
+const impRes = call("GET", `/api/fleet/impact?old=${encodeURIComponent(oldRef)}&new=${encodeURIComponent(newRef)}&includeObserved=false`);
+check("impact 200", impRes.status === 200, `status ${impRes.status}`);
+const imp = json(impRes);
+check("impact result binds the published snapshot (§2.2)", imp.snapshotId === snap.snapshotId, `${imp.snapshotId} vs ${snap.snapshotId}`);
+check("impact 1.0.0→2.0.0 is BREAKING", imp.classification === "BREAKING", imp.classification);
+check("impact has affected consumers (direct + transitive)", (imp.consumers || []).length >= 1);
+
+// Observed: include-observed surfaces the audit-log shadow consumer that declares
+// no dependency on payments-service.
+const impObs = json(call("GET", `/api/fleet/impact?old=${encodeURIComponent(oldRef)}&new=${encodeURIComponent(newRef)}&includeObserved=true`));
+check("include-observed surfaces the audit-log shadow consumer",
+  (impObs.consumers || []).some((c) => c.service === "audit-log"),
+  (impObs.consumers || []).map((c) => c.service).join(","));
+void revs;
+
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);
