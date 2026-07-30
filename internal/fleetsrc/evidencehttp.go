@@ -72,6 +72,9 @@ type evidenceTargetsResponse struct {
 	Truncated bool `json:"truncated"`
 	Targets   []struct {
 		Subject       string            `json:"subject"`
+		Service       string            `json:"service"`
+		Domain        string            `json:"domain"`
+		Digest        string            `json:"digest"`
 		Producer      string            `json:"producer"`
 		ProducerKeyID string            `json:"producerKeyId"`
 		Compliance    string            `json:"compliance"`
@@ -124,13 +127,23 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 			continue
 		}
 		evidenceAt, acceptedAt, coverage := t.EvidenceAt, t.AcceptedAt, t.Coverage
+		// Name is the operational target (subject); Service/Domain/Digest are the
+		// RESOLVED logical identity the server derived from the ContractRef — used
+		// as-is, never inferred from Subject, so the target links to the correct
+		// domain-qualified service and revision. Fall back to deriving the digest
+		// from the ref only when the server omitted it.
+		digest := t.Digest
+		if digest == "" {
+			digest = digestFromRef(t.ContractRef)
+		}
 		col.Targets = append(col.Targets, fleet.RawTarget{
 			Scope:        t.Producer,
 			Kind:         "external",
 			Name:         t.Subject,
-			Service:      t.Subject,
+			Service:      t.Service,
+			Domain:       t.Domain,
 			ResolvedRef:  t.ContractRef,
-			Digest:       digestFromRef(t.ContractRef),
+			Digest:       digest,
 			Compliance:   t.Compliance,
 			Findings:     t.Findings,
 			Coverage:     &coverage,

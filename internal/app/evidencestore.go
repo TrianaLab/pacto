@@ -94,6 +94,9 @@ func acceptedRecordFromIngest(rec evidenceingest.Record) evidencestore.AcceptedR
 		Compliance:     rec.Compliance,
 		TargetKey:      string(fleet.NewTargetKey(env.Producer.ID, "external", env.EvidenceSet.Subject.Name)),
 		ContractRef:    env.EvidenceSet.ContractRef,
+		Service:        rec.Service,
+		Domain:         rec.Domain,
+		Digest:         rec.Digest,
 	}
 }
 
@@ -105,6 +108,9 @@ func recordFromAccepted(ar evidencestore.AcceptedRecord) evidenceingest.Record {
 		Findings:   ar.Findings,
 		Coverage:   ar.Coverage,
 		AcceptedAt: ar.AcceptedAt,
+		Service:    ar.Service,
+		Domain:     ar.Domain,
+		Digest:     ar.Digest,
 	}
 }
 
@@ -168,10 +174,15 @@ func rawTargetFromAccepted(ar evidencestore.AcceptedRecord) fleet.RawTarget {
 	env := ar.Envelope
 	at := env.EvidenceSet.ObservedAt
 	return fleet.RawTarget{
-		Scope:        env.Producer.ID,
-		Kind:         "external",
+		Scope: env.Producer.ID,
+		Kind:  "external",
+		// Name is the operational target (subject); Service/Domain/Digest are the
+		// resolved logical identity, so the recovered target links to the correct
+		// domain-qualified service and revision.
 		Name:         env.EvidenceSet.Subject.Name,
-		Service:      env.EvidenceSet.Subject.Name,
+		Service:      ar.Service,
+		Domain:       ar.Domain,
+		Digest:       ar.Digest,
 		ResolvedRef:  ar.ContractRef,
 		Compliance:   ar.Compliance,
 		Findings:     ar.Findings,

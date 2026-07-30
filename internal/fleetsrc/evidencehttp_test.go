@@ -11,7 +11,7 @@ import (
 
 // targetsJSON is a full v1 DTO: identity, contract linkage, full findings,
 // freshness, provenance and a healthy store.
-const targetsJSON = `{"schemaVersion":"pacto.dev/evidence-source/v1","generatedAt":"2026-07-29T12:00:00Z","health":{"phase":"ready","pendingRepair":false,"corruptions":0},"truncated":false,"targets":[{"subject":"payments","producer":"prod-eu","producerKeyId":"k1","compliance":"Compliant","coverage":{"evaluated":3,"required":5},"findings":[{}],"contractRef":"oci://ghcr.io/acme/payments@sha256:abc","evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:05:00Z"}]}`
+const targetsJSON = `{"schemaVersion":"pacto.dev/evidence-source/v1","generatedAt":"2026-07-29T12:00:00Z","health":{"phase":"ready","pendingRepair":false,"corruptions":0},"truncated":false,"targets":[{"subject":"payments-prod-01","service":"payments","domain":"ghcr.io/acme","digest":"sha256:abc","producer":"prod-eu","producerKeyId":"k1","compliance":"Compliant","coverage":{"evaluated":3,"required":5},"findings":[{}],"contractRef":"oci://ghcr.io/acme/payments@sha256:abc","evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:05:00Z"}]}`
 
 func serveJSON(t *testing.T, payload string) *httptest.Server {
 	t.Helper()
@@ -51,8 +51,13 @@ func collectOneTarget(t *testing.T) fleet.RawTarget {
 
 func TestEvidenceHTTPSource_Collect(t *testing.T) {
 	tgt := collectOneTarget(t)
-	if tgt.Scope != "prod-eu" || tgt.Kind != "external" || tgt.Name != "payments" || tgt.Service != "payments" {
+	// Name is the operational target (subject); Service/Domain are the resolved
+	// logical identity — Service is NOT inferred from Subject.
+	if tgt.Scope != "prod-eu" || tgt.Kind != "external" || tgt.Name != "payments-prod-01" {
 		t.Errorf("identity wrong: %+v", tgt)
+	}
+	if tgt.Service != "payments" || tgt.Domain != "ghcr.io/acme" {
+		t.Errorf("resolved service/domain wrong: service=%q domain=%q", tgt.Service, tgt.Domain)
 	}
 	if tgt.Compliance != "Compliant" {
 		t.Errorf("compliance = %q, want Compliant", tgt.Compliance)

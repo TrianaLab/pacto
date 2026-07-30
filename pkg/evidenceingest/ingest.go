@@ -77,6 +77,28 @@ func validateContractRef(ref string, allowedRepos []string) error {
 	return ErrContractRefPolicy
 }
 
+// ociDomain returns the domain (registry + org — everything before the final
+// path segment, the service name) of an oci digest ref, matching the domain a
+// contract's OCI source is keyed under. Empty for a ref with no org segment.
+func ociDomain(ref string) string {
+	s := strings.TrimPrefix(ref, "oci://")
+	if i := strings.Index(s, "@"); i >= 0 {
+		s = s[:i]
+	}
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		return s[:i]
+	}
+	return ""
+}
+
+// ociDigest returns the "sha256:…" digest of an oci ref (empty when absent).
+func ociDigest(ref string) string {
+	if i := strings.Index(ref, "@"); i >= 0 {
+		return ref[i+1:]
+	}
+	return ""
+}
+
 // validSHA256Digest reports whether d is a complete "sha256:<64 lowercase hex>"
 // digest — the full immutable shape, so a truncated or malformed digest is
 // rejected rather than accepted because it merely contains the "@sha256:" marker.
@@ -95,13 +117,23 @@ func validSHA256Digest(d string) bool {
 	return true
 }
 
-// Record is one accepted envelope and the evaluation it produced.
+// Record is one accepted envelope and the evaluation it produced. The RESOLVED
+// identity (Service/Domain/Digest) is captured at accept time from the resolved
+// contract and its immutable ContractRef — NOT inferred from the envelope's
+// Subject. Subject is the operational-target identity; the logical service, its
+// domain and the revision digest come from what the ContractRef actually resolved
+// to, so an externally-ingested target links to the correct domain-qualified
+// service and revision even when two services share a name across OCI domains.
 type Record struct {
 	Envelope   evidenceenvelope.Envelope `json:"envelope"`
 	Compliance string                    `json:"compliance"`
 	Findings   []finding.Finding         `json:"findings,omitempty"`
 	Coverage   validation.Coverage       `json:"coverage"`
 	AcceptedAt time.Time                 `json:"acceptedAt"`
+	// Resolved logical identity (from the contract the ContractRef resolved to).
+	Service string `json:"service"`
+	Domain  string `json:"domain,omitempty"`
+	Digest  string `json:"digest,omitempty"`
 }
 
 // Store durably persists accepted records. Commit is the acceptance authority:
@@ -173,6 +205,11 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 		Findings:   findings,
 		Coverage:   coverage,
 		AcceptedAt: a.now(),
+		// The logical service is what the ContractRef resolved to, never the
+		// envelope Subject; the domain and digest come from the immutable ref.
+		Service: c.Service.Name,
+		Domain:  ociDomain(env.EvidenceSet.ContractRef),
+		Digest:  ociDigest(env.EvidenceSet.ContractRef),
 	}
 	if err := a.store.Commit(ctx, rec); err != nil {
 		return Record{}, err
@@ -243,10 +280,15 @@ func (s *Source) Collect(ctx context.Context) (*fleet.Collection, error) {
 		env := rec.Envelope
 		at := env.EvidenceSet.ObservedAt
 		col.Targets = append(col.Targets, fleet.RawTarget{
-			Scope:        env.Producer.ID,
-			Kind:         "external",
+			Scope: env.Producer.ID,
+			Kind:  "external",
+			// Name is the operational target (the envelope Subject); Service/Domain/
+			// Digest are the RESOLVED logical identity, so the target links to the
+			// correct domain-qualified service and revision.
 			Name:         env.EvidenceSet.Subject.Name,
-			Service:      env.EvidenceSet.Subject.Name,
+			Service:      rec.Service,
+			Domain:       rec.Domain,
+			Digest:       rec.Digest,
 			ResolvedRef:  env.EvidenceSet.ContractRef,
 			Compliance:   rec.Compliance,
 			Findings:     rec.Findings,
@@ -420,7 +462,14 @@ type SourceHealth struct {
 // reconstruct a fleet target with findings, contract linkage, freshness and
 // provenance, not a lossy summary.
 type TargetDTO struct {
+	// Subject is the operational-target identity (the envelope subject). Service/
+	// Domain/Digest are the RESOLVED logical identity — from the contract the
+	// ContractRef resolved to — so a consumer links the target to the correct
+	// domain-qualified service and revision, never inferring Service from Subject.
 	Subject       string              `json:"subject"`
+	Service       string              `json:"service"`
+	Domain        string              `json:"domain,omitempty"`
+	Digest        string              `json:"digest,omitempty"`
 	Producer      string              `json:"producer"`
 	ProducerKeyID string              `json:"producerKeyId,omitempty"`
 	Compliance    string              `json:"compliance"`
@@ -463,6 +512,9 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, TargetDTO{
 			Subject:       es.Subject.Name,
+			Service:       rec.Service,
+			Domain:        rec.Domain,
+			Digest:        rec.Digest,
 			Producer:      rec.Envelope.Producer.ID,
 			ProducerKeyID: rec.Envelope.Producer.KeyID,
 			Compliance:    rec.Compliance,

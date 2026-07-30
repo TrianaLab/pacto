@@ -72,6 +72,13 @@ type AcceptedRecord struct {
 	// ContractRef is the immutable contract reference the evidence was evaluated
 	// against.
 	ContractRef string `json:"contractRef"`
+	// Service, Domain and Digest are the RESOLVED logical identity captured at
+	// accept time (service name from the resolved contract; domain and digest from
+	// the immutable ContractRef), so a recovered target links to the correct
+	// domain-qualified service and revision, not the envelope Subject.
+	Service string `json:"service,omitempty"`
+	Domain  string `json:"domain,omitempty"`
+	Digest  string `json:"digest,omitempty"`
 	// SchemaVersion identifies the record wire format. Recovery refuses (taints) a
 	// record whose version it does not recognize rather than mis-parsing it.
 	SchemaVersion string `json:"schemaVersion"`

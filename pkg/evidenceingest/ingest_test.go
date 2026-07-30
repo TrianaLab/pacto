@@ -15,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
@@ -237,7 +238,9 @@ func TestMemoryStore_Commit(t *testing.T) {
 
 func TestSource_Collect(t *testing.T) {
 	store := NewMemoryStore()
-	a, priv := newTestAcceptor(t, fakeResolver{}, store)
+	// The RESOLVED contract (service "payments" under domain ghcr.io/acme) — not the
+	// envelope Subject — is the source of the logical identity.
+	a, priv := newTestAcceptor(t, fakeResolver{c: contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "payments"}}}, store)
 	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet())); err != nil {
 		t.Fatal(err)
 	}
@@ -250,8 +253,11 @@ func TestSource_Collect(t *testing.T) {
 		t.Fatalf("collect: %d targets err=%v", len(col.Targets), err)
 	}
 	tg := col.Targets[0]
-	if tg.Service != "payments" || tg.Scope != "env-a" || tg.Kind != "external" || tg.ResolvedRef == "" || tg.EvidenceAt == nil {
+	if tg.Service != "payments" || tg.Domain != "ghcr.io/acme" || tg.Scope != "env-a" || tg.Kind != "external" || tg.ResolvedRef == "" || tg.EvidenceAt == nil {
 		t.Errorf("unexpected target: %+v", tg)
+	}
+	if tg.Digest != "sha256:"+strings.Repeat("a", 64) {
+		t.Errorf("digest = %q, want the resolved revision digest", tg.Digest)
 	}
 }
 
@@ -482,6 +488,78 @@ func TestAcceptor_StoreError(t *testing.T) {
 	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: evidenceenvelope.TrustEntry{PublicKey: pub, ProducerID: "env-a"}}, fakeResolver{}, failStore{err: errors.New("disk full")}, fixedNow)
 	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet())); err == nil {
 		t.Error("store Commit error should propagate")
+	}
+}
+
+func TestAccept_CrossDomainIsolation(t *testing.T) {
+	store := NewMemoryStore()
+	// The resolver returns a "payments" contract for any ref; the DOMAIN comes from
+	// the ContractRef, so two same-named services published to different OCI domains
+	// must stay distinct — no cross-contamination.
+	a, priv := newTestAcceptor(t, fakeResolver{c: contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "payments"}}}, store)
+	digA := "sha256:" + strings.Repeat("a", 64)
+	digB := "sha256:" + strings.Repeat("b", 64)
+	mk := func(subject, ref, id string, seq uint64) []byte {
+		es := testEvidenceSet()
+		es.Subject = evidence.SubjectRef{Kind: "service", Name: subject}
+		es.ContractRef = ref
+		return signedEnvelopeBytes(t, priv, seq, id, es)
+	}
+	if _, err := a.Accept(context.Background(), mk("payments-a", "oci://reg-a.io/team/payments@"+digA, "a", 1)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Accept(context.Background(), mk("payments-b", "oci://reg-b.io/team/payments@"+digB, "b", 2)); err != nil {
+		t.Fatal(err)
+	}
+	col, err := NewSource("", store).Collect(context.Background())
+	if err != nil || len(col.Targets) != 2 {
+		t.Fatalf("collect: %d targets err=%v", len(col.Targets), err)
+	}
+	byDomain := map[string]fleet.RawTarget{}
+	for _, tg := range col.Targets {
+		byDomain[tg.Domain] = tg
+	}
+	a1, okA := byDomain["reg-a.io/team"]
+	b1, okB := byDomain["reg-b.io/team"]
+	if !okA || !okB {
+		t.Fatalf("expected two distinct domains, got %v", byDomain)
+	}
+	// Same logical service NAME, distinct domains + distinct revision digests.
+	if a1.Service != "payments" || b1.Service != "payments" {
+		t.Errorf("resolved service should be payments for both: %q / %q", a1.Service, b1.Service)
+	}
+	if a1.Digest != digA || b1.Digest != digB {
+		t.Errorf("digests crossed: a=%q b=%q", a1.Digest, b1.Digest)
+	}
+	// Built into a snapshot, they are two distinct domain-qualified services.
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleet.NewMemorySource("ev", "evidence-ingest", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Services[fleet.NewServiceKeyDomain("reg-a.io/team", "payments")] == nil ||
+		snap.Services[fleet.NewServiceKeyDomain("reg-b.io/team", "payments")] == nil {
+		keys := make([]string, 0, len(snap.Services))
+		for k := range snap.Services {
+			keys = append(keys, string(k))
+		}
+		t.Fatalf("expected two domain-qualified payments services, got %v", keys)
+	}
+}
+
+func TestOCIRefHelpers(t *testing.T) {
+	dig := "sha256:" + strings.Repeat("a", 64)
+	if got := ociDomain("oci://ghcr.io/acme/payments@" + dig); got != "ghcr.io/acme" {
+		t.Errorf("ociDomain = %q, want ghcr.io/acme", got)
+	}
+	if got := ociDomain("noslash"); got != "" { // no org segment → empty domain
+		t.Errorf("ociDomain(noslash) = %q, want empty", got)
+	}
+	if got := ociDigest("oci://ghcr.io/x@" + dig); got != dig {
+		t.Errorf("ociDigest = %q, want %q", got, dig)
+	}
+	if got := ociDigest("oci://ghcr.io/x:tag"); got != "" { // no digest → empty
+		t.Errorf("ociDigest(no @) = %q, want empty", got)
 	}
 }
 
