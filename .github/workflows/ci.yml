@@ -218,12 +218,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [reconcile, dashboard, upgrade, evidence]
+        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      # The operational-graph scenario drives the LIVE dashboard in Chromium via
+      # Playwright, so it needs Node (the other scenarios do not).
+      - if: matrix.scenario == 'operational-graph'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
       - name: Install kind (checksum-verified via GOSUMDB)
         run: go install sigs.k8s.io/kind@v0.30.0
       - name: Install Helm

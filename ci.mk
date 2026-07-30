@@ -8,7 +8,7 @@ BUNDLE_DIR := pactos/pacto-dashboard
 REPOWISE_VERSION ?= 0.36.0
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
-       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-e2e-kind-evidence ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
+       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-e2e-kind-evidence ci-e2e-kind-operational-graph ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs demo-fleet \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check
 
@@ -66,10 +66,18 @@ ci-e2e-envtest:
 # still runs them all locally. The evidence scenario proves the operator-managed
 # Evidence Server component (Deployment/Service/retained PVC, readiness, dashboard
 # auto-wiring) in the existing operator chart.
-ci-e2e-kind: ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-e2e-kind-evidence
+ci-e2e-kind: ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-e2e-kind-evidence ci-e2e-kind-operational-graph
 
 ci-e2e-kind-dashboard:
 	bash tests/e2e/kind/dashboard-modes.sh
+
+# Full operational-graph vertical + a LIVE browser acceptance: brings up operator +
+# dashboard + Evidence Server + registry with reconciled CRs and ingested evidence,
+# then drives the LIVE dashboard in Chromium via Playwright. Runs in CI's clean
+# Docker (classic image store), where `kind load docker-image` works — Docker
+# Desktop's containerd image store breaks it locally.
+ci-e2e-kind-operational-graph:
+	bash tests/e2e/kind/operational-graph.sh browser
 
 ci-e2e-kind-upgrade:
 	bash tests/e2e/kind/v4-to-v5-upgrade.sh
