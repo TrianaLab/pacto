@@ -1,0 +1,18 @@
+{{/*
+GatewayClass bound to the Envoy Gateway controller. parametersRef points at the
+EnvoyProxy below so the data-plane Service is exposed the way local development
+needs (a fixed NodePort), instead of the controller's default ClusterIP/LB.
+*/}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ .Values.gateway.className }}
+  labels:
+    {{- include "pacto-dev-gateway.labels" . | nindent 4 }}
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: {{ .Values.gateway.name }}-proxy
+    namespace: {{ .Release.Namespace }}

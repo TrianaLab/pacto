@@ -16,7 +16,8 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
 .PHONY: build test e2e coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
         e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
         e2e-operational-graph-logs e2e-operational-graph-down e2e-otel e2e-dashboard-wasm e2e-dashboard-kind \
-        e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind
+        e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind e2e-observed e2e-docs \
+        e2e-dashboard-kind-browser e2e-all-operational-graph
 
 # Local docs preview includes the in-browser WASM dashboard demo at /demo/.
 DOCS_DEMO := docs/demo
@@ -95,6 +96,29 @@ e2e-dashboard-kind: ci-e2e-kind-dashboard
 e2e-evidence-kind: ci-e2e-kind-evidence
 e2e-reconcile-kind: ci-e2e-kind-reconcile
 e2e-upgrade-kind: ci-e2e-kind-upgrade
+
+# ── Operational-graph story acceptances (§M) ─────────────────────────
+# Observed relationships end to end in a real browser: the demo folds observed
+# edges into the snapshot, so the Operational Graph's Observed layer and the impact
+# shadow-consumer are real, not placebos.
+e2e-observed:
+	$(MAKE) -C examples/demo build
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npx playwright test --project=desktop --grep "observed"
+
+# Bundle-doc Mermaid diagrams actually render to SVG in a real browser.
+e2e-docs:
+	$(MAKE) -C examples/demo build
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npx playwright test --project=desktop e2e/mermaid.spec.ts
+
+# Live Kind dashboard browser acceptance (§I): the full vertical (operator +
+# dashboard + Evidence Server + registry + reconciled CRs + ingested evidence) plus
+# a Playwright/Chromium run against the LIVE, port-forwarded dashboard.
+e2e-dashboard-kind-browser:
+	bash tests/e2e/kind/operational-graph.sh browser
+
+# The whole operational-graph story: cluster-free core, the WASM browser suite, and
+# the live-Kind vertical + browser acceptance.
+e2e-all-operational-graph: e2e-operational-graph-core e2e-dashboard-wasm e2e-dashboard-kind-browser
 
 coverage:
 	go test -race $(shell go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/) -coverprofile=coverage.out

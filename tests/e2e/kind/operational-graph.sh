@@ -47,7 +47,8 @@ case "$CMD" in
     if kind get clusters | grep -qx "$CLUSTER"; then kind delete cluster --name "$CLUSTER"; echo "cluster '$CLUSTER' deleted"; else echo "no cluster '$CLUSTER'"; fi
     exit 0 ;;
   run|up) : ;;
-  *) echo "unknown subcommand: $CMD (use up|status|logs|down)"; exit 2 ;;
+  browser) RUN_BROWSER=1 ;; # full bring-up + a Playwright run against the live dashboard
+  *) echo "unknown subcommand: $CMD (use up|status|logs|down|browser)"; exit 2 ;;
 esac
 
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
@@ -208,6 +209,21 @@ SNAP="$(curl -fsS http://127.0.0.1:8080/api/fleet/snapshot)"
 echo "$SNAP" | grep -q checkout && echo "$SNAP" | grep -q orders && pass "declared services present in the graph" || fail "declared services missing"
 echo "$SNAP" | grep -q payments && pass "external evidence target present in the graph" || fail "evidence target missing"
 kill "$DASH_PF" 2>/dev/null || true
+
+# Browser acceptance (§I): drive the LIVE dashboard in Chromium via Playwright,
+# proving the real frontend bundle + real HTTP API + real operator data render
+# together — not just that the JSON API answers. Opt-in (the `browser` subcommand)
+# so the default vertical run stays dependency-light.
+if [ -n "${RUN_BROWSER:-}" ]; then
+  echo "== browser acceptance against the LIVE dashboard (Playwright/Chromium) =="
+  BR_PF="$(pf 8080 svc/pacto-dashboard 3000)"; sleep 2
+  ( cd "$ROOT/pkg/dashboard/frontend" \
+    && npm ci --ignore-scripts >/dev/null 2>&1 \
+    && npx playwright install --with-deps chromium >/dev/null 2>&1 \
+    && PW_BASE_URL="http://127.0.0.1:8080/" npx playwright test --config playwright.live.config.ts ) \
+    && pass "live dashboard browser acceptance" || fail "live dashboard browser acceptance failed"
+  kill "$BR_PF" 2>/dev/null || true
+fi
 
 echo
 echo "== the full operational-graph vertical is UP =="

@@ -1,0 +1,28 @@
+# pacto-dev-gateway — local-development API gateway for the Pacto dashboard.
+
+# -- Install the Envoy Gateway controller as a dependency. Set false to reuse a
+# controller that is already installed in the cluster.
+envoyGateway:
+  enabled: true
+
+gateway:
+  # -- Name of the Gateway (the pacto-operator dashboard/Evidence HTTPRoutes
+  # reference this via dashboard.httproute.parentRefs / evidence.httproute.parentRefs).
+  name: pacto-dev
+  # -- GatewayClass name created for this Gateway.
+  className: pacto-envoy
+  # -- HTTP listener port on the Gateway.
+  port: 80
+  # -- HTTPRoutes are accepted from every namespace so the operator's routes (in
+  # pacto-system) can attach to this Gateway.
+  allowRoutesFromAllNamespaces: true
+
+# The Envoy proxy Service is exposed as a NodePort with a FIXED port so a kind
+# `extraPortMappings` entry can bridge it to a stable localhost URL — no
+# port-forward. Set type=LoadBalancer if your cluster has an LB (e.g.
+# cloud-provider-kind or a real cloud).
+envoyService:
+  type: NodePort
+  # -- Fixed nodePort for the HTTP listener (must be within the cluster's
+  # nodePort range; 30080 pairs with the demo's kind port mapping).
+  httpNodePort: 30080

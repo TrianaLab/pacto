@@ -1,0 +1,30 @@
+{{/*
+EnvoyProxy tunes the data-plane Service the controller provisions for our
+GatewayClass. For local development we expose it as a NodePort on a FIXED port so
+a kind `extraPortMappings` entry (or a LoadBalancer, if the cluster has one) gives
+a stable localhost URL — no `kubectl port-forward`. The Envoy Gateway controller
+names the HTTP listener Service port `http-<port>`, so the strategic-merge patch
+pins its nodePort by that name.
+*/}}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: {{ .Values.gateway.name }}-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-dev-gateway.labels" . | nindent 4 }}
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: {{ .Values.envoyService.type }}
+        {{- if eq .Values.envoyService.type "NodePort" }}
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              ports:
+                - name: http-{{ .Values.gateway.port }}
+                  nodePort: {{ .Values.envoyService.httpNodePort }}
+        {{- end }}
