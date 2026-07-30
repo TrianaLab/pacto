@@ -30,6 +30,24 @@ func WithNameOptions(opts ...name.Option) ClientOption {
 	}
 }
 
+// WithInsecureRegistries marks specific registry hosts as plain-HTTP, so refs to
+// them are pulled/resolved over http instead of https. It is scoped per host (not
+// global), so production https registries are unaffected. Intended for a
+// controlled in-cluster registry (e.g. the evidence-server E2E), never the public
+// internet.
+func WithInsecureRegistries(hosts ...string) ClientOption {
+	return func(c *Client) {
+		if c.insecure == nil {
+			c.insecure = map[string]bool{}
+		}
+		for _, h := range hosts {
+			if h != "" {
+				c.insecure[h] = true
+			}
+		}
+	}
+}
+
 // Function variables for testing.
 var (
 	buildImageFn  = bundleToImage
@@ -40,6 +58,7 @@ var (
 type Client struct {
 	keychain authn.Keychain
 	nameOpts []name.Option
+	insecure map[string]bool // registry hosts to reach over plain HTTP
 }
 
 // NewClient creates a new OCI client with the given keychain.
@@ -106,11 +125,19 @@ func (c *Client) doWithAuth(ctx context.Context, res authn.Resource, ref string,
 	return &AuthenticationError{Ref: ref, Err: lastErr, Tried: tried, Rejected: rejected}
 }
 
-// parseRef parses an OCI reference string with the client's name options.
+// parseRef parses an OCI reference string with the client's name options. When
+// the ref's registry host is marked insecure, name.Insecure is applied for that
+// parse only, so that host is reached over plain HTTP without affecting others.
 func (c *Client) parseRef(ref string) (name.Reference, error) {
 	r, err := name.ParseReference(ref, c.nameOpts...)
 	if err != nil {
 		return nil, &InvalidRefError{Ref: ref, Err: err}
+	}
+	if c.insecure[r.Context().RegistryStr()] {
+		opts := append(append([]name.Option{}, c.nameOpts...), name.Insecure)
+		if ir, ierr := name.ParseReference(ref, opts...); ierr == nil {
+			return ir, nil
+		}
 	}
 	return r, nil
 }
