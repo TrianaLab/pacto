@@ -274,7 +274,12 @@ func mergeRevision(existing, add *ContractRevision) []Limitation {
 func mergeTarget(existing, add *TargetRecord) []Limitation {
 	existing.Sources = appendUnique(existing.Sources, add.Source)
 	var lims []Limitation
+	// Identity-bearing fields must AGREE across sources for one target key. Fill an
+	// empty side from the other; a genuine disagreement quarantines the target and
+	// is reported — deterministically, regardless of contribution order.
+	lims = append(lims, mergeTargetIdentity(existing, add)...)
 	if ref, conflict := mergeRef(existing.ResolvedRef, add.ResolvedRef); conflict {
+		existing.Quarantined = true
 		lims = append(lims, Limitation{Code: LimitationTargetRefConflict, Source: add.Source,
 			Message: "sources disagree on the resolved reference of target " + string(existing.Key)})
 	} else {
@@ -286,6 +291,34 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 	}
 	existing.Stale = existing.Stale && add.Stale
 	existing.Limitations = append(existing.Limitations, add.Limitations...)
+	return lims
+}
+
+// mergeTargetIdentity reconciles the identity-bearing fields of two contributions
+// of one target key: an empty side is filled from the other; a real disagreement
+// quarantines the target (so it is never authoritative) and yields a structured
+// conflict limitation. The outcome is independent of contribution order.
+func mergeTargetIdentity(existing, add *TargetRecord) []Limitation {
+	var lims []Limitation
+	reconcile := func(field string, get func(*TargetRecord) string, set func(*TargetRecord, string)) {
+		a, b := get(existing), get(add)
+		switch {
+		case a == "":
+			set(existing, b)
+		case b == "" || a == b:
+			// agree (or nothing new to add)
+		default:
+			existing.Quarantined = true
+			lims = append(lims, Limitation{Code: LimitationTargetFieldConflict, Source: add.Source,
+				Message: "sources disagree on the " + field + " of target " + string(existing.Key)})
+		}
+	}
+	// service + domain together determine ServiceKey, so checking them covers the
+	// key without double-reporting the derived value.
+	reconcile("service", func(t *TargetRecord) string { return t.Service }, func(t *TargetRecord, v string) { t.Service = v; t.ServiceKey = NewServiceKeyDomain(t.Domain, v) })
+	reconcile("domain", func(t *TargetRecord) string { return t.Domain }, func(t *TargetRecord, v string) { t.Domain = v; t.ServiceKey = NewServiceKeyDomain(v, t.Service) })
+	reconcile("contractRevision", func(t *TargetRecord) string { return string(t.ContractRevision) }, func(t *TargetRecord, v string) { t.ContractRevision = RevisionKey(v) })
+	reconcile("digest", func(t *TargetRecord) string { return t.Digest }, func(t *TargetRecord, v string) { t.Digest = v })
 	return lims
 }
 
@@ -784,7 +817,13 @@ func serviceStatus(snap *FleetSnapshot, s *ServiceRecord) string {
 func targetAggregateStatus(snap *FleetSnapshot, s *ServiceRecord) string {
 	var invalid, nonCompliant, unknown, warning, compliant bool
 	for _, tk := range s.Targets {
-		switch snap.Targets[tk].Compliance {
+		t := snap.Targets[tk]
+		// A quarantined target has conflicting identity claims, so it is not
+		// authoritative — it must not drive the service's aggregate status.
+		if t.Quarantined {
+			continue
+		}
+		switch t.Compliance {
 		case StatusInvalid:
 			invalid = true
 		case StatusNonCompliant:

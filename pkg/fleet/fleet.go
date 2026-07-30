@@ -362,7 +362,13 @@ type TargetRecord struct {
 	Source           string            `json:"source"`
 	Sources          []string          `json:"sources,omitempty"`
 	Stale            bool              `json:"stale"`
-	Limitations      []Limitation      `json:"limitations,omitempty"`
+	// Quarantined is set when two sources contributed this target key with
+	// conflicting identity-bearing fields (service, domain, revision, digest, ref).
+	// The record is kept visible with its conflict limitations but is NOT treated
+	// as authoritative (it does not drive service aggregate status), so source
+	// order can never silently pick an identity.
+	Quarantined bool         `json:"quarantined,omitempty"`
+	Limitations []Limitation `json:"limitations,omitempty"`
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with
