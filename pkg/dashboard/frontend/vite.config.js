@@ -16,6 +16,9 @@ export default defineConfig(({ mode }) => ({
   },
   test: {
     environment: 'jsdom',
+    // e2e/ holds Playwright browser specs (*.spec.ts) driven by a real browser,
+    // not vitest/jsdom — exclude them from the unit run.
+    exclude: ['e2e/**', '**/node_modules/**', '**/dist/**'],
   },
   ...(mode === 'test' ? { resolve: { conditions: ['browser'] } } : {}),
 }));
