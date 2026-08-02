@@ -50,7 +50,7 @@ jobs:
             chmod +x "${GOBIN}/${plugin}"
           done
 
-      - uses: trianalab/pacto-actions@a29304caa7e718c86a26c71722f88b526daac015 # v1.7.0
+      - uses: trianalab/pacto-actions@3ae26607b3d6f33caec1213e148ba3feab571ef4 # v1.8.2
         if: github.event_name == 'release'
         with:
           command: setup
