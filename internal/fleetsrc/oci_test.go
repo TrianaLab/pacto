@@ -74,11 +74,35 @@ func TestOCISource_Collect(t *testing.T) {
 	if col.Revisions[0].Digest != "sha256:aaa" || col.Revisions[0].RequestedRef != "ghcr.io/x/a:1.0.0" {
 		t.Errorf("revision a wrong: %+v", col.Revisions[0])
 	}
+	// A resolved digest pins ResolvedRef to the immutable digest form (not the tag).
+	if col.Revisions[0].ResolvedRef != "ghcr.io/x/a@sha256:aaa" {
+		t.Errorf("revision a ResolvedRef = %q, want digest-pinned", col.Revisions[0].ResolvedRef)
+	}
 	if col.Revisions[1].Digest != "" { // b's digest lookup failed -> empty, still a revision
 		t.Errorf("revision b digest = %q, want empty", col.Revisions[1].Digest)
 	}
+	// With no resolvable digest, ResolvedRef stays the mutable tag (honest: impact
+	// by canonical key must reject it rather than claim snapshot parity).
+	if col.Revisions[1].ResolvedRef != "ghcr.io/x/b:1.0.0" {
+		t.Errorf("revision b ResolvedRef = %q, want the mutable tag", col.Revisions[1].ResolvedRef)
+	}
 	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid {
 		t.Errorf("expected 1 record-invalid limitation, got %+v", col.Limitations)
+	}
+}
+
+func TestPinRefToDigest(t *testing.T) {
+	cases := []struct{ ref, digest, want string }{
+		{"ghcr.io/x/a:1.0.0", "sha256:aaa", "ghcr.io/x/a@sha256:aaa"},
+		{"oci://ghcr.io/acme/pay:1.0", "sha256:bbb", "oci://ghcr.io/acme/pay@sha256:bbb"},
+		{"localhost:5000/acme/pay:1.0", "sha256:ccc", "localhost:5000/acme/pay@sha256:ccc"},
+		{"oci://ghcr.io/acme/pay@sha256:old", "sha256:new", "oci://ghcr.io/acme/pay@sha256:new"},
+		{"payments", "sha256:ddd", "payments@sha256:ddd"},
+	}
+	for _, c := range cases {
+		if got := pinRefToDigest(c.ref, c.digest); got != c.want {
+			t.Errorf("pinRefToDigest(%q,%q) = %q, want %q", c.ref, c.digest, got, c.want)
+		}
 	}
 }
 

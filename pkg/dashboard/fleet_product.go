@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -16,8 +17,10 @@ import (
 // registerProductOperations registers the product-oriented dashboard APIs
 // (requirement 2). They are bounded, versioned answers built for product
 // questions — the frontend consumes these instead of reconstructing meaning from
-// the full snapshot. All require the fleet provider; the POST-impact endpoint also
-// requires the impact provider.
+// the full snapshot. Every response is a dashboard transport DTO that wraps the
+// route-neutral fleet fact and adds canonical navigation hrefs (ADR-2). All
+// require the fleet provider; the POST-impact endpoint also requires the impact
+// provider.
 func (s *Server) registerProductOperations(api huma.API) {
 	if s.fleetQuery == nil {
 		return
@@ -25,7 +28,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-overview", Method: http.MethodGet, Path: "/api/fleet/overview",
 		Summary: "Operational overview", Tags: []string{"Fleet"},
-		Description: "A product-oriented summary: what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical route.",
+		Description: "A product-oriented summary: what needs attention, incomplete sources, recent evidence and suggested entry points, each with a canonical href.",
 	}, s.fleetOverview)
 
 	huma.Register(api, huma.Operation{
@@ -37,7 +40,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-entity-detail", Method: http.MethodGet, Path: "/api/fleet/entities/{kind}",
 		Summary: "Entity detail", Tags: []string{"Fleet"},
-		Description: "Returns one entity's unified detail envelope (service, revision, target, owner or source), keyed by the query-param key so a key containing a slash is transported safely.",
+		Description: "Returns one entity's strongly typed, discriminated detail (service, revision, target, owner or source), keyed by the query-param key so a key containing a slash is transported safely.",
 	}, s.fleetEntityDetail)
 
 	huma.Register(api, huma.Operation{
@@ -49,26 +52,26 @@ func (s *Server) registerProductOperations(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-attention", Method: http.MethodGet, Path: "/api/fleet/attention",
 		Summary: "Attention list", Tags: []string{"Fleet"},
-		Description: "Returns navigable attention items across every category; each links to the exact affected entity and recommends a next step.",
+		Description: "Returns navigable, offset-paged attention items across every category; each links to the exact affected entity and recommends a next step.",
 	}, s.fleetAttention)
 
 	if s.impactProvider != nil {
 		huma.Register(api, huma.Operation{
 			OperationID: "fleet-impact-post", Method: http.MethodPost, Path: "/api/fleet/impact",
 			Summary: "Analyze impact by canonical identity", Tags: []string{"Fleet"},
-			Description: "Analyzes a change between two contract revisions identified by canonical revision keys, rejecting a stale snapshot id, and returns canonical navigable references for the changed service, revisions, consumers, path steps, owners and active targets.",
+			Description: "Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents.",
 		}, s.fleetImpactPost)
 	}
 }
 
-type fleetOverviewOutput struct{ Body *fleet.Overview }
+type fleetOverviewOutput struct{ Body *ProductOverview }
 
 func (s *Server) fleetOverview(ctx context.Context, _ *struct{}) (*fleetOverviewOutput, error) {
 	q, err := s.fleetQuery(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
-	return &fleetOverviewOutput{Body: q.Overview()}, nil
+	return &fleetOverviewOutput{Body: toProductOverview(q.Overview())}, nil
 }
 
 type fleetEntitiesInput struct {
@@ -84,7 +87,7 @@ type fleetEntitiesInput struct {
 	Offset       int    `query:"offset" minimum:"0"`
 }
 
-type fleetEntitiesOutput struct{ Body *fleet.EntityList }
+type fleetEntitiesOutput struct{ Body *ProductEntityList }
 
 func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fleetEntitiesOutput, error) {
 	q, err := s.fleetQuery(ctx)
@@ -99,7 +102,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	if err != nil {
 		return nil, productQueryError(err)
 	}
-	return &fleetEntitiesOutput{Body: res}, nil
+	return &fleetEntitiesOutput{Body: toProductEntityList(res)}, nil
 }
 
 type fleetEntityDetailInput struct {
@@ -107,7 +110,7 @@ type fleetEntityDetailInput struct {
 	Key  string `query:"key" required:"true" doc:"Canonical entity key (a slash-bearing key is transported safely as a query param)"`
 }
 
-type fleetEntityDetailOutput struct{ Body *fleet.EntityDetail }
+type fleetEntityDetailOutput struct{ Body *ProductEntityDetail }
 
 func (s *Server) fleetEntityDetail(ctx context.Context, in *fleetEntityDetailInput) (*fleetEntityDetailOutput, error) {
 	q, err := s.fleetQuery(ctx)
@@ -118,7 +121,7 @@ func (s *Server) fleetEntityDetail(ctx context.Context, in *fleetEntityDetailInp
 	if err != nil {
 		return nil, productQueryError(err)
 	}
-	return &fleetEntityDetailOutput{Body: res}, nil
+	return &fleetEntityDetailOutput{Body: toProductEntityDetail(res)}, nil
 }
 
 type fleetNeighborhoodInput struct {
@@ -131,7 +134,7 @@ type fleetNeighborhoodInput struct {
 	MaxEdges  int    `query:"maxEdges" minimum:"0" doc:"Max edges (negatives rejected; excessive values capped)"`
 }
 
-type fleetNeighborhoodOutput struct{ Body *fleet.Neighborhood }
+type fleetNeighborhoodOutput struct{ Body *ProductNeighborhood }
 
 func (s *Server) fleetNeighborhood(ctx context.Context, in *fleetNeighborhoodInput) (*fleetNeighborhoodOutput, error) {
 	q, err := s.fleetQuery(ctx)
@@ -145,7 +148,7 @@ func (s *Server) fleetNeighborhood(ctx context.Context, in *fleetNeighborhoodInp
 	if err != nil {
 		return nil, productQueryError(err)
 	}
-	return &fleetNeighborhoodOutput{Body: res}, nil
+	return &fleetNeighborhoodOutput{Body: toProductNeighborhood(res)}, nil
 }
 
 type fleetAttentionInput struct {
@@ -158,10 +161,11 @@ type fleetAttentionInput struct {
 	Severity  string `query:"severity"`
 	Status    string `query:"status"`
 	StaleOnly bool   `query:"staleOnly"`
-	Limit     int    `query:"limit" minimum:"0" doc:"Max items to return (negatives rejected; excessive values capped)"`
+	Limit     int    `query:"limit" minimum:"0" doc:"Max items per page (negatives rejected; excessive values capped)"`
+	Offset    int    `query:"offset" minimum:"0" doc:"Page offset (negatives rejected)"`
 }
 
-type fleetAttentionOutput struct{ Body *fleet.AttentionList }
+type fleetAttentionOutput struct{ Body *ProductAttentionList }
 
 func (s *Server) fleetAttention(ctx context.Context, in *fleetAttentionInput) (*fleetAttentionOutput, error) {
 	q, err := s.fleetQuery(ctx)
@@ -170,52 +174,88 @@ func (s *Server) fleetAttention(ctx context.Context, in *fleetAttentionInput) (*
 	}
 	res, err := q.Attention(fleet.AttentionFilter{
 		Category: in.Category, Kind: in.Kind, Key: in.Key, Service: in.Service, Owner: in.Owner,
-		Source: in.Source, Severity: in.Severity, Status: in.Status, StaleOnly: in.StaleOnly, Limit: in.Limit,
+		Source: in.Source, Severity: in.Severity, Status: in.Status, StaleOnly: in.StaleOnly,
+		Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {
 		return nil, productQueryError(err)
 	}
-	return &fleetAttentionOutput{Body: res}, nil
+	return &fleetAttentionOutput{Body: toProductAttentionList(res)}, nil
 }
 
-// ProductImpactConsumer is a navigable affected consumer.
+// Product-impact bounds. Every impact list is bounded; consumers are pageable.
+const (
+	DefaultImpactConsumers = 100
+	MaxImpactConsumers     = 500
+	MaxImpactPath          = 50
+	MaxImpactOwners        = 200
+	MaxImpactActiveTargets = 200
+	MaxImpactLimitations   = 100
+)
+
+// ProductImpactConsumer is a navigable affected consumer with a bounded path.
 type ProductImpactConsumer struct {
-	Service              fleet.EntityRef   `json:"service"`
-	Path                 []fleet.EntityRef `json:"path"`
-	Depth                int               `json:"depth"`
-	Direct               bool              `json:"direct"`
-	Confidence           string            `json:"confidence"`
-	CompatibilityVerdict string            `json:"compatibilityVerdict"`
-	Owner                string            `json:"owner,omitempty"`
+	Service              ProductRef   `json:"service"`
+	Path                 []ProductRef `json:"path"`
+	PathTotal            int          `json:"pathTotal"`
+	PathTruncated        bool         `json:"pathTruncated"`
+	Depth                int          `json:"depth"`
+	Direct               bool         `json:"direct"`
+	Confidence           string       `json:"confidence"`
+	CompatibilityVerdict string       `json:"compatibilityVerdict"`
+	Owner                string       `json:"owner,omitempty"`
 }
 
-// ProductImpact is the navigable impact answer: canonical references for the
-// changed service, revisions, consumers, path steps, owners and active targets.
-// It deliberately does NOT embed the raw impact.Result (which carries
-// non-canonical bare names); the raw GET /api/fleet/impact endpoint remains for
-// machine consumers that want it.
+// ProductImpactConsumersPage is a stable, offset-paged consumer answer.
+type ProductImpactConsumersPage struct {
+	Total      int                     `json:"total"`
+	Count      int                     `json:"count"`
+	Limit      int                     `json:"limit"`
+	Offset     int                     `json:"offset"`
+	Truncated  bool                    `json:"truncated"`
+	NextOffset *int                    `json:"nextOffset,omitempty"`
+	Items      []ProductImpactConsumer `json:"items"`
+}
+
+// ProductRefsPreview is a bounded preview of navigable references (owners, targets).
+type ProductRefsPreview struct {
+	Total     int          `json:"total"`
+	Count     int          `json:"count"`
+	Truncated bool         `json:"truncated"`
+	Items     []ProductRef `json:"items"`
+}
+
+// ProductImpact is the navigable impact answer: canonical, href-bearing references
+// for the changed service, revisions, consumers, path steps, owners and active
+// targets, all bounded. It deliberately does NOT embed the raw impact.Result; the
+// raw GET /api/fleet/impact endpoint remains for machine consumers that want it.
+// SnapshotMatch is true ONLY on a success, which means BOTH the graph snapshot
+// matched AND the old/new content analyzed was the exact immutable content the
+// canonical revisions name.
 type ProductImpact struct {
-	Meta           fleet.ProductMeta       `json:"meta"`
-	SnapshotID     string                  `json:"snapshotId"`
-	SnapshotMatch  bool                    `json:"snapshotMatch"`
-	Service        fleet.EntityRef         `json:"service"`
-	OldRevision    *fleet.EntityRef        `json:"oldRevision,omitempty"`
-	NewRevision    *fleet.EntityRef        `json:"newRevision,omitempty"`
-	Classification string                  `json:"classification"`
-	Consumers      []ProductImpactConsumer `json:"consumers"`
-	Owners         []fleet.EntityRef       `json:"owners"`
-	ActiveTargets  []fleet.EntityRef       `json:"activeTargets"`
-	Limitations    []fleet.Limitation      `json:"limitations,omitempty"`
+	Meta           fleet.ProductMeta          `json:"meta"`
+	SnapshotID     string                     `json:"snapshotId"`
+	SnapshotMatch  bool                       `json:"snapshotMatch"`
+	Service        ProductRef                 `json:"service"`
+	OldRevision    *ProductRef                `json:"oldRevision,omitempty"`
+	NewRevision    *ProductRef                `json:"newRevision,omitempty"`
+	Classification string                     `json:"classification"`
+	Consumers      ProductImpactConsumersPage `json:"consumers"`
+	Owners         ProductRefsPreview         `json:"owners"`
+	ActiveTargets  ProductRefsPreview         `json:"activeTargets"`
+	Limitations    fleet.LimitationsPreview   `json:"limitations"`
 }
 
-// impactRequest is the POST-impact body: canonical revision keys plus the
-// snapshot the client analyzed (for staleness rejection).
+// impactRequest is the POST-impact body: canonical revision keys, the snapshot the
+// client analyzed (for staleness rejection) and consumer paging.
 type impactRequest struct {
 	SnapshotID      string `json:"snapshotId,omitempty" doc:"The snapshot the client analyzed; a mismatch with the published snapshot is rejected"`
 	ServiceKey      string `json:"serviceKey,omitempty"`
 	FromRevisionKey string `json:"fromRevisionKey" doc:"Canonical revision key of the old revision"`
 	ToRevisionKey   string `json:"toRevisionKey" doc:"Canonical revision key of the new revision"`
 	IncludeObserved bool   `json:"includeObserved,omitempty"`
+	Limit           int    `json:"limit,omitempty" doc:"Max consumers per page (negatives rejected; excessive values capped)"`
+	Offset          int    `json:"offset,omitempty" doc:"Consumer page offset (negatives rejected)"`
 }
 
 type fleetImpactPostInput struct {
@@ -231,6 +271,9 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	}
 	snap := q.Snapshot()
 	b := in.Body
+	if b.Limit < 0 || b.Offset < 0 {
+		return nil, huma.Error422UnprocessableEntity("paging", errors.New("limit and offset must be >= 0"))
+	}
 	if b.SnapshotID != "" && b.SnapshotID != snap.SnapshotID {
 		return nil, huma.Error409Conflict("snapshot mismatch: the published snapshot changed; refetch and retry")
 	}
@@ -240,11 +283,15 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("revisionKey", err)
 	}
-	oldRef, oldExact, err := revisionRef(fromRev)
+	// Exact-content invariant: a canonical Product Impact may only analyze the exact
+	// immutable content the snapshot revisions name. A mutable tag or a local path is
+	// rejected BEFORE the provider is invoked, so the server never fetches
+	// potentially-different content and then claims snapshot parity.
+	oldRef, err := immutableRef(fromRev)
 	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("fromRevisionKey", err)
 	}
-	newRef, newExact, err := revisionRef(toRev)
+	newRef, err := immutableRef(toRev)
 	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("toRevisionKey", err)
 	}
@@ -258,7 +305,7 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	if res.SnapshotID != snap.SnapshotID {
 		return nil, huma.Error409Conflict("snapshot changed during analysis; refetch and retry")
 	}
-	return &fleetImpactPostOutput{Body: buildProductImpact(q.ProductMeta(), snap, svcKey, fromRev, toRev, res, oldExact && newExact)}, nil
+	return &fleetImpactPostOutput{Body: buildProductImpact(q.ProductMeta(), snap, svcKey, fromRev, toRev, res, b.Limit, b.Offset)}, nil
 }
 
 // validateImpactRevisions looks up both revisions, requires them to exist and to
@@ -283,44 +330,58 @@ func validateImpactRevisions(snap *fleet.FleetSnapshot, req impactRequest) (flee
 	return from.ServiceKey, from, to, nil
 }
 
-// revisionRef resolves a revision to a resolvable contract ref. It prefers the
-// IMMUTABLE ResolvedRef (a digest); exact is false when only a MUTABLE
-// RequestedRef (a tag or local path) is available, whose content may differ from
-// what the snapshot captured. A revision with no ref at all is an error.
-func revisionRef(rev *fleet.ContractRevision) (ref string, exact bool, err error) {
-	if rev.ResolvedRef != "" {
-		return rev.ResolvedRef, true, nil
+// immutableRef returns the IMMUTABLE, digest-pinned reference the provider must
+// fetch for a canonical Product Impact. A revision is exact ONLY when its
+// ResolvedRef is digest-pinned (e.g. oci://registry/repo@sha256:...) and that
+// digest is internally consistent with the revision's recorded content digest. A
+// mutable tag, a local filesystem path or an inconsistent digest is rejected, so a
+// canonical Product Impact can never analyze content different from the snapshot's.
+func immutableRef(rev *fleet.ContractRevision) (string, error) {
+	digest, ok := fleet.DigestFromRef(rev.ResolvedRef)
+	if !ok {
+		return "", fmt.Errorf(
+			"exact snapshot content is not retrievable for revision %s: it resolved through a mutable reference or a local path (%s); use the raw ref-based /api/fleet/impact endpoint for mutable-content analysis",
+			rev.Key, mutableRefDescription(rev))
 	}
-	if rev.RequestedRef != "" {
-		return rev.RequestedRef, false, nil
+	if rev.Digest != "" && rev.Digest != digest {
+		return "", fmt.Errorf(
+			"revision %s has an inconsistent immutable reference: the ref pins %s but the recorded content digest is %s",
+			rev.Key, digest, rev.Digest)
 	}
-	return "", false, errors.New("the revision has no resolvable reference")
+	return rev.ResolvedRef, nil
 }
 
-// buildProductImpact enriches a raw impact result with canonical, navigable
-// references, all looked up in the snapshot so identities are exact and labels
-// come from records. Consumer, path, owner and target identities are
-// domain-qualified so a same-named service in another domain is never conflated,
-// and an already-canonical path key is never re-encoded.
-func buildProductImpact(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, fromRev, toRev *fleet.ContractRevision, res *impact.Result, contentExact bool) *ProductImpact {
-	out := &ProductImpact{
-		Meta: meta, SnapshotID: snap.SnapshotID, SnapshotMatch: true,
-		Service:        serviceRefFromSnap(snap, svcKey),
-		OldRevision:    revisionRefFromRecord(fromRev),
-		NewRevision:    revisionRefFromRecord(toRev),
-		Classification: res.Classification, Limitations: append([]fleet.Limitation(nil), res.Limitations...),
-		Consumers: []ProductImpactConsumer{}, Owners: []fleet.EntityRef{}, ActiveTargets: []fleet.EntityRef{},
+// mutableRefDescription names the mutable reference a revision resolved through,
+// for the rejection message.
+func mutableRefDescription(rev *fleet.ContractRevision) string {
+	if rev.ResolvedRef != "" {
+		return "resolvedRef " + rev.ResolvedRef
 	}
-	if !contentExact {
-		out.Limitations = append(out.Limitations, fleet.Limitation{
-			Code: fleet.LimitationRevisionContentMutable, Source: "impact",
-			Message: "a revision was resolved through a mutable reference; its content may differ from the snapshot, so exact snapshot parity is not claimed",
-		})
+	if rev.RequestedRef != "" {
+		return "requestedRef " + rev.RequestedRef
 	}
+	return "no reference"
+}
+
+// buildProductImpact enriches a raw impact result with canonical, navigable,
+// href-bearing references (all looked up in the snapshot so identities are exact
+// and labels come from records) and bounds every list. SnapshotMatch is true
+// because non-exact content was already rejected before analysis.
+func buildProductImpact(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, fromRev, toRev *fleet.ContractRevision, res *impact.Result, limit, offset int) *ProductImpact {
+	consumers := make([]ProductImpactConsumer, 0, len(res.Consumers))
 	for _, c := range res.Consumers {
-		out.Consumers = append(out.Consumers, ProductImpactConsumer{
-			Service:              serviceRefFromSnap(snap, fleet.NewServiceKeyDomain(c.Domain, c.Service)),
-			Path:                 pathRefs(snap, c.Path),
+		path := productRefs(pathFleetRefs(snap, c.Path))
+		pathTotal := len(path)
+		pathTruncated := false
+		if pathTotal > MaxImpactPath {
+			path = path[:MaxImpactPath]
+			pathTruncated = true
+		}
+		consumers = append(consumers, ProductImpactConsumer{
+			Service:              productRef(serviceRefFromSnap(snap, fleet.NewServiceKeyDomain(c.Domain, c.Service))),
+			Path:                 path,
+			PathTotal:            pathTotal,
+			PathTruncated:        pathTruncated,
 			Depth:                c.Depth,
 			Direct:               c.Direct,
 			Confidence:           string(c.Confidence),
@@ -328,18 +389,89 @@ func buildProductImpact(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKe
 			Owner:                c.Owner,
 		})
 	}
+	// Deterministic order so paging is stable across identical requests.
+	sort.Slice(consumers, func(i, j int) bool { return consumers[i].Service.Key < consumers[j].Service.Key })
+
+	owners := make([]ProductRef, 0, len(res.Owners))
 	for _, o := range res.Owners {
-		out.Owners = append(out.Owners, fleet.EntityRef{Kind: fleet.KindOwner, Key: o, Label: o, Route: fleet.RouteForOwner(o)})
+		owners = append(owners, productRef(fleet.EntityRef{Kind: fleet.KindOwner, Key: o, Label: o}))
 	}
+	targets := make([]ProductRef, 0, len(res.ActiveTargets))
 	for _, tk := range res.ActiveTargets {
-		out.ActiveTargets = append(out.ActiveTargets, targetRefFromSnap(snap, tk))
+		targets = append(targets, productRef(targetRefFromSnap(snap, tk)))
 	}
-	return out
+	return &ProductImpact{
+		Meta: meta, SnapshotID: snap.SnapshotID, SnapshotMatch: true,
+		Service:        productRef(serviceRefFromSnap(snap, svcKey)),
+		OldRevision:    productRefPtr(revisionRefFromRecord(fromRev)),
+		NewRevision:    productRefPtr(revisionRefFromRecord(toRev)),
+		Classification: res.Classification,
+		Consumers:      pageImpactConsumers(consumers, limit, offset),
+		Owners:         boundProductRefs(owners, MaxImpactOwners),
+		ActiveTargets:  boundProductRefs(targets, MaxImpactActiveTargets),
+		Limitations:    boundImpactLimitations(res.Limitations),
+	}
 }
 
-// serviceRefFromSnap builds a service reference for an already-canonical key,
-// taking the human label from the snapshot record when present and otherwise
-// decoding the key (never re-encoding it).
+// pageImpactConsumers offset-pages a sorted consumer list with defaulted/capped
+// limit and a next-offset cursor.
+func pageImpactConsumers(all []ProductImpactConsumer, limit, offset int) ProductImpactConsumersPage {
+	total := len(all)
+	if limit <= 0 {
+		limit = DefaultImpactConsumers
+	}
+	if limit > MaxImpactConsumers {
+		limit = MaxImpactConsumers
+	}
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	page := append([]ProductImpactConsumer{}, all[start:end]...)
+	truncated := end < total
+	var next *int
+	if truncated {
+		n := end
+		next = &n
+	}
+	return ProductImpactConsumersPage{
+		Total: total, Count: len(page), Limit: limit, Offset: start,
+		Truncated: truncated, NextOffset: next, Items: page,
+	}
+}
+
+// boundProductRefs bounds a reference list into a preview with truncation
+// metadata. Callers always pass a non-nil (make-initialized) slice.
+func boundProductRefs(refs []ProductRef, max int) ProductRefsPreview {
+	total := len(refs)
+	truncated := total > max
+	items := refs
+	if truncated {
+		items = refs[:max]
+	}
+	return ProductRefsPreview{Total: total, Count: len(items), Truncated: truncated, Items: items}
+}
+
+// boundImpactLimitations bounds the impact limitations into a preview. It copies
+// the slice so the answer never aliases the raw impact result.
+func boundImpactLimitations(ls []fleet.Limitation) fleet.LimitationsPreview {
+	total := len(ls)
+	truncated := total > MaxImpactLimitations
+	n := total
+	if truncated {
+		n = MaxImpactLimitations
+	}
+	items := append([]fleet.Limitation{}, ls[:n]...)
+	return fleet.LimitationsPreview{Total: total, Count: len(items), Truncated: truncated, Items: items}
+}
+
+// serviceRefFromSnap builds a route-neutral service reference for an
+// already-canonical key, taking the human label from the snapshot record when
+// present and otherwise decoding the key (never re-encoding it).
 func serviceRefFromSnap(snap *fleet.FleetSnapshot, key fleet.ServiceKey) fleet.EntityRef {
 	name, domain := "", ""
 	if s := snap.Services[key]; s != nil {
@@ -347,21 +479,21 @@ func serviceRefFromSnap(snap *fleet.FleetSnapshot, key fleet.ServiceKey) fleet.E
 	} else {
 		domain, name = fleet.ParseServiceKey(key)
 	}
-	return fleet.EntityRef{Kind: fleet.KindService, Key: string(key), Label: name, Domain: domain, Route: fleet.RouteForService(key)}
+	return fleet.EntityRef{Kind: fleet.KindService, Key: string(key), Label: name, Domain: domain}
 }
 
-// revisionRefFromRecord builds a revision reference whose label is the record's
-// service and version, never the raw key.
+// revisionRefFromRecord builds a route-neutral revision reference whose label is
+// the record's service and version, never the raw key.
 func revisionRefFromRecord(rev *fleet.ContractRevision) *fleet.EntityRef {
 	label := rev.Service
 	if rev.Version != "" {
 		label = rev.Service + " " + rev.Version
 	}
-	return &fleet.EntityRef{Kind: fleet.KindRevision, Key: string(rev.Key), Label: label, Secondary: rev.Digest, Domain: rev.Domain, Route: fleet.RouteForRevision(rev.Key)}
+	return &fleet.EntityRef{Kind: fleet.KindRevision, Key: string(rev.Key), Label: label, Secondary: rev.Digest, Domain: rev.Domain}
 }
 
-// targetRefFromSnap builds a target reference whose label is the record's
-// DisplayName when present, otherwise the raw key.
+// targetRefFromSnap builds a route-neutral target reference whose label is the
+// record's DisplayName when present, otherwise the raw key.
 func targetRefFromSnap(snap *fleet.FleetSnapshot, key string) fleet.EntityRef {
 	tk := fleet.TargetKey(key)
 	label := key
@@ -369,13 +501,13 @@ func targetRefFromSnap(snap *fleet.FleetSnapshot, key string) fleet.EntityRef {
 	if t := snap.Targets[tk]; t != nil {
 		label, domain = t.DisplayName(), t.Domain
 	}
-	return fleet.EntityRef{Kind: fleet.KindTarget, Key: key, Label: label, Domain: domain, Route: fleet.RouteForTarget(tk)}
+	return fleet.EntityRef{Kind: fleet.KindTarget, Key: key, Label: label, Domain: domain}
 }
 
-// pathRefs turns an impact path of ALREADY-CANONICAL service keys into navigable
-// references. Each element is a canonical ServiceKey (its own domain baked in), so
-// it is used verbatim and never re-encoded with another step's domain.
-func pathRefs(snap *fleet.FleetSnapshot, keys []string) []fleet.EntityRef {
+// pathFleetRefs turns an impact path of ALREADY-CANONICAL service keys into
+// route-neutral references. Each element is a canonical ServiceKey (its own domain
+// baked in), so it is used verbatim and never re-encoded with another step's domain.
+func pathFleetRefs(snap *fleet.FleetSnapshot, keys []string) []fleet.EntityRef {
 	out := make([]fleet.EntityRef, 0, len(keys))
 	for _, k := range keys {
 		out = append(out, serviceRefFromSnap(snap, fleet.ServiceKey(k)))

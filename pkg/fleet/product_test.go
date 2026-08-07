@@ -142,8 +142,8 @@ func TestOverview_EntryPointsAndEvidence(t *testing.T) {
 		t.Fatal("expected entry points for a fleet needing attention")
 	}
 	for _, ep := range ov.EntryPoints {
-		if ep.Route == "" || ep.Count <= 0 {
-			t.Errorf("entry point %q: route=%q count=%d", ep.Label, ep.Route, ep.Count)
+		if ep.View == "" || ep.Count <= 0 {
+			t.Errorf("entry point %q: view=%q count=%d", ep.Label, ep.View, ep.Count)
 		}
 	}
 	// Recent evidence is newest-first and bounded; each item is navigable.
@@ -156,8 +156,8 @@ func TestOverview_EntryPointsAndEvidence(t *testing.T) {
 			t.Error("recent evidence not sorted newest-first")
 		}
 	}
-	if ov.RecentEvidence[0].Target.Route == "" {
-		t.Error("evidence target must be navigable")
+	if ov.RecentEvidence[0].Target.Key == "" {
+		t.Error("evidence target must carry a canonical key")
 	}
 	// Attention on the overview is bounded to the top items.
 	if len(ov.Attention) > overviewAttentionLimit {
@@ -198,9 +198,9 @@ func TestAttention_AllAndOrdering(t *testing.T) {
 	if last := list.Items[len(list.Items)-1]; last.Severity != severityInfo {
 		t.Errorf("last item severity = %q, want info", last.Severity)
 	}
-	// Every item links to a real entity route and recommends a next step.
+	// Every item references a real entity by canonical key and recommends a step.
 	for _, it := range list.Items {
-		if it.Entity.Route == "" || it.Route == "" || it.NextStep == "" {
+		if it.Entity.Key == "" || it.NextStep == "" {
 			t.Errorf("attention item %q not fully navigable: %+v", it.Code, it)
 		}
 	}

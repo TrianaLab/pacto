@@ -28,10 +28,10 @@ func twoDomainDashboardQuery(t *testing.T) *fleet.Query {
 	t.Helper()
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
 		fleet.NewMemorySource("a", "local", &fleet.Collection{Revisions: []fleet.RawRevision{{
-			Bundle: newPaymentBundle(), Domain: "domain-a", ResolvedRef: "oci://a/payment-service:1.0.0", Digest: "sha256:a",
+			Bundle: newPaymentBundle(), Domain: "domain-a", ResolvedRef: "oci://a/payment-service@sha256:a", Digest: "sha256:a",
 		}}}),
 		fleet.NewMemorySource("b", "local", &fleet.Collection{Revisions: []fleet.RawRevision{{
-			Bundle: newPaymentBundle(), Domain: "domain-b", ResolvedRef: "oci://b/payment-service:1.0.0", Digest: "sha256:b",
+			Bundle: newPaymentBundle(), Domain: "domain-b", ResolvedRef: "oci://b/payment-service@sha256:b", Digest: "sha256:b",
 		}}}))
 	if err != nil {
 		t.Fatal(err)
@@ -158,26 +158,30 @@ func TestProductImpactPost(t *testing.T) {
 	if out.OldRevision == nil || out.NewRevision == nil {
 		t.Fatalf("revisions must be present: %+v", out)
 	}
-	if len(out.Consumers) != 1 || len(out.Owners) != 1 || len(out.ActiveTargets) != 1 {
+	// gotOld/gotNew are the digest-pinned refs the provider received.
+	if !fleet.IsDigestPinnedRef(gotOld) || !fleet.IsDigestPinnedRef(gotNew) {
+		t.Errorf("provider must receive digest-pinned refs, got %q / %q", gotOld, gotNew)
+	}
+	if out.Consumers.Count != 1 || out.Consumers.Total != 1 || out.Owners.Count != 1 || out.ActiveTargets.Count != 1 {
 		t.Fatalf("unexpected shape: %+v", out)
 	}
-	c := out.Consumers[0]
-	if len(c.Path) != 2 {
-		t.Errorf("consumer path = %d, want 2", len(c.Path))
+	c := out.Consumers.Items[0]
+	if len(c.Path) != 2 || c.PathTotal != 2 || c.PathTruncated {
+		t.Errorf("consumer path = %+v, want 2 (untruncated)", c.Path)
 	}
-	// Every reference the answer returns must be navigable.
-	refs := []fleet.EntityRef{out.Service, *out.OldRevision, *out.NewRevision, c.Service}
+	// Every reference the answer returns must be navigable (carry an href).
+	refs := []ProductRef{out.Service, *out.OldRevision, *out.NewRevision, c.Service}
 	refs = append(refs, c.Path...)
-	refs = append(refs, out.Owners...)
-	refs = append(refs, out.ActiveTargets...)
-	if !routesNonEmpty(refs...) {
+	refs = append(refs, out.Owners.Items...)
+	refs = append(refs, out.ActiveTargets.Items...)
+	if !hrefsNonEmpty(refs...) {
 		t.Errorf("every reference must be navigable: %+v", refs)
 	}
 }
 
-func routesNonEmpty(refs ...fleet.EntityRef) bool {
+func hrefsNonEmpty(refs ...ProductRef) bool {
 	for _, r := range refs {
-		if r.Route == "" {
+		if r.Href == "" {
 			return false
 		}
 	}
@@ -214,22 +218,36 @@ func TestProductImpactPost_NotRegisteredWithoutImpactProvider(t *testing.T) {
 	postJSON(t, base+"/api/fleet/impact", impactRequest{FromRevisionKey: "a", ToRevisionKey: "b"}, http.StatusNotFound, nil)
 }
 
-func TestRevisionRefResolution(t *testing.T) {
-	// An immutable ResolvedRef is exact; a mutable RequestedRef fallback is not.
-	if ref, exact, err := revisionRef(&fleet.ContractRevision{ResolvedRef: "oci://x:1"}); err != nil || ref != "oci://x:1" || !exact {
-		t.Errorf("resolved: %q exact=%v %v", ref, exact, err)
+func TestImmutableRef(t *testing.T) {
+	// A digest-pinned ResolvedRef consistent with the content digest is exact.
+	if ref, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@sha256:d1", Digest: "sha256:d1"}); err != nil || ref != "oci://x/a@sha256:d1" {
+		t.Errorf("digest-pinned ref must be exact: %q %v", ref, err)
 	}
-	if ref, exact, err := revisionRef(&fleet.ContractRevision{RequestedRef: "oci://x:2"}); err != nil || ref != "oci://x:2" || exact {
-		t.Errorf("requested fallback must be inexact: %q exact=%v %v", ref, exact, err)
+	// A digest-pinned ref with no recorded digest is still exact (nothing to contradict).
+	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@sha256:d1"}); err != nil {
+		t.Errorf("digest-pinned ref without a recorded digest must be exact: %v", err)
 	}
-	if _, _, err := revisionRef(&fleet.ContractRevision{}); err == nil {
+	// A mutable tag ResolvedRef must NOT be accepted as exact merely for being non-empty.
+	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a:1.0", Digest: "sha256:d1"}); err == nil {
+		t.Error("a tag ResolvedRef must be rejected as non-exact")
+	}
+	// A local path is mutable.
+	if _, err := immutableRef(&fleet.ContractRevision{RequestedRef: "file:///abs"}); err == nil {
+		t.Error("a local-path revision must be rejected")
+	}
+	// A revision with no ref at all is rejected.
+	if _, err := immutableRef(&fleet.ContractRevision{}); err == nil {
 		t.Error("a revision with no ref must error")
+	}
+	// An inconsistent digest-pinned ref (ref digest != content digest) is rejected.
+	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@sha256:WRONG", Digest: "sha256:right"}); err == nil {
+		t.Error("an inconsistent digest/ref must be rejected")
 	}
 
 	// The revision label comes from the record (service + version), not the key.
 	l := revisionRefFromRecord(&fleet.ContractRevision{Key: "svc@d", Service: "svc", Version: "1.2.3", Digest: "d"})
-	if l == nil || l.Label != "svc 1.2.3" || l.Route == "" {
-		t.Errorf("revision link must be a record label + navigable route: %+v", l)
+	if l == nil || l.Label != "svc 1.2.3" {
+		t.Errorf("revision link must be a record label: %+v", l)
 	}
 }
 

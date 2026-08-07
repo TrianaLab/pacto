@@ -60,7 +60,6 @@ func TestOverview_Immutable(t *testing.T) {
 
 	mutateSources(r1.Meta.Sources)
 	mutateLimitations(r1.Meta.Limitations)
-	mutateSources(r1.Sources)
 	for i := range r1.Attention {
 		mutateEntityRef(&r1.Attention[i].Entity)
 		r1.Attention[i].Label = "hacked"

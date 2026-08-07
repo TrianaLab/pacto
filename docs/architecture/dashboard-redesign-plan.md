@@ -68,10 +68,11 @@ canonical dashboard routes and explicit bounds/pagination.
 The product layer is pure over the existing immutable snapshot: `pkg/fleet`
 `Query` already exposes Search/GetService/GetTarget/Graph/Status/Explain with a
 `Meta` envelope. The product methods live in `pkg/fleet/product.go` and reuse
-those internals. Canonical routes are deterministic strings owned by the fleet
-layer (`pkg/fleet/route.go`) so the frontend never re-derives identity or routes.
-Routes are plain path strings (the frontend hash-router prepends `#`); emitting a
-string introduces no dashboard/k8s import, so the architecture boundary holds.
+those internals. `pkg/fleet` is route-neutral: it returns canonical identities
+and route-neutral entity references, never dashboard paths or hrefs. Canonical
+navigation hrefs are added at the dashboard/product transport boundary from the
+exact canonical key (ADR-2). MCP and other non-dashboard consumers use the same
+fleet facts and never receive dashboard URLs.
 
 Product schema version: `pacto.dev/fleet-product/v1`.
 
@@ -102,15 +103,19 @@ across path segments. The canonical dashboard route stays
 `/fleet/entities/:kind/:key` (the frontend hash router), and `RouteForEntity`
 emits it; only the HTTP transport uses the query-param form for slash safety.
 
-Core DTOs (see `pkg/fleet/product.go` for the authoritative definitions):
+Core DTOs (see `pkg/fleet/product.go` for the authoritative definitions).
+`pkg/fleet` DTOs are route-neutral; the dashboard transport wraps them and adds
+canonical hrefs (ADR-2). Fleet-side shapes:
 
-- `EntityRef{ kind, key, label, secondary, status, explanation, domain, scope, route, parentService }`
+- `EntityRef{ kind, key, label, secondary, status, explanation, domain, scope, parentService }`
+  (no route/href; the transport `EntityRef` adds `href` from the canonical key)
 - `ProductMeta` — the `Meta` envelope plus the product schema version.
-- `Overview{ meta, summary, sources, attention, recentEvidence, entryPoints }`
+- `Overview{ meta, summary, sources(bounded preview), attention, recentEvidence, entryPoints }`
 - `EntityList{ meta, total, count, entities }`
-- `Neighborhood{ meta, focus, direction, depth, views, nodes, edges, bounds, truncated }`
-- `EntityDetail{ meta, entity, summary, status, sections, relationships, findings, evidence, ownership, limitations, links, availableActions }`
-- `AttentionList{ meta, total, count, items }`
+- `Neighborhood{ meta, focus, direction, depth, views, nodes, edges, unresolvedDependencies(preview), bounds, truncated }`
+- `EntityDetail{ meta, entity, status, service|revision|target|owner|source (exactly one), limitations }`
+  — strongly typed discriminated payload; no `map[string]any`.
+- `AttentionList{ meta, offset, limit, total, count, truncated, nextOffset, items }`
 
 ## 3. Routes and information architecture
 
@@ -296,18 +301,48 @@ committed with tests, 100% coverage held):
    "strongly typed" backend change; detail.go still uses `Summary`/`Sections
    map[string]any`. Design and field lists are in requirement 4 of the session
    brief.
-4. Make every product response genuinely bounded. DONE (ProductMeta caps + typed
-   page metadata + reject-negatives/cap-positives; neighborhood bounds landed with
-   item 6).
+4. Make every product response genuinely bounded. IN PROGRESS (re-opened by
+   independent review). ProductMeta.Sources, EntityList, the Attention limit and
+   neighborhood node/edge counts are bounded, but several NESTED collections are
+   still unbounded. Counterexamples: (a) `Overview.Sources` copies every snapshot
+   source with no hard bound even though `ProductMeta.Sources` is capped; (b)
+   `Attention` hard-caps the result but cannot retrieve anything past the cap (no
+   offset/cursor/total/nextOffset), so it is not pageable; (c) neighborhood edge
+   `DeclaredClaims` and `ObservationSources`, and `UnresolvedDependencies`, are
+   unbounded - a service with thousands of historical revisions declaring the same
+   dependency, or a dependency observed by thousands of sources, produces an
+   unbounded edge; (d) the product Impact DTO (Consumers, per-consumer paths,
+   Owners, ActiveTargets, Limitations) is unbounded. Fix: hard bounds + explicit
+   truncation/count/total metadata per nested collection, Attention paging, and
+   stable consumer pagination for Impact.
 5. Correct entity-search semantics. DONE (revision-owner discoverability,
    structured owner matching, source-health filter, typed 422 on invalid combos).
-6. Correct neighborhood semantics. DONE (views drive traversal, explicit
-   Difference states, per-source-revision DeclaredClaims, RequestedFocus +
-   FocusService honest mapping, surfaced unresolved deps, bounds). True
+6. Correct neighborhood semantics. IN PROGRESS (re-opened by independent review).
+   Traversal correctly respects the requested views, but `NeighborhoodNode`
+   `Expansions` is still computed from declared+observed adjacency
+   unconditionally, so it leaks knowledge the selected view cannot traverse.
+   Counterexample: with edge `A --observed-only--> B` and a request for
+   `views=expected`, the expected-only answer still advertises that A can expand
+   in that direction because B exists in observed knowledge, even though the
+   expected view cannot traverse it. Fix: derive expansion affordances from the
+   same requested knowledge views as the traversal (view-aware expansions). True
    revision/deployment graph projections remain a later phase.
-7. Correct contextual product impact. DONE (same-service + ServiceKey validation,
-   record-based labels, no path double-encoding, cross-domain-safe paths, no
-   embedded raw Result, snapshot-parity 409, mutable-content limitation).
+7. Correct contextual product impact. IN PROGRESS (re-opened by independent
+   review). The exact-content identity invariant is still violated.
+   Counterexamples: `revisionRef` treats any non-empty
+   `ContractRevision.ResolvedRef` as exact; the OCI fleet source
+   (`internal/fleetsrc/oci.go`) sets `RawRevision.ResolvedRef` to the requested
+   ref itself and stores the resolved digest separately, so a mutable OCI tag can
+   live in `ResolvedRef` and be treated as exact; RequestedRef-only revisions are
+   still analyzed and merely receive a `REVISION_CONTENT_MUTABLE` limitation while
+   `ProductImpact` still reports `SnapshotMatch=true`. Invariant: a Product Impact
+   request by canonical `RevisionKey` may only analyze the exact content
+   represented by those snapshot revisions - the server must never fetch
+   potentially different mutable content and then claim snapshot parity. Fix:
+   explicit immutable-content model (OCI digest-pinned canonical refs; reject
+   mutable/local-only canonical impact with a typed 4xx; `SnapshotMatch` means
+   BOTH graph-snapshot parity AND exact-content parity). The raw GET Impact stays
+   as the advanced mutable-content path and is not weakened.
 8. Typed frontend product API client with schema-version validation and drift
    protection (client only; UI migration is phase 2). PENDING - must target the
    FINAL DTO shapes, so it follows items 1 and 3. The current client returns

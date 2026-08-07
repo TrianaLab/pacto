@@ -52,7 +52,7 @@ func TestProductImpact_CrossDomainCanonicalIdentity(t *testing.T) {
 	if out.Service.Key != "domain-a/payment-service" {
 		t.Errorf("changed service key = %q, want domain-a/payment-service", out.Service.Key)
 	}
-	c := out.Consumers[0]
+	c := out.Consumers.Items[0]
 	if c.Service.Key != "domain-b/payment-service" {
 		t.Errorf("consumer key = %q, want domain-b/payment-service", c.Service.Key)
 	}
@@ -60,9 +60,13 @@ func TestProductImpact_CrossDomainCanonicalIdentity(t *testing.T) {
 	if len(c.Path) != 2 || c.Path[0].Key != "domain-a/payment-service" || c.Path[1].Key != "domain-b/payment-service" {
 		t.Errorf("path double-encoded or wrong: %+v", c.Path)
 	}
-	for _, ref := range append([]fleet.EntityRef{c.Path[0], c.Path[1]}, out.Service) {
+	for _, ref := range append([]ProductRef{c.Path[0], c.Path[1]}, out.Service) {
 		if strings.Contains(ref.Key, "%2F") {
 			t.Errorf("reference key is double-encoded: %q", ref.Key)
+		}
+		// The transport adds a canonical href for each reference.
+		if ref.Href == "" {
+			t.Errorf("reference must carry an href: %+v", ref)
 		}
 	}
 }
@@ -122,12 +126,10 @@ func TestProductImpact_RefreshRaceRejected(t *testing.T) {
 	postJSON(t, base+"/api/fleet/impact", impactRequest{SnapshotID: snapID, FromRevisionKey: from, ToRevisionKey: from}, http.StatusConflict, nil)
 }
 
-// An exact OCI digest ref carries no mutable-content limitation; a mutable-only
-// ref does (parity is never silently claimed over potentially different content).
-func TestProductImpact_MutableContentLimitation(t *testing.T) {
-	// twoDomainDashboardQuery revisions carry ResolvedRef (immutable), so no
-	// mutable-content limitation is added.
-	q := twoDomainDashboardQuery(t)
+// An exact OCI digest ref analyzes successfully with SnapshotMatch=true and no
+// mutable-content limitation.
+func TestProductImpact_ExactDigestSucceeds(t *testing.T) {
+	q := twoDomainDashboardQuery(t) // revisions carry digest-pinned ResolvedRefs
 	snapID := q.SnapshotID()
 	from := revKeyForDomain(t, q, "domain-a")
 	res := &impact.Result{SnapshotID: snapID, Service: "payment-service"}
@@ -135,14 +137,29 @@ func TestProductImpact_MutableContentLimitation(t *testing.T) {
 	defer cancel()
 	var out ProductImpact
 	postJSON(t, base+"/api/fleet/impact", impactRequest{SnapshotID: snapID, FromRevisionKey: from, ToRevisionKey: from}, http.StatusOK, &out)
-	for _, l := range out.Limitations {
+	if !out.SnapshotMatch {
+		t.Error("an exact digest revision must report SnapshotMatch=true")
+	}
+	for _, l := range out.Limitations.Items {
 		if l.Code == fleet.LimitationRevisionContentMutable {
 			t.Errorf("an exact OCI digest must not carry a mutable-content limitation: %+v", out.Limitations)
 		}
 	}
+}
 
-	// A revision resolved only through a mutable RequestedRef DOES carry the
-	// limitation: snapshot parity is never silently claimed over mutable content.
+// countingImpact records whether the provider was invoked.
+func countingImpact(called *bool, res *impact.Result) impactProviderFunc {
+	return func(context.Context, string, string, bool) (*impact.Result, error) {
+		*called = true
+		return res, nil
+	}
+}
+
+// A revision resolved only through a MUTABLE RequestedRef (a tag) must be rejected
+// BEFORE the provider is invoked: the server must never fetch potentially-different
+// content and then claim snapshot parity. There must be no successful ProductImpact
+// with SnapshotMatch=true after falling back to a mutable reference.
+func TestProductImpact_MutableRefRejectedBeforeProvider(t *testing.T) {
 	msnap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("m", "local", &fleet.Collection{Revisions: []fleet.RawRevision{{
 		Bundle: newPaymentBundle(), RequestedRef: "oci://x/payment-service:latest", Digest: "sha256:m",
 	}}}))
@@ -151,19 +168,39 @@ func TestProductImpact_MutableContentLimitation(t *testing.T) {
 	}
 	mq := fleet.NewQuery(msnap)
 	mfrom := revKeyForDomain(t, mq, "")
+	called := false
 	mbase, mcancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return mq, nil },
-		staticImpact(&impact.Result{SnapshotID: mq.SnapshotID(), Service: "payment-service"}))
+		countingImpact(&called, &impact.Result{SnapshotID: mq.SnapshotID(), Service: "payment-service"}))
 	defer mcancel()
-	var mout ProductImpact
-	postJSON(t, mbase+"/api/fleet/impact", impactRequest{SnapshotID: mq.SnapshotID(), FromRevisionKey: mfrom, ToRevisionKey: mfrom}, http.StatusOK, &mout)
-	hasMutable := false
-	for _, l := range mout.Limitations {
-		if l.Code == fleet.LimitationRevisionContentMutable {
-			hasMutable = true
-		}
+	postJSON(t, mbase+"/api/fleet/impact", impactRequest{SnapshotID: mq.SnapshotID(), FromRevisionKey: mfrom, ToRevisionKey: mfrom}, http.StatusUnprocessableEntity, nil)
+	if called {
+		t.Error("the impact provider must NOT be invoked for a mutable-only revision")
 	}
-	if !hasMutable {
-		t.Errorf("a mutable-only ref must carry a mutable-content limitation: %+v", mout.Limitations)
+}
+
+// A tag-shaped ResolvedRef must not be accepted as exact merely by being non-empty,
+// and a local-path revision (no digest-pinned ref) is likewise rejected.
+func TestProductImpact_TagAndLocalRejected(t *testing.T) {
+	for name, rev := range map[string]fleet.RawRevision{
+		"tag":   {Bundle: newPaymentBundle(), ResolvedRef: "oci://x/payment-service:1.0", Digest: "sha256:t"},
+		"local": {Bundle: newPaymentBundle(), RequestedRef: "file:///abs/payment-service"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("s", "local", &fleet.Collection{Revisions: []fleet.RawRevision{rev}}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			q := fleet.NewQuery(snap)
+			key := revKeyForDomain(t, q, "")
+			called := false
+			base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil },
+				countingImpact(&called, &impact.Result{SnapshotID: q.SnapshotID()}))
+			defer cancel()
+			postJSON(t, base+"/api/fleet/impact", impactRequest{SnapshotID: q.SnapshotID(), FromRevisionKey: key, ToRevisionKey: key}, http.StatusUnprocessableEntity, nil)
+			if called {
+				t.Errorf("%s: provider must not be invoked for a non-exact revision", name)
+			}
+		})
 	}
 }
 
@@ -178,16 +215,16 @@ func TestProductImpact_TargetLabelFromRecord(t *testing.T) {
 	defer cancel()
 	var out ProductImpact
 	postJSON(t, base+"/api/fleet/impact", impactRequest{SnapshotID: snapID, FromRevisionKey: from, ToRevisionKey: from}, http.StatusOK, &out)
-	if len(out.ActiveTargets) != 1 || out.ActiveTargets[0].Label != "production/kubernetes-workload/pay/payment-service" {
+	if out.ActiveTargets.Count != 1 || out.ActiveTargets.Items[0].Label != "production/kubernetes-workload/pay/payment-service" {
 		t.Errorf("active target label must be the record DisplayName: %+v", out.ActiveTargets)
 	}
 }
 
-// A revision with no resolvable reference (neither resolved nor requested) is a
-// 422, on either side of the comparison.
+// A revision with an exact (digest-pinned) ref succeeds on both sides; a revision
+// with no resolvable exact reference is a 422, on either side of the comparison.
 func TestProductImpact_NoResolvableRef(t *testing.T) {
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("s", "local", &fleet.Collection{Revisions: []fleet.RawRevision{
-		{Bundle: newPaymentBundle(), ResolvedRef: "oci://x:1", Digest: "sha256:d1"},
+		{Bundle: newPaymentBundle(), ResolvedRef: "oci://x/payment-service@sha256:d1", Digest: "sha256:d1"},
 		{Bundle: newPaymentBundle(), Digest: "sha256:d2"},
 	}}))
 	if err != nil {
@@ -206,6 +243,8 @@ func TestProductImpact_NoResolvableRef(t *testing.T) {
 	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil },
 		staticImpact(&impact.Result{SnapshotID: snapID}))
 	defer cancel()
+	// The exact revision analyzed against itself succeeds.
+	postJSON(t, base+"/api/fleet/impact", impactRequest{SnapshotID: snapID, FromRevisionKey: withRef, ToRevisionKey: withRef}, http.StatusOK, nil)
 	// from has no ref.
 	postJSON(t, base+"/api/fleet/impact", impactRequest{SnapshotID: snapID, FromRevisionKey: noRef, ToRevisionKey: noRef}, http.StatusUnprocessableEntity, nil)
 	// from resolves, to has no ref.

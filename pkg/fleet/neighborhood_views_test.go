@@ -81,11 +81,11 @@ func TestNeighborhood_PreservesPerRevisionDeclaredClaims(t *testing.T) {
 	if e == nil {
 		t.Fatal("no app->lib edge")
 	}
-	if len(e.DeclaredClaims) != 2 {
-		t.Fatalf("expected 2 declared claims (one per revision), got %d: %+v", len(e.DeclaredClaims), e.DeclaredClaims)
+	if e.DeclaredClaims.Count != 2 || e.DeclaredClaims.Total != 2 {
+		t.Fatalf("expected 2 declared claims (one per revision), got %+v", e.DeclaredClaims)
 	}
 	reqs := map[bool]string{}
-	for _, c := range e.DeclaredClaims {
+	for _, c := range e.DeclaredClaims.Items {
 		reqs[c.Required] = c.Compatibility
 	}
 	if reqs[true] != "^1.0.0" || reqs[false] != "^2.0.0" {
@@ -124,7 +124,7 @@ func TestNeighborhood_SurfacesUnresolvedDependency(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := false
-	for _, u := range nb.UnresolvedDependencies {
+	for _, u := range nb.UnresolvedDependencies.Items {
 		if u.Ref == "ghost" || u.RequestedRef == "oci://x/ghost" {
 			found = true
 		}
@@ -234,8 +234,8 @@ func TestNeighborhood_ExpectedNotObservedAndShadowWithheld(t *testing.T) {
 		t.Error("the observed-only a->c shadow must be withheld from the expected view")
 	}
 	// Unresolved declared deps are surfaced and deterministically ordered.
-	if len(exp.UnresolvedDependencies) != 3 {
-		t.Fatalf("unresolved deps = %d, want 3 (ghost1, ghost2, ghost3): %+v", len(exp.UnresolvedDependencies), exp.UnresolvedDependencies)
+	if exp.UnresolvedDependencies.Count != 3 || exp.UnresolvedDependencies.Total != 3 {
+		t.Fatalf("unresolved deps = %+v, want 3 (ghost1, ghost2, ghost3)", exp.UnresolvedDependencies)
 	}
 
 	// Observed view: the shadow edge appears; unresolved (declared) deps are NOT
@@ -247,7 +247,7 @@ func TestNeighborhood_ExpectedNotObservedAndShadowWithheld(t *testing.T) {
 	if edgeBetween(obs, string(NewServiceKey("a")), string(NewServiceKey("c"))) == nil {
 		t.Error("observed view must surface the a->c shadow edge")
 	}
-	if len(obs.UnresolvedDependencies) != 0 {
+	if obs.UnresolvedDependencies.Count != 0 {
 		t.Errorf("observed view must not surface declared unresolved deps: %+v", obs.UnresolvedDependencies)
 	}
 
@@ -257,7 +257,7 @@ func TestNeighborhood_ExpectedNotObservedAndShadowWithheld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fromC.UnresolvedDependencies) != 0 {
+	if fromC.UnresolvedDependencies.Count != 0 {
 		t.Errorf("out-of-scope unresolved deps must not be surfaced: %+v", fromC.UnresolvedDependencies)
 	}
 }

@@ -21,10 +21,10 @@ func TestEntities_AllKindsDefault(t *testing.T) {
 			t.Errorf("entities not sorted within kind at %d", i)
 		}
 	}
-	// Every entity is navigable.
+	// Every entity carries the canonical identity the transport turns into an href.
 	for _, e := range list.Entities {
-		if e.Route == "" {
-			t.Errorf("entity %q has no route", e.Key)
+		if e.Key == "" || e.Kind == "" {
+			t.Errorf("entity has no canonical identity: %+v", e)
 		}
 	}
 }

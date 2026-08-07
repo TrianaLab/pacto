@@ -48,11 +48,12 @@ func validEntityKind(k EntityKind) bool {
 	}
 }
 
-// EntityRef is a stable, navigable reference to a fleet entity. It carries the
-// canonical key AND the human label AND the canonical dashboard route, so a
-// consumer renders and links an entity without re-deriving identity or routes
-// (requirement 2 and requirement 13). Human labels are primary; the raw Key is
-// secondary copyable metadata.
+// EntityRef is a stable, route-neutral reference to a fleet entity. It carries
+// the canonical key AND the human label AND enough classification (kind, domain,
+// scope, parent service) for a consumer to render and identify an entity, but NO
+// dashboard route or href: navigation is a transport concern, so the dashboard
+// product transport adds a canonical href from the canonical key (ADR-2). Human
+// labels are primary; the raw Key is secondary copyable metadata.
 type EntityRef struct {
 	Kind          EntityKind `json:"kind"`
 	Key           string     `json:"key"`
@@ -62,7 +63,6 @@ type EntityRef struct {
 	Explanation   string     `json:"explanation,omitempty"`
 	Domain        string     `json:"domain,omitempty"`
 	Scope         string     `json:"scope,omitempty"`
-	Route         string     `json:"route"`
 	ParentService string     `json:"parentService,omitempty"`
 }
 
@@ -107,15 +107,15 @@ func (q *Query) productMeta() ProductMeta {
 // for a caller (e.g. the POST-impact handler) that composes its own product DTO.
 func (q *Query) ProductMeta() ProductMeta { return q.productMeta() }
 
-// serviceEntityRef builds a navigable reference to a logical service.
+// serviceEntityRef builds a route-neutral reference to a logical service.
 func serviceEntityRef(s *ServiceRecord) EntityRef {
 	return EntityRef{
 		Kind: KindService, Key: string(s.Key), Label: s.Name, Secondary: s.Domain,
-		Status: s.Status, Domain: s.Domain, Route: RouteForService(s.Key),
+		Status: s.Status, Domain: s.Domain,
 	}
 }
 
-// revisionEntityRef builds a navigable reference to a contract revision. The
+// revisionEntityRef builds a route-neutral reference to a contract revision. The
 // label prefers the declared version; the digest is the copyable secondary. An
 // invalid revision carries the Invalid status so the UI never presents it as
 // healthy.
@@ -130,29 +130,29 @@ func revisionEntityRef(r *ContractRevision) EntityRef {
 	}
 	return EntityRef{
 		Kind: KindRevision, Key: string(r.Key), Label: label, Secondary: r.Digest,
-		Status: status, Domain: r.Domain, Route: RouteForRevision(r.Key), ParentService: string(r.ServiceKey),
+		Status: status, Domain: r.Domain, ParentService: string(r.ServiceKey),
 	}
 }
 
-// targetEntityRef builds a navigable reference to an operational target.
+// targetEntityRef builds a route-neutral reference to an operational target.
 func targetEntityRef(t *TargetRecord) EntityRef {
 	return EntityRef{
 		Kind: KindTarget, Key: string(t.Key), Label: t.DisplayName(), Secondary: t.Scope,
 		Status: t.Compliance, Domain: t.Domain, Scope: t.Scope,
-		Route: RouteForTarget(t.Key), ParentService: string(t.ServiceKey),
+		ParentService: string(t.ServiceKey),
 	}
 }
 
-// ownerEntityRef builds a navigable reference to an owner.
+// ownerEntityRef builds a route-neutral reference to an owner.
 func ownerEntityRef(owner string) EntityRef {
-	return EntityRef{Kind: KindOwner, Key: owner, Label: owner, Route: RouteForOwner(owner)}
+	return EntityRef{Kind: KindOwner, Key: owner, Label: owner}
 }
 
-// sourceEntityRef builds a navigable reference to a source.
+// sourceEntityRef builds a route-neutral reference to a source.
 func sourceEntityRef(st SourceState) EntityRef {
 	return EntityRef{
 		Kind: KindSource, Key: st.ID, Label: st.ID, Secondary: st.Kind,
-		Status: string(st.Status), Route: RouteForSource(st.ID),
+		Status: string(st.Status),
 	}
 }
 
@@ -178,13 +178,29 @@ type OverviewSummary struct {
 	RecentEvidence            int `json:"recentEvidence"`
 }
 
-// EntryPoint is a suggested navigational starting point. Route is a canonical
-// dashboard route (a filtered list, an entity, or a focused graph).
+// EntryPointView is the route-neutral destination class of an entry point. The
+// dashboard transport maps (View, Category) to a canonical href; the fleet layer
+// never emits a route string (ADR-2).
+type EntryPointView string
+
+const (
+	// EntryPointAttention: the attention list, optionally filtered by Category.
+	EntryPointAttention EntryPointView = "attention"
+	// EntryPointServices: the services list.
+	EntryPointServices EntryPointView = "services"
+	// EntryPointOverview: the overview page.
+	EntryPointOverview EntryPointView = "overview"
+)
+
+// EntryPoint is a suggested navigational starting point described route-neutrally
+// by a destination View plus an optional Category filter. The transport turns
+// that descriptor into a canonical href.
 type EntryPoint struct {
-	Label       string `json:"label"`
-	Description string `json:"description,omitempty"`
-	Route       string `json:"route"`
-	Count       int    `json:"count,omitempty"`
+	Label       string         `json:"label"`
+	Description string         `json:"description,omitempty"`
+	View        EntryPointView `json:"view"`
+	Category    string         `json:"category,omitempty"`
+	Count       int            `json:"count,omitempty"`
 }
 
 // EvidenceItem links a recently-evidenced target to the moment it was evidenced.
@@ -195,12 +211,13 @@ type EvidenceItem struct {
 
 // Overview is the product-oriented operational summary (requirement 2.1 and
 // requirement 4). It answers "what needs attention", "which sources are
-// incomplete", "what evidence arrived recently" and "where to go next", with a
-// canonical route on every actionable item.
+// incomplete", "what evidence arrived recently" and "where to go next". Source
+// health is carried once, bounded, in Meta.Sources (with Meta.SourcesTruncated);
+// there is no separate unbounded source list, so no product answer ever copies
+// every source without a hard bound.
 type Overview struct {
 	Meta           ProductMeta     `json:"meta"`
 	Summary        OverviewSummary `json:"summary"`
-	Sources        []SourceState   `json:"sources"`
 	Attention      []AttentionItem `json:"attention"`
 	RecentEvidence []EvidenceItem  `json:"recentEvidence"`
 	EntryPoints    []EntryPoint    `json:"entryPoints"`
@@ -210,7 +227,7 @@ type Overview struct {
 // immutable snapshot.
 func (q *Query) Overview() *Overview {
 	ov := &Overview{
-		Meta: q.productMeta(), Sources: cloneSources(q.snap.Sources),
+		Meta:      q.productMeta(),
 		Attention: []AttentionItem{}, RecentEvidence: []EvidenceItem{}, EntryPoints: []EntryPoint{},
 	}
 	sum := &ov.Summary
@@ -354,14 +371,14 @@ func (q *Query) servicesNeedingAttention() int {
 // summary category, each with a canonical route.
 func entryPoints(sum *OverviewSummary) []EntryPoint {
 	candidates := []EntryPoint{
-		{Label: "Services needing attention", Count: sum.ServicesNeedingAttention, Route: RouteForAttention()},
-		{Label: "Non-compliant deployments", Count: sum.NonCompliantTargets, Route: RouteForAttentionFilter(categoryNonCompliant)},
-		{Label: "Deployments with stale evidence", Count: sum.StaleTargets, Route: RouteForAttentionFilter(categoryStale)},
-		{Label: "Deployments with unknown compliance", Count: sum.UnknownTargets, Route: RouteForAttentionFilter(categoryUnknown)},
-		{Label: "Invalid revisions", Count: sum.InvalidRevisions, Route: RouteForAttentionFilter(categoryInvalid)},
-		{Label: "Unresolved declared dependencies", Count: sum.UnresolvedRelationships, Route: RouteForAttentionFilter(categoryUnresolved)},
-		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships, Route: RouteForServices()},
-		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, Route: RouteForOverview()},
+		{Label: "Services needing attention", Count: sum.ServicesNeedingAttention, View: EntryPointAttention},
+		{Label: "Non-compliant deployments", Count: sum.NonCompliantTargets, View: EntryPointAttention, Category: categoryNonCompliant},
+		{Label: "Deployments with stale evidence", Count: sum.StaleTargets, View: EntryPointAttention, Category: categoryStale},
+		{Label: "Deployments with unknown compliance", Count: sum.UnknownTargets, View: EntryPointAttention, Category: categoryUnknown},
+		{Label: "Invalid revisions", Count: sum.InvalidRevisions, View: EntryPointAttention, Category: categoryInvalid},
+		{Label: "Unresolved declared dependencies", Count: sum.UnresolvedRelationships, View: EntryPointAttention, Category: categoryUnresolved},
+		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships, View: EntryPointServices},
+		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointOverview},
 	}
 	out := []EntryPoint{}
 	for _, ep := range candidates {
@@ -372,9 +389,9 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 	return out
 }
 
-// AttentionItem is one navigable attention row (requirement 2.5). Every item
-// links to the exact affected entity and recommends the next step; nothing is a
-// non-clickable plain string.
+// AttentionItem is one attention row (requirement 2.5). Every item carries the
+// route-neutral reference to the exact affected entity and recommends the next
+// step; the transport adds the entity's canonical href.
 type AttentionItem struct {
 	Entity   EntityRef `json:"entity"`
 	Service  string    `json:"service,omitempty"`
@@ -385,7 +402,6 @@ type AttentionItem struct {
 	Summary  string    `json:"summary"`
 	Reason   string    `json:"reason"`
 	Source   string    `json:"source,omitempty"`
-	Route    string    `json:"route"`
 	NextStep string    `json:"nextStep,omitempty"`
 }
 
@@ -408,8 +424,8 @@ const (
 
 var severityOrder = map[string]int{severityError: 0, severityWarning: 1, severityInfo: 2}
 
-// AttentionFilter constrains an attention query. The zero value returns every
-// item (bounded by the default limit).
+// AttentionFilter constrains an attention query. The zero value returns the
+// first page (bounded by the default limit) of every item. Offset walks pages.
 type AttentionFilter struct {
 	Category  string
 	Kind      string
@@ -421,26 +437,35 @@ type AttentionFilter struct {
 	Status    string
 	StaleOnly bool
 	Limit     int
+	Offset    int
 }
 
-// AttentionList is a bounded, deterministically ordered attention answer. Limit
-// is the effective limit applied (defaulted and capped); Truncated reports that
-// more items matched than the page carries.
+// AttentionList is a bounded, deterministically ordered, offset-pageable
+// attention answer. Limit and Offset are the effective (defaulted and capped)
+// page bounds; Truncated reports that more items matched than this page carries,
+// and NextOffset is the offset of the next page (nil on the last page). Total is
+// the full matched count across all pages, so every page reconstructs the
+// complete sorted answer exactly once.
 type AttentionList struct {
-	Meta      ProductMeta     `json:"meta"`
-	Total     int             `json:"total"`
-	Count     int             `json:"count"`
-	Limit     int             `json:"limit"`
-	Truncated bool            `json:"truncated"`
-	Items     []AttentionItem `json:"items"`
+	Meta       ProductMeta     `json:"meta"`
+	Total      int             `json:"total"`
+	Count      int             `json:"count"`
+	Limit      int             `json:"limit"`
+	Offset     int             `json:"offset"`
+	Truncated  bool            `json:"truncated"`
+	NextOffset *int            `json:"nextOffset,omitempty"`
+	Items      []AttentionItem `json:"items"`
 }
 
-// validateAttentionFilter rejects a malformed attention filter (a negative limit,
-// or an unknown kind/status) rather than silently defaulting it, so a bad input
-// is a typed error and never a misleading empty or full result.
+// validateAttentionFilter rejects a malformed attention filter (a negative limit
+// or offset, or an unknown kind/status) rather than silently defaulting it, so a
+// bad input is a typed error and never a misleading empty or full result.
 func validateAttentionFilter(f AttentionFilter) error {
 	if f.Limit < 0 {
 		return &InvalidQueryError{Field: "limit", Value: fmt.Sprint(f.Limit), Reason: "must be >= 0"}
+	}
+	if f.Offset < 0 {
+		return &InvalidQueryError{Field: "offset", Value: fmt.Sprint(f.Offset), Reason: "must be >= 0"}
 	}
 	if f.Kind != "" && !validEntityKind(EntityKind(f.Kind)) {
 		return &InvalidQueryError{Field: "kind", Value: f.Kind, Reason: "not a known entity kind"}
@@ -451,11 +476,12 @@ func validateAttentionFilter(f AttentionFilter) error {
 	return nil
 }
 
-// Attention reports navigable attention items across every category, filtered and
-// bounded. Items are computed directly from the snapshot (not via the low-level
-// Status list) so each carries a clean entity reference. A malformed filter is a
-// typed [InvalidQueryError]; the limit is defaulted at zero and hard-capped at
-// MaxAttentionLimit.
+// Attention reports attention items across every category, filtered, sorted and
+// offset-paged. Items are computed directly from the snapshot (not via the
+// low-level Status list) so each carries a clean entity reference. A malformed
+// filter is a typed [InvalidQueryError]; the limit is defaulted at zero and
+// hard-capped at MaxAttentionLimit, and paging is deterministic so walking every
+// page reconstructs the complete sorted answer exactly once.
 func (q *Query) Attention(f AttentionFilter) (*AttentionList, error) {
 	if err := validateAttentionFilter(f); err != nil {
 		return nil, err
@@ -476,12 +502,25 @@ func (q *Query) Attention(f AttentionFilter) (*AttentionList, error) {
 	if limit > MaxAttentionLimit {
 		limit = MaxAttentionLimit
 	}
-	truncated := false
-	if len(filtered) > limit {
-		filtered = filtered[:limit]
-		truncated = true
+	start := f.Offset
+	if start > total {
+		start = total
 	}
-	return &AttentionList{Meta: q.productMeta(), Total: total, Count: len(filtered), Limit: limit, Truncated: truncated, Items: filtered}, nil
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	page := append([]AttentionItem{}, filtered[start:end]...)
+	truncated := end < total
+	var next *int
+	if truncated {
+		n := end
+		next = &n
+	}
+	return &AttentionList{
+		Meta: q.productMeta(), Total: total, Count: len(page),
+		Limit: limit, Offset: start, Truncated: truncated, NextOffset: next, Items: page,
+	}, nil
 }
 
 // collectAttention gathers every attention item from the snapshot.
@@ -506,14 +545,14 @@ func (q *Query) targetAttention(t *TargetRecord) []AttentionItem {
 			Entity: ref, Service: string(t.ServiceKey), Label: t.DisplayName(),
 			Severity: severityError, Code: "NON_COMPLIANT", Category: categoryNonCompliant,
 			Summary: "Deployment has confirmed drift", Reason: "the target has confirmed compliance drift against its contract",
-			Source: t.Source, Route: ref.Route, NextStep: "Open the deployment findings",
+			Source: t.Source, NextStep: "Open the deployment findings",
 		})
 	case StatusUnknown:
 		out = append(out, AttentionItem{
 			Entity: ref, Service: string(t.ServiceKey), Label: t.DisplayName(),
 			Severity: severityWarning, Code: "UNKNOWN", Category: categoryUnknown,
 			Summary: "Deployment compliance is unknown", Reason: "compliance is unknown because evidence is insufficient",
-			Source: t.Source, Route: ref.Route, NextStep: "Check the deployment evidence source",
+			Source: t.Source, NextStep: "Check the deployment evidence source",
 		})
 	}
 	if t.Stale {
@@ -521,7 +560,7 @@ func (q *Query) targetAttention(t *TargetRecord) []AttentionItem {
 			Entity: ref, Service: string(t.ServiceKey), Label: t.DisplayName(),
 			Severity: severityWarning, Code: "STALE_EVIDENCE", Category: categoryStale,
 			Summary: "Deployment evidence is stale", Reason: "the most recent evidence is older than the freshness window",
-			Source: t.Source, Route: ref.Route, NextStep: "Refresh evidence for this deployment",
+			Source: t.Source, NextStep: "Refresh evidence for this deployment",
 		})
 	}
 	return out
@@ -535,7 +574,7 @@ func (q *Query) revisionAttention(r *ContractRevision) []AttentionItem {
 			Entity: ref, Service: string(r.ServiceKey), Label: ref.Label,
 			Severity: severityError, Code: "INVALID_CONTRACT", Category: categoryInvalid,
 			Summary: "Revision contract is invalid", Reason: "the contract is structurally invalid",
-			Source: r.Source, Route: ref.Route, NextStep: "Open the revision and fix the contract",
+			Source: r.Source, NextStep: "Open the revision and fix the contract",
 		})
 	}
 	if r.Readiness == nil {
@@ -543,7 +582,7 @@ func (q *Query) revisionAttention(r *ContractRevision) []AttentionItem {
 			Entity: ref, Service: string(r.ServiceKey), Label: ref.Label,
 			Severity: severityInfo, Code: "MISSING_READINESS", Category: categoryReadiness,
 			Summary: "Revision has no readiness assessment", Reason: "the revision declares no readiness assessment",
-			Source: r.Source, Route: ref.Route, NextStep: "Add a readiness assessment",
+			Source: r.Source, NextStep: "Add a readiness assessment",
 		})
 	}
 	return out
@@ -565,9 +604,9 @@ func (q *Query) unresolvedAttention() []AttentionItem {
 		out = append(out, AttentionItem{
 			Entity: ref, Service: string(rel.FromService), Label: svc.Name + " depends on " + rel.To,
 			Severity: severityWarning, Code: "UNRESOLVED_DEPENDENCY", Category: categoryUnresolved,
-			Summary: "Declared dependency is unresolved",
-			Reason:  "the declared dependency " + rel.To + " is not resolved in the fleet",
-			Route:   ref.Route, NextStep: "Publish or resolve the dependency",
+			Summary:  "Declared dependency is unresolved",
+			Reason:   "the declared dependency " + rel.To + " is not resolved in the fleet",
+			NextStep: "Publish or resolve the dependency",
 		})
 	}
 	return out

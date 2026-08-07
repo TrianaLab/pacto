@@ -100,11 +100,35 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		}
 		rev := fleet.RawRevision{Bundle: bundle, Domain: OciDomain(ref), RequestedRef: ref, ResolvedRef: ref}
 		if digest, derr := store.Resolve(ctx, ref); derr == nil {
+			// The requested ref may be a MUTABLE tag; the resolved digest is the
+			// immutable identity. Pin ResolvedRef to the digest so a Product Impact
+			// request by canonical revision key analyzes exactly the content the
+			// snapshot captured, never whatever the tag points at later.
 			rev.Digest = digest
+			rev.ResolvedRef = pinRefToDigest(ref, digest)
 		}
 		col.Revisions = append(col.Revisions, rev)
 	}
 	return col, nil
+}
+
+// pinRefToDigest rewrites a reference to its immutable digest-pinned form
+// "[oci://]repo@<digest>", stripping any existing tag or digest. The oci:// scheme
+// is preserved; a tag is a ':' after the last '/', so a registry port
+// (localhost:5000/...) is never mistaken for a tag separator.
+func pinRefToDigest(ref, digest string) string {
+	scheme, r := "", ref
+	if strings.HasPrefix(r, "oci://") {
+		scheme, r = "oci://", strings.TrimPrefix(r, "oci://")
+	}
+	if i := strings.Index(r, "@"); i >= 0 {
+		r = r[:i]
+	}
+	slash := strings.LastIndex(r, "/")
+	if colon := strings.LastIndex(r, ":"); colon > slash {
+		r = r[:colon]
+	}
+	return scheme + r + "@" + digest
 }
 
 // OciDomain derives the logical-service domain (the registry+org/repo scope) from

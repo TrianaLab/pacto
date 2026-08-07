@@ -77,8 +77,15 @@ func TestNeighborhood_FocusNode(t *testing.T) {
 	if focus == nil {
 		t.Fatal("no focus node marked")
 	}
-	if focus.Ref.Key != "alpha" || focus.Owner != "team-a" || len(focus.Expansions) != 2 {
+	// Default (expected) view: alpha declares a dependency on leaf-svc but has NO
+	// declared dependent (beta->alpha is observed-only). A view-aware expansion
+	// affordance must therefore offer ONLY dependencies here; advertising a
+	// dependents expansion would leak observed knowledge the expected view excludes.
+	if focus.Ref.Key != "alpha" || focus.Owner != "team-a" {
 		t.Errorf("focus node wrong: %+v", focus)
+	}
+	if len(focus.Expansions) != 1 || focus.Expansions[0] != DirectionDependencies {
+		t.Errorf("expected-view expansions = %v, want [dependencies] only (no observed-only leak)", focus.Expansions)
 	}
 }
 

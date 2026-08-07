@@ -2,18 +2,19 @@ package fleet
 
 import (
 	"sort"
+	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v3/pkg/readiness"
 )
 
-// Link is a canonical, labelled navigation link between related entities. The
-// backend provides these so a component never reconstructs a route from a raw key
-// (requirement 2.4 and requirement 13).
-type Link struct {
-	Rel   string `json:"rel"`
-	Label string `json:"label"`
-	Route string `json:"route"`
-}
+// This file builds the strongly typed, discriminated entity-detail model. There
+// is no map[string]any: the common envelope makes the entity kind explicit and
+// carries EXACTLY ONE kind-specific payload (service / revision / target / owner
+// / source). Every nested collection is a bounded preview (see preview.go), and
+// every finding or limitation aggregated across more than one entity carries the
+// canonical reference of the entity it affects, so a consumer never sees an
+// orphan finding. The whole answer is deep-cloned before return, so a caller can
+// mutate it without touching the immutable snapshot or any other answer.
 
 // OwnershipInfo is an entity's ownership summary with per-revision conflicts.
 type OwnershipInfo struct {
@@ -22,28 +23,142 @@ type OwnershipInfo struct {
 	Conflicts []string   `json:"conflicts,omitempty"`
 }
 
-// EntityDetail is the common, versioned envelope for any entity's full detail
-// (requirement 2.4). Sections and Summary are kind-specific; identity,
-// relationships, findings, evidence, ownership, limitations, links and actions
-// are common. Links are canonical, so components cross-link without re-deriving.
-type EntityDetail struct {
-	Meta             ProductMeta        `json:"meta"`
-	Entity           EntityRef          `json:"entity"`
-	Summary          map[string]any     `json:"summary,omitempty"`
-	Status           string             `json:"status,omitempty"`
-	Sections         map[string]any     `json:"sections,omitempty"`
-	Relationships    []NeighborhoodEdge `json:"relationships,omitempty"`
-	Findings         []finding.Finding  `json:"findings,omitempty"`
-	Evidence         []EvidenceItem     `json:"evidence,omitempty"`
-	Ownership        *OwnershipInfo     `json:"ownership,omitempty"`
-	Limitations      []Limitation       `json:"limitations,omitempty"`
-	Links            []Link             `json:"links,omitempty"`
-	AvailableActions []string           `json:"availableActions,omitempty"`
+// RevisionIdentity describes how a revision (or a target's contract reference)
+// resolved to content. Immutable reports whether ResolvedRef is digest-pinned;
+// only immutable identity may be treated as exact snapshot content.
+type RevisionIdentity struct {
+	Digest       string `json:"digest,omitempty"`
+	RequestedRef string `json:"requestedRef,omitempty"`
+	ResolvedRef  string `json:"resolvedRef,omitempty"`
+	Immutable    bool   `json:"immutable"`
 }
 
-// EntityDetail returns the unified detail envelope for one entity. Supported
-// kinds: service, revision, target, owner, source.
+// ServiceDetailData is the service-kind payload: aggregate ownership, bounded
+// previews of revisions / deployments / dependencies / dependents /
+// relationships, and findings, evidence and limitations aggregated across the
+// service's targets (each attributed to the affected target).
+type ServiceDetailData struct {
+	Domain        string                       `json:"domain,omitempty"`
+	Ownership     *OwnershipInfo               `json:"ownership,omitempty"`
+	Revisions     RefPreview                   `json:"revisions"`
+	Deployments   RefPreview                   `json:"deployments"`
+	Dependencies  RefPreview                   `json:"dependencies"`
+	Dependents    RefPreview                   `json:"dependents"`
+	Relationships RelationshipsPreview         `json:"relationships"`
+	Findings      AttributedFindingsPreview    `json:"findings"`
+	Evidence      EvidencePreview              `json:"evidence"`
+	Limitations   AttributedLimitationsPreview `json:"limitations"`
+}
+
+// RevisionDetailData is the revision-kind payload: parent service, immutable
+// identity/content, validation, readiness, declared-interface/config/policy/
+// capability counts, bounded tools/skills/docs, exact/inferred targets, and the
+// previous/next known revisions of the same logical service.
+type RevisionDetailData struct {
+	Service         EntityRef            `json:"service"`
+	Version         string               `json:"version,omitempty"`
+	PactoVersion    string               `json:"pactoVersion,omitempty"`
+	Identity        RevisionIdentity     `json:"identity"`
+	Valid           bool                 `json:"valid"`
+	Readiness       *readiness.Result    `json:"readiness,omitempty"`
+	Validation      FindingsPreview      `json:"validation"`
+	Interfaces      int                  `json:"interfaces"`
+	Configurations  int                  `json:"configurations"`
+	Policies        int                  `json:"policies"`
+	Capabilities    int                  `json:"capabilities"`
+	Dependencies    RelationshipsPreview `json:"dependencies"`
+	Tools           ToolsPreview         `json:"tools"`
+	Skills          StringsPreview       `json:"skills"`
+	Docs            DocsPreview          `json:"docs"`
+	ExactTargets    RefPreview           `json:"exactTargets"`
+	InferredTargets RefPreview           `json:"inferredTargets"`
+	Previous        *EntityRef           `json:"previous,omitempty"`
+	Next            *EntityRef           `json:"next,omitempty"`
+	Ownership       *OwnershipInfo       `json:"ownership,omitempty"`
+	Limitations     LimitationsPreview   `json:"limitations"`
+}
+
+// TargetDetailData is the target-kind payload: the logical service and linked
+// revision, the exact/inferred/ambiguous/unresolved link state, compliance,
+// coverage, findings, observed runtime, contributing sources, the target's own
+// contract identity, evidence/reconciliation timestamps, and stale/quarantined
+// state.
+type TargetDetailData struct {
+	Service         EntityRef          `json:"service"`
+	Revision        *EntityRef         `json:"revision,omitempty"`
+	LinkState       string             `json:"linkState"`
+	Scope           string             `json:"scope,omitempty"`
+	Kind            string             `json:"kind,omitempty"`
+	Compliance      string             `json:"compliance"`
+	Coverage        *Coverage          `json:"coverage,omitempty"`
+	Findings        FindingsPreview    `json:"findings"`
+	ObservedRuntime map[string]any     `json:"observedRuntime,omitempty"`
+	Sources         StringsPreview     `json:"sources"`
+	Source          string             `json:"source,omitempty"`
+	Identity        RevisionIdentity   `json:"identity"`
+	EvidenceAt      *time.Time         `json:"evidenceAt,omitempty"`
+	ReconciledAt    *time.Time         `json:"reconciledAt,omitempty"`
+	Stale           bool               `json:"stale"`
+	Quarantined     bool               `json:"quarantined,omitempty"`
+	Ownership       *OwnershipInfo     `json:"ownership,omitempty"`
+	Limitations     LimitationsPreview `json:"limitations"`
+}
+
+// OwnerDetailData is the owner-kind payload: bounded previews of the owner's
+// services, revisions and deployments, plus a bounded attention preview.
+type OwnerDetailData struct {
+	Services    RefPreview       `json:"services"`
+	Revisions   RefPreview       `json:"revisions"`
+	Deployments RefPreview       `json:"deployments"`
+	Attention   AttentionPreview `json:"attention"`
+}
+
+// SourceDetailData is the source-kind payload: kind, health, sync/observation
+// timestamps, record counts, a bounded preview of contributed entities, the
+// sanitized source error, and the source's own limitations.
+type SourceDetailData struct {
+	Kind               string             `json:"kind,omitempty"`
+	Health             string             `json:"health"`
+	LastSuccessfulSync *time.Time         `json:"lastSuccessfulSync,omitempty"`
+	ObservedAt         *time.Time         `json:"observedAt,omitempty"`
+	RevisionCount      int                `json:"revisionCount"`
+	TargetCount        int                `json:"targetCount"`
+	Entities           RefPreview         `json:"entities"`
+	Error              *SourceError       `json:"error,omitempty"`
+	Limitations        LimitationsPreview `json:"limitations"`
+}
+
+// EntityDetail is the common, versioned, discriminated envelope for any entity's
+// full detail (requirement 2.4). Entity.Kind is the discriminator; EXACTLY ONE
+// of Service/Revision/Target/Owner/Source is populated. Actions lists the
+// available semantic actions route-neutrally (the transport maps them to hrefs).
+type EntityDetail struct {
+	Meta     ProductMeta         `json:"meta"`
+	Entity   EntityRef           `json:"entity"`
+	Status   string              `json:"status,omitempty"`
+	Service  *ServiceDetailData  `json:"service,omitempty"`
+	Revision *RevisionDetailData `json:"revision,omitempty"`
+	Target   *TargetDetailData   `json:"target,omitempty"`
+	Owner    *OwnerDetailData    `json:"owner,omitempty"`
+	Source   *SourceDetailData   `json:"source,omitempty"`
+	Actions  []string            `json:"actions,omitempty"`
+}
+
+// EntityDetail returns the unified detail envelope for one entity, deep-cloned so
+// the caller can mutate it freely. Supported kinds: service, revision, target,
+// owner, source.
 func (q *Query) EntityDetail(kind EntityKind, key string) (*EntityDetail, error) {
+	d, err := q.entityDetail(kind, key)
+	if err != nil {
+		return nil, err
+	}
+	// One terminal deep copy severs every alias into the snapshot: a caller may
+	// mutate any nested map, slice or pointer without touching the snapshot or a
+	// later answer (requirement: product-query immutability).
+	return jsonClone(d), nil
+}
+
+func (q *Query) entityDetail(kind EntityKind, key string) (*EntityDetail, error) {
 	switch kind {
 	case KindService:
 		return q.serviceDetail(key)
@@ -68,25 +183,24 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		return nil, err
 	}
 	s := view.Service
-	d := &EntityDetail{
-		Meta: q.productMeta(), Entity: serviceEntityRef(s), Status: s.Status,
-		Summary:  map[string]any{"domain": s.Domain, "revisions": len(view.Revisions), "deployments": len(view.Targets), "dependencies": len(view.Dependencies), "dependents": len(view.Dependents)},
-		Sections: map[string]any{"revisions": revisionRefs(view.Revisions), "deployments": targetRefs(view.Targets), "dependents": q.serviceKeyRefs(view.Dependents)},
+	data := &ServiceDetailData{
+		Domain:       s.Domain,
+		Ownership:    serviceOwnership(s, view.Revisions),
+		Revisions:    refPreview(revisionRefs(view.Revisions)),
+		Deployments:  refPreview(targetRefs(view.Targets)),
+		Dependencies: refPreview(q.dependencyRefs(view.Dependencies)),
+		Dependents:   refPreview(q.serviceKeyRefs(view.Dependents)),
+		Findings:     attributedFindingsPreview(attributedTargetFindings(view.Targets)),
+		Evidence:     evidencePreview(evidenceForTargets(view.Targets)),
+		Limitations:  attributedLimitationsPreview(attributedTargetLimitations(view.Targets)),
 	}
 	if nb, e := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()}); e == nil {
-		d.Relationships = nb.Edges
+		data.Relationships = relationshipsPreview(nb.Edges)
 	}
-	d.Findings = aggregateTargetFindings(view.Targets)
-	d.Evidence = evidenceForTargets(view.Targets)
-	d.Ownership = serviceOwnership(s, view.Revisions)
-	d.Limitations = aggregateTargetLimitations(view.Targets)
-	d.Links = []Link{
-		{Rel: "graph", Label: "Open in graph", Route: RouteForGraph(KindService, string(s.Key))},
-		{Rel: "compare", Label: "Compare revisions", Route: RouteForCompare(s.Key)},
-		{Rel: "impact", Label: "Analyze impact", Route: RouteForImpact(s.Key)},
-	}
-	d.AvailableActions = []string{"open-graph", "compare", "impact"}
-	return d, nil
+	return &EntityDetail{
+		Meta: q.productMeta(), Entity: serviceEntityRef(s), Status: s.Status,
+		Service: data, Actions: []string{"open-graph", "compare", "impact"},
+	}, nil
 }
 
 func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
@@ -94,27 +208,37 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	if rev == nil {
 		return nil, &NotFoundError{Kind: "revision", ID: key}
 	}
-	d := &EntityDetail{
-		Meta: q.productMeta(), Entity: revisionEntityRef(rev), Status: revisionStatus(rev),
-		Summary: map[string]any{"service": rev.Service, "version": rev.Version, "digest": rev.Digest, "valid": rev.Valid, "pactoVersion": rev.PactoVersion},
-		// A built revision always has a contract (revisionFrom drops nil ones).
-		Sections: map[string]any{"tools": rev.Tools, "skills": rev.Skills, "docs": rev.Docs, "dependencies": len(rev.Contract.Dependencies), "capabilities": len(rev.Contract.Capabilities)},
-	}
-	if rev.Readiness != nil {
-		d.Sections["readiness"] = rev.Readiness
-	}
 	exact, inferred := q.targetsForRevision(rev.Key)
-	d.Sections["exactTargets"] = exact
-	d.Sections["inferredTargets"] = inferred
-	d.Relationships = q.revisionEdges(rev.Key)
-	d.Findings = rev.Validation
-	d.Ownership = &OwnershipInfo{Owner: rev.Owner.DisplayString()}
-	d.Links = []Link{
-		{Rel: "service", Label: "Service", Route: RouteForService(rev.ServiceKey)},
-		{Rel: "diff", Label: "Diff", Route: RouteForCompare(rev.ServiceKey)},
-		{Rel: "impact", Label: "Impact", Route: RouteForImpact(rev.ServiceKey)},
+	prev, next := q.siblingRevisions(rev)
+	data := &RevisionDetailData{
+		Service:      q.serviceRef(rev.ServiceKey),
+		Version:      rev.Version,
+		PactoVersion: rev.PactoVersion,
+		Identity: RevisionIdentity{
+			Digest: rev.Digest, RequestedRef: rev.RequestedRef, ResolvedRef: rev.ResolvedRef,
+			Immutable: IsDigestPinnedRef(rev.ResolvedRef),
+		},
+		Valid:           rev.Valid,
+		Readiness:       rev.Readiness,
+		Validation:      findingsPreview(rev.Validation),
+		Capabilities:    len(rev.Contract.Capabilities),
+		Interfaces:      len(rev.Contract.Interfaces),
+		Configurations:  len(rev.Contract.Configurations),
+		Policies:        len(rev.Contract.Policies),
+		Dependencies:    relationshipsPreview(q.revisionEdges(rev.Key)),
+		Tools:           toolsPreview(rev.Tools),
+		Skills:          stringsPreview(rev.Skills),
+		Docs:            docsPreview(rev.Docs),
+		ExactTargets:    refPreview(exact),
+		InferredTargets: refPreview(inferred),
+		Previous:        prev,
+		Next:            next,
+		Ownership:       &OwnershipInfo{Owner: rev.Owner.DisplayString()},
 	}
-	return d, nil
+	return &EntityDetail{
+		Meta: q.productMeta(), Entity: revisionEntityRef(rev), Status: revisionStatus(rev),
+		Revision: data, Actions: []string{"open-graph", "compare", "impact"},
+	}, nil
 }
 
 func (q *Query) targetDetail(key string) (*EntityDetail, error) {
@@ -123,36 +247,39 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		return nil, err
 	}
 	t := tv.Target
-	d := &EntityDetail{
-		Meta: q.productMeta(), Entity: targetEntityRef(t), Status: t.Compliance,
-		Summary:  map[string]any{"service": t.Service, "scope": t.Scope, "revisionMatch": t.RevisionMatch, "digest": t.Digest, "source": t.Source, "requestedRef": t.RequestedRef, "resolvedRef": t.ResolvedRef},
-		Sections: map[string]any{},
-	}
-	if t.Coverage != nil {
-		d.Sections["coverage"] = t.Coverage
+	data := &TargetDetailData{
+		Service:    q.serviceRef(t.ServiceKey),
+		LinkState:  targetLinkState(t),
+		Scope:      t.Scope,
+		Kind:       t.Kind,
+		Compliance: t.Compliance,
+		Coverage:   t.Coverage,
+		Findings:   findingsPreview(t.Findings),
+		Sources:    stringsPreview(t.Sources),
+		Source:     t.Source,
+		Identity: RevisionIdentity{
+			Digest: t.Digest, RequestedRef: t.RequestedRef, ResolvedRef: t.ResolvedRef,
+			Immutable: IsDigestPinnedRef(t.ResolvedRef),
+		},
+		EvidenceAt:   t.EvidenceAt,
+		ReconciledAt: t.ReconciledAt,
+		Stale:        t.Stale,
+		Quarantined:  t.Quarantined,
+		Limitations:  limitationsPreview(t.Limitations),
 	}
 	if len(t.ObservedRuntime) > 0 {
-		d.Sections["observedRuntime"] = t.ObservedRuntime
+		data.ObservedRuntime = t.ObservedRuntime
 	}
-	d.Findings = t.Findings
-	if t.EvidenceAt != nil {
-		d.Evidence = []EvidenceItem{{Target: targetEntityRef(t), At: copyTime(t.EvidenceAt)}}
-	}
-	d.Limitations = t.Limitations
-	d.Links = q.targetLinks(t)
-	return d, nil
-}
-
-func (q *Query) targetLinks(t *TargetRecord) []Link {
-	links := []Link{{Rel: "service", Label: "Service", Route: RouteForService(t.ServiceKey)}}
 	if t.ContractRevision != "" {
-		links = append(links, Link{Rel: "revision", Label: "Revision", Route: RouteForRevision(t.ContractRevision)})
+		if rev := q.snap.Revisions[t.ContractRevision]; rev != nil {
+			ref := revisionEntityRef(rev)
+			data.Revision = &ref
+		}
 	}
-	// A built target always carries its contributing source (Build sets it).
-	links = append(links,
-		Link{Rel: "source", Label: "Evidence source", Route: RouteForSource(t.Source)},
-		Link{Rel: "graph", Label: "Focused graph", Route: RouteForGraph(KindTarget, string(t.Key))})
-	return links
+	return &EntityDetail{
+		Meta: q.productMeta(), Entity: targetEntityRef(t), Status: t.Compliance,
+		Target: data, Actions: []string{"open-graph", "service"},
+	}, nil
 }
 
 func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
@@ -179,15 +306,17 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	sortEntityRefs(services)
 	sortEntityRefs(deployments)
 	sortEntityRefs(revisions)
-	d := &EntityDetail{
-		Meta: q.productMeta(), Entity: ownerEntityRef(key),
-		Sections: map[string]any{"services": services, "deployments": deployments, "revisions": revisions},
-	}
 	// A constant, valid filter (owner only) never errors; ignore it deliberately.
 	ownerAttention, _ := q.Attention(AttentionFilter{Owner: key})
-	d.Sections["attention"] = ownerAttention.Items
-	d.Ownership = &OwnershipInfo{Owner: key}
-	return d, nil
+	return &EntityDetail{
+		Meta: q.productMeta(), Entity: ownerEntityRef(key),
+		Owner: &OwnerDetailData{
+			Services:    refPreview(services),
+			Revisions:   refPreview(revisions),
+			Deployments: refPreview(deployments),
+			Attention:   attentionPreview(ownerAttention.Items),
+		},
+	}, nil
 }
 
 func (q *Query) sourceDetail(key string) (*EntityDetail, error) {
@@ -201,46 +330,88 @@ func (q *Query) sourceDetail(key string) (*EntityDetail, error) {
 	if st == nil {
 		return nil, &NotFoundError{Kind: "source", ID: key}
 	}
-	d := &EntityDetail{
-		Meta: q.productMeta(), Entity: sourceEntityRef(*st), Status: string(st.Status),
-		Summary:  map[string]any{"kind": st.Kind, "status": string(st.Status), "revisionCount": st.RevisionCount, "targetCount": st.TargetCount},
-		Sections: map[string]any{},
-	}
-	if st.LastSuccessfulSync != nil {
-		d.Summary["lastSuccessfulSync"] = st.LastSuccessfulSync
-	}
-	if st.Error != nil {
-		d.Sections["error"] = st.Error
-	}
-	d.Sections["entities"] = q.entitiesFromSource(key)
+	var lims []Limitation
 	for _, l := range q.snap.Limitations {
 		if l.Source == key {
-			d.Limitations = append(d.Limitations, l)
+			lims = append(lims, l)
 		}
 	}
-	return d, nil
+	return &EntityDetail{
+		Meta: q.productMeta(), Entity: sourceEntityRef(*st), Status: string(st.Status),
+		Source: &SourceDetailData{
+			Kind:               st.Kind,
+			Health:             string(st.Status),
+			LastSuccessfulSync: st.LastSuccessfulSync,
+			ObservedAt:         st.ObservedAt,
+			RevisionCount:      st.RevisionCount,
+			TargetCount:        st.TargetCount,
+			Entities:           refPreview(q.entitiesFromSource(key)),
+			Error:              st.Error,
+			Limitations:        limitationsPreview(lims),
+		},
+	}, nil
 }
 
-// entitiesFromSource returns every entity contributed by the named source.
-func (q *Query) entitiesFromSource(key string) []EntityRef {
+// targetLinkState classifies a target's revision link as exact, inferred,
+// ambiguous or unresolved. Only an exact link (immutable digest) is authoritative.
+func targetLinkState(t *TargetRecord) string {
+	switch t.RevisionMatch {
+	case revisionMatchExact:
+		return "exact"
+	case revisionMatchInferred:
+		return "inferred"
+	default:
+		if hasLimitation(t.Limitations, LimitationRevisionAmbiguous) {
+			return "ambiguous"
+		}
+		return "unresolved"
+	}
+}
+
+// dependencyRefs turns a service's declared dependency relationships into DISTINCT
+// provider-service references (skipping unresolved edges that name no provider
+// service, and collapsing multiple relationships to the same provider).
+func (q *Query) dependencyRefs(deps []Relationship) []EntityRef {
+	seen := map[ServiceKey]bool{}
 	var out []EntityRef
-	for _, s := range q.snap.Services {
-		if containsStr(s.Sources, key) {
+	for _, rel := range deps {
+		if rel.ToService == "" || seen[rel.ToService] {
+			continue
+		}
+		if s := q.snap.Services[rel.ToService]; s != nil {
+			seen[rel.ToService] = true
 			out = append(out, serviceEntityRef(s))
-		}
-	}
-	for _, r := range q.snap.Revisions {
-		if containsStr(r.Sources, key) || r.Source == key {
-			out = append(out, revisionEntityRef(r))
-		}
-	}
-	for _, t := range q.snap.Targets {
-		if containsStr(t.Sources, key) || t.Source == key {
-			out = append(out, targetEntityRef(t))
 		}
 	}
 	sortEntityRefs(out)
 	return out
+}
+
+// siblingRevisions returns the previous and next known revisions of the same
+// logical service in canonical key order (nil at the ends).
+func (q *Query) siblingRevisions(rev *ContractRevision) (prev, next *EntityRef) {
+	var keys []RevisionKey
+	for k, r := range q.snap.Revisions {
+		if r.ServiceKey == rev.ServiceKey {
+			keys = append(keys, k)
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	for i, k := range keys {
+		if k != rev.Key {
+			continue
+		}
+		if i > 0 {
+			r := revisionEntityRef(q.snap.Revisions[keys[i-1]])
+			prev = &r
+		}
+		if i < len(keys)-1 {
+			r := revisionEntityRef(q.snap.Revisions[keys[i+1]])
+			next = &r
+		}
+		break
+	}
+	return prev, next
 }
 
 // revisionEdges builds the declared, resolved dependency edges a specific revision
@@ -256,7 +427,7 @@ func (q *Query) revisionEdges(revKey RevisionKey) []NeighborhoodEdge {
 		}
 		e := q.newEdge(rel.FromService, rel.ToService)
 		q.foldRelationshipIntoEdge(e, rel)
-		e.Difference = edgeDifference(*e)
+		finalizeEdge(e)
 		out = append(out, *e)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].To.Key < out[j].To.Key })
@@ -306,18 +477,28 @@ func targetRefs(targets []*TargetRecord) []EntityRef {
 	return out
 }
 
-func aggregateTargetFindings(targets []*TargetRecord) []finding.Finding {
-	var out []finding.Finding
+// attributedTargetFindings aggregates every target's findings, attributing each
+// to the target it affects so a service-level finding is never orphaned.
+func attributedTargetFindings(targets []*TargetRecord) []AttributedFinding {
+	var out []AttributedFinding
 	for _, t := range targets {
-		out = append(out, t.Findings...)
+		ref := targetEntityRef(t)
+		for _, f := range t.Findings {
+			out = append(out, AttributedFinding{Finding: f, Entity: ref})
+		}
 	}
 	return out
 }
 
-func aggregateTargetLimitations(targets []*TargetRecord) []Limitation {
-	var out []Limitation
+// attributedTargetLimitations aggregates every target's limitations, attributing
+// each to the target it affects.
+func attributedTargetLimitations(targets []*TargetRecord) []AttributedLimitation {
+	var out []AttributedLimitation
 	for _, t := range targets {
-		out = append(out, t.Limitations...)
+		ref := targetEntityRef(t)
+		for _, l := range t.Limitations {
+			out = append(out, AttributedLimitation{Limitation: l, Entity: ref})
+		}
 	}
 	return out
 }
@@ -330,6 +511,28 @@ func evidenceForTargets(targets []*TargetRecord) []EvidenceItem {
 		}
 	}
 	sortEvidenceDesc(out)
+	return out
+}
+
+// entitiesFromSource returns every entity contributed by the named source.
+func (q *Query) entitiesFromSource(key string) []EntityRef {
+	var out []EntityRef
+	for _, s := range q.snap.Services {
+		if containsStr(s.Sources, key) {
+			out = append(out, serviceEntityRef(s))
+		}
+	}
+	for _, r := range q.snap.Revisions {
+		if containsStr(r.Sources, key) || r.Source == key {
+			out = append(out, revisionEntityRef(r))
+		}
+	}
+	for _, t := range q.snap.Targets {
+		if containsStr(t.Sources, key) || t.Source == key {
+			out = append(out, targetEntityRef(t))
+		}
+	}
+	sortEntityRefs(out)
 	return out
 }
 

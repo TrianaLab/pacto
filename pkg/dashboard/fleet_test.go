@@ -49,7 +49,7 @@ func demoFleetQuery(t *testing.T) *fleet.Query {
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
 		fleet.NewMemorySource("local", "local", &fleet.Collection{
 			Revisions: []fleet.RawRevision{{
-				Bundle: newPaymentBundle(), ResolvedRef: "oci://ghcr.io/org/payment-service:2.0.0", Digest: "sha256:abc",
+				Bundle: newPaymentBundle(), ResolvedRef: "oci://ghcr.io/org/payment-service@sha256:abc", Digest: "sha256:abc",
 			}},
 			Targets: []fleet.RawTarget{{
 				Scope: "production", Kind: "kubernetes-workload", Name: "pay/payment-service",
@@ -208,10 +208,10 @@ func TestFleetDetailEndpoints(t *testing.T) {
 func TestFleetServiceDetail_DomainIsolation(t *testing.T) {
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
 		fleet.NewMemorySource("a", "local", &fleet.Collection{Revisions: []fleet.RawRevision{{
-			Bundle: newPaymentBundle(), Domain: "domain-a", ResolvedRef: "oci://a/payment-service:1.0.0", Digest: "sha256:a",
+			Bundle: newPaymentBundle(), Domain: "domain-a", ResolvedRef: "oci://a/payment-service@sha256:a", Digest: "sha256:a",
 		}}}),
 		fleet.NewMemorySource("b", "local", &fleet.Collection{Revisions: []fleet.RawRevision{{
-			Bundle: newPaymentBundle(), Domain: "domain-b", ResolvedRef: "oci://b/payment-service:1.0.0", Digest: "sha256:b",
+			Bundle: newPaymentBundle(), Domain: "domain-b", ResolvedRef: "oci://b/payment-service@sha256:b", Digest: "sha256:b",
 		}}}))
 	if err != nil {
 		t.Fatal(err)

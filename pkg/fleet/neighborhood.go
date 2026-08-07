@@ -16,6 +16,16 @@ const (
 	MaxNeighborhoodNodes     = 500
 	DefaultMaxEdges          = 120
 	MaxNeighborhoodEdges     = 1000
+	// MaxEdgeDeclaredClaims caps the per-edge declared-claim preview, so a
+	// dependency declared by thousands of historical revisions still yields a
+	// bounded edge.
+	MaxEdgeDeclaredClaims = 100
+	// MaxEdgeObservationSources caps the per-edge observation-source preview, so a
+	// dependency observed by thousands of sources still yields a bounded edge.
+	MaxEdgeObservationSources = 100
+	// MaxUnresolvedDependencies caps the neighborhood's unresolved-dependency
+	// preview.
+	MaxUnresolvedDependencies = 200
 )
 
 // Difference is the backend's explicit declared-vs-observed verdict for an edge.
@@ -101,22 +111,42 @@ type DeclaredClaim struct {
 // services. Expected/Observed record which knowledge backs the edge; Difference
 // is the backend's explicit declared-vs-observed verdict (matched,
 // expected-not-observed, observed-not-expected, insufficient) that the frontend
-// renders verbatim; DeclaredClaims preserves every revision's declaration.
+// renders verbatim; DeclaredClaims and ObservationSources are bounded previews so
+// an edge stays bounded no matter how many revisions declare it or how many
+// sources observe it. The edge carries no route: the transport adds an href.
 type NeighborhoodEdge struct {
-	ID                 string               `json:"id"`
-	From               EntityRef            `json:"from"`
-	To                 EntityRef            `json:"to"`
-	Expected           bool                 `json:"expected"`
-	Observed           bool                 `json:"observed"`
-	Provenance         string               `json:"provenance"`
-	Difference         string               `json:"difference"`
-	DeclaredClaims     []DeclaredClaim      `json:"declaredClaims,omitempty"`
-	ObservationSources []ObservedSourceStat `json:"observationSources,omitempty"`
-	Count              int                  `json:"count,omitempty"`
-	FirstSeen          *time.Time           `json:"firstSeen,omitempty"`
-	LastSeen           *time.Time           `json:"lastSeen,omitempty"`
-	Stale              bool                 `json:"stale,omitempty"`
-	Route              string               `json:"route,omitempty"`
+	ID                 string                    `json:"id"`
+	From               EntityRef                 `json:"from"`
+	To                 EntityRef                 `json:"to"`
+	Expected           bool                      `json:"expected"`
+	Observed           bool                      `json:"observed"`
+	Provenance         string                    `json:"provenance"`
+	Difference         string                    `json:"difference"`
+	DeclaredClaims     DeclaredClaimsPreview     `json:"declaredClaims"`
+	ObservationSources ObservationSourcesPreview `json:"observationSources"`
+	Count              int                       `json:"count,omitempty"`
+	FirstSeen          *time.Time                `json:"firstSeen,omitempty"`
+	LastSeen           *time.Time                `json:"lastSeen,omitempty"`
+	Stale              bool                      `json:"stale,omitempty"`
+}
+
+// DeclaredClaimsPreview is a bounded preview of an edge's per-revision declared
+// claims, so a pathological service with thousands of revisions declaring the
+// same dependency still produces a bounded edge.
+type DeclaredClaimsPreview struct {
+	Total     int             `json:"total"`
+	Count     int             `json:"count"`
+	Truncated bool            `json:"truncated"`
+	Items     []DeclaredClaim `json:"items,omitempty"`
+}
+
+// ObservationSourcesPreview is a bounded preview of the per-source observation
+// stats backing an observed edge.
+type ObservationSourcesPreview struct {
+	Total     int                  `json:"total"`
+	Count     int                  `json:"count"`
+	Truncated bool                 `json:"truncated"`
+	Items     []ObservedSourceStat `json:"items,omitempty"`
 }
 
 // UnresolvedDependency is a declared dependency whose provider is not resolvable
@@ -130,24 +160,33 @@ type UnresolvedDependency struct {
 	Reason         string      `json:"reason,omitempty"`
 }
 
+// UnresolvedDependenciesPreview is a bounded preview of a neighborhood's
+// unresolved declared dependencies.
+type UnresolvedDependenciesPreview struct {
+	Total     int                    `json:"total"`
+	Count     int                    `json:"count"`
+	Truncated bool                   `json:"truncated"`
+	Items     []UnresolvedDependency `json:"items,omitempty"`
+}
+
 // Neighborhood is the bounded, graph-ready neighborhood answer. In this API
 // version the graph is honestly a SERVICE neighborhood: RequestedFocus is the
 // entity the user selected (a service, revision or target), FocusService is the
 // logical service node used as the root, and every node in Nodes is a service
 // node. True revision-graph and deployment-graph projections are a later phase.
 type Neighborhood struct {
-	Meta                   ProductMeta            `json:"meta"`
-	RequestedFocus         EntityRef              `json:"requestedFocus"`
-	FocusService           EntityRef              `json:"focusService"`
-	Direction              Direction              `json:"direction"`
-	Depth                  int                    `json:"depth"`
-	Views                  []KnowledgeView        `json:"views"`
-	Nodes                  []NeighborhoodNode     `json:"nodes"`
-	Edges                  []NeighborhoodEdge     `json:"edges"`
-	UnresolvedDependencies []UnresolvedDependency `json:"unresolvedDependencies,omitempty"`
-	Truncated              bool                   `json:"truncated"`
-	MaxNodes               int                    `json:"maxNodes"`
-	MaxEdges               int                    `json:"maxEdges"`
+	Meta                   ProductMeta                   `json:"meta"`
+	RequestedFocus         EntityRef                     `json:"requestedFocus"`
+	FocusService           EntityRef                     `json:"focusService"`
+	Direction              Direction                     `json:"direction"`
+	Depth                  int                           `json:"depth"`
+	Views                  []KnowledgeView               `json:"views"`
+	Nodes                  []NeighborhoodNode            `json:"nodes"`
+	Edges                  []NeighborhoodEdge            `json:"edges"`
+	UnresolvedDependencies UnresolvedDependenciesPreview `json:"unresolvedDependencies"`
+	Truncated              bool                          `json:"truncated"`
+	MaxNodes               int                           `json:"maxNodes"`
+	MaxEdges               int                           `json:"maxEdges"`
 }
 
 // Neighborhood returns the bounded local SERVICE neighborhood of the focus entity
@@ -190,7 +229,7 @@ func (q *Query) Neighborhood(nq NeighborhoodQuery) (*Neighborhood, error) {
 	res := &Neighborhood{
 		Meta: q.productMeta(), RequestedFocus: requested, FocusService: focusService,
 		Direction: dir, Depth: depth, Views: views, MaxNodes: maxNodes, MaxEdges: maxEdges,
-		Nodes: q.neighborhoodNodes(root, nodeDepth, revState), Edges: edges,
+		Nodes: q.neighborhoodNodes(root, nodeDepth, revState, wantDeclared, wantObserved), Edges: edges,
 		UnresolvedDependencies: q.unresolvedNeighborhoodDeps(nodeDepth, wantDeclared),
 		Truncated:              truncatedNodes || truncatedEdges,
 	}
@@ -348,8 +387,10 @@ func (q *Query) walkNeighborhood(root ServiceKey, dir Direction, maxDepth, maxNo
 }
 
 // neighborhoodNodes builds the node list, deterministically ordered by depth then
-// key, with the focus node marked and expansion affordances computed.
-func (q *Query) neighborhoodNodes(root ServiceKey, depthOf map[ServiceKey]int, rootRevState string) []NeighborhoodNode {
+// key, with the focus node marked and expansion affordances computed from the
+// SAME requested knowledge views as the traversal (so an expansion is never
+// advertised toward a neighbor the selected views cannot reach).
+func (q *Query) neighborhoodNodes(root ServiceKey, depthOf map[ServiceKey]int, rootRevState string, wantDeclared, wantObserved bool) []NeighborhoodNode {
 	keys := make([]ServiceKey, 0, len(depthOf))
 	for k := range depthOf {
 		keys = append(keys, k)
@@ -366,7 +407,7 @@ func (q *Query) neighborhoodNodes(root ServiceKey, depthOf map[ServiceKey]int, r
 		// which only hold resolved keys, so the service always exists.
 		s := q.snap.Services[k]
 		ref := serviceEntityRef(s)
-		n := NeighborhoodNode{Ref: ref, Depth: depthOf[k], Focus: k == root, Status: ref.Status, Owner: s.Owner.DisplayString(), Expansions: q.expansions(k)}
+		n := NeighborhoodNode{Ref: ref, Depth: depthOf[k], Focus: k == root, Status: ref.Status, Owner: s.Owner.DisplayString(), Expansions: q.expansions(k, wantDeclared, wantObserved)}
 		if k == root {
 			n.RevisionState = rootRevState
 		}
@@ -375,15 +416,17 @@ func (q *Query) neighborhoodNodes(root ServiceKey, depthOf map[ServiceKey]int, r
 	return nodes
 }
 
-// expansions reports which directions have at least one neighbor in ANY knowledge
-// kind, so the UI can offer an accurate "there is more this way" affordance
-// regardless of the currently-selected views.
-func (q *Query) expansions(key ServiceKey) []Direction {
+// expansions reports which directions have at least one neighbor reachable
+// through the REQUESTED knowledge views, so the "there is more this way"
+// affordance never leaks a neighbor the selected views exclude. An expected-only
+// query never advertises an expansion that exists solely because of observed
+// knowledge (and vice versa); a differences query (both flags) advertises either.
+func (q *Query) expansions(key ServiceKey, wantDeclared, wantObserved bool) []Direction {
 	var out []Direction
-	if len(q.adjacent(key, DirectionDependencies, true, true)) > 0 {
+	if len(q.adjacent(key, DirectionDependencies, wantDeclared, wantObserved)) > 0 {
 		out = append(out, DirectionDependencies)
 	}
-	if len(q.adjacent(key, DirectionDependents, true, true)) > 0 {
+	if len(q.adjacent(key, DirectionDependents, wantDeclared, wantObserved)) > 0 {
 		out = append(out, DirectionDependents)
 	}
 	return out
@@ -422,7 +465,6 @@ func (q *Query) neighborhoodEdges(depthOf map[ServiceKey]int, views []KnowledgeV
 	truncated := false
 	for _, pair := range order {
 		e := merged[pair]
-		e.Difference = edgeDifference(*e)
 		if !edgeMatchesViews(*e, views) {
 			continue
 		}
@@ -430,9 +472,33 @@ func (q *Query) neighborhoodEdges(depthOf map[ServiceKey]int, views []KnowledgeV
 			truncated = true
 			break
 		}
+		finalizeEdge(e)
 		out = append(out, *e)
 	}
 	return out, truncated
+}
+
+// finalizeEdge computes an edge's declared-vs-observed difference verdict over its
+// FULL declared claims, then bounds its per-edge nested collections (declared
+// claims and observation sources) so the emitted edge is always bounded. It is
+// the single finalize step every emitted edge passes through (neighborhood and
+// revision detail alike).
+func finalizeEdge(e *NeighborhoodEdge) {
+	e.Difference = edgeDifference(*e)
+	e.DeclaredClaims = declaredClaimsPreview(e.DeclaredClaims.Items)
+	e.ObservationSources = observationSourcesPreview(e.ObservationSources.Items)
+}
+
+// declaredClaimsPreview bounds an edge's declared claims.
+func declaredClaimsPreview(cs []DeclaredClaim) DeclaredClaimsPreview {
+	it, total, trunc := boundSlice(cs, MaxEdgeDeclaredClaims)
+	return DeclaredClaimsPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
+}
+
+// observationSourcesPreview bounds an edge's observation sources.
+func observationSourcesPreview(ss []ObservedSourceStat) ObservationSourcesPreview {
+	it, total, trunc := boundSlice(ss, MaxEdgeObservationSources)
+	return ObservationSourcesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 }
 
 // edgeDifference is the backend's explicit declared-vs-observed verdict for a
@@ -452,7 +518,7 @@ func edgeDifference(e NeighborhoodEdge) string {
 	}
 	// Declared but not observed: expected-not-observed if any claim had observation
 	// data to reconcile against, otherwise insufficient (no observation at all).
-	for _, c := range e.DeclaredClaims {
+	for _, c := range e.DeclaredClaims.Items {
 		if c.Reconciliation != ReconciliationInsufficient {
 			return DifferenceExpectedNotObserved
 		}
@@ -464,10 +530,11 @@ func edgeDifference(e NeighborhoodEdge) string {
 // services whose provider is not resolvable in the snapshot (empty ToService).
 // They are reported only when declared knowledge is in view; they carry no target
 // node, so they would otherwise vanish. Deterministically ordered by from key
-// then requested ref.
-func (q *Query) unresolvedNeighborhoodDeps(depthOf map[ServiceKey]int, wantDeclared bool) []UnresolvedDependency {
+// then requested ref, and bounded so a high-fanout service cannot produce an
+// unbounded list.
+func (q *Query) unresolvedNeighborhoodDeps(depthOf map[ServiceKey]int, wantDeclared bool) UnresolvedDependenciesPreview {
 	if !wantDeclared {
-		return nil
+		return UnresolvedDependenciesPreview{}
 	}
 	var out []UnresolvedDependency
 	for i := range q.snap.Relationships {
@@ -492,17 +559,18 @@ func (q *Query) unresolvedNeighborhoodDeps(depthOf map[ServiceKey]int, wantDecla
 		}
 		return out[i].Ref < out[j].Ref
 	})
-	return out
+	it, total, trunc := boundSlice(out, MaxUnresolvedDependencies)
+	return UnresolvedDependenciesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 }
 
 // newEdge starts a merged edge between two in-scope services with both endpoint
-// references and a stable id.
+// references and a stable id. The edge is route-neutral; the transport adds an
+// href.
 func (q *Query) newEdge(from, to ServiceKey) *NeighborhoodEdge {
 	return &NeighborhoodEdge{
-		ID:    string(from) + "|" + string(to),
-		From:  q.serviceRef(from),
-		To:    q.serviceRef(to),
-		Route: RouteForGraph(KindService, string(to)),
+		ID:   string(from) + "|" + string(to),
+		From: q.serviceRef(from),
+		To:   q.serviceRef(to),
 	}
 }
 
@@ -521,7 +589,7 @@ func (q *Query) foldRelationshipIntoEdge(e *NeighborhoodEdge, rel Relationship) 
 	switch rel.Provenance {
 	case ProvenanceDeclared:
 		e.Expected = true
-		e.DeclaredClaims = append(e.DeclaredClaims, DeclaredClaim{
+		e.DeclaredClaims.Items = append(e.DeclaredClaims.Items, DeclaredClaim{
 			SourceRevision: rel.FromRevision,
 			Required:       rel.Required,
 			Compatibility:  rel.Compatibility,
@@ -535,7 +603,7 @@ func (q *Query) foldRelationshipIntoEdge(e *NeighborhoodEdge, rel Relationship) 
 		e.Count += rel.ObservedCount
 		// Deep-copy the observed source stats so the returned edge never aliases the
 		// snapshot's per-source time pointers.
-		e.ObservationSources = append(e.ObservationSources, cloneObservedStats(rel.ObservedSources)...)
+		e.ObservationSources.Items = append(e.ObservationSources.Items, cloneObservedStats(rel.ObservedSources)...)
 		e.FirstSeen = earlier(e.FirstSeen, rel.FirstSeen)
 		e.LastSeen = later(e.LastSeen, rel.LastSeen)
 		e.Stale = e.Stale || q.observedStale(rel.LastSeen)
