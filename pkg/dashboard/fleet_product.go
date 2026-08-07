@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -189,8 +190,10 @@ type ProductImpactConsumer struct {
 }
 
 // ProductImpact is the navigable impact answer: canonical references for the
-// changed service, revisions, consumers, path steps, owners and active targets,
-// plus the raw result for advanced consumers.
+// changed service, revisions, consumers, path steps, owners and active targets.
+// It deliberately does NOT embed the raw impact.Result (which carries
+// non-canonical bare names); the raw GET /api/fleet/impact endpoint remains for
+// machine consumers that want it.
 type ProductImpact struct {
 	Meta           fleet.ProductMeta       `json:"meta"`
 	SnapshotID     string                  `json:"snapshotId"`
@@ -202,7 +205,6 @@ type ProductImpact struct {
 	Consumers      []ProductImpactConsumer `json:"consumers"`
 	Owners         []fleet.EntityRef       `json:"owners"`
 	ActiveTargets  []fleet.EntityRef       `json:"activeTargets"`
-	Result         *impact.Result          `json:"result"`
 	Limitations    []fleet.Limitation      `json:"limitations,omitempty"`
 }
 
@@ -232,11 +234,17 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	if b.SnapshotID != "" && b.SnapshotID != snap.SnapshotID {
 		return nil, huma.Error409Conflict("snapshot mismatch: the published snapshot changed; refetch and retry")
 	}
-	oldRef, err := revisionRef(snap, b.FromRevisionKey)
+	// Both keys must exist, belong to the SAME logical service, and (if given) match
+	// the requested ServiceKey - before any content is fetched.
+	svcKey, fromRev, toRev, err := validateImpactRevisions(snap, b)
+	if err != nil {
+		return nil, huma.Error422UnprocessableEntity("revisionKey", err)
+	}
+	oldRef, oldExact, err := revisionRef(fromRev)
 	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("fromRevisionKey", err)
 	}
-	newRef, err := revisionRef(snap, b.ToRevisionKey)
+	newRef, newExact, err := revisionRef(toRev)
 	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("toRevisionKey", err)
 	}
@@ -244,45 +252,75 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	if err != nil {
 		return nil, impactHTTPError(err)
 	}
-	return &fleetImpactPostOutput{Body: buildProductImpact(q.ProductMeta(), snap.SnapshotID, b, res)}, nil
+	// Snapshot parity: the analysis must have run over the SAME snapshot the handler
+	// validated. If the Manager published a new snapshot in between, the analysis id
+	// differs; reject rather than stamp a divergent answer with our snapshot id.
+	if res.SnapshotID != snap.SnapshotID {
+		return nil, huma.Error409Conflict("snapshot changed during analysis; refetch and retry")
+	}
+	return &fleetImpactPostOutput{Body: buildProductImpact(q.ProductMeta(), snap, svcKey, fromRev, toRev, res, oldExact && newExact)}, nil
 }
 
-// revisionRef resolves a canonical revision key to a resolvable contract ref from
-// the snapshot, so the impact provider can fetch and diff the two revisions.
-func revisionRef(snap *fleet.FleetSnapshot, key string) (string, error) {
-	rev := snap.Revisions[fleet.RevisionKey(key)]
-	if rev == nil {
-		return "", errors.New("no revision with this key in the published snapshot")
+// validateImpactRevisions looks up both revisions, requires them to exist and to
+// belong to the same logical service, and (when a ServiceKey is given) requires it
+// to match that service exactly. It returns the verified service key and the two
+// revision records so labels come from records, never reconstructed from strings.
+func validateImpactRevisions(snap *fleet.FleetSnapshot, req impactRequest) (fleet.ServiceKey, *fleet.ContractRevision, *fleet.ContractRevision, error) {
+	from := snap.Revisions[fleet.RevisionKey(req.FromRevisionKey)]
+	if from == nil {
+		return "", nil, nil, errors.New("no revision with this fromRevisionKey in the published snapshot")
 	}
+	to := snap.Revisions[fleet.RevisionKey(req.ToRevisionKey)]
+	if to == nil {
+		return "", nil, nil, errors.New("no revision with this toRevisionKey in the published snapshot")
+	}
+	if from.ServiceKey != to.ServiceKey {
+		return "", nil, nil, fmt.Errorf("the two revisions belong to different services (%s vs %s)", from.ServiceKey, to.ServiceKey)
+	}
+	if req.ServiceKey != "" && fleet.ServiceKey(req.ServiceKey) != from.ServiceKey {
+		return "", nil, nil, fmt.Errorf("serviceKey %q does not match the revisions' service %q", req.ServiceKey, from.ServiceKey)
+	}
+	return from.ServiceKey, from, to, nil
+}
+
+// revisionRef resolves a revision to a resolvable contract ref. It prefers the
+// IMMUTABLE ResolvedRef (a digest); exact is false when only a MUTABLE
+// RequestedRef (a tag or local path) is available, whose content may differ from
+// what the snapshot captured. A revision with no ref at all is an error.
+func revisionRef(rev *fleet.ContractRevision) (ref string, exact bool, err error) {
 	if rev.ResolvedRef != "" {
-		return rev.ResolvedRef, nil
+		return rev.ResolvedRef, true, nil
 	}
 	if rev.RequestedRef != "" {
-		return rev.RequestedRef, nil
+		return rev.RequestedRef, false, nil
 	}
-	return "", errors.New("the revision has no resolvable reference")
+	return "", false, errors.New("the revision has no resolvable reference")
 }
 
 // buildProductImpact enriches a raw impact result with canonical, navigable
-// references. Consumer, owner and target identities are domain-qualified so a
-// same-named service in another domain is never conflated.
-func buildProductImpact(meta fleet.ProductMeta, snapshotID string, req impactRequest, res *impact.Result) *ProductImpact {
-	svcKey := fleet.ServiceKey(req.ServiceKey)
-	if svcKey == "" {
-		svcKey = fleet.NewServiceKey(res.Service)
-	}
+// references, all looked up in the snapshot so identities are exact and labels
+// come from records. Consumer, path, owner and target identities are
+// domain-qualified so a same-named service in another domain is never conflated,
+// and an already-canonical path key is never re-encoded.
+func buildProductImpact(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, fromRev, toRev *fleet.ContractRevision, res *impact.Result, contentExact bool) *ProductImpact {
 	out := &ProductImpact{
-		Meta: meta, SnapshotID: snapshotID, SnapshotMatch: req.SnapshotID == "" || req.SnapshotID == snapshotID,
-		Service:        serviceRef(svcKey, res.Service, ""),
-		Classification: res.Classification, Result: res, Limitations: res.Limitations,
+		Meta: meta, SnapshotID: snap.SnapshotID, SnapshotMatch: true,
+		Service:        serviceRefFromSnap(snap, svcKey),
+		OldRevision:    revisionRefFromRecord(fromRev),
+		NewRevision:    revisionRefFromRecord(toRev),
+		Classification: res.Classification, Limitations: append([]fleet.Limitation(nil), res.Limitations...),
 		Consumers: []ProductImpactConsumer{}, Owners: []fleet.EntityRef{}, ActiveTargets: []fleet.EntityRef{},
 	}
-	out.OldRevision = revisionRefLink(req.FromRevisionKey)
-	out.NewRevision = revisionRefLink(req.ToRevisionKey)
+	if !contentExact {
+		out.Limitations = append(out.Limitations, fleet.Limitation{
+			Code: fleet.LimitationRevisionContentMutable, Source: "impact",
+			Message: "a revision was resolved through a mutable reference; its content may differ from the snapshot, so exact snapshot parity is not claimed",
+		})
+	}
 	for _, c := range res.Consumers {
 		out.Consumers = append(out.Consumers, ProductImpactConsumer{
-			Service:              serviceRef(fleet.NewServiceKeyDomain(c.Domain, c.Service), c.Service, c.Domain),
-			Path:                 pathRefs(c.Path, c.Domain),
+			Service:              serviceRefFromSnap(snap, fleet.NewServiceKeyDomain(c.Domain, c.Service)),
+			Path:                 pathRefs(snap, c.Path),
 			Depth:                c.Depth,
 			Direct:               c.Direct,
 			Confidence:           string(c.Confidence),
@@ -294,28 +332,53 @@ func buildProductImpact(meta fleet.ProductMeta, snapshotID string, req impactReq
 		out.Owners = append(out.Owners, fleet.EntityRef{Kind: fleet.KindOwner, Key: o, Label: o, Route: fleet.RouteForOwner(o)})
 	}
 	for _, tk := range res.ActiveTargets {
-		out.ActiveTargets = append(out.ActiveTargets, fleet.EntityRef{Kind: fleet.KindTarget, Key: tk, Label: tk, Route: fleet.RouteForTarget(fleet.TargetKey(tk))})
+		out.ActiveTargets = append(out.ActiveTargets, targetRefFromSnap(snap, tk))
 	}
 	return out
 }
 
-func serviceRef(key fleet.ServiceKey, name, domain string) fleet.EntityRef {
+// serviceRefFromSnap builds a service reference for an already-canonical key,
+// taking the human label from the snapshot record when present and otherwise
+// decoding the key (never re-encoding it).
+func serviceRefFromSnap(snap *fleet.FleetSnapshot, key fleet.ServiceKey) fleet.EntityRef {
+	name, domain := "", ""
+	if s := snap.Services[key]; s != nil {
+		name, domain = s.Name, s.Domain
+	} else {
+		domain, name = fleet.ParseServiceKey(key)
+	}
 	return fleet.EntityRef{Kind: fleet.KindService, Key: string(key), Label: name, Domain: domain, Route: fleet.RouteForService(key)}
 }
 
-func revisionRefLink(key string) *fleet.EntityRef {
-	if key == "" {
-		return nil
+// revisionRefFromRecord builds a revision reference whose label is the record's
+// service and version, never the raw key.
+func revisionRefFromRecord(rev *fleet.ContractRevision) *fleet.EntityRef {
+	label := rev.Service
+	if rev.Version != "" {
+		label = rev.Service + " " + rev.Version
 	}
-	return &fleet.EntityRef{Kind: fleet.KindRevision, Key: key, Label: key, Route: fleet.RouteForRevision(fleet.RevisionKey(key))}
+	return &fleet.EntityRef{Kind: fleet.KindRevision, Key: string(rev.Key), Label: label, Secondary: rev.Digest, Domain: rev.Domain, Route: fleet.RouteForRevision(rev.Key)}
 }
 
-// pathRefs turns an impact path of service names into navigable references,
-// keying each step in the consumer's domain.
-func pathRefs(names []string, domain string) []fleet.EntityRef {
-	out := make([]fleet.EntityRef, 0, len(names))
-	for _, n := range names {
-		out = append(out, serviceRef(fleet.NewServiceKeyDomain(domain, n), n, domain))
+// targetRefFromSnap builds a target reference whose label is the record's
+// DisplayName when present, otherwise the raw key.
+func targetRefFromSnap(snap *fleet.FleetSnapshot, key string) fleet.EntityRef {
+	tk := fleet.TargetKey(key)
+	label := key
+	domain := ""
+	if t := snap.Targets[tk]; t != nil {
+		label, domain = t.DisplayName(), t.Domain
+	}
+	return fleet.EntityRef{Kind: fleet.KindTarget, Key: key, Label: label, Domain: domain, Route: fleet.RouteForTarget(tk)}
+}
+
+// pathRefs turns an impact path of ALREADY-CANONICAL service keys into navigable
+// references. Each element is a canonical ServiceKey (its own domain baked in), so
+// it is used verbatim and never re-encoded with another step's domain.
+func pathRefs(snap *fleet.FleetSnapshot, keys []string) []fleet.EntityRef {
+	out := make([]fleet.EntityRef, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, serviceRefFromSnap(snap, fleet.ServiceKey(k)))
 	}
 	return out
 }

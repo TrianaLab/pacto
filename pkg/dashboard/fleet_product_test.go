@@ -132,7 +132,7 @@ func TestProductImpactPost(t *testing.T) {
 	snapID := q.SnapshotID()
 
 	want := &impact.Result{
-		SchemaVersion: impact.SchemaVersion, Service: "payment-service", Classification: "BREAKING",
+		SchemaVersion: impact.SchemaVersion, SnapshotID: snapID, Service: "payment-service", Classification: "BREAKING",
 		Consumers: []impact.AffectedConsumer{{
 			Service: "order-service", Depth: 1, Direct: true, Path: []string{"order-service", "payment-service"},
 			Owner: "team-o", Confidence: impact.ConfidenceContractual, CompatibilityVerdict: "incompatible",
@@ -215,29 +215,21 @@ func TestProductImpactPost_NotRegisteredWithoutImpactProvider(t *testing.T) {
 }
 
 func TestRevisionRefResolution(t *testing.T) {
-	snap := &fleet.FleetSnapshot{Revisions: map[fleet.RevisionKey]*fleet.ContractRevision{
-		"r/resolved":  {ResolvedRef: "oci://x:1"},
-		"r/requested": {RequestedRef: "oci://x:2"},
-		"r/none":      {},
-	}}
-	if ref, err := revisionRef(snap, "r/resolved"); err != nil || ref != "oci://x:1" {
-		t.Errorf("resolved: %q %v", ref, err)
+	// An immutable ResolvedRef is exact; a mutable RequestedRef fallback is not.
+	if ref, exact, err := revisionRef(&fleet.ContractRevision{ResolvedRef: "oci://x:1"}); err != nil || ref != "oci://x:1" || !exact {
+		t.Errorf("resolved: %q exact=%v %v", ref, exact, err)
 	}
-	if ref, err := revisionRef(snap, "r/requested"); err != nil || ref != "oci://x:2" {
-		t.Errorf("requested fallback: %q %v", ref, err)
+	if ref, exact, err := revisionRef(&fleet.ContractRevision{RequestedRef: "oci://x:2"}); err != nil || ref != "oci://x:2" || exact {
+		t.Errorf("requested fallback must be inexact: %q exact=%v %v", ref, exact, err)
 	}
-	if _, err := revisionRef(snap, "r/none"); err == nil {
+	if _, _, err := revisionRef(&fleet.ContractRevision{}); err == nil {
 		t.Error("a revision with no ref must error")
 	}
-	if _, err := revisionRef(snap, "missing"); err == nil {
-		t.Error("a missing revision must error")
-	}
 
-	if revisionRefLink("") != nil {
-		t.Error("an empty revision key yields no link")
-	}
-	if l := revisionRefLink("svc@d"); l == nil || l.Route == "" {
-		t.Errorf("non-empty key must produce a navigable link: %+v", l)
+	// The revision label comes from the record (service + version), not the key.
+	l := revisionRefFromRecord(&fleet.ContractRevision{Key: "svc@d", Service: "svc", Version: "1.2.3", Digest: "d"})
+	if l == nil || l.Label != "svc 1.2.3" || l.Route == "" {
+		t.Errorf("revision link must be a record label + navigable route: %+v", l)
 	}
 }
 

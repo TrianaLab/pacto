@@ -277,9 +277,14 @@ const (
 	LimitationRevisionUnresolved  = "REVISION_IDENTITY_UNRESOLVED"
 	LimitationRevisionConflict    = "REVISION_CONTENT_CONFLICT"
 	LimitationRevisionAmbiguous   = "REVISION_LINK_AMBIGUOUS"
-	LimitationTargetRefConflict   = "TARGET_REFERENCE_CONFLICT"
-	LimitationTargetFieldConflict = "TARGET_FIELD_CONFLICT"
-	LimitationOwnerConflict       = "OWNER_CONFLICT"
+	// LimitationRevisionContentMutable: a revision was resolved through a MUTABLE
+	// reference (a tag or local path) rather than an immutable digest, so its
+	// content may differ from what the snapshot captured. Snapshot parity is not
+	// claimed for it.
+	LimitationRevisionContentMutable = "REVISION_CONTENT_MUTABLE"
+	LimitationTargetRefConflict      = "TARGET_REFERENCE_CONFLICT"
+	LimitationTargetFieldConflict    = "TARGET_FIELD_CONFLICT"
+	LimitationOwnerConflict          = "OWNER_CONFLICT"
 	// LimitationObservedIdentityUnresolved: a runtime-observed endpoint name could
 	// not be mapped to exactly one domain-qualified fleet service.
 	LimitationObservedIdentityUnresolved = "OBSERVED_IDENTITY_UNRESOLVED"
