@@ -325,9 +325,10 @@ all pass.
    product model. DONE. `EntityDetail` carries exactly one of
    Service/Revision/Target/Owner/Source; OpenAPI expresses concrete structures;
    every nested list is a bounded typed preview.
-4. Make every product response genuinely bounded. IN PROGRESS (re-opened by the
-   counterexample-closing session). The top-level slices are capped, but several
-   nested structures were still unbounded when this was first marked DONE:
+4. Make every product response genuinely bounded. DONE (re-closed by the
+   counterexample-closing session after the fixes and adversarial tests below).
+   The top-level slices were already capped, but several nested structures were
+   still unbounded when this was first marked DONE:
    - `OwnershipInfo.Conflicts` is `[]string` and `serviceOwnership` appends one
      entry per conflicting revision owner (unbounded).
    - `RevisionDetailData` embeds `*readiness.Result` verbatim, whose `Checks
@@ -341,9 +342,14 @@ all pass.
      same class applies to `serviceDetail`'s relationships preview, built from a
      `Neighborhood` capped at `DefaultMaxEdges` (120) below `MaxDetailPreview`
      (200).
-   Do not re-mark DONE until the bounded typed shapes exist and the adversarial
-   above-maximum + true-total tests pass, and until the field-by-field audit
-   (section 5) records a bound for every collection-bearing field.
+   Resolution: `OwnershipInfo.Conflicts` is a `StringsPreview`; readiness is a
+   product `ProductReadiness` with a bounded `ReadinessChecksPreview`; observed
+   runtime is a depth-and-count-capped `RuntimePreview` (bounds nested size, not
+   just top-level keys); and the owner-attention and service-relationship previews
+   carry the true total and truncation of the paged/bounded result they wrap.
+   `pkg/fleet/detail_bounds_test.go` proves each with an above-maximum / true-total
+   adversarial case, and the boundedness audit below records a bound for every
+   collection-bearing product field.
 5. Correct entity-search semantics. DONE (revision-owner discoverability,
    structured owner matching, source-health filter, typed 422 on invalid combos).
 6. Correct neighborhood semantics. DONE. Expansion affordances are now derived
@@ -352,9 +358,9 @@ all pass.
    (and vice versa). Regression tests cover expected/observed/differences across
    incoming and outgoing directions. True revision/deployment graph projections
    remain a later phase.
-7. Correct contextual product impact (exact-content identity). IN PROGRESS
-   (re-opened by the counterexample-closing session). Two concrete defects held
-   when this was first marked DONE:
+7. Correct contextual product impact (exact-content identity). DONE (re-closed by
+   the counterexample-closing session after the fixes and tests below). Two
+   concrete defects held when this was first marked DONE:
    - Identity contract broken on the normal dashboard OCI path. `dashboard
      oci://registry/repo` has its `oci://` stripped by `parseDashboardArgs`, so a
      bare `registry/repo` reaches `OCISource`. `pinRefToDigest` preserved the
@@ -375,13 +381,19 @@ all pass.
      OCI `go-digest` primitive: require the `oci://` scheme, a named repository, a
      syntactically valid content digest whose algorithm/body validate, and digest
      equality with `ContractRevision.Digest`.
-   Do not re-mark DONE until strict validation and a REAL-provider Product Impact
-   integration test (OCISource -> fleet.Build -> Manager -> handler ->
+   Resolution: `pinRefToDigest` always emits the canonical
+   `oci://<repository>@<digest>`; `fleet.ParseCanonicalOCIRef` is the SINGLE strict
+   parser (reusing `graph.ParseDependencyRef` + the OCI `go-digest` primitive) that
+   `immutableRef` and the detail `Immutable` flag both use; and
+   `internal/cli/dashboard_impact_e2e_test.go` drives the complete real-provider
+   vertical (OCISource -> fleet.Build -> Manager -> handler ->
    impactProviderForFleet -> Service.ImpactWithSnapshot -> BundleStore.Pull, no
-   staticImpact) pass.
+   staticImpact) for the dashboard-stripped, tag and digest input spellings, plus
+   the mutable / local / inconsistent rejections and the refresh-race 409.
 8. Typed frontend product API client with schema-version validation and drift
-   protection. IN PROGRESS (re-opened by the counterexample-closing session).
-   Three concrete gaps held when this was first marked DONE:
+   protection. DONE (re-closed by the counterexample-closing session after the
+   fixes and tests below). Three concrete gaps held when this was first marked
+   DONE:
    - Weak placeholders. `AttributedFinding.finding`, `RevisionDetail.readiness`,
      `RevisionDetail.validation` (`Preview<unknown>`) and `TargetDetail.findings`
      (`Preview<unknown>`) were `unknown`, not real DTO types; finite vocabularies
@@ -395,11 +407,22 @@ all pass.
      and the drift gate `TestProductTypesMatchOpenAPI` compared only property-NAME
      sets (so `total: number` -> `total: string` would pass) and ignored operation
      request parameters entirely, which is how `sourceHealth` drifted unnoticed.
-   Do not re-mark DONE until the TS DTOs are real, `ProductEntityDetail` is a
-   compiler-narrowing discriminated union with type-level tests, every product
-   operation models every supported request field, and the drift gate compares
-   the FULL schemas (types, arrays, refs, required, enums, nullability, nested
-   structure) plus operation query/path/body parameters, with negative fixtures.
+   Resolution: `productTypes.ts` declares real DTOs (Finding, ProductReadiness,
+   RuntimeFact) and literal-union vocabularies, and `ProductEntityDetail` is a
+   discriminated union (kind-narrowed variants + `?: never` exclusivity + entity.kind
+   type guards) with compile-time tests in `productTypes.typetest.ts` that
+   svelte-check enforces. `api.fleetEntities` serializes `sourceHealth` and all six
+   operations model every OpenAPI request parameter/body field. The rewritten
+   `TestProductTypesMatchOpenAPI` is a FULL structural comparison (field types,
+   arrays and item types, refs, required-vs-optional, bounded preview/page shapes,
+   enum refinements) plus operation query/path/body parameters, and
+   `TestDriftGateCatchesMutations` proves it catches number->string,
+   required->optional, a changed array element type, a changed nested ref, a missing
+   request parameter and a changed POST body field. (Deterministic generation from
+   the OpenAPI was rejected: it cannot express the required discriminated union and
+   would add a JS codegen toolchain + generated-artifact CI dance, whereas the
+   in-Go structural gate is self-contained and its negative fixtures are pure unit
+   tests.)
 9. Complete U+00A7 enforcement. Gate capability DONE (the script scans authored
    files, committed generated docs, `--commits base..HEAD` messages and `--text`
    PR title/body, with fixtures per failure mode; the authored-file scan is
@@ -409,6 +432,44 @@ all pass.
    branch permanently red until those messages are rewritten (a destructive
    force-push the harness blocks without explicit user authorization). This is the
    one remaining, deliberately-deferred action.
+
+### Product response boundedness audit (requirement, item 4)
+
+Every collection-bearing field reachable from a product response was audited from
+the exported OpenAPI (the 57-schema closure of the six product roots). Result:
+
+- No `map`/`additionalProperties` field is reachable from any product response;
+  the only maps in the whole schema set (`FleetSnapshot.{services,revisions,
+  targets}`, `*Record.labels`, `TargetRecord.observedRuntime`) belong to the
+  low-level `/api/fleet/snapshot` export and to record types that NO product
+  response references (class C).
+- Every product array is one of:
+  - Class A (hard cardinality bound with explicit truncation metadata): every
+    `*Preview.items` (cap `MaxDetailPreview`, or the per-edge caps
+    `MaxEdgeDeclaredClaims`/`MaxEdgeObservationSources`, or
+    `MaxUnresolvedDependencies`); every `*Page.items` (`MaxAttentionLimit`,
+    `MaxImpactConsumers`); `EntityList.entities` (`MaxEntityLimit`);
+    `Neighborhood.{nodes,edges}` (`MaxNeighborhoodNodes`/`Edges`, `Truncated`);
+    `ImpactConsumer.path` (`MaxImpactPath`, `pathTotal`/`pathTruncated`);
+    `ProductMeta.{sources,limitations}` (`MaxMetaSources`/`MaxMetaLimitations`,
+    `sourcesTruncated`/`limitationsTruncated`); `Overview.{attention,
+    recentEvidence}` (fixed 10). The four previously-unbounded nested structures
+    are now class A: ownership conflicts (`StringsPreview`), readiness checks
+    (`ReadinessChecksPreview`), observed runtime (`RuntimePreview`, bounded on
+    nested size), and the owner-attention / service-relationships previews (which
+    now carry the true total and truncation of the paged/bounded result they wrap).
+  - Class B (intrinsic small fixed maximum): `Neighborhood.views` and
+    `EntityDetail.actions` and `Overview.entryPoints` (fixed vocabularies);
+    `NeighborhoodNode.expansions` (at most the two directions).
+- One residual, documented honestly: `finding.Finding.EvidenceRefs` is a nested
+  array inside the (hard-capped) findings previews. It has no preview of its own.
+  It is class B by construction: pacto's validation emits exactly one ref per
+  finding, and the only multi-ref producer (the k8s source) is bounded by the
+  Kubernetes object-size limit. A future product finding DTO would add an explicit
+  bounded preview if untrusted custom `fleet.Source` implementations ever need
+  defending against; today no code path or real source produces a large per-finding
+  EvidenceRefs. This is the sole nested collection whose bound is external rather
+  than an explicit truncated preview.
 
 Deferred graph projections (recorded so a later phase implements them before the
 corresponding UI): this API version is honestly service-neighborhood oriented.
