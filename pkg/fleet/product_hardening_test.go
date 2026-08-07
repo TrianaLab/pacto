@@ -408,8 +408,8 @@ func mutateTargetDetail(tg *TargetDetailData) {
 	if tg.Coverage != nil {
 		tg.Coverage.Evaluated = -1
 	}
-	for k := range tg.ObservedRuntime {
-		tg.ObservedRuntime[k] = "hacked"
+	for i := range tg.ObservedRuntime.Items {
+		tg.ObservedRuntime.Items[i].Value = "hacked"
 	}
 	for i := range tg.Findings.Items {
 		tg.Findings.Items[i].Message = "hacked"

@@ -1,6 +1,9 @@
 package fleet
 
-import "github.com/trianalab/pacto/v3/pkg/finding"
+import (
+	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v3/pkg/readiness"
+)
 
 // This file defines the reusable bounded preview shapes every entity-detail and
 // neighborhood answer uses for its nested collections, so no product answer ever
@@ -189,4 +192,71 @@ type AttentionPreview struct {
 func attentionPreview(items []AttentionItem) AttentionPreview {
 	it, total, trunc := boundSlice(items, MaxDetailPreview)
 	return AttentionPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
+}
+
+// attentionPreviewFromList builds a bounded attention preview from an ALREADY
+// offset-paged AttentionList, preserving the TRUE matched total and truncation.
+// Building a preview from a paged result's Items alone would double-truncate: the
+// preview's Total would be the page size (never the real match count) and its
+// Truncated would be false even when more items matched. This carries the list's
+// own Total and Truncated so the preview reports the true total.
+func attentionPreviewFromList(l *AttentionList) AttentionPreview {
+	it, _, capTrunc := boundSlice(l.Items, MaxDetailPreview)
+	return AttentionPreview{Total: l.Total, Count: len(it), Truncated: l.Truncated || capTrunc, Items: it}
+}
+
+// ReadinessCheck is the product-shaped view of one derived readiness check. It
+// mirrors readiness.CheckResult but carries camelCase JSON so the product API is
+// consistent, and it is only ever carried inside a bounded preview.
+type ReadinessCheck struct {
+	ID           string `json:"id"`
+	Type         string `json:"type,omitempty"`
+	Category     string `json:"category,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Evidence     string `json:"evidence,omitempty"`
+	Description  string `json:"description,omitempty"`
+	Weight       int    `json:"weight"`
+	EarnedWeight int    `json:"earnedWeight"`
+	Excluded     bool   `json:"excluded,omitempty"`
+}
+
+// ReadinessChecksPreview is a bounded preview of readiness checks.
+type ReadinessChecksPreview struct {
+	Total     int              `json:"total"`
+	Count     int              `json:"count"`
+	Truncated bool             `json:"truncated"`
+	Items     []ReadinessCheck `json:"items"`
+}
+
+func readinessChecksPreview(cs []readiness.CheckResult) ReadinessChecksPreview {
+	out := make([]ReadinessCheck, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, ReadinessCheck{
+			ID: c.ID, Type: c.Type, Category: c.Category, Status: c.Status,
+			Evidence: c.Evidence, Description: c.Description, Weight: c.Weight,
+			EarnedWeight: c.EarnedWeight, Excluded: c.Excluded,
+		})
+	}
+	it, total, trunc := boundSlice(out, MaxDetailPreview)
+	return ReadinessChecksPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
+}
+
+// RuntimeFact is one flattened observed-runtime leaf: a dotted key path and its
+// scalar value stringified and length-capped.
+type RuntimeFact struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// RuntimePreview is a bounded, flattened preview of a target's observed runtime.
+// The product API never copies the raw arbitrary runtime map verbatim (that is
+// recursively unbounded); the full value stays on the low-level /api/fleet/snapshot
+// export. This preview bounds the OUTPUT on nested size: at most MaxDetailPreview
+// leaves, each value length-capped, and the walk itself stops at maxRuntimeScan
+// leaves and maxRuntimeDepth nesting so a pathological source cannot blow it up.
+type RuntimePreview struct {
+	Total     int           `json:"total"`
+	Count     int           `json:"count"`
+	Truncated bool          `json:"truncated"`
+	Items     []RuntimeFact `json:"items"`
 }

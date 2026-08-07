@@ -131,7 +131,7 @@ func TestEntityDetail_TargetExact(t *testing.T) {
 		t.Fatalf("exactly the target payload must be populated: %+v", d)
 	}
 	tg := d.Target
-	if tg.Coverage == nil || tg.ObservedRuntime == nil || tg.EvidenceAt == nil {
+	if tg.Coverage == nil || tg.ObservedRuntime.Count == 0 || tg.EvidenceAt == nil {
 		t.Errorf("alpha-app must carry coverage + observedRuntime + evidence: %+v", tg)
 	}
 	if tg.Revision == nil || tg.Service.Kind != KindService || tg.Source == "" {
@@ -277,8 +277,9 @@ func TestServiceOwnership(t *testing.T) {
 	if info.Owner != "team-x" || info.Ref == nil {
 		t.Fatalf("owner info = %+v", info)
 	}
-	if len(info.Conflicts) != 1 || !strings.Contains(info.Conflicts[0], "team-y") {
-		t.Errorf("conflicts = %v", info.Conflicts)
+	if info.Conflicts.Total != 1 || info.Conflicts.Count != 1 || info.Conflicts.Truncated ||
+		len(info.Conflicts.Items) != 1 || !strings.Contains(info.Conflicts.Items[0], "team-y") {
+		t.Errorf("conflicts = %+v", info.Conflicts)
 	}
 
 	empty := serviceOwnership(&ServiceRecord{Key: "svc2"}, nil)

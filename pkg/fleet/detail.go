@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -16,11 +17,14 @@ import (
 // orphan finding. The whole answer is deep-cloned before return, so a caller can
 // mutate it without touching the immutable snapshot or any other answer.
 
-// OwnershipInfo is an entity's ownership summary with per-revision conflicts.
+// OwnershipInfo is an entity's ownership summary with a BOUNDED preview of
+// per-revision ownership conflicts. Conflicts is a preview (not a raw slice) so a
+// service with a pathological number of differently-owned revisions can never
+// produce an unbounded ownership block.
 type OwnershipInfo struct {
-	Owner     string     `json:"owner,omitempty"`
-	Ref       *EntityRef `json:"ref,omitempty"`
-	Conflicts []string   `json:"conflicts,omitempty"`
+	Owner     string         `json:"owner,omitempty"`
+	Ref       *EntityRef     `json:"ref,omitempty"`
+	Conflicts StringsPreview `json:"conflicts"`
 }
 
 // RevisionIdentity describes how a revision (or a target's contract reference)
@@ -31,6 +35,140 @@ type RevisionIdentity struct {
 	RequestedRef string `json:"requestedRef,omitempty"`
 	ResolvedRef  string `json:"resolvedRef,omitempty"`
 	Immutable    bool   `json:"immutable"`
+}
+
+// Observed-runtime bounds. A pathological source could put an arbitrarily large,
+// arbitrarily nested map in a target's observed runtime; the product detail must
+// bound the OUTPUT on nested size, not just the number of top-level keys.
+const (
+	// maxRuntimeDepth caps how deep the runtime flatten descends; a value at or
+	// below this depth is emitted as a single stringified leaf.
+	maxRuntimeDepth = 6
+	// maxRuntimeValueLen caps each flattened value's string length.
+	maxRuntimeValueLen = 256
+	// maxRuntimeScan bounds the WALK itself so a pathologically large map cannot
+	// build an unbounded transient leaf slice before capping the emitted preview.
+	maxRuntimeScan = 2 * MaxDetailPreview
+)
+
+// ProductReadiness is the product-shaped readiness assessment: every useful scalar
+// fact from readiness.Result plus a BOUNDED preview of the per-check results.
+// readiness.Result embeds an unbounded Checks slice, so the product detail exposes
+// this shape instead of the raw result.
+type ProductReadiness struct {
+	Score         int                    `json:"score"`
+	TotalWeight   int                    `json:"totalWeight"`
+	EarnedWeight  int                    `json:"earnedWeight"`
+	MinScore      int                    `json:"minScore"`
+	PartialCredit float64                `json:"partialCredit"`
+	Expires       string                 `json:"expires,omitempty"`
+	Expired       bool                   `json:"expired"`
+	DaysRemaining *int                   `json:"daysRemaining,omitempty"`
+	DoneCount     int                    `json:"doneCount"`
+	PartialCount  int                    `json:"partialCount"`
+	NotDoneCount  int                    `json:"notDoneCount"`
+	DeferredCount int                    `json:"deferredCount"`
+	Passing       bool                   `json:"passing"`
+	Checks        ReadinessChecksPreview `json:"checks"`
+}
+
+// productReadiness maps a raw readiness.Result to the bounded product shape,
+// preserving every scalar fact and bounding the per-check list. A nil result
+// (no readiness declared) yields nil.
+func productReadiness(r *readiness.Result) *ProductReadiness {
+	if r == nil {
+		return nil
+	}
+	var days *int
+	if r.DaysRemaining != nil {
+		d := *r.DaysRemaining
+		days = &d
+	}
+	return &ProductReadiness{
+		Score: r.Score, TotalWeight: r.TotalWeight, EarnedWeight: r.EarnedWeight,
+		MinScore: r.MinScore, PartialCredit: r.PartialCredit, Expires: r.Expires,
+		Expired: r.Expired, DaysRemaining: days, DoneCount: r.DoneCount,
+		PartialCount: r.PartialCount, NotDoneCount: r.NotDoneCount,
+		DeferredCount: r.DeferredCount, Passing: r.Passing,
+		Checks: readinessChecksPreview(r.Checks),
+	}
+}
+
+// runtimePreview flattens a target's observed-runtime map into a BOUNDED preview
+// of scalar key/value facts. Nested maps and slices are flattened with dotted /
+// indexed keys; the walk stops at maxRuntimeDepth nesting and maxRuntimeScan
+// leaves, each value is length-capped, and the emitted list is capped at
+// MaxDetailPreview, so no source can produce an unbounded product detail.
+func runtimePreview(m map[string]any) RuntimePreview {
+	var facts []RuntimeFact
+	truncated := false
+	var walk func(prefix string, v any, depth int)
+	walk = func(prefix string, v any, depth int) {
+		if len(facts) >= maxRuntimeScan {
+			truncated = true
+			return
+		}
+		switch t := v.(type) {
+		case map[string]any:
+			if len(t) == 0 {
+				facts = append(facts, RuntimeFact{Key: prefix, Value: capRuntimeValue(t)})
+				return
+			}
+			if depth >= maxRuntimeDepth {
+				facts = append(facts, RuntimeFact{Key: prefix, Value: capRuntimeValue(t)})
+				truncated = true // structure collapsed at the depth limit
+				return
+			}
+			for _, k := range sortedMapKeys(t) {
+				walk(prefix+"."+k, t[k], depth+1)
+			}
+		case []any:
+			if len(t) == 0 {
+				facts = append(facts, RuntimeFact{Key: prefix, Value: capRuntimeValue(t)})
+				return
+			}
+			if depth >= maxRuntimeDepth {
+				facts = append(facts, RuntimeFact{Key: prefix, Value: capRuntimeValue(t)})
+				truncated = true // structure collapsed at the depth limit
+				return
+			}
+			for i, e := range t {
+				walk(fmt.Sprintf("%s[%d]", prefix, i), e, depth+1)
+			}
+		default:
+			facts = append(facts, RuntimeFact{Key: prefix, Value: capRuntimeValue(v)})
+		}
+	}
+	for _, k := range sortedMapKeys(m) {
+		walk(k, m[k], 1)
+	}
+	total := len(facts)
+	items := facts
+	if total > MaxDetailPreview {
+		items = facts[:MaxDetailPreview]
+		truncated = true
+	}
+	return RuntimePreview{Total: total, Count: len(items), Truncated: truncated, Items: append([]RuntimeFact{}, items...)}
+}
+
+// capRuntimeValue stringifies a runtime value and caps its length so one huge
+// scalar cannot bloat the preview.
+func capRuntimeValue(v any) string {
+	s := fmt.Sprint(v)
+	if len(s) > maxRuntimeValueLen {
+		return s[:maxRuntimeValueLen] + "…"
+	}
+	return s
+}
+
+// sortedMapKeys returns a map's keys sorted, for deterministic flatten order.
+func sortedMapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // ServiceDetailData is the service-kind payload: aggregate ownership, bounded
@@ -60,7 +198,7 @@ type RevisionDetailData struct {
 	PactoVersion    string               `json:"pactoVersion,omitempty"`
 	Identity        RevisionIdentity     `json:"identity"`
 	Valid           bool                 `json:"valid"`
-	Readiness       *readiness.Result    `json:"readiness,omitempty"`
+	Readiness       *ProductReadiness    `json:"readiness,omitempty"`
 	Validation      FindingsPreview      `json:"validation"`
 	Interfaces      int                  `json:"interfaces"`
 	Configurations  int                  `json:"configurations"`
@@ -92,7 +230,7 @@ type TargetDetailData struct {
 	Compliance      string             `json:"compliance"`
 	Coverage        *Coverage          `json:"coverage,omitempty"`
 	Findings        FindingsPreview    `json:"findings"`
-	ObservedRuntime map[string]any     `json:"observedRuntime,omitempty"`
+	ObservedRuntime RuntimePreview     `json:"observedRuntime"`
 	Sources         StringsPreview     `json:"sources"`
 	Source          string             `json:"source,omitempty"`
 	Identity        RevisionIdentity   `json:"identity"`
@@ -195,7 +333,14 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Limitations:  attributedLimitationsPreview(attributedTargetLimitations(view.Targets)),
 	}
 	if nb, e := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()}); e == nil {
-		data.Relationships = relationshipsPreview(nb.Edges)
+		// The neighborhood is ALREADY bounded (its edges are capped at DefaultMaxEdges,
+		// below MaxDetailPreview). Carry its truncation into the relationships preview
+		// so a service with a truncated neighborhood is not falsely reported complete.
+		rel := relationshipsPreview(nb.Edges)
+		if nb.Truncated {
+			rel.Truncated = true
+		}
+		data.Relationships = rel
 	}
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: serviceEntityRef(s), Status: s.Status,
@@ -219,7 +364,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 			Immutable: IsDigestPinnedRef(rev.ResolvedRef),
 		},
 		Valid:           rev.Valid,
-		Readiness:       rev.Readiness,
+		Readiness:       productReadiness(rev.Readiness),
 		Validation:      findingsPreview(rev.Validation),
 		Capabilities:    len(rev.Contract.Capabilities),
 		Interfaces:      len(rev.Contract.Interfaces),
@@ -266,9 +411,10 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		Stale:        t.Stale,
 		Quarantined:  t.Quarantined,
 		Limitations:  limitationsPreview(t.Limitations),
-	}
-	if len(t.ObservedRuntime) > 0 {
-		data.ObservedRuntime = t.ObservedRuntime
+		// The raw observed-runtime map is recursively unbounded; the product detail
+		// carries only a bounded, flattened preview. The full value stays on the
+		// low-level /api/fleet/snapshot export.
+		ObservedRuntime: runtimePreview(t.ObservedRuntime),
 	}
 	if t.ContractRevision != "" {
 		if rev := q.snap.Revisions[t.ContractRevision]; rev != nil {
@@ -307,6 +453,9 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	sortEntityRefs(deployments)
 	sortEntityRefs(revisions)
 	// A constant, valid filter (owner only) never errors; ignore it deliberately.
+	// Attention is ALREADY offset-paged; build the preview from the list (not just
+	// its Items) so the owner detail reports the TRUE matched total and truncation,
+	// never a double-truncated page count.
 	ownerAttention, _ := q.Attention(AttentionFilter{Owner: key})
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: ownerEntityRef(key),
@@ -314,7 +463,7 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 			Services:    refPreview(services),
 			Revisions:   refPreview(revisions),
 			Deployments: refPreview(deployments),
-			Attention:   attentionPreview(ownerAttention.Items),
+			Attention:   attentionPreviewFromList(ownerAttention),
 		},
 	}, nil
 }
@@ -536,8 +685,8 @@ func (q *Query) entitiesFromSource(key string) []EntityRef {
 	return out
 }
 
-// serviceOwnership reports the service owner and any per-revision ownership
-// conflict (a revision whose owner differs from the service owner).
+// serviceOwnership reports the service owner and a BOUNDED preview of per-revision
+// ownership conflicts (a revision whose owner differs from the service owner).
 func serviceOwnership(s *ServiceRecord, revs []*ContractRevision) *OwnershipInfo {
 	owner := s.Owner.DisplayString()
 	info := &OwnershipInfo{Owner: owner}
@@ -545,12 +694,14 @@ func serviceOwnership(s *ServiceRecord, revs []*ContractRevision) *OwnershipInfo
 		ref := ownerEntityRef(owner)
 		info.Ref = &ref
 	}
+	var conflicts []string
 	for _, r := range revs {
 		ro := r.Owner.DisplayString()
 		if ro != "" && ro != owner {
-			info.Conflicts = append(info.Conflicts, string(r.Key)+": "+ro)
+			conflicts = append(conflicts, string(r.Key)+": "+ro)
 		}
 	}
+	info.Conflicts = stringsPreview(conflicts)
 	return info
 }
 
