@@ -71,47 +71,59 @@ func TestEntities_PageMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	total := full.Total
-	if total < 4 {
-		t.Fatalf("fixture too small to page: %d", total)
+	if full.Total < 4 {
+		t.Fatalf("fixture too small to page: %d", full.Total)
 	}
-
-	// First page of two.
+	// First page of two reports typed page metadata and a next offset.
 	p1, err := q.Entities(EntityFilter{Limit: 2, Offset: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p1.Limit != 2 || p1.Offset != 0 || p1.Count != 2 || p1.Total != total {
+	if p1.Limit != 2 || p1.Offset != 0 || p1.Count != 2 || p1.Total != full.Total {
 		t.Errorf("page-1 metadata wrong: %+v", *p1)
 	}
 	if !p1.Truncated || p1.NextOffset == nil || *p1.NextOffset != 2 {
 		t.Errorf("page-1 must report truncation and nextOffset=2: %+v", *p1)
 	}
+}
 
-	// Walk every page and prove pagination stability (no dupes, no gaps, same
-	// order as the unpaged list).
+func TestEntities_PaginationStability(t *testing.T) {
+	q := productFleet(t)
+	full, err := q.Entities(EntityFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	walked := walkAllEntityPages(t, q, 2)
+	if len(walked) != full.Total {
+		t.Fatalf("paged walk saw %d entities, want %d", len(walked), full.Total)
+	}
+	for i, e := range full.Entities {
+		if walked[i] != entityID(e) {
+			t.Fatalf("pagination unstable at %d: %q vs %q", i, walked[i], entityID(e))
+		}
+	}
+}
+
+func entityID(e EntityRef) string { return string(e.Kind) + "/" + e.Key }
+
+// walkAllEntityPages pages through every entity in fixed-size pages and returns
+// the ids seen, asserting the final page is not marked truncated.
+func walkAllEntityPages(t *testing.T, q *Query, limit int) []string {
+	t.Helper()
 	var walked []string
-	for off := 0; ; off += 2 {
-		p, err := q.Entities(EntityFilter{Limit: 2, Offset: off})
+	for off := 0; ; off += limit {
+		p, err := q.Entities(EntityFilter{Limit: limit, Offset: off})
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, e := range p.Entities {
-			walked = append(walked, string(e.Kind)+"/"+e.Key)
+			walked = append(walked, entityID(e))
 		}
 		if p.NextOffset == nil {
 			if p.Truncated {
 				t.Error("last page must not be truncated")
 			}
-			break
-		}
-	}
-	if len(walked) != total {
-		t.Fatalf("paged walk saw %d entities, want %d", len(walked), total)
-	}
-	for i, e := range full.Entities {
-		if walked[i] != string(e.Kind)+"/"+e.Key {
-			t.Fatalf("pagination unstable at %d: %q vs %q", i, walked[i], string(e.Kind)+"/"+e.Key)
+			return walked
 		}
 	}
 }
