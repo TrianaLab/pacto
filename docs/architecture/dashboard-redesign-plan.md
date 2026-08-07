@@ -275,29 +275,51 @@ phase 1 (product API hardening), not a completed item.
 
 ### Product API hardening (phase 1 of the program) — status
 
-This is the current phase. Its subitems and their status:
+This is the current phase. Its subitems and their status (DONE items are
+committed with tests, 100% coverage held):
 
 1. Restore the `pkg/fleet` architectural boundary (route emission moves to the
    transport; `pkg/fleet` becomes route-neutral; an architecture content-scan
-   test forbids route concepts from returning to `pkg/fleet`).
-2. Enforce product-query immutability (every product answer fully independent of
-   the snapshot and of later answers; regression tests per response family).
+   test forbids route concepts from returning to `pkg/fleet`). PENDING - the
+   highest-blast-radius change (removing `EntityRef.Route` forces the transport to
+   wrap every product answer and re-add hrefs; the frontend consumes no product
+   route yet, so blast radius there is zero). Best done as a coordinated pass with
+   item 8. ADR-2 already records the corrected decision.
+2. Enforce product-query immutability. DONE for Overview, Entities, Attention and
+   Neighborhood (deep-copied sources/limitations + observed-source time pointers;
+   regression tests per family). EntityDetail and ProductImpact immutability land
+   with item 3 (typed detail is born immutable) and are covered by item 7's
+   canonical rebuild; add explicit EntityDetail/ProductImpact mutation regression
+   tests when item 3 is done.
 3. Replace `map[string]any` entity detail with a strongly typed discriminated
-   product model; OpenAPI expresses the real fields.
-4. Make every product response genuinely bounded (defaults + hard maxima, reject
-   negatives, cap positives, typed page metadata; `ProductMeta` not an unbounded
-   copy of every source/limitation).
-5. Correct entity-search semantics (revision-owner discoverability, structured
-   owner matching, source-health enum, typed 422 on invalid kind/filter combos).
-6. Correct neighborhood semantics (views drive traversal; explicit difference
-   states; per-source-revision declared claims; honest service-neighborhood
-   focus; true revision/deployment projections deferred to a later phase).
-7. Correct contextual product impact (canonical identity parity, snapshot-refresh
-   race rejection with 409, immutable content resolution).
+   product model; OpenAPI expresses the real fields. PENDING - the largest
+   "strongly typed" backend change; detail.go still uses `Summary`/`Sections
+   map[string]any`. Design and field lists are in requirement 4 of the session
+   brief.
+4. Make every product response genuinely bounded. DONE (ProductMeta caps + typed
+   page metadata + reject-negatives/cap-positives; neighborhood bounds landed with
+   item 6).
+5. Correct entity-search semantics. DONE (revision-owner discoverability,
+   structured owner matching, source-health filter, typed 422 on invalid combos).
+6. Correct neighborhood semantics. DONE (views drive traversal, explicit
+   Difference states, per-source-revision DeclaredClaims, RequestedFocus +
+   FocusService honest mapping, surfaced unresolved deps, bounds). True
+   revision/deployment graph projections remain a later phase.
+7. Correct contextual product impact. DONE (same-service + ServiceKey validation,
+   record-based labels, no path double-encoding, cross-domain-safe paths, no
+   embedded raw Result, snapshot-parity 409, mutable-content limitation).
 8. Typed frontend product API client with schema-version validation and drift
-   protection (client only; UI migration is phase 2).
-9. Complete U+00A7 enforcement (gate scans authored files, committed generated
-   docs, base..HEAD commit messages, PR title and body; fixtures for each).
+   protection (client only; UI migration is phase 2). PENDING - must target the
+   FINAL DTO shapes, so it follows items 1 and 3. The current client returns
+   `Promise<unknown>` (see the correction above).
+9. Complete U+00A7 enforcement. DONE for the gate capability: the script scans
+   authored files, committed generated docs, `--commits base..HEAD` messages and
+   `--text` PR title/body, with fixtures for each failure mode. PENDING: wiring
+   the commit-message + PR scan into blocking CI requires the branch's existing
+   section-sign-bearing commit messages to be rewritten (a history force-push).
+   That rewrite is a destructive shared-history operation the harness blocks
+   without explicit user authorization; it is the one action needed to finish this
+   item and to honor the no-retained-glyph-in-commits rule.
 
 Deferred graph projections (recorded so a later phase implements them before the
 corresponding UI): this API version is honestly service-neighborhood oriented.
