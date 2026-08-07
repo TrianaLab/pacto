@@ -29,6 +29,19 @@ hardening") started from and synchronized the branch as follows:
   so all branch commits and their content are preserved rather than rebased.
 - Post-merge HEAD: `a08b1e82` (advances as foundation commits land).
 
+The product-API hardening session (this ledger's completion of phase 1 items
+1-8 plus the U+00A7 boundary) ran as follows:
+
+- Starting HEAD: `8cae98da` (the reviewed HEAD of PR #291).
+- `main` had NOT moved (its tip was still the synchronized base `eb1482ff`, which
+  equals the merge-base), so no re-sync was needed.
+- The session added the route-neutral fleet + typed detail + bounds + expansions
+  + impact content-identity backend, the dashboard product transport, the typed
+  frontend client + OpenAPI drift gate, and the architecture route-neutral
+  invariant, keeping 100% coverage and the PR in draft. No Git history was
+  rewritten; the U+00A7 commit-history CI enforcement remains BLOCKED (section 8
+  item 9).
+
 ## 1. Target product model
 
 The dashboard must answer, in order:
@@ -213,21 +226,22 @@ section 8.
 - ADR-1: Product API layer is pure over the immutable snapshot, in `pkg/fleet`,
   reusing `Query`. Reason: single source of graph semantics; frontend cannot
   invent stronger semantics than backend facts.
-- ADR-2 (corrected): route emission is a TRANSPORT concern, not a fleet concern.
-  `pkg/fleet` stays route-neutral: it owns canonical identities, graph/query
-  facts, completeness and limitations, and returns route-neutral entity
-  references. The dashboard/product transport converts those references into
-  navigable API references (adding canonical hrefs/routes) and owns the HTTP
+- ADR-2: route emission is a TRANSPORT concern, not a fleet concern. `pkg/fleet`
+  is route-neutral: it owns canonical identities, graph/query facts, completeness
+  and limitations, and returns route-neutral entity references. The
+  dashboard/product transport (`pkg/dashboard/{producttransport,fleetroute}.go`)
+  wraps those references into navigable API references by adding a canonical href
+  built from the exact canonical key via a single route builder, and owns the HTTP
   product DTOs where navigation is required. Reason: emitting `/fleet/...` route
   strings from `pkg/fleet` is semantic UI coupling even with no dashboard import;
-  MCP and other non-dashboard consumers must use the same fleet facts without
-  receiving dashboard URLs. This supersedes the earlier ADR-2 (routes emitted
-  from `pkg/fleet/route.go`); an architecture test now forbids dashboard route
-  concepts from returning to `pkg/fleet`.
+  MCP and other non-dashboard consumers use the same fleet facts and never receive
+  dashboard URLs. `tests/architecture` `TestFleetStaysRouteNeutral` forbids
+  dashboard route concepts from returning to `pkg/fleet`.
 - ADR-3: `reconciliation` is a backend fact on the edge; the product
   `differences` view reads it verbatim. Reason: requirement 2.3 authority rules.
-- ADR-4: Impact by canonical identities resolves revision keys to their snapshot
-  refs and rejects a snapshot-id mismatch. Reason: requirement 2.6.
+- ADR-4: Impact by canonical identities requires the exact immutable content the
+  snapshot revisions name (a digest-pinned, internally consistent ref) and rejects
+  a mutable reference or a snapshot-id mismatch. Reason: requirement 2.6.
 - ADR-5 (projection, requirement 17): **Option A — remove the write-only
   per-target projections.** They were written under
   `materialized/targets/<hash>/latest.json` but read by no serving path, no
@@ -247,18 +261,18 @@ section 8.
 Completed:
 
 - (phase 1) durable plan doc (this file).
-- (phase 1) canonical route layer `pkg/fleet/route.go` (100% covered).
 - (phase 1) product query layer `pkg/fleet/{product,entities,neighborhood,detail}.go`:
   `Overview`, `Entities`, `Neighborhood` (expected/observed/differences),
   `EntityDetail` (service/revision/target/owner/source), `Attention`, all pure
-  over the immutable snapshot, all 100% covered.
-- (phase 1) target self-describes ambiguity: `linkTargets` now records the
-  `REVISION_LINK_AMBIGUOUS` limitation on the target too, so overview and detail
-  can classify a link exact / inferred / ambiguous / unresolved.
-- (phase 1) dashboard HTTP wiring `pkg/dashboard/fleet_product.go`: six product
-  endpoints (`/overview`, `/entities`, `/entities/{kind}`, `/neighborhood`,
-  `/attention`, `POST /impact`) with impact enrichment and snapshot-mismatch
-  rejection, 100% covered; OpenAPI exports cleanly.
+  over the immutable snapshot and ROUTE-NEUTRAL, all 100% covered.
+- (phase 1) target self-describes ambiguity: `linkTargets` records the
+  `REVISION_LINK_AMBIGUOUS` limitation on the target, so overview and detail
+  classify a link exact / inferred / ambiguous / unresolved.
+- (phase 1) dashboard product transport `pkg/dashboard/{producttransport,fleetroute,fleet_product}.go`:
+  href-bearing DTOs wrapping every route-neutral fleet answer via a single
+  canonical route builder; six product endpoints; impact by canonical identity
+  with the exact-content invariant; 100% covered; OpenAPI exports the complete
+  contract.
 
 - projection architecture decision (ADR-5) is COMPLETE (requirement 17):
   - the unused write-only per-target projections were removed;
@@ -269,92 +283,70 @@ Completed:
     loss, not merely that reads answer from the rebuilt in-memory index.
   `pkg/evidencestore` stays 100% covered; the storage ADR and Kind E2E are updated.
 
-Correction (stale entry removed): an earlier ledger version claimed a "typed
-product API client" was delivered. That was overstated. The client in
-`pkg/dashboard/frontend/src/lib/api.ts` (`fleetOverview`, `fleetEntities`,
-`fleetEntityDetail`, `fleetNeighborhood`, `fleetAttention`,
-`fleetImpactByIdentity`) exists and has vitest coverage, but its methods return
-`Promise<unknown>` with no product DTOs, no schema-version check and no drift
-protection. Producing a genuinely typed client with drift protection is part of
-phase 1 (product API hardening), not a completed item.
-
 ### Product API hardening (phase 1 of the program) — status
 
-This is the current phase. Its subitems and their status (DONE items are
-committed with tests, 100% coverage held):
+Every DONE item below is committed with tests and holds 100% package coverage;
+the full `ci-test` race+coverage gate, `ci-static-engine` (fmt/vet/gocyclo/
+golangci-lint/section-gate/docs-drift/ui-drift), `tests/architecture`, the
+TS/OpenAPI drift gate, frontend lint+vitest and the cluster-free dashboard E2E
+all pass.
 
-1. Restore the `pkg/fleet` architectural boundary (route emission moves to the
-   transport; `pkg/fleet` becomes route-neutral; an architecture content-scan
-   test forbids route concepts from returning to `pkg/fleet`). PENDING - the
-   highest-blast-radius change (removing `EntityRef.Route` forces the transport to
-   wrap every product answer and re-add hrefs; the frontend consumes no product
-   route yet, so blast radius there is zero). Best done as a coordinated pass with
-   item 8. ADR-2 already records the corrected decision.
-2. Enforce product-query immutability. DONE for Overview, Entities, Attention and
-   Neighborhood (deep-copied sources/limitations + observed-source time pointers;
-   regression tests per family). EntityDetail and ProductImpact immutability land
-   with item 3 (typed detail is born immutable) and are covered by item 7's
-   canonical rebuild; add explicit EntityDetail/ProductImpact mutation regression
-   tests when item 3 is done.
+1. Restore the `pkg/fleet` architectural boundary. DONE. `route.go`,
+   `EntityRef.Route`, `Link`, and every `RouteFor*`/`net/url` route concern are
+   gone from `pkg/fleet`; the layer is route-neutral. `EntryPoint` carries a
+   route-neutral `(view, category)` descriptor. `tests/architecture`
+   `TestFleetStaysRouteNeutral` is an AST invariant that fails if a `/fleet` path
+   literal, a `RouteFor*` helper, a `Route`/`Href` field or a `net/url` import
+   returns to `pkg/fleet`.
+2. Enforce product-query immutability. DONE for Overview, Entities, Attention,
+   Neighborhood, EntityDetail (deep terminal clone) and ProductImpact
+   (value-built + copied limitations). Deep-mutation regression tests exist per
+   family, including every EntityDetail kind and the ProductImpact transport DTO,
+   proving the snapshot is untouched and a second identical query reproduces the
+   original answer without relying on HTTP JSON serialization.
 3. Replace `map[string]any` entity detail with a strongly typed discriminated
-   product model; OpenAPI expresses the real fields. PENDING - the largest
-   "strongly typed" backend change; detail.go still uses `Summary`/`Sections
-   map[string]any`. Design and field lists are in requirement 4 of the session
-   brief.
-4. Make every product response genuinely bounded. IN PROGRESS (re-opened by
-   independent review). ProductMeta.Sources, EntityList, the Attention limit and
-   neighborhood node/edge counts are bounded, but several NESTED collections are
-   still unbounded. Counterexamples: (a) `Overview.Sources` copies every snapshot
-   source with no hard bound even though `ProductMeta.Sources` is capped; (b)
-   `Attention` hard-caps the result but cannot retrieve anything past the cap (no
-   offset/cursor/total/nextOffset), so it is not pageable; (c) neighborhood edge
-   `DeclaredClaims` and `ObservationSources`, and `UnresolvedDependencies`, are
-   unbounded - a service with thousands of historical revisions declaring the same
-   dependency, or a dependency observed by thousands of sources, produces an
-   unbounded edge; (d) the product Impact DTO (Consumers, per-consumer paths,
-   Owners, ActiveTargets, Limitations) is unbounded. Fix: hard bounds + explicit
-   truncation/count/total metadata per nested collection, Attention paging, and
-   stable consumer pagination for Impact.
+   product model. DONE. `EntityDetail` carries exactly one of
+   Service/Revision/Target/Owner/Source; OpenAPI expresses concrete structures;
+   every nested list is a bounded typed preview.
+4. Make every product response genuinely bounded. DONE. `Overview.Sources`
+   removed (source health is the bounded `Meta.Sources`); `Attention` is
+   offset-pageable (offset/limit/total/count/truncated/nextOffset, deterministic
+   walk); neighborhood edge `DeclaredClaims`/`ObservationSources` and
+   `UnresolvedDependencies` are bounded previews with total/count/truncated; the
+   product Impact DTO pages consumers and bounds each consumer path, owners,
+   active targets and limitations. Adversarial above-maximum tests cover each.
 5. Correct entity-search semantics. DONE (revision-owner discoverability,
    structured owner matching, source-health filter, typed 422 on invalid combos).
-6. Correct neighborhood semantics. IN PROGRESS (re-opened by independent review).
-   Traversal correctly respects the requested views, but `NeighborhoodNode`
-   `Expansions` is still computed from declared+observed adjacency
-   unconditionally, so it leaks knowledge the selected view cannot traverse.
-   Counterexample: with edge `A --observed-only--> B` and a request for
-   `views=expected`, the expected-only answer still advertises that A can expand
-   in that direction because B exists in observed knowledge, even though the
-   expected view cannot traverse it. Fix: derive expansion affordances from the
-   same requested knowledge views as the traversal (view-aware expansions). True
-   revision/deployment graph projections remain a later phase.
-7. Correct contextual product impact. IN PROGRESS (re-opened by independent
-   review). The exact-content identity invariant is still violated.
-   Counterexamples: `revisionRef` treats any non-empty
-   `ContractRevision.ResolvedRef` as exact; the OCI fleet source
-   (`internal/fleetsrc/oci.go`) sets `RawRevision.ResolvedRef` to the requested
-   ref itself and stores the resolved digest separately, so a mutable OCI tag can
-   live in `ResolvedRef` and be treated as exact; RequestedRef-only revisions are
-   still analyzed and merely receive a `REVISION_CONTENT_MUTABLE` limitation while
-   `ProductImpact` still reports `SnapshotMatch=true`. Invariant: a Product Impact
-   request by canonical `RevisionKey` may only analyze the exact content
-   represented by those snapshot revisions - the server must never fetch
-   potentially different mutable content and then claim snapshot parity. Fix:
-   explicit immutable-content model (OCI digest-pinned canonical refs; reject
-   mutable/local-only canonical impact with a typed 4xx; `SnapshotMatch` means
-   BOTH graph-snapshot parity AND exact-content parity). The raw GET Impact stays
-   as the advanced mutable-content path and is not weakened.
+6. Correct neighborhood semantics. DONE. Expansion affordances are now derived
+   from the same requested knowledge views as the traversal, so an expected-only
+   answer never advertises an expansion that exists only in observed knowledge
+   (and vice versa). Regression tests cover expected/observed/differences across
+   incoming and outgoing directions. True revision/deployment graph projections
+   remain a later phase.
+7. Correct contextual product impact (exact-content identity). DONE. The OCI
+   source pins `ResolvedRef` to the resolved digest; the transport requires a
+   digest-pinned, internally consistent immutable ref and REJECTS a mutable tag or
+   a local path with a typed 422 BEFORE the provider is invoked, so the server
+   never fetches potentially-different content and then claims parity.
+   `SnapshotMatch` is true only on a success, meaning BOTH graph-snapshot parity
+   AND exact-content parity; the snapshot-refresh race still returns 409. The raw
+   GET `/api/fleet/impact` mutable-content path is unchanged.
 8. Typed frontend product API client with schema-version validation and drift
-   protection (client only; UI migration is phase 2). PENDING - must target the
-   FINAL DTO shapes, so it follows items 1 and 3. The current client returns
-   `Promise<unknown>` (see the correction above).
-9. Complete U+00A7 enforcement. DONE for the gate capability: the script scans
-   authored files, committed generated docs, `--commits base..HEAD` messages and
-   `--text` PR title/body, with fixtures for each failure mode. PENDING: wiring
-   the commit-message + PR scan into blocking CI requires the branch's existing
-   section-sign-bearing commit messages to be rewritten (a history force-push).
-   That rewrite is a destructive shared-history operation the harness blocks
-   without explicit user authorization; it is the one action needed to finish this
-   item and to honor the no-retained-glyph-in-commits rule.
+   protection. DONE. `productTypes.ts` declares typed DTOs for every product
+   response; the client's request/get/post helpers are generic; each product
+   method returns a concrete type and validates the product schema version at the
+   boundary (typed `SchemaCompatibilityError`). `ExportOpenAPI` now emits the
+   complete contract, and the CI-blocking `TestProductTypesMatchOpenAPI` gate
+   asserts every TS DTO matches its OpenAPI schema field-for-field.
+9. Complete U+00A7 enforcement. Gate capability DONE (the script scans authored
+   files, committed generated docs, `--commits base..HEAD` messages and `--text`
+   PR title/body, with fixtures per failure mode; the authored-file scan is
+   blocking in CI). Commit-history + PR CI enforcement is BLOCKED on explicit
+   history-rewrite authorization: 36 of the 98 `base..HEAD` commit messages carry
+   a section sign, so wiring `--commits` into blocking CI would make the shared
+   branch permanently red until those messages are rewritten (a destructive
+   force-push the harness blocks without explicit user authorization). This is the
+   one remaining, deliberately-deferred action.
 
 Deferred graph projections (recorded so a later phase implements them before the
 corresponding UI): this API version is honestly service-neighborhood oriented.
