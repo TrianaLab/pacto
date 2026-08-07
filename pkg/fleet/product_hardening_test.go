@@ -197,6 +197,24 @@ func TestPreviews_BoundAboveEveryMaximum(t *testing.T) {
 
 // ── item 4: view-aware expansion affordances ─────────────────────────────────
 
+// payloadCount reports how many kind payloads an entity detail has populated
+// (must always be exactly one). Shared by the detail tests.
+func payloadCount(d *EntityDetail) int {
+	n := 0
+	for _, ok := range []bool{d.Service != nil, d.Revision != nil, d.Target != nil, d.Owner != nil, d.Source != nil} {
+		if ok {
+			n++
+		}
+	}
+	return n
+}
+
+// ownershipIs reports whether an ownership summary names the given owner with a
+// non-nil owner reference.
+func ownershipIs(o *OwnershipInfo, owner string) bool {
+	return o != nil && o.Owner == owner && o.Ref != nil
+}
+
 // dirSet turns an expansions slice into a set for assertions.
 func dirSet(dirs []Direction) map[Direction]bool {
 	m := map[Direction]bool{}
@@ -308,7 +326,8 @@ func TestRevisionDetail_SiblingRevisions(t *testing.T) {
 // ── item 7: entity-detail immutability ───────────────────────────────────────
 
 // mutateDetail deeply mutates every reachable field of a detail answer so an
-// aliased slice, map or pointer into the snapshot would be caught.
+// aliased slice, map or pointer into the snapshot would be caught. It dispatches
+// to a per-kind mutator (kept separate to stay within the cyclomatic budget).
 func mutateDetail(d *EntityDetail) {
 	mutateSources(d.Meta.Sources)
 	mutateLimitations(d.Meta.Limitations)
@@ -317,113 +336,126 @@ func mutateDetail(d *EntityDetail) {
 	for i := range d.Actions {
 		d.Actions[i] = "hacked"
 	}
-	if s := d.Service; s != nil {
-		mutateRefPreview(&s.Revisions)
-		mutateRefPreview(&s.Deployments)
-		mutateRefPreview(&s.Dependencies)
-		mutateRefPreview(&s.Dependents)
-		if s.Ownership != nil {
-			s.Ownership.Owner = "hacked"
-		}
-		for i := range s.Relationships.Items {
-			mutateEdge(&s.Relationships.Items[i])
-		}
-		for i := range s.Findings.Items {
-			mutateEntityRef(&s.Findings.Items[i].Entity)
-			s.Findings.Items[i].Finding.Message = "hacked"
-		}
-		for i := range s.Evidence.Items {
-			mutateEntityRef(&s.Evidence.Items[i].Target)
-			if s.Evidence.Items[i].At != nil {
-				*s.Evidence.Items[i].At = time.Unix(0, 0)
-			}
-		}
-		for i := range s.Limitations.Items {
-			mutateEntityRef(&s.Limitations.Items[i].Entity)
-			s.Limitations.Items[i].Limitation.Code = "hacked"
-		}
+	switch {
+	case d.Service != nil:
+		mutateServiceDetail(d.Service)
+	case d.Revision != nil:
+		mutateRevisionDetail(d.Revision)
+	case d.Target != nil:
+		mutateTargetDetail(d.Target)
+	case d.Owner != nil:
+		mutateOwnerDetail(d.Owner)
+	case d.Source != nil:
+		mutateSourceDetail(d.Source)
 	}
-	if r := d.Revision; r != nil {
-		mutateEntityRef(&r.Service)
-		r.Identity.Digest = "hacked"
-		if r.Readiness != nil {
-			r.Readiness.Score = -999
-		}
-		for i := range r.Validation.Items {
-			r.Validation.Items[i].Message = "hacked"
-		}
-		for i := range r.Tools.Items {
-			r.Tools.Items[i].Name = "hacked"
-		}
-		for i := range r.Skills.Items {
-			r.Skills.Items[i] = "hacked"
-		}
-		for i := range r.Docs.Items {
-			r.Docs.Items[i].Title = "hacked"
-		}
-		mutateRefPreview(&r.ExactTargets)
-		mutateRefPreview(&r.InferredTargets)
-		for i := range r.Dependencies.Items {
-			mutateEdge(&r.Dependencies.Items[i])
-		}
-		if r.Previous != nil {
-			mutateEntityRef(r.Previous)
-		}
-		if r.Next != nil {
-			mutateEntityRef(r.Next)
-		}
+}
+
+func mutateServiceDetail(s *ServiceDetailData) {
+	mutateRefPreview(&s.Revisions)
+	mutateRefPreview(&s.Deployments)
+	mutateRefPreview(&s.Dependencies)
+	mutateRefPreview(&s.Dependents)
+	if s.Ownership != nil {
+		s.Ownership.Owner = "hacked"
 	}
-	if tg := d.Target; tg != nil {
-		mutateEntityRef(&tg.Service)
-		if tg.Revision != nil {
-			mutateEntityRef(tg.Revision)
-		}
-		if tg.Coverage != nil {
-			tg.Coverage.Evaluated = -1
-		}
-		for k := range tg.ObservedRuntime {
-			tg.ObservedRuntime[k] = "hacked"
-		}
-		for i := range tg.Findings.Items {
-			tg.Findings.Items[i].Message = "hacked"
-		}
-		for i := range tg.Sources.Items {
-			tg.Sources.Items[i] = "hacked"
-		}
-		if tg.EvidenceAt != nil {
-			*tg.EvidenceAt = time.Unix(0, 0)
-		}
-		if tg.ReconciledAt != nil {
-			*tg.ReconciledAt = time.Unix(0, 0)
-		}
-		for i := range tg.Limitations.Items {
-			tg.Limitations.Items[i].Code = "hacked"
-		}
+	for i := range s.Relationships.Items {
+		mutateEdge(&s.Relationships.Items[i])
 	}
-	if o := d.Owner; o != nil {
-		mutateRefPreview(&o.Services)
-		mutateRefPreview(&o.Revisions)
-		mutateRefPreview(&o.Deployments)
-		for i := range o.Attention.Items {
-			mutateEntityRef(&o.Attention.Items[i].Entity)
-			o.Attention.Items[i].Label = "hacked"
-		}
+	for i := range s.Findings.Items {
+		mutateEntityRef(&s.Findings.Items[i].Entity)
+		s.Findings.Items[i].Finding.Message = "hacked"
 	}
-	if src := d.Source; src != nil {
-		if src.Error != nil {
-			src.Error.Code = "hacked"
-			src.Error.Message = "hacked"
-		}
-		if src.LastSuccessfulSync != nil {
-			*src.LastSuccessfulSync = time.Unix(0, 0)
-		}
-		if src.ObservedAt != nil {
-			*src.ObservedAt = time.Unix(0, 0)
-		}
-		mutateRefPreview(&src.Entities)
-		for i := range src.Limitations.Items {
-			src.Limitations.Items[i].Code = "hacked"
-		}
+	for i := range s.Evidence.Items {
+		mutateEntityRef(&s.Evidence.Items[i].Target)
+		mutateTimePtr(s.Evidence.Items[i].At)
+	}
+	for i := range s.Limitations.Items {
+		mutateEntityRef(&s.Limitations.Items[i].Entity)
+		s.Limitations.Items[i].Limitation.Code = "hacked"
+	}
+}
+
+func mutateRevisionDetail(r *RevisionDetailData) {
+	mutateEntityRef(&r.Service)
+	r.Identity.Digest = "hacked"
+	if r.Readiness != nil {
+		r.Readiness.Score = -999
+	}
+	for i := range r.Validation.Items {
+		r.Validation.Items[i].Message = "hacked"
+	}
+	for i := range r.Tools.Items {
+		r.Tools.Items[i].Name = "hacked"
+	}
+	for i := range r.Skills.Items {
+		r.Skills.Items[i] = "hacked"
+	}
+	for i := range r.Docs.Items {
+		r.Docs.Items[i].Title = "hacked"
+	}
+	mutateRefPreview(&r.ExactTargets)
+	mutateRefPreview(&r.InferredTargets)
+	for i := range r.Dependencies.Items {
+		mutateEdge(&r.Dependencies.Items[i])
+	}
+	mutateRefPtr(r.Previous)
+	mutateRefPtr(r.Next)
+}
+
+func mutateTargetDetail(tg *TargetDetailData) {
+	mutateEntityRef(&tg.Service)
+	mutateRefPtr(tg.Revision)
+	if tg.Coverage != nil {
+		tg.Coverage.Evaluated = -1
+	}
+	for k := range tg.ObservedRuntime {
+		tg.ObservedRuntime[k] = "hacked"
+	}
+	for i := range tg.Findings.Items {
+		tg.Findings.Items[i].Message = "hacked"
+	}
+	for i := range tg.Sources.Items {
+		tg.Sources.Items[i] = "hacked"
+	}
+	mutateTimePtr(tg.EvidenceAt)
+	mutateTimePtr(tg.ReconciledAt)
+	for i := range tg.Limitations.Items {
+		tg.Limitations.Items[i].Code = "hacked"
+	}
+}
+
+func mutateOwnerDetail(o *OwnerDetailData) {
+	mutateRefPreview(&o.Services)
+	mutateRefPreview(&o.Revisions)
+	mutateRefPreview(&o.Deployments)
+	for i := range o.Attention.Items {
+		mutateEntityRef(&o.Attention.Items[i].Entity)
+		o.Attention.Items[i].Label = "hacked"
+	}
+}
+
+func mutateSourceDetail(src *SourceDetailData) {
+	if src.Error != nil {
+		src.Error.Code = "hacked"
+		src.Error.Message = "hacked"
+	}
+	mutateTimePtr(src.LastSuccessfulSync)
+	mutateTimePtr(src.ObservedAt)
+	mutateRefPreview(&src.Entities)
+	for i := range src.Limitations.Items {
+		src.Limitations.Items[i].Code = "hacked"
+	}
+}
+
+func mutateTimePtr(t *time.Time) {
+	if t != nil {
+		*t = time.Unix(0, 0)
+	}
+}
+
+func mutateRefPtr(r *EntityRef) {
+	if r != nil {
+		mutateEntityRef(r)
 	}
 }
 
@@ -441,9 +473,7 @@ func mutateEdge(e *NeighborhoodEdge) {
 	}
 	for i := range e.ObservationSources.Items {
 		e.ObservationSources.Items[i].Source = "hacked"
-		if e.ObservationSources.Items[i].LastSeen != nil {
-			*e.ObservationSources.Items[i].LastSeen = time.Unix(0, 0)
-		}
+		mutateTimePtr(e.ObservationSources.Items[i].LastSeen)
 	}
 }
 

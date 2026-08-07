@@ -25,28 +25,25 @@ func TestEntityDetail_Service(t *testing.T) {
 	if d.Meta.SchemaVersion != ProductSchemaVersion || d.Entity.Kind != KindService {
 		t.Errorf("envelope wrong: %+v", d.Entity)
 	}
-	if d.Service == nil {
-		t.Fatal("service payload must be populated")
+	if d.Service == nil || payloadCount(d) != 1 {
+		t.Fatalf("exactly the service payload must be populated: %+v", d)
 	}
-	// Exactly one kind payload is populated.
-	if d.Revision != nil || d.Target != nil || d.Owner != nil || d.Source != nil {
-		t.Errorf("more than one kind payload populated: %+v", d)
+	s := d.Service
+	if s.Deployments.Count != 2 {
+		t.Errorf("deployments = %d, want 2", s.Deployments.Count)
 	}
-	if d.Service.Deployments.Count != 2 {
-		t.Errorf("deployments = %d, want 2", d.Service.Deployments.Count)
-	}
-	if d.Service.Dependencies.Total < 1 {
-		t.Errorf("dependencies = %d, want >= 1", d.Service.Dependencies.Total)
+	if s.Dependencies.Total < 1 {
+		t.Errorf("dependencies = %d, want >= 1", s.Dependencies.Total)
 	}
 	// alpha->leaf declared+observed and beta->alpha observed shadow.
-	if d.Service.Relationships.Count != 2 {
-		t.Errorf("relationships = %d, want 2", d.Service.Relationships.Count)
+	if s.Relationships.Count != 2 {
+		t.Errorf("relationships = %d, want 2", s.Relationships.Count)
 	}
-	if d.Service.Evidence.Count != 2 {
-		t.Errorf("evidence = %d, want 2 (alpha-app + alpha-ancient)", d.Service.Evidence.Count)
+	if s.Evidence.Count != 2 {
+		t.Errorf("evidence = %d, want 2 (alpha-app + alpha-ancient)", s.Evidence.Count)
 	}
-	if d.Service.Ownership == nil || d.Service.Ownership.Owner != "team-a" || d.Service.Ownership.Ref == nil {
-		t.Errorf("ownership = %+v", d.Service.Ownership)
+	if !ownershipIs(s.Ownership, "team-a") {
+		t.Errorf("ownership = %+v", s.Ownership)
 	}
 	if len(d.Actions) != 3 {
 		t.Errorf("actions = %v", d.Actions)
@@ -124,36 +121,34 @@ func TestEntityDetail_Revision(t *testing.T) {
 	}
 }
 
-func TestEntityDetail_Target(t *testing.T) {
+func TestEntityDetail_TargetExact(t *testing.T) {
 	q := productFleet(t)
-
-	alphaApp := string(NewTargetKey("prod", "k8s", "alpha-app"))
-	d, err := q.EntityDetail(KindTarget, alphaApp)
+	d, err := q.EntityDetail(KindTarget, string(NewTargetKey("prod", "k8s", "alpha-app")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Target == nil {
-		t.Fatal("target payload must be populated")
+	if d.Target == nil || payloadCount(d) != 1 {
+		t.Fatalf("exactly the target payload must be populated: %+v", d)
 	}
-	if d.Target.Coverage == nil || d.Target.ObservedRuntime == nil {
-		t.Errorf("expected coverage + observedRuntime: %+v", d.Target)
+	tg := d.Target
+	if tg.Coverage == nil || tg.ObservedRuntime == nil || tg.EvidenceAt == nil {
+		t.Errorf("alpha-app must carry coverage + observedRuntime + evidence: %+v", tg)
 	}
-	if d.Target.EvidenceAt == nil {
-		t.Error("alpha-app must report evidence time")
+	if tg.Revision == nil || tg.Service.Kind != KindService || tg.Source == "" {
+		t.Errorf("alpha-app must carry service ref, revision link and source: %+v", tg)
 	}
-	if d.Target.Revision == nil {
-		t.Error("alpha-app must link to a revision")
+	if tg.LinkState != "exact" && tg.LinkState != "inferred" {
+		t.Errorf("alpha-app link state = %q, want exact/inferred", tg.LinkState)
 	}
-	if d.Target.Service.Kind != KindService || d.Target.Source == "" {
-		t.Errorf("target must carry service ref and source: %+v", d.Target)
-	}
-	if d.Target.LinkState != "exact" && d.Target.LinkState != "inferred" {
-		t.Errorf("alpha-app link state = %q, want exact/inferred", d.Target.LinkState)
-	}
+}
 
-	// beta-app: ambiguous (no revision link), has a finding, no evidence coverage.
-	betaApp := string(NewTargetKey("prod", "k8s", "beta-app"))
-	db, _ := q.EntityDetail(KindTarget, betaApp)
+func TestEntityDetail_TargetAmbiguous(t *testing.T) {
+	q := productFleet(t)
+	// beta-app: ambiguous (no revision link), has a finding.
+	db, err := q.EntityDetail(KindTarget, string(NewTargetKey("prod", "k8s", "beta-app")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if db.Target.Findings.Count != 1 {
 		t.Errorf("beta-app findings = %d, want 1", db.Target.Findings.Count)
 	}
@@ -166,17 +161,21 @@ func TestEntityDetail_Target(t *testing.T) {
 	if !hasLimitation(db.Target.Limitations.Items, LimitationRevisionAmbiguous) {
 		t.Errorf("beta-app must carry the ambiguous limitation: %+v", db.Target.Limitations)
 	}
+}
 
+func TestEntityDetail_TargetUnresolved(t *testing.T) {
+	q := productFleet(t)
 	// solo-app: unresolved, no evidence.
-	soloApp := string(NewTargetKey("prod", "k8s", "solo-app"))
-	ds, _ := q.EntityDetail(KindTarget, soloApp)
+	ds, err := q.EntityDetail(KindTarget, string(NewTargetKey("prod", "k8s", "solo-app")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if ds.Target.EvidenceAt != nil {
 		t.Errorf("solo-app must have no evidence time: %v", ds.Target.EvidenceAt)
 	}
 	if ds.Target.LinkState != "unresolved" {
 		t.Errorf("solo-app link state = %q, want unresolved", ds.Target.LinkState)
 	}
-
 	if _, err := q.EntityDetail(KindTarget, "prod/k8s/nope"); err == nil {
 		t.Error("missing target must error")
 	}

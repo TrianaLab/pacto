@@ -96,56 +96,64 @@ func walkHrefs(v any) (count, empty int) {
 	return count, empty
 }
 
+// productPayloadCount reports how many kind payloads a transport detail populated.
+func productPayloadCount(pd *ProductEntityDetail) int {
+	n := 0
+	for _, ok := range []bool{pd.Service != nil, pd.Revision != nil, pd.Target != nil, pd.Owner != nil, pd.Source != nil} {
+		if ok {
+			n++
+		}
+	}
+	return n
+}
+
+// assertNoEmptyHrefs marshals v and fails if any "href" leaf is empty or absent.
+func assertNoEmptyHrefs(t *testing.T, label string, v any) {
+	t.Helper()
+	blob, _ := json.Marshal(v)
+	var tree any
+	_ = json.Unmarshal(blob, &tree)
+	cnt, empty := walkHrefs(tree)
+	if cnt == 0 {
+		t.Errorf("%s: must contain at least one href", label)
+	}
+	if empty != 0 {
+		t.Errorf("%s: %d empty href(s) in transport output", label, empty)
+	}
+}
+
 // TestProductDetail_AllKindsHrefs converts every entity-detail kind through the
-// transport and proves (a) exactly one payload is populated, (b) every reference
-// carries a non-empty href. It also exercises the overview and neighborhood
-// converters.
+// transport and proves exactly one payload is populated and every reference
+// carries a non-empty href.
 func TestProductDetail_AllKindsHrefs(t *testing.T) {
 	q := richFleetQuery(t)
-	appRev := appRevKey(t, q)
-	targetKey := string(fleet.NewTargetKey("prod", "k8s", "app-1"))
-
 	cases := []struct{ kind, key string }{
 		{"service", "app"},
-		{"revision", appRev},
-		{"target", targetKey},
+		{"revision", appRevKey(t, q)},
+		{"target", string(fleet.NewTargetKey("prod", "k8s", "app-1"))},
 		{"owner", "team-a"},
 		{"source", "local"},
 	}
 	for _, c := range cases {
-		t.Run(c.kind, func(t *testing.T) {
-			d, err := q.EntityDetail(fleet.EntityKind(c.kind), c.key)
-			if err != nil {
-				t.Fatal(err)
-			}
-			pd := toProductEntityDetail(d)
-			// Exactly one payload populated.
-			n := 0
-			for _, ok := range []bool{pd.Service != nil, pd.Revision != nil, pd.Target != nil, pd.Owner != nil, pd.Source != nil} {
-				if ok {
-					n++
-				}
-			}
-			if n != 1 {
-				t.Fatalf("%s: exactly one payload must be populated, got %d", c.kind, n)
-			}
-			if pd.Entity.Href == "" {
-				t.Errorf("%s: entity ref must carry an href", c.kind)
-			}
-			blob, _ := json.Marshal(pd)
-			var tree any
-			_ = json.Unmarshal(blob, &tree)
-			cnt, empty := walkHrefs(tree)
-			if cnt == 0 {
-				t.Errorf("%s: detail must contain at least one href", c.kind)
-			}
-			if empty != 0 {
-				t.Errorf("%s: %d empty href(s) in transport output", c.kind, empty)
-			}
-		})
+		d, err := q.EntityDetail(fleet.EntityKind(c.kind), c.key)
+		if err != nil {
+			t.Fatalf("%s: %v", c.kind, err)
+		}
+		pd := toProductEntityDetail(d)
+		if productPayloadCount(pd) != 1 {
+			t.Errorf("%s: exactly one payload must be populated, got %d", c.kind, productPayloadCount(pd))
+		}
+		if pd.Entity.Href == "" {
+			t.Errorf("%s: entity ref must carry an href", c.kind)
+		}
+		assertNoEmptyHrefs(t, c.kind, pd)
 	}
+}
 
-	// Overview + neighborhood converters (edges, unresolved deps, entry points).
+// TestProductOverviewAndNeighborhoodHrefs exercises the overview and neighborhood
+// converters (entry points, edges, unresolved deps) for href completeness.
+func TestProductOverviewAndNeighborhoodHrefs(t *testing.T) {
+	q := richFleetQuery(t)
 	ov := toProductOverview(q.Overview())
 	if len(ov.EntryPoints) == 0 {
 		t.Error("overview must have entry points")
@@ -166,12 +174,7 @@ func TestProductDetail_AllKindsHrefs(t *testing.T) {
 	if pnb.UnresolvedDependencies.Count == 0 || pnb.UnresolvedDependencies.Items[0].From.Href == "" {
 		t.Errorf("unresolved dependency must carry a navigable source: %+v", pnb.UnresolvedDependencies)
 	}
-	blob, _ := json.Marshal(pnb)
-	var tree any
-	_ = json.Unmarshal(blob, &tree)
-	if _, empty := walkHrefs(tree); empty != 0 {
-		t.Errorf("neighborhood has %d empty hrefs", empty)
-	}
+	assertNoEmptyHrefs(t, "neighborhood", pnb)
 }
 
 // TestProductRef_DeepLinkHrefs proves an href is generated from the EXACT
@@ -223,17 +226,16 @@ func impactWithRes(t *testing.T, q *fleet.Query, res *impact.Result, limit, offs
 	return buildProductImpact(q.ProductMeta(), snap, rev.ServiceKey, rev, rev, res, limit, offset)
 }
 
-// TestProductImpact_BoundsAdversarial generates inputs above every impact maximum
-// and proves the answer stays bounded with honest paging/truncation metadata
-// (item 3.4).
-func TestProductImpact_BoundsAdversarial(t *testing.T) {
-	q := richFleetQuery(t)
-	nConsumers := 250
-	consumers := make([]impact.AffectedConsumer, nConsumers)
+// adversarialImpactResult builds an impact result whose every list is above its
+// bound, for the bound/paging tests. It returns the result, the consumer count
+// and the (over-cap) path length.
+func adversarialImpactResult() (*impact.Result, int, int) {
+	const nConsumers = 250
 	longPath := make([]string, MaxImpactPath+10)
 	for i := range longPath {
 		longPath[i] = fmt.Sprintf("svc-%03d", i)
 	}
+	consumers := make([]impact.AffectedConsumer, nConsumers)
 	for i := range consumers {
 		consumers[i] = impact.AffectedConsumer{Service: fmt.Sprintf("consumer-%03d", i), Path: longPath}
 	}
@@ -249,28 +251,34 @@ func TestProductImpact_BoundsAdversarial(t *testing.T) {
 	for i := range lims {
 		lims[i] = fleet.Limitation{Code: fmt.Sprintf("L%03d", i)}
 	}
-	res := &impact.Result{Consumers: consumers, Owners: owners, ActiveTargets: targets, Limitations: lims}
+	return &impact.Result{Consumers: consumers, Owners: owners, ActiveTargets: targets, Limitations: lims}, nConsumers, len(longPath)
+}
 
-	// Page 1 with a small limit.
-	limit := 20
-	p1 := impactWithRes(t, q, res, limit, 0)
-	if p1.Consumers.Total != nConsumers || p1.Consumers.Count != limit || !p1.Consumers.Truncated || p1.Consumers.NextOffset == nil {
-		t.Fatalf("consumer page 1 wrong: %+v", p1.Consumers)
+// TestProductImpact_ListsBounded proves owners, active targets, limitations and
+// per-consumer path are all bounded above their maxima with honest metadata.
+func TestProductImpact_ListsBounded(t *testing.T) {
+	q := richFleetQuery(t)
+	res, _, pathLen := adversarialImpactResult()
+	p := impactWithRes(t, q, res, 20, 0)
+	if p.Owners.Count != MaxImpactOwners || !p.Owners.Truncated || p.Owners.Total != len(res.Owners) {
+		t.Errorf("owners not bounded: %+v", p.Owners)
 	}
-	if p1.Owners.Count != MaxImpactOwners || !p1.Owners.Truncated || p1.Owners.Total != len(owners) {
-		t.Errorf("owners not bounded: %+v", p1.Owners)
+	if p.ActiveTargets.Count != MaxImpactActiveTargets || !p.ActiveTargets.Truncated {
+		t.Errorf("active targets not bounded: %+v", p.ActiveTargets)
 	}
-	if p1.ActiveTargets.Count != MaxImpactActiveTargets || !p1.ActiveTargets.Truncated {
-		t.Errorf("active targets not bounded: %+v", p1.ActiveTargets)
+	if p.Limitations.Count != MaxImpactLimitations || !p.Limitations.Truncated {
+		t.Errorf("limitations not bounded: %+v", p.Limitations)
 	}
-	if p1.Limitations.Count != MaxImpactLimitations || !p1.Limitations.Truncated {
-		t.Errorf("limitations not bounded: %+v", p1.Limitations)
+	c0 := p.Consumers.Items[0]
+	if !c0.PathTruncated || c0.PathTotal != pathLen || len(c0.Path) != MaxImpactPath {
+		t.Errorf("consumer path not bounded: %+v", c0)
 	}
-	if !p1.Consumers.Items[0].PathTruncated || p1.Consumers.Items[0].PathTotal != len(longPath) || len(p1.Consumers.Items[0].Path) != MaxImpactPath {
-		t.Errorf("consumer path not bounded: %+v", p1.Consumers.Items[0])
-	}
+}
 
-	// Walking every consumer page reconstructs all consumers exactly once, in order.
+// walkImpactConsumers walks every consumer page and returns the set of distinct
+// consumer keys seen (asserting no page overlaps or fails to terminate).
+func walkImpactConsumers(t *testing.T, q *fleet.Query, res *impact.Result, limit, total int) map[string]bool {
+	t.Helper()
 	seen := map[string]bool{}
 	offset, guard := 0, 0
 	for {
@@ -282,29 +290,37 @@ func TestProductImpact_BoundsAdversarial(t *testing.T) {
 			seen[c.Service.Key] = true
 		}
 		if page.Consumers.NextOffset == nil {
-			break
+			return seen
 		}
 		offset = *page.Consumers.NextOffset
-		if guard++; guard > nConsumers {
+		if guard++; guard > total {
 			t.Fatal("consumer paging did not terminate")
 		}
 	}
-	if len(seen) != nConsumers {
-		t.Errorf("paged walk saw %d consumers, want %d", len(seen), nConsumers)
-	}
+}
 
-	// A capped/defaulted limit: an excessive limit is capped; a zero limit defaults.
-	big := impactWithRes(t, q, res, MaxImpactConsumers+100, 0)
-	if big.Consumers.Limit != MaxImpactConsumers {
+// TestProductImpact_ConsumerPaging proves consumers are stably offset-pageable
+// (page 1 truncated, a full walk reconstructs every consumer once), the limit is
+// capped and defaulted, and an offset beyond total is an empty final page.
+func TestProductImpact_ConsumerPaging(t *testing.T) {
+	q := richFleetQuery(t)
+	res, n, _ := adversarialImpactResult()
+	limit := 20
+	p1 := impactWithRes(t, q, res, limit, 0)
+	if p1.Consumers.Total != n || p1.Consumers.Count != limit || !p1.Consumers.Truncated || p1.Consumers.NextOffset == nil {
+		t.Fatalf("consumer page 1 wrong: %+v", p1.Consumers)
+	}
+	if seen := walkImpactConsumers(t, q, res, limit, n); len(seen) != n {
+		t.Errorf("paged walk saw %d consumers, want %d", len(seen), n)
+	}
+	if big := impactWithRes(t, q, res, MaxImpactConsumers+100, 0); big.Consumers.Limit != MaxImpactConsumers {
 		t.Errorf("excessive consumer limit not capped: %d", big.Consumers.Limit)
 	}
-	zero := impactWithRes(t, q, &impact.Result{Consumers: consumers[:5]}, 0, 0)
+	zero := impactWithRes(t, q, &impact.Result{Consumers: res.Consumers[:5]}, 0, 0)
 	if zero.Consumers.Limit != DefaultImpactConsumers || zero.Consumers.Truncated {
 		t.Errorf("default limit / small result wrong: %+v", zero.Consumers)
 	}
-	// Offset beyond total is an empty final page.
-	beyond := impactWithRes(t, q, res, limit, 100000)
-	if beyond.Consumers.Count != 0 || beyond.Consumers.NextOffset != nil {
+	if beyond := impactWithRes(t, q, res, limit, 100000); beyond.Consumers.Count != 0 || beyond.Consumers.NextOffset != nil {
 		t.Errorf("offset beyond total must be an empty final page: %+v", beyond.Consumers)
 	}
 }

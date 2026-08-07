@@ -93,7 +93,18 @@ func TestProductTypesMatchOpenAPI(t *testing.T) {
 	if len(tsFields) == 0 {
 		t.Fatal("no TS interfaces parsed from productTypes.ts")
 	}
-	// (1) Every TS interface is mapped and matches its OpenAPI schema field-for-field.
+	schemaNames := make([]string, 0, len(doc.Components.Schemas))
+	for name := range doc.Components.Schemas {
+		schemaNames = append(schemaNames, name)
+	}
+	checkTSMatchesOpenAPI(t, tsFields, tsToOA, oaProps)
+	checkPreviewShapes(t, schemaNames, oaProps)
+	checkEveryProductTypeModeled(t, schemaNames, tsToOA)
+}
+
+// checkTSMatchesOpenAPI asserts every TS interface is mapped and its field names
+// equal the mapped OpenAPI schema's property names.
+func checkTSMatchesOpenAPI(t *testing.T, tsFields map[string][]string, tsToOA map[string]string, oaProps func(string) ([]string, bool)) {
 	for ts, fields := range tsFields {
 		oa, ok := tsToOA[ts]
 		if !ok {
@@ -109,26 +120,32 @@ func TestProductTypesMatchOpenAPI(t *testing.T) {
 			t.Errorf("drift: TS %q fields %v != OpenAPI %q properties %v", ts, a, oa, b)
 		}
 	}
+}
 
-	// (2) Every "*Preview" schema has exactly the reusable Preview shape, so the TS
-	// Preview<T> generic faithfully models all of them.
+// checkPreviewShapes asserts every "*Preview" schema has exactly the reusable
+// Preview shape, so the TS Preview<T> generic faithfully models all of them.
+func checkPreviewShapes(t *testing.T, schemaNames []string, oaProps func(string) ([]string, bool)) {
 	wantPreview := []string{"count", "items", "total", "truncated"}
-	for name := range doc.Components.Schemas {
-		if strings.HasSuffix(name, "Preview") {
-			props, _ := oaProps(name)
-			if !equalStrs(sortedUnique(props), wantPreview) {
-				t.Errorf("preview schema %q has fields %v, want the reusable Preview shape %v", name, sortedUnique(props), wantPreview)
-			}
+	for _, name := range schemaNames {
+		if !strings.HasSuffix(name, "Preview") {
+			continue
+		}
+		props, _ := oaProps(name)
+		if !equalStrs(sortedUnique(props), wantPreview) {
+			t.Errorf("preview schema %q has fields %v, want the reusable Preview shape %v", name, sortedUnique(props), wantPreview)
 		}
 	}
+}
 
-	// (3) Every concrete (non-preview) Product* schema is modeled by a TS interface,
-	// so a new Go product type cannot ship without a TS DTO.
+// checkEveryProductTypeModeled asserts every concrete (non-preview) Product*
+// schema is modeled by a TS interface, so a new Go product type cannot ship
+// without a TS DTO.
+func checkEveryProductTypeModeled(t *testing.T, schemaNames []string, tsToOA map[string]string) {
 	mapped := map[string]bool{}
 	for _, oa := range tsToOA {
 		mapped[oa] = true
 	}
-	for name := range doc.Components.Schemas {
+	for _, name := range schemaNames {
 		if !strings.HasPrefix(name, "Product") || strings.HasSuffix(name, "Preview") {
 			continue
 		}

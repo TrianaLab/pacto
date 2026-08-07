@@ -162,6 +162,13 @@ func TestProductImpactPost(t *testing.T) {
 	if !fleet.IsDigestPinnedRef(gotOld) || !fleet.IsDigestPinnedRef(gotNew) {
 		t.Errorf("provider must receive digest-pinned refs, got %q / %q", gotOld, gotNew)
 	}
+	assertImpactShapeAndNavigable(t, out)
+}
+
+// assertImpactShapeAndNavigable checks the single-consumer shape and that every
+// reference the impact answer returns carries a canonical href.
+func assertImpactShapeAndNavigable(t *testing.T, out ProductImpact) {
+	t.Helper()
 	if out.Consumers.Count != 1 || out.Consumers.Total != 1 || out.Owners.Count != 1 || out.ActiveTargets.Count != 1 {
 		t.Fatalf("unexpected shape: %+v", out)
 	}
@@ -169,7 +176,6 @@ func TestProductImpactPost(t *testing.T) {
 	if len(c.Path) != 2 || c.PathTotal != 2 || c.PathTruncated {
 		t.Errorf("consumer path = %+v, want 2 (untruncated)", c.Path)
 	}
-	// Every reference the answer returns must be navigable (carry an href).
 	refs := []ProductRef{out.Service, *out.OldRevision, *out.NewRevision, c.Service}
 	refs = append(refs, c.Path...)
 	refs = append(refs, out.Owners.Items...)
