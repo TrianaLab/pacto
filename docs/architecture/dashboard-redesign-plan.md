@@ -11,7 +11,23 @@ implementation; it exists so the work can continue across fresh sessions without
 losing decisions or repeating discovery.
 
 Authored content in this repository must never contain Unicode code point
-U+00A7. Use ordinary wording ("requirement 3", "review item 3").
+U+00A7. Use ordinary wording ("requirement 3", "review item 3"). This rule is
+enforced by a blocking gate that scans authored files, committed generated docs,
+the commit messages in base..HEAD, and the PR title and body (requirement 24).
+
+## 0. Branch state and synchronized base
+
+The product-foundation rework session (this ledger's phase "product API
+hardening") started from and synchronized the branch as follows:
+
+- Starting HEAD: `bc96e3af` (the reviewed HEAD of PR #291).
+- Merge-base with main before sync: `ae7273fa`.
+- Synchronized base (current `main` tip merged in): `eb1482ff` (five dependabot
+  action bumps; the only conflict was `azure/setup-helm` v4 to v5.0.1 in
+  `docs-check.yml`, resolved by keeping the mermaid gate and taking the bump).
+- Integration strategy: merge (the repo integrates every PR as a merge commit),
+  so all branch commits and their content are preserved rather than rebased.
+- Post-merge HEAD: `a08b1e82` (advances as foundation commits land).
 
 ## 1. Target product model
 
@@ -132,20 +148,42 @@ graph rendering, entity details, attention, source status, responsive
 presentation. Route and identity construction is centralized (never duplicated
 across views), consuming backend-provided canonical routes.
 
-## 5. Migration sequence
+## 5. Complete remaining program
 
-1. Product API contracts + backend query model (this increment).
-2. Projection architecture decision (requirement 17).
-3. Frontend IA + routing foundation; consume product APIs.
-4. Overview + entity-navigation workflows.
-5. Search-first Operational Graph.
-6. Entity detail + deep cross-linking.
-7. Responsive + accessible interaction.
-8. WASM demo + browser acceptance.
-9. Live Kind vertical acceptance.
-10. MkDocs browser acceptance.
-11. Local Kind/containerd reproducibility.
-12. Documentation, PR body and final verification.
+This is the durable, whole-program sequence. Each phase is finished only under
+the section 9 acceptance criteria before the next begins. Status is tracked in
+section 8.
+
+1. Product API hardening (foundation): architectural boundary restored,
+   product-query immutability enforced, strongly typed discriminated entity
+   detail, genuinely bounded responses with typed page metadata, corrected
+   entity-search / neighborhood / impact semantics, a typed frontend product
+   API client with drift protection, and complete U+00A7 enforcement. This is
+   the current phase; it must be finished before any UI migration begins.
+2. Frontend IA and routing: route state, breadcrumbs, history, global search,
+   the reusable product components, consuming the typed client. No UI redesign
+   before phase 1 is complete.
+3. Overview, Services, Attention and entity pages (service / revision / target /
+   owner / source) built on the typed detail model.
+4. Search-first Operational Graph: neighborhood-oriented topology with the
+   knowledge views (expected / observed / differences) and honest focus mapping.
+5. Responsive and accessible interaction (keyboard, ARIA, focus, mobile).
+6. WASM browser acceptance (Playwright over the in-browser demo).
+7. Operator-managed trace source: an operator-owned observed/trace source so the
+   observed layer is real end to end, not demo-only.
+8. Live Kind vertical: the full install (operator + dashboard + Evidence Server +
+   registry + reconciled CRs + ingested evidence) with a live browser acceptance.
+9. Real MkDocs browser acceptance (bundle-doc mermaid renders in a real browser).
+10. Docker Desktop / local-registry Kind support (containerd store, `kind load`
+    reproducibility on a developer machine).
+11. Multi-root MCP catalog core: the fleet facts exposed as a multi-root MCP
+    catalog (route-neutral; consumes the same fleet facts, never dashboard URLs).
+12. MCP discovery tools and protocol E2E.
+13. Normative invariants: the architecture / invariant test suite covering the
+    engine invariants (three identities, declared-vs-observed, snapshot parity,
+    boundary, bounds).
+14. Documentation and final verification: docs, PR body, final-SHA CI, user UI
+    sign-off, PR marked ready.
 
 ## 6. Requirement-to-test mapping
 
@@ -170,9 +208,17 @@ across views), consuming backend-provided canonical routes.
 - ADR-1: Product API layer is pure over the immutable snapshot, in `pkg/fleet`,
   reusing `Query`. Reason: single source of graph semantics; frontend cannot
   invent stronger semantics than backend facts.
-- ADR-2: Canonical dashboard routes are emitted by the backend as plain path
-  strings from `pkg/fleet/route.go`. Reason: the frontend must not re-derive
-  identity or routes; strings introduce no boundary violation.
+- ADR-2 (corrected): route emission is a TRANSPORT concern, not a fleet concern.
+  `pkg/fleet` stays route-neutral: it owns canonical identities, graph/query
+  facts, completeness and limitations, and returns route-neutral entity
+  references. The dashboard/product transport converts those references into
+  navigable API references (adding canonical hrefs/routes) and owns the HTTP
+  product DTOs where navigation is required. Reason: emitting `/fleet/...` route
+  strings from `pkg/fleet` is semantic UI coupling even with no dashboard import;
+  MCP and other non-dashboard consumers must use the same fleet facts without
+  receiving dashboard URLs. This supersedes the earlier ADR-2 (routes emitted
+  from `pkg/fleet/route.go`); an architecture test now forbids dashboard route
+  concepts from returning to `pkg/fleet`.
 - ADR-3: `reconciliation` is a backend fact on the edge; the product
   `differences` view reads it verbatim. Reason: requirement 2.3 authority rules.
 - ADR-4: Impact by canonical identities resolves revision keys to their snapshot
@@ -209,23 +255,63 @@ Completed:
   `/attention`, `POST /impact`) with impact enrichment and snapshot-mismatch
   rejection, 100% covered; OpenAPI exports cleanly.
 
-- (phase 2) projection architecture decision (ADR-5): removed the write-only
-  per-target projections; `pkg/evidencestore` stays 100% covered; storage ADR and
-  Kind E2E updated (manifest restoration proven physically).
-- (phase 3, in progress) typed product API client in
-  `pkg/dashboard/frontend/src/lib/api.ts` (`fleetOverview`, `fleetEntities`,
-  `fleetEntityDetail`, `fleetNeighborhood`, `fleetAttention`,
-  `fleetImpactByIdentity`) with vitest coverage; UI bundle rebuilt
-  deterministically (a clean `npm ci && npm run build` reproduces the committed
-  assets, so `ci-ui-drift` stays green). This is the API-data layer the new views
-  will consume; the views, routes, reusable components, responsive + a11y work,
-  WASM fixtures and Playwright suite are the remaining bulk of phase 3+.
+- projection architecture decision (ADR-5) is COMPLETE (requirement 17):
+  - the unused write-only per-target projections were removed;
+  - `materialized/manifest.json` is the ONLY supported materialized projection (a
+    record-count summary recovery reads back and verifies against the immutable
+    log);
+  - the Kind Evidence E2E physically proves manifest reconstruction on disk after
+    loss, not merely that reads answer from the rebuilt in-memory index.
+  `pkg/evidencestore` stays 100% covered; the storage ADR and Kind E2E are updated.
 
-Pending: rest of phase 3 through 12 in the migration sequence (frontend
-IA/routing;
-overview + entity navigation; search-first graph; entity detail + cross-linking;
-responsive + a11y; WASM demo + browser acceptance; live Kind; MkDocs; local
-registry; docs + PR body + final verification).
+Correction (stale entry removed): an earlier ledger version claimed a "typed
+product API client" was delivered. That was overstated. The client in
+`pkg/dashboard/frontend/src/lib/api.ts` (`fleetOverview`, `fleetEntities`,
+`fleetEntityDetail`, `fleetNeighborhood`, `fleetAttention`,
+`fleetImpactByIdentity`) exists and has vitest coverage, but its methods return
+`Promise<unknown>` with no product DTOs, no schema-version check and no drift
+protection. Producing a genuinely typed client with drift protection is part of
+phase 1 (product API hardening), not a completed item.
+
+### Product API hardening (phase 1 of the program) — status
+
+This is the current phase. Its subitems and their status:
+
+1. Restore the `pkg/fleet` architectural boundary (route emission moves to the
+   transport; `pkg/fleet` becomes route-neutral; an architecture content-scan
+   test forbids route concepts from returning to `pkg/fleet`).
+2. Enforce product-query immutability (every product answer fully independent of
+   the snapshot and of later answers; regression tests per response family).
+3. Replace `map[string]any` entity detail with a strongly typed discriminated
+   product model; OpenAPI expresses the real fields.
+4. Make every product response genuinely bounded (defaults + hard maxima, reject
+   negatives, cap positives, typed page metadata; `ProductMeta` not an unbounded
+   copy of every source/limitation).
+5. Correct entity-search semantics (revision-owner discoverability, structured
+   owner matching, source-health enum, typed 422 on invalid kind/filter combos).
+6. Correct neighborhood semantics (views drive traversal; explicit difference
+   states; per-source-revision declared claims; honest service-neighborhood
+   focus; true revision/deployment projections deferred to a later phase).
+7. Correct contextual product impact (canonical identity parity, snapshot-refresh
+   race rejection with 409, immutable content resolution).
+8. Typed frontend product API client with schema-version validation and drift
+   protection (client only; UI migration is phase 2).
+9. Complete U+00A7 enforcement (gate scans authored files, committed generated
+   docs, base..HEAD commit messages, PR title and body; fixtures for each).
+
+Deferred graph projections (recorded so a later phase implements them before the
+corresponding UI): this API version is honestly service-neighborhood oriented.
+True revision-graph and deployment-graph projections (nodes that are revisions or
+targets, not services) are NOT implemented and must be added before the revision
+and deployment graph UI views are built.
+
+Pending after phase 1: phases 2 through 14 of the complete remaining program in
+section 5 (frontend IA/routing; Overview/Services/Attention/entity pages;
+search-first Operational Graph; responsive + a11y; WASM browser acceptance;
+operator-managed trace source; live Kind vertical; real MkDocs browser
+acceptance; Docker Desktop/local-registry Kind support; multi-root MCP catalog
+core; MCP discovery tools + protocol E2E; normative invariants; documentation and
+final verification).
 
 ## 9. Acceptance criteria
 
