@@ -1,5 +1,16 @@
 /** Pacto Dashboard API client — thin typed wrapper over fetch. */
 
+import type {
+  ProductOverview,
+  ProductEntityList,
+  ProductEntityDetail,
+  ProductNeighborhood,
+  ProductAttentionList,
+  ProductImpact,
+  ProductMeta,
+} from './productTypes';
+import { checkProductSchema } from './productTypes';
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -8,12 +19,12 @@ export class ApiError extends Error {
   }
 }
 
-async function request(method: string, path: string, body?: unknown): Promise<unknown> {
+async function request<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
   const staticData = (globalThis as any).__PACTO_STATIC__;
   if (staticData) {
-    if (path in staticData.routes) return staticData.routes[path];
+    if (path in staticData.routes) return staticData.routes[path] as T;
     // Unknown paths (health/metrics/sources polling) resolve empty so the offline app stays quiet.
-    return path === '/api/services' ? [] : null;
+    return (path === '/api/services' ? [] : null) as T;
   }
 
   const opts: RequestInit = { method, headers: {} };
@@ -28,12 +39,29 @@ async function request(method: string, path: string, body?: unknown): Promise<un
     try { msg = JSON.parse(text).detail || JSON.parse(text).title || text; } catch { /* use raw text */ }
     throw new ApiError(res.status, msg);
   }
-  if (res.status === 204) return null;
-  return res.json();
+  if (res.status === 204) return null as T;
+  return (await res.json()) as T;
 }
 
-const get = (path: string): Promise<unknown> => request('GET', path);
-const post = (path: string, body?: unknown): Promise<unknown> => request('POST', path, body);
+const get = <T = unknown>(path: string): Promise<T> => request<T>('GET', path);
+const post = <TRequest = unknown, TResponse = unknown>(path: string, body?: TRequest): Promise<TResponse> =>
+  request<TResponse>('POST', path, body);
+
+/**
+ * productGet/productPost fetch a product response and validate its schema version
+ * at the client boundary, so an unsupported server version raises a typed,
+ * actionable SchemaCompatibilityError BEFORE the UI consumes the data.
+ */
+async function productGet<T extends { meta: ProductMeta }>(path: string): Promise<T> {
+  const res = await get<T>(path);
+  checkProductSchema(res?.meta);
+  return res;
+}
+async function productPost<TRequest, T extends { meta: ProductMeta }>(path: string, body: TRequest): Promise<T> {
+  const res = await post<TRequest, T>(path, body);
+  checkProductSchema(res?.meta);
+  return res;
+}
 
 export const api = {
   health: () => get('/health'),
@@ -94,16 +122,16 @@ export const api = {
     get(`/api/fleet/impact?old=${encodeURIComponent(oldRef)}&new=${encodeURIComponent(newRef)}&includeObserved=${includeObserved ? 'true' : 'false'}`),
 
   // ── Product-oriented operational-graph APIs (requirement 2) ──
-  // These are the primary dashboard contract: bounded, versioned answers built
-  // for product questions, each carrying canonical routes so the frontend never
-  // re-derives identity or navigation from the raw snapshot.
-  fleetOverview: () => get('/api/fleet/overview'),
+  // These are the primary dashboard contract: bounded, versioned, strongly typed
+  // answers built for product questions. Each carries canonical hrefs and is
+  // schema-version-validated at the client boundary.
+  fleetOverview: (): Promise<ProductOverview> => productGet<ProductOverview>('/api/fleet/overview'),
   fleetEntities: (
     params: {
       text?: string; kinds?: string[]; owner?: string; domain?: string;
       scope?: string; status?: string; source?: string; limit?: number; offset?: number;
     } = {},
-  ) => {
+  ): Promise<ProductEntityList> => {
     const qs = new URLSearchParams();
     if (params.text) qs.set('text', params.text);
     if (params.kinds && params.kinds.length) qs.set('kinds', params.kinds.join(','));
@@ -115,16 +143,16 @@ export const api = {
     if (params.limit != null) qs.set('limit', String(params.limit));
     if (params.offset != null) qs.set('offset', String(params.offset));
     const str = qs.toString();
-    return get(`/api/fleet/entities${str ? `?${str}` : ''}`);
+    return productGet<ProductEntityList>(`/api/fleet/entities${str ? `?${str}` : ''}`);
   },
-  fleetEntityDetail: (kind: string, key: string) =>
-    get(`/api/fleet/entities/${encodeURIComponent(kind)}?key=${encodeURIComponent(key)}`),
+  fleetEntityDetail: (kind: string, key: string): Promise<ProductEntityDetail> =>
+    productGet<ProductEntityDetail>(`/api/fleet/entities/${encodeURIComponent(kind)}?key=${encodeURIComponent(key)}`),
   fleetNeighborhood: (
     params: {
       kind: string; key: string; direction?: string; depth?: number;
       views?: string[]; maxNodes?: number; maxEdges?: number;
     },
-  ) => {
+  ): Promise<ProductNeighborhood> => {
     const qs = new URLSearchParams();
     qs.set('kind', params.kind);
     qs.set('key', params.key);
@@ -133,14 +161,14 @@ export const api = {
     if (params.views && params.views.length) qs.set('views', params.views.join(','));
     if (params.maxNodes != null) qs.set('maxNodes', String(params.maxNodes));
     if (params.maxEdges != null) qs.set('maxEdges', String(params.maxEdges));
-    return get(`/api/fleet/neighborhood?${qs.toString()}`);
+    return productGet<ProductNeighborhood>(`/api/fleet/neighborhood?${qs.toString()}`);
   },
   fleetAttention: (
     params: {
       category?: string; kind?: string; key?: string; service?: string; owner?: string;
-      source?: string; severity?: string; status?: string; staleOnly?: boolean; limit?: number;
+      source?: string; severity?: string; status?: string; staleOnly?: boolean; limit?: number; offset?: number;
     } = {},
-  ) => {
+  ): Promise<ProductAttentionList> => {
     const qs = new URLSearchParams();
     if (params.category) qs.set('category', params.category);
     if (params.kind) qs.set('kind', params.kind);
@@ -152,13 +180,14 @@ export const api = {
     if (params.status) qs.set('status', params.status);
     if (params.staleOnly) qs.set('staleOnly', 'true');
     if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.offset != null) qs.set('offset', String(params.offset));
     const str = qs.toString();
-    return get(`/api/fleet/attention${str ? `?${str}` : ''}`);
+    return productGet<ProductAttentionList>(`/api/fleet/attention${str ? `?${str}` : ''}`);
   },
   // Contextual impact by canonical identity (requirement 2.6): the snapshot id is
   // sent so the server rejects analyzing a state the user is no longer viewing.
   fleetImpactByIdentity: (body: {
     snapshotId?: string; serviceKey?: string; fromRevisionKey: string;
-    toRevisionKey: string; includeObserved?: boolean;
-  }) => post('/api/fleet/impact', body),
+    toRevisionKey: string; includeObserved?: boolean; limit?: number; offset?: number;
+  }): Promise<ProductImpact> => productPost<typeof body, ProductImpact>('/api/fleet/impact', body),
 };

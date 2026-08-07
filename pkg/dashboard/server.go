@@ -584,8 +584,11 @@ func ExportOpenAPI() ([]byte, error) {
 	mux := http.NewServeMux()
 	api := humago.New(mux, APIConfig())
 
-	// Register with a nil-source server — we only need the schema, not runtime behavior.
+	// Register with stub providers — we only need the schema, not runtime behavior.
+	// The stubs make the fleet and product operations register so the exported spec
+	// is the complete API contract (the handlers are never invoked here).
 	s := &Server{}
+	s.stubProvidersForSchemaExport()
 	s.RegisterOperations(api)
 
 	return api.OpenAPI().MarshalJSON()

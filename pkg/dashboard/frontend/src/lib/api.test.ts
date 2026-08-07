@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { PRODUCT_SCHEMA_VERSION, SchemaCompatibilityError } from './productTypes.ts';
 
 // Mock fetch globally before importing the module
 const mockFetch = vi.fn();
@@ -182,14 +183,20 @@ describe('api.fleetImpact', () => {
 });
 
 describe('product API client', () => {
-  it('fleetOverview calls GET /api/fleet/overview', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ summary: {} }));
-    await api.fleetOverview();
+  // Every product response carries a compatible meta so the schema-version check
+  // at the client boundary passes; the incompatible case is tested separately.
+  const meta = { meta: { schemaVersion: PRODUCT_SCHEMA_VERSION } };
+  const productResponse = (data: Record<string, unknown>) => jsonResponse({ ...meta, ...data });
+
+  it('fleetOverview calls GET /api/fleet/overview and returns a typed answer', async () => {
+    mockFetch.mockResolvedValue(productResponse({ summary: {} }));
+    const ov = await api.fleetOverview();
+    expect(ov.meta.schemaVersion).toBe(PRODUCT_SCHEMA_VERSION);
     expect(mockFetch).toHaveBeenCalledWith('/api/fleet/overview', expect.objectContaining({ method: 'GET' }));
   });
 
   it('fleetEntities joins kinds and builds the query string', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ entities: [] }));
+    mockFetch.mockResolvedValue(productResponse({ entities: [] }));
     await api.fleetEntities({ text: 'pay', kinds: ['service', 'target'], owner: 'core', domain: 'eu', scope: 'prod', status: 'Compliant', source: 'k8s', limit: 5, offset: 10 });
     const url = mockFetch.mock.calls[0][0];
     expect(url).toContain('/api/fleet/entities?');
@@ -200,19 +207,19 @@ describe('product API client', () => {
   });
 
   it('fleetEntities omits the query string when empty', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ entities: [] }));
+    mockFetch.mockResolvedValue(productResponse({ entities: [] }));
     await api.fleetEntities();
     expect(mockFetch.mock.calls[0][0]).toBe('/api/fleet/entities');
   });
 
   it('fleetEntityDetail encodes kind and passes key as a query param', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ entity: {} }));
+    mockFetch.mockResolvedValue(productResponse({ entity: {} }));
     await api.fleetEntityDetail('target', 'prod/k8s/app');
     expect(mockFetch.mock.calls[0][0]).toBe('/api/fleet/entities/target?key=prod%2Fk8s%2Fapp');
   });
 
   it('fleetNeighborhood requires kind+key and adds options', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ nodes: [] }));
+    mockFetch.mockResolvedValue(productResponse({ nodes: [] }));
     await api.fleetNeighborhood({ kind: 'service', key: 'eu/pay', direction: 'both', depth: 2, views: ['expected', 'observed'], maxNodes: 40, maxEdges: 80 });
     const url = mockFetch.mock.calls[0][0];
     expect(url).toContain('kind=service');
@@ -223,28 +230,39 @@ describe('product API client', () => {
   });
 
   it('fleetAttention builds filters and staleOnly', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ items: [] }));
-    await api.fleetAttention({ category: 'stale', severity: 'warning', staleOnly: true, limit: 3 });
+    mockFetch.mockResolvedValue(productResponse({ items: [] }));
+    await api.fleetAttention({ category: 'stale', severity: 'warning', staleOnly: true, limit: 3, offset: 6 });
     const url = mockFetch.mock.calls[0][0];
     expect(url).toContain('category=stale');
     expect(url).toContain('severity=warning');
     expect(url).toContain('staleOnly=true');
     expect(url).toContain('limit=3');
+    expect(url).toContain('offset=6');
   });
 
   it('fleetAttention omits the query string when empty', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ items: [] }));
+    mockFetch.mockResolvedValue(productResponse({ items: [] }));
     await api.fleetAttention();
     expect(mockFetch.mock.calls[0][0]).toBe('/api/fleet/attention');
   });
 
   it('fleetImpactByIdentity POSTs canonical identities', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ classification: 'BREAKING' }));
+    mockFetch.mockResolvedValue(productResponse({ classification: 'BREAKING' }));
     await api.fleetImpactByIdentity({ snapshotId: 'snap-1', fromRevisionKey: 'svc@a', toRevisionKey: 'svc@b', includeObserved: true });
     const [url, opts] = mockFetch.mock.calls[0];
     expect(url).toBe('/api/fleet/impact');
     expect(opts.method).toBe('POST');
     expect(JSON.parse(opts.body)).toEqual({ snapshotId: 'snap-1', fromRevisionKey: 'svc@a', toRevisionKey: 'svc@b', includeObserved: true });
+  });
+
+  it('rejects an unsupported product schema version with a typed error', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ meta: { schemaVersion: 'pacto.dev/fleet-product/v999' }, summary: {} }));
+    await expect(api.fleetOverview()).rejects.toBeInstanceOf(SchemaCompatibilityError);
+  });
+
+  it('rejects a product response missing meta entirely', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ items: [] }));
+    await expect(api.fleetAttention()).rejects.toBeInstanceOf(SchemaCompatibilityError);
   });
 });
 

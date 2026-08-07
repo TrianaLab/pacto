@@ -394,6 +394,20 @@ func TestRouteBuilder(t *testing.T) {
 	}
 }
 
+// TestStubProvidersForSchemaExport covers the no-op providers ExportOpenAPI wires
+// for schema generation: they are registered but never invoked during export, so
+// this exercises their (unreachable-in-export) error paths directly.
+func TestStubProvidersForSchemaExport(t *testing.T) {
+	s := &Server{}
+	s.stubProvidersForSchemaExport()
+	if _, err := s.fleetQuery(context.Background()); err == nil {
+		t.Error("stub fleetQuery must error")
+	}
+	if _, err := s.impactProvider(context.Background(), "old", "new", false); err == nil {
+		t.Error("stub impactProvider must error")
+	}
+}
+
 // TestProductImpact_RejectsNegativePaging covers the paging-validation branch of
 // the POST-impact handler.
 func TestProductImpact_RejectsNegativePaging(t *testing.T) {
