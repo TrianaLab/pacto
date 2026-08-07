@@ -330,23 +330,27 @@ func validateImpactRevisions(snap *fleet.FleetSnapshot, req impactRequest) (flee
 	return from.ServiceKey, from, to, nil
 }
 
-// immutableRef returns the IMMUTABLE, digest-pinned reference the provider must
-// fetch for a canonical Product Impact. A revision is exact ONLY when its
-// ResolvedRef is digest-pinned (e.g. oci://registry/repo@sha256:...) and that
-// digest is internally consistent with the revision's recorded content digest. A
-// mutable tag, a local filesystem path or an inconsistent digest is rejected, so a
-// canonical Product Impact can never analyze content different from the snapshot's.
+// immutableRef returns the IMMUTABLE, canonical, resolver-compatible reference the
+// provider must fetch for a canonical Product Impact. A revision is exact ONLY when
+// its ResolvedRef is a canonical OCI digest reference
+// (oci://registry/repo@<validated digest>) AND that digest is internally
+// consistent with the revision's recorded content digest. A mutable tag, a local
+// filesystem path, a scheme-less ref (which the resolver would treat as a local
+// path) or an inconsistent/malformed digest is rejected — using the SAME strict
+// parser (fleet.ParseCanonicalOCIRef) the detail Immutable flag uses — so a
+// canonical Product Impact can never claim parity over content the real provider
+// would resolve differently or fail to fetch.
 func immutableRef(rev *fleet.ContractRevision) (string, error) {
-	digest, ok := fleet.DigestFromRef(rev.ResolvedRef)
-	if !ok {
+	_, dgst, err := fleet.ParseCanonicalOCIRef(rev.ResolvedRef)
+	if err != nil {
 		return "", fmt.Errorf(
-			"exact snapshot content is not retrievable for revision %s: it resolved through a mutable reference or a local path (%s); use the raw ref-based /api/fleet/impact endpoint for mutable-content analysis",
-			rev.Key, mutableRefDescription(rev))
+			"exact snapshot content is not retrievable for revision %s: %s (%s); use the raw ref-based /api/fleet/impact endpoint for mutable-content analysis",
+			rev.Key, err, mutableRefDescription(rev))
 	}
-	if rev.Digest != "" && rev.Digest != digest {
+	if rev.Digest != "" && rev.Digest != dgst.String() {
 		return "", fmt.Errorf(
 			"revision %s has an inconsistent immutable reference: the ref pins %s but the recorded content digest is %s",
-			rev.Key, digest, rev.Digest)
+			rev.Key, dgst, rev.Digest)
 	}
 	return rev.ResolvedRef, nil
 }

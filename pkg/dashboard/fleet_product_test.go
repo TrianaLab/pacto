@@ -6,12 +6,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/impact"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
+
+// validDigest returns a syntactically valid lower-case sha256 content digest for
+// tests, built programmatically so no 64-char body literal drifts. Distinct fill
+// characters yield distinct digests (and thus distinct revision keys).
+func validDigest(fill string) string {
+	return "sha256:" + strings.Repeat(fill, 64/len(fill)+1)[:64]
+}
 
 func firstRevKey(t *testing.T, q *fleet.Query) string {
 	t.Helper()
@@ -28,10 +36,10 @@ func twoDomainDashboardQuery(t *testing.T) *fleet.Query {
 	t.Helper()
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
 		fleet.NewMemorySource("a", "local", &fleet.Collection{Revisions: []fleet.RawRevision{{
-			Bundle: newPaymentBundle(), Domain: "domain-a", ResolvedRef: "oci://a/payment-service@sha256:a", Digest: "sha256:a",
+			Bundle: newPaymentBundle(), Domain: "domain-a", ResolvedRef: "oci://a/payment-service@" + validDigest("a"), Digest: validDigest("a"),
 		}}}),
 		fleet.NewMemorySource("b", "local", &fleet.Collection{Revisions: []fleet.RawRevision{{
-			Bundle: newPaymentBundle(), Domain: "domain-b", ResolvedRef: "oci://b/payment-service@sha256:b", Digest: "sha256:b",
+			Bundle: newPaymentBundle(), Domain: "domain-b", ResolvedRef: "oci://b/payment-service@" + validDigest("b"), Digest: validDigest("b"),
 		}}}))
 	if err != nil {
 		t.Fatal(err)
@@ -225,17 +233,28 @@ func TestProductImpactPost_NotRegisteredWithoutImpactProvider(t *testing.T) {
 }
 
 func TestImmutableRef(t *testing.T) {
-	// A digest-pinned ResolvedRef consistent with the content digest is exact.
-	if ref, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@sha256:d1", Digest: "sha256:d1"}); err != nil || ref != "oci://x/a@sha256:d1" {
+	d1 := validDigest("a")
+	d2 := validDigest("b")
+	// A canonical digest-pinned ResolvedRef consistent with the content digest is exact.
+	if ref, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@" + d1, Digest: d1}); err != nil || ref != "oci://x/a@"+d1 {
 		t.Errorf("digest-pinned ref must be exact: %q %v", ref, err)
 	}
-	// A digest-pinned ref with no recorded digest is still exact (nothing to contradict).
-	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@sha256:d1"}); err != nil {
+	// A canonical digest-pinned ref with no recorded digest is still exact (nothing to contradict).
+	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@" + d1}); err != nil {
 		t.Errorf("digest-pinned ref without a recorded digest must be exact: %v", err)
 	}
+	// The dashboard bug: a digest-pinned ref with the oci:// scheme STRIPPED is a
+	// local path to the resolver and must be rejected, not silently accepted.
+	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "x/a@" + d1, Digest: d1}); err == nil {
+		t.Error("a scheme-less digest ref must be rejected (it resolves as a local path)")
+	}
 	// A mutable tag ResolvedRef must NOT be accepted as exact merely for being non-empty.
-	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a:1.0", Digest: "sha256:d1"}); err == nil {
+	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a:1.0", Digest: d1}); err == nil {
 		t.Error("a tag ResolvedRef must be rejected as non-exact")
+	}
+	// A short/invalid digest body must be rejected even with the oci:// scheme.
+	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@sha256:abc", Digest: "sha256:abc"}); err == nil {
+		t.Error("a malformed digest body must be rejected")
 	}
 	// A local path is mutable.
 	if _, err := immutableRef(&fleet.ContractRevision{RequestedRef: "file:///abs"}); err == nil {
@@ -245,8 +264,8 @@ func TestImmutableRef(t *testing.T) {
 	if _, err := immutableRef(&fleet.ContractRevision{}); err == nil {
 		t.Error("a revision with no ref must error")
 	}
-	// An inconsistent digest-pinned ref (ref digest != content digest) is rejected.
-	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@sha256:WRONG", Digest: "sha256:right"}); err == nil {
+	// An inconsistent digest-pinned ref (valid ref digest != valid content digest) is rejected.
+	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@" + d1, Digest: d2}); err == nil {
 		t.Error("an inconsistent digest/ref must be rejected")
 	}
 

@@ -1,34 +1,71 @@
 package fleet
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-func TestIsDigestPinnedRef(t *testing.T) {
+// hex64 is a syntactically valid lower-case sha256 body (64 hex chars). Built
+// programmatically so no digest-body literal drifts.
+func hex64(fill string) string { return strings.Repeat(fill, 64/len(fill)+1)[:64] }
+
+func validDigest(fill string) string { return "sha256:" + hex64(fill) }
+
+// TestParseCanonicalOCIRef is the strict identity spec: a canonical, immutable,
+// resolver-compatible reference MUST be an oci:// ref that names a repository and
+// carries a syntactically valid content digest (algorithm+body validated by the
+// OCI go-digest primitive). Everything else — a scheme-less ref (the dashboard
+// bug), a mutable tag, a local path, a malformed/short/uppercase/unsupported
+// digest, an empty repository, or extra separators — is NOT immutable.
+func TestParseCanonicalOCIRef(t *testing.T) {
+	good := validDigest("a")
+	bad := validDigest("b")
 	cases := []struct {
-		ref        string
-		pinned     bool
-		wantDigest string
+		name     string
+		ref      string
+		ok       bool
+		wantRepo string
+		wantDig  string
 	}{
-		{"oci://ghcr.io/acme/payments@sha256:abc123", true, "sha256:abc123"},
-		{"localhost:5000/acme/payments@sha256:deadbeef", true, "sha256:deadbeef"},
-		{"@sha256:abc", true, "sha256:abc"},
-		{"oci://ghcr.io/acme/payments:1.0", false, ""}, // mutable tag
-		{"payments", false, ""},                        // bare name
-		{"file:///abs/path", false, ""},                // local path (only "/")
-		{"./relative", false, ""},                      // local path
-		{"repo@sha256:", false, ""},                    // empty digest body
-		{"repo@", false, ""},                           // empty after @
-		{"repo@nocolon", false, ""},                    // no algorithm separator
-		{"repo@a:b:c", false, ""},                      // not a canonical single-colon digest
-		{"localhost:5000/repo", false, ""},             // registry port, no digest
+		{"canonical", "oci://ghcr.io/acme/payments@" + good, true, "ghcr.io/acme/payments", good},
+		{"canonical registry port", "oci://localhost:5000/acme/pay@" + good, true, "localhost:5000/acme/pay", good},
+		// The dashboard bug: a resolved digest with the oci:// scheme STRIPPED is a
+		// local path to the resolver, so it must NOT count as immutable.
+		{"scheme-less digest ref", "ghcr.io/acme/payments@" + good, false, "", ""},
+		{"bare-name digest ref", "payments@" + good, false, "", ""},
+		{"local-looking path with digest", "./svc@" + good, false, "", ""},
+		{"absolute path with digest", "/abs/svc@" + good, false, "", ""},
+		{"mutable tag", "oci://ghcr.io/acme/payments:1.0", false, "", ""},
+		{"no tag no digest", "oci://ghcr.io/acme/payments", false, "", ""},
+		{"empty repository", "oci://@" + good, false, "", ""},
+		{"empty digest body", "oci://repo@sha256:", false, "", ""},
+		{"short digest body", "oci://repo@sha256:abc", false, "", ""},
+		{"63-hex digest body", "oci://repo@sha256:" + hex64("a")[:63], false, "", ""},
+		{"uppercase digest body", "oci://repo@sha256:" + strings.ToUpper(hex64("a")), false, "", ""},
+		{"unsupported algorithm", "oci://repo@md5:" + strings.Repeat("a", 32), false, "", ""},
+		{"no algorithm separator", "oci://repo@nocolon", false, "", ""},
+		{"extra @ separators", "oci://repo@" + good + "@" + bad, false, "", ""},
+		{"file scheme", "file:///abs/path", false, "", ""},
+		{"relative path", "./relative", false, "", ""},
+		{"empty", "", false, "", ""},
 	}
 	for _, c := range cases {
-		got := IsDigestPinnedRef(c.ref)
-		if got != c.pinned {
-			t.Errorf("IsDigestPinnedRef(%q) = %v, want %v", c.ref, got, c.pinned)
-		}
-		d, ok := DigestFromRef(c.ref)
-		if ok != c.pinned || d != c.wantDigest {
-			t.Errorf("DigestFromRef(%q) = (%q,%v), want (%q,%v)", c.ref, d, ok, c.wantDigest, c.pinned)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			repo, dgst, err := ParseCanonicalOCIRef(c.ref)
+			if (err == nil) != c.ok {
+				t.Fatalf("ParseCanonicalOCIRef(%q) err=%v, want ok=%v", c.ref, err, c.ok)
+			}
+			if c.ok {
+				if repo != c.wantRepo {
+					t.Errorf("repository = %q, want %q", repo, c.wantRepo)
+				}
+				if dgst.String() != c.wantDig {
+					t.Errorf("digest = %q, want %q", dgst.String(), c.wantDig)
+				}
+			}
+			if got := IsDigestPinnedRef(c.ref); got != c.ok {
+				t.Errorf("IsDigestPinnedRef(%q) = %v, want %v", c.ref, got, c.ok)
+			}
+		})
 	}
 }

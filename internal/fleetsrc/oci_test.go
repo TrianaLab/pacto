@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -25,6 +26,12 @@ func bundleFor(name string) *contract.Bundle {
 		Contract: &contract.Contract{Service: contract.Service{Name: name, Version: "1.0.0"}},
 		FS:       fstest.MapFS{},
 	}
+}
+
+// validDigest returns a syntactically valid lower-case sha256 content digest,
+// built programmatically so no 64-char body literal drifts.
+func validDigest(fill string) string {
+	return "sha256:" + strings.Repeat(fill, 64/len(fill)+1)[:64]
 }
 
 func (f *fakeStore) Push(context.Context, string, *contract.Bundle) (string, error) { return "", nil }
@@ -55,13 +62,14 @@ func TestOCISource_IDKind(t *testing.T) {
 }
 
 func TestOCISource_Collect(t *testing.T) {
+	dgstA := validDigest("a")
 	store := &fakeStore{
 		bundles: map[string]*contract.Bundle{
 			"ghcr.io/x/a:1.0.0": bundleFor("a"),
 			"ghcr.io/x/b:1.0.0": bundleFor("b"),
 		},
 		pullErr: map[string]error{"ghcr.io/x/missing:1.0.0": errors.New("not found")},
-		digest:  map[string]string{"ghcr.io/x/a:1.0.0": "sha256:aaa"}, // b has no digest
+		digest:  map[string]string{"ghcr.io/x/a:1.0.0": dgstA}, // b has no digest
 	}
 	s := NewOCISource("oci", store, []string{"ghcr.io/x/a:1.0.0", "ghcr.io/x/b:1.0.0", "ghcr.io/x/missing:1.0.0"})
 	col, err := s.Collect(context.Background())
@@ -71,12 +79,19 @@ func TestOCISource_Collect(t *testing.T) {
 	if len(col.Revisions) != 2 {
 		t.Fatalf("revisions = %d, want 2", len(col.Revisions))
 	}
-	if col.Revisions[0].Digest != "sha256:aaa" || col.Revisions[0].RequestedRef != "ghcr.io/x/a:1.0.0" {
+	if col.Revisions[0].Digest != dgstA || col.Revisions[0].RequestedRef != "ghcr.io/x/a:1.0.0" {
 		t.Errorf("revision a wrong: %+v", col.Revisions[0])
 	}
-	// A resolved digest pins ResolvedRef to the immutable digest form (not the tag).
-	if col.Revisions[0].ResolvedRef != "ghcr.io/x/a@sha256:aaa" {
-		t.Errorf("revision a ResolvedRef = %q, want digest-pinned", col.Revisions[0].ResolvedRef)
+	// A resolved digest pins ResolvedRef to the CANONICAL, immutable digest form
+	// with the oci:// scheme (never a bare, scheme-less ref the resolver would treat
+	// as a local path), regardless of the input ref's spelling.
+	if col.Revisions[0].ResolvedRef != "oci://ghcr.io/x/a@"+dgstA {
+		t.Errorf("revision a ResolvedRef = %q, want canonical oci:// digest form", col.Revisions[0].ResolvedRef)
+	}
+	// The pinned ResolvedRef must satisfy the strict immutable-identity invariant,
+	// so an OCI-originated revision is always resolver-compatible exact content.
+	if !fleet.IsDigestPinnedRef(col.Revisions[0].ResolvedRef) {
+		t.Errorf("revision a ResolvedRef %q must be a canonical immutable OCI ref", col.Revisions[0].ResolvedRef)
 	}
 	if col.Revisions[1].Digest != "" { // b's digest lookup failed -> empty, still a revision
 		t.Errorf("revision b digest = %q, want empty", col.Revisions[1].Digest)
@@ -92,16 +107,26 @@ func TestOCISource_Collect(t *testing.T) {
 }
 
 func TestPinRefToDigest(t *testing.T) {
+	d := validDigest("a")
+	// Whatever the input spelling, the output is the CANONICAL oci://<repo>@<digest>
+	// form: the oci:// scheme is always emitted (a bare, scheme-less digest ref
+	// would be resolved as a local filesystem path), any existing tag/digest is
+	// stripped, and a registry port is never mistaken for a tag.
 	cases := []struct{ ref, digest, want string }{
-		{"ghcr.io/x/a:1.0.0", "sha256:aaa", "ghcr.io/x/a@sha256:aaa"},
-		{"oci://ghcr.io/acme/pay:1.0", "sha256:bbb", "oci://ghcr.io/acme/pay@sha256:bbb"},
-		{"localhost:5000/acme/pay:1.0", "sha256:ccc", "localhost:5000/acme/pay@sha256:ccc"},
-		{"oci://ghcr.io/acme/pay@sha256:old", "sha256:new", "oci://ghcr.io/acme/pay@sha256:new"},
-		{"payments", "sha256:ddd", "payments@sha256:ddd"},
+		{"ghcr.io/x/a:1.0.0", d, "oci://ghcr.io/x/a@" + d},
+		{"oci://ghcr.io/acme/pay:1.0", d, "oci://ghcr.io/acme/pay@" + d},
+		{"localhost:5000/acme/pay:1.0", d, "oci://localhost:5000/acme/pay@" + d},
+		{"oci://ghcr.io/acme/pay@sha256:old", d, "oci://ghcr.io/acme/pay@" + d},
+		{"payments", d, "oci://payments@" + d},
 	}
 	for _, c := range cases {
-		if got := pinRefToDigest(c.ref, c.digest); got != c.want {
+		got := pinRefToDigest(c.ref, c.digest)
+		if got != c.want {
 			t.Errorf("pinRefToDigest(%q,%q) = %q, want %q", c.ref, c.digest, got, c.want)
+		}
+		// The canonical result must be accepted by the strict immutable-identity parser.
+		if !fleet.IsDigestPinnedRef(got) {
+			t.Errorf("pinRefToDigest(%q,%q) = %q is not a canonical immutable OCI ref", c.ref, c.digest, got)
 		}
 	}
 }

@@ -112,15 +112,16 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 	return col, nil
 }
 
-// pinRefToDigest rewrites a reference to its immutable digest-pinned form
-// "[oci://]repo@<digest>", stripping any existing tag or digest. The oci:// scheme
-// is preserved; a tag is a ':' after the last '/', so a registry port
+// pinRefToDigest rewrites a reference to its CANONICAL immutable digest-pinned
+// form "oci://<repository>@<digest>", stripping any existing tag or digest. The
+// oci:// scheme is ALWAYS emitted regardless of the input spelling: this source
+// only ever produces OCI revisions, and a resolved digest must carry a canonical,
+// resolver-compatible reference (a scheme-less "repo@digest" would be resolved as
+// a local filesystem path by graph.ParseDependencyRef, breaking a canonical
+// Product Impact). A tag is a ':' after the last '/', so a registry port
 // (localhost:5000/...) is never mistaken for a tag separator.
 func pinRefToDigest(ref, digest string) string {
-	scheme, r := "", ref
-	if strings.HasPrefix(r, "oci://") {
-		scheme, r = "oci://", strings.TrimPrefix(r, "oci://")
-	}
+	r := strings.TrimPrefix(ref, "oci://")
 	if i := strings.Index(r, "@"); i >= 0 {
 		r = r[:i]
 	}
@@ -128,7 +129,7 @@ func pinRefToDigest(ref, digest string) string {
 	if colon := strings.LastIndex(r, ":"); colon > slash {
 		r = r[:colon]
 	}
-	return scheme + r + "@" + digest
+	return "oci://" + r + "@" + digest
 }
 
 // OciDomain derives the logical-service domain (the registry+org/repo scope) from

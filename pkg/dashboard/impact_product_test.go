@@ -224,8 +224,8 @@ func TestProductImpact_TargetLabelFromRecord(t *testing.T) {
 // with no resolvable exact reference is a 422, on either side of the comparison.
 func TestProductImpact_NoResolvableRef(t *testing.T) {
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("s", "local", &fleet.Collection{Revisions: []fleet.RawRevision{
-		{Bundle: newPaymentBundle(), ResolvedRef: "oci://x/payment-service@sha256:d1", Digest: "sha256:d1"},
-		{Bundle: newPaymentBundle(), Digest: "sha256:d2"},
+		{Bundle: newPaymentBundle(), ResolvedRef: "oci://x/payment-service@" + validDigest("d"), Digest: validDigest("d")},
+		{Bundle: newPaymentBundle(), Digest: validDigest("e")},
 	}}))
 	if err != nil {
 		t.Fatal(err)

@@ -49,7 +49,7 @@ func demoFleetQuery(t *testing.T) *fleet.Query {
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
 		fleet.NewMemorySource("local", "local", &fleet.Collection{
 			Revisions: []fleet.RawRevision{{
-				Bundle: newPaymentBundle(), ResolvedRef: "oci://ghcr.io/org/payment-service@sha256:abc", Digest: "sha256:abc",
+				Bundle: newPaymentBundle(), ResolvedRef: "oci://ghcr.io/org/payment-service@" + validDigest("a"), Digest: validDigest("a"),
 			}},
 			Targets: []fleet.RawTarget{{
 				Scope: "production", Kind: "kubernetes-workload", Name: "pay/payment-service",
