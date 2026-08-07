@@ -42,6 +42,20 @@ The product-API hardening session (this ledger's completion of phase 1 items
   rewritten; the U+00A7 commit-history CI enforcement remains BLOCKED (section 8
   item 9).
 
+The product-API counterexample-closing session (this ledger's re-audit of phase
+1 items 4, 7 and 8) ran as follows:
+
+- Starting HEAD: `9e605ab5` (the reviewed HEAD of PR #291).
+- `main` had NOT moved (its tip was still the synchronized base `eb1482ff`, which
+  equals the merge-base), so no re-sync was needed.
+- An independent review found that items 4, 7 and 8 had been marked DONE while
+  concrete counterexamples still held, so they were re-opened to IN PROGRESS
+  (recorded inline below), closed with new adversarial tests, then re-marked
+  DONE only after those tests passed. No Git history was rewritten; the U+00A7
+  commit-history CI enforcement stays BLOCKED (section 8 item 9). The PR stays
+  draft and its body still describes the earlier dashboard redesign; PR-body
+  finalization is a later documentation task (phase 14), not this session.
+
 ## 1. Target product model
 
 The dashboard must answer, in order:
@@ -113,8 +127,10 @@ Transport note: the unified entity-detail endpoint is `GET
 segment, because Go's `net/http` mux decodes `%2F` before routing, which would
 split a slash-bearing key (a domain-qualified `ServiceKey` or a `TargetKey`)
 across path segments. The canonical dashboard route stays
-`/fleet/entities/:kind/:key` (the frontend hash router), and `RouteForEntity`
-emits it; only the HTTP transport uses the query-param form for slash safety.
+`/fleet/entities/:kind/:key` (the frontend hash router), built at the transport
+boundary by the single route builder in `pkg/dashboard/fleetroute.go`
+(`hrefForEntity`); only the HTTP transport uses the query-param form for slash
+safety. `pkg/fleet` emits no routes and no `RouteFor*` helper.
 
 Core DTOs (see `pkg/fleet/product.go` for the authoritative definitions).
 `pkg/fleet` DTOs are route-neutral; the dashboard transport wraps them and adds
@@ -123,7 +139,8 @@ canonical hrefs (ADR-2). Fleet-side shapes:
 - `EntityRef{ kind, key, label, secondary, status, explanation, domain, scope, parentService }`
   (no route/href; the transport `EntityRef` adds `href` from the canonical key)
 - `ProductMeta` — the `Meta` envelope plus the product schema version.
-- `Overview{ meta, summary, sources(bounded preview), attention, recentEvidence, entryPoints }`
+- `Overview{ meta, summary, attention, recentEvidence, entryPoints }` — source
+  health lives once in `meta.sources` (bounded); `Overview` has no `sources` field.
 - `EntityList{ meta, total, count, entities }`
 - `Neighborhood{ meta, focus, direction, depth, views, nodes, edges, unresolvedDependencies(preview), bounds, truncated }`
 - `EntityDetail{ meta, entity, status, service|revision|target|owner|source (exactly one), limitations }`
@@ -212,8 +229,8 @@ section 8.
 | 2.3 neighborhood  | `pkg/fleet/product_test.go` (Neighborhood*)               | scenarios 5,6,17,23 |
 | 2.4 entity detail | `pkg/fleet/product_test.go` (EntityDetail*)               | scenarios 7,8,9,10,11 |
 | 2.5 attention     | `pkg/fleet/product_test.go` (Attention*)                  | scenarios 2,12,13 |
-| 2.6 impact        | `pkg/dashboard/product_test.go` (impact POST)             | scenarios 14,15 |
-| routes            | `pkg/fleet/route_test.go`                                  | scenario 18 |
+| 2.6 impact        | `pkg/dashboard/impact_product_test.go` (impact POST), `internal/cli/dashboard_impact_e2e_test.go` (real provider) | scenarios 14,15 |
+| routes            | `pkg/dashboard/producttransport_test.go` (transport hrefs) | scenario 18 |
 | honest state (10) | product Overview/Attention completeness tests             | scenario 16 |
 | a11y (12)         | n/a                                                        | scenarios 19,20 |
 | responsive (11)   | n/a                                                        | scenarios 21,22 |
@@ -308,13 +325,25 @@ all pass.
    product model. DONE. `EntityDetail` carries exactly one of
    Service/Revision/Target/Owner/Source; OpenAPI expresses concrete structures;
    every nested list is a bounded typed preview.
-4. Make every product response genuinely bounded. DONE. `Overview.Sources`
-   removed (source health is the bounded `Meta.Sources`); `Attention` is
-   offset-pageable (offset/limit/total/count/truncated/nextOffset, deterministic
-   walk); neighborhood edge `DeclaredClaims`/`ObservationSources` and
-   `UnresolvedDependencies` are bounded previews with total/count/truncated; the
-   product Impact DTO pages consumers and bounds each consumer path, owners,
-   active targets and limitations. Adversarial above-maximum tests cover each.
+4. Make every product response genuinely bounded. IN PROGRESS (re-opened by the
+   counterexample-closing session). The top-level slices are capped, but several
+   nested structures were still unbounded when this was first marked DONE:
+   - `OwnershipInfo.Conflicts` is `[]string` and `serviceOwnership` appends one
+     entry per conflicting revision owner (unbounded).
+   - `RevisionDetailData` embeds `*readiness.Result` verbatim, whose `Checks
+     []CheckResult` is unbounded (one per declared readiness claim).
+   - `TargetDetailData.ObservedRuntime` is `map[string]any` copied verbatim from
+     the source — recursively unbounded (nested size, not just top-level keys).
+   - `ownerDetail` builds an attention preview from the ALREADY-paged
+     `q.Attention(...)` result, so with more than `DefaultAttentionLimit`
+     matching items the preview reports `Total = DefaultAttentionLimit` and
+     `Truncated = false`, losing the true matched total (double-truncation). The
+     same class applies to `serviceDetail`'s relationships preview, built from a
+     `Neighborhood` capped at `DefaultMaxEdges` (120) below `MaxDetailPreview`
+     (200).
+   Do not re-mark DONE until the bounded typed shapes exist and the adversarial
+   above-maximum + true-total tests pass, and until the field-by-field audit
+   (section 5) records a bound for every collection-bearing field.
 5. Correct entity-search semantics. DONE (revision-owner discoverability,
    structured owner matching, source-health filter, typed 422 on invalid combos).
 6. Correct neighborhood semantics. DONE. Expansion affordances are now derived
@@ -323,21 +352,54 @@ all pass.
    (and vice versa). Regression tests cover expected/observed/differences across
    incoming and outgoing directions. True revision/deployment graph projections
    remain a later phase.
-7. Correct contextual product impact (exact-content identity). DONE. The OCI
-   source pins `ResolvedRef` to the resolved digest; the transport requires a
-   digest-pinned, internally consistent immutable ref and REJECTS a mutable tag or
-   a local path with a typed 422 BEFORE the provider is invoked, so the server
-   never fetches potentially-different content and then claims parity.
-   `SnapshotMatch` is true only on a success, meaning BOTH graph-snapshot parity
-   AND exact-content parity; the snapshot-refresh race still returns 409. The raw
-   GET `/api/fleet/impact` mutable-content path is unchanged.
+7. Correct contextual product impact (exact-content identity). IN PROGRESS
+   (re-opened by the counterexample-closing session). Two concrete defects held
+   when this was first marked DONE:
+   - Identity contract broken on the normal dashboard OCI path. `dashboard
+     oci://registry/repo` has its `oci://` stripped by `parseDashboardArgs`, so a
+     bare `registry/repo` reaches `OCISource`. `pinRefToDigest` preserved the
+     absence of the scheme and produced `registry/repo@sha256:...`. The transport
+     `immutableRef` accepted that as immutable, but the REAL provider path
+     (`Service.ImpactWithSnapshot` -> `resolveBundle` -> `graph.ParseDependencyRef`)
+     treats a scheme-less ref as a LOCAL filesystem path, so a canonical Product
+     Impact built from the normal dashboard OCI source passes the exact-content
+     guard and then fails when the real provider resolves the "immutable" ref.
+     Fix: an OCI-originated revision with a resolved digest MUST carry a canonical,
+     immutable, resolver-compatible `oci://registry/repository@<validated digest>`
+     `ResolvedRef`, regardless of the input spelling. The static-provider tests
+     missed this because they never exercised the real resolve path.
+   - Permissive immutable detection. `fleet.DigestFromRef`/`IsDigestPinnedRef`
+     only checked that text surrounds one colon, so `@sha256:abc` counted as
+     immutable. Replace with strict identity validation reusing
+     `graph.ParseDependencyRef` (the same scheme parser the resolver uses) and the
+     OCI `go-digest` primitive: require the `oci://` scheme, a named repository, a
+     syntactically valid content digest whose algorithm/body validate, and digest
+     equality with `ContractRevision.Digest`.
+   Do not re-mark DONE until strict validation and a REAL-provider Product Impact
+   integration test (OCISource -> fleet.Build -> Manager -> handler ->
+   impactProviderForFleet -> Service.ImpactWithSnapshot -> BundleStore.Pull, no
+   staticImpact) pass.
 8. Typed frontend product API client with schema-version validation and drift
-   protection. DONE. `productTypes.ts` declares typed DTOs for every product
-   response; the client's request/get/post helpers are generic; each product
-   method returns a concrete type and validates the product schema version at the
-   boundary (typed `SchemaCompatibilityError`). `ExportOpenAPI` now emits the
-   complete contract, and the CI-blocking `TestProductTypesMatchOpenAPI` gate
-   asserts every TS DTO matches its OpenAPI schema field-for-field.
+   protection. IN PROGRESS (re-opened by the counterexample-closing session).
+   Three concrete gaps held when this was first marked DONE:
+   - Weak placeholders. `AttributedFinding.finding`, `RevisionDetail.readiness`,
+     `RevisionDetail.validation` (`Preview<unknown>`) and `TargetDetail.findings`
+     (`Preview<unknown>`) were `unknown`, not real DTO types; finite vocabularies
+     (entity kind, completeness/source health, knowledge view, difference/link
+     state, status) were plain `string`.
+   - `ProductEntityDetail` was NOT a discriminated union: five optional payloads
+     let zero or multiple coexist and the compiler could not narrow from
+     `entity.kind`.
+   - Request-operation drift. The backend `GET /api/fleet/entities` supports a
+     `sourceHealth` filter that the typed `api.fleetEntities` never serialized,
+     and the drift gate `TestProductTypesMatchOpenAPI` compared only property-NAME
+     sets (so `total: number` -> `total: string` would pass) and ignored operation
+     request parameters entirely, which is how `sourceHealth` drifted unnoticed.
+   Do not re-mark DONE until the TS DTOs are real, `ProductEntityDetail` is a
+   compiler-narrowing discriminated union with type-level tests, every product
+   operation models every supported request field, and the drift gate compares
+   the FULL schemas (types, arrays, refs, required, enums, nullability, nested
+   structure) plus operation query/path/body parameters, with negative fixtures.
 9. Complete U+00A7 enforcement. Gate capability DONE (the script scans authored
    files, committed generated docs, `--commits base..HEAD` messages and `--text`
    PR title/body, with fixtures per failure mode; the authored-file scan is
