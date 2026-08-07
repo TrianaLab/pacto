@@ -1,15 +1,21 @@
 /**
- * Typed product-API DTOs (Phase 1 item 9).
+ * Typed product-API DTOs (Phase 1 item 8).
  *
  * These mirror the dashboard product transport DTOs (pkg/dashboard/producttransport.go
  * + fleet_product.go) that the HTTP endpoints return. They are the primary
  * frontend contract: every reference carries a canonical `href` added by the
  * transport, and every collection is a bounded preview or page.
  *
+ * Finite backend vocabularies are modeled as literal-union types (a client-side
+ * refinement of the plain-string wire), and ProductEntityDetail is a real
+ * discriminated union keyed by entity.kind.
+ *
  * Drift is CI-blocking: TestProductTypesMatchOpenAPI (pkg/dashboard) parses this
- * file and asserts every interface's field names equal the generated OpenAPI
- * schema's property names, so the Go structs and this contract can never diverge
- * silently. Keep interfaces to one field per line so the drift gate parses them.
+ * file and the api.ts operations and compares them STRUCTURALLY (field names,
+ * types, arrays and item types, refs, required-vs-optional, previews/pages,
+ * enums, and operation query/body parameters) against the generated OpenAPI, so
+ * the Go structs and this contract can never diverge silently. Keep interfaces to
+ * one field per line so the drift gate parses them.
  */
 
 /** The product schema version this client understands. */
@@ -40,6 +46,33 @@ export function checkProductSchema(meta: ProductMeta | undefined): void {
     throw new SchemaCompatibilityError(v);
   }
 }
+
+// ── finite backend vocabularies (client-side refinement of the string wire) ──
+
+/** EntityKind is the discriminator for every navigable entity. */
+export type EntityKind = 'service' | 'revision' | 'target' | 'owner' | 'source';
+/** Completeness is the snapshot completeness level. */
+export type Completeness = 'complete' | 'partial' | 'empty';
+/** SourceHealth is a source's health status. */
+export type SourceHealth = 'available' | 'partial' | 'stale' | 'unavailable';
+/** KnowledgeView selects the expected / observed / differences knowledge layer. */
+export type KnowledgeView = 'expected' | 'observed' | 'differences';
+/** DifferenceState is an edge's declared-vs-observed reconciliation verdict. */
+export type DifferenceState =
+  | 'matched'
+  | 'expected-not-observed'
+  | 'observed-not-expected'
+  | 'insufficient';
+/** LinkState is a target's revision-link classification. */
+export type LinkState = 'exact' | 'inferred' | 'ambiguous' | 'unresolved';
+/** Direction is a graph traversal direction. */
+export type Direction = 'dependencies' | 'dependents' | 'both';
+/** Provenance is how a relationship edge is known. */
+export type Provenance = 'declared' | 'observed';
+/** EntryPointView is the route-neutral destination class of an overview entry point. */
+export type EntryPointView = 'attention' | 'services' | 'overview';
+/** FindingSeverity ranks a finding or attention item. */
+export type FindingSeverity = 'error' | 'warning' | 'info';
 
 // ── reusable bounded shapes ──────────────────────────────────────────────────
 
@@ -72,7 +105,7 @@ export interface SourceError {
 export interface SourceState {
   id: string;
   kind: string;
-  status: string;
+  status: SourceHealth;
   lastSuccessfulSync?: string;
   observedAt?: string;
   error?: SourceError;
@@ -128,12 +161,72 @@ export interface ObservedSourceStat {
   lastSeen?: string;
 }
 
+/** SubjectRef identifies the contract element a finding is about (engine type). */
+export interface SubjectRef {
+  Kind: string;
+  Name: string;
+}
+
+/** EvidenceRef points at the evidence backing a finding (engine type). */
+export interface EvidenceRef {
+  Source: string;
+  ObservedAt: string;
+}
+
+/** Finding is an engine finding (validation or compliance). Fields are PascalCase to match the engine JSON. */
+export interface Finding {
+  Code: string;
+  Severity: FindingSeverity;
+  Category: string;
+  Subject: SubjectRef;
+  ContractPath: string;
+  Message: string;
+  EvidenceRefs: EvidenceRef[];
+}
+
+/** ReadinessCheck is one derived readiness check (bounded preview member). */
+export interface ReadinessCheck {
+  id: string;
+  type?: string;
+  category?: string;
+  status?: string;
+  evidence?: string;
+  description?: string;
+  weight: number;
+  earnedWeight: number;
+  excluded?: boolean;
+}
+
+/** ProductReadiness is the bounded, product-shaped readiness assessment. */
+export interface ProductReadiness {
+  score: number;
+  totalWeight: number;
+  earnedWeight: number;
+  minScore: number;
+  partialCredit: number;
+  expires?: string;
+  expired: boolean;
+  daysRemaining?: number;
+  doneCount: number;
+  partialCount: number;
+  notDoneCount: number;
+  deferredCount: number;
+  passing: boolean;
+  checks: Preview<ReadinessCheck>;
+}
+
+/** RuntimeFact is one flattened observed-runtime leaf. */
+export interface RuntimeFact {
+  key: string;
+  value: string;
+}
+
 /** ProductMeta is the completeness envelope on every product answer. */
 export interface ProductMeta {
   schemaVersion: string;
   snapshotId: string;
   asOf: string;
-  completeness: string;
+  completeness: Completeness;
   sources?: SourceState[];
   sourcesTruncated?: boolean;
   limitations?: Limitation[];
@@ -142,7 +235,7 @@ export interface ProductMeta {
 
 /** ProductRef is a navigable entity reference with a canonical href. */
 export interface ProductRef {
-  kind: string;
+  kind: EntityKind;
   key: string;
   label: string;
   secondary?: string;
@@ -157,11 +250,11 @@ export interface ProductRef {
 export interface Ownership {
   owner?: string;
   ref?: ProductRef;
-  conflicts?: string[];
+  conflicts: Preview<string>;
 }
 
 export interface AttributedFinding {
-  finding: unknown;
+  finding: Finding;
   entity: ProductRef;
 }
 
@@ -195,7 +288,7 @@ export interface AttentionItem {
   entity: ProductRef;
   service?: string;
   label: string;
-  severity: string;
+  severity: FindingSeverity;
   code: string;
   category: string;
   summary: string;
@@ -212,7 +305,7 @@ export interface EvidenceItem {
 export interface EntryPoint {
   label: string;
   description?: string;
-  view: string;
+  view: EntryPointView;
   category?: string;
   count?: number;
   href: string;
@@ -261,7 +354,7 @@ export interface NeighborhoodNode {
   status?: string;
   owner?: string;
   revisionState?: string;
-  expansions?: string[];
+  expansions?: Direction[];
 }
 
 export interface NeighborhoodEdge {
@@ -270,8 +363,8 @@ export interface NeighborhoodEdge {
   to: ProductRef;
   expected: boolean;
   observed: boolean;
-  provenance: string;
-  difference: string;
+  provenance: Provenance;
+  difference: DifferenceState;
   declaredClaims: Preview<DeclaredClaim>;
   observationSources: Preview<ObservedSourceStat>;
   count?: number;
@@ -293,9 +386,9 @@ export interface ProductNeighborhood {
   meta: ProductMeta;
   requestedFocus: ProductRef;
   focusService: ProductRef;
-  direction: string;
+  direction: Direction;
   depth: number;
-  views: string[];
+  views: KnowledgeView[];
   nodes: NeighborhoodNode[];
   edges: NeighborhoodEdge[];
   unresolvedDependencies: Preview<UnresolvedDependency>;
@@ -304,7 +397,7 @@ export interface ProductNeighborhood {
   maxEdges: number;
 }
 
-// ── entity detail (discriminated by entity.kind) ─────────────────────────────
+// ── entity detail payloads ───────────────────────────────────────────────────
 
 export interface ServiceDetail {
   domain?: string;
@@ -325,8 +418,8 @@ export interface RevisionDetail {
   pactoVersion?: string;
   identity: RevisionIdentity;
   valid: boolean;
-  readiness?: unknown;
-  validation: Preview<unknown>;
+  readiness?: ProductReadiness;
+  validation: Preview<Finding>;
   interfaces: number;
   configurations: number;
   policies: number;
@@ -346,13 +439,13 @@ export interface RevisionDetail {
 export interface TargetDetail {
   service: ProductRef;
   revision?: ProductRef;
-  linkState: string;
+  linkState: LinkState;
   scope?: string;
   kind?: string;
   compliance: string;
   coverage?: Coverage;
-  findings: Preview<unknown>;
-  observedRuntime?: Record<string, unknown>;
+  findings: Preview<Finding>;
+  observedRuntime: Preview<RuntimeFact>;
   sources: Preview<string>;
   source?: string;
   identity: RevisionIdentity;
@@ -373,7 +466,7 @@ export interface OwnerDetail {
 
 export interface SourceDetail {
   kind?: string;
-  health: string;
+  health: SourceHealth;
   lastSuccessfulSync?: string;
   observedAt?: string;
   revisionCount: number;
@@ -383,16 +476,108 @@ export interface SourceDetail {
   limitations: Preview<Limitation>;
 }
 
-export interface ProductEntityDetail {
+// ── entity detail (discriminated union keyed by entity.kind) ──────────────────
+//
+// Each variant narrows entity to a kind-specific ProductRef, REQUIRES its own
+// payload, and marks the other four payloads `?: never` so an object literal
+// carrying zero payloads (the required one is missing) or more than one (a second
+// payload is typed `never`) does not type-check. Because TypeScript cannot narrow
+// a parent union from a nested discriminant, the exported type guards (which read
+// entity.kind) are how callers narrow correctly from entity.kind.
+
+export type ServiceRef = ProductRef & { kind: 'service' };
+export type RevisionRef = ProductRef & { kind: 'revision' };
+export type TargetRef = ProductRef & { kind: 'target' };
+export type OwnerRef = ProductRef & { kind: 'owner' };
+export type SourceRef = ProductRef & { kind: 'source' };
+
+export interface ServiceEntityDetail {
   meta: ProductMeta;
-  entity: ProductRef;
+  entity: ServiceRef;
   status?: string;
-  service?: ServiceDetail;
-  revision?: RevisionDetail;
-  target?: TargetDetail;
-  owner?: OwnerDetail;
-  source?: SourceDetail;
+  service: ServiceDetail;
+  revision?: never;
+  target?: never;
+  owner?: never;
+  source?: never;
   actions?: string[];
+}
+
+export interface RevisionEntityDetail {
+  meta: ProductMeta;
+  entity: RevisionRef;
+  status?: string;
+  service?: never;
+  revision: RevisionDetail;
+  target?: never;
+  owner?: never;
+  source?: never;
+  actions?: string[];
+}
+
+export interface TargetEntityDetail {
+  meta: ProductMeta;
+  entity: TargetRef;
+  status?: string;
+  service?: never;
+  revision?: never;
+  target: TargetDetail;
+  owner?: never;
+  source?: never;
+  actions?: string[];
+}
+
+export interface OwnerEntityDetail {
+  meta: ProductMeta;
+  entity: OwnerRef;
+  status?: string;
+  service?: never;
+  revision?: never;
+  target?: never;
+  owner: OwnerDetail;
+  source?: never;
+  actions?: string[];
+}
+
+export interface SourceEntityDetail {
+  meta: ProductMeta;
+  entity: SourceRef;
+  status?: string;
+  service?: never;
+  revision?: never;
+  target?: never;
+  owner?: never;
+  source: SourceDetail;
+  actions?: string[];
+}
+
+/** ProductEntityDetail is a discriminated union: entity.kind selects the payload. */
+export type ProductEntityDetail =
+  | ServiceEntityDetail
+  | RevisionEntityDetail
+  | TargetEntityDetail
+  | OwnerEntityDetail
+  | SourceEntityDetail;
+
+/** isServiceDetail narrows a ProductEntityDetail to its service variant via entity.kind. */
+export function isServiceDetail(d: ProductEntityDetail): d is ServiceEntityDetail {
+  return d.entity.kind === 'service';
+}
+/** isRevisionDetail narrows a ProductEntityDetail to its revision variant via entity.kind. */
+export function isRevisionDetail(d: ProductEntityDetail): d is RevisionEntityDetail {
+  return d.entity.kind === 'revision';
+}
+/** isTargetDetail narrows a ProductEntityDetail to its target variant via entity.kind. */
+export function isTargetDetail(d: ProductEntityDetail): d is TargetEntityDetail {
+  return d.entity.kind === 'target';
+}
+/** isOwnerDetail narrows a ProductEntityDetail to its owner variant via entity.kind. */
+export function isOwnerDetail(d: ProductEntityDetail): d is OwnerEntityDetail {
+  return d.entity.kind === 'owner';
+}
+/** isSourceDetail narrows a ProductEntityDetail to its source variant via entity.kind. */
+export function isSourceDetail(d: ProductEntityDetail): d is SourceEntityDetail {
+  return d.entity.kind === 'source';
 }
 
 // ── impact ───────────────────────────────────────────────────────────────────

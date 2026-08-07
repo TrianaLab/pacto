@@ -8,6 +8,11 @@ import type {
   ProductAttentionList,
   ProductImpact,
   ProductMeta,
+  EntityKind,
+  SourceHealth,
+  FindingSeverity,
+  Direction,
+  KnowledgeView,
 } from './productTypes';
 import { checkProductSchema } from './productTypes';
 
@@ -128,8 +133,9 @@ export const api = {
   fleetOverview: (): Promise<ProductOverview> => productGet<ProductOverview>('/api/fleet/overview'),
   fleetEntities: (
     params: {
-      text?: string; kinds?: string[]; owner?: string; domain?: string;
-      scope?: string; status?: string; source?: string; limit?: number; offset?: number;
+      text?: string; kinds?: EntityKind[]; owner?: string; domain?: string;
+      scope?: string; status?: string; sourceHealth?: SourceHealth; source?: string;
+      limit?: number; offset?: number;
     } = {},
   ): Promise<ProductEntityList> => {
     const qs = new URLSearchParams();
@@ -139,18 +145,19 @@ export const api = {
     if (params.domain) qs.set('domain', params.domain);
     if (params.scope) qs.set('scope', params.scope);
     if (params.status) qs.set('status', params.status);
+    if (params.sourceHealth) qs.set('sourceHealth', params.sourceHealth);
     if (params.source) qs.set('source', params.source);
     if (params.limit != null) qs.set('limit', String(params.limit));
     if (params.offset != null) qs.set('offset', String(params.offset));
     const str = qs.toString();
     return productGet<ProductEntityList>(`/api/fleet/entities${str ? `?${str}` : ''}`);
   },
-  fleetEntityDetail: (kind: string, key: string): Promise<ProductEntityDetail> =>
+  fleetEntityDetail: (kind: EntityKind, key: string): Promise<ProductEntityDetail> =>
     productGet<ProductEntityDetail>(`/api/fleet/entities/${encodeURIComponent(kind)}?key=${encodeURIComponent(key)}`),
   fleetNeighborhood: (
     params: {
-      kind: string; key: string; direction?: string; depth?: number;
-      views?: string[]; maxNodes?: number; maxEdges?: number;
+      kind: EntityKind; key: string; direction?: Direction; depth?: number;
+      views?: KnowledgeView[]; maxNodes?: number; maxEdges?: number;
     },
   ): Promise<ProductNeighborhood> => {
     const qs = new URLSearchParams();
@@ -165,8 +172,8 @@ export const api = {
   },
   fleetAttention: (
     params: {
-      category?: string; kind?: string; key?: string; service?: string; owner?: string;
-      source?: string; severity?: string; status?: string; staleOnly?: boolean; limit?: number; offset?: number;
+      category?: string; kind?: EntityKind; key?: string; service?: string; owner?: string;
+      source?: string; severity?: FindingSeverity; status?: string; staleOnly?: boolean; limit?: number; offset?: number;
     } = {},
   ): Promise<ProductAttentionList> => {
     const qs = new URLSearchParams();
