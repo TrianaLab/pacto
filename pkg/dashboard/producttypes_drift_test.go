@@ -825,14 +825,6 @@ func describe(s sType) string {
 	return "unknown"
 }
 
-func fieldNameSet(fs []tsField) map[string]bool {
-	out := map[string]bool{}
-	for _, f := range fs {
-		out[f.name] = true
-	}
-	return out
-}
-
 func keySet(m map[string]map[string]any) map[string]bool {
 	out := map[string]bool{}
 	for k := range m {
