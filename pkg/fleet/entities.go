@@ -14,10 +14,16 @@ type EntityFilter struct {
 	Owner  string
 	Domain string
 	Scope  string
+	// Status filters compliance-bearing entities (service/revision/target) by
+	// their canonical compliance status. Source health is a separate axis.
 	Status string
-	Source string
-	Limit  int
-	Offset int
+	// SourceHealth filters source entities by their health (available, partial,
+	// stale, unavailable) - kept distinct from compliance Status so the two are
+	// never validated against one enum.
+	SourceHealth string
+	Source       string
+	Limit        int
+	Offset       int
 }
 
 // EntityList is a bounded, deterministically ordered page of entity references.
@@ -94,9 +100,57 @@ func validateEntityFilter(f EntityFilter) error {
 	if f.Status != "" && !ValidStatus(f.Status) {
 		return &InvalidQueryError{Field: "status", Value: f.Status, Reason: "not a canonical status"}
 	}
+	if f.SourceHealth != "" && !validSourceHealth(f.SourceHealth) {
+		return &InvalidQueryError{Field: "sourceHealth", Value: f.SourceHealth, Reason: "not a source-health value (available, partial, stale, unavailable)"}
+	}
 	for _, k := range f.Kinds {
 		if !validEntityKind(k) {
 			return &InvalidQueryError{Field: "kind", Value: string(k), Reason: "not a known entity kind"}
+		}
+	}
+	return validateFilterCombos(f)
+}
+
+// validSourceHealth reports whether s is a known source-health value.
+func validSourceHealth(s string) bool {
+	switch SourceStatus(s) {
+	case SourceAvailable, SourcePartial, SourceStale, SourceUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// validateFilterCombos rejects a filter that cannot apply to any of the requested
+// kinds (e.g. an owner filter on a sources-only query), so a nonsensical
+// combination is a typed error instead of a silent empty result. When no kinds
+// are requested (every kind) any filter applies to something, so nothing is
+// rejected.
+func validateFilterCombos(f EntityFilter) error {
+	want := kindSet(f.Kinds)
+	appliesTo := func(field, value string, kinds ...EntityKind) error {
+		if value == "" {
+			return nil
+		}
+		for _, k := range kinds {
+			if want[k] {
+				return nil
+			}
+		}
+		return &InvalidQueryError{Field: field, Value: value, Reason: "filter does not apply to the requested kinds"}
+	}
+	for _, c := range []struct {
+		field, value string
+		kinds        []EntityKind
+	}{
+		{"owner", f.Owner, []EntityKind{KindService, KindRevision, KindTarget, KindOwner}},
+		{"status", f.Status, []EntityKind{KindService, KindRevision, KindTarget}},
+		{"sourceHealth", f.SourceHealth, []EntityKind{KindSource}},
+		{"scope", f.Scope, []EntityKind{KindTarget}},
+		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
+	} {
+		if err := appliesTo(c.field, c.value, c.kinds...); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -145,11 +199,20 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
 	return refs
 }
 
-// owners returns the distinct, non-empty owner display strings across services.
+// owners returns the distinct, non-empty owner display strings across BOTH
+// services and revisions. Because a service's summary owner is only its
+// lowest-keyed revision's owner (see deriveOwner), a service with conflicting
+// revision owners has revision-only owners that a services-only scan would miss;
+// including revision owners makes every real owner discoverable.
 func (q *Query) owners() []string {
 	seen := map[string]bool{}
 	for _, s := range q.snap.Services {
 		if o := s.Owner.DisplayString(); o != "" {
+			seen[o] = true
+		}
+	}
+	for _, r := range q.snap.Revisions {
+		if o := r.Owner.DisplayString(); o != "" {
 			seen[o] = true
 		}
 	}
@@ -178,6 +241,9 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
 	if f.Owner != "" && !q.entityOwnedBy(r, f.Owner) {
 		return false
 	}
+	if f.SourceHealth != "" && (r.Kind != KindSource || r.Status != f.SourceHealth) {
+		return false
+	}
 	if f.Source != "" && !q.entityFromSource(r, f.Source) {
 		return false
 	}
@@ -199,28 +265,28 @@ func matchEntityText(r EntityRef, text string) bool {
 	return false
 }
 
-// entityOwnedBy reports whether the referenced entity is associated with owner.
-// A source has no owner and never matches an owner filter. Every reference here
-// comes from [candidateRefs], so its key always maps to a real record; the
-// lookups are direct and never nil.
+// entityOwnedBy reports whether the referenced entity is associated with owner,
+// using the same structured [contract.Owner.MatchesFilter] semantics (a
+// case-insensitive substring over team, DRI and contacts) that attention and the
+// rest of the product layer use - never a bare exact display-string comparison.
+// A source has no owner and never matches. Every reference here comes from
+// [candidateRefs], so its key maps to a real record.
 func (q *Query) entityOwnedBy(r EntityRef, owner string) bool {
 	switch r.Kind {
 	case KindService:
-		return q.ownerMatches(q.snap.Services[ServiceKey(r.Key)].Owner.DisplayString(), owner)
+		return q.snap.Services[ServiceKey(r.Key)].Owner.MatchesFilter(owner)
 	case KindRevision:
-		return q.ownerMatches(q.snap.Revisions[RevisionKey(r.Key)].Owner.DisplayString(), owner)
+		return q.snap.Revisions[RevisionKey(r.Key)].Owner.MatchesFilter(owner)
 	case KindTarget:
-		return q.ownerMatches(q.snap.Services[ServiceKey(r.ParentService)].Owner.DisplayString(), owner)
+		s := q.snap.Services[ServiceKey(r.ParentService)]
+		return s != nil && s.Owner.MatchesFilter(owner)
 	case KindOwner:
-		return r.Key == owner
+		// An owner entity is identified only by its display string; match it with
+		// the same case-insensitive substring rule MatchesFilter applies.
+		return strings.Contains(strings.ToLower(r.Key), strings.ToLower(owner))
 	default:
 		return false
 	}
-}
-
-// ownerMatches reports whether have is a non-empty match for the requested owner.
-func (q *Query) ownerMatches(have, owner string) bool {
-	return have != "" && have == owner
 }
 
 // entityFromSource reports whether the referenced entity was contributed by the

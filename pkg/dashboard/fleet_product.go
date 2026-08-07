@@ -71,15 +71,16 @@ func (s *Server) fleetOverview(ctx context.Context, _ *struct{}) (*fleetOverview
 }
 
 type fleetEntitiesInput struct {
-	Text   string `query:"text"`
-	Kinds  string `query:"kinds" doc:"Comma-separated entity kinds (service,revision,target,owner,source)"`
-	Owner  string `query:"owner"`
-	Domain string `query:"domain"`
-	Scope  string `query:"scope"`
-	Status string `query:"status"`
-	Source string `query:"source"`
-	Limit  int    `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
-	Offset int    `query:"offset" minimum:"0"`
+	Text         string `query:"text"`
+	Kinds        string `query:"kinds" doc:"Comma-separated entity kinds (service,revision,target,owner,source)"`
+	Owner        string `query:"owner"`
+	Domain       string `query:"domain"`
+	Scope        string `query:"scope"`
+	Status       string `query:"status" doc:"Compliance status filter (service/revision/target)"`
+	SourceHealth string `query:"sourceHealth" doc:"Source-health filter (available, partial, stale, unavailable) for source entities"`
+	Source       string `query:"source"`
+	Limit        int    `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
+	Offset       int    `query:"offset" minimum:"0"`
 }
 
 type fleetEntitiesOutput struct{ Body *fleet.EntityList }
@@ -91,7 +92,8 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	}
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: parseKinds(in.Kinds), Owner: in.Owner, Domain: in.Domain,
-		Scope: in.Scope, Status: in.Status, Source: in.Source, Limit: in.Limit, Offset: in.Offset,
+		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, Source: in.Source,
+		Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {
 		return nil, productQueryError(err)
