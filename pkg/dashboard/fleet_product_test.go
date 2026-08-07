@@ -71,8 +71,8 @@ func TestProductEndpoints_Serve(t *testing.T) {
 	// Neighborhood: found, bad direction (422), missing focus (404), views param.
 	var nb fleet.Neighborhood
 	getJSON(t, base+"/api/fleet/neighborhood?kind=service&key=payment-service&views=expected,observed", http.StatusOK, &nb)
-	if nb.Focus.Key != "payment-service" {
-		t.Errorf("neighborhood focus = %q", nb.Focus.Key)
+	if nb.FocusService.Key != "payment-service" || nb.RequestedFocus.Key != "payment-service" {
+		t.Errorf("neighborhood focus = %q / %q", nb.RequestedFocus.Key, nb.FocusService.Key)
 	}
 	expectStatus(t, base+"/api/fleet/neighborhood?kind=service&key=payment-service&direction=sideways", http.StatusUnprocessableEntity)
 	expectStatus(t, base+"/api/fleet/neighborhood?kind=service&key=ghost", http.StatusNotFound)

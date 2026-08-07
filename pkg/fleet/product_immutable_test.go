@@ -149,7 +149,8 @@ func TestNeighborhood_Immutable(t *testing.T) {
 
 	mutateSources(r1.Meta.Sources)
 	mutateLimitations(r1.Meta.Limitations)
-	mutateEntityRef(&r1.Focus)
+	mutateEntityRef(&r1.RequestedFocus)
+	mutateEntityRef(&r1.FocusService)
 	for i := range r1.Nodes {
 		mutateEntityRef(&r1.Nodes[i].Ref)
 	}

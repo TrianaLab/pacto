@@ -124,10 +124,10 @@ type fleetNeighborhoodInput struct {
 	Kind      string `query:"kind" required:"true" doc:"Focus entity kind: service, revision or target"`
 	Key       string `query:"key" required:"true"`
 	Direction string `query:"direction" doc:"dependencies, dependents or both (default both)"`
-	Depth     int    `query:"depth"`
+	Depth     int    `query:"depth" minimum:"0" doc:"Traversal depth (negatives rejected; excessive values capped)"`
 	Views     string `query:"views" doc:"Comma-separated knowledge views (expected,observed,differences)"`
-	MaxNodes  int    `query:"maxNodes"`
-	MaxEdges  int    `query:"maxEdges"`
+	MaxNodes  int    `query:"maxNodes" minimum:"0" doc:"Max nodes (negatives rejected; excessive values capped)"`
+	MaxEdges  int    `query:"maxEdges" minimum:"0" doc:"Max edges (negatives rejected; excessive values capped)"`
 }
 
 type fleetNeighborhoodOutput struct{ Body *fleet.Neighborhood }

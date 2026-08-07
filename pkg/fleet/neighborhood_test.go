@@ -50,17 +50,19 @@ func TestNeighborhood_DefaultExpectedView(t *testing.T) {
 	if nb.Meta.SchemaVersion != ProductSchemaVersion || nb.Direction != DirectionBoth || nb.Depth != DefaultNeighborhoodDepth {
 		t.Errorf("defaults wrong: schema=%q dir=%q depth=%d", nb.Meta.SchemaVersion, nb.Direction, nb.Depth)
 	}
-	// alpha (focus) + leaf-svc (dependency) + beta (observed dependent).
+	// The default view is expected, so traversal follows declared adjacency only:
+	// alpha (focus) + leaf-svc (declared dependency). beta is only an observed
+	// dependent, so it is NOT reached in the expected view.
 	keys := nodeKeys(nb)
-	if !keys["alpha"] || !keys["leaf-svc"] || !keys["beta"] || len(nb.Nodes) != 3 {
+	if !keys["alpha"] || !keys["leaf-svc"] || keys["beta"] || len(nb.Nodes) != 2 {
 		t.Fatalf("unexpected nodes: %v", keys)
 	}
-	// Default view is expected, so only the declared edge appears; the observed-only
-	// beta->alpha shadow edge is withheld.
+	// Only the declared edge appears; the observed-only beta->alpha shadow edge is
+	// withheld and beta is out of scope entirely.
 	if len(nb.Edges) != 1 {
 		t.Fatalf("expected 1 declared edge, got %d", len(nb.Edges))
 	}
-	if e := nb.Edges[0]; !e.Expected || !e.Observed || e.Reconciliation != ReconciliationMatched {
+	if e := nb.Edges[0]; !e.Expected || !e.Observed || e.Difference != DifferenceMatched {
 		t.Errorf("alpha->leaf edge = %+v, want expected+observed+matched", e)
 	}
 }
@@ -115,11 +117,14 @@ func TestNeighborhood_Views(t *testing.T) {
 
 func TestNeighborhood_Direction(t *testing.T) {
 	q := productFleet(t)
-	deps, _ := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "alpha", Direction: DirectionDependencies})
+	// Use the differences view so both the declared dependency (leaf-svc) and the
+	// observed dependent (beta) are eligible; the direction must still separate them.
+	diff := []KnowledgeView{ViewDifferences}
+	deps, _ := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "alpha", Direction: DirectionDependencies, Views: diff})
 	if k := nodeKeys(deps); k["beta"] || !k["leaf-svc"] {
 		t.Errorf("dependencies direction leaked a dependent: %v", k)
 	}
-	dependents, _ := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "alpha", Direction: DirectionDependents})
+	dependents, _ := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "alpha", Direction: DirectionDependents, Views: diff})
 	if k := nodeKeys(dependents); k["leaf-svc"] || !k["beta"] {
 		t.Errorf("dependents direction leaked a dependency: %v", k)
 	}

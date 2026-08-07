@@ -1,16 +1,37 @@
 package fleet
 
 import (
+	"fmt"
 	"sort"
 	"time"
 )
 
 // Neighborhood bounds. A neighborhood is always bounded so the graph never opens
-// as an unusable whole-fleet hairball (requirement 5).
+// as an unusable whole-fleet hairball (requirement 5). A zero value takes the
+// default; a negative value is rejected; a value above the maximum is capped.
 const (
 	DefaultNeighborhoodDepth = 1
+	MaxNeighborhoodDepth     = 6
 	DefaultMaxNodes          = 60
+	MaxNeighborhoodNodes     = 500
 	DefaultMaxEdges          = 120
+	MaxNeighborhoodEdges     = 1000
+)
+
+// Difference is the backend's explicit declared-vs-observed verdict for an edge.
+// The frontend must render it verbatim and never infer a verdict (e.g.
+// observed-not-expected) from the Expected/Observed booleans.
+const (
+	// DifferenceMatched: declared AND corroborated by observation.
+	DifferenceMatched = "matched"
+	// DifferenceExpectedNotObserved: declared, observation data exists, but this
+	// edge was not witnessed (dormant, or the window was too short).
+	DifferenceExpectedNotObserved = "expected-not-observed"
+	// DifferenceObservedNotExpected: observed at runtime but never declared.
+	DifferenceObservedNotExpected = "observed-not-expected"
+	// DifferenceInsufficient: declared, but there is no observation data at all, so
+	// the edge cannot be reconciled.
+	DifferenceInsufficient = "insufficient"
 )
 
 // KnowledgeView is a product-facing relationship lens (requirement 6). It maps to
@@ -62,10 +83,25 @@ type NeighborhoodNode struct {
 	Expansions    []Direction `json:"expansions,omitempty"`
 }
 
+// DeclaredClaim is one revision's declaration of a dependency edge. Multiple
+// revisions of the same service can declare the same edge with different values,
+// so the claims are preserved per source revision and never collapsed into one
+// last-writer value.
+type DeclaredClaim struct {
+	SourceRevision RevisionKey `json:"sourceRevision,omitempty"`
+	Required       bool        `json:"required,omitempty"`
+	Compatibility  string      `json:"compatibility,omitempty"`
+	Reconciliation string      `json:"reconciliation,omitempty"`
+	RequestedRef   string      `json:"requestedRef,omitempty"`
+	LockedVersion  string      `json:"lockedVersion,omitempty"`
+	LockedDigest   string      `json:"lockedDigest,omitempty"`
+}
+
 // NeighborhoodEdge is a merged declared+observed edge between two in-scope
-// services. Expected/Observed record which knowledge backs the edge;
-// Reconciliation is the backend's explicit declared-vs-observed verdict. The
-// frontend must never infer "reconciled" from anything but these fields.
+// services. Expected/Observed record which knowledge backs the edge; Difference
+// is the backend's explicit declared-vs-observed verdict (matched,
+// expected-not-observed, observed-not-expected, insufficient) that the frontend
+// renders verbatim; DeclaredClaims preserves every revision's declaration.
 type NeighborhoodEdge struct {
 	ID                 string               `json:"id"`
 	From               EntityRef            `json:"from"`
@@ -73,40 +109,55 @@ type NeighborhoodEdge struct {
 	Expected           bool                 `json:"expected"`
 	Observed           bool                 `json:"observed"`
 	Provenance         string               `json:"provenance"`
-	Reconciliation     string               `json:"reconciliation,omitempty"`
-	Required           bool                 `json:"required,omitempty"`
-	Compatibility      string               `json:"compatibility,omitempty"`
-	SourceRevision     RevisionKey          `json:"sourceRevision,omitempty"`
+	Difference         string               `json:"difference"`
+	DeclaredClaims     []DeclaredClaim      `json:"declaredClaims,omitempty"`
 	ObservationSources []ObservedSourceStat `json:"observationSources,omitempty"`
 	Count              int                  `json:"count,omitempty"`
 	FirstSeen          *time.Time           `json:"firstSeen,omitempty"`
 	LastSeen           *time.Time           `json:"lastSeen,omitempty"`
 	Stale              bool                 `json:"stale,omitempty"`
-	Insufficient       bool                 `json:"insufficient,omitempty"`
-	Limitations        []Limitation         `json:"limitations,omitempty"`
 	Route              string               `json:"route,omitempty"`
 }
 
-// Neighborhood is the bounded, graph-ready neighborhood answer.
-type Neighborhood struct {
-	Meta      ProductMeta        `json:"meta"`
-	Focus     EntityRef          `json:"focus"`
-	Direction Direction          `json:"direction"`
-	Depth     int                `json:"depth"`
-	Views     []KnowledgeView    `json:"views"`
-	Nodes     []NeighborhoodNode `json:"nodes"`
-	Edges     []NeighborhoodEdge `json:"edges"`
-	Truncated bool               `json:"truncated"`
-	MaxNodes  int                `json:"maxNodes"`
-	MaxEdges  int                `json:"maxEdges"`
+// UnresolvedDependency is a declared dependency whose provider is not resolvable
+// in the snapshot (no ToService). It is surfaced rather than dropped, so a
+// consumer sees the intent even though there is no target node to draw.
+type UnresolvedDependency struct {
+	From           EntityRef   `json:"from"`
+	Ref            string      `json:"ref"`
+	SourceRevision RevisionKey `json:"sourceRevision,omitempty"`
+	RequestedRef   string      `json:"requestedRef,omitempty"`
+	Reason         string      `json:"reason,omitempty"`
 }
 
-// Neighborhood returns the bounded local neighborhood of the focus entity across
-// the requested knowledge views. It is authoritative about graph semantics: an
-// observed-only edge is only reported when the observed or differences view is
-// requested, and reconciliation is a backend fact carried verbatim.
+// Neighborhood is the bounded, graph-ready neighborhood answer. In this API
+// version the graph is honestly a SERVICE neighborhood: RequestedFocus is the
+// entity the user selected (a service, revision or target), FocusService is the
+// logical service node used as the root, and every node in Nodes is a service
+// node. True revision-graph and deployment-graph projections are a later phase.
+type Neighborhood struct {
+	Meta                   ProductMeta            `json:"meta"`
+	RequestedFocus         EntityRef              `json:"requestedFocus"`
+	FocusService           EntityRef              `json:"focusService"`
+	Direction              Direction              `json:"direction"`
+	Depth                  int                    `json:"depth"`
+	Views                  []KnowledgeView        `json:"views"`
+	Nodes                  []NeighborhoodNode     `json:"nodes"`
+	Edges                  []NeighborhoodEdge     `json:"edges"`
+	UnresolvedDependencies []UnresolvedDependency `json:"unresolvedDependencies,omitempty"`
+	Truncated              bool                   `json:"truncated"`
+	MaxNodes               int                    `json:"maxNodes"`
+	MaxEdges               int                    `json:"maxEdges"`
+}
+
+// Neighborhood returns the bounded local SERVICE neighborhood of the focus entity
+// across the requested knowledge views. It is authoritative about graph
+// semantics: the requested views drive BOTH traversal and returned edges, so an
+// expected-only query never reaches a node through an observed edge (and vice
+// versa); the difference verdict is a backend fact; and unresolved declared
+// dependencies are surfaced rather than dropped.
 func (q *Query) Neighborhood(nq NeighborhoodQuery) (*Neighborhood, error) {
-	root, focus, revState, err := q.resolveNeighborhoodFocus(nq.Kind, nq.Key)
+	root, requested, focusService, revState, err := q.resolveNeighborhoodFocus(nq.Kind, nq.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -118,58 +169,95 @@ func (q *Query) Neighborhood(nq NeighborhoodQuery) (*Neighborhood, error) {
 	if err != nil {
 		return nil, err
 	}
-	depth := nq.Depth
-	if depth <= 0 {
-		depth = DefaultNeighborhoodDepth
+	depth, err := boundNeighborhoodParam("depth", nq.Depth, DefaultNeighborhoodDepth, MaxNeighborhoodDepth)
+	if err != nil {
+		return nil, err
 	}
-	maxNodes := nq.MaxNodes
-	if maxNodes <= 0 {
-		maxNodes = DefaultMaxNodes
+	maxNodes, err := boundNeighborhoodParam("maxNodes", nq.MaxNodes, DefaultMaxNodes, MaxNeighborhoodNodes)
+	if err != nil {
+		return nil, err
 	}
-	maxEdges := nq.MaxEdges
-	if maxEdges <= 0 {
-		maxEdges = DefaultMaxEdges
+	maxEdges, err := boundNeighborhoodParam("maxEdges", nq.MaxEdges, DefaultMaxEdges, MaxNeighborhoodEdges)
+	if err != nil {
+		return nil, err
 	}
 
-	nodeDepth, truncatedNodes := q.walkNeighborhood(root, dir, depth, maxNodes)
-	res := &Neighborhood{
-		Meta: q.productMeta(), Focus: focus, Direction: dir, Depth: depth,
-		Views: views, MaxNodes: maxNodes, MaxEdges: maxEdges,
-		Nodes: q.neighborhoodNodes(root, nodeDepth, revState), Edges: []NeighborhoodEdge{},
-	}
+	// The requested views decide which knowledge kinds the walk may follow, so a
+	// node reachable only through an excluded knowledge kind is never in scope.
+	wantDeclared, wantObserved := knowledgeFromViews(views)
+	nodeDepth, truncatedNodes := q.walkNeighborhood(root, dir, depth, maxNodes, wantDeclared, wantObserved)
 	edges, truncatedEdges := q.neighborhoodEdges(nodeDepth, views, maxEdges)
-	res.Edges = edges
-	res.Truncated = truncatedNodes || truncatedEdges
+	res := &Neighborhood{
+		Meta: q.productMeta(), RequestedFocus: requested, FocusService: focusService,
+		Direction: dir, Depth: depth, Views: views, MaxNodes: maxNodes, MaxEdges: maxEdges,
+		Nodes: q.neighborhoodNodes(root, nodeDepth, revState), Edges: edges,
+		UnresolvedDependencies: q.unresolvedNeighborhoodDeps(nodeDepth, wantDeclared),
+		Truncated:              truncatedNodes || truncatedEdges,
+	}
 	return res, nil
 }
 
-// resolveNeighborhoodFocus resolves a focus entity to its logical service root
-// and the revision-link state to surface on the focus node (a target carries its
-// exact/inferred match; a revision is exact content; a service has none). Only
-// service, revision and target focus onto the service graph; owner and source are
-// not graph nodes and are rejected with an actionable error.
-func (q *Query) resolveNeighborhoodFocus(kind EntityKind, key string) (root ServiceKey, focus EntityRef, revState string, err error) {
+// boundNeighborhoodParam rejects a negative value, defaults a zero, and caps an
+// excessive value at max.
+func boundNeighborhoodParam(field string, v, def, max int) (int, error) {
+	if v < 0 {
+		return 0, &InvalidQueryError{Field: field, Value: fmt.Sprint(v), Reason: "must be >= 0"}
+	}
+	if v == 0 {
+		return def, nil
+	}
+	if v > max {
+		return max, nil
+	}
+	return v, nil
+}
+
+// knowledgeFromViews maps the requested product views onto the two engine
+// knowledge kinds the traversal may follow.
+func knowledgeFromViews(views []KnowledgeView) (declared, observed bool) {
+	for _, v := range views {
+		switch v {
+		case ViewExpected:
+			declared = true
+		case ViewObserved:
+			observed = true
+		case ViewDifferences:
+			declared, observed = true, true
+		}
+	}
+	return declared, observed
+}
+
+// resolveNeighborhoodFocus resolves a focus entity to its logical service root.
+// It returns the root service key, the REQUESTED focus reference (the entity the
+// user selected, honestly a service/revision/target), the FOCUS SERVICE reference
+// (the logical service node used as the neighborhood root), and the revision-link
+// state to surface on the focus node (a target carries its exact/inferred match;
+// a revision is exact content; a service has none). Only service, revision and
+// target focus onto the service graph; owner and source are not graph nodes.
+func (q *Query) resolveNeighborhoodFocus(kind EntityKind, key string) (root ServiceKey, requested, focusService EntityRef, revState string, err error) {
 	switch kind {
 	case KindService:
 		s, e := q.resolveService(key)
 		if e != nil {
-			return "", EntityRef{}, "", e
+			return "", EntityRef{}, EntityRef{}, "", e
 		}
-		return s.Key, serviceEntityRef(s), "", nil
+		ref := serviceEntityRef(s)
+		return s.Key, ref, ref, "", nil
 	case KindRevision:
 		rev := q.snap.Revisions[RevisionKey(key)]
 		if rev == nil {
-			return "", EntityRef{}, "", &NotFoundError{Kind: "revision", ID: key}
+			return "", EntityRef{}, EntityRef{}, "", &NotFoundError{Kind: "revision", ID: key}
 		}
-		return rev.ServiceKey, revisionEntityRef(rev), revisionMatchExact, nil
+		return rev.ServiceKey, revisionEntityRef(rev), q.serviceRef(rev.ServiceKey), revisionMatchExact, nil
 	case KindTarget:
 		tv, e := q.GetTarget(key)
 		if e != nil {
-			return "", EntityRef{}, "", e
+			return "", EntityRef{}, EntityRef{}, "", e
 		}
-		return tv.Target.ServiceKey, targetEntityRef(tv.Target), tv.Target.RevisionMatch, nil
+		return tv.Target.ServiceKey, targetEntityRef(tv.Target), q.serviceRef(tv.Target.ServiceKey), tv.Target.RevisionMatch, nil
 	default:
-		return "", EntityRef{}, "", &InvalidQueryError{Field: "kind", Value: string(kind), Reason: "neighborhood focus must be a service, revision or target"}
+		return "", EntityRef{}, EntityRef{}, "", &InvalidQueryError{Field: "kind", Value: string(kind), Reason: "neighborhood focus must be a service, revision or target"}
 	}
 }
 
@@ -197,9 +285,11 @@ func resolveViews(views []KnowledgeView) ([]KnowledgeView, error) {
 	return views, nil
 }
 
-// adjacent returns a node's neighbor service keys in the given direction, unioning
-// declared and observed adjacency so the neighborhood reflects both knowledge kinds.
-func (q *Query) adjacent(key ServiceKey, dir Direction) []ServiceKey {
+// adjacent returns a node's neighbor service keys in the given direction. Only
+// the requested knowledge kinds are followed: declared adjacency is included when
+// wantDeclared, observed adjacency when wantObserved. This is what makes an
+// expected-only walk never reach a node that is only an observed neighbor.
+func (q *Query) adjacent(key ServiceKey, dir Direction, wantDeclared, wantObserved bool) []ServiceKey {
 	seen := map[ServiceKey]bool{}
 	var out []ServiceKey
 	add := func(ks []ServiceKey) {
@@ -211,27 +301,36 @@ func (q *Query) adjacent(key ServiceKey, dir Direction) []ServiceKey {
 		}
 	}
 	if dir == DirectionDependencies || dir == DirectionBoth {
-		add(q.snap.forwardDeps[key])
-		add(q.snap.observedForward[key])
+		if wantDeclared {
+			add(q.snap.forwardDeps[key])
+		}
+		if wantObserved {
+			add(q.snap.observedForward[key])
+		}
 	}
 	if dir == DirectionDependents || dir == DirectionBoth {
-		add(q.snap.reverseDeps[key])
-		add(q.snap.observedReverse[key])
+		if wantDeclared {
+			add(q.snap.reverseDeps[key])
+		}
+		if wantObserved {
+			add(q.snap.observedReverse[key])
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
 }
 
-// walkNeighborhood does a bounded breadth-first walk from root, returning the
-// depth at which each reached node was first seen and whether the node cap was hit.
-func (q *Query) walkNeighborhood(root ServiceKey, dir Direction, maxDepth, maxNodes int) (map[ServiceKey]int, bool) {
+// walkNeighborhood does a bounded breadth-first walk from root over the requested
+// knowledge kinds, returning the depth at which each reached node was first seen
+// and whether the node cap was hit.
+func (q *Query) walkNeighborhood(root ServiceKey, dir Direction, maxDepth, maxNodes int, wantDeclared, wantObserved bool) (map[ServiceKey]int, bool) {
 	depthOf := map[ServiceKey]int{root: 0}
 	frontier := []ServiceKey{root}
 	truncated := false
 	for d := 0; d < maxDepth && len(frontier) > 0; d++ {
 		var next []ServiceKey
 		for _, node := range frontier {
-			for _, nb := range q.adjacent(node, dir) {
+			for _, nb := range q.adjacent(node, dir, wantDeclared, wantObserved) {
 				if _, ok := depthOf[nb]; ok {
 					continue
 				}
@@ -276,14 +375,15 @@ func (q *Query) neighborhoodNodes(root ServiceKey, depthOf map[ServiceKey]int, r
 	return nodes
 }
 
-// expansions reports which directions have at least one neighbor, so the UI can
-// offer accurate expand affordances.
+// expansions reports which directions have at least one neighbor in ANY knowledge
+// kind, so the UI can offer an accurate "there is more this way" affordance
+// regardless of the currently-selected views.
 func (q *Query) expansions(key ServiceKey) []Direction {
 	var out []Direction
-	if len(q.adjacent(key, DirectionDependencies)) > 0 {
+	if len(q.adjacent(key, DirectionDependencies, true, true)) > 0 {
 		out = append(out, DirectionDependencies)
 	}
-	if len(q.adjacent(key, DirectionDependents)) > 0 {
+	if len(q.adjacent(key, DirectionDependents, true, true)) > 0 {
 		out = append(out, DirectionDependents)
 	}
 	return out
@@ -322,6 +422,7 @@ func (q *Query) neighborhoodEdges(depthOf map[ServiceKey]int, views []KnowledgeV
 	truncated := false
 	for _, pair := range order {
 		e := merged[pair]
+		e.Difference = edgeDifference(*e)
 		if !edgeMatchesViews(*e, views) {
 			continue
 		}
@@ -332,6 +433,66 @@ func (q *Query) neighborhoodEdges(depthOf map[ServiceKey]int, views []KnowledgeV
 		out = append(out, *e)
 	}
 	return out, truncated
+}
+
+// edgeDifference is the backend's explicit declared-vs-observed verdict for a
+// merged edge. It is a principled aggregate over the edge's declared claims and
+// observed evidence, not a last-writer collapse: observed-not-expected when only
+// observed; matched when declared and observed; and, when declared but not
+// observed, insufficient (no observation data at all, every claim insufficient)
+// or expected-not-observed (observation data exists but did not witness it).
+func edgeDifference(e NeighborhoodEdge) string {
+	// Every merged edge has at least one of Expected/Observed, so !Expected implies
+	// observed-only.
+	if !e.Expected {
+		return DifferenceObservedNotExpected
+	}
+	if e.Observed {
+		return DifferenceMatched
+	}
+	// Declared but not observed: expected-not-observed if any claim had observation
+	// data to reconcile against, otherwise insufficient (no observation at all).
+	for _, c := range e.DeclaredClaims {
+		if c.Reconciliation != ReconciliationInsufficient {
+			return DifferenceExpectedNotObserved
+		}
+	}
+	return DifferenceInsufficient
+}
+
+// unresolvedNeighborhoodDeps surfaces the declared dependencies of in-scope
+// services whose provider is not resolvable in the snapshot (empty ToService).
+// They are reported only when declared knowledge is in view; they carry no target
+// node, so they would otherwise vanish. Deterministically ordered by from key
+// then requested ref.
+func (q *Query) unresolvedNeighborhoodDeps(depthOf map[ServiceKey]int, wantDeclared bool) []UnresolvedDependency {
+	if !wantDeclared {
+		return nil
+	}
+	var out []UnresolvedDependency
+	for i := range q.snap.Relationships {
+		rel := q.snap.Relationships[i]
+		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.ToService != "" {
+			continue
+		}
+		if _, ok := depthOf[rel.FromService]; !ok {
+			continue
+		}
+		out = append(out, UnresolvedDependency{
+			From:           q.serviceRef(rel.FromService),
+			Ref:            rel.To,
+			SourceRevision: rel.FromRevision,
+			RequestedRef:   rel.RequestedRef,
+			Reason:         rel.Reason,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].From.Key != out[j].From.Key {
+			return out[i].From.Key < out[j].From.Key
+		}
+		return out[i].Ref < out[j].Ref
+	})
+	return out
 }
 
 // newEdge starts a merged edge between two in-scope services with both endpoint
@@ -352,25 +513,48 @@ func (q *Query) serviceRef(key ServiceKey) EntityRef {
 }
 
 // foldRelationshipIntoEdge merges one relationship's facts into a merged edge,
-// keeping declared and observed knowledge distinct on the same edge.
+// keeping declared and observed knowledge distinct. A declared relationship
+// contributes one DeclaredClaim (its own revision's declaration) rather than
+// overwriting a shared last-writer value, so multiple revisions declaring the
+// same edge are all preserved.
 func (q *Query) foldRelationshipIntoEdge(e *NeighborhoodEdge, rel Relationship) {
 	switch rel.Provenance {
 	case ProvenanceDeclared:
 		e.Expected = true
-		e.Reconciliation = rel.Reconciliation
-		e.Required = rel.Required
-		e.Compatibility = rel.Compatibility
-		e.SourceRevision = rel.FromRevision
-		e.Insufficient = rel.Reconciliation == ReconciliationInsufficient
+		e.DeclaredClaims = append(e.DeclaredClaims, DeclaredClaim{
+			SourceRevision: rel.FromRevision,
+			Required:       rel.Required,
+			Compatibility:  rel.Compatibility,
+			Reconciliation: rel.Reconciliation,
+			RequestedRef:   rel.RequestedRef,
+			LockedVersion:  rel.LockedVersion,
+			LockedDigest:   rel.LockedDigest,
+		})
 	case ProvenanceObserved:
 		e.Observed = true
 		e.Count += rel.ObservedCount
-		e.ObservationSources = append(e.ObservationSources, rel.ObservedSources...)
+		// Deep-copy the observed source stats so the returned edge never aliases the
+		// snapshot's per-source time pointers.
+		e.ObservationSources = append(e.ObservationSources, cloneObservedStats(rel.ObservedSources)...)
 		e.FirstSeen = earlier(e.FirstSeen, rel.FirstSeen)
 		e.LastSeen = later(e.LastSeen, rel.LastSeen)
-		e.Stale = q.observedStale(rel.LastSeen)
+		e.Stale = e.Stale || q.observedStale(rel.LastSeen)
 	}
 	e.Provenance = edgeProvenance(*e)
+}
+
+// cloneObservedStats deep-copies observed source stats, including their FirstSeen
+// and LastSeen pointer targets, so a returned edge is independent of the snapshot.
+// A nil or empty input yields an empty slice, which append treats as a no-op.
+func cloneObservedStats(ss []ObservedSourceStat) []ObservedSourceStat {
+	out := make([]ObservedSourceStat, len(ss))
+	for i, s := range ss {
+		out[i] = ObservedSourceStat{
+			Source: s.Source, Count: s.Count,
+			FirstSeen: copyTime(s.FirstSeen), LastSeen: copyTime(s.LastSeen),
+		}
+	}
+	return out
 }
 
 // edgeProvenance names the combined provenance of a merged edge.

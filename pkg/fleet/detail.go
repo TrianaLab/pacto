@@ -256,6 +256,7 @@ func (q *Query) revisionEdges(revKey RevisionKey) []NeighborhoodEdge {
 		}
 		e := q.newEdge(rel.FromService, rel.ToService)
 		q.foldRelationshipIntoEdge(e, rel)
+		e.Difference = edgeDifference(*e)
 		out = append(out, *e)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].To.Key < out[j].To.Key })
