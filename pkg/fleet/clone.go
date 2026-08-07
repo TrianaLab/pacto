@@ -84,3 +84,23 @@ func cloneAnyMap(m map[string]any) map[string]any {
 	}
 	return jsonClone(m)
 }
+
+// cloneSources deep-copies a slice of source states so a returned answer never
+// aliases the snapshot's Sources. Their SourceError and *time.Time pointers are
+// copied too, so mutating a returned source (or its error/timestamps) cannot
+// reach back into the snapshot. Nil stays nil so JSON output is preserved.
+func cloneSources(ss []SourceState) []SourceState {
+	if ss == nil {
+		return nil
+	}
+	return jsonClone(ss)
+}
+
+// cloneLimitations copies a slice of limitations so a returned answer never
+// aliases the snapshot's Limitations slice.
+func cloneLimitations(ls []Limitation) []Limitation {
+	if ls == nil {
+		return nil
+	}
+	return jsonClone(ls)
+}

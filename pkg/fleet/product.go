@@ -83,8 +83,10 @@ func (q *Query) productMeta() ProductMeta {
 		SnapshotID:    q.snap.SnapshotID,
 		AsOf:          q.snap.GeneratedAt,
 		Completeness:  q.snap.Completeness,
-		Sources:       q.snap.Sources,
-		Limitations:   q.snap.Limitations,
+		// Deep copies, never snapshot aliases: a consumer may mutate the returned
+		// meta without reaching back into the snapshot or a later answer.
+		Sources:     cloneSources(q.snap.Sources),
+		Limitations: cloneLimitations(q.snap.Limitations),
 	}
 }
 
@@ -195,7 +197,7 @@ type Overview struct {
 // immutable snapshot.
 func (q *Query) Overview() *Overview {
 	ov := &Overview{
-		Meta: q.productMeta(), Sources: q.snap.Sources,
+		Meta: q.productMeta(), Sources: cloneSources(q.snap.Sources),
 		Attention: []AttentionItem{}, RecentEvidence: []EvidenceItem{}, EntryPoints: []EntryPoint{},
 	}
 	sum := &ov.Summary
