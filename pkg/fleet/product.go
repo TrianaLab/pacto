@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"fmt"
 	"sort"
 	"time"
 )
@@ -23,6 +24,7 @@ const (
 	DefaultEntityLimit    = 100
 	MaxEntityLimit        = 500
 	DefaultAttentionLimit = 200
+	MaxAttentionLimit     = 500
 )
 
 // EntityKind is the product-facing kind of a navigable entity.
@@ -74,19 +76,30 @@ type ProductMeta struct {
 	AsOf          time.Time     `json:"asOf"`
 	Completeness  Completeness  `json:"completeness"`
 	Sources       []SourceState `json:"sources,omitempty"`
-	Limitations   []Limitation  `json:"limitations,omitempty"`
+	// SourcesTruncated reports that the snapshot has more sources than the meta
+	// carries (the meta keeps the least-healthy up to MaxMetaSources).
+	SourcesTruncated bool         `json:"sourcesTruncated,omitempty"`
+	Limitations      []Limitation `json:"limitations,omitempty"`
+	// LimitationsTruncated reports that the snapshot has more limitations than the
+	// meta carries (capped at MaxMetaLimitations).
+	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
 }
 
 func (q *Query) productMeta() ProductMeta {
+	// Deep copies, then hard caps: a consumer may mutate the returned meta without
+	// reaching back into the snapshot or a later answer, and the meta never grows
+	// unbounded with the fleet's source or limitation count.
+	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
+	lims, limTrunc := boundLimitations(cloneLimitations(q.snap.Limitations))
 	return ProductMeta{
-		SchemaVersion: ProductSchemaVersion,
-		SnapshotID:    q.snap.SnapshotID,
-		AsOf:          q.snap.GeneratedAt,
-		Completeness:  q.snap.Completeness,
-		// Deep copies, never snapshot aliases: a consumer may mutate the returned
-		// meta without reaching back into the snapshot or a later answer.
-		Sources:     cloneSources(q.snap.Sources),
-		Limitations: cloneLimitations(q.snap.Limitations),
+		SchemaVersion:        ProductSchemaVersion,
+		SnapshotID:           q.snap.SnapshotID,
+		AsOf:                 q.snap.GeneratedAt,
+		Completeness:         q.snap.Completeness,
+		Sources:              srcs,
+		SourcesTruncated:     srcTrunc,
+		Limitations:          lims,
+		LimitationsTruncated: limTrunc,
 	}
 }
 
@@ -219,7 +232,9 @@ func (q *Query) Overview() *Overview {
 	q.tallySources(sum)
 
 	sum.ServicesNeedingAttention = q.servicesNeedingAttention()
-	ov.Attention = q.Attention(AttentionFilter{Limit: overviewAttentionLimit}).Items
+	// A constant, valid filter never errors; ignore it deliberately.
+	al, _ := q.Attention(AttentionFilter{Limit: overviewAttentionLimit})
+	ov.Attention = al.Items
 	sortEvidenceDesc(ov.RecentEvidence)
 	if len(ov.RecentEvidence) > overviewEvidenceLimit {
 		ov.RecentEvidence = ov.RecentEvidence[:overviewEvidenceLimit]
@@ -408,18 +423,43 @@ type AttentionFilter struct {
 	Limit     int
 }
 
-// AttentionList is a bounded, deterministically ordered attention answer.
+// AttentionList is a bounded, deterministically ordered attention answer. Limit
+// is the effective limit applied (defaulted and capped); Truncated reports that
+// more items matched than the page carries.
 type AttentionList struct {
-	Meta  ProductMeta     `json:"meta"`
-	Total int             `json:"total"`
-	Count int             `json:"count"`
-	Items []AttentionItem `json:"items"`
+	Meta      ProductMeta     `json:"meta"`
+	Total     int             `json:"total"`
+	Count     int             `json:"count"`
+	Limit     int             `json:"limit"`
+	Truncated bool            `json:"truncated"`
+	Items     []AttentionItem `json:"items"`
+}
+
+// validateAttentionFilter rejects a malformed attention filter (a negative limit,
+// or an unknown kind/status) rather than silently defaulting it, so a bad input
+// is a typed error and never a misleading empty or full result.
+func validateAttentionFilter(f AttentionFilter) error {
+	if f.Limit < 0 {
+		return &InvalidQueryError{Field: "limit", Value: fmt.Sprint(f.Limit), Reason: "must be >= 0"}
+	}
+	if f.Kind != "" && !validEntityKind(EntityKind(f.Kind)) {
+		return &InvalidQueryError{Field: "kind", Value: f.Kind, Reason: "not a known entity kind"}
+	}
+	if f.Status != "" && !ValidStatus(f.Status) {
+		return &InvalidQueryError{Field: "status", Value: f.Status, Reason: "not a canonical status"}
+	}
+	return nil
 }
 
 // Attention reports navigable attention items across every category, filtered and
 // bounded. Items are computed directly from the snapshot (not via the low-level
-// Status list) so each carries a clean entity reference and canonical route.
-func (q *Query) Attention(f AttentionFilter) *AttentionList {
+// Status list) so each carries a clean entity reference. A malformed filter is a
+// typed [InvalidQueryError]; the limit is defaulted at zero and hard-capped at
+// MaxAttentionLimit.
+func (q *Query) Attention(f AttentionFilter) (*AttentionList, error) {
+	if err := validateAttentionFilter(f); err != nil {
+		return nil, err
+	}
 	items := q.collectAttention()
 	filtered := items[:0:0]
 	for _, it := range items {
@@ -433,10 +473,15 @@ func (q *Query) Attention(f AttentionFilter) *AttentionList {
 	if limit <= 0 {
 		limit = DefaultAttentionLimit
 	}
+	if limit > MaxAttentionLimit {
+		limit = MaxAttentionLimit
+	}
+	truncated := false
 	if len(filtered) > limit {
 		filtered = filtered[:limit]
+		truncated = true
 	}
-	return &AttentionList{Meta: q.productMeta(), Total: total, Count: len(filtered), Items: filtered}
+	return &AttentionList{Meta: q.productMeta(), Total: total, Count: len(filtered), Limit: limit, Truncated: truncated, Items: filtered}, nil
 }
 
 // collectAttention gathers every attention item from the snapshot.

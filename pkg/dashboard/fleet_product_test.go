@@ -83,6 +83,8 @@ func TestProductEndpoints_Serve(t *testing.T) {
 	if att.Total == 0 {
 		t.Error("expected the non-compliant target in attention")
 	}
+	// An invalid attention filter is a typed 422, never a silent empty result.
+	expectStatus(t, base+"/api/fleet/attention?kind=bogus", http.StatusUnprocessableEntity)
 }
 
 func TestProductEntityDetail_Ambiguous(t *testing.T) {

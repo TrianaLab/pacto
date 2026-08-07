@@ -78,8 +78,8 @@ type fleetEntitiesInput struct {
 	Scope  string `query:"scope"`
 	Status string `query:"status"`
 	Source string `query:"source"`
-	Limit  int    `query:"limit"`
-	Offset int    `query:"offset"`
+	Limit  int    `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
+	Offset int    `query:"offset" minimum:"0"`
 }
 
 type fleetEntitiesOutput struct{ Body *fleet.EntityList }
@@ -155,7 +155,7 @@ type fleetAttentionInput struct {
 	Severity  string `query:"severity"`
 	Status    string `query:"status"`
 	StaleOnly bool   `query:"staleOnly"`
-	Limit     int    `query:"limit"`
+	Limit     int    `query:"limit" minimum:"0" doc:"Max items to return (negatives rejected; excessive values capped)"`
 }
 
 type fleetAttentionOutput struct{ Body *fleet.AttentionList }
@@ -165,10 +165,13 @@ func (s *Server) fleetAttention(ctx context.Context, in *fleetAttentionInput) (*
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
-	res := q.Attention(fleet.AttentionFilter{
+	res, err := q.Attention(fleet.AttentionFilter{
 		Category: in.Category, Kind: in.Kind, Key: in.Key, Service: in.Service, Owner: in.Owner,
 		Source: in.Source, Severity: in.Severity, Status: in.Status, StaleOnly: in.StaleOnly, Limit: in.Limit,
 	})
+	if err != nil {
+		return nil, productQueryError(err)
+	}
 	return &fleetAttentionOutput{Body: res}, nil
 }
 

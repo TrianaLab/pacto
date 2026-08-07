@@ -21,11 +21,18 @@ type EntityFilter struct {
 }
 
 // EntityList is a bounded, deterministically ordered page of entity references.
+// Limit and Offset are the effective (defaulted and capped) page bounds;
+// Truncated reports that more entities matched than this page carries, and
+// NextOffset is the offset of the next page (nil on the last page).
 type EntityList struct {
-	Meta     ProductMeta `json:"meta"`
-	Total    int         `json:"total"`
-	Count    int         `json:"count"`
-	Entities []EntityRef `json:"entities"`
+	Meta       ProductMeta `json:"meta"`
+	Total      int         `json:"total"`
+	Count      int         `json:"count"`
+	Limit      int         `json:"limit"`
+	Offset     int         `json:"offset"`
+	Truncated  bool        `json:"truncated"`
+	NextOffset *int        `json:"nextOffset,omitempty"`
+	Entities   []EntityRef `json:"entities"`
 }
 
 // Entities searches services, revisions, targets, owners and sources with one
@@ -65,7 +72,16 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 		end = total
 	}
 	page := append([]EntityRef{}, filtered[start:end]...)
-	return &EntityList{Meta: q.productMeta(), Total: total, Count: len(page), Entities: page}, nil
+	truncated := end < total
+	var next *int
+	if truncated {
+		n := end
+		next = &n
+	}
+	return &EntityList{
+		Meta: q.productMeta(), Total: total, Count: len(page),
+		Limit: limit, Offset: start, Truncated: truncated, NextOffset: next, Entities: page,
+	}, nil
 }
 
 func validateEntityFilter(f EntityFilter) error {

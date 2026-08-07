@@ -183,7 +183,9 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 		Meta: q.productMeta(), Entity: ownerEntityRef(key),
 		Sections: map[string]any{"services": services, "deployments": deployments, "revisions": revisions},
 	}
-	d.Sections["attention"] = q.Attention(AttentionFilter{Owner: key}).Items
+	// A constant, valid filter (owner only) never errors; ignore it deliberately.
+	ownerAttention, _ := q.Attention(AttentionFilter{Owner: key})
+	d.Sections["attention"] = ownerAttention.Items
 	d.Ownership = &OwnershipInfo{Owner: key}
 	return d, nil
 }

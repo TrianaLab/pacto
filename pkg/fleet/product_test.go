@@ -181,7 +181,10 @@ func TestOverview_EmptyFleetHasNoEntryPoints(t *testing.T) {
 
 func TestAttention_AllAndOrdering(t *testing.T) {
 	q := productFleet(t)
-	list := q.Attention(AttentionFilter{})
+	list, err := q.Attention(AttentionFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if list.Meta.SchemaVersion != ProductSchemaVersion {
 		t.Errorf("schema version = %q", list.Meta.SchemaVersion)
 	}
@@ -225,7 +228,11 @@ func TestAttention_Filters(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := q.Attention(c.filter).Total; got != c.want {
+			list, err := q.Attention(c.filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := list.Total; got != c.want {
 				t.Errorf("filter %+v: total = %d, want %d", c.filter, got, c.want)
 			}
 		})
@@ -234,9 +241,15 @@ func TestAttention_Filters(t *testing.T) {
 
 func TestAttention_LimitBounds(t *testing.T) {
 	q := productFleet(t)
-	list := q.Attention(AttentionFilter{Limit: 2})
+	list, err := q.Attention(AttentionFilter{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if list.Count != 2 || len(list.Items) != 2 {
 		t.Errorf("limit not applied: count=%d", list.Count)
+	}
+	if !list.Truncated {
+		t.Error("a limited attention page over its total must report truncation")
 	}
 	if list.Total != 7 {
 		t.Errorf("total must reflect pre-limit size, got %d", list.Total)

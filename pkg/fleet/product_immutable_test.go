@@ -112,7 +112,10 @@ func TestEntities_Immutable(t *testing.T) {
 
 func TestAttention_Immutable(t *testing.T) {
 	q := productFleet(t)
-	r1 := q.Attention(AttentionFilter{})
+	r1, err := q.Attention(AttentionFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := mustJSON(t, r1)
 	snapBefore := mustJSON(t, q.snap)
 
@@ -126,7 +129,11 @@ func TestAttention_Immutable(t *testing.T) {
 	if after := mustJSON(t, q.snap); after != snapBefore {
 		t.Error("mutating an Attention answer changed the snapshot")
 	}
-	if got := mustJSON(t, q.Attention(AttentionFilter{})); got != want {
+	r2, err := q.Attention(AttentionFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mustJSON(t, r2); got != want {
 		t.Error("a second Attention answer differs from the first (shared state leaked)")
 	}
 }
