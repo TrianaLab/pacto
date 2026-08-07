@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -54,11 +55,17 @@ func TestProductReadinessBounded(t *testing.T) {
 		Checks: checks,
 	}
 	pr := productReadiness(r)
-	if pr.Score != 42 || pr.TotalWeight != 100 || pr.EarnedWeight != 42 || pr.MinScore != 80 ||
-		pr.PartialCredit != 0.5 || pr.Expires != "2030-01-01" || pr.Expired || pr.DaysRemaining == nil ||
-		*pr.DaysRemaining != 3 || pr.DoneCount != 3 || pr.PartialCount != 2 || pr.NotDoneCount != 1 ||
-		pr.DeferredCount != 4 || pr.Passing {
-		t.Errorf("scalar readiness facts not preserved: %+v", pr)
+	// Every scalar readiness fact is preserved (compared as a whole, with the
+	// bounded checks preview substituted in so only the scalars are under test).
+	wantDays := 3
+	want := &ProductReadiness{
+		Score: 42, TotalWeight: 100, EarnedWeight: 42, MinScore: 80, PartialCredit: 0.5,
+		Expires: "2030-01-01", Expired: false, DaysRemaining: &wantDays,
+		DoneCount: 3, PartialCount: 2, NotDoneCount: 1, DeferredCount: 4, Passing: false,
+		Checks: pr.Checks,
+	}
+	if !reflect.DeepEqual(pr, want) {
+		t.Errorf("scalar readiness facts not preserved:\n got %+v\nwant %+v", pr, want)
 	}
 	if pr.Checks.Total != over || pr.Checks.Count != MaxDetailPreview || !pr.Checks.Truncated {
 		t.Errorf("checks preview = {total:%d count:%d trunc:%v}, want total=%d count=%d trunc=true",

@@ -178,102 +178,26 @@ func TestDashboardImpact_RealProviderVertical(t *testing.T) {
 
 	// The three canonical happy-path input spellings all resolve to the SAME
 	// digest-pinned OCI ref and pull it through the real provider.
-	happy := []struct {
-		name     string
-		inputRef string // the ref that reaches OCISource (as the dashboard wires it)
-	}{
+	for _, tc := range []struct{ name, inputRef string }{
 		{"dashboard-stripped oci input (scheme removed by parseDashboardArgs)", "reg.example/pay:1.0.0"},
 		{"explicit oci tag input", "oci://reg.example/pay:1.0.0"},
 		{"explicit oci digest input", "oci://reg.example/pay@" + dgst},
-	}
-	for _, tc := range happy {
-		t.Run(tc.name, func(t *testing.T) {
-			store := &e2eStore{
-				bundles: map[string]*contract.Bundle{
-					"reg.example/pay:1.0.0":   e2eBundle("pay"),
-					"reg.example/pay@" + dgst: e2eBundle("pay"),
-				},
-				digests: map[string]string{
-					"reg.example/pay:1.0.0":   dgst,
-					"reg.example/pay@" + dgst: dgst,
-				},
-			}
-			mgr := ociManager(t, store, []string{tc.inputRef})
-			snap, _ := mgr.Current()
-			// The OCI source must have produced a CANONICAL immutable ResolvedRef.
-			revKey := singleRevKey(t, snap)
-			rev := snap.Revisions[fleet.RevisionKey(revKey)]
-			if want := "oci://reg.example/pay@" + dgst; rev.ResolvedRef != want {
-				t.Fatalf("ResolvedRef = %q, want canonical %q", rev.ResolvedRef, want)
-			}
-			svc := &app.Service{BundleStore: store}
-			base := serveImpact(t, mgr, svc, nil)
-			store.resetPulls()
-
-			status, out := impactPost(t, base, map[string]any{
-				"snapshotId": snap.SnapshotID, "fromRevisionKey": revKey, "toRevisionKey": revKey,
-			})
-			if status != http.StatusOK {
-				t.Fatalf("status = %d, want 200", status)
-			}
-			if !out.SnapshotMatch {
-				t.Error("SnapshotMatch must be true for an exact digest revision")
-			}
-			// The real provider must have pulled the DIGEST-PINNED ref, never a tag.
-			pulled, ok := store.pulledDigestRef()
-			if !ok {
-				t.Fatalf("provider did not pull a digest-pinned ref; pulls=%v", store.pulls)
-			}
-			if pulled != "reg.example/pay@"+dgst {
-				t.Errorf("provider pulled %q, want reg.example/pay@%s", pulled, dgst)
-			}
-		})
+	} {
+		t.Run(tc.name, func(t *testing.T) { assertHappyImpact(t, tc.inputRef, dgst) })
 	}
 
 	// A mutable-only OCI revision (the store resolves no digest) keeps a tag
 	// ResolvedRef and is rejected 422 BEFORE the provider is invoked.
 	t.Run("mutable-only oci revision rejected before provider", func(t *testing.T) {
-		store := &e2eStore{
-			bundles: map[string]*contract.Bundle{"reg.example/pay:latest": e2eBundle("pay")},
-			// No digest entry -> store.Resolve fails -> ResolvedRef stays the tag.
-		}
-		mgr := ociManager(t, store, []string{"reg.example/pay:latest"})
-		snap, _ := mgr.Current()
-		revKey := singleRevKey(t, snap)
-		svc := &app.Service{BundleStore: store}
-		base := serveImpact(t, mgr, svc, nil)
-		store.resetPulls()
-		status, _ := impactPost(t, base, map[string]any{
-			"snapshotId": snap.SnapshotID, "fromRevisionKey": revKey, "toRevisionKey": revKey,
-		})
-		if status != http.StatusUnprocessableEntity {
-			t.Fatalf("status = %d, want 422", status)
-		}
-		if _, ok := store.pulledDigestRef(); ok {
-			t.Errorf("provider must NOT pull for a mutable-only revision; pulls=%v", store.pulls)
-		}
+		store := &e2eStore{bundles: map[string]*contract.Bundle{"reg.example/pay:latest": e2eBundle("pay")}}
+		assertRejectedBeforeProvider(t, ociManager(t, store, []string{"reg.example/pay:latest"}), store)
 	})
 
 	// A local revision has no canonical OCI ref and is rejected 422.
 	t.Run("local revision rejected before provider", func(t *testing.T) {
 		store := &e2eStore{}
-		mgr := memManager(t, fleet.RawRevision{
-			Bundle: e2eBundle("pay"), RequestedRef: "file:///abs/pay",
-		})
-		svc := &app.Service{BundleStore: store}
-		snap, _ := mgr.Current()
-		revKey := singleRevKey(t, snap)
-		base := serveImpact(t, mgr, svc, nil)
-		store.resetPulls()
-		status, _ := impactPost(t, base, map[string]any{
-			"snapshotId": snap.SnapshotID, "fromRevisionKey": revKey, "toRevisionKey": revKey,
-		})
-		if status != http.StatusUnprocessableEntity {
-			t.Fatalf("status = %d, want 422", status)
-		}
-		if len(store.pulls) != 0 {
-			t.Errorf("provider must NOT pull for a local revision; pulls=%v", store.pulls)
-		}
+		mgr := memManager(t, fleet.RawRevision{Bundle: e2eBundle("pay"), RequestedRef: "file:///abs/pay"})
+		assertRejectedBeforeProvider(t, mgr, store)
 	})
 
 	// A revision whose recorded digest contradicts its immutable ref is rejected 422.
@@ -282,64 +206,93 @@ func TestDashboardImpact_RealProviderVertical(t *testing.T) {
 		mgr := memManager(t, fleet.RawRevision{
 			Bundle: e2eBundle("pay"), ResolvedRef: "oci://reg.example/pay@" + e2eDigest("a"), Digest: e2eDigest("b"),
 		})
-		svc := &app.Service{BundleStore: store}
-		snap, _ := mgr.Current()
-		revKey := singleRevKey(t, snap)
-		base := serveImpact(t, mgr, svc, nil)
-		store.resetPulls()
-		status, _ := impactPost(t, base, map[string]any{
-			"snapshotId": snap.SnapshotID, "fromRevisionKey": revKey, "toRevisionKey": revKey,
-		})
-		if status != http.StatusUnprocessableEntity {
-			t.Fatalf("status = %d, want 422", status)
-		}
-		if len(store.pulls) != 0 {
-			t.Errorf("provider must NOT pull for an inconsistent revision; pulls=%v", store.pulls)
-		}
+		assertRejectedBeforeProvider(t, mgr, store)
 	})
 
 	// A snapshot published between validation and analysis (the provider analyzes a
 	// snapshot whose id differs from the one the handler validated) is a 409.
-	t.Run("snapshot refresh race is 409", func(t *testing.T) {
-		store := &e2eStore{
-			bundles: map[string]*contract.Bundle{
-				"reg.example/pay:1.0.0":   e2eBundle("pay"),
-				"reg.example/pay@" + dgst: e2eBundle("pay"),
-				"reg.example/two:1.0.0":   e2eBundle("two"),
-				"reg.example/two@" + dgst: e2eBundle("two"),
-			},
-			digests: map[string]string{
-				"reg.example/pay:1.0.0": dgst, "reg.example/pay@" + dgst: dgst,
-				"reg.example/two:1.0.0": dgst, "reg.example/two@" + dgst: dgst,
-			},
+	t.Run("snapshot refresh race is 409", func(t *testing.T) { assertRefreshRace(t, dgst) })
+}
+
+// assertHappyImpact proves an OCI input spelling produces a canonical digest-pinned
+// ResolvedRef, and the real provider pulls exactly that digest ref on a 200.
+func assertHappyImpact(t *testing.T, inputRef, dgst string) {
+	t.Helper()
+	store := &e2eStore{
+		bundles: map[string]*contract.Bundle{"reg.example/pay:1.0.0": e2eBundle("pay"), "reg.example/pay@" + dgst: e2eBundle("pay")},
+		digests: map[string]string{"reg.example/pay:1.0.0": dgst, "reg.example/pay@" + dgst: dgst},
+	}
+	mgr := ociManager(t, store, []string{inputRef})
+	snap, _ := mgr.Current()
+	revKey := singleRevKey(t, snap)
+	if want := "oci://reg.example/pay@" + dgst; snap.Revisions[fleet.RevisionKey(revKey)].ResolvedRef != want {
+		t.Fatalf("ResolvedRef = %q, want canonical %q", snap.Revisions[fleet.RevisionKey(revKey)].ResolvedRef, want)
+	}
+	base := serveImpact(t, mgr, &app.Service{BundleStore: store}, nil)
+	store.resetPulls()
+	status, out := impactPost(t, base, map[string]any{"snapshotId": snap.SnapshotID, "fromRevisionKey": revKey, "toRevisionKey": revKey})
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", status)
+	}
+	if !out.SnapshotMatch {
+		t.Error("SnapshotMatch must be true for an exact digest revision")
+	}
+	pulled, ok := store.pulledDigestRef()
+	if !ok || pulled != "reg.example/pay@"+dgst {
+		t.Errorf("provider pulled %q (ok=%v), want reg.example/pay@%s", pulled, ok, dgst)
+	}
+}
+
+// assertRejectedBeforeProvider posts an impact for the manager's sole revision and
+// requires a 422 with NO digest-pinned pull (the provider was never invoked).
+func assertRejectedBeforeProvider(t *testing.T, mgr *fleet.Manager, store *e2eStore) {
+	t.Helper()
+	snap, _ := mgr.Current()
+	revKey := singleRevKey(t, snap)
+	base := serveImpact(t, mgr, &app.Service{BundleStore: store}, nil)
+	store.resetPulls()
+	status, _ := impactPost(t, base, map[string]any{"snapshotId": snap.SnapshotID, "fromRevisionKey": revKey, "toRevisionKey": revKey})
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", status)
+	}
+	if _, ok := store.pulledDigestRef(); ok {
+		t.Errorf("provider must NOT pull a digest ref for a rejected revision; pulls=%v", store.pulls)
+	}
+}
+
+// assertRefreshRace serves snapshot A while the real provider analyzes a different
+// snapshot B, proving the post-analysis parity check returns 409.
+func assertRefreshRace(t *testing.T, dgst string) {
+	t.Helper()
+	store := &e2eStore{
+		bundles: map[string]*contract.Bundle{
+			"reg.example/pay:1.0.0": e2eBundle("pay"), "reg.example/pay@" + dgst: e2eBundle("pay"),
+			"reg.example/two:1.0.0": e2eBundle("two"), "reg.example/two@" + dgst: e2eBundle("two"),
+		},
+		digests: map[string]string{
+			"reg.example/pay:1.0.0": dgst, "reg.example/pay@" + dgst: dgst,
+			"reg.example/two:1.0.0": dgst, "reg.example/two@" + dgst: dgst,
+		},
+	}
+	snapA, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewOCISource("oci", store, []string{"reg.example/pay:1.0.0"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgrB := ociManager(t, store, []string{"reg.example/pay:1.0.0", "reg.example/two:1.0.0"})
+	snapB, _ := mgrB.Current()
+	if snapA.SnapshotID == snapB.SnapshotID {
+		t.Fatal("A and B must differ for the race test")
+	}
+	revKey := ""
+	for k, r := range snapA.Revisions {
+		if r.Service == "pay" {
+			revKey = string(k)
 		}
-		// Snapshot A: only pay. The handler validates against A.
-		snapA, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleetsrc.NewOCISource("oci", store, []string{"reg.example/pay:1.0.0"}))
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Manager B: pay + two -> a DIFFERENT snapshot id. The real provider analyzes B.
-		mgrB := ociManager(t, store, []string{"reg.example/pay:1.0.0", "reg.example/two:1.0.0"})
-		snapB, _ := mgrB.Current()
-		if snapA.SnapshotID == snapB.SnapshotID {
-			t.Fatal("A and B must differ for the race test")
-		}
-		revKey := ""
-		for k, r := range snapA.Revisions {
-			if r.Service == "pay" {
-				revKey = string(k)
-			}
-		}
-		svc := &app.Service{BundleStore: store}
-		// The fleet query serves A; the impact provider (over mgrB) analyzes B.
-		base := serveImpact(t, mgrB, svc, func(context.Context) (*fleet.Query, error) { return fleet.NewQuery(snapA), nil })
-		status, _ := impactPost(t, base, map[string]any{
-			"fromRevisionKey": revKey, "toRevisionKey": revKey,
-		})
-		if status != http.StatusConflict {
-			t.Fatalf("status = %d, want 409", status)
-		}
-	})
+	}
+	base := serveImpact(t, mgrB, &app.Service{BundleStore: store}, func(context.Context) (*fleet.Query, error) { return fleet.NewQuery(snapA), nil })
+	if status, _ := impactPost(t, base, map[string]any{"fromRevisionKey": revKey, "toRevisionKey": revKey}); status != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", status)
+	}
 }
 
 // memManager builds and publishes a Manager over a single in-memory revision, for
